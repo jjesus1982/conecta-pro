@@ -1,11 +1,15 @@
 """Operacional (T1) — delega ao _build_operacional e ESTENDE com telas de LEITURA
 (presença ao vivo, escalas, turnos, reembolsos). Operacional é curado pelo Jordan →
 SÓ visibilidade, NUNCA escreve/altera escala/alocação. Reembolso é read-only (sem aprovar/pagar)."""
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import text as _sqltext
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
+
+logger = logging.getLogger(__name__)
 from modules.operacional.controllers.redesign_data_controller import (
     IC, S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, initials, t,
 )
@@ -2180,8 +2184,11 @@ async def build(db) -> dict:
         _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
         _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
         montar_grupos(out)
-    except Exception:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
-        pass
+    except Exception as e:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
+        # Mas NÃO em silêncio: um NameError aqui (um acento numa f-string) deixou o módulo
+        # inteiro em "Aguardando dado" — HTTP 200, 1.3MB de payload, zero pista no log.
+        # Sem os grupos g-*, o frontend não monta a navegação e a tela parece vazia.
+        logger.error("operacional: navegação NÃO montada (telas ficam soltas): %s", e, exc_info=True)
 
     # ── Consultor operacional (2026-08-10) ─────────────────────────────────────────
     # SÓ os dois consultores. As outras 8 rotas órfãs deste módulo (allocations/bulk,
