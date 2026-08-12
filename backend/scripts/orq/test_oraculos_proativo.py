@@ -338,8 +338,18 @@ async def main() -> int:
                     corpos_admin = await _corpos_novos(admin0)
                     assert len(corpos_admin) == 1, \
                         f"digest do admin deveria ser 1 notif única, veio {len(corpos_admin)}"
-                    assert all(m in corpos_admin[0] for m in (t1, t2, t3)), \
-                        f"digest do admin deveria consolidar as 3: {corpos_admin[0]!r}"
+                    # Era `all(m in corpo for m in (t1,t2,t3))`. O digest tem teto de 20
+                    # itens e a base REAL tem mais que isso — em 12/08 um dos três caiu fora
+                    # e o oráculo acusou consolidação quebrada quando ela funcionou. O que
+                    # está sob controle do teste é: veio UMA notificação, os itens dele
+                    # entraram, e se algo foi cortado o corpo DIZ.
+                    _c = corpos_admin[0]
+                    _dentro = [m for m in (t1, t2, t3) if m in _c]
+                    assert _dentro, f"nenhum item do teste entrou no digest: {_c!r}"
+                    if len(_dentro) < 3:
+                        assert "não listados" in _c, \
+                            (f"digest cortou item ({len(_dentro)}/3 dos meus) e NÃO avisou — "
+                             f"corte calado lê-se como lista completa: {_c!r}")
                     # RBAC: gestor vê SÓ operacional, nunca financeiro/documentos
                     if ger0 and not ger0_prehad:
                         corpos_ger = await _corpos_novos(ger0)

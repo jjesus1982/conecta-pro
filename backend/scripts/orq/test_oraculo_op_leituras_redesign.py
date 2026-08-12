@@ -1,6 +1,16 @@
 """Oráculo combinado: telas redesign banco-horas / passagem-turno / instrucoes-posto refletem
 o banco (exibido==banco) e não são cascas fabricadas. Roda no container."""
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# As telas do operacional foram agrupadas em abas: o slug de topo virou stub
+# `{"type":"redirect","groupRef":…}` e a tela real é aba do grupo. Ler `scr[slug]`
+# direto encontra o stub e acusa "não é dash/tabela/form" sobre tela que está lá.
+# Foi o que derrubou 6 oráculos na varredura de 12/08 às 05:00.
+from _fixtures import tela  # noqa: E402
 
 from sqlalchemy import text
 
@@ -18,7 +28,7 @@ async def main() -> None:
     async with async_session_factory() as db:
         screens = await build(db)
         for sid, sql, fabricados in CHECKS:
-            scr = screens.get(sid)
+            scr = tela(screens, sid)
             assert scr and scr.get("type") == "table", f"{sid} não é tabela real"
             n_rows = len(scr.get("rows", []))
             n_db = int((await db.execute(text(sql))).scalar() or 0)

@@ -189,7 +189,14 @@ async def _digest(db) -> dict:
             {"u": uid, "cid": cid_digest})).first()
         if existe:
             continue  # dedup diário: já mandamos o digest de hoje p/ este user
-        corpo = "Itens que precisam da sua atenção:\n- " + "\n- ".join(titulos[:20])
+        # O teto de 20 existe para o aviso caber; o que não podia é cortar CALADO. Em
+        # 12/08/2026 o digest tinha 20+ itens e um sumiu sem deixar rastro — quem lê conclui
+        # que a lista é a lista. Cap silencioso lê-se como "coberto tudo" quando não foi.
+        _CAP = 20
+        corpo = "Itens que precisam da sua atenção:\n- " + "\n- ".join(titulos[:_CAP])
+        if len(titulos) > _CAP:
+            corpo += (f"\n\n(+{len(titulos) - _CAP} item(ns) não listados aqui — "
+                      f"{len(titulos)} no total. Abra o painel para ver todos.)")
         extra = json.dumps({"origem": "proativo_digest", "correlation_id": cid_digest,
                             "itens": len(titulos)})
         await db.execute(text(

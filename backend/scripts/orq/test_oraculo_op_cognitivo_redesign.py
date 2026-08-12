@@ -1,6 +1,16 @@
 """Oráculo balde B: dashboards ai-command-center/agentes/consultor refletem as funções REAIS
 da camada cognitiva (command_center/panorama), não casca. Roda no container."""
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# As telas do operacional foram agrupadas em abas: o slug de topo virou stub
+# `{"type":"redirect","groupRef":…}` e a tela real é aba do grupo. Ler `scr[slug]`
+# direto encontra o stub e acusa "não é dash/tabela/form" sobre tela que está lá.
+# Foi o que derrubou 6 oráculos na varredura de 12/08 às 05:00.
+from _fixtures import tela  # noqa: E402
 
 from sqlalchemy import text
 
@@ -24,13 +34,13 @@ async def main() -> None:
         scr = await build(db)
         col = int((await db.execute(text("SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0)
 
-        acc = scr.get("ai-command-center")
+        acc = tela(scr, "ai-command-center")
         assert acc and acc.get("type") == "dash", "ai-command-center não é dash"
         assert _kpi(acc, "Efetivo ativo") == str(cc["overview"]["agentes_ativos"]) == str(col), \
             f"AICC efetivo {_kpi(acc,'Efetivo ativo')} != cc {cc['overview']['agentes_ativos']} / banco {col}"
         print(f"OK ai-command-center: efetivo={col}, cobertura={_kpi(acc,'Cobertura')}, risco={_kpi(acc,'Nível de risco')}")
 
-        ag = scr.get("agentes")
+        ag = tela(scr, "agentes")
         assert ag and ag.get("type") == "dash", "agentes não é dash"
         assert _kpi(ag, "Total de agentes") == str(cc["agents_status"]["total"]), "agentes total != command_center"
         print(f"OK agentes: total={_kpi(ag,'Total de agentes')}, presentes={_kpi(ag,'Presentes')}")
@@ -39,7 +49,7 @@ async def main() -> None:
         # O assert antigo (`type == "dash"`) reprovava a mudança e parecia defeito do
         # operacional. Aqui se prova o que importa numa tela de chat: que não é casca — tem
         # rota real, campo que o backend espera e a lente do módulo certo.
-        con = scr.get("consultor")
+        con = tela(scr, "consultor")
         assert con and con.get("type") == "chat", f"consultor deixou de ser chat: {con and con.get('type')}"
         chat = con.get("chat") or {}
         assert chat.get("endpoint") in {"/api/v1/consultores/chat/executar",

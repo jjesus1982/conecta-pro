@@ -1,6 +1,16 @@
 """Oráculo balde C: mapa/ronda-mobile/escalas-visual/campo (tabela, exibido==banco) e
 triagem (KPI==sub-função real do triage_controller)."""
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# As telas do operacional foram agrupadas em abas: o slug de topo virou stub
+# `{"type":"redirect","groupRef":…}` e a tela real é aba do grupo. Ler `scr[slug]`
+# direto encontra o stub e acusa "não é dash/tabela/form" sobre tela que está lá.
+# Foi o que derrubou 6 oráculos na varredura de 12/08 às 05:00.
+from _fixtures import tela  # noqa: E402
 
 from sqlalchemy import text
 
@@ -27,14 +37,14 @@ async def main() -> None:
     async with async_session_factory() as db:
         scr = await build(db)
         for sid, sql, cap in TAB:
-            s = scr.get(sid)
+            s = tela(scr, sid)
             assert s and s.get("type") == "table", f"{sid} não é tabela real"
             n_rows = len(s.get("rows", []))
             n_db = int((await db.execute(text(sql))).scalar() or 0)
             assert n_rows == min(n_db, cap), f"{sid}: exibido={n_rows} != banco={min(n_db, cap)}"
             print(f"OK {sid}: exibido={n_rows} == banco={min(n_db, cap)}")
 
-        tri = scr.get("triagem")
+        tri = tela(scr, "triagem")
         assert tri and tri.get("type") == "dash", "triagem não é dash"
         oc = await _ocorrencias(db)
         assert _kpi(tri, "Ocorrências abertas") == str(int(getattr(oc, "abertas_total", 0) or 0)), "triagem occ != sub-função"

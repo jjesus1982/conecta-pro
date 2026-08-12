@@ -1,6 +1,16 @@
 """Ações redesign: diarista ativar/desativar (real, restaura), alerta-ack (real, restaura),
 e build() carrega todos os forms. Reuso via gate."""
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# As telas do operacional foram agrupadas em abas: o slug de topo virou stub
+# `{"type":"redirect","groupRef":…}` e a tela real é aba do grupo. Ler `scr[slug]`
+# direto encontra o stub e acusa "não é dash/tabela/form" sobre tela que está lá.
+# Foi o que derrubou 6 oráculos na varredura de 12/08 às 05:00.
+from _fixtures import tela  # noqa: E402
 import uuid
 from types import SimpleNamespace
 
@@ -47,7 +57,8 @@ async def main() -> None:
         scr = await build(db)
         for sid in ("substituicao-confirmar", "substituicao-rejeitar", "comunicado-publicar", "alerta-ack",
                     "diarista-ativar", "diarista-desativar", "diarista-avaliar"):
-            assert scr.get(sid) and scr[sid].get("type") == "form", f"{sid} não é form"
+            t_ = tela(scr, sid)
+            assert t_ and t_.get("type") == "form", f"{sid} não é form"
         print("OK build: 7 forms de ação carregados")
 
 
