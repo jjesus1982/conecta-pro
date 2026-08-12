@@ -62,9 +62,9 @@ class Mutacao:
             return False
 
         if not self.aplicar:
-            print(f"\nENSAIO. Nada foi gravado. Confira a lista ACIMA linha a linha; foi assim "
-                  f"que uma certidão legítima entrou num DELETE em 12/08.\n"
-                  f"Para aplicar: --aplicar" + (f" --forcar  (são {n}, acima do teto de "
+            print("\nENSAIO. Nada foi gravado. Confira a lista ACIMA linha a linha; foi assim "
+                  "que uma certidão legítima entrou num DELETE em 12/08.\n"
+                  "Para aplicar: --aplicar" + (f" --forcar  (são {n}, acima do teto de "
                                                 f"{self.teto})" if n > self.teto else ""))
             return False
 

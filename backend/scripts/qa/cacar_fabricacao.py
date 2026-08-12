@@ -226,7 +226,7 @@ SQL = ("SELECT sum(v) FROM nfse WHERE data_emissao >= "
     for esperado in ("data-inventada", "except-que-afirma", "corte-mudo", "janela-ancorada"):
         assert esperado in tipos, f"não pegou {esperado}: {sorted(tipos)}"
     assert not a_bom, f"acusou código honesto: {[(x['tipo'], x['trecho']) for x in a_bom]}"
-    print(f"self-check OK — pega as 4 assinaturas reais, 0 falso positivo no código honesto")
+    print("self-check OK — pega as 4 assinaturas reais, 0 falso positivo no código honesto")
 
 
 def main() -> int:

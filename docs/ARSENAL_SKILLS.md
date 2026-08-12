@@ -41,7 +41,7 @@ que falta é provar que funciona e ligar o que ficou solto.
 | ~~read-only-postgres~~ | **PASTA VAZIA — skill fantasma, remover** | — |
 
 ### Fora do arsenal, mas parte do ciclo
-`ponytail` (reflexo permanente, não se invoca por tarefa) · varredura diária dos 65 oráculos
+`ponytail` (reflexo permanente, não se invoca por tarefa) · varredura diária dos oráculos
 (cron 05:00, não é skill) · `/code-review` (comando do CLI).
 
 ---
@@ -200,18 +200,18 @@ Nenhuma das 26 responde **"onde estamos cegos?"**. Três lacunas medidas em 12/0
 2. **Caça-fabricação** — código que inventa valor quando a fonte falha:
    `utcnow()+timedelta` virando validade · `except: pass` devolvendo veredito ·
    `max(coluna)` como âncora de janela · `[:N]` sem dizer que cortou.
-3. **Mapa do não-vigiado** — superfície × 65 oráculos, ordenado por raio de dano.
+3. **Mapa do não-vigiado** — superfície × oráculos, ordenado por raio de dano.
    Teria gritado "o Balanço Patrimonial não tem oráculo" antes de o PL mentir por meses.
 
 ### As quatro travas mecânicas (12/08) — cada uma nasceu de um erro medido
 
 | Trava | Erro que ela impede | Onde |
 |---|---|---|
-| `checar_vocabulario.py` | lista literal que a coluna não tem — 31 obrigações onde havia 5 | `scripts/qa/` |
-| `cacar_fabricacao.py` | valor inventado quando a fonte falha — certidão de 180 dias sem consulta | `scripts/qa/` |
-| `checar_arsenal.py` | o próprio arsenal mentindo — instrução velha faz o próximo errar com confiança | `scripts/qa/` |
-| `test_oraculo_periodo_fechado.py` | reescrever período que o Jordan fechou — 184 lançamentos | `scripts/orq/` |
-| `_mutacao.py` | DELETE/UPDATE largo demais em produção — apagou certidão legítima | `scripts/qa/` |
+| `checar_vocabulario.py` | lista literal que a coluna não tem — 31 obrigações onde havia 5 | `backend/scripts/qa` |
+| `cacar_fabricacao.py` | valor inventado quando a fonte falha — certidão de 180 dias sem consulta | `backend/scripts/qa` |
+| `checar_arsenal.py` | o próprio arsenal mentindo — instrução velha faz o próximo errar com confiança | `backend/scripts/qa` |
+| `test_oraculo_periodo_fechado.py` | reescrever período que o Jordan fechou — 184 lançamentos | `backend/scripts/orq` |
+| `_mutacao.py` | DELETE/UPDATE largo demais em produção — apagou certidão legítima | `backend/scripts/qa` |
 
 **`_mutacao.Mutacao` é obrigatório em todo script que altera dado de produção.** Ensaio é o
 padrão; `--aplicar` é explícito; acima do teto exige `--forcar`; lista vazia nunca aplica.
