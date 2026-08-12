@@ -21,6 +21,7 @@ from modules.services.models import (
 )
 from modules.services.repositories import ServiceRepository
 from modules.services.schemas import (
+    ServiceOrderFilter,
     ServiceAnalysis,
     ServiceCatalogStats,
     ServiceOrderStats,
@@ -61,11 +62,12 @@ class ServiceAIService:
         Returns:
             ServiceAnalysis ou None
         """
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if not service:
             return None
 
-        orders = self.repository.list_service_orders(service_id=service_id, limit=1000)
+        orders, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(service_id=service_id), limit=1000)
 
         performance_score = self._calculate_performance_score(service, orders)
         revenue_score = self._calculate_revenue_score(service)
@@ -92,7 +94,7 @@ class ServiceAIService:
 
     def analyze_all_services(self) -> list[ServiceAnalysis]:
         """Analisa todos os serviços ativos."""
-        services = self.repository.list_service_catalogs(status=ServiceStatus.ATIVO, limit=500)
+        services, _ = self.repository.list_services(status=ServiceStatus.ATIVO, limit=500)
 
         analyses = []
         for service in services:
@@ -116,17 +118,19 @@ class ServiceAIService:
         Returns:
             Lista de recomendações
         """
-        filters = {"status": ServiceStatus.ATIVO, "is_available": True, "limit": 100}
+        # `is_available` NÃO existe em ServiceCatalog — filtro herdado de um esquema que
+        # nunca foi criado. Sai daqui em vez de virar kwarg que estoura.
+        filters = {"status": ServiceStatus.ATIVO, "limit": 100}
 
         if category:
             filters["category"] = category
 
-        services = self.repository.list_service_catalogs(**filters)
+        services, _ = self.repository.list_services(**filters)
 
         if client_id:
-            client_orders = self.repository.list_service_orders(
-                client_id=client_id, status=OrderStatus.CONCLUIDA, limit=50
-            )
+            client_orders, _ = self.repository.list_orders(
+                filters=ServiceOrderFilter(client_id=client_id, status=OrderStatus.CONCLUIDA),
+                limit=50)
             recommendations = self._personalize_recommendations(services, client_orders)
         else:
             recommendations = self._rank_services(services)
@@ -144,11 +148,12 @@ class ServiceAIService:
         Returns:
             Dict com previsão de demanda
         """
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if not service:
             return {}
 
-        orders = self.repository.list_service_orders(service_id=service_id, limit=500)
+        orders, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(service_id=service_id), limit=500)
 
         historical = self._analyze_historical_demand(orders)
         prediction = self._project_demand(historical, days_ahead)
@@ -179,7 +184,7 @@ class ServiceAIService:
         Returns:
             SLAAnalysis ou None
         """
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if not sla:
             return None
 
@@ -206,7 +211,7 @@ class ServiceAIService:
         Returns:
             Dict com visão geral de SLAs
         """
-        slas = self.repository.list_sla_configs(is_active=True, limit=100)
+        slas = self.repository.list_slas(is_active=True)[:100]
 
         total_compliance = 0.0
         critical_count = 0
@@ -270,7 +275,7 @@ class ServiceAIService:
         """
         start_date = datetime.utcnow() - timedelta(days=days)
 
-        orders = self.repository.list_service_orders(limit=1000)
+        orders, _ = self.repository.list_orders(limit=1000)
         recent_orders = [o for o in orders if o.created_at >= start_date]
 
         by_day = self._group_by_day(recent_orders)
@@ -309,7 +314,8 @@ class ServiceAIService:
         """
         bottlenecks = []
 
-        pending_orders = self.repository.list_service_orders(status=OrderStatus.PENDENTE, limit=500)
+        pending_orders, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(status=OrderStatus.PENDENTE), limit=500)
         if len(pending_orders) > 20:
             bottlenecks.append(
                 {
@@ -320,7 +326,8 @@ class ServiceAIService:
                 }
             )
 
-        in_progress = self.repository.list_service_orders(status=OrderStatus.EM_ANDAMENTO, limit=500)
+        in_progress, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(status=OrderStatus.EM_ANDAMENTO), limit=500)
         overdue = [o for o in in_progress if o.is_overdue]
         if overdue:
             bottlenecks.append(
@@ -332,7 +339,8 @@ class ServiceAIService:
                 }
             )
 
-        paused = self.repository.list_service_orders(status=OrderStatus.PAUSADA, limit=100)
+        paused, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(status=OrderStatus.PAUSADA), limit=100)
         if len(paused) > 5:
             bottlenecks.append(
                 {
@@ -343,7 +351,7 @@ class ServiceAIService:
                 }
             )
 
-        slas = self.repository.list_sla_configs(is_active=True, limit=100)
+        slas = self.repository.list_slas(is_active=True)[:100]
         critical_slas = [s for s in slas if s.compliance_status == "critico"]
         if critical_slas:
             bottlenecks.append(
@@ -362,8 +370,14 @@ class ServiceAIService:
     # ============================================================
 
     def get_service_catalog_stats(self) -> ServiceCatalogStats:
-        """Retorna estatísticas do catálogo."""
-        return self.repository.get_service_catalog_stats()
+        """Retorna estatísticas do catálogo.
+
+        O repositório devolve `dict`; a assinatura promete `ServiceCatalogStats` e quem
+        consome acessa atributo (`catalog_stats.total_services`). Devolver o dict cru fazia
+        o dashboard executivo estourar em AttributeError — a anotação já dizia o contrato,
+        o código é que não o cumpria. `by_type` e `avg_rating` têm padrão no schema.
+        """
+        return ServiceCatalogStats(**self.repository.get_service_stats())
 
     def get_order_stats(self, client_id: UUID | None = None, service_id: UUID | None = None) -> ServiceOrderStats:
         """
@@ -376,7 +390,11 @@ class ServiceAIService:
         Returns:
             ServiceOrderStats
         """
-        return self.repository.get_order_stats(client_id=client_id)
+        # Mesmo caso do catálogo: o repositório devolve `dict`, a assinatura promete o
+        # schema e o dashboard acessa `.total_orders`. As 5 chaves do repositório são
+        # subconjunto dos 7 campos; `avg_completion_time_hours` e `sla_compliance_percent`
+        # ficam None — o repositório não os calcula, e None é "não sei", não zero.
+        return ServiceOrderStats(**self.repository.get_order_stats(client_id=client_id))
 
     def get_executive_dashboard(self) -> dict[str, Any]:
         """
@@ -575,7 +593,7 @@ class ServiceAIService:
         categories_used = set()
 
         for order in client_orders:
-            service = self.repository.get_service_catalog_by_id(order.service_id)
+            service = self.repository.get_service(order.service_id)
             if service:
                 categories_used.add(service.category)
 
@@ -719,9 +737,9 @@ class ServiceAIService:
         if not sla.service_id:
             return 0
 
-        orders = self.repository.list_service_orders(
-            service_id=sla.service_id, status=OrderStatus.EM_ANDAMENTO, limit=100
-        )
+        orders, _ = self.repository.list_orders(
+            filters=ServiceOrderFilter(service_id=sla.service_id,
+                                       status=OrderStatus.EM_ANDAMENTO), limit=100)
 
         at_risk = 0
         now = datetime.utcnow()
@@ -776,7 +794,7 @@ class ServiceAIService:
         result: dict[str, int] = {}
 
         for order in orders:
-            service = self.repository.get_service_catalog_by_id(order.service_id)
+            service = self.repository.get_service(order.service_id)
             if service:
                 cat = service.category.value
                 result[cat] = result.get(cat, 0) + 1

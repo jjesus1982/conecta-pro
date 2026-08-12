@@ -69,7 +69,7 @@ class ServiceManagementService:
         """
         logger.info(f"Criando serviço: {data.name}")
 
-        service = self.repository.create_service_catalog(data)
+        service = self.repository.create_service(data)
 
         if user_id:
             service.created_by = user_id
@@ -94,12 +94,12 @@ class ServiceManagementService:
         Returns:
             ServiceCatalog ou None
         """
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if not service:
             logger.warning(f"Serviço não encontrado: {service_id}")
             return None
 
-        updated = self.repository.update_service_catalog(service_id, data)
+        updated = self.repository.update_service(service_id, data)
 
         if updated and user_id:
             updated.updated_by = user_id
@@ -111,7 +111,7 @@ class ServiceManagementService:
 
     def activate_service(self, service_id: UUID) -> ServiceCatalog | None:
         """Ativa um serviço."""
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if service:
             service.activate()
             self.db.commit()
@@ -121,7 +121,7 @@ class ServiceManagementService:
 
     def deactivate_service(self, service_id: UUID) -> ServiceCatalog | None:
         """Desativa um serviço."""
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if service:
             service.deactivate()
             self.db.commit()
@@ -131,7 +131,7 @@ class ServiceManagementService:
 
     def discontinue_service(self, service_id: UUID) -> ServiceCatalog | None:
         """Descontinua um serviço."""
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if service:
             service.discontinue()
             self.db.commit()
@@ -153,7 +153,7 @@ class ServiceManagementService:
         Returns:
             Decimal ou None
         """
-        service = self.repository.get_service_catalog_by_id(service_id)
+        service = self.repository.get_service(service_id)
         if not service:
             return None
         return service.calculate_price(quantity, is_emergency)
@@ -175,14 +175,14 @@ class ServiceManagementService:
         """
         logger.info(f"Criando ordem de serviço: {data.title}")
 
-        service = self.repository.get_service_catalog_by_id(data.service_id)
+        service = self.repository.get_service(data.service_id)
         if not service:
             raise ValueError(f"Serviço não encontrado: {data.service_id}")
 
         if not service.is_available:
             raise ValueError(f"Serviço indisponível: {service.name}")
 
-        order = self.repository.create_service_order(data)
+        order = self.repository.create_order(data)
 
         if user_id:
             order.created_by = user_id
@@ -215,7 +215,7 @@ class ServiceManagementService:
         Returns:
             ServiceOrder ou None
         """
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if not order:
             logger.warning(f"Ordem não encontrada: {order_id}")
             return None
@@ -223,7 +223,7 @@ class ServiceManagementService:
         if order.status in [OrderStatus.CONCLUIDA, OrderStatus.CANCELADA]:
             raise ValueError("Ordem finalizada não pode ser editada")
 
-        updated = self.repository.update_service_order(order_id, data)
+        updated = self.repository.update_order(order_id, data)
 
         if updated and user_id:
             updated.updated_by = user_id
@@ -235,7 +235,7 @@ class ServiceManagementService:
 
     def submit_order(self, order_id: UUID) -> ServiceOrder | None:
         """Submete uma ordem para aprovação."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.submit()
             self.db.commit()
@@ -245,7 +245,7 @@ class ServiceManagementService:
 
     def approve_order(self, order_id: UUID, approver_id: UUID | None = None) -> ServiceOrder | None:
         """Aprova uma ordem de serviço."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.approve()
             if approver_id:
@@ -257,7 +257,7 @@ class ServiceManagementService:
 
     def reject_order(self, order_id: UUID, reason: str, rejector_id: UUID | None = None) -> ServiceOrder | None:
         """Rejeita uma ordem de serviço."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.reject(reason)
             if rejector_id:
@@ -290,7 +290,7 @@ class ServiceManagementService:
         Returns:
             ServiceOrder ou None
         """
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if not order:
             return None
 
@@ -306,7 +306,7 @@ class ServiceManagementService:
 
     def start_order(self, order_id: UUID) -> ServiceOrder | None:
         """Inicia uma ordem de serviço."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.start()
             self.db.commit()
@@ -316,7 +316,7 @@ class ServiceManagementService:
 
     def pause_order(self, order_id: UUID, reason: str) -> ServiceOrder | None:
         """Pausa uma ordem de serviço."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.pause(reason)
             self.db.commit()
@@ -326,7 +326,7 @@ class ServiceManagementService:
 
     def resume_order(self, order_id: UUID) -> ServiceOrder | None:
         """Retoma uma ordem pausada."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.resume()
             self.db.commit()
@@ -348,7 +348,7 @@ class ServiceManagementService:
         Returns:
             ServiceOrder ou None
         """
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if not order:
             return None
 
@@ -362,7 +362,7 @@ class ServiceManagementService:
         if completion_notes:
             order.completion_notes = completion_notes
 
-        service = self.repository.get_service_catalog_by_id(order.service_id)
+        service = self.repository.get_service(order.service_id)
         if service and order.final_value:
             service.update_metrics(order.final_value, order.rating)
 
@@ -379,7 +379,7 @@ class ServiceManagementService:
 
     def cancel_order(self, order_id: UUID, reason: str) -> ServiceOrder | None:
         """Cancela uma ordem de serviço."""
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if order:
             order.cancel(reason)
             self.db.commit()
@@ -399,13 +399,13 @@ class ServiceManagementService:
         Returns:
             ServiceOrder ou None
         """
-        order = self.repository.get_service_order_by_id(order_id)
+        order = self.repository.get_order(order_id)
         if not order:
             return None
 
         order.rate(rating, feedback)
 
-        service = self.repository.get_service_catalog_by_id(order.service_id)
+        service = self.repository.get_service(order.service_id)
         if service:
             service.update_metrics(order.final_value or Decimal("0"), rating)
 
@@ -416,7 +416,9 @@ class ServiceManagementService:
 
     def get_overdue_orders(self) -> list[ServiceOrder]:
         """Retorna ordens em atraso."""
-        orders = self.repository.list_service_orders(ativo=True, limit=1000)
+        # `ativo=True` não existe em ServiceOrder nem em ServiceOrderFilter — campo do esquema
+        # que a camada supôs. Lista sem ele; o filtro real de vencidas vem abaixo.
+        orders, _ = self.repository.list_orders(limit=1000)
         overdue = []
         for order in orders:
             if order.is_overdue:
@@ -468,14 +470,14 @@ class ServiceManagementService:
         """
         logger.info(f"Criando execução para ordem: {data.order_id}")
 
-        order = self.repository.get_service_order_by_id(data.order_id)
+        order = self.repository.get_order(data.order_id)
         if not order:
             raise ValueError(f"Ordem não encontrada: {data.order_id}")
 
-        existing = self.repository.list_service_executions(order_id=data.order_id, limit=100)
+        existing = self.repository.list_executions_by_order(data.order_id)[:100]
         sequence = len(existing) + 1
 
-        execution = self.repository.create_service_execution(data)
+        execution = self.repository.create_execution(data)
         execution.sequence = sequence
 
         if user_id:
@@ -489,7 +491,7 @@ class ServiceManagementService:
 
     def start_travel(self, execution_id: UUID) -> ServiceExecution | None:
         """Inicia deslocamento."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.start_travel()
             self.db.commit()
@@ -499,7 +501,7 @@ class ServiceManagementService:
 
     def arrive_at_location(self, execution_id: UUID) -> ServiceExecution | None:
         """Registra chegada no local."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.arrive_at_location()
             self.db.commit()
@@ -509,11 +511,11 @@ class ServiceManagementService:
 
     def start_execution(self, execution_id: UUID) -> ServiceExecution | None:
         """Inicia execução do serviço."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.start_execution()
 
-            order = self.repository.get_service_order_by_id(execution.order_id)
+            order = self.repository.get_order(execution.order_id)
             if order and order.status != OrderStatus.EM_ANDAMENTO:
                 order.start()
 
@@ -524,7 +526,7 @@ class ServiceManagementService:
 
     def pause_execution(self, execution_id: UUID, reason: str) -> ServiceExecution | None:
         """Pausa a execução."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.pause_execution(reason)
             self.db.commit()
@@ -534,7 +536,7 @@ class ServiceManagementService:
 
     def resume_execution(self, execution_id: UUID) -> ServiceExecution | None:
         """Retoma a execução."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.resume_execution()
             self.db.commit()
@@ -561,7 +563,7 @@ class ServiceManagementService:
         Returns:
             ServiceExecution ou None
         """
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if not execution:
             return None
 
@@ -583,7 +585,7 @@ class ServiceManagementService:
         self, execution_id: UUID, material_name: str, quantity: float, unit_price: Decimal
     ) -> ServiceExecution | None:
         """Adiciona material à execução."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.add_material(material_name, quantity, unit_price)
             self.db.commit()
@@ -595,7 +597,7 @@ class ServiceManagementService:
         self, execution_id: UUID, item_index: int, completed: bool, notes: str | None = None
     ) -> ServiceExecution | None:
         """Atualiza item do checklist."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.update_checklist_item(item_index, completed, notes)
             self.db.commit()
@@ -607,7 +609,7 @@ class ServiceManagementService:
         self, execution_id: UUID, signer_name: str, signature_data: str, signer_role: str
     ) -> ServiceExecution | None:
         """Adiciona assinatura à execução."""
-        execution = self.repository.get_service_execution_by_id(execution_id)
+        execution = self.repository.get_execution(execution_id)
         if execution:
             execution.add_signature(signer_name, signature_data, signer_role)
             self.db.commit()
@@ -632,11 +634,11 @@ class ServiceManagementService:
         """
         logger.info(f"Criando relatório: {data.title}")
 
-        order = self.repository.get_service_order_by_id(data.order_id)
+        order = self.repository.get_order(data.order_id)
         if not order:
             raise ValueError(f"Ordem não encontrada: {data.order_id}")
 
-        report = self.repository.create_service_report(data)
+        report = self.repository.create_report(data)
 
         if user_id:
             report.author_id = user_id
@@ -652,14 +654,14 @@ class ServiceManagementService:
         self, report_id: UUID, data: ServiceReportUpdate, user_id: UUID | None = None
     ) -> ServiceReport | None:
         """Atualiza um relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if not report:
             return None
 
         if not report.is_draft:
             raise ValueError("Relatório finalizado não pode ser editado")
 
-        updated = self.repository.update_service_report(report_id, data)
+        updated = self.repository.update_report(report_id, data)
 
         if updated and user_id:
             updated.updated_by = user_id
@@ -671,7 +673,7 @@ class ServiceManagementService:
 
     def finalize_report(self, report_id: UUID) -> ServiceReport | None:
         """Finaliza um relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.finalize()
             self.db.commit()
@@ -683,7 +685,7 @@ class ServiceManagementService:
         self, report_id: UUID, reviewer_id: UUID, reviewer_name: str, review_notes: str | None = None
     ) -> ServiceReport | None:
         """Revisa um relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.review(reviewer_id, reviewer_name, review_notes)
             self.db.commit()
@@ -693,7 +695,7 @@ class ServiceManagementService:
 
     def approve_report(self, report_id: UUID, approver_id: UUID, approver_name: str) -> ServiceReport | None:
         """Aprova um relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.approve(approver_id, approver_name)
             self.db.commit()
@@ -703,7 +705,7 @@ class ServiceManagementService:
 
     def send_report(self, report_id: UUID, recipient: str) -> ServiceReport | None:
         """Marca relatório como enviado."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.send(recipient)
             self.db.commit()
@@ -713,7 +715,7 @@ class ServiceManagementService:
 
     def add_report_section(self, report_id: UUID, title: str, content: str, order: int) -> ServiceReport | None:
         """Adiciona seção ao relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.add_section(title, content, order)
             self.db.commit()
@@ -723,7 +725,7 @@ class ServiceManagementService:
 
     def add_report_photo(self, report_id: UUID, photo_url: str, caption: str | None = None) -> ServiceReport | None:
         """Adiciona foto ao relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.add_photo(photo_url, caption)
             self.db.commit()
@@ -733,7 +735,7 @@ class ServiceManagementService:
 
     def add_non_conformity(self, report_id: UUID, description: str, severity: str) -> ServiceReport | None:
         """Adiciona não conformidade ao relatório."""
-        report = self.repository.get_service_report_by_id(report_id)
+        report = self.repository.get_report(report_id)
         if report:
             report.add_non_conformity(description, severity)
             self.db.commit()
@@ -749,7 +751,7 @@ class ServiceManagementService:
         """Cria configuração de SLA."""
         logger.info(f"Criando SLA: {data.name}")
 
-        sla = self.repository.create_sla_config(data)
+        sla = self.repository.create_sla(data)
 
         if user_id:
             sla.created_by = user_id
@@ -762,11 +764,11 @@ class ServiceManagementService:
 
     def update_sla_config(self, sla_id: UUID, data: SLAConfigUpdate, user_id: UUID | None = None) -> SLAConfig | None:
         """Atualiza configuração de SLA."""
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if not sla:
             return None
 
-        updated = self.repository.update_sla_config(sla_id, data)
+        updated = self.repository.update_sla(sla_id, data)
 
         if updated and user_id:
             updated.updated_by = user_id
@@ -778,7 +780,7 @@ class ServiceManagementService:
 
     def activate_sla(self, sla_id: UUID) -> SLAConfig | None:
         """Ativa um SLA."""
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if sla:
             sla.activate()
             self.db.commit()
@@ -788,7 +790,7 @@ class ServiceManagementService:
 
     def deactivate_sla(self, sla_id: UUID) -> SLAConfig | None:
         """Desativa um SLA."""
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if sla:
             sla.deactivate()
             self.db.commit()
@@ -799,11 +801,12 @@ class ServiceManagementService:
     def set_default_sla(self, sla_id: UUID, service_id: UUID | None = None) -> SLAConfig | None:
         """Define SLA como padrão."""
         if service_id:
-            current_defaults = self.repository.list_sla_configs(service_id=service_id, is_default=True, is_active=True)
+            # `is_default` não existe em SLAConfig — ver _get_applicable_sla.
+            current_defaults = self.repository.list_slas(service_id=service_id, is_active=True)
             for current_sla in current_defaults:
                 current_sla.is_default = False
 
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if sla:
             sla.set_as_default()
             self.db.commit()
@@ -825,7 +828,7 @@ class ServiceManagementService:
         Returns:
             Dict com relatório de compliance
         """
-        sla = self.repository.get_sla_config_by_id(sla_id)
+        sla = self.repository.get_sla(sla_id)
         if not sla:
             return {}
 
@@ -854,22 +857,25 @@ class ServiceManagementService:
 
     def _get_applicable_sla(self, order: ServiceOrder) -> SLAConfig | None:
         """Retorna SLA aplicável à ordem."""
-        if order.contract_id:
-            slas = self.repository.list_sla_configs(contract_id=order.contract_id, is_active=True)
-            if slas:
-                return slas[0]
-
+        # A cascata original tinha 4 níveis: contrato -> cliente -> padrão do serviço ->
+        # padrão global. DOIS deles dependem de campos que NÃO EXISTEM em SLAConfig —
+        # `contract_id` e `is_default`. Não são filtros esquecidos: o model nunca os teve.
+        # Filtrar por eles estourava; ignorá-los em silêncio devolveria um SLA qualquer como
+        # se fosse o padrão. Ficam os dois níveis que o dado sustenta, e a falta fica dita.
         if order.client_id:
-            slas = self.repository.list_sla_configs(client_id=order.client_id, is_active=True)
+            slas = self.repository.list_slas(client_id=order.client_id, is_active=True)
             if slas:
                 return slas[0]
 
-        slas = self.repository.list_sla_configs(service_id=order.service_id, is_default=True, is_active=True)
-        if slas:
-            return slas[0]
+        if order.service_id:
+            slas = self.repository.list_slas(service_id=order.service_id, is_active=True)
+            if slas:
+                return slas[0]
 
-        slas = self.repository.list_sla_configs(is_default=True, is_active=True)
-        return slas[0] if slas else None
+        logger.info(
+            "SLA por contrato/padrão indisponível: SLAConfig não tem contract_id nem "
+            "is_default. Ordem %s ficou sem SLA aplicável.", getattr(order, "id", "?"))
+        return None
 
     def _check_sla_compliance(self, order: ServiceOrder, sla: SLAConfig) -> bool:
         """Verifica compliance do SLA."""
