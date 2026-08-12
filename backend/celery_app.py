@@ -188,6 +188,15 @@ app.conf.beat_schedule = {
     #    2026-07-25: app.conf.timezone (acima) == "America/Manaus" E o container
     #    celery-beat roda com TZ=America/Manaus — o crontab do celery interpreta a
     #    hora no timezone configurado, então hour=7 já É 07:00 Manaus (não 07:00 UTC).
+    # ── Calendário fiscal: a obrigação existe por LEI, não porque o PDF da guia chegou.
+    #    Dependia do sync do Drive; as guias pararam em dez/2025 e as competências 04, 05 e
+    #    07/2026 nunca existiram — em 11/08 havia UMA obrigação vencendo nos 30 dias no
+    #    sistema inteiro. Mensal, dia 1, e idempotente.
+    "fiscal-calendario-obrigacoes": {
+        "task": "fiscal.calendario_obrigacoes",
+        "schedule": crontab(day_of_month="1", hour=6, minute=12),
+        "options": {"queue": "gov.batch"},
+    },
     # ── Alarme de AUSÊNCIA: se a varredura dos oráculos não rodou nas últimas 30h, o sino
     #    toca. Sem isto, silêncio significa "tudo verde" E "o cron nunca disparou" — a mesma
     #    ambiguidade que deixou 59 oráculos apodrecerem. 08:11, depois da janela das 05:00.
