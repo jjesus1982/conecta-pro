@@ -50,6 +50,11 @@ CACADORES_HOST = {
     # passar exatamente os 2 casos que estouravam o dashboard de serviços.
     "checar_repositorio.py": lambda s: next(
         (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
+    # Espelho da de cima, do outro lado da parede: frontend chamando rota que o backend não
+    # tem. Nasceu do mesmo MVP (slaService pedindo /services/sla onde existe /sla-configs).
+    # 666 na estreia, 84 alcançáveis por tela — as 35 literais confirmadas 404 por HTTP.
+    "checar_rotas_frontend.py": lambda s: next(
+        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
 }
 
 
