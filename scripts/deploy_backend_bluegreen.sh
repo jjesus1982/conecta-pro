@@ -98,12 +98,20 @@ docker compose build backend >>"$LOG" 2>&1 || { log "ERRO no build"; exit 1; }
 # imagem antiga (que vira órfã) e parte com a nova, todos "healthy". Medido 3x em 10/08/2026
 # (2, depois 4, depois 7 workers). Com o ID fixo, um build concorrente pode mexer na tag à
 # vontade: ESTE deploy termina inteiro na MESMA imagem.
+# SEM o prefixo `sha256:`. Com ele, o compose lê "sha256:abc..." como
+# repositório=sha256 / tag=abc... e tenta BAIXAR:
+#   Error pull access denied for sha256, repository does not exist
+# O passo 7 então falhava em quase todos os workers e eles seguiam com código
+# ANTIGO — o oposto do que a fixação por ID existe para evitar. Medido em
+# 12/08/2026: 2 deploys seguidos deixaram 5 workers para trás, incluindo o
+# celery-beat (nenhum beat novo valia). O hex puro o docker resolve localmente.
 export BACKEND_IMAGE
 BACKEND_IMAGE=$(docker image inspect conecta-pro-backend:latest --format '{{.Id}}' 2>/dev/null)
+BACKEND_IMAGE=${BACKEND_IMAGE#sha256:}
 if [ -z "${BACKEND_IMAGE:-}" ]; then
   log "ERRO: não consegui resolver o ID da imagem recém-construída"; exit 1
 fi
-log "  imagem deste deploy: ${BACKEND_IMAGE#sha256:}"
+log "  imagem deste deploy: $BACKEND_IMAGE"
 
 # 2. Sobe GREEN com a imagem nova (tráfego segue no primário)
 log "2/7 subindo green (8081)..."
