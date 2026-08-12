@@ -288,3 +288,74 @@ async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str,
         "sem_sugestao": len(dados["grupos"]) - len(alvo),
         "falhas": falhas,
     }
+
+
+# ═══════════════════ classificação pelo MEMO do Cora ═══════════════════
+# O Cora deixa escrever uma justificativa na hora de pagar, e o Jordan JÁ escreve:
+# 67% das saídas de agosto (74% do valor) vieram com memo. É a melhor fonte que
+# existe — são as palavras dele, não uma heurística minha sobre o nome do
+# favorecido. E ela denunciava erros: "Salario julho" (34 saídas, R$52.790,86)
+# estava classificado como `(sem)`, `fornecedor` E `salario` ao mesmo tempo.
+#
+# A PRECEDÊNCIA é o que faz isso funcionar, e são dois grupos com regras opostas:
+#
+#  • NATUREZA (o que foi comprado) VENCE o cadastro. "Uber" e "Café treinamento"
+#    pagos ao Eliziel viravam pró-labore dele porque ele é PJ — mas café é café
+#    independentemente de quem recebeu.
+#  • RELAÇÃO (salário, pró-labore) PERDE para o cadastro. O Jordan escreve
+#    "Salario" ao pagar a Pyetra, que é PJ: o vínculo é fato do cadastro, a
+#    palavra é coloquial. Aqui o cadastro manda.
+_MEMO_NATUREZA: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("UBER", "99 TECN", "TAXI", "COMBUSTIVEL", "GASOLINA"), "reembolso"),
+    (("CAFE", "LANCHE", "ALMOCO", "AGUA", "GARRAFAO", "IFOOD"), "reembolso"),
+    (("MATERIAL", "MATERIAIS", "FERRAMENTA"), "reembolso"),
+    (("VT/VR", "VT E VR", "VALE TRANSPORTE", "VALE ALIMENTACAO", "VALE REFEICAO"), "beneficio_vtvr"),
+    (("PLANO CORA", "TARIFA", "ANUIDADE"), "taxa_bancaria"),
+)
+_MEMO_RELACAO: tuple[tuple[tuple[str, ...], str], ...] = (
+    # "SALRIO" sem o A é digitação real do extrato, não engano meu.
+    (("SALARIO", "SALARIO", "SALRIO", "DIFERENCA SALARIAL", "RESCISAO", "FERIAS",
+      "13 SALARIO", "DECIMO TERCEIRO"), "salario"),
+    (("ADIANTAMENTO", "ADIANTANENTO", "VALE "), "adiantamento"),
+    (("DIARIA", "DIARIAS", "COBERTURA"), "diarista"),
+)
+
+
+def _memo(descricao: str) -> str:
+    """Só o que a pessoa escreveu — sem o prefixo do conector."""
+    d = _RE_ACENTO.sub(lambda m: _SEM_ACENTO.get(m.group(0), m.group(0)),
+                       (descricao or "").upper())
+    return re.sub(r"^\[CORA\]\s*", "", d).strip()
+
+
+_SEM_ACENTO = {"Á": "A", "À": "A", "Â": "A", "Ã": "A", "É": "E", "Ê": "E", "Í": "I",
+               "Ó": "O", "Ô": "O", "Õ": "O", "Ú": "U", "Ç": "C"}
+_RE_ACENTO = re.compile("[" + "".join(_SEM_ACENTO) + "]")
+
+
+def sugerir_por_memo(descricao: str, *, e_pj: bool = False,
+                     favorecido: str = "") -> tuple[str | None, str]:
+    """(categoria, motivo) a partir do memo. None = o memo não diz.
+
+    `favorecido` decide reembolso × fornecedor: reembolso é devolver dinheiro a
+    uma PESSOA que adiantou. "Garrafão de água" pago à SILVA DISTRIBUIDORA é
+    compra direta de fornecedor — a mesma palavra, natureza diferente conforme
+    quem recebeu.
+    """
+    m = _memo(descricao)
+    if not m or m in ("PIX", "TED", "PAGAMENTO", "TRANSFERENCIA"):
+        return None, "sem memo — nada escrito na hora de pagar"
+    e_empresa = any(t in (favorecido or "").upper() for t in _EMPRESA)
+    for termos, cat in _MEMO_NATUREZA:
+        if any(t in m for t in termos):
+            if cat == "reembolso" and e_empresa:
+                return "fornecedor", f'memo diz "{m[:34]}" — compra direta, favorecido é empresa'
+            return cat, f'memo diz "{m[:40]}" — natureza da despesa'
+    if e_pj:
+        # cadastro vence a palavra: PJ recebendo é pró-labore mesmo que o memo
+        # diga "salário"
+        return None, "favorecido é PJ no cadastro — o vínculo decide, não a palavra"
+    for termos, cat in _MEMO_RELACAO:
+        if any(t in m for t in termos):
+            return cat, f'memo diz "{m[:40]}"'
+    return None, f'memo "{m[:40]}" não tem regra — decide o humano'

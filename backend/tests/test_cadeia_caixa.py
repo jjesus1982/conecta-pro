@@ -226,3 +226,31 @@ def test_toda_conta_do_mapa_tem_motivo():
     for cat in ("salario", "diarista", "imposto", "socio", None):
         _, motivo = contrapartida_saida(cat, "PIX")
         assert motivo and len(motivo) > 8
+
+
+def test_memo_do_cora_manda_mas_a_precedencia_importa():
+    """O Cora deixa escrever a justificativa na hora de pagar, e o Jordan JÁ
+    escreve: 67% das saídas de agosto (74% do valor) vieram com memo. É a melhor
+    fonte que existe — as palavras dele, não heurística sobre o nome.
+
+    Mas os dois grupos têm regras OPOSTAS, e é isso que faz funcionar."""
+    from modules.financial.services.classificacao_saidas_service import sugerir_por_memo
+
+    # NATUREZA vence o cadastro: café é café mesmo pago a um PJ
+    assert sugerir_por_memo("[CORA] Cafe treinamento", e_pj=True)[0] == "reembolso"
+    assert sugerir_por_memo("[CORA] Uber", e_pj=True)[0] == "reembolso"
+
+    # RELAÇÃO perde para o cadastro: ele escreve "Salario" ao pagar a PJ, mas o
+    # vínculo é fato do cadastro e a palavra é coloquial
+    assert sugerir_por_memo("[CORA] Salario", e_pj=True)[0] is None
+    assert sugerir_por_memo("[CORA] Salario julho", e_pj=False)[0] == "salario"
+    # "SALRIO" sem o A é digitação real do extrato, não engano do teste
+    assert sugerir_por_memo("[CORA] Salrio julho", e_pj=False)[0] == "salario"
+
+    # reembolso é devolver a uma PESSOA; pago a empresa é compra direta
+    assert sugerir_por_memo("[CORA] Garrafao de agua", favorecido="SILVA DISTRIBUIDORA")[0] == "fornecedor"
+    assert sugerir_por_memo("[CORA] Garrafao de agua", favorecido="MARIA DA SILVA")[0] == "reembolso"
+
+    # sem memo não inventa
+    assert sugerir_por_memo("[CORA] PIX")[0] is None
+    assert sugerir_por_memo("")[0] is None
