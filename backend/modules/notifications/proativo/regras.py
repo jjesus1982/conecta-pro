@@ -1305,71 +1305,95 @@ register(Regra(
 ))
 
 
-# ─────────────────────────── pj_pago_sem_nota ───────────────────────────
-# Medido em 11/08/2026: os 9 prestadores cadastrados como PJ têm **zero** NFS-e
-# tomada numa base de 135 notas que vai de 2022 a 2026, e 10 dos 11 pagamentos
-# de agosto foram para CPF, não para o CNPJ do prestador.
+
+# ─────────────────────────── pj_sem_nota_fiscal ───────────────────────────
+# POLÍTICA do Jordan a partir de 12/08/2026: **PJ só recebe apresentando nota
+# fiscal.** Antes não era exigido — daí os 9 prestadores cadastrados como PJ
+# terem ZERO NFS-e tomada numa base de 135 notas que vai de 2022 a 2026.
 #
-# O enquadramento PJ foi confirmado pelo Jordan e o cadastro está certo — o que
-# falta é o documento que o sustenta. Pagamento recorrente a PJ sem nota e no CPF
-# é o padrão que a fiscalização reclassifica como vínculo, com INSS/FGTS e verbas
-# retroativos. É resolvível: pedir a nota.
+# A regra é do CADASTRO, não do extrato: quem só olha o extrato enxerga apenas
+# quem já foi pago, e a política precisa avisar ANTES de pagar. Os 9 vêm de
+# `employees.status IN ('pj_ativo','pj_pendente')` — confirmado pelo Jordan.
 #
-# UM achado com a lista, não um por pessoa: são as mesmas ~9 todo mês, e nove
-# avisos mensais viram ruído. A ação também é uma só — cobrar as notas do mês.
+# Dois bloqueios distintos, e a ordem importa:
+#   1. sem CNPJ cadastrado (7 de 9) — não dá para exigir nota de quem não tem
+#      CNPJ registrado, nem para conferir se a nota chegou. Bloqueia a política
+#      inteira, então vem primeiro.
+#   2. sem nota no período — o bloqueio do pagamento em si.
 SQL_PJ_SEM_NOTA = """
-    -- Agrupa pelo nome NORMALIZADO: o extrato traz "ELIZIEL GONZAGA FLORES" e
-    -- "Eliziel Gonzaga Flores" como se fossem dois, e o alarme anunciava 11
-    -- prestadores quando são 8 pessoas. Número inflado perde credibilidade.
-    SELECT max(bt.counterparty_name) AS quem, count(*) AS n, sum(abs(bt.amount)) AS valor
-    FROM bank_transactions bt
-    WHERE bt.amount < 0
-      AND bt.justificativa_categoria = 'pj_prolabore'
-      AND bt.transaction_date >= CAST(:inicio AS date)
-      AND bt.transaction_date < (now() AT TIME ZONE 'America/Manaus')::date
-      AND NOT EXISTS (
-          SELECT 1 FROM nfse_tomadas_nacional t
-          WHERE unaccent(upper(coalesce(t.prestador_nome, ''))) LIKE
-                '%' || split_part(unaccent(upper(coalesce(bt.counterparty_name, ''))), ' ', 1) || '%'
-            AND t.data_emissao >= CAST(:inicio AS date))
-    GROUP BY unaccent(upper(coalesce(bt.counterparty_name, '')))
-    ORDER BY 3 DESC
+    SELECT e.nome,
+           e.status,
+           regexp_replace(coalesce(e.cnpj, ''), '[^0-9]', '', 'g') AS cnpj,
+           EXISTS (
+               SELECT 1 FROM nfse_tomadas_nacional t
+               WHERE t.data_emissao >= CAST(:inicio AS date)
+                 AND (
+                     (coalesce(e.cnpj, '') <> ''
+                      AND regexp_replace(coalesce(t.prestador_cnpj, ''), '[^0-9]', '', 'g')
+                          = regexp_replace(e.cnpj, '[^0-9]', '', 'g'))
+                  OR unaccent(upper(coalesce(t.prestador_nome, ''))) LIKE
+                     '%' || split_part(unaccent(upper(e.nome)), ' ', 1) || '%'
+                 )
+           ) AS tem_nota,
+           (SELECT coalesce(sum(abs(bt.amount)), 0) FROM bank_transactions bt
+             WHERE bt.amount < 0
+               AND bt.transaction_date >= CAST(:inicio AS date)
+               AND unaccent(upper(coalesce(bt.counterparty_name, ''))) LIKE
+                   '%' || split_part(unaccent(upper(e.nome)), ' ', 1) || '%'
+               AND unaccent(upper(coalesce(bt.counterparty_name, ''))) LIKE
+                   '%' || split_part(unaccent(upper(e.nome)), ' ',
+                        array_length(string_to_array(e.nome, ' '), 1)) || '%') AS pago
+    FROM employees e
+    WHERE e.status IN ('pj_ativo', 'pj_pendente')
+    ORDER BY e.nome
 """
 
 
-async def _detectar_pj_pago_sem_nota(db: AsyncSession) -> list[Achado]:
+async def _detectar_pj_sem_nota(db: AsyncSession) -> list[Achado]:
     from modules.financial.services.periodo_contabil import CORTE_CONTABIL
 
     rows = (await db.execute(text(SQL_PJ_SEM_NOTA),
                              {"inicio": CORTE_CONTABIL})).mappings().all()
-    if not rows:
+    sem_cnpj = [r["nome"] for r in rows if not r["cnpj"]]
+    sem_nota = [{"nome": r["nome"], "pago": round(float(r["pago"] or 0), 2),
+                 "cnpj": r["cnpj"] or ""} for r in rows if not r["tem_nota"]]
+    if not sem_cnpj and not sem_nota:
         return []
-    total = round(sum(float(r["valor"]) for r in rows), 2)
-    quem = [{"nome": (r["quem"] or "?")[:40], "pagamentos": int(r["n"]),
-             "valor": round(float(r["valor"]), 2)} for r in rows]
+    pago_sem_nota = round(sum(x["pago"] for x in sem_nota), 2)
     return [Achado(
-        # Muda quando muda o conjunto/valor — não repica enquanto o quadro é o mesmo.
-        correlation_id=f"pj_sem_nota:{len(rows)}:{round(total)}",
-        dados={"prestadores": len(rows), "total": total, "quem": quem},
+        correlation_id=f"pj_sem_nota:{len(sem_cnpj)}:{len(sem_nota)}:{round(pago_sem_nota)}",
+        dados={"total_pj": len(rows), "sem_cnpj": sem_cnpj, "sem_nota": sem_nota,
+               "pago_sem_nota": pago_sem_nota},
     )]
 
 
-def _tpl_pj_pago_sem_nota(d: dict) -> tuple[str, str]:
-    lista = "\n".join(f"  • {q['nome']} — {q['pagamentos']}x, R$ {q['valor']:,.2f}"
-                      for q in d["quem"][:12])
-    return (
-        f"{d['prestadores']} prestadores PJ pagos sem nota fiscal (R$ {d['total']:,.2f})",
-        f"Saíram R$ {d['total']:,.2f} para {d['prestadores']} prestadores cadastrados "
-        f"como PJ, e nenhum tem NFS-e tomada no período:\n\n{lista}\n\n"
-        f"Pagamento recorrente a PJ sem a nota do prestador — e no CPF em vez do "
-        f"CNPJ — é o que a fiscalização reclassifica como vínculo empregatício, com "
-        f"INSS, FGTS e verbas retroativos. Resolve-se pedindo a nota do mês.",
-    )
+def _tpl_pj_sem_nota(d: dict) -> tuple[str, str]:
+    partes = []
+    if d["sem_cnpj"]:
+        partes.append(
+            f"SEM CNPJ CADASTRADO ({len(d['sem_cnpj'])} de {d['total_pj']}) — não dá para "
+            f"exigir nota de quem não tem CNPJ registrado, nem conferir se ela chegou:\n"
+            + "\n".join(f"  • {n}" for n in d["sem_cnpj"]))
+    if d["sem_nota"]:
+        partes.append(
+            f"SEM NOTA NO PERÍODO ({len(d['sem_nota'])}):\n"
+            + "\n".join(f"  • {x['nome']}"
+                        + (f" — já recebeu R$ {x['pago']:,.2f}" if x["pago"] else " — ainda não recebeu")
+                        for x in d["sem_nota"]))
+    titulo = (f"{len(d['sem_nota'])} PJ sem nota fiscal"
+              + (f", {len(d['sem_cnpj'])} sem CNPJ cadastrado" if d["sem_cnpj"] else ""))
+    corpo = ("Política em vigor: PJ só recebe apresentando nota fiscal.\n\n"
+             + "\n\n".join(partes))
+    if d["pago_sem_nota"]:
+        corpo += (f"\n\nJá saíram R$ {d['pago_sem_nota']:,.2f} sem a nota correspondente. "
+                  f"Pagamento recorrente a PJ sem nota — e no CPF em vez do CNPJ — é o que a "
+                  f"fiscalização reclassifica como vínculo, com INSS, FGTS e verbas retroativos.")
+    return titulo, corpo
 
 
 register(Regra(
-    nome="pj_pago_sem_nota", familia="financeiro", severidade="atencao",
+    nome="pj_sem_nota_fiscal", familia="financeiro", severidade="atencao",
     roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
     action_url="/redesign/financeiro?t=g-pagar",
-    detectar=_detectar_pj_pago_sem_nota, template=_tpl_pj_pago_sem_nota,
+    detectar=_detectar_pj_sem_nota, template=_tpl_pj_sem_nota,
 ))

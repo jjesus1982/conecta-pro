@@ -107,8 +107,8 @@ def test_regra_pj_sem_nota_registrada():
     documento que o sustenta — e isso é resolvível pedindo a nota."""
     from modules.notifications.proativo.regras import REGISTRY
 
-    assert "pj_pago_sem_nota" in REGISTRY
-    assert REGISTRY["pj_pago_sem_nota"].roles_destino == ("admin",)  # LGPD: só diretoria
+    assert "pj_sem_nota_fiscal" in REGISTRY
+    assert REGISTRY["pj_sem_nota_fiscal"].roles_destino == ("admin",)  # LGPD: só diretoria
 
 
 def test_banco_como_favorecido_nao_vira_fornecedor():
