@@ -28,7 +28,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 5 travas (código, não skill)
+## 2. As 6 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 
@@ -39,12 +39,19 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_arsenal.py` | este documento mentindo — *pegou 2 erros meus 2h depois de escritos* | `backend/scripts/qa` |
 | `test_oraculo_periodo_fechado.py` | reescrever período fechado — *184 lançamentos* | `backend/scripts/orq` |
 | `_mutacao.py` | DELETE/UPDATE largo em produção — *apagou certidão legítima* | `backend/scripts/qa` |
+| `checar_repositorio.py` | chamada para método que o repositório não tem — *78 num módulo só* | `backend/scripts/qa` |
+
+⚠️ **`checar_repositorio` tem DOIS olhos, e o segundo nasceu de um verde incompleto meu.**
+Com as 78 renomeações prontas ela disse `services: 0` e o dashboard continuava em 500: o
+método existia e devolvia **dict** onde a anotação prometia schema. *"O método existe" não é
+o contrato inteiro.* **Trava que só verifica metade encerra a investigação — é pior que
+vermelho.** Ao escrever qualquer trava, pergunte o que ela ainda deixa passar.
 
 **`_mutacao.Mutacao` é obrigatório em todo script que altera produção.** Ensaio é o padrão;
 `--aplicar` explícito; acima do teto exige `--forcar`; lista vazia nunca aplica.
 
 **Automático, à 00:00** (madrugada: conserto sem ninguém usando o sistema).
-`checar_regressao.py` roda as três primeiras contra uma **linha de base** — dívida velha não
+`checar_regressao.py` roda as travas mecânicas contra uma **linha de base** — dívida velha não
 vira ruído, fabricação nova acusa e **vai para o sino**. A base mora em
 `/var/lib/conecta/qa_baseline.json`, **fora do git de propósito**: ela é reescrita sozinha
 quando a dívida cai, e arquivo versionado alterado por cron deixaria o working tree sujo —

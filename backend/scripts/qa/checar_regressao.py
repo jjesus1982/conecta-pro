@@ -45,8 +45,11 @@ CACADORES = {
 CACADORES_HOST = {
     # Nasceu do MVP de fechamento de `services`: 4 de 6 rotas em 500 porque o controller
     # chamava método que o repositório nunca teve. 139 chamadas assim no sistema.
-    "checar_repositorio.py": lambda s: int(
-        (s.split(" chamada", 1)[0].strip() or "0").split()[-1]) if " chamada" in s else 0,
+    # Lê a linha canônica TOTAL: soma as DUAS travas (método inexistente + forma errada).
+    # A versão anterior lia só "N chamada(s)" e ignorava a trava de forma — teria deixado
+    # passar exatamente os 2 casos que estouravam o dashboard de serviços.
+    "checar_repositorio.py": lambda s: next(
+        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
 }
 
 
