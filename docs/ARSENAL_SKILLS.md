@@ -48,6 +48,22 @@ método existia e devolvia **dict** onde a anotação prometia schema. *"O méto
 o contrato inteiro.* **Trava que só verifica metade encerra a investigação — é pior que
 vermelho.** Ao escrever qualquer trava, pergunte o que ela ainda deixa passar.
 
+**Três regras trazidas pelo T1, medidas no financeiro (12/08) — e as três valem para todo
+mundo, porque nas três ele estava confiante e errado:**
+
+1. **Fora da janela de cobertura de uma fonte, ausência não é prova.** Comparou nosso extrato
+   com a API do Inter e tratou "a API não tem linha nesta data" como duplicata: **169
+   transações reais apagadas (R$12.117,13)**. O `/extrato` do Inter só devolve de 07/02 em
+   diante. Prima-irmã do meu "zero achados por caminho errado é o pior tipo de verde".
+2. **Antes de concluir "está velho", confirme que alguém escreve naquele campo.** Ele leu
+   `last_sync_at` — coluna **morta**; quem grava é `last_balance_update`. Chegou a desenhar
+   um alarme inteiro sobre a premissa falsa.
+3. **Alarme que toca sempre é alarme que ninguém lê — o corte temporal é o que o mantém
+   crível.** Escrituração agendada 05:20 contra extrato que chega 08:00 tocaria 21h por dia.
+
+> *"O que me pegou foi sempre uma medição contra algo de fora, nunca uma releitura do meu
+> próprio código."* — T1
+
 **Três regras que toda trava nova paga, medidas no MVP de serviços:**
 
 1. **Prove o arreio antes de acusar o código.** Instanciei uma classe com o argumento errado
@@ -205,6 +221,17 @@ Ao final: auditoria/qa/<MÓDULO>_AAAAMMDD.md com veredito por lente e o que NÃO
 o descoberto, ordenado por raio de dano. É a única das três lacunas originais que falta; as
 outras duas viraram `cacar_fabricacao` e `checar_vocabulario`. O MVP de serviços deu meio
 caminho: `checar_rotas_frontend` já responde "que superfície do frontend aponta para o vazio".
+
+**Descoberta.** O T1 fechou meio financeiro sem saber que as travas existiam — *"não usei
+nenhuma das três: não sabia que existiam"*. Arsenal que ninguém acha é arsenal que não
+existe. Hoje o único caminho de descoberta é alguém colar o roteiro num prompt; não há nada
+que apresente as travas a uma sessão nova por conta própria.
+
+**Vigilância tem DOIS sistemas, e é fácil contar só um.** Oráculos em `scripts/orq/` rodam à
+00:00 e aparecem na varredura; **regras proativas** em `notifications/proativo/regras.py`
+rodam em beat e **não aparecem**. O extrato, por exemplo, é vigiado por `caixa_divergente`,
+que é regra — quem contar só oráculos vai declarar o extrato descoberto, e quem contar só
+regras vai achar que está tudo visto às 00:00.
 
 **Erro de domínio não tem trava possível.** Alíquota errada de Anexo III, competência
 trocada, conta contábil semanticamente errada mas existente: o número tem fonte, passa em
