@@ -19,6 +19,11 @@ LIMITES, porque número grande sem limite vira mentira:
 - rota montada com template complexo (`${base}${path}`) não é avaliada — subestima.
 - "alcançável" = a partir de `app/**`, andando imports. Casa por NOME de arquivo, então
   homônimos em pastas diferentes inflam o alcance. Erra para MAIS, nunca para menos.
+- **string que é PREFIXO de rota montada é tratada como constante de base e NÃO acusa.**
+  Isso troca falso positivo por risco de falso negativo: se uma tela chamar a coleção base
+  (`GET /api/v1/x/tasks`) e só `/api/v1/x/tasks/{id}` estiver montada, a trava cala. Aceito
+  de propósito — acusei duas bases no financeiro e o T1 provou por HTTP que as telas
+  funcionavam; falso positivo em trava nova custa a confiança inteira.
 - achado é PISTA. Confirme por HTTP antes de agir (`curl` com token; 404 = não existe).
 
     python3 backend/scripts/qa/checar_rotas_frontend.py
@@ -57,8 +62,8 @@ def achados(front: Path = FRONT, rotas: list[str] | None = None) -> dict[str, li
     # rota registrada como `/operacional/employees/` deixava de casar: 3 dos 14 primeiros
     # achados devolviam 200 no curl. Falso positivo mata a confiança na trava mais rápido
     # que achado nenhum.
-    pads = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.rstrip("/") or "/") + "$")
-            for r in (rotas if rotas is not None else rotas_do_backend())]
+    cruas = [r.rstrip("/") or "/" for r in (rotas if rotas is not None else rotas_do_backend())]
+    pads = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r) + "$") for r in cruas]
     fora: dict[str, list[str]] = {}
     for f in sorted(front.rglob("*.ts*")):
         if "types/generated" in str(f):
@@ -68,8 +73,15 @@ def achados(front: Path = FRONT, rotas: list[str] | None = None) -> dict[str, li
             alvo = re.sub(r"\$\{[^}]+\}", "1", a).split("?")[0].rstrip("/")
             if "${" in alvo:          # template que sobrou: não dá para avaliar
                 continue
-            if not any(p.match(alvo) for p in pads):
-                ruins.append(a)
+            if any(p.match(alvo) for p in pads):
+                continue
+            # CONSTANTE DE BASE não é chamada. `const API = '/api/v1/financeiro/inter'` com
+            # 40 rotas montadas embaixo é o prefixo que o código concatena, não um endpoint.
+            # Acusei duas assim no financeiro e o T1 provou por HTTP que as telas funcionam:
+            # /banking/payment tem 5 rotas abaixo, /financeiro/inter tem 40.
+            if any(r.startswith(alvo + "/") for r in cruas):
+                continue
+            ruins.append(a)
         if ruins:
             fora[str(f.relative_to(front))] = ruins
     return fora
@@ -112,7 +124,8 @@ def _self_check() -> None:
              "/api/v1/services/catalog"]
     ruim = ("export const listar = () => api.get('/api/v1/services/sla');\n"
             "export const um = (id) => api.get(`/api/v1/services/sla/${id}`);\n")
-    bom = "export const cat = () => api.get('/api/v1/services/catalog');\n"
+    bom = ("export const cat = () => api.get('/api/v1/services/catalog');\n"
+           "const BASE = '/api/v1/services/sla-configs';\n")   # base: 1 rota abaixo dela
     gerado = "export const x = () => api.get('/api/v1/services/sla');\n"
 
     with tempfile.TemporaryDirectory() as d:
