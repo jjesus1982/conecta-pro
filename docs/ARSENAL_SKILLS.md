@@ -28,7 +28,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 6 travas (código, não skill)
+## 2. As 7 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 
@@ -40,12 +40,24 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `test_oraculo_periodo_fechado.py` | reescrever período fechado — *184 lançamentos* | `backend/scripts/orq` |
 | `_mutacao.py` | DELETE/UPDATE largo em produção — *apagou certidão legítima* | `backend/scripts/qa` |
 | `checar_repositorio.py` | chamada para método que o repositório não tem — *78 num módulo só* | `backend/scripts/qa` |
+| `checar_rotas_frontend.py` | frontend chamando rota que o backend não tem — *9 de 9 no SLA* | `backend/scripts/qa` |
 
 ⚠️ **`checar_repositorio` tem DOIS olhos, e o segundo nasceu de um verde incompleto meu.**
 Com as 78 renomeações prontas ela disse `services: 0` e o dashboard continuava em 500: o
 método existia e devolvia **dict** onde a anotação prometia schema. *"O método existe" não é
 o contrato inteiro.* **Trava que só verifica metade encerra a investigação — é pior que
 vermelho.** Ao escrever qualquer trava, pergunte o que ela ainda deixa passar.
+
+**Três regras que toda trava nova paga, medidas no MVP de serviços:**
+
+1. **Prove o arreio antes de acusar o código.** Instanciei uma classe com o argumento errado
+   e o `AttributeError` parecia defeito do sistema. Depois, 7 erros de tipo nos meus
+   arquivos: o mesmo teste num arquivo intocado deu **48** — era a checagem isolada.
+2. **Falso positivo mata a confiança mais rápido que achado nenhum.** A trava do frontend
+   normalizava a barra final de um lado só: 3 dos 14 primeiros achados devolviam 200 no curl.
+3. **Alcance se mede da TELA para trás.** "Alguém importa este arquivo" dava 185 de 205 vivos;
+   andando dos `app/**`, os campeões da lista não são usados por página nenhuma. Número
+   alarmista é tão inútil quanto número escondido.
 
 **`_mutacao.Mutacao` é obrigatório em todo script que altera produção.** Ensaio é o padrão;
 `--aplicar` explícito; acima do teto exige `--forcar`; lista vazia nunca aplica.
@@ -118,6 +130,17 @@ git status --short -- <arquivos que vou tocar>
 |---|---|
 | commits recentes de outro terminal | **leia-os antes de decidir** — pode já estar feito, ou pode haver decisão de negócio ali |
 | ` M arquivo` (WIP não commitado) | **espere.** Não edite |
+| **nada** | ⚠️ confirme que o arquivo é RASTREADO antes de concluir "livre" |
+
+⚠️ **A parede lê `git status` — onde o git é cego, ela não existe.** Em 12/08 achei 73
+arquivos de código do frontend (`frontend/src/lib`, incluindo `pdf.ts` e o `axios-instance`)
+engolidos pela regra `lib/` do bloco de virtualenv Python. Sem histórico, sem revisão — e
+dois terminais podiam se sobrescrever ali **sem nenhum sinal**. Silêncio do `git status` pode
+ser "livre" ou "invisível"; são coisas opostas:
+
+```bash
+git check-ignore -v <arquivo> && echo "IGNORADO — a parede não protege este arquivo"
+```
 | nada | livre |
 
 - **Não existe "só uma linhinha" em arquivo de outro terminal.**
@@ -180,7 +203,8 @@ Ao final: auditoria/qa/<MÓDULO>_AAAAMMDD.md com veredito por lente e o que NÃO
 
 **Mapa do não-vigiado** — cruzar a superfície (rotas, telas, KPIs) com os oráculos e devolver
 o descoberto, ordenado por raio de dano. É a única das três lacunas originais que falta; as
-outras duas viraram `cacar_fabricacao` e `checar_vocabulario`.
+outras duas viraram `cacar_fabricacao` e `checar_vocabulario`. O MVP de serviços deu meio
+caminho: `checar_rotas_frontend` já responde "que superfície do frontend aponta para o vazio".
 
 **Erro de domínio não tem trava possível.** Alíquota errada de Anexo III, competência
 trocada, conta contábil semanticamente errada mas existente: o número tem fonte, passa em

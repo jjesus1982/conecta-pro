@@ -18,6 +18,7 @@ Antes de escrever qualquer tarefa:
 cd /opt/conecta-pro
 git log --since="1 day ago" --oneline -- <arquivos que você vai tocar>
 git status --short -- <arquivos que você vai tocar>
+git check-ignore -v <arquivos que você vai tocar>   # silêncio do status: livre ou INVISÍVEL?
 ```
 
 Leia o resultado assim:
@@ -37,6 +38,12 @@ Em 12/08/2026 isso aconteceu duas vezes no mesmo dia. Escolha uma:
 ## O que o plano DEVE conter, além das tarefas
 
 ```markdown
+⚠️ **Onde o git é cego, a parede não existe.** Em 12/08/2026 achei 73 arquivos de código
+do frontend (`frontend/src/lib`, incluindo `pdf.ts`) engolidos pela regra `lib/` do bloco de
+virtualenv Python: `git status` calado, `git show HEAD:` respondendo "exists on disk, but not
+in HEAD". Dois terminais podiam se sobrescrever ali sem sinal nenhum. **Status vazio pode
+significar "livre" ou "invisível" — são opostos.**
+
 ## Território
 Vou tocar: caminho/a.py, caminho/b.py
 NÃO vou tocar: modules/financial/services/**  (T1 está na cadeia do caixa)
