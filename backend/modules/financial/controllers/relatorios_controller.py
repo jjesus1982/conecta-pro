@@ -887,26 +887,73 @@ async def get_balanco_patrimonial(
     db: AsyncSession = Depends(get_session),  # noqa: ARG001 — idem
     _current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Balanço Patrimonial — 501 HONESTO enquanto não houver Patrimônio Líquido no razão.
+    """Balanço Patrimonial a partir do razão REAL (`accounting_entries`).
 
-    Antes lia `fin_journal_entries` (11 linhas) e devolvia ativo=0, passivo=0, PL=0
-    com o aviso "Sem dados contábeis". Isso AFIRMA que a empresa não tem ativo —
-    e ela tem R$171.861,22 só no Banco Inter, no razão real (`accounting_entries`).
+    Era 501 honesto até 13/08/2026, e o motivo era verdadeiro: o razão não tinha
+    NENHUM lançamento no grupo 3.x, e derivar o PL por diferença (Ativo − Passivo)
+    seria inventar número contábil.
 
-    Não dá para delegar como o balancete: um balanço exige Ativo = Passivo + PL, e o
-    razão real não tem NENHUM lançamento no grupo 3.x (PL). Medido em 2026-08-11:
-    grupo 1.x=459 lançamentos, 2.x=2048, 4.x=97, 5.x=1848, **3.x=0**. Derivar o PL
-    por diferença (Ativo − Passivo) seria inventar número contábil.
+    O que mudou: a apuração de resultado passou a existir
+    (`apuracao_resultado.apurar`). O PL não é mais derivado por diferença — ele é
+    ESCRITURADO: cada competência fechada encerra 4.x e 5.x contra
+    `3.2.1.01 Lucros ou Prejuízos Acumulados`. 42 competências encerradas,
+    R$-200.904,64 levados ao PL, e a conta de passagem 3.3.1.01 voltou a zero.
 
-    Enquanto isso, o balancete real (`/balancete`, `/balancete-real`) entrega saldo
-    por conta a partir dos lançamentos de verdade.
+    ⚠️ O que continua NÃO SABIDO e vem declarado na resposta, não escondido:
+    capital social e lucros acumulados até 31/12/2025 só existem no balanço
+    fechado pelo contador. Enquanto não entrarem, o PL aqui é só o resultado que
+    ESTE razão conhece — por isso `pl_completo: false`.
     """
-    raise HTTPException(
-        status_code=501,
-        detail=("Balanço Patrimonial ainda não disponível: o razão não tem lançamento no "
-                "grupo 3.x (Patrimônio Líquido), e balanço sem PL não fecha. Use o balancete "
-                "(/api/v1/financial/relatorios/balancete), que sai dos lançamentos reais."),
-    )
+    linhas = (await db.execute(_sql("""
+        WITH mov AS (
+            SELECT conta_debito AS conta, valor AS v FROM accounting_entries
+             WHERE data_lancamento <= :ate
+            UNION ALL
+            SELECT conta_credito, -valor FROM accounting_entries
+             WHERE data_lancamento <= :ate
+        )
+        SELECT left(conta, 1) AS grupo, round(sum(v), 2) AS saldo
+        FROM mov GROUP BY 1 ORDER BY 1
+    """), {"ate": data_referencia})).fetchall()
+    g = {r[0]: float(r[1] or 0) for r in linhas}
+    ativo = round(g.get("1", 0.0), 2)
+    passivo = round(-g.get("2", 0.0), 2)
+    pl_escriturado = round(-g.get("3", 0.0), 2)
+    resultado_aberto = round(-g.get("4", 0.0) - g.get("5", 0.0), 2)
+    dif = round(ativo - (passivo + pl_escriturado + resultado_aberto), 2)
+
+    contas = (await db.execute(_sql("""
+        WITH mov AS (
+            SELECT conta_debito AS conta, valor AS v FROM accounting_entries
+             WHERE data_lancamento <= :ate
+            UNION ALL
+            SELECT conta_credito, -valor FROM accounting_entries
+             WHERE data_lancamento <= :ate
+        )
+        SELECT conta, round(sum(v), 2) AS saldo FROM mov
+        GROUP BY 1 HAVING abs(sum(v)) > 0.005 ORDER BY conta
+    """), {"ate": data_referencia})).fetchall()
+    nomes = {r[0]: r[1] for r in (await db.execute(_sql(
+        "SELECT code, name FROM fin_accounting_accounts"))).fetchall()}
+
+    return {
+        "data_referencia": str(data_referencia),
+        "ativo": ativo,
+        "passivo": passivo,
+        "patrimonio_liquido": pl_escriturado,
+        "resultado_do_periodo_em_curso": resultado_aberto,
+        "fecha": abs(dif) < 0.01,
+        "diferenca": dif,
+        # Declarado, não escondido: o PL aqui é só o que ESTE razão conhece.
+        "pl_completo": False,
+        "aviso": ("O PL é o resultado escriturado por este razão. Capital social e lucros "
+                  "acumulados até 31/12/2025 vêm do balanço fechado pelo contador e ainda "
+                  "não foram registrados — quando entrarem, o PL sobe e a contrapartida é "
+                  "3.9.9.01 Saldo de Abertura a Identificar."),
+        "contas": [{"conta": c, "nome": nomes.get(c, "(não mapeada no plano)"),
+                    "saldo": float(s)} for c, s in contas],
+        "fonte": "accounting_entries (razão real) + apuração de resultado por competência",
+    }
 
 
 async def _get_balanco_patrimonial_obsoleto(

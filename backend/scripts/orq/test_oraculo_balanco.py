@@ -1,0 +1,125 @@
+"""Oráculo do balanço: Ativo = Passivo + PL, e a apuração não fica pela metade.
+
+Em 13/08/2026 o razão tinha **zero lançamentos no grupo 3.x**. Receita e despesa
+acumulavam desde 2022 sem nunca serem encerradas: o patrimônio existia escondido
+dentro das contas de resultado, onde ninguém o lê como patrimônio, e 2027 somaria
+em cima de 2026.
+
+O que este oráculo trava:
+  (a) o balanço FECHA — Ativo = Passivo + PL + resultado ainda aberto;
+  (b) a conta de passagem `3.3.1.01` volta a ZERO. Ela recebe receita e despesa
+      no encerramento e se esvazia na mesma operação; saldo sobrando significa
+      apuração pela metade — e o balanço fecharia mentindo, porque o valor está
+      pendurado no PL sem ter saído do resultado;
+  (c) competência FECHADA não fica com saldo de resultado em aberto;
+  (d) nenhum lançamento em conta 3.x DESATIVADA. `3.1.1 Portaria`, `3.1.2
+      Vigilância`, `3.1.3 Limpeza` e `3.2.1 ISS 5%` estavam dentro do PL — linha
+      de serviço e alíquota de imposto no lugar de patrimônio. Foram desativadas
+      (não apagadas: outro razão as referencia por FK), e voltar a usá-las é
+      regressão.
+
+Roda:
+    docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_balanco.py
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from datetime import date
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from sqlalchemy import text  # noqa: E402
+
+from core.database import async_session_factory  # noqa: E402
+
+TOLERANCIA = 0.01
+
+
+async def _saldo(db, prefixo: str) -> float:
+    """Saldo DEVEDOR do grupo (débitos − créditos)."""
+    return float((await db.execute(text(
+        f"SELECT coalesce(sum(CASE WHEN conta_debito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
+        f"     - coalesce(sum(CASE WHEN conta_credito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
+        f"FROM accounting_entries"))).scalar() or 0)
+
+
+async def main() -> None:
+    falhas: list[str] = []
+    async with async_session_factory() as db:
+        # ── (a) o balanço fecha ──────────────────────────────────────────────
+        ativo = await _saldo(db, "1")
+        passivo = -await _saldo(db, "2")
+        pl = -await _saldo(db, "3")
+        resultado = -await _saldo(db, "4") - await _saldo(db, "5")
+        dif = round(ativo - (passivo + pl + resultado), 2)
+        if abs(dif) > TOLERANCIA:
+            falhas.append(
+                f"balanço NÃO fecha por R$ {dif:,.2f} — ativo R$ {ativo:,.2f} contra "
+                f"passivo R$ {passivo:,.2f} + PL R$ {pl:,.2f} + resultado R$ {resultado:,.2f}")
+        else:
+            print(f"OK balanço fecha: ativo R$ {ativo:,.2f} = passivo R$ {passivo:,.2f} "
+                  f"+ PL R$ {pl:,.2f} + resultado em curso R$ {resultado:,.2f}")
+
+        # ── (b) a conta de passagem está vazia ───────────────────────────────
+        passagem = round(await _saldo(db, "3.3.1.01"), 2)
+        if abs(passagem) > TOLERANCIA:
+            falhas.append(
+                f"conta de apuração 3.3.1.01 com saldo de R$ {passagem:,.2f} — a apuração "
+                f"ficou pela metade e o balanço fecha mentindo")
+        else:
+            print("OK conta de apuração vazia: a apuração não ficou pela metade")
+
+        # ── (c) competência fechada sem resultado em aberto ──────────────────
+        hoje = date.today()
+        # O saldo tem que somar OS DOIS LADOS: o encerramento CREDITA 5.x e DEBITA
+        # 4.x, então uma fórmula que só olha `conta_debito LIKE '5%'` enxerga a
+        # despesa original e ignora a baixa — e acusa competência já encerrada.
+        # (Foi o que aconteceu na primeira versão: 42 falsos positivos.)
+        abertas = (await db.execute(text("""
+            WITH mov AS (
+                SELECT periodo_competencia AS comp, conta_debito AS conta, valor AS v
+                  FROM accounting_entries WHERE periodo_competencia IS NOT NULL
+                UNION ALL
+                SELECT periodo_competencia, conta_credito, -valor
+                  FROM accounting_entries WHERE periodo_competencia IS NOT NULL
+            )
+            SELECT comp, round(sum(v), 2) AS saldo
+            FROM mov
+            WHERE comp < :mes AND (conta LIKE '4%' OR conta LIKE '5%')
+            GROUP BY 1 HAVING abs(sum(v)) > 0.01 ORDER BY 1
+        """), {"mes": f"{hoje:%Y-%m}"})).mappings().all()
+        if abertas:
+            falhas.append(
+                f"{len(abertas)} competência(s) FECHADA(s) com resultado em aberto: "
+                f"{', '.join(a['comp'] for a in abertas[:6])} — rode a apuração")
+        else:
+            print("OK toda competência fechada foi encerrada contra o PL")
+
+        # ── (d) conta desativada do PL não volta a ser usada ─────────────────
+        mortas = (await db.execute(text("""
+            SELECT c.code, count(*) AS n
+            FROM fin_accounting_accounts c
+            JOIN accounting_entries a
+              ON a.conta_debito = c.code OR a.conta_credito = c.code
+            WHERE c.code LIKE '3%' AND c.status <> 'ACTIVE'
+            GROUP BY 1
+        """))).mappings().all()
+        if mortas:
+            falhas.append(
+                "lançamento em conta de PL DESATIVADA: "
+                + ", ".join(f"{m['code']} ({m['n']})" for m in mortas)
+                + " — linha de serviço/alíquota não é patrimônio")
+        else:
+            print("OK nenhuma conta desativada do PL voltou a ser usada")
+
+    if falhas:
+        for f in falhas:
+            print(f"FALHOU: {f}")
+        raise AssertionError(f"{len(falhas)} invariante(s) do balanço quebrada(s)")
+    print("TEST oraculo_balanco PASS")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
