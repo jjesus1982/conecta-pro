@@ -36,9 +36,11 @@ email-validator==2.2.0
 
 # Utils
 python-dotenv==1.0.1
-httpx==0.25.0
-httpcore==0.18.0
-h11==0.14.0
+httpx==0.28.1        # >=0.27 exigido pelo edge-tts 7.x (modo voz)
+h2==4.1.0            # extra http2 do httpx: `pip wheel --no-deps` NAO carrega extras,
+                     # entao httpx[http2] virava httpx puro e o edge-tts quebrava em runtime
+httpcore==1.0.9      # h11>=0.16 — a pilha antiga travava o build
+h11==0.16.0
 wsproto==1.2.0
 python-dateutil==2.9.0
 psutil==5.9.8
