@@ -270,6 +270,15 @@ app.conf.beat_schedule = {
         "options": {"queue": "gov.batch"},
     },
 
+    # Encerra a competência anterior contra o PL. Dia 5 — depois de a NFS-e do mês
+    # fechado ter entrado. Sem isto, 4.x e 5.x acumulam para sempre e o balanço
+    # não fecha: foi assim que 42 competências ficaram abertas desde 2022.
+    "financeiro-apurar-competencia": {
+        "task": "financial.apurar_competencia",
+        "schedule": crontab(hour=9, minute=0, day_of_month=5),
+        "options": {"queue": "gov.batch"},
+    },
+
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",

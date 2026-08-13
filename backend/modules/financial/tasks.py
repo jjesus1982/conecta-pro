@@ -255,6 +255,39 @@ def gerar_recebiveis_mes_task(self):
         raise self.retry(exc=exc)
 
 
+@app.task(name="financial.apurar_competencia", bind=True, max_retries=1)
+def apurar_competencia_task(self):
+    """Encerra a competência ANTERIOR contra o PL, todo dia 5.
+
+    Dia 5 e não dia 1: a escrituração do extrato roda 08:40 e a NFS-e do mês
+    fechado ainda pode entrar nos primeiros dias. Apurar cedo demais encerraria
+    uma competência incompleta, e apuração é idempotente mas não retroage.
+
+    Idempotente por documento_ref = APURACAO-{competência}-{conta}. NÃO move
+    dinheiro: é escrituração."""
+    from datetime import date
+
+    from modules.financial.services.apuracao_resultado import apurar, saldo_da_apuracao
+
+    try:
+        hoje = date.today()
+        ant = date(hoje.year, hoje.month, 1).toordinal() - 1
+        comp = f"{date.fromordinal(ant):%Y-%m}"
+        r = apurar(comp, preview=False)
+        # A conta de passagem tem que voltar a zero. Se sobrou, a apuração ficou
+        # pela metade e o balanço fecharia mentindo — grita agora, não no mês que vem.
+        sobra = saldo_da_apuracao()
+        if abs(sobra) > 0.01:
+            raise RuntimeError(
+                f"apuração de {comp} ficou pela metade: 3.3.1.01 com saldo de R$ {sobra:,.2f}")
+        logger.info("[Financial Task] apurar_competencia %s: %s contas, resultado %s",
+                    comp, r.get("contas_encerradas"), r.get("resultado"))
+        return {k: v for k, v in r.items() if k != "linhas"}
+    except Exception as exc:
+        logger.error("[Financial Task] apurar_competencia error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(name="financial.escriturar_extrato", bind=True, max_retries=1)
 def escriturar_extrato_task(self):
     """Lança no razão a movimentação bancária que ainda não tem lançamento.
