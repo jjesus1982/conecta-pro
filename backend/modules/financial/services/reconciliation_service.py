@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
 TOLERANCE = Decimal("0.01")
 TOLERANCE_PCT = Decimal("0.02")  # 2% para matching flexível
+# Janela de retenção do RECEBÍVEL: o título é bruto, o cliente paga líquido.
+RETENCAO_PISO = Decimal("0.80")   # ISS 5% + INSS 11% = ~84% no pior caso; 80% dá folga
+RETENCAO_TETO = Decimal("1.005")  # ninguém paga mais que a nota
+
+# Palavras que dizem o TIPO da pessoa jurídica, não QUAL ela é.
+_GENERICOS = {
+    "CONDOMINIO", "CONDOMÍNIO", "RESIDENCIAL", "EDIFICIO", "EDIFÍCIO", "EMPRESARIAL",
+    "LTDA", "EIRELI", "MEI", "COMERCIO", "COMÉRCIO", "SERVICOS", "SERVIÇOS",
+    "EMPRESA", "ASSOCIACAO", "ASSOCIAÇÃO", "CENTRO", "CLUBE",
+}
 DATE_WINDOW = 3  # dias para matching exato
 DATE_WINDOW_FLEX = 7  # dias para matching flexível
 
@@ -152,10 +162,17 @@ def _atualizar_contraparte(tx_id: str, nome: str, cnpj: str, cur) -> None:
         )
 
 
-def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) -> dict:
+def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False,
+                        permitir_reconciliado: bool = False) -> dict:
     """
     Tenta conciliar uma transação bancária específica.
     Retorna dict com status, tipo_match e referência conciliada.
+
+    `permitir_reconciliado`: reprocessa mesmo o que já está rotulado 'conciliado'.
+    Existe porque o rótulo e o VÍNCULO se separaram: 5 entradas do Cora somando
+    R$100.699,77 estavam "conciliado" com `receivable_payment_id` vazio — o rótulo
+    dizia feito e nenhum título tinha sido baixado. Quem chama isto tem que ter
+    olhado o vínculo primeiro; não é para uso geral.
 
     `permitir_justificado`: um débito CLASSIFICADO ('justificado') continua sendo
     o pagamento de alguma nota. Enquanto o contas-a-pagar era casca, não havia
@@ -168,7 +185,7 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
     cur.execute(
         """
         SELECT id, transaction_date, transaction_type, amount, description,
-               reconciliation_status, reconciliation_id
+               reconciliation_status, reconciliation_id, counterparty_name
         FROM bank_transactions
         WHERE id = %s
         """,
@@ -178,7 +195,10 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
     if not tx:
         return {"erro": "Transação não encontrada"}
 
-    _bloqueio = ("conciliado",) if permitir_justificado else ("conciliado", "justificado")
+    if permitir_reconciliado:
+        _bloqueio = ()
+    else:
+        _bloqueio = ("conciliado",) if permitir_justificado else ("conciliado", "justificado")
     if tx["reconciliation_status"] in _bloqueio:
         return {"status": "ja_conciliado", "reconciliation_id": str(tx["reconciliation_id"] or "")}
 
@@ -201,8 +221,12 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
     data_min_flex = tx_date - timedelta(days=DATE_WINDOW_FLEX)
     data_max_flex = tx_date + timedelta(days=DATE_WINDOW_FLEX)
 
-    # Extrair nome e CNPJ da contraparte da descrição
-    nome_contraparte = _extrair_nome_contraparte(descricao)
+    # Extrair nome e CNPJ da contraparte. `counterparty_name` VEM PRIMEIRO: no Cora a
+    # descrição é a justificativa que o Jordan digita no app ("[CORA] Serviço de Agente
+    # de Portaria") e não nomeia ninguém — quem paga está só nesta coluna. Lendo apenas
+    # a descrição, TODA entrada do Cora ficava sem nome, e sem nome não há match forte:
+    # R$100.699,77 de agosto/2026 passaram batido por isso.
+    nome_contraparte = (tx["counterparty_name"] or "").strip() or _extrair_nome_contraparte(descricao)
     cnpj_contraparte = _lookup_cnpj_por_nome(nome_contraparte, cur) if nome_contraparte else ""
 
     # Extrair CNPJ diretamente da descrição (se houver padrão numérico)
@@ -224,7 +248,11 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
         # foram removidas: risco de baixar a conta ERRADA = fabricar baixa.
         match = None
         tipo_match = ""
+        # O token tem que DISCRIMINAR, não ser o mais comprido: "CONDOMINIO IDEAL
+        # FLORES" dava `CONDOMINIO`, que casa com todo condomínio da carteira — dois
+        # candidatos, unicidade quebrada, nada baixava. Tira as palavras de tipo antes.
         _tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", (nome_contraparte or "")) if len(w) >= 4]
+        _tokens = [w for w in _tokens if w.upper() not in _GENERICOS] or _tokens
         _tok = max(_tokens, key=len) if _tokens else ""
         # Janela ±30d p/ pagável: fornecedores net-30 pagam ~30d ANTES do vencimento (débito antecede
         # o due_date). Nome + valor exato + ÚNICO é forte; a guarda de unicidade rejeita ambíguos mesmo
@@ -326,14 +354,25 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
         match = None
         tipo_match = ""
 
-        # Auto-baixa de recebível SÓ com match FORTE (espelha o débito): valor exato ±R$0,01 +
-        # data ±30d + NOME do pagador (contraparte) no recebível (customer_name/descrição) +
-        # candidato ÚNICO. Por quê: valor-só e ±2% casam demais — um PIX de OUTRO cliente baixaria
-        # o recebível errado = fabricar. Removidas as estratégias CNPJ-placeholder, valor-só e fuzzy.
-        # Sem nome que confere → NÃO auto-baixa (fica requires_justification / baixa manual).
+        # Auto-baixa de recebível SÓ com match FORTE: data ±30d + NOME do pagador
+        # (contraparte) no recebível + candidato ÚNICO. O que protege contra baixar o
+        # título errado é o NOME somado à unicidade — não o centavo. Por isso o valor
+        # entra como JANELA DE RETENÇÃO, não como igualdade:
+        #
+        # o título é BRUTO e o cliente paga LÍQUIDO. ISS 5% + INSS 11% tiram até ~16%,
+        # e quem não retém paga 100%. Medido em agosto/2026: Michelangelo 99%,
+        # Villa Dei Fiori 99%, Prime Arena 90%, Laranjeiras 87%. Exigindo bruto exato
+        # NENHUM cliente com retenção jamais baixava — a carteira acusava R$152.077,82
+        # vencidos com o dinheiro já nas duas contas. Piso em 80% (folga sobre os 84%
+        # do pior caso), teto em 100,5% (ninguém paga mais que a nota; a sobra seria
+        # juro, e aí não é auto-baixa).
         _rec_dmin = tx_date - timedelta(days=30)
         _rec_dmax = tx_date + timedelta(days=30)
+        # O token tem que DISCRIMINAR, não ser o mais comprido: "CONDOMINIO IDEAL
+        # FLORES" dava `CONDOMINIO`, que casa com todo condomínio da carteira — dois
+        # candidatos, unicidade quebrada, nada baixava. Tira as palavras de tipo antes.
         _tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", (nome_contraparte or "")) if len(w) >= 4]
+        _tokens = [w for w in _tokens if w.upper() not in _GENERICOS] or _tokens
         _tok = max(_tokens, key=len) if _tokens else ""
         if _tok:
             cur.execute(
@@ -341,17 +380,21 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
                 SELECT id, description, gross_value, net_value, due_date, status
                 FROM receivable_accounts
                 WHERE status = 'pendente'
-                  AND ABS(gross_value - %s) <= %s
+                  AND gross_value > 0
+                  AND %s BETWEEN gross_value * %s AND gross_value * %s
                   AND due_date BETWEEN %s AND %s
                   AND lower(coalesce(customer_name,'') || ' ' || coalesce(description,'')) LIKE lower(%s)
                 LIMIT 2
                 """,
-                (float(valor_abs), float(TOLERANCE), _rec_dmin, _rec_dmax, f"%{_tok}%"),
+                (float(valor_abs), float(RETENCAO_PISO), float(RETENCAO_TETO),
+                 _rec_dmin, _rec_dmax, f"%{_tok}%"),
             )
             _cands = cur.fetchall()
             if len(_cands) == 1:
                 match = _cands[0]
-                tipo_match = "valor_data_nome_unico"
+                _bruto = float(_cands[0]["gross_value"])
+                tipo_match = ("valor_data_nome_unico" if abs(_bruto - float(valor_abs)) <= float(TOLERANCE)
+                              else f"liquido_data_nome_unico ({float(valor_abs) / _bruto * 100:.0f}% do bruto)")
 
         if match:
             rec_id = match["id"]
@@ -377,10 +420,11 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False) ->
                     payment_date = %s,
                     data_recebimento = %s,
                     transacao_bancaria_id = %s,
+                    paid_value = %s,
                     updated_at = NOW()
                 WHERE id = %s
                 """,
-                (tx_date, tx_date, tx_id, str(rec_id)),
+                (tx_date, tx_date, tx_id, float(valor_abs), str(rec_id)),
             )
             conn.commit()
             return {
@@ -457,6 +501,132 @@ def conciliar_saidas(limite: int = 2000) -> dict:
     conn.close()
     return {"baixados_auto": baixados, "sem_match_ou_ambiguo": sem_match,
             "erros": erros, "total_saidas": len(tx_ids)}
+
+
+def conciliar_recebiveis(limite: int = 2000) -> dict:
+    """Auto-baixa de RECEBÍVEIS — só entradas (amount>0), match forte (nome + único),
+    valor dentro da janela de retenção.
+
+    Existe separado de `conciliar_saidas` porque a seleção é outra: aqui NÃO dá para
+    pular `reconciliation_status = 'conciliado'`. Em agosto/2026 havia 5 entradas do
+    Cora somando R$100.699,77 marcadas "conciliado" com `receivable_payment_id` VAZIO —
+    marcadas por outro caminho, sem baixar título nenhum. Um filtro por status as
+    pularia para sempre e a carteira seguiria acusando vencido com o dinheiro na conta.
+    O critério certo é o VÍNCULO, não o rótulo: entrada sem título amarrado ainda tem
+    trabalho a fazer.
+    """
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM bank_transactions
+        WHERE amount > 0
+          AND receivable_payment_id IS NULL
+        ORDER BY transaction_date DESC
+        LIMIT %s
+        """,
+        (limite,),
+    )
+    tx_ids = [str(r[0]) for r in cur.fetchall()]
+    cur.close()
+
+    baixados = sem_match = erros = 0
+    for tx_id in tx_ids:
+        try:
+            r = conciliar_transacao(tx_id, conn, permitir_reconciliado=True)
+            if r.get("tipo") == "credito_receivable" and r.get("status") == "conciliado":
+                baixados += 1
+            else:
+                sem_match += 1
+        except Exception as exc:  # noqa: BLE001 — uma tx nunca derruba o batch
+            erros += 1
+            logger.warning("[conciliacao] entrada %s falhou: %s", tx_id, exc)
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001, S110
+                pass
+    parciais = _baixar_recebiveis_parcelados(conn)
+    conn.close()
+    return {"baixados_auto": baixados, "baixados_parcelados": parciais,
+            "sem_match_ou_ambiguo": sem_match,
+            "erros": erros, "total_entradas": len(tx_ids)}
+
+
+def _baixar_recebiveis_parcelados(conn) -> int:
+    """Segunda fase: título quitado em MAIS DE UM PIX.
+
+    O Prime Arena pagou R$33.479,60 em 11/08 com dois PIX — R$26.714,26 e R$3.452,85.
+    Nenhum dos dois alcança sozinho o piso de retenção (80%), então o casamento uma-a-uma
+    não vê nada e o título fica "vencido" com o dinheiro na conta. Somando os dois: 90%.
+
+    Mesmo cerco da fase 1, no conjunto: MESMO pagador, janela de ±5 dias, todas as
+    entradas ainda sem título, e a SOMA dentro da janela de retenção. Se o pagador tiver
+    mais de um título pendente aberto, não baixa — aí a soma é ambígua e adivinhar seria
+    fabricar.
+    """
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, customer_name, gross_value, due_date
+        FROM receivable_accounts
+        WHERE status = 'pendente' AND gross_value > 0 AND coalesce(customer_name,'') <> ''
+        """
+    )
+    baixados = 0
+    for rec in cur.fetchall():
+        tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", rec["customer_name"]) if len(w) >= 4]
+        tokens = [w for w in tokens if w.upper() not in _GENERICOS] or tokens
+        if not tokens:
+            continue
+        tok = max(tokens, key=len)
+        # O pagador não pode ter outro título pendente: com dois em aberto, não dá para
+        # saber qual a soma quita.
+        cur.execute(
+            """
+            SELECT count(*) AS n FROM receivable_accounts
+            WHERE status = 'pendente'
+              AND lower(coalesce(customer_name,'')) LIKE lower(%s)
+            """,
+            (f"%{tok}%",),
+        )
+        if (cur.fetchone() or {}).get("n", 0) != 1:
+            continue
+        cur.execute(
+            """
+            SELECT id, amount, transaction_date FROM bank_transactions
+            WHERE amount > 0 AND receivable_payment_id IS NULL
+              AND transaction_date BETWEEN %s AND %s
+              AND lower(coalesce(counterparty_name,'')) LIKE lower(%s)
+            """,
+            (rec["due_date"] - timedelta(days=5), rec["due_date"] + timedelta(days=5), f"%{tok}%"),
+        )
+        txs = cur.fetchall()
+        if len(txs) < 2:
+            continue
+        soma = sum(Decimal(str(t["amount"])) for t in txs)
+        bruto = Decimal(str(rec["gross_value"]))
+        if not (bruto * RETENCAO_PISO <= soma <= bruto * RETENCAO_TETO):
+            continue
+        ultima = max(txs, key=lambda t: t["transaction_date"])
+        for t in txs:
+            cur.execute(
+                "UPDATE bank_transactions SET reconciliation_status='conciliado', "
+                "receivable_payment_id=%s, reconciled_at=%s, requires_justification=FALSE, "
+                "updated_at=NOW() WHERE id=%s",
+                (rec["id"], t["transaction_date"], t["id"]),
+            )
+        cur.execute(
+            "UPDATE receivable_accounts SET status='paga', payment_date=%s, data_recebimento=%s, "
+            "transacao_bancaria_id=%s, paid_value=%s, updated_at=NOW() WHERE id=%s",
+            (ultima["transaction_date"], ultima["transaction_date"], ultima["id"],
+             float(soma), rec["id"]),
+        )
+        conn.commit()
+        baixados += 1
+        logger.info("[conciliacao] %s quitado por %d entradas somando R$ %.2f",
+                    rec["customer_name"], len(txs), float(soma))
+    cur.close()
+    return baixados
 
 
 def conciliar_justificados(limite: int = 4000) -> dict:

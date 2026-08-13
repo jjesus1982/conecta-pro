@@ -167,6 +167,11 @@ def auto_baixa_pagaveis_task(self):
     try:
         from modules.financial.services import reconciliation_service as _rec
         result = _rec.conciliar_saidas()
+        # As ENTRADAS junto, no mesmo beat: sem isto a carteira acusava R$152.077,82
+        # vencidos com o dinheiro já nas duas contas — o título é BRUTO, o cliente paga
+        # LÍQUIDO, e o casamento exigia o centavo exato. Não é o mesmo laço porque a
+        # seleção é outra (vínculo, não rótulo).
+        result["recebiveis"] = _rec.conciliar_recebiveis()
         logger.info("[Financial Task] auto_baixa_pagaveis: %s", result)
         return result
     except Exception as exc:
