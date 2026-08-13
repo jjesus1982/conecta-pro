@@ -946,15 +946,47 @@ async def get_balanco_patrimonial(
         "diferenca": dif,
         # Declarado, não escondido: o PL aqui é só o que ESTE razão conhece.
         "pl_completo": False,
-        "aviso": ("O PL é o resultado escriturado por este razão. Capital social e lucros "
-                  "acumulados até 31/12/2025 vêm do balanço fechado pelo contador e ainda "
-                  "não foram registrados — quando entrarem, o PL sobe e a contrapartida é "
-                  "3.9.9.01 Saldo de Abertura a Identificar."),
+        # O capital SUBSCRITO é fato público na Receita (BrasilAPI) e entra aqui como
+        # informação, NÃO como lançamento: subscrito ≠ integralizado. Quanto entrou de
+        # verdade só o contrato social diz, e postar R$600 mil como integralizado seria
+        # fabricar patrimônio. Fica nomeado para que a lacuna tenha tamanho em vez de
+        # ser um "falta alguma coisa" genérico.
+        "capital_social_subscrito": await _capital_social_subscrito(),
+        "aviso": ("O PL é o resultado escriturado por este razão. Falta UM número para "
+                  "fechá-lo: quanto do capital social subscrito foi INTEGRALIZADO (o "
+                  "subscrito está aqui, vindo da Receita). Lucros acumulados até "
+                  "31/12/2025 vêm do balanço do contador. Quando entrarem, a "
+                  "contrapartida é 3.9.9.01 Saldo de Abertura a Identificar."),
         "contas": [{"conta": c, "nome": nomes.get(c, "(não mapeada no plano)"),
                     "saldo": float(s)} for c, s in contas],
         "fonte": "accounting_entries (razão real) + apuração de resultado por competência",
     }
 
+
+
+async def _capital_social_subscrito() -> dict:
+    """Capital social SUBSCRITO de cada CNPJ, direto da Receita (BrasilAPI, com cache).
+
+    Fato público, não estimativa. Entra no balanço como INFORMAÇÃO: subscrito é o que
+    os sócios se comprometeram a pôr; integralizado é o que puseram. Só o segundo vira
+    patrimônio, e só o contrato social diz quanto foi. Falhar aqui não pode derrubar o
+    balanço — sem rede, devolve o que sabe e diz que não consultou.
+    """
+    from modules.integrations.brasilapi.client import BrasilAPIClient
+
+    out: dict = {"fonte": "Receita Federal via BrasilAPI", "integralizado": None,
+                 "observacao": "subscrito ≠ integralizado — o integralizado vem do contrato social"}
+    cli = BrasilAPIClient()
+    for cnpj, slug in (("35710481000103", "eletronica"), ("66014833000110", "patrimonial")):
+        try:
+            r, _cache = await cli.get_cnpj(cnpj)
+            out[slug] = float(r.capital_social or 0)
+        except Exception as exc:  # noqa: BLE001 — balanço nunca cai por consulta externa
+            out[slug] = None
+            out.setdefault("erros", []).append(f"{slug}: {type(exc).__name__}")
+    valores = [v for k, v in out.items() if k in ("eletronica", "patrimonial") and v]
+    out["total"] = round(sum(valores), 2) if valores else None
+    return out
 
 async def _get_balanco_patrimonial_obsoleto(
     data_referencia: date,
