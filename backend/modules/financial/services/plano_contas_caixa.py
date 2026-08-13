@@ -141,6 +141,14 @@ def contrapartida_entrada(descricao: str, documento: str | None = None,
         return "1.1.9.01", "transferência de outra empresa do grupo"
     if cat in ("transferência", "transferencia", "transferencia_interna"):
         return "1.1.9.01", "transferência entre contas próprias — não é receita"
+    # Empréstimo RECEBIDO aumenta o passivo; não é cliente pagando. O sistema já
+    # sabia classificar a DEVOLUÇÃO (saída → 2.1.6.01) e não sabia a entrada, então
+    # dinheiro emprestado virava "recebimento de cliente": R$12.000 da Denise
+    # Teixeira em 06/07/2026 entraram assim, e a justificativa da devolução de
+    # 11/08 ("Devolução de empréstimo tomado da Denise Teixeira") denuncia. Com a
+    # família emprestando para a empresa, isso repete.
+    if cat in ("emprestimo_tomado", "emprestimo_recebido", "emprestimo"):
+        return "2.1.6.01", "empréstimo recebido — aumenta o passivo, não é receita"
     if cat in ("recebimento_cliente", "receita_cliente"):
         return "1.1.2.01", "recebimento de cliente (categoria do extrato)"
     if any(x in d for x in _ENTRADA_CLIENTE):
