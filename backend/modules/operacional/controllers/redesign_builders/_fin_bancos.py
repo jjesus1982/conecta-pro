@@ -131,6 +131,64 @@ async def build_bancos(db, out: dict) -> None:
         import logging
         logging.getLogger(__name__).warning("[classificar-saidas] %s", _e)
 
+    # ── Corrigir classificação: o caminho de volta ──────────────────────────
+    # Classificar é decidir uma vez; corrigir é admitir que a decisão estava errada.
+    # Faltava a segunda: o R$1.500/mês para a mãe do Jordan estava como "Fornecedor"
+    # quando é dívida pessoal dele paga pela empresa. Sem esta tela, corrigir era
+    # UPDATE na mão — sem rastro e sem refletir no razão.
+    try:
+        from modules.financial.services.classificacao_saidas_service import (
+            listar_grupos_classificados,
+        )
+
+        _cc = await listar_grupos_classificados(db, minimo=500.0, limite=250)
+        _cg = _cc["grupos"]
+        _copts = [{"value": "", "label": "Escolha a categoria correta…"}] + _cc["categorias"]
+        _crows = []
+        for g in _cg:
+            _crows.append({
+                "cells": [
+                    t(g["contraparte"][:44], 600, "#0F1B3A"),
+                    t(str(g["movimentacoes"])),
+                    t(brl(g["valor"]), 600),
+                    (b(f"{g['categorias_distintas']} categorias", "warn")
+                     if g["categorias_distintas"] > 1 else b(g["categoria_label"], "ok")),
+                    t(f"{g['quem'][:18]} · {g['quando']}"),
+                ],
+                "edit": {
+                    "title": f"Corrigir: {g['contraparte'][:40]}",
+                    "endpoint": "/api/v1/redesign/action/corrigir-classificacao",
+                    "method": "POST",
+                    "btnLabel": "Corrigir",
+                    "btnStyle": "outline",
+                    "submitLabel": "Corrigir classificação",
+                    "fields": [
+                        {"key": "contraparte", "label": "Contraparte", "type": "text",
+                         "value": g["contraparte"], "span": "span 2", "readOnly": True},
+                        {"key": "categoria", "label": "Categoria CORRETA*", "type": "select",
+                         "span": "span 2", "value": "", "options": _copts},
+                        {"key": "motivo", "label": "Por que estava errada?*", "type": "textarea",
+                         "span": "span 2", "value": "",
+                         "placeholder": "Ex.: é empréstimo pessoal do sócio, não despesa da empresa"},
+                    ],
+                },
+            })
+        out["corrigir-classificacao"] = {
+            "title": "Corrigir classificação de saída",
+            "sub": (f"{len(_cg)} contrapartes já classificadas (grupos ≥ R$500). Use quando a "
+                    f"categoria estiver ERRADA. Exige motivo e guarda a categoria anterior. "
+                    f"O razão é reposto só em competência ABERTA — o que já foi fechado fica "
+                    f"como foi fechado. Contraparte com mais de uma categoria aparece em "
+                    f"laranja: é o sinal clássico de classificação errada."),
+            "cta": "—", "type": "table", "searchHint": "Buscar contraparte…",
+            "cols": ["Contraparte", "Mov.", "Valor", "Categoria atual", "Quem classificou"],
+            "grid": "2.2fr 0.6fr 1fr 1.4fr 1.6fr",
+            "rows": _crows,
+        }
+    except Exception as _e:  # noqa: BLE001 — tela nunca derruba o módulo
+        import logging
+        logging.getLogger(__name__).warning("[corrigir-classificacao] %s", _e)
+
     # ── 2ª passada: débitos JÁ CLASSIFICADOS podem virar baixa PROVADA ────────────
     out["conciliar-classificados"] = {
         "title": "Reconciliar débitos já classificados",

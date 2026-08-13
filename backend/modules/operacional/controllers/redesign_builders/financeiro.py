@@ -2657,6 +2657,38 @@ async def _rd_classificar_saidas(current_user: CurrentActiveUser, payload: dict 
     }
 
 
+@router.post("/action/corrigir-classificacao")
+async def _rd_corrigir_classificacao(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Troca a categoria de um grupo JÁ classificado — exige motivo, guarda a anterior.
+
+    `classificar-saidas` só toca no que ainda não tem categoria (protege decisão humana
+    de ser sobrescrita). Faltava o caminho inverso: consertar o que foi classificado
+    ERRADO. Repõe o lançamento no razão, mas só em competência ABERTA — o passado fica
+    como foi fechado. NÃO move dinheiro: é rótulo, não pagamento."""
+    from modules.financial.services.classificacao_saidas_service import corrigir_classificacao_grupo
+
+    contraparte = str(payload.get("contraparte") or "").strip()
+    categoria = str(payload.get("categoria") or "").strip()
+    motivo = str(payload.get("motivo") or "").strip()
+    if not categoria:
+        raise HTTPException(status_code=400, detail="Escolha a categoria correta.")
+    quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "sistema"
+    r = await corrigir_classificacao_grupo(db, contraparte=contraparte, categoria=categoria,
+                                           motivo=motivo, responsavel=str(quem))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível corrigir.")
+    _fechado = (f" {r['lancamentos_em_periodo_fechado']} lançamento(s) em competência FECHADA "
+                f"não foram tocados." if r["lancamentos_em_periodo_fechado"] else "")
+    return {
+        "ok": True,
+        "message": (f"{r['corrigidas']} movimentação(ões) de {r['contraparte'][:30]} "
+                    f"corrigidas de '{', '.join(r['anteriores'])}' para {r['categoria_label']} "
+                    f"— R$ {r['valor']:,.2f}. {r['lancamentos_repostos']} lançamento(s) "
+                    f"repostos no razão.{_fechado}"),
+        "corrigidas": r["corrigidas"], "valor": r["valor"],
+    }
+
+
 @router.post("/action/conciliar-classificados")
 async def _rd_conciliar_classificados(current_user: CurrentActiveUser, payload: dict = Body(default={})) -> dict:
     """Segunda passada sobre os débitos JÁ CLASSIFICADOS ('justificado').

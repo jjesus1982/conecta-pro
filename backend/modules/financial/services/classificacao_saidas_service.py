@@ -263,6 +263,133 @@ async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: st
             "classificadas": len(r), "valor": total}
 
 
+async def listar_grupos_classificados(db: AsyncSession, *, minimo: float = 0.0,
+                                      limite: int = 250) -> dict:
+    """Saídas JÁ classificadas, agrupadas por contraparte — a matéria-prima da correção.
+
+    Espelha `listar_grupos`, trocando `IS NULL` por `IS NOT NULL`. Separado de propósito:
+    a tela de classificar mostra o que falta decidir; esta mostra o que já foi decidido e
+    pode estar errado. Misturar as duas faria o mutirão parecer maior do que é.
+
+    Grupo com MAIS DE UMA categoria aparece marcado: é o sintoma clássico de classificação
+    errada — "Salario julho" já esteve como `(sem)`, `fornecedor` E `salario` ao mesmo tempo.
+    """
+    rows = (await db.execute(text(f"""
+        WITH com AS (
+            SELECT {_SQL_CONTRAPARTE} AS contraparte,
+                   count(*) AS n, sum(abs(amount)) AS valor,
+                   min(transaction_date)::date AS de, max(transaction_date)::date AS ate,
+                   count(DISTINCT justificativa_categoria) AS n_cats,
+                   max(justificativa_categoria) AS cat,
+                   max(justificativa_responsavel) AS quem,
+                   max(justificativa_data)::date AS quando
+            FROM bank_transactions
+            WHERE amount < 0 AND justificativa_categoria IS NOT NULL
+            GROUP BY 1
+            HAVING sum(abs(amount)) >= :minimo
+        )
+        SELECT * FROM com ORDER BY valor DESC LIMIT :limite
+    """), {"minimo": minimo, "limite": limite})).mappings().all()
+
+    grupos = []
+    for r in rows:
+        grupos.append({
+            "contraparte": r["contraparte"].strip(),
+            "movimentacoes": int(r["n"]),
+            "valor": round(float(r["valor"]), 2),
+            "periodo": f"{r['de']} a {r['ate']}",
+            "categoria": r["cat"],
+            "categoria_label": dict(CATEGORIAS).get(r["cat"], r["cat"] or "—"),
+            "categorias_distintas": int(r["n_cats"]),
+            "quem": r["quem"] or "—",
+            "quando": str(r["quando"] or "—"),
+        })
+    return {"grupos": grupos, "categorias": [{"value": k, "label": v} for k, v in CATEGORIAS]}
+
+
+async def corrigir_classificacao_grupo(db: AsyncSession, *, contraparte: str, categoria: str,
+                                       motivo: str, responsavel: str) -> dict:
+    """Troca a categoria de um grupo JÁ classificado. Exige motivo e guarda a anterior.
+
+    `classificar_grupo` se recusa a tocar no que já tem categoria — guard certo, ele
+    protege decisão humana de ser sobrescrita por regra automática. Mas não existia
+    caminho nenhum para consertar uma classificação ERRADA, e classificação errada
+    acontece: o R$1.500/mês para a mãe do Jordan estava como "Fornecedor — serviço ou
+    material" quando é dívida pessoal dele paga pela empresa (conta de sócio, não
+    despesa). Corrigir na mão, direto no banco, não deixa rastro nem reflete no razão.
+
+    Duas coisas que este caminho faz e a correção manual não fazia:
+      • guarda a categoria ANTERIOR e o motivo dentro da justificativa — quem olhar
+        depois vê que houve troca, por quem e por quê;
+      • REPÕE o lançamento no razão, mas SÓ no período aberto. Competência fechada não
+        se mexe: o rótulo passa a valer dali para a frente e o passado fica como foi
+        fechado. Sem isso a etiqueta diria "sócio" e o razão seguiria dizendo "despesa".
+    """
+    from modules.financial.services.periodo_contabil import periodo_fechado
+    from modules.financial.services.plano_contas_caixa import contrapartida_saida
+
+    if categoria not in CATEGORIAS_VALIDAS:
+        return {"ok": False, "erro": f"categoria inválida: {categoria!r}"}
+    alvo = (contraparte or "").strip()
+    if len(alvo) < 3:
+        return {"ok": False, "erro": "contraparte muito curta para casar com segurança"}
+    motivo = (motivo or "").strip()
+    if len(motivo) < 10:
+        return {"ok": False, "erro": ("escreva o motivo da correção (mínimo 10 letras) — "
+                                      "trocar categoria de dinheiro sem dizer por quê é o "
+                                      "que faz ninguém confiar no número depois")}
+
+    label = dict(CATEGORIAS)[categoria]
+    rows = (await db.execute(text(f"""
+        SELECT id::text AS id, abs(amount) AS valor,
+               coalesce(justificativa_categoria,'(sem)') AS antiga
+        FROM bank_transactions
+        WHERE amount < 0 AND justificativa_categoria IS NOT NULL
+          AND trim({_SQL_CONTRAPARTE}) = trim(:alvo)
+    """), {"alvo": alvo})).mappings().all()
+    if not rows:
+        return {"ok": False, "erro": (f"nenhuma saída JÁ classificada para {alvo[:40]!r} — "
+                                      f"use a tela de classificar, não a de corrigir")}
+    if all(r["antiga"] == categoria for r in rows):
+        return {"ok": False, "erro": f"o grupo já está como {label!r} — nada a corrigir"}
+
+    anteriores = sorted({r["antiga"] for r in rows})
+    for r in rows:
+        await db.execute(text("""
+            UPDATE bank_transactions SET
+                justificativa_categoria = :cat,
+                justificativa = :just,
+                justificativa_responsavel = :resp,
+                justificativa_data = NOW(),
+                updated_at = NOW()
+            WHERE id = CAST(:id AS uuid)
+        """), {"cat": categoria, "id": r["id"], "resp": responsavel,
+               "just": f"{label} — CORRIGIDO de '{r['antiga']}' por {responsavel}: {motivo[:180]}"})
+
+    # Razão: só o que ainda está em competência ABERTA.
+    repostos, intocados = 0, 0
+    lanc = (await db.execute(text("""
+        SELECT a.id::text AS id, a.data_lancamento AS dia, coalesce(bt.description,'') AS desc
+        FROM accounting_entries a JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
+        WHERE bt.id = ANY(CAST(:ids AS uuid[]))
+    """), {"ids": [r["id"] for r in rows]})).mappings().all()
+    for l in lanc:
+        if periodo_fechado(l["dia"]):
+            intocados += 1
+            continue
+        conta, _m = contrapartida_saida(categoria, l["desc"])
+        await db.execute(text(
+            "UPDATE accounting_entries SET conta_debito = :c, updated_at = NOW(), "
+            "historico = historico || ' [corrigido para ' || :cat || ']' WHERE id = CAST(:i AS uuid)"),
+            {"c": conta, "cat": categoria, "i": l["id"]})
+        repostos += 1
+    await db.commit()
+    return {"ok": True, "contraparte": alvo, "categoria": categoria, "categoria_label": label,
+            "anteriores": anteriores, "corrigidas": len(rows),
+            "valor": round(sum(float(r["valor"]) for r in rows), 2),
+            "lancamentos_repostos": repostos, "lancamentos_em_periodo_fechado": intocados}
+
+
 async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str,
                             preview: bool = True) -> dict:
     """Aplica em massa as classificações que a REGRA já sabe.
