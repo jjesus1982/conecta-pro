@@ -225,6 +225,61 @@ def propor_baixa_pendentes_task(self):
         raise self.retry(exc=exc)
 
 
+async def _propor_cobranca_vencidos(session) -> dict:
+    """Para cada recebível REALMENTE vencido, cria um rascunho com a mensagem de cobrança
+    pronta — o humano aprova e envia pelo canal dele.
+
+    A régua (`regua_cobranca_service`) existia completa e NINGUÉM a chamava: nenhuma task,
+    nenhum beat. Inadimplência real era silêncio. Em 13/08/2026 sobravam R$4.500 de fato
+    devidos (Hawk Eye e Green Hills, confirmados pelo Jordan) e o sistema não dizia nada.
+
+    NÃO envia ao cliente: mensagem a cliente real é gate humano — é a mesma regra que faz
+    o v1 da régua entregar o texto pronto em vez de disparar. Idempotente por título+nível:
+    subir de 'lembrete' para 'notificação formal' gera rascunho novo; repetir o mesmo nível
+    no dia seguinte, não.
+    """
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho
+    from modules.financial.services.regua_cobranca_service import montar_fila_cobranca
+
+    fila = await montar_fila_cobranca(session)
+    criados = 0
+    for item in fila:
+        try:
+            r = await criar_rascunho(
+                session, None,
+                tipo="financeiro_cobranca", modulo="financeiro",
+                titulo=f"Cobrar {item['cliente'][:40]} — R$ {item['valor']:,.2f} "
+                       f"({item['dias']}d de atraso)",
+                resumo=(f"Vencido em {item['vencimento']}, nível {item['nivel']}, canal sugerido "
+                        f"{item['canal']}. Mensagem pronta abaixo — aprovar NÃO envia nada ao "
+                        f"cliente: registra a tentativa e libera o texto para você mandar.\n\n"
+                        f"{item['mensagem']}"),
+                payload={"receivable_id": item["id"], "valor": item["valor"],
+                         "nivel": item["nivel"], "canal": item["canal"],
+                         "mensagem": item["mensagem"], "origem": "regua_cobranca"},
+                gate="🟡", requires_otp=False, roles_aprovador=("admin",),
+                idempotency_key=f"cobranca:{item['id']}:{item['nivel']}")
+            if isinstance(r, dict) and r.get("status") == "rascunho" and not r.get("duplicado"):
+                criados += 1
+        except Exception as _e:  # noqa: BLE001 — um item nunca derruba o lote
+            logger.warning("[Financial Task] propor_cobranca %s: %s", item.get("id"), _e)
+    return {"propostos": criados, "vencidos_na_fila": len(fila),
+            "total_vencido": round(sum(i["valor"] for i in fila), 2)}
+
+
+@app.task(name="financial.propor_cobranca_vencidos", bind=True, max_retries=1)
+def propor_cobranca_vencidos_task(self):
+    """Propõe cobrança dos recebíveis vencidos na Central (propor→aprovar).
+    NÃO manda mensagem a cliente: entrega o texto pronto para o humano enviar."""
+    try:
+        result = _run_async(_propor_cobranca_vencidos)
+        logger.info("[Financial Task] propor_cobranca_vencidos: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] propor_cobranca_vencidos error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(name="financial.registrar_obrigacoes", bind=True, max_retries=1)
 def registrar_obrigacoes_task(self):
     """Registra como PAGÁVEL o que a empresa deve, a partir das fontes reais

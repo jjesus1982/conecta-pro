@@ -769,6 +769,18 @@ if os.getenv("CONECTA_PROPOR_BAIXA", "0").strip().lower() in ("1", "true", "sim"
         "options": {"queue": "gov.batch"},
     }
 
+# Cobrança dos vencidos: 08:50, DEPOIS da conciliação das entradas (08:45 no
+# auto_baixa_pagaveis) — cobrar quem já pagou é pior do que não cobrar. Fica
+# LIGADO por padrão, ao contrário do propor-baixa: a fila é pequena porque só
+# entra o que sobreviveu à conciliação, e inadimplência silenciosa custa caro.
+# NÃO envia nada ao cliente; entrega o texto pronto na Central.
+if os.getenv("CONECTA_PROPOR_COBRANCA", "1").strip().lower() in ("1", "true", "sim"):
+    app.conf.beat_schedule["financeiro-propor-cobranca-vencidos"] = {
+        "task": "financial.propor_cobranca_vencidos",
+        "schedule": crontab(hour=8, minute=50),
+        "options": {"queue": "gov.batch"},
+    }
+
 
 
 if __name__ == "__main__":
