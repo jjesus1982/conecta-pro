@@ -214,6 +214,107 @@ class DocumentShareRepository:
         await self.session.flush()
         return result
 
+    # ── Contratos que `document_share_service` já chamava e nunca existiram aqui ────
+    # Cinco métodos abaixo + `regenerate_token`: o service os invocava e a rota respondia
+    # com AttributeError. As tabelas estão vazias (`ged_document_shares` = 0), então
+    # ninguém tinha batido nisso ainda — mas as 23 rotas de compartilhamento ESTÃO
+    # montadas e os componentes do front (`DocumentShareDialog.tsx`) as alcançam.
+
+    async def get_by_document_and_recipient(
+        self,
+        document_id: str,
+        recipient_id: str | None = None,
+        recipient_email: str | None = None,
+    ) -> DocumentShare | None:
+        """Compartilhamento ATIVO deste documento para este destinatário, se houver.
+
+        Serve ao "já existe compartilhamento para este destinatário?" do service. Casa por
+        id OU por e-mail porque os dois caminhos existem no model (`shared_with_id` e
+        `shared_with_email`) e um convite por e-mail nasce sem id de usuário.
+
+        Sem `recipient_id` nem `recipient_email` devolve None em vez de o primeiro
+        compartilhamento do documento — casar "qualquer um" com "nenhum informado" faria o
+        service concluir que já existe e recusar um compartilhamento legítimo.
+        """
+        if not recipient_id and not recipient_email:
+            return None
+        for share in await self.get_by_document(document_id, active_only=True):
+            if recipient_id and share.shared_with_id == recipient_id:
+                return share
+            if recipient_email and share.shared_with_email == recipient_email:
+                return share
+        return None
+
+    async def accept(self, share_id: str, user_id: str) -> DocumentShare | None:
+        """Destinatário aceita um compartilhamento PENDENTE.
+
+        Só sai de `pendente`: aceitar o que já foi revogado ou expirou ressuscitaria acesso
+        a documento — e acesso indevido a documento não se desfaz depois.
+        """
+        share = await self.get_by_id(share_id)
+        if not share or share.status != ShareStatus.PENDENTE:
+            return None
+        share.status = ShareStatus.ATIVO
+        if not share.shared_with_id:
+            share.shared_with_id = user_id
+        share.record_access()
+        await self.session.flush()
+        return share
+
+    async def update_permission(self, share_id: str, permission) -> DocumentShare | None:
+        """Troca a permissão do compartilhamento pela informada.
+
+        `permissions` é uma lista JSONB, e a atribuição é feita com uma lista NOVA de
+        propósito: mutar a existente in-place não marca o campo como sujo no SQLAlchemy e a
+        troca não chegaria ao banco.
+        """
+        share = await self.get_by_id(share_id)
+        if not share:
+            return None
+        valor = getattr(permission, "value", permission)
+        share.permissions = [valor]
+        await self.session.flush()
+        return share
+
+    async def set_password(self, share_id: str, password: str) -> DocumentShare | None:
+        """Protege o compartilhamento com senha.
+
+        Mesmo hash de `verify_password` (sha256 hex) — usar outro deixaria a senha gravada
+        e nunca aceita na verificação.
+        """
+        share = await self.get_by_id(share_id)
+        if not share:
+            return None
+        share.password_hash = hashlib.sha256(password.encode()).hexdigest()
+        share.password_protected = True
+        await self.session.flush()
+        return share
+
+    async def remove_password(self, share_id: str) -> DocumentShare | None:
+        """Tira a senha. Limpa o hash junto — deixá-lo para trás guarda credencial morta."""
+        share = await self.get_by_id(share_id)
+        if not share:
+            return None
+        share.password_hash = None
+        share.password_protected = False
+        await self.session.flush()
+        return share
+
+    async def regenerate_token(self, share_id: str) -> str | None:
+        """Novo token de acesso — invalida o link antigo, que é o motivo de regenerar.
+
+        Não estava na lista de achados de `checar_repositorio` (nem esta, nem a
+        `get_by_document` do repositório de TAGS): a trava tem um ponto cego quando o
+        método existe em ALGUM repositório do módulo, mesmo que não no que `self.repository`
+        aponta. Está no relatório de 13/08.
+        """
+        share = await self.get_by_id(share_id)
+        if not share:
+            return None
+        share.share_token = secrets.token_urlsafe(32)
+        await self.session.flush()
+        return share.share_token
+
     async def verify_password(self, share_id: str, password: str) -> bool:
         """Verifica senha do compartilhamento."""
         share = await self.get_by_id(share_id)

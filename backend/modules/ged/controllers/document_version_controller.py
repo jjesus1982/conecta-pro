@@ -73,7 +73,7 @@ async def get_by_version_number(
 ) -> DocumentVersionResponse:
     """Retorna versão específica."""
     repository = DocumentVersionRepository(db)
-    version = await repository.get_by_version_number(document_id, version_number)
+    version = await repository.get_by_number(document_id, version_number)
     if not version:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Versão não encontrada")
     return DocumentVersionResponse.model_validate(version)
@@ -145,8 +145,8 @@ async def compare_versions(
     """Compara duas versões."""
     repository = DocumentVersionRepository(db)
 
-    ver_a = await repository.get_by_version_number(document_id, version_a)
-    ver_b = await repository.get_by_version_number(document_id, version_b)
+    ver_a = await repository.get_by_number(document_id, version_a)
+    ver_b = await repository.get_by_number(document_id, version_b)
 
     if not ver_a or not ver_b:
         raise HTTPException(
@@ -154,7 +154,14 @@ async def compare_versions(
             detail="Uma ou ambas versões não encontradas",
         )
 
-    compare_result = await repository.compare(ver_a.id, ver_b.id)
+    compare_result = await repository.compare_versions(ver_a.id, ver_b.id)
+    # `compare_versions` devolve `dict | None`; sem esta guarda o None virava
+    # `DocumentVersionCompare(**None)` → TypeError → 500 no lugar do 404 honesto.
+    if compare_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Não foi possível comparar as versões informadas",
+        )
     return DocumentVersionCompare(**compare_result)
 
 

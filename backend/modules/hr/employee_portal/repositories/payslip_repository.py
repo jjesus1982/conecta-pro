@@ -206,6 +206,25 @@ class PaySlipRepository:
         )
         return result.scalar() or 0
 
+    async def get_pending_ack_count(self, employee_id: UUID) -> int:
+        """Contracheques visíveis que o funcionário ainda não deu ciência.
+
+        `PaySlipService.get_employee_summary` já chamava este método e ele nunca existiu —
+        a linha respondia com AttributeError. Diferente de `get_unread_count`: aquele conta
+        quem nunca foi ABERTO (`first_viewed_at`), este conta quem foi aberto e não teve
+        CIÊNCIA registrada (`acknowledged_at`), que é o ato com valor trabalhista.
+        """
+        result = await self.db.execute(
+            select(func.count(PaySlip.id)).where(
+                and_(
+                    PaySlip.employee_id == employee_id,
+                    PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO),
+                    PaySlip.acknowledged_at.is_(None),
+                )
+            )
+        )
+        return result.scalar() or 0
+
     # ------------------------------------------------------------------
     # Escrita
     # ------------------------------------------------------------------

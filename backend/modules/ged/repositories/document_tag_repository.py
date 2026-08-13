@@ -366,6 +366,39 @@ class DocumentTagRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def set_document_tags(
+        self, document_id: str, tag_ids: list[str], created_by: str | None = None
+    ) -> bool:
+        """Deixa o documento com EXATAMENTE estas tags — tira as que sobram, põe as que faltam.
+
+        `document_tag_service.set_document_tags` já chamava este método; ele nunca existiu
+        aqui, então a rota respondia com AttributeError. Reuso `assign_to_document` e
+        `remove_from_document` em vez de escrever SQL novo: os dois já mantêm o
+        `usage_count` da tag em dia, e duplicar essa contagem era como ela ia divergir.
+        """
+        atuais = {t.id for t in await self.get_document_tags(document_id)}
+        alvo = set(tag_ids)
+        for tag_id in atuais - alvo:
+            await self.remove_from_document(document_id, tag_id)
+        for tag_id in alvo - atuais:
+            await self.assign_to_document(document_id, tag_id, created_by)
+        return True
+
+    async def merge_tags(self, source_tag_id: str, target_tag_id: str) -> int:
+        """Move os documentos da tag ORIGEM para a tag DESTINO. Devolve quantos moveu.
+
+        Quem já tinha as duas não vira linha duplicada — a associação tem chave primária
+        (document_id, tag_id), e um INSERT cego estouraria IntegrityError na primeira
+        sobreposição, justamente o caso mais provável numa mesclagem.
+        """
+        movidos = 0
+        for document_id in await self.get_documents_by_tag(source_tag_id, 0, 10_000):
+            if not await self.is_associated(target_tag_id, document_id):
+                await self.assign_to_document(document_id, target_tag_id, None)
+                movidos += 1
+            await self.remove_from_document(document_id, source_tag_id)
+        return movidos
+
     async def get_stats(self, condominium_id: str = None) -> dict:
         """Retorna estatísticas de tags."""
         query = select(DocumentTag)

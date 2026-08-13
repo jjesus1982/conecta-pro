@@ -194,7 +194,13 @@ class DocumentTagService:
         if is_associated:
             return True  # Já associada
 
-        result = await self.repository.add_to_document(tag_id, document_id)
+        # `assign_to_document(document_id, tag_id, created_by)` — NOMEADO, porque a
+        # ordem dos dois primeiros e o INVERSO do que este service usava. Trocar so o
+        # nome do metodo gravaria o documento no lugar da tag e vice-versa.
+        # `created_by` e nullable na tabela; este caminho nao recebe o usuario.
+        result = await self.repository.assign_to_document(
+            document_id=document_id, tag_id=tag_id, created_by=None
+        )
         if result:
             await self.session.commit()
             logger.info("Tag %s adicionada ao documento %s", tag_id, document_id)
@@ -210,7 +216,7 @@ class DocumentTagService:
 
     async def get_by_document(self, document_id: str) -> builtins.list[DocumentTagResponse]:
         """Retorna tags de um documento."""
-        tags = await self.repository.get_by_document(document_id)
+        tags = await self.repository.get_document_tags(document_id)
         return [_tag_to_response(t) for t in tags]
 
     async def get_documents_by_tag(self, tag_id: str, page: int = 1, page_size: int = 20) -> builtins.list[str]:
