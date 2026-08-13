@@ -419,45 +419,71 @@ MSG_SEM_REGISTRO = ("⚠️ Este vigia só enxerga o que já está no fluxo nati
 async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
     """Aviso prévio vencendo em ≤7 dias ou JÁ VENCIDO (o caso Keyson).
 
-    Fonte: termination_processes.notice_start_date + notice_period_days (o dado existe).
+    Fonte: o último dia de trabalho, por DUAS leituras — nessa ordem de precedência:
+      1. `notice_start_date + notice_period_days` (o cálculo formal do aviso);
+      2. `last_working_day` (o dado que o DP realmente preenche).
+
+    Por que as duas: em 13/08/2026 medi a taxa de preenchimento em produção —
+    `notice_start_date` 1/3, `last_working_day` 3/3. Lendo só a primeira, o KEYSON
+    (último dia 14/08, `notice_start_date` NULL) era filtrado para FORA do alarme e o
+    prazo dele venceria em silêncio. Campo esparso não é fonte: é metade de uma fonte.
+
     Vencido é CRÍTICO: cada dia trabalhado além do prazo é passivo.
     """
+    # `fim` calculado uma vez em subquery — repetir a expressão em SELECT e WHERE foi
+    # exatamente o que escondeu o COALESCE quando o campo formal era nulo.
     rows = (await db.execute(text(
-        "SELECT t.id::text AS id, e.nome AS nome, "
-        "       (t.notice_start_date + (t.notice_period_days || ' days')::interval)::date AS fim, "
-        "       ((t.notice_start_date + (t.notice_period_days || ' days')::interval)::date "
-        "        - current_date) AS dias "
-        "FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
-        "WHERE t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
-        "  AND lower(coalesce(t.status::text,'')) NOT IN ('concluido','concluído','cancelado','cancelled') "
-        "  AND (t.notice_start_date + (t.notice_period_days || ' days')::interval)::date "
-        "      <= current_date + 7"
+        "SELECT id, nome, fim, (fim - current_date) AS dias, origem FROM ("
+        "  SELECT t.id::text AS id, e.nome AS nome, "
+        "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
+        "              THEN (t.notice_start_date "
+        "                    + (t.notice_period_days || ' days')::interval)::date "
+        "              ELSE t.last_working_day END AS fim, "
+        "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
+        "              THEN 'aviso' ELSE 'ultimo_dia' END AS origem "
+        "  FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
+        "  WHERE lower(coalesce(t.status::text,'')) "
+        "        NOT IN ('completed','cancelled')"
+        ") s WHERE fim IS NOT NULL AND fim <= current_date + 7"
     ))).mappings().all()
-    # denominador honesto: quantos desligamentos existem SEM aviso registrado
+    # denominador honesto: desligamentos em curso que NENHUMA das duas leituras enxerga
     sem_registro = (await db.execute(text(
         "SELECT count(*) FROM termination_processes "
-        "WHERE notice_start_date IS NULL "
-        "AND lower(coalesce(status::text,'')) NOT IN ('concluido','concluído','cancelado','cancelled')"
+        "WHERE last_working_day IS NULL "
+        "AND (notice_start_date IS NULL OR coalesce(notice_period_days,0) = 0) "
+        "AND lower(coalesce(status::text,'')) NOT IN ('completed','cancelled')"
     ))).scalar() or 0
     return [Achado(
         correlation_id=f"dp_aviso_previo:{r['id']}:{r['fim']}",
         dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"]),
-               "vencido": int(r["dias"]) < 0, "sem_registro": int(sem_registro)},
+               "vencido": int(r["dias"]) < 0, "sem_registro": int(sem_registro),
+               "origem": r["origem"]},
     ) for r in rows]
 
 
 def _tpl_aviso_previo(d: dict) -> tuple[str, str]:
+    # O texto diz QUAL leitura achou o caso. Quando o aviso não está registrado, chamar o
+    # `last_working_day` de "aviso prévio" seria afirmar um registro que não existe — e o RH
+    # iria procurar na tela um campo vazio.
+    por_ultimo_dia = d.get("origem") == "ultimo_dia"
+    termo = "O último dia de trabalho" if por_ultimo_dia else "O aviso prévio"
     if d["vencido"]:
-        cabeca = f"🔴 Aviso prévio VENCIDO: {d['nome']}"
-        corpo = (f"O aviso prévio de {d['nome']} venceu em {d['fim']} — há {abs(d['dias'])} dia(s). "
+        cabeca = f"🔴 {'Último dia JÁ PASSOU' if por_ultimo_dia else 'Aviso prévio VENCIDO'}: {d['nome']}"
+        corpo = (f"{termo} de {d['nome']} foi em {d['fim']} — há {abs(d['dias'])} dia(s). "
                  f"Se a pessoa continua trabalhando, cada dia é passivo trabalhista. "
                  f"Formalize o desligamento ou registre a prorrogação.")
     else:
-        cabeca = f"Aviso prévio vence em {d['dias']} dia(s): {d['nome']}"
-        corpo = (f"O aviso prévio de {d['nome']} vence em {d['fim']} ({d['dias']} dia(s)). "
+        cabeca = (f"{'Último dia' if por_ultimo_dia else 'Aviso prévio vence'} "
+                  f"em {d['dias']} dia(s): {d['nome']}")
+        corpo = (f"{termo} de {d['nome']} é {d['fim']} ({d['dias']} dia(s)). "
                  f"Prepare a rescisão para não estourar o prazo.")
+    if por_ultimo_dia:
+        corpo += (" ⚠️ Este processo NÃO tem aviso prévio registrado "
+                  "(`notice_start_date` vazio) — o prazo veio do último dia de trabalho. "
+                  "Registre o aviso para o cálculo da rescisão fechar.")
     if d["sem_registro"]:
-        corpo += f" {MSG_SEM_REGISTRO} Há {d['sem_registro']} desligamento(s) sem aviso registrado."
+        corpo += (f" {MSG_SEM_REGISTRO} Há {d['sem_registro']} desligamento(s) em curso sem "
+                  f"NENHUMA data de prazo — nem aviso, nem último dia. Esses eu não enxergo.")
     return cabeca, corpo
 
 
@@ -543,6 +569,15 @@ async def _detectar_desligamento_sem_processo(db: AsyncSession) -> list[Achado]:
     `termination_processes` — e o caso Keyson provou que o desligamento pode existir no
     mundo (e no quadro da parede) sem existir no sistema. Sem esta regra, o silêncio do
     watcher de prazo seria lido como "está tudo em ordem", que é a falha original.
+
+    E este vigia tem o MESMO ponto cego que ele vigia. Medido em 13/08/2026: 25 pessoas
+    com status `demitido`/`inativo` e só 10 com data — as outras **15 não têm nem
+    `data_desligamento` nem `data_demissao`**, e o corte de 90 dias não tem o que cortar.
+    Elas não viram achado e nunca virariam.
+
+    Não invento data para elas (seria fabricação) e não jogo as 15 no sino de uma vez
+    (alarme que toca sempre ninguém lê). Levo o número JUNTO com os achados, como
+    `dp_aviso_previo_vencendo` faz: silêncio vira quantidade declarada.
     """
     rows = (await db.execute(text(
         "SELECT e.id::text AS id, e.nome AS nome, "
@@ -553,20 +588,30 @@ async def _detectar_desligamento_sem_processo(db: AsyncSession) -> list[Achado]:
         "  AND NOT EXISTS (SELECT 1 FROM termination_processes t WHERE t.employee_id = e.id) "
         "ORDER BY 3 DESC"
     ))).mappings().all()
+    # o que esta regra NÃO consegue ver: desligado pelo status, sem data nenhuma.
+    sem_data = (await db.execute(text(
+        "SELECT count(*) FROM employees "
+        "WHERE lower(coalesce(status,'')) IN ('demitido','inativo') "
+        "  AND coalesce(data_desligamento, data_demissao) IS NULL"
+    ))).scalar() or 0
     return [Achado(
         correlation_id=f"dp_desligamento_sem_processo:{r['id']}",
-        dados={"nome": r["nome"], "dt": str(r["dt"])},
+        dados={"nome": r["nome"], "dt": str(r["dt"]), "sem_data": int(sem_data)},
     ) for r in rows]
 
 
 def _tpl_desligamento_sem_processo(d: dict) -> tuple[str, str]:
-    return (
-        f"Desligamento a migrar para o fluxo nativo: {d['nome']}",
+    corpo = (
         f"{d['nome']} tem desligamento em {d['dt']} no cadastro e ainda não tem processo de "
         f"rescisão aqui — normal enquanto o Conecta PRO consome dado da Portte/eSocial e o "
         f"fluxo nativo vai sendo assumido. Vale trazer para cá: é o processo que faz o "
-        f"aviso prévio ser vigiado, o TRCT sair e o S-2299 nascer.",
+        f"aviso prévio ser vigiado, o TRCT sair e o S-2299 nascer."
     )
+    if d.get("sem_data"):
+        corpo += (f" Além destes, há {d['sem_data']} pessoa(s) com status demitido/inativo e "
+                  f"SEM data de desligamento no cadastro — essas eu não consigo datar, então "
+                  f"não sei se são recentes. Preencher a data é o que as traz para este vigia.")
+    return (f"Desligamento a migrar para o fluxo nativo: {d['nome']}", corpo)
 
 
 register(Regra(

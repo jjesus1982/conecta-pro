@@ -637,6 +637,23 @@ def _badge_status(v):
     return b(v or "—", "info")
 
 
+def _badge_prazo(fim):
+    """Dias até uma data-limite, com o tom que o RH precisa ver de longe.
+
+    Sem data não inventa urgência — diz que não há prazo registrado, que é o fato.
+    """
+    from datetime import date
+
+    if not fim:
+        return b("sem prazo", "warn")
+    dias = (fim - date.today()).days
+    if dias < 0:
+        return b(f"venceu há {abs(dias)}d", "bad")
+    if dias == 0:
+        return b("é HOJE", "bad")
+    return b(f"{dias}d", "bad" if dias <= 7 else "warn" if dias <= 30 else "info")
+
+
 def _badge_bool(v, sim="Sim", nao="Não", tone_sim="ok", tone_nao="mut"):
     return b(sim, tone_sim) if v else b(nao, tone_nao)
 
@@ -1720,15 +1737,33 @@ async def build(db, current_user=None) -> dict:
                           if (r[5] or "").lower() not in ("cancelled", "cancelada", "completed", "concluida", "concluída") else None),
         actionsfn=lambda r: _acoes_admissao(r)))
 
-    # 2) Aviso prévio — employees em aviso (query real; hoje 0 = honesto "nenhum")
+    # 2) Aviso prévio — fonte é `termination_processes`, NÃO `employees.status`.
+    #
+    # Esta tela lia `employees.status IN ('aviso_previo','aviso')`. Nenhum dos dois valores
+    # existe na coluna (o vocabulário real é ativo/inativo/demitido/pj_ativo/candidato/
+    # pj_pendente/suspenso) — a tela mostrava ZERO para sempre e o "hoje 0 = honesto
+    # 'nenhum'" do comentário antigo era falso: eram 2 processos abertos, um deles com
+    # último dia AMANHÃ. Quem tem o dado é `termination_processes`.
+    #
+    # O prazo sai das MESMAS duas leituras da regra `dp_aviso_previo_vencendo`
+    # (notifications/proativo/regras.py): aviso formal quando registrado, senão
+    # `last_working_day`. Tela e alarme lendo fontes diferentes foi o defeito original.
     await safe("aviso-previo", tbl(
-        "Aviso prévio", "Colaboradores em aviso prévio", "—",
-        ["Colaborador", "Cargo", "Admissão", "Situação"],
-        "2fr 1.4fr 1fr 0.9fr",
-        "SELECT nome, coalesce(cargo,'—'), data_admissao, status::text "
-        "FROM employees WHERE status IN ('aviso_previo','aviso') ORDER BY nome LIMIT 200",
+        "Aviso prévio", "Desligamentos em curso — ordenados pelo último dia", "—",
+        ["Colaborador", "Cargo", "Último dia", "Prazo", "Situação"],
+        "1.8fr 1.3fr 1fr 1fr 0.9fr",
+        "SELECT e.nome, coalesce(e.cargo,'—'), "
+        "       CASE WHEN t.notice_start_date IS NOT NULL "
+        "                 AND coalesce(t.notice_period_days,0) > 0 "
+        "            THEN (t.notice_start_date "
+        "                  + (t.notice_period_days || ' days')::interval)::date "
+        "            ELSE t.last_working_day END AS fim, "
+        "       t.status::text "
+        "FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
+        "WHERE lower(coalesce(t.status::text,'')) NOT IN ('completed','cancelled') "
+        "ORDER BY fim NULLS LAST, e.nome LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1]),
-                   t(_d(r[2])), _badge_status(r[3])]))
+                   t(_d(r[2])), _badge_prazo(r[2]), _badge_status(r[3])]))
 
     # 3) Ponto — gp_clock_punches
     # Ponto — registro DIÁRIO como o clássico (/hr/time-records): batidas de gp_clock_punches
