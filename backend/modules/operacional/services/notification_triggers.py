@@ -5,7 +5,7 @@ Sprint: Módulo Operacional - Sistema de Notificações Push
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -14,11 +14,9 @@ from core.database import get_db
 from modules.config.models.tenant import Tenant
 from modules.notifications.models import QueuePriority
 from modules.notifications.services.push_service import PushNotificationService
-from modules.operacional.models.employee import Employee
 from modules.operacional.models.post import Post
-from modules.operacional.models.scale import Scale
-from modules.operacional.models.shift import Shift, ShiftStatus
 from modules.operacional.models.substitution import Substitution, SubstitutionStatus
+from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +94,14 @@ class OperacionalNotificationTriggers:
                 " CAST(:extra AS jsonb), true, "
                 " (now() AT TIME ZONE 'America/Manaus'), (now() AT TIME ZONE 'America/Manaus'))"
             ),
-            {"tid": str(uid), "uid": str(uid), "title": title, "body": body,
-             "ref": ref, "extra": json.dumps(extra)},
+            {"tid": str(uid), "uid": str(uid), "title": title, "body": body, "ref": ref, "extra": json.dumps(extra)},
         )
         try:
             self.push_service.send_push_notification(
-                user_id=uid, title=title, body=body, data=extra,
+                user_id=uid,
+                title=title,
+                body=body,
+                data=extra,
                 priority=QueuePriority.HIGH,
                 action_url="/modulos/operacional/presenca",
             )
@@ -125,8 +125,13 @@ class OperacionalNotificationTriggers:
         try:
             destinatarios = self._destinatarios_operacionais()
             if not destinatarios:
-                return {"success": True, "late_employees": 0, "notifications_sent": 0,
-                        "details": [], "obs": "sem destinatários operacionais (role)"}
+                return {
+                    "success": True,
+                    "late_employees": 0,
+                    "notifications_sent": 0,
+                    "details": [],
+                    "obs": "sem destinatários operacionais (role)",
+                }
 
             # TZ CANÔNICO: a sessão do Postgres roda em UTC, então CURRENT_DATE vira o
             # dia SEGUINTE a partir das 20h de Manaus. Esta query compara a hora do
@@ -154,6 +159,9 @@ class OperacionalNotificationTriggers:
                     WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
                       AND sh.is_active = TRUE
                       AND coalesce(e.is_homologacao, false) = false  -- não alerta base de teste
+                      """
+                    + SQL_NAO_AUSENTE_HOJE  # férias / afastamento / reta final de desligamento
+                    + """
                       AND lower(coalesce(sh.status,'')) IN ('scheduled','agendado','ativo')
                       AND ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time)
                           <= (now() AT TIME ZONE 'America/Manaus') - (:tol || ' minutes')::interval
@@ -183,8 +191,13 @@ class OperacionalNotificationTriggers:
                 mins = int(r.minutes_late or 0)
                 title = "⚠ Cobertura de posto"
                 body = f"{r.nome} sem batida — {mins}min de atraso no posto {r.post_nome}."
-                extra = {"type": "late_employee", "shift_id": r.shift_id,
-                         "post": r.post_nome, "colaborador": r.nome, "minutes_late": mins}
+                extra = {
+                    "type": "late_employee",
+                    "shift_id": r.shift_id,
+                    "post": r.post_nome,
+                    "colaborador": r.nome,
+                    "minutes_late": mins,
+                }
                 # Destinatários deste turno: gerentes globais (Gonzaga/Paiva) + o LÍDER
                 # do posto (só do posto dele). Dedup por id (líder pode não estar no global).
                 recipients = list(destinatarios)
@@ -195,16 +208,29 @@ class OperacionalNotificationTriggers:
                 for uid in recipients:
                     self._enviar_alerta(uid, title, body, extra, r.shift_id)
                     notifications_sent += 1
-                details.append({"colaborador": r.nome, "post": r.post_nome,
-                                "minutes_late": mins, "leader_alertado": bool(r.leader_user_id)})
+                details.append(
+                    {
+                        "colaborador": r.nome,
+                        "post": r.post_nome,
+                        "minutes_late": mins,
+                        "leader_alertado": bool(r.leader_user_id),
+                    }
+                )
             self.db.commit()
 
             logger.info(
                 "Cobertura tenant %s: %d atrasos/ausências, %d alertas enviados a %d gerentes",
-                self.tenant_id, len(late_rows), notifications_sent, len(destinatarios),
+                self.tenant_id,
+                len(late_rows),
+                notifications_sent,
+                len(destinatarios),
             )
-            return {"success": True, "late_employees": len(late_rows),
-                    "notifications_sent": notifications_sent, "details": details}
+            return {
+                "success": True,
+                "late_employees": len(late_rows),
+                "notifications_sent": notifications_sent,
+                "details": details,
+            }
 
         except Exception as e:
             logger.error("Erro ao verificar cobertura (tenant %s): %s", self.tenant_id, e)

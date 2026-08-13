@@ -12,6 +12,7 @@ Segurança: cada passo além do CPF exige um TOKEN TEMPORÁRIO (scope='primeiro_
 emitido no /identificar — ninguém grava cadastro de outro sem passar pelo CPF.
 Grava DIRETO em `employees` (fonte única → transborda p/ DP/folha/eSocial/operacional).
 """
+
 from __future__ import annotations
 
 import json
@@ -49,28 +50,36 @@ def _emp_ativo_por_cpf(db: Session, cpf: str) -> dict[str, Any] | None:
     dig = _so_digitos(cpf)
     if len(dig) != 11:
         return None
-    row = db.execute(
-        text(
-            "SELECT CAST(id AS TEXT) AS id, nome, email, cargo, matricula "
-            "FROM employees "
-            "WHERE regexp_replace(coalesce(cpf,''), '\\D', '', 'g') = :d "
-            "  AND status = 'ativo' AND coalesce(is_homologacao, false) = false "
-            "  AND (tipo_contrato = 'clt' OR tipo_contrato IS NULL) "
-            "  AND (tipo_contrato IS DISTINCT FROM 'pj') "
-            "LIMIT 1"
-        ),
-        {"d": dig},
-    ).mappings().first()
+    row = (
+        db.execute(
+            text(
+                "SELECT CAST(id AS TEXT) AS id, nome, email, cargo, matricula "
+                "FROM employees "
+                "WHERE regexp_replace(coalesce(cpf,''), '\\D', '', 'g') = :d "
+                "  AND status = 'ativo' AND coalesce(is_homologacao, false) = false "
+                "  AND (tipo_contrato = 'clt' OR tipo_contrato IS NULL) "
+                "  AND (tipo_contrato IS DISTINCT FROM 'pj') "
+                "LIMIT 1"
+            ),
+            {"d": dig},
+        )
+        .mappings()
+        .first()
+    )
     return dict(row) if row else None
 
 
 def _dados_e_faltantes(db: Session, employee_id: str) -> tuple[dict, list[dict]]:
     """Valores atuais dos campos editáveis + lista de obrigatórios que ainda faltam."""
     cols = ", ".join(sorted(SELF_EDITABLE_FIELDS))
-    row = db.execute(
-        text(f"SELECT {cols} FROM employees WHERE CAST(id AS TEXT) = :e"),
-        {"e": employee_id},
-    ).mappings().first()
+    row = (
+        db.execute(
+            text(f"SELECT {cols} FROM employees WHERE CAST(id AS TEXT) = :e"),
+            {"e": employee_id},
+        )
+        .mappings()
+        .first()
+    )
     atuais = {k: (v if v is not None else "") for k, v in dict(row or {}).items()}
     faltantes = [
         {"campo": campo, "label": label}
@@ -107,6 +116,50 @@ class IdentificarBody(BaseModel):
     cpf: str
 
 
+def _ja_concluiu(db: Session, emp_id: str) -> bool:
+    """Primeiro acesso REALMENTE concluído = ativou E tem rosto.
+
+    Quem entrou pela contingência (sem rosto) não conta: precisa poder voltar
+    para cadastrar o rosto depois, com o DP.
+    """
+    return bool(
+        db.execute(
+            text(
+                "SELECT (primeiro_acesso_em IS NOT NULL AND face_descriptor IS NOT NULL) "
+                "FROM employees WHERE CAST(id AS TEXT)=:e"
+            ),
+            {"e": emp_id},
+        ).scalar()
+    )
+
+
+def _ativar_conta_do_funcionario(db: Session, emp_id: str, email: str, senha_hash: str) -> int:
+    """Ativa APENAS a conta de login do funcionário — a que casa com o e-mail do cadastro.
+
+    Antes isto era um UPDATE por employee_id, que pegava TODAS as contas da pessoa e
+    ressuscitava as corporativas desativadas (@conectamais.pro) a cada passagem pelo
+    fluxo. O front loga com o e-mail do cadastro, então é essa a conta que importa.
+    Só cai no employee_id quando não existe conta com esse e-mail, e ainda assim
+    sem reativar quem foi desativado de propósito.
+    """
+    upd = db.execute(
+        text(
+            "UPDATE users SET password_hash = :p, is_active = true, updated_at = now() "
+            "WHERE CAST(employee_id AS TEXT) = :e AND lower(email) = lower(:m)"
+        ),
+        {"p": senha_hash, "e": emp_id, "m": email},
+    )
+    if upd.rowcount:
+        return upd.rowcount
+    return db.execute(
+        text(
+            "UPDATE users SET password_hash = :p, updated_at = now() "
+            "WHERE CAST(employee_id AS TEXT) = :e AND is_active = true"
+        ),
+        {"p": senha_hash, "e": emp_id},
+    ).rowcount
+
+
 @router.post("/identificar")
 def identificar(body: IdentificarBody, db: Session = Depends(get_sync_db_dependency)) -> dict[str, Any]:
     """Tela 1: CPF → confirma que é funcionário ativo e devolve dados + o que falta."""
@@ -120,12 +173,22 @@ def identificar(body: IdentificarBody, db: Session = Depends(get_sync_db_depende
             detail="CPF não encontrado entre os funcionários ativos. Fale com o RH.",
         )
     atuais, faltantes = _dados_e_faltantes(db, emp["id"])
-    ja_tem_rosto = bool(
+    est = (
         db.execute(
-            text("SELECT face_descriptor IS NOT NULL FROM employees WHERE CAST(id AS TEXT)=:e"),
+            text(
+                "SELECT face_descriptor IS NOT NULL AS tem_rosto, "
+                "       primeiro_acesso_em IS NOT NULL AS ja_ativou "
+                "FROM employees WHERE CAST(id AS TEXT)=:e"
+            ),
             {"e": emp["id"]},
-        ).scalar()
+        )
+        .mappings()
+        .first()
     )
+    ja_tem_rosto = bool(est and est["tem_rosto"])
+    # Já concluiu de verdade = ativou E tem rosto. Quem ativou pela contingência (sem rosto)
+    # PRECISA voltar aqui para cadastrar o rosto — por isso não basta olhar primeiro_acesso_em.
+    ja_concluiu = bool(est and est["ja_ativou"] and est["tem_rosto"])
     return {
         "token": _token_primeiro_acesso(emp["id"], dig),
         "nome": emp["nome"],
@@ -136,6 +199,7 @@ def identificar(body: IdentificarBody, db: Session = Depends(get_sync_db_depende
         "faltantes": faltantes,
         "cadastro_completo": len(faltantes) == 0,
         "ja_tem_rosto": ja_tem_rosto,
+        "ja_concluiu": ja_concluiu,
     }
 
 
@@ -176,7 +240,9 @@ def buscar_pis(
     PIS no cadastro; se não houver API ligada, devolve encontrado=false e a pessoa
     preenche manual — NUNCA trava."""
     emp_id = _emp_do_token(authorization)
-    atual = db.execute(text("SELECT pis, cpf FROM employees WHERE CAST(id AS TEXT)=:e"), {"e": emp_id}).mappings().first()
+    atual = (
+        db.execute(text("SELECT pis, cpf FROM employees WHERE CAST(id AS TEXT)=:e"), {"e": emp_id}).mappings().first()
+    )
     if atual and str(atual.get("pis") or "").strip():
         return {"encontrado": True, "pis": atual["pis"], "fonte": "cadastro"}
     # TODO: ligar Infosimples/robô CPF→NIS. Sem API ligada ainda → manual.
@@ -207,12 +273,27 @@ def concluir(
             detail=f"Complete o cadastro antes de cadastrar o rosto — faltam: "
             f"{', '.join(f['label'] for f in faltantes)}.",
         )
-    emp = db.execute(
-        text("SELECT email, regexp_replace(coalesce(cpf,''),'\\D','','g') AS cpf FROM employees WHERE CAST(id AS TEXT)=:e"),
-        {"e": emp_id},
-    ).mappings().first()
+    emp = (
+        db.execute(
+            text(
+                "SELECT email, regexp_replace(coalesce(cpf,''),'\\D','','g') AS cpf FROM employees WHERE CAST(id AS TEXT)=:e"
+            ),
+            {"e": emp_id},
+        )
+        .mappings()
+        .first()
+    )
     if not emp or not emp["email"]:
         raise HTTPException(status_code=409, detail="Cadastro sem e-mail — fale com o RH.")
+    # PONTO 1 — não deixa refazer o cadastro inteiro. O link do primeiro acesso é o único
+    # endereço que o pessoal tem (foi o que circulou no WhatsApp), então eles voltavam nele
+    # todo dia e o fluxo rodava de novo: regravava o rosto e ressuscitava conta desativada.
+    # Quem ativou pela contingência (sem rosto) CONTINUA podendo entrar aqui p/ cadastrar.
+    if _ja_concluiu(db, emp_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Você já fez o primeiro acesso. Entre com seu e-mail e CPF — não precisa cadastrar de novo.",
+        )
     # 1) cadastra o rosto (mesmo destino do enroll do self-service)
     db.execute(
         text(
@@ -225,12 +306,8 @@ def concluir(
     )
     # 2) senha = CPF (Jordan: nunca cria senha nova) + ativa o login vinculado
     senha_hash = get_password_hash(emp["cpf"])
-    upd = db.execute(
-        text("UPDATE users SET password_hash = :p, is_active = true, updated_at = now() "
-             "WHERE CAST(employee_id AS TEXT) = :e"),
-        {"p": senha_hash, "e": emp_id},
-    )
-    if upd.rowcount == 0:
+    upd = _ativar_conta_do_funcionario(db, emp_id, emp["email"], senha_hash)
+    if upd == 0:
         raise HTTPException(status_code=409, detail="Sua conta de acesso não está criada — fale com o RH.")
     db.commit()
     return {"success": True, "email": emp["email"], "portal_url": "/modulos/meu-espaco"}
@@ -251,28 +328,37 @@ def contingencia_rosto(
             status_code=422,
             detail=f"Complete o cadastro antes — faltam: {', '.join(f['label'] for f in faltantes)}.",
         )
-    emp = db.execute(
-        text("SELECT email, regexp_replace(coalesce(cpf,''),'\\D','','g') AS cpf FROM employees WHERE CAST(id AS TEXT)=:e"),
-        {"e": emp_id},
-    ).mappings().first()
+    emp = (
+        db.execute(
+            text(
+                "SELECT email, regexp_replace(coalesce(cpf,''),'\\D','','g') AS cpf FROM employees WHERE CAST(id AS TEXT)=:e"
+            ),
+            {"e": emp_id},
+        )
+        .mappings()
+        .first()
+    )
     if not emp or not emp["email"]:
         raise HTTPException(status_code=409, detail="Cadastro sem e-mail — fale com o RH.")
     # marca rosto pendente (biometria_facial=false, sem descriptor) + registra o 1º acesso — DP cadastra o rosto depois
     db.execute(
-        text("UPDATE employees SET biometria_facial=false, "
-             "primeiro_acesso_em = COALESCE(primeiro_acesso_em, now()), updated_at=now() WHERE CAST(id AS TEXT)=:e"),
+        text(
+            "UPDATE employees SET biometria_facial=false, "
+            "primeiro_acesso_em = COALESCE(primeiro_acesso_em, now()), updated_at=now() WHERE CAST(id AS TEXT)=:e"
+        ),
         {"e": emp_id},
     )
-    upd = db.execute(
-        text("UPDATE users SET password_hash=:p, is_active=true, updated_at=now() "
-             "WHERE CAST(employee_id AS TEXT)=:e"),
-        {"p": get_password_hash(emp["cpf"]), "e": emp_id},
-    )
-    if upd.rowcount == 0:
+    # Mesma correção do /concluir: ativa só a conta do e-mail do cadastro, nunca todas
+    # as contas da pessoa — senão a corporativa desativada volta à vida.
+    upd = _ativar_conta_do_funcionario(db, emp_id, emp["email"], get_password_hash(emp["cpf"]))
+    if upd == 0:
         raise HTTPException(status_code=409, detail="Sua conta de acesso não está criada — fale com o RH.")
     db.commit()
     return {
-        "success": True, "email": emp["email"], "portal_url": "/modulos/meu-espaco", "rosto_pendente": True,
+        "success": True,
+        "email": emp["email"],
+        "portal_url": "/modulos/meu-espaco",
+        "rosto_pendente": True,
         "message": "Acesso liberado. O DP vai te ajudar a cadastrar o rosto — até lá você bate o ponto pela contingência.",
     }
 
@@ -280,8 +366,8 @@ def contingencia_rosto(
 # ─── Login por reconhecimento facial (1:N — tipo desbloqueio de celular) ─────
 router_auth = APIRouter(tags=["Portal - Login facial"])
 
-_FACE_MATCH_MAX = 0.5   # distância euclidiana máx p/ aceitar (auth estrita; enroll usa 0.68)
-_FACE_MARGIN = 0.06     # o melhor tem que ser claramente melhor que o 2º (anti-ambiguidade)
+_FACE_MATCH_MAX = 0.5  # distância euclidiana máx p/ aceitar (auth estrita; enroll usa 0.68)
+_FACE_MARGIN = 0.06  # o melhor tem que ser claramente melhor que o 2º (anti-ambiguidade)
 
 
 def _dist(a: list[float], b: list[float]) -> float:
@@ -298,13 +384,17 @@ def login_facial(body: LoginFacialBody, db: Session = Depends(get_sync_db_depend
     """Login por rosto: compara contra TODOS os funcionários ativos com rosto (1:N) e
     loga o que casar, com margem anti-ambiguidade. Sem match confiável → 401 (e-mail+CPF)."""
     alvo = body.descriptor
-    rows = db.execute(
-        text(
-            "SELECT CAST(id AS TEXT) AS id, nome, face_descriptor FROM employees "
-            "WHERE face_descriptor IS NOT NULL AND status='ativo' "
-            "  AND coalesce(is_homologacao,false)=false"
+    rows = (
+        db.execute(
+            text(
+                "SELECT CAST(id AS TEXT) AS id, nome, face_descriptor FROM employees "
+                "WHERE face_descriptor IS NOT NULL AND status='ativo' "
+                "  AND coalesce(is_homologacao,false)=false"
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     best_id = best_nome = None
     best_d = second_d = 1e9
     for r in rows:
@@ -322,12 +412,18 @@ def login_facial(body: LoginFacialBody, db: Session = Depends(get_sync_db_depend
         raise HTTPException(status_code=401, detail="Rosto não reconhecido. Entre com e-mail e CPF.")
     if second_d - best_d < _FACE_MARGIN:
         raise HTTPException(status_code=401, detail="Rosto ambíguo. Por segurança, entre com e-mail e CPF.")
-    user = db.execute(
-        text("SELECT CAST(id AS TEXT) AS id, email, name, role, is_active, "
-             " CAST(condominio_id AS TEXT) AS condominio_id "
-             "FROM users WHERE CAST(employee_id AS TEXT)=:e"),
-        {"e": best_id},
-    ).mappings().first()
+    user = (
+        db.execute(
+            text(
+                "SELECT CAST(id AS TEXT) AS id, email, name, role, is_active, "
+                " CAST(condominio_id AS TEXT) AS condominio_id "
+                "FROM users WHERE CAST(employee_id AS TEXT)=:e"
+            ),
+            {"e": best_id},
+        )
+        .mappings()
+        .first()
+    )
     if not user or not user["is_active"]:
         raise HTTPException(status_code=403, detail="Acesso ainda não ativado. Faça o primeiro acesso.")
     extra = {"email": user["email"], "role": user["role"]}
@@ -336,7 +432,9 @@ def login_facial(body: LoginFacialBody, db: Session = Depends(get_sync_db_depend
     access = create_access_token(subject=user["id"], extra_data=extra)
     refresh = create_refresh_token(subject=user["id"])
     return {
-        "access_token": access, "refresh_token": refresh, "token_type": "Bearer",
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "Bearer",
         "reconhecido": best_nome,
         "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]},
     }

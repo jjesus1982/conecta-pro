@@ -18,6 +18,8 @@ import os
 
 from sqlalchemy import text
 
+from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
+
 logger = logging.getLogger(__name__)
 
 # delta_min (minutos desde o início do turno; negativo = antes) -> modelo da mensagem
@@ -45,7 +47,8 @@ def etapa_para(delta_min: int) -> int | None:
     return delta_min if delta_min in ETAPAS else None
 
 
-SQL_PENDENTES = """
+SQL_PENDENTES = (
+    """
 SELECT sh.id::text AS shift_id, e.id::text AS employee_id, e.nome,
        coalesce(nullif(e.celular,''), nullif(e.telefone,'')) AS telefone,
        p.name AS posto,
@@ -65,6 +68,9 @@ WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
   AND e.status = 'ativo'
   AND (e.tipo_contrato = 'clt' OR e.tipo_contrato IS NULL)
   AND (e.tipo_contrato IS DISTINCT FROM 'pj')
+"""
+    + SQL_NAO_AUSENTE_HOJE
+    + """
   -- para na batida: qualquer batida válida na janela do turno cancela os lembretes
   AND NOT EXISTS (
     SELECT 1 FROM gp_clock_punches cp
@@ -80,10 +86,35 @@ WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
     WHERE l.shift_id = sh.id AND l.etapa = :etapa
   )
 """
+)
 
 
 def _so_digitos(telefone: str) -> str:
     return "".join(c for c in telefone if c.isdigit())
+
+
+def normalizar_telefone(bruto: str | None) -> str | None:
+    """Devolve só os dígitos de um telefone BR válido, ou None se não der para confiar.
+
+    O cadastro tem de tudo: '(92) 98463-5566', '92 98584-7540', '929848631485' (12
+    dígitos), '982064669' (sem DDD) e '(99) 1361-770' (curto e com DDD de outro estado).
+    Enviar para número inválido não é só desperdício: falha repetida é o gatilho clássico
+    para o WhatsApp marcar o remetente como spam — e o remetente é o número da empresa,
+    o mesmo do comercial.
+
+    Aceita 10 dígitos (fixo com DDD) ou 11 (celular com DDD). NÃO completa DDD que falta,
+    porque adivinhar DDD é mandar mensagem da empresa para um desconhecido.
+    """
+    if not bruto:
+        return None
+    dig = _so_digitos(bruto)
+    if len(dig) not in (10, 11):
+        return None
+    if dig[:2] < "11" or dig[:2] > "99":  # DDD válido no Brasil
+        return None
+    if len(dig) == 11 and dig[2] != "9":  # celular com 11 dígitos começa com 9
+        return None
+    return dig
 
 
 def _optout(db, telefone: str) -> bool:
@@ -114,6 +145,7 @@ async def rodar_lembretes(db) -> dict:
     res = {
         "enviados": 0,
         "pulados_sem_telefone": 0,
+        "pulados_telefone_invalido": 0,
         "pulados_optout": 0,
         "teto_rodada": 0,
         "falhas_envio": 0,
@@ -128,10 +160,21 @@ async def rodar_lembretes(db) -> dict:
             if etapa_para(int(r["delta_min"])) != etapa:
                 continue
 
-            tel = (r["telefone"] or "").strip()
-            if not tel:
+            bruto = (r["telefone"] or "").strip()
+            if not bruto:
                 res["pulados_sem_telefone"] += 1
                 logger.warning("[Lembrete Ponto] %s sem telefone — turno %s", r["nome"], r["shift_id"])
+                continue
+
+            tel = normalizar_telefone(bruto)
+            if not tel:
+                res["pulados_telefone_invalido"] += 1
+                logger.warning(
+                    "[Lembrete Ponto] %s com telefone INVÁLIDO no cadastro (%r) — não enviado. "
+                    "Corrigir no cadastro; não dá para adivinhar o número.",
+                    r["nome"],
+                    bruto,
+                )
                 continue
 
             if _optout(db, tel):

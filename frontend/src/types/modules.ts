@@ -103,6 +103,10 @@ export interface AccessUser {
 // Roles com acesso total ao ERP
 export const ADMIN_ROLES = ['admin', 'super_admin'];
 
+// Papéis de FUNCIONÁRIO: só enxergam o Portal do Funcionário, nunca telas de gestão.
+// 'lider' está aqui de propósito — líder de posto é funcionário (ver temAcessoGestao).
+export const PORTAL_ONLY_ROLES = ['funcionario', 'agente', 'lider'];
+
 // Área self-service do funcionário (login Google, role='funcionario').
 // Estes usuários NUNCA veem módulos de gestão — só a própria área.
 export const SELF_SERVICE_ROUTE = '/modulos/meu-espaco';
@@ -115,6 +119,28 @@ export function isSelfServiceUser(user: AccessUser | null | undefined): boolean 
   // Admin/wildcard nunca é tratado como self-service (pode ter self:portal por engano).
   if (perms.includes('all') || perms.includes('*') || ADMIN_ROLES.includes(role)) return false;
   return role === 'funcionario' || perms.includes('self:portal');
+}
+
+/**
+ * true se o usuário pode ver as telas de GESTÃO (painel /redesign e módulos administrativos).
+ *
+ * Regra do Jordan (11/08/2026): funcionário que se cadastra no primeiro acesso vê ÚNICA e
+ * exclusivamente o Portal do Funcionário. Não basta checar isSelfServiceUser, que só pega
+ * role='funcionario' — os 26 'agente' têm permissions vazio e passavam direto. Aqui a porta
+ * é positiva: só entra quem TEM permissão de gestão, em vez de tentar listar quem não tem.
+ */
+export function temAcessoGestao(user: AccessUser | null | undefined): boolean {
+  if (!user) return false;
+  const role = user.role ?? '';
+  const perms = user.permissions ?? [];
+  if (perms.includes('all') || perms.includes('*')) return true;
+  if (ADMIN_ROLES.includes(role)) return true;
+  // Papéis de FUNCIONÁRIO ficam no portal mesmo tendo permissão de módulo concedida.
+  // Inclui 'lider' por decisão do Jordan (11/08/2026): os 3 líderes de posto — Ediwilson,
+  // Erika e Antonio Walcicley — têm 'module:sst' herdado, e ainda assim só veem o portal.
+  if (PORTAL_ONLY_ROLES.includes(role)) return false;
+  if (isSelfServiceUser(user)) return false;
+  return perms.some((p) => p.startsWith('module:') || p.startsWith('gestao:'));
 }
 
 /**

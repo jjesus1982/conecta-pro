@@ -43,6 +43,67 @@ def test_sql_nao_exclui_quem_esta_sem_telefone():
     assert "celular is not null" not in sql
 
 
+def test_normalizar_telefone_aceita_formatos_do_cadastro():
+    """Os formatos que realmente aparecem no banco, todos válidos."""
+    from modules.operacional.lembrete_ponto import normalizar_telefone
+
+    assert normalizar_telefone("(92) 98463-5566") == "92984635566"
+    assert normalizar_telefone("92 98584-7540") == "92985847540"
+    assert normalizar_telefone("92984319426") == "92984319426"
+    assert normalizar_telefone("9293979268") == "9293979268"  # 10 dígitos, fixo
+
+
+def test_normalizar_telefone_recusa_os_quebrados_do_cadastro():
+    """Números reais que existem hoje e fariam o envio falhar.
+
+    Não completar DDD é decisão consciente: chutar '92' manda mensagem da empresa
+    para um desconhecido. Melhor não enviar e reportar para o RH corrigir.
+    """
+    from modules.operacional.lembrete_ponto import normalizar_telefone
+
+    assert normalizar_telefone("(99) 1361-770") is None  # 9 dígitos (Anilson)
+    assert normalizar_telefone("929848631485") is None  # 12 dígitos (Euler)
+    assert normalizar_telefone("982064669") is None  # sem DDD (Jeovane)
+    assert normalizar_telefone(None) is None
+    assert normalizar_telefone("") is None
+    assert normalizar_telefone("00987654321") is None  # DDD inexistente
+    assert normalizar_telefone("92884635566") is None  # 11 dígitos sem o 9 do celular
+
+
+def test_telefone_invalido_nao_envia_e_e_contado(monkeypatch):
+    enviados = []
+
+    async def _fake_enviar(tel, msg):
+        enviados.append(tel)
+        return True
+
+    monkeypatch.setattr(lembrete_ponto, "PONTO_LEMBRETE_ENABLED", True)
+    monkeypatch.setattr(lembrete_ponto, "_optout", lambda db, tel: False)
+    monkeypatch.setattr(lembrete_ponto, "_enviar", _fake_enviar)
+    db = _FakeDB([dict(_LINHA, telefone="(99) 1361-770")])
+    r = asyncio.run(lembrete_ponto.rodar_lembretes(db))
+    assert r["pulados_telefone_invalido"] == 1
+    assert r["enviados"] == 0
+    assert enviados == []
+
+
+def test_telefone_formatado_e_limpo_antes_de_enviar(monkeypatch):
+    """O que chega no WhatsApp tem que ser só dígito, não '(92) 98463-5566'."""
+    enviados = []
+
+    async def _fake_enviar(tel, msg):
+        enviados.append(tel)
+        return True
+
+    monkeypatch.setattr(lembrete_ponto, "PONTO_LEMBRETE_ENABLED", True)
+    monkeypatch.setattr(lembrete_ponto, "_optout", lambda db, tel: False)
+    monkeypatch.setattr(lembrete_ponto, "_enviar", _fake_enviar)
+    db = _FakeDB([dict(_LINHA, telefone="(92) 98463-5566")])
+    r = asyncio.run(lembrete_ponto.rodar_lembretes(db))
+    assert r["enviados"] == 1
+    assert enviados == ["92984635566"]
+
+
 class _FakeResult:
     def __init__(self, rows):
         self._rows = rows
