@@ -249,3 +249,88 @@ Movido por decisão do Jordan. Verificado: app importa, **4.197 rotas inalterada
 ⚠️ Meus números de referência divergem dos do Arsenal (3.338 / 493). Não investiguei —
 provavelmente rota×método vs caminho único. Usei o invariante **"não muda"**, não o
 absoluto.
+
+---
+
+# Adendo 2 — PL, apuração e DRE (13/08, autonomia total)
+
+## O maior achado: o DRE lia um plano de contas que não existe mais
+
+`_dre_simplificado` foi escrito para um plano antigo onde `4.1.1` era *pessoal*. No plano
+atual **4.x é RECEITA e 5.x é DESPESA**. Julho aparecia com:
+
+```
+(−) Custos dos Serviços Prestados   R$ -378.286,98
+```
+
+…que é **exatamente a receita do mês**. Era o "DRE é ficção plausível" com nome e sobrenome
+— e passava em todos os portões porque nenhum número era absurdo à primeira vista.
+
+Reescrito sobre o razão. Agora bate com a apuração por **dois caminhos independentes**:
+
+| competência | DRE | resultado levado ao PL |
+|---|---|---|
+| 2026-06 | −R$157.402,16 | −R$157.402,16 |
+| 2026-07 | **+R$122.303,07** | +R$122.303,07 |
+
+Também saíram duas fabricações: a **estimativa de receita por MRR** quando não havia NFS-e
+(mês sem nota tem receita zero, e é isso que se diz), e o **IR sobre prejuízo** (a fórmula
+aplicava o adicional de 10% sobre `ebitda − 20.000` mesmo com EBITDA negativo).
+
+⭐ **Julho deu LUCRO de R$122.303,07.** O "prejuízo de R$242 mil" era o acumulado
+contaminado pelo período arqueológico.
+
+## PL: de zero lançamentos a balanço que fecha
+
+| | antes | depois |
+|---|---|---|
+| lançamentos no grupo 3.x | **0** | 110 contas encerradas, 42 competências |
+| balanço patrimonial | **501 honesto** | fecha, `dif R$0,00` |
+| competências encerradas | 0 | todas as fechadas |
+
+```
+ATIVO              R$  27.629,39
+PASSIVO            R$ 266.894,30
+PL                 R$ -200.904,64
+resultado em curso R$ -38.360,27
+A − (P+PL+R) = R$ 0,00
+```
+
+O PL **não é derivado por diferença** — isso seria inventar. É escriturado: cada competência
+encerra 4.x e 5.x contra `3.2.1.01`, via a conta de passagem `3.3.1.01`, que volta a zero.
+
+O que continua **não sabido vem declarado** (`pl_completo: false`): capital social e lucros
+acumulados até 31/12/2025 só existem no balanço do contador. A contrapartida já tem lugar
+reservado — `3.9.9.01 Saldo de Abertura a Identificar`.
+
+**Grupo 3 refeito.** `3.1.1 Portaria`, `3.1.2 Vigilância`, `3.1.3 Limpeza` e `3.2.1 ISS 5%`
+estavam dentro do PL. ⚠️ **Desativei em vez de apagar**: a primeira versão fazia DELETE
+conferindo `accounting_entries` e quebrou na FK `fk_line_account` — as contas são
+referenciadas por `fin_journal_entry_lines`, o **outro** razão. Conferir um razão e apagar
+com base nele é como se perde história em base com duas escrituras.
+
+**Beat mensal** (dia 5, 09:00) encerra a competência anterior e **falha se a conta de
+passagem não zerar** — apuração pela metade faz o balanço fechar mentindo.
+
+## Transitória — resultado do ataque
+
+| | início | fim |
+|---|---|---|
+| transitória do período aberto | R$9.157,43 | **R$2.923,67** (2% da despesa) |
+| classificação das saídas | 83,6% | **87,4%** |
+
+Três categorias criadas a pedido do Jordan: `aluguel` (5.2.1.03, já existia),
+`comissao` (5.2.1.05, nova) e `equipamento` (**1.2.1.01, ATIVO**). "Parcelamento" não virou
+categoria: é forma de pagamento, não natureza, e colidiria com `Parcelamento Simples`, que é
+tributo. Criado o grupo 1.2 (imobilizado), que não existia.
+⚠️ 1.2.1.01 **nasce sem depreciação** — dívida declarada, vai junto com a política contábil.
+
+Dois bugs de normalização, ambos de família: **acento** (`Ângela` virava `" NGELA"` e todo
+funcionário com acento escapava) e **`" SA"` dentro de `" SANTOS"`** (5 pessoas viraram
+"fornecedor — razão social de empresa").
+
+## Oráculos do financeiro: 0 → 2
+
+`test_oraculo_extrato` (4 invariantes) e `test_oraculo_balanco` (5). Ambos provados em
+vermelho. O do balanço nasceu com **42 falsos positivos** no invariante (c): a fórmula só
+olhava `conta_debito LIKE '5%'` e não via o encerramento, que **credita** 5.x.
