@@ -377,3 +377,81 @@ não era. Consertar as duas juntas, com teste, não no meio de uma verificação
 
 ⭐ A lição: **eu troquei um defeito conhecido e medido (R$96) por um risco maior** (duplicação
 em massa) sem teste antes. O oráculo pegou, mas foi o oráculo, não eu.
+
+---
+
+# Adendo 4 — junho e julho não eram duplicata, eram um mês só
+
+O Jordan viu o painel e disse: *"no faturamento de julho de 2026 está com R$378.286,98
+acho que está errado... uma diferença de mais de 100 mil de junho para julho, não é
+verdade."* Estava certo, e minha primeira leitura estava errada.
+
+**O que eu concluí primeiro (errado).** Achei dois pares tomador+valor entre os dois CNPJs
+e li como dupla emissão na transição. O Jordan confirmou que as notas da Eletrônica estavam
+em cancelamento, e eu marquei `cancelada=TRUE` em n109 e n111. Julho caiu para
+R$269.900,06 — mas junho ficou em R$163.529,67, ainda 100 mil abaixo. **O degrau não sumiu,
+mudou de mês.** Isso já era o sinal de que a explicação estava errada: uma duplicata some,
+não muda de lugar.
+
+**O que o Jordan corrigiu.** *"em junho, as notas do Laranjeiras e Ideal saíram pela
+Eletrônica, e julho deveria ter saído apenas pela Patrimonial. Não caiu para 169k, manteve
+na mesma média dos meses anteriores."*
+
+**A prova, no feed do ADN.** Puxei a distribuição dos dois CNPJs em leitura pura. O feed da
+Eletrônica **não tem nenhuma nota do Laranjeiras ou do Ideal Flores em junho** — n96 a n107
+cobrem 01/06 a 30/06 e nenhum dos dois aparece. As primeiras desde maio são n109 (09/07) e
+n111 (14/07). São o faturamento de JUNHO, emitido com atraso. Julho saiu pela Patrimonial,
+n13 e n21. Reverti o `cancelada` das duas: o ADN diz que estão vivas, e estão.
+
+A aritmética fecha sozinha:
+
+| competência | notas | faturamento |
+|---|---|---|
+| 2026-03 | 12 | R$ 268.886,96 |
+| 2026-04 | 14 | R$ 271.971,46 |
+| 2026-05 | 15 | R$ 262.604,96 |
+| **2026-06** | **16** | **R$ 271.916,59** |
+| **2026-07** | **14** | **R$ 269.900,06** |
+
+**A causa real.** `dCompet`, o campo de competência que o ADN devolve, vem preenchido com a
+**data de emissão** — não com o mês do serviço. Nota emitida com atraso cai no mês errado, e
+como junho e julho foram os meses da transição de CNPJ, os dois viraram um só. O defeito
+sempre esteve lá; só ficou visível quando duas notas grandes atrasaram no mesmo mês.
+
+**O conserto.** `competencia_origem_adn` guarda o que o gov mandou e marca a linha como
+corrigida por nós. O sync faz **recarga limpa diária** (DELETE + reinsert), então sem uma
+cláusula a mais a correção morreria às 08:30 do dia seguinte — o DELETE agora preserva as
+linhas corrigidas, e o `ON CONFLICT` não sobrescreve a competência delas. Provado rodando o
+sync completo depois da correção: as duas continuaram em 2026-06.
+
+**Dois invariantes novos** em `test_oraculo_fiscal_painel`: competência corrigida que ande
+para o **futuro** ou que mude o **total do ano** quebra o oráculo — a correção pode
+redistribuir entre meses, nunca criar receita. E pedido de cancelamento parado há 30+ dias
+(`cancelamento_solicitado_em`, hoje com 0 linhas) — existe para que um cancelamento
+REJEITADO no gov não tire receita do faturamento em silêncio.
+
+**A lição.** Duas linhas com o mesmo cliente e o mesmo valor não são duplicata por serem
+parecidas. A diferença entre "a mesma coisa cobrada duas vezes" e "duas competências
+cobradas do mesmo jeito" não está nos dados da nota — está no calendário do serviço, que a
+nota não carrega. Fui de padrão a conclusão sem consultar a fonte autoritativa; o feed do
+ADN, que respondeu em uma consulta, tinha a resposta inteira. **O sinal de que eu estava
+errado veio de graça e eu quase passei por ele: o buraco não fechou, andou de mês.**
+
+## Os outros dois números da tela
+
+**Recebíveis vencidos R$152.077,82** — não soma contas bancárias. São 7 títulos de contrato
+vencidos em 10/08: Patrimonial R$141.577,82 (Ideal Flores, Prime Arena, Mirante ×2) +
+Eletrônica R$10.500,00 (Parque Gelain, Hawk Eye, Green Hill).
+
+**"A pagar nos próximos 7 dias R$0,00"** — está certo, e é o sintoma. Não existe **uma
+única** conta a pagar com vencimento futuro. Das 76 pendentes, a mais recente venceu 10/08 e
+a mais antiga 03/01; 46 delas (R$98.523,43) nem sabem de qual CNPJ são. É o retrato de pagar
+pelo app do banco: o sistema só vê a conta depois que o dinheiro saiu.
+
+## Planilha das lacunas
+
+`auditoria/planilhas/lacunas_financeiro_20260813.xlsx` — 7 abas com as linhas REAIS do banco;
+azul é o que o sistema sabe, laranja é o que só o Jordan sabe. Notas de julho (2), saídas de
+agosto sem classificação (37), fornecedores PJ sem CNPJ (60), contas a pagar fixas, as 76
+contas antigas em aberto, a carteira de recebíveis e o bloco de patrimônio que trava o
+`pl_completo: false`.

@@ -103,7 +103,7 @@ def main(destino: str) -> None:
     ws.cell(1, 2, "O que falta para fechar o financeiro").font = Font(size=16, bold=True, color=NAVY)
     ws.cell(2, 2, "Coluna AZUL = o sistema já sabe (não mexer). Coluna LARANJA = só você sabe.").font = Font(italic=True)
     guia = [
-        ("1", "Notas de julho", "Duas notas do mesmo serviço, uma por CNPJ. Decidir qual vale. Sem isso o faturamento de julho fica R$108 mil acima do real."),
+        ("1", "Notas de julho", "Duas notas do mesmo CNPJ, mesmo cliente e mesmo valor dentro de julho. Confirmar se são dois serviços mesmo."),
         ("2", "Saídas a classificar", "Cada saída de agosto que o sistema não soube enquadrar. Você diz o que é; ele aprende o padrão e não pergunta de novo."),
         ("3", "Fornecedores PJ", "CNPJ e valor de cada prestador. Sem CNPJ o pagamento não vira despesa dedutível nem casa com nota."),
         ("4", "Contas a pagar fixas", "Por isso 'a pagar nos próximos 7 dias' mostra R$0,00: não existe nenhuma conta cadastrada com vencimento futuro."),
@@ -128,19 +128,20 @@ def main(destino: str) -> None:
                        WHERE o.chave_acesso <> n.chave_acesso
                          AND o.tomador_nome = n.tomador_nome
                          AND o.valor_servicos = n.valor_servicos
+                         AND o.empresa_id IS NOT DISTINCT FROM n.empresa_id
                          AND to_char(o.data_emissao, 'YYYY-MM') = '2026-07')
         ORDER BY n.tomador_nome, n.data_emissao
     """)).fetchall()
     _aba(wb, "1. Notas de julho",
          [("Nº nota", "sistema"), ("CNPJ emissor", "sistema"), ("Emissão", "sistema"),
           ("Tomador", "sistema"), ("Valor", "sistema"),
-          ("Esta nota VALE? (sim/não)", "voce"), ("Se não: cancelar ou já cancelada?", "voce")],
+          ("São dois serviços mesmo? (sim/não)", "voce"), ("Se não: qual cancelar?", "voce")],
          [(str(n[0]), n[1], n[2], n[3], float(n[4])) for n in notas],
-         [10, 24, 12, 40, 14, 20, 26],
-         nota=("Julho fechou R$378.286,98 — R$108.386,92 acima dos outros meses. São pares do MESMO "
-               "serviço faturados pelos DOIS CNPJs na transição. Nenhuma está cancelada no Ambiente "
-               "Nacional, e o cliente pagou uma vez só. Marque qual vale; eu NÃO cancelo nota — "
-               "cancelamento é ato fiscal e vai com o contador."))
+         [10, 24, 12, 40, 14, 24, 24],
+         nota=("O degrau de R$108.386,92 em julho já foi resolvido: n109 e n111 são o faturamento de "
+               "JUNHO, emitido pela Eletrônica em 09/07 e 14/07 — competência corrigida no sistema, "
+               "junho voltou para R$271.916,59 e julho para R$269.900,06. Sobrou este par: duas notas "
+               "do MESMO CNPJ, mesmo cliente e mesmo valor dentro de julho."))
 
     # ── 2. Saídas a classificar (agosto em diante) ──────────────────────────
     saidas = db.execute(text("""
