@@ -126,6 +126,32 @@ async def main() -> None:
         else:
             print("OK o valor recebido bate com as entradas amarradas em cada título")
 
+        # ── (e) NF-e de RETORNO não vira dívida ──────────────────────────────
+        # Toda NF-e que chega com nosso CNPJ no destinatário virava conta a pagar,
+        # sem olhar o CFOP. Equipamento NOSSO voltando do conserto (CFOP 2913) era
+        # cobrado de nós: R$25.600 numa nota só, R$32.612,69 em seis.
+        fantasmas_nfe = (await db.execute(text("""
+            SELECT e.numero, e.emitente_nome, p.net_value,
+                   (SELECT string_agg(DISTINCT m[1], ',')
+                      FROM regexp_matches(e.xml_raw, '<CFOP>(\\d{4})</CFOP>', 'g') m) AS cfops
+            FROM nfe_entradas e
+            JOIN payable_accounts p ON p.nota_fiscal_numero = e.numero AND p.origem = 'nfe_entrada'
+            WHERE p.status = 'pendente' AND e.xml_raw ~ '<CFOP>'
+              AND NOT EXISTS (
+                SELECT 1 FROM regexp_matches(e.xml_raw, '<CFOP>(\\d{4})</CFOP>', 'g') m2
+                 WHERE m2[1] !~ '^[1256](9[0-9][0-9]|41[45]|91[0-9]|92[0-9]|55[0-9]|20[12])$')
+        """))).mappings().all()
+        if fantasmas_nfe:
+            falhas.append(
+                f"{len(fantasmas_nfe)} conta(s) a pagar de NF-e que NÃO gera pagamento "
+                f"(retorno/devolução): "
+                + "; ".join(f"n{f['numero']} {f['emitente_nome'][:22]} "
+                            f"R$ {float(f['net_value']):,.2f} CFOP {f['cfops']}"
+                            for f in fantasmas_nfe[:4])
+                + " — a nota existe, a dívida não")
+        else:
+            print("OK nenhuma NF-e de retorno/devolução virou conta a pagar")
+
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")

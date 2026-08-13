@@ -8,6 +8,7 @@ Vincula nota fiscal → conta a pagar → transação bancária
 
 import logging
 from datetime import date, timedelta
+import re
 from decimal import Decimal
 from uuid import UUID
 
@@ -190,6 +191,24 @@ async def criar_payable_de_nfse_entrada(
     }
 
 
+# CFOP que NÃO cria obrigação de pagar: retorno de bem nosso (x9xx: 2913 conserto,
+# 2909 conta de contrato), devolução de venda (x201/x202), remessas (x91x/x92x) e o
+# lançamento espelho de cupom fiscal (5929 — a mercadoria já foi paga no balcão).
+# Sem este filtro, equipamento NOSSO voltando do conserto virava dívida: em 13/08/2026
+# eram 6 contas a pagar somando R$32.612,69, mais da metade do que veio de NF-e — a
+# maior delas R$25.600 de um "Retorno de mercadoria remetida para conserto".
+_CFOP_SEM_PAGAMENTO = re.compile(r"^[1256](9\d\d|41[45]|91[0-9]|92[0-9]|55[0-9]|20[12])$")
+
+
+def _gera_obrigacao_de_pagar(xml_raw: str | None) -> bool:
+    """A NF-e cria conta a pagar? Sem CFOP no XML, assume que SIM — deixar passar uma
+    dívida a mais é corrigível na conciliação; sumir com uma real não aparece nunca."""
+    cfops = set(re.findall(r"<CFOP>(\d{4})</CFOP>", xml_raw or ""))
+    if not cfops:
+        return True
+    return not all(_CFOP_SEM_PAGAMENTO.match(c) for c in cfops)
+
+
 async def criar_payable_de_nfe_entrada(
     db: AsyncSession,
     nfe_entrada_id: str | None = None,
@@ -208,7 +227,7 @@ async def criar_payable_de_nfe_entrada(
         await db.execute(
             text(
                 "SELECT n.id, n.emitente_cnpj, n.emitente_nome, n.valor_total, "
-                "n.data_emissao, n.numero, n.chave_acesso "
+                "n.data_emissao, n.numero, n.chave_acesso, n.xml_raw "
                 "FROM nfe_entradas n "
                 "LEFT JOIN payable_accounts p ON p.nota_fiscal_id = n.id::text "
                 f"WHERE p.id IS NULL AND n.valor_total > 0 {where_extra} "
@@ -219,10 +238,14 @@ async def criar_payable_de_nfe_entrada(
     ).fetchall()
 
     criados = 0
+    sem_obrigacao = 0
     erros_list: list[str] = []
     detalhes: list[dict] = []
 
     for r in rows:
+        if not _gera_obrigacao_de_pagar(r[7]):
+            sem_obrigacao += 1
+            continue
         nfe_id = r[0]
         emitente_cnpj = r[1] or ""
         emitente_nome = r[2] or "Fornecedor NF-e"
@@ -319,6 +342,10 @@ async def criar_payable_de_nfe_entrada(
     return {
         "processadas": len(rows),
         "criados": criados,
+        # Nunca corte silencioso: a NF-e que NÃO virou dívida tem que aparecer no
+        # resultado, senão "0 criados" lê como "nada chegou" em vez de "chegou e
+        # era retorno de bem nosso".
+        "sem_obrigacao_de_pagar": sem_obrigacao,
         "erros": len(erros_list),
         "detalhes_erros": erros_list[:3],
         "detalhes": detalhes,
