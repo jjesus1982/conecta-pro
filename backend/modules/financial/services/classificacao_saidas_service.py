@@ -46,6 +46,14 @@ CATEGORIAS: tuple[tuple[str, str], ...] = (
     # julho, e a entrada estava lançada como "cliente pagou" — abatendo R$12.000
     # de contas a receber que ninguém devia.
     ("emprestimo", "Empréstimo — devolução de dinheiro tomado"),
+    # Pedidas pelo Jordan em 12/08: saída com memo CLARO caía na transitória todo
+    # mês só porque a categoria não existia na lista.
+    ("aluguel", "Aluguel / condomínio — imóvel da empresa"),
+    ("comissao", "Comissão sobre venda"),
+    # "parcelamento" seria ambíguo (já existe Parcelamento Simples, de tributo) e
+    # é forma de pagamento, não natureza. O que se compra é EQUIPAMENTO; pagar em
+    # 4 parcelas muda o prazo, não o que é.
+    ("equipamento", "Equipamento / instalação — compra, inclusive parcelada"),
     ("diversos", "Diversos — pequeno valor, sem enquadramento"),
 )
 CATEGORIAS_VALIDAS = frozenset(k for k, _ in CATEGORIAS)
@@ -331,6 +339,10 @@ _MEMO_NATUREZA: tuple[tuple[tuple[str, ...], str], ...] = (
     (("MATERIAL", "MATERIAIS", "FERRAMENTA"), "reembolso"),
     (("VT/VR", "VT E VR", "VALE TRANSPORTE", "VALE ALIMENTACAO", "VALE REFEICAO"), "beneficio_vtvr"),
     (("PLANO CORA", "TARIFA", "ANUIDADE"), "taxa_bancaria"),
+    (("ALUGUEL", "CONDOMINIO ESCRITORIO"), "aluguel"),
+    (("COMISSAO",), "comissao"),
+    # "PARCELA n/N" é a marca de compra parcelada no memo do Cora ("Parcela 2/4 TVs")
+    (("PARCELA ", "TV", "NOTEBOOK", "COMPUTADOR", "MONITOR", "IMPRESSORA"), "equipamento"),
 )
 _MEMO_RELACAO: tuple[tuple[tuple[str, ...], str], ...] = (
     # "SALRIO" sem o A é digitação real do extrato, não engano meu.

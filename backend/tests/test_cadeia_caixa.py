@@ -271,3 +271,30 @@ def test_emprestimo_tomado_abate_passivo_nao_e_despesa():
     from modules.financial.services.classificacao_saidas_service import CATEGORIAS_VALIDAS
 
     assert "emprestimo" in CATEGORIAS_VALIDAS
+
+
+def test_aluguel_comissao_e_equipamento_tem_conta_propria():
+    """Jordan pediu as três em 12/08: saída com memo CLARO caía na transitória
+    todo mês só porque a categoria não existia na lista fechada."""
+    from modules.financial.services.classificacao_saidas_service import (
+        CATEGORIAS_VALIDAS,
+        sugerir_por_memo,
+    )
+
+    assert contrapartida_saida("aluguel", "x")[0] == "5.2.1.03"
+    assert contrapartida_saida("comissao", "x")[0] == "5.2.1.05"
+
+    # equipamento é ATIVO, não despesa: comprar TV em 4 parcelas não vira gasto
+    # do mês. "parcelamento" não virou categoria porque é forma de pagamento e
+    # colidiria com o Parcelamento Simples, que é tributo.
+    conta, _ = contrapartida_saida("equipamento", "x")
+    assert conta == "1.2.1.01"
+    assert conta.startswith("1."), "equipamento não pode virar despesa do mês"
+
+    for c in ("aluguel", "comissao", "equipamento"):
+        assert c in CATEGORIAS_VALIDAS, "sem estar na lista fechada ninguém escolhe na tela"
+
+    # o memo do Cora reconhece — inclusive as parcelas que ainda vão vir
+    assert sugerir_por_memo("[CORA] Aluguel escritório")[0] == "aluguel"
+    assert sugerir_por_memo("[CORA] Comissão Vanessa")[0] == "comissao"
+    assert sugerir_por_memo("[CORA] Parcela 3/4 TVs")[0] == "equipamento"

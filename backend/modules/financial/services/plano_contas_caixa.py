@@ -37,6 +37,11 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     "transferencia_interna": ("1.1.9.01", "transferência entre empresas do grupo"),
     "taxa_bancaria": ("5.2.3.01", "tarifa bancária"),
     "emprestimo": ("2.1.6.01", "devolução de empréstimo — abate o passivo, não é despesa"),
+    "aluguel": ("5.2.1.03", "aluguel/condomínio do imóvel da empresa"),
+    "comissao": ("5.2.1.05", "comissão sobre venda — despesa comercial"),
+    # ATIVO, não despesa: comprar TV em 4 parcelas não vira gasto do mês.
+    # ⚠️ nasce sem depreciação — dívida declarada, vai junto com o PL.
+    "equipamento": ("1.2.1.01", "equipamento/instalação — ativo imobilizado"),
     "diversos": (CONTA_SAIDA_A_CLASSIFICAR, "miúdo sem enquadramento"),
 
     # ── dialeto legado ──────────────────────────────────────────────────────
