@@ -1249,80 +1249,75 @@ async def registrar_custo(
 
 
 async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSession) -> dict:
-    """Gera DRE usando NFS-e e payables reais como fallback."""
+    """DRE a partir do RAZÃO real, por competência — mesma fonte do balancete e do balanço.
+
+    ⚠️ Reescrito em 13/08/2026. A versão anterior lia um PLANO DE CONTAS QUE NÃO
+    EXISTE MAIS: tratava `4.1.1%` como "pessoal" e `4.x` como despesa. No plano
+    atual **4.x é RECEITA e 5.x é DESPESA** — então ela lia receita como custo.
+    Julho aparecia com "Custos dos Serviços R$-378.286,98", que é exatamente a
+    RECEITA do mês. Era o "DRE é ficção plausível" com nome e sobrenome.
+
+    Também saiu a ESTIMATIVA por MRR quando não havia NFS-e no período. Mês sem
+    nota emitida tem receita ZERO, e é isso que se diz — inventar receita a partir
+    de contrato ativo é fabricar, ainda que rotulado.
+
+    Exclui `tipo_lancamento='apuracao'`: o encerramento DEBITA 4.x e CREDITA 5.x
+    para zerar o resultado contra o PL. Contá-lo aqui anularia o próprio DRE da
+    competência encerrada.
+    """
     from sqlalchemy import text
 
-    start_dt = date(ano, mes_inicio, 1)
-    end_dt = _last_day(ano, mes_fim)
-
-    # Receita: NFS-e no periodo — FONTE REAL nfse_emitidas_nacional (portal nacional, cStat 100)
-    r = await db.execute(
-        text(
-            "SELECT COALESCE(SUM(valor_servicos), 0) as receita, "
-            "COALESCE(SUM(iss_valor), 0) as iss "
-            "FROM nfse_emitidas_nacional WHERE data_emissao >= :s AND data_emissao <= :e"
-        ),
-        {"s": start_dt, "e": end_dt},
-    )
-    row = r.fetchone()
-    receita_bruta = float(row[0]) if row else 0.0
-    iss = float(row[1]) if row else 0.0
-
-    # Se nao tem NFS-e no periodo, ESTIMAR por MRR dos contratos ativos (marcado como estimativa)
-    receita_estimada = False
-    if receita_bruta == 0:
-        r2 = await db.execute(
-            text("SELECT COALESCE(SUM(monthly_value), 0) FROM client_contracts WHERE lower(status::text) IN ('ativo','active')")
-        )
-        mrr = float(r2.scalar() or 0)
-        n_meses = mes_fim - mes_inicio + 1
-        receita_bruta = mrr * n_meses
-        iss = receita_bruta * 0.05
-        receita_estimada = receita_bruta > 0
-
-    receita_liquida = receita_bruta - iss
-
-    # CUSTO/FOLHA E DESPESAS — FONTE REAL: razão (accounting_entries), MESMA base do /accounting/dre.
-    # A folha própria (CCT, 6 meses ~R$535k) está lançada em 4.1.1 (pessoal) e encargos em 4.1.2, por
-    # competência. NÃO usamos hr_payslips (só tem 2026-03 populado → 1 mês reportado como o ano todo,
-    # inflava o EBITDA). Onde não há lançamento no mês, entra 0 (honesto).
     ci = f"{ano:04d}-{mes_inicio:02d}"
     cf = f"{ano:04d}-{mes_fim:02d}"
-    rz = await db.execute(
-        text(
-            "SELECT "
-            "  SUM(CASE WHEN conta_debito LIKE '4.1.1%' THEN valor ELSE 0 END)::float AS pessoal, "
-            "  SUM(CASE WHEN conta_debito LIKE '4.1.2%' THEN valor ELSE 0 END)::float AS encargos, "
-            "  SUM(CASE WHEN conta_debito LIKE '4%' OR conta_debito LIKE '3.2%' THEN valor ELSE 0 END)::float AS total_desp, "
-            "  COUNT(DISTINCT periodo_competencia) FILTER (WHERE conta_debito LIKE '4.1.1%') AS meses_folha "
-            "FROM accounting_entries "
-            "WHERE status = 'confirmado' AND periodo_competencia BETWEEN :ci AND :cf"
-        ),
-        {"ci": ci, "cf": cf},
-    )
-    rowf = rz.fetchone()
-    folha = float(rowf[0] or 0)
-    encargos_raz = float(rowf[1] or 0)
-    total_desp_raz = float(rowf[2] or 0)
-    meses_com_folha = int(rowf[3] or 0)
-    # Encargos patronais lançados no razão (4.1.2) — exibidos como linha do custo.
-    fgts = encargos_raz
-    n_meses_periodo = mes_fim - mes_inicio + 1
-    cpv = folha + encargos_raz  # custo dos serviços = pessoal + encargos patronais
-    # Despesas operacionais = demais lançamentos 4.x/3.2 do razão fora de pessoal+encargos
-    desp_op = max(total_desp_raz - cpv, 0)
+    start_dt = date(ano, mes_inicio, 1)
+    end_dt = _last_day(ano, mes_fim)
+    linhas = (await db.execute(text("""
+        WITH mov AS (
+            SELECT conta_debito AS conta, valor AS v FROM accounting_entries
+             WHERE status = 'confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'
+               AND periodo_competencia BETWEEN :ci AND :cf
+            UNION ALL
+            SELECT conta_credito, -valor FROM accounting_entries
+             WHERE status = 'confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'
+               AND periodo_competencia BETWEEN :ci AND :cf
+        )
+        SELECT conta, round(sum(v), 2) AS saldo FROM mov
+        WHERE conta LIKE '4%' OR conta LIKE '5%'
+        GROUP BY 1 HAVING abs(sum(v)) > 0.005 ORDER BY conta
+    """), {"ci": ci, "cf": cf})).fetchall()
+    nomes = {r[0]: r[1] for r in (await db.execute(text(
+        "SELECT code, name FROM fin_accounting_accounts"))).fetchall()}
 
-    lucro_bruto = receita_liquida - cpv
-    ebitda = lucro_bruto - desp_op
+    # receita tem saldo CREDOR (negativo na soma débito−crédito)
+    receita_bruta = round(-sum(float(s) for c, s in linhas if c.startswith("4")), 2)
+    iss = round(sum(float(s) for c, s in linhas if c.startswith("5.2.2.01")), 2)
+    receita_liquida = round(receita_bruta - iss, 2)
 
-    # IR + CSLL (Lucro Real: 15% IR + 10% adicional + 9% CSLL)
-    ir = max(ebitda * 0.15, 0) + max((ebitda - 20000) * 0.10, 0)
-    csll = max(ebitda * 0.09, 0)
-    lucro_liquido = ebitda - ir - csll
+    # Custo dos serviços = 5.1.x (mão de obra direta). Despesa operacional = 5.2.x
+    # exceto o ISS, que já saiu como dedução da receita, e 5.9.x (transitória).
+    cpv = round(sum(float(s) for c, s in linhas if c.startswith("5.1")), 2)
+    desp_op = round(sum(float(s) for c, s in linhas
+                        if c.startswith("5.2") and not c.startswith("5.2.2.01")), 2)
+    transitoria = round(sum(float(s) for c, s in linhas if c.startswith("5.9")), 2)
+
+    lucro_bruto = round(receita_liquida - cpv, 2)
+    ebitda = round(lucro_bruto - desp_op - transitoria, 2)
+    # IR/CSLL só sobre lucro. A versão anterior aplicava o adicional de 10% sobre
+    # (ebitda − 20.000) mesmo com ebitda negativo, gerando imposto sobre prejuízo.
+    ir = round(max(ebitda, 0) * 0.15 + max(ebitda - 20000, 0) * 0.10, 2) if ebitda > 0 else 0.0
+    csll = round(max(ebitda, 0) * 0.09, 2)
+    lucro_liquido = round(ebitda - ir - csll, 2)
 
     mb = (lucro_bruto / receita_bruta * 100) if receita_bruta > 0 else 0
     mo = (ebitda / receita_bruta * 100) if receita_bruta > 0 else 0
     ml = (lucro_liquido / receita_bruta * 100) if receita_bruta > 0 else 0
+    receita_estimada = False
+    fgts = round(sum(float(s) for c, s in linhas if c.startswith("5.1.1.02")), 2)
+    folha = round(sum(float(s) for c, s in linhas if c.startswith("5.1.1.01")), 2)
+    meses_com_folha = mes_fim - mes_inicio + 1
+    n_meses_periodo = meses_com_folha
+    total_desp_raz = round(cpv + desp_op + transitoria, 2)
+    encargos_raz = fgts
 
     grupos = [
         {

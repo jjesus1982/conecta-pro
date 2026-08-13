@@ -97,6 +97,40 @@ async def main() -> None:
         else:
             print("OK toda competência fechada foi encerrada contra o PL")
 
+        # ── (e) o DRE concorda com a apuração ────────────────────────────────
+        # Dois caminhos independentes para o mesmo número: o DRE agrega 4.x/5.x
+        # por competência; a apuração encerra essas contas contra o PL. Se
+        # divergirem, um dos dois está lendo o plano de contas errado — foi
+        # exatamente o que aconteceu até 13/08, quando o DRE tratava `4.1.1` como
+        # "pessoal" (plano antigo) e mostrava a RECEITA de julho como CUSTO.
+        for comp in ("2026-06", "2026-07"):
+            dre = float((await db.execute(text("""
+                WITH mov AS (
+                    SELECT conta_debito AS conta, valor AS v FROM accounting_entries
+                     WHERE status='confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'
+                       AND periodo_competencia = :c
+                    UNION ALL
+                    SELECT conta_credito, -valor FROM accounting_entries
+                     WHERE status='confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'
+                       AND periodo_competencia = :c
+                )
+                SELECT -coalesce(sum(v), 0) FROM mov
+                WHERE conta LIKE '4%' OR conta LIKE '5%'
+            """), {"c": comp})).scalar() or 0)
+            apu = float((await db.execute(text("""
+                SELECT coalesce(sum(CASE WHEN conta_credito = '3.2.1.01' THEN valor
+                                         ELSE -valor END), 0)
+                FROM accounting_entries
+                WHERE tipo_lancamento = 'apuracao' AND periodo_competencia = :c
+                  AND (conta_debito = '3.2.1.01' OR conta_credito = '3.2.1.01')
+            """), {"c": comp})).scalar() or 0)
+            if abs(round(dre - apu, 2)) > TOLERANCIA:
+                falhas.append(
+                    f"{comp}: o DRE diz R$ {dre:,.2f} e a apuração levou R$ {apu:,.2f} ao PL "
+                    f"— diferença de R$ {dre - apu:,.2f}; um dos dois lê o plano errado")
+            else:
+                print(f"OK {comp}: DRE R$ {dre:,.2f} = resultado levado ao PL")
+
         # ── (d) conta desativada do PL não volta a ser usada ─────────────────
         mortas = (await db.execute(text("""
             SELECT c.code, count(*) AS n
