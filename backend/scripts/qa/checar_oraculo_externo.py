@@ -109,6 +109,32 @@ ANCORAS = [
         "validade_dias": 45,
         "obs": "a tabela viva é nfse_emitidas_nacional; `nfses` e nfse_manaus_historico são histórico",
     },
+    # ── acrescentada pelo T2 em 13/08/2026 (não mexi nas de cima) ───────────
+    {
+        "numero": "eventos eSocial CONFIRMADOS pelo governo",
+        "fonte": "espelho do eSocial — o que o GOVERNO reconhece ter recebido",
+        # Distinta da âncora "eventos eSocial" acima, e a distinção é o ponto:
+        # aquela lê `esocial_espelho_janelas.consultada_em`, que é QUANDO NÓS PERGUNTAMOS.
+        # Perguntar em dia não prova que o evento chegou — prova que a consulta rodou.
+        #
+        # Esta lê `dt_evento` do espelho: a data que o PRÓPRIO GOVERNO carimba no evento
+        # que ele reconhece. Nunca uma data nossa de envio.
+        #
+        # O caso que a motivou: o afastamento do RAILSON COELHO BATISTA está
+        # `esocial_status='transmitida'` com protocolo `1.2.202607.0000000000217663514`,
+        # e o espelho tem ZERO eventos para o CPF dele. Nenhum oráculo interno pega isso —
+        # o nosso lado está coerente consigo mesmo. Protocolo é recibo de POSTAGEM.
+        #
+        # ⚠️ `dt_recepcao` está NULO nas 36 linhas do espelho; quem tem data é `dt_evento`
+        # (15 de 36). Ancorar em coluna vazia daria "NUNCA" para sempre — o erro do T1 com
+        # `last_sync_at`, que também é coluna que ninguém escreve.
+        "sql": "SELECT max(dt_evento)::date FROM esocial_eventos_espelho",
+        "validade_dias": 90,
+        "obs": ("evento mais novo que o governo reconhece: 01/06/2026. A CONSULTA está em "
+                "dia (08/07) e o CONTEÚDO não — é essa diferença que a âncora existente "
+                "não enxerga. 1 evento declarado transmitido sem confirmação externa "
+                "(S-2230, Railson): quem conta é test_oraculo_esocial_entrega.py"),
+    },
 ]
 
 _PSQL = ["docker", "exec", "conecta-pro-postgres", "psql", "-U", "postgres",
