@@ -334,3 +334,46 @@ funcionário com acento escapava) e **`" SA"` dentro de `" SANTOS"`** (5 pessoas
 `test_oraculo_extrato` (4 invariantes) e `test_oraculo_balanco` (5). Ambos provados em
 vermelho. O do balanço nasceu com **42 falsos positivos** no invariante (c): a fórmula só
 olhava `conta_debito LIKE '5%'` e não via o encerramento, que **credita** 5.x.
+
+---
+
+# Adendo 3 — o oráculo do extrato pegou dois erros que se cancelavam
+
+O `test_oraculo_balanco` fica verde, mas o do extrato **falhou** na verificação final:
+R$96,00 contra o saldo do próprio Inter em 11/08. Perseguir isso rendeu o achado mais
+instrutivo do dia.
+
+## Dois erros opostos, somando zero
+
+Em 12/08 eu quase apaguei uma linha da Loide (07/08, R$32) achando que era duplicata; o
+confronto com o saldo do banco disse que eu estava errado e eu **restaurei**. Estava errado
+de novo — mas por sorte: eu **também** estava sem a linha do Thiago do mesmo dia e mesmo
+valor. **Os dois erros se cancelavam**, e o saldo batia por compensação.
+
+Inseridas as 4 linhas que o banco tinha e nós não, a duplicata apareceu sozinha e o saldo
+fechou: **R$5.416,69 dos dois lados**.
+
+⭐ **Saldo que bate não prova que as linhas estão certas** — prova que a SOMA está certa.
+Só o confronto linha a linha (multiset por data+valor+descrição) separa os dois.
+
+## 🔴 NÃO COBERTO — a constraint descarta gêmeo legítimo
+
+Causa raiz das 3 linhas faltantes de 11/08: `uq_inter_transactions_dedup` é UNIQUE em
+(data, tipo, valor, descrição). Dois PIX de R$32,00 para a **mesma pessoa** no **mesmo dia**
+são indistinguíveis nessa chave, e o `ON CONFLICT` descarta o segundo **em silêncio**.
+
+Não dá para usar o id do banco: `raw_payload->>'transaction_id'` está preenchido em 2.771
+linhas com **um único valor distinto** (vazio) — o extrato do Inter não devolve `idTransacao`.
+
+**Tentei trocar por dedup de contagem e REVERTI.** A implementação duplicou 49 linhas em
+`inter_transactions` e 52 em `bank_transactions` antes de eu perceber. Revertido tudo
+(migration, código e dados; backups `backup_intertx_dup_20260813` e
+`backup_ponte_dup_20260813`), constraint restaurada, e as 4 linhas faltantes inseridas
+manualmente contra o extrato do banco.
+
+Fica como dívida **declarada**: o mecanismo certo é contagem, mas exige a ponte
+`inter_transactions → bank_transactions` ser idempotente sob contagem também — e a minha
+não era. Consertar as duas juntas, com teste, não no meio de uma verificação final.
+
+⭐ A lição: **eu troquei um defeito conhecido e medido (R$96) por um risco maior** (duplicação
+em massa) sem teste antes. O oráculo pegou, mas foi o oráculo, não eu.
