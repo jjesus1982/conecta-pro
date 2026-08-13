@@ -135,15 +135,26 @@ def sincronizar_extrato_cora(dias: int = 60) -> dict:
                     "(id, bank_account_id, transaction_type, category, amount, description, "
                     " transaction_date, status, origin, source_type, external_id, "
                     " counterparty_name, counterparty_document, reconciliation_status, "
-                    " reconciliation_note, reconciled_at, created_at, updated_at) "
+                    " reconciliation_note, reconciled_at, raw_data, created_at, updated_at) "
                     "VALUES (gen_random_uuid(), :acc, :ttype, :cat, :amount, :descr, "
                     " :tdate, 'confirmado', 'banking_api', 'cora_extrato', :ext, "
                     " :cp_nome, :cp_doc, :recon, :recon_note, "
-                    " CASE WHEN :recon = 'conciliado' THEN NOW() END, NOW(), NOW())"
+                    " CASE WHEN :recon = 'conciliado' THEN NOW() END, "
+                    " jsonb_build_object('metodo', :metodo), NOW(), NOW())"
                 ),
                 {
                     "acc": conta["id"],
                     "ttype": "credit" if t.amount > 0 else "debit",
+                    # O MÉTODO (PIX/TED/BOLETO/TARIFA) vem da API do Cora em
+                    # `transaction.type` e era jogado fora: o INSERT gravava
+                    # 'credit'/'debit' fixo. Sem ele não dá para medir quanto do
+                    # dinheiro que sai PODERIA sair pelo sistema — a API do Cora
+                    # paga boleto, DARF, GPS e transferência, mas NÃO faz PIX por
+                    # chave. Sem o método, esse número é chute. Vai em `raw_data`
+                    # e não em `transaction_type` de propósito: a conciliação
+                    # consolidada filtra por transaction_type IN ('credit',...)
+                    # e mudar aquele campo quebraria a tela.
+                    "metodo": getattr(t.transaction_type, "value", str(t.transaction_type)),
                     "cat": "recebimento_cliente" if t.amount > 0 else "pagamento",
                     # SINAL PRESERVADO. Com abs(), 112 saídas da Cora (R$129.817,61 —
                     # salário, PIX a pessoas) ficavam gravadas como CRÉDITO: inflavam
