@@ -455,3 +455,111 @@ azul é o que o sistema sabe, laranja é o que só o Jordan sabe. Notas de julho
 agosto sem classificação (37), fornecedores PJ sem CNPJ (60), contas a pagar fixas, as 76
 contas antigas em aberto, a carteira de recebíveis e o bloco de patrimônio que trava o
 `pl_completo: false`.
+
+---
+
+# Adendo 5 — o dia em que os números da tela viraram defeitos de código
+
+O Jordan olhou o painel e disse que os números estavam errados. Estavam. Cinco defeitos
+caíram, e **nenhum deles eu teria achado sozinho** — todos vieram dele olhando a tela e
+dizendo "isso não é verdade".
+
+| | manhã | fim do dia |
+|---|---|---|
+| faturamento junho | R$163.529,67 | R$271.916,59 |
+| faturamento julho | R$378.286,98 | R$269.900,06 |
+| inadimplência | R$152.077,82 | R$4.500,00 (real, confirmada) |
+| contas a pagar | R$120.397,10 | R$87.784,41 |
+| "pago" com prova bancária (pós-corte) | 1/7 | 6/7 |
+| oráculos do financeiro | 2 | 4 (21 invariantes) |
+
+## Os cinco defeitos
+
+**1. `dCompet` do ADN vem com a data de emissão.** Nota emitida com atraso cai no mês
+errado. Junho e julho viraram um mês só. Corrigido com `competencia_origem_adn`, que a
+recarga diária preserva.
+
+**2. O casamento de recebível exigia o valor BRUTO no centavo.** O título é bruto, o
+cliente paga líquido (ISS 5% + INSS 11%). Nenhum cliente com retenção jamais baixava.
+Somado a isso: o nome do pagador era lido da DESCRIÇÃO, e no Cora a descrição é a
+justificativa que o Jordan digita — R$100.699,77 passaram batido porque o pagador só
+existe em `counterparty_name`. E o token do nome era a palavra mais longa: `CONDOMINIO`,
+que casa com toda a carteira.
+
+**3. Toda NF-e que chegava virava conta a pagar, sem olhar o CFOP.** Equipamento NOSSO
+voltando do conserto (CFOP 2913) era cobrado de nós: R$25.600 numa nota só, R$32.612,69
+em seis.
+
+**4. A régua de cobrança estava completa e ninguém a chamava.** Nenhuma task, nenhum beat.
+Código pronto que nunca roda é igual a código que não existe.
+
+**5. Não havia caminho para corrigir uma classificação errada.** `classificar_grupo` se
+recusa a tocar no que já tem categoria — guard certo — mas o inverso não existia.
+
+## O que o extrato revelou sobre a fronteira pessoal × empresa
+
+Três coisas da mesma família, e o Jordan confirmou cada uma:
+
+- **R$1.500/mês para a mãe dele** (Terezinha) estavam como "Fornecedor — serviço ou
+  material". É empréstimo pessoal dele pago pela conta da empresa → conta de sócio. Das 12
+  parcelas que ele pagou, só 5 saíram da empresa.
+- **R$20.373,69 de fatura de cartão pessoal.** Decisão dele: lançar integralmente como
+  despesa da empresa, porque o que compra no cartão é mais da empresa que dele. Registrado
+  na justificativa de cada lançamento, com data e motivo — se o contador perguntar daqui a
+  seis meses, a resposta está no próprio lançamento.
+- **R$12.000 de empréstimo da Denise Teixeira** entravam como "recebimento de cliente". O
+  sistema sabia classificar a DEVOLUÇÃO e não a entrada. A prova estava do outro lado do
+  extrato: a saída de R$12.300 diz "Devolução de empréstimo tomado da Denise Teixeira".
+- **R$55.900,00 de transferência entre os dois CNPJs** apareciam como recebimento de
+  cliente.
+
+## "Pagar tudo pelo sistema": limitação de banco, não de código
+
+A API do Cora devolve o método de cada saída e o INSERT jogava fora. Passou a guardar, com
+backfill de agosto lido da própria API: **88 das 90 saídas do Cora são PIX — R$137.211,88
+de R$137.456,78 (99,8%)**. A API do Cora paga boleto, DARF, GPS e transferência, mas não
+faz PIX por chave.
+
+Os 11% de alcance não sobem escrevendo código. Sobem movendo a saída para o Inter (cuja API
+faz PIX) ou o Cora liberando PIX. **É decisão do Jordan, e é a maior alavanca que resta.**
+
+## O build quebrado, e o gate que a troca exigiu
+
+O build estava quebrado para TODAS as sessões desde 10/08: `edge-tts>=7.0` exige
+`httpx[http2]>=0.27`, e o requirements fixava `httpx==0.25.0`. Só apareceu hoje porque o
+Docker reaproveitava a camada do `pip install` em cache; o cache caiu e o conflito de três
+dias apareceu.
+
+O Jordan escolheu subir a pilha (opção B). Antes de bakear, **gate contra a API real**,
+porque httpx é o transporte do dinheiro: Inter mTLS + OAuth2 (saldo lido R$6.172,71) e ADN
+com certificado A1 (NSU 50). Só leitura.
+
+⚠️ Achado no caminho: **`pip wheel --no-deps` não carrega extras**. `httpx[http2]` virava
+httpx puro e o `h2` nunca chegava na imagem — o build passaria e o modo voz quebraria em
+runtime. `h2==4.1.0` declarado explícito.
+
+## Erros meus, registrados
+
+1. **Concluí duas vezes rápido demais.** Nas notas de julho li duas notas iguais como
+   duplicata; eram meses diferentes. No Rastreauto li uma NF-e de retorno como compra. Nas
+   duas o dado tinha a resposta inteira e eu não fui buscá-la. **O sinal de que eu estava
+   errado veio de graça e quase passou: ao marcar as notas como canceladas, o buraco de
+   R$100 mil não fechou — ANDOU de mês.** Duplicata some; competência trocada muda de lugar.
+2. **Afirmei que 22 saídas tinham justificativa e caíram sem classificação.** Era um join
+   por data+valor, e vários PIX de R$32 no mesmo dia colidem — eu lia a justificativa de
+   outra transação. Eram 4, por outro motivo.
+3. **Apaguei 62 rascunhos, dos quais 26 não eram meus.** Filtrei por tipo e status sem
+   olhar quem criou. E a idempotência mora no sino, não na tabela de rascunhos, então
+   sobraram 72 notificações órfãs. Desativei e regerei. Nenhuma decisão foi perdida, só
+   propostas — mas foi descuido.
+4. **Perdi palavras em três mensagens de commit** usando crase dentro de aspas duplas no
+   shell. Passei a escrever a mensagem em arquivo.
+
+## O que continua bloqueado no Jordan (quatro perguntas de uma linha)
+
+1. Quanto do capital social **subscrito** (Eletrônica R$500.000, Patrimonial R$100.000,
+   vindos da Receita) foi **integralizado**? É o único número que falta para o PL fechar.
+2. CICERO SOUZA DE PAIVA — R$1.500/mês (01/07 e 01/08): o que é?
+3. DENISE TEIXEIRA — R$1.000 em 12/08, um dia depois da devolução de R$12.300: mesma dívida?
+4. MARCELINO — demitido em 29/06, dois PIX de R$2.116,62 (08/07 e 08/08) e zero holerite
+   desde julho: rescisão parcelada ou pagamento que ficou rodando sozinho?
