@@ -769,7 +769,7 @@ if os.getenv("CONECTA_PROPOR_BAIXA", "0").strip().lower() in ("1", "true", "sim"
         "options": {"queue": "gov.batch"},
     }
 
-# Cobrança dos vencidos: 08:50, DEPOIS da conciliação das entradas (08:45 no
+# Cobrança dos vencidos: 08:50, DEPOIS da conciliação das entradas (08:30 no
 # auto_baixa_pagaveis) — cobrar quem já pagou é pior do que não cobrar. Fica
 # LIGADO por padrão, ao contrário do propor-baixa: a fila é pequena porque só
 # entra o que sobreviveu à conciliação, e inadimplência silenciosa custa caro.
