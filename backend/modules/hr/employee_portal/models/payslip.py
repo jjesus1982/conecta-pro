@@ -23,14 +23,38 @@ from core.database import Base
 
 
 class PaySlipStatus(StrEnum):
-    """Status do contracheque."""
+    """Status do contracheque.
+
+    Os dois últimos foram acrescentados em 13/08/2026 porque JÁ EXISTIAM no mundo e o enum
+    é que estava desatualizado — a coluna é `String(20)`, então nada impedia:
+      • `contested`: 5 linhas em produção, gravadas pela contestação do próprio funcionário;
+      • `paid`: gravado por `folha_payment_service` (`UPDATE hr_payslips SET status='paid'`)
+        quando o PIX da folha liquida.
+    Nenhum dos dois estava na lista de visíveis do portal. Efeito medido: quem contestava o
+    holerite PERDIA o acesso ao documento que contestou, e quem recebia perdia o do mês pago.
+    """
 
     DRAFT = "draft"  # Rascunho (em processamento)
     GENERATED = "generated"  # Gerado (aguardando aprovação)
     APPROVED = "approved"  # Aprovado (pronto para visualização)
     PUBLISHED = "published"  # Publicado (visível para funcionário)
     RECTIFIED = "rectified"  # Retificado (houve correção)
-    CANCELLED = "cancelled"  # Cancelado
+    CONTESTED = "contested"  # Contestado pelo funcionário — continua visível PARA ELE
+    PAID = "paid"  # Liquidado via PIX da folha — continua visível
+    CANCELLED = "cancelled"  # Cancelado / substituído por publicação posterior
+
+
+# Um lugar só decide o que o funcionário enxerga no portal. Antes cada método repetia
+# `[PUBLISHED, RECTIFIED]` na mão, e os dois status acima ficaram de fora dos quatro.
+#
+# A lista é POSITIVA de propósito: com uma negativa (`status <> 'cancelled'`), qualquer
+# status novo nasceria visível — inclusive rascunho de folha ainda não conferida.
+VISIVEL_AO_FUNCIONARIO: tuple[str, ...] = (
+    PaySlipStatus.PUBLISHED.value,
+    PaySlipStatus.RECTIFIED.value,
+    PaySlipStatus.CONTESTED.value,
+    PaySlipStatus.PAID.value,
+)
 
 
 class PaySlipType(StrEnum):

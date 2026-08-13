@@ -7,10 +7,11 @@ import logging
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, nullslast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.hr.employee_portal.models import PaySlip, PaySlipStatus
+from modules.hr.employee_portal.models.payslip import VISIVEL_AO_FUNCIONARIO
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,41 @@ class PaySlipRepository:
         month: int,
         year: int,
     ) -> PaySlip | None:
-        """Busca contracheque específico por funcionário/mês/ano (apenas publicados)."""
+        """Contracheque visível do funcionário naquela competência — o AUTORITATIVO.
+
+        Este método usava `scalar_one_or_none()`, que levanta `MultipleResultsFound` se
+        houver mais de uma linha. Nada no banco impede isso: `hr_payslips` não tem índice
+        único por (funcionário, ano, mês) — só por `payslip_code`.
+
+        Hoje não dói porque os 457 holerites nossos estão em `draft` e os 365 publicados
+        são todos da Portte. A dor nasce no INSTANTE DA VIRADA: publicar a nossa folha sem
+        despublicar a da Portte devolveria duas linhas aqui e viraria HTTP 500 no holerite
+        de todo mundo daquela competência. Julho já convergiu (Σ|Δ| R$30,21 em 51 pares),
+        então a virada é iminente.
+
+        `publish()` abaixo impede a duplicidade nascer. Este método é a REDE: se ela nascer
+        por outro caminho (import da Portte, correção via SQL), o portal escolhe a
+        autoritativa por regra explícita em vez de cair.
+
+        A regra: **a publicada mais recentemente vence** — `published_at` desc, desempate
+        por `created_at` desc para linhas antigas sem `published_at`. É a única ordem que
+        não depende de quem inseriu primeiro.
+
+        `nullslast` é obrigatório: em Postgres, `ORDER BY x DESC` põe NULL PRIMEIRO. Sem
+        ele, um holerite `contested` sem `published_at` venceria a publicação real.
+        """
         result = await self.db.execute(
-            select(PaySlip).where(
+            select(PaySlip)
+            .where(
                 and_(
                     PaySlip.employee_id == employee_id,
                     PaySlip.reference_month == month,
                     PaySlip.reference_year == year,
-                    PaySlip.status.in_([PaySlipStatus.PUBLISHED.value, PaySlipStatus.RECTIFIED.value]),
+                    PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO),
                 )
             )
+            .order_by(nullslast(desc(PaySlip.published_at)), desc(PaySlip.created_at))
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -61,7 +87,7 @@ class PaySlipRepository:
             .where(
                 and_(
                     PaySlip.employee_id == employee_id,
-                    PaySlip.status.in_([PaySlipStatus.PUBLISHED.value, PaySlipStatus.RECTIFIED.value]),
+                    PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO),
                 )
             )
             .order_by(
@@ -96,7 +122,7 @@ class PaySlipRepository:
         query = select(PaySlip).where(PaySlip.employee_id == employee_id)
 
         if only_viewable:
-            query = query.where(PaySlip.status.in_([PaySlipStatus.PUBLISHED.value, PaySlipStatus.RECTIFIED.value]))
+            query = query.where(PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO))
 
         if year:
             query = query.where(PaySlip.reference_year == year)
@@ -159,7 +185,7 @@ class PaySlipRepository:
             .where(
                 and_(
                     PaySlip.employee_id == employee_id,
-                    PaySlip.status.in_([PaySlipStatus.PUBLISHED.value, PaySlipStatus.RECTIFIED.value]),
+                    PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO),
                 )
             )
             .distinct()
@@ -261,19 +287,63 @@ class PaySlipRepository:
         *,
         published_by: UUID | None = None,
     ) -> PaySlip | None:
-        """Publica contracheque (status → published, visível para funcionário)."""
+        """Publica contracheque — despublicando o anterior da mesma competência.
+
+        A VIRADA DA FOLHA passa por aqui. Publicar a nossa folha sobre a da Portte sem
+        despublicar a antiga deixaria DUAS visíveis para o mesmo funcionário no mesmo mês:
+        o portal não sabe qual é o holerite dele, e o `get_by_employee_month_year` acima
+        estourava 500 na cara de todo mundo daquela competência.
+
+        Despublicar e publicar são UM commit só. Se o segundo passo falhasse depois de um
+        commit do primeiro, o funcionário ficaria uma janela sem holerite nenhum — e é
+        janela de documento trabalhista, não de cache.
+
+        Este é o ponto de estrangulamento: `publish_payslip` e `bulk_publish` passam os
+        dois por aqui. Guarda na função compartilhada, não em cada chamador.
+
+        O anterior vai para `cancelled`, e não para um `superseded` novo, DE PROPÓSITO:
+        três contadores contábeis em `_fin_contabil.py` (outra sessão) filtram por
+        `status <> 'cancelled'`. Um status novo passaria por esse filtro e contaria o
+        holerite substituído JUNTO com o que o substituiu — folha dobrada na contabilidade.
+        A distinção "cancelado por erro" × "substituído" fica registrada no log e no
+        relatório; virar status próprio exige o T1 ajustar os três filtros antes.
+        """
         payslip = await self.get_by_id(payslip_id)
         if not payslip:
             return None
+
+        # despublica os outros visíveis da MESMA competência (nunca o próprio)
+        anteriores = (await self.db.execute(
+            select(PaySlip).where(
+                and_(
+                    PaySlip.employee_id == payslip.employee_id,
+                    PaySlip.reference_month == payslip.reference_month,
+                    PaySlip.reference_year == payslip.reference_year,
+                    PaySlip.status.in_(VISIVEL_AO_FUNCIONARIO),
+                    PaySlip.id != payslip.id,
+                )
+            )
+        )).scalars().all()
+        for antigo in anteriores:
+            logger.warning(
+                "Contracheque %s (era '%s', origem %s) SUBSTITUÍDO pela publicação de %s "
+                "— competência %02d/%d do funcionário %s",
+                antigo.id, antigo.status, antigo.source_system or "?", payslip_id,
+                payslip.reference_month, payslip.reference_year, payslip.employee_id,
+            )
+            antigo.status = PaySlipStatus.CANCELLED.value
 
         payslip.status = PaySlipStatus.PUBLISHED.value
         payslip.published_at = datetime.utcnow()
         payslip.published_by = published_by
 
-        await self.db.commit()
+        await self.db.commit()  # despublicação + publicação no MESMO commit
         await self.db.refresh(payslip)
 
-        logger.info("Contracheque %s publicado por %s", payslip_id, published_by)
+        logger.info(
+            "Contracheque %s publicado por %s (%d anterior(es) substituído(s))",
+            payslip_id, published_by, len(anteriores),
+        )
         return payslip
 
     async def revert_to_draft(self, payslip_id: UUID) -> PaySlip | None:
