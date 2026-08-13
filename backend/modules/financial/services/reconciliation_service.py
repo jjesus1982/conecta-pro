@@ -546,10 +546,75 @@ def conciliar_recebiveis(limite: int = 2000) -> dict:
             except Exception:  # noqa: BLE001, S110
                 pass
     parciais = _baixar_recebiveis_parcelados(conn)
+    provas = _vincular_prova_de_recebimento(conn)
     conn.close()
     return {"baixados_auto": baixados, "baixados_parcelados": parciais,
-            "sem_match_ou_ambiguo": sem_match,
+            "provas_vinculadas": provas, "sem_match_ou_ambiguo": sem_match,
             "erros": erros, "total_entradas": len(tx_ids)}
+
+
+def _vincular_prova_de_recebimento(conn) -> int:
+    """Título já marcado PAGO, sem transação bancária amarrada: acha a prova e amarra.
+
+    Não muda status nem valor — só liga o título ao dinheiro. Existe porque o casamento
+    só olha título `pendente`: quando outro caminho marca 'paga' (importação, baixa
+    manual, outro serviço), a prova nunca chega. Medido em 13/08/2026: 27 dos 32 títulos
+    pagos não tinham NENHUMA transação por trás, e 6 deles eram de agosto — dinheiro que
+    está no extrato, visível, e o título dizia "pago" por afirmação, não por fato.
+
+    Só do CORTE CONTÁBIL para frente. O lote de março/abril nasceu marcado 'paga' sem
+    data nem prova; é legado de um período que o Jordan fechou, e caçar prova lá seria
+    reabrir o que ele mandou fechar.
+    """
+    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, customer_name, gross_value, payment_date
+        FROM receivable_accounts
+        WHERE status = 'paga' AND transacao_bancaria_id IS NULL
+          AND payment_date >= %s AND coalesce(customer_name,'') <> ''
+        """,
+        (CORTE_CONTABIL,),
+    )
+    ligados = 0
+    for rec in cur.fetchall():
+        tokens = [w for w in re.split(r"[^A-Za-zÀ-ÿ]+", rec["customer_name"]) if len(w) >= 4]
+        tokens = [w for w in tokens if w.upper() not in _GENERICOS] or tokens
+        if not tokens:
+            continue
+        tok = max(tokens, key=len)
+        bruto = Decimal(str(rec["gross_value"]))
+        cur.execute(
+            """
+            SELECT id, amount FROM bank_transactions
+            WHERE amount > 0 AND receivable_payment_id IS NULL
+              AND transaction_date BETWEEN %s AND %s
+              AND lower(coalesce(counterparty_name,'')) LIKE lower(%s)
+              AND amount BETWEEN %s AND %s
+            """,
+            (rec["payment_date"] - timedelta(days=5), rec["payment_date"] + timedelta(days=5),
+             f"%{tok}%", float(bruto * RETENCAO_PISO), float(bruto * RETENCAO_TETO)),
+        )
+        cands = cur.fetchall()
+        if len(cands) != 1:
+            continue  # zero ou ambíguo: sem prova única, não inventa vínculo
+        tx = cands[0]
+        cur.execute(
+            "UPDATE bank_transactions SET receivable_payment_id = %s, "
+            "reconciliation_status = 'conciliado', requires_justification = FALSE, "
+            "updated_at = NOW() WHERE id = %s", (rec["id"], tx["id"]))
+        cur.execute(
+            "UPDATE receivable_accounts SET transacao_bancaria_id = %s, "
+            "paid_value = coalesce(paid_value, %s), updated_at = NOW() WHERE id = %s",
+            (tx["id"], float(tx["amount"]), rec["id"]))
+        conn.commit()
+        ligados += 1
+        logger.info("[conciliacao] prova ligada: %s R$ %.2f", rec["customer_name"],
+                    float(tx["amount"]))
+    cur.close()
+    return ligados
 
 
 def _baixar_recebiveis_parcelados(conn) -> int:

@@ -152,6 +152,47 @@ async def main() -> None:
         else:
             print("OK nenhuma NF-e de retorno/devolução virou conta a pagar")
 
+        # ── (f) "pago" depois do corte precisa de PROVA, quando ela existe ───
+        # 27 dos 32 títulos pagos não tinham nenhuma transação por trás — "pago"
+        # por afirmação, não por fato. O lote de março/abril é legado de período
+        # fechado e fica fora; do corte para frente, se o pagador APARECE no
+        # extrato com valor na janela e mesmo assim o título não tem vínculo, o
+        # elo se perdeu. Título cujo dinheiro entrou por boleto sem nome não
+        # falha aqui: não há prova única a exigir, e forjar vínculo é pior.
+        sem_prova = (await db.execute(text("""
+            WITH pagos AS (
+                SELECT r.id, r.customer_name, r.gross_value, r.payment_date,
+                       (SELECT w FROM regexp_split_to_table(r.customer_name, '[^A-Za-zÀ-ÿ]+') w
+                         WHERE length(w) >= 4
+                           AND upper(w) NOT IN ('CONDOMINIO','CONDOMÍNIO','RESIDENCIAL',
+                                                'EDIFICIO','EDIFÍCIO','EMPRESARIAL','LTDA',
+                                                'COMERCIO','SERVICOS','EMPRESA','CENTRO')
+                         ORDER BY length(w) DESC LIMIT 1) AS tok
+                FROM receivable_accounts r
+                WHERE r.status = 'paga' AND r.transacao_bancaria_id IS NULL
+                  AND r.payment_date >= DATE '2026-08-01'
+                  AND coalesce(r.customer_name,'') <> ''
+            )
+            SELECT p.customer_name, p.gross_value, sum(bt.amount) AS disponivel
+            FROM pagos p
+            JOIN bank_transactions bt
+              ON bt.amount > 0 AND bt.receivable_payment_id IS NULL
+             AND bt.transaction_date BETWEEN p.payment_date - 5 AND p.payment_date + 5
+             AND lower(coalesce(bt.counterparty_name,'')) LIKE lower('%' || p.tok || '%')
+            WHERE p.tok IS NOT NULL
+            GROUP BY 1, 2
+            HAVING sum(bt.amount) BETWEEN p.gross_value * :piso AND p.gross_value * :teto
+        """), {"piso": PISO, "teto": TETO})).mappings().all()
+        if sem_prova:
+            falhas.append(
+                f"{len(sem_prova)} título(s) marcado(s) PAGO sem vínculo, com a entrada "
+                f"disponível no extrato: "
+                + "; ".join(f"{p['customer_name'][:24]} R$ {float(p['gross_value']):,.2f}"
+                            for p in sem_prova[:4])
+                + " — 'pago' virou afirmação em vez de fato")
+        else:
+            print("OK todo 'pago' pós-corte com entrada identificável está amarrado a ela")
+
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
