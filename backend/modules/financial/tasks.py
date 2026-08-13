@@ -188,12 +188,43 @@ async def _propor_baixa_pendentes(session) -> dict:
 
     from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho
 
-    rows = (await session.execute(text(
-        "SELECT id::text, coalesce(description,'conta a pagar'), net_value, due_date "
-        "FROM payable_accounts WHERE status='pendente' AND due_date < current_date - interval '30 day' "
-        "AND net_value >= 500 ORDER BY net_value DESC LIMIT 40"))).fetchall()
+    # A EVIDÊNCIA vai junto. Medido em 13/08/2026: das 69 contas pendentes, só 3
+    # casariam com uma saída do extrato — mas 49 são de fornecedor a quem a empresa
+    # JÁ PAGOU muitas vezes (SOLIDES: 89 pagamentos, R$169.945,89, e ainda "deve"
+    # R$2.890 duas vezes). Isso não é dívida, é resíduo de registro. Um rascunho que
+    # só diz "está pendente" devolve a pergunta ao Jordan; um que diz "você já pagou
+    # 89 vezes a este fornecedor" devolve uma DECISÃO.
+    import re as _re
+
+    # O token tem que DISCRIMINAR. Usar a primeira palavra do nome dava `L` para
+    # "L J GUERRA E CIA LTDA" e a evidência saiu "3300 pagamentos" — número que
+    # casa com metade do extrato e destrói a confiança no rascunho inteiro.
+    # Mesmo critério do resto do módulo: palavra mais longa que não seja tipo de
+    # pessoa jurídica.
+    _GEN = {"LTDA", "COMERCIO", "SERVICOS", "TECNOLOGIA", "INDUSTRIA", "PRODUTOS",
+            "EMPRESA", "DIGITAL", "ARTIGOS", "PARA", "ESCRITORIO", "MATRIZ", "FILIAL"}
+
+    def _tok(nome: str) -> str:
+        ts = [w for w in _re.split(r"[^A-Za-zÀ-ÿ]+", nome or "") if len(w) >= 4]
+        ts = [w for w in ts if w.upper() not in _GEN] or ts
+        return max(ts, key=len) if ts else ""
+
+    rows = (await session.execute(text("""
+        SELECT p.id::text, coalesce(p.description,'conta a pagar'), p.net_value, p.due_date,
+               coalesce(p.supplier_name, p.fornecedor_nome, '') AS forn
+        FROM payable_accounts p
+        WHERE p.status='pendente' AND p.due_date < current_date - interval '30 day'
+          AND p.net_value >= 500
+        ORDER BY p.net_value DESC LIMIT 40"""))).fetchall()
     criados = 0
-    for pid, desc, val, due in rows:
+    for pid, desc, val, due, forn in rows:
+        _t = _tok(forn or desc)
+        pagos = 0
+        if len(_t) >= 4:
+            pagos = int((await session.execute(text(
+                "SELECT count(*) FROM bank_transactions WHERE amount < 0 AND "
+                "(coalesce(counterparty_name,'') || ' ' || coalesce(description,'')) ILIKE :t"),
+                {"t": f"%{_t}%"})).scalar() or 0)
         try:
             r = await criar_rascunho(
                 session, None,
@@ -201,8 +232,17 @@ async def _propor_baixa_pendentes(session) -> dict:
                 titulo=f"Dar baixa: {str(desc)[:48]} — R$ {float(val):,.2f}",
                 resumo=(f"Conta vencida em {due} e ainda PENDENTE no sistema. Se ela JÁ foi paga, "
                         f"aprove para dar baixa (marca 'pago', NÃO move dinheiro). Se ainda não foi "
-                        f"paga, dispense. (folha/tributo/fornecedor sem baixa automática.)"),
-                payload={"payable_id": pid, "valor": float(val), "origem": "proposta_baixa_vencidos"},
+                        f"paga, dispense. (folha/tributo/fornecedor sem baixa automática.)\n\n"
+                        + (f"EVIDÊNCIA: a empresa já fez {pagos} pagamento(s) a {forn[:40]} pelo "
+                           f"extrato. Fornecedor recorrente com conta em aberto costuma ser baixa "
+                           f"que faltou, não dívida."
+                           if pagos else
+                           f"EVIDÊNCIA: NENHUMA saída para {(forn or desc)[:40]} aparece no extrato "
+                           f"das duas contas. Ou foi paga por outro meio (cartão pessoal), ou não "
+                           f"foi paga mesmo.")),
+                payload={"payable_id": pid, "valor": float(val),
+                         "pagamentos_ao_fornecedor": int(pagos or 0),
+                         "origem": "proposta_baixa_vencidos"},
                 gate="🟡", requires_otp=False, roles_aprovador=("admin",),
                 idempotency_key=f"baixa_pagavel:{pid}")
             if isinstance(r, dict) and r.get("status") == "rascunho" and not r.get("duplicado"):
