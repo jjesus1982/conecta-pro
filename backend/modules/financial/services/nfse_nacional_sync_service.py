@@ -136,9 +136,13 @@ class NFSeNacionalSyncService:
                 # PRESERVA as marcadas como CANCELADAS (o ADN ainda entrega a nota; o
                 # cancelamento é evento à parte, mantido localmente até o sync tratar o
                 # evento de cancelamento) — senão a recarga ressuscitaria a nota cancelada.
+                # PRESERVA também a linha com competência corrigida por nós: o ADN devolve
+                # `dCompet` = data de EMISSÃO, então nota emitida com atraso cai no mês
+                # errado. Sem esta cláusula a correção viveria até as 08:30 do dia seguinte.
                 cur.execute(
                     "DELETE FROM nfse_emitidas_nacional WHERE fonte='adn_nacional' "
                     "AND COALESCE(cancelada, FALSE) = FALSE "
+                    "AND competencia_origem_adn IS NULL "
                     "AND (empresa_id = %s OR (empresa_id IS NULL AND %s = '619a3df1-8bce-49ce-b77a-04f80a0e8491'))",
                     (empresa_id, empresa_id),
                 )
@@ -181,7 +185,11 @@ class NFSeNacionalSyncService:
                                 %(empresa_id)s)
                         ON CONFLICT (chave_acesso) DO UPDATE SET
                             valor_servicos=EXCLUDED.valor_servicos, iss_valor=EXCLUDED.iss_valor,
-                            competencia=EXCLUDED.competencia, tomador_nome=EXCLUDED.tomador_nome,
+                            competencia=CASE
+                                WHEN nfse_emitidas_nacional.competencia_origem_adn IS NOT NULL
+                                THEN nfse_emitidas_nacional.competencia
+                                ELSE EXCLUDED.competencia END,
+                            tomador_nome=EXCLUDED.tomador_nome,
                             empresa_id=EXCLUDED.empresa_id
                         """,
                         {"chave": chave, "empresa_id": empresa_id, **vals},
@@ -193,13 +201,19 @@ class NFSeNacionalSyncService:
                 # AUTOMAÇÃO de nota CANCELADA: os eventos e105101/e105102 do ADN marcam a
                 # nota referenciada (chNFSe) como cancelada — sem depender de flag manual.
                 # (105102 = substituída: a antiga já sai por filtrar_vivas; flag é rede extra.)
+                # O evento também CONFIRMA um pedido nosso: zera `cancelamento_solicitado_em`.
+                # Por isso o WHERE aceita nota já marcada com pedido pendente — sem isso a
+                # confirmação do gov nunca chegaria à nota que nós mesmos sinalizamos, e o
+                # oráculo do painel fiscal acusaria o pedido como parado para sempre.
                 canceladas = 0
                 for ev in (r.get("eventos") or []):
                     cur.execute(
                         "UPDATE nfse_emitidas_nacional SET cancelada = TRUE, "
-                        "cancelada_em = COALESCE(cancelada_em, NOW()) "
+                        "cancelada_em = COALESCE(cancelada_em, NOW()), "
+                        "cancelamento_solicitado_em = NULL "
                         "WHERE chave_acesso = %s AND empresa_id = %s "
-                        "AND COALESCE(cancelada, FALSE) = FALSE",
+                        "AND (COALESCE(cancelada, FALSE) = FALSE "
+                        "     OR cancelamento_solicitado_em IS NOT NULL)",
                         (ev["chNFSe"], empresa_id),
                     )
                     canceladas += cur.rowcount or 0

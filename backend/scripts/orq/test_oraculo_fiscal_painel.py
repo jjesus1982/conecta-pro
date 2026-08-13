@@ -108,6 +108,49 @@ async def main() -> None:
                 "faturamento voltou a ancorar na última nota do histórico (congela no passado)"
         print(f"OK faturamento 12m: R$ {real:,.2f} (janela a partir de hoje, 2 tabelas)")
 
+        # ── 5. Pedido de cancelamento não pode ficar parado ──
+        # Nota marcada por NÓS sai do faturamento na hora, mas quem cancela de
+        # verdade é o Ambiente Nacional. Se o gov REJEITAR, o dinheiro fica fora
+        # do faturamento para sempre e ninguém descobre — é a única forma de o
+        # sistema mostrar menos receita do que existe sem nenhum alarme.
+        paradas = (await db.execute(text(
+            "SELECT numero, tomador_nome, valor_servicos, "
+            "       (CURRENT_DATE - cancelamento_solicitado_em::date) AS dias "
+            "FROM nfse_emitidas_nacional "
+            "WHERE cancelamento_solicitado_em < NOW() - interval '30 days' "
+            "ORDER BY cancelamento_solicitado_em"))).mappings().all()
+        assert not paradas, (
+            f"{len(paradas)} nota(s) com cancelamento pedido e NUNCA confirmado pelo ADN: "
+            + "; ".join(f"n{p['numero']} {p['tomador_nome'][:24]} R$ {float(p['valor_servicos']):,.2f} "
+                        f"({p['dias']} dias)" for p in paradas[:4])
+            + " — se o gov rejeitou, esse valor sumiu do faturamento sem motivo")
+        pendentes = await um("SELECT count(*) FROM nfse_emitidas_nacional "
+                             "WHERE cancelamento_solicitado_em IS NOT NULL")
+        print(f"OK cancelamentos pedidos aguardando o ADN: {pendentes} (nenhum parado há 30+ dias)")
+
+        # ── 6. Competência corrigida move a nota de mês, nunca cria receita ──
+        # A correção existe porque o ADN manda `dCompet` = data de emissão. Ela pode
+        # mudar em QUE mês a nota aparece; não pode mudar o total, nem jogar serviço
+        # para o futuro, nem sobreviver a uma nota que o gov nunca mandou.
+        corrigidas = (await db.execute(text(
+            "SELECT numero, competencia, competencia_origem_adn, valor_servicos "
+            "FROM nfse_emitidas_nacional WHERE competencia_origem_adn IS NOT NULL "
+            "ORDER BY numero"))).mappings().all()
+        for c in corrigidas:
+            assert c["competencia"] <= c["competencia_origem_adn"], (
+                f"n{c['numero']}: competência corrigida para {c['competencia']}, DEPOIS do que o "
+                f"ADN mandou ({c['competencia_origem_adn']}) — serviço não se presta no futuro")
+        # O total do ano não pode depender da correção: ela só redistribui entre meses.
+        bruto = float(await um("SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional "
+                               "WHERE coalesce(cancelada,false)=false AND competencia LIKE '2026-%'"))
+        por_mes = float(await um(
+            "SELECT coalesce(sum(v),0) FROM (SELECT sum(valor_servicos) v FROM nfse_emitidas_nacional "
+            "WHERE coalesce(cancelada,false)=false AND competencia LIKE '2026-%' GROUP BY competencia) x"))
+        assert abs(bruto - por_mes) < 0.01, \
+            f"a soma por mês ({por_mes:,.2f}) não bate com o total do ano ({bruto:,.2f})"
+        print(f"OK competências corrigidas: {len(corrigidas)} nota(s), "
+              f"total do ano intacto (R$ {bruto:,.2f})")
+
     print("TEST oraculo_fiscal_painel PASS")
 
 
