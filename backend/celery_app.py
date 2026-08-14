@@ -769,6 +769,15 @@ if os.getenv("CONECTA_PROPOR_BAIXA", "0").strip().lower() in ("1", "true", "sim"
         "options": {"queue": "gov.batch"},
     }
 
+# Fecha ordem de pagamento contra o extrato: 08:40, DEPOIS do sync do extrato
+# (08:00/08:10) e da conciliação (08:30). O pagamento foi feito no app do banco;
+# aqui o sistema reconhece que saiu, sem ninguém voltar na tela.
+app.conf.beat_schedule["financeiro-fechar-ordens-pagamento"] = {
+    "task": "financial.fechar_ordens_pagamento",
+    "schedule": crontab(hour=8, minute=40),
+    "options": {"queue": "gov.batch"},
+}
+
 # Cobrança dos vencidos: 08:50, DEPOIS da conciliação das entradas (08:30 no
 # auto_baixa_pagaveis) — cobrar quem já pagou é pior do que não cobrar. Fica
 # LIGADO por padrão, ao contrário do propor-baixa: a fila é pequena porque só

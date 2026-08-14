@@ -307,6 +307,31 @@ async def _propor_cobranca_vencidos(session) -> dict:
             "total_vencido": round(sum(i["valor"] for i in fila), 2)}
 
 
+async def _fechar_ordens_pelo_extrato(session) -> dict:
+    """Fecha os itens de ordem de pagamento que já apareceram no extrato.
+
+    O Cora não paga por API, então o pagamento é feito no app — mas a ordem foi
+    aprovada aqui, com OTP e teto. Este beat é a outra ponta: encontra a saída no
+    extrato e marca o item como pago, sem ninguém precisar voltar na tela.
+    """
+    from modules.financial.services.ordem_pagamento_service import fechar_pelo_extrato
+
+    return await fechar_pelo_extrato(session)
+
+
+@app.task(name="financial.fechar_ordens_pagamento", bind=True, max_retries=1)
+def fechar_ordens_pagamento_task(self):
+    """Fecha ordens de pagamento contra o extrato. NÃO paga nada — só reconhece
+    o que já saiu. Roda depois do sync do extrato."""
+    try:
+        result = _run_async(_fechar_ordens_pelo_extrato)
+        logger.info("[Financial Task] fechar_ordens_pagamento: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] fechar_ordens_pagamento error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(name="financial.propor_cobranca_vencidos", bind=True, max_retries=1)
 def propor_cobranca_vencidos_task(self):
     """Propõe cobrança dos recebíveis vencidos na Central (propor→aprovar).
