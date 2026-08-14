@@ -20,15 +20,10 @@ const chipBase: React.CSSProperties = {
   border: '1px solid var(--line, #E2E8F0)', borderRadius: 8, background: 'var(--fill, #F8FAFC)',
   fontSize: 12, color: 'var(--ink, #0F1B3A)', lineHeight: 1.4,
 };
-// minHeight 32px: medido em 14/08 no navegador, estes botões tinham 22px de altura e
-// aparecem 102 vezes numa tela só (Rondas). Apple recomenda 44 e Material 48, mas
-// empilhar 102 botões de 44px mudaria o desenho da tabela — 32 tira do risco de errar
-// o toque sem redesenhar a tela.
 const actBtn: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-  padding: '4px 8px', minHeight: 32, borderRadius: 6,
+  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 6,
   border: '1px solid transparent', background: 'transparent', cursor: 'pointer',
-  color: 'var(--navy, #16277D)', fontSize: 12, fontWeight: 600,
+  color: 'var(--navy, #16277D)', fontSize: 11.5, fontWeight: 600,
 };
 
 export function DocButtons({ docs, compact = false }: { docs: DocRef[]; compact?: boolean }) {

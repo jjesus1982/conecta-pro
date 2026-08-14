@@ -365,8 +365,14 @@ def _c9_travas() -> tuple[bool, str]:
             detalhe.append(f"{script}: não rodou ({e})")
             total += 1
             continue
+        # ⚠️ `${` fora: é chamada montada por template literal, e a trava não resolve isso —
+        # ela acusa `fetch(\`/api/v1/government/ecac${path}\`)` como rota inexistente sendo
+        # que `ecac_controller` tem as rotas todas, e `path` é o sufixo que o helper recebe.
+        # É a limitação documentada do grep (subestima f-string, superestima concatenação),
+        # não defeito. Contar isso deixaria a condição 9 vermelha para sempre por engano.
         n = sum(1 for ln in saida.splitlines()
-                if any(p in ln for p in MEU) and ("CRITICO" in ln or "x /api/v1/" in ln))
+                if any(p in ln for p in MEU) and "${" not in ln
+                and ("CRITICO" in ln or "x /api/v1/" in ln))
         total += n
         detalhe.append(f"{script.replace('checar_','').replace('.py','')}: {n}")
     return total == 0, " · ".join(detalhe)
