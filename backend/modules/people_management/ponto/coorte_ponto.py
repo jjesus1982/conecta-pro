@@ -242,6 +242,44 @@ JORNADA_INDIVIDUAL = {
 #: Sábado do 44h: 08:00–12:00, meio período, 2 batidas.
 SABADO_44H_ENTRADA = "08:00"
 
+# ─── revezamento de fim de semana (Michelangelo) ───────────────────────────────
+#
+# Os 2 artífices do Michelangelo se revezam: um trabalha no SÁBADO, o outro no DOMINGO,
+# 08:00–12:00, e na semana seguinte TROCAM. Não é escala fixa — é alternância semanal, e
+# nenhuma regra por cargo ou por posto dá conta disso.
+#
+# O histórico do Sólides mostra o revezamento, mas com ruído (um terceiro artífice que saiu
+# da empresa, batidas soltas de 1 marcação, um turno 13:00–17:00). Por isso a âncora é
+# declarada, não inferida: digo QUEM trabalha no sábado de UMA semana conhecida, e o resto
+# se alterna sozinho a partir dali.
+REVEZAMENTO_FDS = {
+    "Condomínio Michelangelo": {
+        # semana ISO de referência e quem estava no SÁBADO dela; o outro fica no domingo
+        "semana_ref": 33,          # semana de 10–16/08/2026
+        "sabado": "ANTONIO CARLOS VIEIRA",
+        "domingo": "KALEL SILVA DE JESUS",
+        "entrada": "08:00",
+    },
+}
+
+
+def _reveza_fds(posto: str, nome: str, dow: int, iso_week: int) -> str | None | bool:
+    """Quem trabalha neste fim de semana no posto que se reveza.
+
+    Devolve o horário se a pessoa trabalha, None se não trabalha, e False quando o posto
+    não tem revezamento (para o chamador seguir a regra normal — `None` já significa
+    "não trabalha" e os dois não podem se confundir).
+    """
+    cfg = REVEZAMENTO_FDS.get(_posto_canonico(posto) or "")
+    if not cfg or dow not in (0, 6):
+        return False
+    # semanas de diferença em relação à referência: par mantém, ímpar troca
+    trocou = (iso_week - cfg["semana_ref"]) % 2 == 1
+    no_sabado = cfg["domingo"] if trocou else cfg["sabado"]
+    no_domingo = cfg["sabado"] if trocou else cfg["domingo"]
+    escalado = no_sabado if dow == 6 else no_domingo
+    return cfg["entrada"] if (nome or "").upper().strip() == escalado else None
+
 _CARGOS_44H = ("SERVIÇOS GERAIS", "SERVICOS GERAIS", "ARTÍFICE", "ARTIFICE", "JARDINEIRO")
 
 #: ⚠️ O MESMO POSTO TEM DOIS NOMES no banco, e isto custou uma rodada: `posts.name` diz
@@ -274,7 +312,7 @@ def _posto_canonico(posto: str) -> str | None:
 
 
 def horario_entrada(
-    nome: str, posto: str, cargo: str, turno: str, dow: int = 1
+    nome: str, posto: str, cargo: str, turno: str, dow: int = 1, iso_week: int = 0
 ) -> str | None:
     """Hora de entrada da pessoa NAQUELE dia da semana, ou None quando ela não trabalha.
 
@@ -287,6 +325,11 @@ def horario_entrada(
     chave = (nome or "").upper().strip()
     ind = JORNADA_INDIVIDUAL.get(chave)
     é_44h = any(k in (cargo or "").upper() for k in _CARGOS_44H)
+
+    # posto que se reveza no fim de semana responde antes de qualquer regra geral
+    rev = _reveza_fds(posto, nome, dow, iso_week)
+    if rev is not False:
+        return rev
 
     if ind is not None:
         if dow == 6:                       # sábado
