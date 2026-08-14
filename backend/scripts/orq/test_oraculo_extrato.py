@@ -197,6 +197,25 @@ async def main() -> None:  # noqa: PLR0915
             else:
                 print(f"OK {nome}: R$ {esperado:,.2f} = saldo do próprio banco em {conferir}")
 
+        # ── (4) folha marcada PAGA tem que ter prova bancária ──
+        # Isto não existia, e por isso 12 pagamentos (R$14.713,80) ficaram meses sem
+        # par sem ninguém notar: "aguardando_app" e "pendente_pagamento" não incomodam
+        # tela nenhuma. A prova é o `pix_e2e_id` (endToEndId, nos pagos pelo Inter) ou
+        # o `comprovante_id` no formato `bank_tx:<uuid>` (nos fechados pelo extrato).
+        # Marcar pago sem prova é a forma silenciosa de a folha "fechar" sem dinheiro.
+        sem_prova = (await db.execute(text(
+            "SELECT count(*) FROM payroll_payments WHERE status = 'pago' "
+            "AND coalesce(pix_e2e_id,'') = '' "
+            "AND coalesce(comprovante_id,'') NOT LIKE 'bank_tx:%'"))).scalar() or 0
+        if sem_prova:
+            falhas.append(
+                f"{sem_prova} pagamento(s) de folha marcados 'pago' sem prova bancária "
+                f"(nem endToEndId, nem linha do extrato)")
+        else:
+            total = (await db.execute(text(
+                "SELECT count(*) FROM payroll_payments WHERE status = 'pago'"))).scalar()
+            print(f"OK folha: os {total} pagamentos marcados pagos têm prova bancária")
+
     for n in nao_coberto:
         print(f"NÃO COBERTO: {n}")
     if falhas:
