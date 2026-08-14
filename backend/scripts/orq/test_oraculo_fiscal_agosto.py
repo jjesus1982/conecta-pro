@@ -35,10 +35,6 @@ from core.database import async_session_factory  # noqa: E402
 #: O corte declarado. Medido no vencimento — ver docstring.
 CORTE = date(2026, 8, 1)
 
-#: Obrigações que nascem da FOLHA: pertencem a quem tem os holerites da competência, não a
-#: quem tem o histórico. A folha migrou de CNPJ em 06/2026 e o calendário não percebeu.
-TIPOS_DE_FOLHA = ("FGTS", "INSS", "IRRF", "ESOCIAL", "FGTS_CONSIGNADO")
-
 #: Dias de antecedência em que uma certidão vencendo já precisa de renovação disparada.
 JANELA_RENOVACAO = 15
 
@@ -64,43 +60,23 @@ async def main() -> None:
             f"{len(paradas)} certidão(ões) vencendo em ≤{JANELA_RENOVACAO} dias sem renovação "
             f"disparada: {[f'{c}/{t} vence {v}' for c, t, v in paradas]}")
 
-        # ── 2. Obrigação de folha mora num CNPJ que EMPREGA ───────────────────────────
-        # A primeira versão desta regra dizia "pertence a quem tem a MAIORIA dos holerites",
-        # e a realidade a desmentiu no mesmo dia: a folha está REPARTIDA. A guia
-        # `GFD FGTS 07.2026`, emitida pela Portte em 11/08, mostra a Eletrônica com **uma**
-        # trabalhadora (categoria 101, base R$1.670 = piso da CCT, FGTS R$133,60), enquanto
-        # a Patrimonial carrega 51 holerites. Pela regra antiga, o FGTS legítimo da
-        # Eletrônica — com guia do governo na mão — virava achado.
+        # ── 2. REMOVIDA — a regra estava errada, e a evidência que a sustentava é um DEFAULT
         #
-        # Ordem de evidência, e ela é o ponto: **documento do emissor ganha da nossa
-        # inferência**. `valor_devido` preenchido quer dizer que alguém lastreou aquilo num
-        # papel, e `hr_payslips` não sabe de tudo (a trabalhadora da Eletrônica não aparece
-        # lá). Então só se acusa o CNPJ sem folha quando TAMBÉM não há valor sustentando —
-        # aí não existe nem papel nem gente.
-        fora = (await db.execute(text("""
-            SELECT e.slug, o.tipo, o.competencia_mes, o.competencia_ano, dono.slug
-              FROM fiscal_obligations o
-              JOIN empresas e ON e.id = o.empresa_id
-              JOIN LATERAL (
-                    SELECT e2.slug
-                      FROM hr_payslips p JOIN empresas e2 ON e2.id = p.empresa_id
-                     WHERE extract(year  from p.competence_start) = o.competencia_ano
-                       AND extract(month from p.competence_start) = o.competencia_mes
-                     GROUP BY e2.slug ORDER BY count(*) DESC LIMIT 1
-                   ) dono ON true
-             WHERE o.active
-               AND o.data_vencimento >= :corte
-               AND o.tipo = ANY(:folha)
-               AND dono.slug <> e.slug
-               AND o.valor_devido IS NULL
-               AND NOT EXISTS (SELECT 1 FROM hr_payslips p2
-                                WHERE p2.empresa_id = o.empresa_id
-                                  AND extract(year  from p2.competence_start) = o.competencia_ano
-                                  AND extract(month from p2.competence_start) = o.competencia_mes)
-        """), {"corte": CORTE, "folha": list(TIPOS_DE_FOLHA)})).fetchall()
-        assert not fora, (
-            f"{len(fora)} obrigação(ões) de folha no CNPJ errado: "
-            f"{[f'{s}/{t} de {m:02d}/{a} — a folha é da {d}' for s, t, m, a, d in fora]}")
+        # Ela dizia: "obrigação de folha pertence ao CNPJ que tem os holerites daquela
+        # competência". A fonte era `hr_payslips.empresa_id` — que tem
+        # **DEFAULT '7d79ed12…' (Patrimonial)**. Holerite não atribuído nasce Patrimonial,
+        # então a coluna "provava" uma migração de folha que o governo não registrou.
+        #
+        # O documento do emissor diz o contrário: `RELATORIO GFD FGTS 06.2026` traz
+        # "Empregador: 35.710.481 CONECTAMAIS ELETRONICA LTDA · Qtd. Trabalhadores FGTS: 54",
+        # e o DCTFWeb de 07/2026 está todo sob 35710481000103. Oito obrigações chegaram a ser
+        # movidas por causa desta regra, e foram revertidas.
+        #
+        # Não há regra substituta aqui de propósito: enquanto a atribuição vier da GUIA
+        # (`guias_drive_service._upsert_obrigacao` lê o CNPJ do PDF), não existe inferência
+        # nossa a vigiar. Oráculo que afirma o que não pode provar é pior que oráculo
+        # nenhum. [[feedback_portte_fonte_verdade]]
+        #
 
         # ── 3. Tributo que não pertence ao regime da empresa ──────────────────────────
         # DAS só existe no Simples Nacional. É definição do tributo, não enquadramento —

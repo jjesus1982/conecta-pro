@@ -34,7 +34,21 @@ class FGTSExtractor(BaseExtractor):
         re.IGNORECASE,
     )
 
-    RE_CNPJ_CM = re.compile(r"35[\.\s]*710[\.\s]*481")
+    #: CNPJ do EMPREGADOR, capturado — não conferido contra um número cravado.
+    #:
+    #: Era `re.compile(r"35[\.\s]*710[\.\s]*481")`: a Eletrônica, e só ela. Uma guia da
+    #: Patrimonial perdia os 0.10 de confiança por "não ter CNPJ", quando na verdade tinha
+    #: o CNPJ ERRADO para o regex — e podia cair abaixo do corte e ser descartada. Medido em
+    #: 14/08/2026, é o quarto lugar da casa com identificador de empresa cravado no código
+    #: (os outros: `sped_manager.py:681`, `dctfweb_extractor.py:73` e o `_empresa_id` do ECD).
+    #:
+    #: Capturar em vez de conferir também é o que torna possível ATRIBUIR a guia ao CNPJ
+    #: certo lá na frente: hoje `fgts_guias` não tem coluna de CNPJ e ninguém sabe de quem é
+    #: a guia sem abrir o PDF de novo. O número vai para `detalhes["cnpj_empregador"]`.
+    #:
+    #: A GFD imprime o empregador sem os 6 dígitos finais ("35.710.481"), então aceita-se a
+    #: raiz de 8 dígitos; quando o documento traz o CNPJ inteiro, guarda-se inteiro.
+    RE_CNPJ = re.compile(r"\b(\d{2}[.\s]?\d{3}[.\s]?\d{3})(?:[/\s]?(\d{4})[-\s]?(\d{2}))?\b")
 
     def __init__(self, subtipo: str = "guia"):
         if subtipo not in self.SUBTIPOS_VALIDOS:
@@ -74,8 +88,15 @@ class FGTSExtractor(BaseExtractor):
             if m:
                 result.competencia = m.group(1)
 
-            tem_cnpj = bool(self.RE_CNPJ_CM.search(texto))
-            result.detalhes["cnpj_validado"] = tem_cnpj
+            # O CNPJ do EMPREGADOR é o primeiro do documento: a GFD imprime
+            # "CPF/CNPJ do Empregador" antes de qualquer outro (o da Caixa e o do escritório
+            # de contabilidade que emitiu vêm depois).
+            m = self.RE_CNPJ.search(texto)
+            cnpj = None
+            if m:
+                cnpj = "".join(d for d in "".join(g or "" for g in m.groups()) if d.isdigit())
+                result.detalhes["cnpj_empregador"] = cnpj
+            tem_cnpj = bool(cnpj)
 
             # GFD usa PIX — código de barras de boleto geralmente ausente, mas tentamos
             result.codigo_barras = self._extract_barcode(texto)

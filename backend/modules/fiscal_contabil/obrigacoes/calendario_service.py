@@ -82,62 +82,30 @@ def _venc(ano: int, mes: int, dia: int) -> date:
 
 
 async def recorrentes(db, empresa_id: str, ate_ano: int, ate_mes: int) -> list[dict]:
-    """Conjunto de obrigações que ESTA empresa vem declarando, com o dia de cada uma."""
+    """Conjunto de obrigações que ESTA empresa vem declarando, com o dia de cada uma.
+
+    ⚠️ NÃO tente reatribuir obrigação de folha por `hr_payslips` — já foi tentado e deu
+    errado em 14/08/2026. A ideia parecia sólida: a folha teria migrado para a Patrimonial
+    em 06/2026 (56 holerites lá contra 52 na Eletrônica em 05), então FGTS/INSS/IRRF/eSocial
+    deveriam segui-la. Duas coisas derrubaram isso:
+
+      1. `hr_payslips.empresa_id` tem **DEFAULT '7d79ed12…' (Patrimonial)**. Holerite que
+         ninguém atribuiu explicitamente NASCE Patrimonial. Não é dado, é default — e foi
+         essa "evidência" que apontou a migração.
+      2. O documento do emissor diz o contrário: `RELATORIO GFD FGTS 06.2026` traz
+         *"Empregador: 35.710.481 CONECTAMAIS ELETRONICA LTDA · Qtd. Trabalhadores FGTS:
+         54"*, e o pacote DCTFWeb de 07/2026 está todo sob `35710481000103`. Em julho a
+         Eletrônica ainda recolhia — com UMA trabalhadora, R$133,60.
+
+    Oito obrigações foram movidas e depois revertidas. Repetir o histórico de cada empresa,
+    como esta função faz, estava certo: quem muda a atribuição é a GUIA, pelo
+    `guias_drive_service._upsert_obrigacao`, que lê o CNPJ do PDF. Documento do emissor
+    ganha da nossa inferência — sempre. [[feedback_portte_fonte_verdade]]
+    """
     desde = (ate_ano * 12 + ate_mes) - _JANELA_HISTORICO
     rows = (await db.execute(text(_SQL_RECORRENTES),
                              {"emp": empresa_id, "desde": desde, "minimo": _MIN_OCORRENCIAS})).fetchall()
     return [{"tipo": r[0], "nome": r[1], "dia": int(r[2] or 20), "meses": r[3]} for r in rows]
-
-
-#: Obrigações que nascem da FOLHA. Elas não seguem o histórico da empresa: seguem onde a
-#: folha está naquela competência.
-_TIPOS_DE_FOLHA = ("FGTS", "INSS", "IRRF", "ESOCIAL", "FGTS_CONSIGNADO")
-
-
-async def dono_da_folha(db, ano: int, mes: int) -> str | None:
-    """Qual empresa tem os holerites daquela competência. `None` se não houver folha.
-
-    Existe porque a folha MUDOU DE CNPJ e o calendário não percebeu. Medido em 14/08/2026:
-
-        05/2026  52 holerites  Eletrônica
-        06/2026  56 holerites  Patrimonial      ← a folha migrou aqui
-        07/2026  51 holerites  Patrimonial
-
-    e mesmo assim FGTS, INSS, IRRF e eSocial das competências 06 e 07 nasceram na
-    ELETRÔNICA, que não tem funcionário desde maio. O motivo é `_recorrentes`, que repete o
-    que CADA empresa vem declarando: a Eletrônica tinha o histórico, então seguiu repetindo;
-    a Patrimonial não tinha, então nunca ganhou nenhuma. Prazo de folha criado no CNPJ
-    errado é duas coisas ruins ao mesmo tempo — um alarme falso lá, e silêncio onde o
-    tributo é devido de verdade.
-
-    Isto é evidência da NOSSA base, não leitura de lei: quem tem o holerite tem o encargo
-    dele. O serviço continua sem deduzir da legislação quais tributos a empresa deve.
-
-    ⚠️ Cai para a ÚLTIMA competência que tem folha quando a do mês pedido ainda não fechou.
-    Sem esse degrau o conserto teria durado um mês: a folha de agosto só é fechada em
-    setembro, então em 01/09 a consulta de 08/2026 voltaria vazia, o serviço cairia no
-    histórico de cada empresa e a Eletrônica recomeçaria a criar encargo de folha que não é
-    dela. A folha não volta para o CNPJ antigo por não ter fechado ainda.
-    """
-    return (await db.execute(text(
-        "SELECT e.id::text FROM hr_payslips p JOIN empresas e ON e.id = p.empresa_id "
-        " WHERE p.competence_start < make_date(:a, :m, 1) + interval '1 month' "
-        " GROUP BY e.id, date_trunc('month', p.competence_start) "
-        " ORDER BY date_trunc('month', p.competence_start) DESC, count(*) DESC LIMIT 1"),
-        {"a": ano, "m": mes})).scalar()
-
-
-async def recorrentes_do_grupo(db, ate_ano: int, ate_mes: int) -> dict[str, dict]:
-    """Como o GRUPO vem declarando cada tipo, sem olhar de qual CNPJ.
-
-    Quando a folha muda de empresa, a empresa nova não tem histórico próprio — e sem isto o
-    calendário ficaria mudo justamente no CNPJ que passou a dever. Repetir o que o grupo
-    declara continua sendo evidência; o que não se faz é inventar tipo que ninguém declarou.
-    """
-    desde = (ate_ano * 12 + ate_mes) - _JANELA_HISTORICO
-    rows = (await db.execute(text(_SQL_RECORRENTES),
-                             {"emp": None, "desde": desde, "minimo": _MIN_OCORRENCIAS})).fetchall()
-    return {r[0]: {"tipo": r[0], "nome": r[1], "dia": int(r[2] or 20), "meses": r[3]} for r in rows}
 
 
 async def primeira_atividade(db, empresa_id: str) -> int | None:
@@ -168,46 +136,6 @@ async def garantir_competencia(db, empresa_id: str, ano: int, mes: int,
         return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}", "criadas": 0,
                 "motivo": "competência anterior à primeira atividade da empresa"}
     tipos = await recorrentes(db, empresa_id, ano, mes)
-
-    # ── A folha manda em quem responde pelos encargos dela ───────────────────────────────
-    # `recorrentes` repete o histórico DESTA empresa, e histórico não acompanha a folha
-    # quando ela troca de CNPJ. Sem a correção abaixo, o CNPJ antigo continua ganhando prazo
-    # de FGTS/INSS/IRRF/eSocial que não é mais dele, e o novo nunca ganha nenhum.
-    dono = await dono_da_folha(db, ano, mes)
-    if dono:
-        if dono != empresa_id:
-            # ⚠️ "Não é o dono da folha" NÃO quer dizer "não emprega". A folha está
-            # REPARTIDA entre os dois CNPJs: em 07/2026 a Patrimonial tinha 51 holerites e a
-            # Eletrônica tinha **uma** trabalhadora — com guia do governo para provar (GFD
-            # FGTS 07.2026, base R$1.670, FGTS R$133,60). Podar cegamente apagaria o prazo
-            # de um tributo realmente devido, que é o pior erro que este serviço pode
-            # cometer: multa não espera.
-            #
-            # Fica quem tem LASTRO próprio no tipo — obrigação com valor, que só existe
-            # quando alguém a ancorou num documento. `hr_payslips` sozinho não basta: a
-            # trabalhadora da Eletrônica não aparece lá.
-            #
-            # ⚠️ O lastro é da competência IMEDIATAMENTE ANTERIOR, não de uma janela larga.
-            # Com seis meses de janela o teste devolvia TODOS os tributos de folha à
-            # Eletrônica, porque alcançava jan–maio, quando ela ainda tinha a folha inteira —
-            # o remédio desfazia a correção. "Empregava em algum momento do semestre" não é
-            # evidência de que emprega agora; "tinha guia no mês passado" é.
-            anterior = (ano * 12 + mes) - 1
-            com_lastro = {r[0] for r in (await db.execute(text(
-                "SELECT DISTINCT tipo FROM fiscal_obligations "
-                " WHERE empresa_id = :e AND valor_devido IS NOT NULL AND active "
-                "   AND (competencia_ano * 12 + competencia_mes) = :ant"),
-                {"e": empresa_id, "ant": anterior})).fetchall()}
-            tipos = [t for t in tipos
-                     if t["tipo"] not in _TIPOS_DE_FOLHA or t["tipo"] in com_lastro]
-        else:
-            # A empresa que RECEBEU a folha não tem histórico próprio desses tipos. O dia de
-            # vencimento vem de como o grupo vem declarando cada um — repetir o observado,
-            # não deduzir da lei.
-            ja_tem = {t["tipo"] for t in tipos}
-            grupo = await recorrentes_do_grupo(db, ano, mes)
-            tipos += [g for tp, g in grupo.items()
-                      if tp in _TIPOS_DE_FOLHA and tp not in ja_tem]
 
     if not tipos:
         return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}",

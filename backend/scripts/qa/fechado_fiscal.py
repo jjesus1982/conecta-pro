@@ -30,11 +30,14 @@ setembro). Nada anterior a 01/08 é medido.
 certa: "deduzir da legislação seria eu decidindo o enquadramento dela". Este gate mantém a
 mesma disciplina e só afirma o que a NOSSA base prova:
 
-  * obrigação derivada de FOLHA (FGTS/INSS/IRRF/ESOCIAL) pertence ao CNPJ que tem os
-    `hr_payslips` daquela competência. Medido em 14/08: a folha é da Patrimonial desde
-    06/2026 (51 holerites em 07/2026, FGTS R$7.922,32) e as obrigações de folha da
-    competência 07 estão na ELETRÔNICA, que não tem folha desde maio.
   * DAS só existe em `simples_nacional`. É definição do tributo, não enquadramento.
+
+⚠️ Havia uma segunda afirmação aqui — "obrigação de folha pertence a quem tem os holerites" —
+e ela foi RETIRADA no mesmo dia em que nasceu. A fonte era `hr_payslips.empresa_id`, coluna
+com DEFAULT Patrimonial: holerite não atribuído nasce Patrimonial, e a coluna "provou" uma
+migração de folha que o governo não registrou. O documento do emissor desmente (GFD FGTS
+06.2026 na Eletrônica, 54 trabalhadores). Oito obrigações foram movidas e revertidas. Quem
+atribui obrigação a CNPJ é a GUIA, que traz o empregador impresso.
 
 O que este gate NÃO decide, e fica para o Jordan: se a Eletrônica sem folha ainda deve
 ESOCIAL sem movimento, e se a Patrimonial (serviço, Simples III) precisa de certidão
@@ -54,9 +57,12 @@ BASE = os.path.join(RAIZ, "backend")
 #: O corte declarado pelo Jordan em 14/08/2026. Medido no VENCIMENTO — ver docstring.
 CORTE = date(2026, 8, 1)
 
-#: Obrigações que nascem da folha. Se a empresa não tem holerite na competência, a
-#: obrigação não é dela — quem tem a folha responde por elas.
-TIPOS_DE_FOLHA = ("FGTS", "INSS", "IRRF", "ESOCIAL", "FGTS_CONSIGNADO")
+#: ⚠️ NÃO reintroduza uma regra de "obrigação de folha pertence a quem tem os holerites".
+#: Foi tentada em 14/08/2026 e a evidência que a sustentava era um DEFAULT de coluna:
+#: `hr_payslips.empresa_id` nasce Patrimonial quando ninguém atribui. O documento do
+#: emissor desmente — GFD FGTS 06.2026 filiada na Eletrônica com 54 trabalhadores, e o
+#: DCTFWeb de 07/2026 todo sob 35710481000103. Oito obrigações foram movidas por essa
+#: regra e revertidas. Quem atribui é a GUIA, que traz o CNPJ do empregador.
 
 #: Certidões exigidas dos DOIS CNPJs. Saiu do conjunto REAL da Eletrônica (medido 14/08),
 #: menos `registro_cnpj`, que é cadastro e não certidão.
@@ -213,27 +219,6 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     for slug, regime, tipo, ano, mes, _venc in linhas:
         if tipo == "DAS" and regime != "simples_nacional":
             problemas.append(f"{slug}: DAS em empresa {regime} (DAS só existe no Simples)")
-        if tipo in TIPOS_DE_FOLHA and mes != "0":
-            # ⚠️ A folha está REPARTIDA entre os dois CNPJs, e a regra ingênua ("é de quem
-            # tem mais holerite") acusou o FGTS legítimo da Eletrônica, que tem UMA
-            # trabalhadora e a guia do governo para provar. Documento do emissor ganha da
-            # nossa inferência: obrigação com `valor_devido` está lastreada em papel, e
-            # `hr_payslips` não sabe de tudo. Só se acusa quem não tem NEM folha NEM valor.
-            lastro = _q("SELECT 1 FROM fiscal_obligations o JOIN empresas e ON e.id=o.empresa_id "
-                        " WHERE e.slug = @s AND o.tipo = @t AND o.competencia_ano = @a "
-                        "   AND o.competencia_mes = @m AND o.active "
-                        "   AND (o.valor_devido IS NOT NULL OR EXISTS ("
-                        "         SELECT 1 FROM hr_payslips p WHERE p.empresa_id = o.empresa_id "
-                        "          AND extract(year from p.competence_start) = @a "
-                        "          AND extract(month from p.competence_start) = @m)) LIMIT 1",
-                        s=slug, t=tipo, a=int(ano), m=int(mes))
-            dono = _q("SELECT e.slug FROM hr_payslips p JOIN empresas e ON e.id = p.empresa_id "
-                      " WHERE extract(year from p.competence_start) = @a "
-                      "   AND extract(month from p.competence_start) = @m "
-                      " GROUP BY e.slug ORDER BY count(*) DESC LIMIT 1", a=int(ano), m=int(mes))
-            if dono and dono[0][0] != slug and not lastro:
-                problemas.append(f"{slug}: {tipo} de {int(mes):02d}/{ano} — sem folha e sem "
-                                 f"valor de guia (a folha dessa competência é da {dono[0][0]})")
     out.append((not problemas, "2 · obrigações de 08/2026 em diante no CNPJ e regime certos",
                 f"{len(linhas)} obrigação(ões) medida(s), {len(problemas)} problema(s)"
                 + ("\n       " + "\n       ".join(problemas) if problemas else "")))
