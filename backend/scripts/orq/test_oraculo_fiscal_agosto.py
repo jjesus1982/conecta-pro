@@ -64,10 +64,19 @@ async def main() -> None:
             f"{len(paradas)} certidão(ões) vencendo em ≤{JANELA_RENOVACAO} dias sem renovação "
             f"disparada: {[f'{c}/{t} vence {v}' for c, t, v in paradas]}")
 
-        # ── 2. Obrigação de folha mora no CNPJ que TEM a folha ────────────────────────
-        # Evidência da nossa base, nunca leitura de lei: quem tem o holerite responde pelo
-        # encargo dele. Em 14/08 as quatro de 07/2026 estavam na Eletrônica, que não tem
-        # funcionário desde maio, enquanto a Patrimonial carregava os 51 holerites.
+        # ── 2. Obrigação de folha mora num CNPJ que EMPREGA ───────────────────────────
+        # A primeira versão desta regra dizia "pertence a quem tem a MAIORIA dos holerites",
+        # e a realidade a desmentiu no mesmo dia: a folha está REPARTIDA. A guia
+        # `GFD FGTS 07.2026`, emitida pela Portte em 11/08, mostra a Eletrônica com **uma**
+        # trabalhadora (categoria 101, base R$1.670 = piso da CCT, FGTS R$133,60), enquanto
+        # a Patrimonial carrega 51 holerites. Pela regra antiga, o FGTS legítimo da
+        # Eletrônica — com guia do governo na mão — virava achado.
+        #
+        # Ordem de evidência, e ela é o ponto: **documento do emissor ganha da nossa
+        # inferência**. `valor_devido` preenchido quer dizer que alguém lastreou aquilo num
+        # papel, e `hr_payslips` não sabe de tudo (a trabalhadora da Eletrônica não aparece
+        # lá). Então só se acusa o CNPJ sem folha quando TAMBÉM não há valor sustentando —
+        # aí não existe nem papel nem gente.
         fora = (await db.execute(text("""
             SELECT e.slug, o.tipo, o.competencia_mes, o.competencia_ano, dono.slug
               FROM fiscal_obligations o
@@ -83,6 +92,11 @@ async def main() -> None:
                AND o.data_vencimento >= :corte
                AND o.tipo = ANY(:folha)
                AND dono.slug <> e.slug
+               AND o.valor_devido IS NULL
+               AND NOT EXISTS (SELECT 1 FROM hr_payslips p2
+                                WHERE p2.empresa_id = o.empresa_id
+                                  AND extract(year  from p2.competence_start) = o.competencia_ano
+                                  AND extract(month from p2.competence_start) = o.competencia_mes)
         """), {"corte": CORTE, "folha": list(TIPOS_DE_FOLHA)})).fetchall()
         assert not fora, (
             f"{len(fora)} obrigação(ões) de folha no CNPJ errado: "

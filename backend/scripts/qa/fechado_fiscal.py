@@ -214,13 +214,26 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
         if tipo == "DAS" and regime != "simples_nacional":
             problemas.append(f"{slug}: DAS em empresa {regime} (DAS só existe no Simples)")
         if tipo in TIPOS_DE_FOLHA and mes != "0":
+            # ⚠️ A folha está REPARTIDA entre os dois CNPJs, e a regra ingênua ("é de quem
+            # tem mais holerite") acusou o FGTS legítimo da Eletrônica, que tem UMA
+            # trabalhadora e a guia do governo para provar. Documento do emissor ganha da
+            # nossa inferência: obrigação com `valor_devido` está lastreada em papel, e
+            # `hr_payslips` não sabe de tudo. Só se acusa quem não tem NEM folha NEM valor.
+            lastro = _q("SELECT 1 FROM fiscal_obligations o JOIN empresas e ON e.id=o.empresa_id "
+                        " WHERE e.slug = @s AND o.tipo = @t AND o.competencia_ano = @a "
+                        "   AND o.competencia_mes = @m AND o.active "
+                        "   AND (o.valor_devido IS NOT NULL OR EXISTS ("
+                        "         SELECT 1 FROM hr_payslips p WHERE p.empresa_id = o.empresa_id "
+                        "          AND extract(year from p.competence_start) = @a "
+                        "          AND extract(month from p.competence_start) = @m)) LIMIT 1",
+                        s=slug, t=tipo, a=int(ano), m=int(mes))
             dono = _q("SELECT e.slug FROM hr_payslips p JOIN empresas e ON e.id = p.empresa_id "
                       " WHERE extract(year from p.competence_start) = @a "
                       "   AND extract(month from p.competence_start) = @m "
                       " GROUP BY e.slug ORDER BY count(*) DESC LIMIT 1", a=int(ano), m=int(mes))
-            if dono and dono[0][0] != slug:
-                problemas.append(f"{slug}: {tipo} de {int(mes):02d}/{ano} — "
-                                 f"a folha dessa competência é da {dono[0][0]}")
+            if dono and dono[0][0] != slug and not lastro:
+                problemas.append(f"{slug}: {tipo} de {int(mes):02d}/{ano} — sem folha e sem "
+                                 f"valor de guia (a folha dessa competência é da {dono[0][0]})")
     out.append((not problemas, "2 · obrigações de 08/2026 em diante no CNPJ e regime certos",
                 f"{len(linhas)} obrigação(ões) medida(s), {len(problemas)} problema(s)"
                 + ("\n       " + "\n       ".join(problemas) if problemas else "")))
