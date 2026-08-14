@@ -79,7 +79,7 @@ class ClockPunchModel(Base):
     # 'pending' (batida nova, aguardando conferência) -> 'approved' (conferida).
     # Marcadores de exceção: 'offline', 'fora_local'. (O antigo default 'normal'/'regular'
     # era seed legado e não coincidia com as 4409 batidas reais em pending/approved.)
-    status = Column(String(20), nullable=False, default="pending")
+    status = Column(String(20), nullable=False, default=ClockPunchStatus.PENDING.value)
 
     # Reconhecimento facial
     facial_match = Column(Boolean, nullable=True)
