@@ -245,20 +245,25 @@ async def hr_root_summary(
             },
         }
     except Exception as exc:
-        logger.warning("hr_root_summary fallback: %s", exc)
+        # NÃO devolve número quando a fonte falha. Este bloco chumbava
+        # 52 funcionários / 41 ativos / 78,8% / 157 benefícios e ainda dizia `status: "ok"`
+        # — quem consome não tinha como distinguir dado de invenção. Medido em 13/08/2026:
+        # o real é 91 funcionários e 54 ativos. O fallback mentia por 13 pessoas, e mentiria
+        # com mais folga a cada admissão, porque número chumbado não acompanha o cadastro.
+        #
+        # `status` passa a dizer a verdade e os campos vêm NULOS: tela que não sabe tratar
+        # ausência mostra vazio, que é honesto; tela que mostra "78,8%" de um banco fora do ar
+        # é mentira com aparência de relatório.
+        logger.warning("hr_root_summary indisponível: %s", exc)
         return {
-            "status": "ok",
+            "status": "indisponivel",
+            "erro": "não foi possível ler os dados de RH agora",
             "resumo": {
-                "total_funcionarios": 52,
-                "total_ativos": 41,
-                "total_inativos": 11,
-                "indice_atividade": 78.8,
-                "total_beneficios": 157,
+                "total_funcionarios": None,
+                "total_ativos": None,
+                "total_inativos": None,
+                "indice_atividade": None,
+                "total_beneficios": None,
             },
-            "cct": {
-                "nome": "SINDECOMPRESTS",
-                "vigencia_inicio": "2026-01-01",
-                "vigencia_fim": "2026-12-31",
-                "status": "vigente",
-            },
+            "cct": None,
         }
