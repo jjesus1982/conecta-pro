@@ -944,25 +944,39 @@ async def get_balanco_patrimonial(
         "resultado_do_periodo_em_curso": resultado_aberto,
         "fecha": abs(dif) < 0.01,
         "diferenca": dif,
-        # Declarado, não escondido: o PL aqui é só o que ESTE razão conhece.
-        "pl_completo": False,
+        # REGRA, não bandeira fixa: o PL está completo quando a conta de abertura
+        # `3.9.9.01 Saldo de Abertura a Identificar` zera. Enquanto ela tiver saldo,
+        # existe patrimônio declarado cuja contrapartida ninguém identificou — e o
+        # balanço fecharia dizendo mais do que sabe. Era um `False` chumbado; virou
+        # medida, então o dia em que o contador entregar o balanço de abertura o
+        # sistema reconhece sozinho.
+        "pl_completo": abs(_saldo_abertura_a_identificar(contas)) < 0.01,
+        "saldo_abertura_a_identificar": _saldo_abertura_a_identificar(contas),
         # O capital SUBSCRITO é fato público na Receita (BrasilAPI) e entra aqui como
         # informação, NÃO como lançamento: subscrito ≠ integralizado. Quanto entrou de
         # verdade só o contrato social diz, e postar R$600 mil como integralizado seria
         # fabricar patrimônio. Fica nomeado para que a lacuna tenha tamanho em vez de
         # ser um "falta alguma coisa" genérico.
         "capital_social_subscrito": await _capital_social_subscrito(),
-        "aviso": ("O PL é o resultado escriturado por este razão. Falta UM número para "
-                  "fechá-lo: quanto do capital social subscrito foi INTEGRALIZADO (o "
-                  "subscrito está aqui, vindo da Receita). Lucros acumulados até "
-                  "31/12/2025 vêm do balanço do contador. Quando entrarem, a "
-                  "contrapartida é 3.9.9.01 Saldo de Abertura a Identificar."),
+        "aviso": ("Capital social integralizado JÁ registrado (R$600.000, confirmado pelo "
+                  "sócio em 13/08/2026 e conferido contra a Receita). O que falta é o "
+                  "BALANÇO DE ABERTURA do contador: em que ativos esse capital se "
+                  "transformou e qual o lucro/prejuízo acumulado até 31/12/2025. Enquanto "
+                  "não entrar, 3.9.9.01 carrega a contrapartida e `pl_completo` é false."),
         "contas": [{"conta": c, "nome": nomes.get(c, "(não mapeada no plano)"),
                     "saldo": float(s)} for c, s in contas],
         "fonte": "accounting_entries (razão real) + apuração de resultado por competência",
     }
 
 
+
+
+def _saldo_abertura_a_identificar(contas) -> float:
+    """Saldo de 3.9.9.01 — o tamanho do que ainda não foi identificado no PL."""
+    for c, saldo in contas:
+        if c == "3.9.9.01":
+            return round(float(saldo), 2)
+    return 0.0
 
 async def _capital_social_subscrito() -> dict:
     """Capital social SUBSCRITO de cada CNPJ, direto da Receita (BrasilAPI, com cache).
