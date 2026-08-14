@@ -263,6 +263,11 @@ REVEZAMENTO_FDS = {
 }
 
 
+#: Quem participa de algum revezamento de fim de semana. Derivado do dicionário acima para
+#: não virar uma segunda lista que alguém esquece de atualizar.
+_NOMES_REVEZAM = {c[d] for c in REVEZAMENTO_FDS.values() for d in ("sabado", "domingo")}
+
+
 def _reveza_fds(posto: str, nome: str, dow: int, iso_week: int) -> str | None | bool:
     """Quem trabalha neste fim de semana no posto que se reveza.
 
@@ -498,4 +503,11 @@ def dia_de_meio_periodo(nome: str, cargo: str, dow: int) -> bool:
             return True
         if "sabado" in ind:                    # sábado declarado (ou None = não trabalha)
             return dow == 6 and ind["sabado"] is not None
+    # Quem se reveza no fim de semana faz meio período no dia que lhe cabe — inclusive quando
+    # esse dia é DOMINGO. Sem isto o KALEL sairia com 4 batidas no domingo dele: o `dow == 6`
+    # abaixo só enxerga sábado, e o revezamento do Michelangelo é justamente o caso em que o
+    # meio período cai fora dele. Basta o NOME: `horario_entrada` já devolve None no dia em
+    # que a pessoa folga, então ninguém pergunta as batidas dela naquele dia.
+    if (nome or "").upper().strip() in _NOMES_REVEZAM and dow in (0, 6):
+        return True
     return dow == 6
