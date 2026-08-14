@@ -2906,12 +2906,25 @@ async def rd_action_vacation_request(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    # Solicitação de férias (auto-serviço) → nasce RASCUNHO/DRAFT sobre SALDO REAL. Sem mover folha/dinheiro.
+    # Solicitação de férias (auto-serviço) → nasce SUBMITTED sobre SALDO REAL. Sem mover
+    # folha/dinheiro.
+    #
+    # Esta ação gravava em `employee_vacation_requests` (via
+    # `hr/employee_portal/services/vacation_service`) enquanto a aprovação — o
+    # `/action/ferias-aprovar`, logo ali — trabalha em `hr_vacation_requests`. **O pedido
+    # que esta tela criava nunca podia ser aprovado por ela.** Não é hipótese: em 13/08/2026
+    # havia 14 pedidos parados em SUBMITTED desde 01/04 de um lado, enquanto o outro seguia
+    # até 16/07.
+    #
+    # `hr_vacation_requests` é a autoritativa (19 linhas, a mais recente, a única com ciclo
+    # completo). Agora criar e aprovar passam pelo MESMO controller, que é o que fecha o
+    # ciclo — e `criar_vacation` já traz as travas da CLT (art. 130, teto de 30 dias
+    # corridos) que este caminho não tinha.
     import uuid as _uuid
     from datetime import date as _date
 
-    from modules.hr.employee_portal.schemas.vacation import VacationRequestCreate, VacationType
-    from modules.hr.employee_portal.services.vacation_service import VacationService
+    from modules.hr.employee_portal.schemas.vacation import VacationType
+    from modules.people_management.hr.controllers.vacation_controller import criar_vacation
 
     try:
         emp_uuid = _uuid.UUID((payload.get("employee_id") or "").strip())
@@ -2933,23 +2946,29 @@ async def rd_action_vacation_request(
     dias = (ed - sd).days + 1
     if dias < 5 or dias > 30:
         raise HTTPException(status_code=400, detail="O período deve ter de 5 a 30 dias corridos.")
-    # condomínio vem do período de férias do colaborador (fallback: empresa)
-    crow = (await db.execute(text(
-        "SELECT condominio_id FROM employee_vacation_periods WHERE employee_id=:e AND condominio_id IS NOT NULL LIMIT 1"),
-        {"e": emp_uuid})).first()
-    cond_id = crow[0] if crow else _uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+    # O condomínio NÃO é escolhido aqui: `criar_vacation` usa o canônico
+    # (`_HVR_DEFAULT_CONDOMINIO_ID`), que é o mesmo das 19 solicitações existentes. Escolher
+    # um por fora faria o pedido nascer num condomínio que a aprovação não procura.
     try:
-        data = VacationRequestCreate(
-            vacation_type=VacationType(vtype), start_date=sd, end_date=ed, days_requested=dias,
-            employee_notes=(payload.get("employee_notes") or "").strip() or None)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-    try:
-        req = await VacationService(db).create_vacation_request(data, cond_id, emp_uuid)
+        req = await criar_vacation(
+            data={
+                "employee_id": str(emp_uuid),
+                "start_date": sd.isoformat(),
+                "end_date": ed.isoformat(),
+                "days": dias,
+                "vacation_type": vtype,
+                "reason": (payload.get("employee_notes") or "").strip() or None,
+            },
+            current_user=current_user,
+            db=db,
+        )
+    except HTTPException:
+        raise  # 422 da CLT e 400 de validação sobem como estão — são a resposta certa
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "id": str(req.id), "code": getattr(req, "request_code", None),
-            "message": f"Férias solicitadas para {row[0]} — {dias} dias (rascunho, pendente de aprovação)"}
+    return {"ok": True, "id": req.get("id"), "code": req.get("request_code"),
+            "message": f"Férias solicitadas para {row[0]} — {dias} dias "
+                       f"(pendente de aprovação)"}
 
 
 @router.post("/action/vacation-reject")
