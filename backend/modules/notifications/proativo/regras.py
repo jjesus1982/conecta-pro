@@ -875,6 +875,66 @@ register(Regra(
 ))
 
 
+# ─────────────────────── dp_ferias_sem_decisao ───────────────────────
+async def _detectar_ferias_sem_decisao(db: AsyncSession) -> list[Achado]:
+    """Pedido de férias cujo período JÁ PASSOU e ninguém aprovou nem rejeitou.
+
+    Buraco encontrado em 13/08/2026, e nenhuma das outras regras de férias o cobria:
+    `dp_ferias_limite_gozo` olha o período AQUISITIVO (art. 137) e `dp_retorno_ferias` só
+    olha quem já foi APROVADO. Um pedido que fica em `SUBMITTED` até o período vencer não
+    aparece em lugar nenhum — some entre as duas.
+
+    Medido: **13 pedidos SUBMITTED com o período já vencido**, o mais antigo de 01/04, e
+    todos ainda pendentes em agosto. Um deles é do ADAILSON, que TEM verba de férias na
+    folha — ou seja, gozou de fato e o pedido continua "aguardando aprovação".
+
+    Isso é passivo dos dois lados: se a pessoa gozou, falta o registro que sustenta o
+    pagamento; se não gozou, o direito continua correndo e ninguém decidiu.
+
+    Não julga QUAL decisão é a certa — aprovar retroativo, rejeitar ou cancelar é do RH.
+    Só garante que a ausência de decisão pare de ser silenciosa.
+    """
+    rows = (await db.execute(text(
+        "SELECT v.id::text AS id, e.nome AS nome, v.start_date AS ini, v.end_date AS fim, "
+        "       (current_date - v.end_date) AS dias_vencido, "
+        "       EXISTS (SELECT 1 FROM folha_verba_espelho f "
+        "               WHERE f.employee_id = v.employee_id "
+        "                 AND f.codigo IN ('0060','1061')) AS tem_verba "
+        "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
+        "WHERE upper(coalesce(v.status,'')) = 'SUBMITTED' "
+        "  AND v.end_date < current_date "
+        "ORDER BY v.end_date"
+    ))).mappings().all()
+    return [Achado(
+        correlation_id=f"dp_ferias_sem_decisao:{r['id']}",
+        dados={"nome": r["nome"], "ini": str(r["ini"]), "fim": str(r["fim"]),
+               "dias": int(r["dias_vencido"]), "tem_verba": bool(r["tem_verba"]),
+               "total": len(rows)},
+    ) for r in rows]
+
+
+def _tpl_ferias_sem_decisao(d: dict) -> tuple[str, str]:
+    corpo = (f"O pedido de férias de {d['nome']} ({d['ini']} a {d['fim']}) continua "
+             f"'aguardando aprovação' e o período terminou há {d['dias']} dia(s). "
+             f"Aprovar retroativo, rejeitar ou cancelar — qualquer uma resolve; deixar "
+             f"pendente é a única que não.")
+    if d["tem_verba"]:
+        corpo += (" ⚠️ A folha desta pessoa TEM verba de férias (0060/1061): ela gozou de "
+                  "fato, e o registro que sustenta esse pagamento é justamente este pedido "
+                  "que nunca foi aprovado.")
+    if d.get("total", 0) > 1:
+        corpo += f" Há {d['total']} pedido(s) nesta situação."
+    return (f"Férias sem decisão há {d['dias']} dia(s): {d['nome']}", corpo)
+
+
+register(Regra(
+    nome="dp_ferias_sem_decisao", familia="dp", severidade="atencao",
+    roles_destino=("admin", "rh", "dp"),
+    action_url="/redesign/departamento-pessoal?t=g-ferias",
+    detectar=_detectar_ferias_sem_decisao, template=_tpl_ferias_sem_decisao,
+))
+
+
 # ─────────────────────── dp_retorno_ferias ───────────────────────
 async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
     """Retorno de férias em ≤3 dias (o quadro da Pyetra rastreia isso à mão).

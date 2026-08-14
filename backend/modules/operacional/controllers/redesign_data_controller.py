@@ -592,7 +592,14 @@ async def _build_dp(db: AsyncSession) -> dict:
         )
         comp = (await db.execute(text(_ULT_COMP))).fetchone()
         liq = await _scalar(db, f"SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=({_ULT_COMP})")
-        ferias_req = await _scalar(db, "SELECT count(*) FROM employee_vacation_requests")
+        # `hr_vacation_requests`, a AUTORITATIVA — as 7 leituras de férias deste arquivo
+        # liam `employee_vacation_requests` até 13/08/2026, e ela é CÓPIA, não fila.
+        # Medido: os 15 pedidos dela já existem na autoritativa, com o MESMO funcionário, o
+        # MESMO período e a MESMA data de criação — foram gravados nos dois lados em
+        # paralelo. Ler a cópia mostrava 15 onde há 19, e mostrava ANDREW COSTA VASCONCELOS
+        # como `SUBMITTED` quando a decisão registrada na autoritativa foi `REJECTED`.
+        # KPI que discorda da decisão do RH é pior que KPI faltando.
+        ferias_req = await _scalar(db, "SELECT count(*) FROM hr_vacation_requests")
         admissoes = await _scalar(db, "SELECT count(*) FROM admission_processes")
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp else "—"
         # quadro por status
@@ -600,7 +607,7 @@ async def _build_dp(db: AsyncSession) -> dict:
         st_tone = {"ativo": "ok", "afastado_inss": "warn", "suspenso": "warn", "inativo": "mut", "demitido": "bad"}
         quadro = [{"left": (s or "—").replace("_", " ").capitalize(), "right": str(c), **S[st_tone.get(s, "mut")]} for s, c in st_rows]
         # férias por status
-        fr_rows = (await db.execute(text("SELECT status, count(*) FROM employee_vacation_requests GROUP BY status ORDER BY count(*) DESC"))).fetchall()
+        fr_rows = (await db.execute(text("SELECT status, count(*) FROM hr_vacation_requests GROUP BY status ORDER BY count(*) DESC"))).fetchall()
         fer = [{"left": (s or "—").replace("_", " ").capitalize(), "right": str(c), **S["info"]} for s, c in fr_rows] or [{"left": "Sem solicitações", "right": "0", **S["mut"]}]
         return {
             "title": "Visão geral", "sub": f"{ativos} colaboradores ativos · folha {comp_lbl}", "cta": "Nova admissão",
@@ -621,7 +628,7 @@ async def _build_dp(db: AsyncSession) -> dict:
               "inativo": ("Inativo", "mut"), "demitido": ("Demitido", "bad")}
     n_ativos = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
     n_demit = await _scalar(db, "SELECT count(*) FROM employees WHERE status='demitido'")
-    n_ferias = await _scalar(db, "SELECT count(*) FROM employee_vacation_requests")
+    n_ferias = await _scalar(db, "SELECT count(*) FROM hr_vacation_requests")
     n_benef = await _scalar(db, "SELECT count(*) FROM employee_benefits")
 
     await safe("visao", _visao())
@@ -667,7 +674,7 @@ async def _build_dp(db: AsyncSession) -> dict:
         "Férias", f"{n_ferias} solicitações", "Solicitar férias",
         ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
         "SELECT e.nome, v.start_date, v.end_date, v.days_requested, v.status::text "
-        "FROM employee_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
+        "FROM hr_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(r[1].strftime('%d/%m/%Y') if r[1] else '—'), t(r[2].strftime('%d/%m/%Y') if r[2] else '—'), t(r[3] if r[3] is not None else '—'), b(r[4] or "—", "info")]))
     await safe("beneficios", _tbl(
         "Benefícios", f"{n_benef} benefícios", "Novo benefício",
@@ -1955,14 +1962,14 @@ async def _build_portal_funcionario(db: AsyncSession) -> dict:
     out, safe, tbl = _helpers(db)
     ativos = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
     n_pay = await _scalar(db, "SELECT count(*) FROM hr_payslips")
-    n_fer = await _scalar(db, "SELECT count(*) FROM employee_vacation_requests")
+    n_fer = await _scalar(db, "SELECT count(*) FROM hr_vacation_requests")
     n_reemb = await _scalar(db, "SELECT count(*) FROM reimbursement_requests")
 
     async def _dash():
         comp = (await db.execute(text("SELECT reference_year, reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp else "—"
         liq = await _scalar(db, "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")
-        fr = (await db.execute(text("SELECT coalesce(status::text,'—'), count(*) FROM employee_vacation_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 5"))).fetchall()
+        fr = (await db.execute(text("SELECT coalesce(status::text,'—'), count(*) FROM hr_vacation_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 5"))).fetchall()
         return {"title": "Início", "sub": "Portal do Funcionário — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
                 "kpis": [
                     {"v": str(ativos), "l": "Colaboradores", "icon": IC["users"], "color": "#0F1B3A"},
@@ -1986,7 +1993,7 @@ async def _build_portal_funcionario(db: AsyncSession) -> dict:
         "Minhas férias", f"{n_fer} solicitações", "Solicitar",
         ["Colaborador", "Início", "Fim", "Dias", "Status"], "2fr 1fr 1fr 0.7fr 0.9fr",
         "SELECT coalesce(e.nome,'—'), v.start_date, v.end_date, v.days_requested, coalesce(v.status::text,'—') "
-        "FROM employee_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
+        "FROM hr_vacation_requests v LEFT JOIN employees e ON e.id=v.employee_id ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_fmtdate(r[1])), t(_fmtdate(r[2])), t(str(r[3]) if r[3] is not None else "—"), b((r[4] or "—").capitalize(), "info")]))
     await safe("documentos", tbl(
         "Meus documentos", f"{await _scalar(db, 'SELECT count(*) FROM ged_kit_documents')} documentos", "Enviar",
