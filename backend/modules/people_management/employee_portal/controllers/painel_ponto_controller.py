@@ -141,6 +141,38 @@ def painel(
             f["atraso_min"] = agora_min - (eh * 60 + em_)
             atrasados.append(f)
 
+    # ── QUADRO — a conta tem de FECHAR na tela ───────────────────────────────
+    # O painel mostrava só "48", e 48 é o número certo da COORTE, não da empresa. Quem abre
+    # no celular vê 48 e sabe que tem mais gente que isso — e aí o painel inteiro fica sob
+    # suspeita, porque um número que não presta contas não vale mais que um chute.
+    # Aqui ele presta: ativos = na cobrança + cada um que está fora, com o nome e o motivo.
+    quadro = (
+        db.execute(
+            text(
+                "SELECT e.nome, "
+                "  CASE WHEN e.tipo_contrato = 'pj' THEN 'PJ' "
+                "       WHEN EXISTS (SELECT 1 FROM hr_vacation_requests v "
+                "            WHERE v.employee_id = e.id AND upper(coalesce(v.status,''))='APPROVED' "
+                f"            AND {hoje} BETWEEN v.start_date AND v.end_date) THEN 'férias' "
+                "       WHEN EXISTS (SELECT 1 FROM sst_afastamentos a "
+                "            WHERE a.employee_id = e.id AND a.data_retorno IS NULL "
+                "            AND lower(coalesce(a.status,'')) IN ('em_andamento','ativo')) THEN 'afastado' "
+                "       ELSE 'saindo' END AS motivo "
+                "FROM employees e "
+                "WHERE lower(coalesce(e.status,'')) = 'ativo' "
+                # A conta de homologação não é gente: contá-la faria a tela dizer 53 onde a
+                # empresa tem 52, e o Jordan conferiria contra a folha e acharia o painel errado.
+                "  AND coalesce(e.is_homologacao,false) = false "
+                "  AND upper(coalesce(e.nome,'')) NOT LIKE '%TESTE%' "
+                f"  AND e.id NOT IN (SELECT id FROM employees e2 WHERE {_COHORT.replace('e.', 'e2.')}) "
+                "ORDER BY 2, 1"
+            )
+        )
+        .mappings()
+        .all()
+    )
+    fora = [{"nome": q["nome"], "motivo": q["motivo"]} for q in quadro]
+
     b = (
         db.execute(
             text(
@@ -182,6 +214,10 @@ def painel(
     total = len(funcionarios)
     return {
         "resumo": {
+            # `total` = quem deve ponto HOJE. `ativos` = a empresa inteira. Os dois números
+            # juntos, com `fora` explicando a diferença, é o que impede a tela de parecer
+            # que perdeu gente.
+            "ativos": total + len(fora),
             "total": total,
             "ativados": n_ativados,
             "com_rosto": n_rosto,
@@ -202,6 +238,7 @@ def painel(
         ],
         "sem_horario_parametrizado": sem_horario,
         "de_folga": de_folga,
+        "fora_da_cobranca": fora,
         "aprendizado": aprendizado,
         "alertas": aprendizado["alertas"],
         "atualizado_em": agora,

@@ -425,16 +425,18 @@ QUADRO_EM_TRANSICAO = {
 #: Está escrito aqui porque o efeito é de PLANEJAMENTO, não de ponto: são dois postos que
 #: precisam de reposição em datas conhecidas, e nenhuma tela hoje diz isso.
 #:
-#:   EIDY CULIER DE CASTRO      Villa Dei Fiori, noturno   volta 06/09   (a MAIARA já cobre)
-#:   FRANCISCO RAMON F. SOUZA   Laranjeiras, diurno 07:00  volta 21/08   (SEM cobertura)
+#:   EIDY CULIER DE CASTRO      Villa Dei Fiori, noturno   volta 06/09   MAIARA já cobre
+#:   FRANCISCO RAMON F. SOUZA   Laranjeiras, diurno 07:00  volta 21/08   EULER já cobre
 #:
-#: O Francisco Ramon é o que aperta: volta em 21/08 e a vaga fica aberta na perna que
-#: trabalha 15, 17, 19, 21/08 — a mesma perna já desfalcada no Prime.
+#: ✅ AS DUAS VAGAS JÁ ESTÃO COBERTAS, em definitivo — corrigido pelo Jordan em 14/08. Eu
+#: tinha dado a do Francisco Ramon como ABERTA e estava errado: o EULER veio do Mirante para
+#: o lugar dele e ficou. Nenhum dos dois postos precisa de reposição.
 SAIDA_NEGOCIADA_NO_RETORNO = {
     "EIDY CULIER DE CASTRO": {"posto": "Condomínio Villa Dei Fiori", "volta": "2026-09-06",
                               "reposto_por": "MAIARA MUNIZ DE SANTOS"},
     "FRANCISCO RAMON FARIAS DE SOUZA": {"posto": "Residencial Laranjeiras Village",
-                                        "volta": "2026-08-21", "reposto_por": None},
+                                        "volta": "2026-08-21",
+                                        "reposto_por": "EULER FELIPE FERNANDES DA COSTA"},
 }
 
 # ⚠️ BATIDA DE QUEM NÃO ESTÁ TRABALHANDO — achado de 14/08/2026, ainda EM ABERTO.
