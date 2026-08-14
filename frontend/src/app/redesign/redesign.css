@@ -324,7 +324,7 @@
 .rd-panel-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 .rd-panel-row + .rd-panel-row { border-top: 1px solid var(--fill); }
 .rd-panel-row .l { font-size: 12.5px; color: #334155; min-width: 0; }
-.rd-pill { font-weight: 700; font-size: 10.5px; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.rd-pill { font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
 
 .rd-tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
 .rd-tbl-scroll { overflow-x: auto; }
@@ -334,14 +334,22 @@
    saía "COMPETÊNCIACOLABORADOR", "DESCONTOSLÍQUIDO", "TRABALHADAS BATIDAS". Aparecia em toda
    tabela do redesign, não só no DP. */
 .rd-tbl-head { display: grid; gap: 10px; padding: 12px 20px; background: #F7F9FC; border-bottom: 1px solid var(--border); }
-.rd-tbl-th { font-weight: 700; font-size: 11px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em;
+.rd-tbl-th { font-weight: 700; font-size: 12px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em;
              min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* mesmo gap na linha, senão cabeçalho e conteúdo desalinham coluna a coluna */
-.rd-tbl-row { display: grid; gap: 10px; padding: 13px 20px; border-bottom: 1px solid var(--fill); align-items: center; }
+.rd-tbl-row { display: grid; gap: 10px; padding: 17px 20px; border-bottom: 1px solid var(--fill); align-items: start; }
 .rd-tbl-row:last-child { border-bottom: none; }
 .rd-tbl-row:hover { background: var(--fill); }
-.rd-tbl-cell { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
-.rd-tbl-cell .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-tbl-cell { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; line-height: 1.45; }
+/* NADA de ellipsis aqui: era esta regra que produzia "R$ 1.67…" e "R$ 797,…" na folha.
+   Número cortado é defeito grave — a tabela rola (.rd-tbl-scroll) em vez de cortar.
+   tabular-nums alinha os dígitos coluna a coluna para conferência vertical. */
+.rd-tbl-cell .tx { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;
+                   line-height: 1.35; font-variant-numeric: tabular-nums; }
+/* célula de texto único (valor, competência, cargo) encosta à direita: o olho confere
+   dinheiro pela borda, não pelo começo da string. Célula com avatar+nome tem 2 filhos
+   e não entra aqui. */
+.rd-tbl-cell:has(.tx:only-child) { justify-content: flex-end; }
 
 .rd-cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .rd-dc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; transition: box-shadow .12s; }
