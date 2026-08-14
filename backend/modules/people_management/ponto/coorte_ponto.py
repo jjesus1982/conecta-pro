@@ -196,10 +196,15 @@ _PADRAO_07 = {"diurno": "07:00", "noturno": "19:00", "asg": None}
 #: posto → turno → horário de entrada. `asg` vale para serviços gerais, artífice e
 #: jardineiro (44h); `diurno`/`noturno` para agente e líder de portaria (12x36).
 JORNADA_POR_POSTO = {
+    # Ideal Flores: NINGUÉM recebe intrajornada — os 13 batem 4 vezes (os de 44h, 2 no
+    # sábado). Diurno 06:00–18:00, noturno 18:00–06:00. Confirmado pelo Jordan em 14/08.
     "Condomínio Ideal Flores da Cidade": _PADRAO_06,
     "Condomínio Villa dos Pássaros": _PADRAO_06,
     "Condomínio Prime Arena": _PADRAO_06,
     "Condomínio Villa Dei Fiori": _PADRAO_06,
+    # Laranjeiras: só portaria, sem ASG. Diurno 07:00–19:00, noturno 19:00–07:00,
+    # ninguém recebe intrajornada (4 batidas). Confirmado pelo Jordan em 14/08 e batendo
+    # com o Sólides (diurno 06:59–07:03, noturno 18:56–19:00, todos com 4 batidas/turno).
     "Residencial Laranjeiras Village": _PADRAO_07,
     "Condomínio Mirante das Flores": {**_PADRAO_07, "asg": "07:00"},
     "Condomínio Michelangelo": {"diurno": None, "noturno": None, "asg": "08:00"},
@@ -296,10 +301,16 @@ def horario_entrada(
 
     if dow == 0:                           # domingo: só quem tem escala própria trabalha
         return None
+    grupo = "asg" if é_44h else ("noturno" if (turno or "").lower().startswith("n") else "diurno")
+    do_posto = (JORNADA_POR_POSTO.get(_posto_canonico(posto)) or {}).get(grupo)
+    if do_posto is None:
+        # O posto não tem esse grupo (Laranjeiras não tem ASG) ou não está parametrizado.
+        # Devolver o sábado padrão aqui inventaria horário para quem o posto não conhece —
+        # e seg-sex já responderia None. Incoerência assim vira alerta falso no sábado.
+        return None
     if é_44h and dow == 6:
         return SABADO_44H_ENTRADA
-    grupo = "asg" if é_44h else ("noturno" if (turno or "").lower().startswith("n") else "diurno")
-    return (JORNADA_POR_POSTO.get(_posto_canonico(posto)) or {}).get(grupo)
+    return do_posto
 
 
 def dia_de_meio_periodo(nome: str, cargo: str, dow: int) -> bool:
