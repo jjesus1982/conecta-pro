@@ -12,6 +12,93 @@ from modules.operacional.controllers.redesign_data_controller import (
 async def build_pagar(db, out: dict) -> None:
     _, _safe, tbl = _helpers(db)
 
+    # ── ORDEM DE PAGAMENTO: aprovado aqui, executado no app do banco ───────────────────
+    # O Cora não envia PIX por API e 99,8% do que sai da Patrimonial é PIX. Então o
+    # pagamento continua no celular — mas a DECISÃO vive aqui: lote com teto e OTP.
+    # O extrato do dia seguinte fecha cada item pelo CPF + valor (beat 08:40).
+    try:
+        import os as _os
+        _teto_ordem = float(_os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "100000.00"))
+        _lotes = (await db.execute(text("""
+            SELECT l.id::text, l.referencia, l.competencia, l.banco, l.status,
+                   l.total_centavos, l.qtd_itens, coalesce(l.aprovado_por,'—') AS quem,
+                   (SELECT count(*) FROM payroll_payments p
+                     WHERE p.lote_ordem_id = l.id AND p.status = 'aguardando_app') AS falta,
+                   (SELECT count(*) FROM payroll_payments p
+                     WHERE p.lote_ordem_id = l.id AND p.status = 'pago') AS ok
+            FROM folha_lote_ordem l ORDER BY l.created_at DESC LIMIT 40
+        """))).fetchall()
+        _TONE = {"RASCUNHO": "warn", "APROVADO": "info", "EXECUTANDO": "info",
+                 "CONCLUIDO": "ok", "CONCLUIDO_PARCIAL": "warn", "CANCELADO": "bad"}
+        out["ordens-pagamento"] = {
+            "title": "Ordens de pagamento",
+            "sub": (f"Lote aprovado AQUI (teto {brl(_teto_ordem)} + OTP), executado no app do "
+                    f"banco, e o extrato de amanhã fecha cada item sozinho pelo CPF. "
+                    f"Aprovar NÃO paga ninguém — libera a ordem."),
+            "cta": "—", "type": "table", "searchHint": "Buscar competência…",
+            "cols": ["Referência", "Competência", "Status", "Itens", "Total", "Pagos", "Aprovado por"],
+            "grid": "1.6fr 1fr 1.1fr 0.7fr 1.1fr 0.9fr 1.4fr",
+            "rows": [{"cells": [
+                t(r[1], 600, "#0F1B3A"), t(r[2]), b(r[4].replace("_", " ").capitalize(), _TONE.get(r[4], "info")),
+                t(str(r[6])), t(brl(r[5] / 100), 600),
+                t(f"{r[9]}/{r[6]}" + (f" · faltam {r[8]}" if r[8] else "")),
+                t(str(r[7])[:26])]} for r in _lotes],
+        }
+
+        # Itens liberados para executar no app — a "lista de compras" do Jordan.
+        out["executar-no-app"] = await tbl(
+            "Executar no app do banco",
+            "Pagamentos já aprovados com OTP. Pague no app e NÃO precisa voltar aqui: "
+            "o extrato de amanhã reconhece cada um pelo CPF e valor (beat 08:40).",
+            "—", ["Funcionário", "CPF", "Chave PIX", "Competência", "Valor"],
+            "1.8fr 1.1fr 1.4fr 0.9fr 1fr",
+            """SELECT e.nome, coalesce(e.cpf,'—'), coalesce(p.pix_key, e.pix_key, '— sem chave —'),
+                      lpad(p.mes::text,2,'0') || '/' || p.ano, p.valor_liquido
+                 FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
+                WHERE p.status = 'aguardando_app' ORDER BY p.valor_liquido DESC""",
+            lambda r: [t(r[0][:32], 600, "#0F1B3A"), t(str(r[1])), t(str(r[2])[:26]),
+                       t(str(r[3])), t(brl(r[4]), 600)])
+
+        # Montar: só isso não aprova nada.
+        out["montar-ordem"] = {
+            "title": "Montar ordem de pagamento",
+            "sub": ("Junta os pagamentos pendentes da competência num lote. NÃO aprova e NÃO "
+                    f"paga — só reserva. Recusa se passar do teto de {brl(_teto_ordem)}."),
+            "cta": "Montar lote", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/montar-ordem-pagamento",
+                       "okMsg": "Lote montado. Gere o OTP para aprovar."},
+            "fields": [
+                {"key": "competencia", "label": "Competência* (AAAA-MM)", "type": "text",
+                 "span": "span 1", "ph": "Ex.: 2026-08"},
+                {"key": "banco", "label": "Banco onde vai pagar*", "type": "select", "span": "span 1",
+                 "value": "cora", "options": [{"value": "cora", "label": "Cora (Patrimonial)"},
+                                              {"value": "inter", "label": "Inter (Eletrônica)"}]},
+            ],
+        }
+        out["aprovar-ordem"] = {
+            "title": "Aprovar ordem de pagamento (OTP)",
+            "sub": ("Gere o código, receba por e-mail e confirme. O código é conferido AQUI "
+                    "DENTRO e consumido na mesma operação — não vale duas vezes. "
+                    "Aprovar libera a ordem; quem paga é você, no app do banco."),
+            "cta": "Aprovar lote", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/aprovar-ordem-pagamento",
+                       "confirm": "Confirmar a aprovação deste lote? Isto NÃO paga ninguém — "
+                                  "libera a ordem para você executar no app.",
+                       "okMsg": "Ordem liberada."},
+            "fields": [
+                {"key": "lote_id", "label": "ID do lote*", "type": "text", "span": "span 2",
+                 "ph": "copie da aba 'Ordens de pagamento'"},
+                {"key": "acao", "label": "O que fazer*", "type": "select", "span": "span 1",
+                 "value": "otp", "options": [{"value": "otp", "label": "1) Gerar e enviar o OTP"},
+                                             {"value": "aprovar", "label": "2) Aprovar com o código"}]},
+                {"key": "codigo", "label": "Código OTP (só no passo 2)", "type": "text",
+                 "span": "span 1", "ph": "6 dígitos"},
+            ],
+        }
+    except Exception as _e:  # noqa: BLE001 — tela nunca derruba o módulo
+        import logging
+        logging.getLogger(__name__).warning("[ordens-pagamento] %s", _e)
+
     # ── Aging na tela (espelho EXATO do endpoint /financial/payables/aging) ─────────────
     try:
         faixas = (await db.execute(text(

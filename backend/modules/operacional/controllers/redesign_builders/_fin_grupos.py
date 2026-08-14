@@ -22,6 +22,7 @@ GRUPOS = [
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagar-folha-clt", "Pagar folha CLT"),
         ("pagamentos-diaristas", "Diaristas"), ("diarias-sobrepostas", "Sobrepostas à folha CLT"), ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"), ("programar-diarias-mes", "Lote mensal (dia 15)"), ("marcar-pago-externo", "Pago por fora"), ("diaristas-a-cadastrar", "Diaristas a cadastrar"), ("pagar-diaristas", "Pagar diaristas"),
+        ("ordens-pagamento", "Ordens de pagamento"), ("executar-no-app", "Executar no app"), ("montar-ordem", "Montar ordem"), ("aprovar-ordem", "Aprovar ordem (OTP)"),
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
         ("cancelar-pagamento", "Cancelar pagto"), ("registrar-obrigacoes", "Registrar obrigações"), ("registrar-conta-pagar", "Registrar")]),

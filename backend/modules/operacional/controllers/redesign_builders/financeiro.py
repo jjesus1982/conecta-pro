@@ -8,6 +8,7 @@ Regra de ouro: dinheiro que SAI e transmissão legal = GATED (só visibilidade).
 Nunca fabricar dado — vazio real = tabela honesta "aguardando dado".
 Ver auditoria/parity/DIVISAO_3T.md + BRIEFING_T4.md.
 """
+import re
 from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: F401
 from sqlalchemy import text  # noqa: F401
 
@@ -2687,6 +2688,60 @@ async def _rd_corrigir_classificacao(current_user: CurrentActiveUser, payload: d
                     f"repostos no razão.{_fechado}"),
         "corrigidas": r["corrigidas"], "valor": r["valor"],
     }
+
+
+@router.post("/action/montar-ordem-pagamento")
+async def _rd_montar_ordem(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Monta o lote da competência. NÃO aprova e NÃO paga — só reserva os itens.
+
+    O teto (CONECTA_LIMITE_DIARIO_PAGAMENTOS) é conferido no serviço, não aqui: guard
+    de dinheiro mora junto da regra, não da tela — tela se contorna."""
+    from modules.financial.services.ordem_pagamento_service import montar_lote
+
+    comp = str(payload.get("competencia") or "").strip()
+    banco = str(payload.get("banco") or "cora").strip().lower()
+    if not re.match(r"^\d{4}-\d{2}$", comp):
+        raise HTTPException(status_code=400, detail="Competência no formato AAAA-MM (ex.: 2026-08).")
+    quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "sistema"
+    r = await montar_lote(db, competencia=comp, banco=banco, criado_por=str(quem))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível montar.")
+    _sc = (f" ⚠️ {len(r['sem_chave'])} sem chave PIX: {', '.join(r['sem_chave'][:3])}"
+           if r.get("sem_chave") else "")
+    return {"ok": True, "lote_id": r["lote_id"],
+            "message": (f"Lote {r['referencia']}: {r['itens']} pagamentos, {brl(r['total'])}. "
+                        f"Folga no teto: {brl(r['folga'])}. ID {r['lote_id']} — use na aba "
+                        f"'Aprovar ordem' para gerar o OTP.{_sc}")}
+
+
+@router.post("/action/aprovar-ordem-pagamento")
+async def _rd_aprovar_ordem(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Gera o OTP (passo 1) ou aprova com o código (passo 2). NÃO paga ninguém.
+
+    O código é conferido DENTRO do serviço, contra inter_lote_otp, e consumido no mesmo
+    commit que aprova. Nunca chega aqui como booleano: quem chama não pode decidir se o
+    OTP passou — isso juntaria propor, aprovar e executar num ator só."""
+    from modules.financial.services.ordem_pagamento_service import aprovar_lote, gerar_otp
+
+    lote_id = str(payload.get("lote_id") or "").strip()
+    acao = str(payload.get("acao") or "otp").strip().lower()
+    if not lote_id:
+        raise HTTPException(status_code=400, detail="Informe o ID do lote.")
+    if acao == "otp":
+        r = await gerar_otp(db, lote_id=lote_id)
+        if not r.get("ok"):
+            raise HTTPException(status_code=400, detail=r.get("erro") or "Falha ao gerar OTP.")
+        return {"ok": True, "message": r.get("mensagem") or r.get("aviso") or
+                f"OTP enviado. Válido por {r.get('expira_em_s', 600) // 60} minutos."}
+    codigo = str(payload.get("codigo") or "").strip()
+    if not codigo:
+        raise HTTPException(status_code=400, detail="Informe o código OTP recebido por e-mail.")
+    quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "sistema"
+    r = await aprovar_lote(db, lote_id=lote_id, codigo=codigo, aprovado_por=str(quem))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível aprovar.")
+    return {"ok": True, "message": (f"{r['referencia']} liberado: {r['itens']} pagamentos, "
+                                    f"{brl(r['total'])}. {r['mensagem']}")}
 
 
 @router.post("/action/conciliar-classificados")
