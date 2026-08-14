@@ -11,6 +11,7 @@ Tambem inclui busca ativa nos portais governamentais (GAP 2):
 - CRFFGTSClient → certidao_negativa_fgts
 """
 
+import json as _json
 import logging
 import os
 from datetime import datetime
@@ -23,6 +24,19 @@ logger = logging.getLogger(__name__)
 EMPRESA_CNPJ = os.environ.get("EMPRESA_CNPJ", "35710481000103")
 
 # Mapeamento tipo → document_type no banco + nome exibicao + emissor
+#: Tipos em que o Infosimples PROVOU entregar o documento — medido em 14/08/2026, chamando os
+#: dois CNPJs do grupo: CRF-FGTS e CNDT voltaram com número e validade do órgão.
+#:
+#: `cnd_federal` está DE FORA, e o motivo é externo ao código:
+#:
+#:     code 603: O token informado não tem autorização de acesso ao serviço.
+#:
+#: A conta não tem o serviço `receita-federal/pgfn` habilitado. Enquanto ficar assim, forçar a
+#: rebusca da CND Federal só martela o portal — a varredura de 14/08 tomou HTTP 429 varrendo os
+#: CNPJs dos clientes — e nunca traz certidão. Habilitado o serviço na conta, é só acrescentar
+#: aqui: `_buscar_e_salvar_certidao` passa a rebuscar as federais fabricadas e a substituí-las.
+_FONTE_QUE_ENTREGA = ("crf_fgts", "cndt_trabalhista")
+
 CERTIDAO_CONFIG: dict[str, dict] = {
     "cnd_federal": {
         "document_type": "certidao_negativa_federal",
@@ -218,12 +232,29 @@ async def _buscar_e_salvar_certidao(
 
     doc_type = config["document_type"]
 
-    # Verificar se certidao existente ainda valida por 10+ dias
+    # ⚠️ VALIDADE SOZINHA NÃO AUTORIZA PULAR — e essa era a raiz de um registro falso eterno.
+    # Medido em 14/08/2026: a CND Federal da Eletrônica "vale" até 06/01/2027, mas veio do
+    # fallback da BrasilAPI, que grava `"situacao": "indeterminado_portal_indisponivel"` e
+    # `"regular": null` — o portal nunca confirmou nada. Como 06/01/2027 é mais de 10 dias
+    # à frente, este guard pulava a busca todo dia: **a validade fabricada protegia o próprio
+    # registro que a fabricou**. O mesmo valia para a CNDT da Eletrônica, cujo `numero` era
+    # a string "EGATIVA" (parse quebrado de "NEGATIVA") — o portal do TST responde de
+    # verdade, com número 69676057/2026 e validade 10/02/2027, e nunca era consultado.
+    #
+    # Agora só pula quando o documento veio do EMISSOR. Quando não há fonte melhor a tentar
+    # para o tipo (sem serviço no Infosimples), o comportamento antigo continua valendo — do
+    # contrário a estadual e a municipal voltariam para o raspador, que já provou mentir.
+    from modules.bidding.integrations.receita_federal import infosimples_cnd_service as _isimp
+
+    tem_fonte_melhor = _isimp.habilitado() and tipo in _FONTE_QUE_ENTREGA
+    filtro_fonte = "AND coalesce(notes, '') LIKE '%Infosimples/%' " if tem_fonte_melhor else ""
+
     check = await db.execute(
         _t(
             "SELECT id, expiry_date FROM ged_certidoes "
             "WHERE document_type = :doc_type AND cnpj = :cnpj "
             "AND expiry_date > CURRENT_DATE + INTERVAL '10 days' "
+            f"{filtro_fonte}"
             "LIMIT 1"
         ),
         {"doc_type": doc_type, "cnpj": cnpj},
@@ -354,7 +385,21 @@ async def _buscar_e_salvar_certidao(
         }
 
     issue_date = datetime.utcnow().date()
-    notes = f"Atualizado automaticamente via portal governamental. Situacao: {resultado.get('situacao', 'regular')}. CNPJ: {cnpj}"
+    # PROCEDÊNCIA gravada, e não só "atualizado automaticamente". Duas razões, ambas medidas
+    # em 14/08/2026:
+    #   1. o NÚMERO do documento era jogado fora. Certidão sem número não se confere no
+    #      portal nem se anexa a licitação — e foi assim que sobrou um registro com o
+    #      `numero` "EGATIVA", sem ninguém conseguir dizer de onde tinha vindo.
+    #   2. sem saber a FONTE, o guard de "válida por 10+ dias" não consegue distinguir o
+    #      documento do emissor do palpite do fallback, e acaba protegendo o palpite.
+    # Formato JSON porque é o que os registros bons já usavam.
+    notes = _json.dumps({
+        "situacao": resultado.get("situacao", "regular"),
+        "numero": resultado.get("numero"),
+        "fonte": resultado.get("fonte") or "portal governamental (raspador)",
+        "consultado_em": resultado.get("consultado_em") or datetime.utcnow().isoformat(),
+        "cnpj": cnpj,
+    }, ensure_ascii=False)
 
     # Verificar se ja existe registro para este document_type
     existing_row = await db.execute(

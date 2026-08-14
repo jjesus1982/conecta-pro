@@ -451,10 +451,19 @@ def sincronizar_espelho_esocial(
         sincronizar_espelho,
     )
 
-    try:
-        resultado = run_async(sincronizar_espelho(tipos=tipos, periodo=periodo, cpfs=cpfs, max_acessos=max_acessos))
-        logger.info("Espelho eSocial: %s", resultado)
-        return resultado
-    except Exception as exc:
-        logger.error("Espelho eSocial: falha geral: %s", exc)
-        return {"status": "erro", "erro": str(exc)}
+    # ⚠️ NÃO ENGULA A FALHA. Este `except` devolvia `{"status": "erro"}` — e para o Celery isso
+    # é uma execução BEM-SUCEDIDA. O sinal `task_failure` nunca disparava, `task_falha` nunca
+    # publicava no sino, e a rotina podia estar quebrada por semanas parecendo saudável.
+    # Medido em 14/08/2026: nenhum acesso registrado em `esocial_espelho_acessos` desde
+    # 08/07 (37 dias), com o beat agendado todo dia às 09:10 e a fila `gov.esocial` com
+    # consumidor. Rodado à mão no mesmo dia, o serviço funcionou de primeira — 1 janela
+    # consultada, 5 identificadores novos, 2 XMLs baixados. O serviço está bom; o que
+    # faltava era a falha ter voz.
+    #
+    # É a família que nenhuma das 8 travas pega: não é código morto nem número mentiroso,
+    # é rotina que roda e não produz. Deixar a exceção subir é o que devolve o alarme.
+    resultado = run_async(
+        sincronizar_espelho(tipos=tipos, periodo=periodo, cpfs=cpfs, max_acessos=max_acessos)
+    )
+    logger.info("Espelho eSocial: %s", resultado)
+    return resultado

@@ -11,7 +11,6 @@ Tasks:
 
 import asyncio
 import logging
-import uuid
 from datetime import datetime
 
 from celery import shared_task
@@ -32,6 +31,61 @@ def run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+#: O sino é `communication_notifications`. Os quatro pontos deste arquivo escreviam em
+#: `notifications`, que NÃO EXISTE — e errado em quatro dimensões de uma vez: tabela
+#: inexistente, coluna `message` (é `body`), coluna `priority` (não existe) e sem
+#: `tenant_id`/`user_id`, que são NOT NULL. Resultado medido em 14/08/2026:
+#:
+#:     ProgrammingError: relation "notifications" does not exist
+#:
+#: três tarefas de licitação mortas desde 11/08 — sincronizar oportunidades do PNCP,
+#: sincronizar preços e VERIFICAR VENCIMENTO DE CERTIDÃO. A última é a que dói: o vigia que
+#: avisaria que a CND vai vencer morria antes de avisar, e a falha dele virava mais uma
+#: linha de ruído no sino, escondendo o resto.
+#:
+#: Nenhuma trava pega isto: nome de tabela em SQL cru não é chamada a método inexistente
+#: nem literal fora do vocabulário de uma coluna. Só quebra em runtime, longe de plateia.
+_SQL_SINO_BIDDING = """
+    INSERT INTO communication_notifications
+        (id, tenant_id, user_id, title, body, type, reference_type,
+         action_url, extra_data, is_active, sent_at, created_at)
+    VALUES (gen_random_uuid(), :uid, :uid, :title, :body, 'alerta', :ref,
+            '/redesign', CAST(:extra AS jsonb), true, NOW(), NOW())
+    ON CONFLICT DO NOTHING
+"""
+
+
+def _publicar_no_sino(db, titulo: str, corpo: str, ref: str, chave: str) -> int:
+    """Publica um alerta para cada admin ativo. Devolve quantos receberam.
+
+    Reusa `_SQL_DESTINATARIOS` de `task_falha` — é a definição canônica de "quem recebe
+    alerta do sistema", e ela já exclui a conta de serviço do MCP (robô recebendo alerta é
+    ruído que treina gente a ignorar o sino).
+
+    `chave` entra na `idempotency_key`, que tem índice único por usuário: publicar de novo no
+    mesmo dia não duplica. Sem ela, uma tarefa de 6 em 6 horas escreveria a mesma certidão
+    quatro vezes por dia.
+    """
+    import json
+
+    from sqlalchemy import text
+
+    from modules.notifications.task_falha import _SQL_DESTINATARIOS
+
+    destinatarios = [r[0] for r in db.execute(text(_SQL_DESTINATARIOS)).fetchall()]
+    if not destinatarios:
+        logger.warning("[BIDDING] alerta '%s' sem admin ativo para avisar", titulo)
+        return 0
+    extra = json.dumps({
+        "idempotency_key": chave, "origem": ref,
+        "familia": "licitacao", "severidade": "critico",
+    })
+    for uid in destinatarios:
+        db.execute(text(_SQL_SINO_BIDDING),
+                   {"uid": uid, "title": titulo, "body": corpo, "ref": ref, "extra": extra})
+    return len(destinatarios)
 
 
 # ──────────────────────────────────────────────
@@ -80,44 +134,25 @@ def verificar_certidoes_vencimento(
 
         # Persistir notificacoes no banco para alertas criticos e urgentes
         if alertas_criticos > 0 or alertas_urgentes > 0:
+            dia = datetime.utcnow().strftime("%Y-%m-%d")
             with get_sync_db() as db:
-                from sqlalchemy import text
-
-                # Inserir notificacoes para alertas criticos
-                for alerta in result.get("alertas_criticos", []):
-                    db.execute(
-                        text("""
-                            INSERT INTO notifications (id, title, message, type, priority, created_at)
-                            VALUES (:id, :title, :message, :type, :priority, :created_at)
-                            ON CONFLICT DO NOTHING
-                        """),
-                        {
-                            "id": str(uuid.uuid4()),
-                            "title": "Certidao CRITICA - Licitacoes",
-                            "message": alerta,
-                            "type": "bidding_certidao",
-                            "priority": "critical",
-                            "created_at": datetime.utcnow(),
-                        },
+                # Um alerta por severidade por dia, com TODAS as certidões daquela faixa
+                # dentro. Uma linha por certidão encheria o sino com quatro cópias diárias
+                # do mesmo problema — que é exatamente o ruído que fez as tarefas mortas do
+                # GEDEON passarem três dias despercebidas.
+                for faixa, titulo in (("alertas_criticos", "Certidão CRÍTICA — Licitações"),
+                                      ("alertas_urgentes", "Certidão URGENTE — Licitações")):
+                    alertas = result.get(faixa, [])
+                    if not alertas:
+                        continue
+                    _publicar_no_sino(
+                        db,
+                        titulo=f"{titulo} ({len(alertas)})",
+                        corpo="\n".join(str(a) for a in alertas),
+                        ref="bidding_certidao",
+                        chave=f"bidding_certidao:{faixa}:{cnpj}:{dia}",
                     )
-
-                # Inserir notificacoes para alertas urgentes
-                for alerta in result.get("alertas_urgentes", []):
-                    db.execute(
-                        text("""
-                            INSERT INTO notifications (id, title, message, type, priority, created_at)
-                            VALUES (:id, :title, :message, :type, :priority, :created_at)
-                            ON CONFLICT DO NOTHING
-                        """),
-                        {
-                            "id": str(uuid.uuid4()),
-                            "title": "Certidao URGENTE - Licitacoes",
-                            "message": alerta,
-                            "type": "bidding_certidao",
-                            "priority": "high",
-                            "created_at": datetime.utcnow(),
-                        },
-                    )
+                db.commit()
 
         summary = {
             "total_checked": result.get("total_documentos", 0),
@@ -207,23 +242,16 @@ def notificar_oportunidade_nova(
         )
 
         with get_sync_db() as db:
-            from sqlalchemy import text
-
-            db.execute(
-                text("""
-                    INSERT INTO notifications (id, title, message, type, priority, created_at)
-                    VALUES (:id, :title, :message, :type, :priority, :created_at)
-                    ON CONFLICT DO NOTHING
-                """),
-                {
-                    "id": str(uuid.uuid4()),
-                    "title": "Nova Oportunidade de Licitacao",
-                    "message": message,
-                    "type": "bidding_oportunidade",
-                    "priority": priority,
-                    "created_at": datetime.utcnow(),
-                },
+            # A chave é a OPORTUNIDADE, não o dia: a mesma licitação não avisa duas vezes,
+            # e duas licitações no mesmo dia continuam sendo dois avisos.
+            _publicar_no_sino(
+                db,
+                titulo="Nova oportunidade de licitação",
+                corpo=message,
+                ref="bidding_oportunidade",
+                chave=f"bidding_oportunidade:{opportunity_id}",
             )
+            db.commit()
 
         logger.info(f"[BIDDING] Notificacao enviada: oportunidade {opportunity_id}, prioridade={priority}")
 
@@ -293,23 +321,16 @@ def notificar_prazo_edital(
         message = f"Edital: {numero_edital}\nData de abertura: {data_abertura}\nDias restantes: {dias_restantes}"
 
         with get_sync_db() as db:
-            from sqlalchemy import text
-
-            db.execute(
-                text("""
-                    INSERT INTO notifications (id, title, message, type, priority, created_at)
-                    VALUES (:id, :title, :message, :type, :priority, :created_at)
-                    ON CONFLICT DO NOTHING
-                """),
-                {
-                    "id": str(uuid.uuid4()),
-                    "title": title,
-                    "message": message,
-                    "type": "bidding_prazo",
-                    "priority": priority,
-                    "created_at": datetime.utcnow(),
-                },
+            # Prazo muda de faixa conforme o dia se aproxima (30d → 7d → amanhã), e cada
+            # faixa merece um aviso novo. Por isso a chave leva edital + dias restantes.
+            _publicar_no_sino(
+                db,
+                titulo=title,
+                corpo=message,
+                ref="bidding_prazo",
+                chave=f"bidding_prazo:{numero_edital}:{dias_restantes}",
             )
+            db.commit()
 
         logger.info(f"[BIDDING] Notificacao prazo enviada: {numero_edital}, prioridade={priority}")
 
@@ -386,23 +407,16 @@ def notificar_resultado_pipeline(
         )
 
         with get_sync_db() as db:
-            from sqlalchemy import text
-
-            db.execute(
-                text("""
-                    INSERT INTO notifications (id, title, message, type, priority, created_at)
-                    VALUES (:id, :title, :message, :type, :priority, :created_at)
-                    ON CONFLICT DO NOTHING
-                """),
-                {
-                    "id": str(uuid.uuid4()),
-                    "title": title,
-                    "message": message,
-                    "type": "bidding_pipeline",
-                    "priority": priority,
-                    "created_at": datetime.utcnow(),
-                },
+            # Quinto ponto do mesmo defeito — não estava no diagnóstico, que listava quatro.
+            # Por isso a troca foi feita na FAMÍLIA (um publicador só) e não linha a linha.
+            _publicar_no_sino(
+                db,
+                titulo=title,
+                corpo=message,
+                ref="bidding_pipeline",
+                chave=f"bidding_pipeline:{numero_edital or 'sem-numero'}:{score:.0f}",
             )
+            db.commit()
 
         logger.info(f"[BIDDING] Notificacao resultado pipeline enviada: {numero_edital}")
 
