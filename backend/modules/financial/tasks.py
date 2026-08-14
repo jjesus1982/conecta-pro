@@ -319,6 +319,91 @@ async def _fechar_ordens_pelo_extrato(session) -> dict:
     return await fechar_pelo_extrato(session)
 
 
+async def _enriquecer_extrato_inter(session, dias: int = 10) -> dict:
+    """Preenche a contraparte nas linhas do Inter que já foram sincronizadas.
+
+    O sync usa `/extrato` (simples), que NÃO traz favorecido — e não dá para trocar
+    pelo `/extrato/completo` porque a `descricao` dele tem outro formato e a descrição
+    entra na chave de dedup: em 14/08/2026 a troca duplicou 47 linhas (R$1.497,79) e o
+    oráculo do extrato pegou pelo saldo.
+
+    Então: sincroniza pelo simples, enriquece pelo completo. Casa por (data, valor) e
+    só quando a combinação é ÚNICA dos dois lados — PIX de R$32 repetido no mesmo dia
+    fica intocado, porque ali adivinhar é amarrar pagamento na pessoa errada.
+    """
+    from datetime import date, timedelta
+    from collections import defaultdict
+    from sqlalchemy import text as _t
+    from modules.integrations.inter.inter_sync_service import _build_adapter
+
+    fim, ini = date.today(), date.today() - timedelta(days=dias)
+    acc = (await session.execute(_t(
+        "SELECT id::text FROM bank_accounts WHERE bank_code='077' LIMIT 1"))).scalar()
+    if not acc:
+        return {"erro": "conta Inter não encontrada"}
+
+    ad = _build_adapter()
+    try:
+        completo = await ad.get_statement_completo(ini, fim)
+    finally:
+        await ad.close()
+
+    por_api = defaultdict(list)
+    for t in completo:
+        por_api[(t.date.date(), float(t.amount))].append(t)
+
+    ligados = ambiguos = 0
+    for chave, lst in por_api.items():
+        if len(lst) != 1:
+            ambiguos += len(lst)
+            continue
+        t = lst[0]
+        if not (t.counterpart_document or t.reference):
+            continue
+        linhas = (await session.execute(_t("""
+            SELECT id::text FROM bank_transactions
+             WHERE bank_account_id = CAST(:a AS uuid) AND transaction_date = :d AND amount = :v
+               AND coalesce(counterparty_document,'') = ''
+        """), {"a": acc, "d": chave[0], "v": chave[1]})).fetchall()
+        if len(linhas) != 1:
+            ambiguos += len(linhas)
+            continue
+        await session.execute(_t("""
+            UPDATE bank_transactions SET
+              counterparty_name     = coalesce(nullif(counterparty_name,''), :nm),
+              counterparty_document = :dc,
+              pix_end_to_end        = coalesce(nullif(pix_end_to_end,''), :e2e),
+              pix_key               = coalesce(nullif(pix_key,''), :ch),
+              -- external_id tem UNIQUE. Se o id ja esta em OUTRA linha, nao force:
+              -- isso significa que um dos dois casamentos esta errado, e derrubar o
+              -- beat todo dia por causa disso e pior do que ficar sem o identificador.
+              external_id = CASE
+                  WHEN coalesce(external_id,'') <> '' THEN external_id
+                  WHEN EXISTS (SELECT 1 FROM bank_transactions x WHERE x.external_id = :ext)
+                      THEN external_id
+                  ELSE :ext END,
+              updated_at = now()
+            WHERE id = CAST(:i AS uuid)
+        """), {"nm": t.counterpart_name, "dc": t.counterpart_document, "e2e": t.reference,
+               "ch": t.counterpart_pix_key, "ext": t.transaction_id, "i": linhas[0][0]})
+        ligados += 1
+    await session.commit()
+    return {"ligados": ligados, "ambiguos": ambiguos, "api": len(completo), "dias": dias}
+
+
+@app.task(name="financial.enriquecer_extrato_inter", bind=True, max_retries=1)
+def enriquecer_extrato_inter_task(self):
+    """Preenche favorecido, endToEndId e chave PIX nas linhas do Inter. Só LÊ da API
+    e atualiza local — não cria linha, não move dinheiro."""
+    try:
+        result = _run_async(_enriquecer_extrato_inter)
+        logger.info("[Financial Task] enriquecer_extrato_inter: %s", result)
+        return result
+    except Exception as exc:
+        logger.error("[Financial Task] enriquecer_extrato_inter error: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(name="financial.fechar_ordens_pagamento", bind=True, max_retries=1)
 def fechar_ordens_pagamento_task(self):
     """Fecha ordens de pagamento contra o extrato. NÃO paga nada — só reconhece

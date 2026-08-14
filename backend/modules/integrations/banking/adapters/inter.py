@@ -248,6 +248,63 @@ class InterAdapter(BaseBankingAdapter):
 
         return response.json() if response.text else {}
 
+    async def get_statement_completo(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> list[BankTransaction]:
+        """Extrato COMPLETO — só para ENRIQUECER linhas que já existem.
+
+        Traz o que o `/extrato` simples não traz: `cpfCnpjRecebedor`/`cpfCnpjPagador`,
+        `nomeRecebedor`, `endToEndId` e `chavePixRecebedor` (a chave que foi USADA no
+        pagamento — o cadastro não sabe qual foi).
+
+        NÃO usar para sincronizar: a `descricao` vem noutro formato e entra na chave de
+        dedup de `inter_transactions`, o que faz o sync reinserir tudo. Foi medido.
+        Paginado: `pagina` começa em 0.
+        """
+        itens: list[dict] = []
+        pagina = 0
+        while pagina < 40:
+            data = await self._request(
+                "GET", "/banking/v2/extrato/completo",
+                params={"dataInicio": start_date.strftime("%Y-%m-%d"),
+                        "dataFim": end_date.strftime("%Y-%m-%d"),
+                        "pagina": pagina, "tamanhoPagina": 100},
+            )
+            lote = data.get("transacoes") or []
+            itens.extend(lote)
+            if len(lote) < 100:
+                break
+            pagina += 1
+
+        out: list[BankTransaction] = []
+        for item in itens:
+            is_debit = item.get("tipoOperacao") == "D"
+            det = item.get("detalhes", {}) or {}
+            if is_debit:
+                nm, dc = det.get("nomeRecebedor"), det.get("cpfCnpjRecebedor")
+                bk, ac = det.get("nomeEmpresaRecebedor"), det.get("contaBancariaRecebedor")
+            else:
+                nm, dc = det.get("nomePagador"), det.get("cpfCnpjPagador")
+                bk, ac = det.get("nomeEmpresaPagador"), det.get("contaBancariaPagador")
+            valor = self._parse_amount(item.get("valor", 0))
+            valor = -abs(valor) if is_debit else abs(valor)
+            out.append(BankTransaction(
+                transaction_id=item.get("idTransacao", ""),
+                date=datetime.fromisoformat(item.get("dataTransacao") or item.get("dataEntrada") or ""),
+                amount=valor,
+                transaction_type=TransactionType.DEBIT if is_debit else TransactionType.CREDIT,
+                description=item.get("descricao", ""),
+                counterpart_name=nm or None,
+                counterpart_document=dc or None,
+                counterpart_bank=bk or None,
+                counterpart_account=ac or None,
+                counterpart_pix_key=(det.get("chavePixRecebedor") or det.get("chavePixPagador") or None),
+                reference=det.get("endToEndId") or None,
+            ))
+        return out
+
     async def get_balance(self, data_saldo: date | None = None) -> AccountBalance:
         """Consulta saldo da conta Inter. Com `data_saldo`, o saldo NAQUELE dia.
 
@@ -276,30 +333,22 @@ class InterAdapter(BaseBankingAdapter):
         end_date: date,
     ) -> BankStatement:
         """Consulta extrato da conta Inter."""
-        # `/extrato/completo` e NAO `/extrato`. O simples devolve `detalhes` VAZIO —
-        # medido em 14/08/2026: 4.373 linhas do Inter no banco, ZERO com documento do
-        # favorecido. O completo traz cpfCnpjPagador/cpfCnpjRecebedor, nomeRecebedor,
-        # chavePixRecebedor e endToEndId. Sem isso a conciliacao casa por valor e data,
-        # que foi o que me fez amarrar o titulo do Gelain na transacao errada.
-        # Paginado: `pagina` comeca em 0.
-        itens: list[dict] = []
-        pagina = 0
-        while pagina < 40:  # teto de seguranca: 40 x 100 = 4000 lancamentos por chamada
-            data = await self._request(
-                "GET",
-                "/banking/v2/extrato/completo",
-                params={
-                    "dataInicio": start_date.strftime("%Y-%m-%d"),
-                    "dataFim": end_date.strftime("%Y-%m-%d"),
-                    "pagina": pagina,
-                    "tamanhoPagina": 100,
-                },
-            )
-            lote = data.get("transacoes") or []
-            itens.extend(lote)
-            if len(lote) < 100:
-                break
-            pagina += 1
+        # ⚠️ ENDPOINT SIMPLES, DE PROPOSITO. Em 14/08/2026 troquei este `/extrato` pelo
+        # `/extrato/completo` para ganhar a contraparte — e o sync das 12:00 DUPLICOU 47
+        # linhas (R$1.497,79), porque o `completo` devolve a `descricao` noutro formato
+        # ("Alan Vieira Da Silva" contra "PIX ENVIADO - Cp :18236120-Alan Vieira") e a
+        # descricao entra na chave de dedup de `inter_transactions`. O oraculo do extrato
+        # pegou: nosso saldo R$7.055,48 contra R$5.397,69 do banco.
+        # A contraparte vem por `get_statement_completo`, que ENRIQUECE sem reinserir.
+        data = await self._request(
+            "GET",
+            "/banking/v2/extrato",
+            params={
+                "dataInicio": start_date.strftime("%Y-%m-%d"),
+                "dataFim": end_date.strftime("%Y-%m-%d"),
+            },
+        )
+        itens = data.get("transacoes", [])
 
         transactions = []
         for item in itens:

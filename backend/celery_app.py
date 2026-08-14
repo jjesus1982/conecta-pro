@@ -769,6 +769,14 @@ if os.getenv("CONECTA_PROPOR_BAIXA", "0").strip().lower() in ("1", "true", "sim"
         "options": {"queue": "gov.batch"},
     }
 
+# Enriquece o extrato do Inter com a contraparte: 08:20, DEPOIS do sync (08:00/08:10)
+# e ANTES da conciliação (08:30) — que passa a casar por CPF em vez de valor e data.
+app.conf.beat_schedule["financeiro-enriquecer-extrato-inter"] = {
+    "task": "financial.enriquecer_extrato_inter",
+    "schedule": crontab(hour=8, minute=20),
+    "options": {"queue": "gov.batch"},
+}
+
 # Fecha ordem de pagamento contra o extrato: 08:40, DEPOIS do sync do extrato
 # (08:00/08:10) e da conciliação (08:30). O pagamento foi feito no app do banco;
 # aqui o sistema reconhece que saiu, sem ninguém voltar na tela.
