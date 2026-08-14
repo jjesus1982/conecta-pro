@@ -83,3 +83,47 @@ Proposta, se você aprovar:
    desenho da tela; 32 já tira do risco sem redesenhar).
 
 São três linhas de CSS. O risco não é a mudança, é o alcance — por isso fica com você.
+
+---
+
+# DEPOIS DO CONSERTO — 14/08 17:57
+
+Jordan aprovou as 3 linhas. Aplicadas, buildadas (`BUILD_ID conecta-pro-1786744451459`)
+e medidas de novo com o **mesmo script**, contra o CSS que o navegador realmente baixa.
+
+| sinal | antes | depois |
+|---|---:|---:|
+| Rolagem lateral da página | 0/30 | **0/30** |
+| Vazamento solto | 0/30 | **0/30** |
+| Texto ≤11px (tela de Turnos) | 212 | **5** |
+| Alvo de toque <32px (tela de Rondas) | 102 | **0** |
+
+Confirmado no bundle servido em produção:
+
+```css
+rd-pill{white-space:nowrap;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700}
+rd-tbl-th{...;font-size:12px;font-weight:700}
+```
+
+## Os 5 que sobraram são o cabeçalho, não o conteúdo
+
+```
+8px   .rd-brand-badge   "PRO"                     (selo da marca)
+10px  .ds               "Postos, escalas, campo"  (subtítulo do módulo)
+10px  .r                "admin"                   (papel do usuário)
+```
+
+São elementos de identidade e navegação, não dado operacional. Não mexi: aumentar o
+selo da marca e o subtítulo muda o desenho do topo em todos os módulos, e o ganho de
+leitura é nenhum — ninguém precisa ler "PRO" de perto.
+
+## Convivência com outra sessão
+
+`redesign.css` tinha WIP de outra sessão (conserto do ellipsis que truncava dinheiro em
+`"R$ 1.67…"`). Commitei o meu por **índice temporário**, sobre HEAD, sem tocar no dela.
+O build carregou os dois — decisão do Jordan — e o `tabular-nums` dela está no bundle.
+
+## Continua não coberto
+
+Aparelho físico, orientação paisagem, formulários no celular (teclado cobrindo campo,
+zoom automático do iOS em input <16px), leitor de tela e **carga**.
