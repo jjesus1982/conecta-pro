@@ -132,3 +132,22 @@ ou gente batendo a caminho). **Precisa de olho humano no local**, não de conta.
 - `Condomínio Gelain` tem coordenada mas **menos de 4 batidas em agosto** — não deu
   amostra para verificar. Fica sem aval.
 - A duplicata de `Villa dos Pássaros` (uma ativa, uma inativa) continua existindo.
+
+## Duplicata de Villa dos Pássaros — APAGADA (14/08, a pedido do Jordan)
+
+Os dois registros nasceram com **1 minuto de diferença** em 29/03/2026
+(19:03:39 e 19:04:56) — criação em duplicidade, não dois postos.
+
+Antes de apagar, conferi as **10 tabelas que referenciam `posts`**:
+
+```
+allocations · occurrences · scales · shifts · substitutions · time_bank
+operacional_passagens_turno · operacional_avaliacoes_equipe
+operacional_post_orders · gp_clock_punches
+```
+
+**Zero referências em todas.** A duplicata nunca foi usada por nada.
+
+Apagada (`5f901f9e-71f4-4e6d-9fbc-1e55cc3e0162`, a inativa). Ficou só a ativa
+`fdde51f0-a3a6-4668-9714-0b8548824c66`. A linha inteira está salva em
+`auditoria/qa/backup_posto_duplicado.json` — dá para recriar se precisar.
