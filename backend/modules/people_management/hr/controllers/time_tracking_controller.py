@@ -25,15 +25,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/time-tracking", tags=["DP - Ponto"])
 
-# Re-export do router existente de time tracking
-# NOTA: o router HR tem prefix="/time-tracking" → resulta em /hr/time-tracking/time-tracking/
-# Mantemos para compatibilidade, e adicionamos endpoints diretos
-try:
-    from modules.hr.time_tracking.controllers import router as _tt_router
-
-    router.include_router(_tt_router)
-except ImportError:
-    logger.info("Router de time tracking não disponível para re-export")
+# O re-export do router de `hr/time_tracking` saiu daqui em 13/08/2026.
+#
+# Ele era incluído NESTE router, que já tem `prefix="/time-tracking"`, e o sub-router tem o
+# mesmo prefixo — as 64 rotas nasciam em `/hr/time-tracking/time-tracking/...`. A nota que
+# estava aqui dizia "Mantemos para compatibilidade"; medi com quem essa compatibilidade
+# existia e a resposta foi NINGUÉM: 15 dias de access log (99.841 chamadas de API), zero
+# ao caminho duplicado, e nenhuma página do front importa o SDK dessas rotas.
+#
+# Agora o sub-router é montado direto no aggregator (`people_management/hr/aggregator.py`),
+# onde o `/hr` sozinho produz `/hr/time-tracking/...`. As 64 continuam existindo, com um
+# caminho a menos. Este controller mantém só o que é dele: `/employee/{id}/entries` e
+# `/from-operations` — conferido que nenhuma das duas colide com as 64.
 
 
 class OperationsTimeEntry(BaseModel):

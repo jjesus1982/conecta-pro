@@ -100,6 +100,46 @@ try:
 except ImportError as e:
     logger.warning("DP: falha ao incluir time_tracking_router: %s", e)
 
+# O router de ponto de `hr/time_tracking` é montado AQUI, e não lá dentro do
+# `time_tracking_controller`, e a diferença é um prefixo repetido:
+#
+#   antes  /hr + /time-tracking (controller) + /time-tracking (sub-router) → 64 rotas em
+#          `/hr/time-tracking/time-tracking/...`
+#   agora  /hr + /time-tracking (sub-router)                               → 64 rotas em
+#          `/hr/time-tracking/...`
+#
+# Medido antes de mexer, porque remover rota é mais fácil de fazer do que de desfazer:
+#   · 15 dias de access log do nginx (30/07→13/08), 99.841 chamadas de API: **0** para o
+#     caminho duplicado. A janela cobre a API de verdade — 8.282 chamadas `/api/` só hoje;
+#   · nenhuma página em `app/**` importa o SDK gerado dessas rotas;
+#   · colisão com as 2 rotas próprias do controller (`/employee/{id}/entries` e
+#     `/from-operations`): ZERO, conferido rota a rota.
+#
+# NÃO removi as 64: `time_sheets` tem **170 linhas vivas** (169 `calculado`, 1 `fechado`,
+# até hoje) e alimenta a tela de fechamento do DP, a assinatura do funcionário e os kits do
+# GED. Elas leem por SQL direto, não por estas rotas — mas apagar a superfície de uma
+# tabela viva porque ninguém a chamou em 15 dias seria confundir "sem uso" com "sem valor".
+# As outras quatro tabelas do módulo (`time_entries`, `overtimes`, `time_justifications`,
+# `work_schedules`) estão zeradas; essas sim são superfície sobre o vazio, e ficam
+# declaradas no relatório em vez de escondidas atrás de um caminho que ninguém digita.
+try:
+    from modules.hr.time_tracking.controllers import router as _tt_router
+
+    router.include_router(_tt_router)
+    logger.debug("DP: _tt_router montado em /hr/time-tracking (sem prefixo duplicado)")
+except ImportError as e:
+    logger.warning("DP: falha ao montar _tt_router: %s", e)
+
+# Mesma correção, mesmo motivo, para a folha: 43 rotas que nasciam em
+# `/hr/payroll/payroll/...` passam a `/hr/payroll/...`. Ver a nota em `payroll_controller`.
+try:
+    from modules.hr.payroll_integration.controllers import router as _payroll_router
+
+    router.include_router(_payroll_router)
+    logger.debug("DP: _payroll_router montado em /hr/payroll (sem prefixo duplicado)")
+except ImportError as e:
+    logger.warning("DP: falha ao montar _payroll_router: %s", e)
+
 try:
     from modules.people_management.hr.controllers.payroll_controller import (
         router as payroll_router,

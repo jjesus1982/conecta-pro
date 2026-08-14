@@ -23,14 +23,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payroll", tags=["DP - Folha de Pagamento"])
 
-# Re-export do router existente de payroll
-# IMPORTANTE: usar include_router (NÃO append) para preservar prefixos
-try:
-    from modules.hr.payroll_integration.controllers import router as _payroll_router
-
-    router.include_router(_payroll_router)
-except ImportError:
-    logger.info("Router de payroll não disponível para re-export")
+# O re-export do router de `hr/payroll_integration` saiu daqui em 13/08/2026, pelo mesmo
+# motivo do de ponto: este router já tem `prefix="/payroll"` e o sub-router também, então as
+# 43 rotas nasciam em `/hr/payroll/payroll/...`. Agora o sub-router é montado direto no
+# aggregator, onde o `/hr` sozinho produz `/hr/payroll/...`.
+#
+# 💰 É caminho de folha, então medi antes em vez de confiar na simetria com o ponto:
+#   · 15 dias de access log, 99.841 chamadas de API: **0** ao caminho duplicado;
+#   · colisão com as 8 rotas próprias deste controller (`/summary`, `/close`, `/benefits`,
+#     `/rubricas`, `/employee/{id}/calculate`, `/employee/{id}/payslip-pdf`): ZERO;
+#   · as rotas seguem existindo — nenhuma some, só perdem um `/payroll` do caminho.
+# `payroll_events` e `payroll_exports` estão zeradas e `payroll_periods` tem 2 linhas; a
+# folha viva é `hr_payslips` (822), servida por outro caminho.
 
 
 @router.get(
