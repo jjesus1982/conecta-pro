@@ -280,6 +280,75 @@ def _reveza_fds(posto: str, nome: str, dow: int, iso_week: int) -> str | None | 
     escalado = no_sabado if dow == 6 else no_domingo
     return cfg["entrada"] if (nome or "").upper().strip() == escalado else None
 
+# ─── quadro em transição ───────────────────────────────────────────────────────
+#
+# O quadro CERTO de um posto não está no banco: o banco tem quem já foi cadastrado. Quando
+# alguém sai antes do substituto entrar, o posto fica com menos gente do que deveria e nada
+# no sistema diz que aquilo é um buraco — parece só um posto pequeno.
+#
+# Registrado aqui porque é aqui que se olha antes de mexer em ponto de um posto. NADA CONSOME
+# ISTO AINDA: é registro, não regra. Quem for ligar um alerta de quadro incompleto no painel
+# tem o dado pronto; quem só quiser saber por que o Prime está com 2 AGP lê e entende.
+#
+# PRIME ARENA — declarado pelo Jordan em 14/08/2026. O correto são 4 AGP; hoje o sistema
+# conhece 3, e dos 3 um sai hoje:
+#
+#   SAI   KEYSON DA SILVA PINTO    aviso prévio encerrado — `termination_processes` diz
+#                                  last_working_day 14/08, voluntary. A coorte já o exclui
+#                                  sozinha (reta final de 7 dias), então ele não vira
+#                                  "ausente" no painel. Nada a fazer.
+#   SAI   RILEM FERREIRA DE SOUZA  realocado para o Ideal Flores — o cadastro JÁ reflete
+#                                  (posto_atual_nome = IDEAL FLORES). Nada a fazer.
+#   ENTRA ALAN VIEIRA              no lugar do Keyson
+#   ENTRA DALTON PACHECO           no lugar do Rilem
+#
+# Os dois que entram ainda NÃO EXISTEM no `employees`: serão contratados até 20/08 e começam
+# a bater ponto de 20/08 em diante. Até lá o Prime opera com 2 AGP, e isso é cobertura, não
+# defeito de sistema.
+#
+# ⚠️ ARYELTON BRAGA FIGUEIRA NÃO ENTRA NA CONTA DOS 4. Contrato de trabalho SUSPENSO, com
+# processo trabalhista em curso (Jordan, 14/08). O `sst_afastamentos` tem a suspensão aberta
+# desde 02/02/2026 sem data de retorno, e é por isso que a coorte o exclui — o registro está
+# CERTO. Mas veja o aviso abaixo: existem batidas em nome dele mesmo assim.
+QUADRO_EM_TRANSICAO = {
+    "Condomínio Prime Arena": {
+        "cargo": "AGENTE DE PORTARIA",
+        "previsto": 4,
+        "saem": ["KEYSON DA SILVA PINTO", "RILEM FERREIRA DE SOUZA"],
+        "entram": ["ALAN VIEIRA", "DALTON PACHECO"],
+        "contratar_ate": "2026-08-20",
+        "batem_ponto_desde": "2026-08-20",
+        # Prime é _PADRAO_06 e TODO AGP daqui recebe intrajornada → 2 batidas.
+        # Os ASG (Graciene e Malaquias) não recebem → 4. Nada disso muda com a troca.
+        "recebe_intrajornada": True,
+    },
+}
+
+# ⚠️ BATIDA DE QUEM NÃO ESTÁ TRABALHANDO — achado de 14/08/2026, ainda EM ABERTO.
+#
+# O import do Sólides/Tangerino grava batidas para gente que não trabalhou. Medido:
+#
+#   CINTIA BEZERRA    afastada (acidente de trajeto) desde 21/05   80 batidas, a última HOJE
+#   ARYELTON BRAGA    contrato suspenso desde 02/02                68 batidas, a última 13/08
+#   FRANCISCO RAMON   de férias                                    28 batidas em agosto
+#
+# O que denuncia é o RELÓGIO: essas batidas caem no minuto e no segundo exatos (18:00:00,
+# 06:00:00), todo dia, sem exceção. Gente de verdade bate torto — 06:46, 07:01, 09:55, 18:59.
+# São 779 de 1253 batidas tangerino em agosto no minuto cheio (62%), e as 7 pessoas com 100%
+# de batidas redondas incluem exatamente os três acima. Isso não é ponto: é a ESCALA sendo
+# gravada como se fosse marcação.
+#
+# Por que ainda não quebrou nada nosso: `CONECTA` (linha ~78) já exclui `tangerino` e `web`
+# do aprendizado, então o padrão de batidas aprende só do ponto próprio. E a parametrização
+# de horários veio da palavra do Jordan, posto a posto — o Sólides serviu de conferência, e
+# os números que usei eram justamente os tortos.
+#
+# Por que importa mesmo assim, e não é achado de estética: o Aryelton tem PROCESSO
+# TRABALHISTA em curso. Uma tabela de ponto da própria empresa dizendo que ele bateu ponto
+# durante a suspensão é prova contra a empresa, produzida por um importador. Isso é do dono
+# do import do Sólides resolver — está fora do escopo do ponto — mas fica escrito aqui
+# porque foi aqui que apareceu.
+
 _CARGOS_44H = ("SERVIÇOS GERAIS", "SERVICOS GERAIS", "ARTÍFICE", "ARTIFICE", "JARDINEIRO")
 
 #: ⚠️ O MESMO POSTO TEM DOIS NOMES no banco, e isto custou uma rodada: `posts.name` diz
