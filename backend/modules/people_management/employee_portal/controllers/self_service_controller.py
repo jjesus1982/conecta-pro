@@ -1328,12 +1328,21 @@ async def facial_batida(
     # Tipo é AUTORIDADE do backend (intrajornada do posto → 2 ou 4 batidas/dia).
     # Não confia no punch_type do device p/ o rótulo — evita saída rotulada errado.
     prox = await _proxima_batida_info(db, emp)
-    if prox["concluido"]:
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT,
-            detail="Jornada de hoje já concluída — todas as batidas do dia foram registradas.",
-        )
-    tipo = prox["tipo"]
+    # NÃO recusamos batida por "jornada concluída". Isto era um 409 e, em 13/08/2026,
+    # impediu gente de registrar trabalho que ela FEZ: ANTONIO WALCICLEY, 12x36, bateu
+    # entrada 05:58 e saída 13:23; a sequência do posto estava em 2 (o flag
+    # `tem_intervalo_almoco` estava desligado nos NOVE postos), a 2ª batida virou "Saída"
+    # de fim de expediente e o botão desabilitou. No áudio dele: "quando eu registrei para
+    # ir para o almoço, ele deu que eu estivesse saindo já da empresa. Aí eu não consegui
+    # registrar mais". O dia fechou no almoço, e o registro da tarde nunca existiu.
+    #
+    # O risco é ASSIMÉTRICO e essa é a razão da mudança: uma batida a mais o DP corrige no
+    # espelho em segundos; uma jornada que ninguém conseguiu marcar não se recupera — vira
+    # palavra contra palavra numa reclamatória. Ponto é registro de FATO.
+    #
+    # A batida extra entra rotulada como `extra`, que é o que dá ao DP o gancho para
+    # conferir sem ter que adivinhar qual das quatro ela deveria ser.
+    tipo = prox["tipo"] if not prox["concluido"] else "extra"
 
     location = None
     if body.location is not None:
@@ -1386,11 +1395,20 @@ async def batida_contingencia(
     import uuid as _uuid
     emp = _employee_id(current_user)
     prox = await _proxima_batida_info(db, emp)
-    if prox["concluido"]:
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT,
-            detail="Jornada de hoje já concluída — todas as batidas do dia foram registradas.",
-        )
+    # NÃO recusamos batida por "jornada concluída". Isto era um 409 e, em 13/08/2026,
+    # impediu gente de registrar trabalho que ela FEZ: ANTONIO WALCICLEY, 12x36, bateu
+    # entrada 05:58 e saída 13:23; a sequência do posto estava em 2 (o flag
+    # `tem_intervalo_almoco` estava desligado nos NOVE postos), a 2ª batida virou "Saída"
+    # de fim de expediente e o botão desabilitou. No áudio dele: "quando eu registrei para
+    # ir para o almoço, ele deu que eu estivesse saindo já da empresa. Aí eu não consegui
+    # registrar mais". O dia fechou no almoço, e o registro da tarde nunca existiu.
+    #
+    # O risco é ASSIMÉTRICO e essa é a razão da mudança: uma batida a mais o DP corrige no
+    # espelho em segundos; uma jornada que ninguém conseguiu marcar não se recupera — vira
+    # palavra contra palavra numa reclamatória. Ponto é registro de FATO.
+    #
+    # A batida extra entra rotulada como `extra`, que é o que dá ao DP o gancho para
+    # conferir sem ter que adivinhar qual das quatro ela deveria ser.
     pid = str(_uuid.uuid4())
     await db.execute(
         _sqltext(
@@ -1399,10 +1417,12 @@ async def batida_contingencia(
             "VALUES (:pid, CAST(:e AS uuid), :t, (now() AT TIME ZONE 'America/Manaus'), "
             " (now() AT TIME ZONE 'America/Manaus'), 'pending_contingencia', 'contingencia', now(), now())"
         ),
-        {"pid": pid, "e": emp, "t": prox["tipo"]},
+        {"pid": pid, "e": emp, "t": (prox["tipo"] if not prox["concluido"] else "extra")},
     )
     await db.commit()
     return {
-        "success": True, "punch_id": pid, "punch_type": prox["tipo"], "status": "pending_contingencia",
+        "success": True, "punch_id": pid,
+        "punch_type": (prox["tipo"] if not prox["concluido"] else "extra"),
+        "status": "pending_contingencia",
         "message": "Registramos sua tentativa. O DP vai validar sua batida — você não perdeu o ponto.",
     }
