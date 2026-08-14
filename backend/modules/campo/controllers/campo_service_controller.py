@@ -243,8 +243,10 @@ async def list_technicians(
             "filters": {"status": tech_status, "specialty": specialty},
         }
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Erro ao listar técnicos: {e}")
-        return {"technicians": [], "total": 0, "filters": {"status": tech_status, "specialty": specialty}}
+        # NÃO devolver lista vazia aqui: "nenhum técnico" e "a consulta explodiu" ficariam
+        # indistinguíveis na tela, e o gerente leria ausência de gente onde houve falha.
+        logger.error(f"Erro ao listar técnicos: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Não foi possível listar os técnicos.") from e
 
 
 @router.post("/tickets/{ticket_id}/assign/{technician_id}")
@@ -279,16 +281,6 @@ async def campo_dashboard(current_user: CurrentActiveUser, session: AsyncSession
     # "Hoje" em Manaus (UTC-4); as batidas (check-ins de agentes em campo) ficam em gp_clock_punches
     # (objeto date, não string: asyncpg exige date no comparativo ::date = :hoje)
     hoje = datetime.now(ZoneInfo("America/Manaus")).date()
-    vazio = {
-        "agentes": 0,
-        "agentes_em_campo": 0,
-        "checkins": 0,
-        "checkins_hoje": 0,
-        "checkins_list": [],
-        "ocorrencias": 0,
-        "alertas": [],
-        "registros": 0,
-    }
     try:
         agentes = (await session.execute(text("SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
         rows = (
@@ -344,5 +336,7 @@ async def campo_dashboard(current_user: CurrentActiveUser, session: AsyncSession
             "technicians": {"total": int(agentes), "active": int(em_campo)},  # compat
         }
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Erro ao gerar dashboard CAMPO: {e}")
-        return vazio
+        # Zeros devolvidos por falha se leem como "noite tranquila" — pior que erro,
+        # porque o gerente confia. Falhou, diz que falhou.
+        logger.error(f"Erro ao gerar dashboard CAMPO: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Não foi possível montar o painel de campo.") from e

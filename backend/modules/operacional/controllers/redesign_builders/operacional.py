@@ -2076,11 +2076,27 @@ async def build(db) -> dict:
                 return b(f"{v:.1f}h", "bad")
             return b(f"{v:+.1f}h", "ok")
 
+        # AVISO DE PROCEDÊNCIA: o cálculo acima usa TODA batida da janela, aprovada ou não.
+        # gp_clock_punches.status tem approved/pending/fora_local/normal/regular, e a fatia
+        # não-aprovada é grande. Entrar em silêncio num número que vira hora paga é o defeito;
+        # se pending deve contar é decisão do Jordan. Enquanto ela não vier, a tela declara.
+        _nao_aprov = await _scalar(db,
+            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days' "
+            "AND coalesce(status,'') <> 'approved'") or 0
+        _total_b = await _scalar(db,
+            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days'") or 0
+        _aviso = ""
+        if _nao_aprov:
+            _pct = (100.0 * _nao_aprov / _total_b) if _total_b else 0.0
+            _aviso = (f" ⚠️ Inclui {_nao_aprov} batida(s) NÃO aprovada(s) de {_total_b} "
+                      f"({_pct:.0f}%) — pendente/fora do local entram no cálculo porque ainda "
+                      "não há regra de apuração definida. Confira antes de lançar.")
+
         out["banco-horas-apuracao"] = await tbl(
             "Apuração de horas (ponto × escala)",
             "Últimos 30 dias · compara só os dias COM batida: realizado = pares entrada→saída reais "
             "(intervalo já descontado) vs previsto na escala vigente (turno cancelado não conta). "
-            "Cálculo derivado — não lança nada: use 'Lançar horas' para efetivar.",
+            "Cálculo derivado — não lança nada: use 'Lançar horas' para efetivar." + _aviso,
             "—", ["Colaborador", "Dias", "Realizado", "Previsto", "Saldo", "Pendências"],
             "2fr 0.6fr 0.9fr 0.9fr 0.9fr 1.1fr", _sql_apur,
             lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(f"{r[5]}d"), t(f"{r[1] or 0}h"), t(f"{r[2] or 0}h"),
