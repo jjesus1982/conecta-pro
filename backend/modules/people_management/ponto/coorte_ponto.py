@@ -77,12 +77,30 @@ DIAS_PARA_CONCLUIR = 3
 #: Só device do ponto próprio — `tangerino` é o sistema antigo e `web` é lançamento do DP.
 CONECTA = "coalesce(device_type,'') NOT IN ('tangerino','web')"
 
+#: Corte entre um turno e o seguinte. Menos que isto é intervalo dentro do mesmo turno;
+#: mais, é turno novo. 14h cobre o 12x36 (12h de jornada) sem colar dois turnos seguidos.
+HORAS_ENTRE_TURNOS = 14
+
 SQL_PADRAO_BATIDAS = (
-    "WITH dias AS ("
-    "  SELECT p.employee_id, p.punch_timestamp::date AS dia, count(*) AS n "
+    # ⚠️ AGRUPA POR TURNO, NÃO POR DIA. A primeira versão contava
+    # `punch_timestamp::date` e quebrava para o 12x36 NOTURNO, que é metade da equipe:
+    # EDWARD entra 17:50 de um dia e sai 05:50 do outro, então cada dia-calendário tem UMA
+    # batida. O painel diria "observado=1, esperado=2, DIVERGE" para quem está batendo
+    # certo — o alerta nasceria mentindo. A legenda da planilha do Jordan já avisava:
+    # "média não vale para turno que vira a meia-noite".
+    "WITH b AS ("
+    "  SELECT p.employee_id, p.punch_timestamp, "
+    "         CASE WHEN lag(p.punch_timestamp) OVER ("
+    "                     PARTITION BY p.employee_id ORDER BY p.punch_timestamp) "
+    "                   > p.punch_timestamp - make_interval(hours => :horas_turno) "
+    "              THEN 0 ELSE 1 END AS novo_turno "
     "  FROM gp_clock_punches p "
-    "  WHERE p.punch_timestamp::date >= :desde AND " + CONECTA + " "
-    "  GROUP BY 1,2), "
+    "  WHERE p.punch_timestamp::date >= :desde AND " + CONECTA + "), "
+    "g AS ("
+    "  SELECT employee_id, punch_timestamp, "
+    "         sum(novo_turno) OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS turno "
+    "  FROM b), "
+    "dias AS (SELECT employee_id, turno AS dia, count(*) AS n FROM g GROUP BY 1,2), "
     "moda AS ("
     "  SELECT employee_id, n AS observado, count(*) AS vezes, "
     "         row_number() OVER (PARTITION BY employee_id "

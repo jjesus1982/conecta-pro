@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from core.database.session import get_sync_db_dependency
 from modules.people_management.ponto.coorte_ponto import (
     APRENDIZADO_DESDE,
+    HORAS_ENTRE_TURNOS,
     SQL_NAO_AUSENTE_HOJE,
     SQL_PADRAO_BATIDAS,
     montar_aprendizado,
@@ -124,7 +125,7 @@ def painel(
     # resposta e três cópias viram três verdades.
     padrao = db.execute(
         text(SQL_PADRAO_BATIDAS.format(coorte=_COHORT)),
-        {"desde": APRENDIZADO_DESDE},
+        {"desde": APRENDIZADO_DESDE, "horas_turno": HORAS_ENTRE_TURNOS},
     ).mappings().all()
     aprendizado = montar_aprendizado(padrao)
 

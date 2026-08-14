@@ -237,6 +237,7 @@ def monitor(
     # cadastro do posto quando a divergência aparecer.
     from modules.people_management.ponto.coorte_ponto import (  # noqa: PLC0415
         APRENDIZADO_DESDE,
+        HORAS_ENTRE_TURNOS,
         SQL_PADRAO_BATIDAS,
         montar_aprendizado,
     )
@@ -252,7 +253,7 @@ def monitor(
     )
     padrao = db.execute(
         text(SQL_PADRAO_BATIDAS.format(coorte=_coorte_e)),
-        {"desde": APRENDIZADO_DESDE},
+        {"desde": APRENDIZADO_DESDE, "horas_turno": HORAS_ENTRE_TURNOS},
     ).mappings().all()
     aprendizado = montar_aprendizado(padrao)
 
