@@ -276,17 +276,33 @@ class InterAdapter(BaseBankingAdapter):
         end_date: date,
     ) -> BankStatement:
         """Consulta extrato da conta Inter."""
-        data = await self._request(
-            "GET",
-            "/banking/v2/extrato",
-            params={
-                "dataInicio": start_date.strftime("%Y-%m-%d"),
-                "dataFim": end_date.strftime("%Y-%m-%d"),
-            },
-        )
+        # `/extrato/completo` e NAO `/extrato`. O simples devolve `detalhes` VAZIO —
+        # medido em 14/08/2026: 4.373 linhas do Inter no banco, ZERO com documento do
+        # favorecido. O completo traz cpfCnpjPagador/cpfCnpjRecebedor, nomeRecebedor,
+        # chavePixRecebedor e endToEndId. Sem isso a conciliacao casa por valor e data,
+        # que foi o que me fez amarrar o titulo do Gelain na transacao errada.
+        # Paginado: `pagina` comeca em 0.
+        itens: list[dict] = []
+        pagina = 0
+        while pagina < 40:  # teto de seguranca: 40 x 100 = 4000 lancamentos por chamada
+            data = await self._request(
+                "GET",
+                "/banking/v2/extrato/completo",
+                params={
+                    "dataInicio": start_date.strftime("%Y-%m-%d"),
+                    "dataFim": end_date.strftime("%Y-%m-%d"),
+                    "pagina": pagina,
+                    "tamanhoPagina": 100,
+                },
+            )
+            lote = data.get("transacoes") or []
+            itens.extend(lote)
+            if len(lote) < 100:
+                break
+            pagina += 1
 
         transactions = []
-        for item in data.get("transacoes", []):
+        for item in itens:
             # DIREÇÃO real do dinheiro vem SEMPRE de tipoOperacao ("C"=entrada, "D"=saída).
             # NÃO derivar direção do tipoTransacao (PIX/TED/BOLETO), porque um "PIX ENVIADO" é
             # tipoOperacao="D" (saída) e ficaria como crédito se olhássemos só o rótulo PIX.
@@ -303,11 +319,26 @@ class InterAdapter(BaseBankingAdapter):
             else:
                 tx_type = TransactionType.DEBIT if is_debit else TransactionType.CREDIT
 
-            # Extrai beneficiário: prefere detalhes.nome da API, fallback na descrição
+            # A CONTRAPARTE depende da DIRECAO: numa saida somos o pagador e o outro e o
+            # RECEBEDOR; numa entrada e o contrario. Ler `detalhes.cpfCnpj` (como estava)
+            # nunca funcionou — esse campo nao existe no retorno do Inter.
             detalhes = item.get("detalhes", {}) or {}
             descricao = item.get("descricao", "")
-            c_name = detalhes.get("nome") or _extrair_nome_da_descricao(descricao)
-            c_doc = detalhes.get("cpfCnpj") or detalhes.get("cpf") or ""
+            if is_debit:
+                c_name = detalhes.get("nomeRecebedor") or _extrair_nome_da_descricao(descricao)
+                c_doc = detalhes.get("cpfCnpjRecebedor") or ""
+                c_bank = detalhes.get("nomeEmpresaRecebedor") or ""
+                c_acct = detalhes.get("contaBancariaRecebedor") or ""
+            else:
+                c_name = detalhes.get("nomePagador") or _extrair_nome_da_descricao(descricao)
+                c_doc = detalhes.get("cpfCnpjPagador") or ""
+                c_bank = detalhes.get("nomeEmpresaPagador") or ""
+                c_acct = detalhes.get("contaBancariaPagador") or ""
+            # endToEndId identifica o PIX de forma unica no SPI — e a chave de conciliacao
+            # exata que faltava. `chavePixRecebedor` responde "qual chave eu usei para pagar",
+            # que o cadastro nao sabe.
+            e2e = detalhes.get("endToEndId") or ""
+            chave = detalhes.get("chavePixRecebedor") or detalhes.get("chavePixPagador") or ""
 
             # amount ASSINADO: negativo p/ saída, positivo p/ entrada. Preserva a direção mesmo
             # quando o tipo específico (PIX/TED/BOLETO) esconde o sentido do lançamento.
@@ -317,13 +348,21 @@ class InterAdapter(BaseBankingAdapter):
             transactions.append(
                 BankTransaction(
                     transaction_id=item.get("idTransacao", ""),
-                    date=datetime.fromisoformat(item.get("dataEntrada", "")),
+                    # `/extrato/completo` devolve `dataTransacao`; o endpoint antigo devolvia
+                    # `dataEntrada`. Sem este fallback a troca de endpoint quebra na primeira
+                    # linha, com ValueError de isoformat sobre string vazia.
+                    date=datetime.fromisoformat(
+                        item.get("dataTransacao") or item.get("dataEntrada") or ""),
                     amount=valor,
                     transaction_type=tx_type,
                     description=descricao,
                     balance_after=self._parse_amount(item.get("saldo", 0)) if item.get("saldo") else None,
                     counterpart_name=c_name or None,
                     counterpart_document=c_doc or None,
+                    counterpart_bank=c_bank or None,
+                    counterpart_account=c_acct or None,
+                    counterpart_pix_key=chave or None,
+                    reference=e2e or None,
                 )
             )
 

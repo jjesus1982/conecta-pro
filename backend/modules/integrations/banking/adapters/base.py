@@ -103,8 +103,9 @@ class BankTransaction:
     counterpart_bank: str | None = None
     counterpart_agency: str | None = None
     counterpart_account: str | None = None
+    counterpart_pix_key: str | None = None   # a chave USADA no PIX (o cadastro nao sabe qual foi)
     category: str | None = None
-    reference: str | None = None
+    reference: str | None = None             # endToEndId no PIX: identificador unico no SPI
 
 
 @dataclass
