@@ -69,7 +69,12 @@ def main() -> None:
         # 1 — ninguém de folga pode estar na lista de atraso
         invasores = sorted(de_folga & atrasados)
         assert not invasores, f"de folga e cobrado como atrasado: {invasores}"
-        print(f"OK folga não vira atraso: {len(de_folga)} de folga hoje, "
+        # A conta daqui é MAIOR que a do painel de propósito: esta query não aplica o filtro
+        # de férias/afastamento, então quem está de férias e trabalhou na véspera aparece
+        # como candidato a folga (o painel o exclui antes, por outro motivo). Manter a query
+        # independente é o ponto do oráculo; o que não pode é a diferença assustar quem lê.
+        print(f"OK folga não vira atraso: {len(de_folga)} candidatos a folga "
+              f"({len(d.get('de_folga') or [])} no painel, que já exclui férias/afastamento), "
               f"{len(atrasados)} atrasados, interseção 0")
 
         # suspenders: o defeito exato foi o painel NÃO conhecer folga. Se `de_folga` tem
