@@ -116,6 +116,7 @@ app.conf.task_routes = {
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
     "operacional.daily_coverage_report": {"queue": "operacional"},
+    "operacional.fechar_turnos_por_ponto": {"queue": "operacional"},
     # SST - Afastamentos
     "sst.verificar_afastamentos_vencidos": {"queue": "operacional"},
     "sst.verificar_inss_pendente": {"queue": "operacional"},
@@ -474,6 +475,15 @@ app.conf.beat_schedule = {
     "operacional-check-pending-approvals": {
         "task": "operacional.check_pending_approvals",
         "schedule": 3600.0,  # 1 hora
+        "options": {"queue": "operacional"},
+    },
+    # Fecha por ponto os turnos que já acabaram (scheduled → completed/partial).
+    # 05:40 é depois que a última saída do turno da noite (06:00) ainda não bateu —
+    # por isso só olha de ONTEM pra trás; turno de hoje ainda recebe batida.
+    # Não marca falta: turno sem batida fica scheduled e vira candidata para humano.
+    "operacional-fechar-turnos-diario": {
+        "task": "operacional.fechar_turnos_por_ponto",
+        "schedule": crontab(hour=5, minute=40),
         "options": {"queue": "operacional"},
     },
     # Expira banco de horas vencidos todo dia às 00:30h

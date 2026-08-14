@@ -1,0 +1,144 @@
+"""Fecha o turno pelo ponto: scheduled → completed / partial.
+
+Por que existe: em 14/08/2026 o ciclo de vida do turno não avançava. 3667 turnos e
+o status era só `scheduled` (2015) ou `cancelled` (1652) — nenhum `completed`, e
+`actual_start_time` NULL nos 3667. Como falta nasce de turno encerrado, e substituição
+nasce de falta, TRÊS funções do módulo ficavam em zero (faltas, substituições, banco de
+horas) por mais tela que se ligasse. Este serviço fecha o elo.
+
+O QUE ELE NÃO FAZ, DE PROPÓSITO — não marca falta.
+    Falta marcada por máquina vira desconto indevido quando o relógio falhou e a pessoa
+    trabalhou. Medido antes de escrever: a regra ingênua produzia 547 faltas em 1488
+    turnos (37%), e ABRIL sozinho dava 180 faltas em 180 turnos — porque o relógio não
+    tem uma única batida em abril. Ausência de dado virando ausência de pessoa.
+    Turno sem batida fica `scheduled` e sai na lista de CANDIDATAS, para humano decidir.
+
+FUSO — a batida está em hora de MANAUS, não em UTC.
+    Cravado por evidência, não por suposição: na mesma linha, `created_at` (UTC) e
+    `punch_timestamp` diferem exatamente 4h (12:03:31 vs 08:03:31). Converter UTC→Manaus
+    subtraía 4h a mais e desalinhava tudo: com a conversão errada dava completed=704 /
+    partial=237; com a hora crua, completed=876 / partial=74.
+
+JANELA — o turno da noite cruza a meia-noite.
+    1207 dos 3667 turnos têm `planned_end_time < planned_start_time` (33%). A janela soma
+    1 dia ao fim nesses casos. Sem isso, todo 12x36 noturno perderia a saída.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
+
+# Folga em volta do turno para aceitar quem bate adiantado/atrasado. 3h é generoso de
+# propósito: errar para "completed" só perde uma falta (que humano acha na lista);
+# errar para "sem batida" acusa alguém que trabalhou.
+TOLERANCIA_HORAS = 3
+
+# Só mexe em turno que já ACABOU. Turno de hoje ainda pode receber batida.
+_SQL_CANDIDATOS = """
+WITH s AS (
+    SELECT id, employee_id, shift_date, planned_start_time, planned_end_time,
+           planned_hours, is_off_day,
+           (shift_date + planned_start_time) AS ini,
+           (shift_date + planned_end_time
+            + CASE WHEN planned_end_time < planned_start_time
+                   THEN interval '1 day' ELSE interval '0' END) AS fim
+    FROM shifts
+    WHERE status::text = 'scheduled'
+      AND coalesce(is_active, true)
+      AND employee_id IS NOT NULL
+      AND shift_date <= :ate
+),
+b AS (
+    -- punch_timestamp JÁ está em hora de Manaus (ver docstring). Nada de converter.
+    SELECT employee_id, punch_timestamp AS ts, punch_type
+    FROM gp_clock_punches
+)
+SELECT s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours,
+       min(b.ts) FILTER (WHERE b.punch_type = 'entrada') AS entrada,
+       max(b.ts) FILTER (WHERE b.punch_type = 'saida')   AS saida,
+       count(b.*)                                        AS n_batidas
+FROM s
+LEFT JOIN b ON b.employee_id = s.employee_id
+           AND b.ts BETWEEN s.ini - make_interval(hours => :tol)
+                        AND s.fim + make_interval(hours => :tol)
+GROUP BY s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours
+"""
+
+
+@dataclass
+class Resultado:
+    completed: int = 0
+    partial: int = 0
+    candidatas_falta: int = 0
+    off_day: int = 0
+    aplicado: bool = False
+    exemplos_candidatas: list[dict] = field(default_factory=list)
+
+    def resumo(self) -> str:
+        modo = "APLICADO" if self.aplicado else "simulação (nada foi escrito)"
+        return (f"{modo}: completed={self.completed} partial={self.partial} "
+                f"off_day={self.off_day} candidatas_a_falta={self.candidatas_falta}")
+
+
+async def fechar_turnos_por_ponto(
+    db: AsyncSession,
+    ate: date | None = None,
+    aplicar: bool = False,
+) -> Resultado:
+    """Fecha turnos já encerrados com base nas batidas.
+
+    `aplicar=False` (padrão) só mede — não escreve nada. É assim de propósito: quem
+    chama tem que pedir a escrita explicitamente.
+
+    Nunca toca em turno que não esteja `scheduled`: status posto por humano
+    (cancelled, substituted, missed) é decisão que a máquina não desfaz. E é
+    idempotente — rodar de novo não muda nada, porque o que fechou saiu de `scheduled`.
+    """
+    ate = ate or (date.today() - timedelta(days=1))
+    linhas = (await db.execute(text(_SQL_CANDIDATOS),
+                               {"ate": ate, "tol": TOLERANCIA_HORAS})).fetchall()
+
+    res = Resultado(aplicado=aplicar)
+    fechar: list[tuple[str, str, object, object, float | None]] = []
+
+    for sid, _emp, sdata, off_day, plan_h, entrada, saida, n in linhas:
+        if off_day:
+            res.off_day += 1
+            fechar.append((str(sid), "off_day", None, None, 0.0))
+            continue
+        if entrada and saida and saida > entrada:
+            horas = (saida - entrada).total_seconds() / 3600.0
+            res.completed += 1
+            fechar.append((str(sid), "completed", entrada, saida, round(horas, 2)))
+        elif n:
+            res.partial += 1
+            fechar.append((str(sid), "partial", entrada, saida, None))
+        else:
+            # NÃO vira missed aqui. Vira lista para humano.
+            res.candidatas_falta += 1
+            if len(res.exemplos_candidatas) < 20:
+                res.exemplos_candidatas.append({"shift_id": str(sid), "data": str(sdata),
+                                                "planejadas": float(plan_h or 0)})
+
+    if not aplicar:
+        return res
+
+    for sid, novo, entrada, saida, horas in fechar:
+        await db.execute(text("""
+            UPDATE shifts
+               SET status = :st,
+                   actual_start_time = coalesce(:ini, actual_start_time),
+                   actual_end_time   = coalesce(:fim, actual_end_time),
+                   actual_hours      = coalesce(:h, actual_hours),
+                   updated_at        = now()
+             WHERE id::text = :sid AND status::text = 'scheduled'
+        """), {"st": novo, "ini": entrada, "fim": saida, "h": horas, "sid": sid})
+    await db.commit()
+    logger.info("fechamento de turno: %s", res.resumo())
+    return res

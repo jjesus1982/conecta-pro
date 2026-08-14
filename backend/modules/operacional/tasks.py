@@ -1124,3 +1124,44 @@ def lembrete_ponto_whatsapp(self):
     except Exception as exc:
         logger.error(f"[Operacional Task] Erro no lembrete de ponto: {exc}")
         raise self.retry(exc=exc)
+
+
+@app.task(
+    name="operacional.fechar_turnos_por_ponto",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def fechar_turnos_por_ponto_task(self):
+    """Fecha por ponto os turnos que já acabaram: scheduled → completed / partial.
+
+    Beat diário às 05:40 (Manaus), depois que a última saída da noite já bateu.
+    Só olha turno de ONTEM pra trás — turno de hoje ainda pode receber batida.
+
+    NÃO marca falta. Turno sem batida fica `scheduled` e sai como candidata na
+    tela; quem decide falta é humano, porque falta errada vira desconto indevido.
+    Ver o docstring de fechamento_turno_service para a medição que sustenta isso.
+    """
+
+    async def _run() -> dict:
+        from core.database.session import get_async_db_session
+        from modules.operacional.services.fechamento_turno_service import (
+            fechar_turnos_por_ponto,
+        )
+
+        async with get_async_db_session() as db:
+            r = await fechar_turnos_por_ponto(db, aplicar=True)
+            return {
+                "completed": r.completed,
+                "partial": r.partial,
+                "off_day": r.off_day,
+                "candidatas_falta": r.candidatas_falta,
+            }
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] Fechamento de turno: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] Erro no fechamento de turno: {exc}")
+        raise self.retry(exc=exc)
