@@ -97,7 +97,18 @@ async def main() -> None:  # noqa: PLR0915
         # Loide achando que era duplicata (o filtro por nome na descrição não
         # contou o par) e foi a checagem (3) contra o saldo do próprio banco que
         # denunciou, com a diferença exata de R$32,00. Restaurado.
-        BASE_PARES_LEGITIMOS = 3
+        # 14/08/2026: subiu para 8. Não apareceu duplicata nova — apareceu NOME. Ao
+        # preencher `counterparty_name` de 226 linhas de PIX interno (o nome estava
+        # dentro da descrição, no campo errado), pares que já existiam passaram a ser
+        # visíveis para esta contagem. Os 5 novos são VT+VR de R$32,00 pagos duas
+        # vezes no mesmo dia à mesma pessoa, mais dois R$100,00 do Jordan em 02/02 com
+        # external_id distintos (07:15 e 07:20).
+        #
+        # ⭐ Quem adjudicou não foi o olho: foi a checagem (3). Desde hoje ela cobre os
+        # DOIS bancos contra o saldo que eles próprios informam, e fecha exata nos dois
+        # (Inter R$5.397,69 · Cora R$51.832,90). Duplicata inflaria o saldo; saldo que
+        # fecha é prova mais forte que esta heurística de semelhança.
+        BASE_PARES_LEGITIMOS = 8
         susp = (await db.execute(text("""
             SELECT count(*) AS grupos, coalesce(sum(n - 1), 0) AS excedentes
             FROM (SELECT count(*) AS n
