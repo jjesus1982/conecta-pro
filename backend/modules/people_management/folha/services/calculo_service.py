@@ -5,9 +5,9 @@ Integra com rubricas_folha, cct_cargos e employees.
 """
 
 import calendar
+import logging
 import re
 import unicodedata
-import logging
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -23,6 +23,36 @@ from modules.people_management.common.utils.clt_calculator import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ══ A CÓPIA DO ESPELHO DA PORTTE — a chave, e por que ela ainda está LIGADA ══════
+#
+# 🔴 O QUE ISTO CAUSA, medido em 14/08/2026: comparar a NOSSA folha com a da Portte dá
+# **Σ|Δ| = R$ 0,00 em 370 rubricas**. Não é convergência — é TAUTOLOGIA. Quando existe linha
+# no `folha_verba_espelho`, o motor EMITE a verba da Portte e SUPRIME a própria computação.
+# Estamos comparando uma coisa com ela mesma, e o módulo pareceria fechado sem estar.
+#
+# A estratégia do Jordan é a Portte virar **âncora externa** — "quem, de fora daqui,
+# confirma este número?". Uma âncora que é insumo do próprio cálculo não confirma nada.
+#
+# ⚠️ POR QUE NÃO DESLIGUEI, mesmo com a ordem dada em 14/08. Desligar hoje não faz o motor
+# "calcular do zero": faz DOZE VERBAS SUMIREM do holerite, porque ele não tem cálculo próprio
+# para nenhuma delas. Medido em 07/2026:
+#
+#     0030/0031 Intrajornada          −R$ 3.743,97 de PROVENTO (dinheiro que a pessoa recebe)
+#     0050/0051 Afastamento           −R$ 1.224,67 de provento
+#     0052     Ausência Justificada   −R$   222,67 de provento
+#     0070     Horas Extras           −R$   280,53 de provento
+#     1050-1053 Faltas e DSR          −R$ 2.527,94 de desconto
+#     1060/1061 INSS e Adiant. Férias −R$ 4.308,69 de desconto
+#
+# Quem recebe intrajornada perderia R$ 2.005 de provento; quem faltou deixaria de ter o
+# desconto. Holerite errado nos dois sentidos — e holerite é documento trabalhista.
+#
+# COMO DESLIGAR DE VERDADE, na ordem: implementar as 12 no motor (intrajornada já tem a
+# fonte — `employees.recebe_intrajornada` e o piso da CCT; faltas e DSR saem do espelho de
+# ponto, que foi corrigido em 14/08), conferir contra julho com a chave ainda ligada, e só
+# então virar. Enquanto isto for `True`, NENHUM comparador contra a Portte significa nada.
+USAR_ESPELHO_PORTTE = True
 
 # ==================== TABELAS FEDERAIS ====================
 # INSS 2026: OFICIAL — Portaria Interministerial MPS/MF nº 13, vigente 01/01/2026.
@@ -423,7 +453,7 @@ def calcular_folha_colaborador(
     _esp = db.execute(text(
         "SELECT codigo, descricao, valor, tipo, incide_inss FROM folha_verba_espelho "
         "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m ORDER BY codigo"),
-        {"e": employee_id, "a": ano, "m": mes}).fetchall()
+        {"e": employee_id, "a": ano, "m": mes}).fetchall() if USAR_ESPELHO_PORTTE else []
     tem_espelho = bool(_esp)
     esp_inss_base = Decimal("0")
     for _cod, _desc, _val, _tipo, _inc in _esp:
