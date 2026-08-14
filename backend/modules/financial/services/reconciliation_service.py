@@ -571,7 +571,7 @@ def _vincular_prova_de_recebimento(conn) -> int:
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        SELECT id, customer_name, gross_value, payment_date
+        SELECT id, customer_name, gross_value, payment_date, due_date
         FROM receivable_accounts
         WHERE status = 'paga' AND transacao_bancaria_id IS NULL
           AND payment_date >= %s AND coalesce(customer_name,'') <> ''
@@ -586,15 +586,23 @@ def _vincular_prova_de_recebimento(conn) -> int:
             continue
         tok = max(tokens, key=len)
         bruto = Decimal(str(rec["gross_value"]))
+        # DUAS âncoras, não uma. `payment_date` pode estar errado — e estava: o
+        # título do Parque Gelain de 10/08 tinha payment_date 16/07, e a primeira
+        # versão disto pescou um "PIX RECEBIDO INTERNO" daquele dia como prova.
+        # O Gelain paga R$5.940 por boleto todo dia 10; o vínculo certo estava a
+        # 25 dias dali. Exigir proximidade do VENCIMENTO também mata esse erro:
+        # data de pagamento é campo editável, vencimento é do contrato.
         cur.execute(
             """
             SELECT id, amount FROM bank_transactions
             WHERE amount > 0 AND receivable_payment_id IS NULL
               AND transaction_date BETWEEN %s AND %s
+              AND transaction_date BETWEEN %s AND %s
               AND lower(coalesce(counterparty_name,'')) LIKE lower(%s)
               AND amount BETWEEN %s AND %s
             """,
             (rec["payment_date"] - timedelta(days=5), rec["payment_date"] + timedelta(days=5),
+             rec["due_date"] - timedelta(days=15), rec["due_date"] + timedelta(days=15),
              f"%{tok}%", float(bruto * RETENCAO_PISO), float(bruto * RETENCAO_TETO)),
         )
         cands = cur.fetchall()
