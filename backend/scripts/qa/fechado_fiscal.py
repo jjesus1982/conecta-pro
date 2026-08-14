@@ -170,18 +170,26 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     hoje = date.today()
     for slug, _regime, cnpj in empresas:
         for tipo in CERTIDOES_EXIGIDAS:
-            r = _q("SELECT coalesce(issue_date::text,''), coalesce(expiry_date::text,'') "
+            r = _q("SELECT coalesce(issue_date::text,''), coalesce(expiry_date::text,''), "
+                   "       coalesce(notes,'') "
                    "  FROM ged_certidoes WHERE cnpj = @c AND document_type = @t LIMIT 1",
                    c=cnpj, t=tipo)
             if not r:
                 faltando.append(f"{slug}/{tipo}")
                 continue
-            emissao, validade = r[0][0], r[0][1]
+            emissao, validade, notas = r[0][0], r[0][1], (r[0][2] if len(r[0]) > 2 else "")
+            # ⚠️ Validade VAZIA nem sempre é buraco. O Alvará de Localização e Funcionamento
+            # da SEMEF diz, com todas as letras no próprio documento: "O alvará de
+            # Funcionamento tem validade indeterminada". Cobrar data dele seria exigir um
+            # campo que o emissor não emite — e a saída fácil (carimbar hoje+1 ano) é
+            # exatamente a fabricação de validade que já criou quatro certidões falsas nesta
+            # base. Sem data, e o documento dizendo que não tem, vale.
+            indeterminada = "INDETERMINADA" in notas.upper()
             if not emissao:
                 sem_emissao.append(f"{slug}/{tipo}")
             elif validade and validade < emissao:
                 anuladas.append(f"{slug}/{tipo}")
-            if not validade or date.fromisoformat(validade) < hoje:
+            if (not validade and not indeterminada) or (validade and date.fromisoformat(validade) < hoje):
                 vencidas.append(f"{slug}/{tipo}")
     det = (f"{len(faltando)} faltando · {len(vencidas)} vencida(s) · "
            f"{len(sem_emissao)} sem data do emissor · {len(anuladas)} anulada(s)")
