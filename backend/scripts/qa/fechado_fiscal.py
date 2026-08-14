@@ -3,7 +3,7 @@
 
 Sai 0 só quando as 10 condições passam. Enquanto sair vermelho, o módulo não fechou.
 
-    docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/qa/fechado_fiscal.py
+    python3 backend/scripts/qa/fechado_fiscal.py      (do HOST, em /opt/conecta-pro)
 
 # O CORTE — e por que ele é medido no VENCIMENTO, não na competência
 
@@ -42,7 +42,6 @@ ESTADUAL. Ambos estão marcados no relatório, não silenciados aqui.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import subprocess
@@ -50,11 +49,7 @@ import sys
 from datetime import date
 
 RAIZ = "/opt/conecta-pro"
-#: Estamos DENTRO do container? (o molde do operacional chamava isto de NO_CONTAINER, que lia
-#: ao contrário do que significa). Dentro do container não existe `docker` — as travas rodam
-#: local; no host, só a que precisa do Postgres passa por `docker exec`.
-DENTRO = os.path.isdir("/app/modules") and not os.path.isdir(os.path.join(RAIZ, "backend/scripts/qa"))
-BASE = "/app" if DENTRO else os.path.join(RAIZ, "backend")
+BASE = os.path.join(RAIZ, "backend")
 
 #: O corte declarado pelo Jordan em 14/08/2026. Medido no VENCIMENTO — ver docstring.
 CORTE = date(2026, 8, 1)
@@ -98,12 +93,11 @@ def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
 def _rodar(script: str, precisa_banco: bool = False) -> str:
     """Roda uma trava e devolve stdout+stderr.
 
-    `precisa_banco` só importa no host: a trava que confronta o Postgres não alcança o banco
-    de fora, então vai por `docker exec`. Dentro do container tudo roda local.
+    `precisa_banco`: a trava que confronta o Postgres não alcança o banco do host, então vai
+    por `docker exec`. As demais leem código, e código é o do host — que é o atual, enquanto
+    a imagem baked ainda pode estar uma versão atrás.
     """
-    if DENTRO:
-        cmd, cwd = [sys.executable, f"/app/scripts/qa/{script}"], "/app"
-    elif precisa_banco:
+    if precisa_banco:
         cmd = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
                "python3", f"/app/scripts/qa/{script}"]
         cwd = None
@@ -119,129 +113,157 @@ def _rodar(script: str, precisa_banco: bool = False) -> str:
 
 # ─────────────────────────────────────────────────────────────────── 1 a 4: agosto no banco
 
-async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
-    sys.path.insert(0, BASE)
-    from sqlalchemy import text  # noqa: PLC0415
+def _q(sql: str, **p) -> list[list[str]]:
+    """Consulta o banco por `psql`, com os parâmetros já interpolados por @nome.
 
-    from core.database import async_session_factory  # noqa: PLC0415
+    ⚠️ O marcador é `@`, e não `:`, porque `:` COLIDE com o cast do Postgres: `issue_date::text`
+    contém `:t`, e um parâmetro chamado `t` transformava a query em
+    `issue_date:'certidao_negativa_federal'ext`. O `@` não aparece em SQL nenhum daqui.
 
+    Por que não SQLAlchemy: **de nenhum lugar dava para medir as 10 condições.** Do host, o
+    Postgres não responde (`Connect call failed 127.0.0.1:5432` — ele só existe na rede do
+    compose). De dentro do container do backend, o banco responde mas o `ModuleView.tsx` não
+    existe, e não há `docker` para alcançar as travas do host. O host é o único lugar que vê
+    as três coisas: código do backend, código do front e o banco via `docker exec`.
+
+    Interpolação manual porque `psql -c` não tem bind: cada valor passa por `_lit`, que só
+    aceita o que este gate usa (data, inteiro, texto com aspas escapadas). Nada aqui vem de
+    entrada de usuário — é um script de QA com SQL fixo.
+    """
+    for nome, valor in p.items():
+        sql = sql.replace(f"@{nome}", _lit(valor))
+    r = subprocess.run(
+        ["docker", "exec", "conecta-pro-postgres", "psql", "-U", "postgres", "-d",
+         "conecta_pro", "-tAF", "|", "-c", sql],
+        capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"psql falhou: {r.stderr.strip()[:300]}")
+    return [ln.split("|") for ln in r.stdout.strip().splitlines() if ln.strip()]
+
+
+def _lit(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, date):
+        return f"'{v.isoformat()}'"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     out: list[tuple[bool, str, str]] = []
-    async with async_session_factory() as db:
-        empresas = (await db.execute(text(
-            "SELECT id::text, slug, regime_tributario, replace(replace(replace(cnpj,'.',''),'/',''),'-','') "
-            "FROM empresas WHERE status = 'ativa' ORDER BY slug"))).fetchall()
+    empresas = _q("SELECT slug, regime_tributario, "
+                  "       replace(replace(replace(cnpj,'.',''),'/',''),'-','') "
+                  "  FROM empresas WHERE status = 'ativa' ORDER BY slug")
 
-        # 1 · CERTIDÕES — exigidas, válidas, e com data DO EMISSOR.
-        # Três defeitos distintos, e o gate separa: faltando · vencida · data impossível.
-        # A `certidao_negativa_estadual` da Eletrônica foi emitida 11/08 e "vence" 09/08:
-        # validade anterior à emissão é dado fabricado, não certidão vencida.
-        faltando, vencidas, sem_emissao, impossiveis = [], [], [], []
-        for _id, slug, _reg, cnpj in empresas:
-            for tipo in CERTIDOES_EXIGIDAS:
-                r = (await db.execute(text(
-                    "SELECT issue_date, expiry_date FROM ged_certidoes "
-                    "WHERE cnpj = :c AND document_type = :t LIMIT 1"),
-                    {"c": cnpj, "t": tipo})).first()
-                if not r:
-                    faltando.append(f"{slug}/{tipo}")
-                    continue
-                emissao, validade = r
-                if emissao is None:
-                    sem_emissao.append(f"{slug}/{tipo}")
-                elif validade and validade < emissao:
-                    impossiveis.append(f"{slug}/{tipo}")
-                if validade is None or validade < date.today():
-                    vencidas.append(f"{slug}/{tipo}")
-        det = (f"{len(faltando)} faltando · {len(vencidas)} vencida(s) · "
-               f"{len(sem_emissao)} sem data do emissor · {len(impossiveis)} com validade < emissão")
-        if faltando:
-            det += f"\n       faltando: {', '.join(faltando)}"
-        if vencidas:
-            det += f"\n       vencidas: {', '.join(vencidas)}"
-        if sem_emissao:
-            det += f"\n       sem emissão: {', '.join(sem_emissao)}"
-        if impossiveis:
-            det += f"\n       validade < emissão: {', '.join(impossiveis)}"
-        out.append((not (faltando or vencidas or sem_emissao or impossiveis),
-                    "1 · certidões dos 2 CNPJs válidas, com data do emissor", det))
+    # 1 · CERTIDÕES — exigidas, válidas, e com data DO EMISSOR.
+    # Quatro defeitos distintos, e o gate separa cada um, porque a ação é diferente:
+    #   faltando            → emitir
+    #   vencida             → renovar
+    #   sem data de emissão → proveniência desconhecida, conferir no portal antes de usar
+    #   validade < emissão  → registro ANULADO de propósito. A estadual da Eletrônica está
+    #                         assim porque o cliente da Sefaz-AM devolvia "regular" para
+    #                         CNPJ inexistente; anular foi acerto, e a certidão segue por
+    #                         emitir à mão.
+    faltando, vencidas, sem_emissao, anuladas = [], [], [], []
+    hoje = date.today()
+    for slug, _regime, cnpj in empresas:
+        for tipo in CERTIDOES_EXIGIDAS:
+            r = _q("SELECT coalesce(issue_date::text,''), coalesce(expiry_date::text,'') "
+                   "  FROM ged_certidoes WHERE cnpj = @c AND document_type = @t LIMIT 1",
+                   c=cnpj, t=tipo)
+            if not r:
+                faltando.append(f"{slug}/{tipo}")
+                continue
+            emissao, validade = r[0][0], r[0][1]
+            if not emissao:
+                sem_emissao.append(f"{slug}/{tipo}")
+            elif validade and validade < emissao:
+                anuladas.append(f"{slug}/{tipo}")
+            if not validade or date.fromisoformat(validade) < hoje:
+                vencidas.append(f"{slug}/{tipo}")
+    det = (f"{len(faltando)} faltando · {len(vencidas)} vencida(s) · "
+           f"{len(sem_emissao)} sem data do emissor · {len(anuladas)} anulada(s)")
+    for rotulo, lista in (("faltando", faltando), ("vencidas", vencidas),
+                          ("sem emissão", sem_emissao), ("anuladas", anuladas)):
+        if lista:
+            det += f"\n       {rotulo}: {', '.join(lista)}"
+    out.append((not (faltando or vencidas or sem_emissao or anuladas),
+                "1 · certidões dos 2 CNPJs válidas, com data do emissor", det))
 
-        # 2 · OBRIGAÇÕES vencendo de 01/08 em diante, cada uma no CNPJ que a evidência sustenta.
-        problemas: list[str] = []
-        linhas = (await db.execute(text(
-            "SELECT e.slug, e.regime_tributario, o.empresa_id::text, o.tipo, "
-            "       o.competencia_ano, o.competencia_mes, o.data_vencimento "
-            "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
-            " WHERE o.active AND o.data_vencimento >= :corte "
-            " ORDER BY e.slug, o.data_vencimento"), {"corte": CORTE})).fetchall()
+    # 2 · OBRIGAÇÕES vencendo de 01/08 em diante, cada uma no CNPJ que a evidência sustenta.
+    problemas: list[str] = []
+    linhas = _q("SELECT e.slug, e.regime_tributario, o.tipo, o.competencia_ano, "
+                "       coalesce(o.competencia_mes, 0), o.data_vencimento "
+                "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
+                " WHERE o.active AND o.data_vencimento >= @corte "
+                " ORDER BY e.slug, o.data_vencimento", corte=CORTE)
+    for slug, *_ in [e for e in empresas if not any(ln[0] == e[0] for ln in linhas)]:
+        problemas.append(f"{slug}: NENHUMA obrigação vencendo de 08/2026 em diante")
 
-        sem_nada = [s for _i, s, _r, _c in empresas
-                    if not any(ln[0] == s for ln in linhas)]
-        for s in sem_nada:
-            problemas.append(f"{s}: NENHUMA obrigação vencendo de 08/2026 em diante")
+    for slug, regime, tipo, ano, mes, _venc in linhas:
+        if tipo == "DAS" and regime != "simples_nacional":
+            problemas.append(f"{slug}: DAS em empresa {regime} (DAS só existe no Simples)")
+        if tipo in TIPOS_DE_FOLHA and mes != "0":
+            dono = _q("SELECT e.slug FROM hr_payslips p JOIN empresas e ON e.id = p.empresa_id "
+                      " WHERE extract(year from p.competence_start) = @a "
+                      "   AND extract(month from p.competence_start) = @m "
+                      " GROUP BY e.slug ORDER BY count(*) DESC LIMIT 1", a=int(ano), m=int(mes))
+            if dono and dono[0][0] != slug:
+                problemas.append(f"{slug}: {tipo} de {int(mes):02d}/{ano} — "
+                                 f"a folha dessa competência é da {dono[0][0]}")
+    out.append((not problemas, "2 · obrigações de 08/2026 em diante no CNPJ e regime certos",
+                f"{len(linhas)} obrigação(ões) medida(s), {len(problemas)} problema(s)"
+                + ("\n       " + "\n       ".join(problemas) if problemas else "")))
 
-        for slug, regime, emp_id, tipo, ano, mes, _venc in linhas:
-            if tipo == "DAS" and regime != "simples_nacional":
-                problemas.append(f"{slug}: DAS em empresa {regime} (DAS só existe no Simples)")
-            if tipo in TIPOS_DE_FOLHA and mes:
-                # quem tem a FOLHA daquela competência responde pela obrigação de folha
-                dono = (await db.execute(text(
-                    "SELECT e.slug FROM hr_payslips p JOIN empresas e ON e.id = p.empresa_id "
-                    " WHERE extract(year from p.competence_start) = :a "
-                    "   AND extract(month from p.competence_start) = :m "
-                    " GROUP BY e.slug ORDER BY count(*) DESC LIMIT 1"),
-                    {"a": ano, "m": mes})).scalar()
-                if dono and dono != slug:
-                    problemas.append(
-                        f"{slug}: {tipo} de {mes:02d}/{ano} — a folha dessa competência é da {dono}")
-        out.append((not problemas, "2 · obrigações de 08/2026 em diante no CNPJ e regime certos",
-                    f"{len(linhas)} obrigação(ões) medida(s), {len(problemas)} problema(s)"
-                    + ("\n       " + "\n       ".join(problemas) if problemas else "")))
-
-        # 3 · GUIAS — obrigação vencida há mais de 5 dias sem valor nem recibo é prazo cego.
-        # Só de 01/08 em diante: as de abr–jul são "status não conciliado do período de
-        # homologação", decisão do Jordan, e NÃO se persegue retroativamente.
-        sem_guia = (await db.execute(text(
-            "SELECT e.slug, o.tipo, o.data_vencimento "
-            "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
-            " WHERE o.active AND o.data_vencimento >= :corte "
-            "   AND o.data_vencimento < CURRENT_DATE - 5 "
-            "   AND o.status <> 'cumprida' "
-            "   AND (o.numero_recibo IS NULL OR o.numero_recibo = '') "
-            "   AND o.valor_devido IS NULL "
-            " ORDER BY o.data_vencimento"), {"corte": CORTE})).fetchall()
-        out.append((not sem_guia, "3 · obrigação vencida há >5 dias tem guia",
-                    f"{len(sem_guia)} sem guia"
-                    + ("\n       " + "\n       ".join(
-                        f"{s}/{t} venceu {v}" for s, t, v in sem_guia) if sem_guia else "")))
+    # 3 · GUIAS — obrigação vencida há mais de 5 dias sem valor nem recibo é prazo cego.
+    # Só de 01/08 em diante: as de abr–jul são "status não conciliado do período de
+    # homologação", decisão do Jordan, e NÃO se persegue retroativamente.
+    sem_guia = _q("SELECT e.slug, o.tipo, o.data_vencimento::text "
+                  "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
+                  " WHERE o.active AND o.data_vencimento >= @corte "
+                  "   AND o.data_vencimento < CURRENT_DATE - 5 "
+                  "   AND o.status <> 'cumprida' "
+                  "   AND (o.numero_recibo IS NULL OR o.numero_recibo = '') "
+                  "   AND o.valor_devido IS NULL "
+                  " ORDER BY o.data_vencimento", corte=CORTE)
+    out.append((not sem_guia, "3 · obrigação vencida há >5 dias tem guia",
+                f"{len(sem_guia)} sem guia"
+                + ("\n       " + "\n       ".join(
+                    f"{s}/{t} venceu {v}" for s, t, v in sem_guia) if sem_guia else "")))
 
         # 4 · NFS-e — contrato ativo fatura no mês, pelo CNPJ dele.
         # Vale só depois que o mês roda: dia 14 quase ninguém emitiu ainda, e isso é normal,
         # não defeito. O gate mede e mostra; fecha sozinho no fim do mês.
-        hoje = date.today()
-        sem_nota = (await db.execute(text(
-            "SELECT e.slug, count(*) FROM contracts c JOIN empresas e ON e.id = c.empresa_id "
-            " WHERE c.status::text = 'active' "
-            "   AND NOT EXISTS (SELECT 1 FROM nfse_emitidas_nacional n "
-            "                    WHERE n.empresa_id = c.empresa_id "
-            "                      AND n.data_emissao >= :ini) "
-            " GROUP BY e.slug ORDER BY e.slug"), {"ini": hoje.replace(day=1)})).fetchall()
-        det4 = " · ".join(f"{s}: {n} contrato(s) sem nota no mês" for s, n in sem_nota) or "todos faturaram"
-        out.append((not sem_nota, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo", det4))
+    sem_nota = _q("SELECT e.slug, count(*)::text "
+                  "  FROM contracts c JOIN empresas e ON e.id = c.empresa_id "
+                  " WHERE c.status::text = 'active' "
+                  "   AND NOT EXISTS (SELECT 1 FROM nfse_emitidas_nacional n "
+                  "                    WHERE n.empresa_id = c.empresa_id "
+                  "                      AND n.data_emissao >= @ini) "
+                  " GROUP BY e.slug ORDER BY e.slug", ini=hoje.replace(day=1))
+    det4 = " · ".join(f"{s}: {n} contrato(s) sem nota no mês"
+                      for s, n in sem_nota) or "todos faturaram"
+    out.append((not sem_nota, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo", det4))
 
-        # 6 · ROTINAS — o sino sem falha recorrente, e o espelho do eSocial gravando.
-        falhas = (await db.execute(text(
-            "SELECT title, count(*) FROM communication_notifications "
-            " WHERE created_at > now() - interval '48 hours' AND title ILIKE '%Tarefa agendada falhou%' "
-            " GROUP BY title ORDER BY 2 DESC"))).fetchall()
-        ultima = (await db.execute(text(
-            "SELECT max(consultada_em) FROM esocial_espelho_janelas"))).scalar()
-        espelho_ok = ultima is not None and (
-            hoje - (ultima.date() if hasattr(ultima, "date") else ultima)).days <= 2
-        det6 = f"{len(falhas)} tarefa(s) falhando em 48h · espelho consultado {ultima or 'NUNCA'}"
-        if falhas:
-            det6 += "\n       " + "\n       ".join(f"{t.replace('Tarefa agendada falhou: ','')} ({n}×)"
-                                                   for t, n in falhas)
-        out.append((not falhas and espelho_ok, "6 · rotinas: sino limpo e espelho gravando", det6))
+    # 6 · ROTINAS — o sino sem falha recorrente, e o espelho do eSocial produzindo.
+    falhas = _q("SELECT title, count(*)::text FROM communication_notifications "
+                " WHERE created_at > now() - interval '48 hours' "
+                "   AND title ILIKE '%Tarefa agendada falhou%' "
+                " GROUP BY title ORDER BY 2 DESC")
+    # O espelho não é medido pela janela (ela pode existir sem nunca ter sido consultada) e
+    # sim pelo ACESSO ao governo, que é o que prova que a rotina produziu alguma coisa.
+    ultimo_acesso = _q("SELECT coalesce(max(criado_em)::date::text, '') "
+                       "  FROM esocial_espelho_acessos")
+    ultimo = ultimo_acesso[0][0] if ultimo_acesso else ""
+    espelho_ok = bool(ultimo) and (hoje - date.fromisoformat(ultimo)).days <= 2
+    det6 = (f"{len(falhas)} tarefa(s) falhando em 48h · "
+            f"último acesso do espelho ao governo: {ultimo or 'NUNCA'}")
+    if falhas:
+        det6 += "\n       " + "\n       ".join(
+            f"{t.replace('Tarefa agendada falhou: ', '')} ({n}×)" for t, n in falhas)
+    out.append((not falhas and espelho_ok, "6 · rotinas: sino limpo e espelho produzindo", det6))
 
     return out
 
@@ -351,15 +373,22 @@ def _c9_travas() -> tuple[bool, str]:
 
 
 def _c10_oraculos() -> tuple[bool, str]:
-    """10 · os 6 oráculos do fiscal verdes."""
+    """10 · os oráculos do fiscal verdes.
+
+    Rodam no CONTAINER: oráculo confronta tela com banco, e o banco não responde ao host.
+    ⚠️ O container serve a imagem BAKED — enquanto o deploy não roda, ele mede a versão
+    anterior do código. Divergência entre este número e o resto do gate é sinal de bake
+    pendente, não de defeito novo.
+    """
     orq = os.path.join(BASE, "scripts/orq")
     testes = sorted(a for a in os.listdir(orq)
                     if re.search(r"(fiscal|contabil|esocial)", a) and a.endswith(".py"))
     vermelhos = []
     for t in testes:
-        r = subprocess.run([sys.executable, os.path.join(orq, t)],
-                           capture_output=True, text=True, timeout=600,
-                           cwd=BASE, env={**os.environ, "PYTHONPATH": BASE})
+        r = subprocess.run(
+            ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+             "python3", f"/app/scripts/orq/{t}"],
+            capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             vermelhos.append(t.replace("test_oraculo_", "").replace("test_", "").replace(".py", ""))
     return not vermelhos, f"{len(testes) - len(vermelhos)}/{len(testes)} verdes" + (
@@ -367,6 +396,11 @@ def _c10_oraculos() -> tuple[bool, str]:
 
 
 def main() -> int:
+    if not os.path.isdir(BASE):
+        print(f"❌ Rode do HOST, em {RAIZ}. Dentro do container não há `docker` para alcançar "
+              "as travas nem o código do front para medir a condição 5.")
+        return 2
+
     print("\n╔══ FECHADO? · Fiscal / Contabilidade ═══════════════════════════════════")
     print(f"║  corte: vencimento >= {CORTE.isoformat()} · nada anterior é medido")
     print("╚════════════════════════════════════════════════════════════════════════\n")
@@ -374,7 +408,7 @@ def main() -> int:
     resultados: list[bool] = []
 
     print("AGOSTO EM DIANTE — o que fecha")
-    de_banco = asyncio.run(_condicoes_de_banco())
+    de_banco = _condicoes_de_banco()
     for ok, titulo, det in de_banco[:4]:
         resultados.append(_ok(ok, titulo, det))
 

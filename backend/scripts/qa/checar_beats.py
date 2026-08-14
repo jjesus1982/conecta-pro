@@ -169,6 +169,91 @@ def _analisar(tree) -> list[tuple[str, str]]:
     return achados
 
 
+#: Camada 4 — a task ENGOLE a própria falha?
+#:
+#: Descoberto em 14/08/2026 no espelho do eSocial. A task terminava assim:
+#:
+#:     except Exception as exc:
+#:         logger.error(...)
+#:         return {"status": "erro", "erro": str(exc)}
+#:
+#: e para o Celery isso é uma execução BEM-SUCEDIDA. O sinal `task_failure` nunca dispara,
+#: `task_falha` nunca publica no sino, e a rotina pode estar quebrada por semanas parecendo
+#: saudável. Foram 37 dias sem um único acesso registrado, com o beat diário e a fila
+#: consumida, e ninguém soube.
+#:
+#: Isto é ESTÁTICO e mecânico: procura, no corpo da task, um `except` largo cujo corpo
+#: termina em `return` e não contém `raise`. Não julga o mérito — um `except` que devolve
+#: valor de fallback pode ser correto. Achado é PISTA: leia a linha.
+def _engole_falha(tree) -> list[tuple[str, str]]:
+    achados: list[tuple[str, str]] = []
+    for no in ast.walk(tree):
+        if not isinstance(no, ast.ExceptHandler):
+            continue
+        # só o `except` LARGO interessa: `except Exception` / `except BaseException` / `except:`
+        tipo = no.type
+        largo = tipo is None or (isinstance(tipo, ast.Name)
+                                 and tipo.id in ("Exception", "BaseException"))
+        if not largo:
+            continue
+        corpo = list(ast.walk(ast.Module(body=no.body, type_ignores=[])))
+        if any(isinstance(x, ast.Raise) for x in corpo):
+            continue  # relança: a falha tem voz
+        if any(isinstance(x, ast.Return) and x.value is not None for x in corpo):
+            achados.append(("🟠", f"linha {no.lineno}: `except Exception` devolve valor e não "
+                                 f"relança — para o Celery isto é SUCESSO, e o sino fica mudo"))
+    return achados
+
+
+#: Camada 5 — a rotina PRODUZIU alguma coisa?
+#:
+#: A pergunta que não existia em lugar nenhum do Arsenal. Temos trava para código morto
+#: (`checar_repositorio`) e para número mentiroso (`cacar_fabricacao`); nenhuma para rotina
+#: que roda, não falha, e não produz.
+#:
+#: Não dá para responder isso genericamente: só quem conhece a rotina sabe onde ela deixa
+#: marca. Então é um mapa CURADO — beat → onde a produção dele aparece, e em quantos dias
+#: no máximo. Curto de propósito: cada linha aqui é uma afirmação que alguém verificou.
+#: Beat fora do mapa não é acusado, é apenas não coberto.
+_PRODUCAO = {
+    "esocial-espelho-sync": (
+        "SELECT max(criado_em)::date FROM esocial_espelho_acessos", 2,
+        "acesso ao governo registrado"),
+    "fiscal.certidoes.sync_diario": (
+        "SELECT max(updated_at)::date FROM ged_certidoes", 2,
+        "certidão consultada/renovada"),
+    "fiscal.calendario_obrigacoes": (
+        "SELECT max(created_at)::date FROM fiscal_obligations", 40,
+        "obrigação criada (mensal — a folga cobre o mês)"),
+}
+
+
+def _producao(agenda) -> list[str]:
+    """Consulta o banco e devolve uma linha por rotina estéril."""
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+
+    from datetime import date  # noqa: PLC0415
+
+    hoje, mudas = date.today(), []
+    with SyncSessionLocal() as db:
+        for apelido, (sql, limite, oque) in _PRODUCAO.items():
+            if apelido not in agenda:
+                continue
+            try:
+                ultima = db.execute(text(sql)).scalar()
+            except Exception as e:  # noqa: BLE001
+                mudas.append(f"{apelido}: não consegui medir — {type(e).__name__}: {e}")
+                continue
+            if ultima is None:
+                mudas.append(f"{apelido}: NUNCA produziu ({oque})")
+            elif (hoje - ultima).days > limite:
+                mudas.append(f"{apelido}: última produção em {ultima} "
+                             f"({(hoje - ultima).days} dias) — esperado no máximo {limite}. {oque}")
+    return mudas
+
+
 def main() -> int:
     app = _celery()
     agenda = app.conf.beat_schedule or {}
@@ -176,6 +261,7 @@ def main() -> int:
 
     print(f"\n══ beats agendados: {len(agenda)} ══\n")
     problemas: dict[str, list[tuple[str, str]]] = {}
+    engolem: dict[str, list[tuple[str, str]]] = {}
     sem_registro: list[tuple[str, str]] = []
 
     for apelido, cfg in sorted(agenda.items()):
@@ -191,6 +277,11 @@ def main() -> int:
         achados = _analisar(tree)
         if achados:
             problemas[nome] = achados
+        engolidos = _engole_falha(tree)
+        if engolidos:
+            engolem[nome] = engolidos
+
+    mudas = _producao(agenda)
 
     if sem_registro:
         print(f"🔴 BEAT SEM TASK REGISTRADA ({len(sem_registro)}) — agendado e nunca executa\n")
@@ -206,13 +297,30 @@ def main() -> int:
                 print(f"      {grav} {msg}")
             print()
 
-    total = len(sem_registro) + sum(len(v) for v in problemas.values())
-    if not total:
-        print("✅ nenhum beat chama coisa que não existe.\n")
+    if engolem:
+        print(f"🟠 ENGOLE A PRÓPRIA FALHA ({len(engolem)}) — quebra em silêncio, o sino não sabe\n")
+        for nome, achados in sorted(engolem.items()):
+            print(f"   {nome}")
+            for grav, msg in achados:
+                print(f"      {grav} {msg}")
+        print("\n   Foi assim que o espelho do eSocial passou 37 dias sem consultar o governo,")
+        print("   com o beat diário e a fila consumida. PISTA, não veredito: um `except` que")
+        print("   devolve fallback pode ser correto — leia a linha antes de mexer.\n")
+
+    if mudas:
+        print(f"🔴 RODA E NÃO PRODUZ ({len(mudas)}) — verde no beat, nada no banco\n")
+        for m in mudas:
+            print(f"   {m}")
+        print()
+
+    total = len(sem_registro) + sum(len(v) for v in problemas.values()) + len(mudas)
+    if not total and not engolem:
+        print(f"✅ nenhum beat chama coisa que não existe, engole a própria falha "
+              f"ou está estéril ({len(_PRODUCAO)} com produção vigiada).\n")
         return 0
-    print(f"TOTAL: {total} achado(s) em {len(problemas) + len(sem_registro)} beat(s)")
+    print(f"TOTAL: {total} achado(s) que quebram + {len(engolem)} que quebram CALADO")
     print("Cada um destes falha na hora agendada, todo dia, e só aparece no sino.\n")
-    return 1
+    return 1 if total else 0
 
 
 if __name__ == "__main__":
