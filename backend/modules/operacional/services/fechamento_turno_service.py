@@ -6,6 +6,20 @@ o status era só `scheduled` (2015) ou `cancelled` (1652) — nenhum `completed`
 nasce de falta, TRÊS funções do módulo ficavam em zero (faltas, substituições, banco de
 horas) por mais tela que se ligasse. Este serviço fecha o elo.
 
+NÃO MEXE EM `status`. ESSA FOI A LIÇÃO CARA DE 14/08/2026.
+    A primeira versão marcava scheduled → completed/partial. Parecia certo e quebrou
+    dinheiro: `calculo_service.plantoes_noturnos` conta plantão com `s.status =
+    'scheduled'` LITERAL, e as 321 mudanças de agosto tiraram 68 plantões noturnos de
+    12 colaboradores da folha — ~476h de adicional noturno que sumiriam. O literal
+    'scheduled' aparece em 12+ pontos (folha, grade, KPIs, triagem, cobertura), todos
+    escritos quando shifts só tinha scheduled/cancelled. Introduzir um valor novo numa
+    coluna compartilhada mudou o significado de todos eles em silêncio.
+    A convenção certa já existia no próprio repo (grade_controller.py:442):
+    turno que ACONTECEU é `scheduled` com `actual_start_time` preenchido.
+    Então é isso que este serviço faz: preenche actual_start_time/actual_end_time/
+    actual_hours e NÃO toca no status. Quem quiser saber se fechou, pergunta ao
+    actual_start_time — que é o que `ausentes-hoje` e o grade já perguntavam.
+
 O QUE ELE NÃO FAZ, DE PROPÓSITO — não marca falta.
     Falta marcada por máquina vira desconto indevido quando o relógio falhou e a pessoa
     trabalhou. Medido antes de escrever: a regra ingênua produzia 547 faltas em 1488
@@ -62,6 +76,7 @@ WITH s AS (
       AND employee_id IS NOT NULL
       AND shift_date <= :ate
       AND shift_date >= :piso
+      AND actual_start_time IS NULL          -- idempotência: já fechado não volta
 ),
 b AS (
     -- punch_timestamp JÁ está em hora de Manaus (ver docstring). Nada de converter.
@@ -117,7 +132,8 @@ async def fechar_turnos_por_ponto(
 
     Nunca toca em turno que não esteja `scheduled`: status posto por humano
     (cancelled, substituted, missed) é decisão que a máquina não desfaz. E é
-    idempotente — rodar de novo não muda nada, porque o que fechou saiu de `scheduled`.
+    idempotente — só olha turno com `actual_start_time` NULL, então o que já fechou
+    não é revisitado.
     """
     ate = ate or (date.today() - timedelta(days=1))
     linhas = (await db.execute(text(_SQL_CANDIDATOS),
@@ -125,12 +141,11 @@ async def fechar_turnos_por_ponto(
                                 "piso": PISO_BATIDA})).fetchall()
 
     res = Resultado(aplicado=aplicar)
-    fechar: list[tuple[str, str, object, object, float | None]] = []
+    fechar: list[tuple[str, object, object, float | None]] = []
 
     for sid, _emp, sdata, off_day, plan_h, entrada, saida, n, desconto in linhas:
         if off_day:
             res.off_day += 1
-            fechar.append((str(sid), "off_day", None, None, 0.0))
             continue
         if entrada and saida and saida > entrada:
             # LÍQUIDO, não o vão bruto: actual_hours tem que ser comparável a
@@ -145,13 +160,13 @@ async def fechar_turnos_por_ponto(
                 # de turno concluído é mentira; `partial` é o que o enum já diz:
                 # "saiu antes/chegou depois". Sem régua inventada: o corte é zero.
                 res.partial += 1
-                fechar.append((str(sid), "partial", entrada, saida, 0.0))
+                fechar.append((str(sid), entrada, saida, 0.0))
             else:
                 res.completed += 1
-                fechar.append((str(sid), "completed", entrada, saida, round(horas, 2)))
+                fechar.append((str(sid), entrada, saida, round(horas, 2)))
         elif n:
             res.partial += 1
-            fechar.append((str(sid), "partial", entrada, saida, None))
+            fechar.append((str(sid), entrada, saida, None))
         else:
             # NÃO vira missed aqui. Vira lista para humano.
             res.candidatas_falta += 1
@@ -162,16 +177,16 @@ async def fechar_turnos_por_ponto(
     if not aplicar:
         return res
 
-    for sid, novo, entrada, saida, horas in fechar:
+    for sid, entrada, saida, horas in fechar:
+        # status FICA como está — ver o aviso no topo do módulo.
         await db.execute(text("""
             UPDATE shifts
-               SET status = :st,
-                   actual_start_time = coalesce(:ini, actual_start_time),
+               SET actual_start_time = coalesce(:ini, actual_start_time),
                    actual_end_time   = coalesce(:fim, actual_end_time),
                    actual_hours      = coalesce(:h, actual_hours),
                    updated_at        = now()
              WHERE id::text = :sid AND status::text = 'scheduled'
-        """), {"st": novo, "ini": entrada, "fim": saida, "h": horas, "sid": sid})
+        """), {"ini": entrada, "fim": saida, "h": horas, "sid": sid})
     await db.commit()
     logger.info("fechamento de turno: %s", res.resumo())
     return res
