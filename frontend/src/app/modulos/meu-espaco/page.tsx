@@ -959,6 +959,9 @@ function PontoTab() {
   // Fluxo de bater: idle → gps → facial → sending → done/error. 'enroll' = cadastro do rosto.
   const [fase, setFase] = useState<'idle' | 'gps' | 'facial' | 'enroll' | 'sending'>('idle');
   const [baterErro, setBaterErro] = useState('');
+  // Vira true quando o rosto falha: só aí a contingência ganha destaque de botão. Fora
+  // disso ela continua discreta, para não virar o caminho fácil de todo dia.
+  const [rostoFalhou, setRostoFalhou] = useState(false);
   const [resultado, setResultado] = useState<BaterResultado | null>(null);
   const [geo, setGeo] = useState<{ latitude: number; longitude: number } | null>(null);
 
@@ -1003,7 +1006,12 @@ function PontoTab() {
   // Batida com match facial: só envia se o rosto bateu com a referência.
   const onFacialCapture = async (r: FacialCaptureResult) => {
     if (!r.matched) {
-      setBaterErro('Rosto não reconhecido. A batida só é confirmada com reconhecimento facial. Tente novamente.');
+      // Antes dizia só "Tente novamente" — e mandava a pessoa repetir exatamente o que
+      // acabou de falhar. A LIVIA tentou às 06:08 do dia 13/08, leu isso, desistiu e bateu
+      // no Sólides. A saída estava na tela, em cinza, embaixo do botão laranja.
+      setRostoFalhou(true);
+      setBaterErro('Não reconheci seu rosto. Pode ser a luz — tente de frente, num lugar claro. '
+        + 'Se não der, use o botão abaixo: sua batida fica registrada e o DP valida.');
       setFase('idle');
       setGeo(null);
       return;
@@ -1031,6 +1039,7 @@ function PontoTab() {
           throw e;
         }
       }
+      setRostoFalhou(false);
       setResultado({ ok: true, ...(res?.data || {}) });
       await carregarHoje();
       if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
@@ -1049,6 +1058,7 @@ function PontoTab() {
     setFase('sending'); setBaterErro('');
     try {
       const res = await api.post(`${PONTO_BASE}/batida-contingencia`, {});
+      setRostoFalhou(false);
       setResultado({ ok: true, contingencia: true, ...(res.data || {}) });
       await carregarHoje();
     } catch (e: unknown) {
@@ -1239,10 +1249,17 @@ function PontoTab() {
               Ao bater, pediremos sua localização e o reconhecimento facial (anti-fraude).
             </p>
             {faceEnrolled && fase !== 'sending' && (
-              <button onClick={baterContingencia}
-                className="w-full text-center text-[12px] text-[hsl(var(--muted-foreground))] underline mt-2 hover:text-[hsl(var(--foreground))]">
-                Não consegui bater pelo rosto — registrar para o DP validar
-              </button>
+              rostoFalhou ? (
+                <button onClick={baterContingencia}
+                  className="w-full mt-3 rounded-xl border-2 border-[#16277D] bg-white px-4 py-3 text-[15px] font-semibold text-[#16277D] hover:bg-[#16277D]/5">
+                  Registrar batida para o DP validar
+                </button>
+              ) : (
+                <button onClick={baterContingencia}
+                  className="w-full text-center text-[12px] text-[hsl(var(--muted-foreground))] underline mt-2 hover:text-[hsl(var(--foreground))]">
+                  Não consegui bater pelo rosto — registrar para o DP validar
+                </button>
+              )
             )}
           </>
         )}
