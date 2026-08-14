@@ -1209,7 +1209,8 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
                 "SELECT coalesce(e.recebe_intrajornada, false) AS recebe, "
                 "       upper(coalesce(e.cargo,'')) AS cargo, "
                 # o dia da semana vem do banco em hora de Manaus — 6 = sábado
-                "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int AS dow "
+                "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int AS dow, "
+                "       coalesce(e.nome,'') AS nome "
                 "FROM employees e WHERE e.id::text = :e"
             ),
             {"e": emp},
@@ -1217,12 +1218,24 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
     ).first()
     recebe = bool(row[0]) if row else False
     cargo = (row[1] if row else "") or ""
-    sabado = (int(row[2]) == 6) if row else False
-    meio_periodo_sabado = sabado and any(
-        c in cargo for c in ("SERVIÇOS GERAIS", "SERVICOS GERAIS", "ARTÍFICE", "ARTIFICE", "JARDINEIRO")
+    dow = int(row[2]) if row else 1
+    nome = (row[3] if row else "") or ""
+
+    # Meio período: 44h (ASG, artífice, jardineiro) trabalha 08:00–12:00 e bate 2 vezes,
+    # sem pausa. A regra vale em TODOS os condomínios (Jordan, 14/08).
+    #
+    # O dia do meio período é o SÁBADO — exceto para quem tem escala própria. PAULO DA
+    # SILVA LAMEGO é adventista: folga no sábado e cumpre o meio período no DOMINGO. A
+    # primeira versão desta regra olhava só `dow == 6`, então no domingo ele cairia em 4
+    # batidas e o app cobraria duas que não existem. Quem decide o dia é `coorte_ponto`,
+    # que é onde a jornada individual mora — não uma condição solta aqui.
+    from modules.people_management.ponto.coorte_ponto import (  # noqa: PLC0415
+        dia_de_meio_periodo,
     )
-    # recebe o adicional (não pausa) OU sábado de meio período → 2 batidas
-    seq = _PUNCH_SEQ_2 if (recebe or meio_periodo_sabado) else _PUNCH_SEQ
+
+    meio_periodo = dia_de_meio_periodo(nome, cargo, dow)
+    # recebe o adicional (não faz pausa) OU é dia de meio período → 2 batidas
+    seq = _PUNCH_SEQ_2 if (recebe or meio_periodo) else _PUNCH_SEQ
 
     feitas = (
         await db.execute(

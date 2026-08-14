@@ -160,3 +160,165 @@ def montar_aprendizado(linhas) -> dict:
         "pessoas": pessoas,
         "alertas": alertas,
     }
+
+
+# ─────────────────────── jornada por posto (horário de entrada) ───────────────────────
+#
+# ATÉ 14/08/2026 O HORÁRIO DE ENTRADA NÃO EXISTIA NO SISTEMA. Vivia numa planilha e na
+# cabeça de quem opera. Por isso o painel só sabia dizer "bateu / não bateu", nunca "está
+# atrasado" — e quando 42 pessoas apareceram sem bater às 07:24 eu não tinha como separar
+# quem estava atrasado de quem ainda nem tinha hora de entrar. Chutei "diurno = 06:00" e
+# errei em quatro dos sete que apontei.
+#
+# POR QUE AQUI E NÃO EM TABELA. `work_schedules` existe e tem os campos certos, mas exige
+# **30 colunas NOT NULL sem default** (banco de horas, multiplicadores de HE, geolocalização,
+# biometria) — preencher tudo isso com valor que ninguém me deu seria fabricar. Horário de
+# posto muda raramente e é decisão de operação, não de runtime: mora no código, revisado por
+# quem lê o diff. Se um dia virar cadastro editável, `work_schedules` é o destino natural.
+#
+# FONTE: Jordan, posto a posto, em 14/08 — e confere com o histórico do SÓLIDES
+# (01–10/08, 962 batidas, antes da virada para o Conecta PRO).
+
+#: Minutos de atraso tolerados antes de o painel cobrar. Decisão do Jordan: "ninguém vai
+#: bater o ponto às 06:00, vai bater sempre atrasado". Cobrar o minuto exato faria o alerta
+#: tocar todo dia para todo mundo. 15 cobre o atraso pequeno e o adiantamento de Villa dos
+#: Pássaros, que chega ~10 min ANTES.
+TOLERANCIA_ENTRADA_MIN = 15
+
+#: ⚠️ A tolerância vale para OS DOIS LADOS, e o lado de cá tem consequência em dinheiro:
+#: "se bater antes, não pode contar como extra" (Jordan, 14/08). Villa dos Pássaros chega
+#: ~10 min antes por hábito; contar isso como hora extra criaria adicional que ninguém
+#: trabalhou. Quem calcula HE deve descartar o antecipado dentro da tolerância.
+
+_PADRAO_06 = {"diurno": "06:00", "noturno": "18:00", "asg": "08:00"}
+_PADRAO_07 = {"diurno": "07:00", "noturno": "19:00", "asg": None}
+
+#: posto → turno → horário de entrada. `asg` vale para serviços gerais, artífice e
+#: jardineiro (44h); `diurno`/`noturno` para agente e líder de portaria (12x36).
+JORNADA_POR_POSTO = {
+    "Condomínio Ideal Flores da Cidade": _PADRAO_06,
+    "Condomínio Villa dos Pássaros": _PADRAO_06,
+    "Condomínio Prime Arena": _PADRAO_06,
+    "Condomínio Villa Dei Fiori": _PADRAO_06,
+    "Residencial Laranjeiras Village": _PADRAO_07,
+    "Condomínio Mirante das Flores": {**_PADRAO_07, "asg": "07:00"},
+    "Condomínio Michelangelo": {"diurno": None, "noturno": None, "asg": "08:00"},
+}
+
+#: Jornada INDIVIDUAL, quando a pessoa não segue o padrão do posto. Ditada pelo Jordan,
+#: posto a posto, em 14/08 — e conferida contra o que o Sólides mediu (01–10/08).
+#:
+#: Formato: nome → {"ent", "sai", "sabado", "domingo"}. `sabado`/`domingo` em `None`
+#: significam "não trabalha nesse dia"; ausentes significam "segue a regra do cargo".
+#:
+#: MIRANTE DAS FLORES é o posto com mais variação, e não é bagunça — é revezamento:
+#:   CHAGAS e ALEXANDRE   07:00–19:00   (medido 06:46 e 07:00)
+#:   EDIWILSON e GAMA     10:00–22:00   (medido 09:55 e 10:00)
+#:   AILTON e EDUARDO     19:00–07:00   (medido 18:59 e 19:00)  — noturno
+#:   VANDERLICE e TELMA   07:00–16:00   (medido 07:01 e 07:02)  — ASG
+#:   PAULO                09:00–18:00   (medido 09:00)          — ASG
+#:
+#: ⚠️ PAULO DA SILVA LAMEGO é ADVENTISTA: não trabalha sábado e cumpre o meio período no
+#: DOMINGO, 08:00–12:00. Sem isto o painel o cobraria todo sábado e o daria como ausente
+#: todo domingo — duas vezes errado, e sobre religião.
+JORNADA_INDIVIDUAL = {
+    "MAURICIO ALVES CHAGAS": {"ent": "07:00", "sai": "19:00"},
+    "ALEXANDRE SOUZA DA SILVA": {"ent": "07:00", "sai": "19:00"},
+    "EDIWILSON CORREA MARQUES": {"ent": "10:00", "sai": "22:00"},
+    "ANTONIO CARLOS CASTRO GAMA": {"ent": "10:00", "sai": "22:00"},
+    "AILTON CÉSAR VASCONCELOS": {"ent": "19:00", "sai": "07:00"},
+    "EDUARDO OLIVEIRA DE SOUZA": {"ent": "19:00", "sai": "07:00"},
+    "VANDERLICE SANTOS DA SILVA": {"ent": "07:00", "sai": "16:00"},
+    "TELMA MARIA LAGES MEIRA": {"ent": "07:00", "sai": "16:00"},
+    "PAULO DA SILVA LAMEGO": {"ent": "09:00", "sai": "18:00",
+                              "sabado": None, "domingo": ("08:00", "12:00")},
+}
+
+#: Sábado do 44h: 08:00–12:00, meio período, 2 batidas.
+SABADO_44H_ENTRADA = "08:00"
+
+_CARGOS_44H = ("SERVIÇOS GERAIS", "SERVICOS GERAIS", "ARTÍFICE", "ARTIFICE", "JARDINEIRO")
+
+#: ⚠️ O MESMO POSTO TEM DOIS NOMES no banco, e isto custou uma rodada: `posts.name` diz
+#: "Condomínio Ideal Flores da Cidade" e `employees.posto_atual_nome` diz "IDEAL FLORES".
+#: O painel passa o segundo, o dicionário acima usa o primeiro, e 29 pessoas saíram como
+#: "sem horário". A busca casa por PALAVRA-CHAVE, sem acento e sem caixa, para aceitar as
+#: duas grafias — e qualquer terceira que apareça.
+_APELIDOS = {
+    "IDEAL": "Condomínio Ideal Flores da Cidade",
+    "PASSARO": "Condomínio Villa dos Pássaros",
+    "PRIME": "Condomínio Prime Arena",
+    "DEI FIOR": "Condomínio Villa Dei Fiori",
+    "LARANJEIRA": "Residencial Laranjeiras Village",
+    "MIRANTE": "Condomínio Mirante das Flores",
+    "MICHEL": "Condomínio Michelangelo",
+}
+
+
+def _posto_canonico(posto: str) -> str | None:
+    """Nome do posto como o dicionário de jornadas conhece, aceitando apelidos."""
+    import unicodedata
+
+    if not posto:
+        return None
+    chave = unicodedata.normalize("NFKD", posto).encode("ascii", "ignore").decode().upper()
+    for pedaco, oficial in _APELIDOS.items():
+        if pedaco in chave:
+            return oficial
+    return None
+
+
+def horario_entrada(
+    nome: str, posto: str, cargo: str, turno: str, dow: int = 1
+) -> str | None:
+    """Hora de entrada da pessoa NAQUELE dia da semana, ou None quando ela não trabalha.
+
+    `dow` segue o Postgres: 0 = domingo … 6 = sábado.
+
+    None é resposta legítima e é a mais importante: significa "não trabalha hoje" ou "não
+    sei", e quem chama NÃO PODE concluir atraso a partir disso. Foi assumir horário onde eu
+    não tinha um que me fez apontar quatro pessoas erradas em 14/08.
+    """
+    chave = (nome or "").upper().strip()
+    ind = JORNADA_INDIVIDUAL.get(chave)
+    é_44h = any(k in (cargo or "").upper() for k in _CARGOS_44H)
+
+    if ind is not None:
+        if dow == 6:                       # sábado
+            if "sabado" in ind:
+                sab = ind["sabado"]
+                return sab[0] if sab else None
+            return SABADO_44H_ENTRADA if é_44h else ind["ent"]
+        if dow == 0:                       # domingo
+            dom = ind.get("domingo")
+            return dom[0] if dom else None
+        return ind["ent"]
+
+    if dow == 0:                           # domingo: só quem tem escala própria trabalha
+        return None
+    if é_44h and dow == 6:
+        return SABADO_44H_ENTRADA
+    grupo = "asg" if é_44h else ("noturno" if (turno or "").lower().startswith("n") else "diurno")
+    return (JORNADA_POR_POSTO.get(_posto_canonico(posto)) or {}).get(grupo)
+
+
+def dia_de_meio_periodo(nome: str, cargo: str, dow: int) -> bool:
+    """Hoje é o meio período dessa pessoa? (2 batidas, sem pausa)
+
+    Quem é 44h — ASG, artífice, jardineiro — trabalha meio período um dia por semana:
+    08:00–12:00, duas batidas. A regra vale em TODOS os condomínios.
+
+    O dia é o SÁBADO, exceto para quem tem escala própria em `JORNADA_INDIVIDUAL`. PAULO DA
+    SILVA LAMEGO é adventista: folga sábado e cumpre o meio período no DOMINGO. Uma condição
+    `dow == 6` solta no controller o deixaria com 4 batidas no domingo e o app cobraria duas
+    que não existem.
+    """
+    if not any(k in (cargo or "").upper() for k in _CARGOS_44H):
+        return False
+    ind = JORNADA_INDIVIDUAL.get((nome or "").upper().strip())
+    if ind:
+        if ind.get("domingo") and dow == 0:
+            return True
+        if "sabado" in ind:                    # sábado declarado (ou None = não trabalha)
+            return dow == 6 and ind["sabado"] is not None
+    return dow == 6

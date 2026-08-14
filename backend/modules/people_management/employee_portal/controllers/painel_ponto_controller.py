@@ -20,6 +20,8 @@ from modules.people_management.ponto.coorte_ponto import (
     HORAS_ENTRE_TURNOS,
     SQL_NAO_AUSENTE_HOJE,
     SQL_PADRAO_BATIDAS,
+    TOLERANCIA_ENTRADA_MIN,
+    horario_entrada,
     montar_aprendizado,
 )
 
@@ -59,7 +61,8 @@ def painel(
                 # já tinha batido ponto pelo Conecta PRO.
                 f"  (e.primeiro_acesso_em IS NOT NULL OR e.face_descriptor IS NOT NULL) AS ativado, "
                 f"  to_char(e.primeiro_acesso_em, 'DD/MM HH24:MI') AS ativado_em, "
-                f"  coalesce(b.n, 0) AS num_batidas, b.ultima AS ultima_batida "
+                f"  coalesce(b.n, 0) AS num_batidas, b.ultima AS ultima_batida, "
+                f"  coalesce(e.cargo,'') AS cargo, coalesce(e.turno_padrao,'') AS turno "
                 f"FROM employees e "
                 f"LEFT JOIN ( "
                 f"  SELECT employee_id, count(*) AS n, to_char(max(punch_timestamp), 'HH24:MI') AS ultima "
@@ -73,6 +76,11 @@ def painel(
     )
 
     funcionarios = []
+    agora_hhmm, dia_semana = db.execute(text(
+        "SELECT to_char(now() AT TIME ZONE 'America/Manaus','HH24:MI'), "
+        "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int"
+    )).first()
+
     n_ativados = n_rosto = n_bateu = 0
     for r in rows:
         bateu = int(r["num_batidas"]) > 0
@@ -89,8 +97,33 @@ def painel(
                 "bateu_hoje": bateu,
                 "num_batidas": int(r["num_batidas"]),
                 "ultima_batida": r["ultima_batida"],
+                "cargo": r["cargo"],
+                "turno": r["turno"],
             }
         )
+
+    # ── ATRASO — só afirmável para quem tem horário conhecido ────────────────
+    # `horario_entrada` devolve None quando o posto não tem aquele turno parametrizado, e
+    # None NÃO vira atraso: a pessoa entra em `sem_horario`. Concluir atraso sem saber a
+    # hora foi o que me fez apontar quatro pessoas erradas em 14/08.
+    hh, mm = [int(x) for x in (agora_hhmm or "00:00").split(":")[:2]]
+    agora_min = hh * 60 + mm
+    atrasados, sem_horario = [], []
+    for f in funcionarios:
+        if f["bateu_hoje"]:
+            continue
+        ent = horario_entrada(f["nome"], f.get("posto") or "", f.get("cargo") or "",
+                              f.get("turno") or "", dia_semana)
+        f["entrada_prevista"] = ent
+        if not ent:
+            sem_horario.append(f["nome"])
+            continue
+        eh, em_ = [int(x) for x in ent.split(":")]
+        limite = eh * 60 + em_ + TOLERANCIA_ENTRADA_MIN
+        # turno noturno cruza a meia-noite: às 07:00 ninguém está atrasado para as 18:00
+        if agora_min > limite and (eh <= 13 or agora_min >= eh * 60):
+            f["atraso_min"] = agora_min - (eh * 60 + em_)
+            atrasados.append(f)
 
     b = (
         db.execute(
@@ -138,11 +171,19 @@ def painel(
             "com_rosto": n_rosto,
             "pendentes": total - n_ativados,
             "bateram_hoje": n_bateu,
+            "atrasados": len(atrasados),
+            "sem_horario_parametrizado": len(sem_horario),
             "batidas_hoje": int(b["total"]),
             "contingencias_validar": int(b["validar"]),
         },
         "funcionarios": funcionarios,
         "feed": [dict(x) for x in feed],
+        "atrasados": [
+            {"nome": a["nome"], "posto": a["posto"], "entrada_prevista": a["entrada_prevista"],
+             "atraso_min": a["atraso_min"]}
+            for a in sorted(atrasados, key=lambda x: -x["atraso_min"])
+        ],
+        "sem_horario_parametrizado": sem_horario,
         "aprendizado": aprendizado,
         "alertas": aprendizado["alertas"],
         "atualizado_em": agora,
