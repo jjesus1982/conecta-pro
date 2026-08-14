@@ -165,6 +165,12 @@ async def main() -> None:  # noqa: PLR0915
             esperado = round(abertura + nosso, 2)
 
             saldo_banco = await _saldo_do_banco(nome, conferir)
+            if saldo_banco is None and "cora" in (nome or "").lower():
+                # O Cora não tem saldo HISTÓRICO (não existe `dataSaldo`), mas tem o de
+                # AGORA — e isso confronta igual, só que ancorado em hoje. Ficava como
+                # "não coberto" por engano: o endpoint sempre existiu.
+                await _confrontar_cora_hoje(db, cid, nome, abertura, falhas, nao_coberto)
+                continue
             if saldo_banco is None:
                 # Fonte não respondeu, ou não oferece saldo histórico. Não é
                 # "passou" nem "falhou": é não medido, e tem que aparecer assim.
@@ -187,6 +193,76 @@ async def main() -> None:  # noqa: PLR0915
             print(f"FALHOU: {f}")
         raise AssertionError(f"{len(falhas)} invariante(s) do extrato quebrada(s)")
     print("TEST oraculo_extrato PASS")
+
+
+async def _confrontar_cora_hoje(db, cid: str, nome: str, abertura: float,
+                                falhas: list, nao_coberto: list) -> None:
+    """Confronta o Cora pelo saldo de AGORA, distinguindo defasagem de defeito.
+
+    Diferença aqui tem duas causas possíveis, e tratá-las igual seria mentir nas duas
+    direções: se o extrato do dia ainda não foi sincronizado (o beat roda 08:10), o
+    movimento da tarde está no banco e não está em casa — isso é funcionamento normal.
+    Se as linhas de hoje já batem e o saldo ainda diverge, aí falta linha de verdade.
+
+    Por isso, quando diverge, o teste puxa o extrato de hoje AO VIVO (só leitura) e
+    refaz a conta. Se o vivo fecha, era defasagem; se não fecha, é defeito.
+    """
+    from modules.integrations.banking.adapters.cora import CoraAdapter
+
+    try:
+        saldo_banco = float((await CoraAdapter().get_balance()).available)
+    except Exception as exc:  # noqa: BLE001 — banco fora do ar não é defeito nosso
+        nao_coberto.append(f"{nome}: saldo do Cora indisponível ({str(exc)[:60]})")
+        return
+
+    hoje = date.today()
+    nosso = float((await db.execute(text(
+        "SELECT coalesce(sum(amount), 0) FROM bank_transactions "
+        "WHERE bank_account_id::text = :c AND transaction_date >= :ini"),
+        {"c": cid, "ini": CORTE_CONTABIL})).scalar() or 0)
+    dif = round(abertura + nosso - saldo_banco, 2)
+    if abs(dif) <= TOLERANCIA:
+        print(f"OK {nome}: R$ {abertura + nosso:,.2f} = saldo do próprio banco agora")
+        return
+
+    # Diverge. Comparar SOMAS não diz de que lado está a sobra: uma entrada a mais no
+    # banco e uma saída a mais em casa mexem a soma no mesmo sentido. Então compara-se
+    # LINHA A LINHA. Foi assim que um fantasma de R$1.494,90 (ordem de pagamento
+    # gravada como se fosse saída) foi chamado de "defasagem" na primeira versão deste
+    # teste, em 14/08/2026 — a conta fechava em módulo e escondia a direção.
+    guardado = [round(float(v), 2) for (v,) in (await db.execute(text(
+        "SELECT amount FROM bank_transactions "
+        "WHERE bank_account_id::text = :c AND transaction_date = :d"),
+        {"c": cid, "d": hoje})).fetchall()]
+    try:
+        extrato = await CoraAdapter().get_statement(hoje, hoje)
+        vivo = [round(float(t.amount), 2) for t in extrato.transactions]
+    except Exception as exc:  # noqa: BLE001
+        nao_coberto.append(
+            f"{nome}: diverge R$ {dif:,.2f} e o extrato de hoje não veio ({str(exc)[:50]}) "
+            f"— não dá para separar defasagem de defeito")
+        return
+
+    from collections import Counter
+
+    so_nosso = Counter(guardado) - Counter(vivo)   # temos e o banco não → fantasma
+    so_banco = Counter(vivo) - Counter(guardado)   # banco tem e não chegou → defasagem
+    if so_nosso:
+        linhas = ", ".join(f"R$ {v:,.2f}" for v in sorted(so_nosso.elements()))
+        falhas.append(
+            f"{nome}: LINHA FANTASMA — temos hoje {linhas} que o banco não reporta. "
+            f"Ordem de pagamento iniciada não é saída: enquanto o banco não debitar, "
+            f"não pode estar no extrato nem no razão")
+        return
+    if so_banco:
+        linhas = ", ".join(f"R$ {v:,.2f}" for v in sorted(so_banco.elements()))
+        nao_coberto.append(
+            f"{nome}: {linhas} de hoje ainda não sincronizado(s) — o beat das 08:10 "
+            f"fecha isso")
+        return
+    falhas.append(
+        f"{nome}: nosso extrato diz R$ {abertura + nosso:,.2f} e o banco diz "
+        f"R$ {saldo_banco:,.2f} — diferença de R$ {dif:,.2f} que NÃO é o movimento do dia")
 
 
 async def _saldo_do_banco(nome: str, dia: date) -> float | None:

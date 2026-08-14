@@ -73,6 +73,12 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 WHERE NOT EXISTS (
                     SELECT 1 FROM accounting_entries a WHERE a.bank_transaction_id = b.id
                 )
+                  -- Ordem de pagamento INICIADA não é movimento. O serviço do Cora
+                  -- grava a ordem aqui com status='pendente' assim que o banco a
+                  -- aceita, antes de a saída existir — e em 14/08/2026 uma ordem de
+                  -- R$1.494,90 que o Jordan nem chegou a ter debitada virou despesa
+                  -- no razão. O razão só escritura o que o BANCO já reportou.
+                  AND coalesce(b.status, '') <> 'pendente'
                 ORDER BY b.transaction_date
                 LIMIT %s
                 """,
