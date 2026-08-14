@@ -98,7 +98,7 @@ export const createTicketApiV1CampoGuardianCampoCampoTicketsPost = (
       
       
       return customInstance<TicketResponse>(
-      {url: `/api/v1/campo/guardian/campo/campo/tickets`, method: 'POST',
+      {url: `/api/v1/campo/tickets`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
       data: ticketRequest, signal
     },
@@ -169,7 +169,7 @@ export const getTicketApiV1CampoGuardianCampoCampoTicketsTicketIdGet = (
       
       
       return customInstance<TicketResponse>(
-      {url: `/api/v1/campo/guardian/campo/campo/tickets/${ticketId}`, method: 'GET', signal
+      {url: `/api/v1/campo/tickets/${ticketId}`, method: 'GET', signal
     },
       );
     }
@@ -179,7 +179,7 @@ export const getTicketApiV1CampoGuardianCampoCampoTicketsTicketIdGet = (
 
 export const getGetTicketApiV1CampoGuardianCampoCampoTicketsTicketIdGetQueryKey = (ticketId?: string,) => {
     return [
-    `/api/v1/campo/guardian/campo/campo/tickets/${ticketId}`
+    `/api/v1/campo/tickets/${ticketId}`
     ] as const;
     }
 
@@ -268,7 +268,7 @@ export const updateTicketApiV1CampoGuardianCampoCampoTicketsTicketIdPut = (
       
       
       return customInstance<unknown>(
-      {url: `/api/v1/campo/guardian/campo/campo/tickets/${ticketId}`, method: 'PUT',
+      {url: `/api/v1/campo/tickets/${ticketId}`, method: 'PUT',
       headers: {'Content-Type': 'application/json', },
       data: ticketUpdate
     },
@@ -340,7 +340,7 @@ export const createTechnicianApiV1CampoGuardianCampoCampoTechniciansPost = (
       
       
       return customInstance<TechnicianInfo>(
-      {url: `/api/v1/campo/guardian/campo/campo/technicians`, method: 'POST',
+      {url: `/api/v1/campo/technicians`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
       data: technicianInfo, signal
     },
@@ -413,7 +413,7 @@ export const listTechniciansApiV1CampoGuardianCampoCampoTechniciansGet = (
       
       
       return customInstance<unknown>(
-      {url: `/api/v1/campo/guardian/campo/campo/technicians`, method: 'GET',
+      {url: `/api/v1/campo/technicians`, method: 'GET',
         params, signal
     },
       );
@@ -424,7 +424,7 @@ export const listTechniciansApiV1CampoGuardianCampoCampoTechniciansGet = (
 
 export const getListTechniciansApiV1CampoGuardianCampoCampoTechniciansGetQueryKey = (params?: ListTechniciansApiV1CampoGuardianCampoCampoTechniciansGetParams,) => {
     return [
-    `/api/v1/campo/guardian/campo/campo/technicians`, ...(params ? [params]: [])
+    `/api/v1/campo/technicians`, ...(params ? [params]: [])
     ] as const;
     }
 
@@ -514,7 +514,7 @@ export const assignTechnicianApiV1CampoGuardianCampoCampoTicketsTicketIdAssignTe
       
       
       return customInstance<unknown>(
-      {url: `/api/v1/campo/guardian/campo/campo/tickets/${ticketId}/assign/${technicianId}`, method: 'POST', signal
+      {url: `/api/v1/campo/tickets/${ticketId}/assign/${technicianId}`, method: 'POST', signal
     },
       );
     }
@@ -583,7 +583,7 @@ export const campoDashboardApiV1CampoGuardianCampoCampoDashboardGet = (
       
       
       return customInstance<unknown>(
-      {url: `/api/v1/campo/guardian/campo/campo/dashboard`, method: 'GET', signal
+      {url: `/api/v1/campo/dashboard`, method: 'GET', signal
     },
       );
     }
@@ -593,7 +593,7 @@ export const campoDashboardApiV1CampoGuardianCampoCampoDashboardGet = (
 
 export const getCampoDashboardApiV1CampoGuardianCampoCampoDashboardGetQueryKey = () => {
     return [
-    `/api/v1/campo/guardian/campo/campo/dashboard`
+    `/api/v1/campo/dashboard`
     ] as const;
     }
 

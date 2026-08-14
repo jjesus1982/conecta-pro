@@ -107,7 +107,7 @@ export function DisciplinaryDetailModal({
     setComplianceResult(null);
 
     try {
-      const result = await disciplinaryService.validateCompliance(action.id);
+      const result = await disciplinaryService.validateCompliance(action);
       setComplianceResult(result);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -122,7 +122,7 @@ export function DisciplinaryDetailModal({
     setProportionalityResult(null);
 
     try {
-      const result = await disciplinaryService.checkProportionality(action.id);
+      const result = await disciplinaryService.checkProportionality(action);
       setProportionalityResult(result);
     } catch (err) {
       setError(getErrorMessage(err));

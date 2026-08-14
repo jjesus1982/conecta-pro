@@ -46,7 +46,6 @@ export function TemplateManager() {
     updateTemplate,
     deleteTemplate,
     applyTemplate,
-    previewTemplate,
     isLoading: operationLoading,
   } = useTemplateOperations();
 
@@ -113,11 +112,6 @@ export function TemplateManager() {
       router.push(`/modulos/operacional/escalas/${result.id}`);
     }
     return result;
-  };
-
-  const handlePreview = async (data: ScaleTemplateApply) => {
-    if (!selectedTemplate) return null;
-    return await previewTemplate(selectedTemplate.id, data);
   };
 
   // Filter templates
@@ -240,7 +234,6 @@ export function TemplateManager() {
         template={selectedTemplate}
         posts={posts}
         onSubmit={handleApply}
-        onPreview={handlePreview}
         isLoading={operationLoading}
       />
 

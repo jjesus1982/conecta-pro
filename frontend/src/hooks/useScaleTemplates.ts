@@ -3,23 +3,26 @@
 import { useState, useEffect, useCallback } from 'react';
 import { customInstance } from '@/lib/api-client';
 
-const BASE = '/api/v1/operacional/templates-escalas';
+// A rota montada e /operacional/scales/templates/. O valor anterior
+// (/operacional/templates-escalas) nunca existiu — templates de escala estavam
+// quebrados desde sempre por nome errado.
+const BASE = '/api/v1/operacional/scales/templates';
 
 const scaleTemplatesService = {
   list: (page: number, pageSize: number, filters?: Record<string, unknown>) =>
-    customInstance({ url: BASE, method: 'GET', params: { page, page_size: pageSize, ...filters } }),
+    customInstance({ url: `${BASE}/`, method: 'GET', params: { page, page_size: pageSize, ...filters } }),
   getById: (id: string) =>
     customInstance({ url: `${BASE}/${id}`, method: 'GET' }),
   create: (data: unknown) =>
-    customInstance({ url: BASE, method: 'POST', data }),
+    customInstance({ url: `${BASE}/`, method: 'POST', data }),
   update: (id: string, data: unknown) =>
-    customInstance({ url: `${BASE}/${id}`, method: 'PUT', data }),
+    customInstance({ url: `${BASE}/${id}`, method: 'PATCH', data }),
   delete: (id: string) =>
     customInstance({ url: `${BASE}/${id}`, method: 'DELETE' }),
   apply: (id: string, data: unknown) =>
     customInstance({ url: `${BASE}/${id}/apply`, method: 'POST', data }),
-  preview: (id: string, data: unknown) =>
-    customInstance({ url: `${BASE}/${id}/preview`, method: 'POST', data }),
+  // sem preview: o backend nunca expos dry-run de template (so /apply, que cria a
+  // escala de verdade). Manter o botao seria prometer uma previa que da 404.
 };
 import { useToast } from '@/components/ui/use-toast';
 import type {
@@ -249,25 +252,6 @@ export function useTemplateOperations() {
     }
   }, [toast]);
 
-  const previewTemplate = useCallback(async (
-    id: string,
-    data: ScaleTemplateApply
-  ): Promise<Scale | null> => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const scale = await scaleTemplatesService.preview(id, data) as Scale;
-      return scale;
-    } catch (err: unknown) {
-
-      const message = err instanceof Error ? err.message : 'Erro ao fazer preview';
-      setError(message);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   return {
     isLoading,
     error,
@@ -275,6 +259,5 @@ export function useTemplateOperations() {
     updateTemplate,
     deleteTemplate,
     applyTemplate,
-    previewTemplate,
   };
 }
