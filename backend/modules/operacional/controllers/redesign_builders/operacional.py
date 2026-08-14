@@ -2092,12 +2092,28 @@ async def build(db) -> dict:
             "AND coalesce(status,'') <> 'approved'") or 0
         _total_b = await _scalar(db,
             "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > greatest(now() - interval '30 days', timestamp '2026-08-01')") or 0
+        # A regra deixou de ser omissão e virou declaração: quem decidiu, quando e por quê
+        # vive em operacional_apuracao_regra. A tela LÊ de lá — se a regra for revogada,
+        # o aviso volta a dizer que o número não tem regra por trás.
+        _regra = None
+        try:
+            _regra = await _scalar(db, "SELECT decidido_por || ' em ' || to_char(decidido_em,'DD/MM/YYYY') "
+                                       "FROM operacional_apuracao_regra "
+                                       "WHERE chave='batida_pending_conta' AND ativo LIMIT 1")
+        except Exception:  # noqa: BLE001 — tabela ainda não existe neste ambiente
+            _regra = None
         _aviso = ""
-        if _nao_aprov:
+        if _nao_aprov and _regra:
+            _pct = (100.0 * _nao_aprov / _total_b) if _total_b else 0.0
+            _aviso = (f" ℹ️ Inclui {_nao_aprov} batida(s) ainda não conferidas de {_total_b} "
+                      f"({_pct:.0f}%). Elas CONTAM por regra declarada ({_regra}); "
+                      "a conferência acontece no portal do Sólides. Batida com selfie "
+                      "reprovada não entra.")
+        elif _nao_aprov:
             _pct = (100.0 * _nao_aprov / _total_b) if _total_b else 0.0
             _aviso = (f" ⚠️ Inclui {_nao_aprov} batida(s) NÃO aprovada(s) de {_total_b} "
-                      f"({_pct:.0f}%) — pendente/fora do local entram no cálculo porque ainda "
-                      "não há regra de apuração definida. Confira antes de lançar.")
+                      f"({_pct:.0f}%) — entram no cálculo e NÃO há regra de apuração "
+                      "declarada. Confira antes de lançar.")
 
         out["banco-horas-apuracao"] = await tbl(
             "Apuração de horas (ponto × escala)",

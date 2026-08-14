@@ -115,10 +115,17 @@ def _dominio_do_modelo(tabela: str, coluna: str) -> set[str]:
                 continue
             if f'__tablename__ = "{tabela}"' not in src:
                 continue
-            m = re.search(rf"^\s+{coluna}\s*:.*?default=(\w+)\.", src, re.M | re.S)
+            # aceita as DUAS formas do repo: `col: Mapped[...] = mapped_column(...)`
+            # e o estilo antigo `col = Column(...)`. O leitor só sabia a primeira e
+            # devolvia domínio vazio para gp_clock_punches, que usa a segunda.
+            m = re.search(rf"^\s+{coluna}\s*(?::[^=\n]*)?=\s*(?:mapped_column|Column)\("
+                          rf"[^\n]*?default=(\w+)\.", src, re.M)
             if not m:
                 continue
-            enum = re.search(rf"class {m.group(1)}\(StrEnum\):(.*?)(?=^class |\Z)", src, re.M | re.S)
+            # aceita `class X(StrEnum)` e `class X(enum.StrEnum)` — o modelo do ponto
+            # usa a segunda forma e o leitor devolvia domínio vazio por causa disso.
+            enum = re.search(rf"class {m.group(1)}\((?:enum\.)?StrEnum\):(.*?)(?=^class |\Z)",
+                             src, re.M | re.S)
             if enum:
                 return set(re.findall(r'=\s*"([^"]+)"', enum.group(1)))
     return set()
