@@ -90,22 +90,33 @@ ator.* Um `bool` no argumento junta os três.
 
 ## Pontos menores, mas que barram produção
 
-**4. A mitigação do DICT não está de pé.** O desenho propõe validar a chave no cadastro
-(`chave_validada_em`, `chave_nome_bacen`). Medido hoje:
+**4. A chave de pagamento não está resolvida — e o DICT do Inter não salva.** ⚠️ corrigido
 
-```
-funcionários ativos:       54
-com chave PIX cadastrada:  49
-com chave CONFIRMADA:       0
-```
+Medido em 13/08/2026, e a primeira versão desta revisão errou aqui:
 
-A coluna `employees.pix_confirmada` existe e está zerada para todo mundo, e 5 ativos não têm
-chave. **Mover folha para uma API sem DICT com 49 chaves nunca conferidas é mandar salário
-para CPF não verificado.**
+- `employees.pix_key` tem 49 dos 54 ativos preenchidos, todos com CPF. **Mas essa não é a
+  chave que o Jordan usa para pagar** — no app do Cora ele usa telefone, e-mail ou CPF,
+  conforme o que tem de cada um. Cadastro e prática divergem.
+- **O DICT do Inter não existe no caminho que o nosso adapter usa.** `validate_pix_key`
+  chama `GET /pix/v2/dict/key` → **404 page not found**, engole o erro e devolve `None`.
+  Nunca funcionou. Testei também `/banking/v2/pix/chave/{k}`, `/pix/v2/dict/{k}`,
+  `/pix/v2/chave/{k}` — nenhum responde. **Isto é um defeito nosso, aberto.**
+- O que o extrato prova (folha de agosto, 70 pagamentos): **56** têm documento do recebedor
+  batendo com CPF de `employees`; **3** são PJ pagando em CNPJ ou gente fora da tabela;
+  **11** o extrato não trouxe documento. O dinheiro chega em quem deve — mas por chaves que
+  o sistema não conhece.
 
-Solução com o que já temos: **o Inter tem DICT** (`GET /pix/v2/dict/key`). Validar as 49
-chaves pelo Inter, conferindo nome e documento contra o cadastro, e marcar `pix_confirmada`.
-Uma vez, antes de migrar. É pré-requisito, não melhoria.
+**Consequência para a migração:** o lote NÃO pode assumir a chave do cadastro. Dois caminhos
+honestos, e o segundo é mais barato:
+
+1. Coletar e confirmar a chave preferida de cada pessoa antes de migrar (trabalho de RH).
+2. Enviar para a **chave CPF** e tratar a falha como lista: quem não tiver chave CPF
+   registrada volta 4xx no envio, não paga errado. Paga-se esses no app naquele mês e
+   corrige-se a chave. **Auto-corretivo e sem risco de pagar a terceiro** — a chave CPF, se
+   existir, pertence necessariamente àquele CPF.
+
+Pendência de cadastro, à parte: **3 ativos reais sem chave nenhuma** — Nailson Garcia Gomes,
+Kelly Patrícia da Silva e Alexandre Souza da Silva (os outros 2 sem chave são contas de teste).
 
 **5. `favorecido` duplica o cadastro.** `employees` já tem `pix_key`, `pix_key_type` e
 `pix_confirmada`. Uma segunda tabela de favorecido cria duas verdades sobre a chave de
@@ -125,8 +136,9 @@ Cora, não só folha. E os 88 PIX incluem os R$32 de VT/VR de diarista, que hoje
 
 ## O que eu faria, em ordem
 
-1. **Antes de qualquer código**: validar as 49 chaves PIX pelo DICT do Inter e marcar
-   `pix_confirmada`. Sem isso nada de folha migra.
+1. **Antes de qualquer código**: decidir a estratégia de chave (ver §4). O DICT do Inter
+   não existe — o defeito de `validate_pix_key` (404 silencioso) precisa ser corrigido ou
+   o método removido, porque hoje ele mente por omissão.
 2. **Generalizar `inter_payments`** em vez de criar `folha_efi`: coluna `banco`
    (`inter`/`efi`), e o `EfiClient` entra ao lado do `InterAdapter` no fluxo D7 que já
    existe. Aproveita OTP, lote, auditoria e `reconciled_bank_tx_id`.
