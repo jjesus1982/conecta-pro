@@ -187,6 +187,37 @@ async def _exec_baixa_pagavel(db: Any, aprovador: Any, payload: dict) -> str:
 
 for _t in _TIPOS_ACEITE:
     registrar_executor(_t, _exec_aceite_recomendacao_agente)
+async def _exec_cobranca_individual(db: Any, aprovador: Any, payload: dict) -> str:
+    """Aprovar a cobrança de UM cliente registra a tentativa NAQUELE recebível.
+
+    O beat `financeiro-propor-cobranca-vencidos` cria um rascunho POR CLIENTE, com
+    tipo `financeiro_cobranca` — e esse tipo não tinha executor NENHUM. Aprovar
+    levantava "sem executor registrado" e o rascunho morria em 'falha'. Era por isso
+    que nenhuma cobrança do sistema jamais saiu do lugar: a proposta chegava à tela e
+    o botão não tinha para onde ir.
+
+    Não reusa `_exec_regua_cobranca` de propósito: aquele aciona a fila INTEIRA, então
+    aprovar "cobrar o cliente A" registraria também B, C e D, e os rascunhos deles
+    virariam mentira (propõem o que já foi feito). Aqui, um rascunho = um cliente.
+
+    Não envia nada ao cliente — comunicação continua sendo gate humano.
+    """
+    from modules.financial.services.regua_cobranca_service import registrar_cobranca
+
+    rid = str(payload.get("receivable_id") or "").strip()
+    if not rid:
+        raise ValueError("rascunho de cobrança sem `receivable_id` no payload")
+    quem = str(getattr(aprovador, "nome", None) or getattr(aprovador, "email", None)
+               or getattr(aprovador, "id", None) or "gestor")
+    r = await registrar_cobranca(db, rid, str(payload.get("canal") or ""), quem=quem)
+    if not r.get("ok"):
+        # Recusa da régua (já pago, anti-spam do dia) é motivo legítimo e precisa
+        # aparecer como falha explicada, não como sucesso silencioso.
+        raise ValueError(r.get("message") or "régua de cobrança recusou o registro")
+    return f"cobranca:{rid}"
+
+
+registrar_executor("financeiro_cobranca", _exec_cobranca_individual)
 registrar_executor("financeiro_recomendacao_cobranca", _exec_regua_cobranca)
 registrar_executor("financeiro_baixa_pagavel", _exec_baixa_pagavel)
 
