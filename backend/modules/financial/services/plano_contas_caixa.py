@@ -147,6 +147,13 @@ def contrapartida_entrada(descricao: str, documento: str | None = None,
     # Teixeira em 06/07/2026 entraram assim, e a justificativa da devolução de
     # 11/08 ("Devolução de empréstimo tomado da Denise Teixeira") denuncia. Com a
     # família emprestando para a empresa, isso repete.
+    # Dinheiro PESSOAL do sócio entrando na conta da empresa: a empresa passa a
+    # dever a ele. Espelho do caso de saída (`socio` em _MAPA_SAIDA), que faltava.
+    # Caso real: o Jordan emprestou R$ da conta PESSOAL dele ao Eliziel, e o Eliziel
+    # devolveu R$4.300 na conta da EMPRESA. Sem esta linha, dinheiro do sócio virava
+    # "recebimento de cliente" — inflando receita e escondendo o que a empresa deve.
+    if cat in ("socio", "aporte_socio", "socio_aporte"):
+        return "2.1.5.01", "entrada de dinheiro do sócio — a empresa passa a dever a ele"
     if cat in ("emprestimo_tomado", "emprestimo_recebido", "emprestimo"):
         return "2.1.6.01", "empréstimo recebido — aumenta o passivo, não é receita"
     if cat in ("recebimento_cliente", "receita_cliente"):
