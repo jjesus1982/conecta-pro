@@ -336,7 +336,19 @@ def folga_hoje(escala: str, dias_desde_turno: int | None) -> bool:
     Só vale para 12x36: o 44h trabalha de segunda a sábado e um dia não prevê o outro.
     Sem batida recente (`None`) NÃO é folga — some dado não pode tirar ninguém da conta.
     """
-    return "12x36" in (escala or "").lower() and dias_desde_turno == 1
+    if "12x36" not in (escala or "").lower() or not dias_desde_turno:
+        return False
+    # PARIDADE, não "foi ontem". Quem perdeu um plantão tem o último turno há 3 dias e mesmo
+    # assim está de folga hoje — a perna dele não mudou, só faltou um dia. Medido em 14/08:
+    # 28 das 35 pessoas de 12x36 mantêm a MESMA paridade em todos os turnos observados, e as
+    # que trocam são justamente quem mudou de posto (MAIARA, RILEM, EULER — as três
+    # transferências que o Jordan descreveu). Gap de 4 dias, que é um plantão perdido sem
+    # troca de perna, aparece em 16 dos 278 intervalos.
+    #
+    # O TETO DE 5 DIAS É O QUE IMPEDE ISTO DE ESCONDER FALTA. Sem ele, quem sumiu há 7 dias
+    # cairia em "ímpar → folga" em metade dos dias e nunca seria cobrado. Ausência longa tem
+    # de continuar aparecendo: foi assim que o EIDY apareceu, calado desde 08/08.
+    return dias_desde_turno <= 5 and dias_desde_turno % 2 == 1
 
 
 # ─── quadro em transição ───────────────────────────────────────────────────────
@@ -374,9 +386,19 @@ QUADRO_EM_TRANSICAO = {
         "cargo": "AGENTE DE PORTARIA",
         "previsto": 4,
         "saem": ["KEYSON DA SILVA PINTO", "RILEM FERREIRA DE SOUZA"],
+        # ⚠️ JÁ ESTÃO TRABALHANDO — não são futuros contratados que ainda não apareceram.
+        # ALAN cobre o Keyson no DIURNO e DALTON cobre o Rilem no NOTURNO desde a saída de
+        # cada um (Jordan, 14/08). O que falta é o contrato, até 20/08, e é o contrato que
+        # os põe no `employees` e os deixa bater ponto. Até lá o posto tem 4 pessoas e o
+        # sistema enxerga 2.
         "entram": ["ALAN VIEIRA", "DALTON PACHECO"],
+        "ja_trabalhando": True,
         "contratar_ate": "2026-08-20",
         "batem_ponto_desde": "2026-08-20",
+        # A perna importa mais que a data. Os dois que saíram estavam AMBOS na perna que
+        # trabalha 15, 17, 19, 21/08 — se o Alan e o Dalton entrassem na outra, o Prime
+        # ficaria sem agente nenhum em dia alternado, nos dois turnos.
+        "perna": "trabalha 15/08, 17/08, 19/08, 21/08 …",
         # Prime é _PADRAO_06 e TODO AGP daqui recebe intrajornada → 2 batidas.
         # Os ASG (Graciene e Malaquias) não recebem → 4. Nada disso muda com a troca.
         "recebe_intrajornada": True,
