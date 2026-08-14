@@ -216,6 +216,34 @@ async def main() -> None:  # noqa: PLR0915
                 "SELECT count(*) FROM payroll_payments WHERE status = 'pago'"))).scalar()
             print(f"OK folha: os {total} pagamentos marcados pagos têm prova bancária")
 
+        # ── (5) as parcelas de uma competência têm que fechar o líquido ──
+        # A folha passou a ser paga em parcelas (40% no dia 20, 60% no dia 5). Cada
+        # parcela isolada PARECE certa — só a soma denuncia se alguém ficou faltando
+        # receber. Um lote que soma 95% paga a menos e ninguém vê.
+        quebras = (await db.execute(text("""
+            SELECT e.nome, p.mes, p.ano,
+                   round(sum(p.valor_liquido), 2) AS pago,
+                   round(max(h.net_salary), 2) AS liquido
+            FROM payroll_payments p
+            JOIN employees e ON e.id = p.employee_id
+            JOIN hr_payslips h ON h.employee_id = p.employee_id
+                 AND h.reference_month = p.mes AND h.reference_year = p.ano
+                 AND h.payslip_type IN ('mensal','monthly')
+            WHERE p.parcelas_total > 1
+            GROUP BY e.nome, p.mes, p.ano
+            HAVING abs(round(sum(p.valor_liquido), 2) - round(max(h.net_salary), 2)) > 0.05
+        """))).mappings().all()
+        if quebras:
+            for q in quebras[:5]:
+                falhas.append(
+                    f"parcelas não fecham: {q['nome']} {q['mes']:02d}/{q['ano']} — "
+                    f"soma R$ {q['pago']:,.2f} × líquido R$ {q['liquido']:,.2f}")
+        else:
+            n_par = (await db.execute(text(
+                "SELECT count(*) FROM payroll_payments WHERE parcelas_total > 1"))).scalar()
+            print(f"OK folha em parcelas: {n_par} linha(s) parcelada(s), "
+                  f"soma fecha o líquido em todas")
+
     for n in nao_coberto:
         print(f"NÃO COBERTO: {n}")
     if falhas:

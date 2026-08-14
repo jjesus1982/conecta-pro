@@ -34,27 +34,142 @@ TETO_DIARIO = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "100000.00"))
 OTP_TTL_S = 600
 TOLERANCIA = 0.50
 
+#: Quantos dias em volta da `data_prevista` a conciliação procura a saída. Pagamento
+#: de folha escorrega um ou dois dias (feriado, fila do banco, aprovação no app no dia
+#: seguinte); janela apertada demais deixa item sem par, larga demais casa o pagamento
+#: errado. Cinco antes e quinze depois cobriu 96 de 96 na medição de 14/08/2026.
+JANELA_ANTES, JANELA_DEPOIS = 5, 15
+
+#: Fonte autoritativa dos holerites. `hr_payslips` guarda a MESMA competência vinda da
+#: Portte e do nosso motor, e os valores divergem (ADAILSON 06/2026: Portte R$643,95 ×
+#: nosso R$652,35). Sem escolher, quem vence é a ordem física das linhas — dinheiro
+#: saindo por sorteio. A Portte é a verdade fiscal enquanto ela transmitir ao governo.
+FONTE_FOLHA = os.getenv("CONECTA_FONTE_FOLHA", "portte")
+TIPOS_MENSAIS = ("mensal", "monthly")
+
+
+async def gerar_parcelas(db: AsyncSession, *, competencia: str,
+                         parcelas: list[tuple[int, str]],
+                         dry_run: bool = True) -> dict:
+    """Cria as linhas de pagamento da competência, partidas em parcelas.
+
+    `parcelas` é [(percentual, data_prevista_iso), ...] — ex.: 40% em 20/08 e 60% em
+    05/09. Somar 100 é obrigatório: um lote que soma 95% pagaria a menos e ninguém
+    veria, porque cada parcela isolada parece certa.
+
+    Lê `hr_payslips` (domínio do DP) apenas para LER, e filtra fonte e tipo. Sem esse
+    filtro a mesma competência traz Portte e nosso motor somados — 112 holerites e
+    R$160.811,99 em 06/2026, contra 56 pessoas reais — e em novembro traria os
+    holerites de 13º como se fossem folha mensal.
+
+    Centavos: o último a receber leva a sobra do arredondamento, então a soma das
+    parcelas fecha o líquido exato. Distribuir por igual deixa resíduo de centavos que
+    depois aparece como diferença na conciliação.
+
+    `dry_run=True` por padrão: isto cria dinheiro a pagar: quem chama precisa dizer
+    explicitamente que quer gravar.
+    """
+    soma = sum(p for p, _ in parcelas)
+    if soma != 100:
+        return {"ok": False, "erro": f"as parcelas somam {soma}%, precisam somar 100%"}
+    mes, ano = int(competencia[5:7]), int(competencia[:4])
+
+    holerites = (await db.execute(text("""
+        SELECT h.employee_id::text AS eid, h.id::text AS payslip_id, e.nome,
+               h.net_salary AS liquido, coalesce(e.pix_key,'') AS chave,
+               regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf,
+               coalesce(e.posto_atual_nome,'(sem posto)') AS agrupador
+        FROM hr_payslips h JOIN employees e ON e.id = h.employee_id
+        WHERE h.reference_month = :m AND h.reference_year = :a
+          AND h.source_system = :f AND h.payslip_type = ANY(:t)
+          AND lower(coalesce(e.status,'')) = 'ativo'
+          AND coalesce(h.net_salary, 0) > 0
+    """), {"m": mes, "a": ano, "f": FONTE_FOLHA, "t": list(TIPOS_MENSAIS)})).mappings().all()
+
+    if not holerites:
+        return {"ok": False, "erro": (
+            f"nenhum holerite {FONTE_FOLHA} mensal em {competencia} para funcionário ativo")}
+
+    criadas, sem_chave, previsto = [], [], []
+    for h in holerites:
+        liquido = round(float(h["liquido"]), 2)
+        if not h["chave"] and not h["cpf"]:
+            sem_chave.append(h["nome"])
+        acumulado, valores = 0.0, []
+        for i, (pct, _dt) in enumerate(parcelas, start=1):
+            v = round(liquido * pct / 100, 2) if i < len(parcelas) else round(liquido - acumulado, 2)
+            acumulado = round(acumulado + v, 2)
+            valores.append(v)
+        assert abs(acumulado - liquido) < 0.005, f"parcelas não fecham o líquido de {h['nome']}"
+        for i, ((_pct, dt), v) in enumerate(zip(parcelas, valores), start=1):
+            criadas.append({"eid": h["eid"], "payslip_id": h["payslip_id"], "nome": h["nome"],
+                            "parcela": i, "total": len(parcelas), "valor": v,
+                            "data_prevista": dt, "chave": h["chave"],
+                            "agrupador": h["agrupador"], "liquido": liquido})
+        previsto.append(liquido)
+
+    resumo = {"ok": True, "dry_run": dry_run, "competencia": competencia,
+              "fonte": FONTE_FOLHA, "pessoas": len(holerites), "linhas": len(criadas),
+              "liquido_total": round(sum(previsto), 2),
+              "por_parcela": [{"parcela": i, "percentual": p, "data_prevista": d,
+                               "total": round(sum(c["valor"] for c in criadas
+                                                  if c["parcela"] == i), 2)}
+                              for i, (p, d) in enumerate(parcelas, start=1)],
+              "sem_chave": sem_chave,
+              "agrupadores": sorted({c["agrupador"] for c in criadas})}
+    if dry_run:
+        resumo["mensagem"] = "SIMULAÇÃO — nada gravado. Chame com dry_run=False para valer."
+        return resumo
+
+    for c in criadas:
+        await db.execute(text("""
+            INSERT INTO payroll_payments
+                (id, employee_id, payslip_id, mes, ano, valor_liquido, metodo, pix_key,
+                 status, parcela, parcelas_total, data_prevista, created_at, updated_at)
+            VALUES (gen_random_uuid(), CAST(:e AS uuid), :ps, :m, :a, :v, 'PIX', :k,
+                 'pendente_pagamento', :par, :tot, CAST(:dt AS date), now(), now())
+            ON CONFLICT (employee_id, mes, ano, parcela) DO NOTHING
+        """), {"e": c["eid"], "ps": c["payslip_id"], "m": mes, "a": ano, "v": c["valor"],
+               "k": c["chave"] or None, "par": c["parcela"], "tot": c["total"],
+               "dt": c["data_prevista"]})
+    await db.commit()
+    resumo["mensagem"] = (f"{len(criadas)} linha(s) criada(s) para {len(holerites)} pessoa(s). "
+                          f"Monte os lotes por agrupador e parcela.")
+    return resumo
+
 
 async def montar_lote(db: AsyncSession, *, competencia: str, banco: str,
-                      criado_por: str) -> dict:
+                      criado_por: str, parcela: int = 1,
+                      agrupador: str | None = None) -> dict:
     """Junta os pagamentos pendentes da competência num lote RASCUNHO.
 
     Não aprova nada e não muda o status dos itens — só os reserva ao lote. Um item
     já vinculado a outro lote não entra: sem isso, dois lotes abertos pagariam a
     mesma pessoa duas vezes e a descoberta viria pelo extrato, tarde.
+
+    `agrupador` é o posto (`employees.posto_atual_nome`), que está preenchido nos 52
+    ativos. NÃO é o cliente: medido em 14/08/2026, `cliente_nome` falta em 13 dos 52 e
+    cruza com o posto (gente com posto PRIME e cliente MIRANTE DAS FLORES). Agrupar
+    por cliente hoje montaria lote do condomínio errado — quando o cadastro do
+    operacional for corrigido, é só passar o outro campo aqui.
     """
     mes, ano = int(competencia[5:7]), int(competencia[:4])
-    itens = (await db.execute(text("""
+    filtro_ag = "AND coalesce(e.posto_atual_nome,'(sem posto)') = :ag" if agrupador else ""
+    par = {"m": mes, "a": ano, "p": parcela}
+    if agrupador:
+        par["ag"] = agrupador
+    itens = (await db.execute(text(f"""
         SELECT p.id::text AS id, 'clt' AS tipo, e.nome, p.valor_liquido AS valor,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf,
                coalesce(p.pix_key,'') AS chave
         FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
         WHERE p.status = 'pendente_pagamento' AND p.mes = :m AND p.ano = :a
-          AND p.lote_ordem_id IS NULL
-    """), {"m": mes, "a": ano})).mappings().all()
+          AND p.parcela = :p AND p.lote_ordem_id IS NULL {filtro_ag}
+    """), par)).mappings().all()
 
     if not itens:
-        return {"ok": False, "erro": f"nenhum pagamento pendente em {competencia} sem lote"}
+        alvo = f"{competencia} parcela {parcela}" + (f" · {agrupador}" if agrupador else "")
+        return {"ok": False, "erro": f"nenhum pagamento pendente em {alvo} sem lote"}
 
     total = round(sum(float(i["valor"]) for i in itens), 2)
     if total > TETO_DIARIO:
@@ -65,13 +180,16 @@ async def montar_lote(db: AsyncSession, *, competencia: str, banco: str,
 
     sem_chave = [i["nome"] for i in itens if not i["chave"] and not i["cpf"]]
     lote_id = str(uuid.uuid4())
-    ref = f"ORDEM-{banco.upper()}-{competencia}"
+    slug = "".join(ch if ch.isalnum() else "_" for ch in (agrupador or "TODOS").upper())[:28]
+    ref = f"ORDEM-{banco.upper()}-{competencia}-P{parcela}-{slug}"
     await db.execute(text("""
         INSERT INTO folha_lote_ordem
-            (id, referencia, competencia, banco, total_centavos, qtd_itens, status, criado_por)
-        VALUES (CAST(:i AS uuid), :r, :c, :b, :t, :q, 'RASCUNHO', :u)
+            (id, referencia, competencia, banco, total_centavos, qtd_itens, status,
+             criado_por, parcela, agrupador)
+        VALUES (CAST(:i AS uuid), :r, :c, :b, :t, :q, 'RASCUNHO', :u, :p, :ag)
     """), {"i": lote_id, "r": ref, "c": competencia, "b": banco,
-           "t": int(round(total * 100)), "q": len(itens), "u": criado_por})
+           "t": int(round(total * 100)), "q": len(itens), "u": criado_por,
+           "p": parcela, "ag": agrupador})
     await db.execute(text(
         "UPDATE payroll_payments SET lote_ordem_id = CAST(:l AS uuid), updated_at = now() "
         "WHERE id::text = ANY(CAST(:ids AS text[]))"),
@@ -176,6 +294,7 @@ async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -
     where = "AND p.lote_ordem_id = CAST(:l AS uuid)" if lote_id else ""
     itens = (await db.execute(text(f"""
         SELECT p.id, p.mes, p.ano, p.valor_liquido AS valor, p.lote_ordem_id::text AS lote,
+               p.data_prevista, p.parcela,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf
         FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
         WHERE p.status = 'aguardando_app' {where}
@@ -183,14 +302,24 @@ async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -
 
     fechados, ambiguos, sem_par = 0, 0, 0
     for it in itens:
-        pm, pa = (it["mes"] + 1, it["ano"]) if it["mes"] < 12 else (1, it["ano"] + 1)
+        # A janela sai da data PREVISTA da parcela. A regra antiga era decorada — "dia
+        # 1 a 20 do mês seguinte à competência" — e um adiantamento pago no dia 20 do
+        # PRÓPRIO mês cai fora dela: ficaria sem par para sempre, que é exatamente como
+        # 12 pagamentos ficaram pendurados por meses. Sem data prevista (linhas
+        # antigas, pagamento integral), mantém a regra antiga, que fechou 96 de 96.
+        if it["data_prevista"]:
+            ini = it["data_prevista"] - timedelta(days=JANELA_ANTES)
+            fim = it["data_prevista"] + timedelta(days=JANELA_DEPOIS)
+        else:
+            pm, pa = (it["mes"] + 1, it["ano"]) if it["mes"] < 12 else (1, it["ano"] + 1)
+            ini, fim = _date(pa, pm, 1), _date(pa, pm, 20)
         cand = (await db.execute(text("""
             SELECT id::text, coalesce(pix_end_to_end,'') AS e2e, transaction_date::text AS d
             FROM bank_transactions
             WHERE amount < 0 AND transaction_date BETWEEN :a AND :b
               AND regexp_replace(coalesce(counterparty_document,''),'[^0-9]','','g') = :c
               AND abs(abs(amount) - :v) <= :tol
-        """), {"a": _date(pa, pm, 1), "b": _date(pa, pm, 20), "c": it["cpf"],
+        """), {"a": ini, "b": fim, "c": it["cpf"],
                "v": float(it["valor"]), "tol": TOLERANCIA})).mappings().all()
         if len(cand) == 1:
             await db.execute(text("""
