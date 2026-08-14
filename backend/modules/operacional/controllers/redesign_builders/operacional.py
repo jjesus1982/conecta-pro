@@ -1084,7 +1084,14 @@ async def build(db) -> dict:
         pass
 
     # Turnos — shifts (instâncias de turno planejadas/realizadas; leitura)
-    _tt = {"scheduled": "info", "planejado": "info", "completed": "ok", "concluido": "ok", "absent": "bad", "falta": "bad", "in_progress": "warn", "em_andamento": "warn"}
+    # `partial` e `missed` passaram a ocorrer de verdade quando o turno começou a fechar
+    # pelo ponto (14/08). Sem tom próprio, `partial` caía no default "info" e se lia como
+    # turno normal — sendo justamente o caso em que a jornada não fecha e alguém precisa
+    # olhar. `cancelled` fica neutro: é decisão tomada, não pendência.
+    _tt = {"scheduled": "info", "planejado": "info", "completed": "ok", "concluido": "ok",
+           "absent": "bad", "falta": "bad", "missed": "bad", "in_progress": "warn",
+           "em_andamento": "warn", "partial": "warn", "substituted": "info",
+           "cancelled": "mut", "off_day": "mut"}
     try:
         out["turnos"] = await tbl(
             "Turnos", "Turnos planejados/realizados", "—",
