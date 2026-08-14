@@ -392,12 +392,67 @@ async def send_kit(
             },
         )
 
-    await db.execute(
-        text("UPDATE ged_document_kits SET status = 'enviado', sent_at = NOW(), updated_at = NOW() WHERE id = :id"),
+    # 🔴 ESTA ROTA DIZIA "ENVIA KIT AO CLIENTE" E NÃO ENVIAVA NADA. Ela só trocava o
+    # status para 'enviado' e gravava `sent_at`, checando apenas assinaturas. Nenhuma
+    # verificação de que existe arquivo ou destinatário.
+    #
+    # É assim que o ÚNICO kit marcado como enviado em oito meses ficou:
+    #
+    #     2026-03 · Michelangelo · sent_at 05/05
+    #     zip_file_path = vazio · google_drive_link = vazio
+    #
+    # Um "enviado" sem nada anexado, para um endereço interno. O painel conta esse kit
+    # como entregue e o cliente nunca recebeu documento nenhum. Marcar entrega sem prova
+    # de entrega é a mesma família de fabricação que o projeto proíbe no dado.
+    #
+    # Agora exige EVIDÊNCIA: um arquivo (zip ou link do Drive) E um destinatário. Quem
+    # quer de fato entregar tem o caminho completo em `kit_controller.enviar_kit`, que
+    # sobe ao Drive, manda o e-mail e só então grava — falhou o Drive, não manda o e-mail.
+    kit_full = (await db.execute(
+        text(
+            "SELECT coalesce(k.zip_file_path,'') AS zip, "
+            "       coalesce(k.google_drive_link,'') AS drive, "
+            "       coalesce(k.sent_to,'') AS destino, "
+            "       coalesce(gc.contact_email,'') AS email_cliente "
+            "FROM ged_document_kits k "
+            "LEFT JOIN ged_clients gc ON gc.id = k.client_id "
+            "WHERE k.id = :id"
+        ),
         {"id": kit_id},
+    )).mappings().first()
+
+    tem_arquivo = bool(kit_full and (kit_full["zip"] or kit_full["drive"]))
+    destinatario = (kit_full["destino"] or kit_full["email_cliente"]) if kit_full else ""
+    faltando = []
+    if not tem_arquivo:
+        faltando.append("nenhum arquivo (zip_file_path e google_drive_link vazios)")
+    if not destinatario:
+        faltando.append("nenhum destinatário definido para o cliente")
+    if faltando:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ENTREGA_SEM_PROVA",
+                "message": (
+                    "Não dá para marcar o kit como enviado: "
+                    + " e ".join(faltando)
+                    + ". Use o envio completo (Drive + e-mail), que gera o arquivo e "
+                    "registra o destinatário."
+                ),
+            },
+        )
+
+    await db.execute(
+        text(
+            "UPDATE ged_document_kits SET status = 'enviado', sent_at = NOW(), "
+            "  sent_to = coalesce(nullif(sent_to,''), :destino), updated_at = NOW() "
+            "WHERE id = :id"
+        ),
+        {"id": kit_id, "destino": destinatario},
     )
     await db.commit()
-    return {"success": True, "kit_id": kit_id, "novo_status": "enviado"}
+    return {"success": True, "kit_id": kit_id, "novo_status": "enviado",
+            "destinatario": destinatario}
 
 
 @router.post("/kits/{kit_id}/enviar")
