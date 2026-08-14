@@ -62,12 +62,21 @@ b AS (
 SELECT s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours,
        min(b.ts) FILTER (WHERE b.punch_type = 'entrada') AS entrada,
        max(b.ts) FILTER (WHERE b.punch_type = 'saida')   AS saida,
-       count(b.*)                                        AS n_batidas
+       count(b.*)                                        AS n_batidas,
+       -- Intervalo a descontar do VÃO real, derivado do próprio turno:
+       -- é a diferença entre o vão planejado e as horas planejadas. Não dá para
+       -- subtrair planned_break_minutes direto — em 12x36 o intervalo está DENTRO
+       -- das 12h (vão 12h, planned_hours 12.0, break 60), enquanto num 07:00–16:00
+       -- ele é deduzido (vão 9h, planned_hours 8.0). Descontar sempre inventaria
+       -- hora a menos num caso e a mais no outro.
+       greatest(0, EXTRACT(EPOCH FROM (s.fim - s.ini)) / 3600.0
+                   - coalesce(s.planned_hours, EXTRACT(EPOCH FROM (s.fim - s.ini)) / 3600.0)
+       ) AS desconto_intervalo
 FROM s
 LEFT JOIN b ON b.employee_id = s.employee_id
            AND b.ts BETWEEN s.ini - make_interval(hours => :tol)
                         AND s.fim + make_interval(hours => :tol)
-GROUP BY s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours
+GROUP BY s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours, s.ini, s.fim
 """
 
 
@@ -107,15 +116,28 @@ async def fechar_turnos_por_ponto(
     res = Resultado(aplicado=aplicar)
     fechar: list[tuple[str, str, object, object, float | None]] = []
 
-    for sid, _emp, sdata, off_day, plan_h, entrada, saida, n in linhas:
+    for sid, _emp, sdata, off_day, plan_h, entrada, saida, n, desconto in linhas:
         if off_day:
             res.off_day += 1
             fechar.append((str(sid), "off_day", None, None, 0.0))
             continue
         if entrada and saida and saida > entrada:
-            horas = (saida - entrada).total_seconds() / 3600.0
-            res.completed += 1
-            fechar.append((str(sid), "completed", entrada, saida, round(horas, 2)))
+            # LÍQUIDO, não o vão bruto: actual_hours tem que ser comparável a
+            # planned_hours. Guardar o vão fabricava ~1h de hora extra por turno de
+            # 8h — medido em 14/08: 535 turnos "com excedente" somando 409,5h viraram
+            # 151 turnos somando 34,0h depois do desconto correto.
+            horas = (saida - entrada).total_seconds() / 3600.0 - float(desconto or 0)
+            if horas <= 0:
+                # Par existe mas não sobra jornada nenhuma depois do intervalo. São
+                # batidas curtas de meio-dia (medido: 5 casos de 12:06→13:01 num turno
+                # de 07:00–16:00) — ida ao almoço lida como entrada/saída. Chamar isso
+                # de turno concluído é mentira; `partial` é o que o enum já diz:
+                # "saiu antes/chegou depois". Sem régua inventada: o corte é zero.
+                res.partial += 1
+                fechar.append((str(sid), "partial", entrada, saida, 0.0))
+            else:
+                res.completed += 1
+                fechar.append((str(sid), "completed", entrada, saida, round(horas, 2)))
         elif n:
             res.partial += 1
             fechar.append((str(sid), "partial", entrada, saida, None))
