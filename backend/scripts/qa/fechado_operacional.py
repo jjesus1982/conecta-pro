@@ -74,9 +74,54 @@ def _t2_vocabulario() -> tuple[bool, str]:
         return False, f"não rodou: {e}"
     if "[CRITICO]" not in saida and "TOTAL" not in saida:
         return False, "saída não reconhecida (trava mudou de formato?)"
-    n = len([ln for ln in saida.splitlines()
-             if "[CRITICO]" in ln and any(p in ln for p in MEU)])
-    return n == 0, f"{n} literal(is) CRITICO fora do vocabulário da coluna"
+    linhas, reais, legitimos = saida.splitlines(), 0, 0
+    for i, ln in enumerate(linhas):
+        if "[CRITICO]" not in ln or not any(p in ln for p in MEU):
+            continue
+        alvo = re.search(r"(\w+)\.(\w+)\s", linhas[i + 1] if i + 1 < len(linhas) else "")
+        falta = re.findall(r"'([^']+)'", linhas[i + 2] if i + 2 < len(linhas) else "")
+        if alvo and falta and set(falta) <= _dominio_do_modelo(alvo.group(1), alvo.group(2)):
+            legitimos += 1  # o literal É do domínio declarado; a coluna só não tem linha assim ainda
+        else:
+            reais += 1
+    det = f"{reais} literal(is) fora do vocabulário da coluna"
+    if legitimos:
+        det += f" (+{legitimos} do domínio declarado, não contam)"
+    return reais == 0, det
+
+
+def _dominio_do_modelo(tabela: str, coluna: str) -> set[str]:
+    """Valores que o MODELO daquela tabela declara para aquela coluna.
+
+    A trava compara o literal com os valores OBSERVADOS. Numa tabela quase vazia isso
+    acusa código correto: occurrences tem 4 linhas, todas 'cancelada', então filtrar
+    por 'aberta' vira CRITICO — sendo 'aberta' o default do próprio modelo.
+    Ancorar no modelo DA TABELA (e não em qualquer enum do repo) é o que separa esse
+    falso-positivo do caso real: 'cancelado'/'rejected' existem como enum em time_bank
+    e substitution, mas nenhum governa gp_clock_punches — lá o filtro é inerte mesmo,
+    em 7843 linhas.
+    """
+    base = (RAIZ + "/backend" if os.path.isdir(RAIZ + "/backend") else "/app") + "/modules"
+    for raiz, _d, arqs in os.walk(base):
+        if "_quarentena" in raiz:
+            continue
+        for a in arqs:
+            if not a.endswith(".py"):
+                continue
+            try:
+                with open(os.path.join(raiz, a), encoding="utf-8") as f:
+                    src = f.read()
+            except OSError:
+                continue
+            if f'__tablename__ = "{tabela}"' not in src:
+                continue
+            m = re.search(rf"^\s+{coluna}\s*:.*?default=(\w+)\.", src, re.M | re.S)
+            if not m:
+                continue
+            enum = re.search(rf"class {m.group(1)}\(StrEnum\):(.*?)(?=^class |\Z)", src, re.M | re.S)
+            if enum:
+                return set(re.findall(r'=\s*"([^"]+)"', enum.group(1)))
+    return set()
 
 
 def _t3_rotas_frontend() -> tuple[bool, str]:

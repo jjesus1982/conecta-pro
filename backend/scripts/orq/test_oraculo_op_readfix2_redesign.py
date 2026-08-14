@@ -22,8 +22,11 @@ CHECKS = [
     ("escalas-templates", "SELECT count(*) FROM scale_templates WHERE coalesce(is_active,true)", 200),
     ("escalas-grade", "SELECT count(DISTINCT e.nome) FROM shifts s LEFT JOIN employees e ON e.id=s.employee_id WHERE coalesce(s.is_active,true)", 300),
     ("avaliacao-equipe", "SELECT count(*) FROM operacional_avaliacoes_equipe WHERE coalesce(is_active,true)", 200),
-    ("diaristas-escala", "SELECT count(*) FROM diarist_schedules WHERE coalesce(ativo,true)", 200),
-    ("diaristas-fechamento", "SELECT count(*) FROM diarist_payments WHERE coalesce(ativo,true)", 200),
+    # "diaristas-escala" saiu: lia diarist_schedules (0 linhas) e o equivalente vivo já é
+    # a aba "diarias". E "diaristas-fechamento" apontava para diarist_payments, também 0 —
+    # ou seja, este oráculo passava com 0==0 sobre tabela morta. Verde que não provava nada:
+    # exibido==banco só tem força quando o banco tem linha. Agora bate nos 251 pagamentos reais.
+    ("diaristas-fechamento", "SELECT count(*) FROM financial_pagamentos_diaristas", 200),
 ]
 
 
