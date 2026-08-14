@@ -563,3 +563,82 @@ runtime. `h2==4.1.0` declarado explícito.
 3. DENISE TEIXEIRA — R$1.000 em 12/08, um dia depois da devolução de R$12.300: mesma dívida?
 4. MARCELINO — demitido em 29/06, dois PIX de R$2.116,62 (08/07 e 08/08) e zero holerite
    desde julho: rescisão parcelada ou pagamento que ficou rodando sozinho?
+
+---
+
+# Adendo 6 — o extrato do Inter era anônimo, e eu quebrei o sync consertando isso
+
+## O que estava errado há meses
+
+O extrato do Inter tinha **4.373 linhas e ZERO com documento do favorecido**. O Cora tinha
+137 de 138. Não era limitação do banco — eram dois defeitos no mesmo lugar:
+
+1. O adapter chamava `/banking/v2/extrato`, o endpoint **simples**, que devolve `detalhes`
+   vazio. O `/extrato/completo` traz `cpfCnpjRecebedor`, `nomeRecebedor`, `endToEndId` e
+   `chavePixRecebedor`.
+2. Mesmo se viesse, o código lia `detalhes.cpfCnpj` e `detalhes.nome` — **campos que não
+   existem** no retorno do Inter. E a contraparte depende da DIREÇÃO: numa saída somos o
+   pagador e o outro é o recebedor.
+
+**Consequência prática:** a conciliação casava por valor e data. Foi assim que amarrei o
+título do Parque Gelain na transação errada, e é por isso que 0 de 96 pagamentos de folha
+fechavam — a folha de junho saiu pelo Inter e não havia como saber quem recebeu.
+
+## O que o `chavePixRecebedor` provou
+
+O Jordan disse que eu tinha mentido ao afirmar que as 49 chaves PIX eram CPF. Ele estava
+certo, e o extrato enriquecido mostra com nome e sobrenome:
+
+```
+Loide Gonzaga Flores       chave = loideflores@hotmail…   E-MAIL
+Thiago da Silva Maquine    chave = +5592991310344         TELEFONE
+Conceição Lima dos Santos  chave = +5592982795332         TELEFONE
+Nailson Garcia Gomes       chave = 00341609226            CPF
+```
+
+Eu havia medido `employees.pix_key` (cadastro) e apresentado como fato sobre pagamento. São
+coisas diferentes. **O extrato é a fonte; o cadastro não é.** De quebra: o Nailson, que o
+cadastro dizia não ter chave, recebe por CPF há meses.
+
+## O reprocessamento
+
+3.518 de 4.373 linhas enriquecidas (80%). Chave de casamento: **(data, valor, nome
+normalizado)** — a descrição sozinha não serve, porque o histórico veio de `csv_import` num
+formato (`Pix enviado: "Cp :123-Fulano`) e a API devolve outro (`Fulano`). Só (data, valor)
+dava 46%, porque os PIX de R$32 colidem. Com o nome normalizado, 91% ficam únicos.
+
+459 ambíguas e 286 sem par ficaram intocadas.
+
+## E então eu quebrei o sync ⚠️
+
+Trocar o endpoint mudou o formato da `descricao` — **e a descrição entra na chave de dedup de
+`inter_transactions`**. O sync das 12:00 reinseriu tudo: **47 linhas duplicadas, R$1.497,79**.
+
+**Quem pegou foi o oráculo do extrato**, comparando com o saldo do próprio banco: nosso
+extrato dizia R$7.055,48 e o Inter dizia R$5.397,69 — diferença de **R$1.657,79**, que bate
+ao centavo com as 47 duplicatas mais um lote de R$160. Sem o oráculo, isso viraria
+divergência silenciosa de saldo, do tipo que aparece meses depois sem ninguém saber a origem.
+
+As 47 foram removidas depois de conferir que nenhuma era referenciada por razão, recebível ou
+pagável.
+
+**Não consertei mexendo na dedup**, embora fosse o lugar "certo". O comentário da própria
+ponte registra que esse defeito já aconteceu antes; a memória do projeto registra **duas
+tentativas de trocar aquela dedup, ambas revertidas por duplicarem em produção**. Não é lugar
+de mexer às pressas.
+
+A correção separa as responsabilidades: `get_statement` volta ao endpoint simples (dedup
+intacta) e nasce `get_statement_completo`, usado **só para enriquecer linha existente**. Beat
+às 08:20, entre o sync (08:00) e a conciliação (08:30).
+
+## A lição, que é minha
+
+No adendo 4 eu escrevi que casar por texto é frágil. No dia seguinte introduzi uma duplicação
+de R$1.497,79 exatamente por não desconfiar de um campo de texto numa chave de dedup.
+
+Saber a regra não é aplicá-la. O que salvou não foi eu lembrar — foi **o oráculo que compara
+com o saldo do próprio banco**, escrito ontem justamente para não depender de eu lembrar.
+
+**Corolário para quem vier depois:** ao trocar o endpoint de uma integração, verificar SEMPRE
+se algum campo do retorno participa de chave de deduplicação. O formato muda sem aviso e o
+efeito não aparece na chamada — aparece no dia seguinte, no saldo.
