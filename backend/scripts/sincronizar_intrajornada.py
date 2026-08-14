@@ -41,6 +41,22 @@ prova", e a janela aqui é ter folha no mês.
 ela vence: ela cruza cadastro, folha da competência certa E batidas observadas — três
 fontes, não uma. Este script serve para ACHAR divergência e levar a ele, não para decidir.
 
+🔴 CASO VIVO, 14/08/2026 — A MAIARA. Ela mudou do Ideal Flores para o Villa Dei Fiori em
+09/08, em definitivo, e o Jordan decidiu que ela PASSA A RECEBER o adicional: no Dei Fiori
+todos os agentes de portaria recebem. O cadastro dela está em `true` e ela bate 2 vezes.
+
+    Se você rodar este script hoje, ele vai querer voltá-la para `false` — e vai estar
+    "certo" pela regra que ele conhece: a folha de 07/2026 dela é do Ideal Flores, onde
+    ninguém recebe, e não tem verba 0030/0031. A DECISÃO É MAIS NOVA QUE A COMPETÊNCIA.
+
+Ela já recebeu o adicional de fevereiro a maio/2026 e parou em junho; agora volta a receber.
+Então nem "nunca recebeu" serve de pista aqui. Antes de aplicar, confira a lista de alvos
+contra transferências recentes de posto — mudança de posto muda a regra ANTES de a folha
+mostrar, e este script só enxerga a folha.
+
+E o inverso também vale: a partir da competência em que o adicional for pago a ela, o script
+volta a concordar sozinho. O buraco é só a janela entre a decisão e o pagamento.
+
 Ensaio é o padrão. Aplicar: --aplicar. Acima do teto de 10: --forcar.
 
     docker exec -e PYTHONPATH=/app conecta-pro-backend \\
