@@ -1280,7 +1280,7 @@ async def _build_gp(db: AsyncSession) -> dict:
         lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")]))
     await safe("ponto", tbl("Ponto eletrônico", f"{n_punch} batidas", "Registrar",
         ["Colaborador", "Data/Hora", "Tipo", "Status"], "2fr 1.2fr 1fr 0.9fr",
-        "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp AT TIME ZONE 'America/Manaus','DD/MM HH24:MI'), coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—') "
+        "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp,'DD/MM HH24:MI'), coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—') "
         "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id ORDER BY p.punch_timestamp DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t((r[2] or "—").replace("_", " ")), b("OK", "ok") if (r[3] or "").lower() in ("valid", "aprovado", "ok", "approved") else b(r[3] or "—", "info")]))
     # Fechamento de ponto / espelho (Portaria 671) — leitura real de gp_monthly_closings (controle legal)

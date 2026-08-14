@@ -77,7 +77,7 @@ FIM_JANELA_NOTURNO = time(7, 0)    # noturno aceita batida até D+1 07:00; madru
 
 # Batida válida = não rejeitada/cancelada; COALESCE protege status NULL
 # (NOT IN com NULL excluiria a linha silenciosamente).
-_PUNCH_VALIDO = "COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')"
+_PUNCH_VALIDO = "COALESCE(cp.status, '') NOT IN ('facial_reprovado')"
 
 # Turno que conta como "esperado" no dia
 _SHIFT_ESPERADO = (

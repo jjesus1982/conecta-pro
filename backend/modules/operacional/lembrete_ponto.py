@@ -75,7 +75,7 @@ WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
   AND NOT EXISTS (
     SELECT 1 FROM gp_clock_punches cp
     WHERE cp.employee_id = e.id
-      AND coalesce(cp.status,'') NOT IN ('rejected','cancelado')
+      AND coalesce(cp.status,'') NOT IN ('facial_reprovado')
       AND cp.punch_timestamp BETWEEN
             ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time - interval '1 hour')
         AND ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time + interval '12 hours')

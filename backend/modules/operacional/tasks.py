@@ -348,7 +348,7 @@ def briefing_operacional_matinal(self):
                 # ── b2) PRESENÇA AGORA (escala × batidas reais) ───────────────
                 # Mesmas fontes do quadro /operacional/presenca/hoje, via SQL
                 # direto (sem importar o controller): gp_clock_punches + shifts.
-                # Batida válida = status fora de ('rejected','cancelado'); COALESCE
+                # Batida válida = status fora de ('facial_reprovado'); COALESCE
                 # protege status NULL. "Em andamento" = agora (hora LOCAL de
                 # Manaus — punch_timestamp é UTC no banco (converter); planned_* é hora local Manaus)
                 # dentro da janela planejada, com braço específico p/ turno
@@ -363,7 +363,7 @@ def briefing_operacional_matinal(self):
                                 SELECT COUNT(*), COUNT(DISTINCT employee_id)
                                 FROM gp_clock_punches
                                 WHERE (punch_timestamp)::date = :hoje
-                                  AND COALESCE(status, '') NOT IN ('rejected', 'cancelado')
+                                  AND COALESCE(status, '') NOT IN ('facial_reprovado')
                                 """
                             ),
                             {"hoje": hoje},
@@ -413,7 +413,7 @@ def briefing_operacional_matinal(self):
                                       SELECT 1 FROM gp_clock_punches cp
                                       WHERE cp.employee_id = sh.employee_id
                                         AND (cp.punch_timestamp)::date = :hoje
-                                        AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
+                                        AND COALESCE(cp.status, '') NOT IN ('facial_reprovado')
                                   )
                                 ORDER BY p.name
                                 """
@@ -835,7 +835,7 @@ def vigia_ausencia(self):
                             SELECT 1 FROM gp_clock_punches gp
                             WHERE gp.employee_id = s.employee_id
                               AND (gp.punch_timestamp)::date = :hoje
-                              AND COALESCE(gp.status, '') NOT IN ('rejected', 'cancelado')
+                              AND COALESCE(gp.status, '') NOT IN ('facial_reprovado')
                           )
                         """
                     ),

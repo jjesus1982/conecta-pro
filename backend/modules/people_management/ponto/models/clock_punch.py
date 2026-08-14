@@ -32,6 +32,24 @@ class ClockPunchType(enum.StrEnum):
 
 
 class ClockPunchStatus(enum.StrEnum):
+    """Vocabulário REAL da coluna gp_clock_punches.status.
+
+    Até 14/08/2026 este enum declarava só normal/atraso/antecipado/fora_local/
+    offline/sync_ok/sync_error — e NÃO declarava `pending` nem `approved`, que
+    juntos são 7.885 das 8.017 linhas da tabela. Modelo e dado nunca se falaram,
+    e é daí que nasceram os 9 filtros que excluíam 'cancelado'/'rejected',
+    valores que a coluna jamais teve.
+
+    Ciclo de vida: a batida nasce PENDING e vira APPROVED na conferência (hoje
+    feita no portal do Sólides). Os demais são marcadores de exceção sobre esse
+    ciclo, não etapas dele.
+    """
+
+    # ciclo de vida
+    PENDING = "pending"          # nasce assim — aguardando conferência
+    APPROVED = "approved"        # conferida (hoje o sync do Tangerino traz assim)
+    # marcadores de exceção
+    FACIAL_REPROVADO = "facial_reprovado"  # selfie não bateu — NÃO é prova de presença
     NORMAL = "normal"
     ATRASO = "atraso"
     ANTECIPADO = "antecipado"

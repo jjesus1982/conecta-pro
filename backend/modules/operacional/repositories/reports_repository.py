@@ -142,7 +142,7 @@ class ReportsRepository:
                              punch_type,
                              ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
                       FROM gp_clock_punches
-                      WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
+                      WHERE COALESCE(status,'') NOT IN ('facial_reprovado')
                         AND (punch_timestamp)::date
                             BETWEEN :ini AND :fim
                     ),
@@ -197,7 +197,7 @@ class ReportsRepository:
                      punch_type,
                      ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS rn
               FROM gp_clock_punches
-              WHERE COALESCE(status,'') NOT IN ('rejected','cancelado')
+              WHERE COALESCE(status,'') NOT IN ('facial_reprovado')
                 AND (punch_timestamp)::date
                     BETWEEN :ini AND :fim
             ),

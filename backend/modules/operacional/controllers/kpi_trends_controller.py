@@ -230,7 +230,7 @@ async def get_performance_scores(
                               SELECT 1 FROM gp_clock_punches gp
                               WHERE gp.employee_id = s.employee_id
                                 AND (gp.punch_timestamp)::date = s.shift_date
-                                AND COALESCE(gp.status,'') NOT IN ('rejected','cancelado')))
+                                AND COALESCE(gp.status,'') NOT IN ('facial_reprovado')))
                         ) AS presentes_30d
                     FROM employees e
                     WHERE e.status = 'ativo'

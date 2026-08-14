@@ -315,9 +315,14 @@ async def _presenca_30d(db: AsyncSession) -> Presenca30d:
                                  SELECT 1
                                  FROM gp_clock_punches cp
                                  WHERE cp.employee_id = sh.employee_id
-                                   AND (cp.punch_timestamp AT TIME ZONE 'UTC'
-                                        AT TIME ZONE 'America/Manaus')::date = sh.shift_date
-                                   AND COALESCE(cp.status, '') NOT IN ('rejected', 'cancelado')
+                                   -- punch_timestamp JÁ está em hora de Manaus (medido
+                                   -- 14/08: created_at UTC e punch_timestamp da MESMA
+                                   -- linha diferem exatos 4,00h). A conversão dupla que
+                                   -- havia aqui subtraía 4h de um horário já local e
+                                   -- jogava batida de madrugada para o dia anterior —
+                                   -- justamente no turno noturno.
+                                   AND cp.punch_timestamp::date = sh.shift_date
+                                   AND COALESCE(cp.status, '') NOT IN ('facial_reprovado')
                              )
                            THEN 1 ELSE 0
                        END
