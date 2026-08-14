@@ -59,12 +59,15 @@ GRUPOS = [
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),
         ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda"),
         ("ronda-transicao", "Andamento da ronda")]),
-    ("g-comunicacao", "Comunicação", "Comunicados e notificações", [
-        ("comunicados", "Comunicados"), ("notificacoes", "Notificações"),
+    # Saíram "notificacoes" e "notificacoes-marcar-todas": o menu do operacional oferecia
+    # duas entradas que este builder não entrega. "notificacoes" é tela do _build_meu_espaco
+    # (outro módulo) e "notificacoes-marcar-todas" não existe em builder nenhum. Clicar em
+    # qualquer uma abria tela vazia — o mesmo "Aguardando dado" que já derrubou este módulo.
+    ("g-comunicacao", "Comunicação", "Comunicados e alertas", [
+        ("comunicados", "Comunicados"),
         ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
-        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"),
-        ("notificacoes-marcar-todas", "Marcar todas lidas")]),
+        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta")]),
 ]
 
 
