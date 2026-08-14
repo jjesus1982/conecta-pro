@@ -96,6 +96,25 @@ def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
     return cond
 
 
+#: O container não respondeu — e isso NÃO é o mesmo que "a checagem reprovou".
+#:
+#: Aprendido na marra em 14/08/2026: outra sessão iniciou um deploy no meio de uma execução
+#: do gate, o backend estava sendo recriado, e TODO `docker exec` falhou. O gate contou os
+#: sete oráculos como vermelhos e imprimiu "0/7 verdes" — um retrato assustador e falso, no
+#: mesmo minuto em que `fiscal_painel` passava quando rodado à mão.
+#:
+#: É literalmente a regra que a ordem de fechamento manda seguir: *ausência de resposta não é
+#: prova de defeito*. Cinco sessões deployam neste host; o container SOME de tempos em
+#: tempos, e um critério de aceite que confunde as duas coisas mente na hora exata em que
+#: alguém está olhando.
+_INFRA = ("Error response from daemon", "No such container", "is restarting",
+          "is not running", "Cannot connect to the Docker daemon", "RWLayer of container")
+
+
+def _infra_caiu(saida: str) -> bool:
+    return any(m in saida for m in _INFRA)
+
+
 def _rodar(script: str, precisa_banco: bool = False) -> str:
     """Roda uma trava e devolve stdout+stderr.
 
@@ -143,7 +162,12 @@ def _q(sql: str, **p) -> list[list[str]]:
          "conecta_pro", "-tAF", "|", "-c", sql],
         capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
-        raise RuntimeError(f"psql falhou: {r.stderr.strip()[:300]}")
+        erro = r.stderr.strip()[:300]
+        if _infra_caiu(erro):
+            raise RuntimeError(
+                f"o Postgres não respondeu ({erro}). Provável deploy de outra sessão em "
+                f"curso — rode de novo. Ausência de resposta não é prova de defeito.")
+        raise RuntimeError(f"psql falhou: {erro}")
     return [ln.split("|") for ln in r.stdout.strip().splitlines() if ln.strip()]
 
 
@@ -352,6 +376,9 @@ def _c7_beats() -> tuple[bool, str]:
         saida = _rodar("checar_beats.py", precisa_banco=True)  # precisa do celery_app registrado
     except Exception as e:  # noqa: BLE001
         return False, f"não rodou: {e}"
+    if _infra_caiu(saida):
+        return False, ("NÃO VERIFICADO: o container não respondeu — provável deploy em curso. "
+                       "Ausência de resposta não é prova de defeito; rode de novo")
     m = re.search(r"(\d+)\s+achado", saida)
     n = int(m.group(1)) if m else (0 if "0 achado" in saida or "nenhum" in saida.lower() else -1)
     if n < 0:
@@ -376,6 +403,11 @@ def _c9_travas() -> tuple[bool, str]:
         # que `ecac_controller` tem as rotas todas, e `path` é o sufixo que o helper recebe.
         # É a limitação documentada do grep (subestima f-string, superestima concatenação),
         # não defeito. Contar isso deixaria a condição 9 vermelha para sempre por engano.
+        if _infra_caiu(saida):
+            detalhe.append(f"{script.replace('checar_', '').replace('.py', '')}: NÃO VERIFICADO "
+                           "(container mudo — deploy em curso?)")
+            total += 1
+            continue
         n = sum(1 for ln in saida.splitlines()
                 if any(p in ln for p in MEU) and "${" not in ln
                 and ("CRITICO" in ln or "x /api/v1/" in ln))
@@ -395,14 +427,23 @@ def _c10_oraculos() -> tuple[bool, str]:
     orq = os.path.join(BASE, "scripts/orq")
     testes = sorted(a for a in os.listdir(orq)
                     if re.search(r"(fiscal|contabil|esocial)", a) and a.endswith(".py"))
-    vermelhos = []
+    vermelhos, mudos = [], []
     for t in testes:
         r = subprocess.run(
             ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
              "python3", f"/app/scripts/orq/{t}"],
             capture_output=True, text=True, timeout=600)
-        if r.returncode != 0:
-            vermelhos.append(t.replace("test_oraculo_", "").replace("test_", "").replace(".py", ""))
+        nome = t.replace("test_oraculo_", "").replace("test_", "").replace(".py", "")
+        if r.returncode == 0:
+            continue
+        if _infra_caiu(r.stdout + r.stderr):
+            mudos.append(nome)      # o container não respondeu — não é veredito
+        else:
+            vermelhos.append(nome)
+    if mudos:
+        return False, (f"NÃO VERIFICADO: o container não respondeu em {len(mudos)} de "
+                       f"{len(testes)} ({', '.join(mudos)}) — provável deploy de outra sessão "
+                       f"em curso. Ausência de resposta não é prova de defeito; rode de novo")
     return not vermelhos, f"{len(testes) - len(vermelhos)}/{len(testes)} verdes" + (
         f" · vermelhos: {', '.join(vermelhos)}" if vermelhos else "")
 
