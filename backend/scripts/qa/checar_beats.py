@@ -126,13 +126,23 @@ def _analisar(tree) -> list[tuple[str, str]]:
                     continue
                 importados[local] = no.module
 
-        # `c = C(...)` para saber de que classe é a variável
+        # `c = C(...)` para saber de que classe é a variável.
+        # ⚠️ SÓ VALE SE `C` FOR CLASSE. Na primeira execução isto acusou `r.get()`,
+        # `result.items()` e `engine.connect()` — variáveis que vêm de FUNÇÃO (`r = apurar()`,
+        # `engine = create_engine()`), onde a variável é o RETORNO, não uma instância. Eram 6
+        # dos 9 achados: dois terços de ruído. Tipo de retorno de função não dá para saber
+        # estaticamente, então aqui a gente cala.
         if isinstance(no, ast.Assign) and isinstance(no.value, ast.Call):
             f = no.value.func
             if isinstance(f, ast.Name) and f.id in importados and len(no.targets) == 1:
                 alvo = no.targets[0]
                 if isinstance(alvo, ast.Name):
-                    instancias[alvo.id] = f.id
+                    try:
+                        origem = getattr(importlib.import_module(importados[f.id]), f.id, None)
+                    except Exception:  # noqa: BLE001
+                        origem = None
+                    if inspect.isclass(origem):
+                        instancias[alvo.id] = f.id
 
     # camada 3 — `c.metodo(...)` existe e aceita os argumentos?
     for no in ast.walk(tree):

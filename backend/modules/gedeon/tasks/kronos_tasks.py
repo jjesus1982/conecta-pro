@@ -20,15 +20,17 @@ def kronos_verificacao_diaria(self):
     import asyncio
 
     try:
-        from modules.gedeon.agents.kronos import KronosAgent
+        # `KronosAgent` NUNCA EXISTIU — a classe é `Kronos`, e o método é
+        # `executar_verificacao_diaria`, não `..._completa`. O beat morreu 12× por dia de
+        # 11/08 a 14/08 com ImportError, e o vigia de certidão e ASO ficou cego três dias.
+        from modules.gedeon.agents.kronos import Kronos
 
-        kronos = KronosAgent()
-        result = asyncio.run(kronos.executar_verificacao_completa())
+        kronos = Kronos()
+        result = asyncio.run(kronos.executar_verificacao_diaria())
         logger.info(
-            "KRONOS diário: %d certidões, %d ASOs, %d alertas publicados",
+            "KRONOS diário: %d certidões, %d ASOs com alerta",
             result.get("certidoes_alerta", 0),
             result.get("asos_alerta", 0),
-            result.get("eventos_publicados", 0),
         )
         return result
     except Exception as exc:
@@ -45,10 +47,16 @@ def themis_verificacao_assinaturas(self):
     import asyncio
 
     try:
-        from modules.gedeon.agents.themis import ThemisAgent
+        # Dois defeitos aqui, não um: a classe é `Themis` (não `ThemisAgent`) E o método
+        # EXIGE uma AsyncSession. Só renomear a classe trocaria ImportError por TypeError.
+        from core.database.session import async_session_factory
+        from modules.gedeon.agents.themis import Themis
 
-        themis = ThemisAgent()
-        result = asyncio.run(themis.verificar_e_alertar())
+        async def _run():
+            async with async_session_factory() as db:
+                return await Themis().verificar_e_alertar(db)
+
+        result = asyncio.run(_run())
         logger.info(
             "THEMIS: %d pendentes, %d críticos",
             result.get("total_pendentes", 0),
@@ -75,18 +83,28 @@ def fiscal_verificar_certidoes(self):
             # Busca certidões do GED e verifica vencimentos
             from sqlalchemy import text
 
-            from core.database import get_sync_db
+            from core.database.session import get_sync_db
 
+            # 🔴 A CONSULTA ANTERIOR NUNCA RODOU. Lia `ged_documents` — que tem ZERO
+            # linhas — e pedia as colunas `tipo`, `data_vencimento` e `is_active`, que
+            # aquela tabela não tem (são `document_type`, `valid_until`, `deleted_at`).
+            # Não é regressão: é código que nunca executou, escrito contra um schema
+            # imaginado. Mesmo com o import consertado, morria em UndefinedColumn.
+            #
+            # As certidões vivem em `ged_certidoes` (10 linhas), e o próprio docstring do
+            # KRONOS já dizia isso: "ged_certidoes: id, name, document_type, expiry_date".
+            # Uso a MESMA fonte que ele — duas fontes para a mesma pergunta viram duas
+            # verdades. Não tem `client_id`: certidão aqui é da EMPRESA (cnpj), não do
+            # cliente, então `cliente_id` fica None em vez de inventar vínculo.
             with get_sync_db() as db:
                 rows = db.execute(
                     text(
-                        "SELECT id::text, tipo, data_vencimento, client_id::text "
-                        "FROM ged_documents "
-                        "WHERE document_type IN ('certidao','cnd','cndt','crf') "
-                        "AND is_active = true "
-                        "AND data_vencimento IS NOT NULL "
-                        "AND data_vencimento <= CURRENT_DATE + interval '30 days' "
-                        "ORDER BY data_vencimento ASC LIMIT 200"
+                        "SELECT id::text, document_type, expiry_date, cnpj "
+                        "FROM ged_certidoes "
+                        "WHERE expiry_date IS NOT NULL "
+                        "  AND coalesce(alerta_ativo, true) "
+                        "  AND expiry_date <= CURRENT_DATE + interval '30 days' "
+                        "ORDER BY expiry_date ASC LIMIT 200"
                     )
                 ).fetchall()
 
@@ -95,7 +113,8 @@ def fiscal_verificar_certidoes(self):
                     "id": r[0],
                     "tipo": r[1],
                     "data_vencimento": str(r[2]),
-                    "cliente_id": r[3],
+                    "cliente_id": None,
+                    "cnpj": r[3],
                 }
                 for r in rows
             ]
@@ -124,7 +143,7 @@ def verificar_kits_completos(self):
     try:
         from sqlalchemy import text
 
-        from core.database import get_sync_db
+        from core.database.session import get_sync_db
 
         with get_sync_db() as db:
             user_row = db.execute(
