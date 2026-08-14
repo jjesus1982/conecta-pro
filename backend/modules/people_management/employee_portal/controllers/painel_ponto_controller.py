@@ -15,7 +15,12 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.database.session import get_sync_db_dependency
-from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
+from modules.people_management.ponto.coorte_ponto import (
+    APRENDIZADO_DESDE,
+    SQL_NAO_AUSENTE_HOJE,
+    SQL_PADRAO_BATIDAS,
+    montar_aprendizado,
+)
 
 router = APIRouter(prefix="/painel-ponto", tags=["Painel Ponto (público, token)"])
 
@@ -114,6 +119,15 @@ def painel(
         .all()
     )
 
+    # Padrão aprendido: a MESMA regra que o monitor do DP usa — mora em
+    # `ponto/coorte_ponto.py`, junto da coorte, porque três superfícies precisam da mesma
+    # resposta e três cópias viram três verdades.
+    padrao = db.execute(
+        text(SQL_PADRAO_BATIDAS.format(coorte=_COHORT)),
+        {"desde": APRENDIZADO_DESDE},
+    ).mappings().all()
+    aprendizado = montar_aprendizado(padrao)
+
     agora = db.execute(text("SELECT to_char(now() AT TIME ZONE 'America/Manaus', 'HH24:MI:SS')")).scalar()
     total = len(funcionarios)
     return {
@@ -128,5 +142,7 @@ def painel(
         },
         "funcionarios": funcionarios,
         "feed": [dict(x) for x in feed],
+        "aprendizado": aprendizado,
+        "alertas": aprendizado["alertas"],
         "atualizado_em": agora,
     }

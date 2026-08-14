@@ -232,10 +232,36 @@ def monitor(
         f"ORDER BY p.punch_timestamp DESC LIMIT 15"
     )).mappings().all()
 
+    # Padrão aprendido — MESMA fonte do painel público (`ponto/coorte_ponto.py`). O DP
+    # precisa ver isto aqui dentro, não só no link sem login: é aqui que ele corrige o
+    # cadastro do posto quando a divergência aparecer.
+    from modules.people_management.ponto.coorte_ponto import (  # noqa: PLC0415
+        APRENDIZADO_DESDE,
+        SQL_PADRAO_BATIDAS,
+        montar_aprendizado,
+    )
+
+    # O `_COHORT` deste módulo não qualifica as colunas (`status=`, não `e.status=`), e o
+    # SQL do padrão faz JOIN com `posts` — sem o alias, `status` fica ambíguo. Qualifico
+    # aqui em vez de mexer no `_COHORT`, que é usado por outras cinco queries sem JOIN.
+    _coorte_e = (
+        _COHORT.replace("status=", "e.status=")
+        .replace("coalesce(is_homologacao", "coalesce(e.is_homologacao")
+        .replace("(tipo_contrato=", "(e.tipo_contrato=")
+        .replace("tipo_contrato IS", "e.tipo_contrato IS")
+    )
+    padrao = db.execute(
+        text(SQL_PADRAO_BATIDAS.format(coorte=_coorte_e)),
+        {"desde": APRENDIZADO_DESDE},
+    ).mappings().all()
+    aprendizado = montar_aprendizado(padrao)
+
     agora = db.execute(text("SELECT to_char(now() AT TIME ZONE 'America/Manaus', 'HH24:MI:SS')")).scalar()
     return {
         "ativacao": ativacao,
         "batidas_hoje": dict(b),
         "feed": [dict(x) for x in feed],
+        "aprendizado": aprendizado,
+        "alertas": aprendizado["alertas"],
         "atualizado_em": agora,
     }
