@@ -8,6 +8,7 @@ Regra de ouro: dinheiro que SAI e transmissão legal = GATED (só visibilidade).
 Nunca fabricar dado — vazio real = tabela honesta "aguardando dado".
 Ver auditoria/parity/DIVISAO_3T.md + BRIEFING_T4.md.
 """
+from datetime import date as _date, timedelta as _timedelta
 import re
 from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: F401
 from sqlalchemy import text  # noqa: F401
@@ -955,6 +956,39 @@ ORDER BY b.comp DESC, b.cnpj"""
                    for k, v in sorted(_por_dia.items(), key=lambda x: str(x[0]), reverse=True)][:8]
     _tot_vt = sum(float(r[3] or 0) for r in _dia if r[2] == "vt_vr" and r[4] == "a_revisar")
     _tot_di = sum(float(r[3] or 0) for r in _dia if r[2] == "diaria_mensal" and r[4] == "a_revisar")
+    # Documentos de diarista: lista geral + extrato e recibo POR LINHA. O periodo sai
+    # do mes corrente por padrao (regra da rota); para outra competencia, os botoes
+    # levam o intervalo na URL — foi o que o Jordan pediu ao querer julho fechado.
+    _p_ini = (_date.today().replace(day=1) - _timedelta(days=1)).replace(day=1)
+    _p_fim = _date.today().replace(day=1) - _timedelta(days=1)
+    _qs = f"?inicio={_p_ini.isoformat()}&fim={_p_fim.isoformat()}"
+    _dl = (await db.execute(text(
+        "SELECT d.id, d.nome, coalesce(d.cpf,'') AS cpf, "
+        "       coalesce(nullif(d.pix,''),'(SEM CHAVE PIX)') AS pix, "
+        "       count(*) AS dias, sum(l.valor)::numeric(12,2) AS total "
+        "  FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id "
+        " WHERE l.status = 'lancado' AND l.data BETWEEN :a AND :b "
+        " GROUP BY d.id, d.nome, d.cpf, d.pix ORDER BY d.nome"),
+        {"a": _p_ini, "b": _p_fim})).fetchall()
+    out["documentos-diaristas"] = {
+        "title": f"Diaristas — documentos ({_p_ini:%m/%Y})",
+        "sub": ("Lista de pagamento do mês fechado, extrato individual e recibo para assinatura. "
+                "O extrato mostra dia a dia com posto, turno e valor; o recibo traz o valor por "
+                "extenso e a linha de assinatura. Nenhum deles paga nada."),
+        "cta": "—", "type": "table", "searchHint": "Buscar diarista…",
+        "grid": "0.5fr 2fr 1fr 1.6fr 0.5fr 1fr",
+        "cols": ["ID", "Diarista", "CPF", "Chave PIX", "Dias", "Total"],
+        "rows": [{"cells": [t(str(r[0])), t(r[1]), t(r[2]), t(r[3]), t(str(r[4])), t(brl(r[5]))],
+                  "docs": [doc("Extrato (PDF)", f"/api/v1/financial/diaristas/{r[0]}/extrato/pdf{_qs}", fmt="pdf"),
+                           doc("Recibo (PDF)", f"/api/v1/financial/diaristas/{r[0]}/recibo/pdf{_qs}", fmt="pdf")]}
+                 for r in _dl] or [{"cells": [t("—"), t("Nenhuma diária no mês fechado"), t("—"), t("—"), t("—"), t("—")]}],
+        "docs": [doc(f"Lista de pagamento {_p_ini:%m/%Y} (PDF)",
+                     f"/api/v1/financial/diaristas/relatorio/pdf{_qs}", fmt="pdf")],
+        "panels": [{"title": "Resumo do mês fechado", "rows": [
+            {"left": "Diaristas", "right": str(len(_dl)), **S["info"]},
+            {"left": "Dias trabalhados", "right": str(sum(r[4] for r in _dl)), **S["info"]},
+            {"left": "Total a pagar", "right": brl(sum(float(r[5]) for r in _dl)), **S["ok"]}]}],
+    }
     out["pagamentos-diaristas"] = {
         "title": "Diaristas — lote a pagar (VT/VR + diária)",
         "sub": "Pendente de pagamento (a_revisar/sem_pix). Pague em 'Pagar diaristas' informando a DATA da linha "

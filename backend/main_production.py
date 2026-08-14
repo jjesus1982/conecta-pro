@@ -817,7 +817,12 @@ try:
     api_router.include_router(relatorios_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Relatórios"])
     if nfse_entrada_router:
         api_router.include_router(nfse_entrada_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - NFS-e Entrada"])
-    logger.info("Modulo Financeiro: OK (17 routers)")
+    from modules.financial.controllers.diaristas_relatorio_controller import (
+        router as diaristas_doc_router,
+    )
+    api_router.include_router(diaristas_doc_router, dependencies=[_FIN_GATE], prefix="/financial",
+                              tags=["Financial - Diaristas (documentos)"])
+    logger.info("Modulo Financeiro: OK (18 routers)")
 except Exception as e:
     logger.warning(f"Modulo Financeiro: {e}")
 

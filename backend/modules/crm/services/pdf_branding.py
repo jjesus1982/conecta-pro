@@ -381,9 +381,17 @@ def header_footer(
     canvas.restoreState()
 
 
-def marca_canvas(canvas, *, titulo: str | None = None, pagesize=A4, subtitulo: str | None = None) -> float:
+def marca_canvas(canvas, *, titulo: str | None = None, pagesize=A4, subtitulo: str | None = None,
+                 empresa: dict | None = None) -> float:
     """Desenha o cabeçalho da marca (logo cheia + título + réguas) num canvas.Canvas direto.
-    Para geradores que NÃO usam SimpleDocTemplate (comprovante, NF-e). Retorna o y abaixo do header."""
+    Para geradores que NÃO usam SimpleDocTemplate (comprovante, NF-e). Retorna o y abaixo do header.
+
+    `empresa` escolhe o CNPJ do cabeçalho (use `_BRANDING_POR_SLUG`). Omitido = CNPJ1, e os
+    28 geradores que já chamam esta função seguem byte-idênticos. Existe porque a
+    identidade multi-CNPJ estava pronta e dormente: um relatório de diaristas — que são
+    prestadores da PATRIMONIAL — saía carimbado com o CNPJ da Eletrônica.
+    """
+    EMPRESA = empresa or globals()["EMPRESA"]  # noqa: N806 — sombra deliberada e local
     w, h = pagesize
     canvas.saveState()
     canvas.setFillColor(LARANJA)
@@ -409,7 +417,9 @@ def marca_canvas(canvas, *, titulo: str | None = None, pagesize=A4, subtitulo: s
     return h - 44 * mm
 
 
-def rodape_canvas(canvas, *, pagesize=A4, pagina: int | None = None) -> None:
+def rodape_canvas(canvas, *, pagesize=A4, pagina: int | None = None,
+                  empresa: dict | None = None) -> None:
+    EMPRESA = empresa or globals()["EMPRESA"]  # noqa: N806 — ver marca_canvas
     """Rodapé oficial da marca num canvas.Canvas direto."""
     w, _h = pagesize
     canvas.saveState()
