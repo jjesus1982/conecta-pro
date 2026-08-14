@@ -324,7 +324,7 @@
 .rd-panel-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 .rd-panel-row + .rd-panel-row { border-top: 1px solid var(--fill); }
 .rd-panel-row .l { font-size: 12.5px; color: #334155; min-width: 0; }
-.rd-pill { font-weight: 700; font-size: 10.5px; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.rd-pill { font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
 
 .rd-tbl-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
 .rd-tbl-scroll { overflow-x: auto; }
@@ -334,7 +334,7 @@
    saía "COMPETÊNCIACOLABORADOR", "DESCONTOSLÍQUIDO", "TRABALHADAS BATIDAS". Aparecia em toda
    tabela do redesign, não só no DP. */
 .rd-tbl-head { display: grid; gap: 10px; padding: 12px 20px; background: #F7F9FC; border-bottom: 1px solid var(--border); }
-.rd-tbl-th { font-weight: 700; font-size: 11px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em;
+.rd-tbl-th { font-weight: 700; font-size: 12px; color: var(--ink-weak); text-transform: uppercase; letter-spacing: 0.06em;
              min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* mesmo gap na linha, senão cabeçalho e conteúdo desalinham coluna a coluna */
 .rd-tbl-row { display: grid; gap: 10px; padding: 13px 20px; border-bottom: 1px solid var(--fill); align-items: center; }
