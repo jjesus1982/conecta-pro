@@ -2690,7 +2690,44 @@ async def _rd_corrigir_classificacao(current_user: CurrentActiveUser, payload: d
     }
 
 
-@router.post("/action/montar-ordem-pagamento")
+@router.post("/action/gerar-parcelas-folha", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_gerar_parcelas_folha(current_user: CurrentActiveUser, payload: dict = Body(...),
+                                   db=Depends(get_db)) -> dict:
+    """Cria as linhas de pagamento da competência, partidas em parcelas.
+
+    Simula por padrão: `dry_run` só é desligado quando o Jordan escolhe explicitamente
+    "NÃO — gravar de verdade". Criar linha de pagamento é criar dinheiro a pagar, e o
+    caminho fácil tem que ser o que não grava.
+    """
+    from modules.financial.services.ordem_pagamento_service import gerar_parcelas
+
+    comp = str(payload.get("competencia") or "").strip()
+    if not re.match(r"^\d{4}-\d{2}$", comp):
+        raise HTTPException(status_code=400, detail="Competência no formato AAAA-MM (ex.: 2026-08).")
+    dry = (str(payload.get("dry_run") or "sim").strip().lower() != "nao")
+    try:
+        pcts = [int(payload.get("pct1") or 40), int(payload.get("pct2") or 60)]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Percentuais devem ser números.")
+    datas = [str(payload.get("data1") or "").strip(), str(payload.get("data2") or "").strip()]
+    for d in datas:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+            raise HTTPException(status_code=400,
+                                detail="Informe as duas datas no formato AAAA-MM-DD.")
+    r = await gerar_parcelas(db, competencia=comp,
+                             parcelas=list(zip(pcts, datas)), dry_run=dry)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível gerar.")
+    linhas = " · ".join(f"{p['percentual']}% em {p['data_prevista']} = {brl(p['total'])}"
+                        for p in r["por_parcela"])
+    _sc = (f" ⚠️ {len(r['sem_chave'])} sem chave PIX." if r.get("sem_chave") else "")
+    prefixo = "SIMULAÇÃO (nada gravado)" if r["dry_run"] else "GRAVADO"
+    return {"ok": True, "message": (
+        f"{prefixo} — {r['pessoas']} pessoa(s), líquido {brl(r['liquido_total'])} (fonte "
+        f"{r['fonte']}). {linhas}. Postos: {', '.join(r['agrupadores'])}.{_sc}")}
+
+
+@router.post("/action/montar-ordem-pagamento", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_montar_ordem(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Monta o lote da competência. NÃO aprova e NÃO paga — só reserva os itens.
 
@@ -2702,8 +2739,14 @@ async def _rd_montar_ordem(current_user: CurrentActiveUser, payload: dict = Body
     banco = str(payload.get("banco") or "cora").strip().lower()
     if not re.match(r"^\d{4}-\d{2}$", comp):
         raise HTTPException(status_code=400, detail="Competência no formato AAAA-MM (ex.: 2026-08).")
+    try:
+        parcela = int(payload.get("parcela") or 1)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Parcela deve ser um número (1 ou 2).")
+    agrupador = (str(payload.get("agrupador") or "").strip() or None)
     quem = getattr(current_user, "email", None) or getattr(current_user, "name", None) or "sistema"
-    r = await montar_lote(db, competencia=comp, banco=banco, criado_por=str(quem))
+    r = await montar_lote(db, competencia=comp, banco=banco, criado_por=str(quem),
+                          parcela=parcela, agrupador=agrupador)
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível montar.")
     _sc = (f" ⚠️ {len(r['sem_chave'])} sem chave PIX: {', '.join(r['sem_chave'][:3])}"

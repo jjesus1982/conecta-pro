@@ -73,6 +73,38 @@ async def build_pagar(db, out: dict) -> None:
                 {"key": "banco", "label": "Banco onde vai pagar*", "type": "select", "span": "span 1",
                  "value": "cora", "options": [{"value": "cora", "label": "Cora (Patrimonial)"},
                                               {"value": "inter", "label": "Inter (Eletrônica)"}]},
+                {"key": "parcela", "label": "Parcela", "type": "select", "span": "span 1",
+                 "value": "1", "options": [{"value": "1", "label": "1ª — adiantamento (40%)"},
+                                           {"value": "2", "label": "2ª — saldo (60%)"}]},
+                {"key": "agrupador", "label": "Posto (vazio = todos num lote só)", "type": "text",
+                 "span": "span 1", "ph": "Ex.: VILLA DOS PASSAROS"},
+            ],
+        }
+        # Gerar as parcelas ANTES de montar lote: sem linha de pagamento não há o que
+        # reservar. Simula por padrão — a tela chama com dry_run e só grava quando o
+        # Jordan marca 'nao'. Criar linha de pagamento é criar dinheiro a pagar.
+        out["gerar-parcelas"] = {
+            "title": "Gerar parcelas da folha",
+            "sub": ("Lê os holerites da competência (fonte Portte, só folha mensal) e cria as "
+                    "linhas de pagamento partidas em 40% e 60%. A última parcela leva a sobra "
+                    "do arredondamento, então a soma fecha o líquido exato. Simula por padrão."),
+            "cta": "Gerar", "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/gerar-parcelas-folha",
+                       "okMsg": "Parcelas processadas."},
+            "fields": [
+                {"key": "competencia", "label": "Competência* (AAAA-MM)", "type": "text",
+                 "span": "span 1", "ph": "Ex.: 2026-08"},
+                {"key": "dry_run", "label": "Só simular?", "type": "select", "span": "span 1",
+                 "value": "sim", "options": [{"value": "sim", "label": "Sim — só mostrar"},
+                                             {"value": "nao", "label": "NÃO — gravar de verdade"}]},
+                {"key": "pct1", "label": "1ª parcela (%)", "type": "text", "span": "span 1",
+                 "value": "40"},
+                {"key": "data1", "label": "Quando sai a 1ª* (AAAA-MM-DD)", "type": "text",
+                 "span": "span 1", "ph": "Ex.: 2026-08-20"},
+                {"key": "pct2", "label": "2ª parcela (%)", "type": "text", "span": "span 1",
+                 "value": "60"},
+                {"key": "data2", "label": "Quando sai a 2ª* (AAAA-MM-DD)", "type": "text",
+                 "span": "span 1", "ph": "Ex.: 2026-09-05"},
             ],
         }
         out["aprovar-ordem"] = {
