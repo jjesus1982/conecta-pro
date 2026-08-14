@@ -1184,27 +1184,45 @@ _PUNCH_LABEL = {
 
 
 async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
-    """Próxima batida do funcionário HOJE, considerando a INTRAJORNADA do posto.
+    """Próxima batida do funcionário HOJE. Quem manda é o CONTRACHEQUE, não o posto.
 
-    Nº de batidas: 44h (escala) → sempre 4 (entrada/saída-almoço/volta/saída);
-    12x36 → 2 (entrada/saída) OU 4, conforme `posts.tem_intervalo_almoco` do posto
-    onde ele trabalha. Ex.: Villa Dei Fiore=2, Ideal Flores=4 (decisão do Jordan).
+    A REGRA, dita pelo Jordan em 14/08/2026 e ancorada no que a folha paga:
+
+        recebe adicional de INTRAJORNADA  →  NÃO faz a pausa  →  2 batidas
+        NÃO recebe o adicional            →  almoça uma hora  →  4 batidas
+
+    O nome engana e vale registrar: `recebe_intrajornada` é receber o ADICIONAL por não
+    ter o intervalo. Quem recebe bate menos, não mais.
+
+    SÁBADO é exceção: auxiliar de serviços gerais, artífice e jardineiro trabalham
+    08:00–12:00 e batem 2 vezes, sem pausa. Sem isto, todo sábado essas pessoas apareceriam
+    como divergentes no painel — e alarme que toca sempre ninguém lê.
+
+    Isto substitui `posts.tem_intervalo_almoco`, que era o critério anterior e errava por
+    construção: o intervalo é de PESSOA, não de posto. No mesmo Ideal Flores há quem almoce
+    e quem receba o adicional. Em 13/08 os NOVE postos estavam com o flag em `false`, o app
+    fechava o dia na 2ª batida e 36 pessoas não conseguiram registrar a volta do almoço.
     """
     row = (
         await db.execute(
             _sqltext(
-                "SELECT lower(coalesce(e.escala_padrao,'')), "
-                "       coalesce(p.tem_intervalo_almoco, false) "
-                "FROM employees e LEFT JOIN posts p ON p.id = e.posto_atual_id "
-                "WHERE e.id::text = :e"
+                "SELECT coalesce(e.recebe_intrajornada, false) AS recebe, "
+                "       upper(coalesce(e.cargo,'')) AS cargo, "
+                # o dia da semana vem do banco em hora de Manaus — 6 = sábado
+                "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int AS dow "
+                "FROM employees e WHERE e.id::text = :e"
             ),
             {"e": emp},
         )
     ).first()
-    escala = (row[0] if row else "") or ""
-    tem_intervalo = bool(row[1]) if row else False
-    quatro = ("44" in escala) or tem_intervalo
-    seq = _PUNCH_SEQ if quatro else _PUNCH_SEQ_2
+    recebe = bool(row[0]) if row else False
+    cargo = (row[1] if row else "") or ""
+    sabado = (int(row[2]) == 6) if row else False
+    meio_periodo_sabado = sabado and any(
+        c in cargo for c in ("SERVIÇOS GERAIS", "SERVICOS GERAIS", "ARTÍFICE", "ARTIFICE", "JARDINEIRO")
+    )
+    # recebe o adicional (não pausa) OU sábado de meio período → 2 batidas
+    seq = _PUNCH_SEQ_2 if (recebe or meio_periodo_sabado) else _PUNCH_SEQ
 
     feitas = (
         await db.execute(

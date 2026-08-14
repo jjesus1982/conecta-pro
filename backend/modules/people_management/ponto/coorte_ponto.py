@@ -90,11 +90,12 @@ SQL_PADRAO_BATIDAS = (
     "  FROM dias GROUP BY 1,2) "
     "SELECT e.id::text AS id, e.nome AS nome, m.observado AS observado, m.vezes AS vezes, "
     "       (SELECT count(*) FROM dias d WHERE d.employee_id = e.id) AS dias_medidos, "
-    "       CASE WHEN lower(coalesce(e.escala_padrao,'')) LIKE '%44%' "
-    "                 OR coalesce(po.tem_intervalo_almoco,false) THEN 4 ELSE 2 END AS esperado "
+    # MESMA regra do app (`_proxima_batida_info`): quem recebe o adicional de intrajornada
+    # não faz a pausa e bate 2; quem não recebe almoça uma hora e bate 4. Se o painel usar
+    # um critério e o app outro, o alerta acusa divergência que não existe.
+    "       CASE WHEN coalesce(e.recebe_intrajornada,false) THEN 2 ELSE 4 END AS esperado "
     "FROM employees e "
     "JOIN moda m ON m.employee_id = e.id AND m.rk = 1 "
-    "LEFT JOIN posts po ON po.id = e.posto_atual_id "
     "WHERE {coorte} ORDER BY e.nome"
 )
 
