@@ -1029,11 +1029,22 @@ ORDER BY b.comp DESC, b.cnpj"""
         # Câmera: lê o código de barras do boleto (Interleaved 2of5) e preenche o campo. NÃO paga.
         "scan": {"label": "Escanear código de barras (câmera)", "barcodeField": "codigo_barras"},
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-boleto", "gated": True,
-                   "confirm": "Isto vai PAGAR um boleto via Inter. Gerar o código OTP para o Jordan confirmar?",
-                   "okMsg": "Boleto pago."},
+                   "confirm": "Isto vai PAGAR um boleto. Confira a conta escolhida — Cora é "
+                              "a Patrimonial, Inter é a Eletrônica, são CNPJs diferentes. "
+                              "Gerar o código OTP?",
+                   "okMsg": "Boleto encaminhado."},
         "fields": [
             {"key": "codigo_barras", "label": "Código de barras / linha digitável*", "type": "text", "span": "span 2", "ph": "34191... (47-48 dígitos)"},
             {"key": "valor", "label": "Valor* (R$)", "type": "text", "span": "span 1", "ph": "1.234,56"},
+            # SEM esse campo, todo boleto ia calado para o Inter — e o texto de
+            # confirmação dizia "via Inter" como se fosse a única opção. Em 14/08/2026
+            # o Jordan tentou duas vezes pagar VT da Patrimonial e as duas ordens
+            # nasceram na Eletrônica. Sem valor pré-escolhido de propósito: a conta de
+            # onde sai o dinheiro é escolha dele, não default do sistema.
+            {"key": "origem", "label": "Pagar pela conta*", "type": "select", "span": "span 1",
+             "options": [{"value": "", "label": "— escolha —"},
+                         {"value": "cora", "label": "Cora (Patrimonial)"},
+                         {"value": "inter", "label": "Inter (Eletrônica)"}]},
             {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 1"},
             {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "ph": "Ex.: Energia, ISS, fornecedor X"},
         ],
@@ -2176,9 +2187,27 @@ async def _rd_inter_pay(db, current_user, payload, *, payment_type, categoria, d
     uid = str(getattr(current_user, "id", ""))
     otp_code = (payload.get("otp_code") or "").strip()
     ref = (payload.get("_gate_ref") or "").strip()
-    origem = (payload.get("origem") or "inter").strip().lower()
+    # De qual EMPRESA sai o dinheiro. Não tem default: em 14/08/2026 o campo não chegou
+    # no payload e o código assumiu 'inter' calado — o vale-transporte da Patrimonial
+    # virou ordem de saída da Eletrônica, duas vezes, sem ninguém escolher isso. Banco
+    # aqui é CNPJ; adivinhar CNPJ é adivinhar de quem é o dinheiro.
+    origem = (payload.get("origem") or payload.get("banco") or "").strip().lower()
     if origem not in ("inter", "cora"):
-        origem = "inter"
+        raise HTTPException(status_code=400, detail=(
+            "Escolha de qual conta sai o pagamento: Cora (Patrimonial) ou Inter "
+            "(Eletrônica). São CNPJs diferentes e o sistema não escolhe por você."))
+    # Boleto pelo Cora via API não se confirma. Medido em 13 e 14/08/2026: a ordem é
+    # aceita (pay_6uNouTktocNnlKiq5ikdbp), o Jordan aprova no app, o dinheiro NÃO sai —
+    # o saldo ficou parado em R$51.832,90 — e ao consultar, o Cora responde 404: a ordem
+    # sumiu. E não existe endpoint para listar pendências, então depois de criar ficamos
+    # CEGOS. Money-out que a gente inicia e não consegue observar não é caminho: ou paga
+    # duas vezes, ou some. Enquanto a Efí não abre, boleto da Patrimonial é no app.
+    if origem == "cora" and payment_type == "boleto":
+        raise HTTPException(status_code=400, detail=(
+            "Boleto pelo Cora não completa por API — medido em 13 e 14/08/2026: a ordem "
+            "é aceita, você aprova no app, o dinheiro não sai e depois o Cora responde "
+            "404. Pague este boleto direto no app do Cora; o extrato de amanhã registra "
+            "e concilia sozinho. (Some quando a conta Efí entrar.)"))
     # O Cora não envia PIX de saída (API do próprio banco) — bloqueia cedo, com mensagem honesta.
     if origem == "cora" and payment_type == "pix":
         raise HTTPException(status_code=400, detail=(
