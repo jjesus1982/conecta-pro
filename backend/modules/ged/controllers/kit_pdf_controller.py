@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
+from modules.gedeon.services.completude_slots import recalcular_kit_async
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["GED - Kit PDFs"])
@@ -375,6 +376,11 @@ async def generate_kit_pdfs(
                     text("UPDATE ged_kit_documents SET file_path = :fp WHERE id = :did"),
                     {"fp": path, "did": str(d["id"])},
                 )
+                # Preencher slot SEM recalcular era o defeito que mantinha a completude
+                # mentindo: maio ficou 93,7% montado anunciando 12,2%. Mesma transação de
+                # propósito — se o gravador der rollback, o percentual não pode sobreviver
+                # falando de um arquivo que não existe.
+                await recalcular_kit_async(db, d["kit_id"])
                 gerados += 1
             else:
                 erros += 1
@@ -465,6 +471,7 @@ async def generate_all_pdfs(
                         text("UPDATE ged_kit_documents SET file_path = :fp WHERE id = :did"),
                         {"fp": path, "did": str(d["id"])},
                     )
+                    await recalcular_kit_async(db, d["kit_id"])
                     gerados += 1
             except Exception:
                 pass

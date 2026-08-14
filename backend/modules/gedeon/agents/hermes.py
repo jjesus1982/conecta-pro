@@ -542,44 +542,15 @@ class Hermes:
         return True
 
     def _recalcular_completude_mes(self, db, ref_date: str) -> int:
-        """Recalcular completion_percentage para todos os kits do mês (INV-12)."""
-        from sqlalchemy import text
+        """Recalcular completion_percentage de todos os kits do mês (INV-12).
 
-        kits = db.execute(
-            text("""
-                SELECT id::text, total_documents FROM ged_document_kits
-                WHERE reference_month = CAST(:ref_date AS date)
-            """),
-            {"ref_date": ref_date},
-        ).fetchall()
+        A conta MUDOU DE CASA: mora em `services/completude_slots.py`, junto com os outros
+        dois pontos que preenchem slot. Ela vivia só aqui, e por isso o `kit_pdf_controller`
+        preenchia arquivo sem recalcular nada — maio ficou 93,7% montado anunciando 12,2%.
+        """
+        from modules.gedeon.services.completude_slots import recalcular_competencia
 
-        for kit_id, total_docs in kits:
-            if not total_docs:
-                continue
-            filled = (
-                db.execute(
-                    text("""
-                    SELECT COUNT(*) FROM ged_kit_documents
-                    WHERE kit_id = CAST(:kit_id AS uuid)
-                      AND file_path IS NOT NULL
-                      AND file_path != ''
-                """),
-                    {"kit_id": kit_id},
-                ).scalar()
-                or 0
-            )
-
-            pct = round((filled / total_docs) * 100, 2)
-            db.execute(
-                text("""
-                    UPDATE ged_document_kits
-                    SET completion_percentage = :pct, updated_at = NOW()
-                    WHERE id = CAST(:kit_id AS uuid)
-                """),
-                {"pct": pct, "kit_id": kit_id},
-            )
-
-        return len(kits)
+        return recalcular_competencia(db, ref_date)
 
     def processar_mes(self, mes_ref: str | None = None) -> dict:
         """
