@@ -95,10 +95,10 @@ def sync_pncp_oportunidades(
         sync_job = BiddingSyncJob(
             id=uuid.uuid4(),
             portal="pncp",
-            job_type="sync_oportunidades",
+            tipo="sync_oportunidades",
             status="running",
             started_at=datetime.utcnow(),
-            parameters={"uf": uf, "dias": dias, "max_paginas": max_paginas},
+            filtros_utilizados={"uf": uf, "dias": dias, "max_paginas": max_paginas},
         )
         db.add(sync_job)
         db.flush()
@@ -188,8 +188,9 @@ def sync_pncp_oportunidades(
             if job:
                 job.status = "completed"
                 job.finished_at = datetime.utcnow()
-                job.records_found = len(opportunities)
-                job.records_saved = new_count + updated_count
+                job.registros_processados = len(opportunities)
+                job.registros_novos = new_count
+                job.registros_atualizados = updated_count
 
         summary = {
             "total_found": len(opportunities),
@@ -222,7 +223,7 @@ def sync_pncp_oportunidades(
                 if job:
                     job.status = "failed"
                     job.finished_at = datetime.utcnow()
-                    job.error_message = str(e)[:500]
+                    job.erros = [str(e)[:500]]
         except Exception:
             logger.error("[BIDDING] Erro ao atualizar sync job com falha")
 
@@ -293,10 +294,10 @@ def sync_pncp_precos(
         sync_job = BiddingSyncJob(
             id=uuid.uuid4(),
             portal="pncp",
-            job_type="sync_precos",
+            tipo="sync_precos",
             status="running",
             started_at=datetime.utcnow(),
-            parameters={"uf": uf, "dias": dias},
+            filtros_utilizados={"uf": uf, "dias": dias},
         )
         db.add(sync_job)
         db.flush()
@@ -339,8 +340,8 @@ def sync_pncp_precos(
             if job:
                 job.status = "completed"
                 job.finished_at = datetime.utcnow()
-                job.records_found = len(price_data)
-                job.records_saved = saved_count
+                job.registros_processados = len(price_data)
+                job.registros_novos = saved_count
 
         summary = {
             "total_found": len(price_data),
@@ -367,7 +368,7 @@ def sync_pncp_precos(
                 if job:
                     job.status = "failed"
                     job.finished_at = datetime.utcnow()
-                    job.error_message = str(e)[:500]
+                    job.erros = [str(e)[:500]]
         except Exception:
             logger.error("[BIDDING] Erro ao atualizar sync job com falha")
 
