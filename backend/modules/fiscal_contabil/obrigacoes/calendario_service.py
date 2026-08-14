@@ -43,11 +43,25 @@ _JANELA_HISTORICO = 6
 #: Com 2, um cadastro avulso de um mês só não vira obrigação mensal eterna.
 _MIN_OCORRENCIAS = 2
 
+#: O dia vem da competência MAIS RECENTE, não da moda do histórico.
+#:
+#: A moda parece mais estável e é justamente por isso que ela erra: prazo legal MUDA, e a
+#: moda segura o valor antigo enquanto o novo for minoria. Medido em 14/08/2026 — o FGTS
+#: Digital recolhe no **dia 20**, e a guia da Portte diz "Pagar este documento até
+#: 20/08/2026". Nosso calendário criava a obrigação vencendo **dia 7**, herança da GFIP,
+#: porque cinco competências antigas com dia 7 vencem uma nova com dia 20 na votação. O
+#: resultado é pior que atrasar: o painel acusa "vencida há 7 dias" uma obrigação que ainda
+#: tem seis dias de prazo, e alarme falso ensina a ignorar alarme.
+#:
+#: Com "a mais recente", uma mudança de prazo se propaga em UM mês em vez de nunca. O preço
+#: é ficar sensível a um mês digitado errado — e esse é o lado certo de errar, porque a guia
+#: corrige o valor e o prazo aparece cedo demais, não tarde demais.
 _SQL_RECORRENTES = """
     SELECT o.tipo,
-           max(o.nome)                                          AS nome,
-           mode() WITHIN GROUP (ORDER BY extract(day FROM o.data_vencimento)::int) AS dia,
-           count(DISTINCT (o.competencia_ano, o.competencia_mes))                  AS meses
+           max(o.nome)                                                              AS nome,
+           (array_agg(extract(day FROM o.data_vencimento)::int
+                      ORDER BY o.competencia_ano DESC, o.competencia_mes DESC))[1]  AS dia,
+           count(DISTINCT (o.competencia_ano, o.competencia_mes))                   AS meses
       FROM fiscal_obligations o
      WHERE (CAST(:emp AS uuid) IS NULL OR o.empresa_id = CAST(:emp AS uuid))
        AND o.competencia_mes BETWEEN 1 AND 12
@@ -162,7 +176,30 @@ async def garantir_competencia(db, empresa_id: str, ano: int, mes: int,
     dono = await dono_da_folha(db, ano, mes)
     if dono:
         if dono != empresa_id:
-            tipos = [t for t in tipos if t["tipo"] not in _TIPOS_DE_FOLHA]
+            # ⚠️ "Não é o dono da folha" NÃO quer dizer "não emprega". A folha está
+            # REPARTIDA entre os dois CNPJs: em 07/2026 a Patrimonial tinha 51 holerites e a
+            # Eletrônica tinha **uma** trabalhadora — com guia do governo para provar (GFD
+            # FGTS 07.2026, base R$1.670, FGTS R$133,60). Podar cegamente apagaria o prazo
+            # de um tributo realmente devido, que é o pior erro que este serviço pode
+            # cometer: multa não espera.
+            #
+            # Fica quem tem LASTRO próprio no tipo — obrigação com valor, que só existe
+            # quando alguém a ancorou num documento. `hr_payslips` sozinho não basta: a
+            # trabalhadora da Eletrônica não aparece lá.
+            #
+            # ⚠️ O lastro é da competência IMEDIATAMENTE ANTERIOR, não de uma janela larga.
+            # Com seis meses de janela o teste devolvia TODOS os tributos de folha à
+            # Eletrônica, porque alcançava jan–maio, quando ela ainda tinha a folha inteira —
+            # o remédio desfazia a correção. "Empregava em algum momento do semestre" não é
+            # evidência de que emprega agora; "tinha guia no mês passado" é.
+            anterior = (ano * 12 + mes) - 1
+            com_lastro = {r[0] for r in (await db.execute(text(
+                "SELECT DISTINCT tipo FROM fiscal_obligations "
+                " WHERE empresa_id = :e AND valor_devido IS NOT NULL AND active "
+                "   AND (competencia_ano * 12 + competencia_mes) = :ant"),
+                {"e": empresa_id, "ant": anterior})).fetchall()}
+            tipos = [t for t in tipos
+                     if t["tipo"] not in _TIPOS_DE_FOLHA or t["tipo"] in com_lastro]
         else:
             # A empresa que RECEBEU a folha não tem histórico próprio desses tipos. O dia de
             # vencimento vem de como o grupo vem declarando cada um — repetir o observado,
