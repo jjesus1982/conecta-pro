@@ -403,6 +403,38 @@ QUADRO_EM_TRANSICAO = {
         # Os ASG (Graciene e Malaquias) não recebem → 4. Nada disso muda com a troca.
         "recebe_intrajornada": True,
     },
+    # VILLA DEI FIORI — a EIDY entrou de férias em 07/08 (30 dias, volta 06/09) e a MAIARA
+    # veio do Ideal Flores em 09/08, em definitivo, para o mesmo turno e a mesma perna. A
+    # substituição fecha sem buraco por isso: as duas são da perna de 15, 17, 19, 21/08.
+    "Condomínio Villa Dei Fiori": {
+        "cargo": "AGENTE DE PORTARIA",
+        "previsto": 5,
+        "saem": ["EIDY CULIER DE CASTRO"],
+        "entram": ["MAIARA MUNIZ DE SANTOS"],
+        "ja_trabalhando": True,
+        "perna": "trabalha 15/08, 17/08, 19/08, 21/08 …",
+    },
+}
+
+#: ⚠️ NÃO VOLTAM A TRABALHAR — decisão do Jordan em 14/08/2026. As duas estão de férias e o
+#: acordo de saída será feito no RETORNO, não agora. Elas seguem ATIVAS e com férias
+#: aprovadas, que é o estado correto: não há desligamento a lançar enquanto o acordo não
+#: existe, e antecipar um `termination_process` gravaria uma data que ninguém decidiu — o
+#: sistema passaria a tratá-las como reta final e a excluí-las de coisas que ainda valem.
+#:
+#: Está escrito aqui porque o efeito é de PLANEJAMENTO, não de ponto: são dois postos que
+#: precisam de reposição em datas conhecidas, e nenhuma tela hoje diz isso.
+#:
+#:   EIDY CULIER DE CASTRO      Villa Dei Fiori, noturno   volta 06/09   (a MAIARA já cobre)
+#:   FRANCISCO RAMON F. SOUZA   Laranjeiras, diurno 07:00  volta 21/08   (SEM cobertura)
+#:
+#: O Francisco Ramon é o que aperta: volta em 21/08 e a vaga fica aberta na perna que
+#: trabalha 15, 17, 19, 21/08 — a mesma perna já desfalcada no Prime.
+SAIDA_NEGOCIADA_NO_RETORNO = {
+    "EIDY CULIER DE CASTRO": {"posto": "Condomínio Villa Dei Fiori", "volta": "2026-09-06",
+                              "reposto_por": "MAIARA MUNIZ DE SANTOS"},
+    "FRANCISCO RAMON FARIAS DE SOUZA": {"posto": "Residencial Laranjeiras Village",
+                                        "volta": "2026-08-21", "reposto_por": None},
 }
 
 # ⚠️ BATIDA DE QUEM NÃO ESTÁ TRABALHANDO — achado de 14/08/2026, ainda EM ABERTO.
