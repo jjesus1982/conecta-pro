@@ -167,8 +167,18 @@ async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
               AND coalesce(employee_refused_sign, false) = false
               AND created_at < now() - interval '7 days'
         """))).scalar() or 0
-        out.append((n == 0, "disciplinar: 0 medida aplicada >7d sem ciência nem recusa",
-                    f"{n} pendente(s)"))
+        # Nem toda pendente é sanção não comunicada: as 5 de hoje são carga histórica
+        # (todas criadas em 02/07/2026, approved_at NULL, códigos de 2025-07 a 2026-05).
+        # O papel assinado provavelmente existe — o que falta é o registro dele aqui.
+        # A lacuna é real de qualquer forma: sem registro, a empresa não prova.
+        retro = (await db.execute(text("""
+            SELECT count(*) FROM disciplinary_actions
+            WHERE status::text = 'aplicada' AND employee_signed_at IS NULL
+              AND coalesce(employee_refused_sign, false) = false
+              AND approved_at IS NULL AND created_at < now() - interval '7 days'
+        """))).scalar() or 0
+        out.append((n == 0, "disciplinar: 0 medida aplicada >7d sem registro de ciência nem recusa",
+                    f"{n} sem registro" + (f" ({retro} carga histórica: anexar o papel já assinado)" if retro else "")))
 
         # 6 · APURAÇÃO — batida não-aprovada entrando no cálculo SEM marcação.
         # Não julga se pending deve contar (é regra de negócio do Jordan): julga se entra
