@@ -54,6 +54,11 @@ logger = logging.getLogger(__name__)
 # então virar. Enquanto isto for `True`, NENHUM comparador contra a Portte significa nada.
 USAR_ESPELHO_PORTTE = True
 
+#: Quanto das batidas do mês tem de ser NOSSA para o desconto de falta ser confiável. Abaixo
+#: disto o espelho não enxerga o mês inteiro e "ausência" pode ser batida no Sólides. 80% é
+#: decisão de operação: em 07/2026 a cobertura era 0,4% e em 08/2026 começou em 14% e sobe.
+COBERTURA_MINIMA_FALTAS = 0.80
+
 # ==================== TABELAS FEDERAIS ====================
 # INSS 2026: OFICIAL — Portaria Interministerial MPS/MF nº 13, vigente 01/01/2026.
 #   Mínimo federal R$1.621,00 (a CCT delega o mínimo ao Governo Federal, Cl.2ª §1º).
@@ -340,9 +345,14 @@ def calcular_folha_colaborador(
     # ESPELHO: dias trabalhados REAIS da Portte (fatia a base por FÉRIAS/admissão — a porção de
     # férias sai como verbas 0060/0061/0062 do backfill). Supersede o fator_prop nos meses do
     # espelho. Going-forward (sem linha) o motor usa o fator_prop por admissão/desligamento.
+    # ⚠️ SÃO DOIS ESPELHOS, e o segundo estava fora da chave — foi o que fez as férias
+    # sumirem. `folha_dias_espelho` guarda DIAS; quando ele tem linha, o cálculo próprio de
+    # férias (linha ~432) é pulado inteiro, porque a consulta a `hr_vacation_requests` está
+    # sob `if _dias_esp is None`. As três pessoas em férias em julho TÊM o pedido aprovado no
+    # banco — o motor só nunca chegava a olhar.
     _dias_esp = db.execute(text(
         "SELECT dias_trabalhados FROM folha_dias_espelho WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"),
-        {"e": employee_id, "a": ano, "m": mes}).scalar()
+        {"e": employee_id, "a": ano, "m": mes}).scalar() if USAR_ESPELHO_PORTTE else None
     if _dias_esp is not None:
         salario_base = _d(salario_base_full * (_d(_dias_esp) / Decimal("30")))
         _dias_pagaveis = int(round(float(_dias_esp)))
@@ -465,6 +475,66 @@ def calcular_folha_colaborador(
         (descontos if _tipo == "desconto" else proventos).append(_entry)
         if _inc:  # provento incide +; desconto que incide (faltas) reduz o salário-de-contribuição
             esp_inss_base += (-_v if _tipo == "desconto" else _v)
+
+    # ===== 1051/1053 — FALTAS e DSR sobre faltas, do NOSSO espelho de ponto =====
+    #
+    # A fonte é `time_sheets`, o espelho corrigido em 14/08 (antes ele contava o FUTURO como
+    # falta e turno CANCELADO como dia de escala; agosto caiu de 12,2 faltas médias para 1,6).
+    #
+    # 🔴 A TRAVA DE COBERTURA EXISTE PORQUE ELA IMPEDE UM ROUBO. Medido em 07/2026:
+    #
+    #     time_sheets diz          298 faltas injustificadas
+    #     a Portte descontou de      9 pessoas, R$ 835
+    #     batidas de julho:      2.236 no Sólides · 8 no Conecta PRO
+    #
+    # Em julho quase ninguém batia aqui — o rollout do ponto próprio começou em 11/08. O
+    # espelho monta turno das NOSSAS batidas, não vê as 2.236 do Sólides e chama o mês
+    # inteiro de falta. Descontar em cima disso tiraria ~R$ 18 mil de gente que trabalhou.
+    #
+    # "Fora da janela de cobertura da fonte, ausência não é prova" — e aqui a prova custa
+    # salário. Então: só desconta quando as NOSSAS batidas forem a maioria do mês daquela
+    # pessoa. Enquanto não forem, a verba não sai e o motivo fica no `aviso_faltas`, visível
+    # em vez de silencioso. Zero por falta de dado ≠ zero por ausência de falta.
+    faltas_valor = Decimal("0")
+    aviso_faltas = None
+    _cob = db.execute(text(
+        "SELECT count(*) FILTER (WHERE coalesce(device_type,'') NOT IN ('tangerino','web')) AS nosso, "
+        "       count(*) AS total "
+        "FROM gp_clock_punches WHERE CAST(employee_id AS TEXT)=:e "
+        "  AND punch_timestamp >= :ini AND punch_timestamp < :fim"),
+        {"e": employee_id, "ini": date(ano, mes, 1),
+         "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1))}).first()
+    _cobertura = (float(_cob[0]) / float(_cob[1])) if _cob and _cob[1] else 0.0
+
+    _ts = db.execute(text(
+        "SELECT coalesce(unjustified_absent_days,0), coalesce(dsr_lost_days,0) "
+        "FROM time_sheets WHERE CAST(employee_id AS TEXT)=:e "
+        "  AND reference_month=:m AND reference_year=:a "
+        "  AND coalesce(is_deleted,false)=false ORDER BY updated_at DESC NULLS LAST LIMIT 1"),
+        {"e": employee_id, "m": mes, "a": ano}).first()
+
+    if _ts and (_ts[0] or _ts[1]):
+        if _cobertura < COBERTURA_MINIMA_FALTAS:
+            aviso_faltas = (
+                f"Faltas NÃO descontadas: só {_cobertura:.0%} das batidas do mês são do "
+                f"Conecta PRO (mínimo {COBERTURA_MINIMA_FALTAS:.0%}). O espelho não enxerga "
+                f"as batidas do Sólides e marcaria como falta dia trabalhado."
+            )
+        elif not tem_espelho:
+            _vd_falta = _d(salario_base_full / Decimal("30"))
+            if _ts[0]:
+                faltas_valor = _d(_vd_falta * _d(_ts[0]))
+                descontos.append({
+                    "codigo": "1051", "descricao": "Faltas", "tipo": "desconto",
+                    "referencia": f"{_ts[0]} dia(s) sem justificativa · espelho de ponto",
+                    "valor": float(faltas_valor)})
+            if _ts[1]:
+                _dsr_falta = _d(_vd_falta * _d(_ts[1]))
+                faltas_valor += _dsr_falta
+                descontos.append({
+                    "codigo": "1053", "descricao": "DSR sobre Faltas", "tipo": "desconto",
+                    "referencia": f"{_ts[1]} DSR perdido(s) · art. 6º Lei 605/49",
+                    "valor": float(_dsr_falta)})
 
     # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
     horas_extras_valor = Decimal("0")
@@ -816,6 +886,10 @@ def calcular_folha_colaborador(
         "fonte_horas_noturnas": "pendente_ponto" if noturno_pendente_ponto else fonte_horas,
         "horas_noturnas": float(horas_not),
         "noturno_pendente_ponto": noturno_pendente_ponto,
+        # Zero por falta de dado ≠ zero por ausência de falta: quem lê o holerite precisa
+        # saber que o desconto NÃO foi apurado, e por quê.
+        "aviso_faltas": aviso_faltas,
+        "cobertura_batidas_proprias": round(_cobertura, 4),
         "aviso_noturno": (
             "Adicional noturno NÃO calculado: sem batidas de ponto no período. Feche o "
             "ponto do mês (espelho) para apurar o noturno REAL — nunca estimado."
