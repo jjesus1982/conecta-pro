@@ -165,6 +165,21 @@ async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
 
     out: list[tuple[bool, str, str]] = []
     async with async_session_factory() as db:
+        # PISO declarado pelo Jordan (operacional_apuracao_regra.piso_dado_valido):
+        # tudo anterior a 01/08/2026 serviu para VALIDAR o sistema, não é operação.
+        # O critério lê a regra do banco em vez de carregar a data no código — se o
+        # piso mudar, o aceite acompanha sem precisar de deploy.
+        try:
+            piso = (await db.execute(text(
+                "SELECT valor FROM operacional_apuracao_regra "
+                "WHERE chave='piso_dado_valido' AND ativo LIMIT 1"))).scalar()
+        except Exception:  # noqa: BLE001 — tabela ainda não existe neste ambiente
+            await db.rollback()
+            piso = None
+        # asyncpg exige objeto date no parâmetro tipado — string crua estoura
+        # com "'str' object has no attribute 'toordinal'".
+        from datetime import date as _d  # noqa: PLC0415
+        piso = _d.fromisoformat(piso) if piso else _d(1900, 1, 1)
         # 5 · DISCIPLINAR — medida aplicada há >7 dias sem ciência nem recusa formalizada.
         # O silêncio é o defeito: sanção que a empresa não prova ter comunicado.
         n = (await db.execute(text("""
@@ -173,19 +188,22 @@ async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
               AND employee_signed_at IS NULL
               AND coalesce(employee_refused_sign, false) = false
               AND created_at < now() - interval '7 days'
-        """))).scalar() or 0
+              AND created_at >= :piso
+        """), {"piso": piso})).scalar() or 0
         # Nem toda pendente é sanção não comunicada: as 5 de hoje são carga histórica
         # (todas criadas em 02/07/2026, approved_at NULL, códigos de 2025-07 a 2026-05).
         # O papel assinado provavelmente existe — o que falta é o registro dele aqui.
         # A lacuna é real de qualquer forma: sem registro, a empresa não prova.
-        retro = (await db.execute(text("""
+        antes_piso = (await db.execute(text("""
             SELECT count(*) FROM disciplinary_actions
             WHERE status::text = 'aplicada' AND employee_signed_at IS NULL
               AND coalesce(employee_refused_sign, false) = false
-              AND approved_at IS NULL AND created_at < now() - interval '7 days'
-        """))).scalar() or 0
-        out.append((n == 0, "disciplinar: 0 medida aplicada >7d sem registro de ciência nem recusa",
-                    f"{n} sem registro" + (f" ({retro} carga histórica: anexar o papel já assinado)" if retro else "")))
+              AND created_at < :piso
+        """), {"piso": piso})).scalar() or 0
+        out.append((n == 0, f"disciplinar: 0 medida aplicada >7d sem registro de ciência (desde {piso})",
+                    f"{n} sem registro"
+                    + (f" · {antes_piso} anterior(es) ao piso não contam (validação do sistema)"
+                       if antes_piso else "")))
 
         # 6 · APURAÇÃO — batida não-aprovada entrando no cálculo SEM marcação.
         # Não julga se pending deve contar (é regra de negócio do Jordan): julga se entra
@@ -198,9 +216,9 @@ async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
             regra = 0
         nao_aprov = (await db.execute(text("""
             SELECT count(*) FROM gp_clock_punches
-            WHERE punch_timestamp > now() - interval '30 days'
+            WHERE punch_timestamp > greatest(now() - interval '30 days', CAST(:piso AS timestamp))
               AND coalesce(status,'') <> 'approved'
-        """))).scalar() or 0
+        """), {"piso": piso})).scalar() or 0
         out.append((regra > 0 or nao_aprov == 0,
                     "apuração: nenhuma batida não-aprovada entra sem regra declarada",
                     f"{nao_aprov} não-aprovadas em 30d, regra declarada: {'sim' if regra else 'NÃO'}"))
