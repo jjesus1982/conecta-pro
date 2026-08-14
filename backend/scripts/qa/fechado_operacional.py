@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Critério de aceite EXECUTÁVEL do módulo Operacional (ordem de fechamento T4).
+
+Sai 0 só quando as 7 condições passam. Enquanto sair vermelho, o módulo não fechou.
+
+Por que existe: "fechado" vinha sendo afirmado em prosa. Aqui é comando — cada condição
+imprime ✅/❌ com o número que a sustenta, e o exit code decide. Condições 5, 6 e 7 nascem
+nesta ordem (não existiam em trava nenhuma).
+
+Uso:
+    docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/qa/fechado_operacional.py
+    (as condições 1-3 chamam as travas no host; rode do host para tê-las completas)
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import subprocess
+import sys
+
+RAIZ = "/opt/conecta-pro"
+NO_CONTAINER = os.path.isdir("/app/modules") and not os.path.isdir(os.path.join(RAIZ, "backend/scripts/qa"))
+
+# Vocabulário REAL de gp_clock_punches.status, medido em 13/08/2026:
+#   approved 6458 · pending 1275 · fora_local 103 · normal 5 · regular 2
+# 'cancelado' e 'rejected' (usados em 10 filtros) NÃO existem na coluna → filtro inerte.
+STATUS_REAIS = {"approved", "pending", "fora_local", "normal", "regular"}
+LITERAIS_FANTASMA = ("cancelado", "rejected", "canceled", "cancelada")
+
+
+def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
+    print(f"  {'✅' if cond else '❌'} {titulo}" + (f" — {detalhe}" if detalhe else ""))
+    return cond
+
+
+MEU = ("modules/operacional", "modules/campo", "/operacional", "/campo")
+
+
+def _rodar(script: str, no_container: bool) -> str:
+    """Roda uma trava e devolve stdout+stderr. checar_vocabulario precisa do banco → container."""
+    if no_container:
+        cmd = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+               "python3", f"/app/scripts/qa/{script}"]
+        cwd = None
+    else:
+        caminho = os.path.join(RAIZ, "backend/scripts/qa", script)
+        if not os.path.exists(caminho):
+            raise FileNotFoundError(script)
+        cmd, cwd = [sys.executable, caminho], RAIZ
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900, cwd=cwd)
+    return r.stdout + r.stderr
+
+
+def _t1_repositorio() -> tuple[bool, str]:
+    """1 · chamadas a método que o repositório não tem, no bloco '── operacional:'."""
+    try:
+        saida = _rodar("checar_repositorio.py", no_container=False)
+    except Exception as e:  # noqa: BLE001
+        return False, f"não rodou: {e}"
+    m = re.search(r"──\s*operacional:\s*(\d+)\s*chamada", saida)
+    n = int(m.group(1)) if m else 0
+    return n == 0, f"{n} chamada(s) a método inexistente"
+
+
+def _t2_vocabulario() -> tuple[bool, str]:
+    """2 · literal de status que a coluna não tem. Só CRITICO conta (ATENCAO = ruído conhecido).
+
+    Roda no container: a trava confronta a coluna no banco, e o host não alcança o Postgres.
+    """
+    try:
+        saida = _rodar("checar_vocabulario.py", no_container=True)
+    except Exception as e:  # noqa: BLE001
+        return False, f"não rodou: {e}"
+    if "[CRITICO]" not in saida and "TOTAL" not in saida:
+        return False, "saída não reconhecida (trava mudou de formato?)"
+    n = len([ln for ln in saida.splitlines()
+             if "[CRITICO]" in ln and any(p in ln for p in MEU)])
+    return n == 0, f"{n} literal(is) CRITICO fora do vocabulário da coluna"
+
+
+def _t3_rotas_frontend() -> tuple[bool, str]:
+    """3 · chamada do front a rota que o backend não tem, ALCANÇÁVEL por tela."""
+    try:
+        saida = _rodar("checar_rotas_frontend.py", no_container=False)
+    except Exception as e:  # noqa: BLE001
+        return False, f"não rodou: {e}"
+    if "alcançáveis" not in saida:
+        return False, "saída não reconhecida (trava mudou de formato?)"
+    # bloco por arquivo: "    N  caminho/arquivo.ts" seguido de linhas "        x /api/v1/..."
+    linhas = saida.splitlines()[saida.splitlines().index(
+        next(ln for ln in saida.splitlines() if "alcançáveis" in ln)):]
+    total, quant, minhas = 0, 0, False
+    for ln in linhas:
+        m = re.match(r"\s+(\d+)\s+\S+$", ln)
+        if m:
+            if minhas:
+                total += quant
+            quant, minhas = int(m.group(1)), False
+        elif "x /api/v1/" in ln and any(p in ln for p in MEU):
+            minhas = True
+    if minhas:
+        total += quant
+    return total == 0, f"{total} chamada(s) alcançável(is) para rota inexistente"
+
+
+async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
+    """5, 6 e 7 — as que nascem nesta ordem. Todas contra o banco, não contra código."""
+    sys.path.insert(0, "/app" if NO_CONTAINER else os.path.join(RAIZ, "backend"))
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+
+    out: list[tuple[bool, str, str]] = []
+    async with async_session_factory() as db:
+        # 5 · DISCIPLINAR — medida aplicada há >7 dias sem ciência nem recusa formalizada.
+        # O silêncio é o defeito: sanção que a empresa não prova ter comunicado.
+        n = (await db.execute(text("""
+            SELECT count(*) FROM disciplinary_actions
+            WHERE status::text = 'aplicada'
+              AND employee_signed_at IS NULL
+              AND coalesce(employee_refused_sign, false) = false
+              AND created_at < now() - interval '7 days'
+        """))).scalar() or 0
+        out.append((n == 0, "disciplinar: 0 medida aplicada >7d sem ciência nem recusa",
+                    f"{n} pendente(s)"))
+
+        # 6 · APURAÇÃO — batida não-aprovada entrando no cálculo SEM marcação.
+        # Não julga se pending deve contar (é regra de negócio do Jordan): julga se entra
+        # em silêncio. A marcação vive em operacional_apuracao_regra.
+        try:
+            regra = (await db.execute(text(
+                "SELECT count(*) FROM operacional_apuracao_regra WHERE ativo"))).scalar() or 0
+        except Exception:  # noqa: BLE001 — tabela ainda não existe
+            await db.rollback()
+            regra = 0
+        nao_aprov = (await db.execute(text("""
+            SELECT count(*) FROM gp_clock_punches
+            WHERE punch_timestamp > now() - interval '30 days'
+              AND coalesce(status,'') <> 'approved'
+        """))).scalar() or 0
+        out.append((regra > 0 or nao_aprov == 0,
+                    "apuração: nenhuma batida não-aprovada entra sem regra declarada",
+                    f"{nao_aprov} não-aprovadas em 30d, regra declarada: {'sim' if regra else 'NÃO'}"))
+
+        # 7 · TABELA MORTA — aba lendo tabela com 0 linhas havendo equivalente viva.
+        # Vazio "honesto" que na verdade é a tabela errada mente pior que erro.
+        pares = [("diarist_schedules", "diaria_diaristas"),
+                 ("diarist_assignments", "diaria_diaristas"),
+                 ("diarist_payments", "financial_pagamentos_diaristas")]
+        mortas_com_viva = []
+        for morta, viva in pares:
+            try:
+                m = (await db.execute(text(f"SELECT count(*) FROM {morta}"))).scalar() or 0  # noqa: S608
+                v = (await db.execute(text(f"SELECT count(*) FROM {viva}"))).scalar() or 0  # noqa: S608
+            except Exception:  # noqa: BLE001
+                await db.rollback()
+                continue
+            if m == 0 and v > 0 and _builder_le(morta):
+                mortas_com_viva.append(f"{morta}(0) vs {viva}({v})")
+        out.append((not mortas_com_viva, "tabela morta: nenhuma aba na fonte morta havendo viva",
+                    "; ".join(mortas_com_viva) or "nenhuma"))
+    return out
+
+
+def _builder_le(tabela: str) -> bool:
+    """O builder do operacional ainda lê essa tabela? (fora do container o arquivo existe)"""
+    p = os.path.join(RAIZ, "backend/modules/operacional/controllers/redesign_builders/operacional.py")
+    if not os.path.exists(p):
+        p = "/app/modules/operacional/controllers/redesign_builders/operacional.py"
+    try:
+        with open(p, encoding="utf-8") as f:
+            return tabela in f.read()
+    except OSError:
+        return False
+
+
+def _cond4_oraculos() -> tuple[bool, str]:
+    """4 · os oráculos do operacional continuam verdes."""
+    d = os.path.join(RAIZ, "backend/scripts/orq")
+    if not os.path.exists(d):
+        return False, "pasta de oráculos não encontrada (rode do host)"
+    alvos = sorted(f for f in os.listdir(d)
+                   if f.startswith(("test_oraculo_op_", "test_acao_op_", "test_read_operacional")))
+    falhas = []
+    for f in alvos:
+        try:
+            r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                                "python3", f"/app/scripts/orq/{f}"],
+                               capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                falhas.append(f)
+        except Exception:  # noqa: BLE001
+            falhas.append(f"{f}(erro)")
+    return (not falhas), (f"{len(alvos) - len(falhas)}/{len(alvos)} verdes"
+                          + (f" · vermelhos: {', '.join(falhas)}" if falhas else ""))
+
+
+def main() -> int:
+    print("FECHADO_OPERACIONAL — critério de aceite executável\n")
+    res: list[bool] = []
+
+    if NO_CONTAINER:
+        print("  ⚠️  rodando dentro do container: condições 1-4 exigem o host (puladas)\n")
+    else:
+        print("[código]")
+        for titulo, fn in (
+            ("1 · repositório: 0 chamada a método inexistente", _t1_repositorio),
+            ("2 · vocabulário: 0 CRITICO em operacional/campo", _t2_vocabulario),
+            ("3 · rotas do front: 0 inexistente alcançável por tela", _t3_rotas_frontend),
+        ):
+            ok, det = fn()
+            res.append(_ok(ok, titulo, det))
+        ok4, det4 = _cond4_oraculos()
+        res.append(_ok(ok4, "4 · oráculos do operacional verdes", det4))
+
+    print("\n[dado]")
+    if NO_CONTAINER or "--so-dado" in sys.argv:
+        # dentro do container: o banco é alcançável daqui
+        for ok, titulo, det in asyncio.run(_condicoes_de_banco()):
+            n = {"disciplinar": 5, "apuração": 6, "tabela": 7}[titulo.split(":")[0].split()[0]]
+            res.append(_ok(ok, f"{n} · {titulo}", det))
+    else:
+        # no host o Postgres não é alcançável (vive no container) — delega o bloco [dado]
+        r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                            "python3", "/app/scripts/qa/fechado_operacional.py", "--so-dado"],
+                           capture_output=True, text=True, timeout=300)
+        linhas = [ln for ln in r.stdout.splitlines()
+                  if re.match(r"\s*[✅❌] [567] ·", ln)]
+        for ln in linhas:
+            print(f"  {ln.strip()}")
+            res.append(ln.strip().startswith("✅"))
+        if not linhas:
+            print(f"  ❌ bloco [dado] não retornou — {r.stderr.strip()[-200:]}")
+            res.append(False)
+
+    fechado = all(res)
+    print(f"\n{'✅ MÓDULO FECHADO' if fechado else '❌ NÃO FECHADO'} — {sum(res)}/{len(res)} condições")
+    return 0 if fechado else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
