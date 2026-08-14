@@ -2051,7 +2051,7 @@ async def build(db) -> dict:
           SELECT employee_id, punch_timestamp AS ts, punch_type,
                  lead(punch_timestamp) OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS prox_ts,
                  lead(punch_type)      OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS prox_tp
-          FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days'),
+          FROM gp_clock_punches WHERE punch_timestamp > greatest(now() - interval '30 days', timestamp '2026-08-01')),
         par AS (SELECT employee_id, ts::date AS d, EXTRACT(EPOCH FROM (prox_ts-ts))/3600.0 AS h
                 FROM b WHERE punch_type='entrada' AND prox_tp='saida' AND prox_ts>ts
                   AND prox_ts-ts < interval '16 hours'),
@@ -2088,10 +2088,10 @@ async def build(db) -> dict:
         # não-aprovada é grande. Entrar em silêncio num número que vira hora paga é o defeito;
         # se pending deve contar é decisão do Jordan. Enquanto ela não vier, a tela declara.
         _nao_aprov = await _scalar(db,
-            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days' "
+            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > greatest(now() - interval '30 days', timestamp '2026-08-01') "
             "AND coalesce(status,'') <> 'approved'") or 0
         _total_b = await _scalar(db,
-            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > now() - interval '30 days'") or 0
+            "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp > greatest(now() - interval '30 days', timestamp '2026-08-01')") or 0
         _aviso = ""
         if _nao_aprov:
             _pct = (100.0 * _nao_aprov / _total_b) if _total_b else 0.0

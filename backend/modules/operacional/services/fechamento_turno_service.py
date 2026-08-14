@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 # errar para "sem batida" acusa alguém que trabalhou.
 TOLERANCIA_HORAS = 3
 
+# PISO: batida anterior a 01/08/2026 NÃO vale — decisão do Jordan em 14/08/2026.
+# Até 11/08 a fonte da verdade do ponto era o Sólides/Tangerino e o Conecta era espelho
+# com buracos conhecidos; a virada para 100% Conecta está sendo parametrizada agora.
+# Fechar turno de julho com esse dado seria carimbar jornada sobre base que o próprio
+# dono do processo declarou não confiável (eram 629 dos 954 turnos que fechei na
+# primeira rodada). Turno anterior ao piso fica intocado — nem completed, nem candidato.
+PISO_BATIDA = date(2026, 8, 1)
+
 # Só mexe em turno que já ACABOU. Turno de hoje ainda pode receber batida.
 _SQL_CANDIDATOS = """
 WITH s AS (
@@ -53,11 +61,13 @@ WITH s AS (
       AND coalesce(is_active, true)
       AND employee_id IS NOT NULL
       AND shift_date <= :ate
+      AND shift_date >= :piso
 ),
 b AS (
     -- punch_timestamp JÁ está em hora de Manaus (ver docstring). Nada de converter.
     SELECT employee_id, punch_timestamp AS ts, punch_type
     FROM gp_clock_punches
+    WHERE punch_timestamp >= :piso
 )
 SELECT s.id, s.employee_id, s.shift_date, s.is_off_day, s.planned_hours,
        min(b.ts) FILTER (WHERE b.punch_type = 'entrada') AS entrada,
@@ -111,7 +121,8 @@ async def fechar_turnos_por_ponto(
     """
     ate = ate or (date.today() - timedelta(days=1))
     linhas = (await db.execute(text(_SQL_CANDIDATOS),
-                               {"ate": ate, "tol": TOLERANCIA_HORAS})).fetchall()
+                               {"ate": ate, "tol": TOLERANCIA_HORAS,
+                                "piso": PISO_BATIDA})).fetchall()
 
     res = Resultado(aplicado=aplicar)
     fechar: list[tuple[str, str, object, object, float | None]] = []
