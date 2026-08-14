@@ -20,7 +20,9 @@ from modules.people_management.ponto.coorte_ponto import (
     HORAS_ENTRE_TURNOS,
     SQL_NAO_AUSENTE_HOJE,
     SQL_PADRAO_BATIDAS,
+    SQL_ULTIMO_TURNO,
     TOLERANCIA_ENTRADA_MIN,
+    folga_hoje,
     horario_entrada,
     montar_aprendizado,
 )
@@ -62,12 +64,15 @@ def painel(
                 f"  (e.primeiro_acesso_em IS NOT NULL OR e.face_descriptor IS NOT NULL) AS ativado, "
                 f"  to_char(e.primeiro_acesso_em, 'DD/MM HH24:MI') AS ativado_em, "
                 f"  coalesce(b.n, 0) AS num_batidas, b.ultima AS ultima_batida, "
-                f"  coalesce(e.cargo,'') AS cargo, coalesce(e.turno_padrao,'') AS turno "
+                f"  coalesce(e.cargo,'') AS cargo, coalesce(e.turno_padrao,'') AS turno, "
+                f"  coalesce(e.escala_padrao,'') AS escala, "
+                f"  ({hoje} - ult.ultimo_turno) AS dias_desde_turno "
                 f"FROM employees e "
                 f"LEFT JOIN ( "
                 f"  SELECT employee_id, count(*) AS n, to_char(max(punch_timestamp), 'HH24:MI') AS ultima "
                 f"  FROM gp_clock_punches WHERE punch_timestamp::date = {hoje} AND {_CONECTA} GROUP BY employee_id "
                 f") b ON b.employee_id = e.id "
+                f"{SQL_ULTIMO_TURNO} "
                 f"WHERE {_COHORT} ORDER BY e.nome"
             )
         )
@@ -76,9 +81,10 @@ def painel(
     )
 
     funcionarios = []
-    agora_hhmm, dia_semana = db.execute(text(
+    agora_hhmm, dia_semana, iso_week = db.execute(text(
         "SELECT to_char(now() AT TIME ZONE 'America/Manaus','HH24:MI'), "
-        "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int"
+        "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int, "
+        "       extract(week from (now() AT TIME ZONE 'America/Manaus'))::int"
     )).first()
 
     n_ativados = n_rosto = n_bateu = 0
@@ -99,6 +105,8 @@ def painel(
                 "ultima_batida": r["ultima_batida"],
                 "cargo": r["cargo"],
                 "turno": r["turno"],
+                "escala": r["escala"],
+                "dias_desde_turno": r["dias_desde_turno"],
             }
         )
 
@@ -108,12 +116,20 @@ def painel(
     # hora foi o que me fez apontar quatro pessoas erradas em 14/08.
     hh, mm = [int(x) for x in (agora_hhmm or "00:00").split(":")[:2]]
     agora_min = hh * 60 + mm
-    atrasados, sem_horario = [], []
+    atrasados, sem_horario, de_folga = [], [], []
     for f in funcionarios:
         if f["bateu_hoje"]:
             continue
+        # 12x36 que começou turno ONTEM está de folga hoje. Sem isto o painel chamou de
+        # atrasadas 11 das 15 pessoas em 14/08 às 09:26 — gente que não tinha que estar lá.
+        if folga_hoje(f.get("escala") or "", f.get("dias_desde_turno")):
+            de_folga.append(f["nome"])
+            continue
+        # `iso_week` decide o revezamento de fim de semana do Michelangelo. Omitir o
+        # argumento o deixava em 0, e (0 - 33) % 2 = 1 INVERTIA a escala: no sábado o painel
+        # cobraria o artífice que está de folga e daria o escalado como ausente.
         ent = horario_entrada(f["nome"], f.get("posto") or "", f.get("cargo") or "",
-                              f.get("turno") or "", dia_semana)
+                              f.get("turno") or "", dia_semana, iso_week)
         f["entrada_prevista"] = ent
         if not ent:
             sem_horario.append(f["nome"])
@@ -173,6 +189,7 @@ def painel(
             "bateram_hoje": n_bateu,
             "atrasados": len(atrasados),
             "sem_horario_parametrizado": len(sem_horario),
+            "de_folga": len(de_folga),
             "batidas_hoje": int(b["total"]),
             "contingencias_validar": int(b["validar"]),
         },
@@ -184,6 +201,7 @@ def painel(
             for a in sorted(atrasados, key=lambda x: -x["atraso_min"])
         ],
         "sem_horario_parametrizado": sem_horario,
+        "de_folga": de_folga,
         "aprendizado": aprendizado,
         "alertas": aprendizado["alertas"],
         "atualizado_em": agora,

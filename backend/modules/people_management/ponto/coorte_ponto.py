@@ -280,6 +280,60 @@ def _reveza_fds(posto: str, nome: str, dow: int, iso_week: int) -> str | None | 
     escalado = no_sabado if dow == 6 else no_domingo
     return cfg["entrada"] if (nome or "").upper().strip() == escalado else None
 
+# ─── folga do 12x36: quem trabalhou ontem NÃO está atrasado hoje ───────────────
+#
+# 🔴 DEFEITO QUE ISTO CORRIGE, medido em 14/08/2026 às 09:26 no painel de produção: dos 15
+# "atrasados", ONZE estavam de FOLGA. O alerta que o Jordan pediu para monitorar a batida
+# estava cobrando gente que não tinha que estar lá — e um alerta que grita todo dia com quem
+# está de folga é um alerta que ninguém lê na semana seguinte.
+#
+# O sistema não tem a escala do 12x36: sabe a HORA de cada um, não o DIA. A tabela `shifts`
+# existe e parecia a resposta, mas medi antes de usar e ela não serve para isto: em 7 dias
+# houve **77 dias-pessoa de gente que bateu ponto sem ter turno lançado** (30% do total).
+# Tratar "sem turno" como folga silenciaria atraso de verdade em quase um terço dos casos.
+#
+# O que serve é a própria batida, medida DIREITO. A primeira medição que fiz dizia que a
+# alternância não existia — 190 casos de "bateu ontem e hoje" contra 130 de "bateu ontem e
+# folgou hoje" — e estava errada pelo mesmo motivo de sempre: o NOTURNO bate em dois dias de
+# calendário (entra 18:00 de um dia, sai 06:00 do outro). Medindo por INÍCIO DE TURNO, com o
+# mesmo corte de 14h do aprendizado, a alternância aparece limpa:
+#
+#     dias entre inícios de turno (12x36, 21 dias):  2 dias → 246   4 → 16   1 → 7   3 → 4
+#
+# 246 de 278 (88,5%) em exatamente 2 dias. A regra: **turno começou ontem → folga hoje**.
+#
+# ponytail: heurística, não escala. Erra nos 7 casos de 1 dia (troca de plantão) e deixa de
+# cobrar quem trocou de turno com o colega. Trocar por `shifts` no dia em que o operacional
+# lançar turno para todo mundo — a consulta de aceite está no comentário acima: se
+# `bateu_sem_escala` zerar, a escala virou fonte melhor que esta conta.
+#
+# Usa TODOS os devices de propósito, inclusive `tangerino`: até 11/08 as pessoas batiam no
+# Sólides, e ignorar aquilo faria todo mundo parecer "sem turno recente" na primeira semana.
+SQL_ULTIMO_TURNO = """
+  LEFT JOIN (
+    SELECT employee_id, max(d) AS ultimo_turno FROM (
+      SELECT employee_id, punch_timestamp::date AS d,
+             punch_timestamp - lag(punch_timestamp)
+               OVER (PARTITION BY employee_id ORDER BY punch_timestamp) AS gap
+      FROM gp_clock_punches
+      WHERE punch_timestamp >= (now() AT TIME ZONE 'America/Manaus')::date - 30
+        AND punch_timestamp < (now() AT TIME ZONE 'America/Manaus')::date
+    ) x WHERE gap IS NULL OR gap > interval 'HORAS_ENTRE_TURNOS hours'
+    GROUP BY employee_id
+  ) ult ON ult.employee_id = e.id
+"""
+SQL_ULTIMO_TURNO = SQL_ULTIMO_TURNO.replace("HORAS_ENTRE_TURNOS", str(HORAS_ENTRE_TURNOS))
+
+
+def folga_hoje(escala: str, dias_desde_turno: int | None) -> bool:
+    """O 12x36 que começou turno ONTEM está de folga hoje — não é atraso.
+
+    Só vale para 12x36: o 44h trabalha de segunda a sábado e um dia não prevê o outro.
+    Sem batida recente (`None`) NÃO é folga — some dado não pode tirar ninguém da conta.
+    """
+    return "12x36" in (escala or "").lower() and dias_desde_turno == 1
+
+
 # ─── quadro em transição ───────────────────────────────────────────────────────
 #
 # O quadro CERTO de um posto não está no banco: o banco tem quem já foi cadastrado. Quando
