@@ -34,14 +34,19 @@ GRUPOS = [
         ("banco-horas-aprovar", "Aprovar horas"), ("banco-horas-rejeitar", "Rejeitar horas"),
         ("banco-horas-compensar", "Compensar horas"), ("banco-horas-editar", "Editar horas"),
         ("banco-horas-excluir", "Excluir horas")]),
-    ("g-diaristas", "Diaristas", "Diárias, cadastro, escala e fechamento", [
-        ("diarias", "Lançar diárias"), ("diaristas", "Diaristas"), ("diaristas-escala", "Escala diaristas"),
-        ("diarista-escala-criar", "Escalar diarista"), ("diaria-excluir", "Excluir diária"),
-        ("diarista-assignment-criar", "Alocar diarista"), ("diarista-assignment-cancelar", "Cancelar alocação"),
-        ("diaristas-fechamento", "Fechamento"), ("lancar-diaria", "Lançar diária"),
-        ("cadastrar-diarista", "Cadastrar diarista"), ("diarista-ativar", "Ativar diarista"),
-        ("diarista-desativar", "Desativar diarista"), ("diarista-avaliar", "Avaliar diarista"),
-        ("diarista-fechamento", "Gerar fechamento")]),
+    # Diaristas: só o que toca dado VIVO (diaria_* + financial_pagamentos_diaristas).
+    # Saíram 8 itens que operavam o universo diarist_* — 3 linhas de teste em `diarists`
+    # (UUID) contra 51 diaristas reais em diaria_diaristas (integer): espaços de id
+    # diferentes, nenhuma dessas ações jamais alcançaria uma pessoa real.
+    #   diarista-ativar/desativar/avaliar, diarista-escala-criar, diarista-fechamento,
+    #   diarista-assignment-criar/cancelar, diaristas-escala
+    # A pior era "Gerar fechamento": criava DiaristPayment em tabela que ninguém paga —
+    # sensação de fechamento feito sobre dinheiro que não fecha. Os endpoints continuam
+    # de pé (nada apagado); apenas não são mais oferecidos até decisão do Jordan.
+    ("g-diaristas", "Diaristas", "Diárias, cadastro e fechamento", [
+        ("diarias", "Lançar diárias"), ("diaristas", "Diaristas"),
+        ("lancar-diaria", "Lançar diária"), ("cadastrar-diarista", "Cadastrar diarista"),
+        ("diaria-excluir", "Excluir diária"), ("diaristas-fechamento", "Fechamento")]),
     ("g-disciplina", "Disciplina & RH", "Disciplinar, medidas e reembolsos", [
         ("disciplinar", "Disciplinar"), ("medidas-administrativas", "Medidas admin."),
         ("reembolsos", "Reembolsos"), ("medida-assinar", "Assinar medida"),

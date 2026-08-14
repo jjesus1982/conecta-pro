@@ -163,16 +163,42 @@ async def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     return out
 
 
+def _fonte(nome: str) -> str:
+    base = (RAIZ + "/backend" if os.path.isdir(RAIZ + "/backend") else "/app")
+    return f"{base}/modules/operacional/controllers/redesign_builders/{nome}"
+
+
 def _builder_le(tabela: str) -> bool:
-    """O builder do operacional ainda lê essa tabela? (fora do container o arquivo existe)"""
-    p = os.path.join(RAIZ, "backend/modules/operacional/controllers/redesign_builders/operacional.py")
-    if not os.path.exists(p):
-        p = "/app/modules/operacional/controllers/redesign_builders/operacional.py"
+    """Alguma ABA OFERECIDA no menu é montada em cima dessa tabela?
+
+    Mencionar a tabela no arquivo não basta para condenar: handler de ação fora do
+    menu pode citá-la sem que ninguém veja. O defeito é a tela que o gerente ABRE
+    estar sentada numa fonte morta. Então olha só os blocos out["slug"] = ... e só
+    os slugs que o menu realmente oferece.
+    """
     try:
-        with open(p, encoding="utf-8") as f:
-            return tabela in f.read()
+        with open(_fonte("operacional.py"), encoding="utf-8") as f:
+            src = f.read()
+        with open(_fonte("_op_grupos.py"), encoding="utf-8") as f:
+            menu = f.read()
     except OSError:
         return False
+    for m in re.finditer(r'out\["([\w-]+)"\]\s*=', src):
+        slug, ini = m.group(1), m.end()
+        if f'("{slug}"' not in menu:  # aba não oferecida no menu → não é a tela de ninguém
+            continue
+        # janela = daqui até a PRÓXIMA aba. Fronteira exata sob qualquer aninhamento
+        # de try/except. Janela fixa (1400) ou cortada no `except` vazava para os
+        # blocos vizinhos e acusava telas que nunca tocaram a tabela.
+        prox = src.find('out["', ini)
+        janela = src[ini:prox if prox > ini else len(src)]
+        # sem comentários: o critério julga o que a aba CONSULTA, não o que eu escrevi
+        # sobre ela. O comentário explicando a remoção da aba morta citava o nome da
+        # tabela e se auto-acusava.
+        codigo = "\n".join(ln for ln in janela.splitlines() if not ln.lstrip().startswith("#"))
+        if tabela in codigo:
+            return True
+    return False
 
 
 def _cond4_oraculos() -> tuple[bool, str]:

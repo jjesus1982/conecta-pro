@@ -1520,28 +1520,28 @@ async def build(db) -> dict:
                        t((r[3] or '—').capitalize()), t(_fmtdate(r[4]))])
     except Exception:  # noqa: BLE001
         pass
-    try:  # Diaristas · Escala — diarist_schedules (sem join: n=0, colunas seguras)
-        n = await _scalar(db, "SELECT count(*) FROM diarist_schedules WHERE coalesce(ativo,true)") or 0
-        out["diaristas-escala"] = await tbl(
-            "Escala de diaristas", f"{n} agendamento(s) · fonte: diarist_schedules", "—",
-            ["Data", "Início", "Fim", "Status", "Valor previsto"], "1fr 0.8fr 0.8fr 1fr 1.1fr",
-            "SELECT data_trabalho, hora_inicio, hora_fim, coalesce(status::text,'—'), valor_previsto "
-            "FROM diarist_schedules WHERE coalesce(ativo,true) ORDER BY data_trabalho DESC NULLS LAST LIMIT 200",
-            lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(str(r[1])[:5] if r[1] else '—'), t(str(r[2])[:5] if r[2] else '—'),
-                       t((r[3] or '—').capitalize()), t(brl(r[4]) if r[4] is not None else '—', 600)])
-    except Exception:  # noqa: BLE001
-        pass
-    try:  # Diaristas · Fechamento — diarist_payments
-        n = await _scalar(db, "SELECT count(*) FROM diarist_payments WHERE coalesce(ativo,true)") or 0
+    # Diaristas: o módulo tem DOIS universos. O de diarist_* (schedules/assignments/
+    # payments/evaluations) está em 0 linhas e nunca recebeu escrita — os 251 pagamentos
+    # têm schedule_id NULL, ou seja, o fluxo real nunca passou por lá. O universo VIVO é
+    # diaria_* (51 diaristas, 308 lançamentos, 10 postos) + financial_pagamentos_diaristas.
+    # Estas duas abas liam o universo morto: vazio que parecia honesto e era fonte errada.
+    # "diaristas-escala" foi REMOVIDA: lia diarist_schedules (morta) e o equivalente vivo
+    # (diaria_lancamentos) já é a aba "diarias". Duas abas para a mesma lista seria ruído.
+    try:  # Diaristas · Fechamento — financial_pagamentos_diaristas (vivo)
+        n = await _scalar(db, "SELECT count(*) FROM financial_pagamentos_diaristas") or 0
         out["diaristas-fechamento"] = await tbl(
-            "Fechamento de diaristas", f"{n} fechamento(s) · fonte: diarist_payments", "—",
-            ["Referência", "Bruto", "Líquido", "Status", "Pagamento"], "1fr 1fr 1fr 1fr 1fr",
-            "SELECT data_referencia, valor_bruto, valor_liquido, coalesce(status::text,'—'), data_pagamento "
-            "FROM diarist_payments WHERE coalesce(ativo,true) ORDER BY data_referencia DESC NULLS LAST LIMIT 200",
-            lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(brl(r[1]) if r[1] is not None else '—'),
-                       t(brl(r[2]) if r[2] is not None else '—', 600), t((r[3] or '—').capitalize()), t(_fmtdate(r[4]))])
+            "Fechamento de diaristas", f"{n} pagamento(s) · fonte: financial_pagamentos_diaristas", "—",
+            ["Referência", "Beneficiário", "Tipo", "Valor", "Status"],
+            "1fr 1.6fr 1.1fr 1fr 1fr",
+            "SELECT data_referencia, coalesce(beneficiario,'—'), coalesce(tipo,'—'), valor, "
+            "coalesce(status,'—') FROM financial_pagamentos_diaristas "
+            "ORDER BY data_referencia DESC NULLS LAST, id DESC LIMIT 200",
+            lambda r: [t(_fmtdate(r[0]), 600, "#0F1B3A"), t(r[1]), t((r[2] or '—').replace('_', ' ').capitalize()),
+                       t(brl(r[3]) if r[3] is not None else '—', 600),
+                       b((r[4] or '—').replace('_', ' ').capitalize(),
+                         "ok" if r[4] == 'pago' else ("warn" if r[4] == 'a_revisar' else "mut"))])
     except Exception:  # noqa: BLE001
-        pass
+        logger.error("redesign operacional: aba diaristas-fechamento falhou", exc_info=True)
 
     # ── Balde A: dashboards com backend REAL (cobertura via repo; kpi/relatorios via counts) ──
     try:  # Cobertura — reusa ReportsRepository.get_coverage (fidelidade com o clássico)
