@@ -202,7 +202,12 @@ def _carregar_escala_oraculo(db: Session, employee_id: str, mes: int, ano: int) 
                 "SELECT shift_date, planned_start_time, planned_end_time, "
                 "       COALESCE(planned_break_minutes,0) AS brk, COALESCE(is_off_day,false) AS off "
                 "FROM shifts WHERE CAST(employee_id AS TEXT)=:e "
-                "AND shift_date >= :ini AND shift_date < :fim"
+                "AND shift_date >= :ini AND shift_date < :fim "
+                # 🔴 TURNO CANCELADO NÃO É DIA DE ESCALA. Sem este filtro ele entrava na
+                # conta e virava FALTA: em 07/2026, AILTON aparecia com 27 faltas e 0 dias
+                # trabalhados contra 16 dias de escala real — mais faltas do que dias.
+                # 32 espelhos de julho estavam assim.
+                "AND lower(coalesce(status::text,'')) <> 'cancelled'"
             ),
             {"e": str(employee_id), "ini": date(ano, mes, 1),
              "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1))},
@@ -568,6 +573,24 @@ def calcular_espelho(
         })
 
     # Dias de escala publicada sem batida → anomalia (só com oráculo)
+    #
+    # 🔴 O ESPELHO CONTAVA O FUTURO COMO FALTA. Medido em 14/08/2026, e a aritmética fecha
+    # exata: `absent_days` = todos os dias de escala DO MÊS INTEIRO menos os turnos já
+    # trabalhados. Fechar agosto no dia 10 marcava os dias 11 a 31 como ausência.
+    #
+    #     EDWARD          escala do mês 16 · turnos 5 → 16-5 = 11 faltas anunciadas
+    #     ANTONIO DINIZ   escala do mês 15 · turnos 3 → 15-3 = 12
+    #     MALAQUIAS       escala do mês 26 · turnos 10 → 26-10 = 16
+    #
+    # Onze faltas contra sete dias de escala decorridos é impossível — e essa folha de ponto
+    # vai ASSINADA no kit que sai para o cliente. Documento trabalhista dizendo que a pessoa
+    # faltou num dia que ainda não chegou é prova contra a empresa e contra o funcionário.
+    #
+    # A regra: dia que não aconteceu não é falta, é dia que não aconteceu. Para mês passado
+    # o corte é o fim do mês e nada muda; para o mês CORRENTE, é hoje.
+    hoje_manaus = _hoje_manaus()
+    limite_falta = min(mes_fim - timedelta(days=1), hoje_manaus)
+
     absent_days = 0
     unjustified_absent = 0
     if tem_escala:
@@ -575,14 +598,24 @@ def calcular_espelho(
         for dia, info in sorted(escala_oraculo.items()):
             if info.get("is_off_day"):
                 continue
+            if dia > limite_falta:
+                continue  # ainda não aconteceu
             if dia in dias_com_turno:
+                continue
+            # A pessoa TRABALHA nesse dia? A parametrização do ponto (coorte_ponto) sabe
+            # quem bate 2× por receber intrajornada, quem está de folga no 12x36, quem faz
+            # meio período no sábado e quem se reveza no fim de semana. `shifts` não sabe
+            # nada disso — e em 7 dias houve 77 dias-pessoa batendo ponto SEM turno lançado.
+            # None de `horario_entrada` = "não trabalha hoje" ou "não sei", e nenhum dos
+            # dois pode virar falta.
+            if not _trabalha_no_dia(db, employee_id, dia):
                 continue
             motivo = _dia_coberto_por_abono(db, employee_id, dia)
             anomalias.append({
                 "type": "dia_sem_batida",
                 "date": dia.isoformat(),
                 "description": (
-                    f"Dia de escala sem nenhuma batida de ponto."
+                    "Dia de escala sem nenhuma batida de ponto."
                     + (f" Coberto por {motivo}." if motivo else " Sem justificativa.")
                 ),
                 "severity": "medium" if motivo else "high",
@@ -778,16 +811,76 @@ def _resumo_do_timesheet(ts, escala: str, *, ja_fechado: bool = False) -> dict[s
 
 # ── Fechamento e status ─────────────────────────────────────────────────────
 def _employees_com_batida(db: Session, mes: int, ano: int) -> list[str]:
+    """Quem entra no recálculo do mês: quem BATEU e quem JÁ TEM espelho.
+
+    🔴 A SEGUNDA METADE FALTAVA, e o buraco era grande: só quem tinha batida no mês era
+    reprocessado. Quem não bateu ficava com o espelho ANTIGO congelado para sempre — e é
+    justamente ele que tem o pior número. Medido em 14/08/2026: o AILTON estava com 27
+    faltas em 07/2026 contra 16 dias de escala reais, sem uma única batida no mês. Nenhum
+    recálculo o alcançava, então o número absurdo sobreviveria a qualquer correção do motor.
+
+    Incluir quem já tem espelho é o que faz uma correção de fórmula chegar em TODO MUNDO.
+    """
     rows = db.execute(
         text(
             "SELECT DISTINCT CAST(employee_id AS TEXT) AS e FROM gp_clock_punches "
             "WHERE EXTRACT(MONTH FROM (punch_timestamp))=:m AND EXTRACT(YEAR FROM (punch_timestamp))=:y "
             # Homologação NÃO entra no fechamento/folha de produção (isolamento de teste)
             "  AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
+            " UNION "
+            "SELECT DISTINCT CAST(employee_id AS TEXT) FROM time_sheets "
+            "WHERE reference_month=:m AND reference_year=:y "
+            "  AND coalesce(is_deleted,false)=false "
+            "  AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
         ),
         {"m": int(mes), "y": int(ano)},
     ).fetchall()
     return [r[0] for r in rows]
+
+
+
+def _hoje_manaus() -> date:
+    """Hoje em Manaus. A sessão do Postgres roda em UTC e o dia dela vira às 20h daqui —
+    usar `date.today()` do processo jogaria a data um dia à frente por 4 horas todo dia."""
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("America/Manaus")).date()
+
+
+def _trabalha_no_dia(db: Session, employee_id: str, dia: date) -> bool:
+    """A pessoa trabalha NESSE dia, segundo a parametrização do ponto?
+
+    Fonte única: `people_management.ponto.coorte_ponto`, a mesma que o app usa para decidir
+    quantas batidas pedir e que o painel usa para não cobrar quem está de folga. Três cópias
+    da regra viram três verdades — foi assim que a tela de férias passou meses mostrando 15
+    onde havia 19.
+
+    `horario_entrada` devolve None quando a pessoa não trabalha naquele dia da semana OU
+    quando o posto/grupo não está parametrizado. NENHUM DOS DOIS pode virar falta: concluir
+    ausência sem saber o horário foi o que apontou quatro pessoas erradas em 14/08.
+
+    Na dúvida (pessoa não encontrada, erro de import), devolve True e deixa a regra antiga
+    valer — esta função existe para TIRAR falta que não existe, nunca para criar.
+    """
+    try:
+        from modules.people_management.ponto.coorte_ponto import horario_entrada
+
+        row = db.execute(
+            text(
+                "SELECT coalesce(nome,''), coalesce(posto_atual_nome,''), "
+                "       coalesce(cargo,''), coalesce(turno_padrao,'') "
+                "FROM employees WHERE CAST(id AS TEXT) = :e"
+            ),
+            {"e": str(employee_id)},
+        ).first()
+        if not row:
+            return True
+        nome, posto, cargo, turno = row
+        # `dow` do Postgres: 0=domingo … 6=sábado. `date.weekday()`: 0=segunda … 6=domingo.
+        dow = (dia.weekday() + 1) % 7
+        return horario_entrada(nome, posto, cargo, turno, dow, dia.isocalendar().week) is not None
+    except Exception:  # noqa: BLE001 — nunca derrubar o fechamento por causa disto
+        return True
 
 
 def fechar_mes(
