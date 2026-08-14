@@ -94,3 +94,76 @@ requisição com o mesmo `externalReference`, o dinheiro sai duas vezes? Se a re
    homologação determinística), mantendo o Asaas como segunda opção já aberta.
 4. Se o Asaas responder que a transferência é idempotente **e** liberar limite maior, ele
    passa na frente — porque aí soma idempotência com validação de chave, e não perde em nada.
+
+---
+
+# Resposta específica: qual é melhor para o MÓDULO FINANCEIRO do Conecta PRO
+
+A comparação acima vale para qualquer empresa. Esta seção vale para o nosso código.
+
+## Como o módulo funciona hoje
+
+O núcleo é um laço só, e tudo que foi construído em 13/08 serve a ele:
+
+```
+extrato do banco → bank_transactions → accounting_entries → balanço/DRE
+```
+
+`extrato_para_razao.escriturar()` é **agnóstico de banco** — lê `bank_transactions` e posta
+no razão. Então um banco novo não mexe no razão: ele só precisa **pousar linhas corretas em
+`bank_transactions`**. Isso é a boa notícia.
+
+Do lado de pagar, existe o fluxo D7 (`preparar → gerar_otp → aprovar → executar`), com
+`inter_payments`, `inter_lote_otp` e `reconciled_bank_tx_id`. Um banco novo entra como mais
+um adapter dentro dele.
+
+## O que um terceiro banco custa a este módulo
+
+| item | esforço | observação |
+|---|---|---|
+| Adapter | ~150 linhas | **Efí é barata aqui**: cert+OAuth igual ao Inter. Asaas seria API key — padrão novo |
+| Sync de extrato | 190–570 linhas | Nossos moldes: Cora 191, Inter 569. **O extrato da Efí é assíncrono** (pede relatório, depois consulta) — não é igual a nenhum dos dois |
+| Conta no plano | 1 conta nova | `1.1.1.03` + entrada em `CONTA_BANCO` |
+| Webhook | infra, não código | Efí exige **mTLS por norma do Bacen** (chave pública dela no nosso servidor). Asaas seria um header |
+| Permanente | para sempre | terceiro credencial para rodar, terceiro extrato para conciliar, terceiro banco em cada oráculo e cada tela |
+
+## O que ele compra — e o que NÃO compra
+
+**Compra:** controle **antes** do pagamento sobre ~R$94 mil/mês — OTP nosso, teto diário
+nosso, propor→aprovar. É exatamente o que o Jordan pediu no começo: *"fazer todos os
+pagamentos pelo sistema, com justificativa, evitar de usar os apps do banco"*.
+
+**NÃO compra rastreabilidade.** Isso já está feito: das 91 saídas do Cora em agosto, 91 têm
+id da transação, 90 têm CPF/CNPJ do favorecido, 89 têm método e 87 já estão categorizadas. O
+dinheiro que sai pelo app já volta identificado e conciliado no dia seguinte.
+
+## Veredito
+
+**Se entrar um banco novo, que seja a Efí.** Pelo motivo já dado (idempotência é o que não se
+compensa) e por dois motivos que só valem aqui: a autenticação é a mesma do nosso
+`InterAdapter`, e a homologação determinística deixa testar a máquina de estados de folha sem
+depender de sorte — coisa que, num módulo onde eu errei duas vezes hoje por concluir rápido,
+vale mais que elegância.
+
+**Mas existe um caminho que custa zero integração e entrega a maior parte do ganho**, e eu
+seria desonesto se não o colocasse ao lado:
+
+> **Manter a folha no Cora e mover só o CONTROLE para o sistema.** O ERP monta o lote com
+> valor, favorecido e categoria, exige o OTP e o teto, o Jordan aprova **aqui**, e o sistema
+> gera a ordem para ele executar no app do Cora. O extrato do dia seguinte fecha o laço
+> sozinho pelo `transaction.id`, que já guardamos.
+
+Isso inverte o que hoje é *"executado no app, descoberto depois"* para *"aprovado no sistema,
+executado no app"* — sem adapter novo, sem sync novo, sem webhook mTLS, sem terceiro banco
+para sempre. O que perde: o clique no celular continua existindo, e nada impede um PIX feito
+por fora do lote.
+
+**Minha recomendação em ordem:**
+
+1. **Fazer o controle no Cora primeiro** — é barato, usa o que já existe e resolve o problema
+   de governança que motivou tudo isto.
+2. **Abrir a conta Efí em paralelo** e negociar o limite diário. Sem limite aprovado, ela é
+   teórica de qualquer jeito.
+3. **Migrar a folha para a Efí quando o limite estiver por escrito** — aí o passo manual
+   some de verdade, e o trabalho do item 1 não se perde: o lote, o OTP e o teto são os
+   mesmos; só troca quem executa.
