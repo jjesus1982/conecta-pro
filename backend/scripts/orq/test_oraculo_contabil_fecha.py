@@ -101,6 +101,21 @@ async def main() -> None:
         assert abs(float(d) - float(c)) < 0.01, "razão desbalanceado na origem"
         print(f"OK razão: débitos = créditos ({float(d):.2f})")
 
+        # ── 5. "Vencido" não pode incluir dívida SUSPENSA ──
+        # Em 14/08/2026 a tela somava R$140.799,11 de débitos suspensos (a reparcelar
+        # com a União) dentro de R$152.172,72 de "vencido": 93% do número era ruído,
+        # e é por esse número que se decide caixa. O filtro vive em SQL_CONTA_EM_ABERTO;
+        # este teste existe para a próxima cópia à mão não trazer o defeito de volta.
+        from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
+
+        assert "suspensa" in SQL_CONTA_EM_ABERTO, "SQL_CONTA_EM_ABERTO parou de excluir suspensa"
+        for tabela in ("receivable_accounts", "payable_accounts"):
+            n = int((await db.execute(text(
+                f"SELECT count(*) FROM {tabela} WHERE due_date < current_date "
+                f"AND {SQL_CONTA_EM_ABERTO} AND coalesce(status::text,'') = 'suspensa'"))).scalar() or 0)
+            assert n == 0, f"{tabela}: {n} conta(s) suspensa(s) sendo contadas como vencidas"
+        print("OK vencido: nenhuma dívida suspensa contada como cobrança")
+
     print("TEST oraculo_contabil_fecha PASS")
 
 

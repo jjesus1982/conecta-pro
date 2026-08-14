@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,8 +180,7 @@ async def _detectar_aging(db: AsyncSession) -> list[Achado]:
     row = (await db.execute(text(
         "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
         "WHERE due_date < current_date "
-        "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
-        "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+        f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
     n, total = int(row[0] or 0), float(row[1] or 0)
     if n == 0:
         return []
@@ -239,8 +239,7 @@ async def _detectar_pagaveis_7d(db: AsyncSession) -> list[Achado]:
     row = (await db.execute(text(
         "SELECT count(*), coalesce(sum(net_value),0) FROM payable_accounts "
         "WHERE due_date BETWEEN current_date AND current_date + 7 "
-        "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
-        "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+        f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
     n, total = int(row[0] or 0), float(row[1] or 0)
     if total < 10000:  # só alerta concentração relevante
         return []
@@ -267,7 +266,7 @@ async def _detectar_receb_grande(db: AsyncSession) -> list[Achado]:
     rows = (await db.execute(text(
         "SELECT customer_name, net_value, due_date FROM receivable_accounts "
         "WHERE due_date BETWEEN current_date AND current_date + 3 AND coalesce(net_value,0) >= 5000 "
-        "AND coalesce(status::text,'') NOT ILIKE '%pag%' AND coalesce(status::text,'') NOT ILIKE '%cancel%' "
+        f"AND {SQL_CONTA_EM_ABERTO} "
         "ORDER BY net_value DESC LIMIT 5"))).fetchall()
     out = []
     for r in rows:
@@ -1018,8 +1017,7 @@ if __name__ == "__main__":
             venc = (await db.execute(text(
                 "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
                 "WHERE due_date < current_date "
-                "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
-                "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+                f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
             achados_aging = await REGISTRY["aging_reforcado"].detectar(db)
             assert len(achados_aging) == (1 if int(venc[0]) > 0 else 0)
             if achados_aging:

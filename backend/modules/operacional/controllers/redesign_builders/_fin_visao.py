@@ -4,6 +4,7 @@ do clássico garantidos): get_cashflow_forecast, CashFlowAIService, get_dre."""
 from datetime import date as _date
 
 from modules.operacional.controllers.redesign_data_controller import S, _helpers, b, brl, t
+from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
 
 
 def _tone_status(s):
@@ -175,12 +176,11 @@ async def build_visao(db, out: dict) -> None:
         _fat_ult = float(_fatm[-1][1] or 0) if _fatm else 0.0
         _venc = (await db.execute(_text(
             "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
-            "WHERE due_date < current_date AND coalesce(status::text,'') NOT ILIKE '%pag%' "
-            "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"))).fetchone()
+            f"WHERE due_date < current_date AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
         _n_venc, _v_venc = int(_venc[0] or 0), float(_venc[1] or 0)
         _pag7 = float((await db.execute(_text(
             "SELECT coalesce(sum(net_value),0) FROM payable_accounts WHERE due_date BETWEEN current_date AND current_date+7 "
-            "AND coalesce(status::text,'') NOT ILIKE '%pag%'"))).scalar() or 0)
+            f"AND {SQL_CONTA_EM_ABERTO}"))).scalar() or 0)
         out["cockpit"] = {
             "title": "Cockpit executivo", "type": "dash", "cta": "—",
             "sub": "Visão de comando do financeiro — saldo, faturamento, recebíveis e o que precisa de atenção. Dado real, clicável.",

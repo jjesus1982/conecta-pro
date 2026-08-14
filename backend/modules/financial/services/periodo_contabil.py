@@ -34,6 +34,26 @@ ABERTURA_NO_CORTE: dict[str, float] = {
 }
 
 
+#: Fragmento SQL: o que conta como conta EM ABERTO — a perseguir, cobrar, somar
+#: em "vencido". Usar em `receivable_accounts` e `payable_accounts`.
+#:
+#: `pago` e `cancelada` sempre estiveram fora. **`suspensa` passou a ficar fora em
+#: 14/08/2026**: o Jordan mandou reparcelar todos os débitos da Eletrônica com a
+#: União, e enquanto isso eles não são cobrança — mas continuavam somando em
+#: "vencido". Eram R$140.799,11 aparecendo como dívida a perseguir de um total de
+#: R$152.172,72, ou seja, 93% do número era ruído. Quem olha a tela decide caixa
+#: por ela.
+#:
+#: Vive aqui, e não copiado em cada consulta, porque estava escrito à mão em 7
+#: lugares (visão do financeiro, tasks de notificação e 4 regras proativas) — a
+#: sétima cópia é a que ninguém lembra de atualizar.
+SQL_CONTA_EM_ABERTO = (
+    "coalesce(status::text,'') NOT ILIKE '%pag%' "
+    "AND coalesce(status::text,'') NOT ILIKE '%cancel%' "
+    "AND coalesce(status::text,'') <> 'suspensa'"
+)
+
+
 def periodo_fechado(d: date | None) -> bool:
     """True se a data cai em período fechado (antes do corte).
 

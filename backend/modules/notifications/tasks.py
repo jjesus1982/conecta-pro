@@ -8,6 +8,7 @@ duplica e fecha buracos de evento perdido. Só leitura nas fontes; nunca dispara
 import logging
 
 from celery_app import app
+from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ def reconciliar_alertas_task(self):
                 text(
                     "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
                     "WHERE due_date < current_date "
-                    "AND coalesce(status::text,'') NOT ILIKE '%pag%' "
-                    "AND coalesce(status::text,'') NOT ILIKE '%cancel%'"
+                    f"AND {SQL_CONTA_EM_ABERTO}"
                 )
             )
         ).fetchone()
