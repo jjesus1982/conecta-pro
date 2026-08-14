@@ -30,6 +30,7 @@ from modules.financial.services.ledger_auto_service import _raw_db_url
 from modules.financial.services.periodo_contabil import periodo_fechado
 from modules.financial.services.plano_contas_caixa import (
     CONTA_BANCO,
+    CONTA_BANCO_POR_CODIGO,
     contrapartida_entrada,
     contrapartida_saida,
 )
@@ -65,7 +66,8 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                        -- empresa vem da CONTA, não da transação: o Inter é da
                        -- Eletrônica e o Cora é da Patrimonial. Sem isso o
                        -- lançamento nasce sem CNPJ e some do balancete escopado.
-                       ba.empresa_id::text AS empresa_id
+                       ba.empresa_id::text AS empresa_id,
+                       ba.bank_code AS bank_code
                 FROM bank_transactions b
                 JOIN bank_accounts ba ON ba.id = b.bank_account_id
                 WHERE NOT EXISTS (
@@ -92,7 +94,8 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     # de "fechar julho" virando "ignorar julho".
                     pulados["periodo_fechado"] += 1
                     continue
-                conta_banco = CONTA_BANCO.get(r["conta_id"] or "")
+                conta_banco = (CONTA_BANCO.get(r["conta_id"] or "")
+                               or CONTA_BANCO_POR_CODIGO.get(r["bank_code"] or ""))
                 if not conta_banco:
                     pulados["conta_bancaria_desconhecida"] += 1
                     continue

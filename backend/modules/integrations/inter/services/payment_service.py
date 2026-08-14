@@ -191,10 +191,10 @@ class InterPaymentService:
             text("""
                 INSERT INTO inter_payments
                     (id, payment_type, destinatario, valor, data_pagamento,
-                     status, prepared_by, observacoes, categoria, created_at, updated_at)
+                     status, prepared_by, observacoes, categoria, banco, created_at, updated_at)
                 VALUES
                     (:id, :pt, cast(:dest as jsonb), :valor, :dp,
-                     'preparado', :pb, :obs, :cat, NOW(), NOW())
+                     'preparado', :pb, :obs, :cat, :banco, NOW(), NOW())
             """),
             {
                 "id": payment_id,
@@ -205,6 +205,7 @@ class InterPaymentService:
                 "pb": prepared_by,
                 "obs": observacoes,
                 "cat": (categoria or "outro"),
+                "banco": origem,
             },
         )
         await self._audit(payment_id, prepared_by, None, "preparado", "preparado por usuário")
@@ -349,7 +350,7 @@ class InterPaymentService:
             (
                 await self.db.execute(
                     text("""
-                SELECT id, status, payment_type, destinatario, valor, data_pagamento
+                SELECT id, status, payment_type, destinatario, valor, data_pagamento, banco
                 FROM inter_payments WHERE id = :id FOR UPDATE
             """),
                     {"id": payment_id},
@@ -391,14 +392,20 @@ class InterPaymentService:
         inter_response: dict = {}
         inter_payment_id: str | None = None
         erro: str | None = None
-        origem = (dest.get("_origem") or "inter").lower()  # 'inter' (padrão) | 'cora'
+        # A coluna manda; o `_origem` no jsonb é como as 43 linhas antigas guardavam isso
+        # antes da coluna existir, e continua valendo para elas.
+        origem = (row["banco"] or dest.get("_origem") or "inter").lower()
 
         try:
             if origem == "cora":
                 inter_response, inter_payment_id = await _chamar_cora(
                     self.db, payment_type, dest, valor, data_pgto, code=payment_id)
-            else:
+            elif origem == "inter":
                 inter_response, inter_payment_id = await _chamar_inter(payment_type, dest, valor, data_pgto)
+            else:
+                # Antes, QUALQUER valor desconhecido caía no else e ia pelo Inter — um typo
+                # em `origem` pagava pelo banco errado, de outro CNPJ. Agora falha.
+                raise PaymentError(f"banco sem executor: {origem!r} (payment_id={payment_id})")
         except Exception as exc:
             erro = str(exc)
             logger.error("D7 executar: banco (%s) falhou payment_id=%s: %s", origem, payment_id, exc)

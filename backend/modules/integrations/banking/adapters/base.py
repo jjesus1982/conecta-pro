@@ -57,6 +57,11 @@ class PaymentStatus(StrEnum):
     FAILED = "FALHOU"
     CANCELLED = "CANCELADO"
     SCHEDULED = "AGENDADO"
+    #: Pix liquidado que VOLTOU. Não é FAILED (o dinheiro chegou a sair) nem
+    #: CANCELLED (ninguém cancelou) — é um estado depois de COMPLETED, e sem ele
+    #: uma devolução só aparece como saldo que não bate. A Efí devolve (status
+    #: DEVOLVIDO) e a homologação dela gera devolução de propósito.
+    RETURNED = "DEVOLVIDO"
 
 
 @dataclass

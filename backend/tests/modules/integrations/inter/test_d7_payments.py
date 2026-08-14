@@ -387,6 +387,41 @@ async def test_inter_payments_check_constraint_status():
 
 
 @pytest.mark.asyncio
+async def test_executar_banco_desconhecido_nao_paga_pelo_inter(mock_db):
+    """Banco fora do catálogo NÃO pode cair no Inter — tem que falhar.
+
+    Até 14/08/2026 o roteador era `if origem == 'cora': ... else: Inter`. Qualquer
+    valor inesperado — um typo, um banco novo meio-configurado — pagava pelo Inter,
+    que é de OUTRO CNPJ. O dinheiro sairia da empresa errada e o erro só apareceria
+    na conciliação. Este teste existe para esse `else` não voltar.
+    """
+    from modules.integrations.inter.services.payment_service import InterPaymentService, PaymentError
+
+    resultado = MagicMock()
+    resultado.mappings.return_value.first.return_value = {
+        "id": "p1", "status": "aprovado", "payment_type": "pix",
+        "destinatario": {"chave": "x"}, "valor": Decimal("10.00"),
+        "data_pagamento": date.today(), "banco": "bradesco",
+    }
+    resultado.rowcount = 1
+    mock_db.execute.return_value = resultado
+
+    svc = InterPaymentService(mock_db)
+    with (
+        patch("modules.integrations.inter.services.payment_service._chamar_inter",
+              new=AsyncMock()) as inter,
+        patch("modules.integrations.inter.services.payment_service._chamar_cora",
+              new=AsyncMock()) as cora,
+        patch.object(svc, "_audit", new=AsyncMock()),
+    ):
+        with pytest.raises(PaymentError, match="banco sem executor"):
+            await svc.executar("p1", "user1")
+
+        assert not inter.called, "banco desconhecido foi pago pelo INTER — CNPJ errado"
+        assert not cora.called
+
+
+@pytest.mark.asyncio
 async def test_get_limite_diario_consumido(mock_db):
     """_get_consumido_hoje() deve chamar a SQL function e retornar Decimal."""
     from modules.integrations.inter.services.payment_service import InterPaymentService

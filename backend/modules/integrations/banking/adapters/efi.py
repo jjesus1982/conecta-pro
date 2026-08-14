@@ -49,6 +49,7 @@ from .base import (
     BankStatement,
     BankTransaction,
     BaseBankingAdapter,
+    PaymentStatus,
     TransactionType,
 )
 
@@ -65,14 +66,15 @@ SANDBOX_GATILHOS = {
     "uma_devolucao": "R$5,00 — gera UMA devolução de R$5,00",
 }
 
-#: Efí → nosso. Confirmados na página "Status das Transações".
-#: `DEVOLVIDO` existe e é terminal: um Pix liquidado PODE voltar. O desenho que
-#: recebemos não previa este estado.
+#: Efí → `PaymentStatus`, o mesmo vocabulário que Cora e BB usam. A primeira versão
+#: deste dicionário inventava strings próprias ("LIQUIDADO"), que não casavam com
+#: nada no sistema — status de pagamento em língua particular é como um pagamento
+#: confirmado no banco fica "pendente" para sempre aqui dentro.
 STATUS_EFI = {
-    "EM_PROCESSAMENTO": "PROCESSANDO",
-    "REALIZADO": "LIQUIDADO",
-    "NAO_REALIZADO": "FALHOU",
-    "DEVOLVIDO": "DEVOLVIDO",
+    "EM_PROCESSAMENTO": PaymentStatus.PROCESSING,
+    "REALIZADO": PaymentStatus.COMPLETED,
+    "NAO_REALIZADO": PaymentStatus.FAILED,
+    "DEVOLVIDO": PaymentStatus.RETURNED,
 }
 
 
@@ -175,9 +177,10 @@ class EfiAdapter(BaseBankingAdapter):
                        retryavel=r.status_code >= 500, corpo=r.text[:200])
 
     @staticmethod
-    def mapear_status(efi_status: str | None) -> str | None:
-        """Efí → nosso. Devolve None quando o status não é conhecido: inventar
-        equivalência de status de pagamento é como se marca pago o que falhou."""
+    def mapear_status(efi_status: str | None) -> PaymentStatus | None:
+        """Efí → `PaymentStatus`. Devolve None quando o status não é conhecido:
+        inventar equivalência de status de pagamento é como se marca pago o que
+        falhou."""
         return STATUS_EFI.get((efi_status or "").upper()) if efi_status else None
 
     # ── leitura ──────────────────────────────────────────────────────────────

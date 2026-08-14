@@ -23,6 +23,16 @@ CONTA_BANCO: dict[str, str] = {
 
 # Transitórias: o lançamento SEMPRE acontece; o que falta classificar fica à
 # vista numa conta própria em vez de virar omissão.
+#: Rede por CÓDIGO DE BANCO, para quando a conta é nova e ninguém lembrou de
+#: colar o uuid acima. A alternativa — cair em "conta bancária desconhecida" — é
+#: silenciosa: o dinheiro entra no extrato e não chega ao razão.
+#: Toda conta futura da Efí (364) já escritura em 1.1.1.03 sem tocar em código.
+CONTA_BANCO_POR_CODIGO: dict[str, str] = {
+    "077": "1.1.1.01",  # Inter — Eletrônica
+    "403": "1.1.1.02",  # Cora SCD — Patrimonial
+    "364": "1.1.1.03",  # Efí — Patrimonial (conta em abertura, 14/08/2026)
+}
+
 CONTA_SAIDA_A_CLASSIFICAR = "5.9.9.01"
 CONTA_ENTRADA_A_CLASSIFICAR = "4.9.9.01"
 
