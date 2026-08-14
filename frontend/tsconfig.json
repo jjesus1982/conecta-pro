@@ -41,6 +41,7 @@
     "node_modules",
     "deprecated",
     "EXAMPLES",
-    "docs"
+    "docs",
+    "src/_quarentena"
   ]
 }

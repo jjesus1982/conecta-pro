@@ -9,7 +9,6 @@ export { DocumentVersionHistory } from './DocumentVersionHistory';
 export { DocumentTagManager } from './DocumentTagManager';
 
 // Compartilhamento
-export { DocumentShareDialog } from './DocumentShareDialog';
 
 // Assinaturas
 export { DocumentSignatureDialog } from './DocumentSignatureDialog';
