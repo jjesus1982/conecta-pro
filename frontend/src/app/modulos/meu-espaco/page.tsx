@@ -968,18 +968,37 @@ function PontoTab() {
   // Reconhecimento facial: rosto de referência cadastrado (obrigatório antes de bater).
   const [faceEnrolled, setFaceEnrolled] = useState<boolean | null>(null); // null = carregando
   const [faceRef, setFaceRef] = useState<Float32Array | null>(null);
+  // Não consegui PERGUNTAR se ela tem rosto. Estado próprio, separado de "não tem".
+  const [faceIndisponivel, setFaceIndisponivel] = useState(false);
 
   const carregarFace = useCallback(async () => {
-    try {
-      const res = await api.get(`${PONTO_BASE}/facial/referencia`);
-      const enrolled = Boolean(res.data?.enrolled);
-      setFaceEnrolled(enrolled);
-      setFaceRef(enrolled && Array.isArray(res.data?.descriptor)
-        ? new Float32Array(res.data.descriptor as number[]) : null);
-    } catch {
-      setFaceEnrolled(false);
-      setFaceRef(null);
+    // 🔴 ESTE `catch` DIZIA `setFaceEnrolled(false)`. Qualquer falha em PERGUNTAR — 4G ruim
+    // na guarita às 06:00, token expirado, backend reiniciando no deploy — virava a
+    // AFIRMAÇÃO de que a pessoa não tinha rosto cadastrado. A tela pedia cadastro de novo,
+    // ela cadastrava, e o `UPDATE` SOBRESCREVIA a referência boa por uma foto tirada na
+    // virada de turno, no escuro. 14 das 47 pessoas com rosto recadastraram assim — três
+    // delas às 08:00:11, 08:00:12 e 08:00:19, a mesma virada de turno.
+    //
+    // Não sei ≠ não tem. Só uma resposta do servidor pode dizer que falta cadastro.
+    setFaceIndisponivel(false);
+    for (let i = 0; i < 3; i++) {
+      try {
+        const res = await api.get(`${PONTO_BASE}/facial/referencia`);
+        const enrolled = Boolean(res.data?.enrolled);
+        setFaceEnrolled(enrolled);
+        setFaceRef(enrolled && Array.isArray(res.data?.descriptor)
+          ? new Float32Array(res.data.descriptor as number[]) : null);
+        return;
+      } catch (e: unknown) {
+        const st = (e as { response?: { status?: number } })?.response?.status;
+        // 4xx (fora de 401) é o servidor RESPONDENDO — não adianta insistir.
+        if (st && st < 500 && st !== 401) break;
+        if (i < 2) await new Promise((rs) => setTimeout(rs, 600 * (i + 1)));
+      }
     }
+    setFaceEnrolled(null);   // continua desconhecido — a tela NÃO oferece cadastro
+    setFaceRef(null);
+    setFaceIndisponivel(true);
   }, []);
   useEffect(() => { carregarFace(); }, [carregarFace]);
 
@@ -1193,8 +1212,26 @@ function PontoTab() {
 
         {baterErro && <div className="mb-3"><ErrorBox msg={baterErro} /></div>}
 
-        {/* Cadastro obrigatório do rosto antes de liberar a batida */}
-        {faceEnrolled === false ? (
+        {/* Não consegui verificar o cadastro — NUNCA oferecer cadastro aqui: seria
+            sobrescrever a referência boa por causa de uma falha de rede. */}
+        {faceIndisponivel ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" /> Não consegui verificar seu cadastro
+            </p>
+            <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+              Provavelmente é a internet. Seu rosto continua cadastrado — não cadastre de novo.
+            </p>
+            <button onClick={carregarFace}
+              className="mt-3 w-full rounded-xl py-3 text-sm font-semibold text-white bg-[#16277D] hover:bg-[#101c5c]">
+              Tentar de novo
+            </button>
+            <button onClick={baterContingencia}
+              className="w-full text-center text-[12px] text-[hsl(var(--muted-foreground))] underline mt-2 hover:text-[hsl(var(--foreground))]">
+              Está na hora de bater — registrar para o DP validar
+            </button>
+          </div>
+        ) : faceEnrolled === false ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
             <p className="text-sm font-medium text-amber-700 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" /> Cadastre seu reconhecimento facial

@@ -180,7 +180,7 @@ def meu_espelho_pdf(
     mes: int,
     ano: int,
     current_user: User = Depends(get_current_active_user),
-    db_sync: "Session" = Depends(get_sync_db_dependency),
+    db_sync: Session = Depends(get_sync_db_dependency),
 ) -> Any:
     """PDF do espelho de ponto do funcionário logado (lido de time_sheets)."""
     from fastapi.responses import Response
@@ -1155,6 +1155,10 @@ import json as _facial_json
 class _FacialEnrollBody(BaseModel):
     descriptor: list[float] = Field(..., min_length=64, max_length=512)
     foto_base64: str | None = None
+    #: Substituir um rosto JÁ cadastrado exige dizer isso na cara. Sem esta trava, um
+    #: cliente com defeito apaga a referência boa de quem já estava funcionando — foi
+    #: exatamente o que aconteceu com 14 das 47 pessoas até 12/08/2026.
+    substituir: bool = False
 
 
 class _FacialLocation(BaseModel):
@@ -1263,8 +1267,35 @@ async def facial_cadastrar(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Cadastra/atualiza o rosto de referência do funcionário (obrigatório no onboarding)."""
+    """Cadastra o rosto de referência. NÃO sobrescreve um cadastro existente sem `substituir`.
+
+    🔴 POR QUE A TRAVA EXISTE. Até 14/08/2026 esta rota fazia um UPDATE incondicional, e o
+    app pedia cadastro toda vez que `GET /facial/referencia` falhava — o `catch` do cliente
+    tratava "não consegui perguntar" como "não tem rosto". Resultado medido: 14 das 47
+    pessoas com rosto cadastraram de novo, várias na virada de turno (três às 08:00:11,
+    08:00:12 e 08:00:19; duas às 06:29). Cada recadastro trocou a referência boa por uma
+    captura feita na guarita, no escuro — e referência ruim faz o reconhecimento falhar
+    depois, que é como a pessoa acaba batendo no Sólides.
+
+    O cliente foi corrigido. Esta trava é para o PRÓXIMO cliente: apagar biometria de
+    referência é destrutivo e não pode depender de nenhum front se comportar bem.
+    """
     emp = _employee_id(current_user)
+
+    if not body.substituir:
+        ja = (
+            await db.execute(
+                _sqltext("SELECT face_descriptor IS NOT NULL FROM employees WHERE id = :eid"),
+                {"eid": emp},
+            )
+        ).scalar()
+        if ja:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Seu rosto já está cadastrado — não precisa cadastrar de novo. "
+                       "Se não conseguir bater o ponto, use 'registrar para o DP validar'.",
+            )
+
     await db.execute(
         _sqltext(
             "UPDATE employees SET face_descriptor = :d, biometria_facial = true, "

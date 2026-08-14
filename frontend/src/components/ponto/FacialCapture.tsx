@@ -41,11 +41,15 @@ export function FacialCapture({
   threshold = 0.68,
   maxAttempts = 12,
 }: FacialCaptureProps): React.JSX.Element {
-  const { isLoading, isReady, error, videoRef, startCamera, stopCamera, captureAndDetect, compareFaces } =
+  const { isLoading, isReady, error, videoRef, startCamera, stopCamera, captureAndDetect, compareFaces, recarregarModelos } =
     useFaceDetection({ minConfidence: 0.4, inputSize: 320, scoreThreshold: 0.4 });
 
-  const [status, setStatus] = useState<Status>('idle');
-  const [message, setMessage] = useState('Toque em Iniciar');
+  // 🔴 COMECAVA EM 'idle' COM "Toque em Iniciar" — antes de os modelos sequer comecarem a
+  // baixar. O botao aparecia laranja e convidativo, mas `disabled={!isReady}`: a pessoa
+  // tocava e NADA acontecia, sem uma linha de explicacao. Isso e o "nao abriu" dos relatos
+  // da JAQUELINE e da MAIARA. Comeca em 'loading', dizendo a verdade.
+  const [status, setStatus] = useState<Status>('loading');
+  const [message, setMessage] = useState('Carregando reconhecimento facial…');
   const [faceIn, setFaceIn] = useState(false);
 
   const loopRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -174,13 +178,15 @@ export function FacialCapture({
       <p className="text-center mt-3 text-sm font-medium text-[hsl(var(--foreground))]">{message}</p>
 
       <div className="mt-3 min-h-[48px] flex items-center">
-        {status === 'idle' && (
+        {(status === 'idle' || status === 'loading') && (
           <button
             onClick={begin}
             disabled={!isReady}
-            className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A] disabled:opacity-50 flex items-center gap-2"
+            className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A] disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            <Camera className="w-5 h-5" /> Iniciar
+            {isReady
+              ? <><Camera className="w-5 h-5" /> Iniciar</>
+              : <><Loader2 className="w-5 h-5 animate-spin" /> Carregando…</>}
           </button>
         )}
         {status === 'scanning' && (
@@ -189,7 +195,14 @@ export function FacialCapture({
           </p>
         )}
         {(status === 'failed' || status === 'error') && (
-          <button onClick={begin} className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A]">
+          <button
+            onClick={() => {
+              // Se os modelos nao carregaram, reabrir a camera nao resolve nada — ela abre
+              // e nunca reconhece. Recarrega o que de fato faltou.
+              if (!isReady) { setStatus('loading'); setMessage('Carregando reconhecimento facial…'); void recarregarModelos(); }
+              else void begin();
+            }}
+            className="px-8 py-3 rounded-xl bg-[#F97316] text-white font-semibold hover:bg-[#EA6A0A]">
             Tentar de novo
           </button>
         )}

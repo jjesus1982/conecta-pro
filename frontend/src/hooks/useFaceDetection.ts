@@ -27,6 +27,7 @@ interface UseFaceDetectionOptions {
 interface UseFaceDetectionReturn {
   isLoading: boolean;
   isReady: boolean;
+  recarregarModelos: () => Promise<void>;
   error: string | null;
   result: FaceDetectionResult | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -50,6 +51,9 @@ export function useFaceDetection(
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isReady, setIsReady] = useState<boolean>(false);
+  // "Tentar de novo" precisa recarregar os MODELOS. Antes ele só reabria a câmera — e a
+  // câmera abria sem modelo nenhum, então nunca reconhecia. Laço sem saída.
+  const recarregarRef = useRef<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FaceDetectionResult | null>(null);
 
@@ -70,10 +74,19 @@ export function useFaceDetection(
 
         const MODEL_URL = '/models';
 
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        // São 6,8 MB na primeira vez (depois o ETag responde 304). Numa guarita com 4G ruim
+        // isso trava, e ANTES não havia limite nenhum: o carregamento ficava pendurado para
+        // sempre, a câmera nunca abria e a pessoa via só um círculo preto. Foi o que a
+        // JAQUELINE e a MAIARA fotografaram em 13/08.
+        await Promise.race([
+          Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+          ]),
+          new Promise((_, rej) => setTimeout(
+            () => rej(new Error('A internet está lenta e o reconhecimento facial não carregou. '
+              + 'Tente de novo ou use o botão de registrar para o DP validar.')), 45000)),
         ]);
 
         setIsReady(true);
@@ -86,6 +99,7 @@ export function useFaceDetection(
     };
 
     loadModels();
+    recarregarRef.current = loadModels;
 
     return () => {
       stopCamera();
@@ -227,6 +241,7 @@ export function useFaceDetection(
   return {
     isLoading,
     isReady,
+    recarregarModelos: () => recarregarRef.current?.() ?? Promise.resolve(),
     error,
     result,
     videoRef,
