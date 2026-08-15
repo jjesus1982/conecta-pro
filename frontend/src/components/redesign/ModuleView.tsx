@@ -557,7 +557,12 @@ function FormScreen({ scr }: { scr: any }) {
         setMsg({ ok: true, text: d.message || 'Confirme com o código OTP enviado ao e-mail do Jordan.' });
         return;
       }
-      if (!res.ok) throw new Error(d.detail || 'Não foi possível concluir.');
+      // msgErro() e não `d.detail`: o 422 do FastAPI vem como LISTA de objetos, e jogar
+      // isso num template imprime "[object Object]". O helper já existia e era usado nos
+      // outros dois pontos de submit — este, o do FORM, tinha ficado de fora. Apareceu ao
+      // tornar `regime_empresa` obrigatório em 15/08/2026: o guard que impede o número
+      // errado só ajuda se a tela disser POR QUE recusou.
+      if (!res.ok) throw new Error(msgErro(d) || 'Não foi possível concluir.');
       // honesto: mostra a mensagem REAL do backend (não inventa sucesso)
       setMsg({ ok: d.ok !== false, text: d.message || scr.submit.okMsg || 'Concluído.' });
       // Gancho de RESULTADO (opt-in scr.submit.showResult): forms de CÁLCULO devolvem escalares
