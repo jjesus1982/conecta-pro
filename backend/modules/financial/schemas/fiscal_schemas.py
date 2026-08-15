@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from modules.financial.schemas._money import Money, MoneyOpt
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1393,10 +1393,31 @@ class ComparativoRegimesRequest(BaseModel):
 
 
 class RetencoesNFSeRequest(BaseModel):
-    """Calcular retenções na fonte para NFS-e"""
+    """Calcular retenções na fonte para NFS-e.
+
+    ⚠️ `regime_empresa` é OBRIGATÓRIO, e o default que existia aqui era uma armadilha.
+    Medido no navegador em 15/08/2026: a tela rotula "Regime do emissor*", o `*` é só texto
+    e não bloqueia nada, e o schema completava sozinho com `simples_nacional`. Sem liminar os
+    dois regimes coincidem, então o buraco ficava invisível — mas com liminar marcada e
+    regime em branco o motor aplicava a liminar da **Patrimonial** a um cálculo da
+    **Eletrônica**:
+
+        sem regime + liminar pis_cofins  →  R$ 1.850,00 (liminar aplicada)
+        lucro_real + a mesma liminar     →  R$ 2.215,00 (liminar ignorada, correto)
+
+    R$365 de diferença numa nota de R$10.000, no silêncio. Retenção decide quanto o cliente
+    deposita: aqui não se completa lacuna com palpite. Sem regime, 422.
+    """
 
     valor_servico: float = Field(..., description="Valor da nota de serviço")
-    regime_empresa: str = Field(default="simples_nacional", description="simples_nacional ou lucro_real")
+    #: Sem default, mas OPCIONAL no schema de propósito — quem recusa é o endpoint, com uma
+    #: mensagem de DOMÍNIO em `detail` (string). O 422 do Pydantic devolve `detail` como
+    #: LISTA de objetos, e o front imprimia isso cru como "[object Object]" no submit de
+    #: formulário. Deixar a recusa aqui criaria dependência entre dois deploys: a validação
+    #: sobe com o backend, a mensagem legível só com o build do front. Recusar no endpoint
+    #: funciona com o front que já está no ar.
+    regime_empresa: Literal["simples_nacional", "lucro_real"] | None = Field(
+        None, description="OBRIGATÓRIO — simples_nacional (Patrimonial) ou lucro_real (Eletrônica)")
     liminares: list[str] = Field(default_factory=list)
 
 

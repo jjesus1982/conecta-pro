@@ -1680,6 +1680,23 @@ async def calcular_retencoes_nfse(
     Calcula INSS, IR, CSLL, PIS, COFINS, ISS retidos na fonte.
     Aplica liminares automaticamente.
     """
+    # ⚠️ O regime é OBRIGATÓRIO, e o default `simples_nacional` que existia no schema era uma
+    # armadilha. Sem liminar os dois regimes dão o mesmo total, então o buraco ficava
+    # invisível — mas com liminar marcada e regime em branco o motor aplicava a liminar da
+    # PATRIMONIAL a um cálculo da ELETRÔNICA (medido em 15/08/2026: R$1.850,00 contra
+    # R$2.215,00 numa nota de R$10.000). Retenção decide quanto o cliente deposita; lacuna
+    # aqui não se completa com palpite.
+    #
+    # A recusa fica AQUI, e não no schema, para a mensagem sair como STRING: o 422 do
+    # Pydantic devolve `detail` como lista de objetos e o front imprimia "[object Object]".
+    if not dados.regime_empresa:
+        raise HTTPException(
+            status_code=422,
+            detail=("Escolha o regime do emissor antes de calcular: simples_nacional "
+                    "(Patrimonial) ou lucro_real (Eletrônica). A retenção muda com o regime "
+                    "quando há liminar, e sem essa informação o valor sairia errado."),
+        )
+
     resultado = _tax_agent.calcular_retencoes_nfse(
         valor_servico=Decimal(str(dados.valor_servico)),
         regime_empresa=dados.regime_empresa,
