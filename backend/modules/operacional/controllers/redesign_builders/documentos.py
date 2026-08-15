@@ -1,11 +1,33 @@
-"""Documentos/GED (T1) — override do _build_documentos + telas kits e pastas (leitura real)."""
-from datetime import date
+"""Documentos/GED (T1) — override do _build_documentos + telas kits e pastas (leitura real).
 
-from sqlalchemy import text
+A completude do kit vem do GOOGLE DRIVE, não do banco — decisão do Jordan em 15/08/2026.
+Ver o comentário em `_visao()` para os números que motivaram.
+"""
+import asyncio
+from datetime import date, datetime
 
 from modules.operacional.controllers.redesign_data_controller import (
-    IC, S, _helpers, _scalar, b, doc, t,
+    IC,
+    S,
+    _helpers,
+    _scalar,
+    b,
+    doc,
+    t,
 )
+
+
+def _completude_drive(competencia: str) -> dict:
+    """Completude REAL do kit, lida do Google Drive.
+
+    Síncrona de propósito — a API do Drive é bloqueante. Por isso o chamador usa
+    `asyncio.to_thread`: chamar direto travaria o event loop do FastAPI e a tela inteira
+    ficaria pendurada esperando o Google.
+    """
+    from modules.gedeon.services.kit_completude_service import completude_kits
+
+    return completude_kits(competencia)
+
 
 SLUG = "documentos"
 _ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
@@ -35,18 +57,69 @@ async def build(db) -> dict:
     n_signed = await _scalar(db, "SELECT count(*) FROM ged_kit_documents WHERE is_signed=true")
 
     async def _visao():
-        ty = (await db.execute(text("SELECT document_type::text, count(*) FROM ged_kit_documents GROUP BY document_type ORDER BY count(*) DESC LIMIT 8"))).fetchall()
-        return {"title": "Visão geral", "sub": "Documentos (GED) — dados reais", "cta": "Enviar documento", "type": "dash", "panelGrid": "1fr 1fr",
-                "kpis": [
-                    {"v": f"{n_ged:,}".replace(",", "."), "l": "Documentos", "icon": IC["cal"], "color": "#0F1B3A"},
-                    {"v": f"{n_signed:,}".replace(",", "."), "l": "Assinados", "icon": IC["shield"], "color": "#16A34A"},
-                    {"v": str(await _scalar(db, "SELECT count(DISTINCT employee_id) FROM ged_kit_documents") or 0), "l": "Colaboradores", "icon": IC["users"], "color": "#0F1B3A"},
-                    {"v": str(await _scalar(db, "SELECT count(*) FROM ged_document_kits") or 0), "l": "Kits", "icon": IC["cal"], "color": "#0F1B3A"},
-                ],
-                "panels": [
-                    {"title": "Documentos por tipo", "rows": [{"left": (s or "—").replace("_", " ").capitalize(), "right": str(c), **S["ok"]} for s, c in ty] or [{"left": "Sem documentos", "right": "0", **S["mut"]}]},
-                    {"title": "Assinatura", "rows": [{"left": "Assinados", "right": str(n_signed), **S["ok"]}, {"left": "Pendentes", "right": str((n_ged or 0) - (n_signed or 0)), **S["warn"]}]},
-                ],
+        # ── A VERDADE DO KIT É O DRIVE — decisão do Jordan em 15/08/2026 ─────────
+        #
+        # Esta tela contava o BANCO e por isso divergia da clássica, que lê o Drive. Duas
+        # telas, dois números, nenhuma sozinha dizendo a verdade: em 15/08 o banco mostrava
+        # 8 kits de agosto com ZERO slots, enquanto o Drive já tinha as 35 certidões
+        # replicadas nos 7 postos — Ideal Flores, Mirante, Prime e Michelangelo em 20%,
+        # que é 2 de 10 blocos.
+        #
+        # A tela clássica JÁ passou por isto, e está escrito no código dela: "a antiga Kits
+        # Documentais (completude via banco, mostrava 0.0%) foi substituída pela dashboard
+        # real de completude (lê o Google Drive)". A troca resolveu lá e deixou o redesign
+        # para trás — com os mesmos números que motivaram o abandono do outro.
+        #
+        # ⚠️ SE O DRIVE NÃO RESPONDER, A TELA DIZ ISSO. Não cai no banco em silêncio:
+        # número de outra fonte com a mesma etiqueta é fabricação, e foi assim que o
+        # `hr/aggregator` anunciava 52 funcionários fixos quando o banco falhava.
+        _n = datetime.now()
+        comp = f"{_n.month:02d}.{_n.year}"
+        drive, erro = None, ""
+        try:
+            drive = await asyncio.to_thread(_completude_drive, comp)
+        except Exception as exc:  # noqa: BLE001
+            erro = str(exc)[:70]
+
+        acervo = {"title": "Acervo no banco (histórico)", "rows": [
+            {"left": "Arquivos registrados", "right": f"{n_ged:,}".replace(",", "."), **S["mut"]},
+            {"left": "Assinados", "right": f"{n_signed:,}".replace(",", "."), **S["ok"]},
+            {"left": "Pendentes de assinatura", "right": str((n_ged or 0) - (n_signed or 0)), **S["warn"]},
+        ]}
+
+        if drive:
+            # Maior completude primeiro. Ordenar pelos PIORES escondia justamente o que
+            # avançou: em 15/08 os 4 postos com as certidões estavam em 20% e os primeiros
+            # 8 da lista crescente eram todos 0% — a tela mostraria só zeros e pareceria
+            # que a montagem não tinha feito nada.
+            kits = sorted(drive.get("kits") or [],
+                          key=lambda k: -(k.get("completion_percentage") or 0))[:10]
+            kpis = [
+                {"v": str(drive.get("total_kits") or 0), "l": "Kits do mês", "icon": IC["cal"], "color": "#0F1B3A"},
+                {"v": f'{drive.get("media_completude") or 0}%', "l": "Completude média", "icon": IC["shield"], "color": "#0F1B3A"},
+                {"v": str(drive.get("kits_completos") or 0), "l": "Completos", "icon": IC["shield"], "color": "#16A34A"},
+                {"v": str(drive.get("kits_pendentes") or 0), "l": "Pendentes", "icon": IC["cal"], "color": "#B4690E"},
+            ]
+            linhas = [{"left": (k.get("condominio") or "—")[:34],
+                       "right": f'{k.get("completion_percentage") or 0}%',
+                       **(S["ok"] if (k.get("completion_percentage") or 0) >= 100
+                          else S["warn"] if (k.get("completion_percentage") or 0) > 0 else S["mut"])}
+                      for k in kits] or [{"left": "Nenhum kit no Drive", "right": "0", **S["mut"]}]
+            sub = f"Kits do mês ({comp}) — lido do Google Drive"
+        else:
+            kpis = [
+                {"v": "—", "l": "Kits do mês", "icon": IC["cal"], "color": "#6B7280"},
+                {"v": "—", "l": "Completude média", "icon": IC["shield"], "color": "#6B7280"},
+                {"v": f"{n_ged:,}".replace(",", "."), "l": "Arquivos no banco", "icon": IC["cal"], "color": "#0F1B3A"},
+                {"v": f"{n_signed:,}".replace(",", "."), "l": "Assinados", "icon": IC["shield"], "color": "#16A34A"},
+            ]
+            linhas = [{"left": "Não foi possível ler o Google Drive", "right": "—", **S["warn"]},
+                      {"left": erro or "sem detalhe", "right": "", **S["mut"]}]
+            sub = f"Kits do mês ({comp}) — Google Drive indisponível"
+
+        return {"title": "Visão geral", "sub": sub, "cta": "Enviar documento",
+                "type": "dash", "panelGrid": "1fr 1fr", "kpis": kpis,
+                "panels": [{"title": "Completude por condomínio", "rows": linhas}, acervo],
                 # PILOTO DA FUNDAÇÃO (docs nível-tela) — prova os 3 modos do DocButtons com ROTAS
                 # VERIFICADAS (curl 200): blob (ZIP do kit mais recente, nativo GED) · json (export
                 # conciliação {content,filename} via export_format=csv) · disabled (honesto, botão off).
