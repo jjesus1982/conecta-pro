@@ -369,11 +369,23 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     return "criado"
 
 
-def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> list[str]:
-    """DCTFWeb transmitida (recibo real) = acessórias da competência CUMPRIDAS."""
-    if not (g.competencia_mes and g.competencia_ano and g.numero_recibo):
+def marcar_acessorias(db, empresa_id: str, mes: int, ano: int, recibo: str,
+                      origem: str) -> list[str]:
+    """DCTFWeb transmitida (recibo real) = acessórias da competência CUMPRIDAS.
+
+    Núcleo em primitivos, e não em `GuiaParseada`, porque o recibo chega por DOIS caminhos e
+    só um deles dava baixa. O do Drive chamava isto; o do **Onvio** — que é por onde os
+    documentos realmente chegam — extraía `numero_recibo` e `data_transmissao` para
+    `onvio_documents.detalhes_json` e parava ali. Resultado medido em 15/08/2026: a DCTFWeb
+    de 07/2026 estava transmitida desde 11/08, com recibo `0000050000514331309` e **saldo a
+    pagar R$ 0,00**, e as três acessórias apareciam `pendente` vencendo naquele dia.
+
+    Prazo que já foi cumprido e continua aceso no painel é a mesma doença dos R$68 mil de
+    abril a julho: assusta, não informa, e ensina a ignorar o painel.
+    """
+    if not (mes and ano and recibo):
         return []
-    emp = g.empresa_id or EMPRESA_PRINCIPAL
+    emp = empresa_id or EMPRESA_PRINCIPAL
     marcadas = []
     for tipo in ("DCTFWEB", "ESOCIAL", "EFD_REINF"):
         r = db.execute(
@@ -384,13 +396,20 @@ def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> l
                 "AND status != 'cumprida'"
             ),
             {
-                "rec": g.numero_recibo, "t": tipo, "m": g.competencia_mes, "a": g.competencia_ano, "emp": emp,
-                "nota": f"Transmitida (DCTFWeb recibo {g.numero_recibo} em {g.detalhe.get('transmissao')}; fonte drive {meta.get('nome')})",
+                "rec": recibo, "t": tipo, "m": mes, "a": ano, "emp": emp,
+                "nota": f"Transmitida (DCTFWeb recibo {recibo}; {origem})",
             },
         )
         if r.rowcount:
             marcadas.append(tipo)
     return marcadas
+
+
+def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> list[str]:
+    """Caminho do DRIVE — mantém a assinatura antiga e delega ao núcleo."""
+    return marcar_acessorias(
+        db, g.empresa_id or EMPRESA_PRINCIPAL, g.competencia_mes, g.competencia_ano,
+        g.numero_recibo, f"em {g.detalhe.get('transmissao')}; fonte drive {meta.get('nome')}")
 
 
 # Donos do fiscal que recebem o sino (Jordan + Pyetra) — ver [[project_financeiro_auditoria_organizacao]]

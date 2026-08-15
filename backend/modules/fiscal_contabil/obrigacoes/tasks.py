@@ -23,6 +23,17 @@ def task_sync_guias_drive() -> dict:
         rel.get("ok"), rel.get("baixados"), len(rel.get("guias", [])),
         len(rel.get("anexos", [])), rel.get("ja_processados"),
     )
+
+    # Recibo que chega pelo ONVIO também dá baixa. Vai junto daqui, e não num beat novo,
+    # porque é a mesma pergunta ("o que já foi entregue?") e esta tarefa já roda 2×/dia no
+    # horário certo. Medido em 15/08/2026: a DCTFWeb de 07/2026 estava transmitida desde
+    # 11/08, com recibo e saldo R$0,00, e as três acessórias apareciam pendentes vencendo
+    # naquele dia — a regra de baixa existia, só ninguém a chamava por este caminho.
+    from modules.fiscal_contabil.obrigacoes.baixa_por_recibo_onvio import baixar
+
+    rel["baixa_onvio"] = baixar()
+    logger.info("fiscal.sync_guias_drive: baixa por recibo do Onvio — %s competência(s)",
+                len(rel["baixa_onvio"].get("baixadas", [])))
     return rel
 
 
@@ -48,10 +59,11 @@ def task_calendario_obrigacoes() -> dict:
         async with async_session_factory() as db:
             return await garantir_ate_hoje(db, date.today(), meses_atras=3, aplicar=True)
 
-    try:
-        r = asyncio.run(_run())
-        logger.info("[calendario_obrigacoes] %s criada(s)", r.get("total"))
-        return r
-    except Exception as exc:  # noqa: BLE001 — falha aqui não pode derrubar o worker
-        logger.error("[calendario_obrigacoes] falhou: %s", exc)
-        return {"erro": str(exc)[:200]}
+    # ⚠️ SEM `except` largo aqui. Devolver `{"erro": ...}` faz o Celery ver SUCESSO: o sinal
+    # `task_failure` não dispara, `task_falha` não publica no sino, e a rotina fica quebrada
+    # em silêncio. Foi assim que o espelho do eSocial passou 37 dias sem consultar o governo,
+    # com beat diário e fila consumida. "Falha aqui não pode derrubar o worker" não se
+    # sustenta: o worker sobrevive a task que estoura — quem não sobrevive é o alarme.
+    r = asyncio.run(_run())
+    logger.info("[calendario_obrigacoes] %s criada(s)", r.get("total"))
+    return r
