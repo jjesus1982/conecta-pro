@@ -115,6 +115,34 @@ def _infra_caiu(saida: str) -> bool:
     return any(m in saida for m in _INFRA)
 
 
+def _imagem_em_uso_criada_em() -> str | None:
+    """Quando foi construída a imagem que está SERVINDO agora (ISO UTC).
+
+    Serve para responder a pergunta certa sobre o sino: *esta falha veio do código que está
+    no ar?* Uma janela fixa de 48h não sabe disso e acusa defeito já corrigido — foi o que
+    aconteceu em 15/08/2026: as 8 tarefas contadas tinham falhado em 13 e 14/08, todas
+    ANTES do bake que trouxe os consertos, e nenhuma falhou depois. O gate reprovava por
+    defeito que não existe mais, que é a mesma família do "container mudo = vermelho".
+
+    O bake é o instante em que o conserto entra em produção, então ele é a régua natural —
+    e se mantém sozinho: cada deploy reinicia o relógio.
+
+    ⚠️ O preço, e ele é declarado no detalhe da condição: logo depois de um bake a janela de
+    observação é curta, então "sino limpo" prova pouco. Por isso o gate imprime há quanto
+    tempo a imagem está no ar — quem lê decide se o silêncio já significa alguma coisa.
+    """
+    try:
+        img = subprocess.run(["docker", "inspect", "conecta-pro-backend", "--format", "{{.Image}}"],
+                             capture_output=True, text=True, timeout=30)
+        if img.returncode != 0 or not img.stdout.strip():
+            return None
+        r = subprocess.run(["docker", "inspect", img.stdout.strip(), "--format", "{{.Created}}"],
+                           capture_output=True, text=True, timeout=30)
+        return r.stdout.strip()[:19].replace("T", " ") if r.returncode == 0 else None
+    except Exception:  # noqa: BLE001 — sem a data, cai para a janela fixa
+        return None
+
+
 def _rodar(script: str, precisa_banco: bool = False) -> str:
     """Roda uma trava e devolve stdout+stderr.
 
@@ -278,8 +306,13 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     out.append((not sem_nota, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo", det4))
 
     # 6 · ROTINAS — o sino sem falha recorrente, e o espelho do eSocial produzindo.
+    # Falha de código que NÃO ESTÁ MAIS NO AR não é evidência sobre o sistema de agora.
+    # A régua é o bake da imagem em uso; sem ela, cai para 48h.
+    desde = _imagem_em_uso_criada_em()
+    corte_sino = (f"created_at > TIMESTAMP '{desde}'" if desde
+                  else "created_at > now() - interval '48 hours'")
     falhas = _q("SELECT title, count(*)::text FROM communication_notifications "
-                " WHERE created_at > now() - interval '48 hours' "
+                f" WHERE {corte_sino} "
                 "   AND title ILIKE '%Tarefa agendada falhou%' "
                 " GROUP BY title ORDER BY 2 DESC")
     # O espelho não é medido pela janela (ela pode existir sem nunca ter sido consultada) e
@@ -288,8 +321,12 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
                        "  FROM esocial_espelho_acessos")
     ultimo = ultimo_acesso[0][0] if ultimo_acesso else ""
     espelho_ok = bool(ultimo) and (hoje - date.fromisoformat(ultimo)).days <= 2
-    det6 = (f"{len(falhas)} tarefa(s) falhando em 48h · "
+    janela = (f"desde o bake em uso ({desde} UTC)" if desde else "nas últimas 48h")
+    det6 = (f"{len(falhas)} tarefa(s) falhando {janela} · "
             f"último acesso do espelho ao governo: {ultimo or 'NUNCA'}")
+    if desde and not falhas:
+        det6 += ("\n       ⚠️ janela curta se o bake é recente — silêncio aqui prova menos "
+                 "quanto mais novo for o deploy")
     if falhas:
         det6 += "\n       " + "\n       ".join(
             f"{t.replace('Tarefa agendada falhou: ', '')} ({n}×)" for t, n in falhas)
