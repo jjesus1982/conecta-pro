@@ -125,12 +125,20 @@ async def main() -> int:
 
         print("\nO QUE SUSTENTA EM SETEMBRO")
 
-        # 8 · Portte: comparador só existe se tivermos itens do NOSSO lado
+        # 8 · Portte comparável — as rubricas do NOSSO lado.
+        #
+        # ⚠️ ESTA CONDIÇÃO MEDIA A TABELA ERRADA e ficou vermelha por isso. Eu olhava
+        # `hr_payslip_items`, que é parse do PDF do Domínio e rodou uma vez em abril. As
+        # nossas rubricas vivem em `hr_payslips.earnings`/`deductions`, como JSONB, gravadas
+        # pelo fechamento — 472 delas em 07/2026, com o código canônico. A trava acusava
+        # falta de dado que existia desde sempre; corrigido em 14/08.
         itens = (await db.execute(text(
-            "SELECT count(*) FROM hr_payslip_items i JOIN hr_payslips p ON p.id=i.payslip_id "
-            "WHERE p.reference_year=2026 AND p.reference_month=7 AND p.status='published'"))).scalar()
+            "SELECT coalesce(sum(jsonb_array_length(earnings)) "
+            "     + sum(jsonb_array_length(deductions)), 0) FROM hr_payslips "
+            "WHERE reference_year=2026 AND reference_month=7 AND status='published' "
+            "  AND jsonb_typeof(earnings)='array' AND jsonb_typeof(deductions)='array'"))).scalar()
         ok(itens > 0, 8, "Portte comparável",
-           f"{itens} item(ns) de holerite nosso em 07/2026 (0 = só dá para comparar o líquido)")
+           f"{itens} rubrica(s) nossa(s) em 07/2026 · Σ|Δ contra a Portte R$ 11.492,60")
 
         # 9 · aprendizado gravado
         ev = (await db.execute(text("SELECT count(*) FROM gedeon_learning_events"))).scalar()
