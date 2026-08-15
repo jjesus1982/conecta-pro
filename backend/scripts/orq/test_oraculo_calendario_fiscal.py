@@ -75,16 +75,30 @@ async def main() -> None:
             print(f"OK {nome[:26]:<26} primeira atividade "
                   f"{(inicio - 1) % 12 + 1:02d}/{(inicio - 1) // 12}, {len(recs)} recorrente(s)")
 
-        # ── (d) prazo gerado não inventa valor ──
-        com_valor = (await db.execute(text(
+        # ── (d) prazo gerado não INVENTA valor — mas pode RECEBER um, do documento ──
+        #
+        # A regra original dizia "linha criada pelo calendário nunca tem valor", e virou
+        # vermelha em 15/08/2026 quando o ISS de 07/2026 recebeu R$740,25 das guias do
+        # SEMEF (DAM 21499343 + 21499344). Estava medindo FOTOGRAFIA, não regra: o fluxo
+        # desejado é exatamente esse — o calendário põe o PRAZO, a guia traz o VALOR
+        # depois. Proibir isso proibiria a conciliação.
+        #
+        # O que continua proibido, e é o ponto: valor que apareceu SEM documento. Então a
+        # linha só passa se a observação registrar de onde o número veio.
+        sem_fonte = (await db.execute(text(
             "SELECT count(*) FROM fiscal_obligations "
-            "WHERE observacoes LIKE '%calendário recorrente%' "
-            "  AND coalesce(valor_devido, 0) <> 0"))).scalar()
-        assert not com_valor, (
-            f"{com_valor} prazo(s) gerado(s) pelo calendário com valor preenchido — "
-            f"o quanto sai da apuração, não do calendário"
+            " WHERE observacoes LIKE '%calendário recorrente%' "
+            "   AND coalesce(valor_devido, 0) <> 0 "
+            "   AND observacoes NOT ILIKE '%guia%' "
+            "   AND observacoes NOT ILIKE '%DAM %' "
+            "   AND observacoes NOT ILIKE '%recibo%' "
+            "   AND observacoes NOT ILIKE '%NFS-e%' "
+            "   AND coalesce(numero_recibo, '') = ''"))).scalar()
+        assert not sem_fonte, (
+            f"{sem_fonte} prazo(s) do calendário com valor e SEM fonte declarada — "
+            f"o quanto sai da apuração ou do documento, nunca do calendário"
         )
-        print("OK prazos gerados sem valor inventado")
+        print("OK prazos gerados sem valor inventado (valor com fonte declarada é permitido)")
 
         # ── vencimento: a conta de data é onde erro passa calado ──
         assert _venc(2026, 7, 20) == date(2026, 8, 20)
