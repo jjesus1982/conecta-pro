@@ -1169,34 +1169,50 @@ async def montar_kit_guiado(
     if not ct:
         return {"erro": "Cliente nao recebe kit mensal", "sugestao": "Verificar contratos ativos"}
 
-    # Buscar ou criar GED client
-    gc = (
-        (
-            await db.execute(
-                text(
-                    "SELECT id FROM ged_clients WHERE id::text IN (SELECT p.client_id::text FROM posts p WHERE p.client_id IS NOT NULL) AND id::text = :cid"
-                ),
-                {"cid": client_id},
-            )
-        )
-        .mappings()
-        .first()
-    )
-    if not gc:
-        # Tentar via posts linkados
-        gc = (
-            (
-                await db.execute(
-                    text(
-                        "SELECT DISTINCT p.client_id as id FROM posts p WHERE p.client_id IS NOT NULL AND EXISTS (SELECT 1 FROM allocations a WHERE a.post_id = p.id AND a.status = 'active') AND p.client_id::text IN (SELECT g.id::text FROM ged_clients g) ORDER BY p.client_id LIMIT 1"
-                    ),
-                )
-            )
-            .mappings()
-            .first()
-        )
+    # ── Resolver o cliente do GED ────────────────────────────────────────────
+    #
+    # 🔴 SÃO DUAS TABELAS DE CLIENTE E O ENDPOINT USAVA UM ID SÓ. `contracts.client_id`
+    # aponta para `clients`; `ged_document_kits.client_id` aponta para `ged_clients`. Não
+    # existia id que fizesse os dois funcionarem, e por isso a rota nunca criou kit:
+    #
+    #   passando clients.id      → o contrato é achado, e o INSERT viola
+    #                              ged_document_kits_client_id_fkey
+    #   passando ged_clients.id  → a FK aceita, e o contrato não é achado:
+    #                              "Cliente nao recebe kit mensal"
+    #
+    # ⚠️ E O FALLBACK ERA PIOR QUE FALHAR. Ele fazia
+    # `SELECT ... FROM posts ... ORDER BY p.client_id LIMIT 1` — um ged_client ARBITRÁRIO. O
+    # kit do Ideal Flores podia nascer preso no cliente errado, em silêncio, e só apareceria
+    # quando alguém entregasse documento trabalhista para o condomínio errado.
+    #
+    # Agora a ponte é explícita e determinística. Não há FK entre as duas tabelas; medido
+    # em 15/08/2026, o nome liga 19 de 20 e o CNPJ só 12 de 20 (nem todo ged_client tem
+    # CNPJ). Então: CNPJ primeiro quando os dois lados têm, nome como segundo. Não achou,
+    # RECUSA — em vez de escolher um qualquer.
+    gc = (await db.execute(
+        text(
+            "SELECT g.id FROM ged_clients g "
+            "WHERE g.id::text = :cid "
+            "   OR EXISTS (SELECT 1 FROM clients c WHERE c.id::text = :cid AND ("
+            "        (coalesce(g.cnpj,'') <> '' AND coalesce(c.document_number,'') <> '' "
+            "         AND regexp_replace(g.cnpj,'\\D','','g') "
+            "           = regexp_replace(c.document_number,'\\D','','g')) "
+            "     OR upper(btrim(g.name)) = upper(btrim(c.name)))) "
+            "LIMIT 1"
+        ),
+        {"cid": client_id},
+    )).mappings().first()
 
-    ged_client_id = str(gc["id"]) if gc else client_id
+    if not gc:
+        return {
+            "erro": "Cliente sem correspondência no GED",
+            "sugestao": (
+                "O cliente do contrato não tem par em `ged_clients` (nem por CNPJ nem por "
+                "nome). Cadastre-o no GED antes de montar o kit — escolher um cliente "
+                "qualquer aqui faria o kit nascer no condomínio errado."
+            ),
+        }
+    ged_client_id = str(gc["id"])
 
     # Verificar/criar kit
     kit = (
