@@ -1141,7 +1141,17 @@ async def montar_kit_guiado(
     """Monta kit completo: gera PDFs + vincula NFS-e + retorna checklist."""
     from datetime import date as d
 
-    d.fromisoformat(competencia)  # validate format
+    # ⚠️ OBJETO `date`, NÃO A STRING — e este endpoint NUNCA funcionou por causa disso.
+    # `reference_month` é coluna `date`; o asyncpg recusa str mesmo com o SQL correto:
+    # "invalid input for query argument $2: '2026-08-01' ('str' object has no attribute
+    # 'toordinal')". A validação de formato existia e o valor validado era descartado —
+    # seguia a string crua para o bind. Resultado: HTTP 500 em toda chamada, para todo
+    # cliente, desde sempre. Medido em 15/08/2026 tentando criar os 7 kits de agosto.
+    #
+    # Quarta ocorrência desta família num só dia: parâmetro sem tipo ou com tipo errado no
+    # asyncpg (as outras foram `CAST(:janela AS integer)`, `start_date = :de` e
+    # `:comp IS NULL`). Validar o formato não converte o valor.
+    _comp = d.fromisoformat(competencia)
 
     # Verificar contrato com kit
     ct = (
@@ -1193,7 +1203,7 @@ async def montar_kit_guiado(
         (
             await db.execute(
                 text("SELECT id FROM ged_document_kits WHERE client_id::text = :cid AND reference_month = :rm LIMIT 1"),
-                {"cid": ged_client_id, "rm": competencia},
+                {"cid": ged_client_id, "rm": _comp},
             )
         )
         .mappings()
@@ -1208,14 +1218,14 @@ async def montar_kit_guiado(
                 "INSERT INTO ged_document_kits (id, client_id, reference_month, status, total_employees, total_documents, completion_percentage, created_at, updated_at) "
                 "VALUES (gen_random_uuid(), :cid, :rm, 'em_montagem', 0, 0, 0, NOW(), NOW()) RETURNING id"
             ),
-            {"cid": ged_client_id, "rm": competencia},
+            {"cid": ged_client_id, "rm": _comp},
         )
         await db.commit()
         new_kit = (
             (
                 await db.execute(
                     text("SELECT id FROM ged_document_kits WHERE client_id::text = :cid AND reference_month = :rm"),
-                    {"cid": ged_client_id, "rm": competencia},
+                    {"cid": ged_client_id, "rm": _comp},
                 )
             )
             .mappings()
