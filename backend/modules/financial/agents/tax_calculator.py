@@ -51,6 +51,31 @@ LUCRO_REAL = {
 
 
 @dataclass
+
+def _brl(valor) -> str:
+    """Formata dinheiro no padrão BRASILEIRO: milhar '.', decimal ','.
+
+    Existia `f"R$ {economia:,.2f}"`, e o `,` do Python é formato AMERICANO. A tela mostrava
+    ao Jordan, na frase de recomendação de regime:
+
+        "Economia anual estimada: R$ 121,200.00"
+
+    Cento e vinte e um MIL impressos de um jeito que, no Brasil, se lê como cento e vinte e
+    um reais e vinte centavos. O painel logo acima mostrava `121.200,00` certo, porque quem
+    formata lá é o front — o erro estava só na frase que vem pronta do backend, que é
+    justamente a que o gestor lê para decidir de regime.
+
+    ponytail: helper local de 3 linhas porque já existem CINCO formatadores BRL na casa
+    (`notifications/proativo/redator._brl`, `redesign_data_controller.brl`,
+    `relatorio_diaristas_pdf._brl`, `consultor_ceo_service._fmt_brl`, ...). Importar um
+    serviço de PDF para dentro de um motor de cálculo seria pior que a duplicação; o dia
+    que alguém consolidar, este some junto.
+    """
+    us = f"{float(valor):,.2f}"          # "121,200.00"
+    milhar, _, dec = us.partition(".")
+    return milhar.replace(",", ".") + "," + dec
+
+
 class DetalhamentoImposto:
     nome: str
     aliquota: Decimal
@@ -363,9 +388,11 @@ class TaxCalculatorAgent:
         )
 
         if simples_anual < lr_anual:
-            recomendacao = f"Simples Nacional e mais vantajoso. Economia anual estimada: R$ {economia:,.2f} ({pct_lr - pct_simples:.1f}pp a menos de impostos)."
+            recomendacao = (f"Simples Nacional e mais vantajoso. Economia anual estimada: "
+                            f"R$ {_brl(economia)} ({pct_lr - pct_simples:.1f}pp a menos de impostos).")
         elif lr_anual < simples_anual:
-            recomendacao = f"Lucro Real e mais vantajoso para este faturamento. Diferenca: R$ {-economia:,.2f}/ano."
+            recomendacao = (f"Lucro Real e mais vantajoso para este faturamento. "
+                            f"Diferenca: R$ {_brl(-economia)}/ano.")
         else:
             recomendacao = "Os regimes apresentam carga tributaria equivalente."
 
