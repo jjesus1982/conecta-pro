@@ -33,9 +33,9 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 #: A RFB nomeia o arquivo com o CNPJ (`DCTFWEB Recibo_35710481000103_072026_...`). É a
-#: atribuição mais confiável que existe hoje: o `dctfweb_extractor` ainda guarda só um
-#: booleano `cnpj_validado`, contra um CNPJ cravado no regex — mesmo defeito que o
-#: `fgts_extractor` tinha. Quando ele passar a capturar, esta função prefere o capturado.
+#: RESERVA. A fonte preferida é o CNPJ capturado de DENTRO do PDF
+#: (`detalhes.cnpj_contribuinte` / `cnpj_empregador`); o nome do arquivo é convenção da RFB,
+#: não documento, e convenção muda sem avisar.
 #: `(?<!\d)…(?!\d)` e não `\b`: o nome do arquivo separa os campos com UNDERSCORE, e `_` é
 #: caractere de palavra — `\b` não existe entre `_` e um dígito, então `\b(\d{14})\b` não
 #: casava `Recibo_35710481000103_072026`. O self-check pegou.
@@ -84,7 +84,12 @@ def baixar(db=None) -> dict:
                 resultado["sem_recibo"] += 1
                 continue
 
-            cnpj = det.get("cnpj_empregador")
+            # Ordem de confiança: o que está DENTRO do documento ganha do nome do arquivo.
+            # `cnpj_contribuinte` vem do DCTFWeb, `cnpj_empregador` do GFD/FGTS — os dois
+            # extratores passaram a CAPTURAR o número em 15/08/2026, em vez de conferir
+            # contra um CNPJ cravado no regex. O nome do arquivo continua como reserva:
+            # a RFB nomeia com o CNPJ, mas nome de arquivo é convenção, não documento.
+            cnpj = det.get("cnpj_contribuinte") or det.get("cnpj_empregador")
             if not cnpj:
                 m = _RE_CNPJ_ARQUIVO.search(nome or "")
                 cnpj = m.group(1) if m else None

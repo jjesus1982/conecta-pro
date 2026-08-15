@@ -69,8 +69,21 @@ class DCTFWebExtractor(BaseExtractor):
         re.IGNORECASE,
     )
 
-    # CNPJ Conecta Mais
-    RE_CNPJ_CM = re.compile(r"35[\.\s]*710[\.\s]*481[/\s]*0001[-\s]*03")
+    #: CNPJ do CONTRIBUINTE, capturado — não conferido contra um número cravado.
+    #:
+    #: Era `re.compile(r"35[\.\s]*710[\.\s]*481[/\s]*0001[-\s]*03")`: a Eletrônica, e só ela.
+    #: Uma DCTFWeb da Patrimonial perderia os 0.20 de confiança por "não ter CNPJ" quando na
+    #: verdade tem o CNPJ ERRADO para o regex — e pode cair abaixo do corte e ser descartada.
+    #:
+    #: Quarto lugar da casa com identificador de empresa cravado no código, e o último dos
+    #: quatro a ser fechado (os outros: `sped_manager.py:681` — quarentenado —,
+    #: `fgts_extractor.py:37` e o `_empresa_id` do ECD).
+    #:
+    #: Capturar em vez de conferir é o que permite ATRIBUIR o documento ao CNPJ certo lá na
+    #: frente: `baixa_por_recibo_onvio` hoje tira o CNPJ do NOME do arquivo porque aqui só
+    #: sobrava um booleano. Com o número em `detalhes["cnpj_contribuinte"]`, ele passa a
+    #: preferir o que está DENTRO do documento.
+    RE_CNPJ = re.compile(r"(?<!\d)(\d{2}[.\s]?\d{3}[.\s]?\d{3}[/\s]?\d{4}[-\s]?\d{2})(?!\d)")
 
     # Qualquer valor monetário (sinal de que o doc tem dados financeiros)
     RE_QUALQUER_VALOR = re.compile(r"R\$\s*[\d]+[.,][\d]+|[\d]+\.[\d]{3},[\d]{2}")
@@ -120,8 +133,15 @@ class DCTFWebExtractor(BaseExtractor):
             if m:
                 result.detalhes["data_transmissao"] = m.group(1)
 
-            # --- CNPJ Conecta Mais ---
-            tem_cnpj = bool(self.RE_CNPJ_CM.search(texto))
+            # --- CNPJ do contribuinte ---
+            # O primeiro CNPJ do documento é o do CONTRIBUINTE: a RFB imprime
+            # "Nome do Contribuinte / CNPJ" no cabeçalho, antes do CNPJ do escritório que
+            # transmitiu (PORTTE CONTABIL, 29.243.860/0001-38, aparece depois).
+            m = self.RE_CNPJ.search(texto)
+            cnpj = "".join(d for d in m.group(1) if d.isdigit()) if m else None
+            if cnpj:
+                result.detalhes["cnpj_contribuinte"] = cnpj
+            tem_cnpj = bool(cnpj)
             result.detalhes["cnpj_validado"] = tem_cnpj
 
             # --- Vencimento (opcional) ---
