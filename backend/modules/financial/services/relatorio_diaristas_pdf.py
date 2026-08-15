@@ -260,129 +260,34 @@ def extrato_diarista(db, *, diarista_id: int, inicio: date, fim: date) -> tuple[
 
 
 def recibo_diarista(db, *, diarista_id: int, inicio: date, fim: date) -> tuple[bytes, dict]:
-    """Recibo de pagamento, para o diarista assinar.
+    """Recibo de pagamento no PADRÃO-OURO — delega ao gerador oficial.
 
-    NÃO afirma que o pagamento foi feito: um recibo é a declaração de QUEM RECEBE, e
-    quem assina é ele. Emitir "pago" antes da assinatura seria o sistema declarando em
-    nome de terceiro — o mesmo defeito de dizer "ok" quando o e-mail do OTP falhou.
+    A primeira versão desenhava o recibo à mão e saiu fora do padrão: sem número de
+    documento, valor sem a caixa, dados em lista em vez de texto corrido, data em branco
+    e só UMA assinatura. O padrão da casa já existia em `crm/services/doc_pdf.py`, com
+    os mesmos blocos usados em contrato, aditivo e atestado — imitar à mão produz
+    documento parecido, não documento igual.
+
+    NÃO afirma que o pagamento foi feito: quem declara quitação é quem recebe, e é ele
+    quem assina.
     """
-    import io as _io
-
-    from reportlab.lib.pagesizes import A4 as _A4
-    from reportlab.pdfgen import canvas as _cv
+    from modules.crm.services.doc_pdf import build_recibo_pagamento_pdf
 
     _, r = extrato_diarista(db, diarista_id=diarista_id, inicio=inicio, fim=fim)
     if r["dias"] == 0:
         raise ValueError("sem diárias lançadas no período — não há o que dar recibo")
 
-    buf = _io.BytesIO()
-    W, H = _A4
-    c = _cv.Canvas(buf, pagesize=_A4)
-    y = B.marca_canvas(c, titulo="RECIBO DE PAGAMENTO", pagesize=_A4,
-                       empresa=B.EMPRESA_PATRIMONIAL)
-    x0 = 20 * mm
-    larg = W - 40 * mm
-
-    c.setFillColor(_LARANJA)
-    c.setFont("Helvetica-Bold", 20)
-    c.drawRightString(W - 20 * mm, y - 2 * mm, _brl(r["total"]))
-    y -= 16 * mm
-
-    E = B.EMPRESA_PATRIMONIAL
-    corpo = (
-        f"Recebi de {E['razao']}, inscrita no CNPJ sob o nº {E['cnpj']}, a importância de "
-        f"{_brl(r['total'])} ({_extenso(r['total'])}), referente a {r['dias']} diária(s) "
-        f"prestada(s) no período de {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}, "
-        f"conforme extrato anexo, dando plena e geral quitação quanto ao valor recebido."
-    )
-    c.setFillColor(colors.black)
-    c.setFont("Helvetica", 11)
-    y = _paragrafo(c, corpo, x0, y, larg, 11, 6.2 * mm)
-
-    y -= 6 * mm
-    c.setFillColor(_AZUL)
-    c.setFont("Helvetica-Bold", 10)
-    for rot, val in (("Recebedor", r["nome"]), ("CPF", r["cpf"]), ("Chave PIX", r["pix"]),
-                     ("Diárias no período", str(r["dias"])), ("Valor total", _brl(r["total"]))):
-        c.setFillColor(_CINZA)
-        c.drawString(x0, y, rot)
-        c.setFillColor(colors.black)
-        c.drawString(x0 + 42 * mm, y, str(val))
-        y -= 6.5 * mm
-
-    y -= 14 * mm
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(0.6)
-    c.line(x0 + 20 * mm, y, x0 + larg - 20 * mm, y)
-    y -= 5 * mm
-    c.setFillColor(colors.black)
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(W / 2, y, r["nome"])
-    y -= 4.5 * mm
-    c.drawCentredString(W / 2, y, f"CPF {r['cpf']}")
-    y -= 10 * mm
-    c.setFillColor(_CINZA)
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(W / 2, y, f"Manaus/AM, ____ de __________________ de {fim.year}.")
-
-    B.rodape_canvas(c, pagesize=_A4, pagina=1, empresa=B.EMPRESA_PATRIMONIAL)
-    c.save()
-    return buf.getvalue(), r
-
-
-def _paragrafo(c, texto: str, x: float, y: float, largura: float, tam: float,
-               entrelinha: float) -> float:
-    """Quebra por LARGURA medida. Quebrar por número de caracteres deixa linha curta ao
-    lado de linha estourada, e num recibo isso parece documento improvisado."""
-    palavras, linha = texto.split(), ""
-    for p in palavras:
-        teste = f"{linha} {p}".strip()
-        if c.stringWidth(teste, "Helvetica", tam) > largura:
-            c.drawString(x, y, linha)
-            y -= entrelinha
-            linha = p
-        else:
-            linha = teste
-    if linha:
-        c.drawString(x, y, linha)
-        y -= entrelinha
-    return y
-
-
-_UNI = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez",
-        "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"]
-_DEZ = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
-_CEM = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos",
-        "setecentos", "oitocentos", "novecentos"]
-
-
-def _ate999(n: int) -> str:
-    if n == 0:
-        return ""
-    if n == 100:
-        return "cem"
-    c_, r_ = divmod(n, 100)
-    d_, u_ = divmod(r_, 10)
-    partes = [_CEM[c_]] if c_ else []
-    if r_ < 20:
-        partes += [_UNI[r_]] if r_ else []
-    else:
-        partes += [_DEZ[d_]] + ([_UNI[u_]] if u_ else [])
-    return " e ".join([p for p in partes if p])
-
-
-def _extenso(valor: float) -> str:
-    """Valor por extenso — exigência de recibo. Escrito aqui em vez de dependência nova:
-    são 30 linhas e o teto de um recibo de diária não chega perto do milhão."""
-    reais, centavos = divmod(int(round(valor * 100)), 100)
-    mil, resto = divmod(reais, 1000)
-    partes = []
-    if mil:
-        partes.append("mil" if mil == 1 else f"{_ate999(mil)} mil")
-    if resto:
-        partes.append(_ate999(resto))
-    txt = " e ".join(partes) or "zero"
-    txt += " real" if reais == 1 else " reais"
-    if centavos:
-        txt += f" e {_ate999(centavos)} " + ("centavo" if centavos == 1 else "centavos")
-    return txt
+    numero = f"RECD-{fim:%Y%m}-{diarista_id:04d}"
+    pdf = build_recibo_pagamento_pdf({
+        "numero": numero,
+        "data": fim,
+        "valor": r["total"],
+        "recebedor": r["nome"],
+        "documento": r["cpf"],
+        "referente": (f"{r['dias']} diária(s) prestada(s) no período de "
+                      f"{inicio:%d/%m/%Y} a {fim:%d/%m/%Y}, conforme extrato anexo"),
+        "forma_pagamento": "PIX",
+        "empresa": B.EMPRESA_PATRIMONIAL,
+    })
+    r["numero"] = numero
+    return pdf, r

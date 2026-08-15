@@ -1012,15 +1012,16 @@ ORDER BY b.comp DESC, b.cnpj"""
     }
     out["pagar-diaristas"] = {
         "title": "Pagar diaristas",
-        "sub": "Dinheiro que SAI. Escolha o banco: pelo INTER o sistema paga direto (2 etapas com OTP). "
-               "Pela CORA a API não envia PIX por chave — o sistema devolve a lista para você concluir no "
-               "app do Cora e depois marcar em 'Pago por fora'. Paga o lote 'a_revisar' do dia.",
+        "sub": "Dinheiro que SAI. DEIXE A DATA VAZIA para pagar o lote inteiro de uma vez (o mês "
+               "fechado); informe um dia só se quiser pagar apenas aquele dia. Pelo INTER o sistema paga "
+               "direto (2 etapas com OTP); pela CORA a API não envia PIX por chave — devolve a lista para "
+               "você concluir no app e depois marcar em 'Pago por fora'.",
         "cta": "Gerar código de pagamento", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/pagar-diaristas", "gated": True,
                    "confirm": "Isto vai PAGAR o lote de diaristas (Inter) do dia via PIX. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "Lote processado."},
         "fields": [
-            {"key": "data", "label": "Data* (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            {"key": "data", "label": "Dia (vazio = lote inteiro)", "type": "date", "span": "span 1"},
             # Diarista é prestador da PATRIMONIAL → Cora é o padrão (regra do Jordan:
             # Eletrônica paga pelo Inter, Patrimonial paga pela Cora).
             {"key": "origem", "label": "Banco", "type": "select", "span": "span 1",
@@ -1932,9 +1933,14 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     padrão do pagar-folha-pj: sem otp_code → gera código; com otp_code → paga real.
     Sem OTP válido, nada é pago."""
     import modules.financial.pagamentos_diaristas_service as svc
+    # Data OPCIONAL: vazia = LOTE INTEIRO (todo item elegivel, o mes fechado de uma vez).
+    # Antes era obrigatoria e o Jordan tinha que pagar dia a dia — 31 operacoes para uma
+    # competencia. O servico ja aceitava `data=None` e montava o lote completo; quem
+    # obrigava era esta tela.
     data = (payload.get("data") or "").strip()
-    if not data or len(data) < 8:
-        raise HTTPException(status_code=400, detail="Informe a data (AAAA-MM-DD) do lote.")
+    if data and len(data) < 8:
+        raise HTTPException(status_code=400, detail="Data no formato AAAA-MM-DD (ou vazia para o lote inteiro).")
+    _d_sql = _rd_parse_data(data) or data if data else None
     # ── TRAVA ANTI-LOTE-VELHO ────────────────────────────────────────────────────────
     # O lote envelhece: o Eliziel segue lançando enquanto ele espera o dia 15. Medido em
     # 03/08 — lote R$8.670 contra R$8.730 já lançados; pagar ali pagaria A MENOS.
@@ -1942,11 +1948,20 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     # totais daria falso alarme, porque quem já está 'pago'/'cancelado' legitimamente não
     # bate com o lançado (ex.: R$640 pagos sem lançamento + R$850 cancelados).
     # Roda ANTES de Cora e de Inter: vale para gerar lista e para gerar OTP.
-    _d_ref = _rd_parse_data(data) or data
-    _comp = (await db.execute(text(
-        "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
-        "WHERE data_referencia = CAST(:d AS date) AND tipo = 'diaria_mensal'"),
-        {"d": _d_ref})).scalars().all()
+    _d_ref = _d_sql
+    # Sem data, a trava vale para TODA competencia com item ainda mudavel — nao pular a
+    # verificacao e o ponto: pagar o lote inteiro sem conferir seria pagar a menos em
+    # escala, em vez de num dia so.
+    if _d_ref:
+        _comp = (await db.execute(text(
+            "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
+            "WHERE data_referencia = CAST(:d AS date) AND tipo = 'diaria_mensal'"),
+            {"d": _d_ref})).scalars().all()
+    else:
+        _comp = (await db.execute(text(
+            "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
+            "WHERE tipo = 'diaria_mensal' AND status IN ('a_revisar','sem_pix') "
+            "  AND competencia IS NOT NULL"))).scalars().all()
     for _c in _comp:
         try:
             _mm, _aa = str(_c).split("/")
@@ -1987,12 +2002,14 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     if origem == "cora":
         # O Cora NAO envia PIX por chave (limitacao da API do proprio banco). Em vez de fingir que
         # pagou, devolve a LISTA pro Jordan concluir no app — e depois marcar em 'Pago por fora'.
+        _filtro = "data_referencia = CAST(:d AS date) AND " if _d_sql else ""
         itens = (await db.execute(text(
             "SELECT beneficiario, coalesce(pix_key,'(sem PIX)'), valor FROM financial_pagamentos_diaristas "
-            "WHERE data_referencia = CAST(:d AS date) AND status='a_revisar' ORDER BY beneficiario"),
-            {"d": _rd_parse_data(data) or data})).fetchall()
+            f"WHERE {_filtro}status='a_revisar' ORDER BY beneficiario"),
+            ({"d": _d_sql} if _d_sql else {}))).fetchall()
         if not itens:
-            return {"ok": True, "message": f"Nada a pagar em {data} (nenhum item 'a revisar')."}
+            _onde = f"em {data}" if data else "no lote"
+            return {"ok": True, "message": f"Nada a pagar {_onde} (nenhum item 'a revisar')."}
         total = sum(float(i[2] or 0) for i in itens)
         linhas = " · ".join(f"{i[0]}: {i[1]} = {brl(float(i[2] or 0))}" for i in itens[:12])
         # Lista curta cabe na mensagem; lista longa vira "vá na aba Diaristas e exporte" —
@@ -2008,12 +2025,12 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
     if not otp_code:
-        r = await svc.gerar_otp_lote(db, data=data)
+        r = await svc.gerar_otp_lote(db, data=(data or None))
         if not r.get("ok"):
             raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nenhum item elegível.")
         return {"otp_required": True, "ref": r.get("lote_id", ""),
                 "message": f"{r.get('quantidade')} diarista(s) · R$ {float(r.get('total') or 0):.2f}. Confirme com o código OTP."}
-    r = await svc.executar_lote(db, data=data, confirmar=True, otp_code=otp_code,
+    r = await svc.executar_lote(db, data=(data or None), confirmar=True, otp_code=otp_code,
                                 lote_id=lote_id or None, user_id=str(getattr(current_user, "id", "")))
     if r.get("otp_invalido") or r.get("otp_requerido"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")

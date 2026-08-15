@@ -105,8 +105,8 @@ def build_recibo_pdf(d: dict) -> bytes:
     )
     doc.build(
         el,
-        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO"),
-        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO"),
+        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO", empresa=d.get("empresa")),
+        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO", empresa=d.get("empresa")),
     )
     return buf.getvalue()
 
@@ -119,6 +119,63 @@ _ADITIVO_TIPO = {
     "valor": "alteração de valor",
     "outro": "alteração contratual",
 }
+
+
+def build_recibo_pagamento_pdf(d: dict) -> bytes:
+    """Recibo de PAGAMENTO: a empresa paga, o prestador recebe e assina.
+
+    O `build_recibo_pdf` existente é o inverso — "Recebemos de <cliente>" — e serve para
+    dinheiro ENTRANDO. Usar aquele para pagar um diarista inverteria quem declara o quê,
+    e é o recebedor quem dá quitação. Mesmos blocos visuais de propósito: numero, valor
+    em caixa, texto corrido, frase de fecho, data por extenso e as duas assinaturas.
+    """
+    valor = float(d.get("valor", 0) or 0)
+    recebedor = d.get("recebedor") or "—"
+    docnum = d.get("documento") or ""
+    referente = d.get("referente") or "serviços prestados"
+    forma = d.get("forma_pagamento")
+    emp = d.get("empresa") or B.EMPRESA
+    dt = d.get("data") or date.today()
+
+    buf, doc = _doc(f"Recibo de pagamento {d.get('numero', '')}")
+    st = B.styles()
+    el: list = []
+    el += _meta(st, d.get("numero", ""), B.br_date(dt))
+    el.append(Table([[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
+                    colWidths=[80 * mm], hAlign="LEFT",
+                    style=TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10)])))
+    el.append(Spacer(1, 8 * mm))
+    texto = (
+        f"Recebi de <b>{emp['razao']}</b>, inscrita no CNPJ sob o nº {emp['cnpj']}, "
+        f"a importância de <b>{B.brl(valor)}</b>, referente a <b>{referente}</b>"
+        + (f", pago via {forma}" if forma else "")
+        + ", dando plena e geral quitação quanto ao valor recebido."
+    )
+    el.append(Paragraph(texto, st["corpo"]))
+    el.append(Paragraph("Para clareza e devida comprovação, firmo o presente recibo.", st["corpo"]))
+    el.append(Spacer(1, 6 * mm))
+    el.append(Paragraph(B.data_extenso(dt), st["corpo"]))
+    el += B.campos_assinatura(
+        st,
+        funcionario_nome=recebedor,
+        funcionario_label="Assinatura do Recebedor",
+        funcionario_doc_rotulo="CPF",
+        funcionario_cpf=docnum or None,
+        responsavel_nome=None,
+        digital_funcionario=False,
+        digital_empresa=True,
+    )
+    doc.build(
+        el,
+        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO DE PAGAMENTO", empresa=emp),
+        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO DE PAGAMENTO", empresa=emp),
+    )
+    return buf.getvalue()
 
 
 def build_aditivo_pdf(d: dict) -> bytes:
