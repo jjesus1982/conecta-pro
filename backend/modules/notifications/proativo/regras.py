@@ -234,6 +234,48 @@ register(Regra(
 ))
 
 
+# ─────────────────────────── tributo_VENCIDO ─────────────────────────────────
+# A regra acima olha `BETWEEN current_date AND current_date + 7`: só o FUTURO. Ela avisa
+# que vai vencer e emudece exatamente no dia em que vence — quando a multa começa a correr.
+#
+# Medido em 15/08/2026: o ISS de 07/2026 da Eletrônica venceu em 10/08 (guias DAM 21499343
+# e 21499344, R$740,25) e passou cinco dias vencido **sem um único alerta**. O vigia
+# desligava no instante em que passava a ser necessário.
+async def _detectar_tributo_vencido(db: AsyncSession) -> list[Achado]:
+    linhas = (await db.execute(text(
+        "SELECT e.slug, o.tipo, o.data_vencimento, coalesce(o.valor_devido, 0) "
+        "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
+        " WHERE o.active AND o.status = 'pendente' "
+        "   AND o.data_vencimento < current_date "
+        # Corte de 01/08/2026 (decisão do Jordan): abril a julho é status não conciliado do
+        # período de homologação, não dívida — a CRF de FGTS de 11/08 prova. Alertar sobre
+        # aquilo devolveria ao sino os R$68 mil de ruído que ninguém mais lia.
+        "   AND o.data_vencimento >= DATE '2026-08-01' "
+        " ORDER BY o.data_vencimento"))).fetchall()
+    if not linhas:
+        return []
+    total = float(sum(float(x[3]) for x in linhas))
+    detalhe = "; ".join(f"{s} {t} venceu {v:%d/%m}" for s, t, v, _ in linhas[:5])
+    return [Achado(correlation_id="financeiro_tributo_vencido:portfolio:None",
+                   dados={"n": len(linhas), "total": total, "detalhe": detalhe,
+                          "severidade": "critico"})]
+
+
+def _tpl_tributo_vencido(d: dict) -> tuple[str, str]:
+    from modules.notifications.proativo.redator import _brl
+    return (f"{d['n']} tributo(s) VENCIDO(S) sem baixa",
+            f"{d['n']} obrigação(ões) fiscal(is) já venceu(ram) e continua(m) pendente(s), "
+            f"total R$ {_brl(d['total'])}. {d['detalhe']}. "
+            f"Multa e juros correm a partir do vencimento.")
+
+
+register(Regra(
+    nome="tributo_vencido", familia="financeiro", severidade="critico",
+    roles_destino=("admin",), action_url="/modulos/financeiro/fiscal",
+    detectar=_detectar_tributo_vencido, template=_tpl_tributo_vencido,
+))
+
+
 # ─────────────────────────── concentracao_pagaveis (B3) ───────────────────────────
 async def _detectar_pagaveis_7d(db: AsyncSession) -> list[Achado]:
     row = (await db.execute(text(
