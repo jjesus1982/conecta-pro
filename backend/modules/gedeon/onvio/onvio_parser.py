@@ -51,6 +51,22 @@ def extract_mes_ref(nome: str) -> str | None:
     if m and 1 <= int(m.group(1)) <= 12 and 2020 <= int(m.group(2)) <= 2030:
         return f"{m.group(1)}.{m.group(2)}"
 
+    # Regra 2b: "MM YYYY" separado por ESPAÇO. É como a prefeitura nomeia as guias de
+    # ISSQN ("GUIA ISSQN RETENÇÃO ... 07 2026.pdf"), e sem esta regra elas caíam na regra 3
+    # e viravam mes_ref="2026" — ano sem mês não casa com competência nenhuma, então a guia
+    # do ISS nunca encontrava a obrigação dela. Medido em 15/08/2026: 30 documentos
+    # `guia_issqn`, TODOS com mes_ref só de ano.
+    #
+    # ⚠️ NÃO vale para PARCELAMENTO. O autoteste já declarava que
+    # `DAR 25_25 PARCELAMENTO SEFAZ 12 2025.pdf` fica em `2025`, e ele está certo: parcela
+    # 25 de 25 não pertence a uma competência mensal, pertence a um acordo. Dar competência
+    # a ela faria a parcela procurar (e casar com) uma obrigação de dezembro que não é dela.
+    # Foi o teste que me impediu de quebrar isso.
+    if not re.search(r"\bPARC\b|PARCELAMENTO|DIVIDA ATIVA|DÍVIDA ATIVA", nome_clean.upper()):
+        m = re.search(r"(?<!\d)(\d{2})\s+(\d{4})(?!\d)", nome_clean)
+        if m and 1 <= int(m.group(1)) <= 12 and 2020 <= int(m.group(2)) <= 2030:
+            return f"{m.group(1)}.{m.group(2)}"
+
     # Regra 3: apenas YYYY — docs anuais (13º salário, DAS, PARC)
     m = re.search(r"(?<!\d)(\d{4})(?!\d)", nome_clean)
     if m and 2020 <= int(m.group(1)) <= 2030:
@@ -106,7 +122,11 @@ def classificar_documento(nome: str, created_date: str | None = None) -> dict:
         ("PARC" in u and "SIMPLES NACIONAL" in u, "parcelamento_simples"),
         ("DIVIDA ATIVA" in u and "SIMPLES" in u, "divida_ativa_simples"),
         ("DAR" in u and ("SEFAZ" in u or "PARCELAMENTO" in u), "dar_sefaz"),
-        ("ISSQN" in u or "ISS" in u, "guia_issqn"),
+        # ⚠️ "ISS" como SUBSTRING pega ADM-ISS-IONAL. Medido em 15/08/2026: todo
+        # `ASO ADMISSIONAL_<nome>.pdf` estava classificado como `guia_issqn` — exame
+        # ocupacional virando guia de imposto municipal. `DEMISSIONAL` e `COMISSAO`
+        # cairiam no mesmo buraco. Sigla de 3 letras exige limite de palavra.
+        (bool(re.search(r"\bISSQN\b|\bISS\b", u)), "guia_issqn"),
         # FOLHA — "RECIBO FOLHA" ANTES de "FOLHA" simples
         ("RECIBO FOLHA" in u, "recibo_folha"),
         (
@@ -127,13 +147,28 @@ def classificar_documento(nome: str, created_date: str | None = None) -> dict:
             "CONTRATO DE EXPERIENCIA" in u_nc or "CONTRATO DE EXPERIÊNCIA" in u or "CONTRATO DE TRABALHO" in u,
             "contrato_trabalho",
         ),
-        ("FICHA" in u and "REGISTRO" in u, "ficha_registro"),
+        # "Ficha de Empregado" é o mesmo documento que "Ficha de Registro" — a regra exigia
+        # as duas palavras e mandava metade para `outros`.
+        ("FICHA" in u and ("REGISTRO" in u or "EMPREGADO" in u), "ficha_registro"),
+        # Carta de demissão / pedido de demissão = rescisão. O acervo tem os dois nomes.
+        ("DEMISSAO" in u_nc or "DEMISSÃO" in u, "rescisao"),
+        # Folha de ponto: existia como categoria no banco e não tinha regra nenhuma aqui.
+        ("PONTO" in u and "FOLHA" in u, "folha_ponto"),
+        # CTPS / carteiras — documento pessoal do empregado, não papel da empresa.
+        ("CARTEIRA DE TRABALHO" in u or "CTPS" in u or "CARTEIRA DE RESERVISTA" in u,
+         "documento_pessoal"),
+        # Parcelamento da PGFN: "PARCELA A/B PGFN" não casava com nenhuma regra de PARC.
+        ("PGFN" in u and "PARCELA" in u, "parcelamento_pgfn"),
         (
             "DECLARACAO" in u_nc and ("VALE TRANSPORTE" in u or "VT" in u),
             "declaracao_vt",
         ),
         ("AUTODECLARACAO" in u_nc, "autodeclaracao"),
-        ("ASO" in u, "aso"),
+        # ADMISSIONAL/DEMISSIONAL/PERIODICO é exame ocupacional, mesmo quando o nome vem
+        # torto — há um "ADO ADMISSIONAL_<nome>.pdf" no acervo (ASO digitado errado). Antes
+        # esses caíam em `guia_issqn` porque "ADM-ISS-IONAL" contém "ISS".
+        ("ASO" in u or "ADMISSIONAL" in u or "DEMISSIONAL" in u
+         or ("EXAME" in u and "PERIODICO" in u_nc), "aso"),
         ("ATESTADO" in u, "atestado"),
         # Empresa / Fiscal
         (
@@ -181,6 +216,27 @@ def classificar_item_onvio(item: dict) -> DocumentoClassificado:
 if __name__ == "__main__":
     casos = [
         # (nome, categoria_esperada, mes_ref_esperado)
+        # ── os três que nasceram do defeito de 15/08/2026 ──────────────────────────────
+        # "ISS" como substring pegava ADM-ISS-IONAL: todo ASO virava guia de imposto.
+        ("ASO ADMISSIONAL_PAULO DA SILVA LAMEGO.pdf", "aso", None),
+        ("ASO DEMISSIONAL_FULANO DE TAL.pdf", "aso", None),
+        # A prefeitura nomeia a guia com "MM YYYY" separado por ESPAÇO; sem essa regra as
+        # 30 guias de ISSQN ficavam com mes_ref só de ano e nunca achavam a obrigação.
+        ("GUIA ISSQN RETENÇÃO JORDAN 07 2026.pdf", "guia_issqn", "07.2026"),
+        ("GUIA ISSQN PRÓPRIO JORDAN 07 2026.pdf", "guia_issqn", "07.2026"),
+        # ...mas PARCELAMENTO continua anual: parcela 6 de 30 não pertence a competência.
+        ("PARC 6_30 ISSQN 07 2026.pdf", "guia_issqn", "2026"),
+        # ── e os que eu quebrei reclassificando em bloco, sem backup, no mesmo dia ──────
+        # Reclassifiquei 983 documentos com o parser atual e rebaixei ~19 para `outros`,
+        # porque estes nomes não casavam com regra nenhuma. Os casos abaixo existem no
+        # acervo real e agora têm regra — a lição virou teste.
+        ("ADO ADMISSIONAL_GEILSON RODRIGUES.pdf", "aso", None),          # ASO digitado errado
+        ("25-128-Ficha de Empregado - Oscar.pdf", "ficha_registro", None),
+        ("Carta de Demissão - Railson.pdf", "rescisao", None),
+        ("FOLHAS DE PONTO.pdf", "folha_ponto", None),
+        ("CARTEIRA DE TRABALHO_SEBASTIAO.pdf", "documento_pessoal", None),
+        ("PARCELA B PGFN 03 2026.pdf", "parcelamento_pgfn", "03.2026"),
+        # ──────────────────────────────────────────────────────────────────────────────
         ("Folha 03.2026_Prime Arena (1).pdf", "folha_pagamento", "03.2026"),
         ("Recibo Folha 03.2026_Conecta Mais - Geral (4).pdf", "recibo_folha", "03.2026"),
         ("GFD FGTS 03.2026_Conecta Mais.pdf", "fgts_guia", "03.2026"),
@@ -222,5 +278,8 @@ if __name__ == "__main__":
         else:
             print(f"{status} {nome}")
 
-    print(f"\n{'✅ TODOS OS 21 CASOS PASSARAM' if erros == 0 else f'❌ {erros}/21 FALHARAM'}")
+    # ⚠️ len(casos), NUNCA um número na string: o "21" ficou cravado e o teste anunciava
+    # "TODOS OS 21 PASSARAM" com 26 casos na lista. Contador que não conta é a versão
+    # pequena do mesmo defeito que este arquivo inteiro persegue — número que ninguém alimenta.
+    print(f"\n{'✅ TODOS OS ' + str(len(casos)) + ' CASOS PASSARAM' if erros == 0 else f'❌ {erros}/{len(casos)} FALHARAM'}")
     assert erros == 0, "Testes falharam — não commitar"
