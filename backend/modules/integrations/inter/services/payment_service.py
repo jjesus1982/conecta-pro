@@ -729,7 +729,20 @@ def _validar_destinatario(payment_type: str, dest: dict) -> None:
         raise PaymentError(f"destinatario faltando campos para {payment_type}: {faltando}")
 
 
-async def _enviar_otp_email(email: str, code: str, valor: float, payment_type: str, dest: str) -> None:
+async def _enviar_otp_email(email: str, code: str, valor: float, payment_type: str, dest: str) -> bool:
+    """Envia o codigo e devolve se o SERVIDOR ACEITOU a mensagem.
+
+    ⚠️ Aceito != entregue. O SMTP aceita para relay e devolve erro de caixa inexistente
+    DEPOIS, num bounce assincrono — testado em 17/08/2026: endereco em dominio invalido
+    tambem devolve True aqui. Entao este bool separa "recusado na hora / exception" de
+    "saiu daqui"; NAO promete que chegou. Prometer entrega seria trocar uma mentira por
+    outra.
+
+    Devolvia None e engolia a falha num warning de log; os cinco fluxos que dependem dela
+    respondiam "Codigo enviado para X" de qualquer jeito. Num gate de dinheiro, dizer que
+    o codigo foi enviado quando nao foi deixa a pessoa esperando um e-mail que nao vem —
+    aconteceu com o Jordan tres vezes entre 14 e 16/08/2026.
+    """
     try:
         from core.mailer import send_email
 
@@ -767,9 +780,13 @@ async def _enviar_otp_email(email: str, code: str, valor: float, payment_type: s
           </div>
         </body></html>
         """
-        await send_email(email, f"[Conecta PRO] OTP Pagamento R${valor:.2f} — {payment_type.upper()}", html)
+        ok = await send_email(email, f"[Conecta PRO] OTP Pagamento R${valor:.2f} — {payment_type.upper()}", html)
+        if not ok:
+            logger.error("OTP: servidor de e-mail RECUSOU a mensagem para %s", email)
+        return bool(ok)
     except Exception as exc:
-        logger.warning("D7 _enviar_otp_email falhou (%s) — continuando sem email", exc)
+        logger.error("OTP: falha ao enviar e-mail para %s: %s", email, exc)
+        return False
 
 
 def _mod10(num: str) -> int:

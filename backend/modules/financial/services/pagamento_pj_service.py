@@ -251,13 +251,10 @@ async def gerar_otp_lote(db: AsyncSession, mes: int, ano: int) -> dict:
         {"l": lote_id, "c": code, "e": exp})
     await db.commit()
     email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
-    try:
-        from modules.integrations.inter.services.payment_service import _enviar_otp_email
-        await _enviar_otp_email(email, code, total, f"folha PJ {comp} (Inter)", f"{n} prestador(es)")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("OTP folha PJ: falha ao enviar email: %s", exc)
+    from modules.integrations.inter.services.payment_service import _enviar_otp_email
+    entregue = _enviar_otp_email(email, code, total, f"folha PJ {comp} (Inter)", f"{n} prestador(es)")
     return {"ok": True, "lote_id": lote_id, "quantidade": n, "total": total,
-            "message": f"Código enviado para {email}", "expires_in_seconds": OTP_TTL_SECONDS}
+            "saiu_daqui": entregue, "message": f"Código enviado para {email}", "expires_in_seconds": OTP_TTL_SECONDS}
 
 
 async def _validar_otp(db: AsyncSession, lote_id: str, code: str) -> None:

@@ -22,6 +22,7 @@ janela do pagamento, com valor igual ao líquido? Somar tudo que a pessoa recebe
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import uuid
@@ -29,6 +30,8 @@ from datetime import UTC, date as _date, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 TETO_DIARIO = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "100000.00"))
 OTP_TTL_S = 600
@@ -222,16 +225,30 @@ async def gerar_otp(db: AsyncSession, *, lote_id: str, email: str | None = None)
 
     total = lote["total_centavos"] / 100
     destino = email or os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
+    # ⚠️ DOIS defeitos moravam aqui, e o primeiro anulava o segundo:
+    # 1. `send_email` é ASSÍNCRONA e era chamada SEM await — a corrotina era criada e
+    #    descartada, então o e-mail NUNCA saía. Sem exceção, sem log, e a função ainda
+    #    respondia "OTP enviado para X". Mentira completa, silenciosa.
+    # 2. No except, devolvia `ok: True` com um aviso. Num gate de dinheiro, "ok" com a
+    #    pessoa sem o código é sucesso que engana (achado do T4, F6).
+    # Agora o retorno reflete o fato: entregue = ok; não entregue = ok False com o caminho.
+    saiu_daqui = False
     try:
         from core.mailer import send_email
-        send_email(destino, f"[Conecta PRO] OTP ordem de pagamento R$ {total:,.2f}",
-                   f"Código: {code}\n\nLote {lote['referencia']} — {lote['qtd_itens']} "
-                   f"pagamentos, R$ {total:,.2f}.\nVálido por {OTP_TTL_S // 60} minutos.\n\n"
-                   f"Aprovar NÃO paga ninguém: libera a ordem para você executar no app do banco.")
-    except Exception as exc:  # noqa: BLE001 — o OTP existe mesmo se o e-mail falhar
-        return {"ok": True, "aviso": f"OTP gravado, e-mail falhou: {str(exc)[:120]}",
-                "expira_em_s": OTP_TTL_S}
-    return {"ok": True, "mensagem": f"OTP enviado para {destino}", "expira_em_s": OTP_TTL_S}
+        saiu_daqui = await send_email(
+            destino, f"[Conecta PRO] OTP ordem de pagamento R$ {total:,.2f}",
+            f"Código: {code}<br><br>Lote {lote['referencia']} — {lote['qtd_itens']} "
+            f"pagamentos, R$ {total:,.2f}.<br>Válido por {OTP_TTL_S // 60} minutos.<br><br>"
+            f"Aprovar NÃO paga ninguém: libera a ordem para você executar no app do banco.")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("OTP ordem de pagamento: falha ao enviar para %s: %s", destino, exc)
+    if not saiu_daqui:
+        return {"ok": False, "saiu_daqui": False, "destino": destino, "expira_em_s": OTP_TTL_S,
+                "erro": (f"O código foi gravado mas NÃO SAIU para {destino} — o servidor recusou. Você não vai "
+                         f"recebê-lo por e-mail. Confira o endereço configurado (JORDAN_EMAIL) "
+                         f"antes de tentar de novo.")}
+    return {"ok": True, "saiu_daqui": True, "destino": destino,
+            "mensagem": f"OTP enviado para {destino}", "expira_em_s": OTP_TTL_S}
 
 
 async def aprovar_lote(db: AsyncSession, *, lote_id: str, codigo: str,

@@ -469,14 +469,14 @@ async def gerar_otp_lote(
         {"l": lote_id, "c": code, "e": exp})
     await db.commit()
     email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
-    try:
-        from modules.integrations.inter.services.payment_service import _enviar_otp_email
-        await _enviar_otp_email(email, code, total, "diaristas VT+VR (lote)", f"{n} diarista(s)")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("OTP lote diaristas: falha ao enviar email: %s", exc)
+    from modules.integrations.inter.services.payment_service import _enviar_otp_email
+    saiu_daqui = await _enviar_otp_email(email, code, total, "diaristas VT+VR (lote)", f"{n} diarista(s)")
     logger.info("diaristas lote gerar_otp: lote=%s n=%s total=%.2f email=%s", lote_id, n, total, email)
     return {"ok": True, "lote_id": lote_id, "quantidade": n, "total": total,
-            "message": f"Código enviado para {email}", "expires_in_seconds": OTP_TTL_SECONDS}
+            "saiu_daqui": entregue,
+            "message": (f"Código enviado para {email}. Se não chegar em 2 min, confira o spam." if saiu_daqui else
+                        f"⚠️ O CÓDIGO NÃO SAIU — o servidor de e-mail recusou a mensagem para {email}. "
+                        f"O código existe, mas você não vai recebê-lo. Verifique o e-mail configurado antes de tentar de novo."), "expires_in_seconds": OTP_TTL_SECONDS}
 
 
 async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code: str) -> None:
