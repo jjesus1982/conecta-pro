@@ -228,6 +228,40 @@ _PRODUCAO = {
 }
 
 
+#: Camada 6 — a fila do beat tem alguém ESCUTANDO?
+#:
+#: Descoberto em 17/08/2026. O beat `fiscal.certidoes.sync_diario` despachava para a fila
+#: `ged`, e NENHUM worker do compose consome `ged`:
+#:
+#:     fila ged          -> 101 mensagens acumuladas
+#:     fila gov.esocial  -> 0
+#:     fila gov.batch    -> 0
+#:
+#: Cento e uma execuções enfileiradas e nunca consumidas. O vigia de vencimento de certidão
+#: nunca rodou por agendamento — desde sempre — e do jeito mais silencioso que existe:
+#: mensagem enfileirada não falha, não estoura, não vai para o sino. Ela simplesmente FICA.
+#:
+#: As camadas anteriores não pegam: a task existe, importa e está registrada; ela só nunca
+#: é entregue a ninguém. Pergunta-se aos WORKERS VIVOS quais filas escutam (`active_queues`),
+#: e não ao compose — o que vale é quem está de pé agora.
+def _filas_orfas(app, agenda) -> list[str]:
+    try:
+        ativas = app.control.inspect(timeout=5).active_queues() or {}
+    except Exception as e:  # noqa: BLE001 — sem broker não dá para afirmar nada
+        return [f"não consegui perguntar aos workers ({type(e).__name__}) — sem veredito"]
+    escutadas = {q.get("name") for filas in ativas.values() for q in (filas or [])}
+    if not escutadas:
+        return ["nenhum worker respondeu — sem veredito (workers de pé?)"]
+
+    fora: dict[str, list[str]] = {}
+    for apelido, cfg in agenda.items():
+        fila = (cfg.get("options") or {}).get("queue")
+        if fila and fila not in escutadas:
+            fora.setdefault(fila, []).append(apelido)
+    return [f"fila '{f}' não tem consumidor — {len(bs)} beat(s): {', '.join(sorted(bs)[:4])}"
+            for f, bs in sorted(fora.items())]
+
+
 def _producao(agenda) -> list[str]:
     """Consulta o banco e devolve uma linha por rotina estéril."""
     from sqlalchemy import text  # noqa: PLC0415
@@ -282,6 +316,7 @@ def main() -> int:
             engolem[nome] = engolidos
 
     mudas = _producao(agenda)
+    orfas = _filas_orfas(app, agenda)
 
     if sem_registro:
         print(f"🔴 BEAT SEM TASK REGISTRADA ({len(sem_registro)}) — agendado e nunca executa\n")
@@ -307,16 +342,25 @@ def main() -> int:
         print("   com o beat diário e a fila consumida. PISTA, não veredito: um `except` que")
         print("   devolve fallback pode ser correto — leia a linha antes de mexer.\n")
 
+    if orfas:
+        print(f"🔴 FILA SEM CONSUMIDOR ({len(orfas)}) — despacha e ninguém recebe\n")
+        for o in orfas:
+            print(f"   {o}")
+        print("\n   Mensagem enfileirada não falha, não estoura e não vai para o sino —")
+        print("   ela FICA. Foi assim que o vigia de certidão acumulou 101 execuções.\n")
+
     if mudas:
         print(f"🔴 RODA E NÃO PRODUZ ({len(mudas)}) — verde no beat, nada no banco\n")
         for m in mudas:
             print(f"   {m}")
         print()
 
-    total = len(sem_registro) + sum(len(v) for v in problemas.values()) + len(mudas)
+    total = (len(sem_registro) + sum(len(v) for v in problemas.values())
+             + len(mudas) + len(orfas))
     if not total and not engolem:
-        print(f"✅ nenhum beat chama coisa que não existe, engole a própria falha "
-              f"ou está estéril ({len(_PRODUCAO)} com produção vigiada).\n")
+        print(f"✅ nenhum beat chama coisa que não existe, engole a própria falha, "
+              f"despacha para fila sem consumidor ou está estéril "
+              f"({len(_PRODUCAO)} com produção vigiada).\n")
         return 0
     print(f"TOTAL: {total} achado(s) que quebram + {len(engolem)} que quebram CALADO")
     print("Cada um destes falha na hora agendada, todo dia, e só aparece no sino.\n")

@@ -597,10 +597,25 @@ app.conf.beat_schedule = {
     },
     # Busca ativa de certidões nos portais governamentais (06:30)
     # GAP 3: conecta ged_sync_cnds ao HTTP dos portais (CND, CNDT, CRF)
+    #
+    # ⚠️ A fila era `ged` e NENHUM worker consumia `ged`. Medido em 17/08/2026:
+    #
+    #     fila ged          -> 101 mensagens acumuladas
+    #     fila gov.esocial  -> 0
+    #     fila gov.batch    -> 0
+    #
+    # Cento e uma execuções despachadas e nunca consumidas — o vigia de vencimento de
+    # certidão nunca rodou por agendamento, desde sempre. E do jeito mais silencioso
+    # possível: mensagem enfileirada não falha, não estoura, não vai para o sino. Fica.
+    #
+    # As filas que EXISTEM são as dos workers do compose: gov.esocial, gov.fgts,
+    # operacional, integrations, webhooks, maintenance, gov.batch, gov.nfse e as três
+    # gov.sefaz.*. `ged` nunca esteve entre elas. Vai para `gov.batch`, que é onde moram
+    # as outras tarefas diárias de governo e tem consumidor (celery-batch).
     "fiscal.certidoes.sync_diario": {
         "task": "ged.buscar_certidoes_portais",
         "schedule": crontab(hour=6, minute=30),
-        "options": {"queue": "ged"},
+        "options": {"queue": "gov.batch"},
     },
     # Coleta mensal D4 — dia 21 às 07:00 SP (= 06:00 Manaus UTC-4, tz global SP UTC-3)
     # INV-12: America/Manaus offset. Celery global tz = America/Sao_Paulo.
