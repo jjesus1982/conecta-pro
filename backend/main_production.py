@@ -1349,6 +1349,15 @@ try:
         logger.info("Webhooks Cora: OK (invoice + payment)")
     except Exception as _e:
         logger.warning("Webhooks Cora: %s", _e)
+    try:
+        from modules.integrations.banking.controllers.asaas_webhook_controller import (
+            router as _asaas_wh,
+        )
+
+        api_router.include_router(_asaas_wh, tags=["Webhooks — Asaas"])
+        logger.info("Webhooks Asaas: OK (transfer)")
+    except Exception as _e:
+        logger.warning("Webhooks Asaas: %s", _e)
     logger.info("Webhooks Inter: OK (pix + boleto + configurar + status)")
 except Exception as _e:
     logger.warning(f"Webhooks Inter: {_e}")

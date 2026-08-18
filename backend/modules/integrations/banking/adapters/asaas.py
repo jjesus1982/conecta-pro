@@ -126,6 +126,22 @@ class AsaasAdapter(BaseBankingAdapter):
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
 
+    @classmethod
+    def from_env(cls) -> "AsaasAdapter":
+        """Monta o adapter a partir do `.env` da RAIZ (`/opt/conecta-pro/.env`).
+
+        O ambiente sai do PREFIXO da própria chave, não de uma variável separada:
+        `$aact_prod_` é produção, qualquer outra é sandbox. Duas variáveis para dizer a
+        mesma coisa é convite para alguém apontar a chave de sandbox para a URL de
+        produção — a Asaas rejeita, mas só depois de a gente achar que testou.
+        """
+        k = (os.getenv("ASAAS_API_KEY") or "").strip()
+        if not k:
+            raise AsaasError("ASAAS_API_KEY não configurada no .env da raiz")
+        return cls(BankCredentials(
+            client_id="conecta", client_secret=k,
+            environment="production" if k.startswith("$aact_prod_") else "sandbox"))
+
     async def authenticate(self) -> bool:
         """Não há fluxo de token: a chave de API já é a credencial. Valida chamando o
         saldo — sem isso, "autenticado" seria só a ausência de teste."""
