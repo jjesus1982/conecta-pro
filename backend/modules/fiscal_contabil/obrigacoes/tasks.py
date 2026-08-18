@@ -34,6 +34,16 @@ def task_sync_guias_drive() -> dict:
     rel["baixa_onvio"] = baixar()
     logger.info("fiscal.sync_guias_drive: baixa por recibo do Onvio — %s competência(s)",
                 len(rel["baixa_onvio"].get("baixadas", [])))
+
+    # Parcelamento do acervo Onvio, pelo mesmo motivo e no mesmo lugar. Medido em 18/08/2026:
+    # a casa paga SEIS acordos mensais e o sistema conhecia dois — os quatro invisíveis somam
+    # ≈ R$ 6.207/mês, e parcela perdida não gera multa, RESCINDE o acordo.
+    from modules.fiscal_contabil.obrigacoes.parcelamentos_onvio import sincronizar
+
+    rel["parcelamentos_onvio"] = sincronizar()
+    logger.info("fiscal.sync_guias_drive: parcelamentos do Onvio — %s federal(is), %s municipal(is)",
+                len(rel["parcelamentos_onvio"].get("federais", [])),
+                len(rel["parcelamentos_onvio"].get("municipais", [])))
     return rel
 
 

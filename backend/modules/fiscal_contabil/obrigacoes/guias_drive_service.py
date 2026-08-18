@@ -321,7 +321,8 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     comp = f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes and g.competencia_ano else None
 
     row = db.execute(
-        _sql("SELECT id, observacao, parcelas_pagas FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
+        _sql("SELECT id, observacao, parcelas_pagas, parcela_valor "
+             "  FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
         {"n": numero_acordo},
     ).first()
 
@@ -339,12 +340,27 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
         conhecidas.add(comp)
     n = len(conhecidas) or 1
     valor_total = round(g.valor * n, 2)
+
+    # `parcela_valor` e `dia_vencimento` descrevem a parcela CORRENTE, então só a competência
+    # mais nova pode escrevê-los. Medido em 18/08/2026: o acervo é varrido por nome de
+    # arquivo, e `PARC 9_145 … 06 2026` vem DEPOIS de `PARC 10_145 … 07 2026` na ordem
+    # alfabética — o acordo terminava exibindo a parcela de junho (257,95) no lugar da de
+    # julho (260,60). Cada parcela tem juros próprios; sobrescrever com a mais velha faz o
+    # painel cobrar um valor que não é mais o devido.
+    def _ordem(c: str) -> tuple[int, int]:
+        mes, ano = c.split("/")
+        return int(ano), int(mes)
+
+    e_a_mais_nova = not comp or comp == max(conhecidas, key=_ordem)
+    valor_corrente = g.valor if e_a_mais_nova else float(row[3] or g.valor)
+    dia_corrente = g.vencimento.day if (e_a_mais_nova and g.vencimento) else None
     obs = json.dumps({
         "nota": "Parcelamento Dívida Ativa Simples Nacional (PGFN). num_parcelas/valor_total = "
                 "parcelas CONHECIDAS pelo puxador; total do acordo a confirmar no e-CAC/SISPAR.",
         "sispar": sispar,
-        "parcela_valor": g.valor,
-        "competencias_conhecidas": sorted(conhecidas),
+        "parcela_valor": valor_corrente,
+        "competencia_corrente": max(conhecidas, key=_ordem) if conhecidas else None,
+        "competencias_conhecidas": sorted(conhecidas, key=_ordem),
         "ultimo_arquivo": meta.get("nome"),
         "sync_em": datetime.utcnow().isoformat(),
     }, ensure_ascii=False)
@@ -353,17 +369,17 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
         db.execute(
             _sql("UPDATE fiscal_parcelamentos SET parcela_valor=:pv, num_parcelas=:np, valor_total=:vt, "
                  "dia_vencimento=COALESCE(:dv, dia_vencimento), status='ativo', observacao=:obs, "
-                 "fonte='drive_pgfn', updated_at=now() WHERE id=:id"),
-            {"pv": g.valor, "np": n, "vt": valor_total,
-             "dv": g.vencimento.day if g.vencimento else None, "obs": obs, "id": row[0]},
+                 "fonte=:fonte, updated_at=now() WHERE id=:id"),
+            {"pv": valor_corrente, "np": n, "vt": valor_total, "dv": dia_corrente,
+             "fonte": meta.get("fonte", "drive_pgfn"), "obs": obs, "id": row[0]},
         )
         return "atualizado"
     db.execute(
         _sql("INSERT INTO fiscal_parcelamentos (orgao,numero_acordo,descricao,valor_total,num_parcelas,"
              "parcela_valor,dia_vencimento,competencia_inicio,parcelas_pagas,status,observacao,fonte,created_by,created_at,updated_at) "
-             "VALUES ('PGFN',:na,:desc,:vt,:np,:pv,:dv,:ci,0,'ativo',:obs,'drive_pgfn','drive_puxador',now(),now())"),
+             "VALUES ('PGFN',:na,:desc,:vt,:np,:pv,:dv,:ci,0,'ativo',:obs,:fonte,'drive_puxador',now(),now())"),
         {"na": numero_acordo, "desc": "Parcelamento Dívida Ativa — Simples Nacional (PGFN) — total do acordo a confirmar",
-         "vt": valor_total, "np": n, "pv": g.valor,
+         "vt": valor_total, "np": n, "pv": g.valor, "fonte": meta.get("fonte", "drive_pgfn"),
          "dv": g.vencimento.day if g.vencimento else None, "ci": comp, "obs": obs},
     )
     return "criado"
