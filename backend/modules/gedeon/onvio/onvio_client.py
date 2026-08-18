@@ -11,13 +11,19 @@ import redis
 import requests
 
 ONVIO_BASE = "https://onvio.com.br"
-CLIENT_ID = "92A4D531C6314E309B62FDF3D9F1359C"
+CLIENT_ID = "92A4D531C6314E309B62FDF3D9F1359C"  # Eletrônica — padrão histórico
+# O clientId de cada empresa vive em `empresas.onvio_client_id` (migration c5d6e7f8a9b0).
+# Aqui ele fica como PADRÃO só para não quebrar quem instancia sem argumento.
 REDIS_KEY = "onvio:session"
 REDIS_DB = 1  # T1 confirmou: sessão salva em DB 1
 
 
 class OnvioClient:
-    def __init__(self):
+    def __init__(self, client_id: str | None = None):
+        """`client_id` é a EMPRESA no Onvio. A conta jjesus@conectamais.pro enxerga as
+        duas (Eletrônica code 25, Patrimonial code 102) e a listagem devolve só a que for
+        pedida — por isso ele é argumento, não constante."""
+        self.client_id = client_id or CLIENT_ID
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/1")
         self._redis = redis.from_url(redis_url)
         self._session = requests.Session()
@@ -76,7 +82,7 @@ class OnvioClient:
                 "pageSize": page_size,
                 "loadPermission": "true",
                 "readByClientUser": "",
-                "customFields": json.dumps([{"name": "clientId", "value": CLIENT_ID, "ignoreCase": True}]),
+                "customFields": json.dumps([{"name": "clientId", "value": self.client_id, "ignoreCase": True}]),
             },
         )
 
@@ -119,7 +125,7 @@ class OnvioClient:
         return self._get(
             "/api/storage/v1/containers/tree",
             {
-                "clientId": CLIENT_ID,
+                "clientId": self.client_id,
                 "includeOrphans": "true",
                 "countDocuments": "true",
             },

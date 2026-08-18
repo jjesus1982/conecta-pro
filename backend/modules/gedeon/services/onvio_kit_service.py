@@ -257,6 +257,28 @@ _SQL_CNPJ_EMPREGADORA = text(
 )
 
 
+def _empresa_empregadora_id(db):
+    """UUID da empresa que EMPREGA a gente alocada nos postos.
+
+    Desde que o Onvio passou a trazer os dois CNPJs (18/08/2026), filtrar por nome de
+    arquivo não basta: a GFD FGTS não carrega CNPJ no nome, e existem duas — "_Conecta
+    Mais" (Eletrônica) e "_Conecta Patrimonial". Ordenadas por nome, a errada vem antes.
+    """
+    try:
+        return db.execute(
+            text(
+                "SELECT em.id FROM allocations a "
+                "  JOIN employees e ON e.id = a.employee_id "
+                "  JOIN empresas em ON em.id = e.empresa_id "
+                " WHERE a.is_active AND lower(coalesce(e.status,'')) = 'ativo' "
+                " GROUP BY em.id ORDER BY count(*) DESC LIMIT 1"
+            )
+        ).scalar()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nao consegui ler a empresa empregadora: %s", exc)
+        return None
+
+
 def _cnpj_empregadora(db) -> str | None:
     """CNPJ de quem EMPREGA a gente alocada nos postos — só dígitos.
 
@@ -293,14 +315,18 @@ def arquivar_guias_empresa_flat(
 ) -> dict:
     """Arquiva as guias da empresa (FGTS, INSS, DCTFWeb) replicadas em cada kit."""
     cats = tuple(CATEGORIAS_EMPRESA.keys())
+    emp_id = _empresa_empregadora_id(db)
+    # empresa_id IS NULL passa: documento anterior a 18/08/2026 não tem dono declarado e
+    # barrar por omissão esvaziaria o kit. A trava por CNPJ no nome cobre esses.
     rows = db.execute(
         text("""
         SELECT categoria, nome_arquivo, caminho_local, onvio_folder_id, onvio_id
         FROM onvio_documents
         WHERE mes_ref = :m AND categoria IN :cats
-        ORDER BY categoria, nome_arquivo
+          AND (:emp IS NULL OR empresa_id IS NULL OR empresa_id = :emp)
+        ORDER BY categoria, (empresa_id = :emp) DESC NULLS LAST, nome_arquivo
     """).bindparams(__import__("sqlalchemy").bindparam("cats", expanding=True)),
-        {"m": competencia, "cats": list(cats)},
+        {"m": competencia, "cats": list(cats), "emp": emp_id},
     ).all()
 
     rel = {"competencia": competencia, "guias": 0, "replicas": 0, "lista": [], "de_outra_empresa": []}

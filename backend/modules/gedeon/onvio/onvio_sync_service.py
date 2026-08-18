@@ -29,9 +29,12 @@ STORAGE_BASE = Path("/app/uploads/onvio")
 
 
 class OnvioSyncService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, client_id: str | None = None, empresa_id=None):
+        """`client_id`/`empresa_id` amarram esta sincronizacao a UMA empresa.
+        Sem eles, comportamento historico: a Eletronica."""
         self.db = db
-        self.client = OnvioClient()
+        self.client = OnvioClient(client_id)
+        self.empresa_id = empresa_id
 
     def sync_completo(self, mes_ref: str | None = None) -> dict:
         """
@@ -75,8 +78,7 @@ class OnvioSyncService:
                     # parcelamento, que a rotina do fiscal lê do disco. Catálogo não é
                     # acervo. [[feedback_verde_que_nao_prova_nada]]
                     existente = self._registro(item.get("id"))
-                    if existente is not None and existente.caminho_local \
-                            and Path(existente.caminho_local).exists():
+                    if existente is not None and existente.caminho_local and Path(existente.caminho_local).exists():
                         pulados += 1
                         continue
 
@@ -113,7 +115,8 @@ class OnvioSyncService:
             log.duracao_s = time.time() - inicio
             log.detalhes = (
                 f"Total API: {len(todos_docs)} | Novos: {novos} | "
-                f"Pulados (já existentes): {pulados} | Rebaixados: {rebaixados} | Erros: {erros}\n" + "\n".join(erros_detalhe[:10])
+                f"Pulados (já existentes): {pulados} | Rebaixados: {rebaixados} | Erros: {erros}\n"
+                + "\n".join(erros_detalhe[:10])
             )
             self.db.commit()
 
@@ -186,6 +189,7 @@ class OnvioSyncService:
             tamanho_bytes=Path(caminho).stat().st_size,
             data_onvio=item.get("createdDate"),
             processado=False,
+            empresa_id=self.empresa_id,
         )
         self.db.add(doc)
 
@@ -207,3 +211,44 @@ class OnvioSyncService:
             )
 
         self.db.commit()
+
+
+def sync_todas_empresas(db, mes_ref: str | None = None) -> dict:
+    """Sincroniza o Onvio de TODA empresa que tenha clientId cadastrado.
+
+    A conta jjesus@conectamais.pro enxerga as duas (Eletrônica code 25, Patrimonial
+    code 102) com UMA sessão — o seletor do Onvio só troca qual clientId a listagem pede.
+    Antes disso o clientId era constante no código e a Patrimonial simplesmente não
+    existia para o sistema: 983 documentos da Eletrônica no banco e ZERO dela.
+
+    Isso importa porque quem emprega os porteiros dos 7 postos é a PATRIMONIAL. O kit do
+    condomínio prova que a EMPREGADORA recolheu; com uma empresa só, ele vinha provando
+    o recolhimento da outra.
+    """
+    from sqlalchemy import text as _text
+
+    empresas = (
+        db.execute(
+            _text(
+                "SELECT id, slug, onvio_client_id FROM empresas  WHERE coalesce(onvio_client_id,'') <> '' ORDER BY slug"
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not empresas:
+        return {"status": "erro", "motivo": "nenhuma empresa com onvio_client_id cadastrado"}
+
+    out: dict = {"empresas": {}, "total_novos": 0, "total_erros": 0}
+    for e in empresas:
+        try:
+            r = OnvioSyncService(db, client_id=e["onvio_client_id"], empresa_id=e["id"]).sync_completo(mes_ref=mes_ref)
+        except Exception as exc:  # noqa: BLE001 — uma empresa quebrada não cala a outra
+            logger.warning("sync Onvio de %s falhou: %s", e["slug"], exc)
+            out["empresas"][e["slug"]] = {"status": "erro", "erro": str(exc)}
+            out["total_erros"] += 1
+            continue
+        out["empresas"][e["slug"]] = r
+        out["total_novos"] += int(r.get("novos") or 0)
+        out["total_erros"] += int(r.get("erros") or 0)
+    return out

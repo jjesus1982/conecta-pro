@@ -73,6 +73,13 @@ class OnvioDocument(Base):
     revisao_manual = Column(Boolean, nullable=True)
     detalhes_json = Column(JSONB, nullable=True)
     extraido_em = Column(DateTime(timezone=True), nullable=True)
+    # De qual CNPJ é este documento (migration c5d6e7f8a9b0). Nulo = origem não
+    # declarada; nunca assumir Eletrônica por omissão — foi assim que o DCTFWeb da
+    # empresa errada foi parar em 7 kits.
+    # Sem ForeignKey no ORM de proposito: `empresas` vive em outro Base/metadata e o
+    # mapper nao resolve o alvo ("could not find table 'empresas'"). A FK REAL existe
+    # no banco, criada pela migration c5d6e7f8a9b0 — a integridade e do Postgres.
+    empresa_id = Column(UUID(as_uuid=True), nullable=True)
 
 
 class FgtsGuia(Base):
