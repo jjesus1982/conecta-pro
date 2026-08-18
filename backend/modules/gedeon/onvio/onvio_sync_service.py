@@ -50,7 +50,7 @@ class OnvioSyncService:
             todos_docs = self.client.listar_todos_documentos()
             logger.info(f"Onvio retornou {len(todos_docs)} documentos totais")
 
-            novos = erros = pulados = 0
+            novos = erros = pulados = rebaixados = 0
             erros_detalhe = []
 
             EXTENSOES_VALIDAS = {".pdf", ".PDF"}
@@ -65,8 +65,18 @@ class OnvioSyncService:
                         pulados += 1
                         continue
 
-                    # Pular se já importado
-                    if self._ja_importado(item.get("id")):
+                    # Catalogado JÁ e com o PDF em disco → pular de verdade.
+                    #
+                    # ⚠️ Antes bastava existir a LINHA no banco. Documento catalogado cujo
+                    # arquivo se perdeu (ou nunca chegou a ser escrito) ficava marcado como
+                    # importado para sempre e NUNCA era rebaixado. Medido em 18/08/2026: o
+                    # sync devolveu `total_api 989, novos 0, pulados 989` com **319
+                    # documentos sem arquivo em disco** — entre eles 20 dos 33 DAMs de
+                    # parcelamento, que a rotina do fiscal lê do disco. Catálogo não é
+                    # acervo. [[feedback_verde_que_nao_prova_nada]]
+                    existente = self._registro(item.get("id"))
+                    if existente is not None and existente.caminho_local \
+                            and Path(existente.caminho_local).exists():
                         pulados += 1
                         continue
 
@@ -75,6 +85,15 @@ class OnvioSyncService:
 
                     # Filtrar por mês (se especificado)
                     if mes_ref and cl.mes_ref and cl.mes_ref != mes_ref:
+                        continue
+
+                    if existente is not None:
+                        # Linha já existe: só o ponteiro para o arquivo estava furado.
+                        # NÃO chamar _salvar_db, que sempre INSERE e duplicaria o registro.
+                        caminho = self._baixar_e_salvar(item, cl)
+                        existente.caminho_local = caminho
+                        existente.tamanho_bytes = Path(caminho).stat().st_size
+                        rebaixados += 1
                         continue
 
                     # Baixar + salvar
@@ -94,7 +113,7 @@ class OnvioSyncService:
             log.duracao_s = time.time() - inicio
             log.detalhes = (
                 f"Total API: {len(todos_docs)} | Novos: {novos} | "
-                f"Pulados (já existentes): {pulados} | Erros: {erros}\n" + "\n".join(erros_detalhe[:10])
+                f"Pulados (já existentes): {pulados} | Rebaixados: {rebaixados} | Erros: {erros}\n" + "\n".join(erros_detalhe[:10])
             )
             self.db.commit()
 
@@ -115,6 +134,7 @@ class OnvioSyncService:
                 "total_api": len(todos_docs),
                 "novos": novos,
                 "pulados": pulados,
+                "rebaixados": rebaixados,
                 "erros": erros,
                 "duracao": log.duracao_s,
                 "extracao": extracao,
@@ -129,7 +149,11 @@ class OnvioSyncService:
             raise
 
     def _ja_importado(self, onvio_id: str) -> bool:
-        return self.db.query(OnvioDocument).filter_by(onvio_id=onvio_id).first() is not None
+        return self._registro(onvio_id) is not None
+
+    def _registro(self, onvio_id: str):
+        """A linha do documento, ou None. Existir a linha NÃO prova que o PDF está em disco."""
+        return self.db.query(OnvioDocument).filter_by(onvio_id=onvio_id).first()
 
     def _baixar_e_salvar(self, item: dict, cl) -> str:
         """Baixa PDF e salva em /app/uploads/onvio/<categoria>/<mes>/<nome>.pdf"""

@@ -150,65 +150,119 @@ def ler_dam_municipal(texto: str) -> dict | None:
     }
 
 
-def _upsert_municipal(db, dados: dict, arquivo: str) -> str:
-    """Grava o acordo municipal, chaveado pelo processo de quitação."""
-    numero = f"SEMEF {dados['processo']}"
+#: "DAS de PARCSN (Versão: 2.0.0) Número do Parcelamento: 9 Parcela: 3/60" — o parcelamento
+#: do Simples Nacional na RECEITA, que é outro bicho do PGFN-SISPAR e não traz SISPAR nenhum.
+#: Sem esta leitura o acordo era invisível: o parser federal classificava o arquivo como
+#: `DAS` (guia mensal comum) e a rotina o descartava calada.
+_RE_PARCSN_NUM = re.compile(r"N[úu]mero do Parcelamento[:\s]*(\d+)", re.I)
+_RE_PARCSN_PARC = re.compile(r"Parcela[:\s]*(\d{1,3})\s*/\s*(\d{1,3})", re.I)
+
+
+def ler_das_parcsn(texto: str, valor: float | None, mes: int | None,
+                   ano: int | None) -> dict | None:
+    """DAS de PARCSN → campos do acordo. `None` se não for parcelamento do Simples.
+
+    `valor`, `mes` e `ano` vêm do parser federal, que já foi testado contra estes PDFs — não
+    reparseamos o que já está lido. O vencimento é a data cuja competência BATE com a do
+    documento: o DAS traz também um "pagar até" de outro mês, e escolher "a primeira data"
+    daria o dia errado.
+    """
+    if "PARCSN" not in texto.upper():
+        return None
+    num = _RE_PARCSN_NUM.search(texto)
+    parc = _RE_PARCSN_PARC.search(texto)
+    if not (num and parc and valor):
+        return None
+    atual, quantas = int(parc.group(1)), int(parc.group(2))
+    if not (1 <= atual <= quantas and quantas > 1):
+        return None
+
+    venc = None
+    if mes and ano:
+        for d in _RE_VENC.findall(texto):
+            try:
+                cand = datetime.strptime(d, "%d/%m/%Y").date()
+            except ValueError:
+                continue
+            if (cand.month, cand.year) == (mes, ano):
+                venc = cand
+                break
+
+    cnpj = _RE_CNPJ.search(texto)
+    return {
+        "processo": num.group(1),
+        "parcela_atual": atual,
+        "num_parcelas": quantas,
+        "valor": valor,
+        "vencimento": venc,
+        "cnpj": cnpj.group(1) if cnpj else None,
+    }
+
+
+def _upsert_acordo(db, *, orgao: str, numero: str, descricao: str, nota: str,
+                   fonte: str, dados: dict, arquivo: str) -> str:
+    """Grava um acordo chaveado por `numero`. Serve SEMEF (ISSQN) e RFB (PARCSN).
+
+    ⚠️ Quem manda no valor corrente é a **parcela mais alta já vista**, não o último arquivo
+    processado. O acervo é varrido por nome, e `PARC 10_30` vem antes de `PARC 5_30` na ordem
+    alfabética — sem esta regra o acordo passa a exibir uma parcela velha, com juros que já
+    não são os devidos. É o mesmo defeito corrigido no caminho federal.
+    """
     row = db.execute(text(
-        "SELECT id, observacao FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
+        "SELECT id, observacao, parcela_valor, dia_vencimento "
+        "  FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
         {"n": numero}).first()
 
-    conhecidas: set[str] = set()
+    obs_antiga: dict = {}
     if row and row[1] and row[1].strip().startswith("{"):
         try:
-            conhecidas = set(json.loads(row[1]).get("parcelas_vistas", []))
+            obs_antiga = json.loads(row[1])
         except (ValueError, TypeError):
-            conhecidas = set()
+            obs_antiga = {}
+    conhecidas = set(obs_antiga.get("parcelas_vistas", []))
     conhecidas.add(f"{dados['parcela_atual']}/{dados['num_parcelas']}")
 
-    corrente = (f"{dados['vencimento'].month:02d}/{dados['vencimento'].year}"
-                if dados["vencimento"] else None)
-    if row and not corrente:
-        try:
-            corrente = json.loads(row[1] or "{}").get("competencia_corrente")
-        except (ValueError, TypeError):
-            corrente = None
+    maior_vista = max(int(p.split("/")[0]) for p in conhecidas)
+    e_a_mais_nova = dados["parcela_atual"] >= maior_vista
+
+    venc = dados.get("vencimento")
+    corrente_nova = f"{venc.month:02d}/{venc.year}" if venc else None
+    corrente = corrente_nova if (e_a_mais_nova and corrente_nova) \
+        else obs_antiga.get("competencia_corrente") or corrente_nova
+
+    valor_corrente = dados["valor"] if e_a_mais_nova else float(row[2] or dados["valor"])
+    dia = (venc.day if venc else None) if e_a_mais_nova else None
 
     obs = json.dumps({
-        "nota": "Parcelamento de ISSQN — SEMEF/Prefeitura de Manaus, Lei 3537/2025. "
-                "valor_total NÃO consta do DAM (cada parcela tem juros próprios) e por isso "
-                "fica nulo; o saldo se consulta pelo processo de quitação.",
-        "processo_quitacao": dados["processo"],
+        "nota": nota,
+        "chave": numero,
         "competencia_corrente": corrente,
-        "cnpj": dados["cnpj"],
-        "parcela_valor_ultimo_dam": dados["valor"],
+        "parcela_corrente": f"{maior_vista}/{dados['num_parcelas']}",
+        "cnpj": dados.get("cnpj"),
+        "parcela_valor": valor_corrente,
         "parcelas_vistas": sorted(conhecidas, key=lambda p: int(p.split("/")[0])),
         "ultimo_arquivo": arquivo,
         "sync_em": datetime.utcnow().isoformat(),
     }, ensure_ascii=False)
 
-    dia = dados["vencimento"].day if dados["vencimento"] else 10
     if row:
         db.execute(text(
             "UPDATE fiscal_parcelamentos SET parcela_valor=:pv, num_parcelas=:np, "
-            "dia_vencimento=:dv, status='ativo', observacao=:obs, fonte='onvio_semef', "
-            "updated_at=now() WHERE id=:id"),
-            {"pv": dados["valor"], "np": dados["num_parcelas"], "dv": dia,
-             "obs": obs, "id": row[0]})
+            "dia_vencimento=COALESCE(:dv, dia_vencimento), status='ativo', observacao=:obs, "
+            "fonte=:fonte, updated_at=now() WHERE id=:id"),
+            {"pv": valor_corrente, "np": dados["num_parcelas"], "dv": dia,
+             "fonte": fonte, "obs": obs, "id": row[0]})
         return "atualizado"
 
-    comp = (f"{dados['vencimento'].month:02d}/{dados['vencimento'].year}"
-            if dados["vencimento"] else "")
     db.execute(text(
         "INSERT INTO fiscal_parcelamentos (orgao,numero_acordo,descricao,valor_total,"
         "num_parcelas,parcela_valor,dia_vencimento,competencia_inicio,parcelas_pagas,status,"
         "observacao,fonte,created_by,created_at,updated_at) "
-        "VALUES ('SEMEF',:na,:desc,NULL,:np,:pv,:dv,:ci,0,'ativo',:obs,'onvio_semef',"
+        "VALUES (:orgao,:na,:desc,NULL,:np,:pv,:dv,:ci,0,'ativo',:obs,:fonte,"
         "'onvio_parcelamentos',now(),now())"),
-        {"na": numero,
-         "desc": f"Parcelamento ISSQN — SEMEF Manaus, processo {dados['processo']} "
-                 f"({dados['num_parcelas']} parcelas)",
-         "np": dados["num_parcelas"], "pv": dados["valor"], "dv": dia,
-         "ci": comp, "obs": obs})
+        {"orgao": orgao, "na": numero, "desc": descricao, "fonte": fonte,
+         "np": dados["num_parcelas"], "pv": dados["valor"],
+         "dv": dia or (venc.day if venc else 30), "ci": corrente or "", "obs": obs})
     return "criado"
 
 
@@ -318,10 +372,36 @@ def sincronizar(db=None) -> dict:
                                         "valor": g.valor, "acao": acao})
                 continue
 
-            # 2) DAM municipal de parcelamento — o único caso que o parser federal não cobre.
+            # 2) DAS de PARCSN — parcelamento do Simples na Receita. O parser federal lê o
+            #    valor e a competência mas classifica como `DAS` comum, e sem esta regra o
+            #    acordo (60 parcelas de R$ 2.629,26) era descartado em silêncio.
+            dados = ler_das_parcsn(texto_pdf, getattr(g, "valor", None),
+                                   getattr(g, "competencia_mes", None),
+                                   getattr(g, "competencia_ano", None))
+            if dados:
+                acao = _upsert_acordo(
+                    db, orgao="RFB", numero=f"PARCSN {dados['processo']}",
+                    descricao=f"Parcelamento do Simples Nacional (PARCSN) nº {dados['processo']} "
+                              f"— {dados['num_parcelas']} parcelas",
+                    nota="Parcelamento do Simples Nacional na Receita Federal (PARCSN). "
+                         "valor_total NÃO consta do DAS; o saldo se consulta no e-CAC.",
+                    fonte="onvio_parcsn", dados=dados, arquivo=nome)
+                rel["federais"].append({"arquivo": nome, "parcsn": dados["processo"],
+                                        "parcela": f"{dados['parcela_atual']}/{dados['num_parcelas']}",
+                                        "valor": dados["valor"], "acao": acao})
+                continue
+
+            # 3) DAM municipal de parcelamento — o caso que o parser federal não cobre.
             dados = ler_dam_municipal(texto_pdf)
             if dados:
-                acao = _upsert_municipal(db, dados, nome)
+                acao = _upsert_acordo(
+                    db, orgao="SEMEF", numero=f"SEMEF {dados['processo']}",
+                    descricao=f"Parcelamento ISSQN — SEMEF Manaus, processo {dados['processo']} "
+                              f"({dados['num_parcelas']} parcelas)",
+                    nota="Parcelamento de ISSQN — SEMEF/Prefeitura de Manaus, Lei 3537/2025. "
+                         "valor_total NÃO consta do DAM (cada parcela tem juros próprios) e "
+                         "por isso fica nulo; o saldo se consulta pelo processo de quitação.",
+                    fonte="onvio_semef", dados=dados, arquivo=nome)
                 rel["municipais"].append({"arquivo": nome, "processo": dados["processo"],
                                           "parcela": f"{dados['parcela_atual']}/{dados['num_parcelas']}",
                                           "valor": dados["valor"], "acao": acao})
@@ -375,6 +455,22 @@ if __name__ == "__main__":
         "45177801 6/30 24/07/2026 Total: 285,01 R$")
     assert d2 is not None and (d2["parcela_atual"], d2["num_parcelas"]) == (6, 30), d2
     assert d2["vencimento"] == date(2026, 7, 24), d2["vencimento"]
+
+    # PARCSN — o nono acordo, que era descartado como "DAS comum".
+    das = ("Documento de Arrecadação do Simples Nacional 35.710.481/0001-03 "
+           "Pagar este documento até 30/09/2025 Observações DAS de PARCSN (Versão: 2.0.0) "
+           "Número do Parcelamento: 9 Parcela: 3/60 Valor Total do Documento 2.629,26 "
+           "Julho/2025 31/07/2025")
+    p = ler_das_parcsn(das, 2629.26, 7, 2025)
+    assert p is not None and p["processo"] == "9", p
+    assert (p["parcela_atual"], p["num_parcelas"]) == (3, 60), p
+    assert p["vencimento"] == date(2025, 7, 31), p["vencimento"]
+    # ⚠️ o "pagar até 30/09/2025" é de outro mês; escolher "a primeira data" daria 30/09.
+    assert p["vencimento"].month == 7
+
+    assert ler_das_parcsn("Documento de Arrecadação do Simples Nacional Julho/2026",
+                          123.0, 7, 2026) is None, "DAS comum não é parcelamento"
+    assert ler_das_parcsn(das, None, 7, 2025) is None, "sem valor lido, não grava acordo"
 
     assert _dec("1.301,40") == 1301.4 and _dec("367,92") == 367.92
     assert _dec(None) is None and _dec("") is None and _dec("abc") is None
