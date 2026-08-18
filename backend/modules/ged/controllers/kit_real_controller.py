@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
-from modules.crm.services import pdf_branding as B
+from modules.crm.services import pdf_branding as B  # noqa: N812 — alias usado no arquivo inteiro
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["GED - Kit Real"])
@@ -36,7 +36,18 @@ def _brand_build(doc, story, titulo: str | None = None):
 
 
 async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[dict]:
-    """Busca funcionarios alocados no cliente via posts+allocations."""
+    """Funcionarios alocados no cliente, via posts+allocations.
+
+    🔴 `client_id` aqui chega de `ged_document_kits.client_id`, que aponta para
+    `ged_clients`. `posts.client_id` aponta para `clients`. São DUAS tabelas sem FK entre
+    si, e a comparação direta não casava nunca: a função devolvia lista vazia para TODO
+    cliente, e o montador respondia "Sem funcionarios alocados" para os 7 condomínios.
+    Medido em 18/08/2026 — com o id de `clients` a mesma consulta devolve 6 no Prime Arena
+    e 10 no Mirante.
+
+    Terceira ocorrência desta família neste arquivo. O `:cid` agora serve para os dois
+    tipos de id: casa direto em `clients` OU pela ponte CNPJ/nome a partir de `ged_clients`.
+    """
     rows = (
         (
             await db.execute(
@@ -45,8 +56,14 @@ async def _get_employees_for_client(db: AsyncSession, client_id: str) -> list[di
                     "e.data_admissao, e.matricula "
                     "FROM employees e "
                     "JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' "
-                    "JOIN posts p ON a.post_id = p.id AND p.client_id::text = :cid "
-                    "WHERE e.is_active = true "
+                    "JOIN posts p ON a.post_id = p.id "
+                    "JOIN clients c ON c.id = p.client_id "
+                    "WHERE e.is_active = true AND ("
+                    "  c.id::text = :cid OR EXISTS ("
+                    "    SELECT 1 FROM ged_clients g WHERE g.id::text = :cid AND ("
+                    "      (coalesce(g.cnpj,'') <> '' AND coalesce(c.document_number,'') <> '' "
+                    "       AND regexp_replace(g.cnpj,'\\D','','g') = regexp_replace(c.document_number,'\\D','','g')) "
+                    "      OR upper(btrim(g.name)) = upper(btrim(c.name)))))"
                     "ORDER BY e.nome"
                 ),
                 {"cid": client_id},
@@ -1189,19 +1206,25 @@ async def montar_kit_guiado(
     # em 15/08/2026, o nome liga 19 de 20 e o CNPJ só 12 de 20 (nem todo ged_client tem
     # CNPJ). Então: CNPJ primeiro quando os dois lados têm, nome como segundo. Não achou,
     # RECUSA — em vez de escolher um qualquer.
-    gc = (await db.execute(
-        text(
-            "SELECT g.id FROM ged_clients g "
-            "WHERE g.id::text = :cid "
-            "   OR EXISTS (SELECT 1 FROM clients c WHERE c.id::text = :cid AND ("
-            "        (coalesce(g.cnpj,'') <> '' AND coalesce(c.document_number,'') <> '' "
-            "         AND regexp_replace(g.cnpj,'\\D','','g') "
-            "           = regexp_replace(c.document_number,'\\D','','g')) "
-            "     OR upper(btrim(g.name)) = upper(btrim(c.name)))) "
-            "LIMIT 1"
-        ),
-        {"cid": client_id},
-    )).mappings().first()
+    gc = (
+        (
+            await db.execute(
+                text(
+                    "SELECT g.id FROM ged_clients g "
+                    "WHERE g.id::text = :cid "
+                    "   OR EXISTS (SELECT 1 FROM clients c WHERE c.id::text = :cid AND ("
+                    "        (coalesce(g.cnpj,'') <> '' AND coalesce(c.document_number,'') <> '' "
+                    "         AND regexp_replace(g.cnpj,'\\D','','g') "
+                    "           = regexp_replace(c.document_number,'\\D','','g')) "
+                    "     OR upper(btrim(g.name)) = upper(btrim(c.name)))) "
+                    "LIMIT 1"
+                ),
+                {"cid": client_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
 
     if not gc:
         return {
