@@ -87,14 +87,26 @@ Nada disto precisa ser construído quando a conta sair:
 
 ## 6. O que falta construir, e em que ordem
 
-1. `adapters/efi.py` — a partir do `efi_client.py` recebido, ajustado ao nosso padrão
-2. `efi_sync_service` — extrato diário (o da Efí é **assíncrono**: pede o relatório e
-   depois consulta; diferente dos dois moldes que temos)
-3. Conta `1.1.1.03` no plano + entrada em `CONTA_BANCO`
-4. Coluna `banco` em `inter_payments`, para o fluxo D7 servir aos dois
-5. Estado **`DEVOLVIDO`** na máquina — a Efí devolve Pix liquidado, e hoje `LIQUIDADO` é
-   terminal
-6. Webhook com mTLS
+Atualizado em 14/08/2026. Tudo o que **não** dependia das credenciais já está no ar:
 
-**Ordem certa:** 1 e 2 primeiro, com credenciais de homologação. Só depois o resto — e
-nada disso vai para produção antes do limite diário estar aprovado por escrito.
+| # | item | estado |
+|---|---|---|
+| 1 | `adapters/efi.py` no nosso padrão | ✅ feito |
+| 2 | Conta `1.1.1.03` no plano + resolução no razão | ✅ feito |
+| 3 | Coluna `banco` em `inter_payments` (D7 serve aos três) | ✅ feito |
+| 4 | Estado **`DEVOLVIDO`** na máquina | ✅ feito |
+| 5 | `efi_sync_service` — extrato diário | ⏳ precisa de credencial |
+| 6 | Webhook com mTLS | ⏳ precisa de credencial |
+
+Sobre o item 2: o mapa de contas era por **uuid** de `bank_accounts`, e esse uuid só nasce
+quando a conta abre. Ficou resolvido por **código de banco** (`364`), então o extrato da
+Efí escritura sozinho no dia em que a conta entrar — ninguém precisa voltar no código
+para colar um identificador.
+
+Sobre o item 3: a origem do pagamento viajava escondida num campo jsonb, sem validação, e
+o executor mandava para o **Inter** qualquer valor que não fosse `cora` — um erro de
+digitação pagaria pelo banco errado, de outro CNPJ. Agora há constraint no banco e erro no
+roteador.
+
+**Só faltam 5 e 6, e os dois dependem da credencial de homologação.** Nada vai para
+produção antes do limite diário estar aprovado por escrito (seção 1).

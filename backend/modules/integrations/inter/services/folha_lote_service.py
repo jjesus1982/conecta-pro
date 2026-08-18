@@ -151,7 +151,7 @@ async def gerar_otp_lote(db: AsyncSession, lote_id: str, user_id: str) -> dict[s
                                        f"{rows['n']} funcionários")
     logger.info("folha lote gerar_otp: lote=%s n=%s total=%.2f email=%s", lote_id, rows["n"], float(rows["total"]), email)
     return {"lote_id": lote_id, "quantidade": rows["n"], "total": float(rows["total"]),
-            "saiu_daqui": entregue,
+            "saiu_daqui": saiu_daqui,
             "message": (f"OTP enviado para {email}. Se não chegar em 2 min, confira o spam." if saiu_daqui else
                         f"⚠️ O CÓDIGO NÃO SAIU — servidor de e-mail recusou para {email}."), "expires_in_seconds": OTP_TTL_SECONDS}
 

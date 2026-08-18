@@ -626,3 +626,93 @@ def build_orcamento_pdf(d: dict) -> bytes:
         onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo=titulo_doc),
     )
     return buf.getvalue()
+
+
+def build_recibo_diarias_pdf(d: dict) -> bytes:
+    """Recibo de pagamento de diárias COM o detalhamento dos dias.
+
+    Diferente do `build_recibo_pagamento_pdf`, que é um recibo genérico: aqui o
+    prestador precisa CONFERIR antes de assinar, e conferir exige ver cada dia que
+    entrou na conta. Recibo que só mostra o total pede assinatura em cima de um número
+    que a pessoa não tem como checar.
+
+    Cita a transferência (data e identificador do banco) porque o pagamento já foi
+    feito — é o que liga este papel ao dinheiro que caiu na conta dele.
+    """
+    valor = float(d.get("valor", 0) or 0)
+    recebedor = d.get("recebedor") or "—"
+    docnum = d.get("documento") or ""
+    chave = d.get("chave_pix") or ""
+    ref_banco = d.get("ref_banco") or ""
+    dt_pgto = d.get("data_pagamento")
+    competencia = d.get("competencia") or ""
+    dias = d.get("dias") or []          # [(data, posto, turno, funcao, valor)]
+    emp = d.get("empresa") or B.EMPRESA
+    dt = d.get("data") or date.today()
+
+    buf, doc = _doc(f"Recibo de diárias {d.get('numero', '')}")
+    st = B.styles()
+    el: list = []
+    el += _meta(st, d.get("numero", ""), B.br_date(dt))
+    el.append(Table([[Paragraph(f"<b>{B.brl(valor)}</b>", st["capa_titulo"])]],
+                    colWidths=[80 * mm], hAlign="LEFT",
+                    style=TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10)])))
+    el.append(Spacer(1, 7 * mm))
+
+    pago_em = f" em {B.br_date(dt_pgto)}" if dt_pgto else ""
+    texto = (
+        f"Recebi de <b>{emp['razao']}</b>, inscrita no CNPJ sob o nº {emp['cnpj']}, "
+        f"a importância de <b>{B.brl(valor)}</b>, creditada por transferência PIX"
+        f"{pago_em} na chave <b>{chave}</b>, referente a <b>{len(dias)} diária(s)</b> "
+        f"prestada(s) na competência <b>{competencia}</b>, discriminadas abaixo, "
+        f"dando plena e geral quitação quanto ao valor recebido."
+    )
+    el.append(Paragraph(texto, st["corpo"]))
+    if ref_banco:
+        el.append(Paragraph(
+            f"<font size=8 color='#6B7280'>Identificador da transferência: {ref_banco}</font>",
+            st["corpo"]))
+    el.append(Spacer(1, 5 * mm))
+
+    # Detalhamento — é o que permite conferir
+    el.append(Paragraph("Diárias que compõem este valor", st["h_sec"]))
+    linhas = [[Paragraph(f"<b>{c}</b>", st["cellh"]) for c in ("DATA", "POSTO", "TURNO", "FUNÇÃO", "VALOR")]]
+    for dia in dias:
+        linhas.append([Paragraph(str(dia[0]), st["cell"]), Paragraph(str(dia[1]), st["cell"]),
+                       Paragraph(str(dia[2]), st["cell"]), Paragraph(str(dia[3]), st["cell"]),
+                       Paragraph(B.brl(float(dia[4])), st["cellr"])])
+    linhas.append([Paragraph("", st["cell"]), Paragraph("", st["cell"]), Paragraph("", st["cell"]),
+                   Paragraph("<b>TOTAL</b>", st["cell"]), Paragraph(f"<b>{B.brl(valor)}</b>", st["cellr"])])
+    t = Table(linhas, colWidths=[26 * mm, 52 * mm, 26 * mm, 42 * mm, 26 * mm], hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), B.AZUL_ESCURO),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, B.FUNDO_CLARO]),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.8, B.AZUL_MEDIO),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    el.append(t)
+    el.append(Spacer(1, 4 * mm))
+    el.append(Paragraph(
+        "<font size=8 color='#6B7280'>Confira os dias acima antes de assinar. Divergência, "
+        "procure o setor financeiro. Vale-transporte e vale-refeição são pagos à parte, "
+        "por dia, e não entram neste valor.</font>", st["corpo"]))
+    el.append(Spacer(1, 4 * mm))
+    el.append(Paragraph(B.data_extenso(dt), st["corpo"]))
+    el += B.campos_assinatura(
+        st, funcionario_nome=recebedor, funcionario_label="Assinatura do Recebedor",
+        funcionario_doc_rotulo="CPF", funcionario_cpf=docnum or None,
+        responsavel_nome=None, digital_funcionario=False, digital_empresa=True)
+    doc.build(
+        el,
+        onFirstPage=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO DE DIÁRIAS", empresa=emp),
+        onLaterPages=lambda c, dc: B.header_footer(c, dc, titulo="RECIBO DE DIÁRIAS", empresa=emp),
+    )
+    return buf.getvalue()

@@ -259,35 +259,166 @@ def extrato_diarista(db, *, diarista_id: int, inicio: date, fim: date) -> tuple[
     return pdf, resumo
 
 
-def recibo_diarista(db, *, diarista_id: int, inicio: date, fim: date) -> tuple[bytes, dict]:
-    """Recibo de pagamento no PADRÃO-OURO — delega ao gerador oficial.
+def _dias_do_diarista(db, *, nome: str, inicio: date, fim: date) -> list[tuple]:
+    """Os dias trabalhados da pessoa no período — o detalhamento que o recibo mostra."""
+    from sqlalchemy import text
 
-    A primeira versão desenhava o recibo à mão e saiu fora do padrão: sem número de
-    documento, valor sem a caixa, dados em lista em vez de texto corrido, data em branco
-    e só UMA assinatura. O padrão da casa já existia em `crm/services/doc_pdf.py`, com
-    os mesmos blocos usados em contrato, aditivo e atestado — imitar à mão produz
-    documento parecido, não documento igual.
+    rs = db.execute(text("""
+        SELECT l.data, coalesce(l.posto,'—'), coalesce(l.turno,'—'),
+               coalesce(l.funcao,'—'), l.valor
+          FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
+         WHERE upper(btrim(d.nome)) = upper(btrim(:n))
+           AND l.data BETWEEN :i AND :f AND l.status = 'lancado'
+         ORDER BY l.data
+    """), {"n": nome, "i": inicio, "f": fim}).fetchall()
+    return [(r[0].strftime("%d/%m/%Y"), r[1], r[2], r[3], float(r[4])) for r in rs]
 
-    NÃO afirma que o pagamento foi feito: quem declara quitação é quem recebe, e é ele
-    quem assina.
+
+def _recibo_de_um(db, *, pagamento_id: int, competencia: str, inicio: date, fim: date,
+                  assinar: bool = True) -> tuple[bytes, dict]:
+    """Monta o recibo de UMA pessoa. É a MESMA função que o lote usa.
+
+    Existia um recibo para o botão da linha e outro para o ZIP — o da linha saía sem a
+    tabela de dias e sem assinatura. Dois geradores para o mesmo documento é como um
+    deles fica para trás: o do lote ganhou dias e assinatura, o da linha não.
+
+    Valor vem do PAGAMENTO (consolidado da competência), não da soma dos lançamentos:
+    é o que de fato saiu do banco, e é o que o recibo declara.
     """
-    from modules.crm.services.doc_pdf import build_recibo_pagamento_pdf
+    from sqlalchemy import text
 
-    _, r = extrato_diarista(db, diarista_id=diarista_id, inicio=inicio, fim=fim)
-    if r["dias"] == 0:
-        raise ValueError("sem diárias lançadas no período — não há o que dar recibo")
+    from modules.crm.services.doc_pdf import build_recibo_diarias_pdf
 
-    numero = f"RECD-{fim:%Y%m}-{diarista_id:04d}"
-    pdf = build_recibo_pagamento_pdf({
-        "numero": numero,
-        "data": fim,
-        "valor": r["total"],
-        "recebedor": r["nome"],
-        "documento": r["cpf"],
-        "referente": (f"{r['dias']} diária(s) prestada(s) no período de "
-                      f"{inicio:%d/%m/%Y} a {fim:%d/%m/%Y}, conforme extrato anexo"),
-        "forma_pagamento": "PIX",
-        "empresa": B.EMPRESA_PATRIMONIAL,
+    r = db.execute(text("""
+        SELECT id, beneficiario, coalesce(cpf,'') cpf, coalesce(pix_key,'') pix,
+               valor, updated_at::date AS pago_em, coalesce(descricao,'') descr, status
+          FROM financial_pagamentos_diaristas WHERE id = :i
+    """), {"i": pagamento_id}).mappings().first()
+    if not r:
+        raise ValueError(f"pagamento {pagamento_id} não encontrado")
+    if r["status"] != "pago":
+        raise ValueError(
+            f"{r['beneficiario']} está '{r['status']}', não 'pago' — recibo declara "
+            f"quitação e só se emite para quem recebeu")
+
+    dias = _dias_do_diarista(db, nome=r["beneficiario"], inicio=inicio, fim=fim)
+    if not dias:
+        raise ValueError(f"{r['beneficiario']} não tem diária lançada no período — "
+                         f"sem o detalhamento, o recibo não dá para conferir")
+
+    ref = r["descr"].split("| e2e:")[-1].strip() if "| e2e:" in r["descr"] else ""
+    numero = f"RECD-{competencia.replace('/', '')}-{r['id']:04d}"
+    pdf = build_recibo_diarias_pdf({
+        "numero": numero, "data": fim, "valor": float(r["valor"]),
+        "recebedor": r["beneficiario"], "documento": r["cpf"], "chave_pix": r["pix"],
+        "ref_banco": ref, "data_pagamento": r["pago_em"], "competencia": competencia,
+        "dias": dias, "empresa": B.EMPRESA_PATRIMONIAL,
     })
-    r["numero"] = numero
-    return pdf, r
+    assinado = False
+    if assinar:
+        try:
+            from modules.signatures.services.qualified_signer import assinar_pdf_icp_brasil
+
+            res = assinar_pdf_icp_brasil(
+                pdf, reason=f"Recibo de diarias — competencia {competencia}",
+                location="Manaus/AM", empresa_slug="conecta_patrimonial",
+                visivel=True, rect=_rect_assinatura_empresa(pdf))
+            pdf, assinado = res.signed_pdf, True
+        except Exception:  # noqa: BLE001 — ver recibos_competencia
+            pass
+    return pdf, {"nome": r["beneficiario"], "valor": float(r["valor"]), "dias": len(dias),
+                 "numero": numero, "assinado": assinado, "cpf": r["cpf"]}
+
+
+def recibo_diarista(db, *, diarista_id: int, inicio: date, fim: date) -> tuple[bytes, dict]:
+    """Recibo da pessoa, pelo id do DIARISTA — resolve o pagamento da competência."""
+    from sqlalchemy import text
+
+    comp = f"{fim.month:02d}/{fim.year}"
+    pid = db.execute(text("""
+        SELECT p.id FROM financial_pagamentos_diaristas p
+          JOIN diaria_diaristas d ON upper(btrim(d.nome)) = upper(btrim(p.beneficiario))
+         WHERE d.id = :i AND p.competencia = :c AND p.tipo = 'diaria_mensal'
+         ORDER BY (p.status = 'pago') DESC LIMIT 1
+    """), {"i": diarista_id, "c": comp}).scalar()
+    if not pid:
+        raise ValueError(f"diarista {diarista_id} não tem pagamento de diárias em {comp}")
+    return _recibo_de_um(db, pagamento_id=pid, competencia=comp, inicio=inicio, fim=fim)
+
+
+def recibos_competencia(db, *, competencia: str, inicio: date, fim: date,
+                        so_pagos: bool = True, assinar: bool = True) -> tuple[bytes, dict]:
+    """Gera UM recibo por diarista da competência e devolve tudo num ZIP.
+
+    `so_pagos=True` de propósito: recibo é declaração de quem RECEBEU. Emitir para quem
+    ainda não recebeu produz papel que afirma um fato que não aconteceu — e alguém
+    assina. Quem não foi pago sai na lista de fora, com o motivo.
+    """
+    import io
+    import zipfile
+
+    from sqlalchemy import text
+
+    from modules.crm.services.doc_pdf import build_recibo_diarias_pdf
+
+    filtro = "AND p.status = 'pago'" if so_pagos else ""
+    rs = db.execute(text(f"""
+        SELECT p.id, p.beneficiario, coalesce(p.cpf,'') cpf, coalesce(p.pix_key,'') pix,
+               p.valor, p.updated_at::date AS pago_em, coalesce(p.descricao,'') descr, p.status
+          FROM financial_pagamentos_diaristas p
+         WHERE p.competencia = :c AND p.tipo = 'diaria_mensal' {filtro}
+         ORDER BY p.beneficiario
+    """), {"c": competencia}).mappings().all()
+    if not rs:
+        raise ValueError(f"nenhum pagamento {'pago ' if so_pagos else ''}na competência {competencia}")
+
+    buf = io.BytesIO()
+    gerados, sem_dias, sem_assinatura = [], [], []
+    titular = None
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for r in rs:
+            # MESMA função do botão da linha — um gerador só, para os dois nunca
+            # divergirem de novo (a versão da linha tinha ficado sem dias e sem assinatura).
+            try:
+                pdf, info = _recibo_de_um(db, pagamento_id=r["id"], competencia=competencia,
+                                          inicio=inicio, fim=fim, assinar=assinar)
+            except ValueError as e:
+                sem_dias.append(f"{r['beneficiario']}: {e}")
+                continue
+            if assinar and not info["assinado"]:
+                sem_assinatura.append(r["beneficiario"])
+            nome_arq = "".join(ch if ch.isalnum() else "_" for ch in r["beneficiario"])[:40]
+            z.writestr(f"{info['numero']}_{nome_arq}.pdf", pdf)
+            gerados.append({"nome": info["nome"], "valor": info["valor"],
+                            "dias": info["dias"], "numero": info["numero"]})
+    titular = "CONECTAMAIS PATRIMONIAL LTDA:66014833000110" if assinar else None
+    resumo = {"competencia": competencia, "recibos": len(gerados),
+              "total": round(sum(g["valor"] for g in gerados), 2),
+              "sem_dias_lancados": sem_dias, "detalhe": gerados,
+              "assinados": len(gerados) - len(sem_assinatura) if assinar else 0,
+              "sem_assinatura": sem_assinatura, "certificado": titular}
+    return buf.getvalue(), resumo
+
+
+def _rect_assinatura_empresa(pdf_bytes: bytes) -> tuple[float, float, float, float] | None:
+    """Onde desenhar o selo: em cima da LINHA de assinatura da empresa (a da direita).
+
+    Localiza a linha no PDF em vez de fixar coordenada: o bloco de assinatura desce ou
+    sobe conforme o número de diárias, então posição fixa acertaria num recibo de 3 dias
+    e erraria no de 11. Se não achar, devolve None e o assinador usa o rodapé — selo no
+    lugar errado é feio, selo ausente é documento sem prova.
+    """
+    try:
+        import pymupdf
+
+        d = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        pg = d[-1]
+        linhas = [w for w in pg.get_text("words") if "_" in w[4] and (w[2] - w[0]) > 100]
+        if not linhas:
+            return None
+        # a da DIREITA é a da empresa (a da esquerda é de quem recebe)
+        x0, y_top, x1 = max(linhas, key=lambda w: w[0])[0], min(w[1] for w in linhas), max(linhas, key=lambda w: w[0])[2]
+        altura = 58.0
+        return (x0, y_top - altura + 2, x1, y_top + 2)
+    except Exception:  # noqa: BLE001
+        return None

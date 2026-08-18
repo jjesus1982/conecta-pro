@@ -79,3 +79,39 @@ def recibo_pdf(
         # que declara quitação de nada, e alguém assina.
         raise HTTPException(status_code=404, detail=str(e)) from e
     return _pdf(pdf, f"recibo_{r['nome'].split()[0].lower()}_{i:%Y%m}.pdf")
+
+
+@router.get("/recibos/{competencia}/zip", summary="Recibos de diárias da competência (ZIP)")
+def recibos_zip(
+    competencia: str, inicio: date | None = Query(None), fim: date | None = Query(None),
+    db: Session = Depends(get_sync_db_dependency), _u: dict = Depends(get_current_user),
+):
+    """Um recibo por diarista PAGO na competência, tudo num ZIP.
+
+    Só quem recebeu: recibo declara quitação, e emitir para quem não foi pago produz
+    papel que afirma fato que não aconteceu — com assinatura em cima.
+    """
+    import re as _re
+
+    from modules.financial.services.relatorio_diaristas_pdf import recibos_competencia
+
+    m = _re.match(r"^(\d{4})-(\d{1,2})$", competencia) or _re.match(r"^(\d{1,2})-(\d{4})$", competencia)
+    if not m:
+        raise HTTPException(status_code=400, detail="Competência no formato AAAA-MM (ex.: 2026-07).")
+    ano, mes = (m.group(1), m.group(2)) if len(m.group(1)) == 4 else (m.group(2), m.group(1))
+    comp = f"{int(mes):02d}/{ano}"
+    i = inicio or date(int(ano), int(mes), 1)
+    ultimo = 31
+    while ultimo > 28:
+        try:
+            date(int(ano), int(mes), ultimo); break
+        except ValueError:
+            ultimo -= 1
+    f = fim or date(int(ano), int(mes), ultimo)
+    try:
+        zip_bytes, r = recibos_competencia(db, competencia=comp, inicio=i, fim=f)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return Response(content=zip_bytes, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="recibos_{ano}{int(mes):02d}.zip"',
+                             "X-Recibos": str(r["recibos"])})

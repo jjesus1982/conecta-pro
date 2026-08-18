@@ -429,10 +429,21 @@ def _tipo_pix(chave: str) -> str:
     return "CPF"
 
 
-def _where_lote_elegivel(ids: list[int] | None, data: str | None) -> tuple[list[str], dict[str, Any]]:
-    """WHERE compartilhado do lote elegível (a_revisar com PIX), por ids e/ou data."""
+def _where_lote_elegivel(ids: list[int] | None, data: str | None,
+                        competencia: str | None = None) -> tuple[list[str], dict[str, Any]]:
+    """WHERE do lote elegível (a_revisar com PIX), por ids, data e/ou COMPETÊNCIA.
+
+    Competência é o recorte que o Jordan realmente usa: ele paga "julho", não "o dia
+    15/08". Filtrar por data de pagamento obriga a decorar que a competência 07/2026
+    vence em 15/08 — e o dia 15/08 tambem carrega VT/VR avulso, que entra de carona.
+    Sem recorte nenhum, o lote pega TODA competência aberta, inclusive o mês corrente
+    ainda recebendo lançamento (bloqueado pela trava anti-lote-velho, como deve ser).
+    """
     where = ["status='a_revisar'", "pix_key IS NOT NULL"]
     params: dict[str, Any] = {}
+    if competencia:
+        where.append("competencia = :comp")
+        params["comp"] = competencia
     if ids:
         where.append("id = ANY(:ids)"); params["ids"] = ids
     if data:
@@ -443,7 +454,7 @@ def _where_lote_elegivel(ids: list[int] | None, data: str | None) -> tuple[list[
 
 async def gerar_otp_lote(
     db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
-    user_id: str | None = None,
+    user_id: str | None = None, competencia: str | None = None,
 ) -> dict[str, Any]:
     """Gera UM OTP (6 dígitos, e-mail ao Jordan) que libera o lote inteiro de diaristas.
 
@@ -451,7 +462,7 @@ async def gerar_otp_lote(
     NÃO move dinheiro. Devolve o `lote_id` que a tela usa na hora de executar.
     """
     await _ensure(db)
-    where, params = _where_lote_elegivel(ids, data)
+    where, params = _where_lote_elegivel(ids, data, competencia)
     rows = (await db.execute(text(
         f"SELECT COUNT(*) n, COALESCE(SUM(valor),0) total FROM financial_pagamentos_diaristas "
         f"WHERE {' AND '.join(where)}"), params)).mappings().first()
@@ -473,7 +484,7 @@ async def gerar_otp_lote(
     saiu_daqui = await _enviar_otp_email(email, code, total, "diaristas VT+VR (lote)", f"{n} diarista(s)")
     logger.info("diaristas lote gerar_otp: lote=%s n=%s total=%.2f email=%s", lote_id, n, total, email)
     return {"ok": True, "lote_id": lote_id, "quantidade": n, "total": total,
-            "saiu_daqui": entregue,
+            "saiu_daqui": saiu_daqui,
             "message": (f"Código enviado para {email}. Se não chegar em 2 min, confira o spam." if saiu_daqui else
                         f"⚠️ O CÓDIGO NÃO SAIU — o servidor de e-mail recusou a mensagem para {email}. "
                         f"O código existe, mas você não vai recebê-lo. Verifique o e-mail configurado antes de tentar de novo."), "expires_in_seconds": OTP_TTL_SECONDS}
@@ -496,7 +507,7 @@ async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code:
 async def executar_lote(
     db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
     confirmar: bool = False, otp_code: str | None = None, lote_id: str | None = None,
-    user_id: str | None = None,
+    user_id: str | None = None, competencia: str | None = None,
 ) -> dict[str, Any]:
     """Paga o lote de diaristas via PIX (Banco Inter). confirmar=False → PRÉVIA (não envia).
 
@@ -505,7 +516,7 @@ async def executar_lote(
     """
     await _ensure(db)
     # seleciona o lote elegível
-    where, params = _where_lote_elegivel(ids, data)
+    where, params = _where_lote_elegivel(ids, data, competencia)
     rows = await db.execute(text(
         f"SELECT id, beneficiario, pix_key, valor FROM financial_pagamentos_diaristas "
         f"WHERE {' AND '.join(where)} ORDER BY id"), params)

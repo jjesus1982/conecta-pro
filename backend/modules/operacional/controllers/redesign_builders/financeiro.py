@@ -962,32 +962,63 @@ ORDER BY b.comp DESC, b.cnpj"""
     _p_ini = (_date.today().replace(day=1) - _timedelta(days=1)).replace(day=1)
     _p_fim = _date.today().replace(day=1) - _timedelta(days=1)
     _qs = f"?inicio={_p_ini.isoformat()}&fim={_p_fim.isoformat()}"
+    # Junta o LANÇADO (dias trabalhados) com o PAGO (valor, data e comprovante do banco).
+    # Conferir recibo exige as duas pontas: quantos dias geraram o valor, e a prova de que
+    # o valor saiu. Só o lançado não diz se foi pago; só o pago não diz de onde veio.
+    _comp_ref = f"{_p_ini:%m/%Y}"
     _dl = (await db.execute(text(
         "SELECT d.id, d.nome, coalesce(d.cpf,'') AS cpf, "
         "       coalesce(nullif(d.pix,''),'(SEM CHAVE PIX)') AS pix, "
-        "       count(*) AS dias, sum(l.valor)::numeric(12,2) AS total "
-        "  FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id "
+        "       count(*) AS dias, sum(l.valor)::numeric(12,2) AS total, "
+        "       coalesce(p.status,'nao lancado') AS pstatus, "
+        "       p.updated_at::date AS pago_em, "
+        "       CASE WHEN position('| e2e:' in coalesce(p.descricao,'')) > 0 "
+        "            THEN right(p.descricao, 36) ELSE '' END AS comprovante "
+        "  FROM diaria_lancamentos l "
+        "  JOIN diaria_diaristas d ON d.id = l.diarista_id "
+        "  LEFT JOIN financial_pagamentos_diaristas p "
+        "         ON upper(btrim(p.beneficiario)) = upper(btrim(d.nome)) "
+        "        AND p.competencia = :comp AND p.tipo = 'diaria_mensal' "
         " WHERE l.status = 'lancado' AND l.data BETWEEN :a AND :b "
-        " GROUP BY d.id, d.nome, d.cpf, d.pix ORDER BY d.nome"),
-        {"a": _p_ini, "b": _p_fim})).fetchall()
+        " GROUP BY d.id, d.nome, d.cpf, d.pix, p.status, p.updated_at, p.descricao "
+        " ORDER BY d.nome"),
+        {"a": _p_ini, "b": _p_fim, "comp": _comp_ref})).fetchall()
+    _pagos = [r for r in _dl if str(r[6]) == "pago"]
     out["documentos-diaristas"] = {
         "title": f"Diaristas — documentos ({_p_ini:%m/%Y})",
         "sub": ("Lista de pagamento do mês fechado, extrato individual e recibo para assinatura. "
                 "O extrato mostra dia a dia com posto, turno e valor; o recibo traz o valor por "
                 "extenso e a linha de assinatura. Nenhum deles paga nada."),
         "cta": "—", "type": "table", "searchHint": "Buscar diarista…",
-        "grid": "0.5fr 2fr 1fr 1.6fr 0.5fr 1fr",
-        "cols": ["ID", "Diarista", "CPF", "Chave PIX", "Dias", "Total"],
-        "rows": [{"cells": [t(str(r[0])), t(r[1]), t(r[2]), t(r[3]), t(str(r[4])), t(brl(r[5]))],
+        "grid": "1.8fr 1.4fr 0.4fr 0.9fr 0.8fr 0.8fr 1.4fr",
+        "cols": ["Diarista", "Chave PIX", "Dias", "Total", "Situação", "Pago em", "Comprovante do banco"],
+        "rows": [{"cells": [t(r[1]), t(r[3]), t(str(r[4])), t(brl(r[5])),
+                            b("PAGO", "ok") if str(r[6]) == "pago" else b(str(r[6]).upper(), "warn"),
+                            t(_fmtdate(r[7]) if r[7] else "—"),
+                            t((r[8] or "—")[-36:])],
                   "docs": [doc("Extrato (PDF)", f"/api/v1/financial/diaristas/{r[0]}/extrato/pdf{_qs}", fmt="pdf"),
                            doc("Recibo (PDF)", f"/api/v1/financial/diaristas/{r[0]}/recibo/pdf{_qs}", fmt="pdf")]}
                  for r in _dl] or [{"cells": [t("—"), t("Nenhuma diária no mês fechado"), t("—"), t("—"), t("—"), t("—")]}],
         "docs": [doc(f"Lista de pagamento {_p_ini:%m/%Y} (PDF)",
-                     f"/api/v1/financial/diaristas/relatorio/pdf{_qs}", fmt="pdf")],
-        "panels": [{"title": "Resumo do mês fechado", "rows": [
-            {"left": "Diaristas", "right": str(len(_dl)), **S["info"]},
-            {"left": "Dias trabalhados", "right": str(sum(r[4] for r in _dl)), **S["info"]},
-            {"left": "Total a pagar", "right": brl(sum(float(r[5]) for r in _dl)), **S["ok"]}]}],
+                     f"/api/v1/financial/diaristas/relatorio/pdf{_qs}", fmt="pdf"),
+                 doc(f"Recibos ASSINADOS {_p_ini:%m/%Y} — todos em ZIP",
+                     f"/api/v1/financial/diaristas/recibos/{_p_ini:%Y-%m}/zip", fmt="zip", mode="blob")],
+        "panelGrid": "1fr 1fr",
+        "panels": [
+            {"title": f"Conferência — {_comp_ref}", "rows": [
+                {"left": "Diaristas com diária lançada", "right": str(len(_dl)), **S["info"]},
+                {"left": "Dias trabalhados", "right": str(sum(r[4] for r in _dl)), **S["info"]},
+                {"left": "Valor lançado", "right": brl(sum(float(r[5]) for r in _dl)), **S["info"]},
+                {"left": "PAGOS (com prova no banco)", "right": f"{len(_pagos)} · {brl(sum(float(r[5]) for r in _pagos))}",
+                 **(S["ok"] if len(_pagos) == len(_dl) else S["warn"])},
+                {"left": "Ainda não pagos", "right": str(len(_dl) - len(_pagos)),
+                 **(S["ok"] if len(_pagos) == len(_dl) else S["bad"])}]},
+            {"title": "Como usar", "rows": [
+                {"left": "1. Confira a coluna Comprovante contra o extrato", "right": "conferência", **S["mut"]},
+                {"left": "2. Baixe os recibos em lote — já vêm assinados", "right": "ICP-Brasil", **S["ok"]},
+                {"left": "3. Ou baixe o recibo de uma pessoa só, na linha", "right": "por linha", **S["mut"]},
+                {"left": "Recibo sai só para quem foi PAGO", "right": "regra", **S["warn"]}]},
+        ],
     }
     out["pagamentos-diaristas"] = {
         "title": "Diaristas — lote a pagar (VT/VR + diária)",
@@ -1010,6 +1041,16 @@ ORDER BY b.comp DESC, b.cnpj"""
                 {"left": "VT/VR + diária do dia pagam juntos", "right": "Inter PIX", **S["mut"]}]},
         ],
     }
+    # Opções vindas do banco: só competência que TEM item a pagar. Lista fixa de meses
+    # ofereceria escolha que resulta em "nenhum item elegível" — botão que não faz nada.
+    _cl = (await db.execute(text(
+        "SELECT competencia, count(*) n, sum(valor) v FROM financial_pagamentos_diaristas "
+        "WHERE status='a_revisar' AND pix_key IS NOT NULL AND competencia IS NOT NULL "
+        "GROUP BY 1 ORDER BY substring(competencia,4,4) DESC, substring(competencia,1,2) DESC"))).fetchall()
+    _comp_opts = [{"value": "", "label": "— escolha a competência —"}] + [
+        {"value": f"{r[0][3:]}-{r[0][:2]}", "label": f"{r[0]} — {r[1]} diarista(s), {brl(r[2])}"}
+        for r in _cl]
+
     out["pagar-diaristas"] = {
         "title": "Pagar diaristas",
         "sub": "Dinheiro que SAI. DEIXE A DATA VAZIA para pagar o lote inteiro de uma vez (o mês "
@@ -1021,7 +1062,9 @@ ORDER BY b.comp DESC, b.cnpj"""
                    "confirm": "Isto vai PAGAR o lote de diaristas (Inter) do dia via PIX. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "Lote processado."},
         "fields": [
-            {"key": "data", "label": "Dia (vazio = lote inteiro)", "type": "date", "span": "span 1"},
+            {"key": "competencia", "label": "Competência — paga o mês inteiro", "type": "select",
+             "span": "span 1", "options": _comp_opts},
+            {"key": "data", "label": "OU um dia só (AAAA-MM-DD)", "type": "date", "span": "span 1"},
             # Diarista é prestador da PATRIMONIAL → Cora é o padrão (regra do Jordan:
             # Eletrônica paga pelo Inter, Patrimonial paga pela Cora).
             {"key": "origem", "label": "Banco", "type": "select", "span": "span 1",
@@ -1939,8 +1982,18 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     # obrigava era esta tela.
     data = (payload.get("data") or "").strip()
     if data and len(data) < 8:
-        raise HTTPException(status_code=400, detail="Data no formato AAAA-MM-DD (ou vazia para o lote inteiro).")
+        raise HTTPException(status_code=400, detail="Data no formato AAAA-MM-DD (ou vazia).")
     _d_sql = _rd_parse_data(data) or data if data else None
+    # COMPETÊNCIA é o recorte natural: paga-se "julho", não "o dia 15/08". Aceita
+    # AAAA-MM (o que se digita) e converte para MM/AAAA (como a tabela guarda).
+    _comp_in = (payload.get("competencia") or "").strip()
+    competencia = None
+    if _comp_in:
+        m = re.match(r"^(\d{4})-(\d{1,2})$", _comp_in) or re.match(r"^(\d{1,2})/(\d{4})$", _comp_in)
+        if not m:
+            raise HTTPException(status_code=400, detail="Competência no formato AAAA-MM (ex.: 2026-07).")
+        ano, mes = (m.group(1), m.group(2)) if "-" in _comp_in else (m.group(2), m.group(1))
+        competencia = f"{int(mes):02d}/{ano}"
     # ── TRAVA ANTI-LOTE-VELHO ────────────────────────────────────────────────────────
     # O lote envelhece: o Eliziel segue lançando enquanto ele espera o dia 15. Medido em
     # 03/08 — lote R$8.670 contra R$8.730 já lançados; pagar ali pagaria A MENOS.
@@ -1957,6 +2010,8 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
             "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
             "WHERE data_referencia = CAST(:d AS date) AND tipo = 'diaria_mensal'"),
             {"d": _d_ref})).scalars().all()
+    elif competencia:
+        _comp = [competencia]
     else:
         _comp = (await db.execute(text(
             "SELECT DISTINCT competencia FROM financial_pagamentos_diaristas "
@@ -2002,11 +2057,12 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     if origem == "cora":
         # O Cora NAO envia PIX por chave (limitacao da API do proprio banco). Em vez de fingir que
         # pagou, devolve a LISTA pro Jordan concluir no app — e depois marcar em 'Pago por fora'.
-        _filtro = "data_referencia = CAST(:d AS date) AND " if _d_sql else ""
+        _filtro = ("data_referencia = CAST(:d AS date) AND " if _d_sql else
+                   ("competencia = :comp AND " if competencia else ""))
         itens = (await db.execute(text(
             "SELECT beneficiario, coalesce(pix_key,'(sem PIX)'), valor FROM financial_pagamentos_diaristas "
             f"WHERE {_filtro}status='a_revisar' ORDER BY beneficiario"),
-            ({"d": _d_sql} if _d_sql else {}))).fetchall()
+            ({"d": _d_sql} if _d_sql else ({"comp": competencia} if competencia else {})))).fetchall()
         if not itens:
             _onde = f"em {data}" if data else "no lote"
             return {"ok": True, "message": f"Nada a pagar {_onde} (nenhum item 'a revisar')."}
@@ -2025,12 +2081,12 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
     if not otp_code:
-        r = await svc.gerar_otp_lote(db, data=(data or None))
+        r = await svc.gerar_otp_lote(db, data=(data or None), competencia=competencia)
         if not r.get("ok"):
             raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nenhum item elegível.")
         return {"otp_required": True, "ref": r.get("lote_id", ""),
                 "message": f"{r.get('quantidade')} diarista(s) · R$ {float(r.get('total') or 0):.2f}. Confirme com o código OTP."}
-    r = await svc.executar_lote(db, data=(data or None), confirmar=True, otp_code=otp_code,
+    r = await svc.executar_lote(db, data=(data or None), competencia=competencia, confirmar=True, otp_code=otp_code,
                                 lote_id=lote_id or None, user_id=str(getattr(current_user, "id", "")))
     if r.get("otp_invalido") or r.get("otp_requerido"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")

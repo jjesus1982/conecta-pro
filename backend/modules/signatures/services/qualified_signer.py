@@ -167,7 +167,7 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
         sh = pg.new_shape()
         sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
         sh.finish(color=greend, fill=light, width=1.1)
-        sh.draw_rect(fitz.Rect(x0, y0, x0 + 5, y1))
+        sh.draw_rect(fitz.Rect(x0, y0, x0 + 5 * k, y1))
         sh.finish(color=green, fill=green, width=0)
         sh.commit()
         # selo de CHECK verde (distingue da assinatura ICP-Brasil da empresa)
@@ -178,7 +178,7 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
         s2.draw_polyline([fitz.Point(cx - 7, cy + 1), fitz.Point(cx - 2, cy + 7), fitz.Point(cx + 8, cy - 7)])
         s2.finish(color=green, width=2.2)
         s2.commit()
-        tx = x0 + 66
+        tx = x0 + (12 if compacto else 66 * k)
         pg.insert_text((tx, y0 + 19), "ASSINADO ELETRONICAMENTE", fontsize=9, color=greend, fontname="hebo")
         pg.insert_text((tx, y0 + 33), f"{(str(nome or 'Funcionário'))[:40]}  ·  CPF {cpf_f}", fontsize=8, color=navy, fontname="hebo")
         pg.insert_text((tx, y0 + 45), f"{when} (Manaus)  ·  via Conecta PRO (MP 2.200-2)", fontsize=7.2, color=gray, fontname="helv")
@@ -188,7 +188,8 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
         doc.close()
 
 
-def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0) -> bytes:
+def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0,
+                           rect: tuple[float, float, float, float] | None = None) -> bytes:
     """Desenha um SELO VISÍVEL branded (marca Conecta Mais) CENTRALIZADO no rodapé da
     última página — como Sólides/DocuSign. É a camada VISUAL; a validade jurídica vem da
     assinatura PAdES (que cobre este selo). Best-effort: erro aqui não bloqueia a assinatura.
@@ -221,28 +222,60 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0) -> 
     try:
         pg = doc[-1]
         w, h = pg.rect.width, pg.rect.height
-        bw, bh = 316, 76
-        x0 = (w - bw) / 2
-        y0 = h - bh - 44 - slot * (bh + 8)  # slot 0 = rodapé; 1 = acima (empilha sem sobrepor)
-        x1, y1 = x0 + bw, y0 + bh
+        if rect:
+            # Posição EXPLÍCITA: o chamador sabe onde fica a linha de assinatura do
+            # documento. No rodapé fixo, o selo caía por cima do nome e do cargo de quem
+            # assina — o campo de assinatura existe justamente para receber a assinatura.
+            x0, y0, x1, y1 = rect
+            bw, bh = x1 - x0, y1 - y0
+        else:
+            bw, bh = 316, 76
+            x0 = (w - bw) / 2
+            y0 = h - bh - 44 - slot * (bh + 8)  # slot 0 = rodapé; 1 = acima
+            x1, y1 = x0 + bw, y0 + bh
+        # Tipografia proporcional à caixa: fixa em caixa menor estoura o texto para fora.
+        k = min(1.0, bw / 316.0, bh / 76.0)
+        # Caixa ESTREITA (encaixe na linha de assinatura, ~210pt): o logo comeria 1/5 da
+        # largura e sobraria pouco para o texto. Sem ele, a fonte cabe maior e fica
+        # legível — que é o ponto de um selo que a pessoa precisa ler.
+        compacto = bw < 260
         sh = pg.new_shape()
         sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
         sh.finish(color=navy2, fill=light, width=1.1)
         sh.draw_rect(fitz.Rect(x0, y0, x0 + 5, y1))
         sh.finish(color=orange, fill=orange, width=0)
         sh.commit()
-        if seal:
+        if seal and not compacto:
             try:
-                pg.insert_image(fitz.Rect(x0 + 13, y0 + 17, x0 + 55, y0 + 59),
+                pg.insert_image(fitz.Rect(x0 + 13 * k, y0 + 17 * k, x0 + 55 * k, y0 + 59 * k),
                                 filename=seal, keep_proportion=True, overlay=True)
             except Exception:  # noqa: BLE001
                 pass
-        tx = x0 + 66
-        pg.insert_text((tx, y0 + 19), "ASSINADO DIGITALMENTE  ·  ICP-Brasil", fontsize=9, color=navy, fontname="hebo")
-        pg.insert_text((tx, y0 + 33), razao[:44], fontsize=8, color=navy2, fontname="hebo")
-        pg.insert_text((tx, y0 + 45), f"CNPJ {cnpj}  ·  AC SOLUTI (fé pública)", fontsize=7.2, color=gray, fontname="helv")
-        pg.insert_text((tx, y0 + 59), f"{when}  ·  Assinatura PAdES embutida  ·  conectamais.pro/verificar",
-                       fontsize=6.6, color=orange, fontname="helv")
+        # Linhas do selo: (texto, tamanho compacto, tamanho normal, cor, fonte)
+        _linhas = [
+            ("ASSINADO DIGITALMENTE  ·  ICP-Brasil", 7.4, 9 * k, navy, "hebo"),
+            (razao[:(30 if compacto else 44)], 7.0, 8 * k, navy2, "hebo"),
+            (f"CNPJ {cnpj}  ·  AC SOLUTI (fé pública)", 6.0, 7.2 * k, gray, "helv"),
+            (f"{when}  ·  PAdES  ·  conectamais.pro/verificar", 5.4, 6.6 * k, orange, "helv"),
+        ]
+        if compacto:
+            # CENTRALIZADO de verdade: cada linha medida e posta no meio do espaço útil
+            # (a caixa menos a barra laranja). Alinhar tudo à esquerda com uma margem
+            # fixa deixava 54pt de vazio à direita — o selo parecia empurrado para o
+            # canto. Verticalmente, o bloco inteiro é centrado na altura da caixa.
+            barra = 5 * k
+            util_x0, util_larg = x0 + barra, bw - barra
+            alt_linha = 11.5
+            bloco = alt_linha * len(_linhas)
+            base = y0 + (bh - bloco) / 2 + 8.5
+            for i, (txt, fs_c, _fs_n, cor, fn) in enumerate(_linhas):
+                larg = fitz.get_text_length(txt, fontname=fn, fontsize=fs_c)
+                px = util_x0 + max(0.0, (util_larg - larg) / 2)
+                pg.insert_text((px, base + i * alt_linha), txt, fontsize=fs_c, color=cor, fontname=fn)
+        else:
+            tx = x0 + 66 * k
+            for i, (txt, _fs_c, fs_n, cor, fn) in enumerate(_linhas):
+                pg.insert_text((tx, y0 + (19, 33, 45, 59)[i] * k), txt, fontsize=fs_n, color=cor, fontname=fn)
         return doc.tobytes(deflate=True)
     finally:
         doc.close()
@@ -258,6 +291,7 @@ def assinar_pdf_icp_brasil(
     empresa_slug: str | None = None,
     visivel: bool = True,
     slot: int = 0,
+    rect: tuple[float, float, float, float] | None = None,
 ) -> QualifiedSignatureResult:
     """Assina um PDF com o certificado A1 da empresa (PAdES, ICP-Brasil).
 
@@ -341,7 +375,7 @@ def assinar_pdf_icp_brasil(
     pdf_para_assinar = pdf_bytes
     if visivel:
         try:
-            pdf_para_assinar = _estampar_selo_branded(pdf_bytes, _cn(cert.subject), slot=slot)
+            pdf_para_assinar = _estampar_selo_branded(pdf_bytes, _cn(cert.subject), slot=slot, rect=rect)
         except Exception:  # noqa: BLE001
             pdf_para_assinar = pdf_bytes
 

@@ -36,9 +36,17 @@ async def _conta_e_empresa(db):
 
 
 async def _registrar(db, conta_id: str, pay: dict, tipo: str, descricao: str):
-    """Grava o pagamento iniciado como bank_transaction pendente (webhook atualiza)."""
+    """Grava o pagamento iniciado como bank_transaction pendente (webhook atualiza).
+
+    ⚠️ SINAL NEGATIVO. Saída é `amount < 0` — a constraint `ck_bank_tx_sinal_coerente`
+    existe justamente para isso e barrou este INSERT em 13/08/2026, com o pagamento JÁ
+    INICIADO no Cora (pay_6uNouTktocNnlKiq5ikdbp, R$1.494,90). A constraint fez o certo;
+    o defeito era gravar `debit` com valor positivo, o que inflaria o saldo em vez de
+    reduzi-lo.
+    """
     pay_id = pay.get("id") or (pay.get("data") or {}).get("id") or ""
     amount = int(pay.get("amount") or (pay.get("data") or {}).get("amount") or 0) / 100
+    amount = -abs(amount)
     await db.execute(
         text(
             "INSERT INTO bank_transactions "
@@ -64,10 +72,25 @@ async def pagar_boleto(db, *, linha_digitavel: str, descricao: str, code: str,
     cora = CoraAdapter()
     await cora.authenticate()
     pay = await cora.iniciar_pagamento_boleto(linha_digitavel=linha_digitavel, code=code, agendar_para=agendar_para)
-    pay_id, amount = await _registrar(db, conta_id, pay, "pagamento", descricao)
+    # A ORDEM IMPORTA e o risco é assimétrico: a ordem já está no banco quando
+    # chegamos aqui. Se a gravação falhar e o erro subir, o Jordan lê "falhou" e o
+    # dinheiro está em curso — o pior desfecho possível. Falha de escrituração NUNCA
+    # pode esconder movimento real: registra o que deu errado, grita no log com o ID
+    # do pagamento, e devolve o pagamento assim mesmo, sinalizado.
+    try:
+        pay_id, amount = await _registrar(db, conta_id, pay, "pagamento", descricao)
+        registro_falhou = None
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        pay_id = pay.get("id") or (pay.get("data") or {}).get("id") or ""
+        amount = -abs(int(pay.get("amount") or 0) / 100)
+        registro_falhou = str(exc)[:300]
+        logger.critical(
+            "Cora pagamento %s (R$%.2f) INICIADO no banco e NAO registrado no sistema: %s",
+            pay_id, amount, registro_falhou)
     logger.info("Cora pagamento boleto INICIADO %s (R$%.2f) — aguardando app", pay_id, amount)
     return {"payment_id": pay_id, "valor": amount, "status": "aguardando_aprovacao_app",
-            "banco": "cora", "raw": pay}
+            "banco": "cora", "raw": pay, "registro_falhou": registro_falhou}
 
 
 async def pagar_guia(db, *, tipo: str, data: dict, descricao: str, code: str) -> dict:
