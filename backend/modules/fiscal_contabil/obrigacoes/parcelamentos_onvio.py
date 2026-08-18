@@ -33,6 +33,7 @@ Roda:
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import os
@@ -164,11 +165,20 @@ def _upsert_municipal(db, dados: dict, arquivo: str) -> str:
             conhecidas = set()
     conhecidas.add(f"{dados['parcela_atual']}/{dados['num_parcelas']}")
 
+    corrente = (f"{dados['vencimento'].month:02d}/{dados['vencimento'].year}"
+                if dados["vencimento"] else None)
+    if row and not corrente:
+        try:
+            corrente = json.loads(row[1] or "{}").get("competencia_corrente")
+        except (ValueError, TypeError):
+            corrente = None
+
     obs = json.dumps({
         "nota": "Parcelamento de ISSQN — SEMEF/Prefeitura de Manaus, Lei 3537/2025. "
                 "valor_total NÃO consta do DAM (cada parcela tem juros próprios) e por isso "
                 "fica nulo; o saldo se consulta pelo processo de quitação.",
         "processo_quitacao": dados["processo"],
+        "competencia_corrente": corrente,
         "cnpj": dados["cnpj"],
         "parcela_valor_ultimo_dam": dados["valor"],
         "parcelas_vistas": sorted(conhecidas, key=lambda p: int(p.split("/")[0])),
@@ -200,6 +210,74 @@ def _upsert_municipal(db, dados: dict, arquivo: str) -> str:
          "np": dados["num_parcelas"], "pv": dados["valor"], "dv": dia,
          "ci": comp, "obs": obs})
     return "criado"
+
+
+def parcela_atrasada(competencia_corrente: str | None, dia_vencimento: int,
+                     hoje: date) -> bool:
+    """A parcela do mês corrente já devia ter aparecido e não apareceu?
+
+    Existe porque **o sync do Onvio não tem beat** — depende de alguém autenticar (OTP por
+    e-mail, sessão de 16h). Sem este guarda, um mês em que ninguém rodou o sync fica idêntico
+    a um mês em que o acordo foi quitado: silêncio. E silêncio, aqui, é acordo rescindido.
+    [[feedback_verde_que_nao_prova_nada]]
+    """
+    if not competencia_corrente:
+        return False                      # acordo sem competência conhecida — nada a comparar
+    try:
+        mes, ano = (int(p) for p in competencia_corrente.split("/"))
+    except (ValueError, TypeError):
+        return False
+
+    atraso = (hoje.year * 12 + hoje.month) - (ano * 12 + mes)
+    if atraso <= 0:
+        return False                      # o documento do mês já chegou
+    if atraso >= 2:
+        return True                       # dois meses sem documento não depende de dia nenhum
+
+    # Um mês de atraso: só cobra depois do dia do vencimento. O DAM costuma sair na virada, e
+    # cobrar no dia 1º geraria um alarme falso por mês — a forma mais rápida de ensinar alguém
+    # a ignorar o sino.
+    #
+    # ⚠️ O dia é CLAMPADO ao último dia do mês. Os DAS de dívida ativa vencem no fim do mês e
+    # gravam `dia_vencimento = 31`; comparar `hoje.day > 31` é uma condição que nunca ocorre —
+    # os quatro acordos PGFN nunca disparariam alerta, e o guarda inteiro seria decorativo.
+    ultimo = calendar.monthrange(hoje.year, hoje.month)[1]
+    return hoje.day > min(dia_vencimento, ultimo)
+
+
+def alertar_parcelas_ausentes(db, hoje: date | None = None) -> list[dict]:
+    """Publica no sino os acordos ativos cuja parcela do mês não apareceu."""
+    from modules.fiscal_contabil.obrigacoes.guias_drive_service import (
+        _emitir_notificacao_fiscal,
+    )
+
+    hoje = hoje or date.today()
+    faltando = []
+    linhas = db.execute(text(
+        "SELECT numero_acordo, orgao, dia_vencimento, parcela_valor, observacao "
+        "  FROM fiscal_parcelamentos WHERE lower(coalesce(status,'')) = 'ativo'")).fetchall()
+    for numero, orgao, dia, valor, obs in linhas:
+        try:
+            corrente = json.loads(obs or "{}").get("competencia_corrente")
+        except (ValueError, TypeError):
+            corrente = None
+        if parcela_atrasada(corrente, int(dia or 31), hoje):
+            faltando.append({"acordo": numero, "orgao": orgao,
+                             "ultima_competencia": corrente,
+                             "parcela_valor": float(valor or 0)})
+    if faltando:
+        linhas_txt = "\n".join(
+            f"• {f['orgao']} {f['acordo']} — última parcela vista em {f['ultima_competencia']}, "
+            f"R$ {f['parcela_valor']:.2f}".replace(".", ",")
+            for f in faltando)
+        _emitir_notificacao_fiscal(
+            db,
+            f"{len(faltando)} parcelamento(s) sem a parcela deste mês",
+            "O documento da parcela do mês corrente não chegou ao acervo. Parcela em atraso "
+            "não gera multa de mora: RESCINDE o acordo, e o saldo vence de uma vez.\n\n"
+            + linhas_txt,
+            "/modulos/fiscal")
+    return faltando
 
 
 def sincronizar(db=None) -> dict:
@@ -251,6 +329,7 @@ def sincronizar(db=None) -> dict:
 
             rel["ignorados"] += 1
 
+        rel["parcelas_ausentes"] = alertar_parcelas_ausentes(db)
         db.commit()
         logger.info("[parc_onvio] %s federal(is) · %s municipal(is) · %s sem arquivo",
                     len(rel["federais"]), len(rel["municipais"]), rel["sem_arquivo"])
@@ -299,4 +378,27 @@ if __name__ == "__main__":
 
     assert _dec("1.301,40") == 1301.4 and _dec("367,92") == 367.92
     assert _dec(None) is None and _dec("") is None and _dec("abc") is None
+
+    # O guarda de parcela ausente. Sem ele, "ninguém rodou o sync do Onvio" e "o acordo foi
+    # quitado" são o mesmo silêncio.
+    assert parcela_atrasada("07/2026", 3, date(2026, 8, 18)) is True
+    assert parcela_atrasada("08/2026", 3, date(2026, 8, 18)) is False, "o mês já chegou"
+    assert parcela_atrasada("09/2026", 3, date(2026, 8, 18)) is False, "adiantado não é atraso"
+    assert parcela_atrasada("07/2026", 24, date(2026, 8, 18)) is False, \
+        "antes do dia do vencimento não se cobra — o DAM costuma sair na virada"
+    assert parcela_atrasada("07/2026", 24, date(2026, 8, 25)) is True
+    assert parcela_atrasada(None, 3, date(2026, 8, 18)) is False, "sem competência, nada a comparar"
+    assert parcela_atrasada("lixo", 3, date(2026, 8, 18)) is False
+    # Virada de ano: dezembro do ano anterior é atraso em janeiro, não o contrário.
+    assert parcela_atrasada("12/2025", 3, date(2026, 1, 18)) is True
+    assert parcela_atrasada("01/2026", 3, date(2025, 12, 18)) is False
+
+    # ⚠️ dia 31 é o caso que fazia o guarda inteiro ser decorativo: os DAS de dívida ativa
+    # gravam `dia_vencimento = 31` e `hoje.day > 31` nunca acontece.
+    assert parcela_atrasada("07/2026", 31, date(2026, 9, 30)) is True, \
+        "30/09 é o último dia de setembro — o dia 31 tem de ser clampado"
+    assert parcela_atrasada("08/2026", 31, date(2026, 9, 15)) is False, "meio do mês, ainda não"
+    # Dois meses sem documento dispara independentemente do dia.
+    assert parcela_atrasada("06/2026", 31, date(2026, 8, 1)) is True
+    assert parcela_atrasada("07/2026", 31, date(2026, 8, 1)) is False
     print("self-check OK")
