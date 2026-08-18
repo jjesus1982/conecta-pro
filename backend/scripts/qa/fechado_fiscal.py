@@ -90,6 +90,11 @@ TOOLS_FISCAIS = ("calcular_das", "calcular_lucro_real", "comparar_regimes",
 MEU = ("modules/fiscal", "modules/fiscal_contabil", "modules/government_integrations",
        "/fiscal", "/government")
 
+#: Prefixo de nome de TASK que pertence a este fechamento. `ged.` entra porque as certidões
+#: alimentam a condição 1; `financial.`/`crm.`/`sst.`/`whatsapp.` ficam de fora — aparecem no
+#: detalhe, mas não decidem o fechamento do fiscal.
+_BEATS_MEUS = ("fiscal.", "government_integrations.", "esocial", "ged.")
+
 
 def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
     print(f"  {'✅' if cond else '❌'} {titulo}" + (f" — {detalhe}" if detalhe else ""))
@@ -435,11 +440,37 @@ def _c7_beats() -> tuple[bool, str]:
     if _infra_caiu(saida):
         return False, ("NÃO VERIFICADO: o container não respondeu — provável deploy em curso. "
                        "Ausência de resposta não é prova de defeito; rode de novo")
-    m = re.search(r"(\d+)\s+achado", saida)
-    n = int(m.group(1)) if m else (0 if "0 achado" in saida or "nenhum" in saida.lower() else -1)
-    if n < 0:
+    # A trava é do SISTEMA INTEIRO; este gate é do FISCAL. Contar achado de outro terminal
+    # aqui prende o fechamento deste módulo a um bug que não é meu para consertar —
+    # `financial.auto_baixa_pagaveis` (do T1) segurou a condição por três dias. A condição 9
+    # já filtrava por território; esta não filtrava.
+    #
+    # O de fora NÃO É ESCONDIDO: sai no detalhe, nomeado, para não virar silêncio conveniente.
+    # Só não decide o meu fechamento.
+    # ⚠️ `.strip(":")` NÃO É DETALHE. A camada "roda e não produz" imprime o nome seguido de
+    # dois-pontos (`fiscal.certidoes.sync_diario: última produção em ...`), e a primeira
+    # versão deste parser exigia o token inteiro casando `^[a-z_]+[.\w]*$` — o `:` reprovava
+    # e o achado sumia. Resultado medido em 17/08/2026: a condição 7 imprimiu "0 no fiscal"
+    # com um achado FISCAL na tela da trava, logo acima. Falso verde no meu próprio gate,
+    # exatamente o que este fechamento passou dias caçando nos outros.
+    meus, alheios = [], []
+    for ln in saida.splitlines():
+        toks = ln.strip().split()
+        if not toks:
+            continue
+        nome = toks[0].strip(":·-—")
+        if "." not in nome or not re.fullmatch(r"[a-z_]+(?:\.[a-z_0-9]+)+", nome):
+            continue
+        (meus if nome.startswith(_BEATS_MEUS) else alheios).append(nome)
+
+    total = re.search(r"(\d+)\s+achado", saida)
+    if total is None and "nenhum" not in saida.lower():
         return False, "saída não reconhecida (trava mudou de formato?)"
-    return n == 0, f"{n} achado(s)"
+
+    det = f"{len(meus)} no fiscal" + (f": {', '.join(sorted(set(meus)))}" if meus else "")
+    if alheios:
+        det += f" · {len(set(alheios))} fora do módulo (não gateiam): {', '.join(sorted(set(alheios)))}"
+    return not meus, det
 
 
 def _c9_travas() -> tuple[bool, str]:
