@@ -39,8 +39,19 @@ CATEGORIAS_EMPRESA: dict[str, str | None] = {
     "dctfweb_resumo_debitos": None,
 }
 
-# substring (no nome do arquivo Onvio, minúsculo) → nome do condomínio no workspace
-CONDOMINIO_MAP: dict[str, str] = {
+#: Trecho que identifica o condomínio DENTRO do nome do arquivo que vem do Onvio. O contador
+#: nomeia como "Folha 07.2026_Ideal Flores.pdf" — o nome do arquivo nunca traz a razão social
+#: inteira, então a chave é o apelido. O VALOR, porém, tem de ser o nome do CONTRATO.
+#:
+#: 🔴 ESTE MAPA CRIAVA PASTA DUPLICADA NO DRIVE DO CLIENTE. Ele devolvia o nome curto
+#: ("IDEAL FLORES") e os outros blocos — certidões, guias, boletos — usam o nome que vem dos
+#: contratos ("CONDOMINIO IDEAL FLORES DA CIDADE"). Resultado medido em 17/08/2026: 18 pastas
+#: no Drive para 11 clientes, e cada um dos 7 postos com o kit partido em duas — 63 dos 66
+#: arquivos na pasta longa e os 3 contracheques de julho na curta. A completude do mês caiu
+#: para 6% porque as 7 pastas quase vazias entravam no denominador.
+#:
+#: Decisão do Jordan em 17/08: fica o nome LONGO, o do contrato.
+_APELIDO_ONVIO: dict[str, str] = {
     "ideal flores": "IDEAL FLORES",
     "michelangelo": "MICHELANGELO",
     "mirante": "MIRANTE",
@@ -52,12 +63,103 @@ CONDOMINIO_MAP: dict[str, str] = {
 }
 
 
+def _nome_de_contrato(apelido: str) -> str:
+    """Apelido do arquivo → nome do cliente no CONTRATO, que é o nome da pasta no Drive.
+
+    Consulta os contratos em vez de uma segunda lista fixa: quando o GREEN HILLS entrar em
+    setembro, basta o contrato existir. Com o mapa antigo, o contracheque dele não casaria
+    com nada e o arquivo simplesmente não seria arquivado — sem erro, sem aviso.
+
+    Se não achar contrato, devolve o apelido: o arquivo vai para algum lugar em vez de sumir.
+    """
+    from sqlalchemy import text as _t
+
+    from core.database.session import get_sync_db
+
+    try:
+        with get_sync_db() as db:
+            r = db.execute(
+                _t(
+                    "SELECT cl.name FROM clients cl "
+                    "JOIN contracts c ON c.client_id = cl.id "
+                    "WHERE lower(coalesce(c.status::text,'')) = 'active' "
+                    "  AND upper(cl.name) LIKE '%' || upper(:ap) || '%' "
+                    "ORDER BY length(cl.name) DESC LIMIT 1"
+                ),
+                {"ap": apelido},
+            ).scalar()
+            return r or apelido
+    except Exception:  # noqa: BLE001 — nunca derrubar a montagem por causa da resolução
+        return apelido
+
+
+def _clientes_de_contrato() -> list[str]:
+    """Nomes dos clientes com contrato ATIVO. É a lista que manda — não uma cópia em código.
+
+    🔴 SEM ISTO, CLIENTE NOVO SOME EM SILÊNCIO. O mapa de apelidos tem sete entradas fixas;
+    o GREEN HILLS entra em setembro com 4 agentes e o contracheque dele não casaria com
+    nada — sem erro, sem aviso, o arquivo simplesmente não seria arquivado. É o mesmo
+    "nunca fixe a lista em código" que a F0.2 estabeleceu para a lista de kits.
+    """
+    from sqlalchemy import text as _t
+
+    from core.database.session import get_sync_db
+
+    try:
+        with get_sync_db() as db:
+            return [r[0] for r in db.execute(_t(
+                "SELECT DISTINCT cl.name FROM clients cl "
+                "JOIN contracts c ON c.client_id = cl.id "
+                "WHERE lower(coalesce(c.status::text,'')) = 'active' AND cl.name IS NOT NULL"
+            )).fetchall()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+#: Palavras que não distinguem um condomínio de outro — sozinhas casariam com meio mundo.
+_GENERICAS = {"condominio", "condomínio", "residencial", "edificio", "edifício", "do", "da",
+              "de", "dos", "das", "e", "village", "ltda", "conecta", "mais"}
+
+
 def _condominio_do_nome(nome_arquivo: str) -> str | None:
-    n = nome_arquivo.lower()
-    for chave, cond in CONDOMINIO_MAP.items():
-        if chave in n:
-            return cond
+    """Nome da PASTA no Drive para este arquivo do Onvio — o do CONTRATO, não o apelido.
+
+    Duas passadas, nesta ordem:
+      1. apelido declarado (o contador escreve "Ideal Flores", o contrato diz
+         "CONDOMINIO IDEAL FLORES DA CIDADE" — só um humano liga as duas coisas);
+      2. os próprios clientes com contrato ativo, casando pelas palavras que DISTINGUEM.
+
+    A segunda passada é o que faz cliente novo funcionar sem alguém lembrar de editar o mapa.
+    """
+    import unicodedata
+
+    def _norm(x: str) -> str:
+        return unicodedata.normalize("NFKD", x or "").encode("ascii", "ignore").decode().lower()
+
+    n = _norm(nome_arquivo)
+    clientes = _clientes_de_contrato()
+
+    # 1 · apelido declarado → acha o contrato pelo trecho SEM ACENTO. O contrato do Villa dos
+    # Pássaros está escrito "VILLA DOS PASSAROS"; comparar com acento não casava e o arquivo
+    # voltava para a pasta curta.
+    for chave, apelido in _APELIDO_ONVIO.items():
+        if _norm(chave) in n:
+            alvo = _norm(chave)
+            achou = [c for c in clientes if alvo in _norm(c)]
+            if achou:
+                return max(achou, key=len)
+            return _nome_de_contrato(apelido)
+
+    # 2 · sem apelido: casa pelas palavras distintivas do próprio contrato
+    for c in clientes:
+        toks = [t for t in _norm(c).split() if t not in _GENERICAS and len(t) > 2]
+        if toks and all(t in n for t in toks):
+            return c
     return None
+
+
+#: Compat: alguém pode importar o nome antigo. Mantido como ALIAS do apelido, não como fonte.
+CONDOMINIO_MAP = _APELIDO_ONVIO
 
 
 def _garantir_binario(onvio_client, caminho_local, onvio_folder_id, onvio_id) -> str | None:
