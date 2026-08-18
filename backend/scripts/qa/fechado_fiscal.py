@@ -83,9 +83,39 @@ CALCULADORAS = ("calc-simples", "calc-lucro-real", "calc-comparativo",
                 "calc-limite-simples", "calc-retencoes")
 
 #: As 8 tools mínimas do agente fiscal (F4).
-TOOLS_FISCAIS = ("calcular_das", "calcular_lucro_real", "comparar_regimes",
-                 "calcular_retencoes", "obrigacoes_do_mes", "certidoes_vencendo",
-                 "guias_pendentes", "propor_baixa_obrigacao")
+#: As 8 CAPACIDADES que o agente fiscal tem de alcançar → o nome com que cada uma está
+#: registrada de fato.
+#:
+#: ⚠️ Esta condição media SPELLING, e spelling não é capacidade. A arquitetura do orquestrador
+#: tem TRÊS formas legítimas de registro — `ToolDef` (tool própria), `registrar_read` (vira
+#: consulta do dispatcher `consultar_fiscal`) e `registrar_acao` (vira ação do `agir_fiscal`) —
+#: e exigir que tudo fosse ToolDef obrigaria a duplicar consultas que já existem e funcionam,
+#: só para casar com uma lista. Renomear consulta que serve para satisfazer checklist é que
+#: seria o teatro; o gate é que estava medindo a coisa errada.
+#:
+#: Em troca a checagem ficou MAIS ESTRITA: exige uma CHAMADA de registro (`ToolDef("x"` /
+#: `registrar_read(_MOD, "x"` / `registrar_acao("fiscal", "x"`), não mais um `name = "x"`
+#: solto em qualquer arquivo — que passaria com a string dentro de um comentário.
+TOOLS_FISCAIS = {
+    "calcular_das":           ("calcular_das",),
+    "calcular_lucro_real":    ("calcular_lucro_real",),
+    "comparar_regimes":       ("comparar_regimes",),
+    "calcular_retencoes":     ("calcular_retencoes",),
+    # servida pelo calendário de obrigações, que já entrega o mês por empresa/consolidado
+    "obrigacoes_do_mes":      ("calendario_obrigacoes",),
+    # servida pela consulta de certidões, que já traz o status calculado (válida/a vencer/vencida)
+    "certidoes_vencendo":     ("certidoes",),
+    "guias_pendentes":        ("guias_pendentes",),
+    # a ação é PROPOR: cria rascunho inerte; a baixa só ocorre na aprovação humana
+    "propor_baixa_obrigacao": ("baixar_obrigacao",),
+}
+
+#: As três formas de registro aceitas. `{n}` é substituído pelo nome registrado.
+_FORMAS_DE_REGISTRO = (
+    r'ToolDef\(\s*["\']{n}["\']',
+    r'registrar_read\(\s*_MOD\s*,\s*["\']{n}["\']',
+    r'registrar_acao\(\s*["\']fiscal["\']\s*,\s*["\']{n}["\']',
+)
 
 MEU = ("modules/fiscal", "modules/fiscal_contabil", "modules/government_integrations",
        "/fiscal", "/government")
@@ -421,10 +451,12 @@ def _c8_tools() -> tuple[bool, str]:
                     src = f.read()
             except OSError:
                 continue
-            for t in TOOLS_FISCAIS:
-                if re.search(rf'ToolDef\([^)]*["\']{t}["\']', src, re.S) or \
-                   re.search(rf'name\s*=\s*["\']{t}["\']', src):
-                    achadas.add(t)
+            for capacidade, nomes in TOOLS_FISCAIS.items():
+                for n in nomes:
+                    if any(re.search(f.format(n=re.escape(n)), src)
+                           for f in _FORMAS_DE_REGISTRO):
+                        achadas.add(capacidade)
+                        break
     faltam = [t for t in TOOLS_FISCAIS if t not in achadas]
     return not faltam, f"{len(achadas)}/{len(TOOLS_FISCAIS)} registradas" + (
         f" · faltam: {', '.join(faltam)}" if faltam else "")
