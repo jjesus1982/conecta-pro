@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
+
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +218,15 @@ async def montar_kits_mensais(
             prog("inter", "erro")
             logger.warning("GEDEON orquestrador [inter] FALHOU: %s", exc)
 
+        # O Inter deixou de ser o único banco (Cora desde 08/2026). Os outros vêm do
+        # bank_transactions já sincronizado — sem isso o vavt/INSS ignora o que foi pago.
+        try:
+            outros = _extrato_outros_bancos(get_sync_db, competencia)
+            txs = list(txs) + outros
+            rel["etapas"].setdefault("inter", {})["outros_bancos"] = len(outros)
+        except Exception as exc:
+            logger.warning("GEDEON orquestrador [outros bancos] FALHOU: %s", exc)
+
     # INSS (replicado em cada kit) e VA/VT (a atribuir) — SYNC, usam os txs já buscados
     if txs and quer("pagamentos"):
         # No KIT do cliente vai SÓ o comprovante de INSS (decisão Jordan);
@@ -277,6 +288,51 @@ def garantir_sessao_onvio() -> dict:
     except Exception as exc:
         logger.warning("GEDEON: renovação Onvio falhou (segue com sessão atual): %s", exc)
         return {"renovada": False, "erro": str(exc)}
+
+
+def _extrato_outros_bancos(get_sync_db, competencia: str) -> list[dict]:
+    """Transações da janela de pagamento nos bancos QUE NÃO SÃO O INTER, no formato do
+    extrato do Inter — os consumidores (INSS, VA/VT, salário, rescisão) leem um dict só.
+
+    Existe porque em 14/08/2026 o VA/VT (R$ 31.756 · Sólides + Sinetran) e o grosso da
+    folha saíram pelo CORA, e o montador só falava com a API do Inter: o bloco vavt
+    devolvia 0 comprovantes com o dinheiro pago. Aqui não há integração nova — o Cora já
+    é sincronizado para bank_transactions; só faltava alguém olhar."""
+    from modules.gedeon.services.inter_kit_service import _mes_pagamento
+
+    ini, fim = _mes_pagamento(competencia)
+    with get_sync_db() as db:
+        linhas = (
+            db.execute(
+                text(
+                    "SELECT bt.transaction_date, bt.amount, bt.description, bt.counterparty_name, "
+                    "       bt.counterparty_document, bt.pix_end_to_end, bt.external_id, ba.bank_name "
+                    "  FROM bank_transactions bt JOIN bank_accounts ba ON ba.id = bt.bank_account_id "
+                    " WHERE ba.bank_name NOT ILIKE :inter AND bt.transaction_date BETWEEN :ini AND :fim "
+                    "   AND coalesce(bt.ativo, true)"
+                ),
+                {"inter": "%Inter%", "ini": date.fromisoformat(ini), "fim": date.fromisoformat(fim)},
+            )
+            .mappings()
+            .all()
+        )
+
+    return [
+        {
+            "tipoOperacao": "D" if float(r["amount"]) < 0 else "C",
+            "valor": abs(float(r["amount"])),
+            "dataTransacao": r["transaction_date"].isoformat(),
+            "descricao": r["description"] or "",
+            "idTransacao": r["external_id"] or "",
+            "banco": r["bank_name"],
+            "detalhes": {
+                "nomeRecebedor": r["counterparty_name"] or "",
+                "cpfCnpjRecebedor": r["counterparty_document"] or "",
+                "endToEndId": r["pix_end_to_end"] or "",
+            },
+        }
+        for r in linhas
+    ]
 
 
 async def _inter_tudo(
