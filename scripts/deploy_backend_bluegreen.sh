@@ -78,6 +78,15 @@ wait_container_health() {  # $1 = nome do container, $2 = timeout
 }
 
 # ── lock de deploy (convivência entre terminais) ──
+# O lock é um DIRETÓRIO (mkdir é atômico). Se o caminho existir como ARQUIVO, não é o nosso
+# lock: ninguém o segura, `mkdir` nunca vai suceder, e o pipeline fica travado para a frota
+# inteira sem que haja deploy algum em curso. Medido duas vezes em 18/08/2026 — um arquivo
+# regular de 0 byte apareceu às 07:58 e de novo às 17:14, e nesse intervalo NENHUM terminal
+# conseguia deployar. Arquivo aqui é lixo: remove, avisa alto e segue.
+if [ -e "$LOCK" ] && [ ! -d "$LOCK" ]; then
+  log "AVISO: $LOCK existe como ARQUIVO (não é o lock desta casa, que é diretório) — removendo"
+  rm -f "$LOCK"
+fi
 if ! mkdir "$LOCK" 2>/dev/null; then
   log "ERRO: lock ocupado ($LOCK) — outro deploy em andamento"; exit 1
 fi

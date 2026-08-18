@@ -40,6 +40,14 @@ quem_segura() {  # descreve o dono atual, para a espera não ser cega
     fi
 }
 
+# Mesmo guarda do deploy: o lock é um DIRETÓRIO. Caminho existindo como ARQUIVO não é lock
+# desta casa — ninguém o segura e `mkdir` nunca sucederia, então esperar seria esperar para
+# sempre. Aconteceu duas vezes em 18/08/2026 e travou a frota inteira. Lixo: remove e avisa.
+if [ -e "$LOCK" ] && [ ! -d "$LOCK" ]; then
+    echo "AVISO: $LOCK existe como ARQUIVO (o lock desta casa é diretório) — removendo lixo"
+    rm -f "$LOCK"
+fi
+
 t=0
 until mkdir "$LOCK" 2>/dev/null; do
     if [ "$t" -eq 0 ]; then
