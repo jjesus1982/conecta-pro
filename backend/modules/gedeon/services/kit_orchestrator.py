@@ -362,6 +362,8 @@ async def _inter_tudo(
 ):
     """Roda TODO o Inter num único event loop (extrato → salário/cond → boletos → extrato oficial).
     Devolve (txs, relatorio). Cada sub-etapa é isolada por try/except."""
+    from modules.gedeon.services.kit_layout import nome_pasta_condominio
+
     adapter = build_adapter()
     out: dict = {"salario": {}, "boletos": None, "extrato_oficial": None}
     try:
@@ -376,7 +378,12 @@ async def _inter_tudo(
         return [], out
 
     for cond in condominios:
-        folha = folha_por_cond.get(cond)
+        # A chave do mapa é o nome do CONTRATO (veio de _condominio_do_nome sobre o nome do
+        # arquivo do Onvio); `cond` é o apelido curto de CONDOMINIOS_PADRAO. Sem resolver,
+        # o get() erra sempre — inclusive nos meses em que a folha ESTÁ lá, que foi o caso
+        # de 07/2026: Ideal Flores, Michelangelo e Laranjeiras publicados, e os 7 kits
+        # reportando "folha não encontrada".
+        folha = folha_por_cond.get(nome_pasta_condominio(cond)) or folha_por_cond.get(cond)
         if not folha:
             out["salario"][cond] = "folha não encontrada"
             continue
