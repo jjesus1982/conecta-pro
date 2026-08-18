@@ -291,9 +291,23 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
                 + ("\n       " + "\n       ".join(
                     f"{s}/{t} venceu {v}" for s, t, v in sem_guia) if sem_guia else "")))
 
-        # 4 · NFS-e — contrato ativo fatura no mês, pelo CNPJ dele.
-        # Vale só depois que o mês roda: dia 14 quase ninguém emitiu ainda, e isso é normal,
-        # não defeito. O gate mede e mostra; fecha sozinho no fim do mês.
+    # 4 · NFS-e — contrato ativo fatura no mês, pelo CNPJ dele.
+    #
+    # ⚠️ SÓ COBRA A PARTIR DO DIA 25, e o número saiu do histórico, não de palpite. A casa
+    # fatura no FIM do mês — medido em 17/08/2026, notas emitidas até o dia 17 de cada mês:
+    #
+    #     01/2026  0 de 13     04/2026  1 de 14     06/2026  2 de 17
+    #     02/2026  0 de 12     05/2026  2 de 15     07/2026  3 de 16
+    #     03/2026  1 de 12
+    #
+    # O grosso cai nos dias 24–30 (dia 30 sozinho tem 27 notas no ano). Cobrar antes disso
+    # deixaria a condição VERMELHA 24 dias por mês sem nada de errado — exatamente o alarme
+    # falso que este fechamento passou dois dias caçando, e que eu mesmo escrevi aqui.
+    #
+    # Antes do dia 25 a condição PASSA dizendo que ainda não é devida. É o mesmo princípio
+    # do `calendario_service`, que não cria obrigação de mês aberto: não se afirma o que
+    # ainda não venceu.
+    DIA_DE_COBRAR = 25
     sem_nota = _q("SELECT e.slug, count(*)::text "
                   "  FROM contracts c JOIN empresas e ON e.id = c.empresa_id "
                   " WHERE c.status::text = 'active' "
@@ -301,9 +315,14 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
                   "                    WHERE n.empresa_id = c.empresa_id "
                   "                      AND n.data_emissao >= @ini) "
                   " GROUP BY e.slug ORDER BY e.slug", ini=hoje.replace(day=1))
-    det4 = " · ".join(f"{s}: {n} contrato(s) sem nota no mês"
-                      for s, n in sem_nota) or "todos faturaram"
-    out.append((not sem_nota, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo", det4))
+    faltam = " · ".join(f"{s}: {n} contrato(s) sem nota" for s, n in sem_nota)
+    if hoje.day < DIA_DE_COBRAR:
+        out.append((True, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo",
+                    f"ainda não é devido — a casa fatura a partir do dia {DIA_DE_COBRAR} "
+                    f"(hoje é {hoje.day}). Situação parcial: {faltam or 'todos já faturaram'}"))
+    else:
+        out.append((not sem_nota, "4 · contrato ativo com NFS-e no mês, pelo CNPJ certo",
+                    faltam or "todos faturaram"))
 
     # 6 · ROTINAS — o sino sem falha recorrente, e o espelho do eSocial produzindo.
     # Falha de código que NÃO ESTÁ MAIS NO AR não é evidência sobre o sistema de agora.
@@ -464,25 +483,49 @@ def _c10_oraculos() -> tuple[bool, str]:
     orq = os.path.join(BASE, "scripts/orq")
     testes = sorted(a for a in os.listdir(orq)
                     if re.search(r"(fiscal|contabil|esocial)", a) and a.endswith(".py"))
-    vermelhos, mudos = [], []
-    for t in testes:
-        r = subprocess.run(
+
+    def _roda(t: str):
+        return subprocess.run(
             ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
              "python3", f"/app/scripts/orq/{t}"],
             capture_output=True, text=True, timeout=600)
+
+    vermelhos, mudos, transitorios = [], [], []
+    for t in testes:
+        r = _roda(t)
         nome = t.replace("test_oraculo_", "").replace("test_", "").replace(".py", "")
         if r.returncode == 0:
             continue
         if _infra_caiu(r.stdout + r.stderr):
             mudos.append(nome)      # o container não respondeu — não é veredito
+            continue
+        # ⚠️ REPETE ANTES DE ACUSAR. `_infra_caiu` só pega erro do daemon; um container
+        # RECRIADO no meio da execução devolve erro de aplicação (conexão perdida, sessão
+        # morta) e passava por vermelho. Aconteceu em 17/08/2026: o gate acusou
+        # `fiscal_painel`, e ele passava quando rodado isolado um minuto depois — o deploy
+        # tinha acabado de trocar o container.
+        #
+        # Oráculo é determinístico sobre o mesmo banco: se passa na segunda, o que falhou
+        # foi o ambiente, não a regra. Uma repetição basta e custa pouco — só corre para
+        # quem já falhou.
+        r2 = _roda(t)
+        if r2.returncode == 0:
+            transitorios.append(nome)
+        elif _infra_caiu(r2.stdout + r2.stderr):
+            mudos.append(nome)
         else:
             vermelhos.append(nome)
     if mudos:
         return False, (f"NÃO VERIFICADO: o container não respondeu em {len(mudos)} de "
                        f"{len(testes)} ({', '.join(mudos)}) — provável deploy de outra sessão "
                        f"em curso. Ausência de resposta não é prova de defeito; rode de novo")
-    return not vermelhos, f"{len(testes) - len(vermelhos)}/{len(testes)} verdes" + (
-        f" · vermelhos: {', '.join(vermelhos)}" if vermelhos else "")
+    det = f"{len(testes) - len(vermelhos)}/{len(testes)} verdes"
+    if vermelhos:
+        det += f" · vermelhos: {', '.join(vermelhos)}"
+    if transitorios:
+        det += (f" · {len(transitorios)} passou na repetição ({', '.join(transitorios)}) — "
+                f"falha de ambiente, não da regra")
+    return not vermelhos, det
 
 
 def main() -> int:
