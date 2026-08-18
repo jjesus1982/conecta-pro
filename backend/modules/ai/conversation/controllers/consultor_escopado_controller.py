@@ -40,6 +40,7 @@ from modules.ai.conversation.services.orquestrador import tools_acao_dp  # noqa:
 from modules.ai.conversation.services.orquestrador import tools_acao_ged  # noqa: F401 — registra a ação FAZER do GED (registrar_evento_kit) (Fase 6 FAZER-2, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_acao_financeiro  # noqa: F401 — registra agir_financeiro (registrar_custo_recorrente) (Fase 6 FAZER-3, propor->aprovar)
 from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
+from modules.ai.conversation.services.orquestrador import tools_fiscal_calc  # noqa: F401 — registra as 4 calculadoras fiscais (DAS, Lucro Real, comparativo, retenções) — chamam o MESMO controller da tela
 from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
 from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
 from modules.ai.conversation.services.orquestrador import tools_rh_doc  # noqa: F401 — registra holerite no chat (Fase 6 F6)
