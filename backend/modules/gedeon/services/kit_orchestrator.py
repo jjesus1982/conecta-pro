@@ -238,7 +238,20 @@ async def montar_kits_mensais(
             ),
         )
     if txs and quer("vavt"):
-        etapa("va_vt", lambda: gerar_comprovantes_va_vt(competencia, txs, emitido_em, dry_run=dry_run))
+        etapa(
+            "va_vt",
+            lambda: gerar_comprovantes_va_vt(competencia, txs, emitido_em, dry_run=dry_run, condominios=condominios),
+        )
+    # O comprovante acima prova que a EMPRESA pagou; o recibo abaixo é o que o condomínio
+    # confere contra a lista de quem trabalha lá. Um não substitui o outro.
+    if quer("vavt"):
+        from modules.gedeon.services.recibo_vtvr_kit_service import arquivar_recibos_vtvr
+
+        def _recibos():
+            with get_sync_db() as _db:
+                return arquivar_recibos_vtvr(competencia, _db, dry_run=dry_run)
+
+        etapa("recibo_vtvr", _recibos)
 
     # ── RESCISÃO: demitidos do mês → TRCT/ASO/Carta (Onvio, busca ampla) + comprovante de
     #    verbas (Inter, ancorado no valor do TRCT). Demitido que trabalhou o mês fica no kit. ──

@@ -77,10 +77,23 @@ def classificar_pagamentos_empresa(txs: list[dict]) -> list[dict]:
     return itens
 
 
-def gerar_comprovantes_va_vt(competencia: str, txs: list[dict], emitido_em: str, dry_run: bool = False) -> dict:
-    """Gera comprovantes de VA (Sólides) e VT (Sinetran) do Inter.
-    Atribuição por condomínio exige o Relatório de Pedido de VA do Sólides (pendente)
-    → por ora vão pra '_VA_VT (a atribuir)' nomeados por valor+data."""
+def gerar_comprovantes_va_vt(
+    competencia: str,
+    txs: list[dict],
+    emitido_em: str,
+    dry_run: bool = False,
+    condominios: list[str] | None = None,
+) -> dict:
+    """Gera os comprovantes de VA (Sólides) e VT (Sinetran) e REPLICA em cada condomínio.
+
+    Replica — não rateia — porque o pagamento NÃO é por condomínio. Medido no extrato:
+    o Sólides recebeu 17/9/20/12/8/11/12/8 pagamentos de jan a ago e o Sinetran 6/5/6/6.
+    Se fosse fatia de posto seriam 7 todo mês; são lotes de compra. O comprovante é da
+    empresa e prova a quitação do benefício de todos — mesmo tratamento que o INSS, por
+    decisão do Jordan. Quem cabe a cada posto é o Recibo de VT/VR, que sai por pessoa.
+
+    Sem `condominios` mantém o comportamento antigo: pasta única '_VA_VT (a atribuir)'.
+    """
     from modules.gedeon.services.kit_layout import ROOT_WORKSPACE_ID, _garantir_pasta
 
     if not gdrive_service._service:
@@ -90,11 +103,12 @@ def gerar_comprovantes_va_vt(competencia: str, txs: list[dict], emitido_em: str,
         ("Vale Alimentação (Sólides)", lambda t: "SOLIDES" in _favorecido(t)),
         ("Vale Transporte (Sinetran)", lambda t: "SIND DAS EMP" in _favorecido(t) or "SINETRAN" in _favorecido(t)),
     ]
-    rel = {"competencia": competencia, "gerados": 0, "lista": []}
+    rel = {"competencia": competencia, "gerados": 0, "replicas": 0, "lista": []}
     cache: dict = {}
-    holding = None if dry_run else _garantir_pasta(cache, "_VA_VT (a atribuir por condomínio)", ROOT_WORKSPACE_ID)
-    mes_kit = mes_kit_de_competencia(competencia)
-    sub = None if dry_run else _garantir_pasta(cache, mes_kit, holding)
+    sub = None
+    if not dry_run and not condominios:
+        holding = _garantir_pasta(cache, "_VA_VT (a atribuir por condomínio)", ROOT_WORKSPACE_ID)
+        sub = _garantir_pasta(cache, mes_kit_de_competencia(competencia), holding)
     for rotulo, cond in grupos:
         for t in [t for t in debitos if cond(t)]:
             det = t.get("detalhes", {}) or {}
@@ -113,13 +127,20 @@ def gerar_comprovantes_va_vt(competencia: str, txs: list[dict], emitido_em: str,
                 descricao=rotulo,
                 id_transacao=det.get("endToEndId") or t.get("idTransacao"),
                 competencia=competencia,
-                condominio="(a atribuir)",
+                condominio="Conecta Mais (empresa)" if condominios else "(a atribuir)",
                 emitido_em=emitido_em,
             )
             path = os.path.join(tempfile.gettempdir(), fn)
             with open(path, "wb") as fh:
                 fh.write(pdf)
-            if sub and not _arquivo_ja_existe(sub, fn):
+            if condominios:
+                for cond in condominios:
+                    folder = pasta_kit_arquivo(cond, competencia, fn, cache)
+                    if folder and not _arquivo_ja_existe(folder, fn):
+                        if gdrive_service.fazer_upload_arquivo(path, folder, fn):
+                            rel["replicas"] += 1
+                rel["gerados"] += 1
+            elif sub and not _arquivo_ja_existe(sub, fn):
                 if gdrive_service.fazer_upload_arquivo(path, sub, fn):
                     rel["gerados"] += 1
     return rel

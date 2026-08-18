@@ -33,6 +33,7 @@ def nome_parece_arquivo(nome: str) -> bool:
     """True se o "condomínio" tem cara de nome de arquivo (defesa contra args trocados)."""
     return bool(_RE_NOME_DE_ARQUIVO.search((nome or "").strip()))
 
+
 MESES_PT = {
     1: "Janeiro",
     2: "Fevereiro",
@@ -80,19 +81,41 @@ def _arquivo_ja_existe(folder_id: str, nome: str) -> bool:
         return False
 
 
+def nome_pasta_condominio(condominio: str) -> str:
+    """Nome da pasta-raiz do condomínio no Drive: SEMPRE o do contrato.
+
+    Existe porque os chamadores falam duas línguas. Os blocos que leem documento externo
+    (boleto, NFS-e, Onvio) já resolvem o nome do pagador e passam "CONDOMINIO IDEAL FLORES
+    DA CIDADE"; os que replicam em todo mundo (INSS, VA/VT) iteram CONDOMINIOS_PADRAO e
+    passam "IDEAL FLORES". Como _criar_pasta casa por nome EXATO, o segundo grupo criava
+    uma segunda pasta ao lado da primeira — foi assim que nasceram as 7 pastas curtas
+    apagadas em 17/08/2026.
+
+    Resolver aqui, e não em cada caller, é o que impede a terceira língua de aparecer.
+    Sem correspondência, devolve o nome recebido: pasta nova de cliente novo continua
+    funcionando sem ninguém editar mapa nenhum.
+    """
+    try:
+        from modules.gedeon.services.onvio_kit_service import _condominio_do_nome
+
+        return _condominio_do_nome(condominio) or condominio
+    except Exception:  # noqa: BLE001 — resolver é conveniência; nunca derruba o arquivamento
+        logger.warning("nome_pasta_condominio: nao resolvi %r, usando como veio", condominio)
+        return condominio
+
+
 def garantir_pasta_kit(condominio: str, competencia: str, cache: dict | None = None) -> str | None:
     """Garante [Condomínio]/[Mês do kit] e devolve o ID da pasta do mês (flat)."""
     if nome_parece_arquivo(condominio):
         logger.warning(
-            "garantir_pasta_kit: %r parece nome de ARQUIVO, não condomínio — "
-            "recusado (argumentos trocados no caller?)",
+            "garantir_pasta_kit: %r parece nome de ARQUIVO, não condomínio — recusado (argumentos trocados no caller?)",
             condominio,
         )
         return None
     if not gdrive_service._service:
         gdrive_service.check_status()
     cache = cache if cache is not None else {}
-    cond_folder = _garantir_pasta(cache, condominio, ROOT_WORKSPACE_ID)
+    cond_folder = _garantir_pasta(cache, nome_pasta_condominio(condominio), ROOT_WORKSPACE_ID)
     if not cond_folder:
         return None
     return _garantir_pasta(cache, mes_kit_de_competencia(competencia), cond_folder)
