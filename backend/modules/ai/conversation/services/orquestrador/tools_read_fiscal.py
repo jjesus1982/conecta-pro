@@ -106,11 +106,14 @@ async def _calendario_obrigacoes(db, user, scope, *, mes=None, ano=None, empresa
     from modules.empresas.controllers import obligations_controller as ob
     hoje = date.today()
     m, a = int(mes or hoje.month), int(ano or hoje.year)
+    # `db` é obrigatório desde 18/08/2026: o calendário passou a ler o CADASTRO real
+    # (fiscal_obligations) e só cair no molde do regime onde não há linha. Chamada direta não
+    # resolve `Depends`, então a sessão vai explícita — sem ela, TypeError.
     if empresa_slug:  # por empresa (CNPJ isolado)
         return _dump(await ob.calendario_empresa(empresa_slug=str(empresa_slug), mes=m, ano=a,
-                                                 current_user=user))
+                                                 db=db, current_user=user))
     # consolidado ROTULADO por empresa (por_empresa/consolidado com empresa_slug em cada item)
-    return _dump(await ob.calendario_grupo(mes=m, ano=a, current_user=user))
+    return _dump(await ob.calendario_grupo(mes=m, ano=a, db=db, current_user=user))
 
 
 async def _nfse_dashboard(db, user, scope, **_) -> Any:

@@ -38,6 +38,12 @@ class ObrigacaoCalendario:
     valor_estimado: float | None = None
     urgencia: str = "normal"  # critica, alta, normal, baixa
     link_sistema: str | None = None
+    #: De onde veio esta linha. `previsto_pelo_regime` é o MOLDE (constantes desta classe):
+    #: a obrigação existe por lei, mas ninguém a cadastrou, então não há valor, recibo nem
+    #: status real — e "atrasada" aqui significa "passou da data", NÃO "não foi paga".
+    #: `cadastro` é linha de `fiscal_obligations`: status, valor e recibo são os de verdade.
+    fonte: str = "previsto_pelo_regime"
+    numero_recibo: str | None = None
 
 
 @dataclass
