@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 
 from sqlalchemy import text
@@ -107,18 +108,38 @@ def _clientes_de_contrato() -> list[str]:
 
     try:
         with get_sync_db() as db:
-            return [r[0] for r in db.execute(_t(
-                "SELECT DISTINCT cl.name FROM clients cl "
-                "JOIN contracts c ON c.client_id = cl.id "
-                "WHERE lower(coalesce(c.status::text,'')) = 'active' AND cl.name IS NOT NULL"
-            )).fetchall()]
+            return [
+                r[0]
+                for r in db.execute(
+                    _t(
+                        "SELECT DISTINCT cl.name FROM clients cl "
+                        "JOIN contracts c ON c.client_id = cl.id "
+                        "WHERE lower(coalesce(c.status::text,'')) = 'active' AND cl.name IS NOT NULL"
+                    )
+                ).fetchall()
+            ]
     except Exception:  # noqa: BLE001
         return []
 
 
 #: Palavras que não distinguem um condomínio de outro — sozinhas casariam com meio mundo.
-_GENERICAS = {"condominio", "condomínio", "residencial", "edificio", "edifício", "do", "da",
-              "de", "dos", "das", "e", "village", "ltda", "conecta", "mais"}
+_GENERICAS = {
+    "condominio",
+    "condomínio",
+    "residencial",
+    "edificio",
+    "edifício",
+    "do",
+    "da",
+    "de",
+    "dos",
+    "das",
+    "e",
+    "village",
+    "ltda",
+    "conecta",
+    "mais",
+}
 
 
 def _condominio_do_nome(nome_arquivo: str) -> str | None:
@@ -222,6 +243,51 @@ def arquivar_onvio_flat(competencia: str, db, onvio_client=None, dry_run: bool =
     return rel
 
 
+_SQL_CNPJ_EMPREGADORA = text(
+    """
+    SELECT em.cnpj
+      FROM allocations a
+      JOIN employees e ON e.id = a.employee_id
+      JOIN empresas em ON em.id = e.empresa_id
+     WHERE a.is_active AND lower(coalesce(e.status,'')) = 'ativo'
+     GROUP BY em.cnpj
+     ORDER BY count(*) DESC
+     LIMIT 1
+    """
+)
+
+
+def _cnpj_empregadora(db) -> str | None:
+    """CNPJ de quem EMPREGA a gente alocada nos postos — só dígitos.
+
+    Lido do banco, não chumbado: é a empresa que responde pelos 52 alocados hoje
+    (Patrimonial, 66.014.833). Se um dia a mão de obra migrar de CNPJ, a trava migra junto.
+    """
+    try:
+        v = db.execute(_SQL_CNPJ_EMPREGADORA).scalar()
+        return re.sub(r"\D", "", v) if v else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nao consegui ler o CNPJ da empregadora: %s", exc)
+        return None
+
+
+def _e_de_outra_empresa(nome_arquivo: str, cnpj_ok: str | None) -> bool:
+    """True quando o nome do arquivo carrega um CNPJ que NÃO é o da empregadora.
+
+    O kit do condomínio serve para provar que quem emprega os porteiros daquele posto
+    recolheu os tributos DELE — é isso que protege o condomínio da responsabilidade
+    subsidiária. Um DCTFWeb da Eletrônica não prova nada disso, e chegaram a ficar 21
+    arquivos assim nos kits (3 documentos × 7 condomínios, competência 07/2026).
+
+    Arquivo sem CNPJ no nome PASSA: não dá para afirmar que é da empresa errada, e barrar
+    por suspeita tiraria do kit guia legítima (a GFD FGTS não traz CNPJ no nome).
+    """
+    if not cnpj_ok:
+        return False
+    achados = re.findall(r"\d{14}", nome_arquivo or "")
+    return bool(achados) and cnpj_ok not in achados
+
+
 def arquivar_guias_empresa_flat(
     competencia: str, condominios: list[str], db, onvio_client=None, dry_run: bool = False
 ) -> dict:
@@ -237,9 +303,13 @@ def arquivar_guias_empresa_flat(
         {"m": competencia, "cats": list(cats)},
     ).all()
 
-    rel = {"competencia": competencia, "guias": 0, "replicas": 0, "lista": []}
+    rel = {"competencia": competencia, "guias": 0, "replicas": 0, "lista": [], "de_outra_empresa": []}
+    cnpj_ok = _cnpj_empregadora(db)
     vistos: set = set()
     for categoria, nome, caminho, folder_id, oid in rows:
+        if _e_de_outra_empresa(nome, cnpj_ok):
+            rel["de_outra_empresa"].append(nome)
+            continue
         if categoria in vistos:  # 1 por tipo (evita duplicatas "(1)")
             continue
         vistos.add(categoria)
