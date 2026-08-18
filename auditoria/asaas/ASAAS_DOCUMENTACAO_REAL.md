@@ -166,6 +166,60 @@ explícito (ordem: e-mail → telefone → CNPJ → CPF → EVP).
 
 ---
 
+## 5.1 PROVADO contra a API (sandbox, 18/08/2026)
+
+Isto não é leitura de documentação — é resposta da API real, com chave
+`$aact_hmlg_`. O que está aqui, está verificado.
+
+| Degrau | Resultado |
+|---|---|
+| Autenticação (`/finance/balance`) | ✅ 200 |
+| Consulta de chave que **existe** | ✅ 200 com titular |
+| Consulta de chave que **não existe** | ✅ 404 corpo vazio → `ChavePixInvalida` |
+| Consulta de chave **malformada** | ✅ 400 com JSON explicando |
+| Envio (`POST /transfers`) | ⚠️ passou a validação inteira, parou em **saldo insuficiente** |
+| Status / `buscar_por_referencia` | ❌ não provado — depende do envio |
+
+**A consulta de chave funciona, e é o que motivou a Asaas entrar.** Resposta real:
+
+```
+owner.name    = CONECTAMAIS PATRIMONIAL LTDA
+owner.cpfCnpj = 66.014.833/0001-10
+financialInstitution.name = ASAAS GESTÃO FINANCEIRA IP S.A.  (código 461)
+```
+
+⚠️ **A conta de sandbox está no CNPJ da Patrimonial** — o certo, o que tem os
+funcionários. Confirmar que a de **produção** também está, antes do go-live.
+
+### Dois erros MEUS que só a API revelou
+
+A documentação não mostra o corpo da resposta; eu tinha suposto os nomes dos campos:
+
+1. **`ownerName` não existe no topo** — o titular vem em `owner.name`. Eu lia o campo de
+   topo primeiro, com o aninhado só como reserva. Funcionava por acidente.
+2. **`bank`/`bankName` não existem** — a instituição vem em `financialInstitution`. Esse
+   eu lia **errado sem reserva nenhuma**: o campo voltava vazio e o operador não veria o
+   banco do favorecido na hora de conferir.
+
+### Por que o envio não ficou provado
+
+Conta de sandbox nova tem saldo R$0. Tentei creditar:
+
+- `receiveInCash` → 200, mas é recebimento **fora** do Asaas: não credita saldo
+- `POST /payments/{id}/confirm` → 404, não existe
+- cobrança paga com cartão de teste → ✅ `CONFIRMED`, líquido R$489,56, mas
+  **crédito previsto para 21/09/2026** (D+30). Não serve para hoje.
+
+O 400 do envio foi **`"Saldo insuficiente para realizar a operação."`** — ou seja, o
+payload passou por toda a validação (chave, tipo de chave, tipo de operação) e parou só
+no saldo. O formato do envio está certo; falta dinheiro na conta de teste para ver a
+transferência nascer e mudar de status.
+
+**Caminho para fechar:** ou esperar o crédito de 21/09 no sandbox, ou provar em produção
+com R$0,01 sob sua supervisão, depois que a conta de produção tiver saldo.
+
+---
+
 ## 6. Estado atual no Conecta PRO
 
 **Feito:**

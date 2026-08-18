@@ -59,24 +59,45 @@ async def main(enviar: bool) -> None:
     saldo = await ad.get_balance()
     print(f"   disponível R$ {saldo.available}")
 
-    print(f"\n2. consulta de chave PIX — {CHAVE_DE_PROVA} ({ad.tipo_de_chave(CHAVE_DE_PROVA)})")
+    # 2a. chave que EXISTE. Criamos uma EVP na própria conta de sandbox, porque o DICT
+    # de sandbox só conhece chaves de sandbox — consultar um CPF real ali dá 404 sempre,
+    # e um teste que só sabe dizer "não achei" não prova que a consulta funciona.
+    print("\n2a. consulta de chave que EXISTE (EVP desta conta)")
+    async with ad._client() as cli:
+        # Reusa a chave que já existe. Criar sempre dá 400 no segundo teste: há limite
+        # de chaves por conta, e rodar a prova duas vezes não pode quebrar.
+        r = await cli.get("/pix/addressKeys", headers=ad._headers())
+        r.raise_for_status()
+        ativas = [k for k in (r.json().get("data") or []) if k.get("status") == "ACTIVE"]
+        if not ativas:
+            r = await cli.post("/pix/addressKeys", headers=ad._headers(), json={"type": "EVP"})
+            r.raise_for_status()
+            ativas = [r.json()]
+    minha = ativas[0]["key"]
+    dono = await ad.validate_pix_key(minha)
+    if not dono or not dono.get("titular"):
+        sys.exit(f"   ❌ consulta não devolveu o titular: {dono}")
+    print(f"   titular: {dono['titular']}  ·  doc: {dono['documento']}")
+    print(f"   banco:   {dono['banco']} (código {dono['banco_codigo']})")
+
+    # 2b. chave que NÃO existe. O caso que precisa ser DIFERENTE do de cima — e
+    # diferente também de "a consulta falhou".
+    print(f"\n2b. consulta de chave que NÃO existe — {CHAVE_DE_PROVA}")
     try:
-        dono = await ad.validate_pix_key(CHAVE_DE_PROVA)
-    except ChavePixInvalida:
-        print("   chave não existe no DICT — resposta legítima; a chamada funcionou")
-        dono = None
-    if dono:
-        print(f"   titular: {dono['titular']}  ·  doc: {dono['documento']}  ·  {dono['banco']}")
-    elif dono is None:
-        print("   ⚠️  devolveu None = 'não sei' (a consulta falhou). Ver o log acima.")
+        outro = await ad.validate_pix_key(CHAVE_DE_PROVA)
+        print(f"   ⚠️  devolveu {outro!r} — esperado ChavePixInvalida ou None")
+    except ChavePixInvalida as e:
+        print(f"   recusada corretamente: {e}")
 
     if not enviar:
         print("\n3-4. envio: pulado (rode com --enviar para provar)")
         return
 
+    # Envia para a chave criada em 2a — a própria conta. Mandar para CHAVE_DE_PROVA
+    # falharia por chave inexistente e não provaria nada sobre o envio.
     print("\n3. envio de R$ 0,01")
     ref = "prova-sandbox-001"
-    env = await ad.enviar_pix(chave=CHAVE_DE_PROVA, valor="0.01",
+    env = await ad.enviar_pix(chave=minha, valor="0.01",
                               referencia=ref, descricao="prova de integração")
     print(f"   id {env.get('id')}  ·  status {env.get('status')}")
 

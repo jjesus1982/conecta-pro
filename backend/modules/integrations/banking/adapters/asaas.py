@@ -186,19 +186,40 @@ class AsaasAdapter(BaseBankingAdapter):
             return None
 
         if r.status_code == 200:
+            # Formato CONFERIDO contra a API em 18/08/2026 (sandbox, chave EVP real):
+            #   {type, key, ispb, ispbName, financialInstitution:{name,code,bank},
+            #    owner:{name, cpfCnpj}}
+            # O titular vem ANINHADO em `owner` — não existe `ownerName` no topo. E o
+            # banco vem em `financialInstitution`, não em `bank`/`bankName`, que era o
+            # que eu lia: o campo voltava vazio e o operador não veria a instituição.
             d = r.json() or {}
+            dono = d.get("owner") or {}
+            inst = d.get("financialInstitution") or {}
             return {
                 "chave": key,
-                "tipo": d.get("addressKeyType") or d.get("type"),
-                "titular": d.get("ownerName") or (d.get("owner") or {}).get("name"),
-                "documento": d.get("cpfCnpj") or (d.get("owner") or {}).get("cpfCnpj"),
-                "banco": (d.get("bank") or {}).get("name") or d.get("bankName"),
-                "agencia": d.get("agency"),
-                "conta": d.get("account"),
+                "tipo": d.get("type") or d.get("addressKeyType"),
+                "titular": dono.get("name") or d.get("ownerName"),
+                "documento": dono.get("cpfCnpj") or d.get("cpfCnpj"),
+                "banco": inst.get("name") or d.get("ispbName"),
+                "banco_codigo": inst.get("code") or (inst.get("bank") or {}).get("code"),
+                "ispb": d.get("ispb"),
             }
-        if r.status_code in (400, 404):
-            raise ChavePixInvalida(f"chave PIX não encontrada no DICT: {key}",
-                                   status=r.status_code, corpo=r.text[:200])
+        if r.status_code == 404:
+            # 404 com corpo VAZIO = chave válida no formato, mas não registrada no DICT.
+            # Confirmado contra a API: uma chave EVP recém-criada devolve 200, e um
+            # CPF/CNPJ legítimo porém não cadastrado devolve 404 sem corpo.
+            raise ChavePixInvalida(f"chave PIX não registrada no DICT: {key}",
+                                   status=404, corpo=r.text[:200])
+        if r.status_code == 400:
+            # 400 traz JSON explicando: {"errors":[{"code":..., "description":...}]}.
+            # É chave MALFORMADA, não inexistente — casos diferentes, e os dois
+            # significam "não pague".
+            motivo = r.text[:200]
+            try:
+                motivo = (r.json().get("errors") or [{}])[0].get("description") or motivo
+            except Exception:  # noqa: BLE001 - corpo não-JSON não pode derrubar a consulta
+                pass
+            raise ChavePixInvalida(f"chave PIX inválida: {motivo}", status=400, corpo=r.text[:200])
         logger.warning("Asaas: consulta de chave devolveu %s", r.status_code)
         return None
 
