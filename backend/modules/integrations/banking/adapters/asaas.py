@@ -236,6 +236,16 @@ class AsaasAdapter(BaseBankingAdapter):
             except Exception:  # noqa: BLE001 - corpo não-JSON não pode derrubar a consulta
                 pass
             raise ChavePixInvalida(f"chave PIX inválida: {motivo}", status=400, corpo=r.text[:200])
+        if r.status_code == 429:
+            # Teto MEDIDO em 18/08/2026: `RateLimit-Limit: 20` neste endpoint, com
+            # `RateLimit-Reset` em segundos. Conferir 28 diaristas de enfiada bate no
+            # teto na 20ª. Erro PRÓPRIO e retryável para quem chama poder esperar —
+            # devolver `None` aqui faria 8 pessoas virarem "não sei" por pressa nossa,
+            # indistinguíveis de chave realmente problemática.
+            lim = self._rate_limit(r)
+            raise AsaasError(f"limite de consultas atingido ({lim['limite']}/janela); "
+                             f"libera em {lim['reset_s']}s", status=429, retryavel=True,
+                             corpo=lim)
         logger.warning("Asaas: consulta de chave devolveu %s", r.status_code)
         return None
 

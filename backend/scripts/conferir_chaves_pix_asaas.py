@@ -58,6 +58,33 @@ def _mesmo_titular(cadastro: str, dict_: str) -> bool:
     return a[0] == b[0] and a[-1] == b[-1]
 
 
+#: Teto MEDIDO no endpoint de consulta: 20 chamadas por janela (`RateLimit-Limit: 20`).
+#: 3,5s entre consultas mantém abaixo disso sem depender de sorte.
+PAUSA = 3.5
+
+
+async def _consultar_com_folego(ad, chave: str, tentativas: int = 3):
+    """Consulta respeitando o teto. Ao levar 429, espera o `RateLimit-Reset` e repete.
+
+    Sem isso, uma lista de 28 pessoas vira 8 conferidas e 20 "não sei" — e "não sei" por
+    pressa nossa é indistinguível de "não sei" por chave problemática. O resultado ficaria
+    inútil justamente onde precisa ser confiável.
+    """
+    from modules.integrations.banking.adapters.asaas import AsaasError
+
+    for n in range(1, tentativas + 1):
+        try:
+            return await ad.validate_pix_key(chave)
+        except AsaasError as e:
+            if e.status != 429 or n == tentativas:
+                raise
+            espera = (e.corpo or {}).get("reset_s", 30)
+            espera = espera + 2 if espera > 0 else 30
+            print(f"    (limite da Asaas atingido — esperando {espera}s)", flush=True)
+            await asyncio.sleep(espera)
+    return None
+
+
 async def main(competencia: str) -> None:
     from sqlalchemy import text
 
@@ -95,14 +122,18 @@ async def main(competencia: str) -> None:
           f"({ambiente})\n")
 
     placar = {"ok": 0, "diverge": 0, "inexistente": 0, "sem_chave": 0, "nao_sei": 0}
-    for p in pessoas:
+    for i, p in enumerate(pessoas):
+        # A pausa vai ANTES da consulta, não depois do sucesso: chave inexistente e
+        # consulta falha também gastam uma chamada do teto de 20/janela.
+        if i:
+            await asyncio.sleep(PAUSA)
         rot = f"  {p['nome'][:32]:<32} R$ {p['total']:>9} ({p['dias']}d)"
         if not p["pix"]:
             placar["sem_chave"] += 1
             print(f"{rot}  ⛔ SEM CHAVE PIX cadastrada")
             continue
         try:
-            d = await ad.validate_pix_key(p["pix"])
+            d = await _consultar_com_folego(ad, p["pix"])
         except ChavePixInvalida as e:
             placar["inexistente"] += 1
             print(f"{rot}  ❌ {e}")
