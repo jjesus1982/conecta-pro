@@ -122,6 +122,18 @@ class CRFFGTSClient:
 
         logger.info("Consultando CRF/FGTS para CNPJ %s", cnpj_limpo)
 
+        # Distingue "portal fora do ar" de "portal nos RECUSA". As duas coisas resultam em
+        # "sem certidão", mas pedem ações opostas: fora do ar se resolve esperando; recusa de
+        # borda não se resolve nunca a partir daqui. Medido em 18/08/2026 — o host inteiro
+        # devolve **403 com página do Azion** (WAF de borda), inclusive a raiz do site:
+        #
+        #     GET https://consulta-crf.caixa.gov.br/  ->  403, server: azion webserver
+        #
+        # Não é a Caixa que caiu; é o IP deste servidor que está barrado. Por isso o
+        # Infosimples existe. Chamar isso de "indisponível" no log mandava o leitor esperar
+        # por algo que não vai mudar.
+        bloqueado = False
+
         # Tentativa 1: API REST JSON
         try:
             response = await self._request_with_retry(
@@ -129,6 +141,8 @@ class CRFFGTSClient:
                 self.CONSULTA_URL,
                 json={"cnpj": cnpj_limpo},
             )
+            if response.status_code in (401, 403):
+                bloqueado = True
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -146,10 +160,19 @@ class CRFFGTSClient:
                 data={"cnpj": cnpj_limpo},
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
+            if response.status_code in (401, 403):
+                bloqueado = True
             if response.status_code == 200:
                 return self._parse_html(response.text, cnpj_limpo)
         except Exception as exc:
             logger.warning("CRF HTML fallback falhou para %s: %s", cnpj_limpo, exc)
+
+        if bloqueado:
+            logger.warning(
+                "CRF/FGTS: portal da Caixa RECUSOU a consulta de %s (HTTP 403 — WAF de borda, "
+                "Azion). NÃO é indisponibilidade: o IP deste servidor está barrado, e tentar "
+                "de novo daqui não muda. Caminhos: token do Infosimples, ou emissão manual em "
+                "consulta-crf.caixa.gov.br a partir de um navegador comum.", cnpj_limpo)
 
         # Tentativa 3: BrasilAPI — fallback quando portal Caixa bloqueia (403/WAF)
         # IMPORTANTE: BrasilAPI CNPJ retorna situacao_cadastral da RFB, que é
@@ -162,7 +185,7 @@ class CRFFGTSClient:
             situacao_cadastral = (cnpj_data.descricao_situacao_cadastral or "").upper()
             cnpj_ativo = situacao_cadastral == "ATIVA"
             logger.warning(
-                "CRF/FGTS portal Caixa indisponivel para %s. Apenas RFB disponivel: %s",
+                "CRF/FGTS sem confirmacao da Caixa para %s (portal recusa este servidor). Apenas RFB disponivel: %s",
                 cnpj_limpo,
                 situacao_cadastral,
             )
@@ -174,7 +197,7 @@ class CRFFGTSClient:
                 "cnpj_ativo_rfb": cnpj_ativo,
                 "fonte": "BrasilAPI (fallback)",
                 "nota": (
-                    "Portal Caixa indisponível. Status FGTS NÃO confirmado via "
+                    "Portal da Caixa RECUSOU a consulta (HTTP 403, WAF de borda) — não é indisponibilidade, é bloqueio do IP deste servidor. Status FGTS NÃO confirmado via "
                     "fonte oficial. Apenas situação cadastral RFB conhecida "
                     f"({'ativa' if cnpj_ativo else 'inativa'})."
                 ),
@@ -309,7 +332,7 @@ class CRFFGTSClient:
                 if regular is True
                 else "Empresa com pendencias FGTS — verificar debitos na Caixa"
                 if regular is False
-                else "Status FGTS indeterminado — portal Caixa indisponivel, consultar manualmente"
+                else "Status FGTS indeterminado — a Caixa recusa consulta deste servidor (403/WAF); emitir pelo Infosimples ou à mão num navegador comum"
             ),
         }
 
