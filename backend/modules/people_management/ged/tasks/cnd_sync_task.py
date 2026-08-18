@@ -246,8 +246,21 @@ async def _buscar_e_salvar_certidao(
     # contrário a estadual e a municipal voltariam para o raspador, que já provou mentir.
     from modules.bidding.integrations.receita_federal import infosimples_cnd_service as _isimp
 
+    # ⚠️ O bypass tem TETO. A versão de 14/08 rebuscava TODA certidão de fonte
+    # não-autoritativa a cada execução — com ~22 clientes × 3 tipos, isso é uma varredura
+    # paga por dia. Em 17/08 o Infosimples passou a responder `code 603: o token não tem
+    # autorização de acesso ao serviço... verifique se não possui limite de uso` nos TRÊS
+    # serviços, sendo que dois funcionavam em 14/08. Consumo provavelmente meu.
+    #
+    # A intenção do bypass continua: validade fabricada não pode proteger a si mesma para
+    # sempre. Mas uma vez por SEMANA basta para corrigir um registro falso — diariamente é
+    # só queimar cota paga contra um portal que já disse não.
+    _RETENTAR_APOS_DIAS = 7
     tem_fonte_melhor = _isimp.habilitado() and tipo in _FONTE_QUE_ENTREGA
-    filtro_fonte = "AND coalesce(notes, '') LIKE '%Infosimples/%' " if tem_fonte_melhor else ""
+    filtro_fonte = (
+        "AND (coalesce(notes, '') LIKE '%Infosimples/%' "
+        f"     OR updated_at > NOW() - INTERVAL '{_RETENTAR_APOS_DIAS} days') "
+        if tem_fonte_melhor else "")
 
     check = await db.execute(
         _t(

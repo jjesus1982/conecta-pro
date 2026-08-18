@@ -36,7 +36,18 @@ from core.database import async_session_factory  # noqa: E402
 CORTE = date(2026, 8, 1)
 
 #: Dias de antecedência em que uma certidão vencendo já precisa de renovação disparada.
-JANELA_RENOVACAO = 15
+#:
+#: ⚠️ ACOPLADO ao `_buscar_e_salvar_certidao`, que PULA a busca enquanto a certidão for
+#: válida por mais de 10 dias (`expiry_date > CURRENT_DATE + INTERVAL '10 days'`). Estava 15
+#: aqui, e as duas réguas discordavam: entre o 15º e o 11º dia o oráculo cobrava uma ação que
+#: o sync está programado para NÃO fazer. Vermelho garantido todo mês, por desenho —
+#: exatamente o alarme falso que este fechamento passou dias caçando.
+#:
+#: Medido em 17/08/2026: 5 CRF-FGTS de cliente vencendo 02/09 (15 dias) acusadas, sendo que o
+#: sync as pulou corretamente na mesma manhã.
+#:
+#: Se mudar o limiar do sync, mude este junto — são a mesma decisão escrita em dois lugares.
+JANELA_RENOVACAO = 10
 
 
 async def main() -> None:
