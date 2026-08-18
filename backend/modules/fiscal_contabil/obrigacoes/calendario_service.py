@@ -204,6 +204,46 @@ async def garantir_ate_hoje(db, hoje: date, meses_atras: int = 6,
     return {"total": total, "aplicado": aplicar, "competencias": resultados}
 
 
+#: Obrigação vencida que não tem NEM valor NEM recibo é **prazo cego**: o painel acusa a
+#: cobrança e ninguém sabe quanto pagar nem se já foi pago. Foi assim que R$68 mil ficaram
+#: acesos de abril a julho. Difere de "pendente": pendente com valor é só um prazo a vencer;
+#: pendente SEM valor é uma pergunta sem resposta.
+#:
+#: Fica aqui, na camada de SERVIÇO, e não dentro da tool: o agente do chat não tem SQL
+#: própria — ele chama serviço ou controller, para a regra ser uma só em todo o sistema.
+_SQL_SEM_GUIA = """
+    SELECT coalesce(e.nome_fantasia, e.razao_social, '—')  AS empresa,
+           coalesce(o.tipo, o.nome, '—')                   AS tipo,
+           lpad(coalesce(o.competencia_mes, 0)::text, 2, '0')
+             || '/' || coalesce(o.competencia_ano, 0)      AS competencia,
+           o.data_vencimento,
+           (CURRENT_DATE - o.data_vencimento)              AS dias_vencida,
+           o.status::text                                  AS status
+      FROM fiscal_obligations o
+      LEFT JOIN empresas e ON e.id = o.empresa_id
+     WHERE o.active
+       AND o.data_vencimento >= :desde
+       AND o.data_vencimento < CURRENT_DATE
+       AND lower(coalesce(o.status::text, '')) <> 'cumprida'
+       AND (o.numero_recibo IS NULL OR o.numero_recibo = '')
+       AND o.valor_devido IS NULL
+     ORDER BY o.data_vencimento
+"""
+
+
+async def sem_guia(db, desde: date) -> list[dict]:
+    """Obrigações já vencidas, de `desde` em diante, sem valor e sem recibo.
+
+    Vazio é resultado BOM e verdadeiro — não é "não achei nada, deve estar tudo certo".
+    """
+    rows = (await db.execute(text(_SQL_SEM_GUIA), {"desde": desde})).fetchall()
+    return [{"empresa": r[0], "tipo": r[1], "competencia": r[2],
+             "vencimento": r[3].isoformat() if r[3] else None,
+             "dias_vencida": int(r[4]) if r[4] is not None else None,
+             "status": r[5]}
+            for r in rows]
+
+
 if __name__ == "__main__":
     # Self-check sem banco: a data de vencimento é onde um erro passa despercebido.
     assert _venc(2026, 7, 20) == date(2026, 8, 20), "competência 07 vence em agosto"

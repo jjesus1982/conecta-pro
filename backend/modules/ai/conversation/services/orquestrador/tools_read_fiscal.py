@@ -174,6 +174,32 @@ async def _panorama_grupo(db, user, scope, *, mes=None, ano=None, **_) -> Any:
                                               db=db, current_user=user))
 
 
+async def _guias_pendentes(db, user, scope, *, desde=None, **_) -> Any:
+    """Prazo CEGO: obrigação já vencida, sem valor e sem recibo.
+
+    Não é a mesma coisa que "pendente". Pendente COM valor é um prazo a vencer, normal;
+    pendente SEM valor é uma pergunta sem resposta — o painel cobra e ninguém sabe quanto
+    pagar nem se já foi pago. Foi assim que R$68 mil ficaram acesos de abril a julho de 2026.
+
+    A SQL vive no `calendario_service` (camada de serviço do módulo), não aqui: o agente do
+    chat não tem consulta própria, senão a regra passa a existir em dois lugares e diverge.
+    """
+    _gate(user)
+    from datetime import date as _d
+
+    from modules.fiscal_contabil.obrigacoes.calendario_service import sem_guia
+
+    # Default = o CORTE de 01/08/2026. Antes disso é o período de homologação, cujo status
+    # não conciliado é decisão do Jordan e NÃO se persegue retroativamente.
+    corte = _d.fromisoformat(str(desde)) if desde else _d(2026, 8, 1)
+    itens = await sem_guia(db, corte)
+    return {"desde": corte.isoformat(), "total": len(itens), "guias_pendentes": itens,
+            "leitura": ("Nenhuma obrigação vencida sem guia — prazo cego zerado."
+                        if not itens else
+                        f"{len(itens)} obrigação(ões) vencida(s) sem valor nem recibo: "
+                        "não dá para saber quanto pagar nem se já foi pago.")}
+
+
 # ---- registro das ops READ no dispatcher consultar_fiscal (filtros vão em `filtros`) ----
 
 registrar_read(_MOD, "situacao_ecac",
@@ -227,3 +253,10 @@ registrar_read(_MOD, "panorama_grupo",
                "Panorama fiscal CONSOLIDADO do grupo no mês: receita, impostos e economia de "
                "liminares POR empresa (Eletrônica + Patrimonial), dados reais — briefing fiscal "
                "executivo. Filtros: mes, ano (default = mês/ano atual).", _panorama_grupo)
+registrar_read(_MOD, "guias_pendentes",
+               "PRAZO CEGO: obrigações já VENCIDAS que não têm nem valor devido nem número de "
+               "recibo — o painel cobra e ninguém sabe quanto pagar nem se já foi pago. NÃO "
+               "confundir com 'pendente': pendente COM valor é prazo normal a vencer. Mede de "
+               "01/08/2026 em diante por padrão (antes disso é o período de homologação, que "
+               "não se persegue). Filtro opcional: desde ('AAAA-MM-DD'). Lista vazia é "
+               "resultado BOM e verdadeiro.", _guias_pendentes)
