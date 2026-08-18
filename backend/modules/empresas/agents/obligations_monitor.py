@@ -57,6 +57,26 @@ class ObligationsMonitorAgent:
     """
     Monitor de obrigações fiscais/contábeis multi-empresa.
     Gera calendário consolidado do grupo.
+
+    ⚠️ **ESTE É UM SEGUNDO CALENDÁRIO, e ele é um MOLDE — não lê o banco.**
+
+    As listas abaixo derivam o calendário do REGIME, por constante. Ele não consulta
+    `fiscal_obligations`, então **não sabe** valor devido, número de recibo nem se a obrigação
+    já foi cumprida: tudo que venceu aparece como "atrasada", mesmo pago. Quem tem o dado real
+    é `fiscal_contabil/obrigacoes/calendario_service.py`, que deriva o dia da competência mais
+    recente da própria empresa.
+
+    Isto importa porque é ESTE agente que alimenta as rotas `/obrigacoes/calendario/*` e a
+    consulta `calendario_obrigacoes` do chat — ou seja, é este o calendário que o Jordan vê.
+
+    ⭐ **FGTS: dia 20, não 7.** Medido em 18/08/2026 — com o dia 7 cravado aqui, o painel
+    dizia "FGTS venceu 07/08, ATRASADA" num dia 18 em que o vencimento real ainda estava dois
+    dias à frente. O FGTS Digital recolhe no dia **20** (a guia da Portte diz "pagar até
+    20/08/2026"), e a mesma correção já tinha sido feita no `calendario_service` — mas não
+    alcançava aqui, porque são dois calendários. Alarme falso ensina a ignorar o painel.
+
+    A unificação (este agente passar a ler `fiscal_obligations`) fica pendente e é o conserto
+    de verdade; corrigir constante é remendo enquanto houver duas fontes para a mesma data.
     """
 
     OBRIGACOES_LUCRO_REAL = [
@@ -71,7 +91,7 @@ class ObligationsMonitorAgent:
             "https://www.gov.br/receitafederal/",
         ),
         ("IRPJ_CSLL_ESTIMATIVA", "IRPJ/CSLL — Estimativa Mensal (DARF)", 30, "mensal", None),
-        ("FGTS_GUIA", "FGTS — Guia de Recolhimento", 7, "mensal", "https://www.caixa.gov.br/"),
+        ("FGTS_GUIA", "FGTS — FGTS Digital (DAE)", 20, "mensal", "https://www.gov.br/fgtsdigital/"),  # dia 20, NÃO 7 — ver nota abaixo
         ("INSS_GPS", "INSS/GPS — Contribuição Previdenciária", 20, "mensal", None),
         ("ISS_AVULSO", "ISS — Imposto Sobre Serviços (Manaus)", 10, "mensal", "https://semef.manaus.am.gov.br/"),
     ]
@@ -98,7 +118,7 @@ class ObligationsMonitorAgent:
             "mensal",
             "https://www8.receita.fazenda.gov.br/SimplesNacional/",
         ),
-        ("FGTS_GUIA", "FGTS — Guia de Recolhimento", 7, "mensal", "https://www.caixa.gov.br/"),
+        ("FGTS_GUIA", "FGTS — FGTS Digital (DAE)", 20, "mensal", "https://www.gov.br/fgtsdigital/"),  # dia 20, NÃO 7 — ver nota abaixo
         ("ISS_AVULSO", "ISS — Imposto Sobre Serviços (Manaus)", 10, "mensal", "https://semef.manaus.am.gov.br/"),
     ]
 
