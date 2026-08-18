@@ -27,6 +27,8 @@ import json
 import os
 import re
 import ssl
+import sys
+import tempfile
 import time
 from datetime import datetime
 
@@ -44,13 +46,20 @@ except ImportError:
 # ── Configuração ─────────────────────────────────────────────────────────────
 
 ONVIO_URL = "https://onvio.com.br/clientcenter/pt/auth"
-ONVIO_EMAIL = "administracao@conectamaistech.com.br"
+ONVIO_EMAIL = os.getenv("ONVIO_EMAIL", "jjesus@conectamais.pro")
+# Conta única do Jordan: enxerga os DOIS CNPJs (Eletrônica e Patrimonial), alternados
+# no seletor do canto superior direito do Onvio. A conta antiga
+# (administracao@conectamaistech.com.br) só via a Eletrônica — foi por isso que o
+# sistema tinha 101 documentos da Eletrônica e ZERO da Patrimonial.
+PIN_FILE = os.getenv("ONVIO_PIN_FILE") or os.path.join(tempfile.gettempdir(), "onvio_pin.txt")
 ONVIO_PASS = os.getenv("ONVIO_PASS", "")
 
 # IMAP para leitura automática do código MFA via e-mail
 IMAP_SERVER = "imap.titan.email"
 IMAP_PORT = 993
 IMAP_PASSWORD = os.getenv("ONVIO_IMAP_PASSWORD", "")  # pragma: allowlist secret
+# Caixa a que a senha de IMAP pertence — não necessariamente a conta do Onvio.
+IMAP_ACCOUNT = os.getenv("ONVIO_IMAP_ACCOUNT", "administracao@conectamaistech.com.br")
 
 REDIS_KEY = "onvio:session"
 REDIS_TTL = 57600  # 16 horas
@@ -88,6 +97,12 @@ def _state(soup: BeautifulSoup) -> str:
 def _read_otp_from_imap(timeout_s: int = 90) -> str | None:
     """Lê o código OTP do email de MFA via IMAP. Retorna None se não encontrar."""
     if not IMAP_PASSWORD:
+        return None
+    if ONVIO_EMAIL.strip().lower() != IMAP_ACCOUNT.strip().lower():
+        # A senha de IMAP pertence a IMAP_ACCOUNT. Com outra conta do Onvio (o Jordan
+        # enxerga os dois CNPJs pela dele) isso vira AUTHENTICATIONFAILED em loop por 90s
+        # — inútil, e repetição de falha de auth é caminho curto pra bloqueio.
+        print(f"  [IMAP] {ONVIO_EMAIL} não é a caixa configurada ({IMAP_ACCOUNT}) — pulando.")
         return None
 
     deadline = time.time() + timeout_s
@@ -144,6 +159,32 @@ def _read_otp_from_imap(timeout_s: int = 90) -> str | None:
 
 
 # ── Auth Flow ─────────────────────────────────────────────────────────────────
+
+
+def _read_otp_from_file(timeout_s: int | None = None) -> str | None:
+    """Espera o código de MFA num arquivo, em vez de stdin.
+
+    O fallback original era `input()`, que só serve com terminal — em beat, cron ou
+    `docker exec` desassistido ele levanta EOFError e o login morre. Mesmo padrão que os
+    robôs do Sólides já usam: alguém escreve o código no arquivo e o robô segue.
+    """
+    timeout_s = timeout_s or int(os.getenv("ONVIO_PIN_TIMEOUT", "300"))
+    print(f"  [PIN] Aguardando código em {PIN_FILE} (até {timeout_s}s)...", flush=True)
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            if os.path.exists(PIN_FILE):
+                with open(PIN_FILE) as fh:
+                    code = "".join(c for c in fh.read() if c.isdigit())
+                if len(code) >= 6:
+                    os.remove(PIN_FILE)  # código é de uso único; não deixa rastro
+                    print(f"  [PIN] Código lido ({code[:2]}****)")
+                    return code[:6]
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [PIN] erro lendo {PIN_FILE}: {exc}")
+        time.sleep(3)
+    print("  [PIN] Tempo esgotado sem código.")
+    return None
 
 
 def login_onvio() -> dict:
@@ -289,6 +330,8 @@ def login_onvio() -> dict:
         otp_code = _read_otp_from_imap(timeout_s=90)
 
         if not otp_code:
+            otp_code = _read_otp_from_file()
+        if not otp_code and sys.stdin.isatty():
             print("\n  ⚠️  IMAP não configurado ou código não encontrado.")
             print(f"  Verifique o inbox de {ONVIO_EMAIL} e informe o código:")
             otp_code = input("  Código OTP (6 dígitos): ").strip()
