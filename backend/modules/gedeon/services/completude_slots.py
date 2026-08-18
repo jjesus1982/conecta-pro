@@ -29,32 +29,36 @@ Google Drive e classifica por NOME de arquivo — é a visão de conferência, n
 gravado. Arquivo de Drive não tem coluna de tipo; casar por nome ali é a única informação
 que existe. Consertar aquele não move este número em um ponto sequer.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import text
 
-#: A conta, escrita uma vez. `total_documents` é o número de slots que o kit declara ter, e
-#: foi conferido que ele bate com a contagem real de `ged_kit_documents` em todos os kits.
-_SQL_UM_KIT = text(
-    "UPDATE ged_document_kits k SET "
-    "  completion_percentage = round("
+#: A conta, escrita uma vez.
+#:
+#: ⚠️ `total_documents` NÃO é meta nem template: é um espelho da contagem de slots — e
+#: espelho envelhece. Em 18/08/2026, depois que o montador voltou a criar slots (o defeito
+#: das duas tabelas de cliente), 14 kits ficaram com o declarado diferente do real:
+#: Prime Arena declarava 7 com 25 slots e anunciou **357%**; o Mirante declarava 0 com 18
+#: slots cheios e ficou em **0%**, fora do UPDATE por causa do antigo `total_documents > 0`.
+#:
+#: Por isso o número é REFRESCADO aqui, na mesma conta que o usa. Dividir por um valor
+#: guardado por outra pessoa em outro momento é confiar em convenção; contar é ler a fonte.
+_CONTA = (
+    "  total_documents = (SELECT count(*) FROM ged_kit_documents d WHERE d.kit_id = k.id), "
+    "  completion_percentage = coalesce(round("
     "    100.0 * (SELECT count(*) FROM ged_kit_documents d "
     "             WHERE d.kit_id = k.id AND d.file_path IS NOT NULL AND d.file_path <> '')"
-    "    / nullif(k.total_documents, 0), 2), "
+    "    / nullif((SELECT count(*) FROM ged_kit_documents d WHERE d.kit_id = k.id), 0), 2), 0), "
     "  updated_at = now() "
-    "WHERE k.id = CAST(:kit_id AS uuid) "
-    "  AND k.total_documents > 0"
 )
 
+_SQL_UM_KIT = text("UPDATE ged_document_kits k SET " + _CONTA + "WHERE k.id = CAST(:kit_id AS uuid)")
+
+# Sem o antigo `AND total_documents > 0`: era ele que deixava o kit zerado FORA do
+# recálculo — justo o kit que mais precisava. Kit sem slot nenhum cai em 0% pelo coalesce.
 _SQL_COMPETENCIA = text(
-    "UPDATE ged_document_kits k SET "
-    "  completion_percentage = round("
-    "    100.0 * (SELECT count(*) FROM ged_kit_documents d "
-    "             WHERE d.kit_id = k.id AND d.file_path IS NOT NULL AND d.file_path <> '')"
-    "    / nullif(k.total_documents, 0), 2), "
-    "  updated_at = now() "
-    "WHERE k.reference_month = CAST(:ref_date AS date) "
-    "  AND k.total_documents > 0"
+    "UPDATE ged_document_kits k SET " + _CONTA + "WHERE k.reference_month = CAST(:ref_date AS date)"
 )
 
 
