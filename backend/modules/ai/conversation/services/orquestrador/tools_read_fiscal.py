@@ -155,7 +155,9 @@ async def _resumo_nfse_entrada(db, user, scope, *, ano=2026, mes=None, **_) -> A
 async def _alertas_obrigacoes(db, user, scope, *, dias=10, **_) -> Any:
     _gate(user)
     from modules.empresas.controllers.obligations_controller import alertas_vencimentos
-    return _dump(await alertas_vencimentos(dias=int(dias), current_user=user))
+    # `db` explícito: a rota passou a ler o cadastro real (18/08/2026) e chamada direta não
+    # resolve `Depends`. Sem isto, TypeError.
+    return _dump(await alertas_vencimentos(dias=int(dias), db=db, current_user=user))
 
 
 async def _alertas_certificados(db, user, scope, *, tenant_id=None, **_) -> Any:

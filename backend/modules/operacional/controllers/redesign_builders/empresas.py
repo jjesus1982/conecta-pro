@@ -65,18 +65,33 @@ async def build(db) -> dict:
     try:
         from datetime import date as _date
         from modules.empresas.agents.obligations_monitor import ObligationsMonitorAgent
+        from modules.empresas.controllers.obligations_controller import _reais_por_empresa
         _h = _date.today()
-        _cal = ObligationsMonitorAgent().gerar_calendario_grupo(_h.month, _h.year)
+        # ⭐ CADASTRO primeiro. O molde do agente não lê `fiscal_obligations`: ele não sabe
+        # status, valor nem recibo, e mostrava como "atrasada" toda obrigação vencida — em
+        # 18/08/2026 eram TRÊS já transmitidas em 11/08 aparecendo acesas nesta tabela. Só
+        # cai no molde se não houver cadastro nenhum no mês.
+        _reais = await _reais_por_empresa(db, _h.month, _h.year)
+        _linhas = [o for obs in _reais.values() for o in obs]
+        if _linhas:
+            _linhas.sort(key=lambda o: o.data_vencimento or _h)
+        else:
+            _linhas = ObligationsMonitorAgent().gerar_calendario_grupo(_h.month, _h.year).consolidado
+        _at = sum(1 for o in _linhas if o.status == "atrasada")
+        _pe = sum(1 for o in _linhas if o.status == "pendente")
+        _co = sum(1 for o in _linhas if o.status == "concluida")
+        _origem = "cadastro" if _reais else "previsto pelo regime"
         out["obrigacoes"] = {
             "title": "Obrigações fiscais (multi-empresa)",
-            "sub": f"{_cal.total_obrigacoes} obrigações · Atrasadas {_cal.atrasadas} · Pendentes {_cal.pendentes} · Concluídas {_cal.concluidas}",
+            "sub": f"{len(_linhas)} obrigações · Atrasadas {_at} · Pendentes {_pe} · "
+                   f"Concluídas {_co} · fonte: {_origem}",
             "cta": "—", "type": "table", "searchHint": "Buscar…",
             "grid": "1.4fr 1.2fr 2fr 1fr 1fr", "cols": ["Empresa", "Tipo", "Descrição", "Vencimento", "Status"],
             "rows": [{"cells": [
                 t(o.empresa_nome, 600, "#0F1B3A"), b((o.tipo or "—").replace("_", " "), "info"),
                 t(o.descricao), t(o.data_vencimento.strftime("%d/%m/%Y") if o.data_vencimento else "—"),
                 b((o.status or "—").capitalize(), _obr_tone(o.status)),
-            ]} for o in _cal.consolidado],
+            ]} for o in _linhas],
         }
     except Exception:  # noqa: BLE001 — nunca quebra o módulo
         await db.rollback()

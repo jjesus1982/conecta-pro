@@ -281,8 +281,25 @@ async def dashboard_fiscal_grupo(
 
         resultado_empresas[slug] = empresa_result
 
-    # Obrigacoes do mes
-    cal = _obs.gerar_calendario_grupo(mes, ano)
+    # Obrigacoes do mes — CADASTRO primeiro; o molde do agente é reserva.
+    # O molde não lê `fiscal_obligations`, então contava como "atrasada" toda obrigação
+    # vencida, mesmo já cumprida. Em 18/08/2026 eram três (DCTFWEB, ESOCIAL, EFD_REINF,
+    # transmitidas em 11/08) inflando o número deste painel.
+    from modules.empresas.controllers.obligations_controller import _reais_por_empresa
+    _reais = await _reais_por_empresa(db, mes, ano)
+    _linhas = [o for obs in _reais.values() for o in obs]
+    if _linhas:
+        obrig = {"total": len(_linhas),
+                 "criticas": sum(1 for o in _linhas if o.urgencia == "critica"),
+                 "atrasadas": sum(1 for o in _linhas if o.status == "atrasada"),
+                 "pendentes": sum(1 for o in _linhas if o.status == "pendente"),
+                 "concluidas": sum(1 for o in _linhas if o.status == "concluida"),
+                 "fonte": "cadastro"}
+    else:
+        cal = _obs.gerar_calendario_grupo(mes, ano)
+        obrig = {"total": cal.total_obrigacoes, "criticas": cal.criticas,
+                 "atrasadas": cal.atrasadas, "pendentes": cal.pendentes,
+                 "concluidas": cal.concluidas, "fonte": "previsto_pelo_regime"}
 
     return {
         "periodo": f"{mes:02d}/{ano}",
@@ -295,12 +312,7 @@ async def dashboard_fiscal_grupo(
             "fonte": "dados_reais",
         },
         "empresas": resultado_empresas,
-        "obrigacoes_mes": {
-            "total": cal.total_obrigacoes,
-            "criticas": cal.criticas,
-            "atrasadas": cal.atrasadas,
-            "pendentes": cal.pendentes,
-        },
+        "obrigacoes_mes": obrig,
     }
 
 

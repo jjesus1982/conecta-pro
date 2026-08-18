@@ -17,7 +17,7 @@ mesmo sem linha no banco, e omiti-la seria pior; apresentá-la como fato também
 Ou a empresa tem cadastro no mês, e ele vale inteiro, ou não tem, e aí é previsão.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -32,6 +32,10 @@ from modules.empresas.agents.obligations_monitor import (
 
 router = APIRouter(prefix="/obrigacoes", tags=["Obrigações Multi-Empresa"])
 _agent = ObligationsMonitorAgent()
+
+#: O corte do fechamento fiscal. Obrigação anterior a isto é do período de homologação, cujo
+#: status não conciliado é decisão do Jordan e NÃO se persegue retroativamente.
+_CORTE = date(2026, 8, 1)
 
 _SQL_REAIS = """
     SELECT e.slug,
@@ -48,17 +52,22 @@ _SQL_REAIS = """
       FROM fiscal_obligations o
       JOIN empresas e ON e.id = o.empresa_id
      WHERE o.active
-       AND date_trunc('month', o.data_vencimento) = make_date(:ano, :mes, 1)
+       AND o.data_vencimento >= :inicio AND o.data_vencimento <= :fim
      ORDER BY e.slug, o.data_vencimento
 """
 
 
-async def _reais_por_empresa(db: AsyncSession, mes: int, ano: int
+def _fim_do_mes(ano: int, mes: int) -> date:
+    return date(ano + (mes == 12), 1 if mes == 12 else mes + 1, 1) - timedelta(days=1)
+
+
+async def _reais_por_periodo(db: AsyncSession, inicio: date, fim: date
                              ) -> dict[str, list[ObrigacaoCalendario]]:
-    """Obrigações CADASTRADAS que vencem no mês, agrupadas por slug da empresa."""
+    """Obrigações CADASTRADAS que vencem no intervalo, agrupadas por slug da empresa."""
     hoje = date.today()
     fora: dict[str, list[ObrigacaoCalendario]] = {}
-    for r in (await db.execute(text(_SQL_REAIS), {"mes": mes, "ano": ano})).mappings():
+    for r in (await db.execute(text(_SQL_REAIS),
+                               {"inicio": inicio, "fim": fim})).mappings():
         # `cumprida` no banco → `concluida` no vocabulário do calendário. Vencida e não
         # cumprida é `atrasada` DE VERDADE (o molde só sabia dizer "passou da data").
         if r["status"] == "cumprida":
@@ -78,6 +87,12 @@ async def _reais_por_empresa(db: AsyncSession, mes: int, ano: int
             fonte="cadastro", numero_recibo=r["recibo"] or None,
         ))
     return fora
+
+
+async def _reais_por_empresa(db: AsyncSession, mes: int, ano: int
+                             ) -> dict[str, list[ObrigacaoCalendario]]:
+    """Atalho por competência de VENCIMENTO (mês cheio)."""
+    return await _reais_por_periodo(db, date(ano, mes, 1), _fim_do_mes(ano, mes))
 
 
 def _serializar(o: ObrigacaoCalendario) -> dict:
@@ -171,10 +186,56 @@ async def calendario_empresa(
 @router.get("/alertas")
 async def alertas_vencimentos(
     dias: int = Query(default=10, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Alerta sobre obrigações próximas de vencer em todas as empresas."""
-    return {"alertas": _agent.alertar_vencimentos(dias), "dias_antecedencia": dias}
+    """Alerta sobre obrigações próximas de vencer em todas as empresas.
+
+    Dois defeitos corrigidos em 18/08/2026, ambos do mesmo tipo — o alerta vinha do MOLDE:
+
+    1. **Alertava sobre obrigação já cumprida.** O molde não sabe status, então as três
+       acessórias transmitidas em 11/08 (DCTFWEB, ESOCIAL, EFD_REINF) apareceriam como prazo
+       a vencer. Prazo cumprido que continua aceso ensina a ignorar o alerta.
+    2. **A janela vazava o mês.** Olhava só o mês CORRENTE, então em 28/08, com 10 dias de
+       antecedência, uma obrigação vencendo em 03/09 não avisava — justo o caso em que o
+       aviso serviria para alguma coisa. Agora a janela é de datas, não de mês.
+
+    O molde continua como reserva onde não há cadastro: obrigação existe por lei mesmo sem
+    linha no banco, e o alerta sai ROTULADO com a origem.
+    """
+    hoje = date.today()
+    # ⚠️ Vencida e não paga NÃO some do alerta. A janela original começava em `hoje-5`, e com
+    # dado real isso apagou o ISS de 10/08 (R$740,25, em aberto) no dia 18 — obrigação
+    # vencida sumindo por decurso de prazo é o silêncio que este módulo existe para evitar.
+    # O início é o CORTE de 01/08/2026: antes dele é o período de homologação, cujo status
+    # não conciliado é decisão do Jordan e não se persegue.
+    inicio = min(_CORTE, hoje - timedelta(days=5))
+    fim = hoje + timedelta(days=dias)
+    reais = await _reais_por_periodo(db, inicio, fim)
+
+    alertas = []
+    for obs in reais.values():
+        for o in obs:
+            if o.status == "concluida":     # cumprida NÃO é prazo — é o defeito nº 1
+                continue
+            alertas.append({
+                "empresa": o.empresa_nome, "empresa_slug": o.empresa_slug,
+                "tipo": o.tipo, "descricao": o.descricao,
+                "vencimento": o.data_vencimento.isoformat(),
+                "dias_restantes": (o.data_vencimento - hoje).days,
+                "urgencia": o.urgencia, "status": o.status,
+                "valor": o.valor_estimado, "link": o.link_sistema, "fonte": o.fonte,
+            })
+
+    # Sem NENHUM cadastro na janela, cai no molde — mas dito com todas as letras.
+    fonte = "cadastro"
+    if not reais:
+        fonte = "previsto_pelo_regime"
+        alertas = [dict(a, fonte=fonte, valor=None) for a in _agent.alertar_vencimentos(dias)]
+
+    return {"alertas": sorted(alertas, key=lambda a: a["dias_restantes"]),
+            "dias_antecedencia": dias, "janela": [inicio.isoformat(), fim.isoformat()],
+            "fonte": fonte}
 
 
 @router.get("/dispensadas-simples")
