@@ -78,6 +78,30 @@ CERTIDOES_EXIGIDAS = (
     "alvara_funcionamento",
 )
 
+#: ⭐ DECISÃO DO JORDAN (19/08/2026): **certidão negativa só é exigida da PATRIMONIAL.**
+#:
+#: A Patrimonial é a que presta mão de obra — portaria, limpeza, facilities — e é dela que o
+#: contratante cobra CND para pagar a fatura e para licitar. A Eletrônica vende segurança
+#: eletrônica e serviço técnico: nas palavras dele, "para os outros serviços que a Eletrônica
+#: faz não vamos precisar emitir CNDs, basta nota e boleto".
+#:
+#: Isto não é afrouxar a régua, é medir a coisa certa. Exigir da Eletrônica documento que o
+#: negócio não usa produz vermelho perpétuo por obrigação inventada — o mesmo erro do alvará,
+#: que este gate cobrava com órgão errado e vencimento inexistente até 18/08.
+#:
+#: O ALVARÁ continua exigido das duas: é licença de funcionamento, não certidão negativa, e
+#: sem ele a empresa não pode operar.
+#: [[feedback_jordan_fonte_da_verdade]]
+_SO_PATRIMONIAL = "conecta_patrimonial"
+_SEMPRE = ("alvara_funcionamento",)
+
+
+def _exigidas_de(slug: str) -> tuple[str, ...]:
+    """O que se cobra de CADA empresa. Certidão negativa: só da Patrimonial."""
+    if slug == _SO_PATRIMONIAL:
+        return CERTIDOES_EXIGIDAS
+    return _SEMPRE
+
 #: As 5 telas de cálculo da F1 — o motor devolve o número e a tela descarta o corpo.
 CALCULADORAS = ("calc-simples", "calc-lucro-real", "calc-comparativo",
                 "calc-limite-simples", "calc-retencoes")
@@ -259,10 +283,17 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     #                         assim porque o cliente da Sefaz-AM devolvia "regular" para
     #                         CNPJ inexistente; anular foi acerto, e a certidão segue por
     #                         emitir à mão.
-    faltando, vencidas, sem_emissao, anuladas = [], [], [], []
+    #   não confirmada      → o registro EXISTE, tem validade longa e não prova nada. É o
+    #                         fallback da BrasilAPI, que só sabe dizer se o CNPJ está ATIVO
+    #                         na Receita — a própria nota dele admite "status CND/PGFN NÃO
+    #                         confirmado via fonte oficial". Medido em 19/08/2026: a federal
+    #                         da Eletrônica passava por VÁLIDA até 06/01/2027 em cima disso,
+    #                         e este gate dava verde. Espantalho com data longa é pior que
+    #                         ausência: some do radar por mais de um ano.
+    faltando, vencidas, sem_emissao, anuladas, nao_confirmadas = [], [], [], [], []
     hoje = date.today()
     for slug, _regime, cnpj in empresas:
-        for tipo in CERTIDOES_EXIGIDAS:
+        for tipo in _exigidas_de(slug):
             r = _q("SELECT coalesce(issue_date::text,''), coalesce(expiry_date::text,''), "
                    "       coalesce(notes,'') "
                    "  FROM ged_certidoes WHERE cnpj = @c AND document_type = @t LIMIT 1",
@@ -284,13 +315,21 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
                 anuladas.append(f"{slug}/{tipo}")
             if (not validade and not indeterminada) or (validade and date.fromisoformat(validade) < hoje):
                 vencidas.append(f"{slug}/{tipo}")
+            # `regular: null` e `situacao: indeterminado*` são a assinatura do que NÃO foi
+            # confirmado pelo órgão. Data de validade nesses registros é herança do fallback,
+            # não promessa do emissor.
+            n = notas.lower()
+            if '"regular": null' in n or "indeterminado" in n:
+                nao_confirmadas.append(f"{slug}/{tipo}")
     det = (f"{len(faltando)} faltando · {len(vencidas)} vencida(s) · "
-           f"{len(sem_emissao)} sem data do emissor · {len(anuladas)} anulada(s)")
+           f"{len(sem_emissao)} sem data do emissor · {len(anuladas)} anulada(s) · "
+           f"{len(nao_confirmadas)} não confirmada(s) pelo órgão")
     for rotulo, lista in (("faltando", faltando), ("vencidas", vencidas),
-                          ("sem emissão", sem_emissao), ("anuladas", anuladas)):
+                          ("sem emissão", sem_emissao), ("anuladas", anuladas),
+                          ("não confirmadas", nao_confirmadas)):
         if lista:
             det += f"\n       {rotulo}: {', '.join(lista)}"
-    out.append((not (faltando or vencidas or sem_emissao or anuladas),
+    out.append((not (faltando or vencidas or sem_emissao or anuladas or nao_confirmadas),
                 "1 · certidões dos 2 CNPJs válidas, com data do emissor", det))
 
     # 2 · OBRIGAÇÕES vencendo de 01/08 em diante, cada uma no CNPJ que a evidência sustenta.

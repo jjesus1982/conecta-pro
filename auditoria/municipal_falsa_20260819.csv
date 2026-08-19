@@ -1,0 +1,2 @@
+id,name,document_type,issuing_body,issue_date,expiry_date,file_path,file_url,notes,created_at,updated_at,alerta_ativo,cnpj
+bf025163-bf77-4637-977a-6c687608822b,CND Municipal (Manaus),certidao_negativa_municipal,Prefeitura de Manaus,2026-08-19,,/app/uploads/cnds/prefeitura_66014833000110.pdf,,"{""situacao"": ""positiva_com_efeito_negativa"", ""regular"": true, ""numero"": null, ""fonte"": ""emissão automática (Conecta PRO)"", ""emitido_em"": ""2026-08-19T16:20:07.204649""}",2026-08-19 20:20:07.240461+00,2026-08-19 20:20:07.240461+00,f,66014833000110
