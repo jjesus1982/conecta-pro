@@ -15,22 +15,37 @@ RC() { docker exec conecta-pro-redis redis-cli -a "$REDIS_PW" --no-auth-warning 
 [ "$(RC EXISTS gedeon:cnd:request)" = "1" ] && exit 0
 
 # precisa emitir a Federal? (sem PDF válido)
-NEED=$(docker exec -w /app -e PYTHONPATH=/app conecta-pro-backend python -c "
-import os, datetime
+# ⚠️ MULTI-CNPJ (19/08/2026). Isto perguntava "existe ALGUMA federal válida?" — sem CNPJ,
+# com LIMIT 1 — e pedia a emissão sempre pelo CNPJ da Eletrônica. Com a Eletrônica em dia, o
+# retry concluía "não precisa" e a PATRIMONIAL nunca seria emitida: um CNPJ inteiro ficava
+# fora da automação sem nada acusar. Agora pergunta POR EMPRESA e emite para quem falta.
+CNPJ_FALTANDO=$(docker exec -w /app -e PYTHONPATH=/app conecta-pro-backend python -c "
+import os, datetime, re
 from sqlalchemy import text
 from core.database.session import get_sync_db
-need=1
+so = lambda c: re.sub(r'\\D', '', c or '')
+falta = []
 with get_sync_db() as db:
-    r=db.execute(text(\"SELECT file_path, expiry_date FROM ged_certidoes WHERE document_type='certidao_negativa_federal' LIMIT 1\")).fetchone()
-    if r and r[0] and os.path.exists(r[0]) and r[1] and r[1] > datetime.date.today()+datetime.timedelta(days=15):
-        need=0
-print(need)
+    for (cnpj,) in db.execute(text(\"SELECT cnpj FROM empresas WHERE lower(coalesce(status,'ativa')) NOT IN ('inativa','encerrada') ORDER BY slug\")).fetchall():
+        c = so(cnpj)
+        if not c:
+            continue
+        r = db.execute(text(
+            \"SELECT file_path, expiry_date FROM ged_certidoes \"
+            \" WHERE document_type='certidao_negativa_federal' \"
+            \"   AND replace(replace(replace(coalesce(cnpj,''),'.',''),'/',''),'-','') = :c LIMIT 1\"),
+            {'c': c}).fetchone()
+        valida = bool(r and r[0] and os.path.exists(r[0]) and r[1]
+                      and r[1] > datetime.date.today()+datetime.timedelta(days=15))
+        if not valida:
+            falta.append(c)
+print(' '.join(falta))
 " 2>/dev/null | tail -1)
 
-[ "$NEED" = "0" ] && exit 0
+[ -z "$CNPJ_FALTANDO" ] && exit 0
 
-# pede a emissão da Federal (o cnd_watcher de 1 min processa)
-CNPJ=$(grep -E '^NFSE_MANAUS_CNPJ=' .env | cut -d= -f2- || echo "35710481000103")
-[ -z "$CNPJ" ] && CNPJ="35710481000103"
+# pede a emissão da Federal do PRIMEIRO que falta (o cnd_watcher de 1 min processa um pedido
+# por vez; o próximo ciclo do cron pega o seguinte).
+CNPJ=$(echo "$CNPJ_FALTANDO" | awk '{print $1}')
 RC SET gedeon:cnd:request "{\"cnpj\":\"$CNPJ\",\"portais\":[\"federal\"]}" EX 1800 >/dev/null
-echo "[$(date '+%F %T')] auto-retry: pedido de emissão da CND Federal enfileirado"
+echo "[$(date '+%F %T')] auto-retry: CND Federal enfileirada p/ $CNPJ (faltando: $CNPJ_FALTANDO)"
