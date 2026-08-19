@@ -262,11 +262,28 @@ async def _buscar_e_salvar_certidao(
         f"     OR updated_at > NOW() - INTERVAL '{_RETENTAR_APOS_DIAS} days') "
         if tem_fonte_melhor else "")
 
+    # ⚠️ Registro que NÃO confirma nada não pode bloquear a busca do que confirma.
+    #
+    # Medido em 19/08/2026: a CND Federal da Eletrônica devolvia `status=pulada, validade
+    # 06/01/2027` — e essa linha é um FALLBACK da BrasilAPI cuja própria nota diz "Status
+    # CND/PGFN NÃO confirmado via fonte oficial. Apenas situação cadastral RFB conhecida".
+    # Ou seja: um carimbo que só sabe que o CNPJ está ativo estava impedindo, por mais de um
+    # ano, que se buscasse a certidão de verdade. É a mesma doença da estadual anulada — um
+    # espantalho ocupando o lugar do documento.
+    #
+    # `regular: null` e `situacao: indeterminado*` são a assinatura do não-confirmado. Linha
+    # assim nunca satisfaz o "já tenho, não preciso buscar".
+    _NAO_CONFIRMA = (
+        "AND coalesce(notes, '') NOT LIKE '%\"regular\": null%' "
+        "AND coalesce(notes, '') NOT LIKE '%indeterminado%' "
+    )
+
     check = await db.execute(
         _t(
             "SELECT id, expiry_date FROM ged_certidoes "
             "WHERE document_type = :doc_type AND cnpj = :cnpj "
             "AND expiry_date > CURRENT_DATE + INTERVAL '10 days' "
+            f"{_NAO_CONFIRMA}"
             f"{filtro_fonte}"
             "LIMIT 1"
         ),
