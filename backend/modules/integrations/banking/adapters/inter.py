@@ -928,8 +928,24 @@ class InterAdapter(BaseBankingAdapter):
             corpo = ""
             if getattr(e, "details", None):
                 corpo = str(e.details.get("response", ""))[:400]
-            return {"success": False, "status_code": e.code,
-                    "detail": f"{e}{(' — ' + corpo) if corpo else ''}"}
+            detalhe = f"{e}{(' — ' + corpo) if corpo else ''}"
+            # TRADUÇÃO do erro mais comum, medido em 19/08/2026: boleto VENCIDO devolve
+            # `Campo(s) inválido(s): Valor a pagar`. O banco não está reclamando do
+            # formato do valor — está dizendo que, vencido, o valor de face não serve:
+            # é preciso o valor atualizado com juros e multa. Sem esta tradução o
+            # operador conclui que o sistema está quebrado e vai pagar no app.
+            venc = payload.get("dataVencimento") or ""
+            if "valor a pagar" in detalhe.lower() and venc and venc < _date.today().isoformat():
+                detalhe = (
+                    f"BOLETO VENCIDO em {venc[8:10]}/{venc[5:7]}/{venc[:4]}. O banco recusa "
+                    f"o valor de face (R$ {float(valor or 0):,.2f}) — para boleto vencido é "
+                    f"preciso informar o valor ATUALIZADO, com juros e multa. Pegue o valor "
+                    f"atualizado com o emissor (ou na segunda via) e tente de novo. "
+                    f"⚠️ Confira também se este título já não foi pago no vencimento. "
+                    f"[resposta do Inter: {detalhe}]"
+                )
+            return {"success": False, "status_code": e.code, "detail": detalhe,
+                    "vencimento": venc}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
