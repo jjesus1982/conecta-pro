@@ -2,8 +2,23 @@
 navega → preenche CNPJ → resolve reCAPTCHA (2captcha, injeta token) → emite →
 captura a certidão como PDF (page.pdf) → classifica negativa/positiva.
 
-Roda no HOST (Playwright passa o WAF Azion da Caixa e os fluxos JS naturalmente).
-Uso: python cnd_robot.py <portal> <cnpj>   (portal: sefaz_am | federal | prefeitura | caixa | cndt)
+Roda no HOST (navegador real resolve os fluxos JS que o httpx não alcança).
+
+⚠️ **`caixa` NÃO existe e não pode existir deste servidor.** O cabeçalho afirmava que
+"Playwright passa o WAF Azion da Caixa" — é FALSO, e essa frase me custou uma tarde em
+19/08/2026. Medido com Chromium real, user-agent de navegador, na página oficial:
+
+    HTTP 403 · "Azion - Default error page"
+    Forbidden · Your IP 82.25.75.74 · Edge Location CGH
+
+O bloqueio é por ENDEREÇO IP na borda, não por user-agent nem por JS — o navegador toma o
+mesmo 403 que o `httpx`. Implementar `caixa()` aqui geraria código que falha na primeira
+requisição e que o próximo leitor vai depurar como se fosse defeito de seletor.
+
+A CRF/FGTS sai por: (a) Infosimples, (b) emissão manual num navegador fora deste IP, ou
+(c) sair por outro IP (proxy) — que é decisão de infraestrutura, não de robô.
+
+Uso: python cnd_robot.py <portal> <cnpj>   (portal: sefaz_am | federal | prefeitura | cndt)
 Saída: /opt/conecta-pro/uploads/cnds/<portal>_<cnpj>.pdf + imprime JSON do resultado.
 """
 
