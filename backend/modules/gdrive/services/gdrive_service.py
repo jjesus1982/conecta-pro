@@ -210,6 +210,21 @@ class GDriveService:
         """Criar pasta no Drive; retorna o ID ou None em erro."""
         if not self._service:
             return None
+        if not parent_id:
+            # 🔴 SEM PAI, A BUSCA VIRA GLOBAL — e este Drive tem árvores inteiras de anos
+            # anteriores com os MESMOS nomes. Medido em 19/08/2026: procurar
+            # "CONDOMINIO DO EDIFICIO MICHELANGELO" sem pai devolve 2 pastas — a do kit
+            # (59 arquivos) e uma dentro de "_AUDITORIA (ATLAS)" (2). No Ideal Flores a
+            # segunda é "CONECTA 2025 / 4 - CLIENTES / Condominio Ideal Flores da Cidade",
+            # com 45 arquivos que não têm nada a ver com kit. Cair na errada arquiva
+            # documento de cliente no lugar errado — ou, como aconteceu, faz o montador
+            # enxergar 2 arquivos onde há 59.
+            #
+            # `_garantir_pasta` encadeia: se o pai falhou e voltou None, o filho chegaria
+            # aqui com parent_id vazio e a busca escaparia da árvore. Recusar é a única
+            # resposta honesta: sem pai, não se sabe onde a pasta pertence.
+            logger.warning("GDrive._criar_pasta(%r): sem parent_id — recusado (busca global é insegura)", nome)
+            return None
         try:
             meta: dict[str, Any] = {
                 "name": nome,
