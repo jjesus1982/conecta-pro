@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import unicodedata
 
+from sqlalchemy import text
+
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
 # subpastas (mesma convenção do kit_layout.SUBPASTAS)
@@ -101,11 +103,17 @@ def _status_de_pct(pct: int) -> str:
     return "pendente"
 
 
-def _avaliar(arquivos_por_sub: dict[str, list[dict]]) -> dict:
-    """Recebe {subpasta: [ {name, link} ]} e devolve checklist avaliado + pct."""
+def _avaliar(arquivos_por_sub: dict[str, list[dict]], blocos: set | None = None) -> dict:
+    """Recebe {subpasta: [ {name, link} ]} e devolve checklist avaliado + pct.
+
+    `blocos` = o que ESTE contrato deve ter. None = o checklist inteiro (comportamento
+    antigo). Bloco fora do contrato não entra no numerador nem no denominador: some da
+    conta em vez de contar como pendência eterna.
+    """
+    considerar = [c for c in CHECKLIST if blocos is None or c["key"] in blocos]
     itens = []
     score = 0.0
-    for c in CHECKLIST:
+    for c in considerar:
         files = arquivos_por_sub.get(c["sub"], [])
         if c["match"]:
             achados = [f for f in files if any(t in _norm(f["name"]) for t in c["match"])]
@@ -126,11 +134,12 @@ def _avaliar(arquivos_por_sub: dict[str, list[dict]]) -> dict:
                 "arquivos": [a["name"] for a in achados],
             }
         )
-    pct = round(score / TOTAL_BLOCOS * 100)
+    total = len(considerar) or TOTAL_BLOCOS
+    pct = round(score / total * 100)
     return {"pct": pct, "status": _status_de_pct(pct), "itens": itens}
 
 
-def _ler_kit(svc, cond: str, competencia: str) -> dict:
+def _ler_kit(svc, cond: str, competencia: str, blocos: set | None = None) -> dict:
     from modules.gedeon.services.kit_layout import SUBPASTAS, garantir_pasta_kit
 
     def _list(parent_id: str) -> list[dict]:
@@ -168,7 +177,7 @@ def _ler_kit(svc, cond: str, competencia: str) -> dict:
             subpastas.append({"nome": sp, "docs": len(files), "arquivos": files})
             total += len(files)
 
-    aval = _avaliar(arquivos_por_sub)
+    aval = _avaliar(arquivos_por_sub, blocos)
     return {
         "condominio": cond,
         "total": total,
@@ -225,7 +234,62 @@ def condominios_do_workspace(svc=None) -> list[str]:
     return nomes or list(CONDOMINIOS_PADRAO)
 
 
-def completude_kits(competencia: str) -> dict:
+_SQL_BLOCOS_CONTRATO = text(
+    """
+    SELECT c.name AS cliente,
+           bool_or(coalesce(ct.kit_mensal, false))                      AS tem_kit_trabalhista,
+           bool_or(coalesce(ct.tipo_servico,'') = 'maodeobra')          AS tem_mao_de_obra,
+           count(DISTINCT a.employee_id) FILTER (WHERE a.status = 'active') AS alocados
+      FROM clients c
+      JOIN contracts ct ON ct.client_id = c.id AND ct.status::text = 'active'
+      LEFT JOIN posts p ON p.client_id = c.id
+      LEFT JOIN allocations a ON a.post_id = p.id
+     GROUP BY c.name
+    """
+)
+
+#: Blocos que só fazem sentido quando existe gente trabalhando no posto.
+_BLOCOS_TRABALHISTAS = {"folha", "contracheque", "salario", "ponto", "vavt", "guias", "inss"}
+#: Blocos que todo contrato ativo tem, mão de obra ou não.
+_BLOCOS_SEMPRE = {"cnd", "nfse", "boleto"}
+
+
+def blocos_por_condominio(db) -> dict[str, set[str]]:
+    """O que CADA cliente deve ter no kit, segundo o contrato dele.
+
+    O checklist era igual para todo mundo: 10 blocos fixos. Isso cobra folha, ponto e
+    comprovante de VT de quem não tem UM funcionário alocado — o GELAIN, por exemplo, é
+    portaria remota emitida pela Eletrônica, com zero alocados, e era medido contra a
+    mesma régua de um posto com 13 porteiros. O percentual dele nunca poderia subir, e a
+    média do painel afundava por causa de uma exigência que o contrato não faz.
+
+    Contrato sem mão de obra responde por certidões, nota e boleto. Com mão de obra,
+    responde por tudo. Quem não aparecer aqui cai no checklist inteiro — na dúvida, cobra.
+    """
+    out: dict[str, set[str]] = {}
+    for r in db.execute(_SQL_BLOCOS_CONTRATO).mappings().all():
+        trabalhista = bool(r["tem_kit_trabalhista"] or r["tem_mao_de_obra"]) and int(r["alocados"] or 0) > 0
+        out[_norm(r["cliente"])] = set(_BLOCOS_SEMPRE) | (set(_BLOCOS_TRABALHISTAS) if trabalhista else set())
+    return out
+
+
+def _blocos_de(mapa: dict, cond: str) -> set | None:
+    """Casa o nome da pasta do Drive com o nome do cliente no contrato.
+
+    A pasta chama "CONDOMINIO IDEAL FLORES DA CIDADE" ou o apelido "IDEAL FLORES"; o
+    contrato tem a razão social. Casa por continência, nos dois sentidos. Sem par, devolve
+    None — e None é o checklist inteiro: na dúvida, cobra tudo.
+    """
+    alvo = _norm(cond)
+    if alvo in mapa:
+        return mapa[alvo]
+    for nome, blocos in mapa.items():
+        if alvo in nome or nome in alvo:
+            return blocos
+    return None
+
+
+def completude_kits(competencia: str, blocos_por_cond: dict | None = None) -> dict:
     """Painel de completude REAL de TODOS os condomínios do workspace (lê o Drive)."""
     from modules.gdrive.services.gdrive_service import gdrive_service
     from modules.gedeon.services import kit_cache
@@ -238,7 +302,12 @@ def completude_kits(competencia: str) -> dict:
         raise RuntimeError("Google Drive não conectado")
 
     conds = condominios_do_workspace(svc)  # escala: todos os condomínios reais do workspace
-    kits = [kit_cache.ler_kit(svc, cond, competencia) for cond in conds]
+    # O cache é por (cond, competência) e não conhece os blocos; com checklist por contrato
+    # ele devolveria o percentual da régua antiga. Só usa o cache quando não há recorte.
+    if blocos_por_cond:
+        kits = [_ler_kit(svc, cond, competencia, _blocos_de(blocos_por_cond, cond)) for cond in conds]
+    else:
+        kits = [kit_cache.ler_kit(svc, cond, competencia) for cond in conds]
     completos = sum(1 for k in kits if k["status"] == "completo")
     media = round(sum(k["completion_percentage"] for k in kits) / len(kits)) if kits else 0
     return {
@@ -249,5 +318,6 @@ def completude_kits(competencia: str) -> dict:
         "kits_pendentes": len(kits) - completos,
         "media_completude": media,
         "blocos_por_kit": TOTAL_BLOCOS,
+        "checklist_por_contrato": bool(blocos_por_cond),
         "kits": kits,
     }
