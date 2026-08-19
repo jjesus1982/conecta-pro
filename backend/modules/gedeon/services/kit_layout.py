@@ -132,7 +132,10 @@ SUBPASTAS = [SUB_PESSOAL, SUB_VTVR, SUB_FISCAL, SUB_FATURAMENTO]
 def subpasta_do_arquivo(nome: str) -> str:
     """Classifica um documento do kit na sua subpasta (pela convenção do nome)."""
     n = (nome or "").lower()
-    if n.startswith("nota fiscal") or n.startswith("boleto"):
+    # `startswith` sozinho deixava "NFS-e 10.pdf" e "Boleto NFS-e 08/2026.pdf" caírem na
+    # pasta de pessoal — nota fiscal arquivada como documento trabalhista. Medido em
+    # 19/08/2026, depois que a união trouxe os PDFs do montador para o Drive.
+    if n.startswith("nota fiscal") or n.startswith("boleto") or "nfs-e" in n or "nfse" in n or "danfse" in n:
         return SUB_FATURAMENTO
     if (
         "vale transporte" in n
@@ -142,9 +145,29 @@ def subpasta_do_arquivo(nome: str) -> str:
         or n.startswith("vr ")
         or n.startswith("va_")
         or "sinetran" in n
+        or "solides" in n
+        or "comprovante vt" in n
+        or "comprovante va" in n
     ):
         return SUB_VTVR
-    if "cnd" in n or "certid" in n or "dctfweb" in n or "fgts" in n or "inss" in n:
+    # Tributo é tributo, mesmo sem a palavra "guia" no nome. Medido em 19/08/2026 no kit do
+    # Ideal Flores: "DARF IRRF 07/2026.pdf", "ISS Manaus 07/2026.pdf" e "EFD-Reinf
+    # 07/2026.pdf" estavam arquivados em "1. Folha e Pessoal" — documento fiscal na pasta
+    # trabalhista. O condomínio abre a pasta errada e não acha o que procura.
+    if (
+        "cnd" in n
+        or "certid" in n
+        or "dctfweb" in n
+        or "dctf" in n
+        or "fgts" in n
+        or "inss" in n
+        or "darf" in n
+        or "irrf" in n
+        or "issqn" in n
+        or n.startswith("iss ")
+        or "efd" in n
+        or "reinf" in n
+    ):
         return SUB_FISCAL
     # padrão: folha, contracheques, comprovante de salário, ponto assinado
     return SUB_PESSOAL

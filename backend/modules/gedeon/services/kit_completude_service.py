@@ -41,7 +41,7 @@ CHECKLIST = [
         "key": "ponto",
         "label": "Ponto assinado",
         "sub": SUB_PESSOAL,
-        "match": ["ponto assinada", "ponto assinado", "folha de ponto"],
+        "match": ["ponto assinada", "ponto assinado", "folha de ponto", "folhas de ponto"],
         "esperado": 1,
     },
     {
@@ -62,12 +62,10 @@ CHECKLIST = [
         "key": "inss",
         "label": "Comprovante INSS",
         "sub": SUB_IMPOSTOS,
-        "match": [
-            "comprovante inss",
-            "comprovante de pagamento inss",
-            "inss comprovante",
-            "comprovante de pagamento de inss",
-        ],
+        # "INSS Patronal 07/2026.pdf" é o nome que o montador gera, e nenhum dos termos
+        # antigos casava — o bloco ficava 0/1 com o arquivo na pasta. Dentro de
+        # "3. Impostos e Certidões", "inss" no nome só pode ser isso.
+        "match": ["inss"],
         "esperado": 1,
     },
     {
@@ -90,9 +88,15 @@ TOTAL_BLOCOS = len(CHECKLIST)
 
 
 def _norm(s: str) -> str:
+    """Minúscula, sem acento, e com separador virando espaço.
+
+    O underscore não é detalhe: o montador gera "Folhas_de_Ponto.pdf" e o checklist procura
+    "folha de ponto". Sem normalizar, o bloco de ponto ficava 0/1 com o arquivo na pasta —
+    pendência inventada, que some quando alguém renomeia por acaso.
+    """
     s = unicodedata.normalize("NFKD", s or "")
     s = "".join(c for c in s if not unicodedata.combining(c))
-    return s.lower().strip()
+    return s.lower().replace("_", " ").replace("-", " ").strip()
 
 
 def _status_de_pct(pct: int) -> str:
