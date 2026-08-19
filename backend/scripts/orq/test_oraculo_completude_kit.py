@@ -49,16 +49,14 @@ from core.database.session import async_session_factory  # noqa: E402
 #: Tolerância de arredondamento: o gravado é `round(x, 2)`, então 0,01 de folga.
 TOLERANCIA = 0.02
 
-SQL_DIVERGENTES = text(
+SQL_KITS = text(
     "SELECT k.id::text AS id, to_char(k.reference_month,'YYYY-MM') AS comp, "
     "       coalesce(gc.name,'—') AS cliente, "
     "       (SELECT count(*) FROM ged_kit_documents d WHERE d.kit_id = k.id) AS slots, "
     "       k.total_documents AS declarado, "
     "       coalesce(k.completion_percentage, 0) AS gravado, "
-    "       round(100.0 * (SELECT count(*) FROM ged_kit_documents d "
-    "                      WHERE d.kit_id = k.id "
-    "                        AND d.file_path IS NOT NULL AND d.file_path <> '') "
-    "             / nullif((SELECT count(*) FROM ged_kit_documents d WHERE d.kit_id = k.id), 0), 2) AS real_ "
+    "       (SELECT count(*) FROM ged_kit_documents d WHERE d.kit_id = k.id "
+    "         AND d.file_path IS NOT NULL AND d.file_path <> '') AS cheios "
     "FROM ged_document_kits k "
     "LEFT JOIN ged_clients gc ON gc.id = k.client_id "
     "WHERE EXISTS (SELECT 1 FROM ged_kit_documents d WHERE d.kit_id = k.id) "
@@ -68,46 +66,41 @@ SQL_DIVERGENTES = text(
 
 async def main() -> None:
     async with async_session_factory() as db:
-        linhas = (await db.execute(SQL_DIVERGENTES)).mappings().all()
+        linhas = (await db.execute(SQL_KITS)).mappings().all()
         assert linhas, "nenhum kit com slots — o oráculo não teria o que provar"
 
-        divergentes = [r for r in linhas if abs(float(r["gravado"]) - float(r["real_"] or 0)) > TOLERANCIA]
-        if divergentes:
-            amostra = "; ".join(
-                f"{r['comp']} {r['cliente'][:20]}: anuncia {r['gravado']}% e tem {r['real_']}% ({r['slots']} slots)"
-                for r in divergentes[:4]
-            )
-            raise AssertionError(
-                f"{len(divergentes)} de {len(linhas)} kits com completude divergente da contagem no banco — {amostra}"
-            )
-        print(f"OK completude bate com o banco em {len(linhas)} kits")
-
-        # suspenders: o defeito exato era percentual VELHO — zerado enquanto os slots já
-        # estavam cheios. Se voltar a existir kit com todos os slots preenchidos anunciando
-        # menos de 100, o recálculo sumiu de novo em algum ponto de escrita.
-        cheio_mentindo = [r for r in linhas if float(r["real_"] or 0) >= 100.0 and float(r["gravado"]) < 100.0]
-        assert not cheio_mentindo, (
-            f"{len(cheio_mentindo)} kit(s) com TODOS os slots preenchidos anunciando "
-            f"menos de 100% — o recálculo deixou de rodar em algum ponto de escrita"
+        # ⚠️ ESTE ORÁCULO JÁ AFIRMOU UMA DEFINIÇÃO REVOGADA. Até 19/08/2026 ele
+        # recomputava "slots cheios ÷ slots totais" e comparava com o gravado. Quando a
+        # completude passou a medir COBERTURA DE BLOCO pela régua do contrato (7b9f25158),
+        # ele reprovou 119 de 122 kits — não por defeito do produto, mas porque continuava
+        # cobrando a conta antiga. Oráculo que afirma regra revogada é pior que nenhum:
+        # vira alarme diário que todo mundo aprende a ignorar.
+        #
+        # Agora afirma INVARIANTES, que sobrevivem à troca de fórmula, e não recopia o
+        # cálculo que audita — recopiar só provaria que sei copiar.
+        vazio_mentindo = [r for r in linhas if int(r["cheios"]) == 0 and float(r["gravado"]) > 0]
+        assert not vazio_mentindo, (
+            f"{len(vazio_mentindo)} kit(s) sem NENHUM slot preenchido anunciando mais que zero — "
+            + " ; ".join(f"{r['cliente'][:24]} {r['gravado']}%" for r in vazio_mentindo[:4])
         )
-        # Percentual é percentual: 0..100. O Prime Arena anunciou 357% em 18/08/2026 e
-        # este oráculo não viu, porque dividia pelo mesmo número podre que o código usava.
+
+        # Percentual é percentual: 0..100. O Prime Arena anunciou 357% em 18/08/2026 e a
+        # versão anterior deste oráculo não viu, porque dividia pelo mesmo número podre.
         fora_da_faixa = [r for r in linhas if not (0.0 <= float(r["gravado"]) <= 100.0)]
         assert not fora_da_faixa, f"{len(fora_da_faixa)} kit(s) com completude fora de 0..100 — " + " ; ".join(
             f"{r['cliente'][:24]} {r['gravado']}%" for r in fora_da_faixa[:4]
         )
 
         # `total_documents` é espelho da contagem de slots, e espelho envelhece: o montador
-        # insere slot sem mexer nele. Enquanto for usado como denominador em qualquer lugar,
-        # divergir dele é dividir pelo número errado.
+        # insere slot sem mexer nele. Divergir dele é dividir pelo número errado.
         espelho_velho = [r for r in linhas if int(r["declarado"] or 0) != int(r["slots"])]
         assert not espelho_velho, (
             f"{len(espelho_velho)} kit(s) com total_documents diferente da contagem real — "
             + " ; ".join(f"{r['cliente'][:24]} declara {r['declarado']} e tem {r['slots']}" for r in espelho_velho[:4])
         )
 
-        pct100 = sum(1 for r in linhas if float(r["real_"] or 0) >= 100.0)
-        print(f"OK nenhum kit cheio anunciando menos que 100 — {pct100} kit(s) em 100%")
+        pct100 = sum(1 for r in linhas if float(r["gravado"]) >= 100.0)
+        print(f"OK {pct100} kit(s) em 100% pela régua do contrato")
         print(f"OK completude dentro de 0..100 e total_documents batendo em {len(linhas)} kit(s)")
 
     print("TEST oraculo_completude_kit PASS")
