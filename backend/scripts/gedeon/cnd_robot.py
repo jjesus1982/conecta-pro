@@ -303,6 +303,22 @@ def prefeitura(pg, cnpj):
             popup.wait_for_load_state("domcontentloaded", timeout=10000)
             popup.wait_for_timeout(2500)
             texto = popup.inner_text("body")
+            # ⚠️ O POPUP ABRE MESMO QUANDO A CERTIDÃO NÃO SAI. Medido em 19/08/2026: o popup
+            # trazia a página do formulário com "Atenção! Não foi possível emitir a certidão
+            # por motivo de alguma restrição que precisa de análise... solicite via processo
+            # eletrônico na aba **Certidão Positiva com efeito Negativa**" — e o
+            # `_classificar` casou a expressão "Positiva com efeito" DENTRO DA RECUSA e
+            # devolveu `ok=True, positiva_com_efeito_negativa`. Ou seja: a recusa foi
+            # classificada como se fosse o documento. Registrar isso teria criado uma
+            # certidão FALSA e levado o gate a 10/10 em cima de papel inexistente.
+            #
+            # A recusa é verificada ANTES de classificar, e vale para o caminho de sucesso
+            # tanto quanto para o de exceção.
+            if re.search(r"n[ãa]o foi poss[íi]vel emitir|restri[çc][ãa]o que precisa de an[áa]lise",
+                         texto, re.I):
+                trecho = re.sub(r".*?(N[ãa]o foi poss[íi]vel emitir)", r"\1",
+                                " ".join(texto.split()))[:300]
+                return f"SEMEF_RECUSA: {trecho}", None
             popup.pdf(path=path, format="A4", print_background=True)
             return texto, path
         except Exception:
@@ -360,6 +376,25 @@ def main():
         pg = ctx.new_page()
         try:
             texto, pdf_path = fn(pg, cnpj)
+
+            # ⚠️ SENTINELA VENCE CLASSIFICAÇÃO. Medido em 19/08/2026, duas vezes seguidas:
+            # a recusa da SEMEF diz "solicite via processo eletrônico na aba **Certidão
+            # Positiva com efeito Negativa**" — e o `_classificar`, que procura essa mesma
+            # expressão, devolvia `positiva_com_efeito_negativa` com `ok=True`. Pior: logo
+            # abaixo, `if ok and not pdf_path` CAPTURAVA A TELA como se fosse a certidão.
+            # Resultado seria uma certidão FALSA no banco e o gate fechando em 10/10 sobre
+            # papel que não existe.
+            #
+            # Quando o portal se recusa, a função devolve um texto começando por um
+            # SENTINELA. Sentinela é decisão explícita do código; classificação é adivinhação
+            # sobre texto livre — e adivinhação não pode sobrepor decisão.
+            _SENTINELAS = ("SEMEF_RECUSA:", "RFB_TRANSITORIO:")
+            if texto and texto.strip().startswith(_SENTINELAS):
+                out.update(ok=False, situacao="recusado_pelo_orgao",
+                           mensagem=texto.strip()[:300])
+                print(json.dumps(out, ensure_ascii=False))
+                return
+
             regular, situacao = _classificar(texto)
             mv = re.search(r"(?:V[áa]lid[ao]\s+at[ée]|validade)[:\s]*?(\d{2}/\d{2}/\d{4})", texto, re.I)
             mn = re.search(r"Certid[ãa]o\s*N[ºo°]?[:\s]*([0-9A-Za-z./\-]+)", texto, re.I)
