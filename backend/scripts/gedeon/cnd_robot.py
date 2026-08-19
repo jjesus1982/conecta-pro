@@ -211,7 +211,19 @@ def federal(pg, cnpj):
         pass
     pg.get_by_text("Pessoa Jurídica", exact=False).first.click(timeout=10000)
     pg.wait_for_timeout(6000)
-    pg.fill('input[placeholder="Informe o CNPJ"]', cnpj)
+    # ⚠️ `fill()` NÃO serve aqui. Ele grava o valor no DOM, mas a SPA (Angular) só enxerga o
+    # que passou por eventos de teclado — e o formulário respondia, com o captcha já resolvido
+    # e o clique dado: "CNPJ inválido. Devem ser digitados 14 caracteres". Medido em
+    # 19/08/2026 com screenshot: o campo estava VISUALMENTE preenchido e vazio para o Angular,
+    # então a falha aparecia como "não emitida" sem dizer por quê. É a mesma lição que o
+    # portal da Sefaz-AM já registrava logo acima ("digita p/ a máscara formatar").
+    campo = 'input[placeholder="Informe o CNPJ"]'
+    pg.click(campo)
+    pg.type(campo, cnpj, delay=60)
+    pg.wait_for_timeout(800)
+    lido = pg.input_value(campo)
+    if re.sub(r"\D", "", lido) != cnpj:
+        raise RuntimeError(f"campo do CNPJ não aceitou a digitação (leu {lido!r})")
     path = f"{DEST}/federal_{cnpj}.pdf"
     # RFB retorna erro transitório "023 - tente novamente" com frequência → retry curto
     for tent in range(3):
@@ -294,8 +306,19 @@ def prefeitura(pg, cnpj):
             popup.pdf(path=path, format="A4", print_background=True)
             return texto, path
         except Exception:
-            pg.wait_for_timeout(3000)  # form resetou (captcha errado) → tenta de novo
-            continue
+            pg.wait_for_timeout(3000)
+            # ⚠️ NÃO é sempre captcha. Medido em 19/08/2026: para a Patrimonial o portal
+            # respondia, na PRÓPRIA página, "Não foi possível emitir a certidão por motivo de
+            # alguma restrição que precisa de análise... solicite via processo eletrônico".
+            # O robô chamava isso de "captcha não validado" e repetia — doze tentativas
+            # perseguindo uma causa que não existia, enquanto o motivo real estava na tela.
+            # Recusa do fisco não se resolve tentando de novo: relata e sai.
+            corpo = " ".join(fr.inner_text("body").split())
+            if re.search(r"n[ãa]o foi poss[íi]vel emitir|restri[çc][ãa]o que precisa de an[áa]lise"
+                         r"|processo eletr[ôo]nico", corpo, re.I):
+                trecho = re.sub(r".*?(N[ãa]o foi poss[íi]vel emitir)", r"\1", corpo)[:300]
+                return f"SEMEF_RECUSA: {trecho}", None
+            continue  # aí sim, form resetou por captcha errado → tenta de novo
     return "SEMEF: captcha de imagem nao validado apos 6 tentativas", None
 
 
