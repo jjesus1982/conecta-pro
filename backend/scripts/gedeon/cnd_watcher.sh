@@ -23,8 +23,25 @@ LOG="/tmp/cnd_emit_$(date +%Y%m%d_%H%M%S).log"
 
 for P in $PORTAIS; do
     RC SET gedeon:cnd:status "{\"state\":\"running\",\"atual\":\"$P\",\"cnpj\":\"$CNPJ\"}" EX 1800 >/dev/null
-    OUT=$(timeout 400 python3 backend/scripts/gedeon/cnd_robot.py "$P" "$CNPJ" 2>>"$LOG" | grep '^{' | tail -1)
-    [ -n "$OUT" ] && echo "$OUT" >> /opt/conecta-pro/uploads/cnd_results.jsonl
+    # Teto POR PORTAL. Os 400s uniformes matavam a Federal no meio do hCaptcha: medido em
+    # 19/08/2026, ela encerrou sem imprimir JSON e sem erro no log — o watcher só grava
+    # quando o robô devolve linha, então a certidão simplesmente não existia e nada dizia
+    # por quê. A Receita resolve hCaptcha (3 tentativas internas) e ainda baixa o PDF; a
+    # SEMEF e a Sefaz-AM fecham em muito menos.
+    case "$P" in
+        federal) TETO=900 ;;
+        *)       TETO=400 ;;
+    esac
+    OUT=$(timeout "$TETO" python3 backend/scripts/gedeon/cnd_robot.py "$P" "$CNPJ" 2>>"$LOG" | grep '^{' | tail -1)
+    if [ -n "$OUT" ]; then
+        echo "$OUT" >> /opt/conecta-pro/uploads/cnd_results.jsonl
+    else
+        # Silêncio aqui é indistinguível de sucesso na leitura de quem vê só o jsonl.
+        # Deixa registrado que o portal foi tentado e não respondeu dentro do teto.
+        echo "{\"portal\":\"$P\",\"cnpj\":\"$CNPJ\",\"ok\":false,\"situacao\":\"sem_resposta\",\"mensagem\":\"robô não devolveu resultado em ${TETO}s (teto do watcher)\"}" \
+            >> /opt/conecta-pro/uploads/cnd_results.jsonl
+        echo "[$(date '+%F %T')] $P/$CNPJ: sem resultado em ${TETO}s" >> "$LOG"
+    fi
 done
 
 # registra em ged_certidoes (no container, que enxerga /app/uploads/cnd_results.jsonl + os PDFs)

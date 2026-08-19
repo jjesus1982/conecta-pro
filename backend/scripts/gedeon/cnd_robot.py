@@ -252,7 +252,13 @@ def prefeitura(pg, cnpj):
         raise RuntimeError("frame SEMEF não carregou")
     path = f"{DEST}/prefeitura_{cnpj}.pdf"
     # a certidão abre em POPUP; captcha errado reseta o form → retry
-    for _ in range(3):
+    # 6 e não 3: o captcha da SEMEF é de IMAGEM (texto distorcido), cuja taxa de acerto do
+    # 2captcha é bem menor que a de reCAPTCHA. Medido em 19/08/2026 — duas rodadas seguidas
+    # da Patrimonial esgotaram as 3 tentativas e voltaram "não emitida". Cada tentativa custa
+    # frações de centavo e o teto de tempo do watcher (400s) continua sendo o limite real,
+    # então insistir mais é barato; desistir cedo é que sai caro, porque manda um humano
+    # emitir à mão uma certidão que o robô conseguiria na quarta tentativa.
+    for _ in range(6):
         fr.check("#vTIPOFILTRO3")  # CNPJ (value 4)
         fr.wait_for_timeout(1500)
         fr.click("#vNRFILTRO")
@@ -275,7 +281,7 @@ def prefeitura(pg, cnpj):
         except Exception:
             pg.wait_for_timeout(3000)  # form resetou (captcha errado) → tenta de novo
             continue
-    return "SEMEF: captcha não validado após retries", None
+    return "SEMEF: captcha de imagem nao validado apos 6 tentativas", None
 
 
 PORTAIS = {"sefaz_am": sefaz_am, "cndt": cndt, "federal": federal, "prefeitura": prefeitura}
