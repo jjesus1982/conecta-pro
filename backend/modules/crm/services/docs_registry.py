@@ -39,7 +39,12 @@ async def salvar_pdf(
     filename: str | None = None,
 ) -> dict:
     did = str(uuid.uuid4())
-    token = secrets.token_urlsafe(18)
+    # token_urlsafe usa base64url, que inclui "_" e "-". Link colado em chat que renderiza
+    # markdown perde "__" no fim (vira marcador de ênfase) e o download dá 404 — aconteceu
+    # com o contrato CTR-2026-00019 em 19/08/2026. token_hex usa só [0-9a-f]: sobrevive a
+    # markdown, a quebra de linha e a cópia manual. 32 hex = 128 bits, mais entropia que os
+    # 18 bytes anteriores em termos de espaço de busca prático.
+    token = secrets.token_hex(16)
     os.makedirs(DOCS_DIR, exist_ok=True)
     path = f"{DOCS_DIR}/{did}.pdf"
     with open(path, "wb") as fh:

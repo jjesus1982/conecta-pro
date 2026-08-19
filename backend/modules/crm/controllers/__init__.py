@@ -67,6 +67,12 @@ def _gatear_rotas_crm() -> None:
     _PUBLICAS = {
         ("GET", "/{proposal_id}/public"),
         ("POST", "/{proposal_id}/sign"),
+        # Download tokenizado de documento (orçamento/contrato/recibo) — o link que o
+        # Jordan manda ao cliente e o Cowork abre no navegador. A função JÁ valida o
+        # `?t=` contra `crm_documents.token` e devolve 404 se não bater; o gate de módulo
+        # barrava ANTES disso, então o link nunca funcionou fora do ERP (19/08/2026).
+        # Mesma proteção das duas de cima: token por documento, não sessão.
+        ("GET", "/docs/download/{doc_id}"),
     }
 
     for r in routers:

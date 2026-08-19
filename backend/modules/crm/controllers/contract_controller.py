@@ -113,6 +113,71 @@ async def gerar_pdf_contrato(
     )
 
 
+@router.get("/{contract_id}/pdf-modelo")
+async def gerar_pdf_por_modelo(
+    contract_id: str,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    template_id: str | None = None,
+    salvar: bool = False,
+    teste: bool = False,
+):
+    """Gera o contrato REAL a partir do modelo cadastrado (não o molde de 3 páginas).
+
+    Diferença para `/{id}/pdf`: aquele monta um resumo fixo; este renderiza o
+    `content_template` do modelo — 12 cláusulas, texto jurídico completo — com as
+    variáveis do contrato, e resolve a CONTRATADA pelo tipo de serviço (mão de obra sai
+    pela Patrimonial, eletrônica pela Eletrônica).
+
+    Falha em 422 com o motivo em português quando faltar variável ou quando não der para
+    saber quem presta o serviço. Isso é de propósito: contrato com campo vazio ou com o
+    CNPJ errado vai para assinatura assim.
+    """
+    from fastapi import Response
+
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    try:
+        res = await renderizar_contrato(db, contract_id, template_id)
+    except RenderError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Erro ao renderizar contrato %s por modelo", contract_id)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar contrato: {e}") from e
+
+    if res.clausulas_faltando:
+        raise HTTPException(
+            status_code=422,
+            detail=("O texto renderizado não contém todas as cláusulas do modelo — faltam: "
+                    + "; ".join(res.clausulas_faltando[:3])),
+        )
+
+    if salvar:
+        from modules.crm.services.docs_registry import salvar_pdf
+
+        out = await salvar_pdf(
+            db, "contrato",
+            f"Contrato {contract_id} — {res.contratada.razao_social}",
+            res.pdf, ref_tipo="contract", ref_id=contract_id, teste=teste,
+        )
+        if isinstance(out, dict):
+            out["contratada"] = res.contratada.razao_social
+            out["contratada_cnpj"] = res.contratada.cnpj
+            out["clausulas"] = res.n_clausulas
+            if res.contratada.divergencia:
+                out["aviso"] = res.contratada.divergencia
+        return out
+
+    fname = f"contrato_{contract_id.replace('/', '-')}.pdf"
+    headers = {"Content-Disposition": f'inline; filename="{fname}"',
+               "X-Contratada-CNPJ": res.contratada.cnpj,
+               "X-Clausulas": str(res.n_clausulas)}
+    if res.contratada.divergencia:
+        # o PDF sai certo pela REGRA; o aviso denuncia o dado gravado que a contradiz
+        headers["X-Aviso-Empresa"] = res.contratada.divergencia[:180]
+    return Response(content=res.pdf, media_type="application/pdf", headers=headers)
+
+
 # ============== Contract Endpoints ==============
 
 
