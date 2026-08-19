@@ -183,12 +183,14 @@ class ColetaAutomaticaService:
 
     def _sync_onvio_sync(self, mes_ref: str | None) -> dict:
         """Roda OnvioSyncService com sessão síncrona (thread pool)."""
-        from modules.gedeon.onvio.onvio_sync_service import OnvioSyncService
+        # ⭐ TODAS as empresas, não só a Eletrônica. `OnvioSyncService(db)` sem client_id cai
+        # no padrão histórico e ignorava os 147 documentos da Patrimonial — inclusive as CNDs
+        # que a Portte deposita lá. Medido em 19/08/2026.
+        from modules.gedeon.onvio.onvio_sync_service import sincronizar_todas_empresas
 
         db = SyncSessionLocal()
         try:
-            svc = OnvioSyncService(db)
-            result = svc.sync_completo(mes_ref=mes_ref)
+            result = sincronizar_todas_empresas(db, mes_ref=mes_ref)
             return result or {}
         except Exception as e:
             logger.error("_sync_onvio_sync error: %s", e)

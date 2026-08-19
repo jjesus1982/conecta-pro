@@ -252,3 +252,43 @@ def sync_todas_empresas(db, mes_ref: str | None = None) -> dict:
         out["total_novos"] += int(r.get("novos") or 0)
         out["total_erros"] += int(r.get("erros") or 0)
     return out
+
+
+def sincronizar_todas_empresas(db: Session, mes_ref: str | None = None) -> dict:
+    """Sincroniza o Onvio de CADA empresa que tem `onvio_client_id`.
+
+    ⭐ Existe porque o mapa `empresas.onvio_client_id` foi criado (migration c5d6e7f8a9b0),
+    populado com os dois CNPJs, e **ninguém o lia**: todo caminho instanciava
+    `OnvioSyncService(db)` sem argumento, o que cai no padrão histórico — a Eletrônica. A
+    Patrimonial tinha 147 documentos no Onvio, incluindo as cinco CNDs que a Portte deposita,
+    e nenhuma rotina os trazia. Medido em 19/08/2026.
+
+    A regra existia e faltava o gatilho — a mesma doença que já tinha escondido nove
+    parcelamentos e a baixa por recibo.
+
+    ⚠️ Uma empresa falhar NÃO pode impedir a outra: o Onvio nega documento de cliente ao qual
+    a conta não tem vínculo (403), e antes de 19/08 era exatamente esse o caso da Patrimonial.
+    Cada empresa é sincronizada isolada e o erro dela vira linha no relatório.
+    """
+    from sqlalchemy import text as _t
+
+    linhas = db.execute(_t(
+        "SELECT id::text, slug, onvio_client_id FROM empresas "
+        " WHERE coalesce(onvio_client_id, '') <> '' "
+        "   AND lower(coalesce(status, 'ativa')) NOT IN ('inativa', 'encerrada') "
+        " ORDER BY slug")).fetchall()
+
+    rel: dict = {"empresas": {}, "total_novos": 0, "total_rebaixados": 0}
+    for empresa_id, slug, client_id in linhas:
+        try:
+            r = OnvioSyncService(db, client_id=client_id, empresa_id=empresa_id).sync_completo(
+                mes_ref=mes_ref) or {}
+            rel["empresas"][slug] = {k: r.get(k) for k in
+                                     ("status", "total_api", "novos", "rebaixados", "erros")}
+            rel["total_novos"] += int(r.get("novos") or 0)
+            rel["total_rebaixados"] += int(r.get("rebaixados") or 0)
+        except Exception as exc:  # noqa: BLE001 — uma empresa não derruba a outra
+            logger.error("[onvio] sync de %s falhou: %s", slug, exc)
+            rel["empresas"][slug] = {"status": "erro", "erro": str(exc)[:200]}
+    logger.info("[onvio] sync multi-empresa: %s", rel["empresas"])
+    return rel
