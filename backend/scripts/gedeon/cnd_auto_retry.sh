@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-# GEDEON — Auto-retry da CND Federal (RFB instável "023"). Roda via cron a cada algumas horas.
+# GEDEON — Auto-retry das CNDs que faltam. Roda via cron a cada algumas horas.
+#
+# ⭐ Nasceu só para a Federal (RFB instável "023") e virou geral em 19/08/2026: a MUNICIPAL
+# da Patrimonial ficou travada numa restrição da SEMEF que dependia de uma guia ser paga, e
+# ninguém tentava de novo — a certidão só sairia se um humano lembrasse de pedir. Prazo que
+# depende de alguém lembrar é prazo perdido.
+#
+# ⭐ Certidão negativa é exigida SÓ da PATRIMONIAL (decisão do Jordan, 19/08): ela é quem
+# presta mão de obra e é dela que o contratante cobra CND. A Eletrônica vende segurança
+# eletrônica — nota e boleto bastam.
 # Só dispara a emissão se NÃO houver CND Federal válida (PDF presente + validade > hoje+15d).
 # Quando a RFB cooperar, o cnd_watcher emite, registra e leva ao kit; aí o retry para sozinho.
 set -uo pipefail
@@ -19,33 +28,37 @@ RC() { docker exec conecta-pro-redis redis-cli -a "$REDIS_PW" --no-auth-warning 
 # com LIMIT 1 — e pedia a emissão sempre pelo CNPJ da Eletrônica. Com a Eletrônica em dia, o
 # retry concluía "não precisa" e a PATRIMONIAL nunca seria emitida: um CNPJ inteiro ficava
 # fora da automação sem nada acusar. Agora pergunta POR EMPRESA e emite para quem falta.
-CNPJ_FALTANDO=$(docker exec -w /app -e PYTHONPATH=/app conecta-pro-backend python -c "
+FALTANDO=$(docker exec -w /app -e PYTHONPATH=/app conecta-pro-backend python -c "
 import os, datetime, re
 from sqlalchemy import text
 from core.database.session import get_sync_db
-so = lambda c: re.sub(r'\\D', '', c or '')
+
+# Portais que o robô sabe emitir -> document_type correspondente.
+PORTAL = {'federal': 'certidao_negativa_federal',
+          'prefeitura': 'certidao_negativa_municipal',
+          'sefaz_am': 'certidao_negativa_estadual',
+          'cndt': 'certidao_negativa_trabalhista'}
+ALVO = '66014833000110'   # só a Patrimonial
+
 falta = []
 with get_sync_db() as db:
-    for (cnpj,) in db.execute(text(\"SELECT cnpj FROM empresas WHERE lower(coalesce(status,'ativa')) NOT IN ('inativa','encerrada') ORDER BY slug\")).fetchall():
-        c = so(cnpj)
-        if not c:
-            continue
+    for portal, dt in PORTAL.items():
         r = db.execute(text(
-            \"SELECT file_path, expiry_date FROM ged_certidoes \"
-            \" WHERE document_type='certidao_negativa_federal' \"
-            \"   AND replace(replace(replace(coalesce(cnpj,''),'.',''),'/',''),'-','') = :c LIMIT 1\"),
-            {'c': c}).fetchone()
-        valida = bool(r and r[0] and os.path.exists(r[0]) and r[1]
-                      and r[1] > datetime.date.today()+datetime.timedelta(days=15))
-        if not valida:
-            falta.append(c)
+            \"SELECT expiry_date FROM ged_certidoes \"
+            \" WHERE document_type=:dt \"
+            \"   AND replace(replace(replace(coalesce(cnpj,''),'.',''),'/',''),'-','')=:c \"
+            \"   AND coalesce(notes,'') NOT LIKE '%\\\"regular\\\": null%' \"
+            \"   AND coalesce(notes,'') NOT LIKE '%indeterminado%' LIMIT 1\"),
+            {'dt': dt, 'c': ALVO}).fetchone()
+        ok = bool(r and r[0] and r[0] > datetime.date.today()+datetime.timedelta(days=15))
+        if not ok:
+            falta.append(portal)
 print(' '.join(falta))
 " 2>/dev/null | tail -1)
 
-[ -z "$CNPJ_FALTANDO" ] && exit 0
+[ -z "$FALTANDO" ] && exit 0
 
-# pede a emissão da Federal do PRIMEIRO que falta (o cnd_watcher de 1 min processa um pedido
-# por vez; o próximo ciclo do cron pega o seguinte).
-CNPJ=$(echo "$CNPJ_FALTANDO" | awk '{print $1}')
-RC SET gedeon:cnd:request "{\"cnpj\":\"$CNPJ\",\"portais\":[\"federal\"]}" EX 1800 >/dev/null
-echo "[$(date '+%F %T')] auto-retry: CND Federal enfileirada p/ $CNPJ (faltando: $CNPJ_FALTANDO)"
+# Um portal por ciclo: o watcher processa um pedido por vez, e o cron volta em algumas horas.
+PORTAL=$(echo "$FALTANDO" | awk '{print $1}')
+RC SET gedeon:cnd:request "{\"cnpj\":\"66014833000110\",\"portais\":[\"$PORTAL\"]}" EX 1800 >/dev/null
+echo "[$(date '+%F %T')] auto-retry: $PORTAL enfileirado p/ a Patrimonial (faltando: $FALTANDO)"
