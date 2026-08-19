@@ -64,8 +64,25 @@ def main():
                 ensure_ascii=False,
             )
             alerta = r.get("regular") is not True  # alerta se não-regular
+
+            # ⚠️ MULTI-CNPJ. Até 19/08/2026 este casamento era só por `document_type`, e o
+            # INSERT nem gravava o CNPJ. O robô SEMPRE soube de quem era a certidão — devolve
+            # `"cnpj": "35710481000103"` na própria saída — mas o registrador jogava fora essa
+            # informação. Consequência: rodar o robô para a PATRIMONIAL encontraria a linha da
+            # ELETRÔNICA (mesmo document_type) e a sobrescreveria com dados da outra empresa,
+            # e linhas novas nasceriam com cnpj NULL, invisíveis para o gate, que consulta por
+            # CNPJ. Certidão trocada de empresa é pior que certidão faltando: a tela fica
+            # verde exibindo o documento de outro CNPJ.
+            cnpj = "".join(ch for ch in str(r.get("cnpj") or "") if ch.isdigit())
+            if not cnpj:
+                print("pulado (sem cnpj na saída do robô):", r.get("portal"))
+                continue
+
             row = db.execute(
-                text("SELECT id FROM ged_certidoes WHERE document_type=:dt LIMIT 1"), {"dt": dt}
+                text("SELECT id FROM ged_certidoes WHERE document_type=:dt "
+                     "   AND replace(replace(replace(coalesce(cnpj,''),'.',''),'/',''),'-','') = :c "
+                     " LIMIT 1"),
+                {"dt": dt, "c": cnpj},
             ).fetchone()
             if row:
                 db.execute(
@@ -87,8 +104,8 @@ def main():
                 db.execute(
                     text(
                         "INSERT INTO ged_certidoes (id,name,document_type,issuing_body,issue_date,"
-                        "expiry_date,file_path,notes,alerta_ativo,created_at,updated_at) VALUES "
-                        "(gen_random_uuid(),:nm,:dt,:b,:i,:v,:f,:n,:a,now(),now())"
+                        "expiry_date,file_path,notes,alerta_ativo,cnpj,created_at,updated_at) "
+                        "VALUES (gen_random_uuid(),:nm,:dt,:b,:i,:v,:f,:n,:a,:c,now(),now())"
                     ),
                     {
                         "nm": name,
@@ -99,9 +116,10 @@ def main():
                         "f": pdf,
                         "n": notes,
                         "a": alerta,
+                        "c": cnpj,
                     },
                 )
-            print(f"registrado {dt}: {situacao} val={validade}")
+            print(f"registrado {dt} p/ CNPJ {cnpj}: {situacao} val={validade}")
         db.commit()
 
     # replica as CNDs reais nos kits do mês corrente (subpasta Impostos e Certidões)
