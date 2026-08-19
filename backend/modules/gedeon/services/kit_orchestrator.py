@@ -199,6 +199,12 @@ async def montar_kits_mensais(
         prog("inter", "running")
         folha_por_cond = _folhas_por_condominio(get_sync_db, _condominio_do_nome, onvio_client, competencia)
         try:
+            # ⚠️ OS OUTROS BANCOS TÊM DE ENTRAR ANTES, não depois. Quando trouxe o Cora
+            # (08ad4051c) juntei os extratos DEPOIS desta chamada, para o kit sobreviver a
+            # uma queda da API do Inter. Só que o bloco de SALÁRIO roda dentro dela: o
+            # VA/VT passou a enxergar o Cora e o salário não. Medido em 19/08/2026 —
+            # "sem_pix" em todo mundo com o pagamento no extrato do Cora, R$ 197 mil.
+            outros_bancos = _extrato_outros_bancos(get_sync_db, competencia)
             txs, inter_rel = await _inter_tudo(
                 _build_adapter,
                 competencia,
@@ -210,6 +216,7 @@ async def montar_kits_mensais(
                 montar_comprovantes,
                 arquivar_boletos,
                 baixar_extrato_oficial,
+                outros_bancos,
             )
             rel["etapas"]["inter"] = {"ok": True, "resultado": inter_rel}
             prog("inter", "ok")
@@ -220,12 +227,15 @@ async def montar_kits_mensais(
 
         # O Inter deixou de ser o único banco (Cora desde 08/2026). Os outros vêm do
         # bank_transactions já sincronizado — sem isso o vavt/INSS ignora o que foi pago.
-        try:
-            outros = _extrato_outros_bancos(get_sync_db, competencia)
-            txs = list(txs) + outros
-            rel["etapas"].setdefault("inter", {})["outros_bancos"] = len(outros)
-        except Exception as exc:
-            logger.warning("GEDEON orquestrador [outros bancos] FALHOU: %s", exc)
+        # Rede de segurança: se o bloco do Inter nem chegou a rodar (exceção antes da
+        # junção interna), os outros bancos ainda entram para os blocos SYNC daqui pra
+        # baixo — INSS, VA/VT e rescisão.
+        if not txs:
+            try:
+                txs = _extrato_outros_bancos(get_sync_db, competencia)
+                rel["etapas"].setdefault("inter", {})["outros_bancos_fallback"] = len(txs)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("GEDEON orquestrador [outros bancos] FALHOU: %s", exc)
 
     # INSS (replicado em cada kit) e VA/VT (a atribuir) — SYNC, usam os txs já buscados
     if txs and quer("pagamentos"):
@@ -359,6 +369,7 @@ async def _inter_tudo(
     montar_comprovantes,
     arquivar_boletos,
     baixar_extrato_oficial,
+    outros_bancos=None,
 ):
     """Roda TODO o Inter num único event loop (extrato → salário/cond → boletos → extrato oficial).
     Devolve (txs, relatorio). Cada sub-etapa é isolada por try/except."""
@@ -368,14 +379,18 @@ async def _inter_tudo(
     out: dict = {"salario": {}, "boletos": None, "extrato_oficial": None}
     try:
         txs = await buscar_extrato_pagamento(competencia, adapter)
+        # Junta AQUI, antes do laço de salário: é o que faz o comprovante achar o
+        # pagamento que saiu pelo Cora.
+        txs = list(txs) + list(outros_bancos or [])
         out["txs"] = len(txs)
+        out["outros_bancos"] = len(outros_bancos or [])
     except Exception as exc:
         out["extrato_erro"] = str(exc)
         try:
             await adapter.close()
         except Exception:
             pass
-        return [], out
+        return list(outros_bancos or []), out
 
     for cond in condominios:
         # A chave do mapa é o nome do CONTRATO (veio de _condominio_do_nome sobre o nome do
