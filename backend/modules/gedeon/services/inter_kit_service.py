@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import tempfile
+import unicodedata
 
 from modules.gdrive.services.gdrive_service import gdrive_service
 from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
@@ -97,20 +98,32 @@ async def _extrato_completo_todas_paginas(adapter, ini: str, fim: str) -> list[d
     return todas
 
 
+def _sem_acento(x: str) -> str:
+    """Compara nome de gente sem depender de acento.
+
+    O banco escreve o favorecido como veio do PIX, e o cadastro escreve como o DP digitou.
+    Medido em 19/08/2026: "Antônio Diniz Assis dos Santos" no extrato contra "ANTONIO DINIZ
+    ASSIS DOS SANTOS" no cadastro, e "Goncalves" contra "GONÇALVES". Dois comprovantes de
+    salário não entraram no kit por causa de um circunflexo e de uma cedilha.
+    """
+    x = unicodedata.normalize("NFKD", x or "")
+    return "".join(c for c in x if not unicodedata.combining(c)).upper()
+
+
 def _casar_salario(funcionario: str, transacoes: list[dict]) -> dict | None:
     """Maior PIX de débito > piso cujo favorecido casa o nome (primeiro+último)."""
-    p, u = funcionario.split()[0].upper(), funcionario.split()[-1].upper()
+    p, u = _sem_acento(funcionario.split()[0]), _sem_acento(funcionario.split()[-1])
     cands = []
     for t in transacoes:
         if t.get("tipoOperacao") != "D":
             continue
         try:
             v = float(t.get("valor", 0))
-        except Exception:
+        except Exception:  # noqa: S112 — valor ilegível é lançamento a ignorar, não erro a logar
             continue
         if v < PISO_SALARIO:
             continue
-        alvo = (str(t.get("descricao", "")) + " " + str(t.get("detalhes", {}))).upper()
+        alvo = _sem_acento(str(t.get("descricao", "")) + " " + str(t.get("detalhes", {})))
         if p in alvo and u in alvo:
             cands.append((v, t))
     if not cands:

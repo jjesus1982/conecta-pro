@@ -62,10 +62,12 @@ CHECKLIST = [
         "key": "inss",
         "label": "Comprovante INSS",
         "sub": SUB_IMPOSTOS,
-        # "INSS Patronal 07/2026.pdf" é o nome que o montador gera, e nenhum dos termos
-        # antigos casava — o bloco ficava 0/1 com o arquivo na pasta. Dentro de
-        # "3. Impostos e Certidões", "inss" no nome só pode ser isso.
-        "match": ["inss"],
+        # Este bloco é o COMPROVANTE de recolhimento, não a certidão. "inss" sozinho
+        # casaria também "CND INSS (RFB).pdf" e daria crédito de pagamento a quem só tem
+        # certidão — cobertura inventada, e das piores, porque é sobre tributo. Os termos
+        # abaixo cobrem o nome real que o montador gera ("INSS Patronal 07/2026.pdf") sem
+        # pegar certidão.
+        "match": ["inss patronal", "comprovante inss", "comprovante de pagamento inss", "guia inss", "darf inss"],
         "esperado": 1,
     },
     {

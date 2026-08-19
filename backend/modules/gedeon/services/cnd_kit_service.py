@@ -29,6 +29,10 @@ CND_NOMES = {
     "certidao_negativa_municipal": "CND Municipal (Manaus).pdf",
     "certidao_negativa_federal": "CND Federal (RFB-PGFN).pdf",
     "certidao_negativa_fgts": "CRF FGTS (Caixa).pdf",
+    # A certidão de INSS nunca entrou em kit nenhum, de nenhuma empresa: o tipo existia em
+    # `ged_certidoes` com PDF em disco e simplesmente não estava neste mapa. Medido em
+    # 19/08/2026, quando a Patrimonial passou a ter a dela emitida.
+    "certidao_negativa_inss": "CND INSS (RFB).pdf",
 }
 
 _CNPJ_ELETRONICA = "35710481000103"

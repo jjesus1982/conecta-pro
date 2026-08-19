@@ -27,12 +27,7 @@ from sqlalchemy import text
 
 from modules.gdrive.services.gdrive_service import gdrive_service
 from modules.gedeon.services.drive_kit_classifier import classify_filename
-from modules.gedeon.services.kit_layout import (
-    _arquivo_ja_existe,
-    mes_kit_de_competencia,
-    nome_pasta_condominio,
-    pasta_kit_arquivo,
-)
+from modules.gedeon.services.kit_layout import _arquivo_ja_existe, pasta_kit_arquivo
 
 logger = logging.getLogger(__name__)
 
@@ -73,40 +68,29 @@ def _caminho_local(fp: str) -> str | None:
 
 
 def _arquivos_do_kit_no_drive(cond: str, competencia: str) -> list[dict]:
-    """Todos os arquivos das subpastas do kit daquele condomínio/mês."""
+    """Todos os arquivos das subpastas do kit daquele condomínio/mês.
+
+    🔴 NÃO procure a pasta do condomínio por conta própria. Existem pastas DUPLICADAS na
+    raiz do workspace — medido em 19/08/2026: duas "CONDOMINIO DO EDIFICIO MICHELANGELO" e,
+    no Ideal Flores, uma segunda com caixa diferente ("Condominio Ideal Flores da Cidade").
+    A primeira versão desta função fazia `files().list(name=...)` e pegava `[0]`; no
+    Michelangelo caiu na duplicata VAZIA e a união enxergou ZERO arquivos com 53 na pasta
+    certa — o kit ficou em 74% enquanto o Drive dizia 100%.
+
+    `garantir_pasta_kit` resolve isso: quando há duplicata, `_criar_pasta` escolhe a de
+    MAIS conteúdo, contando a subárvore. Uma regra, um lugar.
+    """
+    from modules.gedeon.services.kit_layout import garantir_pasta_kit
+
     svc = gdrive_service._service
-    mes = mes_kit_de_competencia(competencia)
-    raiz = (
-        svc.files()
-        .list(
-            q=f"name='{nome_pasta_condominio(cond)}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-            fields="files(id)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        )
-        .execute()
-        .get("files", [])
-    )
-    if not raiz:
-        return []
-    pasta_mes = (
-        svc.files()
-        .list(
-            q=f"name='{mes}' and '{raiz[0]['id']}' in parents and trashed=false",
-            fields="files(id)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        )
-        .execute()
-        .get("files", [])
-    )
+    pasta_mes = garantir_pasta_kit(cond, competencia)
     if not pasta_mes:
         return []
     out: list[dict] = []
     subs = (
         svc.files()
         .list(
-            q=f"'{pasta_mes[0]['id']}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            q=f"'{pasta_mes}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
             fields="files(id,name)",
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
