@@ -36,12 +36,24 @@ except ImportError:
 # ── Configuração ─────────────────────────────────────────────────────────────
 
 ONVIO_URL    = "https://onvio.com.br/clientcenter/pt/auth"
-ONVIO_EMAIL  = "administracao@conectamaistech.com.br"
+
+# ⚠️ A conta MUDOU em 19/08/2026. `administracao@conectamaistech.com.br` foi DESABILITADA, e
+# além disso ela só enxergava a Eletrônica: pedir os documentos da Patrimonial com ela
+# devolvia 0 na listagem e **403 Forbidden** no download. As certidões da Patrimonial estavam
+# lá o tempo todo, depositadas pela Portte — faltava a conta com as duas empresas vinculadas.
+#
+# `jjesus@conectamais.pro` enxerga as DUAS. Tudo parametrizado por ambiente para a próxima
+# troca não exigir editar código: e-mail cravado aqui foi o que fez a virada ser um susto.
+ONVIO_EMAIL  = os.getenv("ONVIO_EMAIL", "jjesus@conectamais.pro")
 ONVIO_PASS   = os.getenv("ONVIO_PASS", "")
 
-# IMAP para leitura automática do código MFA via e-mail
-IMAP_SERVER   = "imap.titan.email"
-IMAP_PORT     = 993
+# IMAP para leitura automática do código MFA via e-mail.
+# ⚠️ O servidor segue o DOMÍNIO da conta: conectamaistech.com.br era Titan;
+# conectamais.pro é Hostinger. Cravar o host junto com o e-mail era garantir que a troca de
+# conta quebrasse o segundo fator sem dizer por quê.
+IMAP_SERVER   = os.getenv("ONVIO_IMAP_SERVER", "imap.hostinger.com")
+IMAP_PORT     = int(os.getenv("ONVIO_IMAP_PORT", "993"))
+IMAP_USER     = os.getenv("ONVIO_IMAP_USER", ONVIO_EMAIL)
 IMAP_PASSWORD = os.getenv("ONVIO_IMAP_PASSWORD", "")  # pragma: allowlist secret
 
 REDIS_KEY  = "onvio:session"
@@ -86,7 +98,7 @@ def _read_otp_from_imap(timeout_s: int = 90) -> str | None:
         try:
             ctx = ssl.create_default_context()
             imap = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT, ssl_context=ctx)
-            imap.login(ONVIO_EMAIL, IMAP_PASSWORD)
+            imap.login(IMAP_USER, IMAP_PASSWORD)
             imap.select("INBOX")
             _, msgs = imap.search(None, 'UNSEEN FROM "thomsonreuters.com"')
             ids = msgs[0].split()
