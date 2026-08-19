@@ -252,6 +252,15 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=15),
         "options": {"queue": "gov.batch"},
     },
+    # Radar de fornecedor recorrente SEM título. Roda DEPOIS do registrar-obrigacoes:
+    # senão avisaria sobre o que a rotina anterior acabou de criar. Telecom, energia e
+    # água não emitem NFS-e, então escapam daquele motor — foi assim que um boleto da
+    # Full Telecom venceu e custou juros. Só avisa; não cria pagável.
+    "financeiro-radar-fornecedores": {
+        "task": "financial.radar_fornecedores",
+        "schedule": crontab(hour=8, minute=45),
+        "options": {"queue": "gov.batch"},
+    },
     # Recebível por contrato/competência — dia 1 de cada mês. Sem isso o contas-a-receber
     # fica vazio e aging/inadimplência/régua de cobrança giram no vácuo.
     # NÃO emite cobrança ao cliente: boleto/PIX é ato separado, com decisão humana.

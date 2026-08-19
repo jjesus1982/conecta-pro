@@ -715,3 +715,76 @@ def sync_bank_balances_task(self):
                 logger.warning("sync_bank_balances %s falhou: %s", nome, exc)
     logger.info("sync_bank_balances: %s", out)
     return out
+
+
+@app.task(name="financial.radar_fornecedores", bind=True, max_retries=1)
+def radar_fornecedores_task(self):
+    """Avisa no sino os fornecedores recorrentes que vão vencer SEM título cadastrado.
+
+    O caso que motivou (19/08/2026): a Full Telecom era paga todo mês desde março e
+    nunca teve conta a pagar. Sem título, nada avisa; o boleto venceu e o banco passou
+    a exigir valor atualizado — R$4,48 de juros num boleto de R$149, e 30 dias sem
+    saber que devia. O `registrar_obrigacoes` não pega esses: telecom, energia e água
+    não emitem NFS-e.
+
+    NÃO cria pagável. Inferir dívida a partir de histórico seria afirmar o que ninguém
+    emitiu. Radar mostra; boleto real ou humano cria.
+
+    Silêncio quando não há nada — verde não gera notificação, senão ninguém lê o sino.
+    """
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import text as _text
+
+    from core.database.session import SyncSessionLocal
+    from modules.financial.services.radar_fornecedores_service import varrer
+
+    try:
+        with SyncSessionLocal() as db:
+            r = varrer(db)
+            achados = r["achados"]
+            if not achados:
+                logger.info("[Financial Task] radar_fornecedores: nada a avisar")
+                return {"sem_titulo": 0}
+
+            linhas = "\n".join(
+                f"• {a['fornecedor']} — R$ {a['valor_tipico']:,.2f} "
+                f"(~dia {a['vencimento_estimado'][8:10]}, {a['meses_pagos']} meses pagos)"
+                for a in achados[:12]
+            )
+            corpo = (
+                f"{len(achados)} fornecedor(es) com pagamento recorrente e SEM conta a "
+                f"pagar para o próximo vencimento:\n\n{linhas}\n\n"
+                "A data é ESTIMADA pelo histórico de PAGAMENTO, não é o vencimento "
+                "oficial. Serve para pedir a segunda via antes de vencer."
+            )
+            dia = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+            extra = json.dumps({
+                "idempotency_key": f"radar_fornecedores:{dia}",
+                "origem": "radar_fornecedores", "familia": "financeiro",
+                "severidade": "atencao", "quantidade": len(achados),
+            })
+            destinatarios = [x[0] for x in db.execute(_text(
+                "SELECT id::text FROM users WHERE lower(coalesce(role,''))='admin' "
+                "AND coalesce(is_active,true)=true "
+                "AND lower(coalesce(email,'')) NOT LIKE 'mcp-service%'"
+            )).fetchall()]
+            for uid in destinatarios:
+                db.execute(_text(
+                    "INSERT INTO communication_notifications "
+                    "(id, tenant_id, user_id, title, body, type, reference_type, "
+                    " action_url, extra_data, is_active, sent_at, created_at) "
+                    "VALUES (gen_random_uuid(), :uid, :uid, :titulo, :corpo, 'alerta', "
+                    " 'radar_fornecedores', '/redesign/financeiro', CAST(:extra AS jsonb), "
+                    " true, NOW(), NOW()) ON CONFLICT DO NOTHING"
+                ), {"uid": uid, "titulo": f"Radar: {len(achados)} fornecedor(es) sem título",
+                    "corpo": corpo, "extra": extra})
+            db.commit()
+            logger.info("[Financial Task] radar_fornecedores: %s avisos, %s destinatários",
+                        len(achados), len(destinatarios))
+            return {"sem_titulo": len(achados), "destinatarios": len(destinatarios)}
+    except Exception as exc:
+        logger.error("[Financial Task] radar_fornecedores error: %s", exc)
+        raise self.retry(exc=exc)
