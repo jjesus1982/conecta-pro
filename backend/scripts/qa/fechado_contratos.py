@@ -163,14 +163,28 @@ def _cond6_travas() -> tuple[bool, str]:
 def main() -> int:
     print("FECHADO_CONTRATOS — critério de aceite executável\n")
     res: list[bool] = []
-    dados = asyncio.run(_dado())
-    mapa = {t.split(":")[0]: (o, t, d) for o, t, d in dados}
 
     print("[render]")
-    for chave, n in (("render", 1), ("CNPJ", 3), ("vínculo", 4)):
-        if chave in mapa:
-            o, t, d = mapa[chave]
-            res.append(_ok(o, f"{n} · {t}", d))
+    if NO_CONTAINER:
+        dados = asyncio.run(_dado())
+        mapa = {t.split(":")[0]: (o, t, d) for o, t, d in dados}
+        for chave, n in (("render", 1), ("CNPJ", 3), ("vínculo", 4)):
+            if chave in mapa:
+                o, t, d = mapa[chave]
+                res.append(_ok(o, f"{n} · {t}", d))
+    else:
+        # o Postgres vive no container; do host não há rota até ele. Mesma delegação do
+        # fechado_operacional — sem ela o bloco inteiro morria em "Connect call failed".
+        r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                            "python3", "/app/scripts/qa/fechado_contratos.py"],
+                           capture_output=True, text=True, timeout=600)
+        linhas = [ln for ln in r.stdout.splitlines() if re.match(r"\s*[✅❌] [134] ·", ln)]
+        for ln in linhas:
+            print(f"  {ln.strip()}")
+            res.append(ln.strip().startswith("✅"))
+        if not linhas:
+            print(f"  ❌ bloco [render] não retornou — {r.stderr.strip()[-160:]}")
+            res.append(False)
 
     if NO_CONTAINER:
         print("\n  ⚠️  dentro do container: condições 2, 5, 6 e 7 exigem o host (puladas)")
