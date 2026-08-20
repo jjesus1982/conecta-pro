@@ -313,7 +313,14 @@ def renderizar(corpo: str, ctx: dict) -> str:
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────────────
-def build_pdf_do_texto(texto: str, titulo: str, subtitulo: str = "") -> bytes:
+# slug de `pdf_branding` por prestadora. Sem isto o papel timbrado sai SEMPRE pela
+# Eletrônica (`empresa_branding` faz `slug or "conecta_eletronica"`) — e um contrato de
+# mão de obra com o corpo dizendo PATRIMONIAL e o cabeçalho das 10 páginas dizendo
+# ELETRÔNICA é pior que o corpo errado: o erro aparece em toda folha assinada.
+_SLUG = {PATRIMONIAL[1]: "conecta_patrimonial", ELETRONICA[1]: "conecta_eletronica"}
+
+
+def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None) -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -341,8 +348,10 @@ def build_pdf_do_texto(texto: str, titulo: str, subtitulo: str = "") -> bytes:
         if eh_clausula:
             el.append(Spacer(1, 3))
 
-    # mesmo cabeçalho/rodapé/selo que o contract_pdf do CRM já usa
-    cb = lambda cv, dc: B.header_footer(cv, dc, seal_watermark=True, pular_primeira=False)  # noqa: E731
+    # mesmo cabeçalho/rodapé/selo do contract_pdf, MAS com a empresa certa
+    marca = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
+    cb = lambda cv, dc: B.header_footer(cv, dc, empresa=marca, seal_watermark=True,  # noqa: E731
+                                        pular_primeira=False)
     doc.build(el, onFirstPage=cb, onLaterPages=cb)
     return buf.getvalue()
 
@@ -405,7 +414,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
 
     titulo = f"Contrato {contract_id}"
     return Resultado(
-        pdf=build_pdf_do_texto(texto, titulo),
+        pdf=build_pdf_do_texto(texto, titulo, contratada.cnpj),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
