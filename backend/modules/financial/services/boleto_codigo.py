@@ -78,9 +78,12 @@ def _data_do_fator(fator: int, hoje: date | None = None) -> date | None:
         return None
     hoje = hoje or date.today()
     venc = _EPOCA + timedelta(days=fator)
-    # Ciclo de 9000: o fator reseta em 9999 e recomeça em 1000.
-    while venc < hoje - timedelta(days=365):
+    # Ciclo de 9000: o fator reseta em 9999 e recomeça em 1000. NO MÁXIMO duas voltas —
+    # empurrar sem limite transformava lixo em "vencimento em 2048" em vez de recusar.
+    voltas = 0
+    while venc < hoje - timedelta(days=365) and voltas < 2:
         venc += timedelta(days=9000)
+        voltas += 1
     return venc
 
 
@@ -115,9 +118,22 @@ def _bancario_47(d: str, hoje: date | None) -> dict | None:
     return _bancario_44(barras, hoje)
 
 
+#: Janela plausível de vencimento. Boleto com data fora disso não é boleto — é uma
+#: sequência qualquer que passou no DV por acaso. Medido em 21/08/2026: a varredura da
+#: caixa devolveu "NFS-e da Sólides" vencendo em 2047 e 2048, valores de R$30 milhões.
+ANOS_PARA_TRAS = 3
+ANOS_PARA_FRENTE = 3
+
+
 def _bancario_44(barras: str, hoje: date | None) -> dict | None:
     if len(barras) != 44:
         return None
+    # ⚠️ O código de barras tem UM só dígito verificador (módulo 11) — uma sequência
+    # qualquer passa por acaso ~1 vez em 11. A linha digitável de 47 tem QUATRO e por
+    # isso é confiável. Como o extrator desliza uma janela sobre números longos de PDF,
+    # 9% de falso positivo vira dívida inventada. Daí as duas travas abaixo.
+    if barras[3] != "9":
+        return None          # posição 4 = código da moeda; 9 = Real. Chave de NFS-e cai aqui.
     if _dv_mod11_barras(barras[:4] + barras[5:]) != int(barras[4]):
         return None
 
@@ -125,12 +141,19 @@ def _bancario_44(barras: str, hoje: date | None) -> dict | None:
     valor = int(barras[9:19]) / 100
     if valor <= 0:
         return None          # boleto sem valor: não vira obrigação, é para consulta
+
+    venc = _data_do_fator(fator, hoje)
+    if venc:
+        ref = hoje or date.today()
+        if not (ref - timedelta(days=365 * ANOS_PARA_TRAS) <= venc
+                <= ref + timedelta(days=365 * ANOS_PARA_FRENTE)):
+            return None      # data implausível: não era boleto
     return {
         "tipo": "bancario",
         "barras": barras,
         "banco": barras[0:3],
         "valor": round(valor, 2),
-        "vencimento": _data_do_fator(fator, hoje),
+        "vencimento": venc,
     }
 
 

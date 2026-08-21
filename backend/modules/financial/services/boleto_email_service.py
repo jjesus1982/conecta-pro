@@ -90,6 +90,11 @@ def _remetente(cabecalho: str) -> tuple[str, str]:
     return (cabecalho or "").split("@")[0], (cabecalho or "").strip().lower()
 
 
+#: Nós, em qualquer grafia que apareça num documento. Um boleto contra a empresa sempre
+#: nos nomeia como pagador — e nós nunca somos o fornecedor de nós mesmos.
+_SOMOS_NOS = re.compile(
+    r"(?i)(conecta\s*mais|conectamais|jordan\s+santos\s+de\s+jesus)")
+
 #: Razão social dentro do documento: linha que termina em sufixo societário.
 _RAZAO_SOCIAL = re.compile(
     r"(?m)^[ \t]*([A-ZÀ-Ú][A-ZÀ-Ú0-9&.\- ]{4,60}?\s(?:LTDA|S/?A|S\.A\.?|ME|EPP|EIRELI)\b\.?)")
@@ -104,18 +109,31 @@ def _fornecedor(nome_from: str, dominio: str, texto: str, documento: str = "") -
     empresa errada. Foi o que aconteceu no primeiro teste: o PDF dizia FULL TELECOM e o
     fornecedor saiu CONECTAMAIS, que é quem encaminhou.
     """
-    m = _RAZAO_SOCIAL.search(documento or "")
-    if m:
-        return " ".join(m.group(1).split())[:120]
+    # ⚠️ O boleto traz DUAS razões sociais: o BENEFICIÁRIO (quem cobra) e o PAGADOR
+    # (nós). Pegar a primeira que aparece deu "JORDAN SANTOS DE JESUS LTDA" como
+    # fornecedor na varredura de 21/08 — nós mesmos, no papel de sacado. Pular as nossas
+    # é o filtro honesto: sabemos quem somos, não precisamos adivinhar.
+    for m in _RAZAO_SOCIAL.finditer(documento or ""):
+        nome_doc = " ".join(m.group(1).split())
+        if not _SOMOS_NOS.search(nome_doc):
+            return nome_doc[:120]
+
+    # Remetente de dentro de casa NÃO é fornecedor. Boleto chega encaminhado pela Pyetra
+    # o tempo todo; usar o remetente poria "pjesus" (ou "mailserver") como credor. Na
+    # varredura de 21/08 isso aconteceu em 7 dos 15 boletos.
+    if _SOMOS_NOS.search(f"{nome_from} {dominio}") or "conectamais.pro" in dominio:
+        return "FORNECEDOR A IDENTIFICAR"
 
     generico = re.compile(
         r"(?i)^(cobranc|cobran|financeiro|faturamento|nao-?responda|no-?reply|boleto|"
-        r"atendimento|contato|sac|billing|suporte)")
+        r"atendimento|contato|sac|billing|suporte|mailserver|mailer|postmaster)")
     nome = (nome_from or "").strip()
     if not nome or generico.match(nome):
         alvo = (dominio.split("@")[-1] or "").split(".")[0]
-        nome = alvo.upper() if alvo else "FORNECEDOR"
-    return nome[:120]
+        nome = alvo.upper() if alvo else ""
+    # Sem nome confiável, dizer que não sabemos. "FORNECEDOR A IDENTIFICAR" na tela é
+    # honesto e pede ação; um nome errado vira credor fantasma no contas a pagar.
+    return (nome or "FORNECEDOR A IDENTIFICAR")[:120]
 
 
 def varrer_e_registrar(db, dias: int = DIAS_JANELA, criar: bool = True) -> dict:
@@ -190,6 +208,34 @@ def _boletos_da_mensagem(msg) -> tuple[list[dict], str]:
     return achar_boletos(texto), texto
 
 
+def _ja_pago(db, valor: float, venc: date) -> dict | None:
+    """Saída no extrato que quita este boleto — ou `None` se não houver, ou se houver
+    mais de uma candidata.
+
+    ⚠️ Sem isto o radar cria DÍVIDA QUE JÁ FOI PAGA. Aconteceu na primeira varredura de
+    verdade (21/08): dos 12 boletos da caixa, a maioria já tinha saído do banco — os
+    vales-transporte pagos ao Sindicato em 14/08 e as faturas da Full Telecom. Boleto
+    chega por e-mail e continua na caixa depois de pago; a caixa não sabe o que foi
+    quitado, o extrato sabe.
+
+    Match ÚNICO ou nada, como no `cora_sync_service`: dois candidatos com o mesmo valor
+    viram baixa no título errado. Recall menor é melhor que baixa errada.
+    """
+    cands = db.execute(text("""
+        SELECT transaction_date, COALESCE(counterparty_name, description) AS quem
+          FROM bank_transactions
+         WHERE amount < 0
+           AND ROUND(ABS(amount), 2) = ROUND(CAST(:v AS numeric), 2)
+           AND transaction_date BETWEEN :ini AND :fim
+    """), {"v": valor, "ini": venc - timedelta(days=20),
+           "fim": venc + timedelta(days=35)}).mappings().all()
+    if len(cands) != 1:
+        # Devolve a CONTAGEM para quem chama poder explicar. "Pendente porque devemos" e
+        # "pendente porque não soube decidir" exigem ações diferentes do humano.
+        return {"ambiguo": len(cands)} if cands else None
+    return {"data": cands[0]["transaction_date"], "quem": cands[0]["quem"]}
+
+
 def _registrar(db, item: dict, b: dict) -> str:
     """Cria o pagável. Devolve 'criado' ou 'ja_existia'."""
     # Convênio não traz vencimento no código (água/luz/tributo). Registrar com data
@@ -205,17 +251,34 @@ def _registrar(db, item: dict, b: dict) -> str:
         nota += (" ⚠️ VENCIMENTO NÃO CONFIRMADO: boleto de convênio não carrega a data "
                  "no código de barras — conferir no documento antes de pagar.")
 
+    # Boleto já quitado nasce PAGO, não pendente: o e-mail fica na caixa depois do
+    # pagamento, e registrar como dívida faria o contas a pagar mentir.
+    achado = _ja_pago(db, b["valor"], venc)
+    pago = bool(achado and not achado.get("ambiguo"))
+    if pago:
+        nota += (f" ✅ QUITADO: saída de R$ {b['valor']:,.2f} em "
+                 f"{achado['data'].strftime('%d/%m/%Y')} para {str(achado['quem'])[:40]} — "
+                 "conciliado pelo extrato (match único).")
+    elif achado:
+        nota += (f" ⚠️ PODE JÁ ESTAR PAGO: {achado['ambiguo']} saídas de "
+                 f"R$ {b['valor']:,.2f} no extrato na janela do vencimento. Não dá para "
+                 "saber qual é esta sem conferir — deixado em aberto de propósito, "
+                 "porque dar baixa no título errado é pior que deixar pendente.")
+
     cond = db.execute(text("SELECT condominio_id FROM payable_accounts LIMIT 1")).scalar()
     r = db.execute(text("""
         INSERT INTO payable_accounts
             (id, condominio_id, description, supplier_name, document_number,
-             gross_value, net_value, issue_date, due_date, status, origem, notes,
-             created_at, updated_at)
-        VALUES (gen_random_uuid(), :cond, :desc, :forn, :doc, :val, :val, CURRENT_DATE,
-                :venc, 'pendente', 'boleto_email', :nota, NOW(), NOW())
+             gross_value, net_value, paid_value, issue_date, due_date, status, origem,
+             notes, created_at, updated_at)
+        VALUES (gen_random_uuid(), :cond, :desc, :forn, :doc, :val, :val,
+                CASE WHEN :pago THEN :val ELSE 0 END, CURRENT_DATE,
+                :venc, CASE WHEN :pago THEN 'pago' ELSE 'pendente' END,
+                'boleto_email', :nota, NOW(), NOW())
         ON CONFLICT DO NOTHING
     """), {"cond": cond, "desc": f"Boleto {item['fornecedor']}"[:500],
            "forn": item["fornecedor"], "doc": b["barras"][:50],
-           "val": b["valor"], "venc": venc, "nota": nota})
+           "val": b["valor"], "venc": venc, "nota": nota, "pago": pago})
+    item["quitado"] = pago
     db.commit()
     return "criado" if r.rowcount else "ja_existia"
