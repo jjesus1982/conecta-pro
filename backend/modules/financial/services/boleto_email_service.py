@@ -102,6 +102,45 @@ def _remetente(cabecalho: str) -> tuple[str, str]:
     return (cabecalho or "").split("@")[0], (cabecalho or "").strip().lower()
 
 
+#: CNPJs das NOSSAS empresas — Eletrônica e Patrimonial. Um boleto contra a empresa
+#: SEMPRE nomeia o nosso CNPJ como sacado/pagador; é o que separa a nossa dívida da
+#: dívida de outra pessoa.
+NOSSOS_CNPJS = ("35710481000103", "66014833000110")
+
+
+#: Razão social ANTERIOR da Eletrônica, antes da alteração na Receita. Fornecedor antigo
+#: ainda emite boleto com este nome — a Inviolável faz isso — e o documento não traz CNPJ
+#: do pagador. Sem reconhecer o nome velho, dívida real seria descartada como "de
+#: terceiro", que é o erro oposto e igualmente caro.
+NOSSOS_NOMES = ("CONECTAMAIS", "CONECTA MAIS", "JORDAN SANTOS DE JESUS")
+
+
+def _e_contra_nos(documento: str) -> bool:
+    """O boleto nomeia uma das nossas empresas como PAGADOR?
+
+    ⚠️ Sem esta pergunta o radar cria dívida de terceiro. Aconteceu em 21/08: entraram
+    uma conta de energia da Ambar (R$81,30, no nome de LUZANGELA FERREIRA DE ARAUJO) e
+    uma fatura da Nerds Telecom (R$99,90) — as duas eram COMPROVANTE DE RESIDÊNCIA
+    anexado ao dossiê de admissão de funcionário. Boleto legítimo, dívida de outra
+    pessoa, e o sistema ia mandar pagar.
+
+    É também a primeira defesa contra boleto falso: golpe costuma vir por e-mail avulso
+    com PDF cujo sacado não confere. Não substitui conferir o BENEFICIÁRIO contra
+    fornecedor conhecido — mas derruba o caso mais comum.
+
+    Sem CNPJ nosso no texto, `False`: não criar é mais seguro que criar dívida alheia.
+    """
+    dig = "".join(c for c in (documento or "") if c.isdigit())
+    if any(c in dig for c in NOSSOS_CNPJS):
+        return True
+    # Sem CNPJ do pagador impresso, o nome decide — inclusive o nome ANTIGO da Eletrônica.
+    # ⚠️ Isto só é seguro porque a checagem roda por ANEXO, não pela mensagem inteira: o
+    # corpo do e-mail quase sempre cita a Conecta Mais (foi a Pyetra que mandou), e olhar
+    # a mensagem toda faria a conta de luz do funcionário passar de novo.
+    limpo = " ".join((documento or "").upper().split())
+    return any(n in limpo for n in NOSSOS_NOMES)
+
+
 #: Nós, em qualquer grafia que apareça num documento. Um boleto contra a empresa sempre
 #: nos nomeia como pagador — e nós nunca somos o fornecedor de nós mesmos.
 _SOMOS_NOS = re.compile(
@@ -151,7 +190,7 @@ def _fornecedor(nome_from: str, dominio: str, texto: str, documento: str = "") -
 def varrer_e_registrar(db, dias: int = DIAS_JANELA, criar: bool = True) -> dict:
     """Lê a caixa, acha boletos válidos e registra os que ainda não existem."""
     usuario, senha, host, pasta = _conf()
-    rel = {"caixa": usuario, "mensagens": 0, "com_boleto": 0,
+    rel = {"caixa": usuario, "mensagens": 0, "com_boleto": 0, "de_terceiros": 0,
            "criados": 0, "ja_existiam": 0, "boletos": [], "erro": None}
     if not usuario or not senha:
         rel["erro"] = "credenciais IMAP ausentes (BOLETO_IMAP_* ou SMTP_*)"
@@ -171,10 +210,13 @@ def varrer_e_registrar(db, dias: int = DIAS_JANELA, criar: bool = True) -> dict:
             if not bruto or not bruto[0]:
                 continue
             msg = email.message_from_bytes(bruto[0][1])
+            # Já vêm filtrados por anexo: só boleto que nomeia uma das nossas empresas
+            # (ou o nome antigo da Eletrônica) como pagador.
             achados, texto_doc = _boletos_da_mensagem(msg)
             if not achados:
                 continue
             rel["com_boleto"] += 1
+
 
             nome_from, endereco = _remetente(_decodificar_cabecalho(msg.get("From")))
             assunto = _decodificar_cabecalho(msg.get("Subject"))[:200]
@@ -199,7 +241,13 @@ def varrer_e_registrar(db, dias: int = DIAS_JANELA, criar: bool = True) -> dict:
 
 
 def _boletos_da_mensagem(msg) -> tuple[list[dict], str]:
-    """(boletos válidos, texto lido) do corpo e dos PDFs anexos."""
+    """(boletos válidos CONTRA NÓS, texto lido) do corpo e dos PDFs anexos.
+
+    Cada anexo é julgado SOZINHO. Um e-mail de admissão traz o dossiê inteiro — CTPS,
+    ASO, e a conta de luz do funcionário como comprovante de residência. Olhando a
+    mensagem toda, a citação à Conecta Mais no corpo "provaria" que a conta de luz da
+    Luzangela é nossa. Por anexo, cada documento responde por si.
+    """
     pedacos = []
     for parte in msg.walk():
         tipo = parte.get_content_type()
@@ -217,7 +265,13 @@ def _boletos_da_mensagem(msg) -> tuple[list[dict], str]:
         except Exception as exc:  # noqa: BLE001
             logger.warning("boleto_email: parte ilegível (%s)", exc)
     texto = "\n".join(pedacos)
-    return achar_boletos(texto), texto
+    nossos: dict[str, dict] = {}
+    for pedaco in pedacos:
+        if not _e_contra_nos(pedaco):
+            continue
+        for b in achar_boletos(pedaco):
+            nossos[b["barras"]] = b
+    return list(nossos.values()), texto
 
 
 def _ja_pago(db, valor: float, venc: date) -> dict | None:
