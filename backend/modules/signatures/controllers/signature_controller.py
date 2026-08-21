@@ -29,8 +29,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.dependencies import get_current_active_user
 from core.database import get_db
+from core.models import User
 from modules.signatures.schemas.signature_schemas import (
+    AssinarLoteEmpresaSchema,
     AssinarLoteSchema,
     CreateSignatureRequestSchema,
     PublicSignSchema,
@@ -43,9 +46,6 @@ from modules.signatures.services.universal_signature_service import (
     SignerType,
     UniversalSignatureService,
 )
-
-from core.auth.dependencies import get_current_active_user
-from core.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,7 @@ def _evidence_from(request: Request, body_ev: Any = None) -> SignatureEvidence:
         device = getattr(body_ev, "device", None)
         location = getattr(body_ev, "location", None)
         extra = getattr(body_ev, "extra", None) or {}
-    return SignatureEvidence(
-        ip_address=ip, user_agent=ua, device=device, location=location, extra=extra
-    )
+    return SignatureEvidence(ip_address=ip, user_agent=ua, device=device, location=location, extra=extra)
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +186,37 @@ async def meus_pendentes(
 # 2c) ASSINAR EM LOTE (funcionário logado — limpa o histórico de uma vez)
 # --------------------------------------------------------------------------- #
 @router.post(
+    "/empresa/assinar-lote",
+    summary="EMPRESA assina em lote o que aguarda a co-assinatura dela",
+    description="Assina de uma vez tudo que está pendente do lado da empresa (espelho de "
+    "ponto, contrato, prorrogação). Existe porque a tela assinava UM POR VEZ: em 21/08/2026 "
+    "havia 53 espelhos aguardando — 53 cliques, que ninguém faz, e o kit do condomínio "
+    "parado esperando. Cada assinatura é real e passa pelas mesmas travas da individual; "
+    "um documento que falhe não aborta o lote.",
+)
+async def assinar_lote_empresa(
+    payload: AssinarLoteEmpresaSchema,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    if not getattr(current_user, "is_superuser", False) and not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Assinar pela empresa exige usuário administrador.",
+        )
+    svc = UniversalSignatureService(db)
+    return await svc.assinar_lote_empresa(
+        company_signer_id=current_user.id,
+        signer_name=getattr(current_user, "full_name", None) or current_user.email,
+        request_ids=payload.request_ids,
+        document_type=payload.document_type,
+        limite=payload.limite,
+        evidence=_evidence_from(request, payload.evidence),
+    )
+
+
+@router.post(
     "/assinar-lote",
     summary="Assinar várias solicitações do próprio funcionário de uma vez",
     description="Assina em lote (até 50 por chamada) as solicitações do funcionário "
@@ -254,8 +283,7 @@ async def assinar(
     if signer_type == SignerType.CUSTOMER:
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail="Solicitação de cliente deve ser assinada pelo link público "
-            "(POST /signatures/public/{token}).",
+            detail="Solicitação de cliente deve ser assinada pelo link público (POST /signatures/public/{token}).",
         )
 
     signer_id = _resolve_signer_id(credentials)
@@ -277,9 +305,7 @@ async def assinar(
                         detail="Sua conta não está vinculada a um funcionário.",
                     )
                 eff_employee_id = user_row.employee_id
-        if eff_employee_id is None or (
-            req.signer_id is not None and str(eff_employee_id) != str(req.signer_id)
-        ):
+        if eff_employee_id is None or (req.signer_id is not None and str(eff_employee_id) != str(req.signer_id)):
             raise HTTPException(
                 status_code=http_status.HTTP_403_FORBIDDEN,
                 detail="Você não pode assinar um documento que não é seu.",
@@ -297,11 +323,7 @@ async def assinar(
         if req_user_id is not None:
             _u = await db.execute(select(User).where(User.id == req_user_id))
             admin_user = _u.scalar_one_or_none()
-        if (
-            admin_user is None
-            or not admin_user.is_active
-            or (admin_user.role or "") not in ("admin", "operator")
-        ):
+        if admin_user is None or not admin_user.is_active or (admin_user.role or "") not in ("admin", "operator"):
             raise HTTPException(
                 status_code=http_status.HTTP_403_FORBIDDEN,
                 detail="Assinatura em nome da empresa exige usuário administrador autorizado.",

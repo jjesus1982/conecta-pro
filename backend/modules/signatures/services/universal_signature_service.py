@@ -1165,6 +1165,66 @@ class UniversalSignatureService:
             "total_historico": len(historico),
         }
 
+    async def assinar_lote_empresa(
+        self,
+        *,
+        company_signer_id: uuid.UUID | None = None,
+        signer_name: str | None = None,
+        request_ids: list[uuid.UUID] | None = None,
+        document_type: str | None = None,
+        limite: int = 60,
+        evidence: SignatureEvidence | None = None,
+    ) -> dict[str, Any]:
+        """Assina em LOTE tudo que espera a EMPRESA (co-assinatura).
+
+        Existe porque a tela da empresa assinava UM POR VEZ. Medido em 21/08/2026: 53
+        espelhos de ponto aguardando a contraparte — 53 cliques, que ninguém faz. Documento
+        que depende de trabalho manual repetitivo não é assinado, e o kit do condomínio
+        para em 70% esperando.
+
+        Sem `request_ids`, assina TUDO que estiver PENDING no lado COMPANY (opcionalmente
+        filtrado por `document_type`), até `limite`. Cada assinatura é real e passa pelo
+        mesmo `assinar` — inclusive pela trava que recusa documento sem PDF. Um documento
+        ruim não aborta o lote: entra em `falhas` e os outros seguem.
+        """
+        if request_ids:
+            alvos = list(request_ids)[:limite]
+        else:
+            q = (
+                select(SignatureRequest.id)
+                .where(
+                    SignatureRequest.signer_type == SignerType.COMPANY,
+                    SignatureRequest.status == RequestStatus.PENDING,
+                )
+                .order_by(SignatureRequest.created_at)
+                .limit(limite)
+            )
+            if document_type:
+                q = q.where(SignatureRequest.document_type == document_type)
+            alvos = list((await self.db.execute(q)).scalars().all())
+
+        rel: dict[str, Any] = {
+            "total": len(alvos),
+            "assinados": 0,
+            "falhas": 0,
+            "detalhes": [],
+        }
+        for rid in alvos:
+            try:
+                await self.assinar(
+                    request_id=rid if isinstance(rid, uuid.UUID) else uuid.UUID(str(rid)),
+                    signer_type=SignerType.COMPANY,
+                    signer_id=company_signer_id,
+                    signer_name=signer_name,
+                    evidence=evidence,
+                )
+                rel["assinados"] += 1
+            except Exception as exc:  # noqa: BLE001 — um documento ruim não cala o lote
+                rel["falhas"] += 1
+                rel["detalhes"].append({"request_id": str(rid), "erro": str(exc)[:110]})
+                logger.warning("assinar_lote_empresa: %s falhou: %s", rid, exc)
+        return rel
+
     async def assinar_lote(
         self,
         *,

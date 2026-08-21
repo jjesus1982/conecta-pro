@@ -29,7 +29,7 @@ import io
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +69,12 @@ _CERT_POR_EMPRESA: dict[str, dict] = {
     "conecta_eletronica": {
         "path_envs": ("CERT_A1_PATH", "CERTIFICATE_PATH"),
         "path_default": DEFAULT_CERT_PATH,
-        "password_env": "CERT_A1_PASSWORD",
+        "password_env": "CERT_A1_PASSWORD",  # pragma: allowlist secret — NOME da env, não a senha
     },
     "conecta_patrimonial": {
         "path_envs": ("CERT_A1_PATH_PATRIMONIAL",),
         "path_default": "/app/credentials/certificates/patrimonial.pfx",
-        "password_env": "CERT_A1_PASSWORD_PATRIMONIAL",
+        "password_env": "CERT_A1_PASSWORD_PATRIMONIAL",  # pragma: allowlist secret — NOME da env
     },
 }
 _EMPRESA_DEFAULT = "conecta_eletronica"
@@ -145,7 +145,7 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
     if quando is not None and hasattr(quando, "strftime"):
         when = quando.strftime("%d/%m/%Y %H:%M:%S")
     else:
-        when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus
+        when = (datetime.now(UTC) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus
     dig = _re.sub(r"\D", "", str(cpf or ""))
     cpf_f = f"{dig[:3]}.{dig[3:6]}.{dig[6:9]}-{dig[9:11]}" if len(dig) == 11 else (str(cpf or "").strip())
     h = (str(sha256 or ""))[:24]
@@ -164,6 +164,16 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
         x0 = (w - bw) / 2
         y0 = h_pg - bh - 44 - slot * (bh + 8)  # slot 0 = rodapé; 1 = acima (empilha sem sobrepor)
         x1, y1 = x0 + bw, y0 + bh
+        # 🔴 `k` e `compacto` eram usados abaixo e NUNCA definidos AQUI. Entraram em
+        # ef63c0dfe (17/08/2026), que os criou na função irmã `_estampar_icp` — onde a
+        # caixa é variável — e deixou esta usando nomes que não existem no escopo dela.
+        # Resultado: `NameError: name 'k' is not defined` em TODA assinatura eletrônica, e
+        # o `except` que engolia o erro escondeu isso por 4 dias. O selo nunca era gerado.
+        # Aqui a caixa é fixa em 316x76, que é o denominador de k — logo k = 1.0 e
+        # compacto = False; mantidos como variáveis para as duas funções continuarem
+        # legíveis lado a lado.
+        k = min(1.0, bw / 316.0, bh / 76.0)
+        compacto = bw < 260
         sh = pg.new_shape()
         sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
         sh.finish(color=greend, fill=light, width=1.1)
@@ -180,16 +190,31 @@ def _estampar_selo_eletronico(pdf_bytes: bytes, nome, cpf, sha256, quando=None, 
         s2.commit()
         tx = x0 + (12 if compacto else 66 * k)
         pg.insert_text((tx, y0 + 19), "ASSINADO ELETRONICAMENTE", fontsize=9, color=greend, fontname="hebo")
-        pg.insert_text((tx, y0 + 33), f"{(str(nome or 'Funcionário'))[:40]}  ·  CPF {cpf_f}", fontsize=8, color=navy, fontname="hebo")
-        pg.insert_text((tx, y0 + 45), f"{when} (Manaus)  ·  via Conecta PRO (MP 2.200-2)", fontsize=7.2, color=gray, fontname="helv")
-        pg.insert_text((tx, y0 + 59), f"SHA-256: {h}…  ·  conectamais.pro/verificar", fontsize=6.6, color=green, fontname="helv")
+        pg.insert_text(
+            (tx, y0 + 33),
+            f"{(str(nome or 'Funcionário'))[:40]}  ·  CPF {cpf_f}",
+            fontsize=8,
+            color=navy,
+            fontname="hebo",
+        )
+        pg.insert_text(
+            (tx, y0 + 45),
+            f"{when} (Manaus)  ·  via Conecta PRO (MP 2.200-2)",
+            fontsize=7.2,
+            color=gray,
+            fontname="helv",
+        )
+        pg.insert_text(
+            (tx, y0 + 59), f"SHA-256: {h}…  ·  conectamais.pro/verificar", fontsize=6.6, color=green, fontname="helv"
+        )
         return doc.tobytes(deflate=True)
     finally:
         doc.close()
 
 
-def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0,
-                           rect: tuple[float, float, float, float] | None = None) -> bytes:
+def _estampar_selo_branded(
+    pdf_bytes: bytes, subject_cn: str, slot: int = 0, rect: tuple[float, float, float, float] | None = None
+) -> bytes:
     """Desenha um SELO VISÍVEL branded (marca Conecta Mais) CENTRALIZADO no rodapé da
     última página — como Sólides/DocuSign. É a camada VISUAL; a validade jurídica vem da
     assinatura PAdES (que cobre este selo). Best-effort: erro aqui não bloqueia a assinatura.
@@ -208,8 +233,10 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0,
     # (o cert da Eletrônica tem "JORDAN SANTOS DE JESUS LTDA"); o CNPJ é o identificador.
     razao = _RAZAO_POR_CNPJ.get(dig)
     if not razao:  # fallback: razão do próprio cert, com a marca separada
-        razao = _re.sub(r"CONECTAMAIS", "CONECTA MAIS", (m.group(1) if m else (subject_cn or "")).strip(), flags=_re.IGNORECASE)
-    when = (datetime.now(timezone.utc) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus (com segundos)
+        razao = _re.sub(
+            r"CONECTAMAIS", "CONECTA MAIS", (m.group(1) if m else (subject_cn or "")).strip(), flags=_re.IGNORECASE
+        )
+    when = (datetime.now(UTC) - timedelta(hours=4)).strftime("%d/%m/%Y %H:%M:%S")  # Manaus (com segundos)
 
     seal = next((c for c in _SELO_SEAL_CANDS if os.path.exists(c)), None)
     navy = (0.086, 0.153, 0.290)
@@ -247,14 +274,18 @@ def _estampar_selo_branded(pdf_bytes: bytes, subject_cn: str, slot: int = 0,
         sh.commit()
         if seal and not compacto:
             try:
-                pg.insert_image(fitz.Rect(x0 + 13 * k, y0 + 17 * k, x0 + 55 * k, y0 + 59 * k),
-                                filename=seal, keep_proportion=True, overlay=True)
+                pg.insert_image(
+                    fitz.Rect(x0 + 13 * k, y0 + 17 * k, x0 + 55 * k, y0 + 59 * k),
+                    filename=seal,
+                    keep_proportion=True,
+                    overlay=True,
+                )
             except Exception:  # noqa: BLE001
                 pass
         # Linhas do selo: (texto, tamanho compacto, tamanho normal, cor, fonte)
         _linhas = [
             ("ASSINADO DIGITALMENTE  ·  ICP-Brasil", 7.4, 9 * k, navy, "hebo"),
-            (razao[:(30 if compacto else 44)], 7.0, 8 * k, navy2, "hebo"),
+            (razao[: (30 if compacto else 44)], 7.0, 8 * k, navy2, "hebo"),
             (f"CNPJ {cnpj}  ·  AC SOLUTI (fé pública)", 6.0, 7.2 * k, gray, "helv"),
             (f"{when}  ·  PAdES  ·  conectamais.pro/verificar", 5.4, 6.6 * k, orange, "helv"),
         ]
@@ -342,20 +373,17 @@ def assinar_pdf_icp_brasil(
     except Exception as exc:  # noqa: BLE001
         # NUNCA logar exc com o conteúdo do .p12 nem a senha.
         raise QualifiedSignatureError(
-            "Falha ao abrir o certificado A1 (verifique CERT_A1_PASSWORD). "
-            "Detalhe técnico omitido por segurança."
+            "Falha ao abrir o certificado A1 (verifique CERT_A1_PASSWORD). Detalhe técnico omitido por segurança."
         ) from exc
 
     cert = signer.signing_cert
 
     # Validação de validade (não expirado) ANTES de assinar — erro honesto.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     not_before = cert.not_valid_before
     not_after = cert.not_valid_after
     if now < not_before:
-        raise CertificadoExpiradoError(
-            f"Certificado A1 ainda não é válido (início em {not_before.isoformat()})."
-        )
+        raise CertificadoExpiradoError(f"Certificado A1 ainda não é válido (início em {not_before.isoformat()}).")
     if now > not_after:
         raise CertificadoExpiradoError(
             f"Certificado A1 VENCIDO em {not_after.isoformat()}. "
@@ -412,8 +440,7 @@ def assinar_pdf_icp_brasil(
         raise QualifiedSignatureError(f"Falha ao assinar o PDF (PAdES): {exc}") from exc
 
     logger.info(
-        "PDF assinado com A1 ICP-Brasil: subject_cn=%s issuer_cn=%s serial=%s "
-        "valido_ate=%s bytes=%d",
+        "PDF assinado com A1 ICP-Brasil: subject_cn=%s issuer_cn=%s serial=%s valido_ate=%s bytes=%d",
         _cn(cert.subject),
         _cn(cert.issuer),
         hex(cert.serial_number),
@@ -451,14 +478,12 @@ def certificado_status(empresa_slug: str | None = None) -> dict:
         return {"available": False, "reason": f"{cfg['password_env']} não configurada."}
 
     try:
-        signer = signers.SimpleSigner.load_pkcs12(
-            pfx_file=cert_path, passphrase=_cert_password(empresa_slug)
-        )
+        signer = signers.SimpleSigner.load_pkcs12(pfx_file=cert_path, passphrase=_cert_password(empresa_slug))
     except Exception:  # noqa: BLE001
         return {"available": False, "reason": "Falha ao abrir o certificado (senha?)."}
 
     cert = signer.signing_cert
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "available": True,
         "subject_cn": _cn(cert.subject),

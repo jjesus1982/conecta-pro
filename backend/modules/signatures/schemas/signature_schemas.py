@@ -13,9 +13,7 @@ class SignerSchema(BaseModel):
 
     signer_type: str = Field(..., description="employee | company | customer")
     signer_name: str = Field(..., description="Nome do signatário")
-    signer_id: uuid.UUID | None = Field(
-        None, description="UUID do funcionário/admin (opcional p/ cliente)"
-    )
+    signer_id: uuid.UUID | None = Field(None, description="UUID do funcionário/admin (opcional p/ cliente)")
     signer_email: str | None = None
     signer_phone: str | None = None
     signer_document: str | None = Field(None, description="CPF/CNPJ")
@@ -58,9 +56,27 @@ class AssinarLoteSchema(BaseModel):
     """Payload para assinar VÁRIAS solicitações do próprio funcionário de uma vez."""
 
     request_ids: list[uuid.UUID] = Field(
-        ..., min_length=1, max_length=50,
+        ...,
+        min_length=1,
+        max_length=50,
         description="IDs das solicitações a assinar (1..50 por chamada).",
     )
+    evidence: EvidenceSchema | None = None
+
+
+class AssinarLoteEmpresaSchema(BaseModel):
+    """Payload para a EMPRESA assinar em lote o que aguarda a co-assinatura dela."""
+
+    request_ids: list[uuid.UUID] | None = Field(
+        None,
+        max_length=200,
+        description="IDs específicos. Omitido = tudo que estiver pendente do lado da empresa.",
+    )
+    document_type: str | None = Field(
+        None,
+        description="Filtra por tipo (ex.: 'espelho_ponto'). Só vale quando request_ids é omitido.",
+    )
+    limite: int = Field(60, ge=1, le=200, description="Teto de documentos por chamada.")
     evidence: EvidenceSchema | None = None
 
 

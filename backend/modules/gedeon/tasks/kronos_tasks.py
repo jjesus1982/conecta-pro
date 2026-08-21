@@ -246,3 +246,30 @@ def hermes_vincular_docs_mes(self, mes_ref: str | None = None):
     except Exception as exc:
         logger.error("hermes_vincular_docs_mes falhou: %s", exc)
         raise self.retry(exc=exc, countdown=300)
+
+
+@shared_task(name="gedeon.assinaturas.avisar_pendentes", bind=True, max_retries=2)
+def avisar_assinaturas_pendentes(self, dry_run: bool = False):
+    """Avisa POR E-MAIL quem tem documento esperando assinatura.
+
+    A notificação in-app já existia e é passiva: `portal_notifications` não tem canal, e o
+    funcionário só a vê se entrar no portal por conta própria. Medido em 21/08/2026: 6 de
+    165 lidas, com 51 recibos e 67 holerites parados desde 15/07. Porteiro e ASG não entram
+    num portal web para descobrir que têm tarefa — alguém precisa avisar.
+
+    Só avisa sobre o que É ASSINÁVEL (tem PDF), e no máximo um e-mail por pessoa a cada
+    `_JANELA_DIAS`. Lembrete diário vira spam e some junto com o resto.
+    """
+    from core.database.session import get_sync_db
+    from modules.signatures.services.aviso_assinatura_service import avisar_pendentes
+
+    try:
+        with get_sync_db() as db:
+            rel = avisar_pendentes(db, dry_run=dry_run)
+            if not dry_run:
+                db.commit()
+        logger.info("aviso de assinaturas: %s", rel)
+        return rel
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("aviso de assinaturas falhou: %s", exc)
+        raise self.retry(exc=exc, countdown=600) from exc

@@ -287,7 +287,6 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=40),
         "options": {"queue": "gov.batch"},
     },
-
     # Encerra a competência anterior contra o PL. Dia 5 — depois de a NFS-e do mês
     # fechado ter entrado. Sem isto, 4.x e 5.x acumulam para sempre e o balanço
     # não fecha: foi assim que 42 competências ficaram abertas desde 2022.
@@ -296,7 +295,6 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=9, minute=0, day_of_month=5),
         "options": {"queue": "gov.batch"},
     },
-
     # ── Multi-CNPJ E4: extrato Cora (Patrimonial) + conciliação líquido×NFS-e ──
     "financeiro-extrato-cora-diario": {
         "task": "financial.cora_sync_extrato",
@@ -332,6 +330,14 @@ app.conf.beat_schedule = {
     "gedeon-themis-assinaturas": {
         "task": "gedeon.themis.verificacao_assinaturas",
         "schedule": crontab(minute=0, hour="*/4"),
+        "options": {"queue": "gov.batch"},
+    },
+    # Aviso por e-mail de documento a assinar. 09:00 é quando o pessoal do diurno já
+    # entrou e o do noturno ainda não dormiu — a janela em que a mensagem é lida.
+    # O serviço tem trava de reenvio própria (3 dias), então rodar diariamente não vira spam.
+    "assinaturas-avisar-pendentes": {
+        "task": "gedeon.assinaturas.avisar_pendentes",
+        "schedule": crontab(hour=9, minute=0),
         "options": {"queue": "gov.batch"},
     },
     "gedeon-fiscal-verificar-certidoes": {
@@ -839,7 +845,6 @@ if os.getenv("CONECTA_PROPOR_COBRANCA", "1").strip().lower() in ("1", "true", "s
         "schedule": crontab(hour=8, minute=50),
         "options": {"queue": "gov.batch"},
     }
-
 
 
 if __name__ == "__main__":
