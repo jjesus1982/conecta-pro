@@ -36,6 +36,47 @@ IC = {
 }
 
 
+def _acao_pagar_boleto(r) -> dict | None:
+    """Botão "Pagar" na linha, quando o título tem código de barras e está em aberto.
+
+    Sem isto, pagar exigia ler o código numa tela e colar noutra — e é aí que o erro
+    acontece. Em 14/08/2026 o Jordan tentou pagar VT da Patrimonial e as duas ordens
+    nasceram na Eletrônica, porque a tela nem tinha campo de conta.
+
+    ⚠️ A conta de origem NÃO vem pré-escolhida, de propósito. Valor e código de barras
+    vêm prontos porque são FATOS do documento; de qual banco o dinheiro sai não é fato,
+    é decisão — e preencher por padrão foi exatamente o defeito que custou caro antes.
+
+    ⚠️ Clicar NÃO paga. Abre a mesma ação `pagar-boleto`, que é gated e exige OTP.
+    """
+    codigo = "".join(c for c in (r[5] or "") if c.isdigit())
+    if len(codigo) not in (44, 47, 48):
+        return None                      # sem código de barras não há o que pagar por aqui
+    if (r[4] or "").lower() not in ("pendente", "parcial"):
+        return None                      # já pago/cancelado: o botão convidaria a pagar de novo
+    return {"actions": [{
+        "title": f"Pagar boleto — {r[0]}",
+        "sub": ("Dinheiro que SAI: 2 etapas + OTP. Confira a conta — Cora é a Patrimonial, "
+                "Inter é a Eletrônica, são CNPJs diferentes. Boleto vencido costuma ser "
+                "recusado no valor de face: nesse caso peça a segunda via com juros."),
+        "endpoint": "/api/v1/redesign/action/pagar-boleto",
+        "method": "POST", "btnLabel": "Pagar", "submitLabel": "Preparar e gerar OTP",
+        "btnStyle": "primary", "gated": True,
+        "okMsg": "Ordem preparada. Confira o OTP no e-mail para liberar.",
+        "fields": [
+            {"key": "codigo_barras", "label": "Código de barras", "type": "text", "value": codigo},
+            {"key": "valor", "label": "Valor (R$)", "type": "text",
+             "value": f"{float(r[2] or 0):.2f}".replace(".", ",")},
+            {"key": "origem", "label": "Pagar pela conta*", "type": "select", "value": "",
+             "options": [{"value": "", "label": "— escolha —"},
+                         {"value": "cora", "label": "Cora (Patrimonial)"},
+                         {"value": "inter", "label": "Inter (Eletrônica)"}]},
+            {"key": "data", "label": "Data do pagamento", "type": "date", "value": ""},
+            {"key": "descricao", "label": "Descrição", "type": "text",
+             "value": str(r[1] or "")[:120]},
+        ]}]}
+
+
 def t(v: Any, w: int = 500, tc: str = "#334155", ini: str = "") -> dict:
     return {"isText": True, "v": str(v) if v is not None else "—", "w": w, "tc": tc, "ini": ini}
 
@@ -473,10 +514,15 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             ],
         }
 
-    async def _tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…"):
+    async def _tbl(title, sub, cta, cols, grid, sql, rowfn, hint="Buscar…", extra=None):
         rows = (await db.execute(text(sql))).fetchall()
         return {"title": title, "sub": sub, "cta": cta, "type": "table", "searchHint": hint,
-                "grid": grid, "cols": cols, "rows": [{"cells": rowfn(r)} for r in rows]}
+                "grid": grid, "cols": cols,
+                # `extra` acrescenta chaves à LINHA (não à célula) — é assim que a
+                # tabela ganha botão de ação sem virar outra tabela. A ModuleView já
+                # renderiza `row.actions`; nada muda no frontend.
+                "rows": [{"cells": rowfn(r), **((extra(r) if extra else None) or {})}
+                         for r in rows]}
 
     def paytone(st):
         return _PAY_TONE.get((st or "").lower(), ((st or "—"), "mut"))
@@ -485,9 +531,11 @@ async def _build_financeiro(db: AsyncSession) -> dict:
     await safe("contas-pagar", _tbl(
         "Contas a pagar", "A pagar em aberto e recentes", "Nova conta",
         ["Fornecedor", "Descrição", "Valor", "Vencimento", "Status"], "1.5fr 2fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(nullif(supplier_name,''),fornecedor_nome,'—'), coalesce(description,'—'), net_value, due_date, status "
+        "SELECT coalesce(nullif(supplier_name,''),fornecedor_nome,'—'), coalesce(description,'—'), net_value, due_date, status, "
+        "       coalesce(document_number,'') "
         "FROM payable_accounts ORDER BY (status IN ('pendente','parcial')) DESC, due_date NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]), 600), t(r[3].strftime('%d/%m/%Y') if r[3] else '—'), b(*paytone(r[4]))]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2]), 600), t(r[3].strftime('%d/%m/%Y') if r[3] else '—'), b(*paytone(r[4]))],
+        extra=_acao_pagar_boleto))
     await safe("contas-receber", _tbl(
         "Contas a receber", "A receber em aberto e recentes", "Nova cobrança",
         ["Cliente", "Descrição", "Valor", "Vencimento", "Status"], "1.5fr 2fr 1fr 1fr 0.9fr",
