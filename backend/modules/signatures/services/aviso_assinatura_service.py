@@ -72,11 +72,14 @@ _SQL_PENDENTES = text(
     """
 )
 
+# `portal_notifications.id` é INTEGER com sequência própria — não é uuid como nas outras
+# tabelas da casa. Gerar o id aqui dá "column id is of type integer but expression is of
+# type uuid", e o INSERT falha DEPOIS do e-mail já ter saído: a pessoa recebe e o sistema
+# não registra, então o próximo lembrete a alcança de novo. Deixar a sequência trabalhar.
 _SQL_REGISTRA = text(
-    "INSERT INTO portal_notifications (id, employee_id, notification_type, title, message, "
+    "INSERT INTO portal_notifications (employee_id, notification_type, title, message, "
     "  is_read, created_at) "
-    "VALUES (gen_random_uuid(), CAST(:eid AS uuid), 'system', :titulo, :msg, "
-    "  false, now())"
+    "VALUES (CAST(:eid AS uuid), 'system', :titulo, :msg, false, now())"
 )
 
 _ROTULO = {
