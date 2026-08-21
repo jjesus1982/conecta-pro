@@ -253,6 +253,44 @@ async def abrir_assinatura_contrato(
     }
 
 
+@router.post("/{contract_id}/assinar-empresa")
+async def assinar_contrato_pela_empresa(
+    contract_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """A Conecta Mais firma o contrato pelo painel (1º signatário).
+
+    Mesmo portão da emissão: só Jordan e Pyetra assinam pela empresa. Depois disto o link
+    do cliente pode ser enviado — e não antes.
+    """
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    W.exigir_emitente(current_user)
+    num = (await db.execute(text(
+        "SELECT contract_number FROM contracts WHERE id::text = :k OR contract_number = :k"),
+        {"k": contract_id})).scalar()
+    if not num:
+        raise HTTPException(status_code=404, detail="Contrato não encontrado")
+    try:
+        res = await renderizar_contrato(db, num)
+    except RenderError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    try:
+        r = await CS.assinar_pela_empresa(
+            db, num, nome=getattr(current_user, "full_name", None) or "Conecta Mais",
+            pdf=res.pdf, usuario_id=getattr(current_user, "id", None))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    await db.commit()
+    return {"contrato": num, "assinado_por": getattr(current_user, "full_name", ""),
+            "quando": str(r.get("signed_at") or ""), "hash": r.get("signature_hash"),
+            "completo": bool(r.get("group_completed")),
+            "resumo": f"{num} assinado pela CONTRATADA. Agora envie o link ao cliente."}
+
+
 @router.get("/{contract_id}/assinaturas")
 async def status_assinaturas_contrato(
     contract_id: str,

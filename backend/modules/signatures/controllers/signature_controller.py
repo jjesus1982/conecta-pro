@@ -405,6 +405,37 @@ async def public_info(
     }
 
 
+@router.get(
+    "/public/{token}/documento",
+    summary="Documento a assinar (cliente, via link)",
+    description="Entrega o PDF que o cliente vai assinar. Sem autenticação — o token é a "
+    "credencial. Sem esta rota o signatário assinaria às cegas.",
+)
+async def public_document(
+    token: str = Path(...),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    from fastapi.responses import Response  # noqa: PLC0415
+
+    svc = UniversalSignatureService(db)
+    req = await svc._get_request_by_token(token)  # noqa: SLF001
+    if req is None:
+        raise HTTPException(status_code=404, detail="Link de assinatura inválido.")
+    # depois de assinado, o que vale é a via carimbada
+    caminho = req.signed_document_path or req.document_path
+    if not caminho:
+        raise HTTPException(status_code=404, detail="Documento não disponível para este link.")
+    try:
+        pdf = svc._read_pdf(caminho)  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail="Documento não disponível para este link.")
+    if not pdf:
+        raise HTTPException(status_code=404, detail="Documento não disponível para este link.")
+    nome = (req.document_name or "documento").replace('"', "")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{nome}.pdf"'})
+
+
 @router.post(
     "/public/{token}",
     summary="Cliente assina via link seguro",

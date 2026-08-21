@@ -35,6 +35,7 @@ TOOL_RISK: dict[str, str] = {
     "gerar_contrato_por_modelo": "write",
     "briefing_contrato_novo": "read",   # só pergunta, não grava nada
     "abrir_assinatura_contrato": "write",  # cria solicitação e link do cliente
+    "assinar_contrato_empresa": "write",  # firma o instrumento pela CONTRATADA
     "status_assinatura_contrato": "read",
     "baixar_espelho_ponto_pdf": "read",
     "baixar_holerite_pdf": "read",

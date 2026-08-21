@@ -15,6 +15,7 @@ para o síndico assinar um documento que a própria empresa ainda não firmou.
 from __future__ import annotations
 
 import hashlib
+import os
 import uuid
 from dataclasses import dataclass
 
@@ -22,6 +23,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 BASE_PUBLICA = "https://erp.conectamais.pro"
+# o motor lê o PDF de origem de `req.document_path` para carimbar o selo. Sem ele, só o
+# assinante que trouxer os bytes na mão consegue firmar — e o cliente, que assina pela rota
+# pública `/signatures/public/{token}`, NUNCA traz. Persistir aqui é o que faz o link do
+# cliente funcionar sem tocar no motor.
+PASTA_CONTRATOS = os.environ.get("CONECTA_UPLOADS", "/app/uploads") + "/contratos_assinatura"
 
 
 @dataclass
@@ -50,10 +56,15 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
     )
 
     doc_hash = _sha256(pdf)
+    os.makedirs(PASTA_CONTRATOS, exist_ok=True)
+    caminho = f"{PASTA_CONTRATOS}/{contract_id}_{doc_hash[:12]}.pdf"
+    with open(caminho, "wb") as fh:
+        fh.write(pdf)
     svc = UniversalSignatureService(db)
     res = await svc.criar_solicitacao_assinatura(
         document_type="contrato",
-        document_id=uuid.uuid4(),
+        document_id=str(uuid.uuid4()),
+        title=f"Contrato {contract_id} — {contratante_nome}",
         signers=[
             # ordem 1: a empresa. Não se pede ao síndico que assine o que a Conecta Mais
             # ainda não firmou.
@@ -65,6 +76,7 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
                         order=2),
         ],
         document_name=f"Contrato {contract_id} — {contratante_nome}",
+        document_path=caminho,
         document_hash=doc_hash,
         requested_by=solicitado_por,
         purpose="signature",
@@ -81,8 +93,41 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
         request_id_empresa=str(emp.get("id")) if emp else None,
         request_id_cliente=str(cli.get("id")) if cli else None,
         token_cliente=token,
-        link_cliente=f"{BASE_PUBLICA}/assinar/{token}" if token else None,
+        link_cliente=f"{BASE_PUBLICA}/assinar/contrato/{token}" if token else None,
         documento_hash=doc_hash,
+    )
+
+
+async def assinar_pela_empresa(db: AsyncSession, contract_id: str, *, nome: str,
+                               pdf: bytes,
+                               usuario_id: uuid.UUID | None = None, ip: str | None = None,
+                               user_agent: str | None = None) -> dict:
+    """A Conecta Mais firma o contrato pelo painel (ordem 1).
+
+    Só coleta a assinatura; quem faz a prova criptográfica e a trilha é o motor universal.
+    """
+    from modules.signatures.services.universal_signature_service import (
+        SignatureEvidence,
+        SignerType,
+        UniversalSignatureService,
+    )
+
+    req = (await db.execute(text(
+        "SELECT id FROM sig_signature_requests WHERE reference_code = :k "
+        "AND signer_type = 'company' AND signed_at IS NULL "
+        "ORDER BY created_at DESC LIMIT 1"), {"k": contract_id})).scalar()
+    if not req:
+        raise ValueError(f"não há solicitação da empresa em aberto para {contract_id}")
+
+    svc = UniversalSignatureService(db)
+    return await svc.assinar(
+        request_id=req, signer_type=SignerType.COMPANY, signer_id=usuario_id,
+        signer_name=nome,
+        evidence=SignatureEvidence(ip_address=ip, user_agent=user_agent,
+                                   extra={"contrato": contract_id, "origem": "painel"}),
+        # o motor RECUSA registrar sem o documento de origem — ele carimba o selo no PDF.
+        # Recusa honesta: sem isso ficaria assinatura registrada sem papel assinado.
+        pdf_bytes=pdf,
     )
 
 
@@ -96,6 +141,35 @@ FROM sig_signature_requests r
 WHERE r.reference_code = :k AND r.signed_at IS NOT NULL
 ORDER BY r.signature_order, r.signed_at
 """
+
+
+async def manifesto_do_contrato(db: AsyncSession, contract_id: str) -> list[dict]:
+    """TODOS os signatários — assinados e pendentes — para o manifesto ao final do PDF.
+
+    Diferente de `assinaturas_do_contrato`, que só devolve quem já assinou (o bloco de
+    assinatura não pode carimbar quem não firmou). O manifesto mostra os dois estados:
+    é a trilha de auditoria, e uma trilha que esconde o pendente não é trilha.
+    """
+    try:
+        linhas = (await db.execute(text("""
+            SELECT r.signer_type::text AS papel, r.signer_name AS nome, r.signer_document AS doc,
+                   r.signed_at, r.signing_ip, r.signing_user_agent AS agente,
+                   coalesce(r.signed_document_hash, r.document_hash, '') AS hash,
+                   r.id::text AS req, r.signature_order AS ordem
+            FROM sig_signature_requests r
+            WHERE r.reference_code = :k
+            ORDER BY r.signature_order"""), {"k": contract_id})).mappings().all()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        return []
+    return [{
+        "papel": "CONTRATADA" if "company" in (r["papel"] or "") else "CONTRATANTE",
+        "nome": r["nome"] or "", "doc": r["doc"] or "",
+        "quando": r["signed_at"].strftime("%d/%m/%Y às %H:%M:%S") if r["signed_at"] else "",
+        "assinado": r["signed_at"] is not None,
+        "ip": r["signing_ip"] or "", "agente": (r["agente"] or "")[:60],
+        "hash": r["hash"] or "", "req": r["req"], "ordem": r["ordem"],
+    } for r in linhas]
 
 
 async def assinaturas_do_contrato(db: AsyncSession, contract_id: str) -> list[dict]:

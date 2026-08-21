@@ -476,6 +476,19 @@ async def abrir_assinatura_contrato(contrato: str, email_cliente: str = "") -> d
 
 
 @mcp.tool
+async def assinar_contrato_empresa(contrato: str) -> dict:
+    """A Conecta Mais ASSINA o contrato pelo painel (1º signatário).
+
+    Só depois disto o link do cliente deve ser enviado — não se pede ao síndico que assine
+    o que a própria empresa ainda não firmou. Restrito a Jordan e Pyetra.
+    """
+    try:
+        return await erp.post(f"/crm/contracts/{contrato}/assinar-empresa", json={})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
 async def status_assinatura_contrato(contrato: str) -> dict:
     """Quem já assinou o contrato, quando e com que hash — e quem ainda falta."""
     try:

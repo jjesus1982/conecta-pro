@@ -538,6 +538,51 @@ register(ToolDef(
      "required": ["contrato"]},
     _abrir_assinatura_contrato, scope_kind="org"))
 
+async def _assinar_contrato_empresa(db, user, scope, *, contrato=None, **_) -> dict[str, Any]:
+    """A Conecta Mais firma pelo painel. É AÇÃO, não consulta: mesmo portão da emissão."""
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    if not contrato:
+        return _recusa("informe o número (CTR-...) ou o id do contrato.")
+
+    num = (await db.execute(sa_text(
+        "SELECT contract_number FROM contracts WHERE id::text = :k OR contract_number = :k"),
+        {"k": contrato})).scalar()
+    if not num:
+        return _recusa(f"contrato {contrato} não encontrado.")
+    try:
+        res = await renderizar_contrato(db, num)
+    except RenderError as e:
+        return _recusa(str(e))
+    try:
+        r = await CS.assinar_pela_empresa(
+            db, num, nome=getattr(user, "full_name", None) or "Conecta Mais",
+            pdf=res.pdf, usuario_id=getattr(user, "id", None))
+    except ValueError as e:
+        return _recusa(str(e))
+    await db.commit()
+    return {"status": "assinado", "contrato": num,
+            "assinado_por": getattr(user, "full_name", ""),
+            "hash": r.get("signature_hash"),
+            "completo": bool(r.get("group_completed")),
+            "resumo": f"{num} assinado pela CONTRATADA. Agora mande o link ao cliente."}
+
+
+register(ToolDef(
+    "assinar_contrato_empresa", "crm",
+    "A Conecta Mais ASSINA o contrato pelo painel (1º signatário). Só depois disto o link "
+    "do cliente deve ser enviado. Restrito a Jordan e Pyetra.",
+    {"type": "object", "properties": {"contrato": {"type": "string"}},
+     "required": ["contrato"]},
+    _assinar_contrato_empresa, scope_kind="org"))
+
 register(ToolDef(
     "status_assinatura_contrato", "crm",
     "Quem já assinou o contrato, quando e com que hash — e quem ainda falta.",

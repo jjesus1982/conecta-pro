@@ -28,7 +28,7 @@ CNPJ_ELETRONICA = "35710481000103"
 # "test_oraculo_central_crm"/"test_oraculo_u2_crm"/"test_oraculo_5_6b_contrato" e o gate
 # PULAVA silenciosamente os que não existiam — verde por ausência.
 ORACULOS = ["test_oraculo_contrato_render", "test_oraculo_contrato_strict",
-            "test_oraculo_contrato_cnpj", "test_central_crm",
+            "test_oraculo_contrato_cnpj", "test_oraculo_contrato_assinatura", "test_central_crm",
             "test_oraculo_checklist_do_contrato", "test_oraculo_kit_por_contrato",
             "test_oraculos_5_6b_contrato", "test_u2_crm"]
 

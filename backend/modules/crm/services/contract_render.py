@@ -594,10 +594,72 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None):
     return [KeepTogether(el)]
 
 
+def _manifesto(st: dict, contrato: str, manifesto: list) -> list:
+    """Manifesto de assinaturas — a página que o próprio contrato promete.
+
+    O fecho do instrumento invoca o art. 784, § 4º do CPC: dispensa testemunha porque a
+    integridade "é conferida pelo provedor de assinatura, conforme manifesto ao final".
+    Sem esta página o contrato afirmava sobre si mesmo algo que não era verdade — e é
+    justamente ela que sustenta a dispensa da testemunha.
+    """
+    from reportlab.lib import colors  # noqa: PLC0415
+    from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
+
+    el: list = [PageBreak(), Paragraph("MANIFESTO DE ASSINATURAS ELETRÔNICAS", st["h_sec"]),
+                Spacer(1, 4),
+                Paragraph(f"Documento: contrato nº {contrato}. Este manifesto integra o "
+                          "instrumento e registra a trilha de auditoria de cada assinatura, "
+                          "na forma do art. 10, § 2º, da MP nº 2.200-2/2001.", st["corpo"]),
+                Spacer(1, 8)]
+
+    if not manifesto:
+        el.append(Paragraph(
+            "<i>A coleta de assinaturas deste instrumento ainda não foi aberta. Quando as "
+            "partes assinarem, esta página passará a registrar nome, documento, data, hora, "
+            "endereço IP e o código de verificação de cada assinatura.</i>", st["corpo"]))
+        return el
+
+    cab = ["#", "Parte / signatário", "Situação", "Data e hora", "IP"]
+    linhas = [[Paragraph(f"<b>{c}</b>", st["cellh"]) for c in cab]]
+    for m in manifesto:
+        quem = f"<b>{m['papel']}</b><br/>{m['nome']}"
+        if m.get("doc"):
+            quem += f"<br/><font size=7>CPF {m['doc']}</font>"
+        situacao = "Assinado" if m["assinado"] else "<font color='#8A94A6'>Pendente</font>"
+        linhas.append([Paragraph(str(m["ordem"]), st["cell"]), Paragraph(quem, st["cell"]),
+                       Paragraph(situacao, st["cell"]),
+                       Paragraph(m["quando"] or "—", st["cell"]),
+                       Paragraph(m["ip"] or "—", st["small"])])
+    el.append(Table(linhas, colWidths=[8 * mm, 62 * mm, 24 * mm, 44 * mm, 32 * mm],
+                    hAlign="CENTER",
+                    style=TableStyle([
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF0FF")),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5)])))
+
+    assinados = [m for m in manifesto if m["assinado"]]
+    if assinados:
+        el.append(Spacer(1, 10))
+        el.append(Paragraph("<b>Códigos de verificação</b>", st["cell"]))
+        for m in assinados:
+            el.append(Paragraph(
+                f"{m['nome']} — {m['hash']}<br/>"
+                f"<font size=6.5>solicitação {m['req']}</font>", st["small"]))
+            el.append(Spacer(1, 3))
+    el.append(Spacer(1, 8))
+    el.append(Paragraph(
+        "A autenticidade e a integridade deste documento podem ser conferidas junto à "
+        "Conecta Mais mediante o número do contrato e os códigos acima.", st["small"]))
+    return el
+
+
 def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None,
                        itens: list | None = None, total_fmt: str = "",
                        capa: dict | None = None, ctx_assin: dict | None = None,
-                       assinaturas: list | None = None) -> bytes:
+                       assinaturas: list | None = None,
+                       manifesto: list | None = None, numero: str = "") -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -635,6 +697,12 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
                             tit_st if eh_clausula else corpo_st))
         if eh_clausula:
             el.append(Spacer(1, 3))
+
+    # `is not None`, NÃO `if manifesto`: com a lista vazia (assinatura ainda não aberta) o
+    # contrato continua prometendo "manifesto ao final" no fecho. Sair sem a página nesse
+    # estado é exatamente a promessa não cumprida que o oráculo guarda.
+    if manifesto is not None:
+        el.extend(_manifesto(st, numero, manifesto))
 
     # mesmo cabeçalho/rodapé/selo do contract_pdf, MAS com a empresa certa
     marca = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
@@ -685,8 +753,14 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
     cab = (await db.execute(text(_SQL_CONTRATO), {"k": contract_id})).mappings().first()
     # assinaturas JÁ coletadas. Vazio = "Aguardando assinatura eletrônica" no bloco final;
     # nunca inventa carimbo.
-    from modules.crm.services.contract_signature import assinaturas_do_contrato  # noqa: PLC0415
-    assinaturas = await assinaturas_do_contrato(db, cab["contract_number"] or contract_id)
+    from modules.crm.services.contract_signature import (  # noqa: PLC0415
+        assinaturas_do_contrato,
+        manifesto_do_contrato,
+    )
+    numero = cab["contract_number"] or contract_id
+    assinaturas = await assinaturas_do_contrato(db, numero)
+    # o manifesto lista TAMBÉM quem ainda não assinou — é trilha de auditoria, não vitrine
+    manifesto = await manifesto_do_contrato(db, numero)
 
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
@@ -726,7 +800,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
                   "numero": cab["contract_number"], "inicio": cab["start_date"],
                   "razao_contratada": contratada.razao_social},
-            ctx_assin=ctx, assinaturas=assinaturas),
+            ctx_assin=ctx, assinaturas=assinaturas, manifesto=manifesto, numero=numero),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
