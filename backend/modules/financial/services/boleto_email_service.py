@@ -6,10 +6,22 @@ avulsa, conta de um posto recém-aberto — nada disso tem histórico, e ningué
 existe até o dinheiro sair (ou o boleto vencer, que foi o caso da Full Telecom em 19/08:
 R$4,48 de juros e 30 dias sem saber que devia).
 
-O ideal seria DDA — o banco entrega todo boleto emitido contra o CNPJ, tenha a gente
-pago antes ou não. Sondado em 19/08: `dda.read`, `boleto-dda.read` e `pagamento-dda.read`
-devolvem "No registered scope value for this client" no Inter, ou seja, não liberado para
-a nossa aplicação. Enquanto não liberam, o e-mail é a fonte que não depende de terceiro.
+O ideal seria DDA — o banco entrega todo boleto emitido contra o CNPJ, tenha a gente pago
+antes ou não.
+
+⚠️ **O Inter NÃO tem API de DDA**, e eu afirmei o contrário antes de conferir. Em 19/08
+sondei escopos que EU inventei (`dda.read`, `boleto-dda.read`, `pagamento-dda.read`),
+levei "No registered scope value for this client" e li como "existe mas não está
+liberado". Errado. Medido em 21/08 com token válido: `/banking/v2/dda`,
+`/banking/v2/dda/boletos` e `/banking/v2/boletos-a-pagar` devolvem **404 page not found**
+— enquanto `/banking/v2/extrato` devolve 400 pedindo parâmetros (o controle que prova que
+o token funciona). E o portal de desenvolvedores do Inter lista só Extrato, Saldos,
+Pagamentos, Pix (Automático/Cobrança/Pagamento) e Cobrança. O Inter tem DDA no app e no
+internet banking, mas não expõe por API.
+
+Ou seja: o e-mail não é o plano B enquanto o Inter não libera — **é o caminho**. DDA por
+API existe documentado em outros bancos (BTG Pactual, ABC Brasil), o que é decisão de
+abrir conta, não de código.
 
 ⚠️ **Só cria pagável com código de barras VÁLIDO.** O `boleto_codigo` confere os dígitos
 verificadores; CNPJ, número de contrato e chave de NFS-e — que também são sequências
