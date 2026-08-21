@@ -41,8 +41,34 @@ from modules.crm.services import pdf_branding as B
 # ── As duas prestadoras. Fonte: tabela `empresas` (conferido 19/08). Ficam aqui como
 #    constante de REGRA, não de dado: a resolução tem de ser determinística e testável
 #    mesmo que alguém edite a linha da empresa.
-PATRIMONIAL = ("CONECTAMAIS PATRIMONIAL LTDA", "66.014.833/0001-10")
-ELETRONICA = ("CONECTAMAIS ELETRONICA LTDA", "35.710.481/0001-03")
+# Razão social COMO APARECE NO CONTRATO. Decisão do Jordan (21/08): na Receita a
+# contadora registrou "CONECTAMAIS" tudo junto; a grafia correta da marca é "Conecta Mais",
+# separado, e é assim que ele quer no instrumento. O CNPJ — que é o que identifica a parte —
+# permanece o registrado, então a diferença é de grafia, não de pessoa jurídica.
+PATRIMONIAL = ("Conecta Mais Patrimonial LTDA", "66.014.833/0001-10")
+ELETRONICA = ("Conecta Mais Eletrônica LTDA", "35.710.481/0001-03")
+
+# Sede de cada prestadora, CONFERIDA NA RECEITA FEDERAL em 21/08/2026 — fonte da verdade
+# declarada pelo Jordan. As duas fontes que eu vinha usando estavam erradas:
+#   · pdf_branding dizia "Rua Victor Hughes, 19 — Parque 10 de Novembro" para a
+#     Patrimonial: faltavam o complemento (Conjunto Castelo Branco) e o CEP;
+#   · o .docx dava a ELETRÔNICA em "Rua 42, nº 16, Conj. Castelo Branco II, Parque Dez de
+#     Novembro, CEP 69055-600" — endereço COMPLETAMENTE diferente do registrado.
+# Se o cadastro na Receita mudar, isto tem de ser reconferido (não há sincronismo).
+_SEDE = {
+    PATRIMONIAL[1]: "Rua Victor Hughes, 19, Conjunto Castelo Branco, Parque 10 de Novembro, "
+                    "CEP 69055-630, Manaus/AM",
+    ELETRONICA[1]: "Rua Nova Palestina, 51, Crespo, CEP 69073-488, Manaus/AM",
+}
+
+
+def cnpj_fmt(v: str | None) -> str:
+    """00.000.000/0000-00. O cadastro guarda sem máscara e o contrato imprimia
+    "CNPJ nº 08063476000183" — o resto do documento usa a forma pontuada."""
+    d = re.sub(r"\D", "", v or "")
+    if len(d) != 14:
+        return v or ""
+    return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
 
 # Vocabulário REAL de `contracts.tipo_servico`, medido em 19/08:
 #   maodeobra 8 · manutencao_cftv 3 · portaria_remota 2 · NULL 2
@@ -177,6 +203,18 @@ def brl(v: Decimal | float | int) -> str:
     return f"R$ {Decimal(str(v)):,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
+_MES_PT = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+           "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def data_extenso(d) -> str:
+    """1º de setembro de 2026 — a forma que o contrato usa para datas de vigência."""
+    if not d:
+        return ""
+    dia = "1º" if d.day == 1 else str(d.day)
+    return f"{dia} de {_MES_PT[d.month]} de {d.year}"
+
+
 _NUM_EXT = {1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco", 6: "seis", 7: "sete",
             8: "oito", 9: "nove", 10: "dez", 12: "doze", 15: "quinze", 20: "vinte",
             24: "vinte e quatro", 30: "trinta", 36: "trinta e seis", 48: "quarenta e oito",
@@ -187,12 +225,27 @@ def num_extenso(n: int) -> str:
     return _NUM_EXT.get(n) or _ate_999(n) or str(n)
 
 
+def num_par(n: int) -> str:
+    """Número + extenso entre parênteses, na forma que o contrato usa.
+
+    O .docx de origem escreve "90 (noventa) dias", "24 (vinte e quatro) meses",
+    "04 (quatro) agentes" e "dia 05 (cinco)" — sempre o algarismo E o extenso, com zero
+    à esquerda até 9. As variáveis do modelo se chamam *_extenso mas ocupam a posição
+    inteira ("{{var}} dias"), então devolver só "noventa" descaracterizava a redação
+    jurídica. Aqui a forma volta a ser a do documento.
+    """
+    return f"{n:02d} ({num_extenso(n)})"
+
+
 # ── Contexto ─────────────────────────────────────────────────────────────────────────
 _SQL_CONTRATO = """
 SELECT c.id::text, c.contract_number, c.name, c.monthly_value, c.start_date, c.end_date,
        c.tipo_servico::text  AS tipo_servico,
        c.template_id::text   AS template_id,
+       c.payment_day,
+       c.grace_period_days,
        c.notice_period_days,
+       c.renewal_notification_days,
        cl.name               AS cliente_nome,
        cl.document_number    AS cliente_cnpj,
 
@@ -255,7 +308,7 @@ def _composicao(itens: list) -> dict:
     return {"qtd_diurno": str(dia) if dia else "", "qtd_noturno": str(noite) if noite else "",
             "valor_diurno_fmt": brl(v_dia) if v_dia else "",
             "valor_noturno_fmt": brl(v_noite) if v_noite else "",
-            "qtd_agentes_extenso": num_extenso(dia + noite) if (dia + noite) else ""}
+            "qtd_agentes_extenso": num_par(dia + noite) if (dia + noite) else ""}
 
 
 async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) -> tuple[dict, Contratada]:
@@ -272,23 +325,50 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
     valor = Decimal(str(row["monthly_value"] or 0))
     meses = None
     if row["start_date"] and row["end_date"]:
-        meses = (row["end_date"].year - row["start_date"].year) * 12 + \
-                (row["end_date"].month - row["start_date"].month)
+        ini, fim = row["start_date"], row["end_date"]
+        meses = (fim.year - ini.year) * 12 + (fim.month - ini.month)
+        # 01/09/2026 → 31/08/2028 são 24 meses, mas a diferença de mês dá 23: o término é o
+        # DIA ANTERIOR ao aniversário. Sem este ajuste o contrato saía "23 (vinte e três)
+        # meses" — prazo errado no instrumento.
+        if fim.day >= ini.day:
+            meses += 1
 
     ctx = {
         "contratante_nome": row["cliente_nome"] or "",
-        "contratante_cnpj": row["cliente_cnpj"] or "",
+        "contratante_cnpj": cnpj_fmt(row["cliente_cnpj"]),
         "contratante_endereco": row["cliente_endereco"] or "",
         "contratante_representante": (rep["name"] if rep else ""),
         "contratante_representante_cpf": ((rep["notes"] or "") if rep else ""),
         "contratada_razao_social": contratada.razao_social,
         "contratada_cnpj": contratada.cnpj,
+        "contratada_endereco": _SEDE.get(contratada.cnpj, ""),
         "contratada_representante": "Jordan Santos de Jesus",
         "valor_mensal_fmt": brl(valor),
         "valor_mensal_extenso": por_extenso(valor),
         **_composicao(itens),
-        "vigencia_meses_extenso": num_extenso(meses) if meses else "",
-        "primeiro_pagamento_dias_extenso": num_extenso(int(row["notice_period_days"] or 30)),
+        "vigencia_meses_extenso": num_par(meses) if meses else "",
+        # Cláusula quarta (redação aprovada pelo Jordan em 21/08): a vigência passou a ter
+        # início e fim EXPLÍCITOS e renovação AUTOMÁTICA. Antes dizia "contados a partir da
+        # data de sua assinatura, podendo ser renovado por acordo entre as partes" — o que
+        # contradizia as duas instruções: começar em 01/09 e renovar sem precisar de acordo.
+        "vigencia_inicio_extenso": data_extenso(row["start_date"]),
+        "vigencia_fim_extenso": data_extenso(row["end_date"]),
+        "renovacao_aviso_dias_extenso": (num_par(int(row["renewal_notification_days"]))
+                                         if row["renewal_notification_days"] else ""),
+        # Dia do vencimento: cláusula negociada, não constante. Vinha como "dia 05 (cinco)"
+        # FIXO no corpo do modelo (2x) — o Green Hills negociou dia 8, e o modelo existe
+        # para servir vários clientes. Vazio faz o render RECUSAR.
+        # o modelo escreve "dia {{dia_vencimento}} ({{dia_vencimento_extenso}})", que é a
+        # forma do original ("dia 05 (cinco)") — daí o zero à esquerda.
+        "dia_vencimento": f"{int(row['payment_day']):02d}" if row["payment_day"] else "",
+        "dia_vencimento_extenso": num_extenso(int(row["payment_day"])) if row["payment_day"] else "",
+        # ERRO MEU, corrigido em 21/08: eu lia `notice_period_days` aqui. Aquilo é prazo de
+        # AVISO PRÉVIO DE RESCISÃO — outra coisa. Com o default de 30 dias, o render trocou
+        # em silêncio os 90 dias que o .docx registrava como "condição comercial
+        # especificamente negociada entre as partes". A carência do primeiro pagamento é
+        # `grace_period_days`, que é o que o nome diz e não tinha consumidor de regra.
+        "primeiro_pagamento_dias_extenso": (num_par(int(row["grace_period_days"]))
+                                            if row["grace_period_days"] else ""),
     }
     return ctx, contratada
 
@@ -395,6 +475,14 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             "contratante_representante":
                 "cadastre em crm_contacts um contato do cliente com role 'Representante legal' "
                 "(ou 'Síndico') — é quem assina pelo condomínio",
+            "vigencia_inicio_extenso": "defina contracts.start_date",
+            "vigencia_fim_extenso": "defina contracts.end_date",
+            "renovacao_aviso_dias_extenso": "defina contracts.renewal_notification_days",
+            "dia_vencimento": "defina contracts.payment_day (o dia do mês em que vence)",
+            "dia_vencimento_extenso": "idem — contracts.payment_day",
+            "primeiro_pagamento_dias_extenso":
+                "defina contracts.grace_period_days (carência do 1º pagamento; o .docx do "
+                "Green Hills negociou 90 dias)",
             "qtd_diurno": "lance os itens do contrato em contract_items (AGP Diurno / AGP Noturno)",
             "qtd_noturno": "idem — contract_items",
             "qtd_agentes_extenso": "idem — contract_items",
