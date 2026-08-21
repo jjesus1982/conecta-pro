@@ -65,15 +65,31 @@ async def build(db) -> dict:
     await safe("det-comunicacoes", _det_screen())
     await safe("processos-det", _det_screen())
 
-    # Contratos (jurídico) — client_contracts
+    # Contratos (jurídico) — `contracts`, a tabela canônica.
+    # Lia `client_contracts`, que é a PONTE DE FATURAMENTO: só recebe contrato quando ele
+    # é ATIVADO (_bridge_contract_to_billing). Resultado: a tela mostrava 10 de 15 e
+    # escondia justamente os `draft` — que são os que precisam do PDF para ser ASSINADOS.
+    # O Green Hills (CTR-2026-00019) não aparecia aqui no dia em que foi montado.
     await safe("contratos", tbl(
-        "Contratos", f"{await _scalar(db, 'SELECT count(*) FROM client_contracts')} contratos", "—",
-        ["Contrato", "Serviço", "Início", "Fim", "Mensal", "Status"], "1.1fr 1.3fr 0.9fr 0.9fr 1fr 0.9fr",
-        "SELECT coalesce(contract_number,'—'), coalesce(service_type::text,'—'), start_date, end_date, monthly_value, coalesce(status::text,'—') "
-        "FROM client_contracts ORDER BY start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t(_fmtdate(r[2])), t(_fmtdate(r[3])),
-                   t(brl(r[4]) if r[4] is not None else '—', 600),
-                   b((r[5] or '—').capitalize(), "ok" if (r[5] or '').lower() in ("active", "ativo", "vigente") else "mut")]))
+        "Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos · "
+        "clique em Baixar para gerar o instrumento completo pelo modelo cadastrado", "—",
+        ["Contrato", "Cliente", "Serviço", "Início", "Fim", "Mensal", "Status"],
+        "1.1fr 1.6fr 1.1fr 0.85fr 0.85fr 1fr 0.9fr",
+        "SELECT coalesce(c.contract_number,'—'), coalesce(cl.name,'—'), "
+        "coalesce(c.tipo_servico::text,'—'), c.start_date, c.end_date, c.monthly_value, "
+        "coalesce(c.status::text,'—'), c.template_id::text "
+        "FROM contracts c LEFT JOIN clients cl ON cl.id=c.client_id "
+        "WHERE coalesce(c.is_active,true) ORDER BY c.start_date DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:34]), t((r[2] or '—').replace('_', ' ')),
+                   t(_fmtdate(r[3])), t(_fmtdate(r[4])),
+                   t(brl(r[5]) if r[5] is not None else '—', 600),
+                   b((r[6] or '—').capitalize(), "ok" if (r[6] or '').lower() in ("active", "ativo", "vigente") else "mut")],
+        # o botão só aparece em quem TEM modelo vinculado: oferecer download que devolve
+        # 422 é pior que não oferecer.
+        docsfn=lambda r: ([doc("Contrato completo (PDF)",
+                               f"/api/v1/crm/contracts/{r[0]}/pdf-modelo", fmt="pdf")] if r[7] else
+                          [doc("Resumo do contrato (PDF)",
+                               f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")])))
 
     # Base de conhecimento jurídico — juridico_conhecimento
     await safe("conhecimento", tbl(

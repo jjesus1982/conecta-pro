@@ -5,7 +5,7 @@ Controller (endpoints) para Gestão de Contratos.
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,6 +176,31 @@ async def gerar_pdf_por_modelo(
         # o PDF sai certo pela REGRA; o aviso denuncia o dado gravado que a contradiz
         headers["X-Aviso-Empresa"] = res.contratada.divergencia[:180]
     return Response(content=res.pdf, media_type="application/pdf", headers=headers)
+
+
+@router.post("/emitir-por-modelo")
+async def emitir_contrato_por_modelo(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Emite o contrato completo pelo modelo — a MESMA lógica que o chat usa.
+
+    Existe para o conector MCP (Cowork) e para qualquer superfície que fale HTTP: as três
+    entradas (jurídico, chat, Cowork) passam pelo mesmo caminho, então a regra de quem
+    pode emitir e o diagnóstico do que falta não divergem entre elas.
+
+    Devolve `faltam_dados` com as PERGUNTAS quando o contrato ainda não está completo —
+    200, não erro: quem chamou precisa da lista para perguntar ao usuário.
+    """
+    from modules.ai.conversation.services.orquestrador.tools_comercial_doc import (
+        _gerar_contrato_por_modelo,
+    )
+
+    res = await _gerar_contrato_por_modelo(db, current_user, None, **payload)
+    if res.get("status") == "recusado":
+        raise HTTPException(status_code=403, detail=res.get("motivo", "recusado"))
+    return res
 
 
 # ============== Contract Endpoints ==============

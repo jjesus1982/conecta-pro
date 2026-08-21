@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 
 from core.auth.module_scope import user_has_module
 
@@ -307,3 +308,108 @@ register(ToolDef(
     "maiores deals) em PDF branded, a partir dos números reais apurados. Documento CONFIDENCIAL de "
     "gestão — não é material de cliente. Não grava, não envia.",
     _SCHEMA_VAZIO, _gerar_relatorio_comercial_doc, scope_kind="org"))
+
+
+# ── Contrato por MODELO — o instrumento completo, não o resumo de 3 páginas ────────────
+# Decisão do Jordan (21/08): emitir contrato é do Jordan e da Pyetra, nas TRÊS superfícies
+# (chat, jurídico e Cowork/MCP). Consultar segue liberado a quem tem o módulo.
+# O agente busca no banco, DIZ o que falta em forma de pergunta e grava a resposta no lugar
+# certo de cada campo — em vez de estourar num log que ninguém lê.
+
+_SCHEMA_CONTRATO_MODELO = {
+    "type": "object",
+    "properties": {
+        "contrato": {"type": "string", "description": "Número (CTR-...) ou id do contrato"},
+        "template_id": {"type": "string", "description": "Id do modelo, quando for preciso escolher"},
+        "representante": {"type": "string", "description": "Nome de quem assina pelo cliente"},
+        "representante_cpf": {"type": "string"},
+        "payment_day": {"type": "integer", "description": "Dia do mês em que vence a mensalidade"},
+        "grace_period_days": {"type": "integer", "description": "Dias para o 1º pagamento"},
+        "itens": {
+            "type": "array",
+            "description": "Composição do valor: a soma dos totais tem de fechar com o valor mensal",
+            "items": {"type": "object", "properties": {
+                "nome": {"type": "string"}, "qtd": {"type": "integer"},
+                "total": {"type": "number"}, "descricao": {"type": "string"}}},
+        },
+    },
+    "required": ["contrato"],
+}
+
+
+async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados) -> dict[str, Any]:
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+    from modules.crm.services.docs_registry import salvar_pdf
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    if not contrato:
+        return _recusa("informe o número (CTR-...) ou o id do contrato.")
+
+    # grava o que o humano já respondeu, antes de rediagnosticar
+    respostas = {k: v for k, v in dados.items() if v not in (None, "", [])}
+    gravados: list[str] = []
+    if respostas:
+        try:
+            gravados = await W.completar(db, contrato, **respostas)
+        except ValueError as e:      # composição que não fecha com o valor mensal
+            return _recusa(str(e))
+        except LookupError as e:
+            return _recusa(str(e))
+
+    try:
+        sit = await W.diagnosticar(db, contrato)
+    except LookupError as e:
+        return _recusa(str(e))
+
+    if not sit.pronto:
+        modelos = (await db.execute(sa_text(
+            "SELECT id::text, name, service_type FROM contract_templates "
+            "WHERE coalesce(is_active,true) ORDER BY name"))).mappings().all()
+        return {
+            "status": "faltam_dados",
+            "contrato": sit.contrato, "cliente": sit.cliente,
+            "gravado_agora": gravados,
+            "perguntas": [{"campo": p.campo, "pergunta": p.pergunta, "exemplo": p.exemplo}
+                          for p in sit.pendencias],
+            "modelos_disponiveis": [{"id": m["id"], "nome": m["name"],
+                                     "tipo": m["service_type"]} for m in modelos],
+            "resumo": (f"Contrato {sit.contrato} ({sit.cliente}) ainda não pode ser emitido — "
+                       f"faltam {len(sit.pendencias)} informação(ões). Pergunte ao usuário e "
+                       "chame esta ferramenta de novo com as respostas."),
+        }
+
+    try:
+        res = await renderizar_contrato(db, contrato)
+    except RenderError as e:
+        return _recusa(str(e))
+
+    out = await salvar_pdf(db, "contrato",
+                           f"Contrato {sit.contrato} — {res.contratada.razao_social}",
+                           res.pdf, ref_tipo="contract", ref_id=contrato, teste=False)
+    link = out.get("download_url") if isinstance(out, dict) else None
+    return {
+        "status": "emitido",
+        "contrato": sit.contrato, "cliente": sit.cliente,
+        "contratada": res.contratada.razao_social, "cnpj": res.contratada.cnpj,
+        "clausulas": res.n_clausulas,
+        "gravado_agora": gravados,
+        "link": link,
+        "resumo": (f"Contrato {sit.contrato} emitido pelo modelo '{sit.modelo_nome}': "
+                   f"{res.n_clausulas} cláusulas, emitido por {res.contratada.razao_social} "
+                   f"({res.contratada.cnpj}). Link para enviar ao cliente: {link}"),
+    }
+
+
+register(ToolDef(
+    "gerar_contrato_por_modelo", "crm",
+    "Emite o CONTRATO COMPLETO a partir do modelo cadastrado (12 cláusulas, capa, CNPJ "
+    "resolvido pelo tipo de serviço) e devolve o LINK público para enviar ao cliente. "
+    "Busca no banco o que já existe; se faltar dado (modelo, quem assina, dia de "
+    "vencimento, composição do valor), devolve as PERGUNTAS — pergunte ao usuário e chame "
+    "de novo com as respostas. Restrito a Jordan e Pyetra.",
+    _SCHEMA_CONTRATO_MODELO, _gerar_contrato_por_modelo, scope_kind="org"))

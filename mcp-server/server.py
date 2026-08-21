@@ -444,8 +444,53 @@ async def _pdf_b64(path: str) -> dict:
 
 @mcp.tool
 async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -> dict:
-    """Gera o PDF do CONTRATO no padrão Conecta Mais (com selo), em base64. contrato_id = número (CTR-...) ou id."""
-    return await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf", drive=salvar_no_drive)
+    """Gera o PDF do CONTRATO no padrão Conecta Mais (com selo), em base64. contrato_id = número (CTR-...) ou id.
+
+    Tenta primeiro o INSTRUMENTO COMPLETO renderizado pelo modelo cadastrado (capa, 12
+    cláusulas, CNPJ resolvido pelo tipo de serviço). Se o contrato ainda não tiver modelo
+    ou faltar dado, cai no resumo — que é o que existia antes — em vez de devolver erro.
+    """
+    r = await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf-modelo", drive=salvar_no_drive)
+    if isinstance(r, dict) and r.get("gerado") is not False and not r.get("erro"):
+        return r
+    resumo = await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf", drive=salvar_no_drive)
+    if isinstance(resumo, dict):
+        resumo["aviso"] = ("Saiu o RESUMO, não o instrumento completo: o contrato ainda não tem "
+                           "modelo vinculado ou falta dado. Use gerar_contrato_por_modelo para "
+                           "ver o que falta.")
+    return resumo
+
+
+@mcp.tool
+async def gerar_contrato_por_modelo(
+    contrato: str,
+    template_id: str = "",
+    representante: str = "",
+    representante_cpf: str = "",
+    dia_vencimento: int = 0,
+    dias_primeiro_pagamento: int = 0,
+) -> dict:
+    """Emite o CONTRATO COMPLETO pelo modelo cadastrado e devolve o LINK para enviar ao cliente.
+
+    Busca no banco o que já existe. Se faltar dado (modelo, quem assina, dia de vencimento,
+    composição do valor), NÃO falha: devolve as perguntas do que falta — pergunte ao usuário
+    e chame de novo com as respostas. Restrito ao Jordan e à Pyetra.
+    """
+    payload = {"contrato": contrato}
+    if template_id:
+        payload["template_id"] = template_id
+    if representante:
+        payload["representante"] = representante
+    if representante_cpf:
+        payload["representante_cpf"] = representante_cpf
+    if dia_vencimento:
+        payload["payment_day"] = dia_vencimento
+    if dias_primeiro_pagamento:
+        payload["grace_period_days"] = dias_primeiro_pagamento
+    try:
+        return await erp.post("/crm/contracts/emitir-por-modelo", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return {"emitido": False, "erro": str(exc)[:220]}
 
 
 @mcp.tool

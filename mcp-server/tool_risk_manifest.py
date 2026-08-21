@@ -31,6 +31,8 @@ TOOL_RISK: dict[str, str] = {
     "atualizar_proposta": "read",
     "baixar_comprovante_pagamento_pdf": "read",
     "baixar_contrato_pdf": "read",
+    # emite documento e REGISTRA link público; não ativa contrato nem move dinheiro
+    "gerar_contrato_por_modelo": "write",
     "baixar_espelho_ponto_pdf": "read",
     "baixar_holerite_pdf": "read",
     "baixar_proposta_pdf": "read",
