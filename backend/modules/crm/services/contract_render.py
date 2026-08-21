@@ -306,7 +306,7 @@ WHERE c.id::text = :k OR c.contract_number = :k
 # `clients` NÃO tem campo de representante (conferido 19/08), e contato financeiro/técnico
 # não serve: quem paga e quem entende de câmera não são quem assina.
 _SQL_REPRESENTANTE = """
-SELECT k.name, k.notes
+SELECT k.name, k.notes, k.role
 FROM crm_contacts k JOIN contracts c ON c.client_id = k.client_id
 WHERE (c.id::text = :k OR c.contract_number = :k)
   AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%')
@@ -381,6 +381,10 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "contratada_cnpj": contratada.cnpj,
         "contratada_endereco": _SEDE.get(contratada.cnpj, ""),
         "contratada_representante": "Jordan Santos de Jesus",
+        # cargo de quem assina: o bloco de assinatura identifica a QUALIDADE em que a
+        # pessoa assina, não só o nome — é o que distingue representante de preposto.
+        "contratada_cargo": "Diretor Executivo",
+        "contratante_cargo": (rep["role"] if rep and rep["role"] else "Síndico"),
         "valor_mensal_fmt": brl(valor),
         "valor_mensal_extenso": por_extenso(valor),
         **_composicao(itens),
@@ -528,9 +532,72 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
     return el
 
 
+def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None):
+    """Bloco de assinatura no padrão das plataformas de assinatura eletrônica.
+
+    Saíram as testemunhas: elas existiam para o contrato valer como título executivo
+    extrajudicial (CPC 784, III), e o § 4º do mesmo artigo — Lei 14.620/2023 — dispensa
+    testemunha em documento eletrônico cuja integridade seja conferida pelo provedor de
+    assinatura. É o caso: hash, IP, user-agent e carimbo de tempo por assinatura, com o
+    manifesto ao final.
+
+    Cada parte ganha um quadro próprio, com nome, cargo e documento — e a linha de
+    assinatura vira o registro eletrônico quando assinada. Enquanto pendente, mostra
+    "Aguardando assinatura", que é honesto: o contrato ainda não está firmado.
+    """
+    from reportlab.lib import colors  # noqa: PLC0415
+    from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
+
+    assinadas = {(a.get("papel") or "").lower(): a for a in (assinaturas or [])}
+
+    def quadro(papel: str, rotulo: str, entidade: str, doc_: str, pessoa: str, cargo: str):
+        a = assinadas.get(papel)
+        if a:
+            miolo = (f"<b>Assinado eletronicamente</b> por {a.get('nome') or pessoa}<br/>"
+                     f"{a.get('quando', '')}<br/>"
+                     f"<font size=7>Verificação: {a.get('hash', '')[:32]}</font>")
+        else:
+            miolo = ("<font color='#8A94A6'>_________________________________________<br/>"
+                     "Aguardando assinatura eletrônica</font>")
+        return Table(
+            [[Paragraph(f"<b>{rotulo}</b>", st["cellh"])],
+             [Paragraph(miolo, st["assina"] if a else st["small"])],
+             [Paragraph(f"<b>{pessoa}</b><br/>{cargo}", st["cell"])],
+             [Paragraph(f"{entidade}<br/>{doc_}", st["small"])]],
+            colWidths=[160 * mm], hAlign="CENTER",
+            style=TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#C9D4EA")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF0FF")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#C9D4EA")),
+                ("LINEBELOW", (0, 2), (-1, 2), 0.4, colors.HexColor("#E4EAF5")),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12)]))
+
+    from reportlab.platypus import KeepTogether  # noqa: PLC0415
+
+    el: list = [Spacer(1, 10)]
+    el.append(quadro("contratante", "CONTRATANTE", ctx.get("contratante_nome", ""),
+                     f"CNPJ {ctx.get('contratante_cnpj', '')}",
+                     ctx.get("contratante_representante", ""),
+                     (ctx.get("contratante_cargo") or "Representante legal")
+                     + (f" · CPF {ctx.get('contratante_representante_cpf')}"
+                        if ctx.get("contratante_representante_cpf") else "")))
+    el.append(Spacer(1, 12))
+    el.append(quadro("contratada", "CONTRATADA", ctx.get("contratada_razao_social", ""),
+                     f"CNPJ {ctx.get('contratada_cnpj', '')}",
+                     ctx.get("contratada_representante", ""),
+                     ctx.get("contratada_cargo") or "Representante legal"))
+    # KeepTogether: os dois quadros vão juntos para a página seguinte em vez de a
+    # CONTRATADA ficar órfã no fim da folha, partida ao meio.
+    return [KeepTogether(el)]
+
+
 def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None,
                        itens: list | None = None, total_fmt: str = "",
-                       capa: dict | None = None) -> bytes:
+                       capa: dict | None = None, ctx_assin: dict | None = None,
+                       assinaturas: list | None = None) -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -552,6 +619,9 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
                      capa.get("razao_contratada", ""), cnpj_contratada or "") if capa else []
     for bruto in texto.split("\n"):
         linha = bruto.strip()
+        if linha == "[[BLOCO_ASSINATURAS]]":
+            el.extend(_bloco_assinaturas(st, ctx_assin or {}, assinaturas))
+            continue
         if linha == "[[TABELA_COMPOSICAO]]":
             el.append(Spacer(1, 6))
             el.append(_tabela_composicao(itens or [], total_fmt, st))
@@ -651,7 +721,8 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             texto, titulo, contratada.cnpj, list(itens), ctx["valor_mensal_fmt"],
             capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
                   "numero": cab["contract_number"], "inicio": cab["start_date"],
-                  "razao_contratada": contratada.razao_social}),
+                  "razao_contratada": contratada.razao_social},
+            ctx_assin=ctx),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
