@@ -123,8 +123,7 @@ def _get_signature_secret() -> str:
     secret = os.getenv("PORTAL_SIGNATURE_SECRET")
     if not secret:
         raise RuntimeError(
-            "Variavel de ambiente PORTAL_SIGNATURE_SECRET nao definida. "
-            "Defina em .env antes de iniciar o servidor."
+            "Variavel de ambiente PORTAL_SIGNATURE_SECRET nao definida. Defina em .env antes de iniciar o servidor."
         )
     return secret
 
@@ -182,9 +181,17 @@ class SignatureEvidence:
 # Documentos CO-ASSINADOS 1:1 (funcionário + empresa numa MESMA folha): selos empilhados
 # (funcionário=slot 1 acima, empresa=slot 0 rodapé) e encadeados (o 2º assina sobre o 1º).
 # Fora daqui (ex.: comunicado com N funcionários), cada assinatura gera sua própria via.
-_CO_SIGN: frozenset[str] = frozenset({
-    "payslip", "recibo_vt_vr", "espelho_ponto", "contract", "service_contract", "aviso_previo", "rescisao",
-})
+_CO_SIGN: frozenset[str] = frozenset(
+    {
+        "payslip",
+        "recibo_vt_vr",
+        "espelho_ponto",
+        "contract",
+        "service_contract",
+        "aviso_previo",
+        "rescisao",
+    }
+)
 
 
 class UniversalSignatureService:
@@ -360,9 +367,7 @@ class UniversalSignatureService:
                 notificar_assinatura_pendente_para_employees,
             )
 
-            await notificar_assinatura_pendente_para_employees(
-                signers, document_type=document_type, title=title
-            )
+            await notificar_assinatura_pendente_para_employees(signers, document_type=document_type, title=title)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Falha ao disparar notificação de assinatura pendente (doc_type=%s): %s",
@@ -438,8 +443,7 @@ class UniversalSignatureService:
 
         if str(req.signer_type) != str(signer_type):
             raise ValueError(
-                f"Tipo de assinante divergente: solicitação exige "
-                f"'{req.signer_type}', recebido '{signer_type}'."
+                f"Tipo de assinante divergente: solicitação exige '{req.signer_type}', recebido '{signer_type}'."
             )
 
         signed_at = _now_manaus()
@@ -487,9 +491,11 @@ class UniversalSignatureService:
                 from modules.signatures.services.qualified_signer import _estampar_selo_eletronico
 
                 _stamped = _estampar_selo_eletronico(
-                    _src, eff_name, eff_doc, signature_hash, signed_at, slot=(1 if _co else 0))
+                    _src, eff_name, eff_doc, signature_hash, signed_at, slot=(1 if _co else 0)
+                )
                 _signed_simple = self._save_signed_pdf(
-                    _stamped, document_type=req.document_type or "documento", request_id=req.id)
+                    _stamped, document_type=req.document_type or "documento", request_id=req.id
+                )
         except Exception:  # noqa: BLE001 — selo é best-effort
             _signed_simple = None
 
@@ -720,9 +726,7 @@ class UniversalSignatureService:
             }
 
         # request vinculada (documento)
-        rq = await self.db.execute(
-            select(SignatureRequest).where(SignatureRequest.signature_id == sig.id)
-        )
+        rq = await self.db.execute(select(SignatureRequest).where(SignatureRequest.signature_id == sig.id))
         req = rq.scalar_one_or_none()
 
         return {
@@ -736,8 +740,11 @@ class UniversalSignatureService:
             "level": (sig.extra_data or {}).get("level") if sig.extra_data else None,
             "document_type": req.document_type if req else None,
             "document_id": (
-                str(req.document_id) if req and req.document_id
-                else (req.custom_fields or {}).get("document_id_raw") if req else None
+                str(req.document_id)
+                if req and req.document_id
+                else (req.custom_fields or {}).get("document_id_raw")
+                if req
+                else None
             ),
             "document_hash": req.document_hash if req else None,
             "status": str(req.status) if req else None,
@@ -753,9 +760,7 @@ class UniversalSignatureService:
         Returns:
             True se revogada; False se não encontrada.
         """
-        result = await self.db.execute(
-            select(Signature).where(Signature.signature_hash == signature_hash)
-        )
+        result = await self.db.execute(select(Signature).where(Signature.signature_hash == signature_hash))
         sig = result.scalar_one_or_none()
         if not sig:
             return False
@@ -976,12 +981,17 @@ class UniversalSignatureService:
         from sqlalchemy import text as _text
 
         try:
-            path = (await self.db.execute(_text(
-                "SELECT signed_document_path FROM sig_signature_requests "
-                "WHERE document_type = :dt AND CAST(document_id AS text) = :did "
-                "AND CAST(id AS text) <> :rid AND signed_document_path IS NOT NULL "
-                "ORDER BY coalesce(signed_at, updated_at) DESC LIMIT 1"),
-                {"dt": req.document_type, "did": str(req.document_id), "rid": str(req.id)})).scalar()
+            path = (
+                await self.db.execute(
+                    _text(
+                        "SELECT signed_document_path FROM sig_signature_requests "
+                        "WHERE document_type = :dt AND CAST(document_id AS text) = :did "
+                        "AND CAST(id AS text) <> :rid AND signed_document_path IS NOT NULL "
+                        "ORDER BY coalesce(signed_at, updated_at) DESC LIMIT 1"
+                    ),
+                    {"dt": req.document_type, "did": str(req.document_id), "rid": str(req.id)},
+                )
+            ).scalar()
         except Exception:  # noqa: BLE001
             return None
         if path:
@@ -1001,9 +1011,7 @@ class UniversalSignatureService:
             return None
 
     @staticmethod
-    def _save_signed_pdf(
-        signed_pdf: bytes, *, document_type: str, request_id: uuid.UUID
-    ) -> str:
+    def _save_signed_pdf(signed_pdf: bytes, *, document_type: str, request_id: uuid.UUID) -> str:
         """Grava o PDF assinado (PAdES) em uploads/signed/ e devolve o caminho."""
         base = os.getenv("SIGNED_DOCS_DIR", "/app/uploads/signed")
         os.makedirs(base, exist_ok=True)
@@ -1036,9 +1044,7 @@ class UniversalSignatureService:
         return log
 
     async def _get_request(self, request_id: uuid.UUID) -> SignatureRequest | None:
-        result = await self.db.execute(
-            select(SignatureRequest).where(SignatureRequest.id == request_id)
-        )
+        result = await self.db.execute(select(SignatureRequest).where(SignatureRequest.id == request_id))
         return result.scalar_one_or_none()
 
     _PENDING_STATUSES = (
@@ -1061,9 +1067,7 @@ class UniversalSignatureService:
         )
         return list(result.scalars().all())
 
-    def _eh_opcional(
-        self, r: SignatureRequest, ref_ym: tuple[int, int], cutoff: datetime
-    ) -> bool:
+    def _eh_opcional(self, r: SignatureRequest, ref_ym: tuple[int, int], cutoff: datetime) -> bool:
         """Solicitação é HISTÓRICA/OPCIONAL? (competência antiga OU lote retroativo).
 
         Ver bloco "HISTÓRICO × CORRENTE (M2)" no topo do módulo.
@@ -1115,10 +1119,7 @@ class UniversalSignatureService:
         now = _now_manaus()
         ref_ym = (now.year, now.month)
         cutoff = _retroativo_cutoff()
-        return [
-            self._serialize_pendente(r, self._eh_opcional(r, ref_ym, cutoff))
-            for r in reqs
-        ]
+        return [self._serialize_pendente(r, self._eh_opcional(r, ref_ym, cutoff)) for r in reqs]
 
     async def pendentes_do_funcionario_separado(self, employee_id: uuid.UUID) -> dict:
         """Separa os pendentes em CORRENTE (a assinar agora) × HISTÓRICO (opcional).
@@ -1189,12 +1190,8 @@ class UniversalSignatureService:
             r = await self._get_request(rid)
             if r is None:
                 raise PermissionError(f"Solicitação {rid} não encontrada.")
-            if str(r.signer_type) != str(SignerType.EMPLOYEE) or str(r.signer_id) != str(
-                employee_id
-            ):
-                raise PermissionError(
-                    "Você não pode assinar um documento que não é seu."
-                )
+            if str(r.signer_type) != str(SignerType.EMPLOYEE) or str(r.signer_id) != str(employee_id):
+                raise PermissionError("Você não pode assinar um documento que não é seu.")
             # captura o tipo agora (string) para não fazer lazy-load após os commits.
             doc_types[rid] = r.document_type or ""
 
@@ -1236,14 +1233,10 @@ class UniversalSignatureService:
         }
 
     async def _get_request_by_token(self, token: str) -> SignatureRequest | None:
-        result = await self.db.execute(
-            select(SignatureRequest).where(SignatureRequest.access_token == token)
-        )
+        result = await self.db.execute(select(SignatureRequest).where(SignatureRequest.access_token == token))
         return result.scalar_one_or_none()
 
-    async def _get_requests_for_document(
-        self, document_type: str, document_id: str
-    ) -> list[SignatureRequest]:
+    async def _get_requests_for_document(self, document_type: str, document_id: str) -> list[SignatureRequest]:
         """Busca todas as requests de um documento (por UUID ou id textual)."""
         doc_uuid = self._coerce_doc_uuid(document_id)
         conditions = [SignatureRequest.document_type == document_type]
@@ -1253,9 +1246,11 @@ class UniversalSignatureService:
         # filtra por document_id (UUID) OU document_id_raw (custom_fields)
         matched = []
         for r in rows:
-            if doc_uuid is not None and r.document_id == doc_uuid:
-                matched.append(r)
-            elif (r.custom_fields or {}).get("document_id_raw") == str(document_id):
+            if (
+                doc_uuid is not None
+                and r.document_id == doc_uuid
+                or (r.custom_fields or {}).get("document_id_raw") == str(document_id)
+            ):
                 matched.append(r)
         return sorted(matched, key=lambda r: r.signature_order or 0)
 
@@ -1287,9 +1282,7 @@ class UniversalSignatureService:
                 "level": extra.get("level"),
                 "certificate_issuer": row.certificate_issuer,
                 "certificate_serial": row.certificate_serial,
-                "certificate_valid_to": (
-                    row.certificate_valid_to.isoformat() if row.certificate_valid_to else None
-                ),
+                "certificate_valid_to": (row.certificate_valid_to.isoformat() if row.certificate_valid_to else None),
             }
         return out
 
@@ -1345,13 +1338,17 @@ class UniversalSignatureService:
         )
         if not siblings:
             return False
-        all_signed = all(
-            s.status in (RequestStatus.SIGNED, RequestStatus.COMPLETED)
-            or s.id == req.id
-            for s in siblings
-        )
+        # Um signatário CANCELADO não conta e não trava o grupo. Sem isto, revogar a
+        # exigência de uma das partes prende para sempre quem já assinou: em 21/08/2026 o
+        # Jordan tirou a co-assinatura da empresa de holerite e recibo de VT/VR, e 14
+        # documentos que o FUNCIONÁRIO já tinha assinado ficariam em SIGNED eternamente,
+        # esperando uma contraparte que não existe mais.
+        vivos = [s for s in siblings if s.status != RequestStatus.CANCELLED]
+        if not vivos:
+            return False
+        all_signed = all(s.status in (RequestStatus.SIGNED, RequestStatus.COMPLETED) or s.id == req.id for s in vivos)
         if all_signed:
-            for s in siblings:
+            for s in vivos:
                 s.status = RequestStatus.COMPLETED
             return True
         return False

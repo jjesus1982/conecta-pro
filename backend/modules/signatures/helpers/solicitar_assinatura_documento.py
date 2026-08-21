@@ -62,6 +62,7 @@ _EMPRESA_SLUG_DEFAULT = "conecta_eletronica"
 def _empresa_assinante(empresa_slug: str | None) -> dict[str, str]:
     return _EMPRESA_ASSINANTE.get(empresa_slug or _EMPRESA_SLUG_DEFAULT, _EMPRESA_ASSINANTE[_EMPRESA_SLUG_DEFAULT])
 
+
 # Política: quais tipos de assinante cada tipo de documento exige, na ordem.
 #   contract          → contrato de TRABALHO (funcionário + empresa)
 #   service_contract  → contrato de SERVIÇO com cliente (cliente + empresa)
@@ -69,13 +70,23 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "contract": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "service_contract": [SignerType.CUSTOMER, SignerType.COMPANY],
     "proposal": [SignerType.COMPANY, SignerType.CUSTOMER],
-    # Holerite e recibo de VT/VR: CO-ASSINADOS — funcionário (eletrônica) + empresa
-    # (qualificada ICP-Brasil). Selos empilhados; a empresa assina em lote (decisão Jordan).
-    "recibo_vt_vr": [SignerType.EMPLOYEE, SignerType.COMPANY],
-    "payslip": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    # ⚠️ MUDANÇA DE DECISÃO — Jordan, 21/08/2026, revoga a de 05/08/2026.
+    # Holerite e recibo de VT/VR passam a ser assinados SÓ PELO FUNCIONÁRIO. Antes eram
+    # co-assinados ("selos empilhados") e a empresa nunca assinava: em 21/08 havia 67
+    # holerites e 51 recibos PENDING no lado COMPANY, travando 118 documentos que o
+    # funcionário não conseguia concluir sozinho. Só 3 de 107 recibos foram assinados
+    # desde 15/07 — a contraparte nunca vinha.
+    #
+    # A regra, na palavra dele: "contracheque e recibo de vt e vr assinados apenas pelos
+    # funcionários; folha de ponto pelas duas partes, empresa e funcionários; contratos de
+    # trabalho e prorrogações assinados pelas duas partes".
+    "recibo_vt_vr": [SignerType.EMPLOYEE],
+    "payslip": [SignerType.EMPLOYEE],
     # Espelho de ponto mensal (Portaria 671): FUNCIONÁRIO homologa (eletrônica) + EMPRESA
     # co-assina (qualificada ICP-Brasil). Decisão Jordan (2026-08-05): selos empilhados.
     "espelho_ponto": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    # Prorrogação de contrato de experiência segue o contrato: duas partes.
+    "prorrogacao_contrato": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "aviso_previo": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],
@@ -95,9 +106,17 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
 #   da EMPRESA (COMPANY), que é a titular do certificado. Funcionário e cliente
 #   não têm certificado próprio: assinam sempre em nível SIMPLE (SHA-256).
 #   Todos os demais document_types usam SIMPLE para todos os signatários.
-DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset({
-    "contract", "service_contract", "comunicado", "payslip", "recibo_vt_vr", "espelho_ponto",
-})
+# `payslip` e `recibo_vt_vr` saíram: sem signatário COMPANY, estar aqui era letra morta —
+# `nivel_assinatura` só devolve QUALIFIED para COMPANY. Manter confundiria quem lesse.
+DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset(
+    {
+        "contract",
+        "service_contract",
+        "comunicado",
+        "espelho_ponto",
+        "prorrogacao_contrato",
+    }
+)
 
 
 def nivel_assinatura(document_type: str, signer_type: SignerType) -> SignatureLevel:
@@ -322,6 +341,7 @@ def _engine_sync_nullpool():
 
 def status_documento_sync(document_type: str, document_id: str) -> dict[str, Any] | None:
     """Versão síncrona de status() para endpoints `def` (ex.: folha/recibo VT-VR)."""
+
     async def _run() -> dict[str, Any] | None:
         eng, factory = _engine_sync_nullpool()
         try:
@@ -346,6 +366,7 @@ def garantir_solicitacao_assinatura_sync(**kwargs: Any) -> dict[str, Any] | None
     Seguro em rotas síncronas do FastAPI (executam num worker thread sem event
     loop). Nunca quebra o chamador: erros retornam None.
     """
+
     async def _run() -> dict[str, Any] | None:
         eng, factory = _engine_sync_nullpool()
         try:
@@ -358,9 +379,7 @@ def garantir_solicitacao_assinatura_sync(**kwargs: Any) -> dict[str, Any] | None
         return asyncio.run(_run())
     except RuntimeError:
         # Já existe event loop rodando neste contexto — cai fora sem quebrar o PDF.
-        logger.warning(
-            "garantir_solicitacao_assinatura_sync chamado dentro de event loop ativo; ignorado."
-        )
+        logger.warning("garantir_solicitacao_assinatura_sync chamado dentro de event loop ativo; ignorado.")
         return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha na solicitação de assinatura (sync): %s", exc)
