@@ -62,6 +62,44 @@ _SEDE = {
 }
 
 
+# Partículas que ficam em minúscula no meio do nome, e siglas que ficam em caixa alta.
+_MINUSC = {"de", "da", "do", "das", "dos", "e", "di", "del", "van", "von", "a"}
+_SIGLAS = {"ltda", "me", "epp", "eireli", "s/a", "sa", "s.a", "cnpj", "cpf", "ii", "iii", "iv"}
+# Acentos que o cadastro perde por ser digitado em caixa alta sem acentuação.
+_ACENTO = {"condominio": "Condomínio", "servicos": "Serviços", "comercio": "Comércio",
+           "seguranca": "Segurança", "tecnologia": "Tecnologia", "eletronica": "Eletrônica",
+           "predial": "Predial", "sao": "São", "jose": "José", "antonio": "Antônio"}
+
+
+def nome_proprio(v: str | None) -> str:
+    """Padroniza nome de pessoa e de empresa para Capitulação de Título.
+
+    Decisão do Jordan (21/08): ou TODOS em caixa alta, ou NINGUÉM. O contrato saía com o
+    condomínio e o síndico em MAIÚSCULAS (vêm do cadastro assim) e a Conecta Mais e o
+    Jordan em caixa mista — quatro partes, dois estilos, no mesmo parágrafo.
+    Escolhida a caixa mista porque ele já pediu "Conecta Mais Patrimonial LTDA" e não
+    "CONECTA MAIS...". Trocar para caixa alta é mudar esta função num ponto só.
+
+    Só reescreve quando o texto está TODO em maiúsculas — nome já digitado corretamente
+    passa intacto, para não estragar grafia que alguém cuidou de escrever.
+    """
+    v = (v or "").strip()
+    if not v or v != v.upper():
+        return v
+    saida = []
+    for i, palavra in enumerate(v.split()):
+        base = palavra.lower()
+        if base in _SIGLAS:
+            saida.append(palavra.upper())
+        elif base in _ACENTO:
+            saida.append(_ACENTO[base])
+        elif i > 0 and base in _MINUSC:
+            saida.append(base)
+        else:
+            saida.append(base[:1].upper() + base[1:])
+    return " ".join(saida)
+
+
 def cnpj_fmt(v: str | None) -> str:
     """00.000.000/0000-00. O cadastro guarda sem máscara e o contrato imprimia
     "CNPJ nº 08063476000183" — o resto do documento usa a forma pontuada."""
@@ -334,10 +372,10 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
             meses += 1
 
     ctx = {
-        "contratante_nome": row["cliente_nome"] or "",
+        "contratante_nome": nome_proprio(row["cliente_nome"]),
         "contratante_cnpj": cnpj_fmt(row["cliente_cnpj"]),
         "contratante_endereco": row["cliente_endereco"] or "",
-        "contratante_representante": (rep["name"] if rep else ""),
+        "contratante_representante": nome_proprio(rep["name"] if rep else ""),
         "contratante_representante_cpf": ((rep["notes"] or "") if rep else ""),
         "contratada_razao_social": contratada.razao_social,
         "contratada_cnpj": contratada.cnpj,
@@ -351,6 +389,9 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         # início e fim EXPLÍCITOS e renovação AUTOMÁTICA. Antes dizia "contados a partir da
         # data de sua assinatura, podendo ser renovado por acordo entre as partes" — o que
         # contradizia as duas instruções: começar em 01/09 e renovar sem precisar de acordo.
+        # a data do fecho estava FIXA em "17 de junho de 2026" no modelo; agora acompanha
+        # o início da vigência, que é quando o instrumento passa a valer.
+        "data_assinatura_extenso": data_extenso(row["start_date"]),
         "vigencia_inicio_extenso": data_extenso(row["start_date"]),
         "vigencia_fim_extenso": data_extenso(row["end_date"]),
         "renovacao_aviso_dias_extenso": (num_par(int(row["renewal_notification_days"]))
@@ -400,7 +441,44 @@ def renderizar(corpo: str, ctx: dict) -> str:
 _SLUG = {PATRIMONIAL[1]: "conecta_patrimonial", ELETRONICA[1]: "conecta_eletronica"}
 
 
-def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None) -> bytes:
+def _tabela_composicao(itens: list, total_fmt: str, st: dict):
+    """A composição do valor vira TABELA de verdade, centralizada e alinhada.
+
+    Vinha como linhas soltas no texto ("FUNÇÃO/DESCRIÇÃO", "QTD", "PREÇO TOTAL", "AGP
+    Diurno", "2", ...), uma por parágrafo — no PDF virava uma coluna de palavras soltas.
+    Quantidade centralizada, valor à direita: é assim que se confere dinheiro.
+    """
+    from reportlab.lib import colors  # noqa: PLC0415
+    from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
+
+    linhas = [["FUNÇÃO/DESCRIÇÃO", "QTD", "PREÇO TOTAL"]]
+    tot_qtd = 0
+    for it in itens:
+        q = int(it["quantity"] or 0)
+        tot_qtd += q
+        linhas.append([it["service_name"] or "—", str(q), brl(it["total_price"] or 0)])
+    linhas.append(["TOTAL MENSAL", str(tot_qtd), total_fmt])
+
+    t = Table(linhas, colWidths=[88 * mm, 22 * mm, 44 * mm], hAlign="CENTER")
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16277D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EAF0FF")),
+        ("ALIGN", (1, 0), (1, -1), "CENTER"),
+        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
+def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None,
+                       itens: list | None = None, total_fmt: str = "") -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -419,6 +497,11 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     el: list = []
     for bruto in texto.split("\n"):
         linha = bruto.strip()
+        if linha == "[[TABELA_COMPOSICAO]]":
+            el.append(Spacer(1, 6))
+            el.append(_tabela_composicao(itens or [], total_fmt, st))
+            el.append(Spacer(1, 8))
+            continue
         if not linha:
             el.append(Spacer(1, 5))
             continue
@@ -430,8 +513,11 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
 
     # mesmo cabeçalho/rodapé/selo do contract_pdf, MAS com a empresa certa
     marca = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
-    cb = lambda cv, dc: B.header_footer(cv, dc, empresa=marca, seal_watermark=True,  # noqa: E731
-                                        pular_primeira=False)
+    # `titulo` no canto superior direito: o header_footer já aceitava e eu não passava —
+    # por isso o timbrado saía sem identificação do documento, ao contrário do padrão-ouro
+    # da Eletrônica.
+    cb = lambda cv, dc: B.header_footer(cv, dc, empresa=marca, titulo="Contrato",  # noqa: E731
+                                        seal_watermark=True, pular_primeira=False)
     doc.build(el, onFirstPage=cb, onLaterPages=cb)
     return buf.getvalue()
 
@@ -468,6 +554,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
         raise RenderError(f"O modelo '{tpl['name']}' está sem corpo (`content_template` vazio).")
 
     ctx, contratada = await montar_contexto(db, contract_id, dict(tpl))
+    itens = (await db.execute(text(_SQL_ITENS), {"k": contract_id})).mappings().all()
 
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
@@ -502,7 +589,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
 
     titulo = f"Contrato {contract_id}"
     return Resultado(
-        pdf=build_pdf_do_texto(texto, titulo, contratada.cnpj),
+        pdf=build_pdf_do_texto(texto, titulo, contratada.cnpj, list(itens), ctx["valor_mensal_fmt"]),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
