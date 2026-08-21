@@ -788,3 +788,75 @@ def radar_fornecedores_task(self):
     except Exception as exc:
         logger.error("[Financial Task] radar_fornecedores error: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task(name="financial.boletos_por_email", bind=True, max_retries=1)
+def boletos_por_email_task(self):
+    """Lê a caixa de e-mail e registra boleto recebido como conta a pagar.
+
+    Fecha a cegueira do `radar_fornecedores`: aquele só vê quem a empresa JÁ pagou.
+    Boleto de fornecedor novo não tem histórico e ninguém sabe que existe até vencer.
+
+    Só registra código de barras VÁLIDO (dígitos verificadores conferem) e é idempotente
+    pelo índice `uq_payable_boleto_email`. NÃO paga: registrar obrigação ≠ pagar.
+    """
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import text as _text
+
+    from core.database.session import SyncSessionLocal
+    from modules.financial.services.boleto_email_service import varrer_e_registrar
+
+    try:
+        with SyncSessionLocal() as db:
+            r = varrer_e_registrar(db)
+            if r.get("erro"):
+                # Erro de leitura vira exceção para virar alerta no sino via task_falha:
+                # caixa inacessível em silêncio é o mesmo que radar desligado.
+                raise RuntimeError(f"leitura da caixa {r['caixa']} falhou: {r['erro']}")
+
+            novos = [b for b in r["boletos"] if b.get("situacao") == "criado"]
+            if not novos:
+                logger.info("[Financial Task] boletos_por_email: %s msg, nada novo",
+                            r["mensagens"])
+                return {"mensagens": r["mensagens"], "criados": 0}
+
+            linhas = "\n".join(
+                f"• {b['fornecedor']} — R$ {b['valor']:,.2f}"
+                + (f", vence {b['vencimento'][8:10]}/{b['vencimento'][5:7]}"
+                   if b["vencimento"] else ", VENCIMENTO A CONFERIR (convênio)")
+                for b in novos[:12]
+            )
+            corpo = (
+                f"{len(novos)} boleto(s) recebido(s) por e-mail viraram conta a pagar:\n\n"
+                f"{linhas}\n\nCódigo de barras validado. Confira antes de pagar — "
+                "o registro da obrigação não é autorização de pagamento."
+            )
+            dia = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+            extra = json.dumps({
+                "idempotency_key": f"boletos_email:{dia}",
+                "origem": "boletos_por_email", "familia": "financeiro",
+                "severidade": "atencao", "quantidade": len(novos),
+            })
+            for uid in [x[0] for x in db.execute(_text(
+                "SELECT id::text FROM users WHERE lower(coalesce(role,''))='admin' "
+                "AND coalesce(is_active,true)=true "
+                "AND lower(coalesce(email,'')) NOT LIKE 'mcp-service%'")).fetchall()]:
+                db.execute(_text(
+                    "INSERT INTO communication_notifications "
+                    "(id, tenant_id, user_id, title, body, type, reference_type, "
+                    " action_url, extra_data, is_active, sent_at, created_at) "
+                    "VALUES (gen_random_uuid(), :uid, :uid, :titulo, :corpo, 'alerta', "
+                    " 'boletos_por_email', '/redesign/financeiro', CAST(:extra AS jsonb), "
+                    " true, NOW(), NOW()) ON CONFLICT DO NOTHING"
+                ), {"uid": uid, "titulo": f"{len(novos)} boleto(s) novo(s) por e-mail",
+                    "corpo": corpo, "extra": extra})
+            db.commit()
+            logger.info("[Financial Task] boletos_por_email: %s criados de %s msg",
+                        len(novos), r["mensagens"])
+            return {"mensagens": r["mensagens"], "criados": len(novos)}
+    except Exception as exc:
+        logger.error("[Financial Task] boletos_por_email error: %s", exc)
+        raise self.retry(exc=exc)

@@ -261,6 +261,14 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=45),
         "options": {"queue": "gov.batch"},
     },
+    # Boleto recebido por e-mail vira conta a pagar. Roda 3x ao dia porque boleto chega a
+    # qualquer hora e o valor está no prazo: descobrir no dia seguinte já pode ser tarde.
+    # Só registra código de barras VÁLIDO; NÃO paga.
+    "financeiro-boletos-por-email": {
+        "task": "financial.boletos_por_email",
+        "schedule": crontab(hour="7,13,19", minute=10),
+        "options": {"queue": "gov.batch"},
+    },
     # Recebível por contrato/competência — dia 1 de cada mês. Sem isso o contas-a-receber
     # fica vazio e aging/inadimplência/régua de cobrança giram no vácuo.
     # NÃO emite cobrança ao cliente: boleto/PIX é ato separado, com decisão humana.
