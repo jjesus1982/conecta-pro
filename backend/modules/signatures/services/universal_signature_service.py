@@ -496,8 +496,27 @@ class UniversalSignatureService:
                 _signed_simple = self._save_signed_pdf(
                     _stamped, document_type=req.document_type or "documento", request_id=req.id
                 )
-        except Exception:  # noqa: BLE001 — selo é best-effort
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning("falha ao estampar selo em %s: %s", req.id, _exc)
             _signed_simple = None
+
+        # 🔴 SEM PDF SELADO, NÃO HÁ ASSINATURA. O selo era "best-effort": quando não havia
+        # PDF de origem — ou o estampador falhava — a request virava SIGNED do mesmo jeito,
+        # sem arquivo nenhum. Medido em 21/08/2026: de 51 documentos marcados como
+        # assinados, 29 NUNCA tiveram arquivo e 7 apontavam para arquivo que sumiu; só 9
+        # tinham o PDF selado em disco. E vieram do portal ("meu-espaco-web"), não da mão
+        # de alguém — o Jordan confirmou que ninguém assinou holerite em julho.
+        #
+        # Registro de assinatura sem documento assinado é a mesma família de fabricação que
+        # este projeto proíbe no dado, e aqui ela mente sobre um ato jurídico. Melhor a
+        # assinatura FALHAR e a pessoa tentar de novo do que existir um "assinado" que
+        # nenhum papel sustenta.
+        if not _signed_simple:
+            raise ValueError(
+                "Não foi possível gerar o PDF assinado: o documento de origem não está "
+                "disponível. A assinatura não foi registrada — tente novamente ou peça "
+                "que o documento seja gerado outra vez."
+            )
 
         sig = Signature(
             id=uuid.uuid4(),
