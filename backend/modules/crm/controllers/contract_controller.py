@@ -178,6 +178,108 @@ async def gerar_pdf_por_modelo(
     return Response(content=res.pdf, media_type="application/pdf", headers=headers)
 
 
+@router.post("/{contract_id}/abrir-assinatura")
+async def abrir_assinatura_contrato(
+    contract_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    email_cliente: str | None = None,
+):
+    """Abre a assinatura eletrônica do contrato: a empresa assina, depois o cliente por link.
+
+    Renderiza o instrumento, calcula o hash do PDF e registra a solicitação no motor
+    universal com dois signatários em ordem — CONTRATADA primeiro, CLIENTE depois. Devolve
+    o LINK único do cliente, que é o que se manda para o síndico.
+
+    O hash é do PDF renderizado NESTE momento: é ele que a verificação confere depois. Se
+    o contrato mudar, a assinatura anterior deixa de bater — que é o comportamento certo.
+    """
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    try:
+        res = await renderizar_contrato(db, contract_id)
+    except RenderError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    dados = (
+        await db.execute(
+            text("""
+        SELECT c.contract_number, cl.name AS cliente,
+               (SELECT k.name FROM crm_contacts k WHERE k.client_id = c.client_id
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS representante,
+               (SELECT k.notes FROM crm_contacts k WHERE k.client_id = c.client_id
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS rep_cpf,
+               (SELECT k.email FROM crm_contacts k WHERE k.client_id = c.client_id
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS rep_email
+        FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
+        WHERE c.id::text = :k OR c.contract_number = :k
+    """),
+            {"k": contract_id},
+        )
+    ).mappings().first()
+    if not dados:
+        raise HTTPException(status_code=404, detail="Contrato não encontrado")
+
+    sol = await CS.abrir_assinatura(
+        db, dados["contract_number"], res.pdf,
+        contratante_nome=dados["cliente"] or "",
+        representante=dados["representante"] or "",
+        representante_cpf=dados["rep_cpf"] or "",
+        representante_email=email_cliente or dados["rep_email"],
+        contratada_nome=res.contratada.razao_social,
+        assinante_empresa=getattr(current_user, "full_name", None) or "Jordan Santos de Jesus",
+        assinante_empresa_id=getattr(current_user, "id", None),
+        solicitado_por=getattr(current_user, "id", None),
+    )
+    return {
+        "contrato": dados["contract_number"],
+        "documento_hash": sol.documento_hash,
+        "assinatura_empresa_id": sol.request_id_empresa,
+        "assinatura_cliente_id": sol.request_id_cliente,
+        "link_do_cliente": sol.link_cliente,
+        "resumo": (f"Assinatura aberta para {dados['contract_number']}. "
+                   f"1º a CONTRATADA assina pelo painel; depois envie o link ao "
+                   f"{dados['representante'] or 'representante'}."),
+    }
+
+
+@router.get("/{contract_id}/assinaturas")
+async def status_assinaturas_contrato(
+    contract_id: str,
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+):
+    """Quem já assinou este contrato, quando e com que hash."""
+    from modules.crm.services.contract_signature import assinaturas_do_contrato
+
+    num = (await db.execute(text(
+        "SELECT contract_number FROM contracts WHERE id::text=:k OR contract_number=:k"),
+        {"k": contract_id})).scalar()
+    if not num:
+        raise HTTPException(status_code=404, detail="Contrato não encontrado")
+    assinadas = await assinaturas_do_contrato(db, num)
+    pendentes = (await db.execute(text(
+        "SELECT signer_type::text, signer_name, access_token IS NOT NULL AS tem_link "
+        "FROM sig_signature_requests WHERE reference_code=:k AND signed_at IS NULL "
+        "ORDER BY signature_order"), {"k": num})).mappings().all()
+    return {
+        "contrato": num,
+        "assinadas": assinadas,
+        "pendentes": [dict(p) for p in pendentes],
+        "completo": bool(assinadas) and not pendentes,
+    }
+
+
 @router.post("/briefing")
 async def briefing_contrato_novo(
     current_user: CurrentActiveUser,

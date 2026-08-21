@@ -683,6 +683,10 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
     ctx, contratada = await montar_contexto(db, contract_id, dict(tpl))
     itens = (await db.execute(text(_SQL_ITENS), {"k": contract_id})).mappings().all()
     cab = (await db.execute(text(_SQL_CONTRATO), {"k": contract_id})).mappings().first()
+    # assinaturas JÁ coletadas. Vazio = "Aguardando assinatura eletrônica" no bloco final;
+    # nunca inventa carimbo.
+    from modules.crm.services.contract_signature import assinaturas_do_contrato  # noqa: PLC0415
+    assinaturas = await assinaturas_do_contrato(db, cab["contract_number"] or contract_id)
 
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
@@ -722,7 +726,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
                   "numero": cab["contract_number"], "inicio": cab["start_date"],
                   "razao_contratada": contratada.razao_social},
-            ctx_assin=ctx),
+            ctx_assin=ctx, assinaturas=assinaturas),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),

@@ -449,3 +449,97 @@ register(ToolDef(
     "de cada uma, mais a composição e as condições que faltam. Use ANTES de emitir. "
     "Restrito a Jordan e Pyetra.",
     _SCHEMA_BRIEFING, _briefing_contrato, scope_kind="org"))
+
+
+# ── Assinatura eletrônica do contrato ─────────────────────────────────────────────────
+async def _abrir_assinatura_contrato(db, user, scope, *, contrato=None, email_cliente=None,
+                                     **_) -> dict[str, Any]:
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    if not contrato:
+        return _recusa("informe o número (CTR-...) ou o id do contrato.")
+
+    sit = await W.diagnosticar(db, contrato)
+    if not sit.pronto:
+        return {"status": "faltam_dados",
+                "perguntas": [{"campo": p.campo, "pergunta": p.pergunta} for p in sit.pendencias],
+                "resumo": "Não dá para abrir assinatura de contrato incompleto — "
+                          f"faltam {len(sit.pendencias)} informação(ões)."}
+    try:
+        res = await renderizar_contrato(db, contrato)
+    except RenderError as e:
+        return _recusa(str(e))
+
+    d = (await db.execute(sa_text(
+        "SELECT c.contract_number, cl.name cliente, "
+        "(SELECT k.name FROM crm_contacts k WHERE k.client_id=c.client_id "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) rep, "
+        "(SELECT k.notes FROM crm_contacts k WHERE k.client_id=c.client_id "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) cpf, "
+        "(SELECT k.email FROM crm_contacts k WHERE k.client_id=c.client_id "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) mail "
+        "FROM contracts c LEFT JOIN clients cl ON cl.id=c.client_id "
+        "WHERE c.id::text=:k OR c.contract_number=:k"), {"k": contrato})).mappings().first()
+
+    sol = await CS.abrir_assinatura(
+        db, d["contract_number"], res.pdf, contratante_nome=d["cliente"] or "",
+        representante=d["rep"] or "", representante_cpf=d["cpf"] or "",
+        representante_email=email_cliente or d["mail"],
+        contratada_nome=res.contratada.razao_social,
+        assinante_empresa=getattr(user, "full_name", None) or "Jordan Santos de Jesus",
+        assinante_empresa_id=getattr(user, "id", None), solicitado_por=getattr(user, "id", None))
+    return {
+        "status": "assinatura_aberta", "contrato": d["contract_number"],
+        "link_do_cliente": sol.link_cliente, "documento_hash": sol.documento_hash,
+        "resumo": (f"Assinatura aberta para {d['contract_number']}. A CONTRATADA assina "
+                   f"primeiro pelo painel; depois envie este link ao {d['rep'] or 'síndico'}: "
+                   f"{sol.link_cliente}"),
+    }
+
+
+async def _status_assinatura_contrato(db, user, scope, *, contrato=None, **_) -> dict[str, Any]:
+    from modules.crm.services.contract_signature import assinaturas_do_contrato
+
+    _gate(user)
+    if not contrato:
+        return _recusa("informe o número (CTR-...) do contrato.")
+    num = (await db.execute(sa_text(
+        "SELECT contract_number FROM contracts WHERE id::text=:k OR contract_number=:k"),
+        {"k": contrato})).scalar()
+    if not num:
+        return _recusa("contrato não encontrado.")
+    assinadas = await assinaturas_do_contrato(db, num)
+    pend = (await db.execute(sa_text(
+        "SELECT signer_type::text tipo, signer_name nome FROM sig_signature_requests "
+        "WHERE reference_code=:k AND signed_at IS NULL ORDER BY signature_order"),
+        {"k": num})).mappings().all()
+    return {"contrato": num, "assinadas": assinadas, "pendentes": [dict(p) for p in pend],
+            "completo": bool(assinadas) and not pend,
+            "resumo": (f"{len(assinadas)} assinatura(s) coletada(s), {len(pend)} pendente(s)"
+                       if (assinadas or pend) else
+                       "Assinatura ainda não foi aberta para este contrato.")}
+
+
+register(ToolDef(
+    "abrir_assinatura_contrato", "crm",
+    "Abre a ASSINATURA ELETRÔNICA do contrato: a Conecta Mais assina primeiro pelo painel, "
+    "depois o cliente assina por LINK único. Devolve o link para mandar ao síndico. "
+    "Recusa contrato incompleto. Restrito a Jordan e Pyetra.",
+    {"type": "object", "properties": {
+        "contrato": {"type": "string"},
+        "email_cliente": {"type": "string", "description": "Para onde notificar o link"}},
+     "required": ["contrato"]},
+    _abrir_assinatura_contrato, scope_kind="org"))
+
+register(ToolDef(
+    "status_assinatura_contrato", "crm",
+    "Quem já assinou o contrato, quando e com que hash — e quem ainda falta.",
+    {"type": "object", "properties": {"contrato": {"type": "string"}}, "required": ["contrato"]},
+    _status_assinatura_contrato, scope_kind="org"))

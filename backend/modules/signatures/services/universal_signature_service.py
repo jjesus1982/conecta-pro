@@ -329,7 +329,11 @@ class UniversalSignatureService:
 
             # CLIENTE assina por link: token único + PIN
             if signer.signer_type == SignerType.CUSTOMER:
-                req.access_token = secrets.token_urlsafe(32)
+                # token_hex, não token_urlsafe: base64url inclui "_" e "-", e link com
+                # "__" no fim é comido por chat que renderiza markdown — foi o que quebrou
+                # o link do contrato CTR-2026-00019 em 19/08. Este link vai para o CLIENTE
+                # por WhatsApp/e-mail; quebrar aqui é perder a assinatura.
+                req.access_token = secrets.token_hex(24)
                 req.access_code = f"{secrets.randbelow(1_000_000):06d}"
 
             self.db.add(req)

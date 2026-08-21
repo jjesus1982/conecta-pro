@@ -462,6 +462,29 @@ async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -
 
 
 @mcp.tool
+async def abrir_assinatura_contrato(contrato: str, email_cliente: str = "") -> dict:
+    """Abre a assinatura eletrônica do contrato e devolve o LINK único do cliente.
+
+    A Conecta Mais assina primeiro pelo painel; depois o link vai para o síndico assinar.
+    Recusa contrato incompleto. Restrito a Jordan e Pyetra.
+    """
+    q = f"?email_cliente={email_cliente}" if email_cliente else ""
+    try:
+        return await erp.post(f"/crm/contracts/{contrato}/abrir-assinatura{q}", json={})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
+async def status_assinatura_contrato(contrato: str) -> dict:
+    """Quem já assinou o contrato, quando e com que hash — e quem ainda falta."""
+    try:
+        return await erp.get(f"/crm/contracts/{contrato}/assinaturas")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
 async def briefing_contrato_novo(
     servicos: str = "",
     cliente_cnpj: str = "",
