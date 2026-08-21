@@ -44,7 +44,7 @@ _SQL_KITS = text(
 )
 
 _SQL_SLOTS = text(
-    "SELECT document_type, document_name, file_path FROM ged_kit_documents "
+    "SELECT id::text AS id, document_type, document_name, file_path FROM ged_kit_documents "
     " WHERE kit_id = CAST(:kid AS uuid) AND coalesce(file_path,'') <> ''"
 )
 
@@ -57,6 +57,74 @@ _SQL_INSERE_SLOT = text(
     "  source_module, auto_generated, is_signed, created_at, updated_at) "
     "VALUES (gen_random_uuid(), CAST(:kid AS uuid), :dt, :dn, :fp, 'drive', true, false, NOW(), NOW())"
 )
+
+
+# ── DOCUMENTO DO TRABALHADOR SÓ SOBE ASSINADO ────────────────────────────────
+#
+# Desenho do GEDEON, na palavra do Jordan (21/08/2026): *"todos os documentos do
+# trabalhador — contracheque, recibo de VT e VA — devem ser assinados pelo funcionário; o
+# sistema gera, disponibiliza no portal, ele assina, e ISSO sobe para o kit"*.
+#
+# A primeira versão desta união subia TODO slot que tivesse arquivo em disco, assinado ou
+# não. Medido em 21/08: 38 comprovantes de salário, 7 contracheques, 7 folhas de ponto e 7
+# recibos nos kits, ZERO assinados — kit anunciado 100% com papel sem valor probatório.
+#
+# Documento da EMPRESA (guia, certidão, NF, boleto) não tem assinatura de funcionário e
+# continua subindo normalmente: a trava é só para o que é do trabalhador.
+_DOC_DO_TRABALHADOR: dict[str, str] = {
+    "contracheque": "payslip",
+    "contracheques_consolidado": "payslip",
+    "recibo_folha": "payslip",
+    "comp_salario_individual": "payslip",
+    "recibo_vt_va": "recibo_vt_vr",
+    "vale_vt_vr": "recibo_vt_vr",
+    "comp_vt_individual": "recibo_vt_vr",
+    "comp_va_solides": "recibo_vt_vr",
+    "comp_vt_va_combinado": "recibo_vt_vr",
+    "folha_ponto": "espelho_ponto",
+    "folhas_ponto": "espelho_ponto",
+    "folhas_ponto_consolidado": "espelho_ponto",
+    "contrato_trabalho": "contract",
+}
+
+#: Existe assinatura VÁLIDA para este arquivo? Válida = status assinado E PDF selado em
+#: disco. Só o status não basta: em 21/08, 42 de 51 registros diziam assinado sem arquivo.
+_SQL_TEM_ASSINATURA = text(
+    "SELECT signed_document_path FROM sig_signature_requests "
+    " WHERE document_type = :dt AND status IN ('SIGNED','COMPLETED') "
+    "   AND coalesce(signed_document_path,'') <> '' "
+    "   AND (CAST(document_id AS text) = :ref OR coalesce(document_name,'') = :nome) "
+    " ORDER BY signed_at DESC NULLS LAST LIMIT 1"
+)
+
+
+#: Marcas de que o arquivo é o COMPROVANTE DE PAGAMENTO ao fornecedor (Sólides/Sinetran),
+#: documento da EMPRESA — não do trabalhador. O classificador dá o mesmo slug e o mesmo
+#: escopo "funcionario" para os dois: "Comprovante de Pagamento Vale Alimentação (Sólides)
+#: - R$ 4.928,00" e "Recibo de Vale Transporte e Vale Alimentacao - Nailson Garcia" caem
+#: ambos em comp_va_solides/comp_vt_va_combinado. O que separa é o nome trazer FORNECEDOR
+#: e VALOR em vez de pessoa. Sem esta distinção, exigir assinatura removeria os 14
+#: comprovantes de pagamento legítimos dos kits.
+_MARCAS_DE_FORNECEDOR = ("(sólides)", "(solides)", "(sinetran)", "r$")
+
+
+def _e_documento_de_pessoa(nome_arquivo: str) -> bool:
+    """False quando o arquivo é comprovante ao fornecedor, não documento do trabalhador."""
+    n = (nome_arquivo or "").lower()
+    return not any(m in n for m in _MARCAS_DE_FORNECEDOR)
+
+
+def _assinatura_valida(db, document_type: str, ref: str, nome: str) -> str | None:
+    """Caminho do PDF SELADO, se existir em disco. None = não pode subir para o kit."""
+    dt = _DOC_DO_TRABALHADOR.get(document_type)
+    if not dt or not _e_documento_de_pessoa(nome):
+        return ""  # documento da empresa: sobe o original mesmo
+    try:
+        p = db.execute(_SQL_TEM_ASSINATURA, {"dt": dt, "ref": ref or "", "nome": nome or ""}).scalar()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("consulta de assinatura falhou (%s): %s", document_type, exc)
+        return None
+    return p if p and os.path.exists(p) else None
 
 
 def _caminho_local(fp: str) -> str | None:
@@ -129,6 +197,7 @@ def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False) -> dict:
         "subiu_pro_drive": 0,
         "virou_slot": 0,
         "sem_classificacao": [],
+        "sem_assinatura": 0,
         "por_kit": {},
         "falhas": 0,
     }
@@ -143,6 +212,12 @@ def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False) -> dict:
                 local = _caminho_local(s["file_path"])
                 if not local:
                     continue
+                # Documento do trabalhador: sobe a versão ASSINADA, ou não sobe.
+                assinado = _assinatura_valida(db, s["document_type"], str(s.get("id") or ""), s["document_name"] or "")
+                if assinado is None:
+                    rel["sem_assinatura"] += 1
+                    continue
+                local = assinado or local
                 fn = s["document_name"] or os.path.basename(local)
                 if not fn.lower().endswith(".pdf"):
                     fn += ".pdf"
