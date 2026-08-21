@@ -462,6 +462,31 @@ async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -
 
 
 @mcp.tool
+async def briefing_contrato_novo(
+    servicos: str = "",
+    cliente_cnpj: str = "",
+    cliente_nome: str = "",
+) -> dict:
+    """Briefing de um contrato NOVO: o que precisa ser definido antes de montar.
+
+    servicos: lista separada por vírgula — portaria, servicos_gerais, jardinagem, piscina,
+    zeladoria, eletronica. Mais de um = contrato misto. Sem serviços, devolve as opções.
+    Traz as funções da CCT vigente com o piso de cada uma. Restrito a Jordan e Pyetra.
+    """
+    payload: dict = {}
+    if servicos:
+        payload["servicos"] = [s.strip() for s in servicos.split(",") if s.strip()]
+    if cliente_cnpj:
+        payload["cliente_cnpj"] = cliente_cnpj
+    if cliente_nome:
+        payload["cliente_nome"] = cliente_nome
+    try:
+        return await erp.post("/crm/contracts/briefing", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
 async def gerar_contrato_por_modelo(
     contrato: str,
     template_id: str = "",

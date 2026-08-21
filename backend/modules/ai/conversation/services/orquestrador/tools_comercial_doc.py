@@ -413,3 +413,39 @@ register(ToolDef(
     "vencimento, composição do valor), devolve as PERGUNTAS — pergunte ao usuário e chame "
     "de novo com as respostas. Restrito a Jordan e Pyetra.",
     _SCHEMA_CONTRATO_MODELO, _gerar_contrato_por_modelo, scope_kind="org"))
+
+
+# ── BRIEFING de contrato novo ─────────────────────────────────────────────────────────
+_SCHEMA_BRIEFING = {
+    "type": "object",
+    "properties": {
+        "servicos": {"type": "array", "items": {"type": "string"},
+                     "description": "portaria · servicos_gerais · jardinagem · piscina · "
+                                    "zeladoria · eletronica. Mais de um = contrato misto."},
+        "cliente_cnpj": {"type": "string"},
+        "cliente_nome": {"type": "string"},
+    },
+}
+
+
+async def _briefing_contrato(db, user, scope, *, servicos=None, cliente_cnpj=None,
+                             cliente_nome=None, **_) -> dict[str, Any]:
+    from modules.crm.services import contract_wizard as W
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    return await W.briefing(db, servicos=servicos, cliente_cnpj=cliente_cnpj,
+                            cliente_nome=cliente_nome)
+
+
+register(ToolDef(
+    "briefing_contrato_novo", "crm",
+    "Abre o BRIEFING de um contrato NOVO: pergunta que serviço será contratado (portaria, "
+    "serviços gerais/ASG, jardinagem, piscina, zeladoria, eletrônica — ou vários, em "
+    "contrato misto), identifica o cliente e devolve as funções da CCT vigente com o piso "
+    "de cada uma, mais a composição e as condições que faltam. Use ANTES de emitir. "
+    "Restrito a Jordan e Pyetra.",
+    _SCHEMA_BRIEFING, _briefing_contrato, scope_kind="org"))

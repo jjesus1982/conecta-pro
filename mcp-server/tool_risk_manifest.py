@@ -33,6 +33,7 @@ TOOL_RISK: dict[str, str] = {
     "baixar_contrato_pdf": "read",
     # emite documento e REGISTRA link público; não ativa contrato nem move dinheiro
     "gerar_contrato_por_modelo": "write",
+    "briefing_contrato_novo": "read",   # só pergunta, não grava nada
     "baixar_espelho_ponto_pdf": "read",
     "baixar_holerite_pdf": "read",
     "baixar_proposta_pdf": "read",

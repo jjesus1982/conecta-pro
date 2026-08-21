@@ -204,3 +204,140 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
 
     await db.commit()
     return feitos
+
+
+# ── BRIEFING de contrato NOVO ─────────────────────────────────────────────────────────
+# Pedido do Jordan (21/08): ao solicitar um contrato novo, o sistema tem de perguntar o
+# que é preciso ANTES de tentar montar — que serviço, se é misto, quem é o cliente, quantos
+# de cada função. Vale igual no jurídico, no chat e no Cowork.
+#
+# O catálogo de funções NÃO é inventado aqui: vem de `cct_cargos`, a convenção coletiva
+# vigente, que é quem define o piso de cada função. Oferecer função fora da CCT seria
+# vender o que não se sabe custear.
+
+# Serviços que a Conecta Mais presta, e as funções da CCT que cada um mobiliza.
+CATALOGO = {
+    "portaria": {
+        "rotulo": "Portaria / Controle de acesso",
+        "cargos": ["PORTEIROS AGENTE DE PORTARIA GUARDETE", "CONTROLADOR DE ACESSO",
+                   "LIDER DE PORTARIA"],
+        "modelo_service_type": "portaria_mao_de_obra",
+    },
+    "servicos_gerais": {
+        "rotulo": "Serviços gerais / Limpeza (ASG)",
+        "cargos": ["SERVICOS GERAIS FAXINEIRO", "LIDER DE SERVICOS GERAIS",
+                   "ENCARREGADO DE SERVICOS GERAIS E SUPERVISOR"],
+        "modelo_service_type": "servicos_gerais",
+    },
+    "jardinagem": {
+        "rotulo": "Jardinagem",
+        "cargos": ["JARDINEIROS", "LIDER DE JARDINAGEM"],
+        "modelo_service_type": "jardinagem",
+    },
+    "piscina": {"rotulo": "Piscina", "cargos": ["PISCINEIRO"], "modelo_service_type": "piscina"},
+    "zeladoria": {"rotulo": "Zeladoria", "cargos": ["ZELADOR RESIDENTE CONDOMINIOS"],
+                  "modelo_service_type": "zeladoria"},
+    "eletronica": {
+        "rotulo": "Segurança eletrônica / CFTV (sem mão de obra fixa)",
+        "cargos": [], "modelo_service_type": "manutencao_cftv",
+    },
+}
+
+
+async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
+                   cliente_cnpj: str | None = None, cliente_nome: str | None = None) -> dict:
+    """O questionário de um contrato NOVO, já respondendo o que o banco sabe.
+
+    Duas passadas de propósito: na primeira o usuário só diz QUAIS serviços; na segunda,
+    com os serviços escolhidos, o briefing devolve as funções daquele(s) serviço(s) com o
+    piso da CCT — perguntar "quantos agentes?" antes de saber que é portaria seria pedir
+    para o usuário adivinhar o formulário.
+    """
+    servicos = [s.strip().lower() for s in (servicos or []) if s and s.strip()]
+    invalidos = [s for s in servicos if s not in CATALOGO]
+    if invalidos:
+        return {"status": "servico_desconhecido", "invalidos": invalidos,
+                "servicos_disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()],
+                "resumo": f"Não conheço o(s) serviço(s) {', '.join(invalidos)}. Escolha entre os disponíveis."}
+
+    # cliente: existe no cadastro?
+    cli = None
+    if cliente_cnpj or cliente_nome:
+        so_num = "".join(ch for ch in (cliente_cnpj or "") if ch.isdigit())
+        cli = (await db.execute(text(
+            "SELECT id::text, name, document_number FROM clients "
+            "WHERE (:d <> '' AND regexp_replace(coalesce(document_number,''), '\\D', '', 'g') = :d) "
+            "   OR (:n <> '' AND name ILIKE '%' || :n || '%') LIMIT 1"),
+            {"d": so_num, "n": (cliente_nome or "").strip()})).mappings().first()
+
+    if not servicos:
+        return {
+            "status": "briefing",
+            "etapa": "1 de 2 — que serviço será contratado",
+            "cliente_encontrado": dict(cli) if cli else None,
+            "perguntas": [
+                {"campo": "servicos",
+                 "pergunta": "Que serviço(s) este contrato cobre? Pode ser mais de um "
+                             "(contrato misto) — responda com as chaves.",
+                 "opcoes": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()]},
+                {"campo": "cliente",
+                 "pergunta": ("Qual o cliente? Informe CNPJ (puxo nome e endereço da Receita) "
+                              "ou o nome, se já estiver no cadastro."
+                              if not cli else
+                              f"Confirma que o cliente é {cli['name']} ({cli['document_number']})?")},
+            ],
+            "resumo": "Para montar o contrato preciso saber o serviço e o cliente. "
+                      "Depois pergunto a composição de cada função.",
+        }
+
+    # etapa 2: funções da CCT para os serviços escolhidos
+    nomes = [c for s in servicos for c in CATALOGO[s]["cargos"]]
+    pisos = []
+    if nomes:
+        pisos = [dict(r) for r in (await db.execute(text(
+            "SELECT cargo_nome, piso_salarial FROM cct_cargos "
+            "WHERE coalesce(is_active,true) AND cargo_nome = ANY(:n) ORDER BY cargo_nome"),
+            {"n": nomes})).mappings().all()]
+
+    modelos = [dict(r) for r in (await db.execute(text(
+        "SELECT id::text, name, service_type FROM contract_templates "
+        "WHERE coalesce(is_active,true) ORDER BY name"))).mappings().all()]
+    tipos = {CATALOGO[s]["modelo_service_type"] for s in servicos}
+    sugeridos = [m for m in modelos if m["service_type"] in tipos]
+
+    misto = len(servicos) > 1
+    return {
+        "status": "briefing",
+        "etapa": "2 de 2 — composição e condições",
+        "servicos": [CATALOGO[s]["rotulo"] for s in servicos],
+        "contrato_misto": misto,
+        "cliente_encontrado": dict(cli) if cli else None,
+        "funcoes_disponiveis": pisos,
+        "modelos_sugeridos": sugeridos,
+        "modelos_todos": modelos,
+        "perguntas": [
+            {"campo": "itens",
+             "pergunta": "Quantos profissionais de cada função, em que turno, e qual o "
+                         "subtotal mensal de cada linha? A soma será o valor do contrato.",
+             "exemplo": "AGP Diurno 2 = 10605.78 · AGP Noturno 2 = 11494.22"},
+            {"campo": "valor_mensal", "pergunta": "Qual o valor mensal fechado com o cliente?"},
+            {"campo": "vigencia", "pergunta": "Início e prazo (em meses).", "exemplo": "01/09/2026, 24 meses"},
+            {"campo": "payment_day", "pergunta": "Dia do mês em que vence a mensalidade.", "exemplo": "8"},
+            {"campo": "grace_period_days",
+             "pergunta": "Em quantos dias vence o primeiro pagamento?", "exemplo": "90"},
+            {"campo": "representante",
+             "pergunta": "Nome e CPF de quem assina pelo cliente (síndico/representante legal)."},
+        ]
+        + ([{"campo": "template_id",
+             "pergunta": "Ainda não há modelo cadastrado para este serviço — qual usar?",
+             "opcoes": modelos}] if not sugeridos else []),
+        "aviso": ("Contrato MISTO: hoje o modelo cadastrado é de PORTARIA. Um contrato que "
+                  "some portaria com outro serviço precisa de modelo próprio ou de aditivo — "
+                  "não monte no de portaria sem revisar o objeto."
+                  if misto else None),
+        "resumo": (f"Serviço(s): {', '.join(CATALOGO[s]['rotulo'] for s in servicos)}"
+                   + (" (MISTO)" if misto else "")
+                   + f" · {len(pisos)} função(ões) da CCT disponíveis"
+                   + (f" · modelo sugerido: {sugeridos[0]['name']}" if sugeridos else
+                      " · SEM modelo para este serviço")),
+    }

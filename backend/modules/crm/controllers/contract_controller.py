@@ -178,6 +178,28 @@ async def gerar_pdf_por_modelo(
     return Response(content=res.pdf, media_type="application/pdf", headers=headers)
 
 
+@router.post("/briefing")
+async def briefing_contrato_novo(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+):
+    """Briefing de contrato NOVO — o que perguntar antes de montar.
+
+    Mesma função que o chat usa, exposta por HTTP para o jurídico e o Cowork: as três
+    superfícies fazem a MESMA pergunta na mesma ordem.
+    """
+    from modules.crm.services import contract_wizard as W
+
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    return await W.briefing(
+        db, servicos=payload.get("servicos"), cliente_cnpj=payload.get("cliente_cnpj"),
+        cliente_nome=payload.get("cliente_nome"))
+
+
 @router.post("/emitir-por-modelo")
 async def emitir_contrato_por_modelo(
     current_user: CurrentActiveUser,
