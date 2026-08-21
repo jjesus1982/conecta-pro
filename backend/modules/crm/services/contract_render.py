@@ -477,8 +477,60 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     return t
 
 
+def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
+          numero: str, inicio, razao_contratada: str = "", cnpj_contratada_fmt: str = "") -> list:
+    """Capa no padrão-ouro — a mesma de `contract_pdf.build_contract_pdf`.
+
+    O render por modelo abria direto no texto: sem logo, sem título, sem o quadro das
+    partes. O contrato da Eletrônica já tinha capa, e é o padrão da casa.
+    """
+    from reportlab.lib.units import mm as _mm  # noqa: PLC0415
+    from reportlab.platypus import Image, PageBreak, Table, TableStyle  # noqa: PLC0415
+
+    el: list = [Spacer(1, 24 * _mm)]
+    lp = B.logo_path("cover")
+    if lp:
+        try:
+            img = Image(lp, width=54 * _mm, height=38 * _mm, kind="proportional")
+            img.hAlign = "CENTER"
+            el.append(img)
+        except Exception:  # noqa: BLE001
+            pass
+    el.append(Spacer(1, 8 * _mm))
+    el.append(Table([[""]], colWidths=[60 * _mm], hAlign="CENTER",
+                    style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)])))
+    el.append(Spacer(1, 10 * _mm))
+    el.append(Paragraph("CONTRATO", st["capa_titulo"]))
+    el.append(Spacer(1, 2 * _mm))
+    el.append(Paragraph("Prestação de Serviços de Portaria 24 Horas", st["capa_sub"]))
+    el.append(Spacer(1, 12 * _mm))
+    box = Table(
+        [[Paragraph(f"<b>CONTRATANTE:</b> {contratante}", st["capa_meta"])],
+         [Paragraph(f"CNPJ: {cnpj_contratante}", st["capa_meta"])],
+         # razão social pela grafia que o Jordan definiu (Conecta Mais, separado) e não a
+         # do pdf_branding, que traz o "CONECTAMAIS" do registro. A capa dizia um nome e o
+         # corpo do contrato, outro.
+         [Paragraph(f"<b>CONTRATADA:</b> {razao_contratada}", st["capa_meta"])],
+         [Paragraph(f"CNPJ: {cnpj_contratada_fmt}", st["capa_meta"])]],
+        colWidths=[150 * _mm], hAlign="CENTER")
+    box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+    el.append(box)
+    el.append(Spacer(1, 12 * _mm))
+    if numero:
+        el.append(Paragraph(f"Contrato <b>{numero}</b>", st["capa_meta"]))
+    if inicio:
+        el.append(Paragraph(B.data_extenso(inicio), st["capa_meta"]))
+    el.append(PageBreak())
+    return el
+
+
 def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None,
-                       itens: list | None = None, total_fmt: str = "") -> bytes:
+                       itens: list | None = None, total_fmt: str = "",
+                       capa: dict | None = None) -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -494,7 +546,10 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     st = B.styles()
     corpo_st, tit_st = st["corpo"], st["h_sec"]
 
-    el: list = []
+    marca_capa = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
+    el: list = _capa(st, marca_capa, capa.get("contratante", ""), capa.get("cnpj", ""),
+                     capa.get("numero", ""), capa.get("inicio"),
+                     capa.get("razao_contratada", ""), cnpj_contratada or "") if capa else []
     for bruto in texto.split("\n"):
         linha = bruto.strip()
         if linha == "[[TABELA_COMPOSICAO]]":
@@ -516,8 +571,10 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     # `titulo` no canto superior direito: o header_footer já aceitava e eu não passava —
     # por isso o timbrado saía sem identificação do documento, ao contrário do padrão-ouro
     # da Eletrônica.
+    # pular_primeira=True quando há capa: a capa é a própria identidade da página, e o
+    # cabeçalho por cima dela é o que descaracteriza o padrão-ouro.
     cb = lambda cv, dc: B.header_footer(cv, dc, empresa=marca, titulo="Contrato",  # noqa: E731
-                                        seal_watermark=True, pular_primeira=False)
+                                        seal_watermark=True, pular_primeira=bool(capa))
     doc.build(el, onFirstPage=cb, onLaterPages=cb)
     return buf.getvalue()
 
@@ -555,6 +612,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
 
     ctx, contratada = await montar_contexto(db, contract_id, dict(tpl))
     itens = (await db.execute(text(_SQL_ITENS), {"k": contract_id})).mappings().all()
+    cab = (await db.execute(text(_SQL_CONTRATO), {"k": contract_id})).mappings().first()
 
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
@@ -589,7 +647,11 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
 
     titulo = f"Contrato {contract_id}"
     return Resultado(
-        pdf=build_pdf_do_texto(texto, titulo, contratada.cnpj, list(itens), ctx["valor_mensal_fmt"]),
+        pdf=build_pdf_do_texto(
+            texto, titulo, contratada.cnpj, list(itens), ctx["valor_mensal_fmt"],
+            capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
+                  "numero": cab["contract_number"], "inicio": cab["start_date"],
+                  "razao_contratada": contratada.razao_social}),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
