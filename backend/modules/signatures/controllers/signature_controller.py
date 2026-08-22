@@ -432,7 +432,13 @@ async def public_document(
         raise HTTPException(status_code=404, detail="Documento não disponível para este link.")
     if not pdf:
         raise HTTPException(status_code=404, detail="Documento não disponível para este link.")
-    nome = (req.document_name or "documento").replace('"', "")
+    # cabeçalho HTTP é latin-1: o travessão de "Contrato CTR-… — CONDOMÍNIO…" derrubava a
+    # entrega com UnicodeEncodeError DEPOIS de o PDF já estar lido. Nome do arquivo vira
+    # ASCII; o título de verdade continua no PDF.
+    import unicodedata  # noqa: PLC0415
+
+    bruto = (req.document_name or "documento").replace('"', "")
+    nome = unicodedata.normalize("NFKD", bruto).encode("ascii", "ignore").decode() or "documento"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{nome}.pdf"'})
 
