@@ -460,7 +460,17 @@ class InterSyncService:
                -- não copiava: o nome chegava ao banco só dentro do TEXTO da
                -- descrição, e "quanto saiu para o Fulano em agosto?" virava uma
                -- pergunta que não dava para fazer em SQL.
-               counterparty_name, counterparty_document)
+               counterparty_name, counterparty_document,
+               -- ⭐ IDENTIFICADOR ESTÁVEL. Sem ele a garantia do banco fica DESLIGADA:
+               -- `idx_bank_tx_external_id` é UNIQUE mas parcial (`WHERE external_id IS
+               -- NOT NULL`), e em índice único NULO nunca colide com NULO. Resultado
+               -- medido em 22/08/2026: 645 das 4.450 linhas do Inter (14,5%) sem id, e
+               -- a mesma transação entrando de novo a cada reimportação. O Cora tem 0%.
+               -- Foi assim que o saldo do Inter passou a divergir R$1.999,34 do banco.
+               -- O id vem da linha de ORIGEM (`inter_transactions.id`): estável entre
+               -- rodadas, diferente entre lançamentos gêmeos legítimos — que existem e
+               -- não podem ser suprimidos (dois VT de R$32 no mesmo dia à mesma pessoa).
+               external_id)
             SELECT gen_random_uuid(), :acc,
               CASE WHEN it.tipo_transacao='PIX' AND it.tipo_operacao='D' THEN 'pix_enviado'
                    WHEN it.tipo_transacao='PIX' AND it.tipo_operacao='C' THEN 'pix_recebido'
@@ -472,7 +482,8 @@ class InterSyncService:
               LEFT(COALESCE(it.descricao, it.titulo, 'Transação Inter'), 500),
               it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true,
               LEFT(NULLIF(it.detalhes_destinatario->>'nome', ''), 255),
-              LEFT(NULLIF(it.detalhes_destinatario->>'cpf_cnpj', ''), 40)
+              LEFT(NULLIF(it.detalhes_destinatario->>'cpf_cnpj', ''), 40),
+              'inter_tx_' || it.id
             FROM (
               -- Dedup por CONTAGEM, não por texto. A condição antiga exigia que a
               -- descrição batesse caractere a caractere; a mesma transação vinda do
@@ -494,6 +505,12 @@ class InterSyncService:
               GROUP BY 1, 2
             ) ja ON ja.d = it.data_lancamento AND ja.v = it.valor
             WHERE it.rn > COALESCE(ja.n, 0)
+            -- Cinto E suspensório: a contagem acima evita reinserir, e o índice único
+            -- garante mesmo se a contagem falhar (foi ela que falhou). `DO NOTHING` em
+            -- vez de erro porque reimportar é rotina, não incidente. A cláusula WHERE
+            -- repete o predicado do índice PARCIAL — sem isso o Postgres não infere qual
+            -- índice usar e recusa o comando.
+            ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO NOTHING
             """), {"acc": acc_id})
         await self.db.commit()
         n = res.rowcount or 0

@@ -142,6 +142,30 @@ async def main() -> None:  # noqa: PLR0915
             print(f"OK duplicata multi-fonte: {grupos} grupo(s), todos adjudicados "
                   f"contra o extrato do banco")
 
+        # ── linha do Inter SEM external_id não pode voltar a crescer ─────────────
+        # 22/08/2026: 645 das 4.450 linhas do Inter (14,5%) estavam sem external_id,
+        # enquanto o Cora tinha 0%. Isso DESLIGA a garantia do banco: o índice único é
+        # parcial (`WHERE external_id IS NOT NULL`) e nulo nunca colide com nulo — então
+        # a mesma transação entrava de novo a cada reimportação. Foi o que fez o saldo do
+        # Inter divergir R$1.999,34 do banco, e o que a checagem de duplicata multi-fonte
+        # NÃO enxerga (ela exige favorecido preenchido, e essas cópias vêm sem nome).
+        #
+        # A ponte agora grava `inter_tx_<id da origem>`. Este teste guarda o número: as
+        # 645 antigas ficam (apagar linha de extrato exige conferir cada uma no banco),
+        # mas nenhuma NOVA pode nascer sem id.
+        SEM_ID_HERDADAS = 645
+        sem_id = int((await db.execute(text("""
+            SELECT count(*) FROM bank_transactions t JOIN bank_accounts a ON a.id = t.bank_account_id
+             WHERE a.bank_code = '077' AND t.external_id IS NULL
+        """))).scalar() or 0)
+        if sem_id > SEM_ID_HERDADAS:
+            falhas.append(
+                f"{sem_id - SEM_ID_HERDADAS} linha(s) NOVA(S) do Inter sem external_id — "
+                f"a ponte voltou a gravar sem identificador e o índice único não protege "
+                f"nulo; é assim que a duplicata volta calada (herdadas: {SEM_ID_HERDADAS})")
+        else:
+            print(f"OK external_id do Inter: {sem_id} sem id, nenhuma nova além das herdadas")
+
         # Alcance declarado em voz alta: onde o favorecido está vazio, esta prova
         # não alcança. Não é falha — é o limite do teste, e esconder limite de
         # teste é como um oráculo passa a mentir.
