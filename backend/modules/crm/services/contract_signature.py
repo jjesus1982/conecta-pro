@@ -135,9 +135,13 @@ async def assinar_pela_empresa(db: AsyncSession, contract_id: str, *, nome: str,
 # assinatura fica em sig_signatures; o do documento assinado, na própria solicitação.
 _SQL_ASSIN = """
 SELECT r.signer_type::text AS papel, r.signer_name AS nome, r.signed_at,
-       coalesce(r.signed_document_hash, r.document_hash, '') AS hash,
+       -- o hash da ASSINATURA (sig_signatures), não o do documento: é ele que
+       -- `GET /signatures/verify/{hash}` aceita. Imprimir o do documento fazia o código
+       -- rotulado "Verificação" não verificar nada.
+       coalesce(s.signature_hash, r.signed_document_hash, r.document_hash, '') AS hash,
        r.signing_ip
 FROM sig_signature_requests r
+LEFT JOIN sig_signatures s ON s.id = r.signature_id
 WHERE r.reference_code = :k AND r.signed_at IS NOT NULL
 ORDER BY r.signature_order, r.signed_at
 """
@@ -154,9 +158,10 @@ async def manifesto_do_contrato(db: AsyncSession, contract_id: str) -> list[dict
         linhas = (await db.execute(text("""
             SELECT r.signer_type::text AS papel, r.signer_name AS nome, r.signer_document AS doc,
                    r.signed_at, r.signing_ip, r.signing_user_agent AS agente,
-                   coalesce(r.signed_document_hash, r.document_hash, '') AS hash,
+                   coalesce(s.signature_hash, r.signed_document_hash, r.document_hash, '') AS hash,
                    r.id::text AS req, r.signature_order AS ordem
             FROM sig_signature_requests r
+            LEFT JOIN sig_signatures s ON s.id = r.signature_id
             WHERE r.reference_code = :k
             ORDER BY r.signature_order"""), {"k": contract_id})).mappings().all()
     except Exception:  # noqa: BLE001

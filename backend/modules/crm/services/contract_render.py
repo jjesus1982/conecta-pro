@@ -532,7 +532,8 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
     return el
 
 
-def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None):
+def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
+                       envolver: bool = True):
     """Bloco de assinatura no padrão das plataformas de assinatura eletrônica.
 
     Saíram as testemunhas: elas existiam para o contrato valer como título executivo
@@ -560,15 +561,16 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None):
             miolo = ("<font color='#8A94A6'>_________________________________________<br/>"
                      "Aguardando assinatura eletrônica</font>")
         return Table(
-            [[Paragraph(f"<b>{rotulo}</b>", st["cellh"])],
+            [[Paragraph(f"<font color='#16277D' size=11><b>{rotulo}</b></font>", st["cellh"])],
              [Paragraph(miolo, st["assina"] if a else st["small"])],
              [Paragraph(f"<b>{pessoa}</b><br/>{cargo}", st["cell"])],
              [Paragraph(f"{entidade}<br/>{doc_}", st["small"])]],
             colWidths=[160 * mm], hAlign="CENTER",
             style=TableStyle([
                 ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#C9D4EA")),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF0FF")),
-                ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#C9D4EA")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDE6FA")),
+                # filete laranja da marca sob o rótulo — é o que faz o quadro "chamar"
+                ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#F26522")),
                 ("LINEBELOW", (0, 2), (-1, 2), 0.4, colors.HexColor("#E4EAF5")),
                 ("TOPPADDING", (0, 0), (-1, -1), 7),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
@@ -584,14 +586,16 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None):
                      (ctx.get("contratante_cargo") or "Representante legal")
                      + (f" · CPF {ctx.get('contratante_representante_cpf')}"
                         if ctx.get("contratante_representante_cpf") else "")))
-    el.append(Spacer(1, 12))
+    el.append(Spacer(1, 30))  # respiro entre as duas assinaturas (pedido do Jordan, 22/08)
     el.append(quadro("contratada", "CONTRATADA", ctx.get("contratada_razao_social", ""),
                      f"CNPJ {ctx.get('contratada_cnpj', '')}",
                      ctx.get("contratada_representante", ""),
                      ctx.get("contratada_cargo") or "Representante legal"))
     # KeepTogether: os dois quadros vão juntos para a página seguinte em vez de a
-    # CONTRATADA ficar órfã no fim da folha, partida ao meio.
-    return [KeepTogether(el)]
+    # CONTRATADA ficar órfã no fim da folha, partida ao meio. `envolver=False` quando quem
+    # agrupa é o chamador, junto com a última cláusula — dois KeepTogether aninhados fazem
+    # o ReportLab medir errado e estourar a folha.
+    return [KeepTogether(el)] if envolver else el
 
 
 def _manifesto(st: dict, contrato: str, manifesto: list) -> list:
@@ -679,10 +683,19 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     el: list = _capa(st, marca_capa, capa.get("contratante", ""), capa.get("cnpj", ""),
                      capa.get("numero", ""), capa.get("inicio"),
                      capa.get("razao_contratada", ""), cnpj_contratada or "") if capa else []
+    # onde começou a ÚLTIMA cláusula: o fecho (foro + assinaturas) tem de sair na mesma
+    # folha. Sem isso o FORO ficava na 10 e a assinatura na 11, com a página do foro
+    # terminando no vazio — pedido do Jordan em 22/08.
+    inicio_ultima_clausula = len(el)
     for bruto in texto.split("\n"):
         linha = bruto.strip()
         if linha == "[[BLOCO_ASSINATURAS]]":
-            el.extend(_bloco_assinaturas(st, ctx_assin or {}, assinaturas))
+            from reportlab.platypus import KeepTogether  # noqa: PLC0415
+
+            fecho = el[inicio_ultima_clausula:]
+            del el[inicio_ultima_clausula:]
+            el.append(KeepTogether(fecho + _bloco_assinaturas(
+                st, ctx_assin or {}, assinaturas, envolver=False)))
             continue
         if linha == "[[TABELA_COMPOSICAO]]":
             el.append(Spacer(1, 6))
@@ -693,6 +706,8 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
             el.append(Spacer(1, 5))
             continue
         eh_clausula = bool(re.match(r"^\s*(CL[ÁA]USULA|PAR[ÁA]GRAFO)\b", linha, re.I))
+        if re.match(r"^\s*CL[ÁA]USULA\b", linha, re.I):
+            inicio_ultima_clausula = len(el)
         el.append(Paragraph(linha.replace("&", "&amp;").replace("<", "&lt;"),
                             tit_st if eh_clausula else corpo_st))
         if eh_clausula:
