@@ -73,6 +73,30 @@ async def main() -> None:
     assert out.get("data_validade"), "resposta legítima perdeu a validade que estava no texto"
     print(f"OK contraprova: resposta que cita o CNPJ ainda vale ({out['data_validade'][:10]})")
 
+    # Contraprova da SEMEF/Manaus. A correção de 22/08 fez "não achei certidão" deixar de
+    # virar "irregular" — e uma trava assim tem o defeito espelhado: silenciar veredito
+    # LEGÍTIMO. Estas duas provam os dois lados, porque um portal que nunca afirma nada é
+    # tão inútil quanto um que inventa.
+    from modules.bidding.integrations.receita_federal.prefeitura_manaus_client import (
+        PrefeituraManausClient as PM,
+    )
+
+    pm = PM()
+    neg = pm._parse_resultado_cnd(
+        "<html>Certidão Negativa de Débitos Municipais — CNPJ 66.014.833/0001-10 — "
+        "Número 2026/000123 — válida até 07/02/2027</html>", "66014833000110", "http://t")
+    assert neg.get("situacao") == "regular", f"certidão negativa legítima foi bloqueada: {neg}"
+    assert neg.get("data_validade"), "certidão legítima perdeu a validade"
+
+    pos = pm._parse_resultado_cnd(
+        "<html>Certidão Positiva de Débitos — existem pendências para o CNPJ "
+        "66.014.833/0001-10 — Número 2026/000456 — válida até 07/02/2027</html>",
+        "66014833000110", "http://t")
+    assert pos.get("situacao") == "irregular", (
+        f"certidão POSITIVA legítima deixou de acusar irregularidade: {pos} — a trava "
+        f"não pode engolir o débito que existe de verdade")
+    print("OK contraprova SEMEF: negativa vale regular, positiva vale irregular")
+
     print("TEST oraculo_portais_nao_chutam PASS")
 
 

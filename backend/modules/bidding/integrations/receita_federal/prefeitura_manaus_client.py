@@ -170,8 +170,6 @@ class PrefeituraManausClient:
         ):
             tipo_certidao = self.TIPO_CPD
 
-        regular = tipo_certidao in (self.TIPO_CND, self.TIPO_CPDEN)
-
         # Extrair validade
         data_match = re.search(r"v[aá]lid[ao][^\d]*(\d{2}/\d{2}/\d{4})", html_lower)
         data_validade: str | None = None
@@ -187,6 +185,50 @@ class PrefeituraManausClient:
         # Extrair numero da certidao
         num_match = re.search(r"n[uú]mero[^\d]*([\d][\d\.\/\-]+)", html_lower)
         codigo_controle = num_match.group(1).strip() if num_match else None
+        # "00" não é número de certidão — é o que este regex pesca numa página
+        # informativa qualquer, e foi o que fez a trava anterior passar batido.
+        # Número de controle real tem corpo; menos de 4 dígitos ou só zeros é ruído.
+        if codigo_controle:
+            _so_dig = re.sub(r"\D", "", codigo_controle)
+            if len(_so_dig) < 4 or set(_so_dig) == {"0"}:
+                codigo_controle = None
+
+        # ── AUSÊNCIA DE CERTIDÃO NÃO É CERTIDÃO POSITIVA ─────────────────────────
+        # O defeito que sobrou depois da correção de 11/08: a guarda do CNPJ passava
+        # (o portal ecoa a query string e a página informativa tem alguma data), e aí
+        # `tipo_certidao` ficava None porque nada foi reconhecido. Só que
+        # `regular = None in (CND, CPDEN)` é False, e False virava a palavra
+        # "irregular". Ou seja, NÃO TER ACHADO NADA era publicado como
+        # IRREGULARIDADE FISCAL — o mesmo peso de uma certidão positiva de débito.
+        # Medido em 22/08/2026 com o CNPJ inexistente 11111111111111: veredito
+        # "irregular" sobre empresa que não existe.
+        #
+        # Veredito exige PROVA DE DOCUMENTO: o tipo reconhecido explicitamente E um
+        # traço que só certidão tem (número de controle ou data de validade). Página
+        # sem isso é folheto — `requer_manual`, que é o veredito honesto.
+        # Exige DATA DE VALIDADE, não "validade ou número": toda certidão municipal —
+        # negativa ou positiva — carrega validade, e é o traço mais difícil de um folheto
+        # imitar por acaso. Aceitar "ou número" deixou passar o `codigo_controle="00"`
+        # pescado da página informativa, e o veredito "irregular" saiu sobre um CNPJ
+        # que não existe.
+        if tipo_certidao is None or not data_validade:
+            return {
+                "cnpj": cnpj,
+                "tipo_certidao": None,
+                "situacao": "requer_manual",
+                "regular": None,
+                "data_validade": None,
+                "codigo_controle": None,
+                "requer_manual": True,
+                "nota": ("A página responde sobre o CNPJ mas não traz uma certidão "
+                         "identificável (sem tipo, número ou validade). Não afirmo "
+                         "regularidade nem irregularidade — emitir no portal."),
+                "url": url,
+                "emitida_por": "SEMEF/Manaus",
+                "consultado_em": now,
+            }
+
+        regular = tipo_certidao in (self.TIPO_CND, self.TIPO_CPDEN)
 
         return {
             "cnpj": cnpj,
