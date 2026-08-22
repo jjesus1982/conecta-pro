@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi import status as http_status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_active_user
@@ -451,6 +452,27 @@ async def public_sign(
     svc = UniversalSignatureService(db)
     body_ev = payload.evidence if payload else None
     evidence = _evidence_from(request, body_ev)
+
+    # ORDEM, só para CONTRATO. O motor guarda `signature_order` e nunca o exige — e não dá
+    # para exigir globalmente: comunicado (162 de 165 pedidos) e holerite usam ordem
+    # escalonada e assinam fora de ordem o tempo todo; travar lá quebraria produção.
+    # No contrato a ordem é decisão do Jordan e tem efeito jurídico: o cliente não pode
+    # firmar um instrumento que a CONTRATADA ainda não firmou. Link vaza, é encaminhado e
+    # vale 30 dias — processo não é trava.
+    req_ord = await svc._get_request_by_token(token)  # noqa: SLF001
+    if req_ord is not None and (req_ord.document_type or "").lower() in {"contrato", "contract"}:
+        pendente_antes = (await db.execute(sa_text(
+            "SELECT signer_name FROM sig_signature_requests "
+            "WHERE reference_code = :k AND signature_order < :o AND signed_at IS NULL "
+            "ORDER BY signature_order LIMIT 1"),
+            {"k": req_ord.reference_code, "o": req_ord.signature_order or 1})).scalar()
+        if pendente_antes:
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="Este contrato ainda não foi assinado pela Conecta Mais. "
+                       "Assim que a assinatura da contratada for registrada, você poderá "
+                       "assinar por este mesmo link.")
+
     try:
         return await svc.assinar_por_token(
             access_token=token,
