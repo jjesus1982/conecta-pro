@@ -108,7 +108,21 @@ async def main() -> None:  # noqa: PLR0915
         # DOIS bancos contra o saldo que eles próprios informam, e fecha exata nos dois
         # (Inter R$5.397,69 · Cora R$51.832,90). Duplicata inflaria o saldo; saldo que
         # fecha é prova mais forte que esta heurística de semelhança.
-        BASE_PARES_LEGITIMOS = 8
+        # 22/08/2026: subiu para 12. Adjudicados contra o extrato do Inter — e o método
+        # importa, porque errei duas vezes antes de acertar. Casar por NOME na descrição
+        # do banco deu respostas contraditórias para o MESMO caso (uma vez "banco tem 2",
+        # outra "banco tem 0"): a descrição vem como "PAGAMENTO DE TITULO - FULL TELECOM
+        # LTDA" e qualquer variação de acento, corte ou maiúscula muda o resultado.
+        #
+        # ⭐ O que decide é CONTAGEM POR VALOR NO DIA INTEIRO: para cada dia, quantos
+        # lançamentos de cada valor o banco tem contra quantos temos. Em 25/06 são 18 e
+        # 18 — dois de R$152,23 e dois de R$153,78, os dois contratos da Full Telecom
+        # pagos no mesmo dia. Nenhum valor nosso excede o do banco em nenhum dos dias.
+        #
+        # Cheguei a montar o DELETE das 12 linhas. O que segurou foi conferir com o
+        # banco antes — a mesma lição do pagamento da Loide, que eu apaguei achando que
+        # era duplicata e o saldo denunciou com a diferença exata de R$32,00.
+        BASE_PARES_LEGITIMOS = 12
         susp = (await db.execute(text("""
             SELECT count(*) AS grupos, coalesce(sum(n - 1), 0) AS excedentes
             FROM (SELECT count(*) AS n
