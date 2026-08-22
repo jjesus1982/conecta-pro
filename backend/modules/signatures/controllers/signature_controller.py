@@ -422,6 +422,26 @@ async def public_document(
     req = await svc._get_request_by_token(token)  # noqa: SLF001
     if req is None:
         raise HTTPException(status_code=404, detail="Link de assinatura inválido.")
+    # CONTRATO: o documento é RENDERIZADO na hora, não servido do arquivo congelado.
+    # O arquivo salvo na abertura mostra "Aguardando assinatura" para as DUAS partes para
+    # sempre — inclusive para a CONTRATADA depois de ela assinar, porque o motor sobrepõe
+    # um selo mas não redesenha o quadro. O síndico leria um contrato que se contradiz.
+    # A prova de integridade continua onde deve: hash congelado na solicitação, hash de
+    # cada assinatura em sig_signatures e o manifesto ao final do próprio PDF.
+    if (req.document_type or "").lower() in {"contrato", "contract"} and req.reference_code:
+        try:
+            from modules.crm.services.contract_render import (  # noqa: PLC0415
+                renderizar_contrato,
+            )
+
+            res = await renderizar_contrato(db, req.reference_code)
+            return Response(
+                content=res.pdf, media_type="application/pdf",
+                headers={"Content-Disposition": 'inline; filename="contrato.pdf"'})
+        except Exception:  # noqa: BLE001 — cai para o arquivo salvo, melhor que 500
+            logger.warning("public_document: render vivo falhou para %s, servindo o arquivo",
+                           req.reference_code, exc_info=True)
+
     # depois de assinado, o que vale é a via carimbada
     caminho = req.signed_document_path or req.document_path
     if not caminho:

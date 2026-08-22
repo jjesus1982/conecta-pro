@@ -130,6 +130,49 @@ def _cond5_link() -> tuple[bool, str]:
     return (saida.startswith("200") and "pdf" in saida.lower()), f"HTTP {saida}"
 
 
+def _cond8_documento_do_link() -> tuple[bool, str]:
+    """8 · o PDF que o SIGNATÁRIO recebe reflete o banco, não um retrato congelado.
+
+    Defeito real de 22/08: a rota pública servia o arquivo salvo na abertura, que dizia
+    "Aguardando assinatura" para as DUAS partes para sempre — inclusive para a CONTRATADA
+    depois de assinar. O cliente lia um contrato que se contradizia.
+    """
+    r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                        "python3", "-c", (
+                            "import asyncio\n"
+                            "from sqlalchemy import text\n"
+                            "from core.database import async_session_factory\n"
+                            "async def m():\n"
+                            "    async with async_session_factory() as db:\n"
+                            "        r=(await db.execute(text(\"SELECT c.access_token, "
+                            "(SELECT count(*) FROM sig_signature_requests x WHERE "
+                            "x.reference_code=c.reference_code AND x.signed_at IS NOT NULL) "
+                            "FROM sig_signature_requests c WHERE c.document_type='contrato' "
+                            "AND c.access_token IS NOT NULL AND c.signed_at IS NULL "
+                            "ORDER BY c.created_at DESC LIMIT 1\"))).first()\n"
+                            "        print(f'{r[0]}|{r[1]}' if r else 'NADA')\n"
+                            "asyncio.run(m())")],
+                       capture_output=True, text=True, timeout=200)
+    linha = [x for x in r.stdout.splitlines() if "|" in x or x.strip() == "NADA"]
+    if not linha or linha[-1] == "NADA":
+        return True, "nenhum link de contrato em aberto para testar (condição inerte)"
+    tok, n_assinadas = linha[-1].split("|", 1)
+    caminho = "/tmp/_fechado_doc.pdf"
+    c = subprocess.run(["curl", "-s", "-o", caminho, "-w", "%{http_code}",
+                        f"https://erp.conectamais.pro/api/v1/signatures/public/{tok}/documento",
+                        "--max-time", "90"], capture_output=True, text=True, timeout=140)
+    if not c.stdout.strip().startswith("200"):
+        return False, f"o signatário não recebe o documento (HTTP {c.stdout.strip()})"
+    t = subprocess.run(["pdftotext", caminho, "-"], capture_output=True, text=True, timeout=90).stdout
+    assinadas = int(n_assinadas)
+    if assinadas and "Assinado eletronicamente por" not in t:
+        return False, (f"{assinadas} assinatura(s) no banco e o PDF entregue ao signatário não "
+                       "carimba nenhuma — retrato congelado")
+    if "MANIFESTO DE ASSINATURAS" not in t:
+        return False, "o PDF entregue ao signatário não traz o manifesto que o contrato promete"
+    return True, f"{assinadas} assinatura(s) refletida(s) no PDF entregue · manifesto presente"
+
+
 def _cond6_travas() -> tuple[bool, str]:
     """6 · as travas do repositório não acusam nada em crm."""
     achados = []
@@ -200,6 +243,8 @@ def main() -> int:
     res.append(_ok(ok5, "5 · link tokenizado abre sem login e devolve PDF", det5))
     ok6, det6 = _cond6_travas()
     res.append(_ok(ok6, "6 · travas do crm zeradas", det6))
+    ok8, det8 = _cond8_documento_do_link()
+    res.append(_ok(ok8, "8 · o PDF que o signatário recebe reflete o banco", det8))
 
     print("\n[oráculos]")
     vermelhos = []
