@@ -37,6 +37,10 @@ class Solicitacao:
     token_cliente: str | None
     link_cliente: str | None
     documento_hash: str
+    token_empresa: str | None = None
+    link_empresa: str | None = None
+    pin_empresa: str | None = None
+    pin_cliente: str | None = None
 
 
 def _sha256(b: bytes) -> str:
@@ -89,12 +93,17 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
     emp = next((p for p in pedidos if str(p.get("signer_type", "")).endswith("company")), None)
     cli = next((p for p in pedidos if str(p.get("signer_type", "")).endswith("customer")), None)
     token = (cli or {}).get("public_token")
+    tk_emp = (emp or {}).get("public_token")
     return Solicitacao(
         request_id_empresa=str(emp.get("id")) if emp else None,
         request_id_cliente=str(cli.get("id")) if cli else None,
         token_cliente=token,
         link_cliente=f"{BASE_PUBLICA}/assinar/contrato/{token}" if token else None,
         documento_hash=doc_hash,
+        token_empresa=tk_emp,
+        link_empresa=f"{BASE_PUBLICA}/assinar/contrato/{tk_emp}" if tk_emp else None,
+        pin_empresa=(emp or {}).get("public_pin"),
+        pin_cliente=(cli or {}).get("public_pin"),
     )
 
 
@@ -129,6 +138,102 @@ async def assinar_pela_empresa(db: AsyncSession, contract_id: str, *, nome: str,
         # Recusa honesta: sem isso ficaria assinatura registrada sem papel assinado.
         pdf_bytes=pdf,
     )
+
+
+def _html(titulo: str, corpo: str, rodape: str = "") -> str:
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;color:#1F2937;max-width:600px">'
+        f'<div style="background:#16277D;padding:18px 22px;border-bottom:4px solid #F26522">'
+        f'<span style="color:#fff;font-size:18px;font-weight:bold">Conecta Mais</span></div>'
+        f'<div style="padding:22px"><h2 style="color:#16277D;margin:0 0 12px">{titulo}</h2>'
+        f'{corpo}</div>'
+        f'<div style="padding:14px 22px;background:#F3F4F6;font-size:12px;color:#6B7280">'
+        f'{rodape or "Mensagem automática do Conecta PRO — não responda a este e-mail."}'
+        "</div></div>")
+
+
+async def convidar_para_assinar(db: AsyncSession, contract_id: str, *, para: str,
+                                link: str, nome: str = "", papel: str = "") -> bool:
+    """Avisa um signatário de que há documento esperando a assinatura dele.
+
+    Manda o LINK, nunca o código: o código vai depois, para o e-mail que a pessoa informar
+    na própria tela. Link e código no mesmo e-mail transformam dois fatores em um.
+    """
+    from core.mailer import send_email  # noqa: PLC0415
+
+    quem = f"<p>Olá, {nome}.</p>" if nome else ""
+    posicao = f"<p>Você consta como <b>{papel}</b> neste instrumento.</p>" if papel else ""
+    return await send_email(
+        para, f"Documento para assinar — contrato {contract_id}",
+        _html("Você tem um documento para assinar",
+              quem
+              + f"<p>O contrato <b>{contract_id}</b> está pronto para sua assinatura "
+                "eletrônica.</p>" + posicao
+              + '<p style="margin:22px 0"><a href="' + link + '" '
+                'style="background:#F26522;color:#fff;text-decoration:none;padding:14px 26px;'
+                'border-radius:8px;font-weight:bold;display:inline-block">'
+                "Ler e assinar o contrato</a></p>"
+              + "<p>Na tela você lê o contrato inteiro, informa nome, CPF e e-mail, e recebe "
+                "um <b>código de validação</b> no seu e-mail para concluir a assinatura.</p>"
+              + f'<p style="font-size:12px;color:#6B7280">Se o botão não abrir, copie este '
+                f'endereço: {link}</p>'))
+
+
+async def notificar_apos_assinatura(db: AsyncSession, contract_id: str, pdf: bytes) -> dict:
+    """Manda a via para quem acabou de assinar e, se todos assinaram, avisa as partes.
+
+    Nunca derruba a assinatura: e-mail que falha vira log, não exceção — a assinatura já
+    está registrada e não pode ser perdida porque o SMTP piscou.
+
+    Só manda para quem INFORMOU e-mail. Sem endereço, não há para onde mandar — e inventar
+    destinatário a partir do cadastro do cliente é mandar contrato assinado para quem não
+    pediu.
+    """
+    from core.mailer import send_email  # noqa: PLC0415
+
+    partes = await manifesto_do_contrato(db, contract_id)
+    faltam = [m for m in partes if not m["assinado"]]
+    completo = bool(partes) and not faltam
+
+    emails = (await db.execute(text(
+        "SELECT signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+        "FROM sig_signature_requests WHERE reference_code = :k AND signer_email IS NOT NULL "
+        "AND signer_email <> '' ORDER BY signature_order"), {"k": contract_id})).mappings().all()
+
+    anexo = [(f"Contrato {contract_id}.pdf", pdf)]
+    enviados: list[str] = []
+
+    # 1 · via para quem assinou (cada um recebe a sua no ato)
+    for e in emails:
+        if not e["assinou"]:
+            continue
+        pendencia = ("<p>Assim que as demais partes assinarem, você receberá a via final "
+                     "com o manifesto completo.</p>" if faltam else "")
+        ok = await send_email(
+            e["signer_email"], f"Contrato {contract_id} — sua via assinada",
+            _html("Sua assinatura foi registrada",
+                  f"<p>Olá, {e['signer_name']}.</p>"
+                  f"<p>Segue em anexo o contrato <b>{contract_id}</b> com sua assinatura "
+                  "eletrônica registrada. O manifesto ao final traz data, hora, endereço IP "
+                  "e o código de verificação de cada assinatura.</p>" + pendencia),
+            anexos=anexo)
+        if ok:
+            enviados.append(e["signer_email"])
+
+    # 2 · todas as partes assinaram: avisa TODO MUNDO que informou e-mail
+    if completo:
+        nomes = ", ".join(m["nome"] for m in partes)
+        for e in emails:
+            await send_email(
+                e["signer_email"], f"Contrato {contract_id} — assinado por todas as partes",
+                _html("Contrato concluído",
+                      f"<p>O contrato <b>{contract_id}</b> foi assinado por todas as partes: "
+                      f"{nomes}.</p><p>A via final, com o manifesto de assinaturas, segue "
+                      "em anexo.</p>"),
+                anexos=anexo)
+
+    return {"completo": completo, "enviados": enviados,
+            "faltam": [m["nome"] for m in faltam]}
 
 
 # `sig_signature_requests` (1.749 linhas — o motor está em uso de verdade). O hash da

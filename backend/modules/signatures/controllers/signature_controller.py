@@ -463,6 +463,84 @@ async def public_document(
                     headers={"Content-Disposition": f'inline; filename="{nome}.pdf"'})
 
 
+async def _limite_ok(chave: str, teto: int, janela: int) -> bool:
+    """INCR+EXPIRE no Redis. Fail-OPEN: cache com soluço não pode impedir uma assinatura
+    legítima — mas o teto existe porque este endpoint DISPARA E-MAIL sem autenticação."""
+    try:
+        from core.cache.redis import get_redis  # noqa: PLC0415
+
+        r = await get_redis()
+        n = await r.incr(chave)
+        if n == 1:
+            await r.expire(chave, janela)
+        return n <= teto
+    except Exception:  # noqa: BLE001
+        logger.warning("rate limit indisponível para %s — seguindo aberto", chave)
+        return True
+
+
+@router.post(
+    "/public/{token}/codigo",
+    summary="Envia o código de validação para o e-mail do signatário",
+    description="O signatário informa nome, CPF e e-mail; o código de 6 dígitos vai para "
+    "esse e-mail. Sem autenticação — o token é a credencial.",
+)
+async def public_send_code(
+    request: Request,
+    token: str = Path(...),
+    payload: PublicSignSchema | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    from core.mailer import send_email  # noqa: PLC0415
+
+    email = (payload.signer_email if payload else None) or ""
+    nome = (payload.signer_name if payload else None) or ""
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST,
+                            detail="Informe um e-mail válido para receber o código.")
+
+    svc = UniversalSignatureService(db)
+    req = await svc._get_request_by_token(token)  # noqa: SLF001
+    if req is None:
+        raise HTTPException(status_code=404, detail="Link de assinatura inválido.")
+    if req.signed_at:
+        raise HTTPException(status_code=409, detail="Este documento já foi assinado por você.")
+
+    ip = request.client.host if request.client else "sem-ip"
+    if not await _limite_ok(f"rl:sigcode:ip:{ip}", 10, 3600) or \
+       not await _limite_ok(f"rl:sigcode:tok:{token}", 6, 3600):
+        raise HTTPException(status_code=429,
+                            detail="Muitas tentativas. Aguarde alguns minutos e tente de novo.")
+
+    # o código é o que a solicitação já guarda; guardamos também PARA ONDE ele foi — é essa
+    # linha que sustenta a evidência de entrega no manifesto
+    req.signer_email = email
+    if payload and payload.signer_document:
+        req.signer_document = payload.signer_document
+    if nome:
+        req.signer_name = nome
+    await db.commit()
+
+    from modules.crm.services.contract_signature import _html  # noqa: PLC0415
+
+    ok = await send_email(
+        email, f"Seu código para assinar — {req.title or 'documento'}",
+        _html("Código de validação",
+              f"<p>Olá, {nome or req.signer_name}.</p>"
+              f"<p>Use o código abaixo para assinar eletronicamente "
+              f"<b>{req.title or 'o documento'}</b>:</p>"
+              f'<p style="font-size:34px;letter-spacing:10px;font-weight:bold;color:#16277D;'
+              f'background:#EEF2FF;border:1px solid #C9D4EA;border-radius:10px;'
+              f'padding:16px;text-align:center;margin:18px 0">{req.access_code}</p>'
+              "<p>O código é pessoal. Se você não solicitou, ignore esta mensagem — "
+              "nada será assinado.</p>"))
+    if not ok:
+        raise HTTPException(status_code=502,
+                            detail="Não conseguimos enviar o e-mail agora. Tente novamente.")
+    dominio = email.split("@")[-1]
+    return {"enviado": True, "para": f"{email[:2]}***@{dominio}"}
+
+
 @router.post(
     "/public/{token}",
     summary="Cliente assina via link seguro",
@@ -500,15 +578,35 @@ async def public_sign(
                        "assinar por este mesmo link.")
 
     try:
-        return await svc.assinar_por_token(
+        res = await svc.assinar_por_token(
             access_token=token,
             access_code=payload.access_code if payload else None,
             signer_name=payload.signer_name if payload else None,
             signer_document=payload.signer_document if payload else None,
+            signer_email=payload.signer_email if payload else None,
             evidence=evidence,
         )
     except ValueError as e:
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # CONTRATO: manda a via a quem assinou e, quando todos assinarem, avisa as partes.
+    # Dentro de try: e-mail que falha NÃO pode derrubar uma assinatura já registrada.
+    if req_ord is not None and (req_ord.document_type or "").lower() in {"contrato", "contract"}:
+        try:
+            from modules.crm.services.contract_render import (  # noqa: PLC0415
+                renderizar_contrato,
+            )
+            from modules.crm.services.contract_signature import (  # noqa: PLC0415
+                notificar_apos_assinatura,
+            )
+
+            r = await renderizar_contrato(db, req_ord.reference_code)
+            res["envio"] = await notificar_apos_assinatura(db, req_ord.reference_code, r.pdf)
+        except Exception:  # noqa: BLE001
+            logger.warning("public_sign: envio de e-mail falhou para %s (assinatura mantida)",
+                           req_ord.reference_code, exc_info=True)
+            res["envio"] = {"erro": "não foi possível enviar a cópia por e-mail"}
+    return res
 
 
 # --------------------------------------------------------------------------- #

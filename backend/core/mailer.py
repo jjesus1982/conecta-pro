@@ -10,9 +10,16 @@ from core.config import settings
 from core.logging import logger
 
 
-async def send_email(to_email: str, subject: str, html_body: str) -> bool:
+async def send_email(to_email: str, subject: str, html_body: str,
+                     anexos: list[tuple[str, bytes]] | None = None) -> bool:
     """
     Envia email via SMTP.
+
+    Args:
+        anexos: lista de (nome_do_arquivo, conteudo). Opcional — sem anexo o e-mail sai
+            exatamente como antes ("alternative"); com anexo o container vira "mixed",
+            porque "alternative" trata as partes como versões do MESMO conteúdo e o cliente
+            de e-mail escolhe uma — o anexo simplesmente não aparece.
 
     Returns:
         True se enviou com sucesso, False caso contrário.
@@ -21,11 +28,17 @@ async def send_email(to_email: str, subject: str, html_body: str) -> bool:
         logger.warning("SMTP não configurado — email não enviado")
         return False
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed" if anexos else "alternative")
     msg["Subject"] = subject
     msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    for nome, conteudo in (anexos or []):
+        from email.mime.application import MIMEApplication  # noqa: PLC0415
+
+        parte = MIMEApplication(conteudo, _subtype="pdf")
+        parte.add_header("Content-Disposition", "attachment", filename=nome)
+        msg.attach(parte)
 
     try:
         if settings.SMTP_USE_TLS:

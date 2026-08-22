@@ -60,7 +60,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # DENY em tudo, MENOS o PDF que o signatário precisa ler dentro do portal de
+        # assinatura. Com DENY o quadro do contrato vinha vazio e a pessoa assinaria às
+        # cegas — o pior desfecho possível aqui. É um PDF de mesma origem: não há ação
+        # para um clickjacking sequestrar, ao contrário de uma tela do ERP.
+        _publico = request.url.path.startswith("/api/v1/signatures/public/") and \
+            request.url.path.endswith("/documento")
+        response.headers["X-Frame-Options"] = "SAMEORIGIN" if _publico else "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

@@ -327,8 +327,14 @@ class UniversalSignatureService:
                 custom_fields={"document_id_raw": str(document_id)},
             )
 
-            # CLIENTE assina por link: token único + PIN
-            if signer.signer_type == SignerType.CUSTOMER:
+            # CLIENTE assina por link: token único + PIN.
+            # CONTRATO: a EMPRESA também assina por link — decisão do Jordan (22/08). Ele
+            # quis passar pela mesma experiência do cliente, e o diretor nem sempre está
+            # logado no painel na hora de firmar. Escopado por document_type: nenhum outro
+            # fluxo (holerite, comunicado, kit) ganha token de empresa.
+            _emp_por_link = (signer.signer_type == SignerType.COMPANY
+                             and (document_type or "").lower() in {"contrato", "contract"})
+            if signer.signer_type == SignerType.CUSTOMER or _emp_por_link:
                 # token_hex, não token_urlsafe: base64url inclui "_" e "-", e link com
                 # "__" no fim é comido por chat que renderiza markdown — foi o que quebrou
                 # o link do contrato CTR-2026-00019 em 19/08. Este link vai para o CLIENTE
@@ -348,7 +354,7 @@ class UniversalSignatureService:
                 "order": signer.order,
                 "status": str(RequestStatus.PENDING),
             }
-            if signer.signer_type == SignerType.CUSTOMER:
+            if req.access_token:
                 entry["public_token"] = req.access_token
                 entry["public_pin"] = req.access_code
             created.append(entry)
@@ -606,6 +612,7 @@ class UniversalSignatureService:
         access_code: str | None = None,
         signer_name: str | None = None,
         signer_document: str | None = None,
+        signer_email: str | None = None,
         evidence: SignatureEvidence | None = None,
     ) -> dict[str, Any]:
         """Assina uma solicitação de CLIENTE via link seguro (token de uso único).
@@ -633,10 +640,16 @@ class UniversalSignatureService:
             if not _secrets.compare_digest(str(access_code or ""), str(req.access_code)):
                 raise ValueError("PIN de verificação incorreto.")
 
+        # o papel vem da PRÓPRIA solicitação. Fixar CUSTOMER registrava a empresa como se
+        # fosse cliente no contrato assinado por link. Hoje só CUSTOMER tem token fora de
+        # contrato, então para os fluxos existentes o valor é idêntico.
+        papel = req.signer_type if isinstance(req.signer_type, SignerType) else SignerType(str(req.signer_type))
+        if signer_email:
+            req.signer_email = signer_email
         return await self.assinar(
             request_id=req.id,
-            signer_type=SignerType.CUSTOMER,
-            signer_id=None,
+            signer_type=papel,
+            signer_id=req.signer_id,
             signer_name=signer_name,
             signer_document=signer_document,
             evidence=evidence,

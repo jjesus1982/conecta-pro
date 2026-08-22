@@ -86,6 +86,8 @@ class PublicSignSchema(BaseModel):
     access_code: str | None = Field(None, description="PIN de 6 dígitos")
     signer_name: str | None = None
     signer_document: str | None = None
+    signer_email: str | None = Field(
+        None, description="Para onde mandar a via assinada — quem assina recebe cópia")
     evidence: EvidenceSchema | None = None
 
 
