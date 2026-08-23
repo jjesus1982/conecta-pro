@@ -368,7 +368,8 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
                          valor_mensal: float, vigencia_inicio: str,
                          vigencia_meses: int = 12, dia_vencimento: int | None = None,
                          renovacao_aviso_dias: int = 30,
-                         carencia_dias: int | None = None) -> dict:
+                         carencia_dias: int | None = None,
+                         proposal_id: str | None = None) -> dict:
     """Cria o contrato JÁ ligado ao modelo, ao tipo de serviço e à empresa emitente.
 
     Recusa em vez de inventar:
@@ -424,21 +425,24 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
             (id, contract_number, client_id, template_id, empresa_id, tipo_servico,
              contract_type, status, name, monthly_value, payment_day, start_date, end_date,
              renewal_notification_days, notice_period_days, grace_period_days,
-             is_active, created_at, updated_at)
+             proposal_id, is_active, created_at, updated_at)
         VALUES (gen_random_uuid(), :n, CAST(:c AS uuid), CAST(:t AS uuid), CAST(:e AS uuid),
                 :ts, 'recurring', 'draft', :nome, :v, :pd, :ini, :fim, :rn, 30, :car,
-                true, now(), now())"""),
+                CAST(:prop AS uuid), true, now(), now())"""),
         {"n": numero, "c": cli["id"], "t": tpl["id"], "e": EMPRESA_POR_TIPO.get(tipo),
          "ts": tipo, "nome": f"{CATALOGO[modalidade]['rotulo']} — {cli['name']}",
          "v": valor_mensal, "pd": dia_vencimento, "ini": ini, "fim": fim,
          # grace_period_days é NOT NULL COM default: passar None explícito ANULA o default
          # e viola a constraint. Sem carência negociada, o valor é 0, não nulo.
-         "rn": renovacao_aviso_dias, "car": carencia_dias or 0})
+         "rn": renovacao_aviso_dias, "car": carencia_dias or 0,
+         # a origem fica rastreada: de qual proposta este contrato nasceu
+         "prop": proposal_id})
     await db.commit()
 
     sit = await diagnosticar(db, numero)
     return {
         "status": "criado", "contrato": numero, "cliente": cli["name"],
+        "proposta_origem": proposal_id,
         "modelo": tpl["name"], "tipo_servico": tipo,
         "vigencia": f"{ini.isoformat()} a {fim.isoformat()} ({meses} meses)",
         "pronto_para_emitir": sit.pronto,

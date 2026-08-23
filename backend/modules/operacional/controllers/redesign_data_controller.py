@@ -1053,11 +1053,27 @@ async def _build_crm(db: AsyncSession) -> dict:
         ["Número", "Cliente", "Título", "Valor", "Status"], "1fr 1.6fr 1.6fr 1fr 0.9fr",
         "SELECT coalesce(number,'—'), coalesce(client_name,'—'), coalesce(title,'—'), coalesce(total,subtotal,0), status::text FROM proposals ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(brl(r[3]), 600), b(r[4] or "—", "info")]))
-    await safe("contratos", tbl("Contratos", f"{n_contr} contratos", "Novo contrato",
-        ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
-        "SELECT coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
+    # Contratos: além do cadastro, o INSTRUMENTO e o estado da assinatura. Até 23/08 esta
+    # tela mostrava só Contrato/Cliente/Mensal/Total/Status — para baixar o PDF ou abrir
+    # assinatura era preciso trocar de módulo (jurídico) ou pedir para o agente.
+    # A coluna Assinatura lê sig_signature_requests: é o banco dizendo quem já firmou,
+    # nunca uma suposição a partir do status do contrato.
+    await safe("contratos", tbl("Contratos", f"{n_contr} contratos · baixe o instrumento pelo modelo e acompanhe a assinatura", "Novo contrato",
+        ["Contrato", "Cliente", "Serviço", "Mensal", "Status", "Assinatura"], "1.1fr 1.5fr 1fr 0.9fr 0.8fr 1.1fr",
+        "SELECT coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
+        "coalesce(ct.tipo_servico::text,'—'), coalesce(ct.monthly_value,0), ct.status::text, "
+        "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number), "
+        "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL), "
+        "ct.template_id::text "
         "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(brl(r[2])), t(brl(r[3]), 600), b("Ativo", "ok") if (r[4] or "").lower() in ("active", "ativo", "vigente") else b(r[4] or "—", "mut")]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:32]), t((r[2] or '—').replace('_', ' ')),
+                   t(brl(r[3])),
+                   b("Ativo", "ok") if (r[4] or "").lower() in ("active", "ativo", "vigente") else b(r[4] or "—", "mut"),
+                   (b("Não aberta", "mut") if not r[5]
+                    else b(f"{r[6]}/{r[5]} assinada(s)", "ok" if r[6] and r[6] == r[5] else "warn"))],
+        # botão só em quem TEM modelo: oferecer download que devolve 422 é pior que não oferecer
+        docsfn=lambda r: ([doc("Contrato completo (PDF)",
+                               f"/api/v1/crm/contracts/{r[0]}/pdf-modelo", fmt="pdf")] if r[7] else [])))
     await safe("comissoes", tbl("Comissões", f"{await _scalar(db, 'SELECT count(*) FROM commissions')} comissões", "Nova comissão",
         ["Referência", "Venda", "Comissão", "Status"], "1.4fr 1fr 1fr 0.9fr",
         "SELECT coalesce(reference_number,'—'), coalesce(sale_value,0), coalesce(final_commission,0), status::text FROM commissions ORDER BY created_at DESC NULLS LAST LIMIT 200",
@@ -1158,6 +1174,136 @@ async def _build_crm(db: AsyncSession) -> dict:
             {"key": "stage", "label": "Novo estágio*", "type": "select", "span": "span 1", "ph": "Estágio",
              "options": [{"value": v, "label": l} for v, (l, _tone) in _STG.items()]},
             {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Motivo/nota da mudança (opcional)…"},
+        ],
+    }
+    # Proposta -> contrato: o elo que faltava. Só propostas que AINDA não viraram contrato
+    # aparecem; oferecer as que já viraram só produziria 409 na cara do usuário.
+    _prop_rows = (await db.execute(text(
+        "SELECT p.id::text, p.number, coalesce(p.client_company, p.title, '') AS quem, "
+        "coalesce(p.total,0) AS total "
+        "FROM proposals p "
+        "WHERE coalesce(p.is_active, true) AND coalesce(p.client_document,'') <> '' "
+        "  AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.proposal_id = p.id) "
+        "ORDER BY p.created_at DESC LIMIT 120"))).fetchall()
+    out["contrato-da-proposta"] = {
+        "title": "Gerar contrato a partir da proposta",
+        "sub": f"{len(_prop_rows)} proposta(s) sem contrato. Cliente e valor vêm da "
+               "proposta; a modalidade define o modelo e o CNPJ que emite.",
+        "cta": "Gerar contrato", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-da-proposta",
+                   "confirm": "Criar o contrato a partir desta proposta?",
+                   "okMsg": "Contrato criado"},
+        "fields": [
+            {"key": "proposal_id", "label": "Proposta*", "type": "select", "span": "span 2",
+             "ph": "Selecione a proposta",
+             "options": [{"value": i, "label": f"{n} · {q[:34]} · {brl(v)}"}
+                         for i, n, q, v in _prop_rows]},
+            {"key": "modalidade", "label": "Modalidade*", "type": "select", "span": "span 1",
+             "ph": "Define o modelo e o CNPJ emitente",
+             "options": [{"value": "portaria", "label": "Portaria / Controle de acesso"},
+                         {"value": "servicos_gerais", "label": "Serviços gerais / Limpeza (ASG)"},
+                         {"value": "jardinagem", "label": "Jardinagem"},
+                         {"value": "piscina", "label": "Piscina"},
+                         {"value": "zeladoria", "label": "Zeladoria"},
+                         {"value": "eletronica", "label": "Segurança eletrônica / CFTV"}]},
+            {"key": "vigencia_inicio", "label": "Início da vigência*", "type": "date",
+             "span": "span 1"},
+            {"key": "valor_mensal", "label": "Valor mensal (R$)", "type": "text",
+             "span": "span 1", "ph": "Vazio usa o valor da proposta"},
+            {"key": "vigencia_meses", "label": "Vigência (meses)", "type": "text",
+             "span": "span 1", "ph": "12"},
+            {"key": "dia_vencimento", "label": "Dia do vencimento", "type": "text",
+             "span": "span 1", "ph": "Ex.: 10"},
+            {"key": "renovacao_aviso_dias", "label": "Aviso de não renovação (dias)",
+             "type": "text", "span": "span 1", "ph": "30"},
+        ],
+    }
+    # Assinatura do contrato, dentro do CRM (antes só existia via agente/Cowork).
+    # As duas ações chamam as MESMAS rotas de /crm/contracts já provadas — nada de motor
+    # novo, e o portão de emitente continua sendo o do serviço.
+    _ctr_rows = (await db.execute(text(
+        "SELECT ct.contract_number, coalesce(cl.name, ct.name, ''), "
+        "(SELECT count(*) FROM sig_signature_requests s "
+        " WHERE s.reference_code = ct.contract_number) AS aberta "
+        "FROM contracts ct LEFT JOIN clients cl ON cl.id = ct.client_id "
+        "WHERE coalesce(ct.is_active, true) AND ct.template_id IS NOT NULL "
+        "ORDER BY ct.start_date DESC NULLS LAST LIMIT 120"))).fetchall()
+    out["abrir-assinatura"] = {
+        "title": "Abrir assinatura do contrato",
+        "sub": "Registra a solicitação das duas partes e gera os links. A CONTRATADA "
+               "assina primeiro; só depois o link do cliente funciona.",
+        "cta": "Abrir assinatura", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-abrir-assinatura",
+                   "confirm": "Abrir a assinatura eletrônica deste contrato?",
+                   "okMsg": "Assinatura aberta"},
+        "fields": [
+            {"key": "contrato", "label": "Contrato*", "type": "select", "span": "span 2",
+             "ph": "Selecione o contrato",
+             "options": [{"value": n, "label": f"{n} · {c[:34]}"
+                                   + (" · já aberta" if a else "")}
+                         for n, c, a in _ctr_rows]},
+            {"key": "email_cliente", "label": "E-mail do cliente (opcional)",
+             "type": "text", "span": "span 2",
+             "ph": "Para notificar o link — o código vai depois, no e-mail que ele informar"},
+        ],
+    }
+    out["enviar-link-assinatura"] = {
+        "title": "Enviar link de assinatura",
+        "sub": "Manda o convite ao signatário — ou devolve o link para você mandar por "
+               "WhatsApp. Recusa mandar ao cliente antes de a Conecta Mais assinar.",
+        "cta": "Enviar link", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-enviar-link",
+                   "okMsg": "Link enviado"},
+        "fields": [
+            {"key": "contrato", "label": "Contrato*", "type": "select", "span": "span 2",
+             "ph": "Selecione o contrato",
+             "options": [{"value": n, "label": f"{n} · {c[:34]}"}
+                         for n, c, a in _ctr_rows if a]},
+            {"key": "parte", "label": "Para quem*", "type": "select", "span": "span 1",
+             "options": [{"value": "cliente", "label": "Cliente (CONTRATANTE)"},
+                         {"value": "empresa", "label": "Conecta Mais (CONTRATADA)"}]},
+            {"key": "email", "label": "E-mail", "type": "text", "span": "span 1",
+             "ph": "Vazio devolve o link para envio manual"},
+        ],
+    }
+    # Definir lead (FORM → POST /redesign/action/lead-definir)
+    # 29 dos 32 leads estavam parados em `new` sem NENHUMA ação na tela para tirá-los de
+    # lá: o CRM cadastrava lead e não sabia o que fazer com ele. `mover-oportunidade` só
+    # serve para quem já virou oportunidade.
+    _lead_rows = (await db.execute(text(
+        "SELECT id::text, name, coalesce(company,''), coalesce(status::text,''), "
+        "coalesce(qualificacao->>'temperatura','') "
+        "FROM leads WHERE coalesce(is_active, true) "
+        "ORDER BY (status::text = 'new') DESC, created_at DESC LIMIT 300"))).fetchall()
+    _n_novos = sum(1 for r in _lead_rows if r[3] == "new")
+    out["definir-lead"] = {
+        "title": "Definir lead",
+        "sub": f"{_n_novos} lead(s) ainda sem destino. Qualifique, descarte ou abra a "
+               "oportunidade — descartar exige motivo.",
+        "cta": "Definir", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/lead-definir",
+                   "okMsg": "Lead definido"},
+        "fields": [
+            {"key": "lead_id", "label": "Lead*", "type": "select", "span": "span 2",
+             "ph": "Selecione o lead",
+             "options": [{"value": i,
+                          "label": (f"{(n or '—')[:40]}"
+                                    + (f" · {c[:24]}" if c else "")
+                                    + f" · {st}" + (f" · {tp}" if tp else ""))}
+                         for i, n, c, st, tp in _lead_rows]},
+            {"key": "destino", "label": "Destino*", "type": "select", "span": "span 1",
+             "ph": "O que fazer com ele",
+             "options": [{"value": "contacted", "label": "Contatado"},
+                         {"value": "qualified", "label": "Qualificado"},
+                         {"value": "proposal", "label": "Proposta enviada"},
+                         {"value": "negotiation", "label": "Em negociação"},
+                         {"value": "won", "label": "Ganho (virou cliente)"},
+                         {"value": "lost", "label": "Descartado"}]},
+            {"key": "abrir_oportunidade", "label": "Abrir oportunidade no funil",
+             "type": "checkbox", "span": "span 1"},
+            {"key": "motivo", "label": "Motivo / observação", "type": "textarea",
+             "span": "span 2",
+             "ph": "Obrigatório ao descartar. Ex.: sem verba, escolheu concorrente…"},
         ],
     }
     # Nova proposta (FORM com ESCRITA real → POST /redesign/action/proposal)
@@ -2545,6 +2691,267 @@ async def rd_action_proposal(
     return {"ok": True, "id": str(proposal.id), "number": getattr(proposal, "number", None), "message": "Proposta criada com sucesso"}
 
 
+@router.post("/action/contrato-da-proposta")
+async def rd_action_contrato_da_proposta(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Transforma uma proposta em contrato, já ligado ao modelo e ao CNPJ emitente.
+
+    Era o elo que faltava no funil: o CRM ia de lead a proposta e parava ali — para virar
+    contrato era preciso trocar de módulo. O cliente e o valor vêm da PROPOSTA, não digitados
+    de novo; a modalidade é escolhida porque a proposta não a declara de forma confiável.
+    """
+    from modules.crm.services import contract_wizard as W
+
+    pid = (payload.get("proposal_id") or "").strip()
+    modalidade = (payload.get("modalidade") or "").strip()
+    inicio = (payload.get("vigencia_inicio") or "").strip()
+    if not pid or not modalidade or not inicio:
+        raise HTTPException(status_code=400,
+                            detail="Informe a proposta, a modalidade e o início da vigência.")
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    pr = (await db.execute(text(
+        "SELECT p.id::text, p.number, coalesce(p.total,0) AS total, "
+        "coalesce(p.client_document,'') AS doc, coalesce(p.client_company,'') AS empresa, "
+        "(SELECT count(*) FROM contracts c WHERE c.proposal_id = p.id) AS ja "
+        "FROM proposals p WHERE p.id::text = :i"), {"i": pid})).mappings().first()
+    if not pr:
+        raise HTTPException(status_code=404, detail="Proposta não encontrada.")
+    if pr["ja"]:
+        raise HTTPException(status_code=409,
+                            detail=f"A proposta {pr['number']} já gerou contrato.")
+    if not pr["doc"]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A proposta {pr['number']} não tem o CNPJ do cliente — sem ele não dá "
+                   "para saber para quem é o contrato.")
+    # valor do formulário só quando informado; o padrão é o VALOR DA PROPOSTA
+    valor = payload.get("valor_mensal")
+    valor = float(str(valor).replace(",", ".")) if str(valor or "").strip() else float(pr["total"])
+    if valor <= 0:
+        raise HTTPException(status_code=422,
+                            detail="A proposta está com valor zerado — informe o valor mensal.")
+
+    r = await W.criar_contrato(
+        db, cliente_documento=pr["doc"], modalidade=modalidade, valor_mensal=valor,
+        vigencia_inicio=inicio[:10],
+        vigencia_meses=int(payload.get("vigencia_meses") or 12),
+        dia_vencimento=int(payload["dia_vencimento"]) if payload.get("dia_vencimento") else None,
+        renovacao_aviso_dias=int(payload.get("renovacao_aviso_dias") or 30),
+        proposal_id=pid)
+    if r.get("status") != "criado":
+        raise HTTPException(status_code=400, detail=r.get("resumo") or r.get("status"))
+    pend = r.get("perguntas") or []
+    return {"ok": True, "message": (
+        f"{r['contrato']} criado a partir da proposta {pr['number']} para {r['cliente']} "
+        f"({r['vigencia']}). "
+        + ("Pronto para baixar o PDF em Contratos." if r.get("pronto_para_emitir")
+           else "Faltam: " + "; ".join(x["pergunta"] for x in pend[:4])))}
+
+
+@router.post("/action/contrato-abrir-assinatura")
+async def rd_action_contrato_abrir_assinatura(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Abre a assinatura eletrônica do contrato pelo CRM.
+
+    Chama a MESMA rota de negócio de /crm/contracts — o portão de emitente e a ordem dos
+    signatários vivem lá, para as superfícies não divergirem.
+    """
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+    from modules.crm.services.contract_render import RenderError, renderizar_contrato
+
+    num = (payload.get("contrato") or "").strip()
+    if not num:
+        raise HTTPException(status_code=400, detail="Selecione o contrato.")
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    ja = (await db.execute(text(
+        "SELECT count(*) FROM sig_signature_requests WHERE reference_code = :k"),
+        {"k": num})).scalar()
+    if ja:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{num} já tem assinatura aberta. Use “Enviar link de assinatura”.")
+    try:
+        res = await renderizar_contrato(db, num)
+    except RenderError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    d = (await db.execute(text("""
+        SELECT cl.name AS cliente,
+          (SELECT k.name FROM crm_contacts k WHERE k.client_id = c.client_id
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS rep,
+          (SELECT k.notes FROM crm_contacts k WHERE k.client_id = c.client_id
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS cpf,
+          (SELECT k.email FROM crm_contacts k WHERE k.client_id = c.client_id
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS mail
+        FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
+        WHERE c.contract_number = :n"""), {"n": num})).mappings().first()
+    if not d or not d["rep"]:
+        raise HTTPException(
+            status_code=422,
+            detail="O cliente não tem representante legal/síndico cadastrado em Contatos — "
+                   "é quem assina pelo condomínio. Cadastre antes de abrir a assinatura.")
+
+    sol = await CS.abrir_assinatura(
+        db, num, res.pdf, contratante_nome=d["cliente"] or "",
+        representante=d["rep"], representante_cpf=(d["cpf"] or ""),
+        representante_email=(payload.get("email_cliente") or "").strip() or d["mail"],
+        contratada_nome=res.contratada.razao_social,
+        assinante_empresa=getattr(current_user, "full_name", None) or "Conecta Mais",
+        assinante_empresa_id=getattr(current_user, "id", None),
+        solicitado_por=getattr(current_user, "id", None))
+    await db.commit()
+    return {"ok": True, "message": (
+        f"Assinatura de {num} aberta. Link da CONTRATADA: {sol.link_empresa} · "
+        f"link do cliente: {sol.link_cliente} (só funciona depois que a Conecta Mais assinar).")}
+
+
+@router.post("/action/contrato-enviar-link")
+async def rd_action_contrato_enviar_link(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Manda o link ao signatário, ou devolve para envio manual por WhatsApp."""
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+
+    num = (payload.get("contrato") or "").strip()
+    if not num:
+        raise HTTPException(status_code=400, detail="Selecione o contrato.")
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    parte = (payload.get("parte") or "cliente").lower()
+    papel = "customer" if parte.startswith(("cli", "contratante")) else "company"
+    linha = (await db.execute(text(
+        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"),
+        {"k": num, "p": papel})).mappings().first()
+    if not linha or not linha["access_token"]:
+        raise HTTPException(status_code=404,
+                            detail=f"{num} não tem link em aberto para esta parte. "
+                                   "Abra a assinatura primeiro.")
+    if linha["assinou"]:
+        raise HTTPException(status_code=409, detail=f"{linha['signer_name']} já assinou.")
+    if papel == "customer":
+        pend = (await db.execute(text(
+            "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "
+            "AND signer_type = 'company' AND signed_at IS NULL"), {"k": num})).scalar()
+        if pend:
+            raise HTTPException(
+                status_code=409,
+                detail="A Conecta Mais ainda não assinou — o link do cliente seria "
+                       "recusado. Assine primeiro.")
+
+    link = f"{CS.BASE_PUBLICA}/assinar/contrato/{linha['access_token']}"
+    destino = (payload.get("email") or "").strip() or linha["signer_email"]
+    if destino:
+        await CS.convidar_para_assinar(
+            db, num, para=destino, link=link, nome=linha["signer_name"] or "",
+            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+        await db.commit()
+        return {"ok": True, "message": f"Convite enviado para {destino}. Link: {link}"}
+    return {"ok": True, "message": f"Sem e-mail informado — mande este link: {link}"}
+
+
+@router.post("/action/lead-definir")
+async def rd_action_lead_definir(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Dá destino a um lead parado: qualifica, descarta ou abre oportunidade.
+
+    Em 23/08 havia 29 leads em `new` sem nenhuma ação na tela para tirá-los de lá — o CRM
+    cadastrava lead e não sabia o que fazer com ele depois. `mover-oportunidade` só serve
+    para quem JÁ virou oportunidade.
+
+    Abrir oportunidade é opcional e explícito: qualificar não cria funil sozinho. Lead
+    descartado exige motivo — "lost" sem porquê não ensina nada a quem for revisar.
+    """
+    from datetime import date as _date
+
+    from modules.crm.models.lead import LeadStatus
+
+    lead_id = (payload.get("lead_id") or "").strip()
+    destino = (payload.get("destino") or "").strip()
+    motivo = (payload.get("motivo") or "").strip()
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Selecione o lead.")
+    try:
+        novo = LeadStatus(destino)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Destino inválido. Use: " + ", ".join(x.value for x in LeadStatus))
+    if novo == LeadStatus.LOST and not motivo:
+        raise HTTPException(status_code=400,
+                            detail="Para descartar o lead, informe o motivo.")
+
+    row = (await db.execute(text(
+        "SELECT id::text, name, coalesce(company,'') AS company, coalesce(email,'') AS email, "
+        "coalesce(phone,'') AS phone, coalesce(expected_value,0) AS valor, "
+        "coalesce(status::text,'') AS status "
+        "FROM leads WHERE id::text = :i"), {"i": lead_id})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lead não encontrado.")
+
+    nota = f"[{_date.today().isoformat()}] {novo.value}" + (f" — {motivo}" if motivo else "")
+    await db.execute(text(
+        # CAST explícito: dentro de concat_ws o Postgres não infere o tipo do parâmetro
+        # e devolve IndeterminateDatatypeError
+        "UPDATE leads SET status = :s, notes = trim(both E'\n' FROM "
+        "concat_ws(E'\n', notes, CAST(:n AS text))), last_contact_at = now(), "
+        "updated_at = now() WHERE id::text = :i"),
+        {"s": novo.value, "n": nota, "i": lead_id})
+
+    criou_opp = None
+    if payload.get("abrir_oportunidade"):
+        ja = (await db.execute(text(
+            "SELECT id::text FROM opportunities WHERE lead_id::text = :i AND coalesce(is_active,true)"),
+            {"i": lead_id})).scalar()
+        if ja:
+            criou_opp = ja  # idempotente: não abre duas para o mesmo lead
+        else:
+            # contact_email é NOT NULL e muitos leads vêm de WhatsApp sem e-mail; string
+            # vazia registra a ausência sem inventar endereço
+            criou_opp = (await db.execute(text("""
+                INSERT INTO opportunities
+                    (id, title, contact_name, contact_email, stage, priority, value,
+                     probability, lead_id, is_active, created_at, updated_at, custom_fields)
+                VALUES (gen_random_uuid(), :t, :cn, :ce, 'qualification', 'medium', :v, 20,
+                        CAST(:l AS uuid), true, now(), now(), '{}'::jsonb)
+                RETURNING id::text"""),
+                {"t": (row["company"] or row["name"])[:120],
+                 "cn": row["name"][:120], "ce": row["email"],
+                 "v": row["valor"], "l": lead_id})).scalar()
+    await db.commit()
+
+    msg = f"Lead “{row['name']}” → {novo.value}"
+    if motivo:
+        msg += f" ({motivo})"
+    if criou_opp:
+        msg += " · oportunidade aberta em qualificação"
+    return {"ok": True, "id": lead_id, "opportunity_id": criou_opp, "message": msg}
+
+
 @router.post("/action/opportunity-stage")
 async def rd_action_opp_stage(
     current_user: CurrentActiveUser,
@@ -3272,6 +3679,10 @@ EXTRA_MENU = {
     "crm": [
         {"id": "novo-lead", "label": "Novo lead", "icon": "M12 5v14M5 12h14"},
         {"id": "nova-proposta", "label": "Nova proposta", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h3"},
+        {"id": "definir-lead", "label": "Definir lead", "icon": "M20 6L9 17l-5-5"},
+        {"id": "contrato-da-proposta", "label": "Contrato da proposta", "icon": "M9 12h6M9 16h6M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
+        {"id": "abrir-assinatura", "label": "Abrir assinatura", "icon": "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"},
+        {"id": "enviar-link-assinatura", "label": "Enviar link de assinatura", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},
         {"id": "mover-oportunidade", "label": "Mover no funil", "icon": "M3 3v18h18M7 14l3-3 3 3 5-6"},
         {"id": "nova-tarefa", "label": "Nova tarefa", "icon": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2"},
         {"id": "anotar-cliente", "label": "Anotar cliente", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5"},
