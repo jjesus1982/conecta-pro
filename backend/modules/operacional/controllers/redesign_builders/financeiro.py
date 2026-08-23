@@ -78,6 +78,48 @@ async def _fetch_live_balance(bank_code, bank_name):
     return None
 
 
+
+def _acao_pagar_dia(r) -> dict:
+    """Botão "Pagar este dia" na linha do lote de diaristas.
+
+    O clássico resolvia isto numa tela só: o Jordan via quem o Gonzaga lançou, o valor, e
+    pagava ali mesmo. No redesign virou SETE abas, e esta lista mandava "abra 'Pagar
+    diaristas' e informe a DATA da linha" — ou seja, ler a data, trocar de aba e digitar.
+    É onde ele se perdeu, e com razão: informação numa tela e ação noutra é o operador
+    fazendo de ponte.
+
+    ⚠️ Paga o DIA inteiro, não a linha: VT/VR e diária da mesma data saem no mesmo lote
+    (é assim que o serviço processa). O rótulo diz isso — botão que promete pagar uma
+    pessoa e paga oito seria pior que botão nenhum.
+
+    ⚠️ Sem PIX não paga. Linha `sem_pix` não ganha botão: o lote a ignoraria de qualquer
+    forma, e oferecer a ação prometeria o que não acontece.
+
+    ⚠️ O banco NÃO vem escolhido — mesma regra do boleto: de onde o dinheiro sai é
+    decisão, não preenchimento automático. Clicar não paga: abre o gate com OTP.
+    """
+    if r[4] == "sem_pix" or not r[0]:
+        return {}
+    dia = r[0].isoformat() if hasattr(r[0], "isoformat") else str(r[0])
+    return {"actions": [{
+        "title": f"Pagar diaristas de {_fmtdate(r[0])}",
+        "sub": ("Dinheiro que SAI, com OTP. Paga TODO o lote desta data — VT/VR e diária "
+                "da mesma data saem juntos, não só esta linha. Confira a conta: Cora é a "
+                "Patrimonial, Inter é a Eletrônica."),
+        "endpoint": "/api/v1/redesign/action/pagar-diaristas",
+        "method": "POST", "btnLabel": "Pagar este dia", "submitLabel": "Preparar e gerar OTP",
+        "btnStyle": "primary", "gated": True,
+        "okMsg": "Lote preparado. Confira o OTP no e-mail para liberar.",
+        "fields": [
+            {"key": "data", "label": "Data do lote", "type": "date", "value": dia},
+            {"key": "origem", "label": "Pagar pela conta*", "type": "select", "value": "",
+             "options": [{"value": "", "label": "— escolha —"},
+                         {"value": "cora", "label": "Cora (Patrimonial)"},
+                         {"value": "inter", "label": "Inter (Eletrônica)"}]},
+        ]}]}
+
+
+
 async def _build_saldos(db):
     """Saldos por conta — lê SÓ o cache (bank_accounts): rápido e seguro. NÃO faz
     chamada ao banco aqui: I/O externo no render bloqueava/derrubava o worker
@@ -939,7 +981,8 @@ ORDER BY b.comp DESC, b.cnpj"""
         t(brl(r[3]) if r[3] is not None else "—", 600),
         t(r[5] or "—"),
         b("sem PIX" if r[4] == "sem_pix" else "a revisar", "bad" if r[4] == "sem_pix" else "warn"),
-    ]} for r in _dia]
+    ], **_acao_pagar_dia(r)} for r in _dia]
+    _n_pessoas = len({(r[1] or "").strip().upper() for r in _dia if r[1]})
     # Total POR DIA de pagamento — o Jordan paga o VT/VR no dia e as diárias no dia 15,
     # entao ele precisa ver "quanto sai no dia X", nao so o total geral.
     _por_dia: dict = {}
@@ -1022,8 +1065,12 @@ ORDER BY b.comp DESC, b.cnpj"""
     }
     out["pagamentos-diaristas"] = {
         "title": "Diaristas — lote a pagar (VT/VR + diária)",
-        "sub": "Pendente de pagamento (a_revisar/sem_pix). Pague em 'Pagar diaristas' informando a DATA da linha "
-               "(gate OTP) — VT/VR e diária do dia saem juntos. 'sem PIX' = cadastro do diarista sem chave PIX.",
+        # O texto mandava "abra outra aba e informe a DATA" — agora o botão está na linha.
+        # O sub diz o TOTAL primeiro: a pergunta do dono é "quantas pessoas e quanto sai",
+        # e ela não pode exigir somar 45 linhas de cabeça.
+        "sub": (f"{_n_pessoas} pessoa(s) · {len(_dia)} lançamento(s) · {brl(_tot_vt + _tot_di)} a pagar. "
+                "Clique em 'Pagar este dia' na linha — paga o lote inteiro da data (VT/VR e "
+                "diária saem juntos), com OTP. 'sem PIX' = falta a chave no cadastro do Operacional."),
         "cta": "—", "type": "table", "searchHint": "Buscar diarista…",
         "grid": "1fr 1.8fr 0.8fr 1fr 1.4fr 0.9fr",
         "cols": ["Data", "Diarista", "Tipo", "Valor", "Chave PIX", "Status"],
@@ -1036,9 +1083,11 @@ ORDER BY b.comp DESC, b.cnpj"""
             {"title": "Total pendente (a_revisar)", "rows": [
                 {"left": "VT/VR", "right": brl(_tot_vt), **S["info"]},
                 {"left": "Diária mensal", "right": brl(_tot_di), **S["ok"]}]},
-            {"title": "Como pagar (gate OTP)", "rows": [
-                {"left": "Abra 'Pagar diaristas' e informe a DATA da linha", "right": "OTP", **S["warn"]},
-                {"left": "VT/VR + diária do dia pagam juntos", "right": "Inter PIX", **S["mut"]}]},
+            {"title": "Como pagar", "rows": [
+                {"left": "Botão 'Pagar este dia' na linha — já leva a data", "right": "OTP", **S["ok"]},
+                {"left": "Paga o lote da DATA inteira, não só a linha", "right": "atenção", **S["warn"]},
+                {"left": "Escolha a conta: Cora=Patrimonial, Inter=Eletrônica", "right": "2 CNPJs", **S["warn"]},
+                {"left": "Mês inteiro de uma vez: aba 'Pagar diaristas'", "right": "lote", **S["mut"]}]},
         ],
     }
     # Opções vindas do banco: só competência que TEM item a pagar. Lista fixa de meses
