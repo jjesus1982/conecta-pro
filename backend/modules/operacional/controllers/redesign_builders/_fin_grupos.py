@@ -7,7 +7,7 @@ GRUPOS = [
     ("g-visao", "Visão Geral", "Resumo executivo do financeiro", [
         ("cockpit", "Cockpit"), ("dashboard", "Resumo"), ("fluxo-caixa", "Fluxo de Caixa"),
         ("projecao", "Projeção & Insights"), ("dre-inline", "DRE"), ("indicadores", "Indicadores DSO/DPO"), ("tendencias", "Tendências"),
-        ("raio-x", "Raio-X"), ("cfo", "CFO IA"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
+        ("raio-x", "Raio-X"), ("cfo", "CFO IA"), ("cfo-perguntar", "Perguntar ao CFO"), ("cfo-perguntar-arquivo", "Perguntar com anexo"), ("cashflow-sync", "Sincronizar fluxo de caixa"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
         ("contas-receber", "Contas a Receber"),
         ("nfse-a-receber", "NFS-e × a receber"), ("gerar-contas-de-nfse", "Gerar das NFS-e"), ("cobrancas", "Cobranças"),
@@ -15,7 +15,7 @@ GRUPOS = [
         ("recorrencia", "Recorrência (MRR)"), ("gerar-cobrancas", "Gerar cobranças"), ("boletos", "Boletos"),
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
-        ("gerar-recebiveis", "Gerar do mês"), ("baixar-recebivel", "Dar baixa"), ("registrar-conta-receber", "Registrar")]),
+        ("gerar-recebiveis", "Gerar do mês"), ("baixar-recebivel", "Dar baixa"), ("registrar-conta-receber", "Registrar"), ("billing-contrato-ativado", "Faturar contrato ativado")]),
     # ── "Pagar" tinha 29 ABAS num grupo só, e o Jordan disse o que isso é na prática:
     # "tem tantos botões que confunde, não consigo ver". Não era falta de recurso — era
     # tudo empilhado no mesmo lugar. Dividido em quatro, pela PERGUNTA que ele tem na
@@ -26,7 +26,7 @@ GRUPOS = [
     # Os ids das abas NÃO mudam: `moved()` mantém os links antigos vivos.
     ("g-pagar", "Pagar", "O que a empresa deve — e o registro da dívida", [
         ("contas-pagar", "Contas a Pagar"), ("registrar-conta-pagar", "Registrar conta"),
-        ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"),
+        ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"), ("nfse-entrada-payaveis", "NFS-e entrada × pagável"), ("nfse-entrada-auto-payaveis", "Criar pagáveis (todas)"),
         ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
     ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa", [
         ("pagamentos-diaristas", "Diaristas — a pagar"), ("pagar-diaristas", "Pagar diaristas"),
@@ -53,7 +53,7 @@ GRUPOS = [
         ("conciliacao-bancaria", "Conciliação (extrato)"), ("conciliar-auto", "Rodar conciliação"), ("conciliar-classificados", "2ª passada (classificados)"), ("classificar-saidas", "Classificar saídas"), ("corrigir-classificacao", "Corrigir classificação"),
         ("conciliacao-consolidada", "Consolidado por mês"), ("consolidacao-grupo", "Consolidação multi-CNPJ"),
         ("conciliacao-por-liquido", "Por líquido (NFS-e×banco)"), ("aplicar-conciliacao-liquido", "Aplicar conciliação"),
-        ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)")]),
+        ("conciliacao", "Conciliação de folha"), ("inter-pagamentos", "Inter (pagtos)"), ("just-registrar", "Justificar transação"), ("just-classificar", "Classificar transações"), ("just-alertar", "Alertar pendências")]),
     ("g-fiscal", "Fiscal & Contábil", "Notas, guias e contabilidade", [
         ("fiscal", "Fiscal"), ("nfse-entrada", "NFS-e entrada"),
         ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
@@ -63,17 +63,17 @@ GRUPOS = [
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
         ("postar-provisoes", "Postar provisões"), ("postar-inss", "Postar INSS"),
         ("pareamento-portte", "Pareamento Portte"), ("pareamento-tributos", "Pareamento tributos"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
-        ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto")]),
+        ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto"), ("nfse-sync-prestador", "Sincronizar NFS-e emitidas")]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("rentabilidade", "Rentabilidade por contrato"), ("resultado-cnpj", "Resultado por CNPJ"),
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),
         ("custeio-contratos", "Margem por contrato"), ("custeio", "Simulador CCT"), ("custeio-cct", "Custeio CCT"),
         ("precificacao", "Precificação"), ("orcamentos", "Orçamentos"),
-        ("orcado-realizado", "Orçado × Realizado")]),
+        ("orcado-realizado", "Orçado × Realizado"), ("pricing-calcular", "Calcular preço"), ("custo-registrar", "Registrar custo de contrato"), ("custo-recorrente-novo", "Novo custo recorrente"), ("custos-recorrentes-lista", "Custos recorrentes"), ("orcamento-kv", "Orçado do mês")]),
     ("g-cadastros", "Cadastros & Suprimentos", "Fornecedores, contratos, compras e estoque", [
         ("fornecedores", "Fornecedores"), ("fornecedores-categoria", "Fornecedores por categoria"), ("contratos", "Contratos"),
         ("compras-reais", "Compras"), ("compras", "Compras (NF-e)"),
-        ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)")]),
+        ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)"), ("estoque-saida", "Registrar saída de estoque"), ("beneficiarios-seed", "Semear beneficiários")]),
 ]
 
 

@@ -349,7 +349,13 @@
 /* célula de texto único (valor, competência, cargo) encosta à direita: o olho confere
    dinheiro pela borda, não pelo começo da string. Célula com avatar+nome tem 2 filhos
    e não entra aqui. */
-.rd-tbl-cell:has(.tx:only-child) { justify-content: flex-end; }
+/* Alinhamento vem do BACKEND (campo `al`), não de adivinhação por estrutura. A regra
+   anterior — `:has(.tx:only-child) { justify-content: flex-end }` — jogava para a direita
+   QUALQUER célula de texto único, então o nome do diarista ficava à direita e o cabeçalho
+   "DIARISTA" à esquerda, desencontrados. Dinheiro à direita (as casas batem), texto à
+   esquerda (é como se lê). Visto na tela, não no builder. */
+.rd-tbl-cell.al-r { justify-content: flex-end; }
+.rd-tbl-cell.al-r .tx { text-align: right; }
 
 .rd-cardgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .rd-dc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; transition: box-shadow .12s; }

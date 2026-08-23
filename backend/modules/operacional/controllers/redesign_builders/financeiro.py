@@ -33,24 +33,14 @@ SLUG = "financeiro"
 # F0: menu extra ZERADO — as antigas entradas viram ABAS dos 7 grupos (_fin_grupos.py).
 # As telas continuam montadas no build; só saem da navegação de topo.
 EXTRA_MENU: list[dict] = [
-    {"id": "cfo-perguntar", "label": "Consultor CFO", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "cfo-perguntar-arquivo", "label": "Consultor CFO — com anexo", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "pricing-calcular", "label": "Calcular preço de serviço", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "custo-registrar", "label": "Registrar custo de contrato", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "custo-recorrente-novo", "label": "Novo custo recorrente", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "cashflow-sync", "label": "Sincronizar fluxo de caixa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "beneficiarios-seed", "label": "Semear beneficiários", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "estoque-saida", "label": "Registrar saída de estoque", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "nfse-sync-prestador", "label": "Sincronizar NFS-e emitidas", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "custos-recorrentes-lista", "label": "Custos recorrentes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "orcamento-kv", "label": "Orçado do mes", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "billing-contrato-ativado", "label": "Faturamento de contrato ativado", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "payables-auto-criar", "label": "Criar pagáveis das NFS-e", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-registrar", "label": "Justificar transação", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-classificar", "label": "Classificar transações", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "just-alertar", "label": "Alertar pendências de justificativa", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "nfse-entrada-payaveis", "label": "NFS-e entrada x pagável", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
-    {"id": "nfse-entrada-auto-payaveis", "label": "Criar pagáveis (todas)", "icon": "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
+    # VAZIO de propósito. Estes 18 itens ficavam SOLTOS na barra lateral, abaixo dos
+    # grupos, com os rótulos cortados pela largura ("Consultor CFO — com an…",
+    # "Registrar saída de esto…"). Somados aos 10 grupos davam 28 entradas, e foi
+    # exatamente disso que o Jordan reclamou: "tem tantos botões que confunde".
+    # Cada um virou ABA do grupo a que pertence, em `_fin_grupos.py` — perguntar ao CFO
+    # é Visão Geral, justificar transação é Bancos, calcular preço é Custos.
+    # ⚠️ Há TRÊS fontes de menu por módulo (o JSON do frontend, o EXTRA_MENU do
+    # redesign_data_controller e este). Zerar uma só deixa o item reaparecendo.
 ]
 
 
@@ -1075,7 +1065,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         "grid": "1fr 1.8fr 0.8fr 1fr 1.4fr 0.9fr",
         "cols": ["Data", "Diarista", "Tipo", "Valor", "Chave PIX", "Status"],
         "rows": _dcells or [{"cells": [t("Nada pendente"), t("—"), t("—"), t("—"), t("—")]}],
-        "filterCol": 0, "filterLabel": "Dia",
+        "filterCol": 0, "filterLabel": "Dia", "filterUnit": "lançamento(s)",
         "panelGrid": "1fr 1fr 1fr",
         "panels": [
             {"title": "A pagar POR DIA (o que sai em cada data)",
@@ -1168,10 +1158,10 @@ ORDER BY b.comp DESC, b.cnpj"""
             # o Jordan tentou duas vezes pagar VT da Patrimonial e as duas ordens
             # nasceram na Eletrônica. Sem valor pré-escolhido de propósito: a conta de
             # onde sai o dinheiro é escolha dele, não default do sistema.
-            {"key": "origem", "label": "Pagar pela conta*", "type": "select", "span": "span 1",
-             "options": [{"value": "", "label": "— escolha —"},
-                         {"value": "cora", "label": "Cora (Patrimonial)"},
-                         {"value": "inter", "label": "Inter (Eletrônica)"}]},
+            # ⚠️ NÃO repetir o seletor de conta aqui: `originField: True` já o desenha no
+            # topo do formulário, e os DOIS escreviam no mesmo `origem`. A tela ficava com
+            # duas perguntas idênticas — uma mostrando "Inter" e a outra "Selecione..." —
+            # e o operador não tinha como saber qual valia. Visto na tela em 23/08/2026.
             {"key": "data", "label": "Data do pagamento (AAAA-MM-DD)", "type": "date", "span": "span 1"},
             {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "ph": "Ex.: Energia, ISS, fornecedor X"},
         ],

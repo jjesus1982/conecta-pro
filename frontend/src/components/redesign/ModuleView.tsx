@@ -125,15 +125,20 @@ function TableScreen({ scr }: { scr: any }) {
   // Dropdown filtra as linhas client-side; default = 1º valor (as linhas já vêm ordenadas desc).
   // Retrocompatível: telas sem filterCol não mudam.
   const filterCol: number | null = typeof scr.filterCol === 'number' ? scr.filterCol : null;
+  // valor do seletor: `row.filtro` quando existe (coluna invisível), senão a célula filterCol.
+  // Sem isto, filtrar por Competência exigia mostrá-la em toda linha — coluna com um único
+  // valor, que só roubava largura de Colaborador e dos valores em R$.
+  const valFiltro = (r: any) => (r?.filtro != null ? r.filtro : (filterCol != null ? r?.cells?.[filterCol]?.v : null));
+  const temFiltro = filterCol != null || allRows.some((r: any) => r?.filtro != null);
   // filterVals sai de allRows (não do resultado da busca) p/ a lista de meses não encolher
   // enquanto se digita.
-  const filterVals: string[] = filterCol != null
-    ? Array.from(new Set(allRows.map((r: any) => r.cells?.[filterCol]?.v).filter((v: any) => v != null && v !== '')).values()).map(String)
+  const filterVals: string[] = temFiltro
+    ? Array.from(new Set(allRows.map(valFiltro).filter((v: any) => v != null && v !== '')).values()).map(String)
     : [];
   const [sel, setSel] = useState<string>('');
-  const active = filterCol != null ? (sel || filterVals[0] || '') : '';
-  const byCol = (filterCol != null && active)
-    ? allRows.filter((r: any) => String(r.cells?.[filterCol]?.v) === active)
+  const active = temFiltro ? (sel || filterVals[0] || '') : '';
+  const byCol = (temFiltro && active)
+    ? allRows.filter((r: any) => String(valFiltro(r)) === active)
     : allRows;
   // Busca do cabeçalho: substring sobre o texto das células (ex.: favorecido no extrato).
   // q vazio = comportamento anterior, intacto.
@@ -158,14 +163,17 @@ function TableScreen({ scr }: { scr: any }) {
   const [editBusy, setEditBusy] = useState(false);
   return (
     <div className="rd-tbl-wrap">
-      {filterCol != null && filterVals.length > 0 && (
+      {temFiltro && filterVals.length > 0 && (
         <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ fontSize: 12.5, color: 'var(--placeholder)', fontWeight: 600 }}>{scr.filterLabel || 'Filtrar'}:</label>
           <select value={active} onChange={(e) => setSel(e.target.value)}
             style={{ padding: '6px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border, #d8dee9)', background: 'var(--surface, #fff)', color: 'var(--ink, #16277D)', fontWeight: 600, cursor: 'pointer' }}>
             {filterVals.map((v: string, i: number) => <option key={i} value={v}>{v}</option>)}
           </select>
-          <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} folha(s)</span>
+          {/* "folha(s)" estava chumbado: o filtro nasceu na tela de FOLHA e o texto foi junto
+                  para toda tabela filtrável. Na de diaristas dizia "16 folha(s)" para 16 diárias.
+                  `filterUnit` deixa a tela dizer o que ela conta; "linha(s)" é o padrão honesto. */}
+              <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} {scr.filterUnit || 'linha(s)'}</span>
         </div>
       )}
       <div className="rd-tbl-scroll">
@@ -174,14 +182,14 @@ function TableScreen({ scr }: { scr: any }) {
             "R$ 797,…". Numa tela de folha, número cortado é pior que rolagem lateral —
             ninguém confere salário por reticências. ~112px por coluna é o que faz
             "R$ 1.670,00" caber inteiro na fonte 13px. */}
-        <div className="rd-tbl-inner" style={{ minWidth: `max(680px, ${cols.length * 112}px)` }}>
+        <div className="rd-tbl-inner" style={{ minWidth: `max(680px, ${cols.length * 152}px)` }}>
           <div className="rd-tbl-head" style={{ gridTemplateColumns: grid }}>
             {cols.map((c: string, i: number) => <span className="rd-tbl-th" key={i}>{c}</span>)}
           </div>
           {rows.map((row: any, i: number) => (
             <div className="rd-tbl-row" style={{ gridTemplateColumns: grid }} key={i}>
               {(row.cells || []).map((cell: any, j: number) => (
-                <span className="rd-tbl-cell" key={j}>
+                <span className={`rd-tbl-cell${cell.al === 'r' ? ' al-r' : ''}`} key={j}>
                   {cell.isBadge
                     ? <Pill v={cell.v} color={cell.color} bg={cell.bg} />
                     : <>
@@ -689,7 +697,14 @@ function FormScreen({ scr }: { scr: any }) {
           <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
             Conta de origem — de qual empresa o dinheiro sai
           </label>
-          <select className="rd-input" value={vals.origem || 'inter'} onChange={(e) => set('origem', e.target.value)}>
+          {/* ⚠️ SEM default 'inter'. Antes era `vals.origem || 'inter'`: a tela MOSTRAVA
+              "Inter — Conecta Mais Eletrônica" selecionado enquanto o valor real seguia
+              VAZIO. O operador lia Inter, não tocava no campo, e o pagamento saía da
+              empresa errada — foi assim que duas ordens de VT da Patrimonial nasceram na
+              Eletrônica em 14/08. De qual CNPJ o dinheiro sai é decisão, e decisão não
+              tem padrão. */}
+          <select className="rd-input" value={vals.origem || ''} onChange={(e) => set('origem', e.target.value)}>
+            <option value="">— escolha a conta —</option>
             <option value="inter">Inter — Conecta Mais Eletrônica (paga direto, sem app)</option>
             <option value="cora">Cora — Conecta Mais Patrimonial (aprovar no app Cora)</option>
           </select>
@@ -901,7 +916,23 @@ export default function ModuleView({ slug }: { slug: string }) {
   const effScr = scr?.type === 'tabs'
     ? (((scr.tabs || []).find((x: any) => x.id === activeTab) || (scr.tabs || [])[0]) as any)?.screen
     : scr;
-  const initials = 'JJ';
+  // Quem está logado. Estava fixo em 'Jordan Jesus'/'JJ': a Pyetra logava e via o nome do
+  // Jordan no rodapé da conta dela. /auth/me já devolve name+role — era só ligar.
+  const [me, setMe] = useState<{ name: string; role: string } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    let tok = ''; try { tok = localStorage.getItem('access_token') || ''; } catch { /* */ }
+    if (!tok) return;
+    fetch('/api/v1/auth/me', { headers: { Authorization: `Bearer ${tok}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => { if (vivo && u?.name) setMe({ name: u.name, role: u.role || '' }); })
+      .catch(() => { /* sem sessão legível: mostra o genérico, nunca o nome de outra pessoa */ });
+    return () => { vivo = false; };
+  }, []);
+  const nomeUsuario = me?.name || 'Minha conta';
+  const papelUsuario = me?.role || '';
+  const initials = (me?.name || '')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '—';
 
   if (!data) return <div className="rd-content"><div className="rd-card rd-card-pad">Módulo não encontrado: {slug}</div></div>;
 
@@ -932,8 +963,8 @@ export default function ModuleView({ slug }: { slug: string }) {
           <div className="rd-avatar">{initials}</div>
           {!collapsed && (
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="n">Jordan Jesus</div>
-              <div className="r">admin</div>
+              <div className="n">{nomeUsuario}</div>
+              <div className="r">{papelUsuario}</div>
             </div>
           )}
           {!collapsed && (

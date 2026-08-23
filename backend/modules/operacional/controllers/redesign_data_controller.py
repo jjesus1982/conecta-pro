@@ -78,7 +78,18 @@ def _acao_pagar_boleto(r) -> dict | None:
 
 
 def t(v: Any, w: int = 500, tc: str = "#334155", ini: str = "") -> dict:
-    return {"isText": True, "v": str(v) if v is not None else "—", "w": w, "tc": tc, "ini": ini}
+    """Célula de texto. `al` diz o alinhamento: dinheiro à direita, o resto à esquerda.
+
+    Sem isto o CSS alinhava à direita TODA célula de texto único — e aí o nome do
+    diarista flutuava para a direita enquanto o cabeçalho "DIARISTA" ficava à esquerda.
+    Visto na tela em 23/08/2026, não no builder: coluna de nome esfarrapada, difícil de
+    correr o olho. Número em coluna alinha à direita porque as casas decimais batem;
+    nome alinha à esquerda porque é assim que se lê.
+    """
+    txt = str(v) if v is not None else "—"
+    dinheiro = txt.startswith("R$") or txt.startswith("-R$")
+    return {"isText": True, "v": txt, "w": w, "tc": tc, "ini": ini,
+            "al": "r" if dinheiro else "l"}
 
 
 def b(v: str, s: str) -> dict:
