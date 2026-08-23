@@ -1187,6 +1187,28 @@ async def _build_crm(db: AsyncSession) -> dict:
             {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "ph": "Motivo/nota da mudança (opcional)…"},
         ],
     }
+    # Consumo de IA — a linha de base que não existia. Sem ela, "a troca de provedor
+    # economizou" é opinião. `custo_usd` nulo = modelo fora da tabela de preço: melhor
+    # célula vazia que número inventado numa planilha de custo.
+    try:
+        await safe("consumo-ia", tbl(
+            "Consumo de IA (30 dias)",
+            "Tokens e custo estimado por origem — a fatura do provedor é a verdade final",
+            "—",
+            ["Origem", "Modelo", "Chamadas", "Falhas", "Tokens", "Custo est. (US$)"],
+            "1.3fr 1.2fr 0.8fr 0.7fr 1fr 1fr",
+            "SELECT origem, modelo, count(*), count(*) FILTER (WHERE NOT ok), "
+            "coalesce(sum(tokens_total),0), sum(custo_usd) "
+            "FROM llm_usage WHERE criado_em > now() - interval '30 days' "
+            "GROUP BY origem, modelo ORDER BY coalesce(sum(custo_usd),0) DESC, count(*) DESC "
+            "LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(str(r[2])),
+                       (b(str(r[3]), "warn") if r[3] else t("0")),
+                       t(f"{int(r[4]):,}".replace(",", ".")),
+                       t(f"US$ {float(r[5]):.4f}" if r[5] is not None else "—", 600)]))
+    except Exception:  # noqa: BLE001 — tabela recém-criada; ausência não derruba a tela
+        await db.rollback()
+
     # Proposta -> contrato: o elo que faltava. Só propostas que AINDA não viraram contrato
     # aparecem; oferecer as que já viraram só produziria 409 na cara do usuário.
     _prop_rows = (await db.execute(text(
@@ -3691,6 +3713,7 @@ EXTRA_MENU = {
         {"id": "novo-lead", "label": "Novo lead", "icon": "M12 5v14M5 12h14"},
         {"id": "nova-proposta", "label": "Nova proposta", "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h3"},
         {"id": "definir-lead", "label": "Definir lead", "icon": "M20 6L9 17l-5-5"},
+        {"id": "consumo-ia", "label": "Consumo de IA", "icon": "M3 3v18h18M7 15l3-4 3 3 4-6"},
         {"id": "contrato-da-proposta", "label": "Contrato da proposta", "icon": "M9 12h6M9 16h6M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"},
         {"id": "abrir-assinatura", "label": "Abrir assinatura", "icon": "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"},
         {"id": "enviar-link-assinatura", "label": "Enviar link de assinatura", "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z"},

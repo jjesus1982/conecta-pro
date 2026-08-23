@@ -7,6 +7,7 @@ acumulada dos resultados das tools + auditoria append-only. NÃO usa consultor_h
 """
 from __future__ import annotations
 
+from core.llm_client import novo_cliente
 import json
 import logging
 import os
@@ -91,7 +92,8 @@ async def run_engine(
     if client is None:
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI(timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
+        client = novo_cliente(origem="agente.orquestrador",
+                              timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
 
     by_name = {t.name: t for t in tools}
     active_tools = [openai_schema(t) for t in tools]

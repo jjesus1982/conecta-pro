@@ -1,5 +1,6 @@
 """Provider de LLM para integracao com OpenAI e Claude."""
 
+from core.llm_client import novo_cliente
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -129,7 +130,7 @@ class OpenAIProvider(BaseLLMProvider):
             try:
                 from openai import AsyncOpenAI
 
-                self._client = AsyncOpenAI(api_key=self.api_key)
+                self._client = novo_cliente(origem="llm_provider", api_key=self.api_key)
             except ImportError:
                 logger.error("openai package not installed")
                 raise

@@ -9,6 +9,7 @@ NAO envia ao cliente. A sugestao e entregue como:
 Tudo controlado por env (nada hardcoded). Falhas nunca derrubam o webhook.
 """
 
+from core.llm_client import novo_cliente
 import json
 import logging
 import os
@@ -1651,7 +1652,7 @@ async def _post_public_audio(conversation_id: int, texto: str) -> bool:
     try:
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
+        client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         try:
             resp = await client.audio.speech.create(
                 model="gpt-4o-mini-tts",
@@ -2935,7 +2936,7 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
         dialogo = "\n".join(f"{'Cliente' if d == 'in' else 'Atendente'}: {c}" for d, c in reversed(rows))
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
+        client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         resp = await client.chat.completions.create(
             model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
             messages=[
@@ -3053,7 +3054,7 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
         try:
             from openai import AsyncOpenAI  # noqa: PLC0415
 
-            client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
+            client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
             faltantes = [c for c in chunks if cache.get(c["id"], {}).get("mtime") != c["mtime"]]
             if faltantes:
                 emb = await client.embeddings.create(model=_EMBED_MODEL, input=[c["text"] for c in faltantes])
@@ -4057,7 +4058,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # 2) Chamada OpenAI com LOOP de tool-calling (lazy import; chave vem do env)
         from openai import AsyncOpenAI  # noqa: PLC0415
 
-        client = AsyncOpenAI(timeout=_OPENAI_TIMEOUT)
+        client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         max_rounds = int(_env_num("AGENT_MAX_TOOL_ROUNDS", 3))
         total_in = total_out = 0
         texto = ""

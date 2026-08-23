@@ -27,6 +27,7 @@ Notas de compatibilidade:
 
 from __future__ import annotations
 
+from core.llm_client import novo_cliente
 import logging
 import os
 from collections.abc import Callable
@@ -169,7 +170,7 @@ def chat_ex(
         try:
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key)
+            client = novo_cliente(origem="cascade.sync", sincrono=True, api_key=api_key)
             response = client.chat.completions.create(
                 **_openai_kwargs(messages, model_openai, max_tokens, temperature, json_mode)
             )
@@ -222,7 +223,7 @@ async def achat_ex(
         try:
             from openai import AsyncOpenAI
 
-            client = AsyncOpenAI(api_key=api_key)
+            client = novo_cliente(origem="cascade.async", api_key=api_key)
             response = await client.chat.completions.create(
                 **_openai_kwargs(messages, model_openai, max_tokens, temperature, json_mode)
             )
