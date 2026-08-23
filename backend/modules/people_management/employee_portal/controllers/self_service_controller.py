@@ -1172,6 +1172,15 @@ _HORAS_ATE_ALMOCO_MAX = 8.0
 #: no máximo 2h de intervalo, então 3h é folga suficiente para não atropelar ninguém que
 #: almoçou longo. Ver o bloco em `_proxima_batida_info` para o caso que motivou.
 _HORAS_ALMOCO_MAX = 3.0
+
+#: Quantas horas depois da ENTRADA cada batida costuma acontecer, por tipo de jornada.
+#: Usado só para AVISAR o horário previsto — nunca para impedir a batida.
+#: 12x36 (12h de turno, 1h de intervalo): entra 06:00, almoça 12:00, volta 13:00, sai 18:00
+#: 44h   (9h no dia, 1h de intervalo):    entra 08:00, almoça 12:00, volta 13:00, sai 17:00
+_OFFSET_12X36 = {"saida_almoco": 6.0, "retorno_almoco": 7.0, "saida": 12.0}
+_OFFSET_44H = {"saida_almoco": 4.0, "retorno_almoco": 5.0, "saida": 9.0}
+#: Quem recebe o adicional de intrajornada não faz pausa: 2 batidas, e a saída fecha o turno.
+_OFFSET_SEM_PAUSA = {"saida": 12.0}
 _PUNCH_LABEL = {
     "entrada": "Entrada",
     "saida_almoco": "Saída para o almoço",
@@ -1328,9 +1337,52 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
         ).scalar()
         if horas_desde_entrada is not None and float(horas_desde_entrada) >= _HORAS_ATE_ALMOCO_MAX:
             tipo = "saida"
+    # ── HORÁRIO PREVISTO DA PRÓXIMA BATIDA ──────────────────────────────────
+    #
+    # O ANILSON entrou às 19:00 e às 19:04 o app já mostrava um botão laranja gigante
+    # dizendo "BATER SAÍDA PARA O ALMOÇO" — quatro minutos depois de entrar. Nas palavras
+    # dele: "quando eu volto no intervalo está lá pra bater entrada de novo". O botão
+    # sempre apresentou a PRÓXIMA batida como se fosse a ação DO MOMENTO, e isso convida a
+    # bater fora de hora — o que produziu boa parte dos 142 erros de sequência de agosto.
+    #
+    # Decisão do Jordan em 23/08/2026: AVISAR o horário previsto e deixar clicável. Travar
+    # deixaria sem caminho quem precisa bater adiantado (troca de turno, imprevisto), e a
+    # contingência viraria a única saída — trocaria um problema por outro.
+    #
+    # A previsão sai da ENTRADA REAL de hoje, não de tabela de horário: quem entrou 20
+    # minutos atrasado almoça 20 minutos depois, e a dica acompanha em vez de brigar com a
+    # realidade.
+    previsto_para = None
+    if not concluido and tipo != seq[0]:
+        _entrada_ts = (
+            await db.execute(
+                _sqltext(
+                    "SELECT max(punch_timestamp) FROM gp_clock_punches "
+                    " WHERE employee_id::text = :e AND lower(coalesce(punch_type,'')) = 'entrada' "
+                    "   AND punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'"
+                ),
+                {"e": emp},
+            )
+        ).scalar()
+        if _entrada_ts is not None:
+            if meio_periodo:
+                _offsets = {"saida": 4.0}
+            elif len(seq) == 2:
+                _offsets = _OFFSET_SEM_PAUSA
+            else:
+                _offsets = _OFFSET_44H if "44" in str(cargo or "") else _OFFSET_12X36
+            _h = _offsets.get(tipo)
+            if _h is not None:
+                from datetime import timedelta as _td
+
+                previsto_para = (_entrada_ts + _td(hours=_h)).strftime("%H:%M")
+
     return {
         "tipo": tipo,
         "label": _PUNCH_LABEL.get(tipo, tipo),
+        #: Horário em que esta batida costuma acontecer, a partir da entrada REAL de hoje.
+        #: É uma DICA para não bater fora de hora — o botão segue clicável.
+        "previsto_para": previsto_para,
         "concluido": concluido,
         "num_batidas": len(seq),
         "feitas": int(feitas),

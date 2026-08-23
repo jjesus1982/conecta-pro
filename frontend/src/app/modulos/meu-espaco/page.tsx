@@ -893,6 +893,8 @@ interface PontoHojeBatida {
 }
 interface PontoHoje {
   proxima_batida?: 'entrada' | 'saida' | 'saida_almoco' | 'retorno_almoco' | 'concluido' | string | null;
+  /** Horário em que a próxima batida costuma acontecer (HH:MM), a partir da entrada real de hoje. */
+  previsto_para?: string | null;
   proxima_label?: string | null;
   num_batidas_dia?: number | null;
   jornada_concluida?: boolean | null;
@@ -1296,6 +1298,19 @@ function PontoTab() {
           </div>
         ) : (
           <>
+            {/* 🔴 O ANILSON entrou as 19:00 e as 19:04 o botao laranja ja dizia "BATER SAIDA
+                PARA O ALMOCO". Nas palavras dele: "quando eu volto no intervalo esta la pra
+                bater entrada de novo". O botao sempre mostrou a PROXIMA batida como se fosse
+                a acao do momento, e isso convida a bater fora de hora — foi assim que boa
+                parte dos 142 erros de sequencia de agosto nasceu.
+                Decisao do Jordan (23/08/2026): AVISAR o horario previsto e deixar clicavel.
+                Travar deixaria sem caminho quem precisa bater adiantado. */}
+            {hoje?.previsto_para && (
+              <p className="mb-2 text-center text-[13px] text-[hsl(var(--muted-foreground))]">
+                Sua próxima batida é <b>{proximoLabel.toLowerCase()}</b>, prevista para as{' '}
+                <b>{hoje.previsto_para}</b>. Se for outra hora, pode bater assim mesmo.
+              </p>
+            )}
             <button
               onClick={iniciarBatida}
               disabled={bloqueado || hojeLoading || faceEnrolled === null}
