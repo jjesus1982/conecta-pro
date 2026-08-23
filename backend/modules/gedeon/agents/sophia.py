@@ -801,15 +801,17 @@ LIMIT 500
                         # Parse do array PostgreSQL: {0.1,0.2,...}
                         emb_str = emb_raw.strip("{}")
                         doc_vetor = [float(x) for x in emb_str.split(",") if x.strip()]
-                        if len(doc_vetor) == EMBEDDING_DIM:
-                            # Comparar vetores no MESMO espaço: docs indexados via OpenAI
-                            # usam o vetor OpenAI da query; docs legados (dense/anthropic-
-                            # enriquecido) usam o vetor dense direto da query.
-                            doc_model = row.get("embedding_model") or ""
-                            if doc_model == EMBEDDING_MODEL_NAME_OPENAI and query_model == EMBEDDING_MODEL_NAME_OPENAI:
-                                score_cosine = _similaridade_coseno(query_vetor, doc_vetor)
-                            else:
-                                score_cosine = _similaridade_coseno(query_vetor_direto, doc_vetor)
+                        # Comparar vetores só no MESMO espaço. A dimensão deixou de ser
+                        # fixa em 1536: com o embedding local (384d) o teste antigo
+                        # `len(doc_vetor) == EMBEDDING_DIM` descartava TODO doc local em
+                        # silêncio, e a busca caía só na similaridade textual sem avisar —
+                        # verde por fora, RAG cego por dentro.
+                        doc_model = row.get("embedding_model") or ""
+                        if doc_model == query_model and len(doc_vetor) == len(query_vetor):
+                            score_cosine = _similaridade_coseno(query_vetor, doc_vetor)
+                        elif len(doc_vetor) == len(query_vetor_direto):
+                            # espaço dense legado (1536), para docs antigos sem par de modelo
+                            score_cosine = _similaridade_coseno(query_vetor_direto, doc_vetor)
                     except Exception:
                         pass
 
