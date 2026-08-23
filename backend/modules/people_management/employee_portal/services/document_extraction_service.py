@@ -100,7 +100,13 @@ def extrair(file_bytes: bytes, mime: str, tipo: str) -> dict[str, Any]:
         else:  # imagem (jpeg/png/…)
             msgs = _msgs_imagem(prompt, mime or "image/jpeg", file_bytes)
 
-        r = chat_ex(msgs, model_openai="gpt-5-mini", model_anthropic=None, json_mode=True, max_tokens=700)
+        # o modelo sai do ambiente: "gpt-5-mini" fixo deixa de existir quando o provedor
+        # muda, e aqui pode haver IMAGEM (PDF escaneado / foto) — modelo de texto recusa
+        from core.llm_client import modelo_visao  # noqa: PLC0415
+
+        _mod = modelo_visao() if "imagem" in str(msgs)[:400] or mime else os.getenv(
+            "OPENAI_AGENT_MODEL", "gpt-5-mini")
+        r = chat_ex(msgs, model_openai=_mod, model_anthropic=None, json_mode=True, max_tokens=700)
         if not r:
             return {"status": "erro", "erro": "IA indisponível", "campos": {}}
         dados = json.loads(r[0]) if r[0] else {}

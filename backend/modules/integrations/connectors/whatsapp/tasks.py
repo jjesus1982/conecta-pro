@@ -7,7 +7,7 @@ de retomada por conversa. NADA e enviado ao cliente automaticamente — o aval e
 humano (Jordan/equipe decide e manda).
 """
 
-from core.llm_client import novo_cliente
+from core.llm_client import modelo_barato, novo_cliente
 import logging
 import os
 import re
@@ -238,7 +238,11 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
     from openai import AsyncOpenAI  # noqa: PLC0415
 
     client = novo_cliente(origem="whatsapp.task", timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
-    model = os.getenv("AGENT_AUDIT_MODEL", "gpt-4o-mini")
+    from core.llm_client import modelo_barato  # noqa: PLC0415
+
+    # nome de modelo fixo quebra na troca de provedor: "gpt-4o-mini" devolve HTTP 400 na
+    # DeepSeek, e esta é uma rotina de FUNDO — ninguém veria falhar
+    model = os.getenv("AGENT_AUDIT_MODEL") or modelo_barato()
     # kwargs compatíveis com a família do modelo (gpt-5/o-series não aceitam temperature
     # nem max_tokens — usam max_completion_tokens). Evita quebra silenciosa se trocar o modelo.
     if model.startswith(("gpt-5", "o1", "o3", "o4")):

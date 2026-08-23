@@ -9,7 +9,7 @@ Telas novas: admissao · aviso-previo · ponto · fechamento-ponto · licencas �
 reembolsos · contratos · documentos · certificacao · esocial.
 """
 
-from core.llm_client import novo_cliente
+from core.llm_client import modelo_visao, novo_cliente
 import logging
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
@@ -262,7 +262,7 @@ async def extrair_documento(
     cli = novo_cliente(origem="dp.redesign", timeout=float(_os.getenv("AGENT_OPENAI_TIMEOUT", "90") or 90))
     try:
         r = await cli.chat.completions.create(
-            model=_os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
+            model=(modelo_visao() if imagens else _os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1")),
             messages=[{"role": "user", "content": conteudo}],
             response_format={"type": "json_object"},
             max_completion_tokens=600,

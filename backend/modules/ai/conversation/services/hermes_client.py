@@ -56,15 +56,17 @@ async def hermes_disponivel() -> bool:
 
 
 async def perguntar_hermes(
-    messages: list[dict], system_prompt: str, model: str = "gpt-5",
+    messages: list[dict], system_prompt: str, model: str = "",
 ) -> tuple[str, dict[str, Any]]:
     """POST /v1/chat/completions (formato OpenAI) no Hermes local.
 
     Retorna (texto, meta) no MESMO shape de consultor_hub.gerar() — {"model":...} pelo
     menos — pra ser drop-in no ponto de retorno. Em qualquer falha, levanta
     HermesIndisponivel (o chamador degrada pro caminho atual)."""
+    # modelo VAZIO = o Hermes usa o `default` do config dele. Mandar "gpt-5" daqui era
+    # dizer ao Hermes qual modelo usar num provedor que não tem esse nome.
     payload = {
-        "model": model,
+        "model": model or None,
         "messages": [{"role": "system", "content": system_prompt}] + messages,
     }
     try:
@@ -89,4 +91,5 @@ async def perguntar_hermes(
         raise HermesIndisponivel("Hermes devolveu resposta vazia")
 
     tokens = (data.get("usage") or {}).get("total_tokens")
-    return texto, {"provider": "hermes", "model": data.get("model", model), "tokens": tokens}
+    return texto, {"provider": "hermes", "model": data.get("model") or model or "(config do Hermes)",
+                   "tokens": tokens}

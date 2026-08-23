@@ -406,8 +406,11 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
 
             mime = "image/png" if ext == "png" else "image/jpeg"
             b64 = base64.b64encode(audio_bytes).decode()
+            from core.llm_client import modelo_visao  # noqa: PLC0415
+
             vis = await client.chat.completions.create(
-                model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1"),
+                # modelo de VISÃO: o de texto pode recusar imagem com HTTP 400
+                model=modelo_visao(),
                 messages=[
                     {
                         "role": "user",

@@ -1,4 +1,5 @@
 """HUB dos Consultores IA (CFO, Jurídico, GED) — requisitos Jordan 2026-07-07.
+from core.llm_client import modelo_barato, modelo_texto
 
 1. MELHOR MODELO SEMPRE: cadeia gpt-5 → gpt-4.1 → gpt-4o → Claude.
    Override por env CONSULTOR_LLM_MODEL (tentado primeiro).
@@ -359,7 +360,7 @@ async def aprender(
         await _ensure_schema(db)
         from modules.ai.conversation.services.llm_provider import OpenAIProvider
 
-        p = OpenAIProvider(model="gpt-4o-mini")
+        p = OpenAIProvider(model=modelo_barato())
         if not p.api_key:
             return
         r = await p.generate(
@@ -430,7 +431,7 @@ async def aprender(
                 await agent_audit.registrar_acao_agente(
                     db, origem=origem, pergunta=pergunta,
                     resposta=f"[memória {veredito['status']}] {linha}",
-                    modelo="gpt-4o-mini", tier="leve", provider="openai",
+                    modelo=modelo_barato(), tier="leve", provider="openai",
                     groundedness_ok=(veredito["status"] == "ativo"),
                 )
             except Exception as e_audit:  # noqa: BLE001

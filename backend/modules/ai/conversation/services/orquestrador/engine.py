@@ -99,10 +99,15 @@ async def run_engine(
     active_tools = [openai_schema(t) for t in tools]
     model = _model()
 
-    # Anexo-foto: content vira lista (texto + image_url) p/ o vision do gpt-5.1 enxergar.
+    # Anexo-foto: content vira lista (texto + image_url) p/ o modelo de visão enxergar.
+    # O modelo de TEXTO pode não ler imagem — a deepseek-v4-flash devolve HTTP 400
+    # "does not support image". Com anexo, troca-se de modelo, não se torce.
     # `pergunta` (str) segue intacta p/ audit/groundedness abaixo.
     user_content: Any = pergunta
     if imagens:
+        from core.llm_client import modelo_visao  # noqa: PLC0415
+
+        model = modelo_visao()
         user_content = [{"type": "text", "text": pergunta}] + [
             {"type": "image_url", "image_url": {"url": u}} for u in imagens
         ]

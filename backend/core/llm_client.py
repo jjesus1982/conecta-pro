@@ -91,6 +91,31 @@ def _base_url() -> str | None:
     return (os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").strip() or None
 
 
+def modelo_visao() -> str:
+    """Modelo para conteúdo com IMAGEM. Nem todo modelo de chat lê imagem: a
+    `deepseek-v4-flash` devolve HTTP 400 "This model does not support image", e a migração
+    de 23/08 quebrou leitura de documento por foto até isto existir. Quem manda imagem
+    escolhe por aqui, não pelo modelo de texto."""
+    return (os.getenv("LLM_MODEL_VISAO") or "").strip() or _modelo_texto()
+
+
+def modelo_texto() -> str:
+    """Modelo de texto do provedor ATUAL. Nome fixo no código quebra na troca de provedor:
+    varridos em 23/08, havia 57 referências cravadas em 22 arquivos, e a DeepSeek recusa
+    todas com HTTP 400 ("The supported API model names are deepseek-v4-pro, ...")."""
+    return (os.getenv("OPENAI_AGENT_MODEL") or os.getenv("LLM_MODEL") or "gpt-5.1").strip()
+
+
+def modelo_barato() -> str:
+    """Para tarefa acessória (resumo de memória, auditoria de conversa): o provedor pode não
+    ter um 'mini'. Sem LLM_MODEL_BARATO definido, cai no modelo de texto — melhor pagar um
+    pouco mais do que estourar 400 numa rotina de fundo que ninguém vê falhar."""
+    return (os.getenv("LLM_MODEL_BARATO") or "").strip() or modelo_texto()
+
+
+_modelo_texto = modelo_texto  # compat interno
+
+
 def _base_openai_only() -> str | None:
     """Base para serviços que só a OpenAI oferece (áudio, embedding pago). Vazio = padrão
     da SDK, que já é a OpenAI."""
