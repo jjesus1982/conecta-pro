@@ -61,11 +61,29 @@ def _preco(modelo: str) -> tuple[float, float] | None:
     return None
 
 
-def custo_usd(modelo: str, entrada: int, saida: int) -> float | None:
+# Preço do token que veio do CACHE, por milhão. A DeepSeek cobra ~3% do preço normal em
+# cache hit; medido em 23/08/2026, 96% do prompt reaproveitou a partir da 2ª chamada.
+# Ignorar isso superestima o custo em mais de 10× e faz a planilha mentir para cima.
+PRECO_CACHE: dict[str, float] = {"deepseek": 0.007, "gpt-5": 0.125, "gpt-4o": 1.25}
+
+
+def _preco_cache(modelo: str) -> float | None:
+    m = (modelo or "").strip().lower()
+    for chave, v in sorted(PRECO_CACHE.items(), key=lambda kv: -len(kv[0])):
+        if m.startswith(chave):
+            return v
+    return None
+
+
+def custo_usd(modelo: str, entrada: int, saida: int, cache_hit: int = 0) -> float | None:
     p = _preco(modelo)
     if p is None:
         return None
-    return round(entrada / 1_000_000 * p[0] + saida / 1_000_000 * p[1], 6)
+    pc = _preco_cache(modelo)
+    cacheado = min(max(cache_hit, 0), entrada) if pc is not None else 0
+    novo = entrada - cacheado
+    return round(novo / 1_000_000 * p[0] + cacheado / 1_000_000 * (pc or 0.0)
+                 + saida / 1_000_000 * p[1], 6)
 
 
 def _base_url() -> str | None:
@@ -89,7 +107,7 @@ def _key_openai() -> str | None:
 
 def registrar_uso(*, modelo: str, origem: str, entrada: int, saida: int,
                   duracao_ms: int, ok: bool, erro: str | None = None,
-                  provedor: str | None = None) -> None:
+                  provedor: str | None = None, cache_hit: int = 0) -> None:
     """Grava uma linha de consumo. Silencioso em caso de falha, de propósito."""
     try:
         from sqlalchemy import text  # noqa: PLC0415
@@ -101,17 +119,31 @@ def registrar_uso(*, modelo: str, origem: str, entrada: int, saida: int,
             s.execute(text("""
                 INSERT INTO llm_usage
                     (id, criado_em, provedor, modelo, origem, tokens_entrada, tokens_saida,
-                     tokens_total, custo_usd, duracao_ms, ok, erro)
-                VALUES (gen_random_uuid(), now(), :p, :m, :o, :e, :s, :t, :c, :d, :ok, :err)
+                     tokens_total, custo_usd, duracao_ms, ok, erro, tokens_cache)
+                VALUES (gen_random_uuid(), now(), :p, :m, :o, :e, :s, :t, :c, :d, :ok, :err,
+                        :cache)
             """), {"p": provedor or ("custom" if _base_url() else "openai"),
                    "m": modelo, "o": origem[:120], "e": entrada, "s": saida,
-                   "t": entrada + saida, "c": custo_usd(modelo, entrada, saida),
-                   "d": duracao_ms, "ok": ok, "err": (erro or "")[:300] or None})
+                   "t": entrada + saida, "c": custo_usd(modelo, entrada, saida, cache_hit),
+                   "d": duracao_ms, "ok": ok, "err": (erro or "")[:300] or None,
+                   "cache": cache_hit})
             s.commit()
     except Exception as e:  # noqa: BLE001
         # WARNING, não DEBUG: telemetria que falha em silêncio vira telemetria inexistente,
         # e foi exatamente assim que o primeiro erro de import passou despercebido.
         logger.warning("llm_telemetria: não gravou (%s: %s)", type(e).__name__, str(e)[:140])
+
+
+def _cache_do_usage(u: Any) -> int:
+    """Tokens de prompt reaproveitados. A DeepSeek expõe `prompt_cache_hit_tokens`; a
+    OpenAI, `prompt_tokens_details.cached_tokens`. Ausente = 0, nunca estimado."""
+    if u is None:
+        return 0
+    v = getattr(u, "prompt_cache_hit_tokens", None)
+    if isinstance(v, int):
+        return v
+    det = getattr(u, "prompt_tokens_details", None)
+    return int(getattr(det, "cached_tokens", 0) or 0) if det is not None else 0
 
 
 def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
@@ -133,6 +165,7 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
             registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
                           entrada=getattr(u, "prompt_tokens", 0) or 0,
                           saida=getattr(u, "completion_tokens", 0) or 0,
+                          cache_hit=_cache_do_usage(u),
                           duracao_ms=int((time.perf_counter() - t0) * 1000), ok=True)
             return r
     else:
@@ -150,6 +183,7 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
             registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
                           entrada=getattr(u, "prompt_tokens", 0) or 0,
                           saida=getattr(u, "completion_tokens", 0) or 0,
+                          cache_hit=_cache_do_usage(u),
                           duracao_ms=int((time.perf_counter() - t0) * 1000), ok=True)
             return r
 

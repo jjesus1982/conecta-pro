@@ -59,3 +59,37 @@ approvals:
 # Constituicao do agente: /data/SOUL.md (auto-carregada do HERMES_HOME=/data
 # como identidade / slot #1 do system prompt). Nao precisa de chave aqui.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# MEMORIA PERSISTENTE — 23/08/2026.
+#   Estava AUSENTE do config: o Hermes reabria cada conversa do zero, sem saber
+#   nada do que ja tinha sido decidido nesta casa. Era o que fazia dele um
+#   andaime generico em vez de um agente NOSSO.
+#   Arquivos vivem em HERMES_HOME (/data): MEMORY.md (fatos) e USER.md (perfil).
+#   write_approval: true — memoria e' o que ele leva para a proxima conversa;
+#   deixar o agente gravar sozinho e' deixa-lo reescrever a propria premissa.
+# ---------------------------------------------------------------------------
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  write_approval: true
+
+# ---------------------------------------------------------------------------
+# SKILLS — memoria PROCEDURAL: o agente registra COMO fazer algo que ja fez.
+#   guard_agent_created: varre skill criada por agente atras de padrao perigoso.
+#   write_approval: skill nova passa por humano. Numa casa onde o agente mexe em
+#   folha e contrato, procedimento que ele escreve sozinho vira regra sozinho.
+# ---------------------------------------------------------------------------
+skills:
+  guard_agent_created: true
+  write_approval: true
+
+# ---------------------------------------------------------------------------
+# DELEGACAO — subagentes herdam provedor e credencial do pai ("auto").
+#   Sem isto, tarefa longa ocupa a conversa inteira em vez de ser paralelizada.
+# ---------------------------------------------------------------------------
+delegation:
+  provider: "auto"
+  model: ""

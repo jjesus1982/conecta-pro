@@ -55,6 +55,8 @@ ENV HERMES_HOME=/data \
 RUN mkdir -p /data
 COPY config.yaml /data/config.yaml
 COPY SOUL.md /data/SOUL.md
+# memoria persistente semeada com o que esta casa ja decidiu
+COPY MEMORY.md /data/MEMORY.md
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
