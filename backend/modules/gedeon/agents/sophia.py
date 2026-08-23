@@ -606,7 +606,7 @@ class Sophia:
         try:
             from openai import OpenAI
 
-            self._client = novo_cliente(origem="sophia.embed", sincrono=True, api_key=api_key)
+            self._client = novo_cliente(origem="sophia.embed", sincrono=True, api_key=api_key, servico="embedding")
             # Teste rápido do endpoint de embeddings (com dimensions=1536, como no uso real)
             self._client.embeddings.create(
                 model=OPENAI_EMBEDDING_MODEL, input="ok", dimensions=EMBEDDING_DIM

@@ -398,7 +398,7 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
         # timeout explícito: STT/visão roda no caminho síncrono do webhook; sem teto, um
         # anexo problemático seguraria o handler (default SDK 600s) e o Chatwoot reentregaria.
         _stt_to = float(os.getenv("AGENT_OPENAI_TIMEOUT", "90") or 90)
-        client = novo_cliente(origem="whatsapp.stt", timeout=_stt_to)
+        client = novo_cliente(origem="whatsapp.stt", timeout=_stt_to, servico="audio")
 
         # ===== IMAGEM: descreve via visao do modelo =====
         if kind == "image":

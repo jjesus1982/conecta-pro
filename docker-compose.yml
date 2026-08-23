@@ -432,7 +432,11 @@ services:
     env_file:
       - .env
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # o Hermes fala com o MOTOR DE CHAT (hoje DeepSeek). A chave da OpenAI
+      # continua existindo para audio/embedding, que a DeepSeek nao tem.
+      OPENAI_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY}}
+      # provider nativo procura a chave pelo NOME dele
+      DEEPSEEK_API_KEY: ${LLM_API_KEY}
       HERMES_API_KEY: ${HERMES_API_KEY}
       MCP_BEARER: ${MCP_BEARER}
     depends_on:

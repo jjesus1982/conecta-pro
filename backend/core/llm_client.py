@@ -73,8 +73,18 @@ def _base_url() -> str | None:
     return (os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "").strip() or None
 
 
+def _base_openai_only() -> str | None:
+    """Base para serviços que só a OpenAI oferece (áudio, embedding pago). Vazio = padrão
+    da SDK, que já é a OpenAI."""
+    return (os.getenv("OPENAI_BASE_URL") or "").strip() or None
+
+
 def _api_key() -> str | None:
     return (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip() or None
+
+
+def _key_openai() -> str | None:
+    return (os.getenv("OPENAI_API_KEY") or "").strip() or None
 
 
 def registrar_uso(*, modelo: str, origem: str, entrada: int, saida: int,
@@ -148,13 +158,19 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
 
 
 def novo_cliente(*, origem: str, timeout: float | None = None, sincrono: bool = False,
-                 api_key: str | None = None) -> Any:
+                 api_key: str | None = None, servico: str = "chat") -> Any:
     """Cria o cliente LLM da casa. `origem` identifica quem gastou — sem ela a telemetria
-    diz quanto se gastou e não diz onde, que é metade da informação."""
+    diz quanto se gastou e não diz onde, que é metade da informação.
+
+    `servico="audio"` ou `"embedding"` fica na OpenAI mesmo quando o chat migra: provedores
+    de chat compatíveis (DeepSeek, por exemplo) NÃO têm rota de transcrição nem de
+    embedding. Mandar áudio para lá devolveria 404 — erro confuso no lugar de um erro claro.
+    """
     from openai import AsyncOpenAI, OpenAI  # noqa: PLC0415
 
-    kw: dict[str, Any] = {"api_key": api_key or _api_key()}
-    base = _base_url()
+    chave = api_key or (_api_key() if servico == "chat" else (_key_openai() or _api_key()))
+    kw: dict[str, Any] = {"api_key": chave}
+    base = _base_url() if servico == "chat" else _base_openai_only()
     if base:
         kw["base_url"] = base
     if timeout is not None:

@@ -10,10 +10,10 @@
 #   via o campo `model` da API OpenAI-compat.
 # ---------------------------------------------------------------------------
 model:
-  default: "gpt-5"
-  provider: "openai-api"          # provider canonico do Hermes p/ OpenAI direto
+  default: "deepseek-v4-flash"
+  provider: "deepseek"                # provider NATIVO do Hermes (docs 2026);
                                    # (o alias "openai" roteia p/ openrouter — nao usar)
-  base_url: "https://api.openai.com/v1"
+  base_url: "https://api.deepseek.com/v1"
   # OPENAI_API_KEY chega por ENV (.env do container / -e).
 
 # ---------------------------------------------------------------------------
