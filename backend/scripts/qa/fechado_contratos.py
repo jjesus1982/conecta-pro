@@ -90,6 +90,29 @@ async def _dado() -> list[tuple[bool, str, str]]:
                     + (f" · ERRADOS: {', '.join(errados[:3])}" if errados else "")
                     + ("" if feitos else " · VÁCUO: nenhum renderizou, a condição não prova nada")))
 
+        # 3b · O OUTRO LADO. A condição acima vigiava só a mão de obra: um contrato de
+        # segurança eletrônica saindo pela Patrimonial passava limpo. A regra é dos DOIS
+        # sentidos — cada CNPJ emite o que é dele.
+        alvos_e = (await db.execute(text(
+            "SELECT contract_number FROM contracts WHERE tipo_servico IN "
+            "('manutencao_cftv','portaria_remota','seguranca_eletronica') "
+            "AND coalesce(is_active,true)"))).scalars().all()
+        errados_e, feitos_e = [], 0
+        for num in alvos_e:
+            try:
+                r = await R.renderizar_contrato(db, num)
+            except Exception:  # noqa: BLE001
+                continue
+            feitos_e += 1
+            nu = re.sub(r"\D", "", r.texto)
+            if CNPJ_PATRIMONIAL in nu or re.sub(r"\D", "", r.contratada.cnpj) != CNPJ_ELETRONICA:
+                errados_e.append(num)
+        out.append((not errados_e and feitos_e >= 1,
+                    "CNPJb: 0 contrato de segurança eletrônica fora da Eletrônica",
+                    f"{feitos_e} renderizado(s) de {len(alvos_e)}"
+                    + (f" · ERRADOS: {', '.join(errados_e[:3])}" if errados_e else "")
+                    + ("" if feitos_e else " · VÁCUO: nenhum renderizou")))
+
         # 4 · VÍNCULO — todo PDF de contrato em crm_documents aponta para um contrato
         # idem: sem PDF de contrato nenhum, "0 soltos" também é vácuo
         soltos = (await db.execute(text("""
@@ -211,7 +234,7 @@ def main() -> int:
     if NO_CONTAINER:
         dados = asyncio.run(_dado())
         mapa = {t.split(":")[0]: (o, t, d) for o, t, d in dados}
-        for chave, n in (("render", 1), ("CNPJ", 3), ("vínculo", 4)):
+        for chave, n in (("render", 1), ("CNPJ", 3), ("CNPJb", 9), ("vínculo", 4)):
             if chave in mapa:
                 o, t, d = mapa[chave]
                 res.append(_ok(o, f"{n} · {t}", d))
@@ -221,7 +244,7 @@ def main() -> int:
         r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
                             "python3", "/app/scripts/qa/fechado_contratos.py"],
                            capture_output=True, text=True, timeout=600)
-        linhas = [ln for ln in r.stdout.splitlines() if re.match(r"\s*[✅❌] [134] ·", ln)]
+        linhas = [ln for ln in r.stdout.splitlines() if re.match(r"\s*[✅❌] [1349] ·", ln)]
         for ln in linhas:
             print(f"  {ln.strip()}")
             res.append(ln.strip().startswith("✅"))

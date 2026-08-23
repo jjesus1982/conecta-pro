@@ -100,6 +100,19 @@ def nome_proprio(v: str | None) -> str:
     return " ".join(saida)
 
 
+def _cpf_rg(notes: str | None) -> tuple[str, str]:
+    """Extrai CPF e RG de `crm_contacts.notes`, que é texto livre.
+
+    O contato do Green Hills guardou só o CPF cru ("562.043.372-20"), e o modelo de portaria
+    lê esse campo como CPF — por isso o fallback devolve o texto inteiro. Quem tiver RG grava
+    "CPF 000.000.000-00 · RG 1234567 SSP/AM" e os dois saem separados.
+    """
+    n = (notes or "").strip()
+    m_cpf = re.search(r"\d{3}\.?\d{3}\.?\d{3}-?\d{2}", n)
+    m_rg = re.search(r"RG[:\s]*([0-9A-Za-z.\-/]+(?:\s+[A-Z]{2,4}(?:/[A-Z]{2})?)?)", n)
+    return (m_cpf.group(0) if m_cpf else n), (m_rg.group(1).strip() if m_rg else "")
+
+
 def cnpj_fmt(v: str | None) -> str:
     """00.000.000/0000-00. O cadastro guarda sem máscara e o contrato imprimia
     "CNPJ nº 08063476000183" — o resto do documento usa a forma pontuada."""
@@ -284,6 +297,7 @@ SELECT c.id::text, c.contract_number, c.name, c.monthly_value, c.start_date, c.e
        c.grace_period_days,
        c.notice_period_days,
        c.renewal_notification_days,
+       c.sla_config,
        cl.name               AS cliente_nome,
        cl.document_number    AS cliente_cnpj,
 
@@ -320,6 +334,32 @@ FROM contract_items i JOIN contracts c ON c.id = i.contract_id
 WHERE (c.id::text = :k OR c.contract_number = :k) AND coalesce(i.is_active, true)
 ORDER BY i.created_at
 """
+
+
+_MESES = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
+          "setembro", "outubro", "novembro", "dezembro")
+
+
+def _inventario(itens: list) -> str:
+    """Os sistemas cobertos, um por linha — vêm de `contract_items`, não do texto.
+
+    O inventário é o que define o preço da manutenção; deixá-lo escrito à mão no modelo
+    faria todo condomínio herdar as cancelas do vizinho.
+    """
+    linhas = []
+    for i in itens:
+        nome = (i["service_name"] or "").strip()
+        desc = (i["description"] or "").strip()
+        linhas.append(f"• {nome}: {desc}" if desc else f"• {nome}")
+    return "\n".join(linhas)
+
+
+def _do_sla(sla: dict | None, chave: str, default=None):
+    """Lê `contracts.sla_config`. Vazio devolve None e o render RECUSA — não inventa SLA."""
+    if not isinstance(sla, dict):
+        return default
+    v = sla.get(chave)
+    return default if v in (None, "") else v
 
 
 def _composicao(itens: list) -> dict:
@@ -371,16 +411,20 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         if fim.day >= ini.day:
             meses += 1
 
+    rep_cpf, rep_rg = _cpf_rg(rep["notes"] if rep else "")
     ctx = {
         "contratante_nome": nome_proprio(row["cliente_nome"]),
         "contratante_cnpj": cnpj_fmt(row["cliente_cnpj"]),
         "contratante_endereco": row["cliente_endereco"] or "",
         "contratante_representante": nome_proprio(rep["name"] if rep else ""),
-        "contratante_representante_cpf": ((rep["notes"] or "") if rep else ""),
+        "contratante_representante_cpf": rep_cpf,
+        "contratante_representante_rg": rep_rg,
         "contratada_razao_social": contratada.razao_social,
         "contratada_cnpj": contratada.cnpj,
         "contratada_endereco": _SEDE.get(contratada.cnpj, ""),
         "contratada_representante": "Jordan Santos de Jesus",
+        "contratada_representante_cpf": "730.681.522-91",
+        "contratada_representante_rg": "15398811 SSP/AM",
         # cargo de quem assina: o bloco de assinatura identifica a QUALIDADE em que a
         # pessoa assina, não só o nome — é o que distingue representante de preposto.
         "contratada_cargo": "Diretor Executivo",
@@ -388,6 +432,18 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "valor_mensal_fmt": brl(valor),
         "valor_mensal_extenso": por_extenso(valor),
         **_composicao(itens),
+        # manutenção eletrônica: inventário e SLA. Vazio faz o render RECUSAR, como no
+        # resto — contrato de manutenção sem inventário é preço sem lastro.
+        "inventario_sistemas": _inventario(list(itens)),
+        "visita_numero": _do_sla(row["sla_config"], "visita_numero", "") or "",
+        "visita_data": (_do_sla(row["sla_config"], "visita_data", "") or ""),
+        "visitas_mes": (num_par(int(_do_sla(row["sla_config"], "visitas_mes", 0)))
+                        if _do_sla(row["sla_config"], "visitas_mes") else ""),
+        "prazo_resposta_extenso": (
+            num_par(int(_do_sla(row["sla_config"], "prazo_resposta_horas", 0)))
+            if _do_sla(row["sla_config"], "prazo_resposta_horas") else ""),
+        "mes_base_reajuste": (f"{_MESES[row['start_date'].month - 1]}/{row['start_date'].year}"
+                              if row["start_date"] else ""),
         "vigencia_meses_extenso": num_par(meses) if meses else "",
         # Cláusula quarta (redação aprovada pelo Jordan em 21/08): a vigência passou a ter
         # início e fim EXPLÍCITOS e renovação AUTOMÁTICA. Antes dizia "contados a partir da
@@ -482,7 +538,8 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
 
 
 def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
-          numero: str, inicio, razao_contratada: str = "", cnpj_contratada_fmt: str = "") -> list:
+          numero: str, inicio, razao_contratada: str = "", cnpj_contratada_fmt: str = "",
+          subtitulo: str = "") -> list:
     """Capa no padrão-ouro — a mesma de `contract_pdf.build_contract_pdf`.
 
     O render por modelo abria direto no texto: sem logo, sem título, sem o quadro das
@@ -506,7 +563,10 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
     el.append(Spacer(1, 10 * _mm))
     el.append(Paragraph("CONTRATO", st["capa_titulo"]))
     el.append(Spacer(1, 2 * _mm))
-    el.append(Paragraph("Prestação de Serviços de Portaria 24 Horas", st["capa_sub"]))
+    # o subtítulo vem do MODELO. Estava fixo em "Portaria 24 Horas": a capa do contrato de
+    # manutenção da Eletrônica anunciava portaria — o documento mentia sobre si mesmo já na
+    # primeira página.
+    el.append(Paragraph(subtitulo or "Prestação de Serviços", st["capa_sub"]))
     el.append(Spacer(1, 12 * _mm))
     box = Table(
         [[Paragraph(f"<b>CONTRATANTE:</b> {contratante}", st["capa_meta"])],
@@ -663,7 +723,8 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
                        itens: list | None = None, total_fmt: str = "",
                        capa: dict | None = None, ctx_assin: dict | None = None,
                        assinaturas: list | None = None,
-                       manifesto: list | None = None, numero: str = "") -> bytes:
+                       manifesto: list | None = None, numero: str = "",
+                       subtitulo: str = "") -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -682,7 +743,8 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     marca_capa = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
     el: list = _capa(st, marca_capa, capa.get("contratante", ""), capa.get("cnpj", ""),
                      capa.get("numero", ""), capa.get("inicio"),
-                     capa.get("razao_contratada", ""), cnpj_contratada or "") if capa else []
+                     capa.get("razao_contratada", ""), cnpj_contratada or "",
+                     subtitulo) if capa else []
     # onde começou a ÚLTIMA cláusula: o fecho (foro + assinaturas) tem de sair na mesma
     # folha. Sem isso o FORO ficava na 10 e a assinatura na 11, com a página do foro
     # terminando no vazio — pedido do Jordan em 22/08.
@@ -791,6 +853,17 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             "primeiro_pagamento_dias_extenso":
                 "defina contracts.grace_period_days (carência do 1º pagamento; o .docx do "
                 "Green Hills negociou 90 dias)",
+            "inventario_sistemas":
+                "lance os sistemas cobertos em contract_items (um por sistema: cancelas, "
+                "CFTV, cerca elétrica...) — é o inventário que sustenta o preço",
+            "visita_numero": "grave contracts.sla_config->>'visita_numero' (ex.: RV-2026-00001)",
+            "visita_data": "grave contracts.sla_config->>'visita_data'",
+            "visitas_mes": "grave contracts.sla_config->>'visitas_mes' (visitas preventivas/mês)",
+            "prazo_resposta_extenso":
+                "grave contracts.sla_config->>'prazo_resposta_horas' (SLA de corretiva)",
+            "contratante_representante_rg":
+                "grave o RG em crm_contacts.notes no formato "
+                "'CPF 000.000.000-00 · RG 1234567 SSP/AM'",
             "qtd_diurno": "lance os itens do contrato em contract_items (AGP Diurno / AGP Noturno)",
             "qtd_noturno": "idem — contract_items",
             "qtd_agentes_extenso": "idem — contract_items",
@@ -805,6 +878,14 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
 
     texto = renderizar(tpl["content_template"], ctx)
 
+    # subtítulo da capa = o próprio título do instrumento, que é a 1ª linha do modelo.
+    # Sai do modelo e não do código: é o modelo que sabe se é portaria ou manutenção.
+    primeira = next((ln.strip() for ln in texto.splitlines() if ln.strip()), "")
+    # nome_proprio, não capitalize(): o modelo é CAIXA ALTA e `capitalize()` devolvia
+    # "Prestação de serviços de portaria" — rebaixando a capa de um contrato já assinado.
+    subtitulo = nome_proprio(re.sub(r"^CONTRATO\s+(PARTICULAR\s+)?(DE\s+)?", "", primeira,
+                                    flags=re.I).strip()) or "Prestação de Serviços"
+
     clausulas = tpl["clauses"] if isinstance(tpl["clauses"], list) else []
     faltando = [c for c in clausulas if isinstance(c, str) and c.strip() and c.strip() not in texto]
 
@@ -815,7 +896,8 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
                   "numero": cab["contract_number"], "inicio": cab["start_date"],
                   "razao_contratada": contratada.razao_social},
-            ctx_assin=ctx, assinaturas=assinaturas, manifesto=manifesto, numero=numero),
+            ctx_assin=ctx, assinaturas=assinaturas, manifesto=manifesto, numero=numero,
+            subtitulo=subtitulo),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
