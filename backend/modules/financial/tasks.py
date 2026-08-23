@@ -879,6 +879,12 @@ def programar_vtvr_do_dia_task(self):
     ⚠️ Quem não tem chave PIX nasce `sem_pix`, nunca com chave inventada, e a linha não
     ganha botão de pagar na tela.
 
+    ⭐ SEM FILTRO DE ELEGIBILIDADE, e isso é regra do dono, não esquecimento: **todo
+    diarista lançado tem direito ao VT+VR** (confirmado pelo Jordan em 23/08/2026). Quem
+    for mexer aqui não precisa inventar exceção — se aparecer uma, ela vem dele primeiro.
+    Filtro a mais neste ponto deixa gente sem receber o vale do dia, e o efeito é uma
+    pessoa sem passagem para trabalhar.
+
     Roda de hora em hora entre 7h e 21h porque o VT/VR é pago no MESMO dia: rodar só à
     noite deixaria o Jordan esperando o dia seguinte para pagar o que foi lançado agora.
     """
