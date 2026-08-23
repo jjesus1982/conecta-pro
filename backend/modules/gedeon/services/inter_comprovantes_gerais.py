@@ -77,6 +77,24 @@ def classificar_pagamentos_empresa(txs: list[dict]) -> list[dict]:
     return itens
 
 
+# ── O COMPROVANTE AO FORNECEDOR NÃO É DO KIT DO CONDOMÍNIO ──────────────────
+#
+# Decisão do Jordan em 22/08/2026 — ele viu o comprovante no kit e perguntou por que
+# estava lá. O pagamento ao Sólides/Sinetran é
+# AGREGADO — "R$ 6.928,00" cobre TODOS os condomínios de uma vez. Pôr isso no kit do Ideal
+# Flores mostra ao síndico dele quanto a empresa gastou de VA no total, o que não é da
+# conta dele e não prova NADA sobre o posto dele.
+#
+# O que prova, e é o que o kit deve ter, é o RECIBO INDIVIDUAL: "Recibo de Vale Transporte
+# e Vale Alimentacao - Nailson Garcia.pdf", assinado pela pessoa que trabalha ali.
+#
+# O comprovante continua sendo gerado e arquivado — ele é prova de que a empresa pagou o
+# fornecedor, e isso interessa à contabilidade. Só não vai para o kit do cliente: fica na
+# pasta '_VA_VT (a atribuir por condomínio)', que é o comportamento quando `condominios`
+# não é passado.
+REPLICAR_COMPROVANTE_NO_KIT = False
+
+
 def gerar_comprovantes_va_vt(
     competencia: str,
     txs: list[dict],
@@ -103,6 +121,8 @@ def gerar_comprovantes_va_vt(
         ("Vale Alimentação (Sólides)", lambda t: "SOLIDES" in _favorecido(t)),
         ("Vale Transporte (Sinetran)", lambda t: "SIND DAS EMP" in _favorecido(t) or "SINETRAN" in _favorecido(t)),
     ]
+    if not REPLICAR_COMPROVANTE_NO_KIT:
+        condominios = None  # vai para a pasta de holding, não para os kits
     rel = {"competencia": competencia, "gerados": 0, "replicas": 0, "lista": []}
     cache: dict = {}
     sub = None
