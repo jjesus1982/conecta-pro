@@ -298,6 +298,7 @@ SELECT c.id::text, c.contract_number, c.name, c.monthly_value, c.start_date, c.e
        c.notice_period_days,
        c.renewal_notification_days,
        c.sla_config,
+       c.empresa_id::text    AS empresa_id,
        cl.name               AS cliente_nome,
        cl.document_number    AS cliente_cnpj,
 
@@ -352,6 +353,42 @@ def _inventario(itens: list) -> str:
         desc = (i["description"] or "").strip()
         linhas.append(f"• {nome}: {desc}" if desc else f"• {nome}")
     return "\n".join(linhas)
+
+
+_SQL_CONTA = """
+SELECT b.bank_name, b.bank_code, b.agency, b.agency_digit, b.account_number,
+       b.account_digit, b.pix_key, b.pix_key_type
+FROM bank_accounts b
+WHERE b.empresa_id = :e AND coalesce(b.ativo, true) AND coalesce(b.allows_receipts, false)
+  AND b.agency IS NOT NULL AND b.account_number IS NOT NULL
+ORDER BY b.is_main_account DESC NULLS LAST, b.created_at
+LIMIT 1
+"""
+
+
+async def _conta_da_empresa(db: AsyncSession, empresa_id) -> str:
+    """Onde o cliente paga — vem de `bank_accounts` da empresa que EMITE o contrato.
+
+    O contrato do Green Hills foi assinado dizendo quanto e quando, e nunca ONDE: o síndico
+    ficou com um instrumento que não informa a conta. Aqui a conta segue o CNPJ emitente —
+    Patrimonial recebe na dela, Eletrônica na dela — pelo mesmo caminho que resolve a
+    CONTRATADA, para o dinheiro nunca cair na empresa errada num grupo de dois CNPJs.
+
+    Exige conta com agência E número: meia conta num contrato é pior que nenhuma.
+    """
+    if not empresa_id:
+        return ""
+    r = (await db.execute(text(_SQL_CONTA), {"e": empresa_id})).mappings().first()
+    if not r:
+        return ""
+    conta = f"{r['account_number']}-{r['account_digit']}" if r["account_digit"] else r["account_number"]
+    ag = f"{r['agency']}-{r['agency_digit']}" if r["agency_digit"] else r["agency"]
+    partes = [f"{r['bank_name']} ({r['bank_code']})", f"agência {ag}", f"conta corrente {conta}"]
+    if r["pix_key"]:
+        rotulo = {"cnpj": "CNPJ", "cpf": "CPF", "email": "e-mail",
+                  "telefone": "telefone"}.get((r["pix_key_type"] or "").lower(), "chave")
+        partes.append(f"chave PIX ({rotulo}) {r['pix_key']}")
+    return ", ".join(partes)
 
 
 def _do_sla(sla: dict | None, chave: str, default=None):
@@ -412,6 +449,7 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
             meses += 1
 
     rep_cpf, rep_rg = _cpf_rg(rep["notes"] if rep else "")
+    conta_texto = await _conta_da_empresa(db, row["empresa_id"])
     ctx = {
         "contratante_nome": nome_proprio(row["cliente_nome"]),
         "contratante_cnpj": cnpj_fmt(row["cliente_cnpj"]),
@@ -444,6 +482,7 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
             if _do_sla(row["sla_config"], "prazo_resposta_horas") else ""),
         "mes_base_reajuste": (f"{_MESES[row['start_date'].month - 1]}/{row['start_date'].year}"
                               if row["start_date"] else ""),
+        "dados_bancarios": conta_texto,
         "vigencia_meses_extenso": num_par(meses) if meses else "",
         # Cláusula quarta (redação aprovada pelo Jordan em 21/08): a vigência passou a ter
         # início e fim EXPLÍCITOS e renovação AUTOMÁTICA. Antes dizia "contados a partir da
@@ -856,6 +895,9 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
             "inventario_sistemas":
                 "lance os sistemas cobertos em contract_items (um por sistema: cancelas, "
                 "CFTV, cerca elétrica...) — é o inventário que sustenta o preço",
+            "dados_bancarios":
+                "cadastre a conta que RECEBE em bank_accounts da empresa emitente, com "
+                "agência, número e chave PIX (allows_receipts=true)",
             "visita_numero": "grave contracts.sla_config->>'visita_numero' (ex.: RV-2026-00001)",
             "visita_data": "grave contracts.sla_config->>'visita_data'",
             "visitas_mes": "grave contracts.sla_config->>'visitas_mes' (visitas preventivas/mês)",
