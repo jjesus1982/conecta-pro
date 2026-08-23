@@ -25,6 +25,30 @@
    "fg": "#9DB0D9"
   },
   {
+   "id": "g-pagar-pessoas",
+   "label": "Pessoas & Folha",
+   "icon": "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-pagar-contas",
+   "label": "Contas & Impostos",
+   "icon": "M4 2h16v20l-3-2-3 2-3-2-3 2V2zM8 7h8M8 11h8M8 15h5",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "g-pagar-ordens",
+   "label": "Ordens & Histórico",
+   "icon": "M12 8v4l3 3M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
    "id": "g-bancos",
    "label": "Bancos & Conciliação",
    "icon": "M3 21h18M4 10h16M5 10 12 4l7 6M6 10v11M18 10v11M10 10v11M14 10v11",
