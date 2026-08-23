@@ -464,12 +464,8 @@ async def meus_treinamentos(
     certificados = await get_my_certificates(employee_id=UUID(emp), db=db)
     return {
         "employee_id": emp,
-        "matriculas": [
-            m.model_dump() if hasattr(m, "model_dump") else m for m in (matriculas or [])
-        ],
-        "certificados": [
-            c.model_dump() if hasattr(c, "model_dump") else c for c in (certificados or [])
-        ],
+        "matriculas": [m.model_dump() if hasattr(m, "model_dump") else m for m in (matriculas or [])],
+        "certificados": [c.model_dump() if hasattr(c, "model_dump") else c for c in (certificados or [])],
     }
 
 
@@ -573,17 +569,21 @@ async def baixar_meu_documento(
 
     # SEGURANÇA: só devolve o documento se employee_id == funcionário logado.
     row = (
-        await db.execute(
-            _sqltext(
-                "SELECT document_name, file_path "
-                "FROM ged_kit_documents "
-                "WHERE CAST(id AS TEXT) = :did "
-                "AND CAST(employee_id AS TEXT) = :e "
-                "AND file_path IS NOT NULL"
-            ),
-            {"did": str(document_id), "e": emp},
+        (
+            await db.execute(
+                _sqltext(
+                    "SELECT document_name, file_path "
+                    "FROM ged_kit_documents "
+                    "WHERE CAST(id AS TEXT) = :did "
+                    "AND CAST(employee_id AS TEXT) = :e "
+                    "AND file_path IS NOT NULL"
+                ),
+                {"did": str(document_id), "e": emp},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
 
     if not row:
         # 404 tanto para inexistente quanto para documento de OUTRO funcionário
@@ -621,9 +621,7 @@ async def baixar_meu_documento(
             "direto. Use a aba Holerite para baixar contracheques.",
         )
 
-    filename = (row["document_name"] or target.name).replace("/", "_") + (
-        "" if target.suffix else ".pdf"
-    )
+    filename = (row["document_name"] or target.name).replace("/", "_") + ("" if target.suffix else ".pdf")
     return FileResponse(
         path=str(target),
         media_type="application/pdf",
@@ -665,9 +663,7 @@ class BaterPontoRequest(BaseModel):
     )
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
-    accuracy: float | None = Field(
-        default=None, description="Precisão do GPS em metros (opcional)."
-    )
+    accuracy: float | None = Field(default=None, description="Precisão do GPS em metros (opcional).")
     foto_base64: str | None = Field(
         default=None,
         description="Selfie da batida (base64 ou data-URI). Evidência anti-fraude.",
@@ -679,28 +675,30 @@ class BaterPontoRequest(BaseModel):
     observacao: str | None = None
 
 
-async def _posto_atual_do_funcionario(
-    db: AsyncSession, employee_id: str
-) -> tuple[str | None, str | None]:
+async def _posto_atual_do_funcionario(db: AsyncSession, employee_id: str) -> tuple[str | None, str | None]:
     """Resolve o posto ATUAL do funcionário via alocação ativa (allocations→posts).
 
     Prefere a alocação primária ativa e vigente (start<=hoje, sem end ou end>=hoje).
     Retorna (posto_id, posto_nome) ou (None, None) se não houver alocação.
     """
     row = (
-        await db.execute(
-            _sqltext(
-                "SELECT p.id::text AS posto_id, p.name AS posto_nome "
-                "FROM allocations a JOIN posts p ON p.id = a.post_id "
-                "WHERE a.employee_id::text = :e "
-                "AND a.status = 'active' AND a.is_active = true "
-                "AND a.start_date <= :today "
-                "AND (a.end_date IS NULL OR a.end_date >= :today) "
-                "ORDER BY a.is_primary DESC, a.start_date DESC LIMIT 1"
-            ),
-            {"e": employee_id, "today": _date.today()},
+        (
+            await db.execute(
+                _sqltext(
+                    "SELECT p.id::text AS posto_id, p.name AS posto_nome "
+                    "FROM allocations a JOIN posts p ON p.id = a.post_id "
+                    "WHERE a.employee_id::text = :e "
+                    "AND a.status = 'active' AND a.is_active = true "
+                    "AND a.start_date <= :today "
+                    "AND (a.end_date IS NULL OR a.end_date >= :today) "
+                    "ORDER BY a.is_primary DESC, a.start_date DESC LIMIT 1"
+                ),
+                {"e": employee_id, "today": _date.today()},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not row:
         return None, None
     return row["posto_id"], row["posto_nome"]
@@ -709,17 +707,21 @@ async def _posto_atual_do_funcionario(
 async def _estado_ponto_hoje(db: AsyncSession, employee_id: str) -> dict[str, Any]:
     """Estado das batidas de HOJE: última batida e se há entrada aberta."""
     rows = (
-        await db.execute(
-            _sqltext(
-                "SELECT punch_id, punch_type, (punch_timestamp) AS punch_timestamp, dentro_geofence, "
-                "distancia_posto_metros, foto_capturada_url, posto_nome "
-                "FROM gp_clock_punches "
-                "WHERE employee_id::text = :e AND (punch_timestamp)::date = :today "
-                "ORDER BY punch_timestamp"
-            ),
-            {"e": employee_id, "today": _date.today()},
+        (
+            await db.execute(
+                _sqltext(
+                    "SELECT punch_id, punch_type, (punch_timestamp) AS punch_timestamp, dentro_geofence, "
+                    "distancia_posto_metros, foto_capturada_url, posto_nome "
+                    "FROM gp_clock_punches "
+                    "WHERE employee_id::text = :e AND (punch_timestamp)::date = :today "
+                    "ORDER BY punch_timestamp"
+                ),
+                {"e": employee_id, "today": _date.today()},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     batidas = [dict(r) for r in rows]
     ultima = batidas[-1] if batidas else None
     tem_entrada_aberta = bool(ultima and ultima["punch_type"] == "entrada")
@@ -833,12 +835,8 @@ async def ponto_hoje(
     estado = await _estado_ponto_hoje(db, emp)
     posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
 
-    entrada = next(
-        (b for b in estado["batidas"] if b["punch_type"] == "entrada"), None
-    )
-    saida = next(
-        (b for b in reversed(estado["batidas"]) if b["punch_type"] == "saida"), None
-    )
+    entrada = next((b for b in estado["batidas"] if b["punch_type"] == "entrada"), None)
+    saida = next((b for b in reversed(estado["batidas"]) if b["punch_type"] == "saida"), None)
 
     def _fmt(b: dict[str, Any] | None) -> dict[str, Any] | None:
         if not b:
@@ -908,9 +906,7 @@ class SolicitarReembolsoRequest(BaseModel):
     )
     valor: Decimal = Field(..., gt=0, description="Valor gasto pelo funcionário (R$).")
     data_despesa: _date = Field(..., description="Data em que a despesa ocorreu.")
-    descricao: str = Field(
-        ..., min_length=3, max_length=500, description="Motivo/descrição da despesa."
-    )
+    descricao: str = Field(..., min_length=3, max_length=500, description="Motivo/descrição da despesa.")
     comprovante_base64: str | None = Field(
         default=None,
         description="Foto/PDF do recibo (base64 ou data-URI). Evidência da despesa.",
@@ -918,9 +914,7 @@ class SolicitarReembolsoRequest(BaseModel):
     comprovante_nome: str | None = Field(default=None, max_length=200)
 
 
-async def _condominio_do_reembolso(
-    db: AsyncSession, current_user: User
-) -> UUID | None:
+async def _condominio_do_reembolso(db: AsyncSession, current_user: User) -> UUID | None:
     """Resolve o condomínio para amarrar a solicitação.
 
     Usa o condominio do usuário; senão o primeiro condomínio ativo. A coluna é
@@ -951,10 +945,7 @@ async def categorias_reembolso(
     )
 
     return {
-        "categorias": [
-            {"value": e.value, "label": EXPENSE_CATEGORY_LABELS.get(e, e.value)}
-            for e in ExpenseCategory
-        ]
+        "categorias": [{"value": e.value, "label": EXPENSE_CATEGORY_LABELS.get(e, e.value)} for e in ExpenseCategory]
     }
 
 
@@ -993,11 +984,7 @@ async def meus_reembolsos(
         primeiro = ativos[0] if ativos else None
         categoria = primeiro.category_type if primeiro else None
         try:
-            categoria_label = (
-                EXPENSE_CATEGORY_LABELS.get(ExpenseCategory(categoria), categoria)
-                if categoria
-                else None
-            )
+            categoria_label = EXPENSE_CATEGORY_LABELS.get(ExpenseCategory(categoria), categoria) if categoria else None
         except ValueError:
             categoria_label = categoria
         itens.append(
@@ -1114,18 +1101,14 @@ async def solicitar_reembolso(
             anexado = True
         except Exception as exc:  # noqa: BLE001
             # Não bloqueia a solicitação: o comprovante pode ser reenviado depois.
-            logger.warning(
-                "Comprovante do reembolso %s não anexado: %s", request.code, exc
-            )
+            logger.warning("Comprovante do reembolso %s não anexado: %s", request.code, exc)
 
     # Submete → 'pendente' (aguardando DP/financeiro). submit() valida que o
     # solicitante é o próprio funcionário e que há ao menos um item.
     try:
         await svc.submit_request(request.id, current_user.id)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     fresh = await svc.get_request(request.id)
     return {
@@ -1149,7 +1132,7 @@ async def solicitar_reembolso(
 # rosto (modelos em /public/models) e compara com a REFERÊNCIA cadastrada. Aqui no portal
 # do funcionário (token normal, sem guard de módulo DP) o funcionário: (1) cadastra o rosto
 # no onboarding — obrigatório; (2) bate ponto SÓ com match=true (gate rígido do Jordan).
-import json as _facial_json
+import json as _facial_json  # noqa: E402 — import local ao bloco facial, pre-existente
 
 
 class _FacialEnrollBody(BaseModel):
@@ -1293,7 +1276,7 @@ async def facial_cadastrar(
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
                 detail="Seu rosto já está cadastrado — não precisa cadastrar de novo. "
-                       "Se não conseguir bater o ponto, use 'registrar para o DP validar'.",
+                "Se não conseguir bater o ponto, use 'registrar para o DP validar'.",
             )
 
     await db.execute(
@@ -1314,11 +1297,7 @@ async def facial_referencia(
 ):
     """Descriptor de referência do funcionário (para o app comparar ao vivo)."""
     emp = _employee_id(current_user)
-    row = (
-        await db.execute(
-            _sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp}
-        )
-    ).fetchone()
+    row = (await db.execute(_sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp})).fetchone()
     descriptor = None
     if row and row[0]:
         try:
@@ -1345,12 +1324,19 @@ async def facial_batida(
     emp = _employee_id(current_user)
 
     # precisa ter rosto cadastrado
-    row = (
-        await db.execute(
-            _sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp}
-        )
-    ).fetchone()
+    row = (await db.execute(_sqltext("SELECT face_descriptor FROM employees WHERE id = :eid"), {"eid": emp})).fetchone()
+    from modules.people_management.ponto import tentativa_log as _tlog
+
+    _ev = {
+        "user_id": getattr(current_user, "id", None),
+        "user_name": getattr(current_user, "full_name", None) or getattr(current_user, "email", None),
+        "device": getattr(body, "device_type", None),
+        "latitude": getattr(body, "latitude", None),
+        "longitude": getattr(body, "longitude", None),
+    }
     if not row or not row[0]:
+        await _tlog.registrar_falha_async(db, employee_id=emp, motivo=_tlog.MOTIVO_SEM_ROSTO, **_ev)
+        await db.commit()
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="Rosto não cadastrado. Cadastre seu reconhecimento facial antes de bater o ponto.",
@@ -1358,6 +1344,17 @@ async def facial_batida(
 
     # GATE: sem match, não bate
     if body.match is not True:
+        # A recusa mais comum e a menos visível: o app compara no celular e manda
+        # `match=false`. Antes disto não deixava rastro — foi o buraco que impediu a
+        # auditoria de 23/08 de dizer POR QUE quatro pessoas nunca bateram uma única vez.
+        await _tlog.registrar_falha_async(
+            db,
+            employee_id=emp,
+            motivo=_tlog.MOTIVO_NAO_RECONHECIDO,
+            extra={"confidence": getattr(body, "confidence", None), "distance": getattr(body, "distance", None)},
+            **_ev,
+        )
+        await db.commit()
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Rosto não reconhecido. A batida só é confirmada com reconhecimento facial.",
@@ -1380,10 +1377,14 @@ async def facial_batida(
     if recente:
         _ts = recente[2]
         return {
-            "success": True, "punch_id": recente[0], "punch_type": recente[1], "tipo": recente[1],
+            "success": True,
+            "punch_id": recente[0],
+            "punch_type": recente[1],
+            "tipo": recente[1],
             "hora": _ts.strftime("%H:%M") if hasattr(_ts, "strftime") else None,
             "punch_timestamp": _ts.isoformat() if hasattr(_ts, "isoformat") else _ts,
-            "status": recente[3], "duplicada_ignorada": True,
+            "status": recente[3],
+            "duplicada_ignorada": True,
             "message": "Batida já registrada agora mesmo.",
         }
 
@@ -1418,8 +1419,10 @@ async def facial_batida(
         punch_type=tipo,
         location=location,
         facial=FacialSchema(
-            match=True, confidence=body.confidence,
-            liveness_check=body.liveness_check, foto_base64=body.foto_base64,
+            match=True,
+            confidence=body.confidence,
+            liveness_check=body.liveness_check,
+            foto_base64=body.foto_base64,
         ),
         device_type="mobile",
     )
@@ -1445,6 +1448,51 @@ class _ContingenciaBatidaBody(BaseModel):
     motivo: str | None = None
 
 
+class _TentativaFalhaBody(BaseModel):
+    """O app avisa que a batida NÃO foi possível. Sem isto a tentativa some sem rastro."""
+
+    motivo: str = Field(..., max_length=60)
+    detalhe: str | None = Field(None, max_length=400)
+    confidence: float | None = None
+    distance: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    device_type: str | None = Field(None, max_length=40)
+
+
+@router.post("/tentativa-falhou", status_code=204)
+async def registrar_tentativa_falhou(
+    body: _TentativaFalhaBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Registra uma tentativa de bater ponto que falhou ANTES de chegar ao servidor.
+
+    A câmera que não abre, o rosto que o celular não reconhece, o GPS negado, a consulta ao
+    cadastro que cai — nada disso passa pelo backend hoje, e por isso a auditoria de
+    23/08/2026 não conseguiu dizer POR QUE quatro pessoas nunca bateram uma única vez. Eu
+    tinha 1.943 batidas que deram certo e ZERO das que falharam.
+
+    Devolve 204 sempre: avisar da falha não pode ser mais uma coisa que falha na guarita.
+    """
+    from modules.people_management.ponto import tentativa_log as _tlog
+
+    await _tlog.registrar_falha_async(
+        db,
+        employee_id=getattr(current_user, "employee_id", None),
+        motivo=body.motivo,
+        detalhe=body.detalhe,
+        user_id=getattr(current_user, "id", None),
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", None),
+        device=body.device_type,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        extra={"confidence": body.confidence, "distance": body.distance},
+    )
+    await db.commit()
+    return None
+
+
 @router.post("/batida-contingencia", status_code=201)
 async def batida_contingencia(
     body: _ContingenciaBatidaBody,
@@ -1455,6 +1503,7 @@ async def batida_contingencia(
     Registra uma batida PENDENTE (device 'contingencia', status 'pending_contingencia') para o
     DP VALIDAR — ninguém perde o ponto. O gate humano do DP substitui o facial neste caso."""
     import uuid as _uuid
+
     emp = _employee_id(current_user)
     prox = await _proxima_batida_info(db, emp)
     # NÃO recusamos batida por "jornada concluída". Isto era um 409 e, em 13/08/2026,
@@ -1483,7 +1532,8 @@ async def batida_contingencia(
     )
     await db.commit()
     return {
-        "success": True, "punch_id": pid,
+        "success": True,
+        "punch_id": pid,
         "punch_type": (prox["tipo"] if not prox["concluido"] else "extra"),
         "status": "pending_contingencia",
         "message": "Registramos sua tentativa. O DP vai validar sua batida — você não perdeu o ponto.",

@@ -1023,19 +1023,39 @@ function PontoTab() {
   };
 
   // Batida com match facial: só envia se o rosto bateu com a referência.
+  // Avisa o servidor que a batida NAO foi possivel. A camera que nao abre, o rosto que o
+  // celular nao reconhece, o GPS negado — nada disso chegava ao backend, e por isso a
+  // auditoria de 23/08/2026 nao conseguiu dizer POR QUE quatro pessoas nunca bateram.
+  // Nunca lanca: avisar da falha nao pode ser mais uma coisa que falha na guarita.
+  const registrarFalha = async (motivo: string, extra?: Record<string, unknown>) => {
+    try {
+      await api.post(`${PONTO_BASE}/tentativa-falhou`, {
+        motivo,
+        device_type: 'mobile',
+        latitude: geo?.latitude ?? null,
+        longitude: geo?.longitude ?? null,
+        ...extra,
+      });
+    } catch { /* silencioso de proposito */ }
+  };
+
   const onFacialCapture = async (r: FacialCaptureResult) => {
     if (!r.matched) {
       // Antes dizia só "Tente novamente" — e mandava a pessoa repetir exatamente o que
       // acabou de falhar. A LIVIA tentou às 06:08 do dia 13/08, leu isso, desistiu e bateu
       // no Sólides. A saída estava na tela, em cinza, embaixo do botão laranja.
       setRostoFalhou(true);
+      void registrarFalha('rosto_nao_reconhecido', { distance: r.distance ?? null, confidence: r.confidence ?? null });
       setBaterErro('Não reconheci seu rosto. Pode ser a luz — tente de frente, num lugar claro. '
         + 'Se não der, use o botão abaixo: sua batida fica registrada e o DP valida.');
       setFase('idle');
       setGeo(null);
       return;
     }
-    if (!geo) { setBaterErro('Localização perdida. Toque em bater ponto novamente.'); setFase('idle'); return; }
+    if (!geo) {
+      void registrarFalha('gps_negado', { detalhe: 'localizacao perdida entre o GPS e a captura facial' });
+      setBaterErro('Localização perdida. Toque em bater ponto novamente.'); setFase('idle'); return;
+    }
     setFase('sending');
     setBaterErro('');
     try {
@@ -1134,8 +1154,26 @@ function PontoTab() {
   const iniciarBatida = async () => {
     setBaterErro('');
     setResultado(null);
-    if (!faceEnrolled) {
+    // 🔴 ISTO ERA `if (!faceEnrolled)`, e `null` é falsy. A correção de 14/08 fez o
+    // `catch` gravar `null` ("não sei") em vez de `false` ("não tem") — mas ESTA linha
+    // continuou tratando os dois igual. Resultado, medido em 23/08/2026: o Ediwilson tem
+    // rosto cadastrado desde 11/08, o backend devolve o descriptor dele corretamente, e
+    // mesmo assim o app dizia "cadastre seu reconhecimento facial", como se fosse o
+    // primeiro acesso dele. Ele, a Elen, a Erika e a Kelly nunca conseguiram bater uma vez.
+    //
+    // `false` = o servidor RESPONDEU que não há rosto → cadastrar é a ação certa.
+    // `null`  = não consegui perguntar (4G ruim na guarita, token, deploy) → mandar
+    //           cadastrar é errado e destrutivo: sobrescreve a referência boa.
+    if (faceEnrolled === false) {
       setBaterErro('Cadastre seu reconhecimento facial antes de bater o ponto.');
+      return;
+    }
+    if (faceEnrolled === null) {
+      void registrarFalha('cadastro_indisponivel', { detalhe: 'GET /facial/referencia falhou nas 3 tentativas' });
+      setBaterErro(
+        'Não consegui confirmar seu cadastro facial agora — pode ser a internet da guarita. '
+        + 'Tente de novo em alguns segundos. Se persistir, use "registrar para o DP validar" abaixo.',
+      );
       return;
     }
     setFase('gps');
@@ -1324,7 +1362,13 @@ function PontoTab() {
             <FacialCapture
               employeeDescriptor={fase === 'facial' ? (faceRef ?? undefined) : undefined}
               onCapture={fase === 'enroll' ? onEnrollCapture : onFacialCapture}
-              onError={(m) => { setBaterErro(m); setFase('idle'); setGeo(null); }}
+              onError={(m) => {
+                // A CAMERA QUE NAO ABRE chega aqui — e era o caso que o Jordan citou
+                // primeiro ("pra uns a camera nao abre") e o unico que eu nao conseguia
+                // medir: o erro morria na tela, sem nunca chegar ao servidor.
+                void registrarFalha('camera_nao_abriu', { detalhe: m });
+                setBaterErro(m); setFase('idle'); setGeo(null);
+              }}
               threshold={0.68}
               maxAttempts={14}
             />
