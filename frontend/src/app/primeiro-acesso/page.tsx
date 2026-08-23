@@ -47,6 +47,12 @@ export default function PrimeiroAcessoPage() {
   const [buscandoPis, setBuscandoPis] = useState(false);
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [erro, setErro] = useState('');
+  // 🔴 O EDIWILSON FICOU PRESO AQUI. O backend recusa com 409 ("Você já fez o primeiro
+  // acesso") — e a tela mostrava o aviso em vermelho E CONTINUAVA oferecendo "Cadastre seu
+  // rosto" logo abaixo. Ele lia, tentava de novo, levava o mesmo 409, e nunca saía. Medido
+  // no print de 23/08/2026, 18:54: ele tem rosto cadastrado desde 11/08 e nunca conseguiu
+  // bater um ponto sequer. Quando a conta JÁ existe, cadastro não é o caminho — login é.
+  const [jaConcluiu, setJaConcluiu] = useState(false);
 
   const soDigitos = (v: string) => v.replace(/\D/g, '');
   const cpfMask = (v: string) => {
@@ -101,7 +107,10 @@ export default function PrimeiroAcessoPage() {
         body: JSON.stringify({ cpf: soDigitos(cpf) }),
       });
       const d = await r.json();
-      if (!r.ok) { setErro(d.detail || 'CPF não encontrado.'); return; }
+      if (!r.ok) {
+        if (r.status === 409) setJaConcluiu(true);
+        setErro(d.detail || 'CPF não encontrado.'); return;
+      }
       setToken(d.token); setNome(d.nome); setEmail(d.email); setCargo(d.cargo || '');
       setForm({ ...(d.dados || {}) });
       setFaltantes(new Set((d.faltantes || []).map((f: { campo: string }) => f.campo)));
@@ -156,7 +165,10 @@ export default function PrimeiroAcessoPage() {
         body: JSON.stringify({ descriptor: res.descriptor }),
       });
       const d = await r.json();
-      if (!r.ok) { setErro(d.detail || 'Não foi possível concluir.'); setLoading(false); return; }
+      if (!r.ok) {
+        if (r.status === 409) setJaConcluiu(true);
+        setErro(d.detail || 'Não foi possível concluir.'); setLoading(false); return;
+      }
       // senha = CPF → loga no fluxo normal e entra no portal
       const ok = await login({ email: d.email, password: soDigitos(cpf) });
       if (ok.success) window.location.href = d.portal_url || '/modulos/meu-espaco';
@@ -204,7 +216,7 @@ export default function PrimeiroAcessoPage() {
         {erro && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[14px] px-4 py-3">{erro}</div>}
 
         {/* ── TELA 1 ── */}
-        {step === 1 && (
+        {step === 1 && !jaConcluiu && (
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-2"><IdCard className="w-5 h-5 text-[#16277D]" />
               <h2 className="text-[16px] font-bold text-slate-800">Informe seu CPF</h2></div>
@@ -220,7 +232,7 @@ export default function PrimeiroAcessoPage() {
         )}
 
         {/* ── TELA 2 ── */}
-        {step === 2 && (
+        {step === 2 && !jaConcluiu && (
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <p className="text-[15px] text-slate-800 mb-1">Olá, <b>{nome}</b> 👋</p>
             <p className="text-[13px] text-slate-500 mb-5">{cargo && `${cargo} · `}Confira seus dados e <b>complete o que falta</b> (campos em laranja). Só avança com tudo preenchido.</p>
@@ -274,7 +286,23 @@ export default function PrimeiroAcessoPage() {
         )}
 
         {/* ── TELA 3 ── */}
-        {step === 3 && (
+        {jaConcluiu && (
+          <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-center">
+            <h2 className="text-[16px] font-bold text-slate-800 mb-2">Sua conta já está pronta</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              Você não precisa cadastrar nada de novo. Entre com o seu e-mail e o seu CPF
+              como senha.
+            </p>
+            <a href="/login"
+               className="inline-block w-full rounded-xl bg-[#F97316] py-3 text-white font-semibold">
+              Ir para o login
+            </a>
+            <p className="mt-3 text-xs text-slate-500">
+              Se não conseguir entrar, fale com o DP — não tente cadastrar por aqui.
+            </p>
+          </div>
+        )}
+        {step === 3 && !jaConcluiu && (
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-2"><ScanFace className="w-5 h-5 text-[#16277D]" />
               <h2 className="text-[16px] font-bold text-slate-800">Cadastre seu rosto</h2></div>

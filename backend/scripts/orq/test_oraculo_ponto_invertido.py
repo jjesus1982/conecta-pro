@@ -50,6 +50,16 @@ CASOS = [
 ]
 
 
+#: (descrição, [(horas atrás, tipo)], esperado) — o espelho do defeito: a pessoa saiu para
+#: o almoço e NUNCA bateu a volta. Medido no print de 23/08/2026, 18:04: a Lívia tinha
+#: entrada 05:59 e saída de almoço 12:38, e o app oferecia "BATER VOLTA DO ALMOÇO" cinco
+#: horas e meia depois, quando ela queria registrar a saída.
+CASOS_ALMOCO = [
+    ("voltou logo — 1h de almoço", [(6, "entrada"), (1, "saida_almoco")], "retorno_almoco"),
+    ("LÍVIA: almoçou 12:38, agora são 18:04", [(12, "entrada"), (5, "saida_almoco")], "saida"),
+]
+
+
 async def main() -> None:
     async with async_session_factory() as db:
         emp = (
@@ -91,6 +101,29 @@ async def main() -> None:
             await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_PREFIXO}%"})
             await db.commit()
 
+        # Segundo bloco: a volta do almoço que nunca veio.
+        try:
+            for desc, batidas, esperado in CASOS_ALMOCO:
+                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_PREFIXO}%"})
+                for i, (h, t) in enumerate(batidas):
+                    await db.execute(
+                        text(
+                            "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, "
+                            "  punch_timestamp, status, device_type) "
+                            "VALUES (:pid, CAST(:e AS uuid), :t, "
+                            "  (now() AT TIME ZONE 'America/Manaus') - make_interval(hours => :h), "
+                            "  'approved', 'mobile')"
+                        ),
+                        {"pid": f"{_PREFIXO}A{i}", "e": emp, "t": t, "h": h},
+                    )
+                await db.flush()
+                got = (await _proxima_batida_info(db, emp))["tipo"]
+                if got != esperado:
+                    falhas.append(f"{desc}: esperado {esperado}, veio {got}")
+        finally:
+            await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_PREFIXO}%"})
+            await db.commit()
+
         assert not falhas, f"{len(falhas)} cenário(s) errado(s) — " + " ; ".join(falhas)
 
         sobrou = (
@@ -102,6 +135,7 @@ async def main() -> None:
         assert not sobrou, f"{sobrou} batida(s) sintética(s) ficaram no banco"
 
     print(f"OK {len(CASOS)} cenários — o app não pede almoço a quem entrou há 8h ou mais")
+    print(f"OK {len(CASOS_ALMOCO)} cenários — nem a volta do almoço a quem saiu há 3h ou mais")
     print("OK nenhuma batida sintética sobrou no banco")
     print("TEST oraculo_ponto_invertido PASS")
 

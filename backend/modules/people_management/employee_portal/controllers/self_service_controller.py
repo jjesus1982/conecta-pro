@@ -1166,6 +1166,12 @@ _PUNCH_SEQ_2 = ["entrada", "saida"]
 #: almoço". Acima disso o app entende que a pessoa está encerrando o turno. Ver o bloco em
 #: `_proxima_batida_info` para o caso que motivou (Lívia, 17/08/2026).
 _HORAS_ATE_ALMOCO_MAX = 8.0
+
+#: Limite, em horas desde a SAÍDA para o almoço, para o app ainda oferecer a volta. Acima
+#: disso entende que a pessoa está encerrando o turno e a volta não foi batida — a CLT dá
+#: no máximo 2h de intervalo, então 3h é folga suficiente para não atropelar ninguém que
+#: almoçou longo. Ver o bloco em `_proxima_batida_info` para o caso que motivou.
+_HORAS_ALMOCO_MAX = 3.0
 _PUNCH_LABEL = {
     "entrada": "Entrada",
     "saida_almoco": "Saída para o almoço",
@@ -1282,6 +1288,31 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
     # A sequência sozinha não sabe que horas são. Ninguém sai para almoçar 8 horas depois
     # de entrar: numa 12x36 (12h) o almoço é ~6h depois; numa 44h (8h de jornada), ~4h.
     # Passado esse limite, o que a pessoa está registrando é o FIM do turno.
+    # O ESPELHO DO MESMO DEFEITO, medido no print que o Jordan mandou em 23/08/2026 às
+    # 18:04. A LÍVIA bateu entrada 05:59 e saída para o almoço 12:38, e NUNCA bateu a
+    # volta. Às 18:04 o app oferecia "BATER VOLTA DO ALMOÇO" — cinco horas e meia depois,
+    # no fim do turno, quando o que ela queria registrar era a SAÍDA.
+    #
+    # A sequência trava esperando um retorno que não vem, e a pessoa fica sem conseguir
+    # fechar o dia. Passado o intervalo de um almoço real, o que ela está registrando é o
+    # fim do turno — e a volta que faltou é correção de espelho pelo DP, não uma batida
+    # que o app deva empurrar horas depois.
+    if tipo == "retorno_almoco":
+        horas_desde_almoco = (
+            await db.execute(
+                _sqltext(
+                    "SELECT extract(epoch FROM ("
+                    "  (now() AT TIME ZONE 'America/Manaus') - max(punch_timestamp)"
+                    ")) / 3600.0 FROM gp_clock_punches "
+                    " WHERE employee_id::text = :e AND lower(coalesce(punch_type,'')) = 'saida_almoco' "
+                    "   AND punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'"
+                ),
+                {"e": emp},
+            )
+        ).scalar()
+        if horas_desde_almoco is not None and float(horas_desde_almoco) >= _HORAS_ALMOCO_MAX:
+            tipo = "saida"
+
     if tipo == "saida_almoco":
         horas_desde_entrada = (
             await db.execute(
