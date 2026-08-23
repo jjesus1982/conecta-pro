@@ -333,22 +333,43 @@ class InterAdapter(BaseBankingAdapter):
         end_date: date,
     ) -> BankStatement:
         """Consulta extrato da conta Inter."""
-        # ⚠️ ENDPOINT SIMPLES, DE PROPOSITO. Em 14/08/2026 troquei este `/extrato` pelo
-        # `/extrato/completo` para ganhar a contraparte — e o sync das 12:00 DUPLICOU 47
-        # linhas (R$1.497,79), porque o `completo` devolve a `descricao` noutro formato
-        # ("Alan Vieira Da Silva" contra "PIX ENVIADO - Cp :18236120-Alan Vieira") e a
-        # descricao entra na chave de dedup de `inter_transactions`. O oraculo do extrato
-        # pegou: nosso saldo R$7.055,48 contra R$5.397,69 do banco.
-        # A contraparte vem por `get_statement_completo`, que ENRIQUECE sem reinserir.
-        data = await self._request(
-            "GET",
-            "/banking/v2/extrato",
-            params={
-                "dataInicio": start_date.strftime("%Y-%m-%d"),
-                "dataFim": end_date.strftime("%Y-%m-%d"),
-            },
-        )
-        itens = data.get("transacoes", [])
+        # ⚠️ AQUI JA FOI `/extrato` SIMPLES — e a troca por `/extrato/completo` em
+        # 14/08/2026 DUPLICOU 47 linhas (R$1.497,79). Motivo: o `completo` devolve a
+        # `descricao` noutro formato ("Alan Vieira Da Silva" contra "PIX ENVIADO - Cp
+        # :18236120-Alan Vieira") e a descricao ERA a chave de dedup de
+        # `inter_transactions`. Reverteram, e a duplicata voltou por outro caminho: o
+        # Inter tambem muda o texto do proprio `/extrato` entre importacoes, so que mais
+        # devagar. O endpoint nunca foi a doenca — a chave era.
+        #
+        # 23/08/2026: a chave passou a ser `id_transacao`, que so o `/completo` fornece
+        # (`idTransacao`). Trocar agora e o que FECHA o ciclo; trocar antes duplicava.
+        # ⚠️ PAGINADO, 50 por pagina. O `/extrato` simples nao era, e ler so a primeira
+        # pagina daria um extrato truncado que PARECE completo.
+        itens: list[dict] = []
+        pagina = 0
+        while True:
+            data = await self._request(
+                "GET",
+                "/banking/v2/extrato/completo",
+                params={
+                    "dataInicio": start_date.strftime("%Y-%m-%d"),
+                    "dataFim": end_date.strftime("%Y-%m-%d"),
+                    "pagina": pagina,
+                    "tamanhoPagina": 50,
+                },
+            )
+            itens.extend(data.get("transacoes", []) or [])
+            total = int(data.get("totalPaginas") or 1)
+            if data.get("ultimaPagina") or pagina >= total - 1:
+                declarado = int(data.get("totalElementos") or len(itens))
+                if len(itens) != declarado:
+                    # Extrato pela metade e pior que extrato nenhum: conciliacao conclui
+                    # que faltou dinheiro que na verdade so nao foi lido.
+                    raise BankingAdapterError(
+                        f"extrato/completo: li {len(itens)} de {declarado} lancamentos "
+                        f"declarados pelo Inter — paginacao incompleta")
+                break
+            pagina += 1
 
         transactions = []
         for item in itens:

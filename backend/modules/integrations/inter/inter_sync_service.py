@@ -107,15 +107,43 @@ class InterSyncService:
                     text("""
                         INSERT INTO inter_transactions
                           (data_lancamento, tipo_operacao, tipo_transacao,
-                           valor, descricao, raw_payload, detalhes_destinatario)
-                        VALUES
-                          (:dt, :op, :tipo, :valor, :desc,
-                           CAST(:raw AS jsonb), CAST(:dest AS jsonb))
+                           valor, descricao, raw_payload, detalhes_destinatario,
+                           -- ⭐ IDENTIDADE VINDA DO BANCO. A chave antiga era
+                           -- (data, tipo, valor, DESCRIÇÃO), e o Inter muda o texto entre
+                           -- importações ("PAGAMENTO DE TITULO - BANCO TOYOTA…" virou
+                           -- "BANCO TOYOTA DO BRASIL SA"): a mesma transação entrava duas
+                           -- vezes e o saldo divergia R$1.999,34 do banco.
+                           id_transacao)
+                        -- SELECT ... WHERE em vez de VALUES: o Postgres só aceita UM
+                        -- alvo de ON CONFLICT, e aqui há DUAS chaves únicas (a antiga por
+                        -- descrição e a nova por id). Quando a transação já existe com o
+                        -- mesmo id, o INSERT tentava mesmo assim e batia no índice novo —
+                        -- erro que ABORTA a transação inteira e derruba as linhas
+                        -- seguintes ("current transaction is aborted"). Perguntar antes
+                        -- custa uma linha e evita o erro em vez de tratá-lo.
+                        -- CAST explícito: o mesmo `:idtx` aparece como VALOR de coluna,
+                        -- como operando de IS NULL e dentro de uma subconsulta. Sem dizer
+                        -- o tipo, o asyncpg desiste ("inconsistent types deduced for
+                        -- parameter") e o erro aborta a transação inteira — a mesma
+                        -- armadilha que já custou o webhook da Asaas.
+                        SELECT :dt, :op, :tipo, :valor, :desc,
+                               CAST(:raw AS jsonb), CAST(:dest AS jsonb),
+                               CAST(:idtx AS varchar)
+                         WHERE CAST(:idtx AS varchar) IS NULL
+                            OR NOT EXISTS (SELECT 1 FROM inter_transactions x
+                                            WHERE x.id_transacao = CAST(:idtx AS varchar))
+                        -- Duas chaves convivendo: `id_transacao` quando o banco manda id,
+                        -- a antiga para quem ainda não tem. Enquanto o backfill não
+                        -- termina, nenhuma linha fica sem alguma proteção.
                         ON CONFLICT ON CONSTRAINT uq_inter_transactions_dedup
                         DO UPDATE SET
                           raw_payload = EXCLUDED.raw_payload,
-                          detalhes_destinatario = EXCLUDED.detalhes_destinatario
+                          detalhes_destinatario = EXCLUDED.detalhes_destinatario,
+                          -- a linha antiga ganha o id quando ele finalmente chega
+                          id_transacao = COALESCE(inter_transactions.id_transacao,
+                                                  EXCLUDED.id_transacao)
                         WHERE inter_transactions.raw_payload IS NULL
+                           OR inter_transactions.id_transacao IS NULL
                     """),
                     {
                         "dt": dt,
@@ -123,6 +151,10 @@ class InterSyncService:
                         "tipo": tipo_tx,
                         "valor": valor,
                         "desc": desc,
+                        # `transaction_id` vem vazio no /extrato simples e preenchido no
+                        # /extrato/completo. NULL em vez de "" de propósito: string vazia
+                        # colidiria com ela mesma no índice único e barraria a 2ª linha.
+                        "idtx": (tx.transaction_id or None),
                         "raw": json.dumps(raw_dict),
                         "dest": json.dumps(detalhes_dict) if detalhes_dict else None,
                     },
@@ -483,8 +515,25 @@ class InterSyncService:
               it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true,
               LEFT(NULLIF(it.detalhes_destinatario->>'nome', ''), 255),
               LEFT(NULLIF(it.detalhes_destinatario->>'cpf_cnpj', ''), 40),
-              'inter_tx_' || it.id
+              -- ⚠️ O id do BANCO, não um inventado por nós. Escrevi
+              -- `'inter_tx_' || it.id` primeiro e criei 187 duplicatas: outro caminho de
+              -- importação JÁ gravava o `idTransacao` do Inter aqui (119 linhas de agosto
+              -- começando com "MDAxXzAwMD..."), e duas convenções de identidade não se
+              -- reconhecem — cada uma duplica a outra. Identidade só serve se for a MESMA
+              -- para todo mundo. Fallback para o id da origem só quando o banco não mandou.
+              COALESCE(it.id_transacao, 'inter_tx_' || it.id)
             FROM (
+              -- ⚠️ DEDUP POR CONTAGEM — e foi ela que falhou em 20/08/2026, de um jeito
+              -- que só se vê olhando o caso: a origem tinha 9 lançamentos de R$32,00 no
+              -- dia e o extrato já tinha 9, então "nada a inserir". Só que dos nossos 9,
+              -- DOIS eram a mesma pessoa duplicada — e faltavam o Alan e o Jair. Contagem
+              -- sabe QUANTOS, nunca QUAIS: uma duplicata de um lado MASCARA duas
+              -- ausências do outro.
+              --
+              -- A saída é identidade, não aritmética: quando a linha de origem tem
+              -- `id_transacao` (o id do próprio Inter), o filtro abaixo usa ele e a
+              -- contagem nem entra. Para as linhas herdadas sem id, a contagem continua
+              -- valendo — remover antes do backfill terminar reinseriria o extrato todo.
               -- Dedup por CONTAGEM, não por texto. A condição antiga exigia que a
               -- descrição batesse caractere a caractere; a mesma transação vinda do
               -- CSV ("Pix enviado. Cp 123-Fulano") e da API ("PIX ENVIADO - Cp
@@ -504,7 +553,16 @@ class InterSyncService:
               FROM bank_transactions WHERE bank_account_id = :acc
               GROUP BY 1, 2
             ) ja ON ja.d = it.data_lancamento AND ja.v = it.valor
-            WHERE it.rn > COALESCE(ja.n, 0)
+            WHERE CASE
+                    -- com id do banco: pergunta EXATA — esta transação já atravessou?
+                    WHEN it.id_transacao IS NOT NULL THEN NOT EXISTS (
+                      SELECT 1 FROM bank_transactions b
+                       WHERE b.bank_account_id = :acc
+                         AND b.external_id = COALESCE(it.id_transacao,
+                                                      'inter_tx_' || it.id))
+                    -- sem id (herdadas): a aritmética de antes, até o backfill alcançar
+                    ELSE it.rn > COALESCE(ja.n, 0)
+                  END
             -- Cinto E suspensório: a contagem acima evita reinserir, e o índice único
             -- garante mesmo se a contagem falhar (foi ela que falhou). `DO NOTHING` em
             -- vez de erro porque reimportar é rotina, não incidente. A cláusula WHERE
