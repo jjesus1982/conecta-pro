@@ -1161,6 +1161,11 @@ class _FacialBatidaBody(BaseModel):
 
 _PUNCH_SEQ = ["entrada", "saida_almoco", "retorno_almoco", "saida"]
 _PUNCH_SEQ_2 = ["entrada", "saida"]
+
+#: Limite, em horas desde a entrada, para o próximo tipo ainda poder ser "saída para o
+#: almoço". Acima disso o app entende que a pessoa está encerrando o turno. Ver o bloco em
+#: `_proxima_batida_info` para o caso que motivou (Lívia, 17/08/2026).
+_HORAS_ATE_ALMOCO_MAX = 8.0
 _PUNCH_LABEL = {
     "entrada": "Entrada",
     "saida_almoco": "Saída para o almoço",
@@ -1224,17 +1229,74 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
     # recebe o adicional (não faz pausa) OU é dia de meio período → 2 batidas
     seq = _PUNCH_SEQ_2 if (recebe or meio_periodo) else _PUNCH_SEQ
 
+    # 🔴 A JANELA É O TURNO, NÃO O DIA DO CALENDÁRIO.
+    #
+    # Isto era `punch_timestamp::date = hoje`. O turno noturno entra às 18:00 e sai às
+    # 06:00 do dia seguinte — à MEIA-NOITE a data vira, a contagem zera, e o app volta a
+    # oferecer "entrada" a quem já está trabalhando há seis horas.
+    #
+    # Medido em 23/08/2026: 33 batidas de "entrada" registradas entre 00h e 06h por 9
+    # pessoas que JÁ tinham entrado nas 12h anteriores. O ADAILSON bateu entrada às 02:00 e
+    # "retorno do almoço" às 03:00; a ANDREA, entrada às 00:00 e retorno à 01:00. É também
+    # a explicação dos 43 erros "DENTRO + entrada" que a máquina de estados acusou.
+    #
+    # O corte de 14h é o mesmo que o espelho de ponto usa para agrupar turno: maior que
+    # qualquer jornada (12h + folga para atraso) e menor que o intervalo até o próximo
+    # turno de uma 12x36. Contar por data do calendário é o que quebra na virada.
     feitas = (
         await db.execute(
             _sqltext(
                 "SELECT count(*) FROM gp_clock_punches WHERE employee_id::text = :e "
-                "AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+                # GREATEST: o turno anterior pode ser de DIAS atrás (folga de 12x36). Sem
+                # ele a janela abriria naquele turno velho e contaria as batidas dele —
+                # foi o que o teste E2E pegou: "nada hoje" devolvia "concluido" porque
+                # somava as 4 batidas do último turno trabalhado.
+                " AND punch_timestamp > GREATEST(coalesce(("
+                "   SELECT max(q.punch_timestamp) FROM gp_clock_punches q "
+                "    WHERE q.employee_id::text = :e "
+                "      AND q.punch_timestamp < (now() AT TIME ZONE 'America/Manaus') "
+                "      AND NOT EXISTS (SELECT 1 FROM gp_clock_punches r "
+                "           WHERE r.employee_id::text = :e "
+                "             AND r.punch_timestamp < q.punch_timestamp "
+                "             AND r.punch_timestamp > q.punch_timestamp - interval '14 hours')"
+                " ), (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'),"
+                "   (now() AT TIME ZONE 'America/Manaus') - interval '14 hours')"
+                " - interval '1 second'"
             ),
             {"e": emp},
         )
     ).scalar() or 0
     concluido = feitas >= len(seq)
     tipo = "concluido" if concluido else seq[feitas]
+
+    # 🔴 O PONTO INVERTIDO. A LÍVIA, 17/08/2026: entrou às 06:00 pelo app e voltou às 18:01
+    # para registrar a SAÍDA. O sistema mandou ela bater SAÍDA PARA O ALMOÇO — às seis da
+    # tarde. Ela não errou; o app pediu. Nas palavras do Jordan, "pra uns o ponto está
+    # invertido": 18 batidas de saída-de-almoço às 16h ou depois, 10 pessoas.
+    #
+    # A causa NÃO era o Sólides inflar a contagem, como eu supus primeiro — era o
+    # contrário. As batidas do Sólides chegam ao banco 6 a 15 HORAS DEPOIS (medido: as do
+    # dia 17 entraram em 18/08 às 04:09 e 13:39). Às 18:01 o banco tinha UMA batida dela, a
+    # entrada das 06:00. `feitas` valia 1, e `seq[1]` é "saida_almoco".
+    #
+    # A sequência sozinha não sabe que horas são. Ninguém sai para almoçar 8 horas depois
+    # de entrar: numa 12x36 (12h) o almoço é ~6h depois; numa 44h (8h de jornada), ~4h.
+    # Passado esse limite, o que a pessoa está registrando é o FIM do turno.
+    if tipo == "saida_almoco":
+        horas_desde_entrada = (
+            await db.execute(
+                _sqltext(
+                    "SELECT extract(epoch FROM ("
+                    "  (now() AT TIME ZONE 'America/Manaus') - max(punch_timestamp)"
+                    ")) / 3600.0 FROM gp_clock_punches "
+                    " WHERE employee_id::text = :e AND lower(coalesce(punch_type,'')) = 'entrada' "
+                    "   AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+                ),
+                {"e": emp},
+            )
+        ).scalar()
+        if horas_desde_entrada is not None and float(horas_desde_entrada) >= _HORAS_ATE_ALMOCO_MAX:
+            tipo = "saida"
     return {
         "tipo": tipo,
         "label": _PUNCH_LABEL.get(tipo, tipo),
