@@ -16,16 +16,35 @@ GRUPOS = [
         ("emitir-boleto", "Emitir boleto"), ("cobrar-pix", "Cobrar PIX"),
         ("faturamento", "Faturamento"), ("clientes", "Clientes"),
         ("gerar-recebiveis", "Gerar do mês"), ("baixar-recebivel", "Dar baixa"), ("registrar-conta-receber", "Registrar")]),
-    ("g-pagar", "Pagar", "Contas a pagar, folha e pagamentos (gated OTP)", [
-        ("contas-pagar", "Contas a Pagar"), ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação"),
-        ("audit-log", "Audit log"), ("pagamentos-inter", "Pagamentos Inter"),
+    # ── "Pagar" tinha 29 ABAS num grupo só, e o Jordan disse o que isso é na prática:
+    # "tem tantos botões que confunde, não consigo ver". Não era falta de recurso — era
+    # tudo empilhado no mesmo lugar. Dividido em quatro, pela PERGUNTA que ele tem na
+    # cabeça ao abrir, não pelo tipo técnico da tela:
+    #   "o que eu devo?" · "vou pagar as pessoas" · "vou pagar uma conta/imposto"
+    #   · "o que já saiu?"
+    # A primeira aba de cada grupo é a que abre — então é a mais usada, não a mais antiga.
+    # Os ids das abas NÃO mudam: `moved()` mantém os links antigos vivos.
+    ("g-pagar", "Pagar", "O que a empresa deve — e o registro da dívida", [
+        ("contas-pagar", "Contas a Pagar"), ("registrar-conta-pagar", "Registrar conta"),
+        ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"),
+        ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
+    ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa", [
+        ("pagamentos-diaristas", "Diaristas — a pagar"), ("pagar-diaristas", "Pagar diaristas"),
+        ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"),
+        ("programar-diarias-mes", "Lote mensal (dia 15)"),
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagar-folha-clt", "Pagar folha CLT"),
-        ("pagamentos-diaristas", "Diaristas"), ("documentos-diaristas", "Diaristas — documentos"), ("diarias-sobrepostas", "Sobrepostas à folha CLT"), ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"), ("programar-diarias-mes", "Lote mensal (dia 15)"), ("marcar-pago-externo", "Pago por fora"), ("diaristas-a-cadastrar", "Diaristas a cadastrar"), ("pagar-diaristas", "Pagar diaristas"),
-        ("ordens-pagamento", "Ordens de pagamento"), ("executar-no-app", "Executar no app"), ("montar-ordem", "Montar ordem"), ("aprovar-ordem", "Aprovar ordem (OTP)"),
+        ("documentos-diaristas", "Recibos dos diaristas"),
+        ("diaristas-a-cadastrar", "Diaristas a cadastrar"),
+        ("diarias-sobrepostas", "Sobrepostas à folha CLT")]),
+    ("g-pagar-contas", "Contas & Impostos", "Boleto, tributo e transferência avulsa (gate OTP)", [
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
-        ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS"),
-        ("cancelar-pagamento", "Cancelar pagto"), ("registrar-obrigacoes", "Registrar obrigações"), ("registrar-conta-pagar", "Registrar")]),
+        ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS")]),
+    ("g-pagar-ordens", "Ordens & Histórico", "Lotes, o que já saiu e correção", [
+        ("ordens-pagamento", "Ordens de pagamento"), ("montar-ordem", "Montar ordem"),
+        ("aprovar-ordem", "Aprovar ordem (OTP)"), ("executar-no-app", "Executar no app"),
+        ("pagamentos-inter", "Pagamentos Inter"), ("marcar-pago-externo", "Pago por fora"),
+        ("cancelar-pagamento", "Cancelar pagto"), ("audit-log", "Audit log")]),
     ("g-bancos", "Bancos & Conciliação", "Saldos, extratos e conciliação", [
         ("saldos", "Saldos"), ("contas-bancarias", "Contas"), ("inter", "Banco Inter"),
         ("cora", "Banco Cora"), ("banking", "Extrato"), ("pix-recebidos", "PIX recebidos"),
