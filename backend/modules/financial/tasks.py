@@ -860,3 +860,46 @@ def boletos_por_email_task(self):
     except Exception as exc:
         logger.error("[Financial Task] boletos_por_email error: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task(name="financial.programar_vtvr_do_dia", bind=True, max_retries=1)
+def programar_vtvr_do_dia_task(self):
+    """Programa sozinho o VT+VR dos diaristas que o Eliziel lançou hoje.
+
+    O Jordan resumiu o que ele quer: "ele lança, eu pago". No clássico era uma tela só —
+    ver quem foi lançado, um botão, pagar. No redesign eu tinha transformado isso em ir
+    a uma aba PROGRAMAR, voltar a outra para CONFERIR e a uma terceira para PAGAR. Passo
+    a mais que não decide nada: programar é mecânico (R$32 por diarista lançado com PIX
+    no cadastro) e idempotente.
+
+    ⚠️ Programar NÃO paga. Cria a obrigação; o dinheiro só sai pelo gate com OTP. É a
+    mesma regra do `registrar_obrigacoes`: registrar a dívida ≠ quitá-la. Por isso dá
+    para automatizar sem risco — se o Eliziel lançar errado, o item nasce e NÃO é pago.
+
+    ⚠️ Quem não tem chave PIX nasce `sem_pix`, nunca com chave inventada, e a linha não
+    ganha botão de pagar na tela.
+
+    Roda de hora em hora entre 7h e 21h porque o VT/VR é pago no MESMO dia: rodar só à
+    noite deixaria o Jordan esperando o dia seguinte para pagar o que foi lançado agora.
+    """
+    import asyncio
+    from datetime import date as _date
+
+    from core.database import async_session_factory
+    from modules.financial import pagamentos_diaristas_service as _svc
+
+    async def _run():
+        async with async_session_factory() as db:
+            return await _svc.programar_vt_vr_dos_lancados(db, _date.today().isoformat())
+
+    try:
+        r = asyncio.run(_run())
+        novos, ja, sem = (r.get("programados_novos", 0), r.get("ja_programados", 0),
+                          r.get("sem_pix", 0))
+        if novos or sem:
+            logger.info("[Financial Task] programar_vtvr_do_dia: %s novo(s), %s já estava(m), "
+                        "%s sem PIX", novos, ja, sem)
+        return {"novos": novos, "ja": ja, "sem_pix": sem}
+    except Exception as exc:
+        logger.error("[Financial Task] programar_vtvr_do_dia error: %s", exc)
+        raise self.retry(exc=exc)

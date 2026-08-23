@@ -264,6 +264,15 @@ app.conf.beat_schedule = {
     # Boleto recebido por e-mail vira conta a pagar. Roda 3x ao dia porque boleto chega a
     # qualquer hora e o valor está no prazo: descobrir no dia seguinte já pode ser tarde.
     # Só registra código de barras VÁLIDO; NÃO paga.
+    # "Ele lança, eu pago" — o passo de PROGRAMAR o VT+VR sai do caminho do Jordan.
+    # De hora em hora entre 7h e 21h porque o VT/VR é pago no MESMO dia; rodar só à noite
+    # o faria esperar o dia seguinte para pagar o que o Eliziel acabou de lançar.
+    # Programar NÃO paga: cria a obrigação, o dinheiro sai pelo gate com OTP.
+    "financeiro-programar-vtvr-do-dia": {
+        "task": "financial.programar_vtvr_do_dia",
+        "schedule": crontab(hour="7-21", minute=5),
+        "options": {"queue": "gov.batch"},
+    },
     "financeiro-boletos-por-email": {
         "task": "financial.boletos_por_email",
         "schedule": crontab(hour="7,13,19", minute=10),
