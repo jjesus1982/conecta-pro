@@ -270,6 +270,31 @@ def _contrato_actions(r):
                      "btnStyle": "primary", "okMsg": "Contrato ativado (em vigência). Recarregue.",
                      "fields": [{"key": "confirmar", "label": "Digite ATIVAR para confirmar a vigência",
                                  "type": "text", "span": "span 2", "value": ""}]})
+    # Assinatura eletrônica na PRÓPRIA linha. r[6]=tem modelo · r[7]=solicitações abertas
+    # · r[8]=já assinadas. Sem modelo não há instrumento para assinar, então nem oferece.
+    if r[6]:
+        if not r[7]:
+            acts.append({"title": f"Abrir assinatura eletrônica de {r[1]}",
+                         "endpoint": "/api/v1/redesign/action/contrato-abrir-assinatura",
+                         "method": "POST", "btnLabel": "Assinatura", "submitLabel": "Abrir assinatura",
+                         "btnStyle": "primary",
+                         "okMsg": "Assinatura aberta — os links estão na mensagem. Recarregue.",
+                         "fields": [{"key": "contrato", "label": "Contrato", "type": "text",
+                                     "span": "span 2", "value": r[1]},
+                                    {"key": "email_cliente", "label": "E-mail do cliente (opcional)",
+                                     "type": "text", "span": "span 2", "value": ""}]})
+        elif r[8] < r[7]:
+            acts.append({"title": f"Enviar link de assinatura de {r[1]}",
+                         "endpoint": "/api/v1/redesign/action/contrato-enviar-link",
+                         "method": "POST", "btnLabel": "Enviar link", "submitLabel": "Enviar",
+                         "btnStyle": "outline",
+                         "okMsg": "Link enviado/gerado — veja a mensagem.",
+                         "fields": [{"key": "contrato", "label": "Contrato", "type": "text",
+                                     "span": "span 2", "value": r[1]},
+                                    {"key": "parte", "label": "Para quem (cliente | empresa)",
+                                     "type": "text", "span": "span 1", "value": "cliente"},
+                                    {"key": "email", "label": "E-mail (vazio devolve o link)",
+                                     "type": "text", "span": "span 1", "value": ""}]})
     if st in ("draft", "pending_signature", "active"):
         acts.append({"title": f"Cancelar contrato {r[1]}",
                      "endpoint": f"/api/v1/redesign/action/contract-cancel?cid={r[0]}",
@@ -384,13 +409,31 @@ async def build(db) -> dict:
     except Exception:  # noqa: BLE001
         await db.rollback()
     try:
-        await safe("contratos", tbl("Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos", "Novo contrato",
-            ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
-            "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
+        # 23/08: o botão apontava para /pdf — o MOLDE de 3 páginas — e não para /pdf-modelo,
+        # que renderiza o instrumento do modelo cadastrado. Quem clicasse recebia um resumo
+        # achando que era o contrato. Agora o instrumento só aparece em quem TEM modelo; sem
+        # modelo, o molde continua oferecido mas dizendo o que é.
+        # A coluna Assinatura vem de sig_signature_requests — o banco dizendo quem firmou,
+        # nunca inferência a partir do status do contrato.
+        await safe("contratos", tbl("Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos · baixe o instrumento e acompanhe a assinatura", "Novo contrato",
+            ["Contrato", "Cliente", "Serviço", "Mensal", "Status", "Assinatura"],
+            "1.1fr 1.5fr 1fr 0.9fr 0.8fr 1.1fr",
+            "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
+            "coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text, "
+            "ct.template_id::text, "
+            "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number), "
+            "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL), "
+            "coalesce(ct.tipo_servico::text,'—') "
             "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
-            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3])), t(brl(r[4]), 600),
-                       b("Ativo", "ok") if (r[5] or "").lower() in ("active", "ativo", "vigente") else b(r[5] or "—", "mut")],
-            docsfn=lambda r: [doc("Contrato", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")],
+            lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—')[:32]), t((r[9] or '—').replace('_', ' ')),
+                       t(brl(r[3])),
+                       b("Ativo", "ok") if (r[5] or "").lower() in ("active", "ativo", "vigente") else b(r[5] or "—", "mut"),
+                       (b("Não aberta", "mut") if not r[7]
+                        else b(f"{r[8]}/{r[7]} assinada(s)", "ok" if r[8] and r[8] == r[7] else "warn"))],
+            docsfn=lambda r: ([doc("Contrato completo (PDF)",
+                                   f"/api/v1/crm/contracts/{r[1]}/pdf-modelo", fmt="pdf")] if r[6]
+                              else [doc("Resumo (sem modelo vinculado)",
+                                        f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]),
             actionsfn=_contrato_actions))
         # CRIAR contrato (rascunho): tela-form + religa o botão da tabela.
         cli_opts = (await db.execute(text(

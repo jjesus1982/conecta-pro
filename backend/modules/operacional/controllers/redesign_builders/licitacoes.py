@@ -150,16 +150,31 @@ async def build(db) -> dict:
         lambda r: [t(r[1], 600, _ND), t(r[2]), t(r[3]), t(brl(r[4]), 600), _prop_status(r[5])],
         docsfn=lambda r: [doc("Proposta (PDF)", f"/api/v1/crm/proposals/{r[0]}/pdf", fmt="pdf")]))
 
-    # Contratos — SOBRESCREVE a base (Status cru 'Active') → PT. Documento POR-LINHA: PDF real
-    # do contrato via /api/v1/crm/contracts/{id}/pdf (curl 200 application/pdf ~463KB). id 1ª col.
+    # Contratos — SOBRESCREVE a base do CRM (este builder é mapeado no slug `crm`, e vence).
+    # 23/08: o botão apontava para /pdf, que é o MOLDE de 3 páginas, e não para /pdf-modelo,
+    # que renderiza o instrumento real do modelo cadastrado. Quem clicasse recebia o
+    # documento errado — resumo em vez de contrato. Agora o botão do instrumento só aparece
+    # em quem TEM modelo; sem modelo, o molde continua sendo oferecido, mas dizendo o que é.
+    # A coluna Assinatura lê sig_signature_requests: é o banco dizendo quem firmou, nunca
+    # uma inferência a partir do status do contrato.
     await safe("contratos", tbl(
-        "Contratos", "Contratos de prestação", "—",
-        ["Contrato", "Cliente", "Mensal", "Total", "Status"], "1.2fr 1.6fr 1fr 1fr 0.9fr",
+        "Contratos", "Contratos de prestação — baixe o instrumento e acompanhe a assinatura", "—",
+        ["Contrato", "Cliente", "Serviço", "Mensal", "Status", "Assinatura"],
+        "1.1fr 1.5fr 1fr 0.9fr 0.8fr 1.1fr",
         "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
-        "coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text "
+        "coalesce(ct.monthly_value,0), ct.status::text, "
+        "coalesce(ct.tipo_servico::text,'—'), ct.template_id::text, "
+        "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number), "
+        "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL) "
         "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[1], 600, _ND), t(r[2]), t(brl(r[3]), 600), t(brl(r[4])), _contr_status(r[5])],
-        docsfn=lambda r: [doc("Contrato (PDF)", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]))
+        lambda r: [t(r[1], 600, _ND), t((r[2] or '—')[:32]), t((r[5] or '—').replace('_', ' ')),
+                   t(brl(r[3]), 600), _contr_status(r[4]),
+                   (b("Não aberta", "mut") if not r[7]
+                    else b(f"{r[8]}/{r[7]} assinada(s)", "ok" if r[8] and r[8] == r[7] else "warn"))],
+        docsfn=lambda r: ([doc("Contrato completo (PDF)",
+                               f"/api/v1/crm/contracts/{r[1]}/pdf-modelo", fmt="pdf")] if r[6]
+                          else [doc("Resumo do contrato (sem modelo vinculado)",
+                                    f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")])))
 
     # Certidões — bidding_certificates.arquivo_url NULL em 100% (8/8) e o certificate_controller
     # não serve arquivo → sinal honesto de indisponibilidade (sem botão que abre lixo).
