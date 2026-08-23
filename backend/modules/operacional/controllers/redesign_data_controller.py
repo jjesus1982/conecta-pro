@@ -540,7 +540,17 @@ async def _build_financeiro(db: AsyncSession) -> dict:
 
     await safe("dashboard", _dashboard())
     await safe("contas-pagar", _tbl(
-        "Contas a pagar", "A pagar em aberto e recentes", "Nova conta",
+        # ⚠️ A PLACA vai aqui, no sub da PRIMEIRA ABA — não no `sub` do grupo. O cabeçalho
+        # da tela mostra o título do GRUPO + o sub da ABA ATIVA; pus no grupo primeiro e
+        # não apareceu. Quem tem o link antigo (?t=g-pagar) cai aqui e não acha mais os
+        # diaristas, que mudaram de grupo — foi o que aconteceu com o Jordan: "não vi
+        # porra nenhuma, acho que ficou pior". Mudar o mapa sem deixar placa é pior que
+        # não mudar.
+        "Contas a pagar",
+        "A pagar em aberto e recentes.  ·  Diaristas, VT/VR e folha → menu «Pessoas & Folha»"
+        "  ·  Boleto, PIX e impostos → «Contas & Impostos»  ·  Lotes e o que já saiu → "
+        "«Ordens & Histórico»",
+        "Nova conta",
         ["Fornecedor", "Descrição", "Valor", "Vencimento", "Status"], "1.5fr 2fr 1fr 1fr 0.9fr",
         "SELECT coalesce(nullif(supplier_name,''),fornecedor_nome,'—'), coalesce(description,'—'), net_value, due_date, status, "
         "       coalesce(document_number,'') "

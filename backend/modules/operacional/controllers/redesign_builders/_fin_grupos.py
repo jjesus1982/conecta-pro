@@ -24,11 +24,16 @@ GRUPOS = [
     #   · "o que já saiu?"
     # A primeira aba de cada grupo é a que abre — então é a mais usada, não a mais antiga.
     # Os ids das abas NÃO mudam: `moved()` mantém os links antigos vivos.
-    ("g-pagar", "Pagar", "O que a empresa deve — e o registro da dívida", [
+    #
+    # ⚠️ O `sub` de cada grupo é PLACA, não decoração: quem tinha o link antigo
+    # (?t=g-pagar) cai em "Pagar" e não encontra mais os diaristas — eles mudaram de
+    # grupo. Aconteceu com o Jordan: "não vi porra nenhuma, acho que ficou pior". Mudar
+    # o mapa sem deixar placa é pior que não mudar.
+    ("g-pagar", "Pagar", "O que a empresa deve. Diaristas, VT/VR e folha estão em «Pessoas & Folha» · boleto, PIX e impostos em «Contas & Impostos» · lotes e o que já saiu em «Ordens & Histórico».", [
         ("contas-pagar", "Contas a Pagar"), ("registrar-conta-pagar", "Registrar conta"),
         ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"), ("nfse-entrada-payaveis", "NFS-e entrada × pagável"), ("nfse-entrada-auto-payaveis", "Criar pagáveis (todas)"),
         ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
-    ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa", [
+    ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa. Contas e impostos ficam em «Contas & Impostos»; a lista de dívidas, em «Pagar».", [
         ("pagamentos-diaristas", "Diaristas — a pagar"), ("pagar-diaristas", "Pagar diaristas"),
         ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"),
         ("programar-diarias-mes", "Lote mensal (dia 15)"),
@@ -37,10 +42,10 @@ GRUPOS = [
         ("documentos-diaristas", "Recibos dos diaristas"),
         ("diaristas-a-cadastrar", "Diaristas a cadastrar"),
         ("diarias-sobrepostas", "Sobrepostas à folha CLT")]),
-    ("g-pagar-contas", "Contas & Impostos", "Boleto, tributo e transferência avulsa (gate OTP)", [
+    ("g-pagar-contas", "Contas & Impostos", "Boleto, tributo e transferência avulsa (gate OTP). Pagar pessoas fica em «Pessoas & Folha».", [
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS")]),
-    ("g-pagar-ordens", "Ordens & Histórico", "Lotes, o que já saiu e correção", [
+    ("g-pagar-ordens", "Ordens & Histórico", "Lotes, o que já saiu e correção. Para PAGAR, use «Pessoas & Folha» ou «Contas & Impostos».", [
         ("ordens-pagamento", "Ordens de pagamento"), ("montar-ordem", "Montar ordem"),
         ("aprovar-ordem", "Aprovar ordem (OTP)"), ("executar-no-app", "Executar no app"),
         ("pagamentos-inter", "Pagamentos Inter"), ("marcar-pago-externo", "Pago por fora"),

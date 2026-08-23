@@ -1104,6 +1104,13 @@ ORDER BY b.comp DESC, b.cnpj"""
             {"key": "competencia", "label": "Competência — paga o mês inteiro", "type": "select",
              "span": "span 1", "options": _comp_opts},
             {"key": "data", "label": "OU um dia só (AAAA-MM-DD)", "type": "date", "span": "span 1"},
+            # Sem escolha = tudo, como sempre foi. O seletor existe porque VT/VR e diária
+            # caem na mesma data e o lote levava os dois: quem quer soltar só a passagem
+            # do dia acabava soltando o mês inteiro de alguém.
+            {"key": "tipo", "label": "O que pagar", "type": "select", "span": "span 1",
+             "options": [{"value": "", "label": "Tudo (VT/VR + diária)"},
+                         {"value": "vt_vr", "label": "Só VT+VR do dia"},
+                         {"value": "diaria_mensal", "label": "Só a diária"}]},
             # Diarista é prestador da PATRIMONIAL → Cora é o padrão (regra do Jordan:
             # Eletrônica paga pelo Inter, Patrimonial paga pela Cora).
             {"key": "origem", "label": "Banco", "type": "select", "span": "span 1",
@@ -1990,6 +1997,12 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
         raise HTTPException(status_code=400, detail="Informe mês (1-12) e ano (>=2025) válidos.")
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
+    # Vazio = tudo do recorte (VT/VR + diária), que é o comportamento de sempre.
+    # `vt_vr` = só a passagem/alimentação do dia, que foi o que o Jordan pediu: soltar o
+    # que o Eliziel lançou sem levar junto a diária mensal de alguém que caia na data.
+    _tipo_lote = (payload.get("tipo") or "").strip() or None
+    if _tipo_lote not in (None, "vt_vr", "diaria_mensal"):
+        raise HTTPException(status_code=400, detail="Tipo inválido.")
     if not otp_code:
         r = await svc.gerar_otp_lote(db, mes, ano)
         if not r.get("ok"):
@@ -2120,13 +2133,15 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
     if not otp_code:
-        r = await svc.gerar_otp_lote(db, data=(data or None), competencia=competencia)
+        r = await svc.gerar_otp_lote(db, data=(data or None), competencia=competencia,
+                                     tipo=_tipo_lote)
         if not r.get("ok"):
             raise HTTPException(status_code=400, detail=r.get("mensagem") or "Nenhum item elegível.")
         return {"otp_required": True, "ref": r.get("lote_id", ""),
                 "message": f"{r.get('quantidade')} diarista(s) · R$ {float(r.get('total') or 0):.2f}. Confirme com o código OTP."}
     r = await svc.executar_lote(db, data=(data or None), competencia=competencia, confirmar=True, otp_code=otp_code,
-                                lote_id=lote_id or None, user_id=str(getattr(current_user, "id", "")))
+                                lote_id=lote_id or None, user_id=str(getattr(current_user, "id", "")),
+                                tipo=_tipo_lote)
     if r.get("otp_invalido") or r.get("otp_requerido"):
         raise HTTPException(status_code=400, detail=r.get("mensagem") or "OTP inválido ou obrigatório.")
     if not r.get("ok"):
