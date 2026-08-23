@@ -32,12 +32,12 @@ TOOL_RISK: dict[str, str] = {
     "baixar_comprovante_pagamento_pdf": "read",
     "baixar_contrato_pdf": "read",
     # emite documento e REGISTRA link público; não ativa contrato nem move dinheiro
-    "gerar_contrato_por_modelo": "write",
+    "gerar_contrato_por_modelo": "write_low",  # 🔵 renderiza PDF de rascunho; não assina
     "briefing_contrato_novo": "read",   # só pergunta, não grava nada
-    "criar_contrato_por_modelo": "write",  # cria contrato ligado ao modelo
-    "abrir_assinatura_contrato": "write",  # cria solicitação e link do cliente
-    "assinar_contrato_empresa": "write",  # firma o instrumento pela CONTRATADA
-    "enviar_link_assinatura": "write",  # dispara e-mail ao signatário
+    "criar_contrato_por_modelo": "write_low",  # 🔵 nasce `draft`, reversível, sem efeito externo
+    "abrir_assinatura_contrato": "propose",  # 🟡 cria solicitação PENDENTE — humano assina
+    "assinar_contrato_empresa": "propose",  # 🟡 firma instrumento real: só Jordan/Pyetra
+    "enviar_link_assinatura": "propose",  # 🟡 sai do sistema (e-mail ao cliente)
     "status_assinatura_contrato": "read",
     "baixar_espelho_ponto_pdf": "read",
     "baixar_holerite_pdf": "read",

@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py .
 COPY tool_risk_manifest.py .
+# escopo do catálogo por assunto — sem ele o filtro MCP_ESCOPO não aplica
+COPY tool_scopes.py .
 COPY test_tool_risk_manifest.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco

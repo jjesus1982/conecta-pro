@@ -2735,6 +2735,43 @@ async def margem_por_condominio() -> dict:
     return await erp.get("/consultores/mcp/executivo/margem-condominio")
 
 
+# ── ESCOPO DO CATÁLOGO ────────────────────────────────────────────────────────────────
+# O Hermes manda o catálogo INTEIRO no prompt: medido em 23/08/2026, 250 ferramentas e
+# ~43 mil tokens de contexto para responder "ok". Caro no provedor pago e inviável num
+# modelo local pequeno — e lista enorme piora a escolha da ferramenta em QUALQUER modelo.
+#
+# `MCP_ESCOPO` (ex.: "dp", "financeiro,fiscal") reduz o que este processo serve. Vazio =
+# catálogo inteiro, que é o comportamento de sempre — o conector do Cowork não muda.
+# Ferramenta fora de qualquer grupo NUNCA some por esquecimento: `tools_do_escopo` só
+# filtra o que está mapeado, e o que não está fica de fora do filtro, não do catálogo.
+_ESCOPO = (os.getenv("MCP_ESCOPO") or "").strip()
+if _ESCOPO:
+    try:
+        from tool_scopes import escopos_da_tool, tools_do_escopo
+
+        _permitidas = tools_do_escopo(_ESCOPO)
+        if _permitidas is not None:
+            import asyncio as _aio
+
+            # `remove_tool` é a API pública do FastMCP 3.4 — conferida no container antes
+            # de usar. Mexer em `_tool_manager._tools` era palpite meu e nem existe nesta
+            # versão.
+            _todas = [getattr(t, "name", None) for t in _aio.run(mcp._list_tools())]
+            _fora = [n for n in _todas
+                     if n and n not in _permitidas and escopos_da_tool(n) != "geral"]
+            for _n in _fora:
+                try:
+                    mcp.remove_tool(_n)
+                except Exception:  # noqa: BLE001
+                    pass
+            print(f"[mcp] escopo={_ESCOPO} · servindo {len(_todas) - len(_fora)} de "
+                  f"{len(_todas)} ferramentas", flush=True)
+    except Exception as _e:  # noqa: BLE001
+        # escopo inválido NÃO derruba o conector: serve tudo e denuncia alto. Um MCP fora
+        # do ar por um typo em variável de ambiente é pior que um catálogo grande.
+        print(f"[mcp] AVISO: escopo '{_ESCOPO}' não aplicado ({_e}) — catálogo inteiro",
+              flush=True)
+
 _mcp_app = mcp.http_app(path="/mcp")
 
 

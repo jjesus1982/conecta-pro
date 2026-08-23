@@ -417,6 +417,8 @@ services:
     env_file:
       - ./mcp-server/.env
     environment:
+      # catálogo escopado — ver tool_scopes.py
+      MCP_ESCOPO: ${MCP_ESCOPO:-comercial,juridico,financeiro}
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
     networks:
