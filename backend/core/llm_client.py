@@ -227,7 +227,14 @@ def novo_cliente(*, origem: str, timeout: float | None = None, sincrono: bool = 
     """
     from openai import AsyncOpenAI, OpenAI  # noqa: PLC0415
 
-    chave = api_key or (_api_key() if servico == "chat" else (_key_openai() or _api_key()))
+    # A chave do CHAMADOR só vale quando NÃO há provedor customizado. Um `api_key=` vindo
+    # de settings é a chave do provedor ANTIGO: em 23/08 isso mandou a chave da OpenAI para
+    # a DeepSeek e produziu 1.110 erros 401 em 3 horas, ~74 a cada 15 minutos, numa rotina
+    # agendada que ninguém via falhar. Com base_url próprio, quem manda é LLM_API_KEY.
+    if servico == "chat":
+        chave = (_api_key() if _base_url() else (api_key or _api_key()))
+    else:
+        chave = api_key or _key_openai() or _api_key()
     kw: dict[str, Any] = {"api_key": chave}
     base = _base_url() if servico == "chat" else _base_openai_only()
     if base:
