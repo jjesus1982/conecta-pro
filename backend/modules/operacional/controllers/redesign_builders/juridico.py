@@ -10,6 +10,7 @@ SLUG = "juridico"
 _ICO_J = "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"
 
 EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólito
+    {"id": "contrato-novo-modelo", "label": "Solicitar contrato novo", "icon": _ICO_J},
     {"id": "consultor-perguntar", "label": "Consultor jurídico", "icon": _ICO_J},
     {"id": "det-coletar", "label": "Coletar DET", "icon": _ICO_J},
     {"id": "det-robo-login", "label": "Login do robô DET", "icon": _ICO_J},
@@ -70,6 +71,8 @@ async def build(db) -> dict:
     # é ATIVADO (_bridge_contract_to_billing). Resultado: a tela mostrava 10 de 15 e
     # escondia justamente os `draft` — que são os que precisam do PDF para ser ASSINADOS.
     # O Green Hills (CTR-2026-00019) não aparecia aqui no dia em que foi montado.
+    out["contrato-novo-modelo"] = tela_contrato_novo()
+
     await safe("contratos", tbl(
         "Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos · "
         "clique em Baixar para gerar o instrumento completo pelo modelo cadastrado", "—",
@@ -277,3 +280,97 @@ async def build(db) -> dict:
     }
 
     return out
+
+
+# ── AÇÃO: solicitar contrato novo pelo modelo ─────────────────────────────────────────
+# Terceira superfície da mesma capacidade (chat e Cowork são as outras). Todas passam pelo
+# MESMO serviço — `contract_wizard.criar_contrato` — para a regra de quem pode emitir e a
+# resolução do CNPJ nunca divergirem entre as entradas.
+from fastapi import APIRouter, Body, Depends, HTTPException  # noqa: E402
+
+from core.auth.dependencies import CurrentActiveUser  # noqa: E402
+from core.database import get_db  # noqa: E402
+
+# o dispatcher do redesign inclui automaticamente o `router` de cada builder de módulo
+router = APIRouter()
+
+
+@router.post("/action/contrato-novo-modelo")
+async def _rd_contrato_novo(current_user: CurrentActiveUser,
+                            payload: dict = Body(default={}), db=Depends(get_db)) -> dict:
+    """Cria contrato já ligado ao modelo, ao tipo de serviço e ao CNPJ emitente."""
+    from modules.crm.services import contract_wizard as W
+
+    try:
+        W.exigir_emitente(current_user)
+    except W.NaoAutorizado as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    falta = [rot for rot, k in (("CNPJ do cliente", "cliente_documento"),
+                                ("modalidade", "modalidade"),
+                                ("valor mensal", "valor_mensal"),
+                                ("início da vigência", "vigencia_inicio"))
+             if not str(payload.get(k) or "").strip()]
+    if falta:
+        raise HTTPException(status_code=400, detail="Informe: " + ", ".join(falta))
+    try:
+        r = await W.criar_contrato(
+            db, cliente_documento=str(payload["cliente_documento"]),
+            modalidade=str(payload["modalidade"]),
+            valor_mensal=float(str(payload["valor_mensal"]).replace(",", ".")),
+            vigencia_inicio=str(payload["vigencia_inicio"])[:10],
+            vigencia_meses=int(payload.get("vigencia_meses") or 12),
+            dia_vencimento=int(payload["dia_vencimento"]) if payload.get("dia_vencimento") else None,
+            renovacao_aviso_dias=int(payload.get("renovacao_aviso_dias") or 30),
+            carencia_dias=int(payload["carencia_dias"]) if payload.get("carencia_dias") else None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if r.get("status") != "criado":
+        # recusa de negócio (cliente fora do CRM, modalidade sem modelo) sobe como 400 com o
+        # texto que a pessoa lê — não como sucesso silencioso
+        raise HTTPException(status_code=400, detail=r.get("resumo") or r.get("status"))
+    pend = r.get("perguntas") or []
+    return {"ok": True, "message": (
+        f"{r['contrato']} criado para {r['cliente']} pelo modelo '{r['modelo']}' "
+        f"({r['vigencia']}). "
+        + ("Pronto para emitir o PDF na tela de Contratos."
+           if r.get("pronto_para_emitir")
+           else "Faltam: " + "; ".join(p["pergunta"] for p in pend[:4])))}
+
+
+def tela_contrato_novo() -> dict:
+    """Formulário do jurídico. `valor_mensal` e `vigencia_inicio` sem default de propósito:
+    contrato com valor ou data chutados vai para assinatura assim."""
+    return {
+        "title": "Solicitar contrato novo (pelo modelo)",
+        "sub": "Cria o contrato já ligado ao modelo, ao tipo de serviço e ao CNPJ emitente "
+               "correto — mão de obra pela Patrimonial, segurança eletrônica pela "
+               "Eletrônica. Recusa cliente que não esteja no CRM.",
+        "cta": "Criar contrato", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-novo-modelo", "gated": False,
+                   "confirm": "Criar o contrato com estes dados?",
+                   "okMsg": "Contrato criado."},
+        "fields": [
+            {"name": "cliente_documento", "label": "CNPJ do cliente", "type": "text",
+             "placeholder": "00.000.000/0001-00", "required": True},
+            {"name": "modalidade", "label": "Modalidade", "type": "select", "required": True,
+             "options": [{"value": "portaria", "label": "Portaria / Controle de acesso"},
+                         {"value": "servicos_gerais", "label": "Serviços gerais / Limpeza (ASG)"},
+                         {"value": "jardinagem", "label": "Jardinagem"},
+                         {"value": "piscina", "label": "Piscina"},
+                         {"value": "zeladoria", "label": "Zeladoria"},
+                         {"value": "eletronica", "label": "Segurança eletrônica / CFTV"}]},
+            {"name": "valor_mensal", "label": "Valor mensal (R$)", "type": "number",
+             "required": True},
+            {"name": "vigencia_inicio", "label": "Início da vigência", "type": "date",
+             "required": True},
+            {"name": "vigencia_meses", "label": "Vigência (meses)", "type": "number",
+             "default": 12},
+            {"name": "dia_vencimento", "label": "Dia do vencimento", "type": "number"},
+            {"name": "renovacao_aviso_dias", "label": "Aviso de não renovação (dias)",
+             "type": "number", "default": 30},
+            {"name": "carencia_dias", "label": "Carência do 1º pagamento (dias)",
+             "type": "number"},
+        ],
+    }

@@ -462,6 +462,34 @@ async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -
 
 
 @mcp.tool
+async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
+                                    valor_mensal: float, vigencia_inicio: str,
+                                    vigencia_meses: int = 12, dia_vencimento: int = 0,
+                                    renovacao_aviso_dias: int = 30,
+                                    carencia_dias: int = 0) -> dict:
+    """CRIA um contrato novo já ligado ao modelo e ao CNPJ emitente correto.
+
+    modalidade: portaria | servicos_gerais | jardinagem | piscina | zeladoria | eletronica.
+    Mão de obra sai pela Patrimonial; segurança eletrônica, pela Eletrônica. Use depois de
+    briefing_contrato_novo e antes de gerar_contrato_por_modelo. Recusa cliente fora do CRM.
+    Restrito a Jordan e Pyetra.
+    """
+    corpo: dict[str, Any] = {
+        "cliente_documento": cliente_documento, "modalidade": modalidade,
+        "valor_mensal": valor_mensal, "vigencia_inicio": vigencia_inicio,
+        "vigencia_meses": vigencia_meses, "renovacao_aviso_dias": renovacao_aviso_dias,
+    }
+    if dia_vencimento:
+        corpo["dia_vencimento"] = dia_vencimento
+    if carencia_dias:
+        corpo["carencia_dias"] = carencia_dias
+    try:
+        return await erp.post("/crm/contracts/criar-por-modelo", json=corpo)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
 async def abrir_assinatura_contrato(contrato: str, email_cliente: str = "") -> dict:
     """Abre a assinatura eletrônica do contrato e devolve o LINK único do cliente.
 
@@ -484,6 +512,19 @@ async def assinar_contrato_empresa(contrato: str) -> dict:
     """
     try:
         return await erp.post(f"/crm/contracts/{contrato}/assinar-empresa", json={})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
+async def enviar_link_assinatura(contrato: str, email: str = "", parte: str = "cliente") -> dict:
+    """Manda ao signatário o LINK para assinar, ou devolve o link para envio manual.
+
+    Recusa mandar ao cliente se a Conecta Mais ainda não assinou. Restrito a Jordan e Pyetra.
+    """
+    q = f"?parte={parte}" + (f"&email={email}" if email else "")
+    try:
+        return await erp.post(f"/crm/contracts/{contrato}/enviar-link{q}", json={})
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "erro": str(exc)[:220]}
 

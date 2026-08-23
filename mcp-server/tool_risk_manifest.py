@@ -34,8 +34,10 @@ TOOL_RISK: dict[str, str] = {
     # emite documento e REGISTRA link público; não ativa contrato nem move dinheiro
     "gerar_contrato_por_modelo": "write",
     "briefing_contrato_novo": "read",   # só pergunta, não grava nada
+    "criar_contrato_por_modelo": "write",  # cria contrato ligado ao modelo
     "abrir_assinatura_contrato": "write",  # cria solicitação e link do cliente
     "assinar_contrato_empresa": "write",  # firma o instrumento pela CONTRATADA
+    "enviar_link_assinatura": "write",  # dispara e-mail ao signatário
     "status_assinatura_contrato": "read",
     "baixar_espelho_ponto_pdf": "read",
     "baixar_holerite_pdf": "read",

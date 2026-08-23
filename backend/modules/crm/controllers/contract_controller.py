@@ -291,6 +291,68 @@ async def assinar_contrato_pela_empresa(
             "resumo": f"{num} assinado pela CONTRATADA. Agora envie o link ao cliente."}
 
 
+@router.post("/{contract_id}/enviar-link")
+async def enviar_link_assinatura(
+    contract_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+    email: str | None = None,
+    parte: str = "cliente",
+):
+    """Manda o link de assinatura ao signatário — ou devolve o link para envio manual.
+
+    `email` opcional: sem ele, devolve só o link (para mandar por WhatsApp). Com ele,
+    dispara o convite. Nunca manda o código junto — o código vai depois, para o e-mail
+    que a pessoa informar na própria tela.
+    """
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+
+    W.exigir_emitente(current_user)
+    papel = "customer" if parte.lower().startswith(("cli", "cont_ante", "contratante")) else "company"
+    linha = (await db.execute(text(
+        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"),
+        {"k": contract_id, "p": papel})).mappings().first()
+    if not linha or not linha["access_token"]:
+        raise HTTPException(status_code=404,
+                            detail=f"não há link de assinatura em aberto para a parte '{parte}' "
+                                   f"em {contract_id}. Abra a assinatura primeiro.")
+    if linha["assinou"]:
+        raise HTTPException(status_code=409, detail=f"{linha['signer_name']} já assinou.")
+
+    # a ordem importa: não se manda ao cliente o que a CONTRATADA ainda não firmou
+    if papel == "customer":
+        pendente = (await db.execute(text(
+            "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "
+            "AND signer_type = 'company' AND signed_at IS NULL"), {"k": contract_id})).scalar()
+        if pendente:
+            raise HTTPException(
+                status_code=409,
+                detail="a Conecta Mais ainda não assinou este contrato — o link do cliente "
+                       "seria recusado. Assine primeiro.")
+
+    link = f"{CS.BASE_PUBLICA}/assinar/contrato/{linha['access_token']}"
+    destino = email or linha["signer_email"]
+    enviado = False
+    if destino:
+        enviado = await CS.convidar_para_assinar(
+            db, contract_id, para=destino, link=link, nome=linha["signer_name"] or "",
+            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+        if enviado and not linha["signer_email"]:
+            await db.execute(text(
+                "UPDATE sig_signature_requests SET signer_email = :e "
+                "WHERE reference_code = :k AND signer_type = :p"),
+                {"e": destino, "k": contract_id, "p": papel})
+            await db.commit()
+    return {
+        "contrato": contract_id, "signatario": linha["signer_name"],
+        "link": link, "email_enviado_para": destino if enviado else None,
+        "resumo": (f"Convite enviado para {destino}." if enviado
+                   else "Sem e-mail informado — mande o link abaixo por WhatsApp."),
+    }
+
+
 @router.get("/{contract_id}/assinaturas")
 async def status_assinaturas_contrato(
     contract_id: str,
@@ -338,6 +400,23 @@ async def briefing_contrato_novo(
     return await W.briefing(
         db, servicos=payload.get("servicos"), cliente_cnpj=payload.get("cliente_cnpj"),
         cliente_nome=payload.get("cliente_nome"))
+
+
+@router.post("/criar-por-modelo")
+async def criar_contrato_por_modelo(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cria o contrato já ligado ao modelo/tipo/empresa. Mesma lógica das três superfícies."""
+    from modules.ai.conversation.services.orquestrador.tools_comercial_doc import (
+        _criar_contrato_por_modelo,
+    )
+
+    res = await _criar_contrato_por_modelo(db, current_user, None, **payload)
+    if res.get("status") == "recusado":
+        raise HTTPException(status_code=403, detail=res.get("motivo", "recusado"))
+    return res
 
 
 @router.post("/emitir-por-modelo")

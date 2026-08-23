@@ -527,6 +527,54 @@ async def _status_assinatura_contrato(db, user, scope, *, contrato=None, **_) ->
                        "Assinatura ainda não foi aberta para este contrato.")}
 
 
+async def _criar_contrato_por_modelo(db, user, scope, *, cliente_documento=None,
+                                     modalidade=None, valor_mensal=None,
+                                     vigencia_inicio=None, vigencia_meses=12,
+                                     dia_vencimento=None, renovacao_aviso_dias=30,
+                                     carencia_dias=None, **_) -> dict[str, Any]:
+    """Cria o contrato JÁ ligado ao modelo — o passo que faltava entre briefing e emissão."""
+    from modules.crm.services import contract_wizard as W
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    faltando = [n for n, v in (("cliente_documento", cliente_documento),
+                               ("modalidade", modalidade),
+                               ("valor_mensal", valor_mensal),
+                               ("vigencia_inicio", vigencia_inicio)) if v in (None, "")]
+    if faltando:
+        return _recusa("informe: " + ", ".join(faltando))
+    return await W.criar_contrato(
+        db, cliente_documento=cliente_documento, modalidade=modalidade,
+        valor_mensal=float(valor_mensal), vigencia_inicio=vigencia_inicio,
+        vigencia_meses=int(vigencia_meses or 12),
+        dia_vencimento=int(dia_vencimento) if dia_vencimento else None,
+        renovacao_aviso_dias=int(renovacao_aviso_dias or 30),
+        carencia_dias=int(carencia_dias) if carencia_dias else None)
+
+
+register(ToolDef(
+    "criar_contrato_por_modelo", "crm",
+    "CRIA um contrato novo já ligado ao modelo, ao tipo de serviço e ao CNPJ emitente "
+    "correto (mão de obra=Patrimonial, segurança eletrônica=Eletrônica). Use depois do "
+    "briefing e antes de gerar_contrato_por_modelo. Recusa cliente que não esteja no CRM. "
+    "Restrito a Jordan e Pyetra.",
+    {"type": "object", "properties": {
+        "cliente_documento": {"type": "string", "description": "CNPJ do cliente"},
+        "modalidade": {"type": "string",
+                       "description": "portaria | servicos_gerais | jardinagem | piscina | "
+                                      "zeladoria | eletronica"},
+        "valor_mensal": {"type": "number"},
+        "vigencia_inicio": {"type": "string", "description": "AAAA-MM-DD"},
+        "vigencia_meses": {"type": "integer"},
+        "dia_vencimento": {"type": "integer"},
+        "renovacao_aviso_dias": {"type": "integer"},
+        "carencia_dias": {"type": "integer"}},
+     "required": ["cliente_documento", "modalidade", "valor_mensal", "vigencia_inicio"]},
+    _criar_contrato_por_modelo, scope_kind="org"))
+
 register(ToolDef(
     "abrir_assinatura_contrato", "crm",
     "Abre a ASSINATURA ELETRÔNICA do contrato: a Conecta Mais assina primeiro pelo painel, "
@@ -582,6 +630,64 @@ register(ToolDef(
     {"type": "object", "properties": {"contrato": {"type": "string"}},
      "required": ["contrato"]},
     _assinar_contrato_empresa, scope_kind="org"))
+
+async def _enviar_link_assinatura(db, user, scope, *, contrato=None, email=None,
+                                  parte="cliente", **_) -> dict[str, Any]:
+    """Manda o link ao signatário, ou devolve para envio manual por WhatsApp."""
+    from modules.crm.services import contract_signature as CS
+    from modules.crm.services import contract_wizard as W
+
+    _gate(user)
+    try:
+        W.exigir_emitente(user)
+    except W.NaoAutorizado as e:
+        return _recusa(str(e))
+    if not contrato:
+        return _recusa("informe o número (CTR-...) do contrato.")
+
+    papel = "customer" if str(parte).lower().startswith(("cli", "contratante")) else "company"
+    linha = (await db.execute(sa_text(
+        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"),
+        {"k": contrato, "p": papel})).mappings().first()
+    if not linha or not linha["access_token"]:
+        return _recusa(f"não há link em aberto para a parte '{parte}' em {contrato}.")
+    if linha["assinou"]:
+        return _recusa(f"{linha['signer_name']} já assinou.")
+    if papel == "customer":
+        pend = (await db.execute(sa_text(
+            "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "
+            "AND signer_type = 'company' AND signed_at IS NULL"), {"k": contrato})).scalar()
+        if pend:
+            return _recusa("a Conecta Mais ainda não assinou — o link do cliente seria "
+                           "recusado. Assine primeiro.")
+
+    link = f"{CS.BASE_PUBLICA}/assinar/contrato/{linha['access_token']}"
+    destino = email or linha["signer_email"]
+    enviado = False
+    if destino:
+        enviado = await CS.convidar_para_assinar(
+            db, contrato, para=destino, link=link, nome=linha["signer_name"] or "",
+            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+        await db.commit()
+    return {"status": "enviado" if enviado else "link_para_envio_manual",
+            "signatario": linha["signer_name"], "link": link,
+            "email": destino if enviado else None,
+            "resumo": (f"Convite enviado para {destino}." if enviado
+                       else "Sem e-mail — mande este link por WhatsApp.")}
+
+
+register(ToolDef(
+    "enviar_link_assinatura", "crm",
+    "Manda ao signatário o LINK para assinar o contrato (ou devolve o link para envio "
+    "manual por WhatsApp, se não houver e-mail). Recusa se a Conecta Mais ainda não "
+    "assinou. Restrito a Jordan e Pyetra.",
+    {"type": "object", "properties": {
+        "contrato": {"type": "string"},
+        "email": {"type": "string", "description": "Para onde mandar o convite"},
+        "parte": {"type": "string", "description": "cliente (padrão) ou empresa"}},
+     "required": ["contrato"]},
+    _enviar_link_assinatura, scope_kind="org"))
 
 register(ToolDef(
     "status_assinatura_contrato", "crm",

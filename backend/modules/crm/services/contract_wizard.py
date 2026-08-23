@@ -341,3 +341,110 @@ async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
                    + (f" · modelo sugerido: {sugeridos[0]['name']}" if sugeridos else
                       " · SEM modelo para este serviço")),
     }
+
+
+# ── CRIAR contrato novo, já ligado ao modelo ──────────────────────────────────────────
+# O furo que o Jordan apontou em 23/08: havia briefing (o que perguntar) e emissão (render
+# do que já existe), e NADA que criasse o contrato entre os dois. `criar_contrato` do MCP é
+# o create genérico do CRM — não grava template_id, tipo_servico nem empresa_id, então o
+# contrato nascia sem modelo e o render RECUSAVA. As três superfícies ficavam pela metade.
+EMPRESA_POR_TIPO = {
+    # mão de obra humanizada é da Patrimonial; segurança eletrônica é da Eletrônica.
+    # Mesma regra que `contract_render.resolver_contratada` aplica na hora de imprimir —
+    # aqui ela decide na hora de CRIAR, para as duas nunca divergirem.
+    "maodeobra": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "portaria_mao_de_obra": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "servicos_gerais": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "jardinagem": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "piscina": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "zeladoria": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "manutencao_cftv": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    "portaria_remota": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    "seguranca_eletronica": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+}
+
+
+async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade: str,
+                         valor_mensal: float, vigencia_inicio: str,
+                         vigencia_meses: int = 12, dia_vencimento: int | None = None,
+                         renovacao_aviso_dias: int = 30,
+                         carencia_dias: int | None = None) -> dict:
+    """Cria o contrato JÁ ligado ao modelo, ao tipo de serviço e à empresa emitente.
+
+    Recusa em vez de inventar:
+      · cliente que não está no CRM — cadastrar cliente é decisão comercial, não do gerador;
+      · modalidade fora do catálogo;
+      · modalidade sem modelo cadastrado (o contrato nasceria impossível de renderizar).
+    """
+    from datetime import date, timedelta  # noqa: PLC0415
+
+    if modalidade not in CATALOGO:
+        return {"status": "modalidade_desconhecida", "informada": modalidade,
+                "disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()]}
+    tipo = CATALOGO[modalidade]["modelo_service_type"]
+
+    doc = "".join(c for c in (cliente_documento or "") if c.isdigit())
+    cli = (await db.execute(text(
+        "SELECT id::text, name FROM clients "
+        "WHERE regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = :d"),
+        {"d": doc})).mappings().first()
+    if not cli:
+        return {"status": "cliente_nao_cadastrado", "documento": cliente_documento,
+                "resumo": "Não há cliente com este CNPJ no CRM. Cadastre o cliente antes — "
+                          "não crio contrato para cliente que não existe."}
+
+    tpl = (await db.execute(text(
+        "SELECT id::text, name FROM contract_templates "
+        "WHERE service_type = :t AND coalesce(is_active, true) "
+        "ORDER BY version DESC LIMIT 1"), {"t": tipo})).mappings().first()
+    if not tpl:
+        return {"status": "sem_modelo", "tipo_servico": tipo,
+                "resumo": f"Não há modelo cadastrado para '{tipo}'. Sem modelo o contrato "
+                          "nasce impossível de emitir."}
+
+    try:
+        ini = date.fromisoformat(str(vigencia_inicio)[:10])
+    except ValueError:
+        return {"status": "data_invalida", "vigencia_inicio": vigencia_inicio,
+                "resumo": "Informe a vigência no formato AAAA-MM-DD."}
+    meses = int(vigencia_meses or 12)
+    ano, mes = divmod((ini.month - 1) + meses, 12)
+    try:
+        fim = ini.replace(year=ini.year + ano, month=mes + 1) - timedelta(days=1)
+    except ValueError:  # 31 de mês que o mês-alvo não tem
+        fim = ini.replace(year=ini.year + ano, month=mes + 1, day=28) - timedelta(days=1)
+
+    ultimo = (await db.execute(text(
+        "SELECT max(contract_number) FROM contracts WHERE contract_number ~ '^CTR-[0-9]{4}-'"
+    ))).scalar() or f"CTR-{ini.year}-00000"
+    numero = f"CTR-{ini.year}-{int(ultimo.rsplit('-', 1)[-1]) + 1:05d}"
+
+    await db.execute(text("""
+        INSERT INTO contracts
+            (id, contract_number, client_id, template_id, empresa_id, tipo_servico,
+             contract_type, status, name, monthly_value, payment_day, start_date, end_date,
+             renewal_notification_days, notice_period_days, grace_period_days,
+             is_active, created_at, updated_at)
+        VALUES (gen_random_uuid(), :n, CAST(:c AS uuid), CAST(:t AS uuid), CAST(:e AS uuid),
+                :ts, 'recurring', 'draft', :nome, :v, :pd, :ini, :fim, :rn, 30, :car,
+                true, now(), now())"""),
+        {"n": numero, "c": cli["id"], "t": tpl["id"], "e": EMPRESA_POR_TIPO.get(tipo),
+         "ts": tipo, "nome": f"{CATALOGO[modalidade]['rotulo']} — {cli['name']}",
+         "v": valor_mensal, "pd": dia_vencimento, "ini": ini, "fim": fim,
+         # grace_period_days é NOT NULL COM default: passar None explícito ANULA o default
+         # e viola a constraint. Sem carência negociada, o valor é 0, não nulo.
+         "rn": renovacao_aviso_dias, "car": carencia_dias or 0})
+    await db.commit()
+
+    sit = await diagnosticar(db, numero)
+    return {
+        "status": "criado", "contrato": numero, "cliente": cli["name"],
+        "modelo": tpl["name"], "tipo_servico": tipo,
+        "vigencia": f"{ini.isoformat()} a {fim.isoformat()} ({meses} meses)",
+        "pronto_para_emitir": sit.pronto,
+        "perguntas": [{"campo": p.campo, "pergunta": p.pergunta, "exemplo": p.exemplo}
+                      for p in sit.pendencias],
+        "resumo": (f"{numero} criado para {cli['name']} pelo modelo '{tpl['name']}'. "
+                   + ("Pronto para emitir." if sit.pronto
+                      else f"Faltam {len(sit.pendencias)} informação(ões).")),
+    }
