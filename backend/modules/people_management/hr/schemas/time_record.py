@@ -4,6 +4,7 @@ Schemas Pydantic para Ponto Eletronico (Time Records) — Departamento Pessoal.
 
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,6 +78,14 @@ class TimeRecordUpdate(BaseModel):
     status: TimeRecordStatus | None = None
     justification: str | None = None
     notes: str | None = None
+    #: Correção do TIPO da batida — o DP conserta o que o app registrou errado.
+    #: Só os 4 tipos válidos entram, e a alteração é sempre auditada com quem, de/para e
+    #: motivo. O HORÁRIO não muda por aqui: para isso existe o caminho de nova batida com
+    #: status ajustado. Ver `TimeRecordService.update_record`.
+    punch_type: Literal["entrada", "saida", "saida_almoco", "retorno_almoco"] | None = None
+    #: Por que a batida está sendo corrigida. Vai para a auditoria — quem ler daqui a um
+    #: ano precisa saber, e "corrigido" sozinho não explica nada.
+    motivo: str | None = Field(None, max_length=300)
 
 
 # --------------- Response ---------------

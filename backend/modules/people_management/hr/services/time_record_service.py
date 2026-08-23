@@ -42,10 +42,7 @@ def _haversine_metros(lat1: float, lng1: float, lat2: float, lng2: float) -> flo
     p2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lng2 - lng1)
-    a = (
-        math.sin(dphi / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
-    )
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return r * c
 
@@ -125,6 +122,11 @@ def _calc_minutes_between(t1: Any, t2: Any) -> int:
     return int(diff // 60)
 
 
+#: Os únicos tipos que uma batida pode ter. Correção não inventa vocabulário: qualquer
+#: valor fora daqui é recusado antes de tocar o banco.
+_TIPOS_BATIDA_VALIDOS = frozenset({"entrada", "saida", "saida_almoco", "retorno_almoco"})
+
+
 class TimeRecordService:
     """Service de Ponto Eletronico — visao DP."""
 
@@ -194,9 +196,7 @@ class TimeRecordService:
         result = await self.db.execute(sql, params)
         rows = result.mappings().all()
 
-        records = self._pair_punches(
-            rows, escalas=await self._escalas_por_funcionario(rows)
-        )
+        records = self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
         records = await self._fill_employee_names(records)
 
         # Filter by status if requested
@@ -334,9 +334,7 @@ class TimeRecordService:
         # Posto sem coordenada REAL: nao bloqueia, marca honestamente.
         if prow["latitude"] is None or prow["longitude"] is None:
             info["dentro_geofence"] = None
-            info["geofence_flag"] = (
-                "localização do posto não definida — capturar no local pelo líder/supervisor"
-            )
+            info["geofence_flag"] = "localização do posto não definida — capturar no local pelo líder/supervisor"
             return info
 
         # Sem GPS do funcionario: nao ha como validar.
@@ -346,8 +344,10 @@ class TimeRecordService:
             return info
 
         dist = _haversine_metros(
-            float(location_lat), float(location_lng),
-            float(prow["latitude"]), float(prow["longitude"]),
+            float(location_lat),
+            float(location_lng),
+            float(prow["latitude"]),
+            float(prow["longitude"]),
         )
         info["distancia_posto_metros"] = round(dist, 1)
         info["dentro_geofence"] = dist <= info["raio_metros"]
@@ -722,6 +722,46 @@ class TimeRecordService:
     # UPDATE RECORD
     # =========================================================================
 
+    async def _auditar_correcao_tipo(self, *, row, de: str, para: str, quem: str, motivo: str) -> None:
+        """Grava QUEM corrigiu o tipo de uma batida, DE que valor PARA qual e por quê.
+
+        Mesma tabela e mesmo formato das 24 correções aplicadas em 23/08/2026 — quem
+        auditar o ponto vê a série inteira num lugar só, com `action='ponto.tipo_corrigido'`.
+
+        Diferente do log de tentativa falha, este NÃO engole exceção: se a auditoria não
+        entrar, a correção não pode acontecer. Alterar documento trabalhista sem rastro é
+        pior que não alterar.
+        """
+        import json as _json
+        import uuid as _uuid
+
+        await self.db.execute(
+            text(
+                "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, "
+                "  description, source_module, actor_user_id, actor_user_name, "
+                "  actor_user_role, actor_user_module, related_funcionario_id, changes, extra_data) "
+                "VALUES (:id, now(), 'ponto.tipo_corrigido', 'gp_clock_punches', :pid, :desc, "
+                "  'people_management.hr', :quem, :quem, 'dp', 'ponto', :eid, "
+                "  CAST(:ch AS jsonb), CAST(:ex AS jsonb))"
+            ),
+            {
+                "id": str(_uuid.uuid4()),
+                "pid": str(row["punch_id"]),
+                "desc": f"Tipo de batida corrigido: {de} -> {para}",
+                "quem": quem[:120],
+                "eid": str(row["employee_id"]),
+                "ch": _json.dumps({"punch_type": {"de": de, "para": para}}, ensure_ascii=False),
+                "ex": _json.dumps(
+                    {
+                        "motivo": motivo or "(não informado)",
+                        "horario_preservado": str(row["punch_timestamp"]),
+                        "via": "PATCH /time-records — correção do DP",
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        )
+
     async def update_record(
         self,
         record_id: str,
@@ -756,6 +796,46 @@ class TimeRecordService:
         if "status" in data and data["status"] is not None:
             sets.append("status = :new_status")
             params["new_status"] = str(data["status"])
+
+        # ── CORREÇÃO DO TIPO DA BATIDA ──────────────────────────────────────
+        #
+        # Existe porque o DP não tinha como consertar o que o app registrou errado. Em
+        # 23/08/2026 o Jordan pediu uma auditoria severa do ponto: 142 erros de sequência,
+        # a maioria vinda de dois defeitos do app — a contagem por data zerava o turno
+        # noturno à meia-noite (33 "entradas" de quem já estava trabalhando) e a sequência
+        # não sabia a hora (18 "saídas para o almoço" às 18h; a Lívia bateu uma delas
+        # porque o app pediu).
+        #
+        # Corrigi 24 por SQL, com a batida do Sólides no mesmo minuto como fonte. Para as
+        # 39 restantes não há fonte externa: dependem da memória de quem trabalhou no dia,
+        # e o DP não tinha ferramenta — este PATCH só aceitava `status` e `justification`.
+        #
+        # ⚠️ ISTO EDITA DOCUMENTO TRABALHISTA. Três travas, todas obrigatórias:
+        #   1. só os 4 tipos válidos entram (nada de texto livre virando punch_type);
+        #   2. o horário, a foto, o GPS e o facial NUNCA são tocados aqui — se o horário
+        #      está errado, o caminho é outro (nova batida com status ajustado);
+        #   3. registra em gp_audit_logs QUEM mudou, DE que valor PARA qual e por quê. Sem
+        #      `updated_by` a correção é RECUSADA: alteração anônima em ponto não existe.
+        if "punch_type" in data and data["punch_type"] is not None:
+            novo_tipo = str(data["punch_type"]).strip().lower()
+            if novo_tipo not in _TIPOS_BATIDA_VALIDOS:
+                raise ValueError(f"Tipo de batida inválido: {novo_tipo!r}. Válidos: {sorted(_TIPOS_BATIDA_VALIDOS)}")
+            if not updated_by:
+                raise ValueError(
+                    "Correção de tipo de batida exige identificar quem está alterando — "
+                    "é documento trabalhista e a alteração fica registrada."
+                )
+            tipo_antes = str(row["punch_type"] or "").lower()
+            if novo_tipo != tipo_antes:
+                sets.append("punch_type = :novo_tipo")
+                params["novo_tipo"] = novo_tipo
+                await self._auditar_correcao_tipo(
+                    row=row,
+                    de=tipo_antes,
+                    para=novo_tipo,
+                    quem=str(updated_by),
+                    motivo=str(data.get("motivo") or "").strip(),
+                )
 
         if "justification" in data and data["justification"] is not None:
             # Create justification record
@@ -874,9 +954,7 @@ class TimeRecordService:
         # Pareia na janela larga e mantem so os turnos que COMECARAM dentro do mes.
         records = [
             r
-            for r in self._pair_punches(
-                rows, escalas=await self._escalas_por_funcionario(rows)
-            )
+            for r in self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
             if str(first_day) <= r["record_date"] <= str(last_day)
         ]
 
@@ -998,12 +1076,10 @@ class TimeRecordService:
 
         # Pareia na janela larga, devolve so o dia pedido (o par pertence ao dia da entrada).
         records = [
-                r
-                for r in self._pair_punches(
-                    rows, escalas=await self._escalas_por_funcionario(rows)
-                )
-                if r["record_date"] == str(record_date)
-            ]
+            r
+            for r in self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
+            if r["record_date"] == str(record_date)
+        ]
         records = await self._fill_employee_names(records)
 
         return {
@@ -1172,12 +1248,8 @@ class TimeRecordService:
                 # e partia 401 dos 754 dias-funcionario em dois registros de ~4h.
                 if i + 3 < n:
                     c, d = punches[i + 2], punches[i + 3]
-                    intervalo = _calc_minutes_between(
-                        b["punch_timestamp"], c["punch_timestamp"]
-                    )
-                    bruto = _calc_minutes_between(
-                        a["punch_timestamp"], d["punch_timestamp"]
-                    )
+                    intervalo = _calc_minutes_between(b["punch_timestamp"], c["punch_timestamp"])
+                    bruto = _calc_minutes_between(a["punch_timestamp"], d["punch_timestamp"])
                     # MAX_ALMOCO_H separa almoco de descanso: as 36h entre plantoes 12x36
                     # nunca podem ser absorvidas como intervalo do mesmo turno.
                     if (
@@ -1187,7 +1259,10 @@ class TimeRecordService:
                     ):
                         _emite(
                             self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c), escala=_esc.get(emp_id)),
-                            a, b, c, d,
+                            a,
+                            b,
+                            c,
+                            d,
                         )
                         i += 4
                         continue
