@@ -28,7 +28,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 8 travas (código, não skill)
+## 2. As 9 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 
@@ -42,6 +42,39 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_repositorio.py` | chamada para método que o repositório não tem — *78 num módulo só* | `backend/scripts/qa` |
 | `checar_rotas_frontend.py` | frontend chamando rota que o backend não tem — *9 de 9 no SLA* | `backend/scripts/qa` |
 | `checar_oraculo_externo.py` | número que **ninguém de fora** confirma — *ideia do T1* | `backend/scripts/qa` |
+| `checar_beats.py` | **rotina agendada que roda e não produz** — *5 camadas, ver abaixo* | `backend/scripts/qa` |
+
+### A lacuna que faltava: **rotina que roda e não produz**
+
+Tínhamos trava para código morto e para número mentiroso. **Nenhuma para a rotina que existe,
+está agendada, não reclama — e não faz nada.** Ela custou caro três vezes em agosto:
+
+| sintoma | o que era |
+|---|---|
+| 3 agentes do GEDEON mortos 3 dias, **8 travas verdes** | `ImportError` na task agendada; 48 falhas no sino, ninguém leu |
+| espelho do eSocial **37 dias** sem consultar o governo | beat diário rodando, `consultada_em` nunca gravado |
+| **1.258 falhas de LLM, custo US$ 0,00** | nenhuma completou; erro de rotina de fundo não chega a tela nenhuma |
+
+`checar_beats.py` responde em **cinco camadas**, cada uma pegando o que a anterior deixa passar:
+
+```
+1. o beat aponta para uma task REGISTRADA?
+2. os `from X import Y` DENTRO da task resolvem?
+3. o método chamado EXISTE e aceita os argumentos passados?
+4. ela quebra CALADO? — `except Exception` que devolve valor: para o Celery isso é SUCESSO
+5. a FILA tem consumidor? — beat agendado numa fila que nenhum worker escuta
+```
+
+**A camada 3 nasceu de um conserto incompleto:** trocar só o nome da classe transformaria
+`ImportError` em `AttributeError` em dois dos três agentes — beat continua vermelho, mensagem
+diferente. **A camada 5 é a mais silenciosa de todas:** foram medidas **101 execuções
+enfileiradas e nunca consumidas** — mensagem que fica na fila não falha, não estoura, não vai
+para o sino. E ela pergunta aos **workers vivos** (`active_queues`), não ao compose: vale quem
+está de pé agora, não o que o arquivo promete.
+
+⚠️ **Ruído de sino é o multiplicador desta família.** Sete tarefas falhando 16× cada
+transformam o alarme em papel de parede — foi assim que os 3 agentes passaram 3 dias mortos à
+vista de todos. **Limpar o ruído vale mais que qualquer conserto isolado.**
 
 ⚠️ **`checar_repositorio` tem DOIS olhos, e o segundo nasceu de um verde incompleto meu.**
 Com as 78 renomeações prontas ela disse `services: 0` e o dashboard continuava em 500: o
