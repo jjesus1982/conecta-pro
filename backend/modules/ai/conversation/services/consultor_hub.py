@@ -1,5 +1,4 @@
 """HUB dos Consultores IA (CFO, Jurídico, GED) — requisitos Jordan 2026-07-07.
-from core.llm_client import modelo_barato, modelo_texto
 
 1. MELHOR MODELO SEMPRE: cadeia gpt-5 → gpt-4.1 → gpt-4o → Claude.
    Override por env CONSULTOR_LLM_MODEL (tentado primeiro).
@@ -21,6 +20,7 @@ import logging
 import os
 from typing import Any
 
+from core.llm_client import modelo_barato, modelo_texto
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 # 2026-07-25: `gpt-5-chat-latest` foi DEPRECIADO (404) — removido. `gpt-5` exige
 # `max_completion_tokens` + temperature default (1); a adaptação está no OpenAIProvider
 # (llm_provider._completion_params). gpt-4.1/gpt-4o ficam como fallback (contrato antigo).
-MODEL_CHAIN = ["gpt-5", "gpt-4.1", "gpt-4o"]
+# A cadeia sai do AMBIENTE: nomes cravados deixam de existir na troca de provedor — os
+# três daqui viraram HTTP 400 na DeepSeek. Ordem: modelo principal, depois o barato.
+MODEL_CHAIN = [m for m in dict.fromkeys([modelo_texto(), modelo_barato()]) if m]
 # DECISÃO Jordan (2026-07-21): cérebro de raciocínio = OpenAI (MODEL_CHAIN acima); Anthropic
 # NÃO é usada (conta sem crédito). CLAUDE_MODEL é só o modelo do fallback de emergência em gerar().
 CLAUDE_MODEL = os.getenv("CONSULTOR_CLAUDE_MODEL", "claude-sonnet-4-6")

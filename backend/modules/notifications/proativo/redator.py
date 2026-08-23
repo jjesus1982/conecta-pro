@@ -94,13 +94,17 @@ async def redigir(regra, achado, *, gerar_fn=None):
             f"Texto-base a reescrever no seu tom: \"{tpl_body}\". "
             f"Dados exatos: {achado.dados}."
         )
-        # gpt-4.1 (não gpt-5): reescrita fiel exige um modelo que RESPEITE temperature=0.2
-        # (gpt-5 é reasoning e roda temp=1 → paráfrase criativa que o groundedness rejeita,
-        # caindo sempre no template). gpt-4.1 é rápido (~500ms) e passa o groundedness.
+        # Reescrita fiel exige modelo que RESPEITE temperature=0.2 — reasoning roda temp=1
+        # e produz paráfrase criativa que o groundedness rejeita, caindo sempre no template.
+        # O nome do modelo NÃO fica cravado: "gpt-4.1" fixo aqui gerou 74 erros 400 a cada
+        # 15 minutos depois da migração para a DeepSeek, numa rotina de fundo que nenhuma
+        # tela mostrava. `direct=True` permanece — é guarda, não detalhe.
+        from core.llm_client import modelo_barato  # noqa: PLC0415
+
         texto, _meta = await gerar_fn(
             messages=[{"role": "user", "content": prompt}],
             system_prompt=_SYS, max_tokens=180, temperature=0.2,
-            origem=None, direct=True, model="gpt-4.1",
+            origem=None, direct=True, model=modelo_barato(),
         )
         texto = (texto or "").strip()
         # Groundedness por IGUALDADE de conjuntos (não subconjunto): o corpo do LLM
