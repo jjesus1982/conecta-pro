@@ -32,7 +32,25 @@ from sqlalchemy import text  # noqa: E402
 from core.database import async_session_factory  # noqa: E402
 
 DIA = date(2099, 12, 31)  # data impossível: não colide com dado real
-DESC = "TESTE DEDUP - PIX ENVIADO - Cp :00000000-Fulano de Tal"
+# ZZ FIXO na descrição: é por ela que a limpeza de ENTRADA acha o resíduo de uma execução que
+# tenha commitado no meio (o caminho normal é rollback, mas rollback não roda em morte por
+# sinal). ZZ ordena no fim de qualquer listagem de extrato.
+DESC = "ZZTESTE DEDUP - PIX ENVIADO - Cp :00000000-Fulano de Tal"
+#: Descrição anterior, varrida junto — trocar de marca sem varrer a antiga cria órfão novo.
+DESCS_ANTIGAS = ("TESTE DEDUP - PIX ENVIADO - Cp :00000000-Fulano de Tal",)
+
+
+async def _limpar_orfaos_de_entrada(db) -> int:
+    """Apaga lançamento sintético que sobrou de execução sem saída. Por MARCA, nunca por id."""
+    n = 0
+    for d in (DESC, *DESCS_ANTIGAS):
+        r = await db.execute(text(
+            "DELETE FROM inter_transactions WHERE data_lancamento = CAST(:dia AS date) "
+            "AND descricao = CAST(:d AS varchar)"), {"dia": DIA, "d": d})
+        n += r.rowcount or 0
+    if n:
+        await db.commit()
+    return n
 
 
 async def _quantas(db) -> int:
@@ -58,6 +76,12 @@ async def _rodada(db, copias: int) -> None:
 
 
 async def main() -> None:
+    # ENTRADA, UMA VEZ, no começo — não dentro do helper de insert, que roda em laço:
+    # lá ela apagava as linhas acumuladas entre as iterações e quebrava a própria dedup.
+    async with async_session_factory() as _db:
+        _orf = await _limpar_orfaos_de_entrada(_db)
+    if _orf:
+        print(f"entrada: {_orf} lançamento(s) órfão(s) removido(s)")
     falhas: list[str] = []
     async with async_session_factory() as db:
         try:

@@ -34,7 +34,11 @@ from modules.people_management.hr.services.time_record_service import (  # noqa:
     TimeRecordService,
 )
 
-_PREFIXO = "ORQ-CORRIGE-"
+# ZZ FIXO: ordena no fim de qualquer listagem, então batida sintética que escapar aparece
+# agrupada no rodapé em vez de escondida no meio do ponto real.
+_PREFIXO = "ZZORQ-CORRIGE-"
+#: A marca anterior, varrida junto — trocar de prefixo sem varrer o antigo cria órfão novo.
+_PREFIXOS_ANTIGOS = ("ORQ-CORRIGE-",)
 
 
 async def main() -> None:
@@ -51,7 +55,9 @@ async def main() -> None:
 
         falhas: list[str] = []
         try:
-            await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_PREFIXO}%"})
+            for _pfx in (_PREFIXO, *_PREFIXOS_ANTIGOS):
+                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"),
+                                 {"p": f"{_pfx}%"})
             await db.execute(
                 text(
                     "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, "
@@ -98,7 +104,9 @@ async def main() -> None:
             if auditoria != 1:
                 falhas.append(f"auditoria não gravada ({auditoria} registros) — correção sem rastro")
         finally:
-            await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_PREFIXO}%"})
+            for _pfx in (_PREFIXO, *_PREFIXOS_ANTIGOS):
+                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"),
+                                 {"p": f"{_pfx}%"})
             await db.execute(text("DELETE FROM gp_audit_logs WHERE entity_id LIKE :p"), {"p": f"{_PREFIXO}%"})
             await db.commit()
 
