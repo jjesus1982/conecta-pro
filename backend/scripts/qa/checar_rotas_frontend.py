@@ -40,6 +40,22 @@ from pathlib import Path
 
 FRONT = Path(os.getenv("QA_FRONT", "/opt/conecta-pro/frontend/src"))
 
+
+def _exigir_ambiente() -> None:
+    """RECUSA rodar onde o front não existe — dentro do container a raiz é /app e este
+    caminho não está lá.
+
+    Sem isto, `rglob` volta vazio, a varredura não acha nada e o script sai APROVANDO por
+    ausência de medição. Aconteceu três vezes nesta casa em dois dias, com três roupas
+    diferentes: `ANTES==DEPOIS` sobre zero escrita, `checar_repositorio` achando 0 no
+    container porque a raiz lá é /app, e a trava de desmonte saindo verde no host com a fila
+    vazia. **Fila vazia não é resultado.**
+    """
+    if not FRONT.is_dir() or not any(FRONT.rglob("*.ts*")):
+        print(f"RECUSO: {FRONT} não existe ou não tem fonte do front — este check roda no "
+              f"HOST.\n  python3 backend/scripts/qa/checar_rotas_frontend.py")
+        raise SystemExit(2)
+
 _RE_ROTA = re.compile(r"""[`'"](/api/v1/[^`'"]*)[`'"]""")
 _RE_IMPORT = "from ['\"][^'\"]*(?:/|\\./){nome}['\"]"
 
@@ -150,6 +166,7 @@ def _self_check() -> None:
 
 
 def main() -> int:
+    _exigir_ambiente()
     fora = achados()
     n = sum(len(v) for v in fora.values())
     if not fora:

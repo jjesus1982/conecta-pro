@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Trava por COMPORTAMENTO: roda o oráculo e vê se ele deixou linha para trás.
 
-Substitui a detecção por FORMA (`checar_desmonte_oraculos.py`), que errou seis vezes num dia —
-três para mais e três para menos. A sexta foi a mais eloquente: o detector não reconheceu dois
-desmontes que eu tinha acabado de escrever, porque um usa `UPDATE … LIKE` e o outro
-`DELETE … strpos`.
+Substituiu a detecção por FORMA, que acusou 26 e acertou 1 (24/08/2026). Ela não conhecia
+`UPDATE … LIKE`, `DELETE … strpos`, limpeza dentro do laço, nem função de desmonte com outro
+nome. Sintaxe desconhecida virava acusação — 96% de falso positivo.
+
+A trava por forma foi APAGADA, não comentada nem posta em quarentena: pela regra da casa,
+trava que grita sem motivo é trava que se aprende a ignorar, e dar linha de base a um detector
+que erra 96% institucionaliza o ruído em vez de removê-lo. Trava comentada é trava que volta.
 
     por FORMA         o arquivo contém DELETE … LIKE 'ZZ%'     ← erra em toda sintaxe nova
     por COMPORTAMENTO roda · conta antes · conta depois        ← não tem como fugir

@@ -91,11 +91,11 @@ TRAVAS_BINARIAS = {
 #: e motivo — não gaveta. Sem esta lista o detector abaixo reprova, que é o correto: trava que
 #: ninguém invoca é exatamente a doença que o arsenal veio curar (o `tool_risk_manifest`
 #: classificava 254 tools e nenhum código o consultava).
-ORFAS_DECLARADAS = {
-    # 26 achados hoje (18 sem entrada, 8 sem saída). Ligar como binária deixaria o
-    # checar_regressao vermelho para TODOS os terminais até o T4 fechar os 18 que faltam.
-    # Vira contada, com linha de base, assim que ele publicar a linha `TOTAL:`.
-    "checar_desmonte_oraculos.py": "T4, em curso — 3 de 21 fechados; vira contada ao ter TOTAL:",
+ORFAS_DECLARADAS: dict[str, str] = {
+    # (vazio) — `checar_desmonte_oraculos.py` foi APAGADA em 24/08/2026, não promovida a
+    # contada: ela acusou 26 oráculos e acertou 1 (96% de falso positivo). Dar linha de base a
+    # um detector assim institucionaliza o ruído em vez de removê-lo. Quem mede desmonte agora
+    # é `checar_desmonte_comportamento.py`, que EXECUTA em vez de ler o fonte.
 }
 
 
