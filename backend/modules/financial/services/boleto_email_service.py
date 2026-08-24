@@ -59,7 +59,13 @@ logger = logging.getLogger(__name__)
 DIAS_JANELA = 30
 
 #: Teto de mensagens por rodada — caixa grande não pode fazer a tarefa rodar por horas.
-MAX_MENSAGENS = 300
+#: ⚠️ O teto CORTA e o corte tem de aparecer: `varrer_e_registrar` devolve
+#: `truncado` (quantas ficaram de fora) e loga WARNING. Antes o relatório dizia
+#: "300 mensagens" como se fosse a caixa inteira — num radar cuja função é NÃO
+#: perder conta, silêncio no corte é o pior defeito possível. Achado em 23/08:
+#: uma varredura de 200 dias devolveu exatamente 300 e deixou de fora o boleto
+#: da Inviolável que estava lá.
+MAX_MENSAGENS = int(os.getenv("BOLETO_EMAIL_MAX_MENSAGENS", "300"))
 
 
 def _conf() -> tuple[str, str, str, str]:
@@ -202,8 +208,20 @@ def varrer_e_registrar(db, dias: int = DIAS_JANELA, criar: bool = True) -> dict:
         M.login(usuario, senha)
         M.select(pasta, readonly=True)
         ok, dados = M.search(None, f'(SINCE "{desde}")')
-        ids = dados[0].split()[-MAX_MENSAGENS:]
+        todos = dados[0].split() if dados and dados[0] else []
+        ids = todos[-MAX_MENSAGENS:]
         rel["mensagens"] = len(ids)
+        # O corte não pode ser mudo: quem lê o relatório precisa saber que a caixa
+        # tinha mais do que coube. Sem isto, "300 mensagens, 0 boletos novos" lê-se
+        # como "não há nada", que é exatamente a conclusão errada.
+        rel["truncado"] = len(todos) - len(ids)
+        if rel["truncado"]:
+            logger.warning(
+                "boleto_email: caixa tinha %s mensagens na janela de %s dia(s); li as %s "
+                "mais recentes e DEIXEI %s de fora. Suba BOLETO_EMAIL_MAX_MENSAGENS ou "
+                "reduza a janela — boleto nas descartadas passa despercebido.",
+                len(todos), dias, len(ids), rel["truncado"],
+            )
 
         for num in ids:
             ok, bruto = M.fetch(num, "(RFC822)")
