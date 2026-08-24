@@ -1980,19 +1980,80 @@ _BAILEYS_API_KEY = os.getenv("BAILEYS_API_KEY", "4d7a746ea5e34217cd0f8608261da0c
 _BAILEYS_COMPANY_PHONE = os.getenv("BAILEYS_COMPANY_PHONE", "+558008804414")
 
 
+#: Chave do mapa telefone→LID que o próprio Baileys mantém no Redis da sessão.
+_LID_HASH = f"@baileys-api:connections:{_BAILEYS_COMPANY_PHONE}:authState"
+
+
+async def _resolver_lid(digits: str) -> str | None:
+    """Traduz telefone → LID usando o mapa do PRÓPRIO WhatsApp, guardado pelo Baileys.
+
+    ⚠️ É isto que faltava, e custou 2 meses. O WhatsApp endereça por LID (identificador
+    interno), não por telefone. Mandar para `<telefone>@s.whatsapp.net` é ACEITO — devolve
+    id de mensagem e timestamp — e simplesmente não entrega. Provado em 23/08/2026: três
+    envios ao Jordan, um com o 9º dígito, um sem, e um para `134286564950018@lid`. Só o
+    do LID chegou. Os DEZ handoffs do José Luís desde 16/06 foram todos para o telefone;
+    nenhum chegou, e ele nunca soube — o "200" mentia toda vez.
+
+    ⚠️ Tenta COM e SEM o 9º dígito: o WhatsApp do Jordan é anterior ao nono dígito, então
+    `5592986465328` mapeia para outro LID (de outra pessoa) e `559286465328` para o dele.
+    Mandar para o número "certo" no papel entregaria a mensagem a um terceiro.
+    """
+    # ⚠️ ORDEM IMPORTA, e os dois formatos podem ter mapeamento. Medido em 23/08/2026:
+    #   5592986465328 (com o 9)  -> LID 1099679465472  ← existe, mas NINGUÉM atende
+    #   559286465328  (sem o 9)  -> LID 134286564950018 ← o Jordan de verdade, 136 msgs
+    # Os dois têm reverso coerente, então "tem mapeamento" NÃO prova que há conta viva do
+    # outro lado. Celular brasileiro registrado antes do 9º dígito responde no formato
+    # curto; por isso o SEM o 9 vem primeiro. Mandar para o outro é entregar a um endereço
+    # fantasma — some sem erro, que foi o que aconteceu com 10 handoffs.
+    candidatos = []
+    if len(digits) == 13 and digits[4] == "9":       # 55 DD 9XXXXXXXX
+        candidatos = [digits[:4] + digits[5:], digits]
+    elif len(digits) == 12:                          # 55 DD XXXXXXXX
+        candidatos = [digits, digits[:4] + "9" + digits[4:]]
+    else:
+        candidatos = [digits]
+    # ⚠️ O mapa vive no Redis do CHATWOOT/Baileys (db 4), não no da aplicação. Usei
+    # `core.cache.redis` primeiro e voltou None em número que TEM mapeamento — procurar
+    # no lugar errado devolve "não existe", que é indistinguível de "não tem".
+    try:
+        import redis.asyncio as _aioredis
+
+        url = os.getenv("BAILEYS_REDIS_URL", "redis://chatwoot-fazerai-redis:6379/4")
+        r = _aioredis.from_url(url)
+        for cand in candidatos:
+            v = await r.hget(_LID_HASH, f"lid-mapping-{cand}")
+            if v:
+                lid = (v.decode() if isinstance(v, bytes) else str(v)).strip().strip('"')
+                if lid.isdigit():
+                    await r.aclose()
+                    return lid
+        await r.aclose()
+    except Exception as exc:  # noqa: BLE001 — sem mapa, cai no telefone (comportamento antigo)
+        logger.warning("WhatsApp: não consegui resolver LID de %s (%s)", digits[:6], exc)
+    return None
+
+
 async def _enviar_whatsapp_direto(numero: str, mensagem: str) -> bool:
-    """Envia mensagem WhatsApp DIRETO pelo baileys-api (resolve o JID do número). Usado no
-    handoff p/ entregar no WhatsApp pessoal do responsável (Jordan/Pedro). Best-effort."""
+    """Envia mensagem WhatsApp DIRETO pelo baileys-api. Usado no handoff p/ entregar no
+    WhatsApp pessoal do responsável (Jordan/Pedro). Best-effort."""
     digits = re.sub(r"\D", "", numero or "")
     if not digits:
         return False
     url = f"{_BAILEYS_API_URL}/connections/{_BAILEYS_COMPANY_PHONE}/send-message"
+    _lid = await _resolver_lid(digits)
+    _jid = f"{_lid}@lid" if _lid else f"{digits}@s.whatsapp.net"
+    if not _lid:
+        logger.warning("WhatsApp: sem LID para %s — enviando ao telefone, que "
+                       "historicamente NÃO entrega. Verifique se o número já conversou "
+                       "com o WhatsApp da empresa.", digits)
     try:
         async with aiohttp.ClientSession() as s:
             async with s.post(
                 url,
                 json={
-                    "jid": f"{digits}@s.whatsapp.net",
+                    # LID quando o WhatsApp conhece o número; telefone só como último
+                    # recurso (é o que NÃO entregava).
+                    "jid": _jid,
                     "messageContent": {"text": mensagem},
                     "chatwootMessageId": f"handoff-{digits}-{uuid4().hex[:10]}",
                 },
