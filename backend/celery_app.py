@@ -268,6 +268,14 @@ app.conf.beat_schedule = {
     # De hora em hora entre 7h e 21h porque o VT/VR é pago no MESMO dia; rodar só à noite
     # o faria esperar o dia seguinte para pagar o que o Eliziel acabou de lançar.
     # Programar NÃO paga: cria a obrigação, o dinheiro sai pelo gate com OTP.
+    # Aviso no WhatsApp quando o Eliziel/Orlailson lançam diária. 10 min: rápido o
+    # bastante para ser útil, espaçado o bastante para não virar ruído — notificação que
+    # cansa deixa de ser lida, e aí é o mesmo que não avisar.
+    "financeiro-aviso-diarias-whatsapp": {
+        "task": "financial.aviso_diarias_whatsapp",
+        "schedule": crontab(minute="*/10"),
+        "options": {"queue": "gov.batch"},
+    },
     "financeiro-programar-vtvr-do-dia": {
         "task": "financial.programar_vtvr_do_dia",
         "schedule": crontab(hour="7-21", minute=5),

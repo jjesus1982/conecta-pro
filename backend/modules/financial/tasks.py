@@ -909,3 +909,29 @@ def programar_vtvr_do_dia_task(self):
     except Exception as exc:
         logger.error("[Financial Task] programar_vtvr_do_dia error: %s", exc)
         raise self.retry(exc=exc)
+
+
+@app.task(name="financial.aviso_diarias_whatsapp", bind=True, max_retries=1)
+def aviso_diarias_whatsapp_task(self):
+    """Avisa o Jordan no WhatsApp quando o Eliziel ou o Orlailson lançam diárias.
+
+    A cada 10 minutos: ele quer saber logo, mas notificação de minuto em minuto vira ruído
+    e ele para de ler — que é o mesmo que não avisar.
+
+    ⚠️ NÃO é gancho no Operacional (curado à mão, read-only para agentes): é leitura de
+    `diaria_lancamentos` contra uma marca d'água. Se isto morrer, ninguém deixa de lançar
+    nem de pagar — só o aviso falha.
+    """
+    from core.database.session import SyncSessionLocal
+    from modules.financial.services.aviso_diarias_whatsapp import varrer_e_avisar
+
+    try:
+        with SyncSessionLocal() as db:
+            r = varrer_e_avisar(db)
+            if r.get("novos"):
+                logger.info("[Financial Task] aviso_diarias: %s novo(s), enviado=%s",
+                            r["novos"], r.get("enviado"))
+            return {k: v for k, v in r.items() if k != "mensagem"}
+    except Exception as exc:
+        logger.error("[Financial Task] aviso_diarias error: %s", exc)
+        raise self.retry(exc=exc)

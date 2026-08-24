@@ -2021,12 +2021,6 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
         raise HTTPException(status_code=400, detail="Informe mês (1-12) e ano (>=2025) válidos.")
     otp_code = (payload.get("otp_code") or "").strip()
     lote_id = (payload.get("_gate_ref") or "").strip()
-    # Vazio = tudo do recorte (VT/VR + diária), que é o comportamento de sempre.
-    # `vt_vr` = só a passagem/alimentação do dia, que foi o que o Jordan pediu: soltar o
-    # que o Eliziel lançou sem levar junto a diária mensal de alguém que caia na data.
-    _tipo_lote = (payload.get("tipo") or "").strip() or None
-    if _tipo_lote not in (None, "vt_vr", "diaria_mensal"):
-        raise HTTPException(status_code=400, detail="Tipo inválido.")
     if not otp_code:
         r = await svc.gerar_otp_lote(db, mes, ano)
         if not r.get("ok"):
@@ -2056,6 +2050,15 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
     # Antes era obrigatoria e o Jordan tinha que pagar dia a dia — 31 operacoes para uma
     # competencia. O servico ja aceitava `data=None` e montava o lote completo; quem
     # obrigava era esta tela.
+    # Vazio = tudo do recorte (VT/VR + diária), que é o comportamento de sempre.
+    # `vt_vr` = só a passagem/alimentação do dia: soltar o que o Eliziel lançou sem levar
+    # junto a diária mensal de alguém que caia na mesma data.
+    # ⚠️ Definido AQUI, dentro desta função. Estava numa âncora curta que também casava
+    # em `_rd_pagar_folha_pj`, e o replace acertou a vizinha: a variável nascia lá e a
+    # chamada daqui estourava `NameError` na hora de gerar o OTP — com o Jordan na tela.
+    _tipo_lote = (payload.get("tipo") or "").strip() or None
+    if _tipo_lote not in (None, "vt_vr", "diaria_mensal"):
+        raise HTTPException(status_code=400, detail="Tipo inválido.")
     data = (payload.get("data") or "").strip()
     if data and len(data) < 8:
         raise HTTPException(status_code=400, detail="Data no formato AAAA-MM-DD (ou vazia).")
