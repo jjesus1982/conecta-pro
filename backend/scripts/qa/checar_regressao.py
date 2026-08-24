@@ -71,6 +71,34 @@ _EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backe
                    "python3", "/app/scripts/qa/"]
 
 
+#: Travas de SIM/NÃO: não contam dívida, passam ou reprovam. Ligadas pelo EXIT CODE e nunca
+#: por parser da saída — em 24/08/2026 seis medições por regex sobre texto erraram nos dois
+#: sentidos no mesmo dia (três inflaram, três zeraram). Formato de saída muda; exit code é
+#: comportamento. É a mesma troca que a condição 2 do gate do Bartolo fez: de grep para sonda.
+TRAVAS_BINARIAS = {
+    "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ"),
+    "checar_periodo_do_servidor.py": ("container",
+                                      "competência/data vinda do MODELO e não do servidor"),
+    "checar_desmonte_comportamento.py": ("host",
+                                         "oráculo que escreve em produção e deixa linha"),
+}
+
+#: Órfã DECLARADA: existe, ninguém roda, e está escrito por quê e de quem é. Exceção com dono
+#: e motivo — não gaveta. Sem esta lista o detector abaixo reprova, que é o correto: trava que
+#: ninguém invoca é exatamente a doença que o arsenal veio curar (o `tool_risk_manifest`
+#: classificava 254 tools e nenhum código o consultava).
+ORFAS_DECLARADAS = {
+    # 26 achados hoje (18 sem entrada, 8 sem saída). Ligar como binária deixaria o
+    # checar_regressao vermelho para TODOS os terminais até o T4 fechar os 18 que faltam.
+    # Vira contada, com linha de base, assim que ele publicar a linha `TOTAL:`.
+    "checar_desmonte_oraculos.py": "T4, em curso — 3 de 21 fechados; vira contada ao ter TOTAL:",
+}
+
+
+def _travas_no_disco() -> set[str]:
+    return {p.name for p in AQUI.glob("checar_*.py")} | {p.name for p in AQUI.glob("cacar_*.py")}
+
+
 def _rodar(script: str) -> tuple[int, str]:
     if script in CACADORES_HOST:
         cmd = [sys.executable, str(AQUI / script)]
@@ -141,6 +169,41 @@ def main() -> int:
                         if ln.strip().startswith("-")))
     else:
         print("  checar_mcp_tools: confere")
+
+    # As travas de sim/não, pelo exit code.
+    for script, (onde, oque) in TRAVAS_BINARIAS.items():
+        cmd = ([sys.executable, str(AQUI / script)] if onde == "host"
+               else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script])
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            falhou.append(f"{script}: não respondeu em 15min — NÃO VERIFICADO, não aprovado")
+            print(f"  x {script}: não respondeu (NÃO VERIFICADO)")
+            continue
+        if r.returncode != 0:
+            falhou.append(f"{script}: {oque}")
+            print(f"  x {script}: {oque}")
+            for ln in (r.stdout or r.stderr).splitlines()[-6:]:
+                print("     " + ln)
+        else:
+            print(f"  {script}: confere")
+
+    # ── a trava que vigia o próprio arsenal ────────────────────────────────────
+    # Nasceu de uma medição em 24/08/2026: 12 travas no disco e QUATRO que nenhum caminho
+    # invocava — inclusive a `checar_beats`, escrita no dia anterior justamente contra
+    # "rotina que roda e não produz". Trava órfã é pior que trava ausente: ela dá a impressão
+    # de cobertura que não existe, e o custo de escrevê-la já foi pago.
+    orfas = _travas_no_disco() - set(CACADORES) - set(CACADORES_HOST) - set(TRAVAS_BINARIAS) \
+        - set(ORFAS_DECLARADAS) - {"checar_regressao.py", "checar_arsenal.py",
+                                   "checar_mcp_tools.py"}
+    if orfas:
+        falhou.append("trava órfã (existe no disco e nenhum caminho invoca): "
+                      + ", ".join(sorted(orfas)))
+        print(f"  x arsenal: {len(orfas)} trava(s) órfã(s) — " + ", ".join(sorted(orfas)))
+        print("     Ligue em CACADORES/CACADORES_HOST (conta dívida) ou TRAVAS_BINARIAS "
+              "(passa/reprova), ou declare em ORFAS_DECLARADAS com DONO e MOTIVO.")
+    else:
+        print(f"  arsenal: 0 trava órfã ({len(ORFAS_DECLARADAS)} declarada(s) com dono)")
 
     if gravar or any(agora.get(k, 0) < base.get(k, 10**9) for k in agora):
         # Baixar a base é automático — conserto não deve exigir cerimônia. Subir, não.
