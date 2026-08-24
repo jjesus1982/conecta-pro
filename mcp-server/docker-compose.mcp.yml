@@ -1,0 +1,31 @@
+services:
+  conecta-pro-mcp:
+    build: .
+    image: conecta-pro-mcp:latest
+    container_name: conecta-pro-mcp
+    restart: unless-stopped
+    # Conector PÚBLICO = um usuário só (GOOGLE_ALLOWED_EMAILS=jordansjesus@gmail.com,
+    # fail-closed no server.py:42). Age como o Jordan porque É o Jordan, provado pelo
+    # OAuth antes da 1a chamada — só assim passa em contract_wizard.py:30 (EMITENTES).
+    # A identidade vive em .env.publico (fora do git, 600) e NÃO no .env: o
+    # mcp-internal (Hermes, time todo) lê o .env e herdaria a identidade do Jordan.
+    # O último env_file vence. Ver conversa 23/08.
+    env_file:
+      - .env
+      - .env.publico
+    environment:
+      ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    ports:
+      - "127.0.0.1:8788:8788"   # só localhost; nginx faz o TLS público
+    networks:
+      - conecta-pro_conecta-pro-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8788/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  conecta-pro_conecta-pro-network:
+    external: true
