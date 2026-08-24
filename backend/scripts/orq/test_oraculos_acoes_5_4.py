@@ -64,7 +64,31 @@ from modules.ai.conversation.services.orquestrador.tool_registry import (
 from core.auth.module_scope import user_modules
 from modules.notifications.proativo import entrega
 
-MARK = "__TESTE_5.4__"  # sentinel: TODO seed carrega isto (limpeza + nunca-real)
+# ZZ FIXO: ordena no fim de qualquer listagem, então o que escapar aparece agrupado no rodapé.
+MARK = "ZZ__TESTE_5.4__"  # sentinel: TODO seed carrega isto (limpeza + nunca-real)
+#: Marca anterior, varrida junto — trocar de marca sem varrer a antiga cria órfão novo.
+MARKS_ANTIGAS = ("__TESTE_5.4__",)
+
+
+async def _limpar_audit_por_marca(db) -> int:
+    """Apaga o rastro de auditoria do teste pela MARCA, não pela lista de ids.
+
+    Foi por aqui que escapou (medido em 24/08/2026 pela trava de comportamento): a limpeza
+    era `DELETE ... WHERE details->>'entity_id' = ANY(:ids)`, e sobrou justamente a linha cujo
+    entity_id não estava na lista — `agent_action / inter_payments_lote` com
+    `args.posto = '__TESTE_5.4__POSTOMUT'`. Lista de ids só alcança o que a execução VIVA
+    coletou; o órfão é, por definição, o que ficou de fora dela.
+
+    `strpos` LITERAL, nunca LIKE: a marca contém '_', que em LIKE é curinga e varreria dado
+    real.
+    """
+    n = 0
+    for marca in (MARK, *MARKS_ANTIGAS):
+        r = await db.execute(text(
+            "DELETE FROM audit_logs WHERE strpos(coalesce(details::text, ''), :m) > 0"),
+            {"m": marca})
+        n += r.rowcount or 0
+    return n
 
 
 class OracleFail(AssertionError):
@@ -447,6 +471,10 @@ async def main() -> int:  # noqa: C901 (suite única e linear, como o molde 5.3)
             if audit_entity_ids:
                 await db.execute(text("DELETE FROM audit_logs WHERE details->>'entity_id' = ANY(:i)"),
                                  {"i": [str(x) for x in audit_entity_ids]})
+            # …e por MARCA, que alcança o que a lista de ids não alcança. Sem esta linha
+            # sobrava `agent_action / inter_payments_lote` com args.posto contendo o sentinel:
+            # o entity_id dela não estava na lista coletada, e o órfão é sempre isso.
+            await _limpar_audit_por_marca(db)
             # NOTA: sentinel casado por strpos LITERAL (não LIKE) — MARK contém '_',
             # que em LIKE é curinga e poderia varrer DADO REAL. strpos é substring exata.
             M = {"m": MARK}
