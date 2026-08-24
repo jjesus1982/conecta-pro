@@ -160,6 +160,12 @@ function TableScreen({ scr }: { scr: any }) {
   const [editRow, setEditRow] = useState<any>(null);
   const [editVals, setEditVals] = useState<Record<string, any>>({});
   const [editMsg, setEditMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Gate de OTP no modal da LINHA. O FormScreen já tratava `otp_required`; o botão de
+  // linha não — a resposta caía no caminho de sucesso, o modal fechava em 1,1s e o
+  // campo do código nunca chegava a existir. O Jordan recebia o OTP no e-mail e não
+  // tinha onde digitar. Mesmo contrato do form: { otp_required, ref } -> reenvia com
+  // otp_code + _gate_ref.
+  const [editOtp, setEditOtp] = useState<{ ref: string; code: string } | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   return (
     <div className="rd-tbl-wrap">
@@ -203,13 +209,13 @@ function TableScreen({ scr }: { scr: any }) {
                   {Array.isArray(row.docs) && row.docs.length > 0 && <DocButtons docs={row.docs} compact />}
                   {row.edit && Array.isArray(row.edit.fields) && (
                     <button type="button" className={`rd-btn ${row.edit.btnStyle === 'primary' ? 'rd-btn-primary' : 'rd-btn-outline'}`} style={{ padding: '5px 10px', fontSize: 12 }}
-                      onClick={() => { setEditRow(row.edit); const v: Record<string, any> = {}; row.edit.fields.forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); }}>
+                      onClick={() => { setEditRow(row.edit); const v: Record<string, any> = {}; row.edit.fields.forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
                       {row.edit.btnLabel || 'Editar'}
                     </button>
                   )}
                   {Array.isArray(row.actions) && row.actions.map((a:any, k:number) => (
                     <button key={k} type="button" className={`rd-btn ${a.btnStyle==='primary'?'rd-btn-primary':'rd-btn-outline'}`} style={{ padding:'5px 10px', fontSize:12 }}
-                      onClick={() => { setEditRow(a); const v:Record<string,any>={}; (a.fields||[]).forEach((f:any)=>{v[f.key]=f.value??'';}); setEditVals(v); setEditMsg(null); }}>
+                      onClick={() => { setEditRow(a); const v:Record<string,any>={}; (a.fields||[]).forEach((f:any)=>{v[f.key]=f.value??'';}); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
                       {a.btnLabel || 'Ação'}
                     </button>
                   ))}
@@ -254,7 +260,7 @@ function TableScreen({ scr }: { scr: any }) {
         </div>
       )}
       {editRow && (
-        <div onClick={() => setEditRow(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,58,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+        <div onClick={() => { setEditRow(null); setEditOtp(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,27,58,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface, #fff)', borderRadius: 14, padding: 20, width: 'min(560px, 94vw)', maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink, #16277D)', marginBottom: 12 }}>{editRow.title || 'Editar'}</div>
             {editMsg && <div className={`rd-badge ${editMsg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, marginBottom: 10, display: 'block' }}>{editMsg.text}</div>}
@@ -274,24 +280,44 @@ function TableScreen({ scr }: { scr: any }) {
                 </div>
               ))}
             </div>
+            {editOtp && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border, #E2E8F0)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: 12, color: 'var(--placeholder)', fontWeight: 600 }}>Código OTP (6 dígitos)</label>
+                <input className="rd-input" style={{ maxWidth: 200, letterSpacing: 2, fontWeight: 600 }} inputMode="numeric" autoFocus
+                  placeholder="000000" value={editOtp.code}
+                  onChange={(e) => setEditOtp({ ...editOtp, code: e.target.value.replace(/\D/g, '').slice(0, 6) })} />
+                <span style={{ fontSize: 12, color: '#B45309' }}>
+                  Saída de dinheiro — nada foi pago ainda. O código foi enviado ao e-mail do Jordan.
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              {editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" onClick={() => setEditRow(null)}>Fechar</button>}
-              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-outline" onClick={() => setEditRow(null)}>Cancelar</button>}
-              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" disabled={editBusy} onClick={async () => {
+              {editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" onClick={() => { setEditRow(null); setEditOtp(null); }}>Fechar</button>}
+              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-outline" onClick={() => { setEditRow(null); setEditOtp(null); }}>Cancelar</button>}
+              {!editRow.readOnly && <button type="button" className="rd-btn rd-btn-primary" disabled={editBusy || !!(editOtp && editOtp.code.length !== 6)} onClick={async () => {
                 setEditBusy(true); setEditMsg(null);
                 try {
                   let tok: string | null = null; try { tok = localStorage.getItem('access_token'); } catch { /* */ }
-                  const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ ...(editRow.fixed || {}), ...editVals }) });
+                  const _otp = editOtp && editOtp.code ? { otp_code: editOtp.code, _gate_ref: editOtp.ref } : {};
+                  const res = await fetch(editRow.endpoint, { method: editRow.method || 'PATCH', headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify({ ...(editRow.fixed || {}), ...editVals, ..._otp }) });
                   const d = await res.json().catch(() => ({}));
                   if (!res.ok) throw new Error(msgErro(d) || 'Não foi possível salvar.');
+                  // Gate de dinheiro: o backend NÃO pagou, só emitiu o código. Fechar aqui
+                  // (o caminho de sucesso abaixo) era o bug — some a única tela onde o
+                  // código pode ser digitado. Mantém o modal aberto e pede o OTP.
+                  if (d && d.otp_required) {
+                    setEditOtp({ ref: d.ref || '', code: '' });
+                    setEditMsg({ ok: true, text: d.message || 'Confirme com o código OTP enviado ao e-mail do Jordan.' });
+                    return;
+                  }
                   setEditMsg({ ok: true, text: d.message || editRow.okMsg || 'Salvo.' });
                   // Mostra o OK por um instante, fecha o modal e recarrega os dados.
                   // Antes o modal ficava aberto e a tabela nao mudava: o usuario clicava
                   // de novo achando que nao tinha funcionado.
-                  setTimeout(() => { setEditRow(null); setEditMsg(null); recarregar(); }, 1100);
+                  setTimeout(() => { setEditRow(null); setEditMsg(null); setEditOtp(null); recarregar(); }, 1100);
                 } catch (e) { setEditMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' }); }
                 finally { setEditBusy(false); }
-              }}>{editBusy ? 'Enviando…' : (editRow.submitLabel || 'Salvar')}</button>}
+              }}>{editBusy ? 'Enviando…' : editOtp ? 'Confirmar com OTP' : (editRow.submitLabel || 'Salvar')}</button>}
             </div>
           </div>
         </div>
