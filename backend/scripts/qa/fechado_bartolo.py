@@ -102,26 +102,43 @@ def _c1_roteamento() -> tuple[bool, str]:
 
 # ── 2 · identidade (F2) ───────────────────────────────────────────────────────────────
 def _c2_identidade() -> tuple[bool, str]:
-    """Como o agente AGE. Hoje toda chamada sai com a conta de serviço: não existe caminho
-    para o MCP receber QUEM perguntou. É a F2, e ela não foi construída.
+    """Como o agente AGE. Não basta o mecanismo existir: ele tem de RECUSAR.
 
-    A checagem é a existência do mecanismo, não a intenção: procura no `server.py` do
-    conector uma via de identidade por chamada. Enquanto não houver, isto é vermelho — e
-    tem de ser, porque é exatamente o teto do Bartolo: ele nunca poderá responder "quantas
-    horas eu fiz esse mês" para o porteiro que perguntou.
+    Duas medições, porque uma só engana. O oráculo prova a régua (o que conta como sensível);
+    a sonda ao vivo prova o comportamento — chama uma tool sensível SEM identidade contra o
+    conector que está no ar e exige recusa. Marcador no fonte não serve: a primeira versão
+    desta condição procurava um nome de variável em `server.py`, e nome de variável não
+    recusa nada.
     """
-    fonte = os.path.join(MCP, "server.py")
-    if not os.path.exists(fonte):
-        return False, "mcp-server/server.py ausente"
-    s = open(fonte, encoding="utf-8").read()
-    # marcas possíveis de propagação por chamada (qualquer uma vale)
-    marcas = [r"X-Agente-Usuario", r"on_behalf", r"identidade_da_chamada", r"ContextVar",
-              r"token_do_usuario"]
-    achou = sorted({m for m in marcas if re.search(m, s)})
-    if achou:
-        return True, f"propagação por chamada presente ({achou})"
-    return False, ("F2 NÃO construída: o conector não recebe a identidade de quem pergunta; "
-                   "toda tool executa com a conta de serviço")
+    r = subprocess.run(["docker", "exec", CONECTOR_AGENTE, "python3", "/app/test_identidade.py"],
+                       capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        ruins = [ln for ln in r.stdout.splitlines() if ln.startswith("FAIL")]
+        return False, f"oráculo de identidade reprovou: {ruins[:3]}"
+
+    sonda = """
+import asyncio, os
+async def main():
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+    h = {"Authorization": "Bearer " + os.environ["MCP_AUTH_TOKEN"]}
+    try:
+        async with Client(StreamableHttpTransport(
+                "http://localhost:8788/mcp", headers=h)) as c:
+            await c.call_tool("resumo_financeiro", {})
+        print("<<R>>EXECUTOU<<R>>")
+    except Exception as e:
+        print("<<R>>" + ("RECUSOU" if "identidade" in str(e) else "OUTRO:" + str(e)[:70]) + "<<R>>")
+asyncio.run(main())
+"""
+    saida = _docker("exec", CONECTOR_AGENTE, "python3", "-c", sonda, timeout=300)
+    m = re.search(r"<<R>>(.*?)<<R>>", saida, re.S)
+    if not m:
+        return False, "a sonda ao vivo não respondeu — condição NÃO verificada"
+    veredito = m.group(1).strip()
+    if veredito != "RECUSOU":
+        return False, f"tool sensível SEM identidade -> {veredito}"
+    return True, "oráculo 6/6 e a sonda ao vivo recusou tool sensível sem identidade"
 
 
 # ── 3 · conta de serviço ──────────────────────────────────────────────────────────────

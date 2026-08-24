@@ -63,6 +63,7 @@ DECLARACAO: dict[str, dict] = {
 PECAS_DE_PAREDE: list[tuple[str, str, str]] = [
     ("mcp-server/gate_propose.py", "conecta-pro-mcp-internal", "/app/gate_propose.py"),
     ("mcp-server/tool_scopes.py", "conecta-pro-mcp-internal", "/app/tool_scopes.py"),
+    ("mcp-server/identidade.py", "conecta-pro-mcp-internal", "/app/identidade.py"),
     ("mcp-server/tool_risk_manifest.py", "conecta-pro-mcp-internal",
      "/app/tool_risk_manifest.py"),
     ("backend/modules/ai/conversation/controllers/agente_aprovacao_controller.py",
