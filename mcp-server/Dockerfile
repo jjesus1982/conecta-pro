@@ -10,9 +10,11 @@ COPY tool_risk_manifest.py .
 # escopo do catálogo por assunto — sem ele o filtro MCP_ESCOPO não aplica
 COPY tool_scopes.py .
 COPY test_tool_risk_manifest.py .
+# trava: quem se diz `read` prova que nao escreve (SQL/verbo HTTP no corpo)
+COPY test_read_nao_escreve.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
-RUN python test_tool_risk_manifest.py
+RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py
 
 EXPOSE 8788
 

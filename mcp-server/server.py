@@ -462,6 +462,90 @@ async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -
 
 
 @mcp.tool
+async def proposta_da_oportunidade(opportunity_id: str, titulo: str,
+                                   descricao: str = "", valido_ate: str = "") -> dict:
+    """Cria uma PROPOSTA a partir de uma oportunidade do funil.
+
+    Cliente e dados vêm da oportunidade — não redigitados. Primeiro passo do caminho
+    oportunidade → proposta → contrato sem sair do ERP.
+    """
+    corpo: dict[str, Any] = {"opportunity_id": opportunity_id, "title": titulo}
+    if descricao:
+        corpo["description"] = descricao
+    if valido_ate:
+        corpo["valid_until"] = valido_ate
+    try:
+        return await erp.post("/crm/proposals/from-opportunity", json=corpo)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
+async def aceitar_proposta(proposal_id: str, confirmar: str = "") -> dict:
+    """🟡 ACEITE de proposta — quatro escritas, uma delas é DINHEIRO.
+
+    Aceitar NÃO é mudar status. O ERP, numa chamada:
+      1. marca a proposta como aceita;
+      2. GERA COMISSÃO a pagar (nasce `pending`, mas é obrigação registrada);
+      3. move o deal para closed_won;
+      4. cria um CONTRATO em `draft`.
+
+    Por causa de (2), esta tool EXIGE confirmação explícita: passe confirmar="ACEITAR".
+    Sem isso ela devolve o que vai acontecer e não executa nada — propor, nunca decidir.
+
+    ⚠️ A autoria fica com a identidade que chamou o ERP. Pelo conector interno isso é a
+    conta de serviço, não a pessoa: o histórico diria que `mcp-service` decidiu. Enquanto a
+    propagação de identidade não existir, prefira aceitar pela tela.
+    """
+    if confirmar.strip().upper() != "ACEITAR":
+        return {
+            "ok": False, "status": "confirmacao_necessaria",
+            "vai_acontecer": [
+                "proposta marcada como ACEITA",
+                "COMISSÃO gerada para o vendedor (status pending)",
+                "oportunidade movida para closed_won",
+                "CONTRATO criado em draft",
+            ],
+            "como_confirmar": 'chame de novo com confirmar="ACEITAR"',
+            "aviso": "a autoria do aceite fica com quem chamou o ERP — pelo conector "
+                     "interno, a conta de serviço, não a pessoa",
+        }
+    try:
+        return await erp.post(f"/crm/proposals/{proposal_id}/accept", json={})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
+async def recusar_proposta(proposal_id: str, motivo: str) -> dict:
+    """Marca a proposta como RECUSADA, com o motivo — que vai para as notas.
+
+    Motivo é obrigatório: recusa sem porquê não ensina nada a quem revisar o funil depois.
+    """
+    if not (motivo or "").strip():
+        return {"ok": False, "erro": "informe o motivo da recusa"}
+    try:
+        return await erp.post(f"/crm/proposals/{proposal_id}/reject",
+                              params={"reason": motivo.strip()})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
+async def nova_versao_proposta(proposal_id: str) -> dict:
+    """Cria uma NOVA VERSÃO da proposta, preservando a anterior.
+
+    É o caminho da renegociação: a versão antiga continua existindo como histórico.
+
+    ⚠️ Mesma ressalva de autoria do aceite: o registro fica com quem chamou o ERP.
+    """
+    try:
+        return await erp.post(f"/crm/proposals/{proposal_id}/new-version", json={})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "erro": str(exc)[:220]}
+
+
+@mcp.tool
 async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                                     valor_mensal: float, vigencia_inicio: str,
                                     vigencia_meses: int = 12, dia_vencimento: int = 0,
