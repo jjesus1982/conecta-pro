@@ -53,7 +53,25 @@ from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker as sync_sessionmaker  # noqa: E402
 
-MARK = "__TESTE_5.6b__"
+# ZZ FIXO: a limpeza de ENTRADA acha o órfão por esta marca, e `ZZ` ordena no fim de qualquer
+# listagem — contrato de teste que escapar aparece no rodapé, não no meio da carteira real.
+MARK = "ZZ__TESTE_5.6b__"
+#: Marcas anteriores, varridas junto. Trocar de marca sem varrer a antiga é criar órfão novo.
+MARKS_ANTIGAS = ("__TESTE_5.6b__",)
+
+
+async def _limpar_orfaos_de_entrada(db) -> int:
+    """Apaga o contrato sentinela que sobrou de execução SEM saída (morta por sinal não roda
+    `finally`). Por MARCA, nunca por lista de ids — quem morreu não deixou a lista dela."""
+    n = 0
+    for marca in (MARK, *MARKS_ANTIGAS):
+        r = await db.execute(text(
+            "DELETE FROM contracts WHERE strpos(coalesce(contract_number,''), :m) > 0 "
+            "OR strpos(coalesce(name,''), :m) > 0"), {"m": marca})
+        n += r.rowcount or 0
+    if n:
+        await db.commit()
+    return n
 CNPJ_RE = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
 CPF_RE = re.compile(r"\d{3}\.\d{3}\.\d{3}-\d{2}")
 
@@ -97,6 +115,12 @@ async def main() -> int:
     contrato_sentinela: uuid.UUID | None = None
 
     async with Session() as db:
+        # ENTRADA, antes de qualquer coisa: varre o sentinela órfão da execução anterior que
+        # não chegou ao `finally`. Sem isto, contrato de teste fica na carteira até alguém
+        # notar à mão — foi exatamente o que aconteceu com os 9 registros achados em 24/08.
+        _orfaos = await _limpar_orfaos_de_entrada(db)
+        if _orfaos:
+            print(f"entrada: {_orfaos} contrato(s) sentinela órfão(s) removido(s)")
         try:
             from modules.ai.contract_analysis.services.analise_contrato import analisar
             from modules.juridico import contracts_controller as ctrl

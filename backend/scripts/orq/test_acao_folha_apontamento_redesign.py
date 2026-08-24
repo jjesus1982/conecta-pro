@@ -18,7 +18,33 @@ from modules.operacional.controllers.redesign_builders.departamento_pessoal impo
 )
 
 
+#: ZZ FIXO no motivo, nunca gerado: é por ele que a limpeza de ENTRADA acha o resíduo da
+#: execução que morreu por sinal (essa não roda `finally` nenhum). E `_MARCAS_ANTIGAS` varre o
+#: texto que as rodadas anteriores gravaram — trocar de marca sem varrer a antiga é criar
+#: órfão novo com as próprias mãos.
+_PREFIXO = "ZZORQ-APONT-"
+_MARCAS_ANTIGAS = ("INSS divergente — teste oraculo apontamento",)
+
+
+async def _limpar_orfaos_de_entrada() -> int:
+    """Apaga o apontamento de teste que sobrou de uma execução sem saída. Por MARCA, nunca
+    por lista de ids — a execução que morreu não deixou a lista dela, e o órfão é o que sobra.
+    """
+    async with async_session_factory() as db:
+        n = 0
+        for marca in (_PREFIXO, *_MARCAS_ANTIGAS):
+            r = await db.execute(text(
+                "UPDATE hr_payslips SET contest_reason=NULL, contested_at=NULL "
+                "WHERE contest_reason LIKE :m"), {"m": f"%{marca}%"})
+            n += r.rowcount or 0
+        await db.commit()
+        return n
+
+
 async def main() -> None:
+    orfaos = await _limpar_orfaos_de_entrada()
+    if orfaos:
+        print(f"entrada: {orfaos} apontamento(s) órfão(s) de execução anterior removido(s)")
     async with async_session_factory() as db:
         pid = (await db.execute(text(
             "SELECT CAST(id AS TEXT) FROM hr_payslips WHERE status::text='draft' AND contest_reason IS NULL LIMIT 1"))).scalar()
@@ -27,7 +53,7 @@ async def main() -> None:
     sync = SyncSessionLocal()
     try:
         res = await rd_action_folha_apontamento(current_user=user, payload={
-            "payslip_id": pid, "motivo": "INSS divergente — teste oraculo apontamento"}, db=sync)
+            "payslip_id": pid, "motivo": _PREFIXO + "INSS divergente (oraculo)"}, db=sync)
         assert res.get("ok"), f"ação falhou: {res}"
     finally:
         sync.close()
@@ -41,6 +67,7 @@ async def main() -> None:
                 "SELECT status::text, contest_reason, contested_at FROM hr_payslips WHERE id::text=:i"), {"i": pid})).first()
             assert row[0] == "draft", f"status mudou! {row[0]} (esperado draft — não deve interferir no fechamento)"
             assert row[1] and row[1].startswith("[Eliziel Gonzaga]"), f"contest_reason sem autor: {row[1]}"
+            assert _PREFIXO in row[1], f"o motivo perdeu o prefixo {_PREFIXO} — sem ele a limpeza de entrada não acha o órfão: {row[1]!r}"
             assert row[2] is not None, "contested_at não gravado"
             scr = await build(db)
             # `scr[slug]` não basta desde a reorganização de 05/08 (sidebar 62 → 8 grupos): o
