@@ -58,7 +58,46 @@ async def _meu_ponto(db, user, scope, mes: int | None = None, ano: int | None = 
     )).fetchall()
     return {
         "mes": m, "ano": a, "total_batidas": len(rows),
-        "batidas": [{"tipo": r.punch_type, "quando": str(r.punch_timestamp), "posto": r.posto_nome} for r in rows[:50]],
+        # O TOTAL vem do espelho oficial (Portaria 671), o MESMO `ler_espelho` da tela — não
+        # se pede ao modelo que some batida. Medido em 24/08/2026: mandar 50 batidas cruas
+        # fazia a `deepseek-v4-flash` gastar TODO o orçamento em raciocínio e devolver
+        # `content` vazio; o usuário recebia "(sem resposta)". Somar é trabalho de algoritmo.
+        **await _totais_do_espelho(str(emp), m, a),
+        "batidas": [{"tipo": r.punch_type, "quando": str(r.punch_timestamp), "posto": r.posto_nome}
+                    for r in rows[:8]],
+    }
+
+
+def _espelho_sync(employee_id: str, mes: int, ano: int) -> dict[str, Any] | None:
+    """Sessão síncrona própria: `ler_espelho` é sync e o handler do chat é async. Read-only."""
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+    from modules.people_management.hr.services.espelho_ponto_service import ler_espelho  # noqa: PLC0415
+
+    with SyncSessionLocal() as s:
+        return ler_espelho(s, str(employee_id), int(mes), int(ano))
+
+
+async def _totais_do_espelho(employee_id: str, mes: int, ano: int) -> dict[str, Any]:
+    """Horas do mês pelo espelho apurado. Sem apuração, diz que não há — não estima."""
+    import asyncio  # noqa: PLC0415
+
+    try:
+        esp = await asyncio.to_thread(_espelho_sync, employee_id, mes, ano)
+    except Exception:  # noqa: BLE001 — o ponto bruto ainda serve; o total é que falta
+        esp = None
+    if not esp:
+        return {"horas_trabalhadas": None,
+                "observacao": "sem apuração de espelho fechada neste mês; há batidas, mas o "
+                              "total de horas ainda não foi apurado — não estime"}
+    return {
+        "horas_trabalhadas": esp.get("horas_trabalhadas"),
+        "horas_previstas": esp.get("horas_previstas"),
+        "extras_50": esp.get("extras_50"),
+        "extras_100": esp.get("extras_100"),
+        "adicional_noturno": esp.get("adicional_noturno"),
+        "faltas_dias": esp.get("faltas_dias"),
+        "status_apuracao": esp.get("status"),
+        "fonte": "espelho de ponto oficial (Portaria 671), o mesmo da tela",
     }
 
 

@@ -244,12 +244,37 @@ _ESTILO_VOZ = (
 )
 
 
+def _hoje_para_o_prompt() -> str:
+    """Que dia é hoje, em Manaus. Sem isto o modelo deduz a data do treino.
+
+    Medido em 24/08/2026, pelo caminho real do chat: um porteiro com 91 batidas no mês
+    perguntou "quantas horas eu fiz esse mês" e recebeu "nenhuma batida consta no sistema
+    para você" — porque o modelo chamou `meu_ponto` com mes=7, ano=**2025**. A tool estava
+    certa (sem argumento devolve 8/2026 → 91); o argumento é que veio de um calendário
+    imaginário. Isso é pior que recusar: é um "não existe" confiante sobre o dado de alguém.
+
+    Dia civil de MANAUS, regra canônica de TZ — nunca `utcnow().date()`.
+    """
+    from datetime import datetime  # noqa: PLC0415
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    d = datetime.now(ZoneInfo("America/Manaus"))
+    return (
+        f"\n\nHOJE é {d.strftime('%d/%m/%Y')} (horário de Manaus). "
+        f"'hoje' = {d.strftime('%d/%m/%Y')}; 'este mês' = {d.month:02d}/{d.year}; "
+        f"'mês passado' = {(d.month - 1) or 12:02d}/{d.year if d.month > 1 else d.year - 1}. "
+        "NUNCA deduza a data do seu treinamento — ela está errada. Quando a tool aceitar "
+        "mês/ano e a pergunta for sobre o período corrente, OMITA os dois: o padrão da tool já "
+        "é o mês vigente de Manaus. Só informe mês/ano quando a pessoa pedir outro período."
+    )
+
+
 def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = False) -> str:
     """Constituição + persona. Se uma LENTE for pedida (persona = slug do /redesign ou nome da
     lente), injeta a lente ativa + o conhecimento COMPLETO dela; senão, o conhecimento dos
     módulos do usuário (cap 2). Fail-open."""
     from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
-    sp = _SYSTEM_BASE
+    sp = _SYSTEM_BASE + _hoje_para_o_prompt()
     agente = _PERSONA_AGENTE.get((persona or "").strip().lower())
     if agente and not _lente_permitida(user, agente):
         agente = None  # lente fora do escopo do usuário → default, não erro (ver _lente_permitida)

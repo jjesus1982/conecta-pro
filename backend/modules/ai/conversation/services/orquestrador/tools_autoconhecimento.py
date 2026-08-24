@@ -28,7 +28,7 @@ from typing import Any
 
 from .agir_dispatcher import _ACOES
 from .read_dispatcher import _READ_OPS
-from .tool_registry import ToolDef, register
+from .tool_registry import ToolDef, all_tools as _todas, register
 
 _SEM_ARGS: dict[str, Any] = {"type": "object", "properties": {}}
 
@@ -82,6 +82,16 @@ async def _o_que_voce_faz(db, user, scope, **_) -> dict[str, Any]:
         ),
         "entrego_direto": entrego or "nenhum documento no seu escopo",
         "nao_alcanco": fora or "nada — você alcança todos os módulos com tools registradas",
+        # ONDE isto roda. Sem esta linha o agente descreve uma superfície e o dono imagina
+        # outra: existe um segundo caminho (conector MCP → Hermes) que hoje quase não serve
+        # nada, porque o Hermes não sabe repassar a identidade de quem pergunta por chamada e
+        # tudo que toca dado de terceiro é barrado lá. O que respondo a VOCÊ vem daqui.
+        "onde_isto_roda": (
+            f"motor in-process do ERP, com a SUA identidade real ({len(_todas())} tools "
+            "registradas no total; você alcança as listadas acima). O caminho pelo conector "
+            "MCP/Hermes é outro e está praticamente fechado: sem repasse de identidade, lá só "
+            "passa consulta que não toca dado de ninguém."
+        ),
     }
 
 

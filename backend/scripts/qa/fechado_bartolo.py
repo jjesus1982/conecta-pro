@@ -13,6 +13,7 @@ As 8, como foram escritas na ordem:
     6. LLM          0 falha recorrente em llm_usage nas últimas 24h
     7. travas       repositorio · vocabulario · rotas_frontend == 0 em ai/
     8. oráculos     os test_tools_* e test_u2_* verdes
+    9. caso de uso  um usuário COMUM pergunta pelo próprio dado, pelo caminho real, e RECEBE
 
 ⚠️ As condições 1 e 2 medem coisas DIFERENTES e é fácil confundi-las. A 1 pergunta *o que
 chega* ao agente (catálogo); a 2 pergunta *como ele age* (identidade). Um agente pode receber
@@ -273,6 +274,24 @@ def _c8_oraculos() -> tuple[bool, str]:
                           + (f"; falhou: {falharam[:5]}" if falharam else ""))
 
 
+# ── 9 · caso de uso ───────────────────────────────────────────────────────────────────
+def _c9_caso_de_uso() -> tuple[bool, str]:
+    """As 8 anteriores medem PAREDE e DRIFT. Nenhuma mede se alguém consegue USAR o Bartolo.
+
+    O gate poderia dar 8/8 com o agente servindo 4 ferramentas e o caso de uso principal
+    quebrado — é a família do `fechado_operacional`, que deu 7/7 escondendo assinatura numa
+    rota 404. Provar que o porteiro é BARRADO no que não é dele prova a parede; provar que ele
+    RECEBE o que é dele prova o produto. Só o negativo estava provado.
+    """
+    r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                        "python3", "/app/scripts/orq/test_caso_de_uso_porteiro.py"],
+                       capture_output=True, text=True, timeout=600)
+    linhas = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    veredito = next((ln for ln in linhas if ln.startswith(("PASS", "FAIL"))), "sem veredito")
+    recebeu = next((ln for ln in linhas if ln.startswith("no banco")), "")
+    return r.returncode == 0, (veredito[:150] + (f" · {recebeu[:60]}" if recebeu else ""))
+
+
 CONDICOES = [
     ("1 · roteamento: 0 tool pessoal/consequente executável pelo agente", _c1_roteamento),
     ("2 · identidade: agente NÃO age com a conta de serviço em tool sensível", _c2_identidade),
@@ -282,6 +301,7 @@ CONDICOES = [
     ("6 · LLM: 0 falha recorrente em llm_usage (24h)", _c6_llm),
     ("7 · travas: repositorio · vocabulario · rotas_frontend == 0 em ai/", _c7_travas),
     ("8 · oráculos: test_tools_* e test_u2_* verdes", _c8_oraculos),
+    ("9 · caso de uso: usuário COMUM pergunta pelo próprio dado e RECEBE", _c9_caso_de_uso),
 ]
 
 
