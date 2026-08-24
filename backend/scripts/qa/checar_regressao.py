@@ -79,7 +79,11 @@ TRAVAS_BINARIAS = {
     "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ"),
     "checar_periodo_do_servidor.py": ("container",
                                       "competência/data vinda do MODELO e não do servidor"),
-    "checar_desmonte_comportamento.py": ("host",
+    # CONTAINER, não host: ela varre /app/scripts/orq. No host esse caminho não existe, o
+    # glob volta vazio e ela imprime "0 · 0 · 0 · 0" com exit=0 — verde por caminho errado,
+    # que é o pior tipo de verde e já mordeu aqui (o checar_repositorio achava 0 no container
+    # pelo motivo espelhado). Liguei errado na primeira vez; a saída zerada denunciou.
+    "checar_desmonte_comportamento.py": ("container",
                                          "oráculo que escreve em produção e deixa linha"),
 }
 
