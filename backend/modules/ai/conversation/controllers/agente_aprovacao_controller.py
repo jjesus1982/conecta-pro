@@ -30,11 +30,9 @@ from core.logging import logger
 
 router = APIRouter(prefix="/agente", tags=["Agente — aprovações"])
 
-# Espelha `gate_propose.classe_de`: desconhecido é tratado como o mais restritivo.
-_GATE_POR_CLASSE = {"propose": "🟡", "write_low": "🔵"}
-
-# Ações que mexem em DINHEIRO ou em ato de governo sobem para 🔴 e exigem OTP na aprovação.
-# Lista explícita: herdar isso de heurística de nome é como o manifesto errou por 54 vezes.
+# Ações que mexem em DINHEIRO, em ato de governo ou em coisa IRREVERSÍVEL: 🔴 + OTP.
+# Lista explícita: herdar isso de heurística de nome é como o manifesto errou por 54 vezes —
+# `aceitar_proposta` gera comissão e não tem nome de dinheiro nenhum.
 _VERMELHAS = {
     "aceitar_proposta",          # gera COMISSÃO
     "lancar_diaria",             # valor a pagar
@@ -43,9 +41,36 @@ _VERMELHAS = {
     "fechar_folha",
     "calcular_folha_todos",
     "calcular_verbas_rescisorias",
+    "fechar_mes_ponto",          # o ponto é a BASE do que se paga
+    "ativar_contrato",           # tira do rascunho → passa a faturar
     "aprovar_ferias",            # evento de eSocial
     "concluir_admissao",         # evento de eSocial
+    "gerar_parecer_juridico",    # peça jurídica autorada por LLM
+    "expurgar_documentos_teste", # apaga — não desfaz
 }
+
+# Ações revisadas à mão e julgadas SEM efeito de dinheiro/governo/irreversível: aprováveis
+# inline em 🟡. Entrar aqui é uma decisão humana registrada, não um default.
+_AMARELAS = {
+    "enviar_whatsapp", "enviar_nps", "enviar_proposta", "enviar_proposta_completa",
+    "enviar_proposta_whatsapp", "followup_whatsapp", "followup_em_lote",
+    "inscrever_em_sequencia", "inscrever_lead_em_sequencia",
+    "analisar_processo_juridico", "montar_kit_completo", "buscar_documento",
+    "solicitar_ferias",
+}
+
+
+def grau_de(acao: str) -> tuple[str, bool]:
+    """(gate, exige_otp). DESCONHECIDA sobe para 🔴 + OTP — fail-closed no GRAU.
+
+    A versão anterior fechava a EXISTÊNCIA em dois lugares (`escopos_da_tool` devolve "" e
+    tool sem etiqueta vira `propose`) e deixava o grau aberto: ação nova, que ninguém pôs em
+    `_VERMELHAS`, caía em 🟡 e era aprovável inline sem OTP. Medido: `estornar_pagamento`
+    passava. Aqui, não declarar custa fricção — que é a pressão para declarar.
+    """
+    if acao in _VERMELHAS or acao not in _AMARELAS:
+        return "🔴", True
+    return "🟡", False
 
 
 @router.post("/pedir-aprovacao")
@@ -77,9 +102,7 @@ async def pedir_aprovacao(
             detail=f"a ação `{acao}` chegou sem consequências declaradas; sem elas o "
                    "aprovador decidiria às cegas")
 
-    vermelha = acao in _VERMELHAS
-    gate = "🔴" if vermelha else _GATE_POR_CLASSE.get(
-        str(payload.get("classe") or "propose"), "🟡")
+    gate, vermelha = grau_de(acao)
 
     resumo = "O agente pediu esta ação e NÃO a executou. Se aprovada, ela:\n" + "\n".join(
         f"• {c}" for c in consequencias)
