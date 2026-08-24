@@ -14,10 +14,11 @@ interface Func {
   com_rosto: boolean; bateu_hoje: boolean; num_batidas: number; ultima_batida: string | null;
 }
 interface Painel {
-  resumo: { ativos: number; total: number; ativados: number; com_rosto: number; pendentes: number; bateram_hoje: number; batidas_hoje: number; contingencias_validar: number; atrasados: number; de_folga: number; sem_horario_parametrizado: number };
+  resumo: { ativos: number; total: number; ativados: number; com_rosto: number; pendentes: number; bateram_hoje: number; batidas_hoje: number; contingencias_validar: number; atrasados: number; de_folga: number; sem_horario_parametrizado: number; ainda_no_solides: number };
   funcionarios: Func[];
   atrasados: { nome: string; posto: string | null; entrada_prevista: string | null; atraso_min: number }[];
   de_folga: string[];
+  ainda_no_solides: { nome: string; posto: string | null }[];
   fora_da_cobranca: { nome: string; motivo: string }[];
   feed: { nome: string; punch_type: string; device_type: string; status: string; hora: string }[];
   atualizado_em: string;
@@ -118,6 +119,28 @@ function PainelInner() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Nao e cobranca: e a fila da virada. A importacao do Solides chega 14-21h
+                depois, entao sobre estes o painel nao tem o que afirmar hoje. */}
+            {(d.ainda_no_solides || []).length > 0 && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 mb-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                  Ainda batem pelo Sólides
+                </p>
+                <div className="space-y-1">
+                  {d.ainda_no_solides.map((a, i) => (
+                    <div key={i} className="flex items-baseline gap-2 text-[13px]">
+                      <span className="flex-1 min-w-0 truncate text-slate-700">{a.nome}</span>
+                      <span className="text-[11px] text-slate-400 shrink-0 truncate">{a.posto}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">
+                  A batida deles chega de madrugada, no arquivo do Sólides — por isso não
+                  entram como atraso.
+                </p>
               </div>
             )}
 

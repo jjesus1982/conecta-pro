@@ -81,11 +81,13 @@ def painel(
     )
 
     funcionarios = []
-    agora_hhmm, dia_semana, iso_week = db.execute(text(
-        "SELECT to_char(now() AT TIME ZONE 'America/Manaus','HH24:MI'), "
-        "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int, "
-        "       extract(week from (now() AT TIME ZONE 'America/Manaus'))::int"
-    )).first()
+    agora_hhmm, dia_semana, iso_week = db.execute(
+        text(
+            "SELECT to_char(now() AT TIME ZONE 'America/Manaus','HH24:MI'), "
+            "       extract(dow from (now() AT TIME ZONE 'America/Manaus'))::int, "
+            "       extract(week from (now() AT TIME ZONE 'America/Manaus'))::int"
+        )
+    ).first()
 
     n_ativados = n_rosto = n_bateu = 0
     for r in rows:
@@ -116,7 +118,36 @@ def painel(
     # hora foi o que me fez apontar quatro pessoas erradas em 14/08.
     hh, mm = [int(x) for x in (agora_hhmm or "00:00").split(":")[:2]]
     agora_min = hh * 60 + mm
-    atrasados, sem_horario, de_folga = [], [], []
+
+    # 🔴 "NAO BATEU" NAO E A MESMA COISA QUE "AINDA NAO SABEMOS".
+    # Este painel so enxerga batida do Conecta PRO (`_CONECTA`). Quem ainda registra pelo
+    # Solides aparece com zero batidas o dia inteiro — e o painel o chamava de ATRASADO.
+    #
+    # Medido em 24/08/2026: a importacao do Solides chega com 14 a 21 HORAS de atraso
+    # (maximo de 31h). As batidas de 23/08 entraram no banco as 04:11 e 07:11 do dia 24.
+    # Entao a pessoa bate as 06:00, trabalha o turno inteiro, e o painel a acusa de 209
+    # minutos de atraso — porque o dado dela ainda esta viajando.
+    #
+    # As 09:25 daquele dia, 7 dos 8 "atrasados" eram exatamente isso. Acusar quem bateu no
+    # horario e pior que nao mostrar nada: o painel perde a credibilidade justamente na
+    # lista que existe para ser cobrada.
+    ainda_no_solides = {
+        r["nome"]
+        for r in db.execute(
+            text(
+                f"SELECT e.nome FROM employees e WHERE {_COHORT} "
+                f"  AND NOT EXISTS (SELECT 1 FROM gp_clock_punches p "
+                f"      WHERE p.employee_id = e.id AND p.punch_timestamp::date >= :desde "
+                f"        AND {_CONECTA}) "
+                f"  AND EXISTS (SELECT 1 FROM gp_clock_punches p "
+                f"      WHERE p.employee_id = e.id AND p.punch_timestamp::date >= :desde "
+                f"        AND coalesce(p.device_type,'') = 'tangerino')"
+            ),
+            {"desde": APRENDIZADO_DESDE},
+        ).mappings()
+    }
+
+    atrasados, sem_horario, de_folga, no_solides = [], [], [], []
     for f in funcionarios:
         if f["bateu_hoje"]:
             continue
@@ -125,11 +156,17 @@ def painel(
         if folga_hoje(f.get("escala") or "", f.get("dias_desde_turno")):
             de_folga.append(f["nome"])
             continue
+        # Fonte do dado ANTES do julgamento: sobre quem ainda esta no Solides o painel nao
+        # tem o que afirmar hoje — a batida dele chega amanha de madrugada.
+        if f["nome"] in ainda_no_solides:
+            no_solides.append({"nome": f["nome"], "posto": f.get("posto")})
+            continue
         # `iso_week` decide o revezamento de fim de semana do Michelangelo. Omitir o
         # argumento o deixava em 0, e (0 - 33) % 2 = 1 INVERTIA a escala: no sábado o painel
         # cobraria o artífice que está de folga e daria o escalado como ausente.
-        ent = horario_entrada(f["nome"], f.get("posto") or "", f.get("cargo") or "",
-                              f.get("turno") or "", dia_semana, iso_week)
+        ent = horario_entrada(
+            f["nome"], f.get("posto") or "", f.get("cargo") or "", f.get("turno") or "", dia_semana, iso_week
+        )
         f["entrada_prevista"] = ent
         if not ent:
             sem_horario.append(f["nome"])
@@ -204,10 +241,14 @@ def painel(
     # Padrão aprendido: a MESMA regra que o monitor do DP usa — mora em
     # `ponto/coorte_ponto.py`, junto da coorte, porque três superfícies precisam da mesma
     # resposta e três cópias viram três verdades.
-    padrao = db.execute(
-        text(SQL_PADRAO_BATIDAS.format(coorte=_COHORT)),
-        {"desde": APRENDIZADO_DESDE, "horas_turno": HORAS_ENTRE_TURNOS},
-    ).mappings().all()
+    padrao = (
+        db.execute(
+            text(SQL_PADRAO_BATIDAS.format(coorte=_COHORT)),
+            {"desde": APRENDIZADO_DESDE, "horas_turno": HORAS_ENTRE_TURNOS},
+        )
+        .mappings()
+        .all()
+    )
     aprendizado = montar_aprendizado(padrao)
 
     agora = db.execute(text("SELECT to_char(now() AT TIME ZONE 'America/Manaus', 'HH24:MI:SS')")).scalar()
@@ -226,18 +267,25 @@ def painel(
             "atrasados": len(atrasados),
             "sem_horario_parametrizado": len(sem_horario),
             "de_folga": len(de_folga),
+            "ainda_no_solides": len(no_solides),
             "batidas_hoje": int(b["total"]),
             "contingencias_validar": int(b["validar"]),
         },
         "funcionarios": funcionarios,
         "feed": [dict(x) for x in feed],
         "atrasados": [
-            {"nome": a["nome"], "posto": a["posto"], "entrada_prevista": a["entrada_prevista"],
-             "atraso_min": a["atraso_min"]}
+            {
+                "nome": a["nome"],
+                "posto": a["posto"],
+                "entrada_prevista": a["entrada_prevista"],
+                "atraso_min": a["atraso_min"],
+            }
             for a in sorted(atrasados, key=lambda x: -x["atraso_min"])
         ],
         "sem_horario_parametrizado": sem_horario,
         "de_folga": de_folga,
+        # Nao e cobranca de atraso: e a fila da virada que falta terminar.
+        "ainda_no_solides": sorted(no_solides, key=lambda x: x["nome"]),
         "fora_da_cobranca": fora,
         "aprendizado": aprendizado,
         "alertas": aprendizado["alertas"],
