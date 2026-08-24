@@ -248,6 +248,38 @@ implementada pelo T1, e commitei WIP dele junto com o meu. Duas vezes, no mesmo 
   humano lendo; não serve para agente. **Quem aprova não pode ser quem pede** — o `propose`
   sai da conversa e espera um terceiro, e o aprovador lê a **consequência**, não o nome da tool.
 
+### Git: a terceira armadilha, e ela contradiz a regra de cima
+
+⚠️ **`git commit -- <pathspec>` commita o WORKING TREE daqueles caminhos e IGNORA o índice.**
+Por desenho. Então ele **desfaz um `git rm --cached`** feito segundos antes, e grava a mudança
+de conteúdo no lugar da remoção — `git show --stat` diz `4 ++--` e nunca `delete mode`.
+
+**A regra da casa ("commit por pathspec, o índice é compartilhado") e `git rm --cached` são
+incompatíveis.** Para destrackear aqui, índice temporário:
+
+```bash
+export GIT_INDEX_FILE=/tmp/idx
+git read-tree HEAD && git rm --cached <arqs>
+git commit-tree $(git write-tree) -p HEAD -m msg | xargs git update-ref HEAD
+unset GIT_INDEX_FILE
+git rm --cached <arqs>        # ← e ainda remova do índice COMPARTILHADO, senão volta como `A `
+```
+
+Falhei duas vezes nisto em 24/08/2026 e, nas duas, **acusei o índice compartilhado** — versão
+plausível, com precedente nesta casa, e errada. *Prove o arreio antes de acusar o código.*
+
+### Estado de execução não se versiona
+
+Arquivo escrito por processo vivo (cron, bot, beat) dentro do repositório deixa ` M`
+permanente — e **a regra da parede entre terminais é ` M` = outro terminal está aqui, para e
+espera**. Com o working tree sujo de automação, o sinal que protege o código vira ruído.
+
+Medido em 24/08: `git status` com **713 entradas**, das quais 33 eram o agente CTO escrevendo
+`predicao/*.json` e rotacionando `memory/snapshots/`. A mesma decisão já tinha sido tomada
+três vezes (`qa_baseline.json`, `agents/knowledge/*.json`, `agents/cto/tickets/*.json`) **sem
+que ninguém varresse os irmãos**. E `.gitignore` **não desversiona o que já está versionado**:
+a regra dos snapshots existia desde antes e os 30 antigos seguiam rastreados.
+
 ### Sobre a própria ferramenta: heurística erra nos DOIS sentidos
 
 Seis medições por regex sobre código, num único dia, e **três inflaram, três zeraram**:
@@ -263,6 +295,33 @@ Seis medições por regex sobre código, num único dia, e **três inflaram, tr�
 
 ⚠️ **O mais perigoso foi o `0`**, não os inflados: número inflado alguém confere; **zero
 ninguém confere, porque parece boa notícia.**
+
+### Guard de ambiente pede PROVA DE IDENTIDADE, não sinal de vida
+
+"Fila vazia não é resultado" apareceu **quatro vezes em dois dias**, e a quarta é a que ensina:
+
+```
+1. ANTES == DEPOIS sobre zero escrita                    (o caminho nem foi exercido)
+2. checar_repositorio achando 0 dentro do container      (raiz /app, não /opt/…/backend)
+3. trava de desmonte varrendo /app/scripts/orq no host   (glob vazio → exit 0)
+4. guard que só pergunta "existe e tem .py?"             ← EXISTE UM /app NO HOST
+```
+
+Nas três primeiras o caminho **não existia**. Na quarta ele existia e era o errado — e um
+`.py` solto num diretório qualquer devolvia `TOTAL: 0` com exit 0.
+
+**Um guard que pergunta "tem algum código aqui?" aprova qualquer diretório plausível.** Peça o
+que só o lugar certo tem:
+
+```python
+esperados = {"crm", "financial", "people_management", "operacional"}
+if len(esperados & {p.name for p in raiz.iterdir() if p.is_dir()}) < 3:
+    raise SystemExit(2)
+```
+
+E **prove nas quatro direções, lendo o exit code do SCRIPT** — não o do `tail`, não o do
+`sed`, não o do último elo do pipe. Esse erro custou três leituras erradas num dia só, e é
+irmão do `> /dev/null` no `docker cp`: *ler o resultado do elo errado.*
 
 **Antídotos, nesta ordem:**
 1. **meça por comportamento, não por forma** — rode e conte, em vez de procurar a sintaxe.

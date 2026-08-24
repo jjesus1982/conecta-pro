@@ -72,6 +72,20 @@ def _exigir_ambiente(raiz: Path) -> None:
     if not any(raiz.rglob("*.py")):
         print(f"RECUSO: {raiz} existe mas não tem .py — QA_RAIZ aponta para o lugar errado.")
         raise SystemExit(2)
+    # ⚠️ "tem algum .py" NÃO basta, e isto é medido: o T4 descobriu em 24/08/2026 que existe
+    # um `/app` NO HOST (com `data/` dentro). Um guard que só pergunta "existe e tem código?"
+    # aprova qualquer diretório plausível — o caminho existia, era o /app errado. Um `.py`
+    # solto num diretório qualquer dava `TOTAL: 0` com exit 0.
+    #
+    # Então o guard pede PROVA DE IDENTIDADE do lugar, não sinal de vida: os módulos que só
+    # o backend do Conecta PRO tem. Quarta encarnação de "ausência não é resultado" em dois
+    # dias, e a mais sutil — nas outras três o caminho não existia.
+    esperados = {"crm", "financial", "people_management", "operacional"}
+    presentes = {p.name for p in raiz.iterdir() if p.is_dir()}
+    if len(esperados & presentes) < 3:
+        print(f"RECUSO: {raiz} tem .py mas não é o backend do Conecta PRO "
+              f"(esperava {sorted(esperados)}, achei {sorted(presentes)[:6]}).")
+        raise SystemExit(2)
 
 
 def achados(raiz: Path = RAIZ) -> list[dict]:
