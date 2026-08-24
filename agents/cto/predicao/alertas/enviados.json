@@ -1,6 +1,7 @@
 {
-  "erros_log_anomalia": "2026-04-15T05:05:05.147148",
-  "padrao_temporal": "2026-04-15T02:55:05.276963",
-  "correlacao_cpu_swap": "2026-04-12T13:55:06.218584",
-  "swap_saturando": "2026-04-12T17:30:08.914210"
+  "erros_log_anomalia": "2026-08-23T21:25:05.686752",
+  "padrao_temporal": "2026-08-23T09:55:04.681652",
+  "correlacao_cpu_swap": "2026-08-24T09:30:14.263498",
+  "swap_saturando": "2026-08-10T11:55:07.872929",
+  "disco_enchendo": "2026-08-17T09:55:03.911661"
 }

@@ -143,3 +143,11 @@ auditoria/reconciliacao_folha_2026-07-25/backup_folha_razao.json
 # Grafos do graphify — artefato de analise, regeneravel. Nunca versionar.
 graphify-out/
 backend/scripts/qa/.baseline.json
+
+# Estado de EXECUCAO do agente CTO — escrito por processo vivo (monitor_bot.py, PID em
+# curso), nunca por gente. Versionado por engano desde 04/2026: deixava 3 arquivos em ` M`
+# permanente e a regra da parede ("` M` = outro terminal, para e espera") virava ruido.
+# Mesmo argumento que ja tirou o qa_baseline.json do repositorio. Medido 24/08/2026.
+agents/cto/predicao/state.json
+agents/cto/predicao/historico/*.json
+agents/cto/predicao/alertas/*.json
