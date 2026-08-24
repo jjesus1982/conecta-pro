@@ -84,8 +84,16 @@ if __name__ == "__main__":
 
 - **versione**: oráculo fora do git some no próximo clone;
 - **nome `test_*.py`** em `backend/scripts/orq/` — a varredura diária pega sozinha;
-- **limpe o que escrever**, em `finally`. Um assert vermelho no meio deixou 4 apontamentos de
-  teste numa folha de produção, misturados com os reais;
+- **limpe o que escrever — na ENTRADA e na saída, e por PREFIXO**. A de saída (`finally`) é
+  para o caso normal; a de entrada é para quando **não houve saída**: execução morta por sinal
+  não roda `finally` nenhum. Um assert vermelho deixou 4 apontamentos de teste numa folha de
+  produção; uma execução abandonada deixou **15 registros `ZZE2E` no CRM**, e separá-los dos
+  leads reais deu trabalho.
+  ⚠️ **Apague por prefixo, nunca pela lista de ids que a execução gerou** — a execução que
+  morreu não deixa a lista dela para a seguinte, então limpar por id só limpa o próprio lixo,
+  e o lixo órfão é exatamente o que sobra. Use prefixo fixo (`ZZ…`): além de casar com o
+  abandonado, ordena no fim de qualquer listagem alfabética, então o que escapar aparece
+  agrupado em vez de escondido no meio do dado real;
 - **imprima o número**, não só "OK" — é o que permite conferir sem reler o código.
 
 ## Quando NÃO escrever oráculo

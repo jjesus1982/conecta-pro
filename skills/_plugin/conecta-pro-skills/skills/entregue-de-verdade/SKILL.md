@@ -57,6 +57,39 @@ oráculo contábil, e nada apontava a ausência.
 | "está no commit" | ver portão 1 |
 | ausência de erro | silêncio não é aprovação — "NÃO VERIFICADO" é resultado válido |
 
+## ⭐ Heurística sobre texto de código erra nos DOIS sentidos
+
+Grep/regex sobre corpo de função **não é conservador**: infla e zera. Seis medições erradas num
+único dia (24/08/2026), três para mais e três para menos:
+
+| o que eu media | disse | é |
+|---|---|---|
+| período no corpo do handler (sem seguir helper) | 11 sem servidor | **1** |
+| equivalência de capacidade por NOME | 112 lacunas | **43** |
+| prefixo exigindo aspas coladas | **0** fora do padrão | 23 |
+| marca de teste por CITAÇÃO no arquivo | 6 sem marca | **27** |
+| limpeza de entrada exigindo literal `'ZZ` | 29 sem entrada | 20 |
+| desmonte só como `DELETE … LIKE` | 20 sem entrada | 18 |
+
+⚠️ **O mais perigoso dos seis foi o `0`, não os inflados.** Número inflado alguém confere;
+zero ninguém confere, porque parece boa notícia. `0 fora do padrão` significava "meu regex não
+achou nada", e foi lido como "está tudo certo".
+
+⚠️ A sexta é a que fecha o argumento: o detector **não reconheceu dois desmontes que eu tinha
+acabado de escrever**, porque um usava `UPDATE … LIKE` e o outro `DELETE … strpos`.
+
+**Antídoto, nesta ordem:**
+
+1. **Prefira COMPORTAMENTO a FORMA.** Onde der para executar, execute:
+   `roda · conta antes · conta depois` não tem como fugir; nenhum regex sabe quantas formas de
+   escrever um `DELETE` existem. Foi a troca que consertou a condição 2 do `fechado_bartolo`
+   (procurava nome de variável no fonte → virou sonda contra o serviço no ar) e a trava de
+   desmonte dos oráculos.
+2. **Meça a mesma coisa por outro caminho e desconfie quando divergir.** Os seis foram pegos
+   assim, nenhum por releitura do regex.
+3. **Confira um a um antes de travar.** Trava que grita sem motivo é trava que se aprende a
+   ignorar — e a que zera é pior, porque ninguém volta nela.
+
 ## Ao reportar ao Jordan
 
 Diga nesta ordem: **o número medido**, depois a conclusão. Nunca o contrário.

@@ -28,7 +28,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 9 travas (código, não skill)
+## 2. As 13 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 
@@ -43,6 +43,10 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_rotas_frontend.py` | frontend chamando rota que o backend não tem — *9 de 9 no SLA* | `backend/scripts/qa` |
 | `checar_oraculo_externo.py` | número que **ninguém de fora** confirma — *ideia do T1* | `backend/scripts/qa` |
 | `checar_beats.py` | **rotina agendada que roda e não produz** — *5 camadas, ver abaixo* | `backend/scripts/qa` |
+| `checar_mcp_tools.py` | peça de parede **fora do git ou fora da imagem**; conector sem definição versionada; tool apontando para rota que não existe — *o conector do Jordan passou 2 semanas com imagem velha e nada denunciou* | `backend/scripts/qa` |
+| `checar_desmonte_oraculos.py` | oráculo que **escreve em produção sem desmontar** — *9 registros de teste vivos, um há 46 dias dizendo "será cancelada na limpeza"* | `backend/scripts/qa` |
+| `checar_desmonte_comportamento.py` | o mesmo, **medido rodando** em vez de por regex — *o detector por forma não reconheceu 2 desmontes recém-escritos* | `backend/scripts/qa` |
+| `checar_periodo_do_servidor.py` | competência/data vinda do **modelo** e não do servidor — *o agente chutou 7/2025 e disse a um porteiro com 91 batidas que ele não tinha ponto* | `backend/scripts/qa` |
 
 ### A lacuna que faltava: **rotina que roda e não produz**
 
@@ -222,9 +226,62 @@ implementada pelo T1, e commitei WIP dele junto com o meu. Duas vezes, no mesmo 
 - **Dinheiro que sai:** nunca happy-path, sempre gate humano. **Governo:** só leitura.
 - **Operacional é curado à mão pelo Jordan:** read-only para agentes; divergência vira
   relatório.
-- **Commit por pathspec.** Nunca `git add -A`, nunca `--amend` amplo.
+- **Commit por pathspec.** Nunca `git add -A`, nunca `--amend` amplo. ⚠️ **Arquivo NOVO não
+  entra por `git commit -- <arq>`** — precisa de `git add <arq>` explícito antes, nomeado.
 - **`docker cp` é volátil.** Só o bake entrega — e não recarrega módulo já importado.
 - **Mutação em produção usa `_mutacao.Mutacao`.** Ensaio antes, sempre.
+
+### As quatro compradas em 23–24/08/2026
+
+- ⭐ **`git commit` aqui é entrar na fila de deploy de outra pessoa.** Não existe "commitei mas
+  ainda não subi": o próximo bake de qualquer terminal leva o seu código. **Só commite o que
+  pode ir a produção agora, sem você por perto para completar.**
+- ⭐ **Confere o EXIT CODE, não o log.** O hook `ruff-format` reformata e faz o commit sair com
+  `exit=1`; um `git log -1` logo depois mostra o commit de **outra sessão** e parece sucesso.
+  Num índice compartilhado, **a evidência de sucesso é o trabalho alheio**. Custou 2 commits.
+- ⭐ **Prova vazia sai verde.** `ANTES == DEPOIS` sobre zero escrita passa sempre — é a mesma
+  forma de `exibido == banco` sobre 0 linhas. **Antes de afirmar que limpou, prove que
+  escreveu.** E toda prova de desmonte tem duas metades: *[1] contagem intacta* e *[2] a
+  vizinha REAL continua lá* — sem a segunda você provou que apagou, não que apagou só o seu.
+- ⭐ **Confirmação por string não é parede contra LLM.** Uma tool que exige `confirmar="ACEITAR"`
+  e devolve *"chame de novo com confirmar=ACEITAR"* ensina o chamador a passar. Serve para
+  humano lendo; não serve para agente. **Quem aprova não pode ser quem pede** — o `propose`
+  sai da conversa e espera um terceiro, e o aprovador lê a **consequência**, não o nome da tool.
+
+### Sobre a própria ferramenta: heurística erra nos DOIS sentidos
+
+Seis medições por regex sobre código, num único dia, e **três inflaram, três zeraram**:
+
+| o que media | disse | é |
+|---|---:|---:|
+| período no corpo do handler | 11 | 1 |
+| equivalência de tool por NOME | 112 | 43 |
+| prefixo exigindo aspas coladas | **0** | 23 |
+| marca de teste por citação no arquivo | 6 | 27 |
+| limpeza de entrada exigindo literal `'ZZ` | 29 | 20 |
+| desmonte só como `DELETE … LIKE` | 20 | 18 |
+
+⚠️ **O mais perigoso foi o `0`**, não os inflados: número inflado alguém confere; **zero
+ninguém confere, porque parece boa notícia.**
+
+**Antídotos, nesta ordem:**
+1. **meça por comportamento, não por forma** — rode e conte, em vez de procurar a sintaxe.
+   Nenhum regex sabe quantas formas de escrever `DELETE` existem; a contagem sabe;
+2. **meça a mesma coisa por dois caminhos** e desconfie quando divergirem — foi o que pegou as
+   seis;
+3. **confira um a um antes de travar.** Trava que grita sem motivo é trava que se aprende a
+   ignorar.
+
+### Número dentro de comentário leva a data em que foi medido
+
+Comentário que diz *"'saida_almoco' não existe — medido em 07/2026, zero de almoço"* continuava
+verdadeiro sobre julho e **falso sobre agosto**, quando o app ganhou botão de pausa e a
+contagem virou 288. Quem lê acredita no comentário, não na tabela.
+
+**Bug erra e dá para ver; premissa envelhecida acerta até parar de acertar, e ninguém percebe
+a transição.** Escreva `medido em <data>` ao lado de todo número que justifica uma decisão —
+e, ao achar um vencido, **atualize a justificativa antes de mexer na regra**: no caso acima a
+regra estava certa e só a razão tinha morrido.
 
 ---
 
