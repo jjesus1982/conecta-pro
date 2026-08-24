@@ -2145,17 +2145,68 @@ async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str
                 lead_id,
                 conversation_id,
             )
-        else:
-            logger.warning(
-                "Handoff %s -> %s lead=%s conv=%s: WhatsApp direto falhou — conversa fica no time do Chatwoot como backup",
-                setor,
-                resp["nome"],
-                lead_id,
-                conversation_id,
-            )
+            return resp.get("nome")
+        logger.warning(
+            "Handoff %s -> %s lead=%s conv=%s: WhatsApp NÃO entregue",
+            setor,
+            resp["nome"],
+            lead_id,
+            conversation_id,
+        )
+        await _sino_handoff_perdido(db, resp, name, phone, conversation_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Handoff %s conv=%s falhou (segue, time assume): %s", setor, conversation_id, exc)
-    return resp.get("nome")  # devolve o nome mesmo se o envio falhar — a conversa vai pro time no Chatwoot
+        logger.warning("Handoff %s conv=%s falhou: %s", setor, conversation_id, exc)
+    # ⚠️ Sem entrega, NÃO devolve o nome. Devolver fazia o agente dizer ao cliente
+    # "já passei pro Jordan" quando ninguém tinha sido avisado: entre 16/06 e 11/08
+    # foram NOVE leads que ouviram isso e ficaram esperando um retorno que não vinha.
+    # O time do Chatwoot não é backup de verdade — o Jordan atende pelo WhatsApp.
+    return None
+
+
+async def _sino_handoff_perdido(db, resp: dict, lead_nome, lead_fone, conversation_id: int) -> None:
+    """Handoff que não chegou ao WhatsApp do responsável vira alerta no sino.
+
+    Segundo canal de propósito: se o WhatsApp fosse confiável, o handoff teria
+    chegado. Mesma mecânica do [[task_falha]] — idempotency_key no sino, sem
+    tabela nova. Uma linha por DESTINATÁRIO (o índice único é por user_id).
+    """
+    try:
+        uids = [
+            r[0]
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT id::text FROM users WHERE lower(coalesce(role,''))='admin' "
+                        "AND coalesce(is_active,true) AND lower(coalesce(email,'')) NOT LIKE 'mcp-service%'"
+                    )
+                )
+            ).fetchall()
+        ]
+        extra = json.dumps({
+            "idempotency_key": f"handoff_perdido:{conversation_id}",
+            "origem": "handoff_whatsapp", "familia": "comercial",
+            "severidade": "critico", "conversa": conversation_id,
+        })
+        body = (
+            f"O José Luís encaminhou o lead *{lead_nome or '—'}* ({lead_fone or 'sem telefone'}) "
+            f"para {resp['nome']}, mas o aviso NÃO chegou no WhatsApp dele.\n\n"
+            f"O cliente está esperando retorno agora. Fale com ele pelo número acima."
+        )
+        for uid in uids:
+            await db.execute(
+                text(
+                    "INSERT INTO communication_notifications "
+                    "(id, tenant_id, user_id, title, body, type, reference_type, action_url, "
+                    " extra_data, is_active, sent_at, created_at) "
+                    "VALUES (gen_random_uuid(), :uid, :uid, :title, :body, 'alerta', 'handoff_perdido', "
+                    " '/redesign/comercial', CAST(:extra AS jsonb), true, NOW(), NOW()) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"uid": uid, "title": "Encaminhamento não chegou — lead esperando", "body": body, "extra": extra},
+            )
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001 — aviso que falha não pode derrubar o atendimento
+        logger.warning("handoff perdido: não consegui avisar no sino conv=%s: %s", conversation_id, exc)
 
 
 async def _tool_consultar_agenda(args: dict, conversation_id: int) -> dict:  # noqa: ARG001
@@ -2349,30 +2400,46 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
             res.get("status"),
         )
         if res.get("status") == "assigned":
-            # marca a conversa como TRANSFERIDA p/ o agente PARAR de responder (humano assumiu)
+            # ⚠️ ORDEM: avisa o humano PRIMEIRO, silencia o agente DEPOIS — e só se o aviso
+            # chegou. Era o contrário: gravava 'trf' (agente calado 12h) e o aviso ia como
+            # best-effort. Quando o aviso não chegava, o cliente ficava com ninguém dos dois
+            # lados no minuto mais quente da negociação. Foi o que houve com o lead do dia
+            # 11/08: qualificado inteiro, "já passei pro Jordan", e ali morreu.
+            precisa_aviso = setor in HANDOFF_RESPONSAVEIS
             responsavel = None
             try:
                 async with async_session_factory() as db:
-                    await db.execute(
-                        text(
-                            "INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
-                            "VALUES ('trf', :c, :setor, 'transfer')"
-                        ),
-                        {"c": conversation_id, "setor": setor[:200]},
-                    )
-                    await db.commit()
-                    # HANDOFF: avisa o responsável humano (Jordan=comercial / Pedro=suporte) no
-                    # WhatsApp dele, com o briefing do lead. Best-effort (o time já tem a conversa).
-                    if setor in HANDOFF_RESPONSAVEIS:
+                    if precisa_aviso:
                         lead_id = await _resolve_lead_id(db, conversation_id)
                         responsavel = await _enviar_handoff_whatsapp(db, lead_id, conversation_id, setor)
+                    if responsavel or not precisa_aviso:
+                        await db.execute(
+                            text(
+                                "INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
+                                "VALUES ('trf', :c, :setor, 'transfer')"
+                            ),
+                            {"c": conversation_id, "setor": setor[:200]},
+                        )
+                        await db.commit()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("transferir_conversa: falha ao marcar trf/handoff conv=%s: %s", conversation_id, exc)
-            out = {"ok": True, "setor": setor, "mensagem": "conversa encaminhada"}
             if responsavel:
-                out["responsavel"] = responsavel
-                out["mensagem"] = f"encaminhado para {responsavel} — avise o cliente que essa pessoa assume daqui"
-            return out
+                return {
+                    "ok": True,
+                    "setor": setor,
+                    "responsavel": responsavel,
+                    "mensagem": f"encaminhado para {responsavel} — avise o cliente que essa pessoa assume daqui",
+                }
+            if not precisa_aviso:
+                return {"ok": True, "setor": setor, "mensagem": "conversa encaminhada ao time"}
+            return {
+                "ok": False,
+                "setor": setor,
+                "mensagem": (
+                    "NÃO consegui avisar o responsável agora. NÃO diga ao cliente que passou "
+                    "para alguém — continue você mesmo o atendimento normalmente."
+                ),
+            }
         return {"erro": "não foi possível encaminhar agora"}
     except Exception as e:  # noqa: BLE001
         logger.warning("Tool transferir_conversa falhou conv=%s: %s", conversation_id, e)
