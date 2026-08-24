@@ -69,8 +69,8 @@ async def _fetch_live_balance(bank_code, bank_name):
 
 
 
-def _acao_pagar_dia(r) -> dict:
-    """Botão "Pagar este dia" na linha do lote de diaristas.
+def _acao_pagar_dia(r, resumo: dict | None = None, ja_vistos: set | None = None) -> dict:
+    """Botão de pagar o LOTE do dia — UMA vez por data, não em toda linha.
 
     O clássico resolvia isto numa tela só: o Jordan via quem o Gonzaga lançou, o valor, e
     pagava ali mesmo. No redesign virou SETE abas, e esta lista mandava "abra 'Pagar
@@ -78,9 +78,11 @@ def _acao_pagar_dia(r) -> dict:
     É onde ele se perdeu, e com razão: informação numa tela e ação noutra é o operador
     fazendo de ponte.
 
-    ⚠️ Paga o DIA inteiro, não a linha: VT/VR e diária da mesma data saem no mesmo lote
-    (é assim que o serviço processa). O rótulo diz isso — botão que promete pagar uma
-    pessoa e paga oito seria pior que botão nenhum.
+    ⚠️ UMA vez por data, e o rótulo carrega a CONTAGEM e o TOTAL. Na primeira versão o
+    botão saía em TODAS as 44 linhas: 44 botões idênticos se leem como "pagar esta
+    pessoa", e o Jordan disse exatamente isso — "quero pagar em lote, não individualmente
+    cada um". A ação sempre foi em lote; a aparência é que mentia. Botão que promete pagar
+    um e paga dezesseis é pior que botão nenhum — mesmo avisando no modal.
 
     ⚠️ Sem PIX não paga. Linha `sem_pix` não ganha botão: o lote a ignoraria de qualquer
     forma, e oferecer a ação prometeria o que não acontece.
@@ -91,13 +93,22 @@ def _acao_pagar_dia(r) -> dict:
     if r[4] == "sem_pix" or not r[0]:
         return {}
     dia = r[0].isoformat() if hasattr(r[0], "isoformat") else str(r[0])
+    if ja_vistos is not None:
+        if dia in ja_vistos:
+            return {}                    # o dia já tem seu botão, na primeira linha dele
+        ja_vistos.add(dia)
+    ag = (resumo or {}).get(dia) or {}
+    n, tot = ag.get("n", 0), ag.get("total", 0.0)
+    rotulo = ("Pagar este dia" if not n
+              else f"Pagar 1 do dia · {brl(tot)}" if n == 1
+              else f"Pagar os {n} do dia · {brl(tot)}")
     return {"actions": [{
-        "title": f"Pagar diaristas de {_fmtdate(r[0])}",
+        "title": (f"Pagar EM LOTE {n} lançamento(s) de {_fmtdate(r[0])} — {brl(tot)}"),
         "sub": ("Dinheiro que SAI, com OTP. Paga TODO o lote desta data — VT/VR e diária "
                 "da mesma data saem juntos, não só esta linha. Confira a conta: Cora é a "
                 "Patrimonial, Inter é a Eletrônica."),
         "endpoint": "/api/v1/redesign/action/pagar-diaristas",
-        "method": "POST", "btnLabel": "Pagar este dia", "submitLabel": "Preparar e gerar OTP",
+        "method": "POST", "btnLabel": rotulo, "submitLabel": "Preparar e gerar OTP",
         "btnStyle": "primary", "gated": True,
         "okMsg": "Lote preparado. Confira o OTP no e-mail para liberar.",
         "fields": [
@@ -964,6 +975,17 @@ ORDER BY b.comp DESC, b.cnpj"""
         "SELECT data_referencia, beneficiario, tipo, valor, status, coalesce(pix_key,'') FROM financial_pagamentos_diaristas "
         "WHERE status IN ('a_revisar','sem_pix') "
         "ORDER BY (data_referencia = CURRENT_DATE) DESC, data_referencia DESC, beneficiario LIMIT 300"))).fetchall()
+    # Quantos e quanto por DIA — o botão precisa dizer isso, senão "Pagar este dia" numa
+    # linha se lê como "pagar esta pessoa".
+    _resumo_dia: dict = {}
+    for _r in _dia:
+        if _r[4] != "a_revisar" or not _r[0]:
+            continue
+        _k = _r[0].isoformat() if hasattr(_r[0], "isoformat") else str(_r[0])
+        _a = _resumo_dia.setdefault(_k, {"n": 0, "total": 0.0})
+        _a["n"] += 1
+        _a["total"] += float(_r[3] or 0)
+    _ja_teve_botao: set = set()
     _dcells = [{"cells": [
         t(_fmtdate(r[0]) if r[0] else "—", 600, "#0F1B3A"), t(r[1] or "—"),
         b("VT/VR" if r[2] == "vt_vr" else "Diária" if r[2] == "diaria_mensal" else (r[2] or "—"),
@@ -971,7 +993,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         t(brl(r[3]) if r[3] is not None else "—", 600),
         t(r[5] or "—"),
         b("sem PIX" if r[4] == "sem_pix" else "a revisar", "bad" if r[4] == "sem_pix" else "warn"),
-    ], **_acao_pagar_dia(r)} for r in _dia]
+    ], **_acao_pagar_dia(r, _resumo_dia, _ja_teve_botao)} for r in _dia]
     _n_pessoas = len({(r[1] or "").strip().upper() for r in _dia if r[1]})
     # Total POR DIA de pagamento — o Jordan paga o VT/VR no dia e as diárias no dia 15,
     # entao ele precisa ver "quanto sai no dia X", nao so o total geral.
@@ -1054,7 +1076,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         ],
     }
     out["pagamentos-diaristas"] = {
-        "title": "Diaristas — lote a pagar (VT/VR + diária)",
+        "title": "A pagar — VT+VR e diárias",
         # O texto mandava "abra outra aba e informe a DATA" — agora o botão está na linha.
         # O sub diz o TOTAL primeiro: a pergunta do dono é "quantas pessoas e quanto sai",
         # e ela não pode exigir somar 45 linhas de cabeça.
@@ -1091,7 +1113,9 @@ ORDER BY b.comp DESC, b.cnpj"""
         for r in _cl]
 
     out["pagar-diaristas"] = {
-        "title": "Pagar diaristas",
+        # O título repete o que o rótulo da aba diz, porque é o cabeçalho que o operador
+        # lê antes de clicar em "gerar OTP" — e aqui sai dinheiro.
+        "title": "Pagar VT+VR ou diárias (em lote)",
         "sub": "Dinheiro que SAI. DEIXE A DATA VAZIA para pagar o lote inteiro de uma vez (o mês "
                "fechado); informe um dia só se quiser pagar apenas aquele dia. Pelo INTER o sistema paga "
                "direto (2 etapas com OTP); pela CORA a API não envia PIX por chave — devolve a lista para "

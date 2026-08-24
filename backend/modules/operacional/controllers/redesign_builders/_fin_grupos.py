@@ -34,9 +34,16 @@ GRUPOS = [
         ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"), ("nfse-entrada-payaveis", "NFS-e entrada × pagável"), ("nfse-entrada-auto-payaveis", "Criar pagáveis (todas)"),
         ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
     ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa. Contas e impostos ficam em «Contas & Impostos»; a lista de dívidas, em «Pagar».", [
-        ("pagamentos-diaristas", "Diaristas — a pagar"), ("pagar-diaristas", "Pagar diaristas"),
-        ("programar-vtvr-dia", "Programar VT+VR do dia"), ("adicionar-vtvr-avulso", "VT+VR avulso"),
-        ("programar-diarias-mes", "Lote mensal (dia 15)"),
+        # ⚠️ Nome de aba tem de dizer O QUE SAI. "Pagar diaristas" foi lido pelo Jordan
+        # como "pagar o dia trabalhado do profissional" — e a tela paga VT+VR, diária, ou
+        # os dois. Rótulo ambíguo em tela de dinheiro é convite a pagar a coisa errada.
+        ("pagamentos-diaristas", "A pagar — VT+VR e diárias"),
+        ("pagar-diaristas", "Pagar VT+VR ou diárias"),
+        # Programar virou automático (beat 7h-21h); esta aba fica como saída manual para
+        # quem não quer esperar a hora cheia. O rótulo diz isso.
+        ("programar-vtvr-dia", "Programar VT+VR agora (manual)"),
+        ("adicionar-vtvr-avulso", "VT+VR avulso (líder/cobertura)"),
+        ("programar-diarias-mes", "Programar diárias do mês"),
         ("pagamentos-pj", "Folha PJ"), ("pagar-folha-pj", "Pagar folha PJ"),
         ("pagar-folha-clt", "Pagar folha CLT"),
         ("documentos-diaristas", "Recibos dos diaristas"),
