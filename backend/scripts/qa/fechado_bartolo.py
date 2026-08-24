@@ -47,7 +47,17 @@ CONECTOR_AGENTE = "conecta-pro-mcp-internal"
 GRUPOS_PESSOAIS = {"dp", "rh"}
 
 
+#: Prefixo que uma condição usa para dizer "não consegui medir" — diferente de "reprovou".
+#: Sem essa distinção, medição atropelada (deploy no meio da corrida, backend aquecendo) lê
+#: exatamente igual a parede quebrada, e quem lê o placar não sabe qual dos dois aconteceu.
+#: NÃO VERIFICADO continua NÃO PASSANDO — fail-closed —, só para de mentir sobre a causa.
+NAO_MEDIDO = "!nao-medido!"
+
+
 def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
+    if detalhe.startswith(NAO_MEDIDO):
+        print(f"  ⚠️  {titulo} — NÃO VERIFICADO: {detalhe[len(NAO_MEDIDO):]}")
+        return False
     print(f"  {'✅' if cond else '❌'} {titulo}" + (f" — {detalhe}" if detalhe else ""))
     return cond
 
@@ -55,6 +65,24 @@ def _ok(cond: bool, titulo: str, detalhe: str = "") -> bool:
 def _docker(*args: str, timeout: int = 900) -> str:
     r = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
     return (r.stdout or "") + (r.stderr or "")
+
+
+def _docker_json(*args: str, timeout: int = 420, marcador: str = "J"):
+    """Roda no container e extrai o bloco marcado, com UMA repetição.
+
+    Importar o app leva ~40-75s e logo depois de um bake o backend ainda está aquecendo: a
+    primeira tentativa estoura e a condição reprovaria por motivo errado. Devolve None quando
+    as duas tentativas falham — aí é NÃO VERIFICADO, nunca "reprovou".
+    """
+    for _tentativa in (1, 2):
+        try:
+            saida = _docker(*args, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            continue
+        m = re.search(f"<<{marcador}>>(.*?)<<{marcador}>>", saida, re.S)
+        if m:
+            return json.loads(m.group(1))
+    return None
 
 
 def _env_do(container: str, chave: str) -> str:
@@ -159,7 +187,7 @@ def _c3_conta_de_servico() -> tuple[bool, str]:
 # ── 4 · autoconhecimento ──────────────────────────────────────────────────────────────
 def _c4_autoconhecimento() -> tuple[bool, str]:
     """Tem de vir do registro. Lista escrita à mão é a mesma casca com nome novo."""
-    saida = _docker("exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend", "python3", "-c",
+    d = _docker_json("exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend", "python3", "-c",
                     "import asyncio, json;"
                     "import modules.ai.conversation.controllers.consultor_escopado_controller as c;"
                     "from modules.ai.conversation.services.orquestrador.tool_registry import get_tool;"
@@ -168,10 +196,8 @@ def _c4_autoconhecimento() -> tuple[bool, str]:
                     "print('<<J>>' + json.dumps({'existe': t is not None,"
                     " 'modulos_registrados': sorted(_READ_OPS)}) + '<<J>>')",
                     timeout=420)
-    m = re.search(r"<<J>>(.*?)<<J>>", saida, re.S)
-    if not m:
-        return False, "não consegui interrogar o registro no container"
-    d = json.loads(m.group(1))
+    if d is None:
+        return False, NAO_MEDIDO + "não consegui interrogar o registro no container (2 tentativas)"
     if not d["existe"]:
         return False, "tool `o_que_voce_faz` NÃO registrada"
 
@@ -215,12 +241,10 @@ with SyncSessionLocal() as s:
     r = s.execute(text(SQL)).fetchall()
 print("<<J>>" + json.dumps([[x[0], x[1], int(x[2]), str(x[3])] for x in r]) + "<<J>>")
 '''
-    saida = _docker("exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
-                    "python3", "-c", snippet, timeout=300)
-    m = re.search(r"<<J>>(.*?)<<J>>", saida, re.S)
-    if not m:
-        return False, "não consegui ler llm_usage (tabela ausente? telemetria fora do ar?)"
-    linhas = json.loads(m.group(1))
+    linhas = _docker_json("exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
+                          "python3", "-c", snippet, timeout=300)
+    if linhas is None:
+        return False, NAO_MEDIDO + "não consegui ler llm_usage (2 tentativas)"
     if linhas:
         pior = linhas[0]
         # O ÚLTIMO é o que separa "sangrando agora" de "já parou e a janela ainda lembra".
