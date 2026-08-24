@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Trava por COMPORTAMENTO: roda o oráculo e vê se ele deixou linha para trás.
+
+Substitui a detecção por FORMA (`checar_desmonte_oraculos.py`), que errou seis vezes num dia —
+três para mais e três para menos. A sexta foi a mais eloquente: o detector não reconheceu dois
+desmontes que eu tinha acabado de escrever, porque um usa `UPDATE … LIKE` e o outro
+`DELETE … strpos`.
+
+    por FORMA         o arquivo contém DELETE … LIKE 'ZZ%'     ← erra em toda sintaxe nova
+    por COMPORTAMENTO roda · conta antes · conta depois        ← não tem como fugir
+
+Nenhum regex sabe quantas formas de escrever um DELETE existem. A contagem sabe.
+
+⚠️ Só os que ESCREVEM. Os que apenas leem não têm o problema, e rodá-los seria caro sem
+motivo. A lista sai do mesmo lugar: `INSERT INTO`/`UPDATE … SET`/`DELETE FROM` no fonte.
+
+⚠️ Ambiente REAL. Oráculo sem credencial de banco "passa" o desmonte perfeitamente — a prova
+fica vazia e sai verde, que é a mesma forma de `exibido == banco` sobre 0 linhas.
+
+⚠️ Limite honesto: contagem igual pode significar "limpou" ou "não exercitou" (pré-condição
+não atendida, tabela sem dado). Por isso o veredito tem TRÊS estados, e `NÃO EXERCITADO`
+nunca é reportado como limpo.
+
+    docker exec -e PYTHONPATH=/app conecta-pro-backend \\
+        python3 /app/scripts/qa/checar_desmonte_comportamento.py [--um <arquivo>]
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import pathlib
+import re
+import subprocess
+import sys
+
+ORQ = pathlib.Path("/app/scripts/orq")
+ESCRITA = re.compile(
+    r"INSERT\s+INTO\s+(\w+)|UPDATE\s+([a-z_][a-z0-9_]*)\s+SET|DELETE\s+FROM\s+(\w+)", re.I)
+
+#: Tabelas que já morderam esta casa — ordenam a fila.
+RISCO = ["hr_payslips", "payable_accounts", "contracts", "occurrences", "gp_clock_punches"]
+
+TIMEOUT = 420
+
+
+def _tabelas(txt: str) -> list[str]:
+    achadas = {g for m in ESCRITA.findall(txt) for g in m if g}
+    return sorted(achadas)
+
+
+async def _contar(tabelas: list[str]) -> dict[str, int]:
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+
+    out: dict[str, int] = {}
+    async with async_session_factory() as db:
+        for t in tabelas:
+            try:
+                out[t] = int((await db.execute(text(f'SELECT count(*) FROM "{t}"'))).scalar() or 0)
+            except Exception:  # noqa: BLE001 — tabela que não existe não é problema deste teste
+                continue
+    return out
+
+
+def _rodar(script: pathlib.Path) -> tuple[int, str]:
+    amb = dict(os.environ)
+    amb["PYTHONPATH"] = "/app"
+    try:
+        r = subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
+                           timeout=TIMEOUT, env=amb)
+    except subprocess.TimeoutExpired:
+        return 124, "(timeout)"
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+async def main() -> int:
+    alvo = None
+    if "--um" in sys.argv:
+        alvo = sys.argv[sys.argv.index("--um") + 1]
+
+    fila = []
+    for f in sorted(ORQ.glob("*.py")):
+        if f.name.startswith("_") or (alvo and f.name != alvo):
+            continue
+        txt = f.read_text(errors="replace")
+        tabs = _tabelas(txt)
+        if tabs:
+            fila.append((min([RISCO.index(t) for t in tabs if t in RISCO] or [99]), f, tabs))
+    fila.sort(key=lambda x: (x[0], x[1].name))
+
+    sujos, limpos, nao_exercitados, quebrados = [], [], [], []
+    for _r, f, tabs in fila:
+        antes = await _contar(tabs)
+        codigo, saida = _rodar(f)
+        depois = await _contar(tabs)
+        cresceu = {t: depois[t] - antes[t] for t in antes if depois.get(t, antes[t]) > antes[t]}
+        # "escreveu?" vem ANTES de "contagem": ANTES==DEPOIS sobre zero escrita passa sempre.
+        rodou = bool(saida.strip()) and codigo != 124
+
+        if cresceu:
+            sujos.append((f.name, cresceu))
+            print(f"  x {f.name}  DEIXOU LINHA: {cresceu}")
+        elif not rodou:
+            nao_exercitados.append(f.name)
+            print(f"  ? {f.name}  NÃO EXERCITADO (sem saída ou timeout) — não conta como limpo")
+        elif codigo != 0:
+            quebrados.append((f.name, saida.strip().splitlines()[-1][:90] if saida.strip() else ""))
+            print(f"  ! {f.name}  reprovou por DEFEITO (exit={codigo}) — limpou, mas achou algo")
+        else:
+            limpos.append(f.name)
+            print(f"  ok {f.name}  ({', '.join(tabs[:3])})")
+
+    print(f"\n  {len(limpos)} limpo(s) · {len(sujos)} deixaram linha · "
+          f"{len(nao_exercitados)} não exercitado(s) · {len(quebrados)} com defeito real")
+    if quebrados:
+        print("\n  ── defeitos REAIS achados ao rodar de verdade (escalar ao dono, não consertar) ──")
+        for n, ln in quebrados:
+            print(f"    {n}: {ln}")
+    if sujos:
+        print("\n  ── deixaram linha em produção ──")
+        for n, c in sujos:
+            print(f"    {n}: {c}")
+    return 1 if (sujos or nao_exercitados) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))
