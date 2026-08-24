@@ -49,7 +49,14 @@ PREFIXO = "ZZ"
 #: POSIÇÃO, não por literal: a versão anterior exigia a string 'ZZ colada no LIKE e não via
 #: `DELETE ... WHERE punch_id LIKE :p` com bind param — acusou oráculos que limpam certo.
 #: Quinto falso positivo de heurística nesta trava; todos vieram de olhar forma, não fato.
-_DELETE_POR_PREFIXO = re.compile(r"DELETE\s+FROM\s+\w+\s+WHERE[^\n]*LIKE", re.I)
+#: Desmonte por MARCA. Aceita DELETE e UPDATE (há oráculo cujo órfão é um CAMPO sujo numa
+#: linha de produção, não uma linha a mais — `hr_payslips.contest_reason`), e aceita `LIKE` ou
+#: `strpos`, que é como o SQL de contratos casa a marca. A versão anterior só via
+#: `DELETE ... LIKE` e não reconheceu dois desmontes que eu mesmo acabara de escrever: sexto
+#: falso negativo de heurística sobre texto de código, todos da mesma natureza.
+_DESMONTE_POR_MARCA = re.compile(
+    r"(DELETE\s+FROM|UPDATE)\s+\w+[^\n]*(?:\n[^\n]*){0,3}?(LIKE|strpos)", re.I)
+_FUNCAO_DE_ENTRADA = re.compile(r"def\s+_?(limpar_orfaos|limpar_previo|desmontar_entrada)", re.I)
 
 
 def _limpa_na_entrada(txt: str) -> bool:
@@ -58,9 +65,11 @@ def _limpa_na_entrada(txt: str) -> bool:
     O `finally` cobre a saída normal. O que a execução morta por sinal precisa é de alguém
     apagando o órfão ANTES do próximo teste — e isso é código que roda no caminho de ida.
     """
+    if _FUNCAO_DE_ENTRADA.search(txt):
+        return True
     fim = txt.find("finally:")
     inicio = txt[: fim if fim > 0 else len(txt)]
-    return bool(_DELETE_POR_PREFIXO.search(inicio))
+    return bool(_DESMONTE_POR_MARCA.search(inicio))
 
 #: Só leem: não têm o problema, e inventar desmonte neles é trabalho fabricado.
 def _escreve(txt: str) -> bool:
