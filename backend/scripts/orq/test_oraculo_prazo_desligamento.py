@@ -73,10 +73,39 @@ async def _ids_vistos_pela_regra(db) -> set[str]:
     return {a.correlation_id.split(":")[1] for a in await _detectar_aviso_previo(db)}
 
 
+
+#: MARCA no `reason`. Esta é a pior tabela dos sete: uma rescisão órfã é um documento com
+#: efeito legal, e o oráculo limpava pelo `id` que o INSERT retorna — se a execução morre por
+#: sinal, o id se perde com ela e a linha fica INDISTINGUÍVEL de um desligamento real. Sem
+#: marca não há como achá-la depois; é o caso extremo do "não dá para limpar o que não dá
+#: para identificar".
+_MARCA = "ZZORQ-PRAZO-DESLIGAMENTO — registro de teste, pode excluir"
+_MARCAS_ANTIGAS: tuple[str, ...] = ()  # nunca houve marca aqui; nada antigo a varrer
+
+
+async def _limpar_orfaos_de_entrada(db) -> int:
+    """Apaga a rescisão sintética que sobrou de execução sem saída. Por MARCA, nunca por id."""
+    n = 0
+    for marca in (_MARCA, *_MARCAS_ANTIGAS):
+        r = await db.execute(text(
+            "DELETE FROM termination_processes WHERE strpos(coalesce(reason, ''), :m) > 0"),
+            {"m": marca.split(" —")[0]})
+        n += r.rowcount or 0
+    if n:
+        await db.commit()
+    return n
+
 async def main() -> int:
     falhas: list[str] = []
 
     async with async_session_factory() as db:
+        # ENTRADA, antes de qualquer leitura: a rescisão órfã de uma execução morta entraria
+        # na "produção real" que este próprio oráculo mede logo abaixo — resíduo virando
+        # verdade de referência é o pior jeito de errar.
+        _orf = await _limpar_orfaos_de_entrada(db)
+        if _orf:
+            print(f"entrada: {_orf} rescisão(ões) órfã(s) de teste removida(s)")
+
         # ── (A) contra a produção real ───────────────────────────────────────
         verdade = (await db.execute(SQL_VERDADE, {"janela": JANELA_DIAS})).mappings().all()
         vistos = await _ids_vistos_pela_regra(db)
@@ -106,11 +135,11 @@ async def main() -> int:
             try:
                 sid = (await db.execute(text(
                     "INSERT INTO termination_processes "
-                    "  (employee_id, type, status, last_working_day) "
+                    "  (employee_id, type, status, last_working_day, reason) "
                     "VALUES (CAST(:e AS uuid), 'involuntary', 'initiated', "
-                    "        current_date + 3) "
+                    "        current_date + 3, :marca) "
                     "RETURNING id::text"
-                ), {"e": alvo})).scalar()
+                ), {"e": alvo, "marca": _MARCA})).scalar()
                 await db.flush()
                 if sid in await _ids_vistos_pela_regra(db):
                     print("(B) caso sintético (notice_start_date NULO, último dia +3d): visto")
