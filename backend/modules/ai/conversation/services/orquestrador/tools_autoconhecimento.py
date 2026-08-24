@@ -86,13 +86,38 @@ async def _o_que_voce_faz(db, user, scope, **_) -> dict[str, Any]:
         # outra: existe um segundo caminho (conector MCP → Hermes) que hoje quase não serve
         # nada, porque o Hermes não sabe repassar a identidade de quem pergunta por chamada e
         # tudo que toca dado de terceiro é barrado lá. O que respondo a VOCÊ vem daqui.
+        # Número SEM RÓTULO é a etiqueta que mente. Existem três contagens legítimas do mesmo
+        # sistema e elas divergem por 3× — quem citar uma sem dizer o que ela inclui vai ser
+        # desmentido por quem contar a outra. Medido em 24/08/2026: 62 funções, das quais 12
+        # são dispatchers que carregam 112 consultas e 27 ações; logo 50 diretas + 139
+        # sub-operações = 189 capacidades.
+        "quantas_coisas_eu_faco": {
+            "funcoes_que_o_modelo_enxerga": len(_todas()),
+            "capacidades_distintas": len(_diretas()) + _sub_ops(),
+            "explicacao": (
+                f"{len(_todas())} funções, mas {len(_todas()) - len(_diretas())} delas são "
+                f"despachantes (`consultar_<módulo>`, `agir_<módulo>`) que carregam "
+                f"{_sub_ops()} operações por dentro. Contando o que dá para PEDIR, são "
+                f"{len(_diretas()) + _sub_ops()}."
+            ),
+        },
         "onde_isto_roda": (
-            f"motor in-process do ERP, com a SUA identidade real ({len(_todas())} tools "
-            "registradas no total; você alcança as listadas acima). O caminho pelo conector "
-            "MCP/Hermes é outro e está praticamente fechado: sem repasse de identidade, lá só "
-            "passa consulta que não toca dado de ninguém."
+            "motor in-process do ERP, com a SUA identidade real — você alcança as listadas "
+            "acima. O caminho pelo conector MCP/Hermes é outro e está praticamente fechado: "
+            "sem repasse de identidade, lá só passa consulta que não toca dado de ninguém."
         ),
     }
+
+
+def _diretas():
+    """ToolDef que NÃO são despachantes — as que o modelo chama pelo nome próprio."""
+    return [t for t in _todas() if not t.name.startswith(("consultar_", "agir_"))]
+
+
+def _sub_ops() -> int:
+    """Operações que vivem DENTRO dos despachantes (o enum de `consulta` e o de `acao`)."""
+    return len({n for ops in _READ_OPS.values() for n in ops}) + \
+        len({n for ops in _ACOES.values() for n in ops})
 
 
 register(ToolDef(

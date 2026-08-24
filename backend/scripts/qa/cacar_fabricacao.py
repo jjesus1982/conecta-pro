@@ -38,6 +38,30 @@ from pathlib import Path
 
 RAIZ = Path(os.getenv("QA_RAIZ", "/app"))
 
+
+def _exigir_ambiente() -> None:
+    """RECUSA rodar onde `RAIZ` não existe — este caçador varre /app, dentro do container.
+
+    No host esse caminho não existe: o scan não acha arquivo nenhum e o script imprime
+    "nenhuma assinatura de fabricação encontrada" com exit 0. Boa notícia por ausência de
+    medição, que é o pior tipo de verde — e o mais difícil de desconfiar, porque ninguém
+    confere um zero.
+
+    Quarta encarnação da mesma família em dois dias: ANTES==DEPOIS sobre zero escrita ·
+    checar_repositorio achando 0 no container · a trava de desmonte verde no host com fila
+    vazia · esta.
+    """
+    # Não basta `/app` existir: no HOST existe um `/app` com UM arquivo (reconciliation_cron)
+    # e o guard ingênuo passava. A prova de que é o /app CERTO é `modules/` com o backend
+    # dentro — o que este caçador de fato varre.
+    modulos = RAIZ / "modules"
+    quantos = len(list(modulos.rglob("*.py"))) if modulos.is_dir() else 0
+    if quantos < 100:
+        print(f"RECUSO: {modulos} tem {quantos} arquivo(s) .py — não é o /app do backend. "
+              f"Este caçador roda DENTRO do container.\n"
+              f"  docker exec conecta-pro-backend python3 /app/scripts/qa/cacar_fabricacao.py")
+        raise SystemExit(2)
+
 #: nomes que denunciam que o valor calculado É uma afirmação sobre o mundo
 _PALAVRAS_VALIDADE = ("validade", "valid", "venc", "expiry", "expira", "prazo", "vigencia")
 
@@ -230,6 +254,7 @@ SQL = ("SELECT sum(v) FROM nfse WHERE data_emissao >= "
 
 
 def main() -> int:
+    _exigir_ambiente()
     alvo = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else RAIZ / "modules"
     achados = varrer(alvo)
     if not achados:
