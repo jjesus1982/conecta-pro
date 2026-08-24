@@ -127,6 +127,21 @@ def main() -> int:
     else:
         print("  checar_arsenal: confere")
 
+    # A parede do agente: no git, na imagem e apontando para rota que existe. Também sem
+    # dívida aceitável. Ligada aqui porque a lição do dia em que ela nasceu foi justamente
+    # esta — o `tool_risk_manifest` classificava 254 tools e NINGUÉM o consultava. Trava que
+    # ninguém roda é a mesma doença que ela veio curar.
+    r = subprocess.run([sys.executable, str(AQUI / "checar_mcp_tools.py")],
+                       capture_output=True, text=True, timeout=600)
+    if r.returncode != 0:
+        falhou.append("checar_mcp_tools: a parede do agente está fora do git, fora da "
+                      "imagem, ou apontando para rota que não existe")
+        print("  x checar_mcp_tools: a parede do agente diverge")
+        print("\n".join("     " + ln for ln in r.stdout.splitlines()
+                        if ln.strip().startswith("-")))
+    else:
+        print("  checar_mcp_tools: confere")
+
     if gravar or any(agora.get(k, 0) < base.get(k, 10**9) for k in agora):
         # Baixar a base é automático — conserto não deve exigir cerimônia. Subir, não.
         nova = {k: min(v, base.get(k, v)) if not gravar else v for k, v in agora.items()}
