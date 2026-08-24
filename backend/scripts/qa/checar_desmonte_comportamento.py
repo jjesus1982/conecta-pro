@@ -62,6 +62,26 @@ def _tabelas(txt: str) -> list[str]:
     return sorted(achadas)
 
 
+async def _estatisticas() -> dict[str, tuple[int, int]]:
+    """(linhas inseridas, linhas apagadas) acumuladas POR TABELA, direto do Postgres.
+
+    Instrumento para a varredura AMPLA (`--todos`): não olha o código, olha o banco. Vê
+    escrita que entrou por SQL, por ORM, por controller ou por qualquer outro caminho — que é
+    exatamente o ponto cego que deixou 26 advertências disciplinares acumularem por 21 dias
+    sem nenhuma trava ver, porque o oráculo grava por `rd_action_*` e não tem uma linha de SQL.
+
+    ⚠️ Grep foi quem criou aquele ponto cego. Não se conserta ponto cego de grep com mais grep.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        linhas = (await db.execute(text(
+            "SELECT relname, n_tup_ins, n_tup_del FROM pg_stat_user_tables"))).all()
+    return {r[0]: (int(r[1] or 0), int(r[2] or 0)) for r in linhas}
+
+
 async def _contar(tabelas: list[str]) -> dict[str, int]:
     from sqlalchemy import text  # noqa: PLC0415
 
@@ -100,6 +120,7 @@ async def main() -> int:
               f"/app/scripts/qa/{pathlib.Path(__file__).name}")
         return 2
 
+    todos = "--todos" in sys.argv
     alvo = None
     if "--um" in sys.argv:
         alvo = sys.argv[sys.argv.index("--um") + 1]
@@ -110,6 +131,8 @@ async def main() -> int:
             continue
         txt = f.read_text(errors="replace")
         tabs = _tabelas(txt) or TABELAS_DECLARADAS.get(f.name, [])
+        if todos and not tabs:
+            tabs = ["__stat__"]  # sem tabela conhecida: mede pelo estado do Postgres
         if tabs:
             fila.append((min([RISCO.index(t) for t in tabs if t in RISCO] or [99]), f, tabs))
     fila.sort(key=lambda x: (x[0], x[1].name))
@@ -119,6 +142,40 @@ async def main() -> int:
 
     sujos, limpos, nao_exercitados, quebrados = [], [], [], []
     for _r, f, tabs in fila:
+        if tabs == ["__stat__"]:
+            e0 = await _estatisticas()
+            main._snapshot = await _contar(sorted(e0))  # contagem REAL antes, p/ desempatar
+            codigo, saida = _rodar(f)
+            e1 = await _estatisticas()
+            suspeitas = {t: (e1[t][0] - e0[t][0]) - (e1[t][1] - e0[t][1])
+                         for t in e1 if t in e0
+                         and (e1[t][0] - e0[t][0]) - (e1[t][1] - e0[t][1]) > 0}
+            # `n_tup_ins` conta TUPLA, inclusive a revertida por rollback — e o caminho normal
+            # de vários oráculos é justamente inserir e dar rollback. Medido em 24/08/2026:
+            # dos 14 acusados por pg_stat, os 2 em tabela de negócio eram insert REVERTIDO
+            # (gp_clock_punches 9351 → 9351). pg_stat aponta ONDE olhar; a contagem decide.
+            sobrou = {}
+            if suspeitas:
+                reais = await _contar(sorted(suspeitas))
+                antes_reais = getattr(main, "_snapshot", {})
+                sobrou = {t: n for t, n in suspeitas.items()
+                          if reais.get(t, 0) > antes_reais.get(t, reais.get(t, 0))}
+                if not sobrou:
+                    print(f"  ok {f.name}  (escreveu e reverteu — pg_stat via tupla, "
+                          f"contagem não mudou: {sorted(suspeitas)})")
+                    limpos.append(f.name)
+                    continue
+            if sobrou:
+                sujos.append((f.name, sobrou))
+                print(f"  x {f.name}  DEIXOU LINHA (via pg_stat): {sobrou}")
+            elif not (saida.strip() and codigo != 124):
+                nao_exercitados.append(f.name)
+                print(f"  ? {f.name}  NÃO EXERCITADO")
+            else:
+                escreveu_algo = any((e1[t][0] - e0[t][0]) > 0 for t in e1 if t in e0)
+                limpos.append(f.name)
+                print(f"  ok {f.name}  ({'escreveu e limpou' if escreveu_algo else 'não escreveu'})")
+            continue
         antes = await _contar(tabs)
         codigo, saida = _rodar(f)
         depois = await _contar(tabs)
