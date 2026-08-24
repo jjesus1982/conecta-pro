@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import get_current_active_user
 from core.auth.module_scope import user_modules
 from core.database import get_db
+from modules.ai.conversation.services.orquestrador import tools_autoconhecimento  # noqa: F401 — registra `o_que_voce_faz` (F4)
 from modules.ai.conversation.services.orquestrador import tools_comercial_doc  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
 from modules.ai.conversation.services.orquestrador import tools_read_crm  # noqa: F401 — registra as 8 consultas READ do CRM (Fase 6 VER)
 from modules.ai.conversation.services.orquestrador import tools_read_dp  # noqa: F401 — registra as 8 consultas READ do DP/RH (Fase 6 VER)
@@ -151,6 +152,21 @@ def _modulo_tools(mods: set[str]) -> list[ToolDef]:
 
 
 async def _resolver_tier_e_tools(db: AsyncSession, user) -> tuple[OrqScope, list[ToolDef]]:
+    """Tools do usuário + a de AUTOCONHECIMENTO (F4), em TODOS os tiers.
+
+    Somada aqui, num ponto só, e não nos quatro `return` abaixo: capacidade que precisa ser
+    lembrada em cada ramo é a que fica de fora do ramo novo. Ela não amplia alcance nenhum —
+    lê o registro vivo e descreve o que o resolvedor já devolveu, inclusive quando devolveu
+    nada (o tier sem escopo continua honesto: ele diz que não alcança).
+    """
+    from modules.ai.conversation.services.orquestrador.tool_registry import get_tool  # noqa: PLC0415
+
+    scope, tools = await _resolver_tier_e_tools_base(db, user)
+    auto = get_tool("o_que_voce_faz")
+    return scope, ([*tools, auto] if auto is not None else tools)
+
+
+async def _resolver_tier_e_tools_base(db: AsyncSession, user) -> tuple[OrqScope, list[ToolDef]]:
     """Decide o tier (gestor/líder/clt) e monta o conjunto de tools escopadas.
     (admin é tratado antes, na rota — delega ao Hermes.)"""
     mods = user_modules(user)
