@@ -120,18 +120,39 @@ class _Erp:
         self._exp = time.time() + 50 * 60  # ~50min
         return tok
 
+    async def _cabecalho(self, client: httpx.AsyncClient) -> tuple[dict, bool]:
+        """(header de auth, é_do_usuário). F2: quando a chamada trouxe o JWT de quem
+        perguntou, é ELE que vai ao ERP — a conta de serviço não empresta poder a ninguém."""
+        try:
+            from identidade import token_do_usuario  # noqa: PLC0415
+
+            do_usuario = token_do_usuario()
+        except Exception:  # noqa: BLE001
+            do_usuario = None
+        if do_usuario:
+            return {"Authorization": f"Bearer {do_usuario}"}, True
+        if not self._token or time.time() > self._exp:
+            await self._login(client)
+        return {"Authorization": f"Bearer {self._token}"}, False
+
     async def request(self, method: str, path: str, *, json: Any = None, params: Any = None) -> Any:
         async with httpx.AsyncClient() as client:
-            if not self._token or time.time() > self._exp:
-                await self._login(client)
+            headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
                 r = await client.request(
-                    method, f"{API}{path}",
-                    headers={"Authorization": f"Bearer {self._token}"},
+                    method, f"{API}{path}", headers=headers,
                     json=json, params=params, timeout=40,
                 )
                 if r.status_code == 401 and attempt == 1:
+                    if do_usuario:
+                        # NUNCA reautenticar como serviço aqui: seria transformar "a sessão
+                        # dele expirou" em "então eu faço com os meus poderes" — exatamente a
+                        # escalada silenciosa que a F2 existe para impedir.
+                        raise RuntimeError(
+                            f"ERP {method} {path} -> 401 com a identidade do usuário; "
+                            f"a sessão dele expirou ou ele não tem esse acesso")
                     await self._login(client)
+                    headers = {"Authorization": f"Bearer {self._token}"}
                     continue
                 if r.status_code >= 400:
                     raise RuntimeError(f"ERP {method} {path} -> {r.status_code}: {r.text[:300]}")
@@ -151,12 +172,14 @@ class _Erp:
     async def get_bytes(self, path: str) -> bytes:
         """GET que retorna bytes crus (ex.: PDF) — com refresh de token em 401."""
         async with httpx.AsyncClient() as client:
-            if not self._token or time.time() > self._exp:
-                await self._login(client)
+            headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.get(f"{API}{path}", headers={"Authorization": f"Bearer {self._token}"}, timeout=60)
+                r = await client.get(f"{API}{path}", headers=headers, timeout=60)
                 if r.status_code == 401 and attempt == 1:
+                    if do_usuario:
+                        raise RuntimeError(f"ERP GET {path} -> 401 com a identidade do usuário")
                     await self._login(client)
+                    headers = {"Authorization": f"Bearer {self._token}"}
                     continue
                 r.raise_for_status()
                 return r.content
@@ -165,13 +188,14 @@ class _Erp:
     async def post_bytes(self, path: str, json) -> bytes:
         """POST que retorna bytes crus (ex.: PDF gerado a partir de dados enviados)."""
         async with httpx.AsyncClient() as client:
-            if not self._token or time.time() > self._exp:
-                await self._login(client)
+            headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.post(f"{API}{path}", headers={"Authorization": f"Bearer {self._token}"},
-                                      json=json, timeout=60)
+                r = await client.post(f"{API}{path}", headers=headers, json=json, timeout=60)
                 if r.status_code == 401 and attempt == 1:
+                    if do_usuario:
+                        raise RuntimeError(f"ERP POST {path} -> 401 com a identidade do usuário")
                     await self._login(client)
+                    headers = {"Authorization": f"Bearer {self._token}"}
                     continue
                 if r.status_code >= 400:
                     raise RuntimeError(f"ERP POST {path} -> {r.status_code}: {r.text[:200]}")
@@ -2881,6 +2905,20 @@ except Exception as _e:  # noqa: BLE001
     if (os.getenv("MCP_MODO") or "").strip().lower() == "agente":
         raise RuntimeError(f"MCP_MODO=agente exige o gate de aprovação: {_e}") from _e
     print(f"[mcp] gate propose não instalado ({_e})", flush=True)
+
+# F2 — o conector ENCAMINHA a identidade de quem perguntou em vez de cunhá-la. Sem repasse,
+# tool sensível não executa: responder com a conta de serviço é atender qualquer um com os
+# poderes do sistema. Mesma postura do gate: conector de agente não sobe sem esta parede.
+try:
+    from identidade import instalar as _instalar_identidade
+
+    if _instalar_identidade(mcp):
+        print("[mcp] exigência de identidade ATIVA — tool sensível exige X-Usuario-Token",
+              flush=True)
+except Exception as _e:  # noqa: BLE001
+    if (os.getenv("MCP_MODO") or "").strip().lower() == "agente":
+        raise RuntimeError(f"MCP_MODO=agente exige o repasse de identidade: {_e}") from _e
+    print(f"[mcp] exigência de identidade não instalada ({_e})", flush=True)
 
 _mcp_app = mcp.http_app(path="/mcp")
 

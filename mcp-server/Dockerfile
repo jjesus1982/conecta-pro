@@ -11,12 +11,14 @@ COPY tool_risk_manifest.py .
 COPY tool_scopes.py .
 # F1: a parede que faz a etiqueta de risco AGIR (sem ela, conector de agente NAO sobe)
 COPY gate_propose.py .
+COPY identidade.py .
 COPY test_tool_risk_manifest.py .
 # trava: quem se diz `read` prova que nao escreve (SQL/verbo HTTP no corpo)
 COPY test_read_nao_escreve.py .
+COPY test_identidade.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
-RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py
+RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py
 
 EXPOSE 8788
 

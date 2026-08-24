@@ -109,7 +109,17 @@ def payload_de_aprovacao(nome: str, argumentos: dict[str, Any]) -> dict[str, Any
 # `on_call_tool` do FastMCP 3.4 (API pública, conferida no container antes de usar — hoje
 # eu já tinha errado uma internal supondo `_tool_manager`). É AQUI que a etiqueta 🟡 do
 # manifesto deixa de ser adesivo e vira porteiro: `propose` não chega a `call_next`.
-class GatePropose:
+# FastMCP chama o middleware como CALLABLE para despachar cada tipo de requisição; só o
+# `on_call_tool` não basta. Classe duck-typed derrubava `initialize` com
+# "'GatePropose' object is not callable" — e era ESSA a razão do Hermes ficar parked, não o
+# conector fora do ar (meu curl viu HTTP 200 e parou; o 200 trazia erro JSON-RPC no corpo).
+# Fallback para `object` quando o fastmcp não está importável: as travas rodam no HOST.
+try:
+    from fastmcp.server.middleware import Middleware as _Base
+except Exception:  # noqa: BLE001
+    _Base = object
+
+class GatePropose(_Base):
     """Barra `propose` e devolve o pedido de aprovação, sem executar nada."""
 
     async def on_call_tool(self, context, call_next):  # noqa: ANN001
