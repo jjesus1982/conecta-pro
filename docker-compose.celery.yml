@@ -46,6 +46,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -94,6 +100,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -142,6 +154,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -186,6 +204,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -236,6 +260,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -284,6 +314,12 @@ services:
       start_period: 30s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
@@ -333,6 +369,12 @@ services:
       start_period: 60s
     networks:
       - conecta-pro-network
+      # rede do Chatwoot/baileys (external). Sem ela o worker NAO resolve
+      # baileys-api nem chatwoot-fazerai-redis: toda tarefa agendada que manda
+      # WhatsApp falhava aqui enquanto o backend, que ESTA na rede, enviava
+      # normal. Mesmo tropeco ja documentado no backend (docker-compose.yml):
+      # docker network connect manual morre no recreate — tem de vir do compose.
+      - chatwoot-fazerai-net
     volumes:
       - ./logs/celery:/app/logs
       - ./credentials:/app/credentials
