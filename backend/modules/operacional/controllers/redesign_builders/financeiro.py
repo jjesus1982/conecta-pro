@@ -2040,6 +2040,28 @@ async def _rd_pagar_folha_pj(current_user: CurrentActiveUser, payload: dict = Bo
     return {"ok": True, "message": f"Lote pago: {r.get('pagos', 0)} pago(s), {r.get('falhas', 0)} falha(s)."}
 
 
+def _conta_que_paga(payload: dict) -> str:
+    """De qual conta sai o dinheiro. Vazio é RECUSA, nunca um padrão.
+
+    ⚠️ Os dois pontos de saída assumiam 'cora' quando o campo — obrigatório na tela,
+    mas enviável em branco — vinha vazio. Um padrão silencioso aqui escolhe DE QUAL
+    CNPJ o dinheiro sai (Cora=Patrimonial, Inter=Eletrônica), e a escolha errada já
+    fez VT da Patrimonial sair pela Eletrônica.
+
+    O efeito visível era pior que um erro: como a Cora não envia PIX por chave, o
+    pedido morria em "vá pagar no app do Cora", o modal fechava e parecia tela
+    quebrada. Medido em 23/08 clicando na tela: sem escolher a conta, nenhum OTP era
+    emitido e nada indicava por quê.
+    """
+    v = str(payload.get("origem") or "").strip().lower()
+    if v not in ("cora", "inter"):
+        raise HTTPException(
+            status_code=400,
+            detail="Escolha a conta que vai pagar: Cora (Patrimonial) ou Inter (Eletrônica).",
+        )
+    return v
+
+
 @router.post("/action/pagar-diaristas", dependencies=[Depends(_require_financeiro_dep)])
 async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Pagar lote de diaristas (Inter) — DELEGA ao serviço provado (OTP próprio). Mesmo
@@ -2132,7 +2154,7 @@ async def _rd_pagar_diaristas(current_user: CurrentActiveUser, payload: dict = B
                 f"{_quem}. Regere o lote em 'Lote mensal (dia 15)' e tente de novo."))
 
     # padrão CORA: diarista é prestador da Patrimonial, e a Patrimonial paga pela Cora.
-    origem = (payload.get("origem") or "cora").strip().lower()
+    origem = _conta_que_paga(payload)
     if origem == "cora":
         # O Cora NAO envia PIX por chave (limitacao da API do proprio banco). Em vez de fingir que
         # pagou, devolve a LISTA pro Jordan concluir no app — e depois marcar em 'Pago por fora'.
@@ -2240,7 +2262,7 @@ async def _rd_pagar_folha_clt(current_user: CurrentActiveUser, payload: dict = B
     2 fases + OTP humano (mesmo gate do lote de diaristas): sem otp_code → gera o código
     (e-mail ao Jordan); com otp_code → paga real. Reusa os endpoints provados
     /folha/pagar-via-pix (gerar-otp + pagar). Sem OTP válido, nada é pago. Teto R$100k aplicado."""
-    origem = (payload.get("origem") or "cora").strip().lower()
+    origem = _conta_que_paga(payload)
     if origem == "cora":
         return await _rd_folha_clt_cora(db, payload)
     from modules.people_management.employee_portal.controllers.dp_payslips_controller import (
