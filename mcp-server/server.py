@@ -2841,8 +2841,10 @@ if _ESCOPO:
             # de usar. Mexer em `_tool_manager._tools` era palpite meu e nem existe nesta
             # versão.
             _todas = [getattr(t, "name", None) for t in _aio.run(mcp._list_tools())]
-            _fora = [n for n in _todas
-                     if n and n not in _permitidas and escopos_da_tool(n) != "geral"]
+            # FAIL-CLOSED: fora do escopo pedido OU sem grupo nenhum. Tool nova que
+            # ninguém mapeou NÃO chega ao agente — o esquecimento vira ausência visível
+            # (o log diz quantas ficaram fora), nunca exposição silenciosa.
+            _fora = [n for n in _todas if n and n not in _permitidas]
             for _n in _fora:
                 try:
                     mcp.remove_tool(_n)

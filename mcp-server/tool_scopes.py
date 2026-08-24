@@ -13,6 +13,12 @@ continua sendo servida (nunca some por esquecimento) — `escopos_da_tool` devol
 
 ESCOPOS: dict[str, list[str]] = {
     "comercial": [
+        # aceitar_proposta NÃO entra aqui: gera COMISSÃO e CONTRATO. Fica sem grupo, e
+        # com o filtro fail-closed abaixo isso significa "não servida em conector
+        # escopado" — sai do alcance do Hermes até a F1 ter aprovação de terceiro.
+        "proposta_da_oportunidade",
+        "recusar_proposta",
+        "nova_versao_proposta",
         "adicionar_achados_visita",
         "anotar_cliente",
         "arquivar_deal",
@@ -283,11 +289,22 @@ ESCOPOS: dict[str, list[str]] = {
 }
 
 def escopos_da_tool(nome: str) -> str:
-    """Grupo de uma ferramenta. Desconhecida = "geral" — servida em qualquer escopo."""
+    """Grupo de uma ferramenta. Sem grupo devolve "" — e, num conector ESCOPADO, isso
+    significa NÃO SERVIDA.
+
+    A versão anterior devolvia "geral" com a intenção de que ferramenta nova nunca sumisse
+    por esquecimento. A intenção era boa e o efeito era o contrário do que um filtro de
+    segurança deve fazer: em 23/08/2026 quatro tools recém-criadas — uma delas gerando
+    COMISSÃO e CONTRATO — escaparam do filtro e chegaram ao agente porque ninguém as tinha
+    mapeado ainda. Fail-open para o caso desconhecido é como se perde uma parede.
+
+    Agora o esquecimento custa uma ausência visível (o log diz quantas ficaram de fora), não
+    uma exposição silenciosa.
+    """
     for g, tools in ESCOPOS.items():
         if nome in tools:
             return g
-    return "geral"
+    return ""
 
 
 def tools_do_escopo(escopo: str | None) -> set[str] | None:
