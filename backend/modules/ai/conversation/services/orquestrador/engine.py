@@ -191,6 +191,25 @@ async def run_engine(
     flags: list[str] = []
     grounded = not suspeitos
     if suspeitos:
+        # ARMADILHA ARMADA, não caçada. Em 24/08/2026 vi um `grounded=False` numa resposta
+        # CERTA e, ao tentar reproduzir, o caso já estava verde — a pista morreu com a
+        # ocorrência. Defeito não reproduzido volta; sem isto, a próxima vez recomeça do
+        # zero. Aqui fica o suspeito, o trecho onde ele aparece e as chaves da fonte que o
+        # agente tinha à mão — que é o que falta para decidir se é formato ou fabricação.
+        #
+        # LOG, nunca sino: aviso de verificador para humano é exatamente o ruído que
+        # estamos consertando. Isto é para quem for depurar, não para quem for decidir.
+        try:  # noqa: SIM105 — telemetria jamais derruba a resposta
+            ctx = {}
+            for s in suspeitos[:5]:
+                i = resposta.find(s)
+                ctx[s] = resposta[max(0, i - 45):i + len(s) + 45].replace("\n", " ") if i >= 0 else ""
+            logger.warning(
+                "groundedness ok=False origem=%s modelo=%s suspeitos=%s chaves_da_fonte=%s "
+                "contexto=%s", origem, model, suspeitos[:8],
+                sorted({k for r in tool_results if isinstance(r, dict) for k in r})[:20], ctx)
+        except Exception:  # noqa: BLE001
+            pass
         flags.append("confira: alguns números não puderam ser verificados contra as tools")
         resposta = resposta + (
             "\n\n[Aviso: alguns números acima não puderam ser verificados automaticamente "
