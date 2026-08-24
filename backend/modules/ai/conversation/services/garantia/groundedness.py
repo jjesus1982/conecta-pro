@@ -51,6 +51,14 @@ def _canon(bruto: str) -> str:
         return t.lower()
     t = t.replace(".", "")
     t = t.replace(",", ".")
+    # ZERO À ESQUERDA é formatação, não valor: a resposta escreve "22/08" e a fonte guarda
+    # mes=8, então "08" ficava sem lastro e colava um "confira" numa resposta correta. Aviso
+    # que dispara sempre é aviso que se aprende a ignorar — e aí ele deixa de valer quando o
+    # número for mesmo fabricado. Medido em 24/08/2026 sobre a resposta de horas do porteiro:
+    # os suspeitos eram '08' e '22', ambos de uma data, nenhum de hora.
+    if re.fullmatch(r"\d+(?:\.\d+)?", t):
+        inteiro, ponto, decimal = t.partition(".")
+        t = (inteiro.lstrip("0") or "0") + (ponto + decimal if ponto else "")
     return t
 
 
@@ -161,5 +169,28 @@ if __name__ == "__main__":
     r5 = verificar("Tudo certo por aqui, sem números pra reportar.", fonte)
     assert r5 == {"ok": True, "suspeitos": []}, f"veio {r5}"
     print("TESTE 5 (sem números) PASS:", r5)
+
+    # ── 6) FORMATO não é divergência (24/08/2026) ────────────────────────────
+    # O Bartolo acertou as horas do porteiro e colava "confira" na própria resposta certa.
+    # Medido: os suspeitos eram '08' e '22' — de uma DATA, por zero à esquerda. A hipótese
+    # de que "83h55" × "83:55" era a causa foi VERIFICADA E DESCARTADA: o extrator separa os
+    # dois do mesmo jeito (83 e 55). O teste trava as duas coisas assim mesmo.
+    fonte_horas = {"horas_trabalhadas": "83:55", "mes": 8, "faltas_dias": 1}
+    r6 = verificar("Você fez 83h55 no mês (referência 08), com 1 falta.", fonte_horas)
+    assert r6["ok"] is True, f"formato (h × : e zero à esquerda) não pode virar suspeito: {r6}"
+    print("TESTE 6 (formato não é divergência) PASS:", r6)
+
+    # ── 7) …e o inverso: VALOR diferente continua reprovando ─────────────────
+    # Sem esta metade o conserto vira carimbo: um verificador que aprova tudo é pior que
+    # nenhum, porque parece que alguém está olhando.
+    r7 = verificar("Você fez 84h55 no mês.", fonte_horas)
+    assert r7["ok"] is False, f"84h55 não tem lastro em 83:55 — tinha de reprovar: {r7}"
+    assert "84" in r7["suspeitos"], f"o número divergente tem de aparecer: {r7}"
+    print("TESTE 7 (valor divergente ainda reprova) PASS:", r7)
+
+    # ── 8) zero à esquerda não apaga diferença de ordem de grandeza ──────────
+    r8 = verificar("O saldo é R$ 100.000,00.", {"saldo": 10000.0})
+    assert r8["ok"] is False, f"100.000 não é 10.000 — normalizar zero não pode achatar isso: {r8}"
+    print("TESTE 8 (ordem de grandeza preservada) PASS:", r8)
 
     print("\nTODOS OS TESTES DE groundedness.py PASSARAM")
