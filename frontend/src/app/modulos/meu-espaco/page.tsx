@@ -965,7 +965,13 @@ function PontoTab() {
   // disso ela continua discreta, para não virar o caminho fácil de todo dia.
   const [rostoFalhou, setRostoFalhou] = useState(false);
   const [resultado, setResultado] = useState<BaterResultado | null>(null);
-  const [geo, setGeo] = useState<{ latitude: number; longitude: number } | null>(null);
+  // A PRECISÃO ENTRA AQUI. `obterLocalizacao` já a lê do aparelho e ela era descartada:
+  // 809 batidas com accuracy NULO no banco, e 164 delas (20%) marcadas "fora do posto".
+  // Sem esse número não dá para separar quem está longe de quem está com GPS ruim — no
+  // Mirante das Flores um terço das batidas cai a ~1.300m, sempre, de todo mundo, o que
+  // tem cara de celular pegando torre em vez de satélite. O Ediwilson bateu a 4.123m
+  // estando no condomínio (23/08/2026), e o sistema só podia dizer "fora do posto".
+  const [geo, setGeo] = useState<{ latitude: number; longitude: number; accuracy?: number } | null>(null);
 
   // Reconhecimento facial: rosto de referência cadastrado (obrigatório antes de bater).
   const [faceEnrolled, setFaceEnrolled] = useState<boolean | null>(null); // null = carregando
@@ -1068,7 +1074,7 @@ function PontoTab() {
         confidence: r.confidence,
         liveness_check: true,
         foto_base64: r.imageData,
-        location: { latitude: geo.latitude, longitude: geo.longitude, accuracy: 0 },
+        location: { latitude: geo.latitude, longitude: geo.longitude, accuracy: geo.accuracy ?? 0 },
         punch_type: proximoTipo,
       };
       let res;
@@ -1181,7 +1187,7 @@ function PontoTab() {
     setFase('gps');
     try {
       const pos = await obterLocalizacao();
-      setGeo({ latitude: pos.latitude, longitude: pos.longitude });
+      setGeo({ latitude: pos.latitude, longitude: pos.longitude, accuracy: pos.accuracy });
       setFase('facial');
     } catch (e: unknown) {
       setBaterErro((e as Error)?.message || 'Não foi possível obter sua localização.');

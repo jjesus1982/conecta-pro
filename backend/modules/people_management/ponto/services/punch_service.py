@@ -115,6 +115,26 @@ class PunchService:
             # registra normal (ex.: Conecta Base, postos sem geofence configurado).
             if dentro_geofence is False:
                 status = "fora_local"
+                # 🔴 GPS RUIM NÃO É "FORA DO POSTO". A precisão que o aparelho informa é o
+                # raio de incerteza da posição: com accuracy de 2.000m, o celular está
+                # dizendo "estou em algum lugar num círculo de 2km" — e acusar a pessoa de
+                # estar fora do posto com esse dado é afirmar o que não se sabe.
+                #
+                # Medido em 23/08/2026 no Mirante das Flores: um TERÇO das batidas cai fora
+                # do raio, sempre por volta de 1.300m, de todo mundo — Telma 14 de 40,
+                # Vanderlice 12 de 38, Paulo 2 de 24. Tem cara de celular pegando torre em
+                # vez de satélite. O EDIWILSON bateu a 4.123m estando no condomínio, e o
+                # Jordan confirmou pelo mapa que o posto está cadastrado certo (40m do
+                # ponto real).
+                #
+                # Quando a incerteza do GPS é maior que a distância medida, a batida fica
+                # `pending`: vai para conferência do DP como qualquer outra, mas SEM a
+                # afirmação de que a pessoa estava fora. Ela pode estar dentro — o aparelho
+                # é que não soube dizer.
+                _acc = getattr(data.location, "accuracy", None)
+                if _acc and distancia_metros and float(_acc) >= float(distancia_metros):
+                    status = "pending"
+                    dentro_geofence = None
 
         # Anti-fraude facial: match NEGATIVO (selfie de outra pessoa) marca a batida p/
         # REVISÃO do DP — não pode entrar como válida só porque o geofence passou. Hoje
@@ -315,8 +335,8 @@ class PunchService:
         from sqlalchemy import text as _text
 
         from .dashboard_service import (
-            _esperado_prorrateado_min,
             _ESPERADO_MES,
+            _esperado_prorrateado_min,
             _fator_prorata,
             _hoje_manaus,
         )
@@ -325,10 +345,12 @@ class PunchService:
         # espelho. Antes, um employee_id inexistente caía no default '12x36' e o endpoint
         # devolvia 200 com um espelho fantasma (-180h), divergindo do banco-horas que
         # retorna 404. Agora sinalizamos ausência para o controller devolver 404 igual.
-        _emp = (await self.db.execute(
-            _text("SELECT COALESCE(escala_padrao,'12x36') FROM employees WHERE CAST(id AS text)=:e"),
-            {"e": str(employee_id)},
-        )).first()
+        _emp = (
+            await self.db.execute(
+                _text("SELECT COALESCE(escala_padrao,'12x36') FROM employees WHERE CAST(id AS text)=:e"),
+                {"e": str(employee_id)},
+            )
+        ).first()
         if _emp is None:
             raise ValueError("Colaborador nao encontrado")
         escala = _emp[0] or "12x36"
@@ -527,11 +549,7 @@ class PunchService:
         from .horas_service import SQL_BATIDAS, params_batidas, parear_batidas
 
         p = params_batidas(employee_id, month, year)
-        rows = (
-            await self.db.execute(
-                SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")}
-            )
-        ).fetchall()
+        rows = (await self.db.execute(SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")})).fetchall()
         _h = parear_batidas(rows, p["_ini_mes"], p["_fim_mes"])
 
         total_batidas = _h["total_batidas"]
@@ -556,7 +574,9 @@ class PunchService:
                     )
                     .order_by(MonthlyClosingModel.id.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         existing = existentes[0] if existentes else None
         # Remove linhas duplicadas remanescentes (mantém apenas a mais antiga).
