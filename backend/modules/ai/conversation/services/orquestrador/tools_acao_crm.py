@@ -906,3 +906,99 @@ if __name__ == "__main__":
         await eng.dispose()
 
     asyncio.run(main())
+
+
+# ── ATUALIZAR CLIENTE (lacuna 1 de 14: editar registro que já existe) ─────────────────
+# Medido em 24/08/2026: das 112 tools do MCP barradas sem equivalente in-process, 43 eram
+# lacuna real, e 14 delas são "editar/arquivar registro existente". O motor in-process CRIA,
+# LÊ e gera documento — mas não EDITAVA. Na prática: pelo chat o Jordan cria um cliente e
+# anota nele, e não corrigia o CNPJ de um cliente já cadastrado.
+#
+# ⚠️ `update_client` vive em `modules/clients`, NÃO no crm — o `crm/client_controller.py` não
+# tem PUT nenhum. Fica registrado porque o próximo vai procurar no CRM, como eu procurei.
+
+#: Campos que são CADASTRO: corrigir qualquer um deles é reversível e não move dinheiro.
+_CLIENTE_CADASTRAL = frozenset({
+    "name", "trading_name", "document_number", "email", "phone", "mobile", "whatsapp",
+    "website", "segment", "notes", "municipal_registration", "state_registration",
+    "address_street", "address_number", "address_complement", "address_neighborhood",
+    "address_city", "address_state", "address_zipcode",
+    "financial_contact_name", "financial_contact_email", "financial_contact_phone",
+    "technical_contact_name", "technical_contact_email", "technical_contact_phone",
+})
+
+#: Campos do MESMO endpoint que mudam CONDIÇÃO COMERCIAL. O grau tem de sair do CAMPO, nunca
+#: do nome da tool: `atualizar_cliente` soa cadastral e `credit_limit` é dinheiro. É a mesma
+#: lição das 54 etiquetas erradas do manifesto — o nome diz cadastro e o corpo faz dinheiro.
+_CLIENTE_COMERCIAL = frozenset({"credit_limit", "payment_terms", "billing_day", "status",
+                                "is_vip", "client_type", "account_manager_id", "sales_rep_id"})
+
+
+async def _propor_atualizar_cliente(db, user, scope, *, cliente="", **campos) -> dict[str, Any]:
+    ref = str(cliente or "").strip()
+    if not ref:
+        return {"erro": "informe o cliente (CNPJ, código ou nome)"}
+    campos = {k: v for k, v in campos.items() if v not in (None, "")}
+    if not campos:
+        return {"erro": "informe ao menos um campo para corrigir (ex.: document_number, email)"}
+
+    desconhecidos = sorted(set(campos) - _CLIENTE_CADASTRAL - _CLIENTE_COMERCIAL)
+    if desconhecidos:
+        return {"erro": f"campo(s) que não existem no cadastro: {desconhecidos}"}
+    comerciais = sorted(set(campos) & _CLIENTE_COMERCIAL)
+    if comerciais:
+        # Fail-closed por CAMPO: recuso em vez de propor em 🟡. Limite de crédito e prazo de
+        # pagamento são decisão comercial do Jordan, não correção de cadastro.
+        return {"erro": f"{comerciais} muda CONDIÇÃO COMERCIAL, não cadastro — isso não passa "
+                        f"por aqui; peça ao Jordan pela tela de clientes."}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, name, document_number, email, phone FROM clients "
+        "WHERE id::text = :r OR document_number = :r OR upper(name) = upper(:r) "
+        "OR upper(trading_name) = upper(:r) LIMIT 1"), {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"cliente '{ref}' não encontrado pelo id, CNPJ ou nome."}
+
+    # De→Para no resumo: aprovar sem ver o valor ANTERIOR é aprovar às cegas.
+    antes = {k: row.get(k) for k in campos if k in row}
+    mudancas = "; ".join(
+        f"{k}: {antes.get(k) if antes.get(k) not in (None, '') else '(vazio)'} → {v}"
+        for k, v in campos.items())
+    return await criar_rascunho(
+        db, user, tipo="atualizar_cliente", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"cliente_atualizar:{row['id']}:{_slug(mudancas)[:40]}",
+        titulo=f"Corrigir cadastro de {row['name']}",
+        resumo=f"Aprovar CORRIGE o cadastro de {row['name']}. {mudancas}. "
+               f"Só cadastro — nada de limite de crédito, prazo ou status.",
+        payload={"client_id": row["id"], "campos": campos, "nome": row["name"]},
+    )
+
+
+async def _exec_atualizar_cliente(db, aprovador_user, payload: dict) -> str:
+    """Executa NA APROVAÇÃO, com a identidade de quem aprovou — nunca a de quem propôs."""
+    from uuid import UUID  # noqa: PLC0415
+
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+    from modules.clients.controllers.client_controller import update_client  # noqa: PLC0415
+    from modules.clients.schemas.client_schemas import ClientUpdate  # noqa: PLC0415
+    from modules.clients.services.client_service import ClientService  # noqa: PLC0415
+
+    # `update_client` é async mas o serviço dele é SÍNCRONO (o controller roda com
+    # `Depends(get_db)` sync). Sessão própria, como em `_espelho_render`.
+    with SyncSessionLocal() as s:
+        cli = await update_client(current_user=aprovador_user,
+                                  client_id=UUID(str(payload["client_id"])),
+                                  data=ClientUpdate(**payload["campos"]),
+                                  service=ClientService(s))
+    return str(getattr(cli, "id", payload["client_id"]))
+
+
+registrar_executor("atualizar_cliente", _exec_atualizar_cliente)
+registrar_acao("crm", "atualizar_cliente",
+               "CORRIGIR o cadastro de um cliente que já existe (CNPJ digitado errado, e-mail, "
+               "telefone, endereço, nome). dados: cliente (CNPJ, código ou nome — obrig.) + os "
+               "campos a corrigir (document_number, name, email, phone, address_city…). "
+               "Vira rascunho: a correção só é gravada quando um humano aprovar. NÃO mexe em "
+               "limite de crédito, prazo de pagamento nem status.",
+               _propor_atualizar_cliente)
