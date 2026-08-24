@@ -15,14 +15,14 @@ from modules.operacional.schemas.time_bank import TimeBankCreate
 
 async def main() -> None:
     async with async_session_factory() as db:
-        await db.execute(text("DELETE FROM time_bank WHERE coalesce(reason,'') LIKE '%teste oraculo bh aprovar%'"))
+        await db.execute(text("DELETE FROM time_bank WHERE coalesce(reason,'') LIKE ANY (ARRAY['%ZZteste oraculo bh aprovar%', '%teste oraculo bh aprovar%'])  -- ZZ novo + marca antiga varrida junto"))
         await db.commit()
         emp = (await db.execute(text("SELECT id FROM employees WHERE coalesce(status,'')='ativo' LIMIT 1"))).scalar()
         assert emp, "sem employee"
         u = SimpleNamespace(id=uuid.uuid4(), name="Teste", email="t@conectapro.com.br")
         entry = await TimeBankRepository(db).create(TimeBankCreate(
             employee_id=str(emp), entry_type="credit", hours=8, reference_date=date.today().isoformat(),
-            reason="teste oraculo bh aprovar"))
+            reason="ZZteste oraculo bh aprovar"))
         eid = str(entry.id)
         try:
             st0 = (await db.execute(text("SELECT status FROM time_bank WHERE id::text=:i"), {"i": eid})).scalar()

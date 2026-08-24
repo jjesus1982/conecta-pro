@@ -22,7 +22,7 @@ ADMIN = SimpleNamespace(id=uuid.uuid4(), name="Jordan", email="j@conectamais.pro
 async def main() -> None:
     async with async_session_factory() as db:
         # re-rodável: limpa marcadores de idempotência e medidas de teste anteriores
-        await db.execute(text("DELETE FROM disciplinary_actions WHERE reason_description LIKE '%Teste escopo equipe operacional%'"))
+        await db.execute(text("DELETE FROM disciplinary_actions WHERE reason_description LIKE ANY (ARRAY['%ZZTeste escopo equipe operacional%', '%Teste escopo equipe operacional%'])  -- ZZ novo + marca antiga varrida junto"))
         await db.execute(text("DELETE FROM redesign_gate_otp WHERE ref LIKE 'idem:medida%'"))
         await db.commit()
         tid = (await db.execute(text("SELECT tenant_id FROM disciplinary_templates WHERE coalesce(is_active,true) LIMIT 1"))).scalar()
@@ -43,7 +43,7 @@ async def main() -> None:
         def _pl(emp):
             return {"employee_id": str(emp[0]), "employee_name": emp[1], "employee_cpf": str(emp[2]),
                     "action_type": "advertencia_escrita", "reason_category": "atraso",
-                    "reason_description": "Teste escopo equipe operacional — apagar",
+                    "reason_description": "ZZTeste escopo equipe operacional — apagar",
                     "incident_date": date.today().isoformat()}
 
         # 1) supervisor + NÃO-operacional → 403 (parede), sem mutar

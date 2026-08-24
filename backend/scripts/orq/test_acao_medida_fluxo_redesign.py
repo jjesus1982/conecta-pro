@@ -17,7 +17,7 @@ from modules.operacional.controllers.redesign_builders.operacional import (
 async def main() -> None:
     async with async_session_factory() as db:
         # re-rodável: limpa marcadores de idempotência e resíduo de testes anteriores
-        await db.execute(text("DELETE FROM disciplinary_actions WHERE reason_description LIKE '%Fluxo aprovacao%teste oraculo%'"))
+        await db.execute(text("DELETE FROM disciplinary_actions WHERE reason_description LIKE '%ZZFluxo aprovacao%teste oraculo%'"))
         await db.execute(text("DELETE FROM redesign_gate_otp WHERE ref LIKE 'idem:medida%'"))
         await db.commit()
         emp = (await db.execute(text(
@@ -33,7 +33,7 @@ async def main() -> None:
                             condominio_id=None, tenant_id=str(tid) if tid else None)
         cre = await rd_action_medida_administrativa(current_user=u, payload={
             "employee_id": str(emp[0]), "action_type": "advertencia_escrita", "reason_category": "atraso",
-            "reason_description": "Fluxo aprovacao — teste oraculo redesign", "incident_date": date.today().isoformat()}, db=db)
+            "reason_description": "ZZFluxo aprovacao — teste oraculo redesign", "incident_date": date.today().isoformat()}, db=db)
         aid = cre["id"]
         sub = await rd_action_medida_submeter(current_user=u, payload={"action_id": aid}, db=db)
         assert sub["ok"] and sub["status"] == "pendente_aprovacao", f"submeter: {sub}"

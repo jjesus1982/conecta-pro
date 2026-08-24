@@ -40,6 +40,17 @@ ORQ = pathlib.Path("/app/scripts/orq")
 ESCRITA = re.compile(
     r"INSERT\s+INTO\s+(\w+)|UPDATE\s+([a-z_][a-z0-9_]*)\s+SET|DELETE\s+FROM\s+(\w+)", re.I)
 
+#: Oráculos que escrevem pela CAMADA DE APLICAÇÃO (controller, dispatcher de ação, POST) e
+#: não têm SQL nenhum no arquivo. A detecção por `INSERT/UPDATE/DELETE` NÃO OS VÊ — e foi por
+#: aí que `test_acao_medida_redesign` acumulou 26 advertências disciplinares na ficha de uma
+#: pessoa entre 03/08 e 24/08 sem nunca entrar nesta varredura.
+#: Como não dá para inferir a tabela do SQL (não há SQL), ela é DECLARADA aqui, uma a uma.
+TABELAS_DECLARADAS: dict[str, list[str]] = {
+    "test_acao_medida_redesign.py": ["disciplinary_actions", "redesign_gate_otp"],
+    "test_oraculo_ferias_autoritativa.py": ["employee_vacation_requests",
+                                            "employee_vacation_periods"],
+}
+
 #: Tabelas que já morderam esta casa — ordenam a fila.
 RISCO = ["hr_payslips", "payable_accounts", "contracts", "occurrences", "gp_clock_punches"]
 
@@ -98,7 +109,7 @@ async def main() -> int:
         if f.name.startswith("_") or (alvo and f.name != alvo):
             continue
         txt = f.read_text(errors="replace")
-        tabs = _tabelas(txt)
+        tabs = _tabelas(txt) or TABELAS_DECLARADAS.get(f.name, [])
         if tabs:
             fila.append((min([RISCO.index(t) for t in tabs if t in RISCO] or [99]), f, tabs))
     fila.sort(key=lambda x: (x[0], x[1].name))
