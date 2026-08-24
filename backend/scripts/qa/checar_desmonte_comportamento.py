@@ -75,6 +75,17 @@ def _rodar(script: pathlib.Path) -> tuple[int, str]:
 
 
 async def main() -> int:
+    # RECUSA rodar fora do container. `ORQ` é /app/scripts/orq: no host o caminho não existe,
+    # o glob volta vazio, a fila fica vazia e o script sai 0 — aprovando por AUSÊNCIA DE
+    # MEDIÇÃO. É a terceira encarnação da mesma família em dois dias: ANTES==DEPOIS sobre zero
+    # escrita, e o `checar_repositorio` achando 0 no container porque a raiz lá é /app.
+    # Fila vazia não é resultado.
+    if not ORQ.is_dir():
+        print(f"RECUSO: {ORQ} não existe — este check roda DENTRO do container.\n"
+              f"  docker exec -e PYTHONPATH=/app conecta-pro-backend python3 "
+              f"/app/scripts/qa/{pathlib.Path(__file__).name}")
+        return 2
+
     alvo = None
     if "--um" in sys.argv:
         alvo = sys.argv[sys.argv.index("--um") + 1]
@@ -88,6 +99,9 @@ async def main() -> int:
         if tabs:
             fila.append((min([RISCO.index(t) for t in tabs if t in RISCO] or [99]), f, tabs))
     fila.sort(key=lambda x: (x[0], x[1].name))
+    if not fila:
+        print("RECUSO: nenhum oráculo que escreve foi encontrado — fila vazia não é verde.")
+        return 2
 
     sujos, limpos, nao_exercitados, quebrados = [], [], [], []
     for _r, f, tabs in fila:
