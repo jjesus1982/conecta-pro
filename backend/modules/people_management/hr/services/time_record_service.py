@@ -1241,11 +1241,29 @@ class TimeRecordService:
                 b = punches[i + 1]
 
                 # Jornada com intervalo: a-b-c-d formam UM turno quando o buraco entre o
-                # par (a,b) e o par (c,d) e curto. A base real so tem 'entrada' e 'saida'
-                # -- 'saida_almoco'/'retorno_almoco' NAO existem (medido em 07/2026: 1171
-                # 'entrada' + 1075 'saida', zero de almoco) --, entao o intervalo e
-                # reconhecido pelo TEMPO, nunca pelo tipo. Casar por tipo era codigo morto
-                # e partia 401 dos 754 dias-funcionario em dois registros de ~4h.
+                # par (a,b) e o par (c,d) e curto. O intervalo e reconhecido pelo TEMPO,
+                # nunca pelo tipo -- casar por tipo partia 401 dos 754 dias-funcionario em
+                # dois registros de ~4h.
+                #
+                # ⚠️ A JUSTIFICATIVA ORIGINAL ENVELHECEU, a regra nao. O comentario antigo
+                # dizia "'saida_almoco'/'retorno_almoco' NAO existem" e citava 07/2026 com
+                # zero de almoco. Isso deixou de ser verdade quando o app ganhou os botoes
+                # de pausa. Contagem refeita em 24/08/2026:
+                #
+                #     mes      entrada  saida  saida_almoco  retorno_almoco
+                #     2026-06     1027    995             0               0
+                #     2026-07     1170   1074             0               0
+                #     2026-08     1370   1179           160             128
+                #
+                # Medi o efeito antes de mexer, e NAO houve: em agosto, 117 dos 118 turnos
+                # de 4 batidas tem intervalo curto, e TODAS as pessoas com desconto tem
+                # `recebe_intrajornada = false` -- pausa nao paga, desconto devido, media
+                # de 59 a 61 min (almoco real). Nenhuma das 19 pessoas com pausa PAGA teve
+                # minuto descontado. Por isso a regra por tempo fica: ela ja distingue o
+                # caso certo sem depender do tipo, que e justamente o campo que erra.
+                #
+                # Se voce for mexer aqui, meça de novo antes -- foi decidir sobre um numero
+                # morto que quase custou uma correcao desnecessaria em caminho de folha.
                 if i + 3 < n:
                     c, d = punches[i + 2], punches[i + 3]
                     intervalo = _calc_minutes_between(b["punch_timestamp"], c["punch_timestamp"])
