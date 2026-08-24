@@ -15,7 +15,8 @@ O que verifica:
      com `leads`, e gravar o id numérico da Meta ali quebraria o CAC para sempre
   4. o CSV do Gerenciador de Anúncios cai NAS MESMAS linhas — importar por CSV
      hoje e ligar a API amanhã atualiza, não duplica (vírgula decimal e BOM)
-  5. CAC sai None (não 0) quando não há lead atribuído
+  5. CAC sai None (não 0) quando não há lead atribuído — vazio real é
+     "aguardando dado"; zero afirma que a aquisição foi de graça
 
 Limpa o que criou, sempre. Rode:  docker exec conecta-pro-backend python3 scripts/test_meta_ads_sync.py
 """
@@ -156,7 +157,12 @@ async def main() -> int:
                 )
             os.remove(csv_path)
 
-            # 5 ─ CAC: sem lead atribuído tem que ser None, nunca 0
+            # 5 ─ REGRA DA CASA: vazio real é "aguardando dado", NUNCA zero.
+            #     Zero é uma afirmação — diz "não custou nada para adquirir este
+            #     lead". None diz "não sei quantos leads vieram desta campanha",
+            #     que é a verdade quando ninguém preencheu utm_campaign.
+            #     Se alguém "limpar" isto para `or 0`, o painel passa a mentir
+            #     com cara de número bom. Este assert existe para impedir isso.
             cac = {c["campanha"]: c for c in await ads.cac_por_campanha(db, dias=30)}
             pr = cac.get("Portaria Remota")
             if pr is None:
