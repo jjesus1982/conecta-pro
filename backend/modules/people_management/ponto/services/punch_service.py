@@ -154,6 +154,14 @@ class PunchService:
             facial_confidence=data.facial.confidence if data.facial else None,
             latitude=data.location.latitude if data.location else None,
             longitude=data.location.longitude if data.location else None,
+            # 🔴 A PRECISAO PRECISA SER GRAVADA, e nao era. A coluna existe, o schema
+            # aceita e o app manda — mas o model nunca recebia o campo, entao 836 batidas
+            # ficaram com accuracy NULO. Sem esse numero ninguem consegue, depois,
+            # distinguir "estava longe do posto" de "o aparelho nao sabia onde estava" —
+            # que e justamente a duvida que decide se a pessoa levou falta injusta.
+            # 0 vira NULO de proposito: cliente antigo manda 0 fixo, e gravar zero seria
+            # afirmar precisao PERFEITA, o oposto do que o dado significa.
+            accuracy=(data.location.accuracy or None) if data.location else None,
             dentro_geofence=dentro_geofence,
             distancia_posto_metros=distancia_metros,
             device_type=data.device_type or "web",
