@@ -45,10 +45,22 @@ ESCRITA = re.compile(
 #: O prefixo da casa. Fixo, maiúsculo, ordenando no fim das listagens.
 PREFIXO = "ZZ"
 
-#: Marca de limpeza NA ENTRADA: apaga por prefixo ANTES de começar.
-ENTRADA = re.compile(
-    r"(limpar_orfaos|desmontar_entrada|_limpar_previo|"
-    r"DELETE\s+FROM\s+\w+\s+WHERE[^\n]*LIKE\s*[:'\"]?\s*'?ZZ)", re.I)
+#: Limpeza NA ENTRADA = um DELETE por prefixo que roda ANTES do `finally`. Detectado por
+#: POSIÇÃO, não por literal: a versão anterior exigia a string 'ZZ colada no LIKE e não via
+#: `DELETE ... WHERE punch_id LIKE :p` com bind param — acusou oráculos que limpam certo.
+#: Quinto falso positivo de heurística nesta trava; todos vieram de olhar forma, não fato.
+_DELETE_POR_PREFIXO = re.compile(r"DELETE\s+FROM\s+\w+\s+WHERE[^\n]*LIKE", re.I)
+
+
+def _limpa_na_entrada(txt: str) -> bool:
+    """Existe um DELETE-por-prefixo posicionado ANTES do `finally`?
+
+    O `finally` cobre a saída normal. O que a execução morta por sinal precisa é de alguém
+    apagando o órfão ANTES do próximo teste — e isso é código que roda no caminho de ida.
+    """
+    fim = txt.find("finally:")
+    inicio = txt[: fim if fim > 0 else len(txt)]
+    return bool(_DELETE_POR_PREFIXO.search(inicio))
 
 #: Só leem: não têm o problema, e inventar desmonte neles é trabalho fabricado.
 def _escreve(txt: str) -> bool:
@@ -70,16 +82,17 @@ def main() -> int:
         escrevem.append(f.name)
         if "finally:" not in txt:
             sem_saida.append(f.name)
-        if not ENTRADA.search(txt):
+        if not _limpa_na_entrada(txt):
             sem_entrada.append(f.name)
         # SEM exigir aspas coladas: os prefixos aparecem dentro de f-string e concatenação.
         # A primeira versão exigia a aspa e devolveu "0 fora do padrão" — verde por não ter
         # medido, que é o pior verde que existe.
-        # Case-insensitive e aceitando espaço: as marcas reais aparecem como "TESTE E2E",
-        # "[QA E2E]", "E2E_TESTE". A versão estrita (só MAIÚSCULA_COM_UNDERSCORE) contou 29
-        # "sem marca" onde há 6 — número inflado é tão inútil quanto número ausente.
-        marcas = set(re.findall(r"\b(TESTE[_ ][A-Za-z0-9_]*|E2E[A-Za-z0-9_]*|ZZ[A-Z0-9_]{2,}|QA )",
-                                txt, re.I))
+        # A pergunta certa não é "o arquivo cita TESTE em algum lugar" — string em docstring
+        # não marca linha gravada. É "existe uma CONSTANTE de prefixo, fixa, que vai para o
+        # dado?". Medir a citação dizia 6 sem marca; medir a constante diz 27. O primeiro
+        # número me consolava, o segundo é o trabalho.
+        m = re.search(r"^_?PREFIXO\w*\s*=\s*['\"]([^'\"]+)", txt, re.M)
+        marcas = {m.group(1)} if m else set()
         if not marcas:
             # Pior que prefixo errado: escreve SEM marca nenhuma. O resíduo dele fica
             # indistinguível de dado real — foi o que custou separar teste de lead à mão.
@@ -92,7 +105,7 @@ def main() -> int:
     print(f"  sem limpeza de SAÍDA (finally): {len(sem_saida)}")
     print(f"  sem limpeza de ENTRADA (por prefixo): {len(sem_entrada)}")
     print(f"  com prefixo fora do padrão {PREFIXO!r}: {len(prefixo_errado)}")
-    print(f"  SEM marca de teste nenhuma (resíduo vira dado real): {len(sem_marca)}")
+    print(f"  SEM constante de prefixo (o resíduo vira dado real): {len(sem_marca)}")
     for n in sem_marca:
         print(f"    - {n}")
 

@@ -28,7 +28,13 @@ from modules.people_management.employee_portal.controllers.self_service_controll
     _proxima_batida_info,
 )
 
-_PREFIXO = "ORQ-INVERT-"
+# ZZ FIXO, nunca gerado por execução: prefixo que varia não casa com o órfão de ontem, que é
+# exatamente o lixo que ninguém remove. E `ZZ` ordena no fim de qualquer listagem — o que
+# escapar aparece agrupado no rodapé, não escondido no meio do dado real.
+_PREFIXO = "ZZORQ-INVERT-"
+#: O prefixo ANTERIOR fica aqui até a limpeza de entrada tê-lo varrido de vez. Trocar de
+#: prefixo sem varrer o antigo é criar órfão novo com as próprias mãos.
+_PREFIXOS_ANTIGOS = ("ORQ-INVERT-",)
 
 #: (descrição, horas atrás em que a ENTRADA foi batida, próximo tipo esperado)
 #:
