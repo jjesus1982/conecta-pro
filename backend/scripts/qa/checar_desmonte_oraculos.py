@@ -75,7 +75,11 @@ def main() -> int:
         # SEM exigir aspas coladas: os prefixos aparecem dentro de f-string e concatenação.
         # A primeira versão exigia a aspa e devolveu "0 fora do padrão" — verde por não ter
         # medido, que é o pior verde que existe.
-        marcas = set(re.findall(r"\b(TESTE_[A-Z0-9_]+|E2E[A-Z0-9_]*|ZZ[A-Z0-9_]+)", txt))
+        # Case-insensitive e aceitando espaço: as marcas reais aparecem como "TESTE E2E",
+        # "[QA E2E]", "E2E_TESTE". A versão estrita (só MAIÚSCULA_COM_UNDERSCORE) contou 29
+        # "sem marca" onde há 6 — número inflado é tão inútil quanto número ausente.
+        marcas = set(re.findall(r"\b(TESTE[_ ][A-Za-z0-9_]*|E2E[A-Za-z0-9_]*|ZZ[A-Z0-9_]{2,}|QA )",
+                                txt, re.I))
         if not marcas:
             # Pior que prefixo errado: escreve SEM marca nenhuma. O resíduo dele fica
             # indistinguível de dado real — foi o que custou separar teste de lead à mão.
