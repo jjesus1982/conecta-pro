@@ -35,6 +35,9 @@ RAIZ = Path(os.getenv("QA_RAIZ", "/opt/conecta-pro/backend")) / "modules"
 
 _RE_DEF = re.compile(r"^\s+(?:async\s+)?def\s+(\w+)\s*\(", re.M)
 _RE_USO = re.compile(r"\b(?:self\.)?(?:repo|repository|_repo|_repository)\.(\w+)\s*\(")
+#: `from modules.hr.employee_portal.repositories.payslip_repository import PaySlipRepository`
+#: — inclusive dentro de função (import tardio para quebrar ciclo).
+_RE_IMPORT_REPO = re.compile(r"from\s+modules\.([\w.]+?\.repositories[\w.]*)\s+import", re.M)
 
 
 def metodos_do_repositorio(mod: Path) -> set[str]:
@@ -51,7 +54,28 @@ def metodos_do_repositorio(mod: Path) -> set[str]:
 emquarentena: list[str] = []
 
 
+def _exigir_ambiente(raiz: Path) -> None:
+    """RECUSA em vez de aprovar por ausência. Dois modos de falha, dois consertos.
+
+    Esta trava roda no HOST. Dentro do container ela já estourava `FileNotFoundError` —
+    feio, mas fecha. O caso silencioso é o outro: `QA_RAIZ` apontando para um diretório que
+    EXISTE e está VAZIO devolvia `TOTAL: 0` com exit 0 — aprovação por não ter olhado.
+
+    Medido em 24/08/2026 com `QA_RAIZ=/tmp/vazio_qa`. É a terceira encarnação da mesma
+    família em dois dias (`ANTES==DEPOIS` sobre zero escrita · a trava de desmonte varrendo
+    `/app/scripts/orq` no host). **Fila vazia não é resultado — é ausência de medição.**
+    Achado do T2, que mediu os dois casos e mostrou que só o segundo aprovava calado.
+    """
+    if not raiz.is_dir():
+        print(f"RECUSO: {raiz} não existe — este check roda no HOST, não no container.")
+        raise SystemExit(2)
+    if not any(raiz.rglob("*.py")):
+        print(f"RECUSO: {raiz} existe mas não tem .py — QA_RAIZ aponta para o lugar errado.")
+        raise SystemExit(2)
+
+
 def achados(raiz: Path = RAIZ) -> list[dict]:
+    _exigir_ambiente(raiz)
     out: list[dict] = []
     emquarentena.clear()
     for mod in sorted(p for p in raiz.iterdir() if p.is_dir()):
@@ -70,9 +94,19 @@ def achados(raiz: Path = RAIZ) -> list[dict]:
                 emquarentena.append(str(p.relative_to(raiz)))
                 continue
             texto = p.read_text(errors="ignore")
+            # O repositório pode morar em OUTRO módulo, importado dentro da função para
+            # quebrar ciclo — `payslip_portal_service` (people_management) usa o
+            # PaySlipRepository de `hr`. Sem isto a trava acusava 5 chamadas legítimas.
+            # Achado do T2 em 13/08: "é quase certamente a origem das 9 chamadas quebradas".
+            conhecidos = metodos
+            for cam in set(_RE_IMPORT_REPO.findall(texto)):
+                alvo = raiz / cam.replace(".", "/")
+                base = alvo if alvo.is_dir() else alvo.parent
+                for f in list(base.glob("*.py")) + list(base.glob(f"{alvo.name}.py")):
+                    conhecidos = conhecidos | set(_RE_DEF.findall(f.read_text(errors="ignore")))
             for m in _RE_USO.finditer(texto):
                 nome = m.group(1)
-                if nome in metodos:
+                if nome in conhecidos:
                     continue
                 # sugere o método real mais próximo — quase sempre é renomeação
                 base = nome.replace("_by_id", "").replace("service_", "").replace("_config", "")
