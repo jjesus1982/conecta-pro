@@ -2841,10 +2841,11 @@ if _ESCOPO:
             # de usar. Mexer em `_tool_manager._tools` era palpite meu e nem existe nesta
             # versão.
             _todas = [getattr(t, "name", None) for t in _aio.run(mcp._list_tools())]
-            # FAIL-CLOSED: fora do escopo pedido OU sem grupo nenhum. Tool nova que
-            # ninguém mapeou NÃO chega ao agente — o esquecimento vira ausência visível
-            # (o log diz quantas ficaram fora), nunca exposição silenciosa.
+            # FAIL-CLOSED: fora do escopo pedido OU sem grupo nenhum.
             _fora = [n for n in _todas if n and n not in _permitidas]
+            # Separar as DUAS causas, porque só uma é acidente: ficar fora do escopo é
+            # decisão; ficar SEM GRUPO é esquecimento de quem criou a tool.
+            _sem_grupo = sorted(n for n in _fora if not escopos_da_tool(n))
             for _n in _fora:
                 try:
                     mcp.remove_tool(_n)
@@ -2852,11 +2853,34 @@ if _ESCOPO:
                     pass
             print(f"[mcp] escopo={_ESCOPO} · servindo {len(_todas) - len(_fora)} de "
                   f"{len(_todas)} ferramentas", flush=True)
+            # NOMEAR, não contar. "146 de 254" só significa algo para quem lembra do
+            # número de ontem — é a mesma família do container que ficou 2 semanas com
+            # imagem velha sem ninguém notar. Nome é fato; contagem é sinal que depende
+            # de memória alheia.
+            if _sem_grupo:
+                print(f"[mcp] SEM GRUPO em tool_scopes ({len(_sem_grupo)}) — não servidas "
+                      f"a este conector: {', '.join(_sem_grupo)}", flush=True)
     except Exception as _e:  # noqa: BLE001
         # escopo inválido NÃO derruba o conector: serve tudo e denuncia alto. Um MCP fora
         # do ar por um typo em variável de ambiente é pior que um catálogo grande.
         print(f"[mcp] AVISO: escopo '{_ESCOPO}' não aplicado ({_e}) — catálogo inteiro",
               flush=True)
+
+# ── F1: a etiqueta de risco passa a AGIR ──────────────────────────────────────────────
+# Sem isto, `tool_risk_manifest` é crachá que nenhum porteiro pede: 254 tools classificadas
+# e zero referência em runtime. A parede só liga onde MCP_MODO=agente — no conector do
+# Jordan a pessoa lê e decide na hora, e enfileirar ali seria trocar decisão por espera.
+try:
+    from gate_propose import instalar as _instalar_gate
+
+    if _instalar_gate(mcp):
+        print("[mcp] gate propose ATIVO — ações de classe `propose` exigem aprovação humana",
+              flush=True)
+except Exception as _e:  # noqa: BLE001
+    # sem a parede, um conector de AGENTE não sobe: melhor fora do ar que solto.
+    if (os.getenv("MCP_MODO") or "").strip().lower() == "agente":
+        raise RuntimeError(f"MCP_MODO=agente exige o gate de aprovação: {_e}") from _e
+    print(f"[mcp] gate propose não instalado ({_e})", flush=True)
 
 _mcp_app = mcp.http_app(path="/mcp")
 

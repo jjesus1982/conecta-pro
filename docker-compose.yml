@@ -419,6 +419,8 @@ services:
     environment:
       # catálogo escopado — ver tool_scopes.py
       MCP_ESCOPO: ${MCP_ESCOPO:-comercial,juridico,financeiro}
+      # conector de AGENTE: acao classe `propose` nao executa, vai para aprovacao
+      MCP_MODO: agente
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
     networks:

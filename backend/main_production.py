@@ -238,7 +238,12 @@ app.add_middleware(AuditMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # ProxyHeaders: confia nos headers X-Forwarded-Proto/X-Forwarded-For do nginx
 # para que redirects 307 usem https:// em vez de http://
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["127.0.0.1", "::1"])
+# 172.20.0.1 é o GATEWAY da rede docker — é dele que chega tudo que o nginx do host
+# encaminha. Sem ele na lista, o middleware não confia no X-Forwarded-For e o app registra
+# o IP do gateway. Foi o que aconteceu com a 1ª assinatura do CTR-2026-00019: o manifesto
+# promete endereço IP como trilha de auditoria e gravou 172.20.0.1 para todo mundo.
+app.add_middleware(ProxyHeadersMiddleware,
+                   trusted_hosts=["127.0.0.1", "::1", "172.20.0.1", "172.17.0.1"])
 
 
 @app.get("/health", tags=["Health"])
@@ -1138,6 +1143,18 @@ try:
         logger.info("Consultor MCP controller: OK")
     except Exception as _e:
         logger.warning(f"Consultor MCP controller: {_e}")
+    # F1 — porta por onde o pedido BARRADO do agente chega ao humano.
+    # O gate no conector recusa a ação; sem esta rota o pedido morreria na conversa e o
+    # dono nunca saberia que foi pedido.
+    try:
+        from modules.ai.conversation.controllers.agente_aprovacao_controller import (
+            router as _agente_aprov_router,
+        )
+
+        api_router.include_router(_agente_aprov_router)
+        logger.info("Agente aprovacao controller: OK")
+    except Exception as _e:
+        logger.warning(f"Agente aprovacao controller: {_e}")
     # WhatsApp (Evolution API)
     if whatsapp_router:
         api_router.include_router(whatsapp_router, tags=["WhatsApp - Evolution API"])
