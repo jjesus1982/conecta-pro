@@ -34,7 +34,8 @@ async def main() -> int:
     import modules.ai.conversation.controllers.consultor_escopado_controller as C
     from modules.ai.conversation.services.orquestrador.agir_dispatcher import _ACOES
     from modules.ai.conversation.services.orquestrador.tools_acao_crm import (
-        _propor_atualizar_proposta, _propor_criar_cliente, _propor_marcar_deal_perdido,
+        _propor_atualizar_contrato, _propor_atualizar_proposta, _propor_criar_cliente,
+        _propor_marcar_deal_perdido,
         _propor_reativar_lead,
     )
 
@@ -46,7 +47,7 @@ async def main() -> int:
         await db.commit()
 
         for nome in ("atualizar_proposta", "reativar_lead", "marcar_deal_perdido",
-                     "criar_cliente"):
+                     "criar_cliente", "atualizar_contrato"):
             if nome not in _ACOES.get("crm", {}):
                 falhas.append(f"{nome} não está registrada em agir_crm")
         if falhas:
@@ -163,6 +164,35 @@ async def main() -> int:
         if n0 != n1:
             falhas.append(f"cliente: A PROPOSTA CRIOU o cliente: {n0} → {n1}")
 
+        # ── CONTRATO — o grau mais fino: dinheiro, vigência e desconhecido ──────────
+        ct = (await db.execute(text(
+            "SELECT contract_number, monthly_value FROM contracts LIMIT 1"))).first()
+        if ct:
+            r = await _propor_atualizar_contrato(db, u, scope, contrato=ct[0], monthly_value=1)
+            if not r.get("erro"):
+                falhas.append("contrato: monthly_value aceito — VALOR DE CONTRATO VIRA MRR")
+            r = await _propor_atualizar_contrato(db, u, scope, contrato=ct[0], auto_renewal=True)
+            if not r.get("erro"):
+                falhas.append("contrato: auto_renewal aceito — renovaria contrato a encerrar")
+            r = await _propor_atualizar_contrato(db, u, scope, contrato=ct[0], sla_config="x")
+            if not r.get("erro"):
+                falhas.append("contrato: campo NÃO CLASSIFICADO aceito — fail-closed furado")
+            r = await _propor_atualizar_contrato(db, u, scope, contrato="ZZ_NAO_EXISTE",
+                                                 name=_MARCA)
+            if not r.get("erro"):
+                falhas.append("contrato: contrato inexistente aceito")
+            r = await _propor_atualizar_contrato(db, u, scope, contrato=ct[0],
+                                                 description=_MARCA)
+            if not (r.get("draft_id") or r.get("id")):
+                falhas.append(f"contrato: cadastral não virou rascunho: {str(r)[:90]}")
+            v1 = (await db.execute(text(
+                "SELECT monthly_value FROM contracts WHERE contract_number = :n"),
+                {"n": ct[0]})).scalar()
+            if v1 != ct[1]:
+                falhas.append(f"contrato: A PROPOSTA MEXEU NO VALOR: {ct[1]} → {v1}")
+        else:
+            print("  (sem contrato na base — bloco de contrato não exercitado)")
+
         await db.execute(text("DELETE FROM agent_drafts WHERE payload::text LIKE :m"),
                          {"m": f"%{_MARCA}%"})
         await db.commit()
@@ -171,8 +201,9 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK editar_crm: 17/17 — proposta, lead, deal e cliente recusam valor/fechamento/duplicata, "
-          "recusam inexistente, e a proposta é INERTE (nada mudou no banco)")
+    print("OK editar_crm: 23/23 — proposta, lead, deal, cliente e contrato recusam "
+          "valor/fechamento/duplicata/vigência, recusam inexistente, e a proposta é "
+          "INERTE (nada mudou no banco)")
     return 0
 
 

@@ -1287,3 +1287,91 @@ registrar_acao("crm", "criar_cliente",
                "aprovar. Recusa se já houver cliente com o mesmo documento. Nasce sem limite "
                "de crédito e sem condição comercial.",
                _propor_criar_cliente)
+
+
+# ── ATUALIZAR CONTRATO (6ª das 14) — a que exige o grau mais fino ────────────────────
+# ⚠️⚠️ MÓDULO: `crm/controllers/contract_controller.py:618`. Existem QUATRO `update_contract`
+# no repositório: crm (esta), clients, bidding e **people_management/hr** — a última escreve
+# CONTRATO DE TRABALHO de CLT. Usar a errada é editar o vínculo de 56 pessoas, em território
+# do T2. `grep -l | head -1` devolve a de clients. Confira sempre o caminho.
+
+#: Cadastro e texto do contrato: corrigir nome ou descrição não move dinheiro nem prazo.
+_CONTRATO_CADASTRAL = frozenset({"name", "description"})
+
+#: DINHEIRO. `monthly_value` VIRA MRR — é o número que o Jordan usa para saber o tamanho da
+#: casa. `setup_fee` e `total_value` são cobrança. Nada disso é correção de cadastro.
+_CONTRATO_DINHEIRO = frozenset({"monthly_value", "total_value", "setup_fee",
+                                "adjustment_fixed_percent", "adjustment_index",
+                                "adjustment_enabled"})
+
+#: VIGÊNCIA e RENOVAÇÃO: mudam quando o contrato vale e quando renova sozinho. Um
+#: `auto_renewal` alterado por engano renova um contrato que a empresa ia encerrar.
+_CONTRATO_VIGENCIA = frozenset({"end_date", "auto_renewal", "renewal_period_months",
+                                "renewal_notification_days", "notice_period_days",
+                                "grace_period_days"})
+
+
+async def _propor_atualizar_contrato(db, user, scope, *, contrato="", **campos) -> dict[str, Any]:
+    ref = str(contrato or "").strip()
+    if not ref:
+        return {"erro": "informe o contrato (número ou id)"}
+    campos = {k: v for k, v in campos.items() if v not in (None, "")}
+    if not campos:
+        return {"erro": "informe ao menos um campo (name, description)"}
+
+    # Fail-closed em TRÊS níveis, e a ordem importa: dinheiro primeiro, porque é o que dói.
+    dinheiro = sorted(set(campos) & _CONTRATO_DINHEIRO)
+    if dinheiro:
+        return {"erro": f"{dinheiro} muda o VALOR do contrato — e valor de contrato vira MRR. "
+                        f"Isso não passa pelo chat; é da tela de contratos, com o Jordan."}
+    vigencia = sorted(set(campos) & _CONTRATO_VIGENCIA)
+    if vigencia:
+        return {"erro": f"{vigencia} muda VIGÊNCIA ou RENOVAÇÃO — um auto_renewal alterado por "
+                        f"engano renova contrato que ia ser encerrado. Use a tela."}
+    fora = sorted(set(campos) - _CONTRATO_CADASTRAL)
+    if fora:
+        # Fail-closed no DESCONHECIDO: campo que eu não classifiquei não vira 🟡 por omissão.
+        return {"erro": f"campo(s) não liberado(s) por aqui: {fora}. Só nome e descrição — "
+                        f"o resto do contrato é decisão comercial."}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, contract_number, name, status::text AS status, monthly_value "
+        "FROM contracts WHERE id::text = :r OR contract_number = :r LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"contrato '{ref}' não encontrado pelo número ou id."}
+
+    antes = {k: row.get(k) for k in campos if k in row}
+    mudancas = "; ".join(
+        f"{k}: {antes.get(k) if antes.get(k) not in (None, '') else '(vazio)'} → {v}"
+        for k, v in campos.items())
+    return await criar_rascunho(
+        db, user, tipo="atualizar_contrato", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"contrato_atualizar:{row['id']}:{_slug(mudancas)[:40]}",
+        titulo=f"Corrigir contrato {row['contract_number']}",
+        resumo=f"Aprovar CORRIGE o contrato {row['contract_number']} (status {row['status']}, "
+               f"mensal R$ {float(row['monthly_value'] or 0):,.2f} — INALTERADO). {mudancas}. "
+               f"Só nome e descrição: valor, vigência e renovação não passam por aqui.",
+        payload={"contract_id": row["id"], "campos": campos,
+                 "numero": row["contract_number"]},
+    )
+
+
+async def _exec_atualizar_contrato(db, aprovador_user, payload: dict) -> str:
+    # ⚠️ `modules.crm`, NUNCA `people_management.hr` — aquela é contrato de TRABALHO.
+    from modules.crm.controllers.contract_controller import update_contract  # noqa: PLC0415
+    from modules.crm.schemas.contract import ContractUpdate  # noqa: PLC0415
+
+    c = await update_contract(contract_id=str(payload["contract_id"]),
+                              data=ContractUpdate(**payload["campos"]),
+                              current_user=aprovador_user, db=db)
+    return str(getattr(c, "id", payload["contract_id"]))
+
+
+registrar_executor("atualizar_contrato", _exec_atualizar_contrato)
+registrar_acao("crm", "atualizar_contrato",
+               "CORRIGIR o nome ou a descrição de um contrato que já existe. dados: contrato "
+               "(número ou id — obrig.), name, description. Vira rascunho. NÃO mexe em valor "
+               "mensal (vira MRR), vigência, renovação, reajuste nem multa — isso é da tela.",
+               _propor_atualizar_contrato)
