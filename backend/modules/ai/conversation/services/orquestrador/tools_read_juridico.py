@@ -147,3 +147,21 @@ registrar_read(_MOD, "analise_contrato",
                "nível/score de risco, cláusulas arriscadas e recomendações — rotulada HIPÓTESE de "
                "máquina, NÃO gera parecer nem fato jurídico. Filtro: contrato_id (obrigatório).",
                _analise_contrato)
+
+
+# ── DET — COMUNICAÇÕES (8ª das 14 — leitura) ─────────────────────────────────────────
+# Rota real: GET /juridico/det/comunicacoes · corrotina `juridico/det_controller.py:59`.
+# É caixa postal de GOVERNO: comunicação do DET tem prazo, e prazo perdido vira revelia.
+# Só LEITURA — transmitir/responder ao DET é ato irreversível e não passa pelo chat.
+async def _det_comunicacoes(db, user, scope, *, limit=50, **_) -> Any:
+    _gate(user)
+    from modules.juridico.det_controller import listar
+
+    return _dump(await listar(limit=int(limit), current_user=user, db=db))
+
+
+registrar_read(_MOD, "det_comunicacoes",
+               "Comunicações recebidas no DET (Domicílio Eletrônico Trabalhista) — caixa "
+               "postal do governo, com prazo. Filtros: limit. Só leitura: responder ou "
+               "transmitir ao DET é ato irreversível e não passa por aqui.",
+               _det_comunicacoes)

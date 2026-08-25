@@ -248,3 +248,23 @@ registrar_read(_MOD, "panorama",
                "Panorama COO consolidado (dados reais): postos e cobertura (postos descobertos), "
                "escalas, alocações, diaristas e vínculos (CLT×diária). Fotografia gerencial da "
                "operação agora. Sem filtros.", _panorama)
+
+
+# ── COMUNICADOS NÃO LIDOS (7ª das 14 — leitura) ──────────────────────────────────────
+# Rota real: GET /operacional/comunicados/nao-lidos · corrotina
+# `operacional/communication/controllers/announcement_controller.py:179`.
+# Reusa a corrotina da TELA, com a identidade real de quem pergunta — o "não lido" é POR
+# PESSOA, então esta consulta só existe direito com identidade, e in-process ela já é real.
+async def _comunicados_nao_lidos(db, user, scope, *, page=1, page_size=20, **_) -> Any:
+    _gate(user)
+    from modules.operacional.communication.controllers.announcement_controller import (
+        list_unread_announcements,
+    )
+    return _dump(await list_unread_announcements(current_user=user, db=db,
+                                                 page=int(page), page_size=int(page_size)))
+
+
+registrar_read(_MOD, "comunicados_nao_lidos",
+               "Comunicados internos que VOCÊ ainda não leu (o sino do ERP). Filtros: page, "
+               "page_size. É por pessoa — mostra os seus, não os de todo mundo.",
+               _comunicados_nao_lidos)
