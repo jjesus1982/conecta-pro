@@ -1375,3 +1375,160 @@ registrar_acao("crm", "atualizar_contrato",
                "(número ou id — obrig.), name, description. Vira rascunho. NÃO mexe em valor "
                "mensal (vira MRR), vigência, renovação, reajuste nem multa — isso é da tela.",
                _propor_atualizar_contrato)
+
+
+# ── CONFIRMAR REUNIÃO (9ª das 14) ────────────────────────────────────────────────────
+# Rota POST /crm/reunioes/confirmar · `crm/…/growth_controller.py:1770`.
+async def _propor_confirmar_reuniao(db, user, scope, *, reuniao="", **_) -> dict[str, Any]:
+    ref = str(reuniao or "").strip()
+    if not ref:
+        return {"erro": "informe a reunião (id, título ou nome do cliente)"}
+    row = (await db.execute(text(
+        "SELECT id::text AS id, titulo, cliente_nome, quando, status::text AS status "
+        "FROM crm_meetings WHERE id::text = :r OR upper(titulo) = upper(:r) "
+        "OR upper(cliente_nome) = upper(:r) ORDER BY quando DESC LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"reunião '{ref}' não encontrada por id, título ou cliente."}
+    if (row["status"] or "").lower() == "confirmada":
+        return {"erro": f"a reunião '{row['titulo']}' já está confirmada."}
+    return await criar_rascunho(
+        db, user, tipo="confirmar_reuniao", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"reuniao_confirmar:{row['id']}",
+        titulo=f"Confirmar reunião: {row['titulo']}",
+        resumo=f"Aprovar CONFIRMA a reunião '{row['titulo']}' com {row['cliente_nome']} "
+               f"em {row['quando']}. Status atual: {row['status']}.",
+        payload={"meeting_id": row["id"], "titulo": row["titulo"]},
+    )
+
+
+async def _exec_confirmar_reuniao(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.growth_controller import confirmar_reuniao_ep  # noqa: PLC0415
+    from modules.crm.controllers.growth_controller import MeetingActionIn  # noqa: PLC0415
+
+    await confirmar_reuniao_ep(data=MeetingActionIn(meeting_id=str(payload["meeting_id"])),
+                               db=db)
+    return str(payload["meeting_id"])
+
+
+registrar_executor("confirmar_reuniao", _exec_confirmar_reuniao)
+registrar_acao("crm", "confirmar_reuniao",
+               "CONFIRMAR uma reunião agendada. dados: reuniao (id, título ou nome do cliente "
+               "— obrig.). Vira rascunho: a confirmação só vale depois da aprovação.",
+               _propor_confirmar_reuniao)
+
+
+# ── ADICIONAR ACHADOS À VISITA (10ª das 14) ──────────────────────────────────────────
+# Rota POST /crm/visitas/achados · service `crm/services/visit_reports.py:80`.
+async def _propor_adicionar_achados_visita(db, user, scope, *, visita="", achados="",
+                                           **_) -> dict[str, Any]:
+    ref = str(visita or "").strip()
+    if not ref:
+        return {"erro": "informe a visita (id ou nome do cliente)"}
+    itens = [a.strip() for a in (achados.split(";") if isinstance(achados, str) else achados or [])
+             if str(a).strip()]
+    if not itens:
+        return {"erro": "informe ao menos um achado (separe por ';')"}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, cliente_nome, status::text AS status FROM crm_visit_reports "
+        "WHERE id::text = :r OR upper(cliente_nome) = upper(:r) "
+        "ORDER BY created_at DESC LIMIT 1"), {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"relatório de visita '{ref}' não encontrado por id ou cliente."}
+
+    return await criar_rascunho(
+        db, user, tipo="adicionar_achados_visita", modulo="crm", gate="🟡",
+        requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"visita_achados:{row['id']}:{_slug(';'.join(itens))[:36]}",
+        titulo=f"Anexar {len(itens)} achado(s) à visita de {row['cliente_nome']}",
+        resumo=f"Aprovar ANEXA ao relatório de visita de {row['cliente_nome']} "
+               f"(status {row['status']}): " + " · ".join(i[:70] for i in itens[:5])
+               + (f" (+{len(itens)-5})" if len(itens) > 5 else "") + ".",
+        payload={"ref": row["id"], "achados": itens, "cliente": row["cliente_nome"]},
+    )
+
+
+async def _exec_adicionar_achados_visita(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.services.visit_reports import adicionar_achados  # noqa: PLC0415
+
+    await adicionar_achados(db, str(payload["ref"]), list(payload["achados"]))
+    return str(payload["ref"])
+
+
+registrar_executor("adicionar_achados_visita", _exec_adicionar_achados_visita)
+registrar_acao("crm", "adicionar_achados_visita",
+               "ANEXAR achados (notas de vistoria) a um relatório de visita existente. dados: "
+               "visita (id ou nome do cliente — obrig.), achados (texto; separe vários por "
+               "';'). Vira rascunho — só entra no relatório depois da aprovação.",
+               _propor_adicionar_achados_visita)
+
+
+# ── DEFINIR META DE CONTRATOS DO MÊS (11ª das 14) ────────────────────────────────────
+# Rota POST /crm/quotas · `crm/…/growth_controller.py:1093` (UPSERT por seller+ano+mês).
+# ⚠️ Meta não é dinheiro que sai, mas é a RÉGUA contra a qual o desempenho é medido — mexer
+# nela muda o retrato de quem bateu e quem não bateu. Por isso 🟡 e com o valor ANTERIOR no
+# resumo: aprovar meta sem ver a de antes é aprovar às cegas.
+async def _propor_definir_meta_contratos_mes(db, user, scope, *, mes=None, ano=None,
+                                             vendedor="", quantidade=None, valor=None,
+                                             **_) -> dict[str, Any]:
+    if quantidade is None and valor is None:
+        return {"erro": "informe quantidade (nº de contratos) e/ou valor (R$) da meta"}
+    hoje = (await db.execute(text(
+        "SELECT (now() AT TIME ZONE 'America/Manaus')::date"))).scalar()
+    m, a = int(mes or hoje.month), int(ano or hoje.year)
+    if not (1 <= m <= 12):
+        return {"erro": "mês inválido"}
+
+    sid, snome = None, None
+    if str(vendedor or "").strip():
+        v = (await db.execute(text(
+            "SELECT id::text AS id, name FROM users WHERE upper(name) = upper(:v) "
+            "OR email = :v LIMIT 1"), {"v": vendedor.strip()})).mappings().first()
+        if not v:
+            return {"erro": f"vendedor '{vendedor}' não encontrado — para meta da EMPRESA, "
+                            f"omita o vendedor."}
+        sid, snome = v["id"], v["name"]
+
+    atual = (await db.execute(text(
+        "SELECT target_value, target_count FROM crm_quotas WHERE period_year = :a "
+        "AND period_month = :m AND coalesce(seller_id::text, '') = coalesce(:s, '')"),
+        {"a": a, "m": m, "s": sid})).mappings().first()
+    de = (f"hoje: {atual['target_count'] or '—'} contrato(s) / "
+          f"R$ {float(atual['target_value'] or 0):,.2f}" if atual else "hoje: sem meta definida")
+
+    return await criar_rascunho(
+        db, user, tipo="definir_meta_contratos_mes", modulo="crm", gate="🟡",
+        requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"meta:{a}-{m:02d}:{sid or 'empresa'}:{quantidade}:{valor}",
+        titulo=f"Meta {m:02d}/{a}" + (f" — {snome}" if snome else " — EMPRESA"),
+        resumo=f"Aprovar DEFINE a meta de {m:02d}/{a} "
+               + (f"para {snome}" if snome else "da EMPRESA") + ": "
+               + (f"{quantidade} contrato(s)" if quantidade is not None else "")
+               + (" e " if quantidade is not None and valor is not None else "")
+               + (f"R$ {float(valor):,.2f}" if valor is not None else "")
+               + f". ({de}). Meta é a régua do desempenho — mexer nela muda quem bateu.",
+        payload={"seller_id": sid, "seller_name": snome, "period_year": a,
+                 "period_month": m, "target_count": quantidade, "target_value": valor},
+    )
+
+
+async def _exec_definir_meta_contratos_mes(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.growth_controller import QuotaIn, upsert_quota  # noqa: PLC0415
+
+    await upsert_quota(data=QuotaIn(
+        seller_id=payload.get("seller_id"), seller_name=payload.get("seller_name"),
+        period_year=payload["period_year"], period_month=payload["period_month"],
+        target_value=payload.get("target_value"),
+        target_count=payload.get("target_count")), db=db)
+    return f"{payload['period_year']}-{payload['period_month']:02d}"
+
+
+registrar_executor("definir_meta_contratos_mes", _exec_definir_meta_contratos_mes)
+registrar_acao("crm", "definir_meta_contratos_mes",
+               "DEFINIR a meta comercial do mês (quantidade de contratos e/ou valor). dados: "
+               "mes, ano (padrão: o corrente), vendedor (omita para meta da EMPRESA), "
+               "quantidade, valor. Vira rascunho e mostra a meta anterior — meta é a régua do "
+               "desempenho, então mexer nela muda o retrato de quem bateu.",
+               _propor_definir_meta_contratos_mes)

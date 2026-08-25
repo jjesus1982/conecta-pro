@@ -317,3 +317,33 @@ registrar_read("financeiro", "briefing_executivo",
                "(Inter/Eletrônica + Cora/Patrimonial + consolidado), postos descobertos (COO), "
                "certidões vencendo (fiscal) e deals quentes (CRM) — cada número com source. "
                "Gate de diretoria. Sem filtros.", _briefing_executivo)
+
+
+# ── VIABILIDADE DE CONTRATAÇÃO (12ª das 14 — leitura) ────────────────────────────────
+# Rota POST /consultores/mcp/executivo/viabilidade-contratacao ·
+# `ai/conversation/controllers/executivo_controller.py:214`.
+# É POST porque recebe parâmetros no corpo, mas NÃO PERSISTE nada — é cálculo. Entra no balde
+# de leitura de propósito (mesma exceção declarada no `POST_DE_CONSULTA` do conector).
+# Fica em `financeiro` porque a restrição é dinheiro: saldo e runway é que dizem se cabe.
+async def _viabilidade_contratacao(db, user, scope, *, quantidade=None, cargo="", **_) -> Any:
+    _gate(user)
+    from modules.ai.conversation.controllers.executivo_controller import (
+        ViabilidadeIn, viabilidade_contratacao,
+    )
+
+    try:
+        qtd = int(quantidade)
+    except (TypeError, ValueError):
+        return {"status": "recusado",
+                "motivo": "informe quantidade (quantas pessoas) e cargo"}
+    if not str(cargo or "").strip():
+        return {"status": "recusado", "motivo": "informe o cargo (ex.: 'Agente de Portaria')"}
+    return _dump(await viabilidade_contratacao(
+        payload=ViabilidadeIn(qtd=qtd, cargo=str(cargo).strip()), db=db, user=user))
+
+
+registrar_read("financeiro", "viabilidade_contratacao",
+               "\"Posso contratar N pessoas do cargo X?\" — cruza saldo/runway (CFO), postos "
+               "descobertos (COO) e o custo real de folha (piso da CCT + encargos). Filtros: "
+               "quantidade (obrig.), cargo (obrig.). Só cálculo sobre dado real, não contrata "
+               "ninguém.", _viabilidade_contratacao)
