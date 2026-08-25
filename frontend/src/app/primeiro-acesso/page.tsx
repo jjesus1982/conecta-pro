@@ -114,6 +114,12 @@ export default function PrimeiroAcessoPage() {
       setToken(d.token); setNome(d.nome); setEmail(d.email); setCargo(d.cargo || '');
       setForm({ ...(d.dados || {}) });
       setFaltantes(new Set((d.faltantes || []).map((f: { campo: string }) => f.campo)));
+      // 🔴 A SEGUNDA PORTA DA MESMA ARMADILHA. Quem já concluiu nem sempre leva 409: o
+      // `/identificar` responde 200 e AVISA no corpo (`ja_concluiu` / `ja_tem_rosto`).
+      // Ontem eu fechei só a porta do 409 — que era a do EDIWILSON — e a KELLY caiu pela
+      // outra: entrou, foi levada ao passo do rosto que ela JÁ tinha desde 12/08, e a
+      // captura deu erro. O backend estava avisando o tempo todo e a tela ignorava.
+      if (d.ja_concluiu || d.ja_tem_rosto) { setJaConcluiu(true); return; }
       setStep(2);
     } catch { setErro('Falha de conexão. Tente de novo.'); }
     finally { setLoading(false); }
@@ -289,10 +295,21 @@ export default function PrimeiroAcessoPage() {
         {jaConcluiu && (
           <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm text-center">
             <h2 className="text-[16px] font-bold text-slate-800 mb-2">Sua conta já está pronta</h2>
-            <p className="text-sm text-slate-600 mb-4">
-              Você não precisa cadastrar nada de novo. Entre com o seu e-mail e o seu CPF
-              como senha.
+            <p className="text-sm text-slate-600 mb-3">
+              Você não precisa cadastrar nada de novo — nem o rosto.
             </p>
+            {/* Dizer QUAL e-mail: a tela de /login pede e-mail, e 20 pessoas têm também
+                uma conta @conectamais.pro INATIVA. "seu e-mail" não basta. */}
+            {email && (
+              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 mb-4 text-left">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">E-mail</p>
+                <p className="text-[14px] font-semibold text-slate-800 break-all">{email}</p>
+                <p className="text-[11px] uppercase tracking-wider text-slate-500 mt-2">Senha</p>
+                <p className="text-[14px] font-semibold text-slate-800">
+                  seu CPF, só os números
+                </p>
+              </div>
+            )}
             <a href="/login"
                className="inline-block w-full rounded-xl bg-[#F97316] py-3 text-white font-semibold">
               Ir para o login
