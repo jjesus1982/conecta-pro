@@ -296,6 +296,35 @@ Seis medições por regex sobre código, num único dia, e **três inflaram, tr�
 ⚠️ **O mais perigoso foi o `0`**, não os inflados: número inflado alguém confere; **zero
 ninguém confere, porque parece boa notícia.**
 
+### Número que você não mediu vai com a fonte — o rigor não pode parar na fronteira do seu módulo
+
+Em 24–25/08/2026, **três números atravessaram sessões e cada um teve de ser buscado na fonte**:
+
+```
+capacidades do agente      62 × 189 × 49    (três contagens legítimas de coisas diferentes)
+achado do ponto            19 dias × 9 dias  (critérios e janelas diferentes)
+chaves de idempotência     429 × 357 × 1369  (vínculo chutado vs lido no código)
+```
+
+O `1369` foi meu: chutei `draft_id` onde o código usa `reference_id` e não filtrei `is_active`.
+**Fui ler o código antes de publicar** e virou 357. O `baixa_pagavel 72` circulou por três
+sessões e **não existe** — zero chaves, não "zero órfãs de 72" — e quase virou uma varredura
+no financeiro atrás de baixa que nunca deixou de acontecer.
+
+⭐ **O diagnóstico mais fino veio de quem errou** (sessão de integrations, 25/08):
+
+> *"Eu MEDI o meu lado com rigor e construí a conclusão mais consequente em cima da lista do
+> outro, sem tocar nela. O rigor parou exatamente onde o achado deixava de ser meu. E o
+> formato escondeu: como as três primeiras linhas eram medição minha, a quarta herdou a
+> aparência de medida."*
+
+**Regras:**
+- **marque o que mediu e o que repetiu.** Bloco de números onde só alguns são seus lê-se
+  inteiro como medição — e a conclusão costuma se apoiar justamente no emprestado;
+- **antes de agir sobre número alheio, reproduza-o** — ou diga que não reproduziu;
+- **não reproduziu e o número decide algo?** Vá ao código descobrir o vínculo real. Foi o que
+  separou 1369 de 357, e foi feito *antes* de mandar, que é onde a diferença existe.
+
 ### Guard de ambiente pede PROVA DE IDENTIDADE, não sinal de vida
 
 "Fila vazia não é resultado" apareceu **quatro vezes em dois dias**, e a quarta é a que ensina:
