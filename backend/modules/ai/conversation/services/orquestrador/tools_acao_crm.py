@@ -1012,3 +1012,211 @@ registrar_acao("crm", "atualizar_cliente",
                "Vira rascunho: a correção só é gravada quando um humano aprovar. NÃO mexe em "
                "limite de crédito, prazo de pagamento nem status.",
                _propor_atualizar_cliente)
+
+
+# ── ATUALIZAR PROPOSTA (2ª das 14) ───────────────────────────────────────────────────
+# ⚠️ MÓDULO: `crm/controllers/proposal_controller.py:445`. Existem DUAS `update_proposal` no
+# repositório (a outra é de `bidding`) — `grep -l | head -1` devolve a errada.
+
+#: Cadastro e texto da proposta: corrigir é reversível e não mexe no dinheiro dela.
+_PROPOSTA_CADASTRAL = frozenset({
+    "title", "description", "client_name", "client_email", "client_phone", "client_company",
+    "client_document", "client_address", "notes", "terms_conditions", "subject", "message",
+    "recipient_email", "valid_until",
+})
+
+#: O MESMO endpoint que corrige um e-mail muda desconto, imposto, parcelamento e STATUS.
+#: Desconto e imposto são o valor da proposta; status move o funil. Grau sai do CAMPO.
+_PROPOSTA_VALOR = frozenset({
+    "discount_type", "discount_value", "discount_reason", "taxes", "payment_terms",
+    "payment_conditions", "installments", "status", "proposal_type",
+})
+
+
+async def _propor_atualizar_proposta(db, user, scope, *, proposta="", **campos) -> dict[str, Any]:
+    ref = str(proposta or "").strip()
+    if not ref:
+        return {"erro": "informe a proposta (número ou id)"}
+    campos = {k: v for k, v in campos.items() if v not in (None, "")}
+    if not campos:
+        return {"erro": "informe ao menos um campo para corrigir (ex.: client_document, title)"}
+
+    desconhecidos = sorted(set(campos) - _PROPOSTA_CADASTRAL - _PROPOSTA_VALOR)
+    if desconhecidos:
+        return {"erro": f"campo(s) que a proposta não tem: {desconhecidos}"}
+    valor = sorted(set(campos) & _PROPOSTA_VALOR)
+    if valor:
+        return {"erro": f"{valor} muda o VALOR ou o ESTÁGIO da proposta, não o cadastro dela "
+                        f"— isso não passa por aqui; use a tela de propostas."}
+
+    row = (await db.execute(text(
+        # ⚠️ a coluna é `number`, NÃO `proposal_number` — medido no information_schema, não suposto.
+        "SELECT id::text AS id, number, title, client_name, client_document, status::text "
+        "FROM proposals WHERE id::text = :r OR number = :r LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"proposta '{ref}' não encontrada pelo número ou id."}
+
+    antes = {k: row.get(k) for k in campos if k in row}
+    mudancas = "; ".join(
+        f"{k}: {antes.get(k) if antes.get(k) not in (None, '') else '(vazio)'} → {v}"
+        for k, v in campos.items())
+    return await criar_rascunho(
+        db, user, tipo="atualizar_proposta", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"proposta_atualizar:{row['id']}:{_slug(mudancas)[:40]}",
+        titulo=f"Corrigir proposta {row['number']}",
+        resumo=f"Aprovar CORRIGE a proposta {row['number']} "
+               f"({row['client_name']}, status {row['status']}). {mudancas}. "
+               f"Só cadastro/texto — desconto, imposto e status não passam por aqui.",
+        payload={"proposal_id": row["id"], "campos": campos,
+                 "numero": row["number"]},
+    )
+
+
+async def _exec_atualizar_proposta(db, aprovador_user, payload: dict) -> str:
+    """Executa NA APROVAÇÃO, com a identidade de quem aprovou."""
+    # ⚠️ `crm`, não `bidding` — são duas `update_proposal` no repositório.
+    from modules.crm.controllers.proposal_controller import update_proposal  # noqa: PLC0415
+    from modules.crm.schemas.proposal import ProposalUpdate  # noqa: PLC0415
+
+    p = await update_proposal(proposal_id=str(payload["proposal_id"]),
+                              data=ProposalUpdate(**payload["campos"]),
+                              current_user=aprovador_user, db=db)
+    return str(getattr(p, "id", payload["proposal_id"]))
+
+
+registrar_executor("atualizar_proposta", _exec_atualizar_proposta)
+registrar_acao("crm", "atualizar_proposta",
+               "CORRIGIR o cadastro/texto de uma proposta que já existe (nome ou CNPJ do "
+               "cliente, título, descrição, validade, condições em texto). dados: proposta "
+               "(número ou id — obrig.) + os campos (client_document, client_name, title, "
+               "description, valid_until, terms_conditions…). Vira rascunho: só grava quando "
+               "um humano aprovar. NÃO mexe em desconto, imposto, parcelamento nem status.",
+               _propor_atualizar_proposta)
+
+
+# ── REATIVAR LEAD (3ª das 14) ────────────────────────────────────────────────────────
+# Rota PATCH /crm/leads/{id}/status · corrotina `crm/…/lead_controller.py:201`.
+_LEAD_STATUS = ("new", "contacted", "qualified", "proposal", "negotiation", "won", "lost")
+
+#: 'won' NÃO passa por aqui: marcar lead como ganho é fechamento comercial, e fechamento tem
+#: caminho próprio (aceitar_proposta / close_opportunity), com o que ele arrasta junto —
+#: comissão, contrato, MRR. Reativar é trazer de volta, não declarar vitória.
+_LEAD_STATUS_PERMITIDO = ("new", "contacted", "qualified", "proposal", "negotiation")
+
+
+async def _propor_reativar_lead(db, user, scope, *, lead="", status="contacted",
+                                motivo="", **_) -> dict[str, Any]:
+    ref = str(lead or "").strip()
+    if not ref:
+        return {"erro": "informe o lead (id, nome ou empresa)"}
+    novo = str(status or "contacted").strip().lower()
+    if novo not in _LEAD_STATUS_PERMITIDO:
+        if novo in _LEAD_STATUS:
+            return {"erro": f"'{novo}' é fechamento comercial, não reativação — use a tela "
+                            f"ou o caminho de proposta. Aqui: {', '.join(_LEAD_STATUS_PERMITIDO)}"}
+        return {"erro": f"status inválido; use um de: {', '.join(_LEAD_STATUS_PERMITIDO)}"}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, name, company, status::text AS status FROM leads "
+        "WHERE id::text = :r OR upper(name) = upper(:r) OR upper(company) = upper(:r) "
+        "LIMIT 1"), {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"lead '{ref}' não encontrado por id, nome ou empresa."}
+    if row["status"] == novo:
+        return {"erro": f"o lead {row['name']} já está em '{novo}' — nada a mudar."}
+
+    return await criar_rascunho(
+        db, user, tipo="reativar_lead", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"lead_status:{row['id']}:{novo}",
+        titulo=f"Reativar lead {row['name']}",
+        resumo=f"Aprovar move o lead {row['name']}"
+               + (f" ({row['company']})" if row["company"] else "")
+               + f" de '{row['status']}' para '{novo}'."
+               + (f" Motivo: {motivo[:120]}." if motivo else "")
+               + " Só reativação — fechamento (won) não passa por aqui.",
+        payload={"lead_id": row["id"], "status": novo, "notes": motivo or None,
+                 "nome": row["name"], "de": row["status"]},
+    )
+
+
+async def _exec_reativar_lead(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.lead_controller import update_lead_status  # noqa: PLC0415
+    from modules.crm.schemas.lead import LeadStatusUpdate  # noqa: PLC0415
+
+    lead = await update_lead_status(
+        lead_id=str(payload["lead_id"]),
+        data=LeadStatusUpdate(status=payload["status"], notes=payload.get("notes")),
+        current_user=aprovador_user, db=db)
+    return str(getattr(lead, "id", payload["lead_id"]))
+
+
+registrar_executor("reativar_lead", _exec_reativar_lead)
+registrar_acao("crm", "reativar_lead",
+               "REATIVAR um lead frio, trazendo-o de volta ao funil. dados: lead (id, nome ou "
+               "empresa — obrig.), status (new|contacted|qualified|proposal|negotiation, "
+               "padrão contacted), motivo. Vira rascunho. NÃO marca como ganho ('won'): "
+               "fechamento tem caminho próprio, com comissão e contrato junto.",
+               _propor_reativar_lead)
+
+
+# ── MARCAR DEAL PERDIDO (4ª das 14) ──────────────────────────────────────────────────
+# Rota POST /crm/opportunities/{id}/close · corrotina `close_opportunity`.
+_MOTIVOS_PERDA = ("price", "competitor", "no_budget", "no_decision", "timing",
+                  "product_fit", "no_response", "other")
+
+
+async def _propor_marcar_deal_perdido(db, user, scope, *, deal="", motivo="",
+                                      concorrente="", observacao="", **_) -> dict[str, Any]:
+    ref = str(deal or "").strip()
+    if not ref:
+        return {"erro": "informe o deal (id ou título)"}
+    m = str(motivo or "").strip().lower()
+    if m not in _MOTIVOS_PERDA:
+        return {"erro": f"motivo da perda é obrigatório; use um de: {', '.join(_MOTIVOS_PERDA)}"}
+
+    row = (await db.execute(text(
+        # ⚠️ a coluna é `value`, NÃO `estimated_value`.
+        "SELECT id::text AS id, title, value, stage::text AS stage FROM opportunities "
+        "WHERE id::text = :r OR upper(title) = upper(:r) LIMIT 1"), {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"deal '{ref}' não encontrado por id ou título."}
+
+    # 🟡 e não 🔵: fechar como perdido tira o deal da PREVISÃO. Não move dinheiro que saiu,
+    # mas muda o forecast que o Jordan usa para decidir — merece um humano confirmando.
+    return await criar_rascunho(
+        db, user, tipo="marcar_deal_perdido", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"deal_perdido:{row['id']}",
+        titulo=f"Marcar deal PERDIDO: {row['title']}",
+        resumo=f"Aprovar FECHA o deal '{row['title']}' como PERDIDO (motivo: {m}"
+               + (f", concorrente: {concorrente}" if concorrente else "")
+               + f"). Ele sai da previsão de vendas — valor estimado "
+               + f"R$ {float(row['value'] or 0):,.2f}, estágio atual {row['stage']}.",
+        payload={"opportunity_id": row["id"], "motivo": m,
+                 "concorrente": concorrente or None, "observacao": observacao or None,
+                 "titulo": row["title"]},
+    )
+
+
+async def _exec_marcar_deal_perdido(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.opportunity_controller import close_opportunity  # noqa: PLC0415
+    from modules.crm.schemas.opportunity import OpportunityClose  # noqa: PLC0415
+
+    o = await close_opportunity(
+        opportunity_id=str(payload["opportunity_id"]),
+        data=OpportunityClose(won=False, loss_reason=payload["motivo"],
+                              competitor=payload.get("concorrente"),
+                              notes=payload.get("observacao")),
+        current_user=aprovador_user, db=db)
+    return str(getattr(o, "id", payload["opportunity_id"]))
+
+
+registrar_executor("marcar_deal_perdido", _exec_marcar_deal_perdido)
+registrar_acao("crm", "marcar_deal_perdido",
+               "Fechar um deal como PERDIDO. dados: deal (id ou título — obrig.), motivo "
+               "(obrig., um de: " + ", ".join(_MOTIVOS_PERDA) + "), concorrente, observacao. "
+               "Vira rascunho — o deal sai da previsão de vendas só quando um humano aprovar.",
+               _propor_marcar_deal_perdido)
