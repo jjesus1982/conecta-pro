@@ -328,6 +328,35 @@ tinha misturado os dois na mesma mensagem."* (sessão de integrations, 25/08):
 - **não reproduziu e o número decide algo?** Vá ao código descobrir o vínculo real. Foi o que
   separou 1369 de 357, e foi feito *antes* de mandar, que é onde a diferença existe.
 
+### Acabar de acertar dá licença para o próximo palpite
+
+A armadilha mais eficiente da noite de 24→25/08 não foi técnica. **Acertar uma correção cria
+autoridade, e autoridade dispensa a próxima medição — nos dois sentidos, no mesmo par, na
+mesma noite:**
+
+```
+sessão A pega um erro real de B  →  B aceita a correção SEGUINTE de A sem remedir
+                                →  A, envalentonado, critica um teste de B SEM ABRIR o arquivo
+```
+
+Foi exatamente isto, uma hora depois de a regra *"marque o que mediu e o que repetiu"* ter
+sido escrita, **pela mesma pessoa que a escreveu**.
+
+O caso concreto: `baixa_pagavel`. Uma sessão disse "72 órfãs, é dinheiro parado" (certo na
+existência); a outra disse "não existe, 0 chaves" (a consulta media *quantas bloqueiam*, com o
+mesmo `is_active` do código, e a frase disse *quantas existem*). **As duas metades juntas é que
+descrevem o fato:** 72 existem, todas `is_active=false`, e o gate exige ativa — logo **não
+bloqueiam**. Nenhuma das duas sozinha estava certa.
+
+**Regras:**
+- **nenhum par é confiável por reputação, só por comando rodado** — inclusive quem acabou de
+  te salvar, e principalmente você depois de salvar alguém;
+- **medir "quantas bloqueiam" e escrever "quantas existem"** é o mesmo erro de etiqueta que o
+  manifesto de risco cometeu 54 vezes: o número certo com a frase errada;
+- ⚠️ **"não está quebrado agora" ≠ "está tudo bem".** Não havia coluna que dissesse quando as
+  72 foram desativadas: se estiveram ativas antes, bloquearam. **O estado atual não conta a
+  história — e a forma honesta é "não sabemos se houve, e dá para saber olhando X".**
+
 ### Tool inerte dentro de moldura que envia NÃO é inerte
 
 Antes de rodar qualquer caminho de agente ponta a ponta, **pergunte o que a MOLDURA faz**, não
