@@ -85,7 +85,14 @@ async def run_engine(
     system_prompt: str,
     origem: str = "consultor_escopado",
     max_rounds: int = 6,
-    max_tokens: int = 1200,
+    # 2500, medido em 24/08/2026 — NÃO é palpite e NÃO é a correção principal (ver abaixo).
+    # O 1200 anterior era teto de resposta CURTA herdado de quando o motor era outro; a
+    # migração para um modelo de RACIOCÍNIO deixou o número para trás, mesma família da
+    # premissa envelhecida do ponto ("zero batidas de almoço" com 288 na base).
+    # Medição: o raciocínio CRESCE com o teto (344 de 456 em 1200; 597 de 714 em 3000) e a
+    # resposta fica constante (~400 chars). Ou seja, subir o teto compra menos do que parece —
+    # por isso o conserto de verdade é a repetição em `finish_reason=length`, logo abaixo.
+    max_tokens: int = 2500,
     client=None,
     imagens: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -127,10 +134,37 @@ async def run_engine(
             tool_choice="auto" if active_tools else None,
             **_chat_kwargs(model, max_tokens),
         )
-        msg = resp.choices[0].message
+        escolha = resp.choices[0]
+        msg = escolha.message
         tool_calls = getattr(msg, "tool_calls", None)
         if not tool_calls:
             resposta = (msg.content or "").strip()
+            if not resposta and escolha.finish_reason == "length":
+                # SUCESSO VAZIO: o modelo gastou o orçamento em `reasoning_content` e o texto
+                # nunca começou. Medido em 24/08/2026: 11 de 59 chamadas do dia (18,6%)
+                # terminaram assim, todas com ok=True na telemetria — não são ERRO, são
+                # sucesso sem frase, que é pior de achar.
+                # Uma repetição com o dobro do orçamento: o defeito é INTERMITENTE (a mesma
+                # pergunta respondeu com 1200 numa corrida e morreu em 1200 noutra), então
+                # subir o teto reduz probabilidade e a repetição é o que fecha.
+                logger.warning("engine: finish_reason=length com content vazio (origem=%s, "
+                               "max_tokens=%s) — repetindo com o dobro", origem, max_tokens)
+                resp = await client.chat.completions.create(
+                    model=model, messages=messages,
+                    **_chat_kwargs(model, max_tokens * 2))
+                escolha = resp.choices[0]
+                resposta = (escolha.message.content or "").strip()
+                if not resposta:
+                    # NOMEIE A CAUSA. "(sem resposta)" é indistinguível de "o modelo não quis",
+                    # "a tool falhou" e "o serviço caiu" — perdi tempo hoje decidindo qual dos
+                    # três era. E fica em LOG + texto ao usuário, nunca em alerta: aviso que
+                    # dispara sempre é aviso que morre (o falso positivo do groundedness).
+                    resposta = ("A resposta foi cortada no limite de tamanho e eu não consegui "
+                                "concluí-la. Isso é uma limitação minha, não um erro nos seus "
+                                "dados — refaça a pergunta de forma mais direta, ou peça uma "
+                                "parte de cada vez.")
+                    logger.warning("engine: resposta cortada mesmo com %s tokens (origem=%s)",
+                                   max_tokens * 2, origem)
             break
 
         messages.append(

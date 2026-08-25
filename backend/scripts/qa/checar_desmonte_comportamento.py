@@ -20,6 +20,17 @@ motivo. A lista sai do mesmo lugar: `INSERT INTO`/`UPDATE … SET`/`DELETE FROM`
 ⚠️ Ambiente REAL. Oráculo sem credencial de banco "passa" o desmonte perfeitamente — a prova
 fica vazia e sai verde, que é a mesma forma de `exibido == banco` sobre 0 linhas.
 
+⭐ VIÉS DO INSTRUMENTO AMPLO (`--todos`), exposto pelo próprio controle em 24/08/2026:
+`n_tup_ins` conta TUPLA, **inclusive a que o rollback desfez** — e inserir-e-reverter é o
+caminho normal de vários oráculos. Quem vir `n_tup_ins` subir e concluir "escrita persistida"
+vai errar: dos 14 acusados naquele dia, 12 escreviam só em log/telemetria (esperado) e os
+outros 2 eram rollback puro (`gp_clock_punches` 9351 → 9351). **Zero resíduo real.**
+Por isso `pg_stat` APONTA onde olhar e `count(*)` DECIDE.
+
+E o controle que revelou isso é a razão de rodar sempre um: `termination_processes` ins
+53 → 54 num oráculo que sabidamente insere. Ele não só validou o instrumento — expôs um viés
+dele, que é a melhor coisa que um controle pode fazer.
+
 ⚠️ Limite honesto: contagem igual pode significar "limpou" ou "não exercitou" (pré-condição
 não atendida, tabela sem dado). Por isso o veredito tem TRÊS estados, e `NÃO EXERCITADO`
 nunca é reportado como limpo.

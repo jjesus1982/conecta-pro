@@ -930,6 +930,16 @@ _CLIENTE_CADASTRAL = frozenset({
 #: Campos do MESMO endpoint que mudam CONDIÇÃO COMERCIAL. O grau tem de sair do CAMPO, nunca
 #: do nome da tool: `atualizar_cliente` soa cadastral e `credit_limit` é dinheiro. É a mesma
 #: lição das 54 etiquetas erradas do manifesto — o nome diz cadastro e o corpo faz dinheiro.
+#:
+#: DECISÃO DO JORDAN, 24/08/2026 — estes ficam NA TELA, POR ENQUANTO. O raciocínio dele:
+#:   "O valor do chat é corrigir dado errado rápido — CNPJ digitado errado, endereço velho.
+#:    Limite de crédito não é correção, é decisão comercial, e decisão comercial se toma
+#:    olhando o histórico do cliente, que a tela mostra e o chat não."
+#: Ganho colateral: a tool fica 🟡 limpo, sem nascer com dois graus.
+#: ⚠️ A data está aqui de propósito. Decisão de produto sem data envelhece como o comentário
+#: que dizia "zero batidas de almoço" e continuou sendo lido quando já havia 288: verdadeiro
+#: sobre agosto, falso sobre novembro, e quem lê acredita. Se ele mudar de ideia, é uma linha
+#: — `credit_limit` sai daqui e entra em 🔴 com OTP.
 _CLIENTE_COMERCIAL = frozenset({"credit_limit", "payment_terms", "billing_day", "status",
                                 "is_vip", "client_type", "account_manager_id", "sales_rep_id"})
 
