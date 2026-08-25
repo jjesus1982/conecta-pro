@@ -1220,3 +1220,70 @@ registrar_acao("crm", "marcar_deal_perdido",
                "(obrig., um de: " + ", ".join(_MOTIVOS_PERDA) + "), concorrente, observacao. "
                "Vira rascunho — o deal sai da previsão de vendas só quando um humano aprovar.",
                _propor_marcar_deal_perdido)
+
+
+# ── CRIAR CLIENTE (5ª das 14) ────────────────────────────────────────────────────────
+# ⚠️ MÓDULO: `clients/controllers/client_controller.py:67`. Há DUAS `create_client` no
+# repositório (a outra é do GED) — conferir o caminho, não o nome.
+# O in-process já criava LEAD; cliente é outra coisa: lead é quem talvez compre, cliente é
+# quem já é da casa e passa a existir para contrato, NFS-e e cobrança.
+
+
+async def _propor_criar_cliente(db, user, scope, *, nome="", cnpj="", email="",
+                                telefone="", cidade="", uf="", **_) -> dict[str, Any]:
+    nome = str(nome or "").strip()
+    doc = "".join(ch for ch in str(cnpj or "") if ch.isdigit())
+    if not nome:
+        return {"erro": "nome do cliente é obrigatório"}
+    if len(doc) not in (11, 14):
+        return {"erro": "CNPJ (14 dígitos) ou CPF (11) é obrigatório — sem documento o "
+                        "cliente não serve para contrato nem NFS-e"}
+
+    ja = (await db.execute(text(
+        "SELECT name, code FROM clients WHERE document_number = :d LIMIT 1"),
+        {"d": doc})).mappings().first()
+    if ja:
+        # Antes de propor, checa duplicata: cliente repetido quebra MRR, cobrança e a régua
+        # de dedup. Recusar aqui é mais barato que reconciliar depois.
+        return {"erro": f"já existe cliente com esse documento: {ja['name']} "
+                        f"({ja['code']}). Para corrigir os dados dele, use atualizar_cliente."}
+
+    campos = {"name": nome, "document_number": doc}
+    for k, v in (("email", email), ("phone", telefone),
+                 ("address_city", cidade), ("address_state", uf)):
+        if str(v or "").strip():
+            campos[k] = str(v).strip()
+
+    return await criar_rascunho(
+        db, user, tipo="criar_cliente", modulo="crm", gate="🟡", requires_otp=False,
+        roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"cliente_criar:{doc}",
+        titulo=f"Cadastrar cliente {nome}",
+        resumo=f"Aprovar CADASTRA o cliente {nome} (doc {doc})"
+               + (f", {cidade}/{uf}" if cidade else "")
+               + ". Ele passa a existir para contrato, NFS-e e cobrança. "
+               + "Nasce sem limite de crédito e sem condição comercial — isso é da tela.",
+        payload={"campos": campos, "nome": nome, "documento": doc},
+    )
+
+
+async def _exec_criar_cliente(db, aprovador_user, payload: dict) -> str:
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+    # ⚠️ `modules.clients`, NÃO o do GED nem o do crm (que sequer tem create).
+    from modules.clients.controllers.client_controller import create_client  # noqa: PLC0415
+    from modules.clients.schemas.client_schemas import ClientCreate  # noqa: PLC0415
+    from modules.clients.services.client_service import ClientService  # noqa: PLC0415
+
+    with SyncSessionLocal() as s:
+        cli = await create_client(data=ClientCreate(**payload["campos"]),
+                                  current_user=aprovador_user, service=ClientService(s))
+    return str(getattr(cli, "id", payload["documento"]))
+
+
+registrar_executor("criar_cliente", _exec_criar_cliente)
+registrar_acao("crm", "criar_cliente",
+               "CADASTRAR um cliente novo. dados: nome (obrig.), cnpj (CNPJ ou CPF, obrig.), "
+               "email, telefone, cidade, uf. Vira rascunho — só existe depois que um humano "
+               "aprovar. Recusa se já houver cliente com o mesmo documento. Nasce sem limite "
+               "de crédito e sem condição comercial.",
+               _propor_criar_cliente)

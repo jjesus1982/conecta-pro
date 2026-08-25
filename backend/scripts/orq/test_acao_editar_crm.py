@@ -34,7 +34,8 @@ async def main() -> int:
     import modules.ai.conversation.controllers.consultor_escopado_controller as C
     from modules.ai.conversation.services.orquestrador.agir_dispatcher import _ACOES
     from modules.ai.conversation.services.orquestrador.tools_acao_crm import (
-        _propor_atualizar_proposta, _propor_marcar_deal_perdido, _propor_reativar_lead,
+        _propor_atualizar_proposta, _propor_criar_cliente, _propor_marcar_deal_perdido,
+        _propor_reativar_lead,
     )
 
     falhas: list[str] = []
@@ -44,7 +45,8 @@ async def main() -> int:
                          {"m": f"%{_MARCA}%"})
         await db.commit()
 
-        for nome in ("atualizar_proposta", "reativar_lead", "marcar_deal_perdido"):
+        for nome in ("atualizar_proposta", "reativar_lead", "marcar_deal_perdido",
+                     "criar_cliente"):
             if nome not in _ACOES.get("crm", {}):
                 falhas.append(f"{nome} não está registrada em agir_crm")
         if falhas:
@@ -137,6 +139,30 @@ async def main() -> int:
         else:
             print("  (sem oportunidade na base — bloco de deal não exercitado)")
 
+        # ── CRIAR CLIENTE ───────────────────────────────────────────────────────────
+        doc_existe = (await db.execute(text(
+            "SELECT document_number FROM clients WHERE document_number IS NOT NULL LIMIT 1"))).scalar()
+        r = await _propor_criar_cliente(db, u, scope, cnpj="12345678000199")
+        if not r.get("erro"):
+            falhas.append("cliente: criado SEM NOME")
+        r = await _propor_criar_cliente(db, u, scope, nome=_MARCA)
+        if not r.get("erro"):
+            falhas.append("cliente: criado SEM DOCUMENTO — não serviria para contrato nem NFS-e")
+        r = await _propor_criar_cliente(db, u, scope, nome=_MARCA, cnpj="123")
+        if not r.get("erro"):
+            falhas.append("cliente: documento com tamanho inválido aceito")
+        if doc_existe:
+            r = await _propor_criar_cliente(db, u, scope, nome=_MARCA, cnpj=doc_existe)
+            if not r.get("erro"):
+                falhas.append("cliente: DUPLICATA de documento aceita — quebra MRR e cobrança")
+        n0 = (await db.execute(text("SELECT count(*) FROM clients"))).scalar()
+        r = await _propor_criar_cliente(db, u, scope, nome=_MARCA, cnpj="11222333000181")
+        if not (r.get("draft_id") or r.get("id")):
+            falhas.append(f"cliente: válido não virou rascunho: {str(r)[:90]}")
+        n1 = (await db.execute(text("SELECT count(*) FROM clients"))).scalar()
+        if n0 != n1:
+            falhas.append(f"cliente: A PROPOSTA CRIOU o cliente: {n0} → {n1}")
+
         await db.execute(text("DELETE FROM agent_drafts WHERE payload::text LIKE :m"),
                          {"m": f"%{_MARCA}%"})
         await db.commit()
@@ -145,7 +171,7 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK editar_crm: 12/12 — proposta, lead e deal recusam valor/fechamento, "
+    print("OK editar_crm: 17/17 — proposta, lead, deal e cliente recusam valor/fechamento/duplicata, "
           "recusam inexistente, e a proposta é INERTE (nada mudou no banco)")
     return 0
 
