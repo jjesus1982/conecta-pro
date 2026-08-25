@@ -88,11 +88,21 @@ async def criar_rascunho(
         return {"erro": "sem aprovador declarado — rascunho recusado (fail-closed)"}
 
     # Idempotência: mesma key com rascunho vivo (sino) → não duplica.
+    #
+    # ⚠️ "VIVO" TEM DE INCLUIR O RASCUNHO, NÃO SÓ A NOTIFICAÇÃO. A chave mora em
+    # `communication_notifications`, e o rascunho em `agent_drafts` — duas tabelas. Quando o
+    # rascunho é apagado e a notificação fica (foi o que a limpeza de um oráculo meu fez em
+    # 25/08/2026), esta consulta seguia devolvendo `duplicado=True` com um `draft_id` que NÃO
+    # EXISTE. A tool respondia "já existe um rascunho idêntico", o usuário via sucesso, e nada
+    # era criado — **para sempre**, porque a chave nunca mais liberava.
+    #
+    # Sucesso vazio de novo, com outra roupa: 200, mensagem plausível, e zero efeito.
     if idempotency_key:
         ja = (await db.execute(text(
-            "SELECT reference_id FROM communication_notifications "
-            "WHERE extra_data->>'idempotency_key' = :k "
-            "  AND coalesce(is_active, true) = true LIMIT 1"),
+            "SELECT n.reference_id FROM communication_notifications n "
+            "JOIN agent_drafts d ON d.id::text = n.reference_id::text "
+            "WHERE n.extra_data->>'idempotency_key' = :k "
+            "  AND coalesce(n.is_active, true) = true LIMIT 1"),
             {"k": idempotency_key})).scalar()
         if ja:
             return {"status": "rascunho", "duplicado": True, "tipo": tipo,

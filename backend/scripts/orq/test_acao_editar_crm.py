@@ -26,6 +26,31 @@ sys.path.insert(0, "/app")
 _MARCA = "ZZteste-oraculo-editar-crm"
 
 
+async def _limpar_por_marca(db) -> None:
+    """Apaga o rascunho E a notificação que carrega a chave de idempotência.
+
+    ⚠️ Apagar só `agent_drafts` deixa a chave viva em `communication_notifications`, e a tool
+    passa a devolver `duplicado=True` apontando para um rascunho que não existe — para sempre,
+    porque a chave nunca mais libera. Foi exatamente o que esta limpeza causou em 25/08/2026,
+    e o defeito só apareceu ao provar a tool PELA ROTA.
+
+    Desmonte que limpa metade do rastro é pior que desmonte nenhum: o primeiro deixa lixo, o
+    segundo deixa a função quebrada.
+    """
+    from sqlalchemy import text as _t
+
+    ids = (await db.execute(_t(
+        "SELECT id::text FROM agent_drafts WHERE payload::text LIKE :m"),
+        {"m": f"%{_MARCA}%"})).scalars().all()
+    if ids:
+        await db.execute(_t(
+            "DELETE FROM communication_notifications WHERE reference_id::text = ANY(:i)"),
+            {"i": list(ids)})
+    await db.execute(_t("DELETE FROM agent_drafts WHERE payload::text LIKE :m"),
+                     {"m": f"%{_MARCA}%"})
+    await db.commit()
+
+
 async def main() -> int:
     from sqlalchemy import select, text
 
@@ -42,9 +67,7 @@ async def main() -> int:
     falhas: list[str] = []
     async with async_session_factory() as db:
         # ENTRADA por MARCA, nunca por id — quem morre por sinal não deixa a lista dela.
-        await db.execute(text("DELETE FROM agent_drafts WHERE payload::text LIKE :m"),
-                         {"m": f"%{_MARCA}%"})
-        await db.commit()
+        await _limpar_por_marca(db)
 
         for nome in ("atualizar_proposta", "reativar_lead", "marcar_deal_perdido",
                      "criar_cliente", "atualizar_contrato"):
@@ -193,9 +216,7 @@ async def main() -> int:
         else:
             print("  (sem contrato na base — bloco de contrato não exercitado)")
 
-        await db.execute(text("DELETE FROM agent_drafts WHERE payload::text LIKE :m"),
-                         {"m": f"%{_MARCA}%"})
-        await db.commit()
+        await _limpar_por_marca(db)
 
     if falhas:
         for f in falhas:
