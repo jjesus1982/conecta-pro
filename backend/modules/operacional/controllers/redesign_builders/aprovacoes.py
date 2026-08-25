@@ -59,7 +59,8 @@ async def build(db: AsyncSession, current_user=None) -> dict:
     else:
         where, params = "status='rascunho' AND :role = ANY(roles_aprovador)", {"role": role}
     rows = (await db.execute(text(
-        "SELECT id, tipo, titulo, resumo, gate, requires_otp, solicitado_por_nome, created_at "
+        "SELECT id, tipo, titulo, resumo, gate, requires_otp, solicitado_por_nome, created_at, "
+        "payload "
         f"FROM agent_drafts WHERE {where} ORDER BY created_at DESC LIMIT 200"), params)).fetchall()
 
     def _row(r):
@@ -91,7 +92,25 @@ async def build(db: AsyncSession, current_user=None) -> dict:
             "btnStyle": "danger", "okMsg": "Rascunho rejeitado.",
             "fields": [{"key": "motivo", "label": "Motivo (opcional)", "type": "text"}],
         }
-        return {"cells": cells, "actions": [aprovar, rejeitar]}
+        acoes = [aprovar, rejeitar]
+        # LOTE: quando o rascunho faz parte de um, a Central oferece aprovar o lote inteiro
+        # num clique — sem deixar de ser N decisões. Cada item continua aprovando, falhando e
+        # aparecendo sozinho; o que muda é o número de cliques, não a granularidade.
+        # É isto que torna o resultado PARCIAL representável: 9 executados e 3 em falha, cada
+        # um com o seu motivo, em vez de um "criar 12 propostas" que a tela não sabe contar.
+        pl = r[8] if len(r) > 8 else None
+        lote = (pl or {}).get("lote_id") if isinstance(pl, dict) else None
+        if lote:
+            total = (pl or {}).get("lote_total") or "?"
+            acoes.insert(1, {
+                "title": f"Aprovar o LOTE inteiro ({total} itens)",
+                "endpoint": f"/api/v1/redesign/action/aprovar-lote?lote_id={lote}",
+                "method": "POST", "btnLabel": f"Aprovar lote ({total})",
+                "submitLabel": "Aprovar todos", "btnStyle": "primary",
+                "okMsg": "Lote processado — veja item a item o que executou e o que falhou.",
+                "fields": [],
+            })
+        return {"cells": cells, "actions": acoes}
 
     def _row_seguro(r):
         """`_row` com cinto: rascunho ruim vira log e some da lista, não derruba a tela.
@@ -276,3 +295,66 @@ async def rejeitar_rascunho(
     draft.decidido_em = datetime.now(timezone.utc)
     await db.commit()
     return {"ok": True, "message": "Rascunho rejeitado."}
+
+
+@router.post("/action/aprovar-lote")
+async def aprovar_lote(
+    current_user: CurrentActiveUser,
+    lote_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Aprova TODOS os rascunhos de um lote — e devolve o resultado ITEM A ITEM.
+
+    ⭐ O ponto do desenho: isto NÃO é "um rascunho que representa 12". São 12 decisões, e este
+    endpoint só poupa 11 cliques. Cada item executa por conta própria, então o resultado
+    PARCIAL — que é o caso normal de uma importação em lote — fica representável: 9 viram
+    'executado' e 3 viram 'falha', cada uma com o seu motivo, e a Central sabe contar.
+
+    Um rascunho único não conseguiria isso: o aprovador leria "criar 12 propostas", aprovaria,
+    e a tela não teria como dizer que 3 não foram — mentiria sobre o que foi aprovado.
+
+    ⚠️ Rascunho com OTP NÃO entra aqui: dinheiro/eSocial continua um a um, na tela própria.
+    Aprovar dinheiro em lote com um clique é exatamente o que a parede existe para impedir.
+    """
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import executar_rascunho
+
+    linhas = (await db.execute(text(
+        "SELECT id::text FROM agent_drafts WHERE status = 'rascunho' "
+        "AND payload->>'lote_id' = :l ORDER BY (payload->>'lote_pos')::int"),
+        {"l": lote_id})).scalars().all()
+    if not linhas:
+        raise HTTPException(status_code=404,
+                            detail="Nenhum rascunho pendente neste lote.")
+
+    executados, falhas, pulados = [], [], []
+    for did in linhas:
+        draft = await _get_rascunho(db, did)
+        if not _pode_aprovar(current_user, draft):
+            pulados.append({"id": did, "motivo": "sem permissão"})
+            continue
+        if draft.requires_otp:
+            pulados.append({"id": did, "motivo": "exige OTP — aprove na tela própria"})
+            continue
+        try:
+            ref = await executar_rascunho(db, current_user, draft)
+            draft.decidido_por = current_user.id
+            draft.decidido_em = datetime.now(timezone.utc)
+            await db.commit()
+            executados.append({"id": did, "titulo": draft.titulo, "ref": str(ref)})
+        except Exception as e:  # noqa: BLE001 — falha de UM item não derruba o lote
+            await db.rollback()
+            draft.status = "falha"
+            draft.erro_execucao = str(e)[:500]
+            await db.commit()
+            falhas.append({"id": did, "titulo": draft.titulo, "erro": str(e)[:180]})
+
+    return {
+        "ok": not falhas,
+        "lote_id": lote_id,
+        "total": len(linhas),
+        "executados": len(executados), "falhas": len(falhas), "pulados": len(pulados),
+        "detalhe": {"executados": executados, "falhas": falhas, "pulados": pulados},
+        "message": (f"{len(executados)} de {len(linhas)} executado(s)"
+                    + (f", {len(falhas)} com falha" if falhas else "")
+                    + (f", {len(pulados)} pulado(s)" if pulados else "") + "."),
+    }

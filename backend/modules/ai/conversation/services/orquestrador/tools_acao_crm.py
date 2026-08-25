@@ -1532,3 +1532,79 @@ registrar_acao("crm", "definir_meta_contratos_mes",
                "quantidade, valor. Vira rascunho e mostra a meta anterior — meta é a régua do "
                "desempenho, então mexer nela muda o retrato de quem bateu.",
                _propor_definir_meta_contratos_mes)
+
+
+# ── CRIAR PROPOSTAS EM LOTE (13ª das 14) — a Central entende lote ─────────────────────
+# ⭐ O DESENHO É O PONTO. Um rascunho único NÃO representa um lote: a importação em lote
+# produz resultado PARCIAL por natureza (9 criadas, 3 com erro) e ninguém consegue "aprovar
+# metade". Então cada proposta vira UMA DECISÃO própria, e o lote é só o agrupamento:
+#
+#     N rascunhos · mesmo `lote_id` · cada um aprova, falha e aparece sozinho
+#     a Central agrupa, mostra "i/N" e oferece UM clique que aprova o lote inteiro
+#
+# Assim o parcial é REPRESENTÁVEL: 9 viram 'executado' e 3 viram 'falha', cada uma com o seu
+# motivo. Com um rascunho só, o aprovador leria "criar 12 propostas" e receberia um resultado
+# que a Central não teria como contar — a tela mentiria sobre o que foi aprovado.
+import uuid as _uuid
+
+
+async def _propor_criar_propostas_lote(db, user, scope, *, propostas=None, **_) -> dict[str, Any]:
+    itens = propostas if isinstance(propostas, list) else []
+    if not itens:
+        return {"erro": "informe `propostas`: uma lista de {titulo, cliente, valor?}"}
+    if len(itens) > 50:
+        return {"erro": f"lote de {len(itens)} é grande demais; divida em partes de até 50"}
+
+    normal: list[dict] = []
+    for i, p in enumerate(itens, 1):
+        if not isinstance(p, dict):
+            return {"erro": f"item {i} não é um objeto {{titulo, cliente}}"}
+        tit = str(p.get("titulo") or p.get("title") or "").strip()
+        cli = str(p.get("cliente") or p.get("client_name") or "").strip()
+        if not tit or not cli:
+            # Fail-closed no ITEM: um item ruim não vira lote pela metade em silêncio.
+            return {"erro": f"item {i} sem titulo e/ou cliente — corrija antes de propor o lote"}
+        normal.append({"title": tit, "client_name": cli,
+                       **({"total_value": float(p["valor"])} if p.get("valor") else {})})
+
+    lote = str(_uuid.uuid4())
+    criados, erros = [], []
+    for pos, campos in enumerate(normal, 1):
+        r = await criar_rascunho(
+            db, user, tipo="criar_proposta_do_lote", modulo="crm", gate="🟡",
+            requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+            idempotency_key=f"lote:{lote}:{pos}",
+            titulo=f"[lote {pos}/{len(normal)}] Proposta: {campos['title'][:50]}",
+            resumo=f"Aprovar CRIA a proposta '{campos['title']}' para {campos['client_name']}"
+                   + (f" (R$ {campos['total_value']:,.2f})" if "total_value" in campos else "")
+                   + f". Item {pos} de {len(normal)} do mesmo lote — cada um aprova e falha "
+                   + "sozinho, e a Central oferece aprovar o lote de uma vez.",
+            payload={"campos": campos, "lote_id": lote, "lote_pos": pos,
+                     "lote_total": len(normal)},
+        )
+        (criados if (r.get("draft_id") or r.get("duplicado")) else erros).append(
+            {"pos": pos, "titulo": campos["title"], "r": str(r)[:80]})
+
+    return {"status": "rascunho", "lote_id": lote, "rascunhos": len(criados),
+            "falhas": len(erros), "erros": erros or None,
+            "mensagem": f"{len(criados)} rascunho(s) na Central, agrupados no lote "
+                        f"{lote[:8]}…. Aprove um a um ou o lote inteiro — o resultado "
+                        f"parcial fica visível item a item."}
+
+
+async def _exec_criar_proposta_do_lote(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.proposal_controller import create_proposal  # noqa: PLC0415
+    from modules.crm.schemas.proposal import ProposalCreate  # noqa: PLC0415
+
+    p = await create_proposal(data=ProposalCreate(**payload["campos"]),
+                              current_user=aprovador_user, db=db)
+    return str(getattr(p, "id", ""))
+
+
+registrar_executor("criar_proposta_do_lote", _exec_criar_proposta_do_lote)
+registrar_acao("crm", "criar_propostas_lote",
+               "CRIAR VÁRIAS propostas de uma vez (importação em lote). dados: propostas = "
+               "lista de {titulo, cliente, valor?}, até 50. Cada proposta vira UM rascunho "
+               "próprio, agrupado por lote na Central: você aprova uma a uma ou o lote "
+               "inteiro, e o que falhar aparece item a item com o motivo.",
+               _propor_criar_propostas_lote)
