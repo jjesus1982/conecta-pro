@@ -311,7 +311,10 @@ O `1369` foi meu: chutei `draft_id` onde o código usa `reference_id` e não fil
 sessões e **não existe** — zero chaves, não "zero órfãs de 72" — e quase virou uma varredura
 no financeiro atrás de baixa que nunca deixou de acontecer.
 
-⭐ **O diagnóstico mais fino veio de quem errou** (sessão de integrations, 25/08):
+⭐ **O diagnóstico mais fino veio de quem errou** — e ele pediu que ficasse escrito que
+**nasceu do erro, não da percepção**: *"regra que sobe com a origem limpa demais perde o
+aviso — quem lê 'marque o que mediu e o que repetiu' precisa saber que quem escreveu isso já
+tinha misturado os dois na mesma mensagem."* (sessão de integrations, 25/08):
 
 > *"Eu MEDI o meu lado com rigor e construí a conclusão mais consequente em cima da lista do
 > outro, sem tocar nela. O rigor parou exatamente onde o achado deixava de ser meu. E o
@@ -324,6 +327,28 @@ no financeiro atrás de baixa que nunca deixou de acontecer.
 - **antes de agir sobre número alheio, reproduza-o** — ou diga que não reproduziu;
 - **não reproduziu e o número decide algo?** Vá ao código descobrir o vínculo real. Foi o que
   separou 1369 de 357, e foi feito *antes* de mandar, que é onde a diferença existe.
+
+### Tool inerte dentro de moldura que envia NÃO é inerte
+
+Antes de rodar qualquer caminho de agente ponta a ponta, **pergunte o que a MOLDURA faz**, não
+só a tool. Medido em 25/08/2026 no conector do WhatsApp (sessão de integrations):
+
+```
+a tool          _criar_rascunho_proposta → criar_rascunho          inerte, docstring diz "nada é enviado"
+a moldura       agent_service.py:4603 · o LOOP responde ao lead ao fim do turno
+                agent_service.py:2414 · handoff automático dispara WhatsApp ao RESPONSÁVEL
+```
+
+**Chamar qualquer tool numa conversa real termina em mensagem ao lead** — a tool é inerte, o
+turno não. E o handoff manda para o telefone de um colega, por classificação, sem ninguém
+pedir. Quem fosse "testar sem risco" com o próprio número mandaria mensagem para outra pessoa.
+
+⭐ É a mesma forma do `confirmar=True` que mora na função interna e não na rota: **o disparo
+vive uma camada abaixo de quem você chama, e quem chama sem saber já mandou.**
+
+**Nosso motor in-process foi conferido no mesmo dia e está limpo** — `engine.py` e
+`rascunho.py` não têm caminho de envio externo; as referências a e-mail ali resolvem **quem
+aprova**, não destinatário. Mas isso só se sabe medindo, e vale remedir quando a moldura mudar.
 
 ### Guard de ambiente pede PROVA DE IDENTIDADE, não sinal de vida
 
