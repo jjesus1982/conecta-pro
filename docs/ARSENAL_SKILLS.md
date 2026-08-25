@@ -328,6 +328,29 @@ tinha misturado os dois na mesma mensagem."* (sessão de integrations, 25/08):
 - **não reproduziu e o número decide algo?** Vá ao código descobrir o vínculo real. Foi o que
   separou 1369 de 357, e foi feito *antes* de mandar, que é onde a diferença existe.
 
+### Campo compartilhado ganha leitor novo — veja por qual campo ele seleciona
+
+Quando uma capacidade nova passa a ler um campo que já existia, o dono do campo costuma
+descobrir que **o seu valor responde uma pergunta que ele não escreveu**. Em 25/08 a Central
+ganhou aprovação em LOTE, e o dono de um rascunho 🔴 com `requires_otp=False` levantou:
+*"meu False significava 'OTP é para executar money-out'; se agora significa também 'pode ser
+aprovado em lote', ele diz uma coisa que eu não quis dizer."*
+
+**A pergunta era a certa. A resposta veio do SQL, e era não:**
+
+```sql
+SELECT id FROM agent_drafts WHERE status='rascunho' AND payload->>'lote_id' = :l   -- quem ENTRA
+if draft.requires_otp: pulados.append(...)                                          -- quem EXECUTA
+```
+
+Duas paredes em série, e discriminadores **separados desde o desenho**: o rascunho avulso não
+tem `lote_id`, logo nunca chega ao laço. Não foi excluído — está estruturalmente fora.
+
+⭐ **Registrar só o alerta produz paranoia; com o contraexemplo vira critério** (formulação do
+dono do campo): **vá ver por qual campo o leitor novo seleciona antes de supor que é pelo seu.**
+E quem propõe "trocar o discriminador para o meu campo" costuma estar curando um acoplamento
+que não existe criando um que existiria.
+
 ### Acabar de acertar dá licença para o próximo palpite
 
 A armadilha mais eficiente da noite de 24→25/08 não foi técnica. **Acertar uma correção cria
