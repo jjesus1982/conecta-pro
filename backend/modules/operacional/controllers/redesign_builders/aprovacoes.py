@@ -56,6 +56,10 @@ _AREA_DRAFT = {
     "reativar_lead": "CRM", "marcar_deal_perdido": "CRM",
     "confirmar_reuniao": "CRM", "adicionar_achados_visita": "CRM",
     "definir_meta_contratos_mes": "CRM", "criar_proposta_do_lote": "CRM",
+    # Rascunho de proposta que o José Luís cria a partir do WhatsApp
+    # (integrations/connectors/whatsapp/agent_service.py, tipo="crm_proposta").
+    # Nasce fora deste módulo, então não entrou junto com as ações acima.
+    "crm_proposta": "CRM",
 }
 
 #: ⚠️ O default deixa de ser "DP". Chutar a área de uma ação desconhecida é rotular errado com
