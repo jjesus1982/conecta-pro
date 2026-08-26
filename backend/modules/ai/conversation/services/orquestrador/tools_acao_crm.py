@@ -1431,12 +1431,30 @@ async def _propor_adicionar_achados_visita(db, user, scope, *, visita="", achado
     if not itens:
         return {"erro": "informe ao menos um achado (separe por ';')"}
 
-    row = (await db.execute(text(
-        "SELECT id::text AS id, cliente_nome, status::text AS status FROM crm_visit_reports "
+    # Nome PARCIAL é o caso normal de quem digita: o cliente é
+    # "VEGA MANAUS TRANSPORTE DE PASSAGEIROS LTDA" e a pessoa escreve "VEGA".
+    # Exato primeiro (quem sabe o nome inteiro não deve ser punido por homônimo), e só então
+    # o parcial. ⚠️ Parcial que casa MAIS DE UM não escolhe: devolve as opções e pergunta —
+    # anexar achado no relatório errado é sujar a visita de outro cliente.
+    achadas = (await db.execute(text(
+        "SELECT id::text AS id, cliente_nome, status::text AS status, "
+        "       (upper(cliente_nome) = upper(:r) OR id::text = :r) AS exato "
+        "FROM crm_visit_reports "
         "WHERE id::text = :r OR upper(cliente_nome) = upper(:r) "
-        "ORDER BY created_at DESC LIMIT 1"), {"r": ref})).mappings().first()
-    if not row:
-        return {"erro": f"relatório de visita '{ref}' não encontrado por id ou cliente."}
+        "   OR cliente_nome ILIKE '%' || :r || '%' "
+        "ORDER BY exato DESC, created_at DESC LIMIT 6"), {"r": ref})).mappings().all()
+    if not achadas:
+        return {"erro": f"relatório de visita '{ref}' não encontrado por id ou nome do cliente "
+                        f"(tentei nome exato e parcial)."}
+    exatas = [a for a in achadas if a["exato"]]
+    if exatas:
+        row = exatas[0]
+    elif len(achadas) > 1:
+        opcoes = " · ".join(f"{a['cliente_nome']} ({a['status']})" for a in achadas[:5])
+        return {"erro": f"'{ref}' casa com {len(achadas)} relatórios de visita — diga qual: "
+                        f"{opcoes}"}
+    else:
+        row = achadas[0]
 
     return await criar_rascunho(
         db, user, tipo="adicionar_achados_visita", modulo="crm", gate="🟡",
