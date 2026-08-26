@@ -326,27 +326,53 @@ async def aprovar_lote(
         raise HTTPException(status_code=404,
                             detail="Nenhum rascunho pendente neste lote.")
 
+    # ⚠️ A IDENTIDADE SAI DA SESSÃO ANTES DO LAÇO, em valores simples.
+    # `await db.rollback()` (o caminho do item que FALHA) expira TODOS os objetos da sessão —
+    # inclusive o `current_user`. Na iteração seguinte, `_pode_aprovar` tocava `user.role` e
+    # disparava um lazy-load fora do contexto async: `MissingGreenlet`, HTTP 500, e o lote
+    # parava no item seguinte ao que falhou.
+    #
+    # ⭐ Achado SÓ pelo navegador. Chamando `aprovar_lote` em processo o parcial passava
+    # (2 executados, 1 falha); pela ROTA, com um item falhando de verdade, dava 500. É o mesmo
+    # padrão do dia inteiro: quem prova é a rota.
+    eh_admin = _is_admin(current_user)
+    role_user = (getattr(current_user, "role", "") or "").lower()
+    uid = current_user.id
+
     executados, falhas, pulados = [], [], []
     for did in linhas:
         draft = await _get_rascunho(db, did)
-        if not _pode_aprovar(current_user, draft):
-            pulados.append({"id": did, "motivo": "sem permissão"})
+        # atributos lidos AGORA, enquanto o objeto está fresco — depois de um rollback eles
+        # viram IO, e IO aqui é o 500.
+        titulo, precisa_otp = draft.titulo, bool(draft.requires_otp)
+        papeis = [str(x).lower() for x in (draft.roles_aprovador or [])]
+        if not (eh_admin or role_user in papeis):
+            pulados.append({"id": did, "titulo": titulo, "motivo": "sem permissão"})
             continue
-        if draft.requires_otp:
-            pulados.append({"id": did, "motivo": "exige OTP — aprove na tela própria"})
+        if precisa_otp:
+            pulados.append({"id": did, "titulo": titulo,
+                            "motivo": "exige OTP — aprove na tela própria"})
             continue
         try:
             ref = await executar_rascunho(db, current_user, draft)
-            draft.decidido_por = current_user.id
+            draft.decidido_por = uid
             draft.decidido_em = datetime.now(timezone.utc)
             await db.commit()
-            executados.append({"id": did, "titulo": draft.titulo, "ref": str(ref)})
+            executados.append({"id": did, "titulo": titulo, "ref": str(ref)})
         except Exception as e:  # noqa: BLE001 — falha de UM item não derruba o lote
             await db.rollback()
+            # ⚠️ O ROLLBACK ENVENENA A SESSÃO INTEIRA, não só o rascunho: o `current_user`
+            # também expira, e `executar_rascunho` o usa por dentro. Sem recarregar os DOIS, o
+            # item SEGUINTE ao que falhou morria com `MissingGreenlet` — medido: com o item 2
+            # sabotado, o 3 (sadio) falhava junto, e o lote virava "1 de 3" em vez de "2 de 3".
+            # Falha de um item contaminando o próximo é pior que a falha original.
+            from core.models.user import User as _U  # noqa: PLC0415
+            current_user = await db.get(_U, uid)
+            draft = await _get_rascunho(db, did)
             draft.status = "falha"
             draft.erro_execucao = str(e)[:500]
             await db.commit()
-            falhas.append({"id": did, "titulo": draft.titulo, "erro": str(e)[:180]})
+            falhas.append({"id": did, "titulo": titulo, "erro": str(e)[:180]})
 
     return {
         "ok": not falhas,
