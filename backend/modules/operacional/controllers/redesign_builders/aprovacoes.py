@@ -48,25 +48,52 @@ _AREA_DRAFT = {
     "registrar_ferias": "Férias", "solicitar_ferias": "Férias",
     "registrar_desligamento": "Rescisão", "concluir_admissao": "Admissão",
     "alocar_em_posto": "Operacional", "baixar_alocacao": "Operacional",
+    # ⚠️ Comerciais — sem estas linhas o default "DP" rotulava "Atualizar Contrato" e
+    # "Criar Cliente" como Departamento Pessoal na tela. Medido olhando a Central no
+    # navegador em 25/08/2026: TODAS as 7 ações novas apareciam como DP.
+    "atualizar_cliente": "CRM", "criar_cliente": "CRM",
+    "atualizar_proposta": "CRM", "atualizar_contrato": "CRM",
+    "reativar_lead": "CRM", "marcar_deal_perdido": "CRM",
+    "confirmar_reuniao": "CRM", "adicionar_achados_visita": "CRM",
+    "definir_meta_contratos_mes": "CRM", "criar_proposta_do_lote": "CRM",
 }
+
+#: ⚠️ O default deixa de ser "DP". Chutar a área de uma ação desconhecida é rotular errado com
+#: confiança — e quem lê a Central decide por essa etiqueta. "—" diz "não sei", que é honesto.
+_AREA_PADRAO = "—"
+
+
+def _subtitulo(rows) -> str:
+    """Quantos esperam decisão e quantos FALHARAM — dois números, nunca um só."""
+    falhou = sum(1 for r in rows if (r[9] if len(r) > 9 else "rascunho") == "falha")
+    espera = len(rows) - falhou
+    txt = f"{espera} rascunho(s) do agente aguardando sua aprovação"
+    if falhou:
+        txt += f" · {falhou} FALHOU na execução — veja o motivo na linha"
+    return txt
 
 
 async def build(db: AsyncSession, current_user=None) -> dict:
     """Lista os rascunhos que ESTE usuário pode aprovar. Vazio real → tabela vazia honesta."""
     role = (getattr(current_user, "role", "") or "").lower()
+    # ⚠️ 'falha' entra na lista. Antes o filtro era só `status='rascunho'`: um item de lote que
+    # falhava virava 'falha' e SUMIA da tela — o aprovador via "2 de 3, 1 com falha" no toast e
+    # depois não achava mais o que falhou, nem o motivo, nem como tentar de novo.
+    # Item que falha sem deixar rastro na tela é a mesma família do sucesso vazio.
+    estados = "status IN ('rascunho', 'falha')"
     if _is_admin(current_user):
-        where, params = "status='rascunho'", {}
+        where, params = estados, {}
     else:
-        where, params = "status='rascunho' AND :role = ANY(roles_aprovador)", {"role": role}
+        where, params = f"{estados} AND :role = ANY(roles_aprovador)", {"role": role}
     rows = (await db.execute(text(
         "SELECT id, tipo, titulo, resumo, gate, requires_otp, solicitado_por_nome, created_at, "
-        "payload "
+        "payload, status, erro_execucao "
         f"FROM agent_drafts WHERE {where} ORDER BY created_at DESC LIMIT 200"), params)).fetchall()
 
     def _row(r):
         badge, color, bg = _GATE_BADGE.get(r[4], ("—", "#64748B", "#F1F4FA"))
         cells = [
-            {"isText": True, "v": _AREA_DRAFT.get(r[1], "DP"), "w": 600, "tc": "#0F1B3A", "ini": ""},
+            {"isText": True, "v": _AREA_DRAFT.get(r[1], _AREA_PADRAO), "w": 600, "tc": "#0F1B3A", "ini": ""},
             {"isText": True, "v": (r[1] or "").replace("_", " ").title(), "w": 600, "tc": "#0F1B3A", "ini": ""},
             {"isText": True, "v": (r[2] or "")[:80], "w": 500, "tc": "#334155", "ini": ""},
             {"isBadge": True, "v": badge, "color": color, "bg": bg},
@@ -75,6 +102,21 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         ]
         did = str(r[0])
         requires_otp = bool(r[5])
+        status_draft = r[9] if len(r) > 9 else "rascunho"
+        erro = (r[10] if len(r) > 10 else None) or ""
+        if status_draft == "falha":
+            # FALHOU: mostra o motivo no lugar da descrição e NÃO oferece "Aprovar" — aprovar
+            # de novo sem saber o que quebrou repetiria o mesmo erro. Só rejeitar (arquivar).
+            cells[2] = {"isText": True, "v": f"FALHOU: {erro[:70]}" if erro else "FALHOU",
+                        "w": 500, "tc": "#B42318", "ini": ""}
+            cells[3] = {"isBadge": True, "v": "falha", "color": "#B42318", "bg": "#FEF3F2"}
+            return {"cells": cells, "actions": [{
+                "title": f"Arquivar (falhou): {r[2] or r[1]}",
+                "endpoint": f"/api/v1/redesign/action/rejeitar-rascunho?draft_id={did}",
+                "method": "POST", "btnLabel": "Arquivar", "submitLabel": "Arquivar",
+                "btnStyle": "danger", "okMsg": "Rascunho arquivado.",
+                "fields": [{"key": "motivo", "label": "Observação (opcional)", "type": "text"}],
+            }]}
         aprovar = {
             "title": f"Aprovar: {r[2] or r[1]}",
             "endpoint": f"/api/v1/redesign/action/aprovar-rascunho?draft_id={did}",
@@ -127,8 +169,9 @@ async def build(db: AsyncSession, current_user=None) -> dict:
 
     scr = {
         "title": "Central de Aprovações",
-        "sub": (f"{len(rows)} rascunho(s) do agente aguardando sua aprovação"
-                if rows else "Nenhum rascunho aguardando aprovação"),
+        # ⚠️ O subtítulo separa os dois estados. Contar a falha como "aguardando aprovação"
+        # seria a tela mentindo em miniatura — e é a que a pessoa lê antes da tabela.
+        "sub": (_subtitulo(rows) if rows else "Nenhum rascunho aguardando aprovação"),
         "cta": "Atualizar", "type": "table", "searchHint": "Buscar rascunho…",
         "grid": "0.9fr 1.1fr 2.0fr 0.7fr 1.0fr 0.8fr",
         "cols": ["Área", "Tipo", "Descrição", "Risco", "Solicitado por", "Criado"],
