@@ -57,6 +57,12 @@ _AMARELAS = {
     "inscrever_em_sequencia", "inscrever_lead_em_sequencia",
     "analisar_processo_juridico", "montar_kit_completo", "buscar_documento",
     "solicitar_ferias",
+    # `criar_orcamento` (27/08/2026): GRAVA proposta com valor, e por isso passou pela
+    # pergunta em vez de nascer 🔵. É 🟡 e não 🔴 porque (a) não sai da empresa — enviar ao
+    # cliente é OUTRA aprovação, já listada aqui; (b) não move dinheiro nem fala com o
+    # governo; (c) é reversível: proposta em rascunho se apaga. O que ela tem de sério é
+    # o VALOR, e o valor aparece no resumo do rascunho antes de quem aprova clicar.
+    "criar_orcamento",
 }
 
 

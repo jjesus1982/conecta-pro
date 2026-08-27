@@ -1626,3 +1626,123 @@ registrar_acao("crm", "criar_propostas_lote",
                "próprio, agrupado por lote na Central: você aprova uma a uma ou o lote "
                "inteiro, e o que falhar aparece item a item com o motivo.",
                _propor_criar_propostas_lote)
+
+
+# ── SALVAR O ORÇAMENTO COMO PROPOSTA NO CRM ────────────────────────────────────────────
+# `gerar_orcamento_itens_doc` produz o PDF e não grava nada. Esta ação GRAVA: o orçamento
+# vira `proposals` + `proposal_items` no CRM, com número, validade e histórico.
+#
+# ⭐ O PREÇO É CONGELADO NA PROPOSTA, não na aprovação. Entre propor e aprovar o catálogo
+# pode mudar (o Bling reimportado, um preço corrigido na tela), e uma proposta que muda de
+# valor sozinha entre o "quero isso" e o "aprovado" é armadilha. O payload leva a linha
+# inteira já resolvida; o executor só grava — e o resumo mostra o total que será gravado,
+# para quem aprova ver o número antes de clicar.
+#
+# ⭐ `code` DO ITEM PASSA A SER PREENCHIDO. Os 162 itens que existiam tinham code NULL em
+# 162 — nenhum vinha de catálogo. Daqui em diante o SKU viaja com a linha, e é ele que vai
+# permitir cruzar proposta × catálogo × NCM sem adivinhar por descrição.
+
+async def _propor_criar_orcamento(db, user, scope, *, cliente=None, titulo=None,
+                                  itens=None, validade_dias=15, observacoes=None,
+                                  **_) -> dict[str, Any]:
+    from modules.crm.services import catalogo as _cat
+
+    if not str(cliente or "").strip():
+        return {"erro": "informe o cliente (nome ou CNPJ do cadastro)."}
+    if not str(titulo or "").strip():
+        return {"erro": "informe o título/objeto do orçamento (ex.: 'CFTV — bloco A')."}
+
+    cli = (await db.execute(text(
+        "SELECT id::text AS id, name, document_number, email, phone "
+        "FROM clients WHERE upper(name) = upper(:r) OR id::text = :r "
+        "   OR regexp_replace(coalesce(document_number,''), '[^0-9]', '', 'g') = "
+        "      regexp_replace(:r, '[^0-9]', '', 'g') "
+        "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"),
+        {"r": str(cliente).strip()})).mappings().first()
+    if not cli:
+        return {"erro": f"cliente {cliente!r} não existe no cadastro — não crio cliente "
+                        f"de passagem. Cadastre antes, ou confira o nome."}
+
+    linhas, lastro, recusa = await _cat.resolver_itens(db, itens)
+    if recusa:
+        return {"erro": recusa}
+
+    total = sum(x["qtd"] * x["valor_unit"] for x in linhas)
+    try:
+        dias = max(1, min(int(validade_dias), 180))
+    except (TypeError, ValueError):
+        return {"erro": f"validade_dias inválida: {validade_dias!r}"}
+
+    def _rs(v: float) -> str:
+        return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+    resumo_itens = "; ".join(
+        f"{x['qtd']:g}× {x['descricao'][:38]} @ {_rs(x['valor_unit'])}"
+        for x in linhas[:5]) + (f" (+{len(linhas) - 5})" if len(linhas) > 5 else "")
+
+    return await criar_rascunho(
+        db, user, tipo="criar_orcamento", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"orcamento:{_slug(cli['name'])}:{_slug(titulo)}:{total:.2f}",
+        titulo=f"GRAVAR orçamento no CRM — {cli['name'][:40]}",
+        resumo=(f"Aprovar CRIA a proposta '{titulo}' para {cli['name']} com "
+                f"{len(linhas)} item(ns), total {_rs(total)}, válida por {dias} dias. "
+                f"Itens: {resumo_itens}. "
+                f"Preço congelado agora — aprovar grava ESTE valor. "
+                f"Lastro: {'; '.join(lastro) if lastro else 'valores informados na conversa'}. "
+                f"NÃO envia ao cliente: enviar é outra aprovação."),
+        payload={"client_name": cli["name"], "client_document": cli["document_number"],
+                 "client_email": cli["email"], "client_phone": cli["phone"],
+                 "title": str(titulo)[:255], "description": (observacoes or None),
+                 "valid_dias": dias, "total": total,
+                 "itens": linhas},
+    )
+
+
+async def _exec_criar_orcamento(db, aprovador_user, payload: dict) -> str:
+    from datetime import timedelta
+
+    from modules.crm.controllers.proposal_controller import create_proposal
+    from modules.crm.schemas.proposal import ProposalCreate, ProposalItemCreate
+
+    itens = [
+        ProposalItemCreate(
+            code=(x.get("codigo") or None), name=str(x["descricao"])[:255],
+            unit=str(x.get("unidade") or "un")[:20], quantity=float(x["qtd"]),
+            unit_price=float(x["valor_unit"]), sort_order=i)
+        for i, x in enumerate(payload.get("itens") or [])
+    ]
+    # `proposal_type` sai da NATUREZA das linhas, não do default do schema. O tipo
+    # aparece no documento e no funil; deixar tudo como SERVICE descreveria errado uma
+    # proposta de material — e é justamente material que o Jordan passou a orçar.
+    from modules.crm.models.proposal import ProposalType
+
+    tipos = {x.get("tipo") or "material" for x in (payload.get("itens") or [])}
+    ptipo = (ProposalType.MIXED if len(tipos) > 1
+             else ProposalType.SERVICE if tipos == {"servico"}
+             else ProposalType.PRODUCT)
+
+    data = ProposalCreate(
+        title=str(payload["title"])[:255],
+        description=(payload.get("description") or None),
+        proposal_type=ptipo,
+        client_name=str(payload["client_name"])[:255],
+        client_document=(payload.get("client_document") or None),
+        client_email=(payload.get("client_email") or None),
+        client_phone=(payload.get("client_phone") or None),
+        valid_until=(date.today() + timedelta(days=int(payload.get("valid_dias") or 15))),
+        items=itens,
+    )
+    p = await create_proposal(data=data, current_user=aprovador_user, db=db)
+    return str(getattr(p, "id", "") or "")
+
+
+registrar_executor("criar_orcamento", _exec_criar_orcamento)
+
+registrar_acao("crm", "criar_orcamento",
+               "GRAVAR um orçamento como proposta no CRM (número, validade, itens). "
+               "dados: cliente (nome ou CNPJ do cadastro), titulo, itens (lista com sku "
+               "do catálogo OU descricao+valor_unit, qtd, unidade, tipo), validade_dias "
+               "(padrão 15), observacoes. O preço é congelado agora. Nasce RASCUNHO: só a "
+               "aprovação grava, e ENVIAR ao cliente é outra aprovação.",
+               _propor_criar_orcamento)

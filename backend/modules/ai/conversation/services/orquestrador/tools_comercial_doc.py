@@ -762,61 +762,15 @@ async def _gerar_orcamento_itens(db, user, scope, *, itens=None, cliente_id=None
         return _recusa("cliente não encontrado no cadastro real (informe id, CNPJ ou nome "
                        "exato); não vou inventar cliente.")
 
-    # Catálogo UNIFICADO: os 115 com preço praticado (crm_products) + os 854 do Bling
-    # (products, identidade fiscal, sem preço). Ver `modules/crm/services/catalogo.py`.
+    # Catálogo UNIFICADO + a ÚNICA regra sobre de onde um preço pode vir. Ela mora em
+    # `modules/crm/services/catalogo.py` porque `criar_orcamento` (que GRAVA a proposta)
+    # usa exatamente a mesma — duas cópias divergiriam, e a que divergisse seria a que
+    # deixa um preço inventado chegar ao cliente.
     from modules.crm.services import catalogo as _cat
 
-    skus = [str(i.get("sku")).strip().upper() for i in itens
-            if isinstance(i, dict) and i.get("sku")]
-    cat = await _cat.por_sku(db, skus) if skus else {}
-
-    linhas: list[dict[str, Any]] = []
-    origens: list[str] = []
-    for n, it in enumerate(itens, 1):
-        if not isinstance(it, dict):
-            return _recusa(f"item {n} veio malformado; esperava objeto com sku ou descrição.")
-        sku = str(it.get("sku") or "").strip().upper()
-        qtd = _dec_pos(it.get("qtd")) or Decimal("1")
-        informado = _dec_pos(it.get("valor_unit"))
-
-        if sku:
-            p = cat.get(sku)
-            if p is None:
-                # Fail-closed: SKU que não existe NÃO vira descrição livre a preço zero.
-                return _recusa(f"item {n}: SKU {sku} não existe no catálogo ativo. "
-                               f"Confira em consultar_crm consulta=catalogo.")
-            desc = p["nome"]
-            unidade = it.get("unidade") or p["unidade"] or "un"
-            valor = informado if informado is not None else _dec_pos(p["preco"])
-            tipo = it.get("tipo") or _NATUREZA.get(p["categoria"] or "", "material")
-            if valor is None:
-                # Item do Bling: tem identidade fiscal e NÃO tem preço (por decisão do
-                # Jordan, os do Bling estavam velhos). Recusa dizendo QUAL item e por quê,
-                # em vez de deixar a linha sair a zero.
-                return _recusa(
-                    f"item {n} ({sku} — {desc[:40]}) veio do {p['origem']} e não tem "
-                    f"preço validado. Me diga o `valor_unit` dele.")
-            if informado is None:
-                origens.append(f"{sku}: {(p['lastro'] or '').split('.')[0]}")
-        else:
-            desc = str(it.get("descricao") or "").strip()
-            if not desc:
-                return _recusa(f"item {n}: sem sku e sem descrição.")
-            if informado is None:
-                # A recusa que importa: sem catálogo e sem valor dito, o único jeito de
-                # preencher seria o modelo arbitrar preço. Ele não arbitra.
-                return _recusa(f"item {n} ('{desc[:40]}') não tem SKU nem valor informado. "
-                               f"Ou escolha um item do catálogo, ou me diga o valor — eu "
-                               f"não estimo preço.")
-            unidade = it.get("unidade") or "un"
-            valor = informado
-            tipo = it.get("tipo") or "material"
-
-        if valor is None:
-            return _recusa(f"item {n} ('{desc[:40]}') está sem preço no catálogo; "
-                           f"informe o valor.")
-        linhas.append({"descricao": desc, "qtd": float(qtd), "unidade": unidade,
-                       "valor_unit": float(valor), "tipo": tipo})
+    linhas, origens, recusa = await _cat.resolver_itens(db, itens)
+    if recusa:
+        return _recusa(recusa)
 
     total = sum(x["qtd"] * x["valor_unit"] for x in linhas)
     cidade = getattr(cli, "address_city", None)

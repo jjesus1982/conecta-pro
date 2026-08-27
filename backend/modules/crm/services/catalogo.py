@@ -115,3 +115,80 @@ async def por_sku(db, skus: list[str]) -> dict[str, dict[str, Any]]:
     for x in linhas:
         saida.setdefault((x["sku"] or "").upper(), dict(x))
     return saida
+
+
+# ── RESOLUÇÃO DE ITENS: a única regra sobre de onde um preço pode vir ──────────────────
+# Dois consumidores usam isto: `gerar_orcamento_itens_doc` (PDF) e `criar_orcamento`
+# (grava proposta). A regra mora aqui e não em cada um porque duas cópias divergem, e a
+# cópia que divergir vai ser justamente a que deixa um preço inventado chegar ao cliente.
+
+#: Categoria do catálogo → natureza no PDF/proposta. Fora do mapa é material.
+NATUREZA = {
+    "Mão de obra": "servico", "Serviço técnico": "servico",
+    "Locação": "servico", "Software / plataforma": "servico",
+}
+
+
+async def resolver_itens(db, itens: list) -> tuple[list[dict], list[str], str | None]:
+    """(linhas, lastro, recusa). `recusa` preenchida = nada de linhas, e o motivo é o texto.
+
+    As DUAS únicas fontes legítimas de preço são o catálogo (preço praticado, com a
+    proposta de origem) e um `valor_unit` que a PESSOA informou. Não existe terceira.
+    """
+    if not isinstance(itens, list) or not itens:
+        return [], [], ("informe os itens do orçamento (sku do catálogo ou descrição + "
+                        "valor); não vou montar orçamento sem linha.")
+
+    skus = [str(i.get("sku")).strip().upper() for i in itens
+            if isinstance(i, dict) and i.get("sku")]
+    cat = await por_sku(db, skus) if skus else {}
+
+    linhas: list[dict] = []
+    lastro: list[str] = []
+    for n, it in enumerate(itens, 1):
+        if not isinstance(it, dict):
+            return [], [], f"item {n} veio malformado; esperava objeto com sku ou descrição."
+        sku = str(it.get("sku") or "").strip().upper()
+        try:
+            # `it.get("qtd") or 1` estaria ERRADO: 0 é falsy e viraria 1 em silêncio —
+            # um item com quantidade zero sairia cobrado como 1 no orçamento do cliente.
+            bruto = it.get("qtd")
+            qtd = float(1 if bruto is None or bruto == "" else bruto)
+        except (TypeError, ValueError):
+            return [], [], f"item {n}: quantidade inválida ({it.get('qtd')!r})."
+        if qtd <= 0:
+            return [], [], f"item {n}: quantidade tem de ser maior que zero."
+        informado = it.get("valor_unit")
+        informado = float(informado) if informado not in (None, "") else None
+
+        if sku:
+            p = cat.get(sku)
+            if p is None:
+                # Fail-closed: SKU fantasma NÃO vira descrição livre a preço zero.
+                return [], [], (f"item {n}: SKU {sku} não existe no catálogo ativo. "
+                                f"Confira em consultar_crm consulta=catalogo.")
+            desc = p["nome"]
+            unidade = it.get("unidade") or p["unidade"] or "un"
+            valor = informado if informado is not None else (
+                float(p["preco"]) if p["preco"] is not None else None)
+            tipo = it.get("tipo") or NATUREZA.get(p["categoria"] or "", "material")
+            if valor is None:
+                return [], [], (f"item {n} ({sku} — {desc[:40]}) veio do {p['origem']} e "
+                                f"não tem preço validado. Me diga o `valor_unit` dele.")
+            if informado is None:
+                lastro.append(f"{sku}: {(p['lastro'] or '').split('.')[0]}")
+            codigo = p["sku"]
+        else:
+            desc = str(it.get("descricao") or "").strip()
+            if not desc:
+                return [], [], f"item {n}: sem sku e sem descrição."
+            if informado is None:
+                return [], [], (f"item {n} ('{desc[:40]}') não tem SKU nem valor informado. "
+                                f"Ou escolha um item do catálogo, ou me diga o valor — eu "
+                                f"não estimo preço.")
+            unidade, valor = it.get("unidade") or "un", informado
+            tipo, codigo = it.get("tipo") or "material", None
+
+        linhas.append({"descricao": desc, "qtd": qtd, "unidade": unidade,
+                       "valor_unit": valor, "tipo": tipo, "codigo": codigo})
+    return linhas, lastro, None
