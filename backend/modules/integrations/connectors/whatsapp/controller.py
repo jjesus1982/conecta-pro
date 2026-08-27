@@ -819,6 +819,13 @@ async def chatwoot_webhook(
         midia = await _transcrever_audio_attachments(data)
         if midia:
             content = f"{content}\n{midia}" if content else midia
+            # ⭐ Se há uma VISITA ABERTA nesta conversa, a mídia entra no relatório SOZINHA.
+            # Deterministicamente, e não pedindo ao modelo que lembre de chamar a tool: o
+            # Jordan em campo manda 15 fotos seguidas, e a foto que o modelo esquecer de
+            # anotar é justamente a que ninguém vai procurar depois.
+            # O conteúdo já vem extraído acima — imagem descrita por visão, áudio
+            # transcrito, localização em coordenadas. Aqui só grudamos no lugar certo.
+            await _midia_para_visita_aberta(conv_id, midia)
 
     # Cliente/Jordan colou um link de mapa / coordenadas no TEXTO (não como pin):
     # RESOLVE de verdade — segue o redirect do link curto, extrai as coordenadas e
@@ -884,3 +891,47 @@ async def chatwoot_webhook(
         background_tasks.add_task(agent_service.processar_incoming, conv_id, phone_canonical)
 
     return {"status": "ok", "direction": direction, "lead_id": lead_id, "message_id": msg_id}
+
+
+async def _midia_para_visita_aberta(conversation_id: int | None, midia: str) -> None:
+    """Cola a mídia recebida na visita aberta desta conversa, como ACHADO tipado.
+
+    Só faz efeito quando há visita aberta (o dono chamou `abrir_visita`). Fora disso é
+    no-op silencioso — mídia de conversa com cliente não vira registro de visita.
+
+    NUNCA levanta: o webhook tem de devolver 200. Uma falha aqui perde UMA anotação;
+    uma exceção perderia a mensagem inteira e o Chatwoot reentregaria em laço.
+
+    O `tipo` sai do prefixo que `_transcrever_audio_attachments` já coloca — a estrutura
+    de `achados` (array de {tipo, descricao}) sempre teve 'foto' entre os tipos; o que
+    faltava era alguém preencher.
+    """
+    if not conversation_id or not midia:
+        return
+    tipo = ("foto" if midia.startswith("🖼") else
+            "local" if midia.startswith("📍") else
+            "audio" if midia.startswith("🎤") else
+            "video" if midia.startswith("🎬") else "documento")
+    try:
+        from core.database import async_session_factory  # noqa: PLC0415
+        from modules.crm.services.visit_reports import adicionar_achados  # noqa: PLC0415
+        from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
+            _visita_aberta,
+        )
+
+        async with async_session_factory() as db:
+            v = await _visita_aberta(db, int(conversation_id))
+            if not v:
+                return
+            # Guarda o texto JÁ EXTRAÍDO, não o link: o link do Chatwoot expira e o
+            # relatório ficaria com uma referência morta. O que serve no relatório é o
+            # que a foto MOSTRA, e isso a visão já produziu.
+            # O serviço já aceita {tipo, descricao} — é assim que se declara o tipo, e
+            # não com um parâmetro `tipo=` que ele nunca teve. Passar string vira 'nota'
+            # e a foto perderia a natureza no relatório.
+            await adicionar_achados(db, str(v["id"]),
+                                    [{"tipo": tipo, "descricao": midia}])
+            logger.info("[visita] mídia (%s) anexada à visita %s", tipo, v["id"])
+    except Exception:  # noqa: BLE001
+        logger.exception("[visita] falha ao anexar mídia à visita aberta — "
+                         "a mensagem segue normalmente")
