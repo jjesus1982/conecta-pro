@@ -1542,3 +1542,140 @@ register(Regra(
     action_url="/redesign/financeiro?t=g-pagar",
     detectar=_detectar_pj_sem_nota, template=_tpl_pj_sem_nota,
 ))
+
+
+# ═══════════════════════ COMERCIAL — o funil que para sozinho ═══════════════════════
+# Medido em 27/08/2026, quando o Jordan perguntou o que faltava para o Bartolo ser
+# assessor comercial e não só ferramenta:
+#
+#     propostas em RASCUNHO, nunca enviadas   22 · R$ 431.880 · média 46 dias
+#     propostas ENVIADAS sem resposta         10 · R$ 370.600 · média 64 dias
+#     leads NOVOS sem contato                 37 ·              média 39 dias (máx 74)
+#     deals empilhados em "proposta"          46 · R$ 596.881 · parados há 24 dias
+#
+# R$ 802.480 dormindo. O CRM já sabia disso — 26 leituras respondiam a pergunta. O que
+# faltava é que NINGUÉM PERGUNTA "tem proposta parada?" no dia em que está sufocado.
+# Por isso o lugar disto é o proativo (que procura o Jordan às 07:00) e não mais uma tool.
+#
+# ⚠️ CORTES: são de PACIÊNCIA COMERCIAL, não de estatística, e por isso ficam explícitos.
+# 7 dias para rascunho porque proposta que o vendedor abriu e não mandou em uma semana ele
+# esqueceu. 10 para enviada sem resposta porque abaixo disso é o cliente pensando, acima é
+# você deixando morrer. 5 para lead novo porque lead esfria rápido e o mais velho aqui tem
+# 74 dias. Se virarem sino que toca todo dia, o número está errado — não a regra.
+
+# ⚠️ `- cast(:d AS integer)` e não `- :d`: bind sem tipo faz o Postgres ver
+# "date <= integer" e recusar. Mesma família do `::` que mordeu 3x hoje.
+_DIAS_RASCUNHO = 7
+_DIAS_SEM_RESPOSTA = 10
+_DIAS_LEAD_FRIO = 5
+
+#: Quem cuida de venda. `admin` entra porque o Jordan é o comercial desta casa.
+_ROLES_COMERCIAL = ("admin", "gerente_comercial", "comercial")
+
+
+async def _detectar_proposta_parada(db: AsyncSession) -> list[Achado]:
+    # UMA linha por PROPOSTA, não um resumo: o digest lista títulos, e "22 propostas
+    # paradas" não diz QUAL abrir. O correlation_id carrega o número para o achado
+    # sobreviver ao dia sem duplicar.
+    rows = (await db.execute(text(
+        "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
+        "       coalesce(total, 0) AS total, "
+        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+        "FROM proposals "
+        "WHERE status::text = 'draft' "
+        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+        "ORDER BY total DESC NULLS LAST"), {"d": _DIAS_RASCUNHO})).mappings().all()
+    return [Achado(
+        correlation_id=f"proposta_rascunho:{r['number'] or r['id']}",
+        dados={"proposta_id": r["id"], "numero": r["number"], "cliente": r["cliente"],
+               "total": float(r["total"] or 0), "dias": int(r["dias"]),
+               # Dinheiro parado há mais de um mês deixa de ser lembrete e vira alerta.
+               "severidade": "critico" if int(r["dias"]) >= 30 else "atencao"},
+    ) for r in rows]
+
+
+def _tpl_proposta_parada(d: dict) -> tuple[str, str]:
+    return (
+        f"Proposta {d['numero']} parada em rascunho há {d['dias']} dias",
+        f"A proposta {d['numero']} para {d['cliente']} "
+        f"({_brl_regra(d['total'])}) está em RASCUNHO há {d['dias']} dia(s) e nunca foi "
+        f"enviada. Enviar ou arquivar — parada ela não vira nada.",
+    )
+
+
+async def _detectar_proposta_sem_resposta(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
+        "       coalesce(total, 0) AS total, "
+        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+        "FROM proposals "
+        "WHERE status::text = 'sent' "
+        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+        "ORDER BY total DESC NULLS LAST"), {"d": _DIAS_SEM_RESPOSTA})).mappings().all()
+    return [Achado(
+        correlation_id=f"proposta_sem_resposta:{r['number'] or r['id']}",
+        dados={"proposta_id": r["id"], "numero": r["number"], "cliente": r["cliente"],
+               "total": float(r["total"] or 0), "dias": int(r["dias"]),
+               "severidade": "critico" if int(r["dias"]) >= 45 else "atencao"},
+    ) for r in rows]
+
+
+def _tpl_proposta_sem_resposta(d: dict) -> tuple[str, str]:
+    return (
+        f"Proposta {d['numero']} sem resposta há {d['dias']} dias",
+        f"{d['cliente']} recebeu a proposta {d['numero']} "
+        f"({_brl_regra(d['total'])}) há {d['dias']} dia(s) e não respondeu. "
+        f"Fazer follow-up ou marcar como perdida — silêncio não é resposta.",
+    )
+
+
+async def _detectar_lead_sem_contato(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "SELECT id::text AS id, coalesce(name, 'sem nome') AS nome, "
+        "       coalesce(company, '') AS empresa, "
+        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+        "FROM leads "
+        "WHERE status::text = 'new' "
+        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+        "ORDER BY created_at"), {"d": _DIAS_LEAD_FRIO})).mappings().all()
+    return [Achado(
+        correlation_id=f"lead_sem_contato:{r['id']}",
+        dados={"lead_id": r["id"], "nome": r["nome"], "empresa": r["empresa"],
+               "dias": int(r["dias"]),
+               "severidade": "critico" if int(r["dias"]) >= 30 else "atencao"},
+    ) for r in rows]
+
+
+def _tpl_lead_sem_contato(d: dict) -> tuple[str, str]:
+    quem = f"{d['nome']}" + (f" ({d['empresa']})" if d["empresa"] else "")
+    return (
+        f"Lead sem contato há {d['dias']} dias: {d['nome']}",
+        f"O lead {quem} entrou há {d['dias']} dia(s) e continua como NOVO — ninguém "
+        f"falou com ele. Contatar ou descartar.",
+    )
+
+
+def _brl_regra(v: float) -> str:
+    return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+
+register(Regra(
+    nome="proposta_parada_rascunho", familia="comercial", severidade="atencao",
+    roles_destino=_ROLES_COMERCIAL,
+    action_url="/modulos/comercial/propostas",
+    detectar=_detectar_proposta_parada, template=_tpl_proposta_parada,
+))
+
+register(Regra(
+    nome="proposta_sem_resposta", familia="comercial", severidade="atencao",
+    roles_destino=_ROLES_COMERCIAL,
+    action_url="/modulos/comercial/propostas",
+    detectar=_detectar_proposta_sem_resposta, template=_tpl_proposta_sem_resposta,
+))
+
+register(Regra(
+    nome="lead_sem_contato", familia="comercial", severidade="atencao",
+    roles_destino=_ROLES_COMERCIAL,
+    action_url="/modulos/comercial/leads",
+    detectar=_detectar_lead_sem_contato, template=_tpl_lead_sem_contato,
+))

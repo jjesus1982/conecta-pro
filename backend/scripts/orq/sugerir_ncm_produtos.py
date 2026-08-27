@@ -31,6 +31,10 @@ diferença entre "o sistema classificou" e "alguém classificou" só aparece na 
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
         /app/scripts/orq/sugerir_ncm_produtos.py --promover-sugestoes --gravar
 
+    # conferir se algum NCM do cadastro saiu da nomenclatura vigente:
+    docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
+        /app/scripts/orq/sugerir_ncm_produtos.py --conferir
+
     # desfazer tudo que ESTE script escreveu (o carimbo é a marca):
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
         /app/scripts/orq/sugerir_ncm_produtos.py --desfazer
@@ -172,6 +176,29 @@ async def main() -> int:
             await db.commit()
             print(f"  GRAVADO: {len(linhas)} sugestões promovidas a NCM")
             return 0
+
+        if "--conferir" in sys.argv:
+            # ⭐ A validação que FUNCIONA: existência, não semântica. Meu validador
+            # semântico errou nos dois sentidos (ver `_confere`); este não tem opinião —
+            # ou o código está na nomenclatura vigente, ou não está.
+            t = (await db.execute(text(
+                "SELECT count(*) FROM products WHERE ncm IS NOT NULL"))).scalar()
+            r = (await db.execute(text("""
+                SELECT p.ncm, count(*) AS q, min(p.name) AS ex
+                FROM products p
+                LEFT JOIN ncms n ON n.codigo = p.ncm AND n.active
+                WHERE p.ncm IS NOT NULL AND n.codigo IS NULL
+                GROUP BY 1 ORDER BY 2 DESC"""))).all()
+            fora = sum(q for _c, q, _e in r)
+            print(f"  produtos com NCM: {t} · com código FORA da nomenclatura vigente: "
+                  f"{fora} ({100.0 * fora / max(t, 1):.1f}%)")
+            for ncm, q, ex in r:
+                print(f"      {ncm:10} {q:3} produto(s)   ex.: {str(ex)[:46]}")
+            if fora:
+                print("\n  Estes vieram do cadastro do Bling, não deste script. Código "
+                      "extinto emite nota rejeitada — 8525.80.19 (câmeras de TV), por "
+                      "exemplo, foi renumerado na revisão de 2022.")
+            return 1 if fora else 0
 
         docs = await _fontes_documentais(db)
         irmaos = [(_toks(n), _ncm(x), f"irmão {c} do próprio cadastro")
