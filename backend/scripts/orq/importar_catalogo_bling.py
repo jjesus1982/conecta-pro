@@ -115,6 +115,34 @@ async def main() -> int:
     desfazer = "--desfazer" in sys.argv
 
     async with async_session_factory() as db:
+        if "--normalizar-nomes" in sys.argv:
+            # Padroniza a grafia do que JÁ está no catálogo, venha de onde vier. Pedido do
+            # Jordan: "tem umas maiúsculas, outras minúsculas, não deixe bagunçado".
+            from modules.crm.services.nome_produto import normalizar_nome_produto
+
+            rows = (await db.execute(text(
+                "SELECT id::text AS id, name FROM crm_products ORDER BY name"
+            ))).mappings().all()
+            mudam = [(r["id"], r["name"], normalizar_nome_produto(r["name"]))
+                     for r in rows]
+            mudam = [m for m in mudam if m[1] != m[2]]
+            print(f"  {len(rows)} produto(s) no catálogo · {len(mudam)} com grafia a "
+                  f"padronizar")
+            for _i, antes, depois in mudam[:14]:
+                print(f"      {antes[:52]}\n        → {depois[:52]}")
+            if len(mudam) > 14:
+                print(f"      … e mais {len(mudam) - 14}")
+            if not gravar:
+                print("\n  ENSAIO — nada foi escrito. Rode com --gravar para valer.")
+                return 0
+            for pid, _antes, depois in mudam:
+                await db.execute(text(
+                    "UPDATE crm_products SET name = :n, updated_at = now() "
+                    "WHERE id = :i"), {"n": depois, "i": pid})
+            await db.commit()
+            print(f"\n  GRAVADO: {len(mudam)} nome(s) padronizado(s)")
+            return 0
+
         if desfazer:
             n = (await db.execute(text(
                 "DELETE FROM crm_products WHERE description LIKE :c"),
