@@ -235,3 +235,90 @@ registrar_read("crm", "atividades",
 registrar_read("crm", "tarefas",
                "Lista tarefas CRM. Filtros: status, assigned_to_id, lead_id, opportunity_id, "
                "client_id, overdue.", _tarefas)
+
+
+# ── LEITURAS COMERCIAIS QUE SÓ O MCP TINHA (lacunas 14–19) ───────────────────────────
+# Todas as rotas já existiam MONTADAS e sem superfície no chat: era LIGAR, não construir.
+# Cada handler chama a corrotina do controller real, com a identidade de quem pergunta.
+# ⚠️ MÓDULO: `crm/controllers/growth_controller.py` em todas — conferido pelo caminho.
+
+
+def _dump(res: Any) -> Any:
+    """Pydantic → dict; dict passa direto. O engine serializa em JSON depois."""
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+async def _leads_frios(db, user, scope, *, dias=14, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import leads_frios_endpoint
+
+    return _dump(await leads_frios_endpoint(db=db, dias=int(dias)))
+
+
+async def _cross_sell(db, user, scope, *, cliente="", **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import cross_sell_endpoint
+
+    if not str(cliente or "").strip():
+        return {"status": "recusado",
+                "motivo": "informe o cliente — cross-sell sai dos contratos REAIS dele, "
+                          "não de sugestão genérica"}
+    return _dump(await cross_sell_endpoint(cliente=str(cliente).strip(), db=db))
+
+
+async def _simular_fechamento(db, user, scope, *, deals=None, estagio="negotiation", **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import SimularIn2, simular_fechamento_endpoint
+
+    lista = deals if isinstance(deals, list) else (
+        [d.strip() for d in str(deals).split(";") if d.strip()] if deals else None)
+    # POST que só CALCULA: não persiste nada. Entra no balde de leitura pela mesma exceção
+    # declarada que o conector usa em `POST_DE_CONSULTA`.
+    return _dump(await simular_fechamento_endpoint(
+        data=SimularIn2(deals=lista, estagio=estagio or "negotiation"), db=db))
+
+
+async def _resumo_nps(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import nps_resumo
+
+    return _dump(await nps_resumo(db=db))
+
+
+async def _reunioes(db, user, scope, *, futuras=True, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import listar_reunioes_ep
+
+    return _dump(await listar_reunioes_ep(db=db, futuras=bool(futuras)))
+
+
+async def _relatorios_visita(db, user, scope, *, visita="", **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import listar_visitas, visita_detalhe
+
+    ref = str(visita or "").strip()
+    # Sem `visita` lista tudo; com, abre o detalhe daquela. Uma consulta que serve às duas
+    # perguntas que a pessoa faz ("quais visitas?" e "o que teve na da VEGA?").
+    if ref:
+        return _dump(await visita_detalhe(ref=ref, db=db))
+    return _dump(await listar_visitas(db=db))
+
+
+registrar_read("crm", "leads_frios",
+               "Leads que ESFRIARAM — sem interação há N dias e ainda abertos. Filtros: dias "
+               "(padrão 14).", _leads_frios)
+registrar_read("crm", "cross_sell",
+               "A partir dos contratos REAIS de um cliente, o que ele ainda não tem. Filtros: "
+               "cliente (obrigatório).", _cross_sell)
+registrar_read("crm", "simular_fechamento",
+               "What-if: 'se eu fechar estes deals, como fica o mês?'. Filtros: deals (ids "
+               "separados por ';') ou estagio (padrão negotiation). Só calcula — não fecha "
+               "nada.", _simular_fechamento)
+registrar_read("crm", "resumo_nps",
+               "NPS consolidado: respostas, média, promotores/neutros/detratores.", _resumo_nps)
+registrar_read("crm", "reunioes",
+               "Reuniões agendadas. Filtros: futuras (padrão true; false traz as passadas).",
+               _reunioes)
+registrar_read("crm", "relatorios_visita",
+               "Relatórios de visita: sem filtro lista todos; com `visita` (id ou nome do "
+               "cliente) abre o detalhe daquele. Filtros: visita.", _relatorios_visita)

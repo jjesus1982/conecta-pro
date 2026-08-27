@@ -268,3 +268,28 @@ registrar_read(_MOD, "comunicados_nao_lidos",
                "Comunicados internos que VOCÊ ainda não leu (o sino do ERP). Filtros: page, "
                "page_size. É por pessoa — mostra os seus, não os de todo mundo.",
                _comunicados_nao_lidos)
+
+
+async def _comunicados(db, user, scope, *, status=None, categoria=None, busca=None,
+                       limite=20, **_) -> Any:
+    """Comunicados internos publicados/agendados. Rota GET /operacional/comunicados.
+
+    ⚠️ MÓDULO: existem DOIS `comunicados` na casa — este é o de RH/operação
+    (`operacional/communication`); o outro é o do portal do funcionário
+    (`people_management/employee_portal`), que é self-only por LGPD e NÃO entra aqui.
+    """
+    _gate(user)
+    from modules.operacional.communication.controllers.announcement_controller import (
+        list_announcements,
+    )
+
+    res = await list_announcements(
+        current_user=user, db=db, page=1, page_size=max(1, min(int(limite), 100)),
+        status_filter=status, priority=None, category=categoria, target_type=None,
+        requires_acknowledgment=None, search=busca)
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+registrar_read(_MOD, "comunicados",
+               "Comunicados internos (mural). Filtros: status, categoria, busca, limite "
+               "(padrão 20).", _comunicados)
