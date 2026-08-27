@@ -3368,6 +3368,59 @@ MANAGER_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "abrir_visita",
+            "description": (
+                "Abre uma VISITA COMERCIAL para registrar o que o Jordan está vendo em "
+                "campo. Use quando ele disser que está numa visita/levantamento. "
+                "cliente = nome do cliente ou do prospect (não precisa estar cadastrado). "
+                "Depois use anotar_visita a cada informação, e fechar_visita no fim."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"cliente": {"type": "string",
+                                           "description": "Nome do cliente ou prospect"}},
+                "required": ["cliente"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "anotar_visita",
+            "description": (
+                "Anota UMA informação na visita aberta, no campo certo do relatório. "
+                "Chame a cada coisa que ele contar (inclusive do áudio transcrito). "
+                "campo: panorama (contexto do local) | achados (o que viu) | "
+                "situacao_atual (como está hoje) | diagnostico_tecnico (o problema) | "
+                "oportunidade_comercial (o que dá para vender) | proximos_passos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campo": {"type": "string",
+                              "enum": ["panorama", "achados", "situacao_atual",
+                                       "diagnostico_tecnico", "oportunidade_comercial",
+                                       "proximos_passos"]},
+                    "texto": {"type": "string"},
+                },
+                "required": ["campo", "texto"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fechar_visita",
+            "description": (
+                "Fecha a visita e devolve o RELATÓRIO COMERCIAL, dizendo também quais "
+                "campos ficaram vazios. Use quando ele disser que terminou a visita."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "painel_negociacoes",
             "description": "Panorama das negociações em aberto: cliente, proposta, quem está conduzindo, última resposta.",
             "parameters": {"type": "object", "properties": {}},
@@ -3829,6 +3882,15 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 return await O.diagnostico_ciclo(db)
             if name == "metricas_jose_luis":
                 return await O.metricas_jose_luis(db)
+            # Visita comercial: abrir → anotar (várias vezes) → fechar com o relatório.
+            # Só chega aqui quem passou por `is_owner`; nenhuma delas paga, transmite
+            # ou fala com o cliente — visita é REGISTRO.
+            if name == "abrir_visita":
+                return await _mtool_abrir_visita(db, args, conversation_id)
+            if name == "anotar_visita":
+                return await _mtool_anotar_visita(db, args, conversation_id)
+            if name == "fechar_visita":
+                return await _mtool_fechar_visita(db, args, conversation_id)
             if name == "anotar_cliente":
                 return await O.anotar_cliente(
                     db, str(args.get("cliente", "")), str(args.get("nota", "")), autor="jose_luis(manager)"
@@ -4737,3 +4799,161 @@ except Exception:  # noqa: BLE001
     logger.exception("[bartolo] falha ao publicar tools no registro único — "
                      "o atendimento segue com as listas locais")
     _RELATORIO_REGISTRO = {"publico": [], "interno": [], "colisao": []}
+
+
+# ═════════ VISITA COMERCIAL PELO WHATSAPP — só o dono, e o Bartolo lê depois ═════════
+# Fluxo que o Jordan descreveu em 27/08/2026: ele está na visita, conversa por texto e
+# ÁUDIO com o José Luís (a transcrição já existe), tudo vai acumulando; no fim sai o
+# RELATÓRIO DE VISITA COMERCIAL; e depois, no computador, ele cita a visita e o Bartolo
+# carrega tudo (o `consultar_crm consulta=relatorios_visita` já abre por nome parcial).
+#
+# ⭐ A IDENTIDADE MUDA DE MÃO AQUI, e é o ponto delicado. Nas tools do cliente, quem
+# executa é a CONVERSA (telefone). Numa escrita no CRM isso não serve: `criado_por`
+# precisa ser uma PESSOA do ERP. Então resolvemos o usuário do dono pelo e-mail e é ELE
+# que assina. Só entra por `_exec_manager_tool`, que só roda quando `is_owner(telefone)`.
+#
+# ⚠️ `is_owner` compara TELEFONE. Serve para separar o dono do cliente, e NÃO substitui a
+# parede de dinheiro: nada aqui paga, transmite ou envia ao cliente. Visita é registro.
+
+_EMAIL_DONO = os.getenv("AGENT_VISITA_EMAIL_INTERNO", "jjesus@conectamais.pro")
+
+
+async def _usuario_dono(db):
+    """O User do ERP que assina o que o dono grava pelo WhatsApp. None se não achar."""
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from core.models.user import User  # noqa: PLC0415
+
+    return (await db.execute(select(User).where(User.email == _EMAIL_DONO))).scalars().first()
+
+
+async def _visita_aberta(db, conversation_id: int):
+    """A visita em rascunho desta conversa. UMA por conversa, para não misturar clientes.
+
+    O vínculo é `conteudo_md` carregando a marca da conversa — `crm_visit_reports` não tem
+    coluna de conversa e inventar migração para isto seria caro demais para o que resolve.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    return (await db.execute(_t(
+        "SELECT id::text AS id, cliente_nome, conteudo_md, achados FROM crm_visit_reports "
+        "WHERE status::text = 'rascunho' AND conteudo_md LIKE :m "
+        "ORDER BY created_at DESC LIMIT 1"),
+        {"m": f"%[wa:{conversation_id}]%"})).mappings().first()
+
+
+async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    cliente = str(args.get("cliente") or "").strip()
+    if not cliente:
+        return {"erro": "informe o cliente da visita (nome como está no cadastro, ou o "
+                        "nome do prospect se ainda não for cliente)"}
+    ja = await _visita_aberta(db, conversation_id)
+    if ja:
+        return {"ja_aberta": True, "visita_id": ja["id"], "cliente": ja["cliente_nome"],
+                "aviso": "já existe uma visita aberta nesta conversa; feche antes de abrir "
+                         "outra para não misturar dois clientes no mesmo relatório"}
+    u = await _usuario_dono(db)
+    # Cliente do cadastro quando existir; prospect novo entra pelo nome (a visita é o
+    # começo da prospecção, então NÃO exigimos cliente cadastrado).
+    cid = (await db.execute(_t(
+        "SELECT id::text FROM clients WHERE upper(name) = upper(:c) "
+        "   OR unaccent(name) ILIKE unaccent(:l) LIMIT 1"),
+        {"c": cliente, "l": f"%{cliente}%"})).scalar()
+    vid = (await db.execute(_t(
+        "INSERT INTO crm_visit_reports (id, cliente_nome, cliente_id, data_visita, "
+        "  conteudo_md, status, criado_por, created_at, updated_at) "
+        "VALUES (gen_random_uuid(), :nome, cast(:cid AS uuid), "
+        "        (now() AT TIME ZONE 'America/Manaus')::date, :md, 'rascunho', :u, "
+        "        now(), now()) RETURNING id::text"),
+        {"nome": cliente, "cid": cid, "u": str(getattr(u, "id", "")) or None,
+         "md": f"[wa:{conversation_id}] Visita registrada pelo WhatsApp.\n"})).scalar()
+    await db.commit()
+    return {"visita_id": vid, "cliente": cliente,
+            "cliente_cadastrado": bool(cid),
+            "proximo": "vá me contando o que viu; no fim peça o relatório"}
+
+
+async def _mtool_anotar_visita(db, args: dict, conversation_id: int) -> dict:
+    """Acumula na visita aberta. Cada nota vai para o CAMPO certo, não tudo num monte."""
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    v = await _visita_aberta(db, conversation_id)
+    if not v:
+        return {"erro": "nenhuma visita aberta nesta conversa — abra com o nome do cliente"}
+    campo = str(args.get("campo") or "achados").strip().lower()
+    texto = str(args.get("texto") or "").strip()
+    if not texto:
+        return {"erro": "sem texto para anotar"}
+    # Os 6 campos do relatório, pelo nome que a estrutura já usa. Campo desconhecido NÃO
+    # vira coluna nova nem some: cai em `achados`, e a resposta diz que caiu.
+    validos = {"panorama", "achados", "situacao_atual", "diagnostico_tecnico",
+               "oportunidade_comercial", "proximos_passos"}
+    destino = campo if campo in validos else "achados"
+
+    # ⚠️ `achados` é jsonb (array de {tipo, descricao}); os outros CINCO são text. Tratar
+    # os dois igual estoura, e escrever o jsonb à mão inventaria uma SEGUNDA forma para a
+    # mesma coisa — o serviço de domínio já sabe fazer, então reusamos ele.
+    if destino == "achados":
+        from modules.crm.services.visit_reports import adicionar_achados  # noqa: PLC0415
+
+        await adicionar_achados(db, str(v["id"]), [texto])
+        await db.execute(_t(
+            "UPDATE crm_visit_reports SET conteudo_md = "
+            "  concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
+            "WHERE id = cast(:i AS uuid)"),
+            {"i": v["id"], "linha": f"- (achados) {texto}\n"})
+        await db.commit()
+        return {"visita_id": v["id"], "campo": "achados", "anotado": True,
+                "aviso": (None if campo in validos else
+                          f"'{campo}' não é um campo do relatório; anotei em achados")}
+
+    await db.execute(_t(
+        f"UPDATE crm_visit_reports SET {destino} = "  # noqa: S608 - lista fechada acima
+        # cast() obrigatório: bind nu dentro de concat/concat_ws deixa o asyncpg sem
+        # tipo (IndeterminateDatatypeError). Quarta vez hoje que esta família morde.
+        f"  concat_ws(E'\\n', nullif({destino}, ''), cast(:t AS text)), "
+        "  conteudo_md = concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
+        "WHERE id = cast(:i AS uuid)"),
+        {"t": texto, "i": v["id"],
+         "linha": f"- ({destino}) {texto}\n"})
+    await db.commit()
+    return {"visita_id": v["id"], "campo": destino, "anotado": True,
+            "aviso": (None if campo in validos else
+                      f"'{campo}' não é um campo do relatório; anotei em achados")}
+
+
+async def _mtool_fechar_visita(db, args: dict, conversation_id: int) -> dict:
+    """Fecha a visita e devolve o RELATÓRIO COMERCIAL — o fim do fluxo de campo."""
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    v = await _visita_aberta(db, conversation_id)
+    if not v:
+        return {"erro": "nenhuma visita aberta nesta conversa"}
+    linha = (await db.execute(_t(
+        "SELECT cliente_nome, data_visita, panorama, achados, situacao_atual, "
+        "       diagnostico_tecnico, oportunidade_comercial, proximos_passos "
+        "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"),
+        {"i": v["id"]})).mappings().first()
+    preenchidos = [k for k in ("panorama", "achados", "situacao_atual",
+                               "diagnostico_tecnico", "oportunidade_comercial",
+                               "proximos_passos") if (linha or {}).get(k)]
+    if not preenchidos:
+        return {"erro": "a visita está vazia — me conte alguma coisa antes de fechar"}
+    await db.execute(_t(
+        "UPDATE crm_visit_reports SET status = 'concluido', updated_at = now() "
+        "WHERE id = cast(:i AS uuid)"), {"i": v["id"]})
+    await db.commit()
+    return {
+        "visita_id": v["id"], "cliente": linha["cliente_nome"],
+        "data": str(linha["data_visita"]), "campos_preenchidos": preenchidos,
+        # Vazio é DITO, não escondido: "faltou diagnóstico" é informação útil no fim de
+        # uma visita, e some se a resposta só mostrar o que foi preenchido.
+        "campos_vazios": [k for k in ("panorama", "achados", "situacao_atual",
+                                      "diagnostico_tecnico", "oportunidade_comercial",
+                                      "proximos_passos") if k not in preenchidos],
+        "relatorio": {k: linha[k] for k in preenchidos},
+        "proximo": "no computador, peça ao Bartolo a visita deste cliente — ele carrega "
+                   "tudo isto. Para orçar, use o catálogo com os itens levantados.",
+    }
