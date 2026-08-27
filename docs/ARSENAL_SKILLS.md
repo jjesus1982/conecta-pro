@@ -429,6 +429,33 @@ E **prove nas quatro direções, lendo o exit code do SCRIPT** — não o do `ta
 `sed`, não o do último elo do pipe. Esse erro custou três leituras erradas num dia só, e é
 irmão do `> /dev/null` no `docker cp`: *ler o resultado do elo errado.*
 
+### Família não é FORMA, é POPULAÇÃO — teste o dado antes de consertar os irmãos
+
+*Conserte a família, não o caso* é regra da casa — e tem um irmão que ninguém escreve: **antes
+de consertar os irmãos, prove que eles têm o defeito.** Forma igual com dado diferente dá
+veredito diferente.
+
+Caso de 27/08: um `Content-Disposition` estourou em latin-1. Outro módulo tinha **dois pontos
+com a mesma forma** (nome de pessoa interpolado cru no cabeçalho). Em vez de consertar por
+semelhança, testaram a população real:
+
+```
+91 nomes de pessoa testados ..... 0 quebram
+ 8 postos testados .............. 0 quebram
+```
+
+**Não quebram porque acento do português (ç, á, ã, é) CABE em latin-1.** O que estourou foi o
+**travessão (—)**, que não cabe — e travessão aparece em **título digitado por humano**, não em
+nome vindo do cadastro. Mesma forma, populações diferentes.
+
+⭐ E a decisão certa foi **não mexer**, registrando a condição que acorda o defeito: *"se entrar
+nome com caractere fora do latin-1, ou se alguém passar a montar esses nomes de arquivo a
+partir de texto digitado, os dois pontos acordam."*
+
+**Isto poupa trabalho, não cria:** no mesmo par de dias, uma varredura por forma acusou **26**
+oráculos sem desmonte e a execução absolveu **25**; outra acusou **11** tools chutando data e
+sobrou **1**. Três vezes a mesma lição, duas caras e uma barata.
+
 **Antídotos, nesta ordem:**
 1. **meça por comportamento, não por forma** — rode e conte, em vez de procurar a sintaxe.
    Nenhum regex sabe quantas formas de escrever `DELETE` existem; a contagem sabe;
