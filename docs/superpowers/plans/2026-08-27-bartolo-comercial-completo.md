@@ -458,11 +458,19 @@ async def main() -> int:
                     falhas.append(f"recusa sem explicar a falta de WhatsApp: {r['erro'][:80]}")
             else:
                 d = (await db.execute(text(
-                    "SELECT resumo FROM agent_drafts WHERE tipo = 'enviar_proposta_whatsapp' "
-                    "ORDER BY created_at DESC LIMIT 1"))).scalar() or ""
-                if not any(ch.isdigit() for ch in d):
-                    falhas.append("o resumo do rascunho NÃO nomeia o destinatário — "
-                                  "quem aprova não vê para quem vai")
+                    "SELECT resumo, payload->>'numero' AS numero FROM agent_drafts "
+                    "WHERE tipo = 'enviar_proposta_whatsapp' "
+                    "ORDER BY created_at DESC LIMIT 1"))).mappings().first() or {}
+                # ⚠️ "tem algum dígito" NÃO serve como prova: o valor em R$ já tem
+                # dígitos, e a 1ª versão deste teste passava com o resumo sem telefone
+                # nenhum. O invariante é o NÚMERO DE DESTINO aparecer no texto que quem
+                # aprova lê.
+                numero = str(d.get("numero") or "")
+                if not numero.strip():
+                    falhas.append("rascunho criado SEM número de destino no payload")
+                elif numero not in str(d.get("resumo") or ""):
+                    falhas.append(f"o resumo NÃO mostra o número de destino {numero!r} — "
+                                  f"quem aprova não vê para quem vai")
 
         n1 = (await db.execute(text("SELECT count(*) FROM crm_followups"))).scalar()
         if n0 != n1:

@@ -56,7 +56,8 @@ _AREA_DRAFT = {
     "reativar_lead": "CRM", "marcar_deal_perdido": "CRM",
     "confirmar_reuniao": "CRM", "adicionar_achados_visita": "CRM",
     "definir_meta_contratos_mes": "CRM", "criar_proposta_do_lote": "CRM",
-    "criar_orcamento": "CRM", "mover_estagio_deal": "CRM",
+    "criar_orcamento": "CRM", "mover_estagio_deal": "CRM", "enviar_proposta_whatsapp": "CRM",
+    "cadastrar_whatsapp": "CRM",
     # Rascunho de proposta que o José Luís cria a partir do WhatsApp
     # (integrations/connectors/whatsapp/agent_service.py, tipo="crm_proposta").
     # Nasce fora deste módulo, então não entrou junto com as ações acima.

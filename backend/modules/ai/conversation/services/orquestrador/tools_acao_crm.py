@@ -1823,3 +1823,118 @@ registrar_acao("crm", "mover_estagio_deal",
                "(prospecting | qualification | proposal | negotiation), motivo. "
                "FECHAR (ganho/perdido) NÃO passa por aqui. Nasce rascunho.",
                _propor_mover_estagio_deal)
+
+
+# ── ENVIAR PROPOSTA PELO WHATSAPP · CADASTRAR O NÚMERO DO CLIENTE ─────────────────────
+# 27/08/2026: 10 propostas sem resposta há 64 dias em média, TODAS por e-mail. O WhatsApp
+# é onde o cliente responde — e a rota já existia, mandando PDF + link de assinatura e
+# rastreando em `crm_followups`.
+#
+# ⚠️ ENVIO É IRREVERSÍVEL E EXTERNO. Depois que sai, não há desfazer. Por isso o resumo
+# NOMEIA o destinatário: quem aprova precisa ver para quem vai ANTES de clicar. É a mesma
+# regra do `enviar_proposta` por e-mail, que já usa ROLES_MONEY pelo mesmo motivo — o
+# risco aqui não é dinheiro, é a empresa falando com o cliente errado.
+
+async def _propor_enviar_proposta_whatsapp(db, user, scope, *, proposta=None,
+                                           **_) -> dict[str, Any]:
+    ref = str(proposta or "").strip()
+    if not ref:
+        return {"erro": "informe a proposta (número ou id)"}
+
+    row = (await db.execute(text(
+        "SELECT p.id::text AS id, p.number, p.status::text AS status, "
+        "       coalesce(p.total, 0) AS total, "
+        "       coalesce(p.client_name, '') AS cliente, "
+        "       coalesce(c.whatsapp, c.phone, '') AS numero "
+        "FROM proposals p "
+        "LEFT JOIN clients c ON upper(c.name) = upper(p.client_name) "
+        "WHERE p.id::text = :r OR upper(p.number) = upper(:r) LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"proposta {ref!r} não existe."}
+    if not str(row["numero"] or "").strip():
+        return {"erro": f"o cliente '{row['cliente'][:40]}' não tem WhatsApp cadastrado. "
+                        f"Cadastre com `cadastrar_whatsapp` — eu não invento número."}
+
+    return await criar_rascunho(
+        db, user, tipo="enviar_proposta_whatsapp", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_MONEY,
+        idempotency_key=f"prop_wa:{_slug(row['number'] or row['id'])}",
+        titulo=f"ENVIAR proposta {row['number']} por WhatsApp",
+        resumo=(f"⚠️ EXTERNO: aprovar ENVIA a proposta {row['number']} "
+                f"(R$ {float(row['total'] or 0):,.2f}) para {row['cliente'][:40]} "
+                f"no WhatsApp {row['numero']} — PDF + link de assinatura. "
+                f"CONFIRA o destinatário: envio não tem desfazer."),
+        payload={"proposal_id": row["id"], "number": row["number"],
+                 "cliente": row["cliente"], "numero": row["numero"]},
+    )
+
+
+async def _exec_enviar_proposta_whatsapp(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.proposal_controller import send_proposal_whatsapp
+
+    # confirmar=True: o preview já foi o RASCUNHO que o humano leu e aprovou.
+    await send_proposal_whatsapp(
+        proposal_id=str(payload["proposal_id"]), current_user=aprovador_user,
+        confirmar=True, db=db)
+    return str(payload["proposal_id"])
+
+
+async def _propor_cadastrar_whatsapp(db, user, scope, *, cliente=None, numero=None,
+                                     **_) -> dict[str, Any]:
+    from modules.crm.services.phone import to_e164_br
+
+    ref = str(cliente or "").strip()
+    num = str(numero or "").strip()
+    if not ref or not num:
+        return {"erro": "informe o cliente (CNPJ, id ou nome) e o número com DDD"}
+    e164 = to_e164_br(num)
+    if not e164:
+        return {"erro": f"número inválido: {num!r}. Use DDD+número (ex.: 92 99123-4567)."}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, name FROM clients "
+        "WHERE id::text = :r OR upper(name) = upper(:r) "
+        "   OR regexp_replace(coalesce(document_number, ''), '[^0-9]', '', 'g') = "
+        "      regexp_replace(:r, '[^0-9]', '', 'g') LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"cliente {ref!r} não existe no cadastro."}
+
+    return await criar_rascunho(
+        db, user, tipo="cadastrar_whatsapp", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"wa_cad:{_slug(row['name'])}:{e164}",
+        titulo=f"CADASTRAR WhatsApp de {row['name'][:38]}",
+        resumo=(f"Aprovar grava {e164} como WhatsApp de {row['name'][:50]}. "
+                f"É por este número que a empresa vai falar com ele — confira antes."),
+        payload={"cnpj_ou_id": row["id"], "numero": num, "e164": e164,
+                 "cliente": row["name"]},
+    )
+
+
+async def _exec_cadastrar_whatsapp(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.growth_controller import (
+        WhatsAppCadastroIn, cadastrar_whatsapp,
+    )
+
+    await cadastrar_whatsapp(
+        data=WhatsAppCadastroIn(cnpj_ou_id=str(payload["cnpj_ou_id"]),
+                                numero=str(payload["numero"])),
+        db=db)
+    return str(payload["cnpj_ou_id"])
+
+
+registrar_executor("enviar_proposta_whatsapp", _exec_enviar_proposta_whatsapp)
+registrar_executor("cadastrar_whatsapp", _exec_cadastrar_whatsapp)
+
+registrar_acao("crm", "enviar_proposta_whatsapp",
+               "ENVIAR uma proposta ao cliente pelo WhatsApp (PDF + link de assinatura). "
+               "dados: proposta (número ou id). EXTERNO e irreversível — nasce rascunho e "
+               "só a aprovação envia.",
+               _propor_enviar_proposta_whatsapp)
+
+registrar_acao("crm", "cadastrar_whatsapp",
+               "CADASTRAR o WhatsApp de um cliente. dados: cliente (CNPJ, id ou nome), "
+               "numero (com DDD). Nasce rascunho.",
+               _propor_cadastrar_whatsapp)

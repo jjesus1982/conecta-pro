@@ -68,6 +68,12 @@ _AMARELAS = {
     # não move dinheiro e é reversível — e porque FECHAR venda foi deliberadamente
     # deixado FORA desta ação.
     "mover_estagio_deal",
+    # `enviar_proposta_whatsapp` e `cadastrar_whatsapp` (27/08/2026): a primeira SAI DA
+    # EMPRESA e é irreversível — usa ROLES_MONEY como aprovador e NOMEIA o destinatário
+    # no resumo. É 🟡 e não 🔴 porque `enviar_proposta` (e-mail), com exatamente o mesmo
+    # risco, já é 🟡: tratar canal diferente com grau diferente seria arbitrário.
+    # A segunda só grava um número no cadastro.
+    "cadastrar_whatsapp",
 }
 
 
