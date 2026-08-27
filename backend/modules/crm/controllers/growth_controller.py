@@ -310,7 +310,10 @@ async def list_products(
     if only_active:
         where.append("is_active = true")
     if search:
-        where.append("(name ILIKE :s OR sku ILIKE :s)")
+        # unaccent nos DOIS lados: quem digita "camera" tem de achar "Câmera Bullet IP".
+        # Sem isso a busca devolvia 0 para o termo mais óbvio do catálogo de CFTV — medido
+        # em 27/08/2026, camera=0 e Câmera=8. A extensão `unaccent` já está instalada.
+        where.append("(unaccent(name) ILIKE unaccent(:s) OR unaccent(sku) ILIKE unaccent(:s))")
         p["s"] = f"%{search}%"
     if category:
         where.append("category = :c")

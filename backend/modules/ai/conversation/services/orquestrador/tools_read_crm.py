@@ -322,3 +322,31 @@ registrar_read("crm", "reunioes",
 registrar_read("crm", "relatorios_visita",
                "Relatórios de visita: sem filtro lista todos; com `visita` (id ou nome do "
                "cliente) abre o detalhe daquele. Filtros: visita.", _relatorios_visita)
+
+
+# ── CATÁLOGO DE PRODUTOS E MATERIAIS (lacuna 36) ───────────────────────────────────────
+# Semeado em 27/08/2026 a partir dos 162 itens que o Jordan já tinha digitado à mão em 33
+# propostas (116 nomes distintos, 162 com `code` NULL — nenhum vinha de catálogo). Ver
+# `scripts/orq/semear_catalogo_de_propostas.py`.
+# ⚠️ MÓDULO: `crm/controllers/growth_controller.py` — conferido pelo caminho.
+
+async def _catalogo(db, user, scope, *, busca=None, categoria=None, incluir_inativos=False,
+                    **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import list_products
+
+    itens = await list_products(db=db, search=busca, category=categoria,
+                                only_active=not incluir_inativos)
+    # A `description` carrega o carimbo de origem ("preço praticado em DD/MM/AAAA,
+    # proposta PROP-…"). Ela SOBE junto de propósito: preço sem procedência não pode
+    # entrar num documento que vai a cliente.
+    return {"total": len(itens), "produtos": itens}
+
+
+registrar_read("crm", "catalogo",
+               "Catálogo de produtos, materiais e serviços com o preço PRATICADO (cada "
+               "um carimbado com a proposta e a data de origem). Filtros: busca (nome ou "
+               "SKU), categoria (CFTV | Rede e infraestrutura | Energia e proteção | "
+               "Locação | Mão de obra | Software / plataforma | Serviço técnico | "
+               "Controle de acesso | Cerca elétrica | Alarme), incluir_inativos.",
+               _catalogo)

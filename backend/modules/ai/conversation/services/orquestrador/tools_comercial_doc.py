@@ -694,3 +694,157 @@ register(ToolDef(
     "Quem já assinou o contrato, quando e com que hash — e quem ainda falta.",
     {"type": "object", "properties": {"contrato": {"type": "string"}}, "required": ["contrato"]},
     _status_assinatura_contrato, scope_kind="org"))
+
+
+# ── ORÇAMENTO POR ITENS: MATERIAL, PRODUTO E PROJETO ───────────────────────────────────
+# `gerar_orcamento_doc` (acima) precifica MÃO DE OBRA pelo motor CCT e trava em 1 item. Ele
+# continua como está: a garantia "preço só do motor" é parede, e afrouxá-la para caber
+# material seria abrir a parede em vez de construir a porta.
+#
+# Material/produto/projeto é outra natureza: o preço vem do CATÁLOGO (`crm_products`, com o
+# preço PRATICADO e o carimbo da proposta de origem) ou de um valor que a PESSOA informou.
+# O modelo nunca arbitra preço — ele escolhe do catálogo ou repete o que ouviu.
+#
+# `build_orcamento_pdf` já sabia fazer isto desde sempre: aceita N itens com
+# tipo material|servico e imprime VENDA DE MATERIAL / PRESTAÇÃO DE SERVIÇO / misto. A
+# capacidade não estava faltando — estava sem porta.
+
+#: Categoria do catálogo → natureza no PDF. Fora do mapa é material (o padrão do builder).
+_NATUREZA = {
+    "Mão de obra": "servico", "Serviço técnico": "servico",
+    "Locação": "servico", "Software / plataforma": "servico",
+}
+
+_SCHEMA_ORC_ITENS = {
+    "type": "object",
+    "properties": {
+        "cliente_id": {"type": "string", "description": "UUID do cliente no cadastro."},
+        "cliente_cnpj": {"type": "string", "description": "CNPJ/CPF do cliente."},
+        "cliente_nome": {"type": "string", "description": "Nome/razão social do cliente."},
+        "titulo": {"type": "string",
+                   "description": "Objeto do orçamento (ex.: 'CFTV — Condomínio X')."},
+        "itens": {
+            "type": "array",
+            "description": "Linhas do orçamento. Use `sku` para puxar nome e PREÇO "
+                           "PRATICADO do catálogo (consultar_crm consulta=catalogo). "
+                           "Só informe `valor_unit` quando a pessoa DISSE o valor.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string", "description": "SKU do catálogo (CAT-XXXXXX)."},
+                    "descricao": {"type": "string",
+                                  "description": "Descrição livre (só se não houver SKU)."},
+                    "qtd": {"type": "number", "description": "Quantidade. Padrão 1."},
+                    "unidade": {"type": "string", "description": "un, mês, sv, m…"},
+                    "valor_unit": {"type": "number",
+                                   "description": "Valor unitário informado pela PESSOA. "
+                                                  "Sobrepõe o preço do catálogo."},
+                    "tipo": {"type": "string", "enum": ["material", "servico"]},
+                },
+            },
+        },
+    },
+    "required": ["itens"],
+}
+
+
+async def _gerar_orcamento_itens(db, user, scope, *, itens=None, cliente_id=None,
+                                 cliente_cnpj=None, cliente_nome=None, titulo=None,
+                                 **_) -> dict[str, Any]:
+    _gate(user)
+    if not isinstance(itens, list) or not itens:
+        return _recusa("informe os itens do orçamento (sku do catálogo ou descrição + "
+                       "valor); não vou montar orçamento sem linha.")
+
+    cli = await _resolve_cliente(db, cliente_id=cliente_id, cliente_cnpj=cliente_cnpj,
+                                 cliente_nome=cliente_nome)
+    if cli is None:
+        return _recusa("cliente não encontrado no cadastro real (informe id, CNPJ ou nome "
+                       "exato); não vou inventar cliente.")
+
+    skus = [str(i.get("sku")).strip().upper() for i in itens
+            if isinstance(i, dict) and i.get("sku")]
+    cat: dict[str, Any] = {}
+    if skus:
+        rows = (await db.execute(sa_text(
+            "SELECT sku, name, unit, unit_price, category, description "
+            "FROM crm_products WHERE upper(sku) = ANY(:s) AND is_active = true"),
+            {"s": skus})).mappings().all()
+        cat = {r["sku"].upper(): r for r in rows}
+
+    linhas: list[dict[str, Any]] = []
+    origens: list[str] = []
+    for n, it in enumerate(itens, 1):
+        if not isinstance(it, dict):
+            return _recusa(f"item {n} veio malformado; esperava objeto com sku ou descrição.")
+        sku = str(it.get("sku") or "").strip().upper()
+        qtd = _dec_pos(it.get("qtd")) or Decimal("1")
+        informado = _dec_pos(it.get("valor_unit"))
+
+        if sku:
+            p = cat.get(sku)
+            if p is None:
+                # Fail-closed: SKU que não existe NÃO vira descrição livre a preço zero.
+                return _recusa(f"item {n}: SKU {sku} não existe no catálogo ativo. "
+                               f"Confira em consultar_crm consulta=catalogo.")
+            desc = p["name"]
+            unidade = it.get("unidade") or p["unit"] or "un"
+            valor = informado if informado is not None else _dec_pos(p["unit_price"])
+            tipo = it.get("tipo") or _NATUREZA.get(p["category"] or "", "material")
+            if informado is None:
+                origens.append(f"{sku}: {(p['description'] or '').split('.')[0]}")
+        else:
+            desc = str(it.get("descricao") or "").strip()
+            if not desc:
+                return _recusa(f"item {n}: sem sku e sem descrição.")
+            if informado is None:
+                # A recusa que importa: sem catálogo e sem valor dito, o único jeito de
+                # preencher seria o modelo arbitrar preço. Ele não arbitra.
+                return _recusa(f"item {n} ('{desc[:40]}') não tem SKU nem valor informado. "
+                               f"Ou escolha um item do catálogo, ou me diga o valor — eu "
+                               f"não estimo preço.")
+            unidade = it.get("unidade") or "un"
+            valor = informado
+            tipo = it.get("tipo") or "material"
+
+        if valor is None:
+            return _recusa(f"item {n} ('{desc[:40]}') está sem preço no catálogo; "
+                           f"informe o valor.")
+        linhas.append({"descricao": desc, "qtd": float(qtd), "unidade": unidade,
+                       "valor_unit": float(valor), "tipo": tipo})
+
+    total = sum(x["qtd"] * x["valor_unit"] for x in linhas)
+    cidade = getattr(cli, "address_city", None)
+    uf = getattr(cli, "address_state", None)
+    d = {
+        "numero": "RASCUNHO", "cliente": cli.name, "documento": cli.document_number,
+        "cidade": (f"{cidade}/{uf}" if cidade and uf else cidade) or "Manaus/AM",
+        "titulo": "ORÇAMENTO",
+        "objeto": titulo or "Fornecimento de materiais e serviços",
+        "itens": linhas,
+    }
+    from modules.crm.services.doc_pdf import build_orcamento_pdf
+    pdf = build_orcamento_pdf(d)
+
+    return {
+        "arquivo_base64": base64.b64encode(pdf).decode(),
+        "nome": f"orcamento_{_slug(cli.name)}.pdf",
+        "total": total,
+        "itens": len(linhas),
+        # O lastro sobe na resposta: quem lê o orçamento vê de qual proposta cada preço
+        # veio. É o mesmo princípio do carimbo no catálogo — preço sem procedência não
+        # entra em documento de cliente.
+        "lastro": origens or ["todos os valores foram informados na conversa"],
+        "resumo": f"Orçamento p/ {cli.name}: {len(linhas)} item(ns), {_brl(total)} "
+                  f"(RASCUNHO — não grava, não envia)",
+    }
+
+
+register(ToolDef(
+    "gerar_orcamento_itens_doc", "crm",
+    "Monta um ORÇAMENTO branded (rascunho, PDF) com VÁRIOS itens — materiais, produtos, "
+    "equipamentos, serviços e projetos. O preço de cada linha vem do CATÁLOGO pelo `sku` "
+    "(preço praticado, com a proposta de origem) ou de um `valor_unit` que a PESSOA "
+    "informou; nunca de estimativa. Use consultar_crm consulta=catalogo para achar os "
+    "SKUs. Não grava, não envia.",
+    _SCHEMA_ORC_ITENS, _gerar_orcamento_itens, scope_kind="org"))
