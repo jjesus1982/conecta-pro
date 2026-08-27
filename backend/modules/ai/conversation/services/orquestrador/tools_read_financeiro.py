@@ -347,3 +347,55 @@ registrar_read("financeiro", "viabilidade_contratacao",
                "descobertos (COO) e o custo real de folha (piso da CCT + encargos). Filtros: "
                "quantidade (obrig.), cargo (obrig.). Só cálculo sobre dado real, não contrata "
                "ninguém.", _viabilidade_contratacao)
+
+
+# ── PRECIFICAÇÃO (lacunas 25–26) ───────────────────────────────────────────────────────
+# "Quanto devo cobrar num posto 12x36?" é pergunta semanal do Jordan e não tinha resposta
+# pelo chat. As duas rotas já existiam montadas, base CCT SINDECOMPRESTS 2026.
+# ⚠️ MÓDULO: `financial/controllers/precificacao_controller.py` — conferido pelo caminho.
+# SÓ LEITURA: `definir_parametros_precificacao` (que ESCREVE a tabela) fica fora.
+
+async def _simular_preco(db, user, scope, *, tipo_servico="portaria", postos=1,
+                         noturno=False, condominio_id=None, **_) -> Any:
+    _gate(user)
+    import uuid as _uuid
+
+    from modules.financial.controllers.precificacao_controller import get_simulador
+
+    cid = None
+    if condominio_id:
+        try:
+            cid = _uuid.UUID(str(condominio_id))
+        except ValueError:
+            return {"status": "recusado",
+                    "motivo": f"condominio_id inválido: {condominio_id!r} não é um UUID"}
+    return await get_simulador(tipo_servico=str(tipo_servico), num_postos=max(1, int(postos)),
+                               turno_noturno=bool(noturno), condominio_id=cid,
+                               current_user=user, db=db)
+
+
+async def _analise_precificacao(db, user, scope, *, condominio_id=None, **_) -> Any:
+    _gate(user)
+    import uuid as _uuid
+
+    from modules.financial.controllers.precificacao_controller import get_analise_contratos
+
+    cid = None
+    if condominio_id:
+        try:
+            cid = _uuid.UUID(str(condominio_id))
+        except ValueError:
+            return {"status": "recusado",
+                    "motivo": f"condominio_id inválido: {condominio_id!r} não é um UUID"}
+    return await get_analise_contratos(condominio_id=cid, current_user=user, db=db)
+
+
+registrar_read("financeiro", "simular_preco",
+               "Preço ideal para um contrato novo, base CCT 2026. Filtros: tipo_servico "
+               "(portaria_presencial | portaria_remota | manutencao_cftv | "
+               "seguranca_eletronica | facilities), postos, noturno (adicional 20%), "
+               "condominio_id.", _simular_preco)
+registrar_read("financeiro", "analise_precificacao",
+               "Os contratos ATIVOS estão dentro ou abaixo do mercado Manaus? Aponta os "
+               "subprecificados e o potencial de reajuste. Filtros: condominio_id.",
+               _analise_precificacao)

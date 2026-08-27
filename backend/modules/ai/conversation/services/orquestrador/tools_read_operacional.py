@@ -293,3 +293,69 @@ async def _comunicados(db, user, scope, *, status=None, categoria=None, busca=No
 registrar_read(_MOD, "comunicados",
                "Comunicados internos (mural). Filtros: status, categoria, busca, limite "
                "(padrão 20).", _comunicados)
+
+
+# ── DIÁRIAS / DIARISTAS (lacunas 21–24) ────────────────────────────────────────────────
+# ⚠️ SÓ LEITURA. `lancar_diaria` e `gerar_lote_diarias_mes` são 🔴 (dinheiro que SAI) e NÃO
+# entram aqui — quem lança é o Jordan pela tela, com OTP. Aqui ele só ENXERGA o que já foi
+# lançado, que é a pergunta que ele faz todo dia 15 antes de pagar.
+# ⚠️ MÓDULO: `operacional/diaristas/diarias_controller.py` — conferido pelo caminho.
+
+def _periodo(mes, ano) -> tuple[int, int]:
+    """Período do SERVIDOR quando o modelo não informa.
+
+    O modelo não sabe que mês é hoje — ele chuta, e chutou errado antes (11 em vez de 1).
+    Sem `mes`/`ano` explícitos, a data vem do relógio do servidor. Ver
+    `scripts/qa/checar_periodo_do_servidor.py`.
+    """
+    from datetime import date
+
+    h = date.today()
+    return (int(mes) if mes else h.month, int(ano) if ano else h.year)
+
+
+async def _diarias_cadastros(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.operacional.diaristas.diarias_controller import cadastros
+
+    return await cadastros(current_user=user, db=db)
+
+
+async def _diarias_lancamentos(db, user, scope, *, mes=None, ano=None, data=None, **_) -> Any:
+    _gate(user)
+    from modules.operacional.diaristas.diarias_controller import lancamentos
+
+    m, a = _periodo(mes, ano)
+    # `data` filtra o dia exato e, quando vem, manda no controller — não misturamos os dois.
+    return await lancamentos(mes=None if data else m, ano=None if data else a,
+                             data=data, current_user=user, db=db)
+
+
+async def _diarias_resumo_diarista(db, user, scope, *, mes=None, ano=None, **_) -> Any:
+    _gate(user)
+    from modules.operacional.diaristas.diarias_controller import resumo_diarista
+
+    m, a = _periodo(mes, ano)
+    return await resumo_diarista(mes=m, ano=a, current_user=user, db=db)
+
+
+async def _diarias_resumo_gerencial(db, user, scope, *, mes=None, ano=None, **_) -> Any:
+    _gate(user)
+    from modules.operacional.diaristas.diarias_controller import resumo_gerencial
+
+    m, a = _periodo(mes, ano)
+    return await resumo_gerencial(mes=m, ano=a, current_user=user, db=db)
+
+
+registrar_read(_MOD, "diarias_cadastros",
+               "Cadastros das diárias: diaristas, funções, postos, turnos e a tabela de "
+               "preços que dá o valor automático.", _diarias_cadastros)
+registrar_read(_MOD, "diarias_lancamentos",
+               "Diárias LANÇADAS. Filtros: mes, ano (padrão: mês do servidor) ou data "
+               "(YYYY-MM-DD) para um dia exato.", _diarias_lancamentos)
+registrar_read(_MOD, "diarias_por_diarista",
+               "A lista de pagamento do dia 15: quanto cada diarista tem a receber no mês. "
+               "Filtros: mes, ano (padrão: mês do servidor).", _diarias_resumo_diarista)
+registrar_read(_MOD, "diarias_resumo_gerencial",
+               "Diárias somadas por POSTO e por FUNÇÃO no mês. Filtros: mes, ano (padrão: "
+               "mês do servidor).", _diarias_resumo_gerencial)
