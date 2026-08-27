@@ -2640,6 +2640,41 @@ def _sem_acento_lit(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
 
 
+def _do_registro(canal: str) -> list:
+    """Schemas do registro ÚNICO, restritos ao que ESTE conector publicou.
+
+    ⭐ `canal` diz QUEM PERGUNTA (cliente × usuário interno). Não diz POR QUAL TRANSPORTE.
+    São eixos diferentes, e confundi-los quase custou caro: a primeira versão devolvia
+    `tools_do_canal("interno")` inteiro e o Jordan-no-WhatsApp herdava 12 tools do Bartolo
+    do chat, cujo handler espera (db, user, scope) e não `conversation_id` — todas
+    quebrariam na execução. O teste de equivalência apanhou antes do deploy.
+
+    Então: o registro é onde toda tool é DECLARADA (um lugar só para ver nome, canal e
+    schema); o conector escolhe o subconjunto que o transporte dele sabe executar.
+
+    Lista vazia = registro indisponível → quem chama cai no fallback local e o cliente
+    continua atendido. Registro é melhoria de manutenção, não dependência de operação.
+    """
+    try:
+        from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
+            get_tool, openai_schema,
+        )
+        meus = _RELATORIO_REGISTRO.get(canal) or []
+        saida = [openai_schema(t) for t in (get_tool(n) for n in meus) if t is not None]
+        if canal == "publico":
+            # COLISÃO: o nome já existia no registro do Bartolo com OUTRA semântica (lá a
+            # identidade vem do usuário autenticado; aqui, do telefone da conversa). Não
+            # sobrescrevemos — servimos a versão local, e a colisão fica NOMEADA como a
+            # dívida que é. Sem isto o cliente perderia a capacidade em silêncio.
+            colididas = set(_RELATORIO_REGISTRO.get("colisao") or [])
+            saida += [spec for spec in (TOOLS + TOOLS_COTACAO)
+                      if (spec.get("function") or {}).get("name") in colididas]
+        return saida
+    except Exception:  # noqa: BLE001
+        logger.exception("[bartolo] registro único indisponível — usando lista local")
+        return []
+
+
 def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     """Conjunto de tools da conversa. MANAGER_TOOLS (interno, é o Jordan) x TOOLS
     (externo, número anônimo) — a fronteira que o plano trata como invariante.
@@ -2649,8 +2684,17 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     time multi-agente sem trocar de motor. Sem papel, devolve o de hoje, intacto.
     """
     if owner:
-        return MANAGER_TOOLS
-    base = TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS
+        return _do_registro("interno") or MANAGER_TOOLS
+    # O registro é a FONTE; as listas locais são o fallback se a publicação falhar (o
+    # atendimento não pode cair porque o registro compartilhado teve problema).
+    base = _do_registro("publico") or (
+        TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS)
+    if not _cota_em_chat():
+        # A flag de cotação continua mandando: no registro as tools de cotação existem
+        # sempre (o registro descreve o que EXISTE), e é aqui que se decide o que está
+        # LIGADO. `_exec_tool` barra de novo na porta — defesa em profundidade.
+        _cota = {(t.get("function") or {}).get("name") for t in TOOLS_COTACAO}
+        base = [t for t in base if (t.get("function") or {}).get("name") not in _cota]
     cfg = _PAPEIS.get(papel or "")
     if not cfg:
         return base
@@ -4612,3 +4656,84 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
     # Memoria de longo prazo: atualiza o perfil do cliente apos o atendimento.
     # Best-effort e por ultimo — nunca atrasa/derruba a entrega da resposta.
     await _update_contact_memory(conversation_id, phone)
+
+
+# ═══════════════ PONTE PARA O REGISTRO ÚNICO DE FERRAMENTAS (canal) ═══════════════
+# Decisão do Jordan (27/08/2026): "migra as 14 ferramentas com escopo de canal" — José
+# Luís e Bartolo viram a MESMA ferramenta com duas caras.
+#
+# ⭐ A separação de canal JÁ EXISTIA AQUI, à mão: `_tools_ativas(owner)` devolve
+# MANAGER_TOOLS (é o Jordan) ou TOOLS (número anônimo), com a invariante escrita no
+# código — "todo papel externo é SUBCONJUNTO de TOOLS". O que faltava não era o conceito:
+# era ele viver no MESMO registro que o Bartolo interno usa, para não haver duas listas
+# que alguém tem de lembrar de manter iguais.
+#
+# Esta ponte NÃO reescreve os 51 schemas à mão (retypar schema é como se inventa typo em
+# produção): ela registra os que já existem, anexando o canal.
+#
+# `canais=("publico",)` para o conjunto do cliente e `("interno",)` para o do Jordan. O
+# default do registro é "interno" — tool nova nasce invisível ao cliente.
+
+def _registrar_no_registro_unico() -> dict[str, list[str]]:
+    """Publica as tools deste conector no registro compartilhado. Devolve o relatório.
+
+    Nomes que JÁ existem no registro do Bartolo NÃO são sobrescritos nem duplicados: são
+    devolvidos como `colisao`. Colisão aqui não é erro de programação — é a MESMA
+    capacidade escrita duas vezes, uma por canal, e unificá-la de verdade exige um handler
+    que sirva aos dois contextos (aqui a identidade vem do TELEFONE da conversa; lá, do
+    usuário autenticado). Fingir que são a mesma função sobrescrevendo uma delas trocaria
+    a identidade de quem executa — que é a única coisa que este sistema não pode errar.
+    """
+    from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
+        _REGISTRY, ToolDef, register,
+    )
+
+    rel: dict[str, list[str]] = {"publico": [], "interno": [], "colisao": []}
+
+    def _publicar(specs: list, canal: str, executor) -> None:
+        for spec in specs:
+            fn = (spec or {}).get("function") or {}
+            nome = fn.get("name")
+            if not nome:
+                continue
+            if nome in _REGISTRY:
+                rel["colisao"].append(nome)
+                continue
+
+            async def _handler(_db=None, _user=None, _scope=None, *, __nome=nome,
+                               __exec=executor, conversation_id=None, **kw):
+                # A identidade NÃO vem daqui: `conversation_id` resolve o telefone que
+                # está de fato conversando, dentro do executor. Mantido igual de propósito.
+                if conversation_id is None:
+                    return {"erro": "esta ferramenta precisa do contexto da conversa"}
+                return await __exec(__nome, kw, conversation_id)
+
+            register(ToolDef(
+                name=nome, module="crm",
+                description=(fn.get("description") or "")[:900],
+                params_schema=(fn.get("parameters")
+                               or {"type": "object", "properties": {}}),
+                handler=_handler, scope_kind="cliente" if canal == "publico" else "org",
+                canais=(canal,),
+            ))
+            rel[canal].append(nome)
+
+    _publicar(TOOLS, "publico", _exec_tool)
+    _publicar(TOOLS_COTACAO, "publico", _exec_tool)
+    _publicar(MANAGER_TOOLS, "interno", _exec_manager_tool)
+    return rel
+
+
+#: Executado no import: o registro passa a conhecer as tools deste conector.
+#: Silencioso em caso de falha — o atendimento ao cliente NÃO pode cair porque o registro
+#: compartilhado teve problema. Mas o problema é LOGADO: falha silenciosa que ninguém vê
+#: é a forma como esta casa já perdeu rotina inteira.
+try:
+    _RELATORIO_REGISTRO = _registrar_no_registro_unico()
+    logger.info("[bartolo] registro único: %d pública(s), %d interna(s), %d colisão(ões)",
+                len(_RELATORIO_REGISTRO["publico"]), len(_RELATORIO_REGISTRO["interno"]),
+                len(_RELATORIO_REGISTRO["colisao"]))
+except Exception:  # noqa: BLE001
+    logger.exception("[bartolo] falha ao publicar tools no registro único — "
+                     "o atendimento segue com as listas locais")
+    _RELATORIO_REGISTRO = {"publico": [], "interno": [], "colisao": []}

@@ -28,7 +28,24 @@ class ToolDef:
     params_schema: dict[str, Any]  # JSON-Schema OpenAI ({"type":"object","properties":{...},"required":[...]})
     handler: Callable[..., Awaitable[Any]] = field(compare=False, repr=False)
     scope_kind: str = "org"  # dimensão de escopo (m13): "org"|"posto"|"self"|"cliente"
+    #: CANAIS em que a tool pode aparecer. FAIL-CLOSED: o default é só "interno", então
+    #: toda tool nova nasce invisível para o cliente e alguém precisa DECLARAR o contrário.
+    #:
+    #: ⭐ O que separa o Bartolo interno do Bartolo que atende no WhatsApp não é o cérebro
+    #: nem o conjunto de ferramentas — é QUEM PERGUNTA. No canal interno quem fala é um
+    #: usuário autenticado, com RBAC por módulo. No canal público quem fala é um cliente
+    #: identificado pelo TELEFONE da conversa, sem conta no ERP. Uma tool de forecast ou
+    #: margem no canal público significa estranho lendo o funil da empresa — e esta casa
+    #: já cometeu esse erro uma vez, quando `resumo_financeiro` devolveu MRR sem
+    #: identidade porque o grupo dele era "comercial".
+    #:
+    #: `canal` NÃO substitui o RBAC: é uma peneira ANTES dele, não no lugar dele.
+    canais: tuple[str, ...] = ("interno",)
 
+
+#: Canais válidos. `interno` = usuário autenticado do ERP (Bartolo do chat/Hermes).
+#: `publico` = cliente externo falando pelo WhatsApp, identificado pelo telefone.
+VALID_CANAIS = frozenset({"interno", "publico"})
 
 _REGISTRY: dict[str, ToolDef] = {}
 
@@ -45,6 +62,14 @@ def register(tool: ToolDef) -> ToolDef:
             f"tool '{tool.name}' com scope_kind inválido {tool.scope_kind!r} — "
             f"esperado um de {sorted(VALID_SCOPE_KINDS)} (fail-closed)"
         )
+    # Canal inválido é typo, e typo em peneira de exposição é vazamento silencioso.
+    if not tool.canais:
+        raise ValueError(f"tool '{tool.name}' sem canal declarado — recusada (fail-closed)")
+    maus = set(tool.canais) - VALID_CANAIS
+    if maus:
+        raise ValueError(
+            f"tool '{tool.name}' com canal inválido {sorted(maus)} — "
+            f"esperado um de {sorted(VALID_CANAIS)} (fail-closed)")
     # m3: o params_schema exposto ao LLM não pode declarar db/user/scope como propriedade
     # (essas vêm do runtime; expô-las abriria uma via de injeção de identidade/conexão).
     props = (tool.params_schema or {}).get("properties") or {}
@@ -73,6 +98,18 @@ def all_tools() -> list[ToolDef]:
 def tools_for_modules(mods: set[str]) -> list[ToolDef]:
     """Belt: só as tools cujo módulo ∈ mods (nunca considera 'self'/'cliente')."""
     return [t for t in _REGISTRY.values() if t.module in mods]
+
+
+def tools_do_canal(canal: str) -> list[ToolDef]:
+    """Peneira de CANAL, antes de qualquer RBAC.
+
+    O canal público recebe SÓ o que foi declarado para ele. Não existe "tudo menos" aqui:
+    a lista é de inclusão, porque a lista de exclusão esquece o item novo — e o item novo
+    é sempre o que ninguém revisou.
+    """
+    if canal not in VALID_CANAIS:
+        raise ValueError(f"canal inválido {canal!r} — esperado um de {sorted(VALID_CANAIS)}")
+    return [t for t in _REGISTRY.values() if canal in t.canais]
 
 
 def openai_schema(tool: ToolDef) -> dict[str, Any]:
