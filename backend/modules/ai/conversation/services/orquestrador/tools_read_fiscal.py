@@ -265,3 +265,93 @@ registrar_read(_MOD, "guias_pendentes",
                "01/08/2026 em diante por padrão (antes disso é o período de homologação, que "
                "não se persegue). Filtro opcional: desde ('AAAA-MM-DD'). Lista vazia é "
                "resultado BOM e verdadeiro.", _guias_pendentes)
+
+
+# ── NCM: BUSCA NA TABELA OFICIAL (lacuna 37) ───────────────────────────────────────────
+# `ncms` existia com esquema rico — IPI, PIS/COFINS, CEST e campos de ZONA FRANCA
+# (zfm_isento_ipi, zfm_reduz_ii) — e ZERO linha. Carregada em 27/08/2026 com a
+# nomenclatura vigente (Resolução Gecex nº 926/2026): 10.515 códigos.
+#
+# ⭐ POR QUE BUSCA E NÃO "PUXAR DA SEFAZ": a SEFAZ não classifica produto. Não existe
+# serviço que receba "PARAFUSO AA CABEÇA PANELA" e devolva o NCM — classificar é do
+# contribuinte, e NCM errado é multa e glosa de crédito. O que dá para automatizar é
+# TRANSFORMAR A CLASSIFICAÇÃO EM BUSCA, com a tabela oficial e a cadeia hierárquica.
+#
+# Busca full-text em português (stemming resolve "fibra óptica" × "fibras ópticas"), com
+# peso A na descrição PRÓPRIA do item e B na cadeia — senão "câmera" traz estojo de couro
+# antes de câmera de vídeo, porque o capítulo 42 cita câmeras.
+
+_SQL_NCM = """
+    WITH v AS (
+      SELECT codigo, descricao_resumida, descricao,
+             setweight(to_tsvector('portuguese', unaccent(coalesce(descricao_resumida,''))), 'A')
+          || setweight(to_tsvector('portuguese', unaccent(coalesce(descricao,''))), 'B') AS doc
+      FROM ncms WHERE active
+    )
+    SELECT codigo, descricao_resumida, descricao, ts_rank(doc, :q) AS score
+    FROM v WHERE doc @@ :q ORDER BY score DESC, codigo LIMIT :lim
+"""
+
+
+async def _buscar_ncm(db, user, scope, *, termo=None, codigo=None, limite=8, **_) -> Any:
+    _gate(user)
+    from sqlalchemy import text as _t
+
+    lim = max(1, min(int(limite), 30))
+
+    if codigo:
+        cod = "".join(c for c in str(codigo) if c.isdigit())
+        linhas = (await db.execute(_t(
+            "SELECT codigo, descricao_resumida, descricao FROM ncms "
+            "WHERE active AND codigo LIKE :c ORDER BY codigo LIMIT :lim"),
+            {"c": f"{cod}%", "lim": lim})).mappings().all()
+        return {"consulta": f"código {cod}", "total": len(linhas),
+                "ncms": [dict(x) for x in linhas]}
+
+    if not str(termo or "").strip():
+        return {"status": "recusado",
+                "motivo": "informe `termo` (o que é o produto) ou `codigo` (NCM ou "
+                          "prefixo). Não existe listar tudo: são 10.515 códigos."}
+
+    # plainto_tsquery exige TODOS os termos (AND). "bota de segurança" dá 0 porque nenhum
+    # NCM fala em "segurança" — então caímos para OR, que acha "bota" e ordena por rank.
+    # A degradação é declarada na resposta: quem lê precisa saber que a busca afrouxou.
+    # RELAXAMENTO PROGRESSIVO em vez de cair direto para OR. "câmera de vídeo para
+    # vigilância" não casa com todas as palavras (nenhum NCM fala em "vigilância"), e o OR
+    # cru devolveu equipamento de exploração de petróleo. Tirar a ÚLTIMA palavra e tentar
+    # de novo preserva o núcleo do termo — o usuário escreve do geral para o específico.
+    sql_e = _SQL_NCM.replace(":q", "plainto_tsquery('portuguese', unaccent(:termo))")
+    palavras = str(termo).split()
+    linhas, modo = [], "todas as palavras"
+    for corte in range(len(palavras), 0, -1):
+        tentativa = " ".join(palavras[:corte])
+        linhas = (await db.execute(
+            _t(sql_e), {"termo": tentativa, "lim": lim})).mappings().all()
+        if linhas:
+            modo = ("todas as palavras" if corte == len(palavras)
+                    else f"só {tentativa!r} — as palavras seguintes não existem na "
+                         f"nomenclatura")
+            break
+    if not linhas:
+        # Zero achado com o rótulo "todas as palavras" mentiria: parece busca estrita
+        # bem-sucedida e vazia. A nomenclatura usa termo técnico ("fonte de alimentação
+        # ininterrupta", não "nobreak") — dizer isso é mais útil que uma lista vazia.
+        modo = ("nenhuma palavra do termo existe na nomenclatura — ela usa termo "
+                "técnico (ex.: 'nobreak' está como 'fonte de alimentação ininterrupta'). "
+                "Tente descrever o produto pelo material ou pela função.")
+
+    return {
+        "consulta": termo, "modo": modo, "total": len(linhas),
+        "ncms": [{"codigo": x["codigo"], "descricao": x["descricao_resumida"],
+                  "cadeia": x["descricao"], "score": round(float(x["score"]), 4)}
+                 for x in linhas],
+        "aviso": "Sugestão de CLASSIFICAÇÃO, não decisão. O NCM é responsabilidade do "
+                 "contribuinte; confira a cadeia antes de gravar no produto.",
+    }
+
+
+registrar_read(_MOD, "buscar_ncm",
+               "Busca na tabela OFICIAL de NCM (10.515 códigos vigentes) para classificar "
+               "um produto. Filtros: termo (o que é o produto, em palavras) OU codigo (NCM "
+               "ou prefixo), limite (padrão 8). Devolve a cadeia capítulo › posição › "
+               "item. É SUGESTÃO: o NCM é responsabilidade do contribuinte.", _buscar_ncm)
