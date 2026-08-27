@@ -330,17 +330,27 @@ registrar_read("crm", "relatorios_visita",
 # `scripts/orq/semear_catalogo_de_propostas.py`.
 # ⚠️ MÓDULO: `crm/controllers/growth_controller.py` — conferido pelo caminho.
 
-async def _catalogo(db, user, scope, *, busca=None, categoria=None, incluir_inativos=False,
-                    **_) -> Any:
+async def _catalogo(db, user, scope, *, busca=None, categoria=None, so_com_preco=False,
+                    limite=40, **_) -> Any:
     _gate(user)
-    from modules.crm.controllers.growth_controller import list_products
+    from modules.crm.services import catalogo as cat
 
-    itens = await list_products(db=db, search=busca, category=categoria,
-                                only_active=not incluir_inativos)
-    # A `description` carrega o carimbo de origem ("preço praticado em DD/MM/AAAA,
-    # proposta PROP-…"). Ela SOBE junto de propósito: preço sem procedência não pode
-    # entrar num documento que vai a cliente.
-    return {"total": len(itens), "produtos": itens}
+    itens = await cat.buscar(db, busca=busca, categoria=categoria,
+                             so_com_preco=so_com_preco, limite=limite)
+    # O `lastro` carrega a procedência ("preço praticado em DD/MM/AAAA, proposta PROP-…"
+    # ou "[Bling] cód. 873"). Ele SOBE junto de propósito: número sem procedência não
+    # pode entrar num documento que vai a cliente.
+    com, sem = [i for i in itens if i["preco"] is not None], [i for i in itens
+                                                              if i["preco"] is None]
+    return {
+        "total": len(itens),
+        "com_preco": len(com),
+        "sem_preco": len(sem),
+        "produtos": itens,
+        "aviso": ("Os itens vindos do Bling não têm preço (o Jordan pediu para "
+                  "desconsiderar os antigos): ao usá-los no orçamento é preciso informar "
+                  "`valor_unit`." if sem else None),
+    }
 
 
 registrar_read("crm", "catalogo",

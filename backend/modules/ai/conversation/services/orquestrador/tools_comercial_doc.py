@@ -762,15 +762,13 @@ async def _gerar_orcamento_itens(db, user, scope, *, itens=None, cliente_id=None
         return _recusa("cliente não encontrado no cadastro real (informe id, CNPJ ou nome "
                        "exato); não vou inventar cliente.")
 
+    # Catálogo UNIFICADO: os 115 com preço praticado (crm_products) + os 854 do Bling
+    # (products, identidade fiscal, sem preço). Ver `modules/crm/services/catalogo.py`.
+    from modules.crm.services import catalogo as _cat
+
     skus = [str(i.get("sku")).strip().upper() for i in itens
             if isinstance(i, dict) and i.get("sku")]
-    cat: dict[str, Any] = {}
-    if skus:
-        rows = (await db.execute(sa_text(
-            "SELECT sku, name, unit, unit_price, category, description "
-            "FROM crm_products WHERE upper(sku) = ANY(:s) AND is_active = true"),
-            {"s": skus})).mappings().all()
-        cat = {r["sku"].upper(): r for r in rows}
+    cat = await _cat.por_sku(db, skus) if skus else {}
 
     linhas: list[dict[str, Any]] = []
     origens: list[str] = []
@@ -787,12 +785,19 @@ async def _gerar_orcamento_itens(db, user, scope, *, itens=None, cliente_id=None
                 # Fail-closed: SKU que não existe NÃO vira descrição livre a preço zero.
                 return _recusa(f"item {n}: SKU {sku} não existe no catálogo ativo. "
                                f"Confira em consultar_crm consulta=catalogo.")
-            desc = p["name"]
-            unidade = it.get("unidade") or p["unit"] or "un"
-            valor = informado if informado is not None else _dec_pos(p["unit_price"])
-            tipo = it.get("tipo") or _NATUREZA.get(p["category"] or "", "material")
+            desc = p["nome"]
+            unidade = it.get("unidade") or p["unidade"] or "un"
+            valor = informado if informado is not None else _dec_pos(p["preco"])
+            tipo = it.get("tipo") or _NATUREZA.get(p["categoria"] or "", "material")
+            if valor is None:
+                # Item do Bling: tem identidade fiscal e NÃO tem preço (por decisão do
+                # Jordan, os do Bling estavam velhos). Recusa dizendo QUAL item e por quê,
+                # em vez de deixar a linha sair a zero.
+                return _recusa(
+                    f"item {n} ({sku} — {desc[:40]}) veio do {p['origem']} e não tem "
+                    f"preço validado. Me diga o `valor_unit` dele.")
             if informado is None:
-                origens.append(f"{sku}: {(p['description'] or '').split('.')[0]}")
+                origens.append(f"{sku}: {(p['lastro'] or '').split('.')[0]}")
         else:
             desc = str(it.get("descricao") or "").strip()
             if not desc:

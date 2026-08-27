@@ -17,7 +17,7 @@ cliente; se o modelo puder arbitrar valor, ele arbitra. As duas únicas fontes l
 são o CATÁLOGO (preço praticado, com a proposta de origem carimbada) e um valor que a
 PESSOA informou. Qualquer terceiro caminho é fabricação.
 
-Sete invariantes:
+Dez invariantes:
   1. SKU inexistente é RECUSADO (não vira descrição livre a preço zero)
   2. item sem SKU e sem valor é RECUSADO (o modelo não estima preço)
   3. cliente inexistente é RECUSADO (nunca cria cliente de passagem)
@@ -25,6 +25,9 @@ Sete invariantes:
   5. o caso válido gera PDF de verdade (header %PDF) e o total FECHA na conta
   6. `valor_unit` informado SOBREPÕE o catálogo (a pessoa manda no preço)
   7. INÉRCIA: gerar orçamento NÃO grava proposta nenhuma
+  8. o catálogo UNIFICADO enxerga os 854 do Bling (`products`) além dos 115 com preço
+  9. item do Bling vem SEM preço — os do Bling não têm valor validado
+ 10. item do Bling no orçamento EXIGE `valor_unit` em vez de sair a zero
 
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
         /app/scripts/orq/test_orcamento_por_itens.py
@@ -123,6 +126,34 @@ async def main() -> int:
             falhas.append(f"`valor_unit` informado NÃO sobrepôs o catálogo: "
                           f"{r.get('total')} != {outro}")
 
+        # 8 · CATÁLOGO UNIFICADO: item do Bling (identidade fiscal, SEM preço) é servido
+        #     pela mesma busca, e no orçamento ele EXIGE valor em vez de sair a zero.
+        from modules.crm.services import catalogo as _cat
+
+        bling = (await db.execute(text(
+            "SELECT code FROM products WHERE coalesce(ativo, true) "
+            "AND code IS NOT NULL ORDER BY code LIMIT 1"))).scalar()
+        if not bling:
+            print("  (tabela `products` vazia — bloco do Bling não exercitado)")
+        else:
+            achado = await _cat.por_sku(db, [bling])
+            if bling.upper() not in achado:
+                falhas.append(f"catálogo unificado NÃO enxerga o SKU {bling} de `products`")
+            elif achado[bling.upper()]["preco"] is not None:
+                falhas.append(f"item do Bling {bling} veio COM preço — eles não têm preço "
+                              f"validado e um número aqui viraria orçamento errado")
+
+            r = await h(db, u, scope, cliente_nome=cli, itens=[{"sku": bling, "qtd": 2}])
+            if r.get("status") != "recusado":
+                falhas.append(f"item do Bling {bling} SEM valor foi aceito — sairia a zero")
+            r = await h(db, u, scope, cliente_nome=cli,
+                        itens=[{"sku": bling, "qtd": 2, "valor_unit": 189.90}])
+            if r.get("status") == "recusado":
+                falhas.append(f"item do Bling COM valor informado foi recusado: "
+                              f"{r.get('motivo', '')[:80]}")
+            elif abs(float(r.get("total") or 0) - 379.80) > 0.01:
+                falhas.append(f"total do item do Bling não fecha: {r.get('total')} != 379.80")
+
         # 7 · INÉRCIA — a maior de todas: gerar não grava
         n1 = (await db.execute(text("SELECT count(*) FROM proposals"))).scalar()
         i1 = (await db.execute(text("SELECT count(*) FROM proposal_items"))).scalar()
@@ -133,10 +164,11 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK orcamento_por_itens: 7/7 — recusa SKU fantasma, recusa item sem preço "
+    print("OK orcamento_por_itens: 10/10 — recusa SKU fantasma, recusa item sem preço "
           "(não estima), recusa cliente inexistente e lista vazia; o válido sai em PDF "
           "com o total fechando e o lastro do preço; valor informado manda no catálogo; "
-          "e gerar NÃO grava proposta.")
+          "gerar NÃO grava proposta; e o catálogo unificado serve os 854 do Bling, que "
+          "EXIGEM valor em vez de sair a zero.")
     return 0
 
 
