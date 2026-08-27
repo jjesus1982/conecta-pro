@@ -399,3 +399,56 @@ registrar_read("financeiro", "analise_precificacao",
                "Os contratos ATIVOS estão dentro ou abaixo do mercado Manaus? Aponta os "
                "subprecificados e o potencial de reajuste. Filtros: condominio_id.",
                _analise_precificacao)
+
+
+# ── CONSOLIDADO DAS DUAS EMPRESAS + DIVERGÊNCIAS DE FOLHA (lacunas 33–35) ───────────────
+# ⚠️ MÓDULOS conferidos pelo caminho: `empresas/controllers/dashboard_controller.py` e
+# `integrations/inter/inter_controller.py`. SÓ LEITURA.
+
+def _mes_ano_do_servidor(mes, ano) -> tuple[int, int]:
+    """Idem `_periodo` do operacional: sem valor explícito, a data vem do RELÓGIO."""
+    from datetime import date
+
+    h = date.today()
+    return (int(mes) if mes else h.month, int(ano) if ano else h.year)
+
+
+async def _contabil_grupo(db, user, scope, *, mes=None, ano=None, **_) -> Any:
+    _gate(user)
+    from modules.empresas.controllers.dashboard_controller import dashboard_contabil_grupo
+
+    m, a = _mes_ano_do_servidor(mes, ano)
+    return await dashboard_contabil_grupo(mes=m, ano=a, db=db, current_user=user)
+
+
+async def _rentabilidade_grupo(db, user, scope, *, mes=None, ano=None, **_) -> Any:
+    _gate(user)
+    from modules.empresas.controllers.dashboard_controller import (
+        dashboard_rentabilidade_grupo,
+    )
+
+    m, a = _mes_ano_do_servidor(mes, ano)
+    return await dashboard_rentabilidade_grupo(mes=m, ano=a, db=db, current_user=user)
+
+
+async def _divergencias_folha(db, user, scope, **_) -> Any:
+    """Pagamentos em `em_conciliacao`: o robô NÃO conseguiu decidir e parou.
+
+    ⭐ Esta é a lista que existe justamente porque o ambíguo nunca chuta baixa. Ver
+    `project_radar_financeiro_boletos`.
+    """
+    _gate(user)
+    from modules.integrations.inter.inter_controller import listar_divergencias
+
+    return await listar_divergencias(db=db, current_user=user)
+
+
+registrar_read("financeiro", "contabil_grupo",
+               "Contábil CONSOLIDADO das duas empresas (Eletrônica + Patrimonial). "
+               "Filtros: mes, ano (padrão: mês do servidor).", _contabil_grupo)
+registrar_read("financeiro", "rentabilidade_grupo",
+               "Rentabilidade consolidada do grupo. Filtros: mes, ano (padrão: mês do "
+               "servidor).", _rentabilidade_grupo)
+registrar_read("financeiro", "divergencias_folha_pagamentos",
+               "Pagamentos de folha em conciliação AMBÍGUA — o robô não decidiu e parou "
+               "para revisão humana.", _divergencias_folha)

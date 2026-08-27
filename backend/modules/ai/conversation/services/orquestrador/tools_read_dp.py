@@ -348,3 +348,53 @@ registrar_read("dp", "panorama",
 registrar_read("dp", "epis",
                "Entregas de EPI registradas (por colaborador): EPI, CA, NR, quantidade e status da "
                "ficha assinada. Filtro opcional: employee_id (restringe a um funcionário).", _epis)
+
+
+# ── RECRUTAMENTO: VAGAS E ENTREVISTAS (lacunas 30–32) ──────────────────────────────────
+# ⚠️ MÓDULO: `recruitment/controllers/` — módulo próprio, montado sob DOIS prefixos
+# (`/recruitment/...` e `/people-management/human-resources/recruitment/...`). É a MESMA
+# coroutine nos dois; importamos pelo caminho do módulo, não pela URL.
+# SÓ LEITURA: abrir vaga, mover candidato e agendar entrevista continuam fora.
+
+async def _vagas(db, user, scope, *, status=None, abertas=False, busca=None, limite=20,
+                 **_) -> Any:
+    _gate(user)
+    from modules.recruitment.controllers.job_position_controller import (
+        list_open_positions, list_positions,
+    )
+
+    lim = max(1, min(int(limite), 100))
+    # `abertas=True` usa a rota dedicada — ela filtra por "aceita candidatura", que não é a
+    # mesma coisa que status='open' (vaga aberta e expirada continua com status open).
+    if abertas:
+        res = await list_open_positions(skip=0, limit=lim, condominium_id=None, db=db,
+                                        current_user=user)
+    else:
+        res = await list_positions(
+            skip=0, limit=lim, status_filter=status, position_type=None,
+            position_level=None, department=None, work_model=None, city=None, state=None,
+            is_urgent=None, condominium_id=None, search=busca, order_by="created_at",
+            order_desc=True, db=db, current_user=user)
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+async def _entrevistas(db, user, scope, *, status=None, hoje=False, proximas=False,
+                       limite=20, **_) -> Any:
+    _gate(user)
+    from modules.recruitment.controllers.interview_controller import list_interviews
+
+    res = await list_interviews(
+        skip=0, limit=max(1, min(int(limite), 100)), application_id=None,
+        interview_type=None, status_filter=status, interviewer_id=None,
+        scheduled_after=None, scheduled_before=None, is_today=bool(hoje),
+        is_upcoming=bool(proximas), order_by="scheduled_date", order_desc=False,
+        db=db, current_user=user)
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+registrar_read("dp", "vagas",
+               "Vagas de recrutamento. Filtros: abertas (true = só as que aceitam "
+               "candidatura agora), status, busca, limite (padrão 20).", _vagas)
+registrar_read("dp", "entrevistas",
+               "Entrevistas agendadas. Filtros: hoje, proximas, status, limite "
+               "(padrão 20).", _entrevistas)

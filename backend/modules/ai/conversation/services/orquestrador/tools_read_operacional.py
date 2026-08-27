@@ -359,3 +359,58 @@ registrar_read(_MOD, "diarias_por_diarista",
 registrar_read(_MOD, "diarias_resumo_gerencial",
                "Diárias somadas por POSTO e por FUNÇÃO no mês. Filtros: mes, ano (padrão: "
                "mês do servidor).", _diarias_resumo_gerencial)
+
+
+# ── ORDENS DE SERVIÇO (lacunas 27–29) ──────────────────────────────────────────────────
+# ⚠️ MÓDULO: `campo/controllers/ordem_servico_controller.py` — conferido pelo caminho.
+# O controller recebe o service por Depends(get_service); chamado direto isso é pulado,
+# então construímos `OrdemServicoService(db)` à mão — mesma coisa que o Depends faria.
+# SÓ LEITURA: abrir, atribuir e concluir OS continuam fora (operação é curada à mão).
+
+def _os_service(db):
+    from modules.campo.services.ordem_servico_service import OrdemServicoService
+
+    return OrdemServicoService(db)
+
+
+async def _os_listar(db, user, scope, *, status=None, tipo=None, prioridade=None,
+                     tecnico_id=None, cliente_id=None, sla_vencido=None, busca=None,
+                     limite=50, **_) -> Any:
+    _gate(user)
+    from modules.campo.controllers.ordem_servico_controller import listar_os
+
+    res = await listar_os(
+        current_user=user, tipo=tipo, status_os=status, prioridade=prioridade, origem=None,
+        cliente_id=cliente_id, tecnico_id=tecnico_id, data_inicio=None, data_fim=None,
+        cidade=None, estado=None, sla_vencido=sla_vencido, busca=busca,
+        page=1, page_size=max(1, min(int(limite), 100)), service=_os_service(db))
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+async def _os_atrasadas(db, user, scope, **_) -> Any:
+    _gate(user)
+    from modules.campo.controllers.ordem_servico_controller import listar_os_atrasadas
+
+    itens = await listar_os_atrasadas(current_user=user, service=_os_service(db))
+    return {"atrasadas": [i.model_dump(mode="json") for i in itens], "total": len(itens)}
+
+
+async def _os_dashboard(db, user, scope, *, periodo_dias=30, cliente_id=None,
+                        tecnico_id=None, **_) -> Any:
+    _gate(user)
+    from modules.campo.controllers.ordem_servico_controller import obter_dashboard
+
+    res = await obter_dashboard(
+        current_user=user, cliente_id=cliente_id, tecnico_id=tecnico_id,
+        periodo_dias=max(1, min(int(periodo_dias), 365)), service=_os_service(db))
+    return res.model_dump(mode="json") if hasattr(res, "model_dump") else res
+
+
+registrar_read(_MOD, "ordens_servico",
+               "Ordens de serviço com filtros. Filtros: status, tipo, prioridade, "
+               "tecnico_id, cliente_id, sla_vencido, busca, limite (padrão 50).", _os_listar)
+registrar_read(_MOD, "ordens_servico_atrasadas",
+               "Só as OS com SLA VENCIDO — o que já estourou o prazo.", _os_atrasadas)
+registrar_read(_MOD, "ordens_servico_dashboard",
+               "Estatísticas das OS no período. Filtros: periodo_dias (padrão 30), "
+               "cliente_id, tecnico_id.", _os_dashboard)
