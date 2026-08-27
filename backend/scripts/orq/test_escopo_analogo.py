@@ -81,13 +81,59 @@ async def main() -> int:
             if any(a["similaridade"] < rede["corte"] for a in rede["achados"]):
                 falhas.append("devolveu achado ABAIXO do corte declarado")
 
+        # ── ROTEIRO TÉCNICO: o consultor tem de saber o que perguntar ────────────────
+        from modules.integrations.connectors.whatsapp import agent_service as A
+
+        prompt_dono = A._system_prompt(owner=True)
+        prompt_cliente = A._system_prompt(owner=False)
+
+        # Os assuntos vêm dos ITENS REAIS das propostas dele, não de teoria.
+        obrigatorios = ("energia", "aterramento", "gravação", "fibra", "poste",
+                        "PoE", "distância", "acesso")
+        faltando = [t for t in obrigatorios if t.lower() not in prompt_dono.lower()]
+        if faltando:
+            falhas.append(f"o roteiro do consultor não cobre {faltando} — cada um sai de "
+                          f"um item recorrente das propostas dele")
+
+        if "uma pergunta por vez" not in prompt_dono.lower():
+            falhas.append("o roteiro não impõe UMA PERGUNTA POR VEZ — numa visita o "
+                          "Jordan está andando, não preenchendo formulário")
+
+        # O CLIENTE não pode receber o roteiro interno (é método comercial da casa).
+        if "roteiro de levantamento" in prompt_cliente.lower():
+            falhas.append("o roteiro interno VAZOU para o prompt do cliente")
+
+        if "sugerir_escopo" not in prompt_dono:
+            falhas.append("o roteiro não ensina a usar `sugerir_escopo` — o consultor "
+                          "perguntaria e não proporia nada")
+
+        # ── A TOOL nos dois canais internos ──────────────────────────────────────────
+        import modules.ai.conversation.services.orquestrador.tools_read_crm  # noqa: F401
+        from modules.ai.conversation.services.orquestrador.read_dispatcher import _READ_OPS
+        from modules.ai.conversation.services.orquestrador.tool_registry import tools_do_canal
+
+        nomes_mgr = {(t.get("function") or {}).get("name") for t in A.MANAGER_TOOLS}
+        if "sugerir_escopo" not in nomes_mgr:
+            falhas.append("`sugerir_escopo` não está em MANAGER_TOOLS (WhatsApp do dono)")
+        if "escopo_analogo" not in _READ_OPS.get("crm", {}):
+            falhas.append("leitura `crm.escopo_analogo` não registrada (Bartolo do chat)")
+
+        # E NUNCA no canal do cliente: repertório comercial é método da casa.
+        publicas = {t.name for t in tools_do_canal("publico")}
+        if "sugerir_escopo" in publicas:
+            falhas.append("`sugerir_escopo` VAZOU para o canal do cliente — o repertório "
+                          "de propostas é método comercial, não vitrine")
+
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK escopo_analogo: 6/6 — recusa termo vazio; termo sem correspondência devolve "
-          "vazio COM aviso; todo item devolvido existe na proposta citada; todo achado "
-          "cita número e data; a similaridade é coerente; e o corte é respeitado.")
+    print("OK escopo_analogo: 12/12 — recusa termo vazio; termo sem correspondência "
+          "devolve vazio COM aviso; todo item existe na proposta citada; todo achado cita "
+          "número e data; similaridade coerente; corte respeitado; o roteiro do consultor "
+          "cobre energia/aterramento/gravação/fibra/poste/PoE/distância/acesso, impõe uma "
+          "pergunta por vez, ensina a propor escopo, NÃO vaza para o cliente; e a tool "
+          "existe nos dois canais internos sem vazar para o cliente.")
     return 0
 
 

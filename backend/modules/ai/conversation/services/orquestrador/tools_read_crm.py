@@ -381,3 +381,34 @@ async def _sequencia_inscricoes(db, user, scope, *, sequencia=None, **_) -> Any:
 registrar_read("crm", "sequencia_inscricoes",
                "Sequências de cadência e quem está inscrito nelas. Filtros: sequencia "
                "(id da sequência; sem ele, lista as sequências).", _sequencia_inscricoes)
+
+
+# ── ESCOPO POR ANALOGIA (lacuna 37) ───────────────────────────────────────────────────
+# A mesma capacidade que o José Luís usa em campo, do lado do computador: o Jordan cita a
+# visita e pergunta "o que eu proponho aqui". Ver `crm/services/escopo_analogo.py`.
+
+async def _escopo_analogo(db, user, scope, *, levantamento=None, visita=None, limite=2,
+                          **_) -> Any:
+    _gate(user)
+    from modules.crm.services import escopo_analogo as _EA
+
+    termo = str(levantamento or "").strip()
+    if not termo and str(visita or "").strip():
+        # A partir da VISITA: o levantamento já está gravado, não precisa ser redigitado.
+        from sqlalchemy import text as _t
+
+        termo = str((await db.execute(_t(
+            "SELECT concat_ws(' ', cliente_nome, panorama, situacao_atual, "
+            "  diagnostico_tecnico, oportunidade_comercial, achados::text) "
+            "FROM crm_visit_reports "
+            "WHERE id::text = :r OR cliente_nome ILIKE '%' || cast(:r AS text) || '%' "
+            "ORDER BY created_at DESC LIMIT 1"), {"r": str(visita).strip()})).scalar() or "")
+    return await _EA.buscar(db, termo, limite=int(limite))
+
+
+registrar_read("crm", "escopo_analogo",
+               "Propostas que VOCÊ já fez parecidas com um levantamento, com o escopo de "
+               "cada uma (número e data para conferir). Filtros: levantamento (em "
+               "palavras) OU visita (id ou nome do cliente — usa o que foi anotado nela), "
+               "limite (padrão 2). É ANALOGIA com o seu histórico, não escopo inventado.",
+               _escopo_analogo)

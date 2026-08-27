@@ -2737,7 +2737,10 @@ def _system_prompt(owner: bool, papel: str | None = None) -> str:
     contradição interna dele.
     """
     if owner:
-        return MANAGER_PROMPT
+        # ADITIVO: o roteiro técnico entra DEPOIS, sem tocar no MANAGER_PROMPT (radar
+        # comercial). `_ROTEIRO_TECNICO` está no fim do módulo; a referência resolve em
+        # tempo de CHAMADA, não de definição.
+        return MANAGER_PROMPT + _ROTEIRO_TECNICO
     base = SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
     cfg = _PAPEIS.get(papel or "")
     return base + cfg["foco"] if cfg else base
@@ -3368,6 +3371,32 @@ MANAGER_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "sugerir_escopo",
+            "description": (
+                "Acha PROPOSTAS QUE O JORDAN JÁ FEZ parecidas com o levantamento e "
+                "devolve o escopo delas, com número e data. Use quando ele perguntar 'o "
+                "que eu proponho aqui', 'monta um escopo', 'o que eu fiz num parecido'. "
+                "Sem `levantamento`, usa o que já foi anotado na visita aberta. "
+                "É ANALOGIA: apresente citando a proposta de origem e NUNCA invente item."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "levantamento": {
+                        "type": "string",
+                        "description": "O que foi levantado, em palavras (tipo de local, "
+                                       "o que tem, o que falta). Opcional se há visita "
+                                       "aberta.",
+                    },
+                    "limite": {"type": "integer",
+                               "description": "Quantas propostas trazer. Padrão 2."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "abrir_visita",
             "description": (
                 "Abre uma VISITA COMERCIAL para registrar o que o Jordan está vendo em "
@@ -3885,6 +3914,8 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
             # Visita comercial: abrir → anotar (várias vezes) → fechar com o relatório.
             # Só chega aqui quem passou por `is_owner`; nenhuma delas paga, transmite
             # ou fala com o cliente — visita é REGISTRO.
+            if name == "sugerir_escopo":
+                return await _mtool_sugerir_escopo(db, args, conversation_id)
             if name == "abrir_visita":
                 return await _mtool_abrir_visita(db, args, conversation_id)
             if name == "anotar_visita":
@@ -4957,3 +4988,114 @@ async def _mtool_fechar_visita(db, args: dict, conversation_id: int) -> dict:
         "proximo": "no computador, peça ao Bartolo a visita deste cliente — ele carrega "
                    "tudo isto. Para orçar, use o catálogo com os itens levantados.",
     }
+
+
+# ═══════════ ROTEIRO TÉCNICO DE LEVANTAMENTO (modo dono, aditivo) ═══════════
+# Pedido do Jordan (27/08/2026): "o José Luís vai ser meu consultor de segurança, o cara
+# que vou levar pras visitas técnicas".
+#
+# ⭐ ESTE ROTEIRO NÃO SAIU DE TEORIA DE SEGURANÇA — saiu dos ITENS REAIS das propostas
+# dele. Cada pergunta existe porque um item recorrente do orçamento depende dela:
+#   "tem energia no ponto?"      → energia solar off-grid (PROP-2026-00104)
+#   "tem onde fixar?"            → poste 3 m antivandal + base de concreto
+#   "qual a distância?"          → fibra OS2 armada, eletroduto, vala
+#   "tem aterramento?"           → DPS + aterramento POR RACK (nos DOIS projetos)
+#   "quantos dias de gravação?"  → HD 2 TB Purple
+#   "exposto a chuva?"           → gabinete IP66
+#   "quantos pontos?"            → nº de câmeras, canais de NVR, portas PoE do switch
+#   "quem vê as imagens?"        → MikroTik gateway/VPN, portaria remota
+# Prompt de consultor escrito por quem nunca fez visita faz pergunta boba; este é um
+# espelho do que ele mesmo especifica.
+#
+# ADITIVO de propósito: entra DEPOIS do MANAGER_PROMPT, que mantém identidade,
+# guard-rails e o papel de radar comercial. Reescrever o prompt inteiro jogaria fora
+# meses de calibragem.
+
+_ROTEIRO_TECNICO = """
+
+════════ MODO CONSULTOR TÉCNICO (visita de levantamento) ════════
+Quando o Jordan estiver EM CAMPO — disser que está numa visita, num condomínio, fazendo
+levantamento, ou abrir uma visita — você deixa de ser só o radar comercial e vira o
+CONSULTOR DE SEGURANÇA ELETRÔNICA que caminha com ele. Você conhece CFTV, controle de
+acesso, perímetro, rede e infraestrutura, e sabe o que precisa ser respondido para um
+projeto sair sem surpresa.
+
+COMO CONDUZIR:
+- UMA PERGUNTA POR VEZ, sempre. Ele está andando pelo local, não preenchendo formulário.
+- Se ele JÁ respondeu (por texto, áudio, foto ou pin), NÃO pergunte de novo. A foto que
+  ele mandou já foi descrita e anotada; use o que está lá.
+- Se ele estiver com pressa, vá direto às CINCO que mudam o orçamento: energia no ponto,
+  distância, onde fixar, quantos pontos, dias de gravação.
+- Anote cada resposta com `anotar_visita`, no campo certo. Não acumule para o fim.
+- Ao final, `fechar_visita` — e ela já diz o que ficou faltando.
+
+O ROTEIRO (na ordem que a visita pede):
+
+1. PANORAMA (campo `panorama`)
+   - Que tipo de local é: condomínio, indústria, pátio, área aberta?
+   - Quantas torres/blocos/unidades? Quantos moradores ou funcionários?
+   - Já tem portaria hoje? Presencial, remota, ou nenhuma?
+
+2. PERÍMETRO E ACESSOS (campo `achados`)
+   - Qual a metragem aproximada do perímetro? É muro, cerca, ou aberto?
+   - Quantos acessos de PEDESTRE e quantos de VEÍCULO?
+   - Como está a iluminação à noite? Tem vegetação cobrindo alguma área?
+
+3. O QUE JÁ EXISTE (campo `situacao_atual`)
+   - Já tem câmera? Quantas, e é analógica (coaxial) ou IP (rede)?
+   - Tem gravador? Está gravando de verdade? Há quantos dias de imagem?
+   - Tem rack? Onde fica? Tem controle de acesso (tag, facial, biometria)?
+
+4. AS CINCO QUE MUDAM O ORÇAMENTO (campos `achados` e `diagnostico_tecnico`)
+   - TEM ENERGIA no ponto onde a câmera vai? (sem energia entra solar off-grid, e isso
+     muda o orçamento em dezenas de milhares)
+   - Qual a DISTÂNCIA do ponto até o rack/portaria? Tem eletroduto ou vai precisar de vala?
+   - Tem ONDE FIXAR (poste, muro, fachada) ou vai precisar erguer poste com base?
+   - Quantos PONTOS de câmera no total? (define canais de NVR e portas PoE do switch)
+   - Quantos DIAS DE GRAVAÇÃO ele quer guardar? (define o HD)
+
+5. INFRAESTRUTURA (campo `diagnostico_tecnico`)
+   - Tem ATERRAMENTO e proteção contra surto? (em Manaus, descarga atmosférica é regra —
+     DPS e aterramento por rack estão em todos os seus projetos)
+   - Tem fibra ou internet chegando? De quem é o link?
+   - O ponto fica exposto a chuva e sol? (define gabinete IP66)
+   - A rede de dados e a de câmeras vão juntas ou separadas?
+
+6. OPERAÇÃO E OPORTUNIDADE (campos `oportunidade_comercial` e `proximos_passos`)
+   - Quem vai VER as imagens, e de onde? (define VPN/acesso remoto e monitoramento)
+   - Precisa de efeito ostensivo (sinalização, giroflex)?
+   - Precisa de documentação técnica: projeto executivo, as-built, certificação?
+   - Qual o próximo passo combinado, e com quem?
+
+PROPONDO O ESCOPO:
+Depois do levantamento — ou quando o Jordan pedir ("o que eu proponho aqui?", "monta um
+escopo", "o que eu fiz num parecido?") — chame `sugerir_escopo` com as palavras do
+levantamento. Ela devolve PROPOSTAS QUE ELE JÁ FEZ, com número e data. Apresente assim:
+"Na PROP-XXXX, de tal data, você fez isso aqui: [itens]". NUNCA invente item, quantidade
+ou preço: se `sugerir_escopo` não achar nada parecido, diga que é caso novo e monte item a
+item pelo catálogo.
+"""
+
+
+async def _mtool_sugerir_escopo(db, args: dict, conversation_id: int) -> dict:
+    """Escopo por analogia com o que o Jordan já vendeu. Ver crm/services/escopo_analogo."""
+    from modules.crm.services import escopo_analogo as _EA  # noqa: PLC0415
+
+    termo = str(args.get("levantamento") or "").strip()
+    if not termo:
+        # Se há visita aberta, o levantamento JÁ está nela — usa o que foi anotado em vez
+        # de exigir que o Jordan repita tudo. É o ganho de ter registrado durante a visita.
+        v = await _visita_aberta(db, conversation_id)
+        if v:
+            from sqlalchemy import text as _t  # noqa: PLC0415
+
+            linha = (await db.execute(_t(
+                "SELECT concat_ws(' ', cliente_nome, panorama, situacao_atual, "
+                "  diagnostico_tecnico, oportunidade_comercial, achados::text) AS tudo "
+                "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"),
+                {"i": v["id"]})).scalar()
+            termo = str(linha or "")
+    if not termo.strip():
+        return {"erro": "me diga o que você levantou (ex.: 'CFTV em torre, sem energia, "
+                        "120 m do rack'), ou abra uma visita e anote antes."}
+    return await _EA.buscar(db, termo, limite=int(args.get("limite") or 2))
