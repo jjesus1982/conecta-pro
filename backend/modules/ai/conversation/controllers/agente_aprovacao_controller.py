@@ -74,6 +74,12 @@ _AMARELAS = {
     # risco, já é 🟡: tratar canal diferente com grau diferente seria arbitrário.
     # A segunda só grava um número no cadastro.
     "cadastrar_whatsapp",
+    # `followup_em_lote` (27/08/2026): MAIOR ALCANCE do CRM — fala com a carteira inteira
+    # de uma vez. Ficou 🟡 e não 🔴 porque o rascunho carrega o preview REAL (quantos
+    # serão tocados) e o texto integral, então quem aprova vê o alcance antes de clicar.
+    # ⚠️ Se algum dia esse preview sumir do resumo, isto vira 🔴.
+    # `optout_whatsapp`: protege o cliente de receber mensagem — recusar seria pior.
+    "optout_whatsapp",
 }
 
 

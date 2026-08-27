@@ -100,14 +100,40 @@ async def main() -> int:
         if depois != estagio_antes:
             falhas.append(f"A PROPOSTA MOVEU o deal: {estagio_antes!r} → {depois!r}")
 
+        # ── FOLLOW-UP EM LOTE: a ação de maior alcance do plano ──────────────────────
+        from modules.ai.conversation.services.orquestrador.tools_acao_crm import (
+            _propor_followup_em_lote as LOTE,
+        )
+
+        r = await LOTE(db, u, scope)
+        if not r.get("erro"):
+            falhas.append("follow-up em lote SEM MENSAGEM foi aceito — sairia texto "
+                          "vazio para dezenas de clientes")
+
+        n0 = (await db.execute(text("SELECT count(*) FROM crm_followups"))).scalar()
+        r = await LOTE(db, u, scope, mensagem=f"{_MARCA} toque de teste")
+        if not (r.get("draft_id") or r.get("id")):
+            falhas.append(f"lote válido não virou rascunho: {str(r)[:110]}")
+        else:
+            d = (await db.execute(text(
+                "SELECT resumo FROM agent_drafts WHERE tipo = 'followup_em_lote' "
+                "ORDER BY created_at DESC LIMIT 1"))).scalar() or ""
+            if not any(ch.isdigit() for ch in d):
+                falhas.append("o resumo do lote não diz QUANTOS clientes serão tocados — "
+                              "quem aprova não sabe o alcance")
+        n1 = (await db.execute(text("SELECT count(*) FROM crm_followups"))).scalar()
+        if n0 != n1:
+            falhas.append(f"PROPOR JÁ DISPAROU o lote: crm_followups {n0} → {n1}")
+
         await _limpar(db)
 
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK acao_funil_crm: 4/4 — recusa deal inexistente, estágio inválido e "
-          "closed_won; o válido vira rascunho e o deal NÃO se move.")
+    print("OK acao_funil_crm: 7/7 — recusa deal inexistente, estágio inválido e "
+          "closed_won; recusa lote sem mensagem; o resumo do lote diz QUANTOS clientes "
+          "serão tocados; e nem mover nem disparar acontece antes da aprovação.")
     return 0
 
 

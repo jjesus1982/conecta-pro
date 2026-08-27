@@ -1938,3 +1938,95 @@ registrar_acao("crm", "cadastrar_whatsapp",
                "CADASTRAR o WhatsApp de um cliente. dados: cliente (CNPJ, id ou nome), "
                "numero (com DDD). Nasce rascunho.",
                _propor_cadastrar_whatsapp)
+
+
+# ── FOLLOW-UP EM LOTE E OPT-OUT ───────────────────────────────────────────────────────
+# ⚠️ MAIOR ALCANCE DESTE PLANO: um toque em lote fala com TODOS os clientes que têm
+# proposta pendente ao mesmo tempo. Erro aqui não atinge um cliente — atinge a carteira.
+# Por isso o rascunho carrega o PREVIEW REAL (a rota já sabe fazer, com confirmar=False)
+# e o resumo diz QUANTOS serão tocados. Quem aprova precisa saber o alcance, não só o texto.
+
+async def _propor_followup_em_lote(db, user, scope, *, mensagem=None,
+                                   **_) -> dict[str, Any]:
+    from modules.crm.services import orchestration as _O
+
+    texto = str(mensagem or "").strip()
+    if not texto:
+        return {"erro": "informe a mensagem do toque — não disparo texto vazio para a "
+                        "carteira inteira."}
+    if len(texto) < 10:
+        return {"erro": f"mensagem curta demais ({len(texto)} caracteres) para ir a "
+                        f"dezenas de clientes. Escreva o toque completo."}
+
+    # PREVIEW REAL: `confirmar=False` devolve quem seria tocado SEM tocar ninguém.
+    previa = await _O.followup_em_lote(db, mensagem=texto, confirmar=False)
+    # A chave é `qtd` — conferido com a sonda do Step 5. `total` não existe neste
+    # retorno, e presumir chave de dicionário é a mesma classe de erro que inventar coluna.
+    alvos = previa.get("qtd") or len(previa.get("clientes") or [])
+
+    return await criar_rascunho(
+        db, user, tipo="followup_em_lote", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_MONEY,
+        idempotency_key=f"lote:{_slug(texto[:40])}",
+        titulo=f"TOQUE EM LOTE — {alvos} cliente(s)",
+        resumo=(f"⚠️ EXTERNO E EM LOTE: aprovar envia esta mensagem para {alvos} "
+                f"cliente(s) com proposta pendente, DE UMA VEZ. Texto: "
+                f"\"{texto[:160]}\". Não há desfazer para nenhum deles."),
+        payload={"mensagem": texto, "alvos": alvos},
+    )
+
+
+async def _exec_followup_em_lote(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.services import orchestration as _O
+
+    res = await _O.followup_em_lote(db, mensagem=str(payload["mensagem"]),
+                                    confirmar=True)
+    return str(res.get("enviados") or res.get("total") or 0)
+
+
+async def _propor_optout_whatsapp(db, user, scope, *, numero=None, motivo=None,
+                                  **_) -> dict[str, Any]:
+    from modules.crm.services.phone import canonical_br
+
+    num = str(numero or "").strip()
+    if not num:
+        return {"erro": "informe o número que não deve mais receber follow-up"}
+    c = canonical_br(num)
+    if not c:
+        return {"erro": f"número inválido: {num!r}"}
+
+    return await criar_rascunho(
+        db, user, tipo="optout_whatsapp", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"optout:{c}",
+        titulo=f"OPT-OUT de follow-up — {c}",
+        resumo=(f"Aprovar marca {c} como opt-out: ele NÃO recebe mais follow-up "
+                f"automático. {('Motivo: ' + str(motivo)[:100] + '. ') if motivo else ''}"
+                f"É proteção do cliente — na dúvida, aprove."),
+        payload={"numero": num, "canonical": c, "motivo": (motivo or None)},
+    )
+
+
+async def _exec_optout_whatsapp(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.growth_controller import OptoutIn, followup_optout
+
+    await followup_optout(
+        data=OptoutIn(numero=str(payload["numero"]),
+                      motivo=(payload.get("motivo") or None)),
+        db=db)
+    return str(payload["canonical"])
+
+
+registrar_executor("followup_em_lote", _exec_followup_em_lote)
+registrar_executor("optout_whatsapp", _exec_optout_whatsapp)
+
+registrar_acao("crm", "followup_em_lote",
+               "TOQUE EM LOTE em todos os clientes com proposta pendente. dados: mensagem "
+               "(obrigatória, mínimo 10 caracteres). O rascunho mostra QUANTOS serão "
+               "tocados. EXTERNO e irreversível — só a aprovação dispara.",
+               _propor_followup_em_lote)
+
+registrar_acao("crm", "optout_whatsapp",
+               "Marcar um número como OPT-OUT (não recebe mais follow-up). dados: numero, "
+               "motivo.",
+               _propor_optout_whatsapp)

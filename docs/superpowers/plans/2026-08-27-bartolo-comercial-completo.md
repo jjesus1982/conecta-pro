@@ -815,7 +815,9 @@ async def _propor_followup_em_lote(db, user, scope, *, mensagem=None,
 
     # PREVIEW REAL: `confirmar=False` devolve quem seria tocado SEM tocar ninguém.
     previa = await _O.followup_em_lote(db, mensagem=texto, confirmar=False)
-    alvos = previa.get("total") or len(previa.get("clientes") or [])
+    # A chave é `qtd` — conferido com a sonda do Step 5. `total` não existe neste
+    # retorno, e presumir chave de dicionário é a mesma classe de erro que inventar coluna.
+    alvos = previa.get("qtd") or len(previa.get("clientes") or [])
 
     return await criar_rascunho(
         db, user, tipo="followup_em_lote", modulo="crm",
