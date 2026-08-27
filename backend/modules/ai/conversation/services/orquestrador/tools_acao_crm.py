@@ -1746,3 +1746,80 @@ registrar_acao("crm", "criar_orcamento",
                "(padrão 15), observacoes. O preço é congelado agora. Nasce RASCUNHO: só a "
                "aprovação grava, e ENVIAR ao cliente é outra aprovação.",
                _propor_criar_orcamento)
+
+
+# ── MOVER DEAL DE ESTÁGIO ──────────────────────────────────────────────────────────────
+# 27/08/2026: 46 deals empilhados em `proposal` há 24 dias, R$ 596.881. O Bartolo lia o
+# funil e não o movia — só sabia `marcar_deal_perdido`, um assessor que só registra derrota.
+#
+# ⭐ `closed_won` NÃO passa por aqui. Fechar venda vira MRR e contrato; é decisão do dono,
+# com a porta própria (`POST /opportunities/{id}/close`). Uma frase no chat não fecha venda.
+
+_ESTAGIOS_PERMITIDOS = frozenset({
+    "prospecting", "qualification", "proposal", "negotiation",
+})
+#: Fora desta lista, recusa. `closed_won`/`closed_lost` são nomeados para a mensagem de
+#: recusa poder EXPLICAR, em vez de dizer só "inválido".
+_ESTAGIOS_FECHAMENTO = frozenset({"closed_won", "closed_lost"})
+
+
+async def _propor_mover_estagio_deal(db, user, scope, *, deal=None, estagio=None,
+                                     motivo=None, **_) -> dict[str, Any]:
+    ref = str(deal or "").strip()
+    novo = str(estagio or "").strip().lower()
+    if not ref:
+        return {"erro": "informe o deal (título ou id)"}
+    if novo in _ESTAGIOS_FECHAMENTO:
+        return {"erro": f"'{novo}' é FECHAMENTO e não passa por aqui: ganhar vira MRR e "
+                        f"contrato, e perder tem `marcar_deal_perdido` com motivo. "
+                        f"Mova só dentro do funil aberto."}
+    if novo not in _ESTAGIOS_PERMITIDOS:
+        return {"erro": f"estágio {novo!r} não existe. Use um de: "
+                        f"{', '.join(sorted(_ESTAGIOS_PERMITIDOS))}."}
+
+    row = (await db.execute(text(
+        "SELECT id::text AS id, title, stage::text AS stage, "
+        "       coalesce(value, 0) AS value "
+        "FROM opportunities "
+        "WHERE id::text = :r OR upper(title) = upper(:r) "
+        "ORDER BY (upper(title) = upper(:r)) DESC LIMIT 1"),
+        {"r": ref})).mappings().first()
+    if not row:
+        return {"erro": f"deal {ref!r} não existe no funil — não crio deal de passagem."}
+    if row["stage"] == novo:
+        return {"erro": f"o deal '{row['title'][:40]}' JÁ está em {novo}."}
+
+    valor = float(row["value"] or 0)
+    return await criar_rascunho(
+        db, user, tipo="mover_estagio_deal", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"deal_estagio:{_slug(row['title'])}:{novo}",
+        titulo=f"MOVER deal para {novo} — {row['title'][:38]}",
+        resumo=(f"Aprovar move o deal '{row['title'][:50]}' "
+                f"(R$ {valor:,.2f}) de {row['stage']} para {novo}. "
+                f"{('Motivo: ' + str(motivo)[:120] + '. ') if motivo else ''}"
+                f"Isso muda o funil e a previsão de receita."),
+        payload={"opportunity_id": row["id"], "title": row["title"],
+                 "de": row["stage"], "para": novo, "motivo": (motivo or None)},
+    )
+
+
+async def _exec_mover_estagio_deal(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.opportunity_controller import update_opportunity_stage
+    from modules.crm.schemas.opportunity import OpportunityStageUpdate
+
+    o = await update_opportunity_stage(
+        opportunity_id=str(payload["opportunity_id"]),
+        data=OpportunityStageUpdate(stage=payload["para"],
+                                    notes=(payload.get("motivo") or None)),
+        current_user=aprovador_user, db=db)
+    return str(getattr(o, "id", payload["opportunity_id"]))
+
+
+registrar_executor("mover_estagio_deal", _exec_mover_estagio_deal)
+
+registrar_acao("crm", "mover_estagio_deal",
+               "MOVER um deal de estágio no funil. dados: deal (título ou id), estagio "
+               "(prospecting | qualification | proposal | negotiation), motivo. "
+               "FECHAR (ganho/perdido) NÃO passa por aqui. Nasce rascunho.",
+               _propor_mover_estagio_deal)

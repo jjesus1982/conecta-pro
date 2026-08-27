@@ -63,6 +63,11 @@ _AMARELAS = {
     # governo; (c) é reversível: proposta em rascunho se apaga. O que ela tem de sério é
     # o VALOR, e o valor aparece no resumo do rascunho antes de quem aprova clicar.
     "criar_orcamento",
+    # `mover_estagio_deal` (27/08/2026): muda o FUNIL e a previsão de receita, por isso
+    # passou pela pergunta em vez de nascer 🔵. É 🟡 e não 🔴 porque não sai da empresa,
+    # não move dinheiro e é reversível — e porque FECHAR venda foi deliberadamente
+    # deixado FORA desta ação.
+    "mover_estagio_deal",
 }
 
 
