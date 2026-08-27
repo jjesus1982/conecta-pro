@@ -360,3 +360,24 @@ registrar_read("crm", "catalogo",
                "Locação | Mão de obra | Software / plataforma | Serviço técnico | "
                "Controle de acesso | Cerca elétrica | Alarme), incluir_inativos.",
                _catalogo)
+
+
+# ── INSCRIÇÕES EM SEQUÊNCIA (cadência) ────────────────────────────────────────────────
+# 27/08/2026: 37 leads sem contato há 39 dias em média, o mais velho há 74. Sequência é o
+# que transforma "eu lembro de dar retorno" em processo — e ela já existia sem porta.
+
+async def _sequencia_inscricoes(db, user, scope, *, sequencia=None, **_) -> Any:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import list_enrollments, list_sequences
+
+    if not str(sequencia or "").strip():
+        # Sem a sequência, devolve a LISTA delas em vez de erro: a pergunta natural é
+        # "quais sequências eu tenho?", e responder isso é mais útil que recusar.
+        return {"sequencias": await list_sequences(db=db),
+                "dica": "informe `sequencia` (id) para ver quem está inscrito"}
+    return await list_enrollments(sid=str(sequencia).strip(), db=db)
+
+
+registrar_read("crm", "sequencia_inscricoes",
+               "Sequências de cadência e quem está inscrito nelas. Filtros: sequencia "
+               "(id da sequência; sem ele, lista as sequências).", _sequencia_inscricoes)

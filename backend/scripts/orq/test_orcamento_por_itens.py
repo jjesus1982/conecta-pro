@@ -154,6 +154,31 @@ async def main() -> int:
             elif abs(float(r.get("total") or 0) - 379.80) > 0.01:
                 falhas.append(f"total do item do Bling não fecha: {r.get('total')} != 379.80")
 
+        # 11 · APRESENTAÇÃO: não inventa conteúdo de slide
+        from modules.ai.conversation.services.orquestrador.tool_registry import (
+            _REGISTRY as _REG,
+        )
+
+        if "gerar_apresentacao_doc" not in _REG:
+            falhas.append("`gerar_apresentacao_doc` não está registrada")
+        else:
+            ha = _REG["gerar_apresentacao_doc"].handler
+            r = await ha(db, u, scope, titulo="Sem slides")
+            if r.get("status") != "recusado":
+                falhas.append("apresentação SEM SLIDES foi aceita — o modelo inventaria "
+                              "o conteúdo do material que vai ao cliente")
+            r = await ha(db, u, scope, cliente=cli,
+                         titulo="Oráculo — proposta técnica",
+                         slides=[{"tipo": "problema", "titulo": "Diagnóstico",
+                                  "itens": [{"titulo": "8 câmeras analógicas",
+                                             "desc": "3 sem imagem"},
+                                            {"titulo": "DVR sem HD",
+                                             "desc": "não grava"}]}])
+            if r.get("status") == "recusado":
+                falhas.append(f"apresentação válida recusada: {r.get('motivo','')[:90]}")
+            elif not r.get("arquivo_base64"):
+                falhas.append("apresentação válida não devolveu arquivo")
+
         # 7 · INÉRCIA — a maior de todas: gerar não grava
         n1 = (await db.execute(text("SELECT count(*) FROM proposals"))).scalar()
         i1 = (await db.execute(text("SELECT count(*) FROM proposal_items"))).scalar()
@@ -164,11 +189,11 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK orcamento_por_itens: 10/10 — recusa SKU fantasma, recusa item sem preço "
+    print("OK orcamento_por_itens: 12/12 — recusa SKU fantasma, recusa item sem preço "
           "(não estima), recusa cliente inexistente e lista vazia; o válido sai em PDF "
           "com o total fechando e o lastro do preço; valor informado manda no catálogo; "
           "gerar NÃO grava proposta; e o catálogo unificado serve os 854 do Bling, que "
-          "EXIGEM valor em vez de sair a zero.")
+          "EXIGEM valor em vez de sair a zero; e a apresentação recusa slide inventado.")
     return 0
 
 

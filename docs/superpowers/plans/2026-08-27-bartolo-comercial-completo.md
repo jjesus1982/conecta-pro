@@ -1352,9 +1352,9 @@ async def _gerar_apresentacao(db, user, scope, *, titulo=None, subtitulo=None,
 
 register(ToolDef(
     "gerar_apresentacao_doc", "crm",
-    "Monta uma APRESENTAÇÃO branded (pptx ou pdf) a partir dos slides que a pessoa "
-    "ditou. `slides` é obrigatório: o conteúdo vem da conversa, nunca inventado. "
-    "Não grava, não envia.",
+    "Monta uma APRESENTAÇÃO branded a partir dos slides que a pessoa ditou. `slides` é "
+    "obrigatório: o conteúdo vem da conversa, nunca inventado. formato=pptx (padrão) só "
+    "devolve o arquivo; formato=pdf GRAVA o documento no acervo. Não envia ao cliente.",
     _SCHEMA_APRESENTACAO, _gerar_apresentacao, scope_kind="org"))
 ```
 

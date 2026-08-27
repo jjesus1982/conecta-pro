@@ -1913,7 +1913,17 @@ async def gerar_apresentacao(
     dados = data.model_dump()
     fmt = (formato or "pptx").lower()
     pptx = build_pptx(dados)
-    slug = (data.titulo or "apresentacao").lower().replace(" ", "_")[:40]
+    # ⚠️ O nome vai para o cabeçalho HTTP, que é LATIN-1: travessão, acento ou emoji no
+    # título estouravam UnicodeEncodeError e derrubavam a geração inteira. Medido em
+    # 27/08/2026 com o título "Oráculo — proposta técnica". Aqui o slug fica ASCII;
+    # o TÍTULO dentro do documento continua intacto, com acento e tudo.
+    import unicodedata as _ud  # noqa: PLC0415
+
+    _bruto = (data.titulo or "apresentacao").lower().replace(" ", "_")
+    _sem_acento = "".join(c for c in _ud.normalize("NFKD", _bruto)
+                          if not _ud.combining(c))
+    slug = "".join(c if (c.isalnum() or c == "_") else "_"
+                   for c in _sem_acento).strip("_")[:40] or "apresentacao"
 
     if fmt == "pdf":
         pdf = pptx_to_pdf(pptx)

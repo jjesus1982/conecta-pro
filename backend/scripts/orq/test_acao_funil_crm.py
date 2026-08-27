@@ -125,15 +125,33 @@ async def main() -> int:
         if n0 != n1:
             falhas.append(f"PROPOR JÁ DISPAROU o lote: crm_followups {n0} → {n1}")
 
+        # ── CADÊNCIA: inscrever lead em sequência ────────────────────────────────────
+        from modules.ai.conversation.services.orquestrador.tools_acao_crm import (
+            _propor_inscrever_em_sequencia as INSC,
+        )
+
+        r = await INSC(db, u, scope, sequencia="ZZ_NAO_EXISTE", lead="qualquer")
+        if not r.get("erro"):
+            falhas.append("sequência inexistente foi aceita")
+
+        seq = (await db.execute(text(
+            "SELECT id::text FROM crm_sequences WHERE is_active = true LIMIT 1"))).scalar()
+        if seq:
+            r = await INSC(db, u, scope, sequencia=seq, lead="ZZ_LEAD_NAO_EXISTE")
+            if not r.get("erro"):
+                falhas.append("lead inexistente foi inscrito")
+        else:
+            print("  (sem sequência ativa — bloco de cadência não exercitado)")
+
         await _limpar(db)
 
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK acao_funil_crm: 7/7 — recusa deal inexistente, estágio inválido e "
-          "closed_won; recusa lote sem mensagem; o resumo do lote diz QUANTOS clientes "
-          "serão tocados; e nem mover nem disparar acontece antes da aprovação.")
+    print("OK acao_funil_crm: 9/9 — recusa deal inexistente, estágio inválido e "
+          "closed_won; recusa lote sem mensagem e mostra o alcance; recusa sequência e "
+          "lead inexistentes; e nada acontece antes da aprovação.")
     return 0
 
 

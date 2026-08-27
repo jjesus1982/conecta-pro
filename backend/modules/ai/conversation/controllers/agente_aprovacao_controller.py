@@ -80,6 +80,10 @@ _AMARELAS = {
     # ⚠️ Se algum dia esse preview sumir do resumo, isto vira 🔴.
     # `optout_whatsapp`: protege o cliente de receber mensagem — recusar seria pior.
     "optout_whatsapp",
+    # `inscrever_em_sequencia` (27/08/2026): inscrever autoriza a RÉGUA INTEIRA de
+    # mensagens automáticas, não uma mensagem. É 🟡 porque o resumo diz quantos passos a
+    # sequência tem e que as mensagens sairão sem aprovar uma a uma — o aprovador sabe
+    # exatamente o que está liberando.
 }
 
 

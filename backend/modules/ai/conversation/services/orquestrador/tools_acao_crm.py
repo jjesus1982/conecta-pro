@@ -2030,3 +2030,63 @@ registrar_acao("crm", "optout_whatsapp",
                "Marcar um número como OPT-OUT (não recebe mais follow-up). dados: numero, "
                "motivo.",
                _propor_optout_whatsapp)
+
+
+# ── INSCREVER LEAD EM SEQUÊNCIA DE CADÊNCIA ───────────────────────────────────────────
+# Inscrever coloca o lead numa esteira que vai MANDAR MENSAGEM para ele nos próximos
+# dias, sem ninguém aprovar cada uma. Por isso a inscrição é o ponto de controle: é aqui
+# que um humano decide que aquele lead vai receber a régua inteira.
+
+async def _propor_inscrever_em_sequencia(db, user, scope, *, sequencia=None, lead=None,
+                                         **_) -> dict[str, Any]:
+    sid = str(sequencia or "").strip()
+    lref = str(lead or "").strip()
+    if not sid or not lref:
+        return {"erro": "informe a sequencia (id) e o lead (id ou nome)"}
+
+    seq = (await db.execute(text(
+        "SELECT id::text AS id, name, coalesce(jsonb_array_length(steps), 0) AS passos "
+        "FROM crm_sequences WHERE id::text = :s AND is_active = true"),
+        {"s": sid})).mappings().first()
+    if not seq:
+        return {"erro": f"sequência {sid!r} não existe ou está inativa."}
+
+    lrow = (await db.execute(text(
+        "SELECT id::text AS id, name, coalesce(company, '') AS empresa FROM leads "
+        "WHERE id::text = :l OR upper(name) = upper(:l) "
+        "ORDER BY (upper(name) = upper(:l)) DESC LIMIT 1"),
+        {"l": lref})).mappings().first()
+    if not lrow:
+        return {"erro": f"lead {lref!r} não existe — não crio lead de passagem."}
+
+    return await criar_rascunho(
+        db, user, tipo="inscrever_em_sequencia", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"enroll:{seq['id']}:{lrow['id']}",
+        titulo=f"INSCREVER {lrow['name'][:30]} na sequência {seq['name'][:24]}",
+        resumo=(f"⚠️ Aprovar inscreve {lrow['name'][:40]}"
+                f"{(' (' + lrow['empresa'][:24] + ')') if lrow['empresa'] else ''} "
+                f"na sequência '{seq['name'][:40]}', de {seq['passos']} passo(s). "
+                f"A partir daí as mensagens saem AUTOMATICAMENTE, sem aprovar uma a uma "
+                f"— é esta aprovação que autoriza a régua inteira."),
+        payload={"sequence_id": seq["id"], "sequence_name": seq["name"],
+                 "lead_id": lrow["id"], "lead_name": lrow["name"]},
+    )
+
+
+async def _exec_inscrever_em_sequencia(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.controllers.growth_controller import EnrollIn, enroll_in_sequence
+
+    res = await enroll_in_sequence(
+        sid=str(payload["sequence_id"]),
+        data=EnrollIn(lead_id=str(payload["lead_id"])), db=db)
+    return str(res.get("enrollment_id") or payload["lead_id"])
+
+
+registrar_executor("inscrever_em_sequencia", _exec_inscrever_em_sequencia)
+
+registrar_acao("crm", "inscrever_em_sequencia",
+               "INSCREVER um lead numa sequência de cadência. dados: sequencia (id), lead "
+               "(id ou nome). Depois de inscrito, as mensagens saem automaticamente — a "
+               "aprovação da inscrição é que autoriza a régua toda.",
+               _propor_inscrever_em_sequencia)

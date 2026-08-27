@@ -807,3 +807,118 @@ register(ToolDef(
     "informou; nunca de estimativa. Use consultar_crm consulta=catalogo para achar os "
     "SKUs. Não grava, não envia.",
     _SCHEMA_ORC_ITENS, _gerar_orcamento_itens, scope_kind="org"))
+
+
+# ── APRESENTAÇÃO / DECK ───────────────────────────────────────────────────────────────
+# Fecha o ciclo: visita → orçamento → APRESENTAÇÃO → proposta. A rota já monta o material
+# no padrão-ouro da marca (timbrado, cores, rodapé com CNPJ) — o que faltava era porta.
+#
+# ⭐ SLIDES SÃO OBRIGATÓRIOS. Sem eles o modelo escreveria sozinho o conteúdo de um
+# material que vai ao CLIENTE, com a marca da empresa. Esse é o tipo de fabricação que não
+# aparece em teste nenhum: sai bonito, tem a logo certa e diz coisa que ninguém aprovou.
+
+_SCHEMA_APRESENTACAO = {
+    "type": "object",
+    "properties": {
+        "titulo": {"type": "string", "description": "Título da apresentação."},
+        "subtitulo": {"type": "string"},
+        "cliente": {"type": "string", "description": "Nome do cliente (aparece na capa)."},
+        "local": {"type": "string"},
+        "formato": {"type": "string", "enum": ["pptx", "pdf"],
+                    "description": "Padrão pptx."},
+        "slides": {
+            "type": "array",
+            "description": (
+                "Slides do deck, no contrato do construtor (documentado no topo de "
+                "modules/crm/services/presentation_builder.py). Cada slide tem `tipo` e "
+                "o campo correspondente: "
+                "problema/solucao/escopo/diferenciais → `itens` ou `cards`, cada um "
+                "{titulo, desc}; kpis → `kpis` [{valor, label}]; investimento → `opcoes` "
+                "[{nome, valor, destaque, itens}]; contato → `cta`. "
+                "OBRIGATÓRIO — o conteúdo vem da conversa, nunca inventado."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tipo": {"type": "string",
+                             "enum": ["problema", "solucao", "escopo", "diferenciais",
+                                      "kpis", "investimento", "contato"]},
+                    "titulo": {"type": "string"},
+                    "subtitulo": {"type": "string"},
+                    "itens": {"type": "array", "items": {"type": "object"}},
+                    "cards": {"type": "array", "items": {"type": "object"}},
+                    "kpis": {"type": "array", "items": {"type": "object"}},
+                    "opcoes": {"type": "array", "items": {"type": "object"}},
+                    "cta": {"type": "string"},
+                },
+                "required": ["tipo"],
+            },
+        },
+    },
+    "required": ["titulo", "slides"],
+}
+
+
+async def _gerar_apresentacao(db, user, scope, *, titulo=None, subtitulo=None,
+                              cliente=None, local=None, slides=None, formato="pptx",
+                              **_) -> dict[str, Any]:
+    _gate(user)
+    from modules.crm.controllers.growth_controller import (
+        ApresentacaoIn, gerar_apresentacao,
+    )
+
+    if not str(titulo or "").strip():
+        return _recusa("informe o título da apresentação.")
+    if not isinstance(slides, list) or not slides:
+        return _recusa("informe os slides (título e tópicos de cada um). Não escrevo "
+                       "sozinho o conteúdo de um material que vai ao cliente com a "
+                       "marca da empresa.")
+    # ⚠️ Slide com `tipo` e SEM o conteúdo daquele tipo faz o construtor dividir por zero
+    # (`_cards_grid` com rows=0). Medido em 27/08/2026 ao ligar esta tool. Recusar aqui é
+    # melhor que 500 — e a mensagem diz QUAL campo falta, em vez de "erro interno".
+    _CAMPO_DO_TIPO = {"problema": ("itens", "cards"), "solucao": ("itens", "cards"),
+                      "escopo": ("itens", "cards"), "diferenciais": ("itens", "cards"),
+                      "kpis": ("kpis",), "investimento": ("opcoes",), "contato": ("cta",)}
+    for n, sl in enumerate(slides, 1):
+        if not isinstance(sl, dict):
+            return _recusa(f"slide {n} malformado — esperava objeto com `tipo`.")
+        t = str(sl.get("tipo") or "").strip().lower()
+        if t not in _CAMPO_DO_TIPO:
+            return _recusa(f"slide {n}: tipo {t!r} não existe. Use um de: "
+                           f"{', '.join(sorted(_CAMPO_DO_TIPO))}.")
+        if not any(sl.get(c) for c in _CAMPO_DO_TIPO[t]):
+            return _recusa(f"slide {n} (tipo {t}) está sem conteúdo: preencha "
+                           f"`{_CAMPO_DO_TIPO[t][0]}`.")
+
+    fmt = str(formato or "pptx").lower()
+    if fmt not in ("pptx", "pdf"):
+        return _recusa(f"formato {fmt!r} não existe — use pptx ou pdf.")
+
+    res = await gerar_apresentacao(
+        data=ApresentacaoIn(titulo=str(titulo)[:200],
+                            subtitulo=(subtitulo or None),
+                            cliente=(cliente or None),
+                            local=(local or None),
+                            slides=list(slides)),
+        db=db, formato=fmt)
+
+    # O controller devolve bytes ou um Response; normalizamos para o mesmo contrato das
+    # outras tools de documento (arquivo_base64 + nome), para o chat tratar tudo igual.
+    conteudo = getattr(res, "body", None) or res
+    if isinstance(conteudo, (bytes, bytearray)):
+        return {
+            "arquivo_base64": base64.b64encode(bytes(conteudo)).decode(),
+            "nome": f"apresentacao_{_slug(str(cliente or titulo))}.{fmt}",
+            "slides": len(slides),
+            "resumo": f"Apresentação '{str(titulo)[:40]}' com {len(slides)} slide(s) "
+                      f"(RASCUNHO — não envia).",
+        }
+    return {"resultado": conteudo, "slides": len(slides)}
+
+
+register(ToolDef(
+    "gerar_apresentacao_doc", "crm",
+    "Monta uma APRESENTAÇÃO branded a partir dos slides que a pessoa ditou. `slides` é "
+    "obrigatório: o conteúdo vem da conversa, nunca inventado. formato=pptx (padrão) só "
+    "devolve o arquivo; formato=pdf GRAVA o documento no acervo. Não envia ao cliente.",
+    _SCHEMA_APRESENTACAO, _gerar_apresentacao, scope_kind="org"))
