@@ -558,7 +558,19 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
 
         # timeout explícito: STT/visão roda no caminho síncrono do webhook; sem teto, um
         # anexo problemático seguraria o handler (default SDK 600s) e o Chatwoot reentregaria.
-        _stt_to = float(os.getenv("AGENT_OPENAI_TIMEOUT", "90") or 90)
+        # ⚠️ 28/08/2026 — TETO PRÓPRIO PARA A MÍDIA, e o número é medido. O Jordan mandou
+        # 43 arquivos de uma vez ("aloprei logo, pra testar se presta mesmo"): 40 fotos
+        # descritas, ZERO falhas — mas a visão levou **32,3s de média e 75,7s no pior
+        # caso**, contra um teto de 90s. Margem de 14 segundos.
+        #
+        # Os 32s não são lentidão do fornecedor: são o custo do laudo COMPLETO (≈840 chars
+        # de diagnóstico + ≈2.300 de raciocínio). O meu 1,2s isolado media outra coisa —
+        # uma legenda de 80 tokens.
+        #
+        # A análise saiu do webhook e vive na FILA, então esperar mais não segura ninguém:
+        # o WhatsApp já recebeu 200. Estourar o teto, sim, custa a foto.
+        _stt_to = float(os.getenv("AGENT_MIDIA_TIMEOUT",
+                                  os.getenv("AGENT_OPENAI_TIMEOUT", "90")) or 90)
         client = novo_cliente(origem="whatsapp.stt", timeout=_stt_to, servico="audio")
 
         # ===== IMAGEM: descreve via visao do modelo =====
@@ -1113,8 +1125,25 @@ async def chatwoot_webhook(
             # impede o agente de responder sobre uma foto que ainda não foi vista — e ele
             # DIRIA que viu, que é pior do que demorar.
             _r = await get_redis()
-            await _r.incr(f"jl:midia:conv:{conv_id}")
-            await _r.expire(f"jl:midia:conv:{conv_id}", 600)
+            _pend = await _r.incr(f"jl:midia:conv:{conv_id}")
+            await _r.expire(f"jl:midia:conv:{conv_id}", 1800)
+            # ⭐ RAJADA GRANDE AVISA NA HORA. Medido em 28/08: 43 anexos × ~32s cada, com
+            # 2 em paralelo, dá ~11 minutos até a resposta. Sem uma palavra nesse intervalo,
+            # o Jordan lê como travado — que é exatamente o que ele leu hoje de manhã, e
+            # naquele dia ELE ESTAVA CERTO. Silêncio parcial e silêncio total parecem iguais
+            # de fora.
+            # Uma mensagem só, na 8ª: antes disso a resposta chega rápido e o aviso vira
+            # ruído. A flag impede repetir a cada anexo da mesma rajada.
+            if _pend == 8 and not await _r.get(f"jl:avisei:conv:{conv_id}"):
+                await _r.set(f"jl:avisei:conv:{conv_id}", "1", ex=1800)
+                from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
+                    _post_public_reply,
+                )
+                await _post_public_reply(
+                    conv_id,
+                    "Recebi um lote grande de arquivos e estou analisando um por um — cada "
+                    "foto vira um diagnóstico, então leva alguns minutos. Pode continuar "
+                    "mandando; eu respondo com tudo quando terminar. 👍")
             analisar_midia.apply_async(
                 args=[conv_id, msg_id, data, phone_canonical], queue="webhooks", priority=8)
         except Exception as e:  # noqa: BLE001
