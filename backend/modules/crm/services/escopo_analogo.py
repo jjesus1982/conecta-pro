@@ -101,3 +101,77 @@ async def buscar(db, termo: str, *, limite: int = 3,
                       "conferir. Use como ponto de partida e ajuste — o preço continua "
                       "vindo do catálogo ou de você."),
     }
+
+
+# ── REVISÃO DO FUNIL: fazer o funil dizer a verdade ────────────────────────────────────
+# Medido em 27/08/2026: 22 propostas em RASCUNHO, R$ 431.880, média de 46 dias. Parte já
+# foi ganha ou perdida e ninguém registrou — então o alerta que dispara todo dia está
+# PARCIALMENTE ERRADO, e alerta errado ensina a ignorar alerta. Foram 182 notificações em
+# 5 dias e ZERO lidas. O Jordan não parou de ler por volume: parou porque o que chega não
+# é verdade.
+#
+# ⭐ MEDIR SALVOU UMA MIGRAÇÃO. A análise dizia "não existe status de perdida" — porque
+# olhou os valores EM USO (draft, sent, accepted). O enum `ProposalStatus` tem DEZ, e
+# `rejected` está lá desde sempre. Não havia o que criar; havia o que USAR. E a coluna tem
+# 42 consumidores literais: inventar valor novo ali era risco puro.
+#
+# O desenho tem uma regra dura: agrupa por CLIENTE, não lista proposta a proposta. O
+# Jordan responde uma vez por cliente e resolve 9 de uma vez. Proposta a proposta seriam
+# 20 perguntas — e uma tarde que não vai acontecer.
+
+#: Abaixo disto a proposta é RECENTE e fica fora da revisão: está viva, não é dívida.
+#: 7 dias porque é o mesmo corte do alerta de rascunho parado — dois números diferentes
+#: para a mesma ideia é como um deles fica errado sem ninguém ver.
+DIAS_VIVA = 7
+
+
+async def revisar_funil(db, *, dias_minimo: int = DIAS_VIVA) -> dict[str, Any]:
+    """Propostas em rascunho agrupadas por cliente, da maior para a menor.
+
+    Uma linha por CLIENTE — é assim que a pergunta cabe numa conversa de WhatsApp.
+    Devolve também as propostas de cada um, com número e valor, para a segunda pergunta
+    ("quais fecharam?") não precisar de outra consulta.
+    """
+    linhas = (await db.execute(text("""
+        SELECT coalesce(client_name, '(sem cliente)') AS cliente,
+               p.number, coalesce(p.total, 0) AS total,
+               coalesce(p.issue_date::text, p.created_at::date::text) AS data,
+               ((now() AT TIME ZONE 'America/Manaus')::date - p.created_at::date) AS dias
+        FROM proposals p
+        WHERE p.status = 'draft'
+        ORDER BY cliente, p.created_at
+    """))).mappings().all()
+
+    por_cliente: dict[str, dict[str, Any]] = {}
+    for r in linhas:
+        c = por_cliente.setdefault(r["cliente"], {"cliente": r["cliente"], "propostas": [],
+                                                  "total": 0.0, "dias_max": 0})
+        c["propostas"].append({"numero": r["number"], "valor": float(r["total"] or 0),
+                               "data": r["data"], "dias": int(r["dias"])})
+        c["total"] += float(r["total"] or 0)
+        c["dias_max"] = max(c["dias_max"], int(r["dias"]))
+
+    revisar = [c for c in por_cliente.values() if c["dias_max"] >= dias_minimo]
+    vivas = [c for c in por_cliente.values() if c["dias_max"] < dias_minimo]
+    revisar.sort(key=lambda c: -c["total"])
+
+    # Valor ZERO é achado, não lixo: ou a proposta perdeu o valor, ou é resto de teste.
+    # Apagar seria decidir sozinho; nomear deixa o Jordan decidir.
+    zerados = [p["numero"] for c in revisar for p in c["propostas"] if p["valor"] == 0]
+
+    return {
+        "a_revisar": revisar,
+        "clientes": len(revisar),
+        "propostas": sum(len(c["propostas"]) for c in revisar),
+        "valor_parado": round(sum(c["total"] for c in revisar), 2),
+        "fora_por_serem_recentes": [
+            {"cliente": c["cliente"], "propostas": len(c["propostas"]),
+             "dias": c["dias_max"]} for c in vivas],
+        "atencao_valor_zero": zerados or None,
+        "como_perguntar": (
+            "Pergunte por CLIENTE, do maior valor para o menor, uma pergunta por vez: "
+            "'<CLIENTE> — N propostas de <data>, R$ X. O que rolou?'. Se ele disser que "
+            "fechou algumas, liste as propostas com número e valor e pergunte QUAIS. "
+            "Depois chame `resolver_propostas`. NÃO liste proposta a proposta de cara: "
+            "são 20 perguntas e ele não tem a tarde."),
+    }

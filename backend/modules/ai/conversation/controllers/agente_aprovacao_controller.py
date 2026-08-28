@@ -68,6 +68,11 @@ _AMARELAS = {
     # não move dinheiro e é reversível — e porque FECHAR venda foi deliberadamente
     # deixado FORA desta ação.
     "mover_estagio_deal",
+    # `resolver_propostas` (27/08/2026): registra o desfecho do que JÁ aconteceu — não
+    # cria compromisso novo. É 🟡 porque aceitar vira previsão de receita e o resumo
+    # mostra o valor de cada uma antes de alguém clicar. Não cria contrato: isso continua
+    # sendo `ativar_contrato`, que é 🔴.
+    "resolver_propostas",
     # `enviar_proposta_whatsapp` e `cadastrar_whatsapp` (27/08/2026): a primeira SAI DA
     # EMPRESA e é irreversível — usa ROLES_MONEY como aprovador e NOMEIA o destinatário
     # no resumo. É 🟡 e não 🔴 porque `enviar_proposta` (e-mail), com exatamente o mesmo

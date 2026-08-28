@@ -56,7 +56,7 @@ _AREA_DRAFT = {
     "reativar_lead": "CRM", "marcar_deal_perdido": "CRM",
     "confirmar_reuniao": "CRM", "adicionar_achados_visita": "CRM",
     "definir_meta_contratos_mes": "CRM", "criar_proposta_do_lote": "CRM",
-    "criar_orcamento": "CRM", "mover_estagio_deal": "CRM", "enviar_proposta_whatsapp": "CRM",
+    "criar_orcamento": "CRM", "mover_estagio_deal": "CRM", "resolver_propostas": "CRM", "enviar_proposta_whatsapp": "CRM",
     "cadastrar_whatsapp": "CRM",
     "followup_em_lote": "CRM", "optout_whatsapp": "CRM", "inscrever_em_sequencia": "CRM",
     # Rascunho de proposta que o José Luís cria a partir do WhatsApp

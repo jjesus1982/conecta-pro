@@ -412,3 +412,18 @@ registrar_read("crm", "escopo_analogo",
                "palavras) OU visita (id ou nome do cliente — usa o que foi anotado nela), "
                "limite (padrão 2). É ANALOGIA com o seu histórico, não escopo inventado.",
                _escopo_analogo)
+
+
+async def _revisar_funil(db, user, scope, *, dias_minimo=7, **_) -> Any:
+    """Propostas paradas agrupadas por CLIENTE, para a revisão rápida do funil."""
+    _gate(user)
+    from modules.crm.services import escopo_analogo as _EA
+
+    return await _EA.revisar_funil(db, dias_minimo=int(dias_minimo))
+
+
+registrar_read("crm", "revisar_funil",
+               "Propostas em RASCUNHO agrupadas por CLIENTE (maior valor primeiro), para "
+               "descobrir o que já foi ganho ou perdido e ninguém registrou. As recentes "
+               "ficam de fora — estão vivas, não são dívida. Filtros: dias_minimo "
+               "(padrão 7). Depois use agir_crm acao=resolver_propostas.", _revisar_funil)

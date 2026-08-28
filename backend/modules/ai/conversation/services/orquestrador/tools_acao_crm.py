@@ -2090,3 +2090,139 @@ registrar_acao("crm", "inscrever_em_sequencia",
                "(id ou nome). Depois de inscrito, as mensagens saem automaticamente — a "
                "aprovação da inscrição é que autoriza a régua toda.",
                _propor_inscrever_em_sequencia)
+
+
+# ── RESOLVER PROPOSTAS: registrar o desfecho do que já aconteceu ───────────────────────
+# O par da `revisar_funil`. O Jordan diz "fechamos a 100 e a 103, o resto morreu" e isto
+# vira status real — ganhas em `accepted`, perdidas em `rejected`.
+#
+# ⭐ `rejected` JÁ EXISTIA no enum (10 valores; só 3 em uso). A análise dizia que não havia
+# status de perdida porque olhou os valores EM USO. Medir a diferença entre "em uso" e
+# "existe" evitou uma migração numa coluna com 42 consumidores literais.
+#
+# ⚠️ ACEITAR não é registro neutro: proposta aceita vira previsão de receita e é o degrau
+# para o contrato. Por isso vai por propor→aprovar mesmo com o Jordan dizendo "fechou" no
+# WhatsApp — e o resumo mostra o VALOR de cada uma antes de alguém clicar.
+
+#: Os QUATRO desfechos, e eles contam histórias OPOSTAS. Tratar tudo como "perdida"
+#: faria o funil dizer "o cliente recusou" quando a verdade é "ninguém respondeu" — e a
+#: ação que cada uma pede é o contrário da outra:
+#:   accepted   ganhamos
+#:   rejected   o cliente disse NÃO      → problema de preço, escopo ou concorrente
+#:   expired    ninguém respondeu        → problema do NOSSO follow-up
+#:   cancelled  nós retiramos            → o escopo mudou, desistimos
+#: `proposal_repository` já CONTA rejected e expired nas estatísticas; separar aqui
+#: alimenta relatório que já existe. E ninguém perceberia se ficasse errado —
+#: `growth_controller` não referencia nenhum dos dois (medido: 0 ocorrências).
+_DESFECHOS = {
+    "ganhas": ("accepted", "GANHA"),
+    "perdidas": ("rejected", "PERDIDA (cliente disse não)"),
+    "sem_resposta": ("expired", "SEM RESPOSTA (ninguém respondeu)"),
+    "retiradas": ("cancelled", "RETIRADA (nós desistimos)"),
+}
+
+
+async def _propor_resolver_propostas(db, user, scope, *, cliente=None, ganhas=None,
+                                     perdidas=None, sem_resposta=None, retiradas=None,
+                                     motivo=None, **_) -> dict[str, Any]:
+    def _lista(v) -> list[str]:
+        if isinstance(v, list):
+            return [str(x).strip().upper() for x in v if str(x).strip()]
+        return [x.strip().upper() for x in str(v or "").replace(",", ";").split(";")
+                if x.strip()]
+
+    balde = {"ganhas": _lista(ganhas), "perdidas": _lista(perdidas),
+             "sem_resposta": _lista(sem_resposta), "retiradas": _lista(retiradas)}
+    todos = [n for lst in balde.values() for n in lst]
+    if not todos:
+        return {"erro": "informe o desfecho: ganhas, perdidas (cliente disse não), "
+                        "sem_resposta (ninguém respondeu) ou retiradas (nós desistimos). "
+                        "Números separados por ';'."}
+
+    # ⭐ MOTIVO É OBRIGATÓRIO NA PERDA. Nove propostas do PARVI marcadas como perdidas sem
+    # motivo é o mesmo buraco daqui a três meses. Uma linha — "preço", "foi pro
+    # concorrente", "adiaram a obra" — vale mais que o status.
+    if balde["perdidas"] and not str(motivo or "").strip():
+        return {"erro": "proposta PERDIDA precisa de motivo (preço? concorrente? "
+                        "adiaram?). Sem ele, daqui a três meses o funil diz que perdeu e "
+                        "ninguém sabe por quê — e é a mesma cegueira de hoje."}
+
+    vistos: dict[str, str] = {}
+    for k, lst in balde.items():
+        for n in lst:
+            if n in vistos and vistos[n] != k:
+                return {"erro": f"{n} está em {vistos[n]} E em {k} — escolha um desfecho."}
+            vistos[n] = k
+
+    linhas = (await db.execute(text(
+        "SELECT id::text AS id, number, status, coalesce(total, 0) AS total, "
+        "       coalesce(client_name, '') AS cliente "
+        "FROM proposals WHERE upper(number) = ANY(:n)"),
+        {"n": todos})).mappings().all()
+    achadas = {r["number"].upper(): r for r in linhas}
+
+    faltando = [n for n in todos if n not in achadas]
+    if faltando:
+        return {"erro": f"não existem: {faltando}. Confira os números com "
+                        f"consultar_crm consulta=revisar_funil."}
+    ja = [f"{n} (já está {achadas[n]['status']})" for n in todos
+          if achadas[n]["status"] not in ("draft", "sent", "viewed")]
+    if ja:
+        return {"erro": f"estas já têm desfecho registrado: {ja}. Se o desfecho mudou, "
+                        f"trate uma a uma — sobrescrever em lote apaga histórico."}
+
+    nome = (cliente or (linhas[0]["cliente"] if linhas else "") or "—")
+
+    def _rs(v: float) -> str:
+        return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+    partes = []
+    for k, lst in balde.items():
+        if lst:
+            v = sum(float(achadas[n]["total"] or 0) for n in lst)
+            partes.append(f"{len(lst)} {_DESFECHOS[k][1]} {_rs(v)}: {', '.join(lst)}")
+    ganho = sum(float(achadas[n]["total"] or 0) for n in balde["ganhas"])
+
+    return await criar_rascunho(
+        db, user, tipo="resolver_propostas", modulo="crm",
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
+        idempotency_key=f"resolver:{_slug(nome)}:{','.join(sorted(todos))}",
+        titulo=f"DESFECHO de {len(todos)} proposta(s) — {str(nome)[:34]}",
+        resumo=(f"Aprovar registra o desfecho de {nome}. " + " · ".join(partes) + ". "
+                + (f"GANHAS viram previsão de receita ({_rs(ganho)}). " if ganho else "")
+                + (f"Motivo: {str(motivo)[:120]}. " if motivo else "")
+                + "Confira os números antes — isso muda o funil."),
+        payload={"cliente": nome, "motivo": (motivo or None),
+                 "baldes": balde,
+                 "ids": {n: achadas[n]["id"] for n in todos}},
+    )
+
+
+async def _exec_resolver_propostas(db, aprovador_user, payload: dict) -> str:
+    from modules.crm.models.proposal import ProposalStatus
+    from modules.crm.repositories.proposal_repository import ProposalRepository
+
+    repo = ProposalRepository(db)
+    ids = payload.get("ids") or {}
+    motivo = payload.get("motivo") or "revisão do funil"
+    feito = []
+    for k, lst in (payload.get("baldes") or {}).items():
+        alvo = _DESFECHOS.get(k)
+        if not alvo:
+            continue
+        for n in lst:
+            await repo.update_status(str(ids[n]), ProposalStatus(alvo[0]), notes=motivo,
+                                     user_id=str(getattr(aprovador_user, "id", "")))
+            feito.append(f"{n}={alvo[0]}")
+    return "; ".join(feito)
+
+
+registrar_executor("resolver_propostas", _exec_resolver_propostas)
+
+registrar_acao("crm", "resolver_propostas",
+               "REGISTRAR o desfecho de propostas paradas. Os quatro contam histórias "
+               "DIFERENTES: ganhas · perdidas (o cliente disse NÃO — exige motivo) · "
+               "sem_resposta (ninguém respondeu, é falha do NOSSO follow-up) · retiradas "
+               "(nós desistimos). dados: cliente, os quatro baldes com números separados "
+               "por ';', motivo. Use depois de consultar_crm consulta=revisar_funil.",
+               _propor_resolver_propostas)
