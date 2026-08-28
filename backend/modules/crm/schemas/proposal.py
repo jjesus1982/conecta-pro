@@ -4,6 +4,8 @@ Schemas Pydantic para Proposal.
 
 from datetime import date, datetime
 
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from modules.crm.models.proposal import (
@@ -33,6 +35,10 @@ class ProposalItemCreate(ProposalItemBase):
     """Schema para criacao de item."""
 
     sort_order: int = 0
+    #: Qual dos dois CNPJs emite ESTE item (28/08/2026). Mora no item e não no cabeçalho
+    #: porque 1 em cada 4 propostas vivas mistura Eletrônica e Patrimonial — e o contrato
+    #: sai separado por empresa. Opcional aqui, OBRIGATÓRIO no banco: quem monta resolve.
+    empresa_id: UUID | None = None
 
 
 class ProposalTermOptionCreate(BaseModel):
@@ -155,7 +161,20 @@ class ProposalBase(BaseModel):
     @classmethod
     def _empty_email_to_none(cls, v):
         # EmailStr rejeita string vazia; normaliza ""/espacos -> None (campo opcional)
-        if isinstance(v, str) and v.strip() == "":
+        if not isinstance(v, str) or v.strip() == "":
+            return None if isinstance(v, str) else v
+        # ⚠️ 28/08/2026 — e-mail FABRICADO trava a aprovação da proposta. O cliente VEGA
+        # tinha `naoinformado-13928488000163@example.invalid` no cadastro, sintetizado a
+        # partir do CNPJ por alguma importação antiga (nenhum código do repo gera isso
+        # hoje). `.invalid` é reservado pela RFC 2606 justamente para dizer "não é real",
+        # e o EmailStr recusa — então o Jordan aprovava na Central e a gravação estourava
+        # ALI, no pior momento possível.
+        #
+        # Endereço reservado não é endereço: vira None, que é o que o dado sempre foi.
+        # Tratar aqui e não só no dado porque a próxima importação pode inventar de novo.
+        dominio = v.strip().rsplit("@", 1)[-1].lower()
+        if dominio.endswith((".invalid", ".example", ".test", ".localhost")) \
+                or dominio in ("example.com", "example.org", "example.net"):
             return None
         return v
 

@@ -1642,9 +1642,34 @@ registrar_acao("crm", "criar_propostas_lote",
 # 162 — nenhum vinha de catálogo. Daqui em diante o SKU viaja com a linha, e é ele que vai
 # permitir cruzar proposta × catálogo × NCM sem adivinhar por descrição.
 
+#: Os dois CNPJs. Ver a migration `empresa_id_catalogo_20260828`.
+_EMPRESAS_SLUG = {
+    "eletronica": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    "eletrônica": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    "35710481000103": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    "patrimonial": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+    "66014833000110": "7d79ed12-d480-4906-b2e0-2b2c4d299bab",
+}
+
+
+def _empresa_uuid(v) -> str | None:
+    """'eletronica' | 'patrimonial' | CNPJ | uuid → uuid. Desconhecido → None (vira recusa)."""
+    import re as _re  # noqa: PLC0415
+
+    t = str(v or "").strip().lower()
+    if not t:
+        return None
+    if t in _EMPRESAS_SLUG:
+        return _EMPRESAS_SLUG[t]
+    d = _re.sub(r"\D", "", t)
+    if d in _EMPRESAS_SLUG:
+        return _EMPRESAS_SLUG[d]
+    return t if len(t) == 36 and t.count("-") == 4 else None
+
+
 async def _propor_criar_orcamento(db, user, scope, *, cliente=None, titulo=None,
                                   itens=None, validade_dias=15, observacoes=None,
-                                  **_) -> dict[str, Any]:
+                                  empresa=None, **_) -> dict[str, Any]:
     from modules.crm.services import catalogo as _cat
 
     if not str(cliente or "").strip():
@@ -1667,6 +1692,24 @@ async def _propor_criar_orcamento(db, user, scope, *, cliente=None, titulo=None,
     if recusa:
         return {"erro": recusa}
 
+    # ⭐ 28/08/2026 — CADA ITEM PRECISA SABER POR QUAL CNPJ SAI. Item do catálogo já traz o
+    # seu; item digitado (o caso do orçamento em PDF) herda o do argumento `empresa`.
+    # Sem nenhum dos dois, RECUSA — nunca NULL, nunca um chute. Escolher CNPJ por conta
+    # própria é fabricar fronteira fiscal, e o erro só apareceria na nota.
+    padrao = _empresa_uuid(empresa)
+    sem = []
+    for i, ln in enumerate(linhas, 1):
+        if not ln.get("empresa_id"):
+            ln["empresa_id"] = padrao
+        if not ln.get("empresa_id"):
+            sem.append(f"{i}. {ln['descricao'][:44]}")
+    if sem:
+        return {"erro": "não sei por qual empresa estes itens saem: " + "; ".join(sem)
+                        + ". Informe `empresa` ('eletronica' para equipamento e segurança "
+                          "eletrônica, 'patrimonial' para mão de obra com agente nosso no "
+                          "posto) — ou use itens do catálogo, que já vêm carimbados."}
+    empresas_na_proposta = {str(x["empresa_id"]) for x in linhas}
+
     total = sum(x["qtd"] * x["valor_unit"] for x in linhas)
     try:
         dias = max(1, min(int(validade_dias), 180))
@@ -1685,7 +1728,9 @@ async def _propor_criar_orcamento(db, user, scope, *, cliente=None, titulo=None,
         gate="🟡", requires_otp=False, roles_aprovador=ROLES_COMERCIAL,
         idempotency_key=f"orcamento:{_slug(cli['name'])}:{_slug(titulo)}:{total:.2f}",
         titulo=f"GRAVAR orçamento no CRM — {cli['name'][:40]}",
-        resumo=(f"Aprovar CRIA a proposta '{titulo}' para {cli['name']} com "
+        resumo=(("⚠️ Proposta MISTA: os itens saem por DUAS empresas e o contrato será "
+                 "separado por CNPJ. " if len(empresas_na_proposta) > 1 else "")
+                + f"Aprovar CRIA a proposta '{titulo}' para {cli['name']} com "
                 f"{len(linhas)} item(ns), total {_rs(total)}, válida por {dias} dias. "
                 f"Itens: {resumo_itens}. "
                 f"Preço congelado agora — aprovar grava ESTE valor. "
@@ -1709,7 +1754,8 @@ async def _exec_criar_orcamento(db, aprovador_user, payload: dict) -> str:
         ProposalItemCreate(
             code=(x.get("codigo") or None), name=str(x["descricao"])[:255],
             unit=str(x.get("unidade") or "un")[:20], quantity=float(x["qtd"]),
-            unit_price=float(x["valor_unit"]), sort_order=i)
+            unit_price=float(x["valor_unit"]), sort_order=i,
+            empresa_id=x.get("empresa_id"))
         for i, x in enumerate(payload.get("itens") or [])
     ]
     # `proposal_type` sai da NATUREZA das linhas, não do default do schema. O tipo

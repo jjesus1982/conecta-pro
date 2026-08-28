@@ -80,14 +80,15 @@ LIMIT :limite
 
 #: Busca de UM item por SKU, nas duas tabelas. Usada quando o orçamento resolve `sku`.
 _SQL_SKU = """
-SELECT sku, nome, unidade, preco, categoria, ncm, lastro, origem FROM (
+SELECT sku, nome, unidade, preco, categoria, ncm, lastro, origem, empresa_id FROM (
     SELECT sku, name AS nome, coalesce(unit,'un') AS unidade, unit_price AS preco,
            category AS categoria, cast(NULL AS varchar) AS ncm, description AS lastro,
-           'preço praticado' AS origem, 1 AS prioridade
+           'preço praticado' AS origem, empresa_id, 1 AS prioridade
     FROM crm_products WHERE coalesce(is_active, true) AND upper(sku) = ANY(:skus)
     UNION ALL
+    -- Bling não tem empresa: item de lá herda a do orçamento, ou é recusado.
     SELECT code, name, coalesce(unit_of_measure,'UN'), cast(NULL AS numeric),
-           brand, ncm, notes, 'Bling (sem preço)', 2
+           brand, ncm, notes, 'Bling (sem preço)', cast(NULL AS uuid), 2
     FROM products WHERE coalesce(ativo, true) AND upper(code) = ANY(:skus)
 ) t ORDER BY prioridade
 """
@@ -189,6 +190,14 @@ async def resolver_itens(db, itens: list) -> tuple[list[dict], list[str], str | 
             unidade, valor = it.get("unidade") or "un", informado
             tipo, codigo = it.get("tipo") or "material", None
 
+        # ⭐ 28/08/2026 — `empresa_id` viaja COM a linha desde o catálogo. Sem isto o item
+        # chega ao INSERT sem carimbo e bate no NOT NULL que subiu hoje — e batia na
+        # APROVAÇÃO, o pior lugar: o Jordan clica e estoura. Item fora do catálogo vem
+        # None e herda a empresa do orçamento; se nem essa houver, é recusa, nunca NULL.
         linhas.append({"descricao": desc, "qtd": qtd, "unidade": unidade,
-                       "valor_unit": valor, "tipo": tipo, "codigo": codigo})
+                       "valor_unit": valor, "tipo": tipo, "codigo": codigo,
+                       # str(): o payload do rascunho é JSONB e o driver devolve UUID,
+                       # que não serializa. Erro só aparece na hora de GRAVAR o rascunho.
+                       "empresa_id": (str(p["empresa_id"]) if sku and sku in cat
+                                      and p.get("empresa_id") else None)})
     return linhas, lastro, None

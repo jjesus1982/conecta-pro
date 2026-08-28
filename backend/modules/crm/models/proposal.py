@@ -248,6 +248,19 @@ class ProposalItem(Base):
         index=True,
     )
 
+    # ⭐ 28/08/2026 — POR QUAL DOS DOIS CNPJs ESTE ITEM SAI. Mora no ITEM e não no
+    # cabeçalho porque 1 em cada 4 propostas vivas mistura Eletrônica (equipamento) e
+    # Patrimonial (mão de obra) — e o Jordan emite DOIS contratos e DUAS notas nesses
+    # casos. No item, dividir é GROUP BY; no cabeçalho, seria reclassificar à mão na
+    # hora de fechar, com fronteira fiscal no meio.
+    # NOT NULL de propósito: sem empresa resolvida a criação RECUSA, nunca grava vazio.
+    # ⚠️ SEM `ForeignKey` aqui de propósito: o modelo de `empresas` não está no metadata
+    # deste Base e declará-la quebra o mapeamento inteiro na primeira query. A restrição
+    # REAL existe e é a que vale — `fk_proposal_items_empresa`, criada pela migration,
+    # imposta pelo Postgres. Duas declarações da mesma regra, só uma delas cumprida, é
+    # pior que uma: a do ORM daria falsa sensação de garantia.
+    empresa_id = Column(UUID(as_uuid=False), nullable=False, index=True)
+
     # Produto/Serviço
     code = Column(String(50), nullable=True)
     name = Column(String(255), nullable=False)

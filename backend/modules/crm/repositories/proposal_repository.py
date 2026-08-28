@@ -223,6 +223,9 @@ class ProposalRepository:
             discount_percent=data.discount_percent,
             is_optional=data.is_optional,
             sort_order=data.sort_order if data.sort_order else sort_order,
+            # NOT NULL no banco: quem chega aqui sem empresa já foi recusado antes, com
+            # mensagem. Repassar `None` daria erro de integridade sem explicação.
+            empresa_id=str(data.empresa_id) if getattr(data, "empresa_id", None) else None,
         )
         item.calculate_total()
         return item

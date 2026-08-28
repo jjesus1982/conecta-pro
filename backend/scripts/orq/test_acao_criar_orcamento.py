@@ -134,10 +134,22 @@ async def main() -> int:
         if not r.get("erro"):
             falhas.append("quantidade ZERO foi aceita — `x or 1` a transformaria em 1")
 
+        # 4b · ⭐ 28/08/2026 — ITEM SEM EMPRESA É RECUSADO. Item digitado (fora do catálogo)
+        #      não sabe por qual CNPJ sai, e escolher um seria FABRICAR fronteira fiscal:
+        #      Eletrônica é Lucro Real, Patrimonial é Simples Anexo III com retenção. O
+        #      erro só apareceria na nota. Recusa nomeando quais itens e o que informar.
+        r_sem = await P(db, u, scope, cliente=cli, titulo=titulo,
+                        itens=[{"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0,
+                                "tipo": "servico"}])
+        if "empresa" not in str(r_sem.get("erro", "")).lower():
+            falhas.append(f"item sem empresa NÃO foi recusado: {str(r_sem)[:120]}")
+
         # 5 · válido vira rascunho e NADA muda
+        # ⚠️ O contrato MUDOU: item fora do catálogo exige `empresa`. Item COM sku traz a
+        # sua do catálogo e não precisa. Aqui há os dois, então `empresa` cobre o segundo.
         n0 = (await db.execute(text("SELECT count(*) FROM proposals"))).scalar()
         i0 = (await db.execute(text("SELECT count(*) FROM proposal_items"))).scalar()
-        r = await P(db, u, scope, cliente=cli, titulo=titulo,
+        r = await P(db, u, scope, cliente=cli, titulo=titulo, empresa="eletronica",
                     itens=[{"sku": sku, "qtd": 2},
                            {"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0,
                             "tipo": "servico"}])
