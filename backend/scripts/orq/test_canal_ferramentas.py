@@ -111,7 +111,7 @@ def main() -> int:
         # ⭐ E registro o que este teste apanhou: a etapa 1 (consultar_comercial) foi ao ar
         # com ele VERMELHO porque eu rodei os oráculos irmãos que me lembrei, não os que
         # tocavam o mesmo arquivo. `git grep` do símbolo alterado teria dito quais eram.
-        adicoes = nomes(A._leitura_campo() + A._cotacao_do_dono())
+        adicoes = nomes(A._extras_do_dono())   # construtor ÚNICO: tool nova entra sozinha
         local_i = sorted(set(nomes(A.MANAGER_TOOLS)) | set(adicoes))
         deriv_i = nomes(A._tools_ativas(owner=True))
         if local_i != deriv_i:

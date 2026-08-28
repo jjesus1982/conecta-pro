@@ -2800,6 +2800,152 @@ _DESC_DONO = {
 }
 
 
+#: O balde sintético onde os fornecedores da própria empresa vivem. Medido em 28/08/2026:
+#: `suppliers.condominio_id` é NOT NULL e os 58 existentes usam ESTE uuid, que não tem linha
+#: em `condominiums` — é um sentinela, não um condomínio. Reuso em vez de inventar um
+#: segundo balde: duas convenções para a mesma coisa é como a lista se parte em duas.
+_COND_EMPRESA = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+#: `suppliers.category` é VARCHAR, não enum — os valores em uso no banco (`material`,
+#: `seg_eletronica`, `tecnologia`) NÃO são os do enum Python (`materiais`, `seguranca`).
+#: Seguimos o que está no banco, que é o que as telas leem.
+_CATEGORIAS_FORNECEDOR = ("material", "seg_eletronica", "tecnologia", "servicos",
+                          "manutencao", "outros")
+
+
+async def _tool_cadastrar_fornecedor(args: dict) -> dict:
+    """Grava os fornecedores que o Jordan manda pelo WhatsApp. Aceita VÁRIOS de uma vez.
+
+    ⭐ 28/08/2026 — o Jordan perguntou se podia mandar a lista por aqui. Medido antes de
+    responder: NÃO existia ferramenta de fornecedor em lugar nenhum (nem no José Luís, nem
+    no Bartolo), então ele mandaria e nada seria gravado. E os 58 "fornecedores" da tabela
+    são contrapartes de pagamento (INSS, Receita, Prefeitura, TOTVS) — 2 de tipo material,
+    ZERO com telefone. A lista dele não estava incompleta: não existia.
+
+    Aceita LISTA de propósito: ele vai mandar 6-8 num recado só, e uma tool por fornecedor
+    gastaria o teto de rodadas (5) antes do terceiro nome.
+
+    Não duplica: com CNPJ, casa por CNPJ; sem CNPJ, casa por nome normalizado — e ATUALIZA
+    em vez de criar um segundo. Um fornecedor repetido é pior que nenhum, porque a cotação
+    sai para o cadastro errado.
+    """
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from modules.financial.models.supplier import Supplier  # noqa: PLC0415
+
+    itens = args.get("fornecedores")
+    if isinstance(itens, dict):
+        itens = [itens]
+    if not isinstance(itens, list) or not itens:
+        return {"erro": "informe `fornecedores`: uma lista com pelo menos nome e um contato"}
+
+    criados, atualizados, recusados = [], [], []
+    async with async_session_factory() as db:
+        for it in itens[:30]:
+            nome = str((it or {}).get("nome") or "").strip()
+            if len(nome) < 2:
+                recusados.append({"item": it, "motivo": "sem nome"})
+                continue
+            zap = re.sub(r"\D", "", str(it.get("whatsapp") or it.get("telefone") or ""))
+            cnpj = re.sub(r"\D", "", str(it.get("cnpj") or ""))
+            # ⚠️ `suppliers.cpf_cnpj` é NOT NULL — medido, não suposto: o cadastro sem CNPJ
+            # foi recusado pelo banco no primeiro teste. NÃO inventamos um placeholder e não
+            # afrouxamos a coluna (é do módulo financeiro, e um fornecedor sem CNPJ é um
+            # fornecedor que não se consegue PAGAR depois). Recusa nomeando o que falta, e a
+            # instrução manda o agente PERGUNTAR — pedir um dado é barato; inventar, não.
+            if not cnpj and (alvo_sem_cnpj := None) is None:
+                existente = (await db.execute(select(Supplier).where(
+                    Supplier.name.ilike(nome)))).scalars().first()
+                if existente is None:
+                    recusados.append({"nome": nome, "motivo": "falta o CNPJ (obrigatório "
+                                                             "no cadastro)"})
+                    continue
+            cat = str(it.get("categoria") or "").strip().lower() or None
+            if cat and cat not in _CATEGORIAS_FORNECEDOR:
+                cat = "outros"
+
+            alvo = None
+            if cnpj:
+                alvo = (await db.execute(
+                    select(Supplier).where(Supplier.cpf_cnpj == cnpj))).scalars().first()
+            if alvo is None:
+                alvo = (await db.execute(select(Supplier).where(
+                    Supplier.name.ilike(nome)))).scalars().first()
+
+            campos = {"whatsapp": zap or None, "mobile": zap or None,
+                      "contact_name": (str(it.get("contato") or "").strip() or None),
+                      "category": cat, "notes": (str(it.get("observacao") or "").strip() or None),
+                      "cpf_cnpj": cnpj or None}
+            campos = {k: v for k, v in campos.items() if v}
+
+            if alvo is not None:
+                # ⚠️ Só PREENCHE o que está vazio. Sobrescrever contato que já existe é como
+                # se perde o número certo por causa de um recado apressado.
+                mudou = []
+                for k, v in campos.items():
+                    if not getattr(alvo, k, None):
+                        setattr(alvo, k, v)
+                        mudou.append(k)
+                atualizados.append({"nome": alvo.name, "preenchi": mudou or ["(já estava completo)"]})
+            else:
+                novo = Supplier(condominio_id=_COND_EMPRESA, name=nome,
+                                supplier_type="pessoa_juridica", status="ativo", ativo=True,
+                                **campos)
+                db.add(novo)
+                criados.append({"nome": nome, "whatsapp": zap or None, "categoria": cat})
+        await db.commit()
+
+    return {
+        "ok": True, "criados": criados, "atualizados": atualizados, "recusados": recusados,
+        "resumo": f"{len(criados)} novo(s) · {len(atualizados)} atualizado(s)"
+                  + (f" · {len(recusados)} recusado(s)" if recusados else ""),
+        "instrucao": ("Confirme ao Jordan NOME e TELEFONE de cada um que entrou, para ele "
+                      "conferir. Se algum ficou sem categoria, pergunte se é material, "
+                      "segurança eletrônica, tecnologia ou serviço — não chute. "
+                      "E se algum foi RECUSADO por falta de CNPJ, peça o CNPJ dele: o "
+                      "cadastro exige, porque sem CNPJ não se emite pagamento depois. "
+                      "NUNCA invente um número."),
+    }
+
+
+_SCHEMA_FORNECEDOR = {
+    "type": "function",
+    "function": {
+        "name": "cadastrar_fornecedor",
+        "description": (
+            "Grava fornecedores no cadastro da empresa. Aceita VÁRIOS de uma vez — use "
+            "sempre que o Jordan mandar uma lista de fornecedores com nome e telefone. "
+            "Não duplica: se já existir, completa o que estava vazio. Só cadastra: não "
+            "cota, não compra e não fala com o fornecedor."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fornecedores": {
+                    "type": "array",
+                    "description": "Um objeto por fornecedor.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "nome": {"type": "string", "description": "Razão social ou nome pelo qual o Jordan o chama."},
+                            "whatsapp": {"type": "string", "description": "Número com DDD."},
+                            "telefone": {"type": "string", "description": "Alternativa ao whatsapp."},
+                            "contato": {"type": "string", "description": "Nome da pessoa com quem ele fala."},
+                            "categoria": {"type": "string",
+                                          "enum": list(_CATEGORIAS_FORNECEDOR),
+                                          "description": "O que ele fornece."},
+                            "cnpj": {"type": "string", "description": "OBRIGATÓRIO para cadastro novo — sem ele o banco recusa. Se o Jordan não mandar, pergunte."},
+                            "observacao": {"type": "string", "description": "Ex.: 'melhor preço em câmera', 'entrega em 2 dias'."},
+                        },
+                        "required": ["nome"],
+                    },
+                },
+            },
+            "required": ["fornecedores"],
+        },
+    },
+}
+
+
 def _cotacao_do_dono() -> list[dict]:
     """As duas tools de precificação com a descrição do DONO.
 
@@ -2818,6 +2964,19 @@ def _cotacao_do_dono() -> list[dict]:
         fn["description"] = _DESC_DONO[nome]
         saida.append({"type": "function", "function": fn})
     return saida
+
+
+def _extras_do_dono() -> list[dict]:
+    """TUDO que o dono tem além do registro, num lugar só.
+
+    ⚠️ Existe porque eu já esqueci: cada adição espalhada é um ponto a mais para lembrar de
+    atualizar o `test_canal_ferramentas`, e ele foi ao ar VERMELHO por dois bakes justamente
+    assim. Com um construtor único, tool nova entra aqui e o oráculo enxerga sozinho.
+
+    Estas ficam FORA do registro compartilhado de propósito: registrá-las faria aparecerem
+    também no Bartolo, que já tem as mesmas capacidades por outro caminho.
+    """
+    return _leitura_campo() + _cotacao_do_dono() + [_SCHEMA_FORNECEDOR]
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -2892,8 +3051,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         # novo faria a tool aparecer também no Bartolo (que já tem `consultar_crm`), e
         # duplicar capacidade no prompt dele é custo sem ganho. Aqui a lista é uma só e o
         # enum dela é derivado do mesmo `_READ_OPS`.
-        return ((_do_registro("interno") or MANAGER_TOOLS)
-                + _leitura_campo() + _cotacao_do_dono())
+        return (_do_registro("interno") or MANAGER_TOOLS) + _extras_do_dono()
     # O registro é a FONTE; as listas locais são o fallback se a publicação falhar (o
     # atendimento não pode cair porque o registro compartilhado teve problema).
     base = _do_registro("publico") or (
@@ -4236,6 +4394,8 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "cadastrar_fornecedor":
+                return await _tool_cadastrar_fornecedor(args)
             if name == "simular_preco":
                 # Mesma engine do cliente, projeção do DONO: a diferença é QUEM PERGUNTA,
                 # e esta função só roda atrás de `is_owner(telefone)`.
