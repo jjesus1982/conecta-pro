@@ -2706,6 +2706,34 @@ _CONSULTAS_CAMPO: tuple[str, ...] = (
 #     → gestão. Não se decide previsão de receita de pé num corredor.
 
 
+def _garantir_registro_crm() -> None:
+    """Garante que o registro de leitura do CRM existe NESTE processo. Idempotente.
+
+    ⭐ Medido em 28/08/2026, com o Jordan perguntando ao vivo e a etapa 1 já assada. São
+    DUAS peças e nenhuma acontecia no caminho do WhatsApp:
+      · quem popula `_READ_OPS["crm"]` é o IMPORT de `tools_read_crm`;
+      · quem cria o ToolDef `consultar_crm` é `montar_read_dispatchers()`, chamado uma
+        única vez em produção — no import de `consultor_escopado_controller`, que não está
+        no grafo por onde o WhatsApp chega.
+
+    Sem isto: `_READ_OPS["crm"]` = 0, a tool não entra no schema, e se entrasse o executor
+    responderia "consultar_crm não está registrado neste processo". Dois sintomas, uma
+    causa — e por isso a garantia mora AQUI, chamada pelo schema E pelo executor, em vez
+    de um import solto em cada um.
+
+    ⚠️ E a lição do oráculo: a 1ª versão dele importava `tools_read_crm` no topo, então
+    criava o mundo que queria medir e passava 8/8 com a capacidade desligada em produção.
+    Oráculo que monta o cenário não mede o servidor.
+    """
+    from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415
+        tools_read_crm,
+    )
+    from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
+        montar_read_dispatchers,
+    )
+    montar_read_dispatchers()
+
+
 def _schema_leitura_campo() -> list[dict]:
     """O schema da leitura comercial em campo, DERIVADO do registro do Bartolo.
 
@@ -2717,6 +2745,7 @@ def _schema_leitura_campo() -> list[dict]:
     registro indisponível devolve lista vazia (o José Luís segue atendendo sem ela).
     """
     try:
+        _garantir_registro_crm()
         from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
             _READ_OPS,
         )
@@ -4138,6 +4167,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
                     get_tool,
                 )
+                _garantir_registro_crm()   # mesma causa do schema; ver o helper
                 _disp = get_tool("consultar_crm")
                 if _disp is None:
                     return {"erro": "consultar_crm não está registrado neste processo"}

@@ -30,6 +30,23 @@ def checar(cond: bool, titulo: str, detalhe: str = "") -> None:
 
 
 async def main() -> int:
+    # ⭐ ORDEM IMPORTA, e é a lição de 28/08/2026: a 1ª versão deste oráculo importava
+    # `tools_read_crm` no topo e por isso PASSAVA 8/8 com a capacidade DESLIGADA em
+    # produção. Quem popula o registro é esse import — fazendo-o aqui, o oráculo criava
+    # o mundo que queria medir. O servidor não o fazia, e o José Luís respondeu ao Jordan
+    # "não tenho o preço aqui no painel" com o catálogo a um passo.
+    #
+    # Então: primeiro `main_production` (o MESMO grafo do servidor), e a checagem de
+    # "o servidor enxerga" acontece ANTES de qualquer import do orquestrador.
+    import main_production  # noqa: F401,PLC0415
+
+    from modules.integrations.connectors.whatsapp import agent_service as _A0
+    servidor_ve = "consultar_comercial" in {
+        (spec.get("function") or {}).get("name") for spec in _A0._tools_ativas(owner=True)}
+    checar(servidor_ve, "O SERVIDOR enxerga consultar_comercial (grafo real de import)",
+           "" if servidor_ve else "a tool existe no código e NÃO está no ar — "
+                                  "`_READ_OPS['crm']` vazio neste grafo")
+
     from modules.ai.conversation.services.orquestrador import (  # noqa: F401
         tools_acao_crm, tools_read_crm,
     )
@@ -82,6 +99,16 @@ async def main() -> int:
                f"executor RECUSA consulta não liberada ({fora[0]})", str(r)[:90])
     r2 = await A._exec_manager_tool("consultar_comercial", {"consulta": "apagar_tudo"}, 1)
     checar(r2.get("status") == "recusado", "executor recusa consulta inventada", str(r2)[:90])
+
+    # ── 5b. CAMINHO FELIZ: a consulta liberada RESPONDE ───────────────────────
+    # ⚠️ A 1ª versão só testava RECUSA — e recusa retorna antes de tocar no dispatcher.
+    # Por isso ela passou 8/8 enquanto o executor respondia "consultar_crm não está
+    # registrado neste processo" para toda consulta válida. Testar só o "não" prova que
+    # a porta fecha, nunca que ela abre.
+    ok = await A._exec_manager_tool(
+        "consultar_comercial", {"consulta": "catalogo", "filtros": {"busca": "bullet"}}, 1)
+    checar(isinstance(ok, dict) and not ok.get("erro"),
+           "consulta LIBERADA responde de verdade (catalogo/bullet)", str(ok)[:100])
 
     # ── 6. peso do prompt: o número que o T6 pediu ─────────────────────────────
     def peso(o):
