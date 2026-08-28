@@ -830,6 +830,10 @@ async def chatwoot_webhook(
         return {"status": "ignored_private"}
 
     msg_id = _safe_int(data.get("id"))
+    from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
+        MARCA_ANALISE as _MARCA_ANALISE,
+    )
+
     content = data.get("content")
     mtype = str(data.get("message_type", ""))
     direction = "in" if mtype in ("incoming", "0") else "out"
@@ -844,17 +848,21 @@ async def chatwoot_webhook(
     # MULTIMIDIA best-effort: audio/video (Whisper), imagem (visao), documento (PDF/DOCX).
     # O conteudo extraido vira/integra o content (o agente le content do log; fluxo intocado).
     # Com legenda + anexo, combina os dois. Falha -> segue como antes. Nao bloqueia o 200.
+    _midia_enfileirada = 0
     if direction == "in" and data.get("attachments"):
-        midia = await _transcrever_audio_attachments(data, conv_id)
-        if midia:
-            content = f"{content}\n{midia}" if content else midia
-            # ⭐ Se há uma VISITA ABERTA nesta conversa, a mídia entra no relatório SOZINHA.
-            # Deterministicamente, e não pedindo ao modelo que lembre de chamar a tool: o
-            # Jordan em campo manda 15 fotos seguidas, e a foto que o modelo esquecer de
-            # anotar é justamente a que ninguém vai procurar depois.
-            # O conteúdo já vem extraído acima — imagem descrita por visão, áudio
-            # transcrito, localização em coordenadas. Aqui só grudamos no lugar certo.
-            await _midia_para_visita_aberta(conv_id, midia)
+        # ⭐ 28/08/2026 — a análise SAIU do webhook. Medido: foto ~1,2s, mas o único vídeo
+        # que o Jordan mandou levou 93,8s e devolveu ZERO — acima do teto de 90s do
+        # caminho. E a rotina diária dele passa a ser mandar as fotos e vídeos da visita.
+        #
+        # Aqui só marcamos o lugar; a descrição chega depois, pela task, que COMPLETA esta
+        # mesma linha do log. A marca não é enfeite: sem ela o agente leria a mensagem sem
+        # sinal de que veio anexo.
+        _n = len([x for x in (data.get("attachments") or []) if x])
+        content = f"{content}\n{_MARCA_ANALISE}" if content else _MARCA_ANALISE
+        _midia_enfileirada = _n
+            # (A colagem na VISITA ABERTA mudou de lugar: acontece na task, depois da
+            # análise. O motivo é o mesmo de sempre — o Jordan em campo manda 15 fotos
+            # seguidas e a foto que ninguém anotar é justamente a que faz falta.)
 
     # Cliente/Jordan colou um link de mapa / coordenadas no TEXTO (não como pin):
     # RESOLVE de verdade — segue o redirect do link curto, extrai as coordenadas e
@@ -916,6 +924,35 @@ async def chatwoot_webhook(
     # AGENT_MODE=copilot -> nota privada + rascunho (humano aprova). AGENT_MODE=autonomous
     # -> RESPONDE PUBLICO ao cliente (com guards: grupo/atribuída/transferida -> nao envia).
     # Draft sempre logado em cwi_message_log. So roda se AGENT_ENABLED=true.
+    # A análise da mídia é enfileirada DEPOIS do insert: a task completa a linha que
+    # acabou de ser gravada, e por isso ela precisa existir.
+    if _midia_enfileirada and conv_id:
+        try:
+            from core.cache.redis import get_redis  # noqa: PLC0415
+
+            from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
+                analisar_midia,
+            )
+            # Contador da rajada: enquanto > 0, `processar_incoming` ADIA. É a trava que
+            # impede o agente de responder sobre uma foto que ainda não foi vista — e ele
+            # DIRIA que viu, que é pior do que demorar.
+            _r = await get_redis()
+            await _r.incr(f"jl:midia:conv:{conv_id}")
+            await _r.expire(f"jl:midia:conv:{conv_id}", 600)
+            analisar_midia.apply_async(
+                args=[conv_id, msg_id, data, phone_canonical], queue="webhooks", priority=8)
+        except Exception as e:  # noqa: BLE001
+            logger.error("Webhook: não consegui enfileirar a mídia (%s) — analisando "
+                         "INLINE, que é lento mas não perde", e)
+            midia = await _transcrever_audio_attachments(data, conv_id)
+            if midia:
+                await db.execute(text(
+                    "UPDATE cwi_message_log SET content = replace(content, :m, :t) "
+                    "WHERE chatwoot_message_id = :i"),
+                    {"m": _MARCA_ANALISE, "t": midia[:20000], "i": msg_id})
+                await db.commit()
+                await _midia_para_visita_aberta(conv_id, midia)
+
     if direction == "in" and conv_id and agent_service.agent_enabled():
         # ⭐ 28/08/2026 — ERA `background_tasks.add_task(...)`, e foi assim que o Jordan
         # mandou SEIS mensagens e um PDF às 16:14 e não recebeu nada. `BackgroundTasks`

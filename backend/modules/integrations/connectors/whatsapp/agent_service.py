@@ -5138,6 +5138,27 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
     # quem não pega o lock não pode DESCARTAR, tem de deixar um sinal. Quem segura o lock lê
     # o sinal ao terminar e reprocessa — e como `_processar_incoming_inner` relê a conversa
     # inteira, as seis mensagens viram UMA resposta, não seis.
+    # ⭐ TRAVA DA JANELA CEGA (28/08/2026). Com a análise de mídia fora do webhook, existe
+    # um instante em que a mensagem JÁ está no histórico e a descrição da foto ainda não.
+    # Responder aí é o pior defeito possível: o agente falaria sobre a foto sem tê-la visto
+    # — e diria que viu. Mentira com naturalidade é pior que demora.
+    # Quem libera é a própria task da mídia, quando o contador zera.
+    if redis is not None:
+        try:
+            faltam = await redis.get(f"jl:midia:conv:{conversation_id}")
+            if faltam and int(faltam) > 0:
+                logger.info("processar_incoming: conv=%s ADIADA — %s anexo(s) ainda em "
+                            "análise; quem responde é a task da mídia", conversation_id, faltam)
+                if got_lock:
+                    await redis.eval(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then return "
+                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                return
+        except Exception:  # noqa: BLE001 — contador ilegível não pode calar o agente
+            logger.exception("processar_incoming: conv=%s contador de mídia ilegível — "
+                             "seguindo (melhor responder cedo que não responder)",
+                             conversation_id)
+
     pend_key = f"jl:pend:conv:{conversation_id}"
     if redis is not None and not got_lock:
         try:

@@ -118,6 +118,9 @@ app.conf.task_routes = {
     # outro nome. 28/08/2026.
     "whatsapp.processar_incoming": {"queue": "webhooks"},
     "whatsapp.varrer_sem_resposta": {"queue": "webhooks"},
+    # Análise de foto/áudio/vídeo. Mesma fila da resposta: é o mesmo pedaço de conversa e
+    # a ordem entre eles importa (a descrição precisa estar pronta antes do turno).
+    "whatsapp.analisar_midia": {"queue": "webhooks"},
     # Operacional - Banco de Horas / Relatórios
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},

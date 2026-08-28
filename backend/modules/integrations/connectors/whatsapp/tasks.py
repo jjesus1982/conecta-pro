@@ -551,3 +551,71 @@ def varrer_sem_resposta(self):  # noqa: ARG001
             args=[int(p["conv"]), p.get("fone")], queue="webhooks", priority=9)
     return {"ok": True, "pendentes": len(pend),
             "conversas": [p["conv"] for p in pend]}
+
+
+# ═════════ PASSO 2 · A MÍDIA SAI DO CAMINHO SÍNCRONO DO WEBHOOK ═════════
+# 28/08/2026 — medido, não suposto: uma foto custa ~1,2s de visão, mas o ÚNICO vídeo que o
+# Jordan mandou consumiu **93,8s e devolveu ZERO** (`whatsapp.stt`, tokens_saida=0). O teto
+# do caminho é 90s: o vídeo já estourou uma vez, hoje. E a rotina diária dele a partir de
+# agora é mandar as fotos e vídeos da visita — 30 fotos seriam ~36s no handler.
+#
+# Com a análise aqui, o webhook devolve 200 na hora e a mídia tem o tempo que precisar.
+#
+# ⚠️ E ISSO CRIA UMA JANELA CEGA que precisa de trava explícita: a mensagem entra no
+# histórico ANTES de a foto estar descrita. Se o agente responder nessa janela, ele responde
+# sem ter visto a foto — e vai dizer que viu, que é pior que demorar. Por isso o contador
+# `jl:midia:conv:*`: enquanto houver anexo em análise, `processar_incoming` ADIA.
+MARCA_ANALISE = "📎 [analisando anexo(s)…]"
+
+
+@app.task(name="whatsapp.analisar_midia", bind=True, max_retries=2,
+          acks_late=True, default_retry_delay=15)
+def analisar_midia(self, conv_id: int, msg_id, payload: dict, phone: str | None = None):
+    """Analisa os anexos fora do webhook e COMPLETA a mensagem já gravada."""
+    import asyncio as _a
+
+    from sqlalchemy import text as _t
+
+    from modules.integrations.connectors.whatsapp import controller as C
+
+    chave = f"jl:midia:conv:{conv_id}"
+
+    async def _trabalho(session):
+        try:
+            desc = await C._transcrever_audio_attachments(payload, conv_id)
+        except Exception as e:  # noqa: BLE001
+            logger.error("analisar_midia conv=%s falhou: %s", conv_id, e)
+            desc = None
+        # Sem descrição NÃO some a marca em silêncio: o agente precisa saber que veio anexo
+        # e que não deu para ler — senão responde como se nada tivesse chegado.
+        texto = desc or "📎 [anexo recebido — não consegui interpretar o conteúdo]"
+        await session.execute(_t(
+            "UPDATE cwi_message_log SET content = replace(content, :marca, :texto) "
+            "WHERE chatwoot_message_id = :m"),
+            {"marca": MARCA_ANALISE, "texto": texto[:20000], "m": msg_id})
+        await session.commit()
+        if desc:
+            await C._midia_para_visita_aberta(conv_id, desc)
+        return bool(desc)
+
+    ok = _run_async(_trabalho)
+
+    # Contador chega a zero -> a rajada inteira foi analisada -> AGORA o agente responde.
+    restantes = 0
+    try:
+        from core.cache.redis import get_redis
+
+        async def _dec(_s):
+            r = await get_redis()
+            n = await r.decr(chave)
+            if n <= 0:
+                await r.delete(chave)
+            return max(int(n), 0)
+
+        restantes = _run_async(_dec)
+    except Exception as e:  # noqa: BLE001
+        logger.error("analisar_midia: contador indisponível (%s) — liberando mesmo assim", e)
+
+    if restantes <= 0:
+        processar_incoming_task.apply_async(args=[conv_id, phone], queue="webhooks", priority=8)
+    return {"ok": ok, "conversation_id": conv_id, "anexos_restantes": restantes}
