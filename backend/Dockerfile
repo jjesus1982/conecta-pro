@@ -33,12 +33,7 @@ RUN mkdir -p /tmp && chmod 1777 /tmp && \
     curl \
     procps \
     redis-tools \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-# ffmpeg (28/08/2026): extrai QUADROS de vídeo por mudança de cena, para a visão
-# analisar o que se VÊ além do que foi falado. O Jordan filma a visita técnica narrando;
-# até aqui só a fala era aproveitada e os quadros não eram vistos por ninguém.
-# Custo: ~80 MB na imagem. Roda como subprocesso no worker da fila, nunca no webhook.
 
 # Instalar Docker CLI (para OpenClaw remediação)
 RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \
@@ -57,8 +52,8 @@ RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.
 # Volume montado do host tem dono NUMÉRICO: o nome do usuário dentro do container é
 # irrelevante. Instalar QUALQUER pacote novo podia repetir isto — por isso o id é fixado,
 # não descoberto.
-RUN groupadd -r -g 999 erp && groupadd -g 988 docker-host && \
-    useradd -r -u 999 -g erp -G docker-host erp && \
+RUN groupadd -r erp && groupadd -g 988 docker-host && \
+    useradd -r -g erp -G docker-host erp && \
     mkdir -p /app/logs
 
 # Copiar wheels do builder
@@ -75,6 +70,20 @@ COPY --chown=erp:erp . .
 RUN chown -R erp:erp /app/logs
 
 # Mudar para usuário não-root
+# ⭐ ffmpeg DEPOIS do `useradd` — e a ORDEM é o conserto, não um detalhe (28/08/2026).
+# Extrai QUADROS de vídeo por mudança de cena para a visão analisar o que se VÊ além do
+# que foi falado: o Jordan filma a visita narrando, e até aqui os quadros não eram vistos
+# por ninguém.
+#
+# ⚠️ Instalar isto ANTES do `useradd` quebrou o deploy duas vezes, e o sintoma não tinha
+# relação aparente: as dependências do ffmpeg criam usuários de sistema e OCUPAM o uid/gid
+# 999, então o `erp` nascia 995 e o container não conseguia escrever em `/app/logs`, que
+# no host pertence ao 999 numérico. O deploy só dizia "green não ficou saudável em 420s".
+# Fixar `-u 999` também não resolve: o gid 999 já está tomado nesse ponto e o build falha
+# com "GID already exists". A ordem resolve os dois.
+RUN apt-get update && apt-get install -y ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 USER erp
 
 # Variáveis de ambiente
