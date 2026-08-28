@@ -47,8 +47,18 @@ RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.
 
 # Criar usuário não-root com acesso ao Docker socket
 # GID 988 = grupo docker do host para acesso ao /var/run/docker.sock
-RUN groupadd -r erp && groupadd -g 988 docker-host && \
-    useradd -r -g erp -G docker-host erp && \
+# ⚠️ UID/GID FIXOS EM 999 — 28/08/2026, e a causa foi cara de achar. `groupadd -r` /
+# `useradd -r` pegam o PRÓXIMO id de sistema livre. Ao instalar `ffmpeg`, as dependências
+# dele criaram usuários de sistema e tomaram o 999, então o `erp` nasceu 995 na imagem
+# nova — e o container não conseguiu escrever em `/app/logs/app.log`, que no HOST pertence
+# ao 999. Sintoma: green subia, morria em loop com PermissionError, e o deploy abortava
+# com "não ficou saudável em 420s". Nada a ver com o ffmpeg em si.
+#
+# Volume montado do host tem dono NUMÉRICO: o nome do usuário dentro do container é
+# irrelevante. Instalar QUALQUER pacote novo podia repetir isto — por isso o id é fixado,
+# não descoberto.
+RUN groupadd -r -g 999 erp && groupadd -g 988 docker-host && \
+    useradd -r -u 999 -g erp -G docker-host erp && \
     mkdir -p /app/logs
 
 # Copiar wheels do builder
