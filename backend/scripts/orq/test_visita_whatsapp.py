@@ -59,6 +59,40 @@ async def main() -> int:
         if n0 != n1:
             falhas.append(f"mídia SEM visita aberta criou registro: {n0} → {n1}")
 
+        # 0 · TIPO DA VISITA: sem ele o roteiro vira interrogatório genérico. Medido ao
+        #     vivo em 27/08/2026 — o Jordan disse "fui fazer orçamento de CFTV" e o agente
+        #     seguiu perguntando de portaria, porque o roteiro era único.
+        r = await A._mtool_abrir_visita(db, {"cliente": f"{_MARCA} X",
+                                             "tipo": "tipo_inventado"}, _CONV)
+        if not r.get("erro"):
+            falhas.append("tipo de visita INVENTADO foi aceito")
+        for t in ("cftv", "controle_acesso", "portaria", "infraestrutura",
+                  "alarme_perimetro", "misto"):
+            if t not in A.TIPOS_VISITA:
+                falhas.append(f"tipo {t!r} não tem roteiro")
+        # O roteiro de um tipo não PERGUNTA o do outro.
+        # ⚠️ Buscar a palavra solta não serve, e este teste falhou por isso na 1ª versão:
+        # "escala" aparece no roteiro de CFTV dentro da instrução "NÃO pergunte de
+        # portaria, escala ou mão de obra" — que é exatamente o comportamento certo.
+        # O que denuncia pergunta fora de escopo é a palavra ANTES de um "?", não a
+        # palavra em qualquer lugar.
+        def _pergunta_sobre(rot: str, palavra: str) -> bool:
+            return any(palavra in trecho.lower()
+                       for trecho in rot.split("?")[:-1]
+                       if "não pergunte" not in trecho.lower())
+
+        if _pergunta_sobre(A.TIPOS_VISITA["cftv"], "escala"):
+            falhas.append("o roteiro de CFTV PERGUNTA de escala — fora do escopo")
+        if _pergunta_sobre(A.TIPOS_VISITA["portaria"], "gravação"):
+            falhas.append("o roteiro de PORTARIA PERGUNTA de dias de gravação — fora do "
+                          "escopo")
+        if not _pergunta_sobre(A.TIPOS_VISITA["cftv"], "energia"):
+            falhas.append("o roteiro de CFTV não pergunta de ENERGIA no ponto — é a "
+                          "pergunta que muda dezenas de milhares")
+        for t, rot in A.TIPOS_VISITA.items():
+            if "uma por vez" not in rot.lower() and t != "misto":
+                falhas.append(f"o roteiro de {t!r} não impõe uma pergunta por vez")
+
         # 1 · sem cliente
         r = await A._mtool_abrir_visita(db, {}, _CONV)
         if not r.get("erro"):
@@ -132,10 +166,11 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK visita_whatsapp: 8/8 — recusa sem cliente, segunda visita na mesma conversa "
+    print("OK visita_whatsapp: 12/12 — recusa sem cliente, segunda visita na mesma conversa "
           "e visita vazia; cada anotação no campo certo e campo inventado avisado; foto, "
           "áudio, vídeo e localização grudam SOZINHAS com o tipo certo; mídia sem visita "
-          "aberta é no-op; e o relatório nomeia o que ficou vazio.")
+          "aberta é no-op; o relatório nomeia o que ficou vazio; e a visita é TIPIFICADA "
+          "— 6 roteiros, cada um sem as perguntas dos outros.")
     return 0
 
 
