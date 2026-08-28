@@ -358,7 +358,8 @@ registrar_read("crm", "catalogo",
                "um carimbado com a proposta e a data de origem). Filtros: busca (nome ou "
                "SKU), categoria (CFTV | Rede e infraestrutura | Energia e proteção | "
                "Locação | Mão de obra | Software / plataforma | Serviço técnico | "
-               "Controle de acesso | Cerca elétrica | Alarme), incluir_inativos.",
+               "Controle de acesso | Cerca elétrica | Alarme), so_com_preco (true para "
+               "esconder os itens do Bling que vieram sem preço), limite.",
                _catalogo)
 
 
