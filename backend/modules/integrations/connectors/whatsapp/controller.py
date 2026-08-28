@@ -439,7 +439,21 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             b64 = base64.b64encode(audio_bytes).decode()
             from core.llm_client import modelo_visao  # noqa: PLC0415
 
-            vis = await client.chat.completions.create(
+            # 🔴 28/08/2026 — A VISÃO NUNCA FUNCIONOU, e a causa é esta linha. O `client`
+            # acima nasce com `servico="audio"`, e `llm_client.py:239` manda serviço que
+            # não é "chat" para a base da OPENAI de propósito (Whisper só existe lá).
+            # Reusar esse cliente aqui pedia à OpenAI um modelo da DeepSeek:
+            #   404 — "The model `deepseek-v4-flash-vision-exp` does not exist"
+            # 32 fotos do Jordan falharam assim, ao vivo, e a visita do The Sun ficou com
+            # `achados: 0`. O modelo EXISTE e responde — o que estava errado era o endereço.
+            #
+            # ⚠️ Como se descobre: o MESMO modelo, no MESMO container, devolvia 400
+            # ("imagem não suportada") pelo cliente de chat e 404 pelo cliente de áudio.
+            # Dois erros diferentes para a mesma chamada = a diferença está no cliente,
+            # não no modelo. Conferir o nome contra a lista de modelos não denuncia isso:
+            # o id está lá.
+            cliente_visao = novo_cliente(origem="whatsapp.visao", timeout=_stt_to)
+            vis = await cliente_visao.chat.completions.create(
                 # modelo de VISÃO: o de texto pode recusar imagem com HTTP 400
                 model=modelo_visao(),
                 messages=[
