@@ -917,7 +917,28 @@ async def chatwoot_webhook(
     # -> RESPONDE PUBLICO ao cliente (com guards: grupo/atribuída/transferida -> nao envia).
     # Draft sempre logado em cwi_message_log. So roda se AGENT_ENABLED=true.
     if direction == "in" and conv_id and agent_service.agent_enabled():
-        background_tasks.add_task(agent_service.processar_incoming, conv_id, phone_canonical)
+        # ⭐ 28/08/2026 — ERA `background_tasks.add_task(...)`, e foi assim que o Jordan
+        # mandou SEIS mensagens e um PDF às 16:14 e não recebeu nada. `BackgroundTasks`
+        # roda DENTRO deste processo, depois do 200 que já saiu para o Chatwoot: o deploy
+        # troca o container, a tarefa morre sem log, e o Chatwoot nunca reenvia porque
+        # recebeu 200. Cinco bakes naquele dia = cinco janelas de silêncio.
+        #
+        # Agora vai para fila DURÁVEL (Redis), sobrevive à troca de container e é
+        # reentregue se o worker morrer no meio.
+        try:
+            from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
+                processar_incoming_task,
+            )
+            processar_incoming_task.apply_async(
+                args=[conv_id, phone_canonical], queue="webhooks", priority=8)
+        except Exception as e:  # noqa: BLE001
+            # Redis fora do ar não pode calar o agente: cai no comportamento antigo, que é
+            # pior mas não é nada. E o AVISO fica no log — falha silenciosa aqui é
+            # exatamente o defeito que este bloco existe para consertar.
+            logger.error("Webhook: fila indisponível (%s) — caindo para BackgroundTasks, "
+                         "que NÃO sobrevive a deploy", e)
+            background_tasks.add_task(agent_service.processar_incoming, conv_id,
+                                      phone_canonical)
 
     return {"status": "ok", "direction": direction, "lead_id": lead_id, "message_id": msg_id}
 

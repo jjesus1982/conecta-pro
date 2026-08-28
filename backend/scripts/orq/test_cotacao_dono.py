@@ -66,6 +66,27 @@ async def main() -> int:
     checar(float(comp.get("CUSTO_TOTAL") or 0) < preco,
            "o custo é MENOR que o preço (a margem existe e é positiva)")
 
+    # ── margem: existia na engine e a tool não expunha ────────────────────────
+    # 28/08/2026 — sem isto o Jordan perguntou "e com 10%?" e começou a fazer a conta À MÃO.
+    m10 = await A._tool_simular_preco({"funcao": "AGP P1 Noturno", "margem": 0.10}, dono=True)
+    p10 = float(m10.get("preco_posto_mes") or 0)
+    checar(0 < p10 < preco, "margem MENOR devolve preço MENOR",
+           f"15% = R$ {preco:,.2f} → 10% = R$ {p10:,.2f}")
+    checar(float((m10.get("composicao") or {}).get("margem_pct") or 0) == 0.10,
+           "a margem pedida é a margem aplicada")
+    m10b = await A._tool_simular_preco({"funcao": "AGP P1 Noturno", "margem": 10}, dono=True)
+    checar(float(m10b.get("preco_posto_mes") or 0) == p10,
+           "aceita '10' e '0.10' como a mesma coisa")
+    # o CUSTO não muda com a margem — se mudar, a engine está errada em algum lugar
+    checar((m10.get("composicao") or {}).get("CUSTO_TOTAL") == comp.get("CUSTO_TOTAL"),
+           "mudar a margem NÃO mexe no custo")
+
+    # ⚠️ margem é decisão comercial: o CLIENTE não pode escolher a dele.
+    cli_m = await A._tool_simular_preco({"funcao": "AGP P1 Noturno", "margem": 0.01})
+    checar(float(cli_m.get("preco_posto_mes") or 0) == preco,
+           "o CLIENTE não consegue baixar a própria margem",
+           f"pediu 1%, recebeu R$ {float(cli_m.get('preco_posto_mes') or 0):,.2f}")
+
     # ── a redação do cliente continua redigindo ───────────────────────────────
     pub = await A._tool_simular_preco({"funcao": "AGP P1 Noturno", "postos": 2})
     vazou = [k for k in pub if any(i in k.lower() for i in INTERNOS)]

@@ -112,6 +112,12 @@ app.conf.task_routes = {
     "operacional.check_late_employees": {"queue": "operacional"},
     "operacional.check_pending_approvals": {"queue": "operacional"},
     "operacional.lembrete_ponto_whatsapp": {"queue": "operacional"},
+    # A RESPOSTA do José Luís ao Jordan/cliente: fila `webhooks` (prioridade 8, consumidor
+    # MEDIDO vivo no worker `integrations`). Sem rota explícita ela cairia em `gov.batch`,
+    # a fila dos lotes de governo — resposta de gente atrás de fila de lote é silêncio com
+    # outro nome. 28/08/2026.
+    "whatsapp.processar_incoming": {"queue": "webhooks"},
+    "whatsapp.varrer_sem_resposta": {"queue": "webhooks"},
     # Operacional - Banco de Horas / Relatórios
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
@@ -787,6 +793,13 @@ app.conf.beat_schedule = {
         "options": {"queue": "gov.batch"},
     },
     # ── José Luís — conversas que esfriaram: lista + rascunho -> SINO (aval humano; nada vai ao cliente) — diario 09:00 ──
+    # Rede de segurança da resposta: a cada 2 min procura conversa cuja última mensagem é
+    # do cliente e ficou sem resposta. Transforma "sumiu" em "atrasou" — ver
+    # whatsapp.varrer_sem_resposta.
+    "whatsapp-varrer-sem-resposta-2min": {
+        "task": "whatsapp.varrer_sem_resposta",
+        "schedule": crontab(minute="*/2"),
+    },
     "whatsapp-followup-conversas-0900": {
         "task": "whatsapp.followup_conversas",
         "schedule": crontab(hour=9, minute=0),

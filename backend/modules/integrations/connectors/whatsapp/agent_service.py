@@ -2793,7 +2793,9 @@ _DESC_DONO = {
         "base, adicionais, encargos, benefícios (VT/VR), repasse da CCT, custo total, "
         "tributos, margem e lucro — e só então o preço por posto/mês. Use sempre que a "
         "pergunta for de preço, custo ou margem de mão de obra. NUNCA calcule por conta "
-        "própria. Sem a função, chame sem argumento para receber a lista."),
+        "própria: se ele pedir OUTRA margem ('e com 10%?'), chame esta ferramenta de novo "
+        "com `margem`, jamais faça a conta de cabeça. Sem a função, chame sem argumento "
+        "para receber a lista."),
     "montar_proposta": (
         "Monta um RASCUNHO de proposta a partir da cotação e o deixa na Central de "
         "Aprovações. NÃO envia nada ao cliente e NÃO fecha negócio."),
@@ -2962,6 +2964,17 @@ def _cotacao_do_dono() -> list[dict]:
         if nome not in _DESC_DONO:
             continue
         fn["description"] = _DESC_DONO[nome]
+        if nome == "simular_preco":
+            # cópia rasa dos params para NÃO contaminar `TOOLS_COTACAO`, que é a lista do
+            # cliente — margem é decisão comercial e não se discute com quem compra.
+            par = dict(fn.get("parameters") or {})
+            par["properties"] = dict(par.get("properties") or {})
+            par["properties"]["margem"] = {
+                "type": "number",
+                "description": ("Margem a aplicar. Aceita 0.10 ou 10. Omita para usar a "
+                                "margem padrão da tabela (15% na mão de obra)."),
+            }
+            fn["parameters"] = par
         saida.append({"type": "function", "function": fn})
     return saida
 
@@ -3192,7 +3205,19 @@ async def _tool_simular_preco(args: dict, *, dono: bool = False) -> dict:
                     "instrucao": "Pergunte ao cliente qual função ele precisa (AGP = Agente de "
                     "Portaria, ASG = Auxiliar de Serviços Gerais) e chame de novo. NÃO estime valor.",
                 }
-            ficha = await pricing_cct.calcular_funcao(db, dict(alvo))
+            # ⭐ 28/08/2026 — `margem` existia em `calcular_funcao` e a tool NÃO a expunha.
+            # Consequência medida no log: o Jordan perguntou "e se reduzir para 10%?" e
+            # começou a fazer a conta À MÃO, porque chamar a ferramenta de novo não mudava
+            # nada. Capacidade construída e sem porta — o padrão da casa.
+            # Só para o DONO: margem é decisão comercial, não se negocia com o cliente.
+            marg = args.get("margem") if dono else None
+            try:
+                marg = float(marg) if marg is not None else None
+                if marg is not None and not (0 < marg < 1):
+                    marg = marg / 100 if 1 <= marg <= 99 else None   # aceita "10" e "0.10"
+            except (TypeError, ValueError):
+                marg = None
+            ficha = await pricing_cct.calcular_funcao(db, dict(alvo), margem=marg)
         proj = _cotacao_dono if dono else _cotacao_publica
         return proj(ficha, args.get("postos"), args.get("meses"))
     except Exception as e:  # noqa: BLE001 — cotação nunca derruba o atendimento

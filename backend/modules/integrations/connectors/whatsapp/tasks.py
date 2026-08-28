@@ -468,3 +468,86 @@ async def _notificar_status_os(session):
                 logger.warning("notificar_status_os: OS %s -> %s DESISTIU após %s falhas de envio", numero, status, fails)
     await session.commit()
     return {"status": "ok", "notificados": enviados, "candidatos": len(rows)}
+
+
+# ═════════ P0 · A RESPOSTA DO AGENTE PRECISA SOBREVIVER AO DEPLOY ═════════
+# 28/08/2026 — o Jordan mandou SEIS mensagens e um PDF às 16:14 e não recebeu NADA. Nem
+# erro, nem "processando": silêncio. Medido em `cwi_message_log`: seis `in`, zero `out`,
+# exatamente na janela em que o bake 4 recriava os workers. Repetiu às 16:35, no bake 5.
+#
+# ⭐ A CAUSA: o webhook agendava a resposta com `BackgroundTasks` do FastAPI —
+# in-process, sem fila, sem retry — e devolvia 200 ao Chatwoot ANTES de a tarefa rodar.
+# O deploy trocava o container, a tarefa morria sem log, e o Chatwoot nunca reenviava
+# porque já tinha recebido 200. Fizemos 5 bakes nesse dia: cinco janelas de silêncio,
+# assando consertos NO AGENTE enquanto ele tentava usar o agente.
+#
+# Aqui a resposta vira tarefa DURÁVEL: fica no Redis, sobrevive à troca de container e é
+# reentregue se o worker morrer no meio (`acks_late`). Fila `webhooks` — MEDIDA antes de
+# escolher: tem consumidor vivo no worker `integrations`, prioridade 8. Fila sem
+# consumidor é o mesmo silêncio com outro nome, e já nos custou o `ged`.
+@app.task(name="whatsapp.processar_incoming", bind=True, max_retries=2,
+          acks_late=True, default_retry_delay=20)
+def processar_incoming_task(self, conversation_id: int, phone_canonical: str | None = None):
+    from modules.integrations.connectors.whatsapp import agent_service
+
+    try:
+        _run_async(lambda _s: agent_service.processar_incoming(conversation_id, phone_canonical))
+        return {"ok": True, "conversation_id": conversation_id}
+    except Exception as e:  # noqa: BLE001
+        logger.error("processar_incoming conv=%s falhou: %s", conversation_id, e)
+        # Retry de verdade: sem ele, "durável" seria só uma palavra diferente para o mesmo
+        # silêncio. Estourou o retry -> a varredura abaixo é a última rede.
+        raise self.retry(exc=e) from e
+
+
+#: Janela da varredura. Abaixo de 3 min ainda pode ser resposta em curso (o laço leva ~5s,
+#: mas o teto do caminho é 90s); acima de 90 min responder vira estranho — o Jordan já
+#: seguiu a vida. Entre os dois, atraso é melhor que silêncio.
+_VARRE_MIN, _VARRE_MAX = 3, 90
+
+
+@app.task(name="whatsapp.varrer_sem_resposta", bind=True, max_retries=1)
+def varrer_sem_resposta(self):  # noqa: ARG001
+    """Suspenders: acha conversa cuja ÚLTIMA mensagem é do cliente e sem resposta, e reprocessa.
+
+    Mesmo com fila durável a mensagem some se o worker morrer antes do ack — e some em
+    silêncio, que é a parte cara. Esta varredura transforma "sumiu" em "atrasou".
+
+    Reprocessa UMA vez por conversa, não uma por mensagem: `processar_incoming` já lê a
+    conversa inteira, então seis mensagens seguidas viram uma resposta, não seis.
+    """
+    from sqlalchemy import text as _t
+
+    async def _pendentes(session):
+        r = await session.execute(_t("""
+            SELECT m.chatwoot_conversation_id AS conv,
+                   max(m.phone_canonical) AS fone,
+                   count(*) AS n
+            FROM cwi_message_log m
+            WHERE m.direction = 'in'
+              AND m.created_at BETWEEN now() - (:mx * interval '1 minute')
+                                   AND now() - (:mn * interval '1 minute')
+              AND NOT EXISTS (
+                    SELECT 1 FROM cwi_message_log o
+                    WHERE o.chatwoot_conversation_id = m.chatwoot_conversation_id
+                      AND o.direction IN ('out', 'drf')
+                      AND o.created_at > m.created_at)
+            GROUP BY 1"""), {"mn": _VARRE_MIN, "mx": _VARRE_MAX})
+        return [dict(x) for x in r.mappings().all()]
+
+    try:
+        pend = _run_async(_pendentes)
+    except Exception as e:  # noqa: BLE001
+        logger.error("varrer_sem_resposta: consulta falhou: %s", e)
+        return {"ok": False}
+
+    if not pend:
+        return {"ok": True, "pendentes": 0}  # silêncio honesto: nada preso
+
+    for p in pend:
+        logger.warning("[jose-luis] conversa %s com %s mensagem(ns) SEM resposta — "
+                       "reprocessando", p["conv"], p["n"])
+        processar_incoming_task.apply_async(
+            args=[int(p["conv"]), p.get("fone")], queue="webhooks", priority=9)
+    return {"ok": True, "pendentes": len(pend),
+            "conversas": [p["conv"] for p in pend]}
