@@ -167,17 +167,26 @@ async def run_engine(
                                    max_tokens * 2, origem)
             break
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {"id": tc.id, "type": "function",
-                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in tool_calls
-                ],
-            }
-        )
+        _assistant = {
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        }
+        # ⚠️ 28/08/2026 — MESMO DEFEITO DO LAÇO DO WHATSAPP, achado lá e conferido aqui.
+        # O modelo é de raciocínio e a DeepSeek recusa a rodada seguinte sem o
+        # `reasoning_content` de volta: 400 "must be passed back to the API".
+        # No José Luís isso virou 6 falhas hoje, cinco na mesma rajada — o Jordan recebeu
+        # "tive uma falha" cinco vezes seguidas. Aqui ainda não apareceu porque o Bartolo
+        # faz menos rodadas com tool; apareceria.
+        # Só entra quando o modelo devolve — provedor sem raciocínio segue igual.
+        _rc = getattr(msg, "reasoning_content", None)
+        if _rc:
+            _assistant["reasoning_content"] = _rc
+        messages.append(_assistant)
         for tc in tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")

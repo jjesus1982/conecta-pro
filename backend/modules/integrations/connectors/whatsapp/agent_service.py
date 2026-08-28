@@ -4927,20 +4927,31 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 break
 
             # anexa a mensagem do assistant que pediu as tools
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": msg.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                        }
-                        for tc in tool_calls
-                    ],
-                }
-            )
+            _assistant = {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ],
+            }
+            # ⚠️ 28/08/2026 — O `reasoning_content` TEM DE VOLTAR. O modelo é de raciocínio
+            # e a DeepSeek recusa a rodada seguinte sem ele:
+            #   400 "The `reasoning_content` in the thinking mode must be passed back"
+            # Medido no banco (não no log do container, que me deu 1 e estava errado):
+            # 6 falhas hoje DEPOIS do conserto da visão, todas este erro, cinco delas na
+            # rajada das 19:09 — que é exatamente quando o Jordan recebeu "tive uma falha"
+            # cinco vezes seguidas. Não era instabilidade: era protocolo.
+            #
+            # Só entra quando o modelo devolve, então provedor sem raciocínio segue igual.
+            _rc = getattr(msg, "reasoning_content", None)
+            if _rc:
+                _assistant["reasoning_content"] = _rc
+            messages.append(_assistant)
             # executa cada tool e anexa o resultado (role=tool)
             for tc in tool_calls:
                 try:
