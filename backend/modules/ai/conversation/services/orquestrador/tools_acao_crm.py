@@ -2156,10 +2156,20 @@ async def _propor_resolver_propostas(db, user, scope, *, cliente=None, ganhas=No
 
     linhas = (await db.execute(text(
         "SELECT id::text AS id, number, status, coalesce(total, 0) AS total, "
-        "       coalesce(client_name, '') AS cliente "
+        "       coalesce(client_name, '') AS cliente, "
+        "       coalesce(is_active, true) AS viva "
         "FROM proposals WHERE upper(number) = ANY(:n)"),
         {"n": todos})).mappings().all()
     achadas = {r["number"].upper(): r for r in linhas}
+
+    # Proposta SOFT-DELETED não recebe desfecho: registrar "perdida" numa que já foi
+    # enterrada inventa história para um documento que ninguém mais vê. 28/08/2026 — eu ia
+    # marcar 9 do PARVI, todas is_active=false, como "retiradas".
+    mortas = [n for n in todos if n in achadas and not achadas[n]["viva"]]
+    if mortas:
+        return {"erro": f"estas já foram descartadas (is_active=false) e não recebem "
+                        f"desfecho: {mortas}. Se o desfecho importa, reative a proposta "
+                        f"primeiro — registrar sobre documento enterrado inventa histórico."}
 
     faltando = [n for n in todos if n not in achadas]
     if faltando:

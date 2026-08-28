@@ -139,6 +139,12 @@ async def revisar_funil(db, *, dias_minimo: int = DIAS_VIVA) -> dict[str, Any]:
                ((now() AT TIME ZONE 'America/Manaus')::date - p.created_at::date) AS dias
         FROM proposals p
         WHERE p.status = 'draft'
+          -- ⚠️ 28/08/2026: proposta SOFT-DELETED não é dívida do funil, e a falta deste
+          -- filtro me fez reportar ao Jordan "22 rascunhos, R$ 431.880" quando o funil vivo
+          -- eram 7 e R$ 80.972. Das 33 propostas, 16 estão is_active=false — não é caso de
+          -- borda, é METADE da tabela. Todas as 9 do PARVI que eu ia marcar como
+          -- "retiradas" já estavam enterradas.
+          AND coalesce(p.is_active, true) = true
         ORDER BY cliente, p.created_at
     """))).mappings().all()
 
