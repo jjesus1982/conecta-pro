@@ -292,7 +292,37 @@ _AUDIO_MAX_BYTES = 16 * 1024 * 1024
 _audio_payload_logged = False  # loga o payload bruto de attachments 1x p/ calibrar formato
 
 
-async def _transcrever_audio_attachments(data: dict) -> str | None:
+async def _visita_ctx_da_conversa(conv_id: int | None) -> dict | None:
+    """empresa/serviço da visita aberta desta conversa — ou None. Nunca levanta.
+
+    É este contexto que faz a VISÃO trocar de olho: sem visita, legenda de atendimento;
+    com visita, diagnóstico de projetista. Ver `_prompt_visao`.
+    """
+    if not conv_id:
+        return None
+    try:
+        import re as _re  # noqa: PLC0415
+
+        from core.database import async_session_factory  # noqa: PLC0415
+        from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
+            _visita_aberta,
+        )
+
+        async with async_session_factory() as db:
+            v = await _visita_aberta(db, int(conv_id))
+            if not v:
+                return None
+            md = str(v.get("conteudo_md") or "")
+            pega = lambda k: (_re.search(rf"\[{k}:([a-z_]+)\]", md) or [None, None])[1]  # noqa: E731
+            return {"id": v["id"], "cliente": v.get("cliente_nome"),
+                    "empresa": pega("empresa"), "tipo": pega("tipo")}
+    except Exception:  # noqa: BLE001
+        logger.exception("[visita] não consegui ler o contexto da visita — visão segue "
+                         "com o prompt de atendimento")
+        return None
+
+
+async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None) -> str | None:
     """STT best-effort: acha attachment de audio, baixa do Chatwoot e transcreve (Whisper).
 
     Retorna "🎤 [áudio transcrito]: <texto>" ou None. NUNCA levanta excecao —
@@ -303,6 +333,7 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
         attachments = data.get("attachments") or []
         if not attachments:
             return None
+        _visita_ctx = await _visita_ctx_da_conversa(conv_id)
 
         if not _audio_payload_logged:
             _audio_payload_logged = True
@@ -418,17 +449,15 @@ async def _transcrever_audio_attachments(data: dict) -> str | None:
                             {
                                 "type": "text",
                                 "text": (
-                                    "Descreva esta imagem enviada por um cliente num atendimento de "
-                                    "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ "
-                                    "o atendimento: equipamento/defeito, local, documento, fachada etc. "
-                                    "Maximo 4 frases, em portugues."
+                                    _prompt_visao(_visita_ctx)
                                 ),
                             },
                             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                         ],
                     }
                 ],
-                max_completion_tokens=220,
+                # O diagnóstico é mais longo que a legenda — e é ele que vira achado.
+                max_completion_tokens=(700 if _visita_ctx else 220),
             )
             desc = (vis.choices[0].message.content or "").strip()
             if not desc:
@@ -816,7 +845,7 @@ async def chatwoot_webhook(
     # O conteudo extraido vira/integra o content (o agente le content do log; fluxo intocado).
     # Com legenda + anexo, combina os dois. Falha -> segue como antes. Nao bloqueia o 200.
     if direction == "in" and data.get("attachments"):
-        midia = await _transcrever_audio_attachments(data)
+        midia = await _transcrever_audio_attachments(data, conv_id)
         if midia:
             content = f"{content}\n{midia}" if content else midia
             # ⭐ Se há uma VISITA ABERTA nesta conversa, a mídia entra no relatório SOZINHA.
@@ -935,3 +964,48 @@ async def _midia_para_visita_aberta(conversation_id: int | None, midia: str) -> 
     except Exception:  # noqa: BLE001
         logger.exception("[visita] falha ao anexar mídia à visita aberta — "
                          "a mensagem segue normalmente")
+
+
+def _prompt_visao(visita_ctx: dict | None) -> str:
+    """O que perguntar à VISÃO. Legenda quando é atendimento; DIAGNÓSTICO quando é visita.
+
+    ⭐ Este é o ponto em que a foto deixa de ser enfeite. O prompt anterior era "Descreva
+    esta imagem... máximo 4 frases" — e o Jordan, de pé num condomínio fotografando um
+    rack, recebia uma legenda. Visão é a ferramenta mais forte que existe aqui e estava
+    sendo usada como quem descreve foto de perfil.
+
+    Numa VISITA ABERTA o olho muda: projetista de segurança eletrônica olhando o local,
+    comparando com o PADRÃO DA CASA — que não é norma genérica, é o que as propostas dele
+    sempre têm (DPS e aterramento por rack em TODOS os projetos, gabinete IP66 em ponto
+    externo, organização e identificação de rack, poste antivandal onde não há onde fixar).
+
+    A última regra é a que impede fabricação: o que não dá para ver, ele DIZ que não dá.
+    Foto tremida não vira laudo.
+    """
+    if not visita_ctx:
+        return ("Descreva esta imagem enviada por um cliente num atendimento de "
+                "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ o "
+                "atendimento: equipamento/defeito, local, documento, fachada etc. "
+                "Maximo 4 frases, em portugues.")
+
+    emp = visita_ctx.get("empresa") or "indefinida"
+    srv = visita_ctx.get("tipo") or "indefinido"
+    return (
+        "Você é PROJETISTA DE SEGURANÇA ELETRÔNICA da Conecta Mais (Manaus/AM) olhando "
+        f"esta foto durante uma VISITA TÉCNICA em andamento (empresa: {emp}, serviço: "
+        f"{srv}). Não descreva a foto — DIAGNOSTIQUE o que ela mostra, em português, "
+        "assim:\n"
+        "1. O QUE EXISTE: equipamento, infraestrutura, estado de conservação. Se der para "
+        "ler marca/modelo/quantidade, diga.\n"
+        "2. O QUE FALTA pelo padrão da casa (só o que a FOTO permite afirmar): DPS e "
+        "aterramento por rack; gabinete IP66 em ponto externo; organização e "
+        "identificação de cabo; cabeamento estruturado em vez de coaxial; poste "
+        "antivandal onde não há onde fixar; nobreak.\n"
+        "3. RISCO VISÍVEL: ponto cego, cabo exposto, acesso desprotegido, improviso "
+        "elétrico, oxidação.\n"
+        "4. IMPLICA NO ORÇAMENTO: que itens isso puxa (ex.: 'rack sem DPS → DPS + kit de "
+        "aterramento').\n"
+        "REGRA DURA: o que a foto NÃO permite ver, diga 'não dá para ver na foto'. Não "
+        "presuma marca, quantidade nem estado que não esteja visível — este texto vira "
+        "achado de visita e pode virar item de proposta."
+    )

@@ -3406,8 +3406,27 @@ MANAGER_TOOLS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"cliente": {"type": "string",
-                                           "description": "Nome do cliente ou prospect"}},
+                "properties": {
+                    "cliente": {"type": "string",
+                                "description": "Nome do cliente ou prospect"},
+                    "empresa": {
+                        "type": "string",
+                        "enum": ["eletronica", "patrimonial", "mista"],
+                        "description": "PERGUNTE PRIMEIRO. eletronica = equipamento "
+                                       "(CFTV, acesso, alarme, infra, portaria remota), "
+                                       "NF-e. patrimonial = mão de obra (portaria, "
+                                       "limpeza), NFS-e. mista = as duas.",
+                    },
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["cftv", "controle_acesso", "alarme_perimetro",
+                                 "infraestrutura", "portaria_remota",
+                                 "portaria", "limpeza", "misto"],
+                        "description": "O QUE ele foi fazer lá. Pergunte se não souber — "
+                                       "o roteiro muda por tipo e perguntar fora do "
+                                       "escopo faz o consultor parecer que não ouviu.",
+                    },
+                },
                 "required": ["cliente"],
             },
         },
@@ -4396,6 +4415,30 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             total_out += getattr(usage, "completion_tokens", 0) or 0
             texto = (resp.choices[0].message.content or "").strip()
 
+            # SUCESSO VAZIO: o modelo gastou o teto inteiro e não sobrou frase. Medido ao
+            # vivo em 27/08/2026, com o Jordan esperando: tokens_out=500 (o teto EXATO) e
+            # "resposta VAZIA (nada enviado)" — ele ficou 3 minutos no silêncio até
+            # cobrar. O log dizia "resposta gerada" e a telemetria dizia ok=True.
+            #
+            # `deepseek` é modelo de RACIOCÍNIO: gasta o orçamento pensando e devolve
+            # `content` vazio quando o corte vem por tamanho. UMA repetição com o dobro do
+            # teto resolve — é o mesmo remédio já aplicado no motor do chat (engine.py).
+            # Não é laço: repete UMA vez e desiste, porque duas seguidas significam outro
+            # problema, e insistir só atrasaria mais a resposta de quem está esperando.
+            if not texto and getattr(resp.choices[0], "finish_reason", "") == "length":
+                logger.warning(
+                    "Agente: conv=%s bateu o teto (%s) com content VAZIO — repetindo com "
+                    "o dobro. Se isto virar rotina, o teto está pequeno demais para o "
+                    "tamanho do prompt.", conversation_id, max_tokens)
+                resp = await client.chat.completions.create(
+                    model=model, messages=messages,
+                    **_chat_kwargs(model, max_tokens * 2),
+                )
+                usage = getattr(resp, "usage", None)
+                total_in += getattr(usage, "prompt_tokens", 0) or 0
+                total_out += getattr(usage, "completion_tokens", 0) or 0
+                texto = (resp.choices[0].message.content or "").strip()
+
         logger.info(
             "Agente: resposta gerada conv=%s model=%s tool_rounds=%s tokens_in=%s tokens_out=%s",
             conversation_id,
@@ -4880,6 +4923,27 @@ async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
     if not cliente:
         return {"erro": "informe o cliente da visita (nome como está no cadastro, ou o "
                         "nome do prospect se ainda não for cliente)"}
+    # ⭐ TIPO DA VISITA. Sem ele o roteiro vira interrogatório genérico — medido ao vivo
+    # em 27/08/2026: o Jordan disse "fui fazer orçamento de CFTV" e o agente continuou
+    # perguntando de portaria e acessos, porque o roteiro era único. O tipo mora em
+    # `conteudo_md` como marca `[tipo:x]`, mesmo padrão do `[wa:N]` — nenhuma migração
+    # para guardar uma palavra.
+    empresa = str(args.get("empresa") or "").strip().lower()
+    tipo = str(args.get("tipo") or "").strip().lower().replace(" ", "_")
+    if empresa and empresa not in VISITA_EMPRESAS:
+        return {"erro": f"empresa {empresa!r} não existe. Use: "
+                        f"{', '.join(sorted(VISITA_EMPRESAS))}."}
+    if tipo and tipo not in TIPOS_VISITA:
+        return {"erro": f"serviço {tipo!r} não existe. Use um de: "
+                        f"{', '.join(sorted(TIPOS_VISITA))}."}
+    # Fail-closed no CNPJ: serviço que não pertence à empresa declarada é recusado, porque
+    # mão de obra faturada pela Eletrônica (Lucro Real, NF-e de mercadoria) é erro fiscal,
+    # não detalhe de organização.
+    if empresa and tipo and empresa != "mista" and SERVICO_DA_EMPRESA.get(tipo) != empresa:
+        return {"erro": f"{tipo!r} é faturado pela "
+                        f"{SERVICO_DA_EMPRESA.get(tipo, '?')}, não pela {empresa}. "
+                        f"Se o cliente quer as duas frentes, abra como empresa='mista' — "
+                        f"saem DUAS propostas, uma por CNPJ."}
     ja = await _visita_aberta(db, conversation_id)
     if ja:
         return {"ja_aberta": True, "visita_id": ja["id"], "cliente": ja["cliente_nome"],
@@ -4899,11 +4963,27 @@ async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
         "        (now() AT TIME ZONE 'America/Manaus')::date, :md, 'rascunho', :u, "
         "        now(), now()) RETURNING id::text"),
         {"nome": cliente, "cid": cid, "u": str(getattr(u, "id", "")) or None,
-         "md": f"[wa:{conversation_id}] Visita registrada pelo WhatsApp.\n"})).scalar()
+         "md": (f"[wa:{conversation_id}] [empresa:{empresa or 'indefinida'}] "
+                f"[tipo:{tipo or 'indefinido'}] "
+                f"Visita registrada pelo WhatsApp.\n")})).scalar()
     await db.commit()
-    return {"visita_id": vid, "cliente": cliente,
-            "cliente_cadastrado": bool(cid),
-            "proximo": "vá me contando o que viu; no fim peça o relatório"}
+    emp = VISITA_EMPRESAS.get(empresa) or {}
+    return {
+        "visita_id": vid, "cliente": cliente, "cliente_cadastrado": bool(cid),
+        "empresa": empresa or "indefinida", "tipo": tipo or "indefinido",
+        "empresa_rotulo": emp.get("rotulo"),
+        "sempre_perguntar": emp.get("sempre_perguntar"),
+        "roteiro": TIPOS_VISITA.get(tipo, ""),
+        "servicos_desta_empresa": sorted(emp.get("servicos") or {}),
+        "proximo": (
+            "siga o roteiro deste serviço, uma pergunta por vez"
+            if (empresa and tipo) else
+            "pergunte PRIMEIRO: esta visita é para a ELETRÔNICA (CFTV, controle de "
+            "acesso, alarme/perímetro, infraestrutura, portaria remota — equipamento, "
+            "NF-e), para a PATRIMONIAL (portaria, limpeza — mão de obra, NFS-e) ou "
+            "MISTA? Depois pergunte QUAL serviço daquela empresa. Sem isso o roteiro "
+            "vira interrogatório genérico e o CNPJ da proposta sai errado."),
+    }
 
 
 async def _mtool_anotar_visita(db, args: dict, conversation_id: int) -> dict:
@@ -5099,3 +5179,182 @@ async def _mtool_sugerir_escopo(db, args: dict, conversation_id: int) -> dict:
         return {"erro": "me diga o que você levantou (ex.: 'CFTV em torre, sem energia, "
                         "120 m do rack'), ou abra uma visita e anote antes."}
     return await _EA.buscar(db, termo, limite=int(args.get("limite") or 2))
+
+
+# ═══════════ VISITA POR EMPRESA E SERVIÇO — o desenho que o Jordan pediu ═══════════
+# "Essa visita é para a Eletrônica ou Patrimonial ou mista? Daí ele já faz o questionário"
+# (Jordan, 27/08/2026, durante o teste ao vivo).
+#
+# ⭐ A EMPRESA NÃO É SÓ ROTEIRO — É REGIME FISCAL. Eletrônica emite NF-e de MERCADORIA
+# (precisa de NCM, tem IE e SUFRAMA, Lucro Real); Patrimonial é Simples Anexo III, MÃO DE
+# OBRA humanizada, NFS-e, e o preço do posto sai do motor CCT. Perguntar a empresa primeiro
+# não é organização: é o que decide quem fatura, com que imposto e por qual motor de preço.
+#
+# ⭐ E VENDA × LOCAÇÃO É PERGUNTA OBRIGATÓRIA NA ELETRÔNICA. Medido no histórico dele:
+# 6 propostas de LOCAÇÃO de CFTV contra 3 de VENDA. Locação é receita recorrente (MRR) e
+# o equipamento continua sendo dele; venda é NF-e única e o equipamento sai. Confundir os
+# dois erra o contrato inteiro.
+#
+# Cada roteiro sai dos ITENS das propostas daquele tipo, não de teoria de segurança.
+
+VISITA_EMPRESAS: dict[str, dict] = {
+    "eletronica": {
+        "rotulo": ("Conecta Mais Eletrônica — CNPJ 35.710.481/0001-03, Manaus/AM, "
+                   "IE + SUFRAMA, Lucro Real. Emite NF-e de MERCADORIA."),
+        "sempre_perguntar": (
+            "ANTES de qualquer coisa técnica, pergunte: é VENDA ou LOCAÇÃO? "
+            "No seu histórico há 6 propostas de locação de CFTV contra 3 de venda — "
+            "locação é receita recorrente e o equipamento continua sendo da empresa; "
+            "venda é NF-e única e o equipamento sai. Isso muda o contrato inteiro."
+        ),
+        "servicos": {},   # preenchido abaixo com TIPOS_VISITA
+    },
+    "patrimonial": {
+        "rotulo": ("Conecta Mais Patrimonial — CNPJ 66.014.833/0001-10, Simples "
+                   "Anexo III, CNAE 8111-7/00. MÃO DE OBRA humanizada, NFS-e."),
+        "sempre_perguntar": (
+            "Preço de posto sai do motor CCT (`simular_preco`), NUNCA de estimativa. "
+            "Piso da CCT SINDECOMPRESTS 2026: R$ 1.670. Somos AGENTES DE PORTARIA, "
+            "não vigilância — não prometa vigilância armada."
+        ),
+        "servicos": {},
+    },
+    "mista": {
+        "rotulo": "As DUAS empresas no mesmo cliente (ex.: portaria + CFTV).",
+        "sempre_perguntar": (
+            "Pergunte qual frente motivou a visita e siga o roteiro DELA primeiro; "
+            "só depois puxe a outra. E avise que sairão DUAS propostas, uma por CNPJ — "
+            "mão de obra não pode ser faturada pela Eletrônica."
+        ),
+        "servicos": {},
+    },
+}
+
+#: Serviço → empresa que o fatura. Fail-closed: serviço fora daqui é recusado, porque
+#: adivinhar a empresa erra o CNPJ da nota.
+SERVICO_DA_EMPRESA: dict[str, str] = {
+    "cftv": "eletronica", "controle_acesso": "eletronica",
+    "alarme_perimetro": "eletronica", "infraestrutura": "eletronica",
+    "portaria_remota": "eletronica",
+    "portaria": "patrimonial", "limpeza": "patrimonial",
+}
+
+
+# ═══════════ TIPOS DE VISITA — cada projeto pergunta o que ELE exige ═══════════
+# Pedido do Jordan (27/08/2026, durante o teste ao vivo): "precisamos tipificar o tipo de
+# visita técnica, temos que ser mais objetivos".
+#
+# ⭐ A PROVA VEIO DA CONVERSA DELE MESMO. Ele disse "a portaria é terceirizada por uma
+# concorrente, EU FUI FAZER UM ORÇAMENTO DE CFTV" — e o agente seguiu perguntando de
+# portaria e acessos, porque o roteiro era único. Pergunta fora do escopo não é só ruído:
+# gasta o tempo de quem está andando pelo condomínio e faz o consultor parecer que não
+# ouviu.
+#
+# Cada roteiro sai dos ITENS das propostas daquele tipo, não de teoria.
+
+TIPOS_VISITA: dict[str, str] = {
+    "cftv": (
+        "CFTV / videomonitoramento — pergunte, uma por vez: "
+        "1) quantos PONTOS de câmera, e o que cada um precisa enxergar (rosto, placa, "
+        "movimento)? "
+        "2) TEM ENERGIA em cada ponto? (sem energia entra solar off-grid, e isso muda o "
+        "orçamento em dezenas de milhares) "
+        "3) qual a DISTÂNCIA do ponto mais longe até onde vai ficar o gravador? tem "
+        "eletroduto/passagem ou vai precisar de vala? "
+        "4) tem ONDE FIXAR (muro, fachada, poste existente) ou precisa erguer poste com "
+        "base de concreto? "
+        "5) quantos DIAS DE GRAVAÇÃO ele quer guardar? "
+        "6) já existe câmera? é analógica (coaxial) ou IP (rede)? dá para aproveitar "
+        "alguma coisa? "
+        "7) o ponto fica exposto a chuva e sol? (gabinete IP66) "
+        "8) tem aterramento e proteção contra surto? (em Manaus, DPS está em todos os "
+        "seus projetos) "
+        "9) quem vai VER as imagens, e de onde? (define VPN e monitoramento) "
+        "10) precisa de efeito ostensivo — sinalização, giroflex? "
+        "NÃO pergunte de portaria, escala ou mão de obra: não é esta visita."
+    ),
+    "controle_acesso": (
+        "CONTROLE DE ACESSO — pergunte, uma por vez: "
+        "1) quantos acessos de PEDESTRE e quantos de VEÍCULO? "
+        "2) quantas unidades e quantos moradores/usuários vão ser cadastrados? "
+        "3) o que ele quer usar: tag, facial, biometria, app, ou combinação? "
+        "4) tem clausura, catraca ou cancela hoje? o portão é automatizado? "
+        "5) quem controla a liberação — portaria presencial, remota, ou o próprio morador? "
+        "6) precisa de registro/histórico de quem entrou e saiu? por quanto tempo? "
+        "7) tem rede e energia nos pontos de acesso? "
+        "8) como é hoje o acesso de visitante e de prestador? "
+        "NÃO entre em ponto de câmera nem em dias de gravação a menos que ele puxe."
+    ),
+    "portaria": (
+        "PORTARIA / MÃO DE OBRA — pergunte, uma por vez: "
+        "1) quantos POSTOS e qual a escala (12x36 diurno/noturno, 44h, 8h)? "
+        "2) tem portaria hoje? própria, terceirizada, ou nenhuma? se terceirizada, quando "
+        "vence o contrato atual? "
+        "3) o posto exige alguma qualificação (controle de acesso, ronda, atendimento)? "
+        "4) tem local de descanso, banheiro e ponto de registro para o agente? "
+        "5) precisa de uniforme e EPI específicos? "
+        "6) qual a expectativa de início? "
+        "Preço de posto sai do motor CCT (`simular_preco`), NUNCA de estimativa sua."
+    ),
+    "infraestrutura": (
+        "INFRAESTRUTURA / REDE — pergunte, uma por vez: "
+        "1) quantos PONTOS de rede, e onde ficam? "
+        "2) qual a DISTÂNCIA entre os blocos/racks? (define fibra, SFP e se precisa de "
+        "backbone) "
+        "3) já tem rack? onde? cabe mais equipamento ou precisa de rack novo? "
+        "4) a rede de DADOS e a de CFTV vão juntas ou separadas? (nos seus projetos vão "
+        "em racks separados) "
+        "5) tem aterramento e DPS por rack? (está em todos os seus projetos) "
+        "6) tem eletrocalha/eletroduto ou vai precisar lançar? "
+        "7) o cabeamento atual é Cat5e ou Cat6? dá para aproveitar? "
+        "8) de quem é o link de internet, e onde ele chega? "
+        "9) precisa de documentação — projeto executivo, as-built, certificação óptica?"
+    ),
+    "alarme_perimetro": (
+        "ALARME / PERÍMETRO — pergunte, uma por vez: "
+        "1) qual a METRAGEM do perímetro e o que é: muro, cerca, ou aberto? "
+        "2) qual a altura do muro? tem concertina ou cerca elétrica hoje? "
+        "3) onde estão os pontos mais vulneráveis (fundos, mata, terreno vizinho)? "
+        "4) como está a iluminação à noite? tem vegetação cobrindo alguma área? "
+        "5) tem energia ao longo do perímetro? "
+        "6) quer sensor de barreira (infravermelho ativo) ou cerca eletrificada? "
+        "7) o alarme dispara para quem — central 24h, celular do síndico, sirene local?"
+    ),
+    "portaria_remota": (
+        "PORTARIA REMOTA (Eletrônica — é EQUIPAMENTO + plataforma, não mão de obra) — "
+        "pergunte, uma por vez: "
+        "1) quantos acessos vão ser operados remotamente (pedestre e veículo)? "
+        "2) tem INTERNET estável no local? de quem é o link e qual a velocidade? "
+        "3) o portão já é automatizado? tem motor, e de que tipo? "
+        "4) tem interfone/vídeo-porteiro hoje? é analógico ou IP? "
+        "5) quantas unidades vão usar o app de morador? "
+        "6) quer manter algum atendimento presencial em algum turno? "
+        "7) tem energia com nobreak na portaria? (queda de link derruba o acesso) "
+        "8) quem libera visitante — o morador pelo app ou a central? "
+        "É serviço RECORRENTE: confirme se é locação do sistema (o padrão dele)."
+    ),
+    "limpeza": (
+        "LIMPEZA E CONSERVAÇÃO (Patrimonial — mão de obra) — pergunte, uma por vez: "
+        "1) qual a ÁREA a ser atendida (m² aproximados) e quantos pavimentos? "
+        "2) quantos postos e qual a jornada (44h, 12x36, meio período)? "
+        "3) quais áreas: comuns, garagem, piscina, salão de festas, escadas? "
+        "4) tem coleta de lixo? de quantos pontos e com que frequência? "
+        "5) o material de limpeza é por conta de quem? "
+        "6) precisa de ASG com insalubridade? (muda o piso e o custo) "
+        "7) tem depósito e vestiário para o pessoal? "
+        "8) qual a expectativa de início? "
+        "Preço sai do motor CCT (`simular_preco`), nunca de estimativa."
+    ),
+    "misto": (
+        "VISITA MISTA — ele vai olhar mais de uma frente. Comece perguntando QUAL É A "
+        "PRIORIDADE dele (o que motivou a visita) e siga o roteiro daquele tipo primeiro; "
+        "só depois puxe as outras frentes. Não misture as perguntas."
+    ),
+}
+
+# Liga cada serviço à sua empresa. Feito DEPOIS de TIPOS_VISITA existir, e por LOOKUP —
+# duplicar o texto do roteiro em dois lugares garantiria que um dia eles divergissem.
+for _srv, _emp in SERVICO_DA_EMPRESA.items():
+    if _srv in TIPOS_VISITA:
+        VISITA_EMPRESAS[_emp]["servicos"][_srv] = TIPOS_VISITA[_srv]
+VISITA_EMPRESAS["mista"]["servicos"] = dict(TIPOS_VISITA)
