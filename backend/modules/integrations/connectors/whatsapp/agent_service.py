@@ -2675,6 +2675,95 @@ def _do_registro(canal: str) -> list:
         return []
 
 
+# ═════════ ETAPA 1 (28/08/2026): a LEITURA do comercial na mão do Jordan em campo ═════════
+# Autorizado pelo Jordan em 28/08/2026. É o que ele pediu desde o começo: estar num corredor
+# de condomínio e conseguir olhar o catálogo, o que já propusemos para um caso parecido, e o
+# que este cliente já tem conosco. Hoje isso só existe no Bartolo, que mora no computador.
+#
+# ⭐ NÃO é "portar tools". As 56 capacidades comerciais do Bartolo são ARGUMENTOS de dois
+# despachantes (`consultar_crm(consulta=…)` / `agir_crm(acao=…)`), não tools soltas — medido
+# em 28/08. Então o que entra aqui é UM despachante de leitura com allow-list explícita, e
+# não sete tools novas no prompt.
+#
+# ⚠️ SÓ LEITURA na etapa 1. Nenhuma ação entra — nem `criar_orcamento`, que é o motivo de
+# tudo isto. Escrever em campo é a etapa 2 e tem a sua própria conversa. Se algum dia um
+# nome de `agir_crm` aparecer em `_CONSULTAS_CAMPO`, é defeito, e o oráculo falha.
+_CONSULTAS_CAMPO: tuple[str, ...] = (
+    "catalogo",             # o que vendemos e por quanto — o motivo de tudo isto
+    "escopo_analogo",       # o que já propusemos para um caso parecido
+    "clientes",             # este já é nosso?
+    "contratos",            # e o que ele já tem conosco?
+    "propostas",            # o que já mandamos para ele
+    "contatos",             # com quem falar
+    "historico_followup",   # o que já foi dito
+    "relatorios_visita",    # o que a visita anterior achou
+)
+# FORA de propósito, e o motivo de cada grupo:
+#   `funil`, `ficha_cliente`, `painel_negociacoes`, `cross_sell`, `leads_frios`, `resumo_nps`
+#     → o José Luís JÁ TEM como tools próprias; repetir criaria duas portas para a mesma
+#       coisa, e duas portas é como as listas voltam a divergir.
+#   `forecast`, `pipeline`, `resumo_comercial`, `campanhas`, `sequencias`, `revisar_funil`
+#     → gestão. Não se decide previsão de receita de pé num corredor.
+
+
+def _schema_leitura_campo() -> list[dict]:
+    """O schema da leitura comercial em campo, DERIVADO do registro do Bartolo.
+
+    Derivado, não copiado: a descrição de cada consulta vem de `_READ_OPS`, então quando o
+    Bartolo mudar a dele, esta muda junto. Copiar à mão é exatamente como duas listas
+    voltam a divergir — o problema que a ponte do registro único existe para não repetir.
+
+    Fail-closed nos dois sentidos: consulta que sumir do Bartolo some daqui sozinha, e
+    registro indisponível devolve lista vazia (o José Luís segue atendendo sem ela).
+    """
+    try:
+        from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
+            _READ_OPS,
+        )
+        ops = _READ_OPS.get("crm") or {}
+    except Exception:  # noqa: BLE001
+        logger.exception("[jose-luis] read_dispatcher indisponível — leitura de campo fora")
+        return []
+
+    disp = [n for n in _CONSULTAS_CAMPO if n in ops]
+    if not disp:
+        return []
+    linhas = "\n".join(f"- {n}: {ops[n]['desc']}" for n in disp)
+    return [{"type": "function", "function": {
+        "name": "consultar_comercial",
+        "description": (
+            "Consulta de LEITURA do comercial com os dados REAIS do ERP: catálogo de "
+            "produtos e serviços, clientes, contratos, propostas e visitas anteriores. "
+            "USE ANTES de responder qualquer pergunta sobre preço, escopo ou histórico de "
+            "cliente — nunca estime de cabeça nem invente valor. Só lê: não cria, não "
+            f"altera e não envia nada.\nConsultas disponíveis:\n{linhas}"),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "consulta": {"type": "string", "enum": disp,
+                             "description": "Qual consulta executar."},
+                "filtros": {"type": "object",
+                            "description": "Filtros opcionais da consulta "
+                                           "(ex.: busca, cliente, status, page)."},
+            },
+            "required": ["consulta"],
+        },
+    }}]
+
+
+#: Cache que só guarda resultado ÚTIL: se o primeiro acesso acontecer antes de
+#: `tools_read_crm` ter sido importado, `_READ_OPS['crm']` está vazio e a lista sai vazia —
+#: guardar isso congelaria a capacidade para sempre. Vazio nunca é cacheado.
+_LEITURA_CAMPO_CACHE: list[dict] = []
+
+
+def _leitura_campo() -> list[dict]:
+    global _LEITURA_CAMPO_CACHE  # noqa: PLW0603
+    if not _LEITURA_CAMPO_CACHE:
+        _LEITURA_CAMPO_CACHE = _schema_leitura_campo()
+    return _LEITURA_CAMPO_CACHE
+
+
 def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     """Conjunto de tools da conversa. MANAGER_TOOLS (interno, é o Jordan) x TOOLS
     (externo, número anônimo) — a fronteira que o plano trata como invariante.
@@ -2684,7 +2773,11 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     time multi-agente sem trocar de motor. Sem papel, devolve o de hoje, intacto.
     """
     if owner:
-        return _do_registro("interno") or MANAGER_TOOLS
+        # `_leitura_campo()` é somado FORA do registro de propósito: registrar um ToolDef
+        # novo faria a tool aparecer também no Bartolo (que já tem `consultar_crm`), e
+        # duplicar capacidade no prompt dele é custo sem ganho. Aqui a lista é uma só e o
+        # enum dela é derivado do mesmo `_READ_OPS`.
+        return (_do_registro("interno") or MANAGER_TOOLS) + _leitura_campo()
     # O registro é a FONTE; as listas locais são o fallback se a publicação falhar (o
     # atendimento não pode cair porque o registro compartilhado teve problema).
     base = _do_registro("publico") or (
@@ -4026,6 +4119,41 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "consultar_comercial":
+                # ETAPA 1 — leitura do comercial em campo. DUAS paredes em série:
+                #   (1) a allow-list daqui: consulta fora dela não passa, mesmo existindo
+                #       no Bartolo;
+                #   (2) o RBAC de módulo, que roda DENTRO do dispatcher do Bartolo com a
+                #       identidade real do dono.
+                # Reusamos o dispatcher inteiro de propósito: chamar a handler da consulta
+                # direto pularia o `_gate` e seria refazer a segunda parede, pior.
+                consulta = str(args.get("consulta") or "")
+                if consulta not in _CONSULTAS_CAMPO:
+                    return {"status": "recusado",
+                            "motivo": f"consulta {consulta!r} não está liberada no campo; "
+                                      f"disponíveis: {', '.join(_CONSULTAS_CAMPO)}"}
+                from modules.ai.conversation.services.orquestrador.engine import (  # noqa: PLC0415
+                    OrqScope,
+                )
+                from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
+                    get_tool,
+                )
+                _disp = get_tool("consultar_crm")
+                if _disp is None:
+                    return {"erro": "consultar_crm não está registrado neste processo"}
+                # A identidade NÃO é a da conversa: quem lê é a PESSOA do ERP. Este caminho
+                # só roda atrás de `is_owner(telefone)`, e o e-mail é fixo.
+                _dono = await _usuario_dono(db)
+                if _dono is None:
+                    return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
+                try:
+                    return await _disp.handler(
+                        db, _dono,
+                        OrqScope(tier="gestor", is_manager=True, all_posts=True),
+                        consulta=consulta, filtros=args.get("filtros") or {})
+                except PermissionError:
+                    return {"status": "recusado",
+                            "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
             return {"erro": f"tool gerente desconhecida: {name}"}
     except Exception as e:  # noqa: BLE001
         logger.error("Manager tool %s exception: %s", name, e)
