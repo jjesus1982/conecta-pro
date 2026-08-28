@@ -33,7 +33,12 @@ RUN mkdir -p /tmp && chmod 1777 /tmp && \
     curl \
     procps \
     redis-tools \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+# ffmpeg (28/08/2026): extrai QUADROS de vídeo por mudança de cena, para a visão
+# analisar o que se VÊ além do que foi falado. O Jordan filma a visita técnica narrando;
+# até aqui só a fala era aproveitada e os quadros não eram vistos por ninguém.
+# Custo: ~80 MB na imagem. Roda como subprocesso no worker da fila, nunca no webhook.
 
 # Instalar Docker CLI (para OpenClaw remediação)
 RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \

@@ -322,6 +322,105 @@ async def _visita_ctx_da_conversa(conv_id: int | None) -> dict | None:
         return None
 
 
+#: Tetos do vídeo, por env — cada quadro é UMA chamada de visão, e vídeo de 10 min com
+#: detecção de cena renderia dezenas. 8 é o meio do intervalo que o desenho previu (8-12).
+_VIDEO_MAX_QUADROS = int(os.getenv("AGENT_VIDEO_MAX_QUADROS", "8"))
+#: Largura do quadro. Mandar 4K para a visão é desperdício: ela reduz de qualquer jeito.
+_VIDEO_LARGURA = int(os.getenv("AGENT_VIDEO_LARGURA", "768"))
+#: Limiar de mudança de cena do ffmpeg (0-1). 0.3 separa ambientes (portaria, garagem,
+#: hall) sem picar a mesma parede três vezes, que é o que intervalo fixo faria.
+_VIDEO_CENA = os.getenv("AGENT_VIDEO_CENA", "0.30")
+
+
+async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> str:
+    """Extrai quadros por MUDANÇA DE CENA e devolve o que a visão enxergou neles.
+
+    ⚠️ Roda SÓ no worker da fila (`whatsapp.analisar_midia`), nunca no webhook: são N
+    chamadas de visão em série e o handler HTTP não sobrevive a isso — foi a lição de uma
+    foto que segurou o webhook por 93,8s.
+
+    Arquivo temporário com limpeza garantida no `finally`, e o vídeo NÃO fica inteiro em
+    memória mais do que o necessário: esta casa tem histórico de OOM e o worker passou a
+    decodificar vídeo.
+    """
+    import asyncio as _a  # noqa: PLC0415
+    import base64 as _b64  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    if not shutil.which("ffmpeg"):
+        logger.warning("Webhook Chatwoot: ffmpeg AUSENTE — vídeo entrega só a fala")
+        return ""
+
+    tmp = tempfile.mkdtemp(prefix="jl_video_")
+    try:
+        entrada = os.path.join(tmp, f"in.{(ext or 'mp4')[:4]}")
+        with open(entrada, "wb") as f:
+            f.write(video_bytes)
+
+        # `select='gt(scene,X)'` + `vsync vfr`: um quadro por CORTE, não por relógio.
+        proc = await _a.create_subprocess_exec(
+            "ffmpeg", "-nostdin", "-loglevel", "error", "-i", entrada,
+            "-vf", f"select='gt(scene,{_VIDEO_CENA})',scale={_VIDEO_LARGURA}:-2",
+            "-vsync", "vfr", "-frames:v", str(_VIDEO_MAX_QUADROS),
+            os.path.join(tmp, "q_%02d.jpg"),
+            stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.PIPE)
+        try:
+            _, err = await _a.wait_for(proc.communicate(), timeout=120)
+        except TimeoutError:
+            proc.kill()
+            logger.warning("Webhook Chatwoot: ffmpeg estourou 120s — vídeo só com a fala")
+            return ""
+
+        quadros = sorted(x for x in os.listdir(tmp) if x.startswith("q_"))
+        if not quadros:
+            # Vídeo sem corte de cena (câmera parada) — pega ao menos o primeiro quadro,
+            # senão um vídeo curto e estável renderia nada.
+            proc2 = await _a.create_subprocess_exec(
+                "ffmpeg", "-nostdin", "-loglevel", "error", "-i", entrada,
+                "-vf", f"scale={_VIDEO_LARGURA}:-2", "-frames:v", "1",
+                os.path.join(tmp, "q_01.jpg"),
+                stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.DEVNULL)
+            await _a.wait_for(proc2.communicate(), timeout=60)
+            quadros = sorted(x for x in os.listdir(tmp) if x.startswith("q_"))
+        if not quadros:
+            logger.warning("Webhook Chatwoot: nenhum quadro extraído (%s)",
+                           (err or b"")[:120].decode("utf-8", "ignore"))
+            return ""
+
+        from core.llm_client import modelo_visao  # noqa: PLC0415
+
+        cli = novo_cliente(origem="whatsapp.visao.video",
+                           timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
+        vistos = []
+        for i, nome in enumerate(quadros[:_VIDEO_MAX_QUADROS], 1):
+            with open(os.path.join(tmp, nome), "rb") as f:
+                b64 = _b64.b64encode(f.read()).decode()
+            try:
+                r = await cli.chat.completions.create(
+                    model=modelo_visao(),
+                    # ⚠️ `visita_ctx` VEM POR PARÂMETRO: com visita aberta o quadro vira
+                    # diagnóstico de projetista (700 tokens); sem ela, legenda curta. Se eu
+                    # tivesse deixado o nome global aqui, todo quadro de vídeo seria legenda
+                    # genérica — a diferença entre "um corredor" e "ponto cego no acesso
+                    # lateral, sem infraestrutura de energia".
+                    max_completion_tokens=(700 if visita_ctx else 220),
+                    messages=[{"role": "user", "content": [
+                        {"type": "text", "text": _prompt_visao(visita_ctx)},
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]}])
+                d = (r.choices[0].message.content or "").strip()
+                if d:
+                    vistos.append(f"[cena {i}] {d}")
+            except Exception as e:  # noqa: BLE001 — um quadro ruim não perde o vídeo
+                logger.warning("Webhook Chatwoot: quadro %s do vídeo falhou: %s", i, str(e)[:90])
+        logger.info("Webhook Chatwoot: vídeo -> %s quadro(s), %s descrito(s)",
+                    len(quadros), len(vistos))
+        return " ".join(vistos)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None) -> str | None:
     """STT best-effort: acha attachment de audio, baixa do Chatwoot e transcreve (Whisper).
 
@@ -555,12 +654,31 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             ),
         )
         texto = (getattr(tr, "text", "") or "").strip()
-        if not texto:
+        if not texto and kind != "video":
             logger.info("Webhook Chatwoot: transcricao vazia para %s", data_url[:120])
             return None
-        logger.info("Webhook Chatwoot: %s transcrito (%s chars)", kind, len(texto))
+        if texto:
+            logger.info("Webhook Chatwoot: %s transcrito (%s chars)", kind, len(texto))
+
         if kind == "video":
-            return f"🎥 [vídeo recebido — fala transcrita]: {texto}"
+            # ⭐ 28/08/2026 — O VÍDEO PASSA A SER VISTO, não só ouvido. Até aqui os quadros
+            # não eram olhados por ninguém: um vídeo mudo percorrendo as câmeras do
+            # condomínio produzia exatamente nada, e o Jordan achava que tinha mandado
+            # informação. A ideia é dele ("temos /watch no VPS, não dá pra expandir?") e o
+            # trabalho é pequeno porque DUAS das três peças já eram nossas: o Whisper acima
+            # e o mesmo olho da foto abaixo. Faltava só extrair quadro.
+            visto = await _quadros_do_video(audio_bytes, ext, _visita_ctx)
+            partes = []
+            if texto:
+                partes.append(f"FALA: {texto}")
+            if visto:
+                partes.append(f"IMAGENS: {visto}")
+            if not partes:
+                return None
+            # UM bloco só, de propósito: o relatório precisa da fala e da imagem juntas.
+            # Dois eventos separados no histórico fariam o agente tratá-los como coisas
+            # diferentes, e é o mesmo instante da visita.
+            return "🎥 [vídeo recebido]: " + " · ".join(partes)
         return f"🎤 [áudio transcrito]: {texto}"
     except Exception as e:  # noqa: BLE001 — best-effort: midia nunca derruba o webhook
         logger.error("Webhook Chatwoot: falha ao processar midia (segue sem conteudo): %s", e)

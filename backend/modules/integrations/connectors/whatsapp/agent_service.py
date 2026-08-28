@@ -2979,6 +2979,95 @@ def _cotacao_do_dono() -> list[dict]:
     return saida
 
 
+async def _tool_falar_com_cliente(args: dict) -> dict:
+    """Manda UMA mensagem para UM cliente. Preview antes, envio depois.
+
+    ⭐ 28/08/2026 — o Jordan pediu "sonde", "pergunte", "faça o acompanhamento" sobre a Vega
+    e o José Luís não tinha como. Existia `followup_lote` (fala com TODOS de uma vez) e
+    `mandar_link_assinatura` (manda um link específico). Faltava a coisa mais simples:
+    dizer uma frase a UMA pessoa.
+
+    ⚠️ ISTO SAI DA EMPRESA e não desfaz. Por isso segue o molde do `followup_lote`, que é o
+    padrão da casa: `confirmar=false` devolve QUEM, QUAL NÚMERO e O TEXTO INTEIRO; só com
+    `confirmar=true` a mensagem parte. O Jordan lê antes de sair, e a decisão continua dele
+    — o pedido dele autoriza o envio, não a redação.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    ref = str(args.get("cliente") or "").strip()
+    msg = str(args.get("mensagem") or "").strip()
+    if not ref:
+        return {"erro": "informe o cliente (nome ou CNPJ do cadastro)."}
+    if len(msg) < 5:
+        return {"erro": "informe a mensagem que devo enviar — não invento o texto."}
+
+    async with async_session_factory() as db:
+        cli = (await db.execute(_t(
+            "SELECT name, coalesce(whatsapp,'') zap, coalesce(phone,'') fone, "
+            "       coalesce(technical_contact_phone,'') tec, "
+            "       coalesce(technical_contact_name,'') tec_nome "
+            "FROM clients WHERE upper(name) = upper(:r) OR name ILIKE :like "
+            "   OR regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = "
+            "      regexp_replace(:r,'[^0-9]','','g') "
+            "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"),
+            {"r": ref, "like": f"%{ref}%"})).mappings().first()
+
+    if not cli:
+        return {"erro": f"não achei o cliente {ref!r} no cadastro. Confira o nome."}
+
+    numero = re.sub(r"\D", "", cli["zap"] or cli["fone"] or cli["tec"] or "")
+    if not numero:
+        return {"erro": f"{cli['name']} não tem telefone no cadastro — não tenho para onde "
+                        "mandar. Me passe o número que eu gravo antes."}
+
+    if not args.get("confirmar"):
+        # Preview: quem, qual número, e o texto INTEIRO. Resumir aqui seria esconder
+        # justamente a parte que o Jordan precisa conferir.
+        return {"status": "preview", "cliente": cli["name"], "numero": numero,
+                "para": cli["tec_nome"] or None, "mensagem": msg,
+                "instrucao": ("Mostre ao Jordan o DESTINATÁRIO, o NÚMERO e o TEXTO exato, e "
+                              "pergunte se pode enviar. Só chame de novo com confirmar=true "
+                              "depois do 'pode mandar' dele.")}
+
+    from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
+        send_text_message,
+    )
+    try:
+        r = await send_text_message(numero, msg)
+    except Exception as e:  # noqa: BLE001
+        logger.error("falar_com_cliente: envio falhou para %s: %s", cli["name"], e)
+        return {"erro": f"não consegui enviar para {cli['name']}: {e}"}
+
+    logger.info("[jose-luis] mensagem enviada a %s (%s) a pedido do dono", cli["name"], numero)
+    return {"ok": True, "enviado_para": cli["name"], "numero": numero, "mensagem": msg,
+            "detalhe": str(r)[:200],
+            "instrucao": "Confirme ao Jordan que saiu, repetindo para QUEM foi."}
+
+
+_SCHEMA_FALAR = {
+    "type": "function",
+    "function": {
+        "name": "falar_com_cliente",
+        "description": (
+            "Manda UMA mensagem de WhatsApp para UM cliente do cadastro. Use quando o Jordan "
+            "disser 'sonde o X', 'pergunta pro Y', 'dá um toque no Z' ou 'faça o "
+            "acompanhamento com fulano'. SEMPRE chame primeiro sem `confirmar` para mostrar "
+            "a ele o destinatário, o número e o texto; só envie depois do 'pode mandar'. "
+            "Para falar com TODOS de uma vez existe followup_lote."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cliente": {"type": "string", "description": "Nome ou CNPJ do cadastro."},
+                "mensagem": {"type": "string", "description": "O texto exato a enviar."},
+                "confirmar": {"type": "boolean",
+                              "description": "false/ausente = só mostra. true = envia."},
+            },
+            "required": ["cliente", "mensagem"],
+        },
+    },
+}
+
+
 def _extras_do_dono() -> list[dict]:
     """TUDO que o dono tem além do registro, num lugar só.
 
@@ -2989,7 +3078,8 @@ def _extras_do_dono() -> list[dict]:
     Estas ficam FORA do registro compartilhado de propósito: registrá-las faria aparecerem
     também no Bartolo, que já tem as mesmas capacidades por outro caminho.
     """
-    return _leitura_campo() + _cotacao_do_dono() + [_SCHEMA_FORNECEDOR]
+    return (_leitura_campo() + _cotacao_do_dono()
+            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR])
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -4419,6 +4509,8 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "falar_com_cliente":
+                return await _tool_falar_com_cliente(args)
             if name == "cadastrar_fornecedor":
                 return await _tool_cadastrar_fornecedor(args)
             if name == "simular_preco":
