@@ -33,6 +33,14 @@ async def resolver_usuarios_por_roles(db: AsyncSession, roles: tuple[str, ...]) 
     rows = (await db.execute(text(
         "SELECT DISTINCT ON (lower(name)) id::text FROM users "
         "WHERE lower(coalesce(role,'')) = ANY(:roles) "
+        # ⭐ CONTA DE SERVIÇO NÃO É PESSOA. Medido em 27/08/2026: `mcp-service@` recebeu
+        # 78 alertas comerciais e leu 0 — porque é um robô. Junto com `admin@`, que está
+        # DESATIVADA, isso inflou 78 achados reais em 390 notificações e enterrou o sino:
+        # 1 lida em 390. O filtro vive AQUI e não em cada regra porque toda regra passa
+        # por este resolvedor — consertar num lugar conserta as onze.
+        "  AND lower(coalesce(email,'')) NOT LIKE 'mcp-service@%' "
+        "  AND lower(coalesce(email,'')) NOT LIKE 'admin@%' "
+        "  AND lower(coalesce(email,'')) NOT LIKE '%bot@%' "
         "  AND coalesce(is_active, true) = true "
         "ORDER BY lower(name), (lower(coalesce(email,'')) LIKE '%@conectamais.pro') DESC"),
         {"roles": [r.lower() for r in roles]})).fetchall()

@@ -131,16 +131,36 @@ async def main() -> int:
                 falhas.append(f"A PROPOSTA MUDOU STATUS antes da aprovação: "
                               f"{antes} → {depois}")
 
+        # 9 · CONTA DE SERVIÇO NÃO RECEBE ALERTA. Medido em 27/08/2026: `mcp-service@`
+        #     (robô) e `admin@` (desativada) receberam 78 alertas comerciais cada e leram
+        #     0. Cinco admins × 78 achados = 390 notificações, UMA lida. O sino não estava
+        #     morto — 9,5% do resto era lido; quem o matou foi este volume.
+        from modules.notifications.proativo.entrega import resolver_usuarios_por_roles
+
+        ids = await resolver_usuarios_por_roles(db, ("admin", "gerente_comercial",
+                                                     "comercial"))
+        emails = (await db.execute(text(
+            "SELECT lower(email) FROM users WHERE id::text = ANY(:i)"),
+            {"i": ids})).scalars().all()
+        robos = [e for e in emails if e.startswith(("mcp-service@", "admin@"))
+                 or "bot@" in e]
+        if robos:
+            falhas.append(f"conta de SERVIÇO no sino: {robos} — robô não lê notificação, "
+                          f"e cada uma multiplica o volume que enterra o canal")
+        if not any(e.startswith("jjesus@") for e in emails):
+            falhas.append("o Jordan NÃO está entre os destinatários do alerta comercial — "
+                          "o filtro apertou demais e agora ninguém recebe")
+
         await _limpar(db)
 
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK revisao_funil: 8/8 — `rejected` existe no enum; a revisão agrupa por "
+    print("OK revisao_funil: 9/9 — `rejected` existe no enum; a revisão agrupa por "
           "cliente do maior valor para o menor; recente fica FORA; valor zero é NOMEADO; "
           "recusa vazio, número nos dois lados e proposta já resolvida; e propor NÃO muda "
-          "status de proposta nenhuma.")
+          "status de proposta nenhuma; e conta de SERVIÇO não recebe alerta comercial.")
     return 0
 
 

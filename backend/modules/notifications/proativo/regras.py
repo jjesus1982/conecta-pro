@@ -1569,7 +1569,13 @@ _DIAS_RASCUNHO = 7
 _DIAS_SEM_RESPOSTA = 10
 _DIAS_LEAD_FRIO = 5
 
-#: Quem cuida de venda. `admin` entra porque o Jordan é o comercial desta casa.
+#: Quem cuida de venda.
+#: ⚠️ `admin` está aqui porque o Jordan é o comercial desta casa — mas admin nesta casa
+#: são CINCO contas, incluindo uma desativada e um robô. Medido em 27/08/2026: estas três
+#: regras geraram 390 notificações e UMA foi lida. O conserto de fundo está em
+#: `entrega.resolver_usuarios_por_roles` (contas de serviço fora), porque toda regra passa
+#: por lá. Se o volume continuar alto, o próximo passo é agrupar por CLIENTE em vez de uma
+#: notificação por proposta — 20 propostas do mesmo cliente são UM assunto.
 _ROLES_COMERCIAL = ("admin", "gerente_comercial", "comercial")
 
 
