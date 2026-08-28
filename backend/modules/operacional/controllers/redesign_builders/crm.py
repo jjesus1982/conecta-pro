@@ -334,10 +334,22 @@ async def build(db) -> dict:
         _opipe = await _scalar(db, "SELECT coalesce(sum(value),0) FROM opportunities WHERE stage::text NOT IN ('closed_won','closed_lost')")
         if isinstance(out.get("oportunidades"), dict):
             out["oportunidades"]["sub"] = f"{_ot} oportunidades · Em negociação {_oneg} · Em proposta {_oprop} · Pipeline {brl(_opipe)}"
-        _pt = await _scalar(db, "SELECT count(*) FROM proposals")
-        _pd = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='draft'")
-        _ps = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='sent'")
-        _pa = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='accepted'")
+        # ⚠️ `coalesce(is_active,true)` nas QUATRO, e isso não é detalhe: 16 das 33
+        # propostas estão soft-deleted (28/08/2026). Sem o filtro a TELA dizia "33
+        # propostas · Rascunho 22" enquanto o chat, já corrigido, dizia 16 e 7 — duas
+        # verdades sobre o mesmo funil, e quem abre a tela e pergunta ao José Luís recebe
+        # números diferentes no mesmo minuto.
+        # Regra da casa: valor de status novo (ou filtro novo) tem consumidor; conferir
+        # TODOS antes de declarar consertado — foi assim que 68 plantões sumiram do
+        # holerite.
+        _viva = " coalesce(is_active, true)"
+        _pt = await _scalar(db, "SELECT count(*) FROM proposals WHERE" + _viva)
+        _pd = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='draft'"
+                                " AND" + _viva)
+        _ps = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='sent'"
+                                " AND" + _viva)
+        _pa = await _scalar(db, "SELECT count(*) FROM proposals WHERE status::text='accepted'"
+                                " AND" + _viva)
         if isinstance(out.get("propostas"), dict):
             out["propostas"]["sub"] = f"{_pt} propostas · Rascunho {_pd} · Enviadas {_ps} · Aprovadas {_pa}"
         _ct = await _scalar(db, "SELECT count(*) FROM commissions")
