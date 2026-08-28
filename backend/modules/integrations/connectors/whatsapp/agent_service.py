@@ -5081,13 +5081,41 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         return texto or None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente: falha ao gerar resposta conv=%s: %s", conversation_id, e)
-        # Mesma regra na exceção: ninguém recebe o vazio.
+
+        # 🔴 28/08/2026 — ESTA FRASE INUNDOU A TELA DO JORDAN: 9 vezes em 63 segundos.
+        # Duas falhas minhas, e a segunda é pior:
+        #
+        # 1. O teto que eu pus no P1 cobria o caminho do turno VAZIO e não este, o da
+        #    EXCEÇÃO. Consertei um irmão e deixei o outro — de novo.
+        # 2. A frase PEDIA REENVIO. Com erro estrutural (o 400 do `reasoning_content`),
+        #    reenviar não pode ajudar: cada reenvio produz outra falha e outra frase.
+        #    **A frase pedia o gesto que a realimentava.** O intervalo entre elas caiu de
+        #    13s para 3s — não era backoff, era ele obedecendo.
+        #
+        # Regra nova: pedir uma ação ao usuário só quando essa ação PODE mudar o resultado.
+        _ja_avisei = False
+        try:
+            from core.cache.redis import get_redis  # noqa: PLC0415
+
+            _r = await get_redis()
+            _k = f"jl:falha:conv:{conversation_id}"
+            _ja_avisei = bool(await _r.get(_k))
+            await _r.set(_k, "1", ex=300)
+        except Exception:  # noqa: BLE001
+            pass
+        if _ja_avisei:
+            # Já avisei há pouco. Repetir é a gagueira que enche a tela — cala e deixa o
+            # rastro no log. O varredor de `in` sem `out` pega quando a causa passar.
+            logger.error("Agente: conv=%s falhou DE NOVO em menos de 5 min — silenciando a "
+                         "frase de erro para não inundar a conversa", conversation_id)
+            return None
         return (
-            "Tive uma falha ao processar aqui e não consegui responder — o erro ficou no "
-            "log. Reenvie a última mensagem, por favor."
+            "Estou com um problema técnico aqui e não consegui montar a resposta. Já "
+            "registrei o erro. NÃO precisa reenviar — reenviar não resolve este caso. "
+            "Me dá alguns minutos."
             if owner else
-            "Desculpa, tive um problema aqui e não consegui responder agora. Pode repetir, "
-            "por favor? Se for urgente, me diga que eu chamo alguém da equipe."
+            "Desculpa, estou com um problema técnico e não consigo te responder agora. "
+            "Vou chamar alguém da equipe para falar com você."
         )
 
 
