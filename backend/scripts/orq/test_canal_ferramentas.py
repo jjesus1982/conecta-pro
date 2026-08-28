@@ -96,7 +96,23 @@ def main() -> int:
                 falhas.append(
                     f"cota={flag}: lista EXTERNA derivada difere da local — "
                     f"só numa delas: {sorted(set(local) ^ set(derivado))}")
-        local_i = nomes(A.MANAGER_TOOLS)
+        # ⚠️ 28/08/2026 — a invariante mudou de forma, não de rigor. O conjunto do dono
+        # deixou de ser SÓ o registro: ganhou duas adições deliberadas, cada uma com o seu
+        # construtor nomeado — `_leitura_campo()` (consultar_comercial) e
+        # `_cotacao_do_dono()` (simular_preco, montar_proposta). Elas ficam FORA do registro
+        # de propósito: registrá-las faria aparecerem também no Bartolo, que já tem as
+        # capacidades por outro caminho.
+        #
+        # A comparação passa a ser contra `registro ∪ adições NOMEADAS`, e não contra um
+        # "ignore as diferenças": tool que entrar na lista do dono sem passar por um desses
+        # dois construtores continua derrubando este teste. Afrouxar seria trocar a parede
+        # por um aviso.
+        #
+        # ⭐ E registro o que este teste apanhou: a etapa 1 (consultar_comercial) foi ao ar
+        # com ele VERMELHO porque eu rodei os oráculos irmãos que me lembrei, não os que
+        # tocavam o mesmo arquivo. `git grep` do símbolo alterado teria dito quais eram.
+        adicoes = nomes(A._leitura_campo() + A._cotacao_do_dono())
+        local_i = sorted(set(nomes(A.MANAGER_TOOLS)) | set(adicoes))
         deriv_i = nomes(A._tools_ativas(owner=True))
         if local_i != deriv_i:
             falhas.append(f"lista INTERNA derivada difere da local — só numa delas: "

@@ -2549,6 +2549,54 @@ def _cotacao_publica(r: dict, postos, meses) -> dict:
     }
 
 
+def _cotacao_dono(r: dict, postos, meses) -> dict:
+    """A MESMA ficha, sem redação — é o dono olhando o próprio custo.
+
+    ⚠️ Espelho de `_cotacao_publica` e o oposto dela: lá custo/encargo/margem são lista
+    negra; aqui são o conteúdo. Quem separa os dois não é o texto do prompt, é QUEM
+    PERGUNTA — `_exec_manager_tool` só roda atrás de `is_owner(telefone)`.
+
+    A ordem é deliberada: custo ANTES do preço. O Jordan precisa ver a base antes da
+    margem, senão o número final vira palpite com aparência de tabela — a mesma razão
+    pela qual a cotação de fornecedor tem de mostrar o custo antes do markup.
+    """
+    postos = _int_clamp(postos, 1, 1, 200)
+    meses = _int_clamp(meses, 12, 1, 60)
+    unit = round(float(r.get("preco") or 0), 2)
+    n = lambda k: round(float(r.get(k) or 0), 2)  # noqa: E731
+    return {
+        "ok": True,
+        "funcao": r.get("funcao"),
+        "adicionais": r.get("adicionais"),
+        "postos": postos,
+        "meses": meses,
+        "composicao": {
+            "salario_base": n("salario_base"),
+            "adicionais_soma": round(sum(n(k) for k in (
+                "adic_noturno", "adic_hora_reduzida", "adic_ronda",
+                "adic_intrajornada", "adic_risco")), 2),
+            "salario_bruto": n("salario_bruto"),
+            "encargos": n("encargos"),
+            "encargos_pct": r.get("encargos_pct"),
+            "beneficios_vt_vr": n("beneficios"),
+            "repasse_cct": n("repasse"),
+            "CUSTO_TOTAL": n("custo_total"),
+            "tributos_pct": r.get("tributos_pct"),
+            "margem_pct": r.get("margem"),
+            "lucro_liquido": n("lucro_liquido"),
+        },
+        "preco_posto_mes": unit,
+        "mensal": round(unit * postos, 2),
+        "contrato": round(unit * postos * meses, 2),
+        "instrucao": (
+            "Você está falando com o DONO. Mostre a COMPOSIÇÃO antes do preço: custo total, "
+            "encargos, benefícios, tributos e margem — e só então o valor por posto/mês. "
+            "Os números são da tabela CCT do banco, não estime nada. A margem da mão de obra "
+            "é a que veio na ficha; os 35% são da Eletrônica e não se aplicam aqui."
+        ),
+    }
+
+
 def _cota_em_chat() -> bool:
     """Política do Jordan: cotar em chat é decisão de negócio, não de código.
     Desligada por padrão — o SYSTEM_PROMPT proíbe preço em 6 pontos e essa
@@ -2734,6 +2782,44 @@ def _garantir_registro_crm() -> None:
     montar_read_dispatchers()
 
 
+#: 28/08/2026 — o motor de precificação da CCT existia, com 24 parâmetros e DOZE deles
+#: marcados "CONFIRMADO Jordan 2026-08-10", e o único que não o alcançava era o Jordan:
+#: `simular_preco` e `montar_proposta` viviam só em `_PAPEIS["sdr"]`, o papel do número
+#: ANÔNIMO. Um desconhecido no WhatsApp cotava um posto de portaria; o dono não.
+#: `pricing_simulations`: 0 linhas. Construído, parametrizado, confirmado e desligado.
+_DESC_DONO = {
+    "simular_preco": (
+        "Cota um posto pela tabela CCT do banco e devolve a COMPOSIÇÃO COMPLETA: salário "
+        "base, adicionais, encargos, benefícios (VT/VR), repasse da CCT, custo total, "
+        "tributos, margem e lucro — e só então o preço por posto/mês. Use sempre que a "
+        "pergunta for de preço, custo ou margem de mão de obra. NUNCA calcule por conta "
+        "própria. Sem a função, chame sem argumento para receber a lista."),
+    "montar_proposta": (
+        "Monta um RASCUNHO de proposta a partir da cotação e o deixa na Central de "
+        "Aprovações. NÃO envia nada ao cliente e NÃO fecha negócio."),
+}
+
+
+def _cotacao_do_dono() -> list[dict]:
+    """As duas tools de precificação com a descrição do DONO.
+
+    Derivadas dos MESMOS schemas do cliente (`TOOLS_COTACAO`): reescrever o schema à mão é
+    como se inventa typo em produção. Só a descrição muda, porque só ela muda de leitor.
+
+    ⚠️ NÃO mexe em `_PAPEIS["sdr"]`. O conjunto do cliente continua exatamente o que era —
+    o dono GANHA, o cliente não perde, e o oráculo mede os dois lados.
+    """
+    saida = []
+    for spec in TOOLS_COTACAO:
+        fn = dict((spec.get("function") or {}))
+        nome = fn.get("name")
+        if nome not in _DESC_DONO:
+            continue
+        fn["description"] = _DESC_DONO[nome]
+        saida.append({"type": "function", "function": fn})
+    return saida
+
+
 def _schema_leitura_campo() -> list[dict]:
     """O schema da leitura comercial em campo, DERIVADO do registro do Bartolo.
 
@@ -2806,7 +2892,8 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         # novo faria a tool aparecer também no Bartolo (que já tem `consultar_crm`), e
         # duplicar capacidade no prompt dele é custo sem ganho. Aqui a lista é uma só e o
         # enum dela é derivado do mesmo `_READ_OPS`.
-        return (_do_registro("interno") or MANAGER_TOOLS) + _leitura_campo()
+        return ((_do_registro("interno") or MANAGER_TOOLS)
+                + _leitura_campo() + _cotacao_do_dono())
     # O registro é a FONTE; as listas locais são o fallback se a publicação falhar (o
     # atendimento não pode cair porque o registro compartilhado teve problema).
     base = _do_registro("publico") or (
@@ -2918,7 +3005,7 @@ def _achatar(s) -> str:
     return "".join(c for c in t if not unicodedata.combining(c))
 
 
-async def _tool_simular_preco(args: dict) -> dict:
+async def _tool_simular_preco(args: dict, *, dono: bool = False) -> dict:
     """Cota pela tabela CCT do banco. O agente CONSULTA, nunca calcula.
 
     Reusa modules.crm.services.pricing_cct (Lucro Real, CCT 2026, método do
@@ -2948,7 +3035,8 @@ async def _tool_simular_preco(args: dict) -> dict:
                     "Portaria, ASG = Auxiliar de Serviços Gerais) e chame de novo. NÃO estime valor.",
                 }
             ficha = await pricing_cct.calcular_funcao(db, dict(alvo))
-        return _cotacao_publica(ficha, args.get("postos"), args.get("meses"))
+        proj = _cotacao_dono if dono else _cotacao_publica
+        return proj(ficha, args.get("postos"), args.get("meses"))
     except Exception as e:  # noqa: BLE001 — cotação nunca derruba o atendimento
         logger.error("simular_preco: %s", e)
         return {"erro": "nao foi possivel consultar a tabela de precos agora"}
@@ -4148,6 +4236,12 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "simular_preco":
+                # Mesma engine do cliente, projeção do DONO: a diferença é QUEM PERGUNTA,
+                # e esta função só roda atrás de `is_owner(telefone)`.
+                return await _tool_simular_preco(args, dono=True)
+            if name == "montar_proposta":
+                return await _tool_montar_proposta(args, conversation_id)
             if name == "consultar_comercial":
                 # ETAPA 1 — leitura do comercial em campo. DUAS paredes em série:
                 #   (1) a allow-list daqui: consulta fora dela não passa, mesmo existindo
