@@ -4889,9 +4889,26 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
         if not owner and not em_acompanhamento and not situacao_sensivel:
             texto = await _reforcar_cnpj(conversation_id, texto, rows)
+        if not texto and owner:
+            # ⭐ 28/08/2026 — SILÊNCIO É A ÚNICA RESPOSTA QUE O JORDAN NÃO CONSEGUE DEPURAR.
+            # Ele esperou 3 minutos e cobrou ("não me deu retorno"). Turno sem texto acontece
+            # por motivos legítimos — teto de tokens, rodadas esgotadas, pedido que não tem
+            # ferramenta. Nenhum deles justifica não dizer nada.
+            #
+            # Só para o DONO: mandar frase de sistema a um número anônimo é pior que calar,
+            # porque o cliente não sabe o que fazer com ela. Ele sim.
+            logger.warning("Agente: conv=%s turno terminou SEM texto — respondendo com "
+                           "aviso em vez de silêncio (rounds=%s)", conversation_id, rounds)
+            texto = ("Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
+                     "ferramenta para o que você pediu ou a resposta passou do tamanho. "
+                     "Me diga em uma frase o que é mais urgente aí que eu ataco só isso.")
         return texto or None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente: falha ao gerar resposta conv=%s: %s", conversation_id, e)
+        if owner:
+            # Mesma regra na exceção: o dono recebe uma frase, não o vazio.
+            return ("Tive uma falha ao processar aqui e não consegui responder — o erro "
+                    "ficou no log. Reenvie a última mensagem, por favor.")
         return None
 
 
@@ -5063,7 +5080,8 @@ async def _toggle_typing(conversation_id: int, on: bool) -> None:
         logger.debug("Agente typing: %s", e)
 
 
-async def processar_incoming(conversation_id: int, phone: str | None = None) -> None:
+async def processar_incoming(conversation_id: int, phone: str | None = None,
+                             *, _passes: int = 0) -> None:
     """Entrypoint do BackgroundTask, com LOCK por conversa via REDIS (SET NX EX).
 
     Evita respostas concorrentes numa rajada de mensagens: a 1a pega o lock e responde lendo
@@ -5092,8 +5110,24 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
         got_lock = bool(await redis.set(lock_key, token, nx=True, ex=ttl))
     except Exception:  # noqa: BLE001 — Redis indisponível -> processa sem lock (não pior que antes)
         redis = None
+    # ⭐ 28/08/2026 — AQUI o debounce DESCARTAVA, e foi isto que calou o José Luís. O Jordan
+    # mandou sete mensagens em 2min36s (texto, PDF, contato, "sonde", "pergunte", "registre"
+    # e "não me deu retorno"): a primeira pegou o lock, as SEIS seguintes caíram num `return`
+    # puro. Inclusive a reclamação. Um único turno que falha em silêncio levava a rajada
+    # inteira junto — e rajada é o modo natural de escrever dele.
+    #
+    # A intenção do debounce está certa (não responder duas vezes). A mecânica estava errada:
+    # quem não pega o lock não pode DESCARTAR, tem de deixar um sinal. Quem segura o lock lê
+    # o sinal ao terminar e reprocessa — e como `_processar_incoming_inner` relê a conversa
+    # inteira, as seis mensagens viram UMA resposta, não seis.
+    pend_key = f"jl:pend:conv:{conversation_id}"
     if redis is not None and not got_lock:
-        logger.info("processar_incoming: conv=%s já em processamento — pulando (debounce)", conversation_id)
+        try:
+            await redis.set(pend_key, "1", ex=ttl)
+        except Exception:  # noqa: BLE001
+            pass
+        logger.info("processar_incoming: conv=%s em processamento — ADIADA (chegou "
+                    "mensagem nova; será relida ao fim do turno atual)", conversation_id)
         return
     try:
         await _processar_incoming_inner(conversation_id, phone)
@@ -5109,6 +5143,18 @@ async def processar_incoming(conversation_id: int, phone: str | None = None) -> 
                 )
             except Exception:  # noqa: BLE001
                 pass
+            # Chegou coisa nova enquanto eu respondia? Relê UMA vez.
+            # ⚠️ `_passes` limita a 3: sem teto, uma conversa muito ativa faz o agente
+            # reprocessar para sempre e vira o oposto do debounce.
+            try:
+                if await redis.getdel(pend_key) and _passes < 3:
+                    logger.info("processar_incoming: conv=%s chegou mensagem durante o "
+                                "turno — reprocessando (passe %d)", conversation_id, _passes + 1)
+                    await processar_incoming(conversation_id, phone, _passes=_passes + 1)
+            except Exception:  # noqa: BLE001
+                logger.exception("processar_incoming: conv=%s falhou ao reprocessar o "
+                                 "pendente — mensagem pode ter ficado sem resposta",
+                                 conversation_id)
 
 
 async def _processar_incoming_inner(conversation_id: int, phone: str | None = None) -> None:
