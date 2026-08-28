@@ -4905,6 +4905,33 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # Silêncio para quem paga é mais caro que silêncio para quem manda consertar.
             logger.warning("Agente: conv=%s turno terminou SEM texto — respondendo em vez "
                            "de calar (owner=%s rounds=%s)", conversation_id, owner, rounds)
+
+            # ⚠️ TETO NA DESCULPA (28/08/2026). "Não consegui responder" saiu CINCO vezes em
+            # 70 segundos na mesma conversa — e saiu para FORA, para outra empresa. Falar em
+            # vez de calar era o objetivo; repetir a mesma desculpa vira gagueira, e o
+            # cliente lê como sistema quebrado. Pior que o silêncio que eu tinha consertado.
+            #
+            # Segunda falha seguida não repete a frase: ESCALA. Para o cliente, oferecer
+            # humano é a única saída honesta — insistir seria fingir que a próxima tentativa
+            # vai dar certo, e ela acabou de não dar duas vezes.
+            _repetiu = False
+            try:
+                from core.cache.redis import get_redis  # noqa: PLC0415
+
+                _r = await get_redis()
+                _k = f"jl:falha:conv:{conversation_id}"
+                _repetiu = bool(await _r.get(_k))
+                await _r.set(_k, "1", ex=300)
+            except Exception:  # noqa: BLE001
+                pass
+
+            if _repetiu:
+                return ("Falhei duas vezes seguidas aqui, Jordan — não vou repetir a mesma "
+                        "desculpa. Olhe o log do backend; alguma ferramenta deve estar "
+                        "quebrada." if owner else
+                        "Não estou conseguindo te atender direito agora. Vou chamar alguém "
+                        "da equipe para falar com você.")
+
             texto = (
                 # ao dono: direto, nomeia a causa provável, e pede o que priorizar
                 "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
@@ -5098,6 +5125,11 @@ async def _toggle_typing(conversation_id: int, on: bool) -> None:
         logger.debug("Agente typing: %s", e)
 
 
+#: Saídas em 5 min que caracterizam ECO. Medido em 28/08/2026 sobre 7 dias:
+#: loop com bot = 16 · maior uso humano legítimo = 8. Env para poder afrouxar sem bake.
+_LOOP_TETO = int(_env_num("AGENT_LOOP_TETO_5MIN", 12))
+
+
 async def processar_incoming(conversation_id: int, phone: str | None = None,
                              *, _passes: int = 0) -> None:
     """Entrypoint do BackgroundTask, com LOCK por conversa via REDIS (SET NX EX).
@@ -5138,6 +5170,58 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
     # quem não pega o lock não pode DESCARTAR, tem de deixar um sinal. Quem segura o lock lê
     # o sinal ao terminar e reprocessa — e como `_processar_incoming_inner` relê a conversa
     # inteira, as seis mensagens viram UMA resposta, não seis.
+    # ⭐ GUARDA DE LOOP (28/08/2026). Em 10 minutos o José Luís trocou 48 mensagens com
+    # "Claudinho, atendente da Campos Tecnologia" — outro BOT. Os dois se cumprimentavam,
+    # se apresentavam e recomeçavam. O bot chegou a "pedir orçamento" e virou LEAD no CRM,
+    # sendo CONCORRENTE (portaria e segurança).
+    #
+    # Custo não é só LLM: é o número da empresa disparando dezenas de mensagens para fora,
+    # e é assim que número cai no WhatsApp.
+    #
+    # ⚠️ O TETO É MEDIDO, não chutado. Pico de SAÍDA em 5 min, 7 dias:
+    #     loop com o bot ..... 16
+    #     maior uso legítimo .. 8   (o Jordan em campo, com a coalescência, faz 6)
+    # 12 fica acima de tudo que é real e abaixo do loop. Conto SAÍDA e não entrada de
+    # propósito: com a coalescência, rajada legítima de 7 mensagens vira 1 resposta — quem
+    # dispara muito é quem está em eco.
+    if redis is not None:
+        try:
+            if await redis.get(f"jl:loop:conv:{conversation_id}"):
+                logger.warning("processar_incoming: conv=%s em GUARDA DE LOOP — não "
+                               "respondo (janela de silêncio ativa)", conversation_id)
+                if got_lock:
+                    await redis.eval(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then return "
+                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                return
+            from sqlalchemy import text as _t  # noqa: PLC0415
+
+            async with async_session_factory() as _db:
+                saidas = (await _db.execute(_t(
+                    "SELECT count(*) FROM cwi_message_log "
+                    "WHERE chatwoot_conversation_id = :c AND direction = 'out' "
+                    "  AND created_at > now() - interval '5 minutes'"),
+                    {"c": conversation_id})).scalar() or 0
+            if int(saidas) >= _LOOP_TETO:
+                # 30 min de silêncio NESTA conversa. Não derruba as outras.
+                await redis.set(f"jl:loop:conv:{conversation_id}", "1", ex=1800)
+                logger.error("[jose-luis] LOOP detectado conv=%s — %s saídas em 5 min. "
+                             "Silenciando esta conversa por 30 min.", conversation_id, saidas)
+                await _post_private_note(
+                    conversation_id,
+                    f"⚠️ *Parei de responder aqui.* Enviei {saidas} mensagens nos últimos 5 "
+                    "minutos — isso costuma ser conversa com outro robô, não com pessoa. "
+                    "Fico em silêncio por 30 minutos. Se for cliente de verdade, responda "
+                    "por aqui que eu volto.")
+                if got_lock:
+                    await redis.eval(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then return "
+                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                return
+        except Exception:  # noqa: BLE001 — guarda quebrada não pode calar o agente
+            logger.exception("processar_incoming: conv=%s guarda de loop falhou — seguindo",
+                             conversation_id)
+
     # ⭐ TRAVA DA JANELA CEGA (28/08/2026). Com a análise de mídia fora do webhook, existe
     # um instante em que a mensagem JÁ está no histórico e a descrição da foto ainda não.
     # Responder aí é o pior defeito possível: o agente falaria sobre a foto sem tê-la visto

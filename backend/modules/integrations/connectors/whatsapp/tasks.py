@@ -567,6 +567,18 @@ def varrer_sem_resposta(self):  # noqa: ARG001
 # `jl:midia:conv:*`: enquanto houver anexo em análise, `processar_incoming` ADIA.
 MARCA_ANALISE = "📎 [analisando anexo(s)…]"
 
+#: Marcado por `controller._transcrever_audio_attachments` quando o provedor recusa por
+#: saldo. Existe porque aquele bloco engole a exceção de propósito (anexo ruim não pode
+#: derrubar o webhook) — e sem isto a causa "sem crédito" chegaria ao Jordan como
+#: "arquivo ilegível", que o faria tentar de novo para sempre.
+_ULTIMO_ERRO: dict[str, bool] = {"sem_credito": False}
+
+
+def _ultimo_erro_sem_credito() -> bool:
+    v = _ULTIMO_ERRO.get("sem_credito")
+    _ULTIMO_ERRO["sem_credito"] = False
+    return bool(v)
+
 
 @app.task(name="whatsapp.analisar_midia", bind=True, max_retries=2,
           acks_late=True, default_retry_delay=15)
@@ -581,14 +593,31 @@ def analisar_midia(self, conv_id: int, msg_id, payload: dict, phone: str | None 
     chave = f"jl:midia:conv:{conv_id}"
 
     async def _trabalho(session):
+        _sem_credito = False
         try:
             desc = await C._transcrever_audio_attachments(payload, conv_id)
         except Exception as e:  # noqa: BLE001
             logger.error("analisar_midia conv=%s falhou: %s", conv_id, e)
             desc = None
+            _sem_credito = "credit" in str(e).lower() or "insufficient_quota" in str(e).lower()
+        if desc is None and not _sem_credito:
+            # A falha é engolida dentro do `_transcrever_...` (ele nunca derruba o webhook),
+            # então o motivo só existe no log. Lemos de lá o que o `except` não viu.
+            _sem_credito = bool(_ultimo_erro_sem_credito())
         # Sem descrição NÃO some a marca em silêncio: o agente precisa saber que veio anexo
         # e que não deu para ler — senão responde como se nada tivesse chegado.
-        texto = desc or "📎 [anexo recebido — não consegui interpretar o conteúdo]"
+        #
+        # ⚠️ E A CAUSA IMPORTA (28/08/2026): "sem crédito na conta" e "arquivo ilegível" não
+        # podem usar a mesma frase. A segunda faz o Jordan achar que a foto dele era ruim e
+        # tentar de novo — quando o que falta é saldo na OpenAI, onde vive o Whisper.
+        # Áudio e vídeo passam por lá; foto vai pela DeepSeek.
+        if desc:
+            texto = desc
+        elif _sem_credito:
+            texto = ("📎 [anexo recebido — NÃO consegui transcrever: a conta de "
+                     "transcrição (OpenAI) está sem crédito. Não é o arquivo.]")
+        else:
+            texto = "📎 [anexo recebido — não consegui interpretar o conteúdo]"
         await session.execute(_t(
             "UPDATE cwi_message_log SET content = replace(content, :marca, :texto) "
             "WHERE chatwoot_message_id = :m"),

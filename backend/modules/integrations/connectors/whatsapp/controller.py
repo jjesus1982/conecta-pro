@@ -564,6 +564,19 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
         return f"🎤 [áudio transcrito]: {texto}"
     except Exception as e:  # noqa: BLE001 — best-effort: midia nunca derruba o webhook
         logger.error("Webhook Chatwoot: falha ao processar midia (segue sem conteudo): %s", e)
+        # ⚠️ 28/08/2026 — a CAUSA precisa sobreviver a este `except`. Ele engole de
+        # propósito (anexo ruim não derruba o webhook), e por isso quem chama só sabe
+        # "deu None". Sem esta marca, "a conta está sem crédito" chegava ao Jordan como
+        # "não consegui interpretar o conteúdo" — e ele tentaria reenviar a foto para
+        # sempre, achando que o arquivo era ruim.
+        try:
+            from modules.integrations.connectors.whatsapp import tasks as _t  # noqa: PLC0415
+
+            _msg = str(e).lower()
+            _t._ULTIMO_ERRO["sem_credito"] = (
+                "credit" in _msg or "insufficient_quota" in _msg or "billing" in _msg)
+        except Exception:  # noqa: BLE001
+            pass
         return None
 
 
