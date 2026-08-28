@@ -302,17 +302,31 @@ async def aprovar_rascunho(
     # Dinheiro/eSocial: NÃO executa aqui. Autoriza e leva à tela de OTP existente (parede intocada).
     if draft.requires_otp:
         draft.status = "aprovado"
-        draft.decidido_por = current_user.id
+        draft.decidido_por = current_user.id  # sem rollback neste caminho: seguro
         draft.decidido_em = datetime.now(timezone.utc)
         await db.commit()
         return {"ok": True, "needsOtp": True,
                 "message": "Autorizado. Conclua o envio com OTP na tela de pagamento/eSocial.",
                 "action_url": (draft.payload or {}).get("action_url_execucao")}
 
+    # ⚠️ MESMA ARMADILHA DO LOTE, 57 LINHAS ABAIXO — e eu consertei lá e deixei aqui, no
+    # mesmo arquivo, com o remédio escrito ao lado (28/08/2026). `await db.rollback()`
+    # expira TODOS os objetos da sessão, inclusive o `current_user`. Tocá-lo DEPOIS do
+    # rollback dispara lazy-load fora do contexto async: `MissingGreenlet`.
+    #
+    # ⭐ E o estrago não é o 500: é que o `except` que deveria GRAVAR o motivo da falha
+    # morre antes de commitar. O erro original vira a primeira vítima do tratador de erro,
+    # e o rascunho fica com `erro_execucao = NULL` — indistinguível de "nunca foi tentado".
+    # Foi exatamente o que o Jordan viu ao aprovar a proposta da Vega: "não foi possível
+    # salvar", e nenhum rastro no banco.
+    #
+    # A identidade sai da sessão ANTES do try, em valor simples. Igual ao lote.
+    uid = current_user.id
+
     # 🔵/🟡 (não-dinheiro): executa o serviço de domínio REAL.
     try:
         entity_ref = await executar_rascunho(db, current_user, draft)
-        draft.decidido_por = current_user.id
+        draft.decidido_por = uid
         draft.decidido_em = datetime.now(timezone.utc)
         await db.commit()
     except Exception as e:  # noqa: BLE001 — falha de execução vira status 'falha' durável, não 500 mudo
@@ -320,7 +334,7 @@ async def aprovar_rascunho(
         d2 = await _get_rascunho(db, draft_id)
         d2.status = "falha"
         d2.erro_execucao = str(e)[:500]
-        d2.decidido_por = current_user.id
+        d2.decidido_por = uid
         d2.decidido_em = datetime.now(timezone.utc)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Aprovado, mas a execução falhou: {e}")
