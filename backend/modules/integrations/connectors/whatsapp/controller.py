@@ -358,35 +358,54 @@ async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> st
         with open(entrada, "wb") as f:
             f.write(video_bytes)
 
-        # `select='gt(scene,X)'` + `vsync vfr`: um quadro por CORTE, não por relógio.
-        proc = await _a.create_subprocess_exec(
-            "ffmpeg", "-nostdin", "-loglevel", "error", "-i", entrada,
-            "-vf", f"select='gt(scene,{_VIDEO_CENA})',scale={_VIDEO_LARGURA}:-2",
-            "-vsync", "vfr", "-frames:v", str(_VIDEO_MAX_QUADROS),
-            os.path.join(tmp, "q_%02d.jpg"),
-            stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.PIPE)
-        try:
-            _, err = await _a.wait_for(proc.communicate(), timeout=120)
-        except TimeoutError:
-            proc.kill()
-            logger.warning("Webhook Chatwoot: ffmpeg estourou 120s — vídeo só com a fala")
-            return ""
-
-        quadros = sorted(x for x in os.listdir(tmp) if x.startswith("q_"))
-        if not quadros:
-            # Vídeo sem corte de cena (câmera parada) — pega ao menos o primeiro quadro,
-            # senão um vídeo curto e estável renderia nada.
-            proc2 = await _a.create_subprocess_exec(
+        async def _ffmpeg(vf: str, n: int, prefixo: str) -> int:
+            proc = await _a.create_subprocess_exec(
                 "ffmpeg", "-nostdin", "-loglevel", "error", "-i", entrada,
-                "-vf", f"scale={_VIDEO_LARGURA}:-2", "-frames:v", "1",
-                os.path.join(tmp, "q_01.jpg"),
-                stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.DEVNULL)
-            await _a.wait_for(proc2.communicate(), timeout=60)
-            quadros = sorted(x for x in os.listdir(tmp) if x.startswith("q_"))
+                "-vf", vf, "-vsync", "vfr", "-frames:v", str(n),
+                os.path.join(tmp, prefixo + "%02d.jpg"),
+                stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.PIPE)
+            try:
+                await _a.wait_for(proc.communicate(), timeout=120)
+            except TimeoutError:
+                proc.kill()
+                logger.warning("Webhook Chatwoot: ffmpeg estourou 120s")
+            return len([x for x in os.listdir(tmp) if x.startswith(prefixo)])
+
+        # ⭐ HÍBRIDO: corte de cena + PISO TEMPORAL. E o piso não é precaução — é o que
+        # de fato funciona para o modo de filmar do Jordan. MEDIDO em 28/08/2026 com o
+        # vídeo REAL dele (The Sun, 30,9s, ele caminhando e narrando):
+        #     limiar 0.30 -> 0 quadros · 0.15 -> 0 quadros · 0.08 -> 1 quadro
+        #     piso de 1 a cada 5s -> 6 quadros
+        # Ele CAMINHA filmando: não há corte, há variação gradual. A detecção de cena
+        # sozinha — que era o meu desenho — entregaria ZERO e o vídeo seguiria valendo só
+        # pela fala, que é exatamente o problema de que a gente acabou de sair.
+        # Cena continua primeiro porque, quando existe corte, ele marca o momento CERTO.
+        n_cena = await _ffmpeg(
+            f"select='gt(scene,{_VIDEO_CENA})',scale={_VIDEO_LARGURA}:-2",
+            _VIDEO_MAX_QUADROS, "q_")
+        if n_cena < _VIDEO_MAX_QUADROS:
+            # Preenche o resto pelo relógio. Intervalo derivado da DURAÇÃO para cobrir o
+            # vídeo inteiro em vez de amontoar no começo.
+            dur = 0.0
+            try:
+                pr = await _a.create_subprocess_exec(
+                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=nw=1:nk=1", entrada,
+                    stdout=_a.subprocess.PIPE, stderr=_a.subprocess.DEVNULL)
+                out, _ = await _a.wait_for(pr.communicate(), timeout=30)
+                dur = float((out or b"0").decode().strip() or 0)
+            except Exception:  # noqa: BLE001
+                dur = 0.0
+            faltam = _VIDEO_MAX_QUADROS - n_cena
+            intervalo = max(2.0, dur / max(faltam, 1)) if dur > 0 else 5.0
+            await _ffmpeg(f"fps=1/{intervalo:.2f},scale={_VIDEO_LARGURA}:-2", faltam, "t_")
+
+        quadros = sorted(x for x in os.listdir(tmp) if x.startswith(("q_", "t_")))
         if not quadros:
-            logger.warning("Webhook Chatwoot: nenhum quadro extraído (%s)",
-                           (err or b"")[:120].decode("utf-8", "ignore"))
+            logger.warning("Webhook Chatwoot: nenhum quadro extraído do vídeo")
             return ""
+        logger.info("Webhook Chatwoot: vídeo -> %s por cena + %s por tempo",
+                    n_cena, len(quadros) - n_cena)
 
         from core.llm_client import modelo_visao  # noqa: PLC0415
 
@@ -506,11 +525,21 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             session.get(data_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp,
         ):
             if resp.status != 200:
-                logger.warning("Webhook Chatwoot: download de audio HTTP %s (%s)", resp.status, data_url[:120])
-                return None
+                logger.warning("Webhook Chatwoot: download de %s HTTP %s (%s)",
+                               kind, resp.status, data_url[:120])
+                return f"📎 [{kind} recebido — não consegui baixar o arquivo (HTTP {resp.status})]"
+            # ⚠️ 28/08/2026 — ANEXO GRANDE DEIXOU DE SUMIR EM SILÊNCIO. O teto de 16 MB
+            # foi dimensionado para ÁUDIO; os vídeos da visita do Jordan vieram com 3,6 a
+            # 7,7 MB e passaram raspando. Um vídeo de 2 minutos passa de 16 MB, e até aqui
+            # ele era descartado sem uma palavra: o Jordan filmaria o levantamento inteiro
+            # e nada apareceria no relatório, sem erro em lugar nenhum.
+            # É o terceiro irmão do `if not texto: return None` — a família que engole
+            # mídia calada.
             if resp.content_length and resp.content_length > _AUDIO_MAX_BYTES:
-                logger.warning("Webhook Chatwoot: audio excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
-                return None
+                logger.warning("Webhook Chatwoot: %s excede %sMB — ignorado",
+                               kind, _AUDIO_MAX_BYTES // 1048576)
+                return (f"📎 [{kind} recebido — NÃO analisado: passa de "
+                        f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]")
             # Lê o CORPO COMPLETO em chunks. (resp.content.read(N) faz leitura PARCIAL em arquivos
             # multi-chunk -> documento TRUNCADO: DOCX vira "not a zip", PDF/PPTX/XLSX vêm vazios.
             # Áudio/imagem menores passavam por sorte. Cap de tamanho mantido.)
@@ -518,8 +547,10 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             async for _chunk in resp.content.iter_chunked(65536):
                 audio_bytes += _chunk
                 if len(audio_bytes) > _AUDIO_MAX_BYTES:
-                    logger.warning("Webhook Chatwoot: anexo excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
-                    return None
+                    logger.warning("Webhook Chatwoot: anexo excede %sMB — ignorado",
+                                   _AUDIO_MAX_BYTES // 1048576)
+                    return (f"📎 [{kind} recebido — NÃO analisado: passa de "
+                            f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]")
         if not audio_bytes:
             return None
 

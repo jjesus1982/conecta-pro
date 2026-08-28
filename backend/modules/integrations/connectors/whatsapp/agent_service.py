@@ -4343,6 +4343,37 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 from modules.crm.services import visit_reports as V  # noqa: PLC0415
 
                 if name == "criar_relatorio_visita":
+                    # ⭐ 28/08/2026 — TRÊS PORTAS CRIAM VISITA E SÓ UMA TINHA TRAVA.
+                    # `_mtool_abrir_visita` recusa a segunda visita na mesma conversa; esta
+                    # aqui chamava o serviço do CRM direto, que não sabe de conversa nenhuma.
+                    # Resultado medido: a visita do The Sun PARTIU EM DUAS — 21 achados numa
+                    # e 4 na outra, 18 segundos entre a última gravação de uma e a criação
+                    # da outra. O Jordan disse "vou começar do zero" (querendo dizer
+                    # "reenvio as mídias") e o agente abriu visita nova. Se ele tivesse
+                    # mandado gerar o PDF, sairia com 4 achados parecendo completo — o pior
+                    # tipo de erro, o que mente com aparência de certo.
+                    #
+                    # A trava vive aqui e não no serviço porque é a CONVERSA que define
+                    # duplicata, e o serviço do CRM não a conhece. Continuar a visita aberta
+                    # é o padrão; abrir outra exige que o dono diga, não que o modelo decida.
+                    _ja = await _visita_aberta(db, conversation_id)
+                    if _ja:
+                        return {"ja_aberta": True, "visita_id": _ja["id"],
+                                "cliente": _ja["cliente_nome"],
+                                "achados": len(_ja.get("achados") or []),
+                                "aviso": (f"Já existe visita ABERTA nesta conversa para "
+                                          f"{_ja['cliente_nome']}, com "
+                                          f"{len(_ja.get('achados') or [])} achado(s). NÃO "
+                                          "abri outra — o levantamento ficaria partido em "
+                                          "duas e o relatório sairia incompleto parecendo "
+                                          "completo."),
+                                "instrucao": ("Diga ao Jordan que a visita já está aberta e "
+                                              "que você continua nela. Se ele quiser MESMO "
+                                              "recomeçar do zero e descartar o que já foi "
+                                              "levantado, ele precisa dizer isso com essas "
+                                              "palavras — 'começar do zero' costuma "
+                                              "significar reenviar as fotos, não jogar fora "
+                                              "o trabalho.")}
                     return await V.criar_relatorio(
                         db,
                         cliente_nome=str(args.get("cliente_nome", "")),
