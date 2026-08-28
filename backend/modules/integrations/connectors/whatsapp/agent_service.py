@@ -4889,27 +4889,45 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
         if not owner and not em_acompanhamento and not situacao_sensivel:
             texto = await _reforcar_cnpj(conversation_id, texto, rows)
-        if not texto and owner:
-            # ⭐ 28/08/2026 — SILÊNCIO É A ÚNICA RESPOSTA QUE O JORDAN NÃO CONSEGUE DEPURAR.
-            # Ele esperou 3 minutos e cobrou ("não me deu retorno"). Turno sem texto acontece
-            # por motivos legítimos — teto de tokens, rodadas esgotadas, pedido que não tem
-            # ferramenta. Nenhum deles justifica não dizer nada.
+        if not texto:
+            # ⭐ 28/08/2026 — NINGUÉM FICA MUDO. Turno sem texto acontece por motivos
+            # legítimos (teto de tokens, rodadas esgotadas, pedido sem ferramenta) e nenhum
+            # deles justifica não dizer nada.
             #
-            # Só para o DONO: mandar frase de sistema a um número anônimo é pior que calar,
-            # porque o cliente não sabe o que fazer com ela. Ele sim.
-            logger.warning("Agente: conv=%s turno terminou SEM texto — respondendo com "
-                           "aviso em vez de silêncio (rounds=%s)", conversation_id, rounds)
-            texto = ("Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
-                     "ferramenta para o que você pediu ou a resposta passou do tamanho. "
-                     "Me diga em uma frase o que é mais urgente aí que eu ataco só isso.")
+            # ⚠️ A REDAÇÃO muda com quem está do outro lado, e a 1ª versão disto errou:
+            # eu tinha deixado a regra SÓ para o dono, com o argumento de que frase de
+            # sistema para número anônimo é pior que calar. A forma estava certa e a
+            # conclusão errada — o Jordan corrigiu: "ele tem que aceitar conversa natural,
+            # não só minha como de clientes também".
+            #
+            # E o motivo é assimétrico: o dono no vácuo RECLAMA (foi assim que descobrimos);
+            # o prospect no vácuo apenas some, e vira orçamento perdido que ninguém conta.
+            # Silêncio para quem paga é mais caro que silêncio para quem manda consertar.
+            logger.warning("Agente: conv=%s turno terminou SEM texto — respondendo em vez "
+                           "de calar (owner=%s rounds=%s)", conversation_id, owner, rounds)
+            texto = (
+                # ao dono: direto, nomeia a causa provável, e pede o que priorizar
+                "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
+                "ferramenta para o que você pediu ou a resposta passou do tamanho. "
+                "Me diga em uma frase o que é mais urgente aí que eu ataco só isso."
+                if owner else
+                # ao cliente: linguagem natural, SEM jargão de sistema e SEM promessa que
+                # talvez não se cumpra ("já te respondo" mente se o próximo turno falhar).
+                # Devolve a palavra a ele, que é o que segura a conversa viva.
+                "Desculpa, acho que me perdi aqui. Pode me dizer em uma frase o que você "
+                "precisa? Se preferir falar com alguém da equipe, é só pedir."
+            )
         return texto or None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente: falha ao gerar resposta conv=%s: %s", conversation_id, e)
-        if owner:
-            # Mesma regra na exceção: o dono recebe uma frase, não o vazio.
-            return ("Tive uma falha ao processar aqui e não consegui responder — o erro "
-                    "ficou no log. Reenvie a última mensagem, por favor.")
-        return None
+        # Mesma regra na exceção: ninguém recebe o vazio.
+        return (
+            "Tive uma falha ao processar aqui e não consegui responder — o erro ficou no "
+            "log. Reenvie a última mensagem, por favor."
+            if owner else
+            "Desculpa, tive um problema aqui e não consegui responder agora. Pode repetir, "
+            "por favor? Se for urgente, me diga que eu chamo alguém da equipe."
+        )
 
 
 async def _log_draft(conversation_id: int, phone: str | None, content: str, model: str) -> None:
