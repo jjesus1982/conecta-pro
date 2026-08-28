@@ -679,6 +679,20 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             return f"📎 [arquivo recebido '{nome_arquivo}' — conteúdo]: {texto_doc}"
 
         # ===== AUDIO/VIDEO: Whisper transcreve a fala =====
+        # ⭐ O NOME DO CLIENTE DA VISITA ENTRA NO VIÉS (28/08/2026). Sem ele o Whisper
+        # transcreveu "The Sun" como "Dessan" — e esse nome vira título de proposta. O
+        # `_visita_ctx` já viajava até aqui para a visão; usar no ouvido custa uma linha.
+        _cli_visita = ((_visita_ctx or {}).get("cliente_nome") or "").strip()
+        _vies = (
+            "Atendimento da Conecta Mais em Manaus, Amazonas. Termos: agente de "
+            "portaria, AGP, portaria remota, condominio, sindico, CFTV, cameras, "
+            "controle de acesso, visita tecnica, orcamento, posto 24 horas. "
+            "Bairros de Manaus: Parque Dez de Novembro, Adrianopolis, Aleixo, "
+            "Cidade Nova, Compensa, Flores, Ponta Negra, Centro, Japiim, Coroado, "
+            "Dom Pedro, Alvorada, Tarumã, Vieiralves, Nossa Senhora das Gracas. "
+            "Datas no formato dia e mes, por exemplo: doze de junho."
+            + (f" Cliente desta visita: {_cli_visita}." if _cli_visita else "")
+        )
         tr = await client.audio.transcriptions.create(
             model="whisper-1",
             file=(f"audio.{ext}", audio_bytes),
@@ -686,17 +700,39 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             temperature=0,
             # Vies de vocabulario: portugues de Manaus + termos do negocio + bairros.
             # Reduz erros como "parque dez" -> "Parque Delhi".
-            prompt=(
-                "Atendimento da Conecta Mais em Manaus, Amazonas. Termos: agente de "
-                "portaria, AGP, portaria remota, condominio, sindico, CFTV, cameras, "
-                "controle de acesso, visita tecnica, orcamento, posto 24 horas. "
-                "Bairros de Manaus: Parque Dez de Novembro, Adrianopolis, Aleixo, "
-                "Cidade Nova, Compensa, Flores, Ponta Negra, Centro, Japiim, Coroado, "
-                "Dom Pedro, Alvorada, Tarumã, Vieiralves, Nossa Senhora das Gracas. "
-                "Datas no formato dia e mes, por exemplo: doze de junho."
-            ),
+            prompt=_vies,
         )
         texto = (getattr(tr, "text", "") or "").strip()
+
+        # 🔴 O WHISPER ECOA O PRÓPRIO PROMPT quando o áudio é mudo ou ininteligível.
+        # Medido em 28/08/2026: um vídeo do Jordan gravou como FALA dele
+        # "Atendimento da Conecta Mais em Manaus, agente de portaria, AGP, portaria
+        # remota, condominio," — que é o NOSSO viés, palavra por palavra.
+        # Isso é FABRICAÇÃO entrando no levantamento: um achado dizendo que ele falou o
+        # que nunca falou, num documento que ele assina. Melhor vídeo só com imagem do
+        # que vídeo com fala inventada.
+        if texto:
+            _pal_vies = {w for w in re.findall(r"\w{4,}", _vies.lower())}
+            _pal_txt = [w for w in re.findall(r"\w{4,}", texto.lower())]
+            if _pal_txt:
+                _sobrep = sum(1 for w in _pal_txt if w in _pal_vies) / len(_pal_txt)
+                if _sobrep > 0.8:
+                    logger.warning("Webhook Chatwoot: transcrição é ECO do prompt de viés "
+                                   "(%.0f%% de sobreposição) — descartada", _sobrep * 100)
+                    texto = ""
+
+        # O Whisper REPETE trechos em áudio curto. Mesmo vídeo trouxe "Vídeo, garagem 2…"
+        # duas vezes na mesma transcrição. Sentença repetida vira uma só, na ordem.
+        if texto:
+            _vistas, _limpo = set(), []
+            for _fr in re.split(r"(?<=[.!?])\s+", texto):
+                _ch = _fr.strip().lower()
+                if len(_ch) > 12 and _ch in _vistas:
+                    continue
+                _vistas.add(_ch)
+                _limpo.append(_fr.strip())
+            texto = " ".join(x for x in _limpo if x)
+
         if not texto and kind != "video":
             logger.info("Webhook Chatwoot: transcricao vazia para %s", data_url[:120])
             return None
