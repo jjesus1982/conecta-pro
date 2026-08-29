@@ -2776,10 +2776,17 @@ def _garantir_registro_crm() -> None:
     from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415
         tools_read_crm,
     )
+    from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415
+        tools_acao_crm,
+    )
+    from modules.ai.conversation.services.orquestrador.agir_dispatcher import (  # noqa: PLC0415
+        montar_acao_dispatchers,
+    )
     from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
         montar_read_dispatchers,
     )
     montar_read_dispatchers()
+    montar_acao_dispatchers()
 
 
 #: 28/08/2026 — o motor de precificação da CCT existia, com 24 parâmetros e DOZE deles
@@ -3068,6 +3075,53 @@ _SCHEMA_FALAR = {
 }
 
 
+#: ETAPA 2 (28/08/2026) — o que o Jordan pode GRAVAR pelo WhatsApp, em campo.
+#: A etapa 1 deu a leitura; esta dá a escrita, e a lista é curta de propósito.
+#: Cada nome aqui foi escolhido por uma pergunta: "ele faria isso de pé, num corredor de
+#: condomínio, sem conferir na tela?" Se a resposta é não, ficou fora.
+_ACOES_CAMPO: tuple[str, ...] = (
+    "criar_orcamento",      # o motivo de tudo — monta a proposta a partir da cotação
+    "criar_cliente",        # o prospect da visita vira cliente
+    "atualizar_cliente",    # corrigir telefone/e-mail que ele descobre na hora
+    "anotar_cliente",       # registrar o que foi combinado
+)
+#: FORA, e o motivo de cada grupo:
+#:   `ativar_contrato` → é 🔴 com OTP, vira MRR e faturamento. Nunca de pé.
+#:   `criar_contrato`, `atualizar_contrato` → documento jurídico; a Central existe para isso.
+#:   `enviar_proposta`, `enviar_proposta_whatsapp` → SAI DA EMPRESA e não volta. No campo ele
+#:      MONTA; enviar é outra aprovação, com a proposta na frente.
+#:   `marcar_deal_perdido`, `mover_estagio_deal`, `resolver_propostas` → mexem no funil e nas
+#:      métricas que passamos o dia consertando. Decisão de mesa, não de corredor.
+#:   `followup_em_lote`, `inscrever_em_sequencia` → falam com a CARTEIRA inteira.
+
+
+_SCHEMA_AGIR = {
+    "type": "function",
+    "function": {
+        "name": "agir_comercial",
+        "description": (
+            "GRAVA no comercial: monta orçamento, cadastra ou corrige cliente, anota o que "
+            "foi combinado. Toda ação nasce como RASCUNHO na Central de Aprovações — nada "
+            "vai ao cliente nem entra no funil sem o Jordan aprovar. Use quando ele disser "
+            "'monta o orçamento', 'cadastra esse condomínio', 'anota que...'. Para ENVIAR "
+            "algo ao cliente existe outra ferramenta; esta só registra."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "acao": {"type": "string", "enum": list(_ACOES_CAMPO),
+                         "description": "Qual ação executar."},
+                "dados": {"type": "object",
+                          "description": ("Argumentos da ação. Para criar_orcamento: cliente, "
+                                          "titulo, itens[{descricao,qtd,valor_unit}], empresa "
+                                          "('eletronica' p/ equipamento, 'patrimonial' p/ mão "
+                                          "de obra), validade_dias, observacoes.")},
+            },
+            "required": ["acao", "dados"],
+        },
+    },
+}
+
+
 def _extras_do_dono() -> list[dict]:
     """TUDO que o dono tem além do registro, num lugar só.
 
@@ -3079,7 +3133,7 @@ def _extras_do_dono() -> list[dict]:
     também no Bartolo, que já tem as mesmas capacidades por outro caminho.
     """
     return (_leitura_campo() + _cotacao_do_dono()
-            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR])
+            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR])
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -4540,6 +4594,52 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "agir_comercial":
+                # ⭐ ETAPA 2 — a resposta à pergunta do Jordan ("o José Luís manda o Bartolo
+                # montar e o Bartolo devolve?"). NÃO existe essa ida e volta, e ela não é
+                # necessária: `criar_orcamento` é UMA função. O Bartolo a chama com o usuário
+                # autenticado da tela; aqui ela é chamada com o MESMO usuário, resolvido pelo
+                # telefone do dono. Uma ponte a menos e uma identidade a menos para errar.
+                #
+                # Três paredes em série, as mesmas da leitura:
+                #   (1) a allow-list daqui — ação fora dela não passa, mesmo existindo;
+                #   (2) o RBAC de módulo, dentro do dispatcher, com a identidade real;
+                #   (3) o `_propor_*` do próprio Bartolo, que cria RASCUNHO — nada é gravado
+                #       no funil nem sai da empresa sem o Jordan aprovar na Central.
+                acao = str(args.get("acao") or "")
+                if acao not in _ACOES_CAMPO:
+                    return {"status": "recusado",
+                            "motivo": f"ação {acao!r} não está liberada no campo; "
+                                      f"disponíveis: {', '.join(_ACOES_CAMPO)}. "
+                                      "Contrato, envio ao cliente e mudança de funil são "
+                                      "decisão de mesa, não de corredor."}
+                _garantir_registro_crm()
+                from modules.ai.conversation.services.orquestrador.engine import (  # noqa: PLC0415
+                    OrqScope,
+                )
+                from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
+                    get_tool,
+                )
+                _disp = get_tool("agir_crm")
+                if _disp is None:
+                    return {"erro": "agir_crm não está registrado neste processo"}
+                _dono = await _usuario_dono(db)
+                if _dono is None:
+                    return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
+                try:
+                    r = await _disp.handler(
+                        db, _dono,
+                        OrqScope(tier="gestor", is_manager=True, all_posts=True),
+                        acao=acao, dados=args.get("dados") or {})
+                except PermissionError:
+                    return {"status": "recusado",
+                            "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
+                if isinstance(r, dict) and r.get("draft_id"):
+                    r["instrucao"] = ("Diga ao Jordan que o rascunho está na Central de "
+                                      "Aprovações esperando o clique dele, e RESUMA o que "
+                                      "ele vai aprovar — valor, cliente e quantos itens. "
+                                      "Nada foi gravado no funil ainda.")
+                return r
             if name == "falar_com_cliente":
                 return await _tool_falar_com_cliente(args)
             if name == "cadastrar_fornecedor":
@@ -4909,13 +5009,40 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         rounds = 0
 
         for rounds in range(1, max_rounds + 1):
-            resp = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=active_tools,
-                tool_choice="auto",
-                **_chat_kwargs(model, max_tokens),
-            )
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=active_tools,
+                    tool_choice="auto",
+                    **_chat_kwargs(model, max_tokens),
+                )
+            except Exception as _e:  # noqa: BLE001
+                # 🔴 28/08/2026 — O 400 DO `reasoning_content` NÃO SE RESOLVE DEVOLVENDO O
+                # CAMPO. Eu tinha consertado assim e o erro continuou em produção com o
+                # Jordan mandando nota fiscal para cadastrar: `in=0`, a requisição é
+                # RECUSADA antes de sair. Quando o modelo não devolve `reasoning_content`
+                # (e às vezes não devolve), não há o que reenviar.
+                #
+                # Em vez de insistir num turno que não pode ter sucesso, a saída é PODAR o
+                # histórico: refaz a chamada só com o system + as mensagens de usuário,
+                # sem os turnos de assistente com tool_calls, que são o que a API recusa.
+                # Perde-se o encadeamento de ferramenta desta rodada; ganha-se uma resposta
+                # de verdade em vez de silêncio. Para o Jordan, "respondi sem usar
+                # ferramenta" é infinitamente melhor que nada.
+                if "reasoning_content" not in str(_e):
+                    raise
+                logger.warning("Agente: conv=%s recusou por `reasoning_content` — refazendo "
+                               "SEM o histórico de tool_calls (rodada %s)",
+                               conversation_id, rounds)
+                _podado = [m for m in messages
+                           if not (isinstance(m, dict)
+                                   and (m.get("tool_calls") or m.get("role") == "tool"))]
+                resp = await client.chat.completions.create(
+                    model=model, messages=_podado,
+                    **_chat_kwargs(model, max_tokens),
+                )
+                messages = _podado
             usage = getattr(resp, "usage", None)
             total_in += getattr(usage, "prompt_tokens", 0) or 0
             total_out += getattr(usage, "completion_tokens", 0) or 0
