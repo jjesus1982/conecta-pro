@@ -4705,6 +4705,50 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
         return {"erro": "falha ao executar a ferramenta de gerente"}
 
 
+#: Verbos de AÇÃO CONCLUÍDA. Se o texto tem um destes e NENHUMA tool foi chamada no turno,
+#: o agente está afirmando ter feito o que não fez.
+_VERBOS_FEITO = (
+    "já repassei", "ja repassei", "já cadastrei", "ja cadastrei", "já registrei",
+    "ja registrei", "já enviei", "ja enviei", "já lancei", "já lancei", "já criei",
+    "ja criei", "já gravei", "ja gravei", "já mandei", "ja mandei", "já agendei",
+    "ja agendei", "acabei de cadastrar", "acabei de enviar", "acabei de registrar",
+    "acabei de mandar", "deixei registrado", "deixei cadastrado",
+)
+
+
+def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str:
+    """PAREDE contra 'já fiz' sem ter feito. 28/08/2026, e é o defeito mais caro da noite.
+
+    Às 22:44 o José Luís escreveu ao Jordan: *"já repassei ao Bartolo para lançar a entrada
+    na Conecta. Assim que ele confirmar o cadastro, eu te aviso."* Dois minutos depois, ao
+    ser questionado: *"aqui no meu lado não existe esse MCP — eu não tenho canal que fale
+    direto com o Bartolo nem função que suba a NF."*
+
+    Duas afirmações opostas em dois minutos, e a primeira é FABRICAÇÃO DE AÇÃO — não número
+    errado nem opinião: dizer "já fiz" sobre coisa que não existe. Se o Jordan acredita, ele
+    fica esperando um cadastro que nunca vem, e o custo aparece dias depois.
+
+    ⚠️ Instrução no prompt NÃO resolve isto: o prompt já proíbe fabricar, e ele fabricou.
+    Por isso é parede — mede o FATO (houve chamada de tool?) contra a AFIRMAÇÃO (o texto diz
+    que fez?). Sem tool chamada, "já fiz" é falso por construção.
+
+    Não apaga a resposta: acrescenta a correção. Apagar deixaria o Jordan sem o conteúdo
+    útil; a correção deixa claro o que NÃO aconteceu, que é a parte que ele precisa saber.
+    """
+    if not texto or executadas:
+        return texto
+    baixo = texto.lower()
+    achou = [v for v in _VERBOS_FEITO if v in baixo]
+    if not achou:
+        return texto
+    logger.error("[jose-luis] conv=%s AFIRMOU TER FEITO sem chamar tool nenhuma (%s) — "
+                 "correção anexada à resposta", conversation_id, ", ".join(achou[:3]))
+    return (texto + "\n\n⚠️ *Correção automática:* eu disse acima que já fiz alguma coisa, "
+            "mas NÃO executei nenhuma ação neste turno — nada foi cadastrado, enviado ou "
+            "registrado. Se você quer que eu faça, me peça de novo e eu chamo a ferramenta "
+            "de verdade.")
+
+
 async def gerar_resposta(conversation_id: int) -> str | None:
     """Le o historico da conversa e gera uma sugestao de resposta (NAO envia)."""
     if not os.getenv("OPENAI_API_KEY"):
@@ -5039,6 +5083,8 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # rodada — `NameError` dentro do tratador de erro seria o defeito do 323 de novo,
         # com outra roupa.
         _bateu_teto = False
+        #: Nomes de tool efetivamente CHAMADAS neste turno. É a prova de que algo foi feito.
+        _executadas: set[str] = set()
         for rounds in range(1, max_rounds + 1):
             try:
                 resp = await client.chat.completions.create(
@@ -5112,6 +5158,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             messages.append(_assistant)
             # executa cada tool e anexa o resultado (role=tool)
             for tc in tool_calls:
+                _executadas.add(tc.function.name)
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except Exception:  # noqa: BLE001
@@ -5184,6 +5231,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             total_out,
         )
         texto = _tirar_puxa_saco(texto)
+        texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
         # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, NEM em situação
         # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
         if not owner and not em_acompanhamento and not situacao_sensivel:
