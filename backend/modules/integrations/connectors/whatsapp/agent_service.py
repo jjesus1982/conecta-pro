@@ -4713,15 +4713,6 @@ async def gerar_resposta(conversation_id: int) -> str | None:
 
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1")
     max_history = int(_env_num("AGENT_MAX_HISTORY", 20))
-    # ⚠️ TETO SEPARADO PARA O DONO (28/08/2026, 2ª vez no mesmo dia). O caminho do cliente
-    # é curto — saudação, agendamento, cotação de posto. O do Jordan carrega a nota fiscal
-    # descrita pela visão, os 77 achados da visita e o histórico do dia: medido 10.902
-    # tokens de ENTRADA, e o modelo raciocina proporcional ao contexto.
-    # Medido no banco: duas chamadas com `tokens_saida = 1200` EXATO — o teto — e `content`
-    # vazio. De manhã foi 500→1200; à noite, 1200 não bastou. Um teto por interlocutor
-    # em vez de um número para os dois.
-    max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner
-                     else _env_num("AGENT_MAX_TOKENS", 500))
 
     try:
         # 1) Historico (apenas in/out reais; ignora drafts e vazios) + telefone da conversa
@@ -4774,6 +4765,21 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 papel = _papel_por_texto(_ult_in, e_cliente=_cli is not None)
             except Exception:  # noqa: BLE001
                 papel = None
+
+        # ⚠️ AQUI, e não lá em cima: `owner` só existe DEPOIS de resolver o telefone.
+        # Eu tinha posto este cálculo antes da atribuição e derrubei o agente com
+        # `UnboundLocalError` — o Jordan ficou sem NENHUMA resposta, nem a de falha,
+        # porque o crash é anterior a ela.
+        # ⭐ E a lição é a minha própria, do outro lado: o diagnóstico do teto estava
+        # certo e o conserto entrou sem passar por um turno real. Um `owner=True`
+        # exercitado uma vez teria pego. "Quem prova é a rota" vale para o código também.
+        #
+        # O caminho do cliente é curto (saudação, agendamento, cotação de posto). O do
+        # Jordan carrega a nota fiscal lida pela visão, os 77 achados da visita e o
+        # histórico do dia — medido: 10.902 tokens de ENTRADA, com `tokens_saida = 1200`
+        # EXATO (o teto) e `content` vazio. De manhã foi 500→1200; à noite não bastou.
+        max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner
+                         else _env_num("AGENT_MAX_TOKENS", 500))
 
         active_tools = _tools_ativas(owner, papel)
 
