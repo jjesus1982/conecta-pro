@@ -4713,7 +4713,15 @@ async def gerar_resposta(conversation_id: int) -> str | None:
 
     model = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.1")
     max_history = int(_env_num("AGENT_MAX_HISTORY", 20))
-    max_tokens = int(_env_num("AGENT_MAX_TOKENS", 500))
+    # ⚠️ TETO SEPARADO PARA O DONO (28/08/2026, 2ª vez no mesmo dia). O caminho do cliente
+    # é curto — saudação, agendamento, cotação de posto. O do Jordan carrega a nota fiscal
+    # descrita pela visão, os 77 achados da visita e o histórico do dia: medido 10.902
+    # tokens de ENTRADA, e o modelo raciocina proporcional ao contexto.
+    # Medido no banco: duas chamadas com `tokens_saida = 1200` EXATO — o teto — e `content`
+    # vazio. De manhã foi 500→1200; à noite, 1200 não bastou. Um teto por interlocutor
+    # em vez de um número para os dois.
+    max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner
+                     else _env_num("AGENT_MAX_TOKENS", 500))
 
     try:
         # 1) Historico (apenas in/out reais; ignora drafts e vazios) + telefone da conversa
@@ -5021,6 +5029,10 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         texto = ""
         rounds = 0
 
+        # inicializado ANTES do laço: ele é lido depois, e o laço pode quebrar na 1ª
+        # rodada — `NameError` dentro do tratador de erro seria o defeito do 323 de novo,
+        # com outra roupa.
+        _bateu_teto = False
         for rounds in range(1, max_rounds + 1):
             try:
                 resp = await client.chat.completions.create(
@@ -5136,7 +5148,14 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # teto resolve — é o mesmo remédio já aplicado no motor do chat (engine.py).
             # Não é laço: repete UMA vez e desiste, porque duas seguidas significam outro
             # problema, e insistir só atrasaria mais a resposta de quem está esperando.
-            if not texto and getattr(resp.choices[0], "finish_reason", "") == "length":
+            # ⚠️ `finish_reason` NEM SEMPRE VEM 'length' quando o teto morde — medido hoje:
+            # `tokens_saida == max_tokens` exato, `content` vazio e finish_reason OUTRO.
+            # A condição antiga só olhava o rótulo; esta olha o NÚMERO, que é o fato.
+            _bateu_teto = (
+                getattr(resp.choices[0], "finish_reason", "") == "length"
+                or (getattr(getattr(resp, "usage", None), "completion_tokens", 0) or 0)
+                >= max_tokens)
+            if not texto and _bateu_teto:
                 logger.warning(
                     "Agente: conv=%s bateu o teto (%s) com content VAZIO — repetindo com "
                     "o dobro. Se isto virar rotina, o teto está pequeno demais para o "
@@ -5208,9 +5227,17 @@ async def gerar_resposta(conversation_id: int) -> str | None:
 
             texto = (
                 # ao dono: direto, nomeia a causa provável, e pede o que priorizar
-                "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
-                "ferramenta para o que você pediu ou a resposta passou do tamanho. "
-                "Me diga em uma frase o que é mais urgente aí que eu ataco só isso."
+                # ⚠️ A CAUSA, não um menu de causas. A frase antiga dizia "pode ter
+                # faltado ferramenta OU passou do tamanho" — e o Jordan leu a primeira,
+                # foi conferir o cadastro do fornecedor e perdeu tempo num problema que
+                # não existia. Quando o número diz qual foi, a frase diz qual foi.
+                ("Sua conversa ficou longa (a nota fiscal, as fotos e o histórico do dia) "
+                 "e a resposta não coube no limite. Já subi o teto. Me repita a última "
+                 "pergunta que agora vai."
+                 if _bateu_teto else
+                 "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
+                 "ferramenta para o que você pediu. Me diga em uma frase o que é mais "
+                 "urgente aí que eu ataco só isso.")
                 if owner else
                 # ao cliente: linguagem natural, SEM jargão de sistema e SEM promessa que
                 # talvez não se cumpra ("já te respondo" mente se o próximo turno falhar).
