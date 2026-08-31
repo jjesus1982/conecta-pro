@@ -3845,30 +3845,36 @@ async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
         send_text_message,
     )
 
-    await send_text_message(payload["numero"], payload["mensagem"])
-    logger.info("[jose-luis] cotação enviada a %s (%s) — aprovada por %s",
-                payload.get("fornecedor"), payload.get("numero"),
-                getattr(aprovador_user, "email", "?"))
-
-    # A mensagem sai e o pedido FICA. Sem esta parte o WhatsApp é o único registro de que
-    # pedimos — e o que a Kely responder daqui a três dias não teria onde encostar.
+    # ⭐ 31/08/2026 18:35 — A ORDEM É O CONSERTO, e ela custou uma cotação.
+    # Antes: ENVIAVA e depois gravava. A mensagem saiu para a Kely, o INSERT estourou o
+    # `varchar(20)` do `number`, e restou o pior estado possível: **ação irreversível para
+    # fora executada, registro perdido.** Quando ela responder com preço, não existe
+    # cotação onde o preço encoste — que é exatamente por que gravamos na ida.
+    #
+    # Agora: GRAVA e comita; só então envia.
+    #   INSERT falha  → ninguém recebeu nada, o Jordan clica de novo.
+    #   ENVIO falha   → o registro fica `erro_envio` e dá para reenviar. Nunca some.
+    # Regra geral para ação externa: o registro nasce ANTES do efeito que não se desfaz.
+    #
     # `unit_price`/`total` = 0 de propósito: isto é o PEDIDO, o preço vem na resposta.
     from sqlalchemy import text as _t  # noqa: PLC0415
 
     sid, itens = payload.get("supplier_id"), (payload.get("itens") or [])
     if not (sid and itens):
-        return f"cotação enviada a {payload.get('fornecedor')} (sem registro: payload antigo)"
-    slug = re.sub(r"[^A-Z0-9]", "", str(payload.get("fornecedor", "FORN")).upper())[:12] or "FORN"
+        return (f"NÃO enviei a {payload.get('fornecedor')}: o rascunho é de uma versão "
+                "antiga, sem itens para registrar. Peça a cotação de novo.")
     qid = (await db.execute(_t(
         "INSERT INTO purchase_quotations "
         "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date, "
         "   visit_report_id) "
-        "VALUES (gen_random_uuid(), :c, :s, :n, 'enviada', current_date, current_date, "
+        "VALUES (gen_random_uuid(), :c, :s, :n, 'pendente_envio', current_date, current_date, "
         "        cast(nullif(coalesce(:v,''),'') as uuid)) "
         "RETURNING id"),
         {"c": _COND_EMPRESA, "s": sid, "v": payload.get("visit_report_id") or "",
-         # o minuto no número evita colidir com outra cotação do mesmo fornecedor no mesmo dia
-         "n": f"{slug}-{datetime.now().strftime('%Y%m%d%H%M')}"})).scalar()
+         # ⚠️ O nome do fornecedor SAIU do número. Ele estourava o varchar(20) — "FUTURA
+         # TECNOLOGIA INDUSTRIA E COMERCIO DE PRODUTOS ELETRONIC" não cabe — e não servia
+         # para nada: o vínculo já existe pela FK `supplier_id`. Formato fixo, nunca cresce.
+         "n": f"COT-{datetime.now().strftime('%Y%m%d%H%M')}-{uuid4().hex[:4].upper()}"})).scalar()
     for i, desc in enumerate(itens, start=1):
         qtd, texto = _quantidade_do_item(desc)
         await db.execute(_t(
@@ -3878,7 +3884,27 @@ async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
             "VALUES (gen_random_uuid(), :q, :i, :d, :n, :n, 0, 0)"),
             {"q": qid, "i": i, "d": texto[:200], "n": qtd})
     await db.commit()
-    logger.info("[jose-luis] cotação %s registrada com %d itens", qid, len(itens))
+    logger.info("[jose-luis] cotação %s registrada com %d itens — enviando agora",
+                qid, len(itens))
+
+    # Só AGORA a mensagem sai. O registro já está comitado e sobrevive a qualquer falha.
+    try:
+        await send_text_message(payload["numero"], payload["mensagem"])
+    except Exception as e:  # noqa: BLE001
+        await db.execute(_t(
+            "UPDATE purchase_quotations SET status='erro_envio', "
+            "  internal_notes = coalesce(internal_notes,'') || :m WHERE id::text = :q"),
+            {"q": str(qid), "m": f"\nFalha ao enviar {datetime.now():%d/%m %H:%M}: {e}"})
+        await db.commit()
+        logger.exception("[jose-luis] cotação %s GRAVADA mas NÃO ENVIADA", qid)
+        return (f"⚠️ Registrei a cotação, mas ela NÃO saiu para "
+                f"{payload.get('fornecedor')}: {e}\nO registro está salvo — dá para reenviar.")
+
+    await db.execute(_t(
+        "UPDATE purchase_quotations SET status='enviada' WHERE id::text = :q"), {"q": str(qid)})
+    await db.commit()
+    logger.info("[jose-luis] cotação %s enviada a %s — aprovada por %s", qid,
+                payload.get("fornecedor"), getattr(aprovador_user, "email", "?"))
     return (f"cotação enviada a {payload.get('fornecedor')} e registrada "
             f"({len(itens)} itens, status enviada)")
 
