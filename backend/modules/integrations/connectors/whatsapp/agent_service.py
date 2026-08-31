@@ -3303,6 +3303,48 @@ def _quantidade_do_item(txt: str) -> tuple[float, str]:
     return (float(m.group(1).replace(",", ".")), resto)
 
 
+async def _specs_da_obra(db, visit_id: str | None) -> dict[str, str]:
+    """{palavra-chave do item: especificação} do que já foi definido NESTA obra.
+
+    Fonte: `purchase_quotation_items.specifications` das cotações da mesma visita. É onde
+    a resposta do dono foi gravada — e é campo, não prosa.
+    """
+    if not visit_id:
+        return {}
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    rows = (await db.execute(_t(
+        "SELECT lower(i.description) d, i.specifications s "
+        "FROM purchase_quotation_items i JOIN purchase_quotations q ON q.id = i.quotation_id "
+        "WHERE q.visit_report_id::text = :v AND coalesce(i.specifications,'') <> ''"),
+        {"v": visit_id})).all()
+    return {d: s for d, s in rows}
+
+
+def _tem_codigo_catalogo(item: str, skus: set[str]) -> bool:
+    """True se a linha cita um SKU do catálogo. O código já É a especificação."""
+    if not skus:
+        return False
+    return any(t.strip(".,;:()").upper() in skus for t in str(item).split())
+
+
+def _casa_spec(item: str, specs: dict[str, str]) -> str | None:
+    """A spec de um item, casando pela palavra mais significativa da descrição.
+
+    Casamento burro de propósito: a descrição do pedido ("cabo") e a do item gravado
+    ("cabo") são a mesma palavra na prática. Exige 4+ letras para não casar "de"/"com".
+    """
+    if not specs:
+        return None
+    baixo = re.sub(r"[^\w\s]", " ", item.lower())
+    palavras = [p for p in baixo.split() if len(p) >= 4]
+    for chave, spec in specs.items():
+        alvo = re.sub(r"[^\w\s]", " ", chave)
+        if any(p in alvo or alvo.startswith(p[:6]) for p in palavras):
+            return spec
+    return None
+
+
 def _item_sem_especificacao(txt: str) -> bool:
     """True quando a linha do item não diz NADA além do nome da coisa.
 
@@ -3396,18 +3438,6 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         # "nobreak" ao Renier e ele perguntou as três em 14 segundos. Em vez de sair pelado,
         # o item sem especificação sai PEDINDO a especificação — o fornecedor é quem sabe o
         # padrão, e uma ida e volta a menos por cotação.
-        nus = [str(i) for i in itens[:40] if _item_sem_especificacao(str(i))]
-        linhas = "\n".join(
-            f"• {str(i)[:120]}"
-            + ("  (especificação a definir — me sugira o padrão que vocês usam)"
-               if _item_sem_especificacao(str(i)) else "")
-            for i in itens[:40])
-        corpo = (f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
-                 f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
-                 + (str(args.get("observacao"))[:400] + "\n\n"
-                    if args.get("observacao") else "")
-                 + "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!")
-
         # ⭐ A OBRA. Sem ela a cotação é uma lista de palavras; com ela, cada item herda o
         # projeto — 64 câmeras IP PoE, topologia descentralizada, os 77 achados da visita.
         # O contexto já existia no banco e estava desligado.
@@ -3418,6 +3448,50 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                 "FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
                 "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"),
                 {"o": f"%{args['obra']}%"})).mappings().first()
+
+        # ⭐ 31/08/2026 18:00 — ANTES de pedir a spec ao fornecedor, procura a que o Jordan
+        # JÁ DEU. Saiu para o Renier "cabo (especificação a definir — me sugira o padrão)"
+        # com `cabo: categoria 5, 100% cobre` gravado na obra desde as 16h; ele teve de
+        # emendar à mão 30 segundos depois. Além do retrabalho, pedir ao fornecedor que
+        # sugira o padrão de um item já especificado passa amadorismo — e é o principal
+        # fornecedor dele. É o mesmo "guardar não é usar" de hoje, em outra ferramenta.
+        specs = await _specs_da_obra(db, (visita or {}).get("id"))
+
+        # ⭐ Regra do Jordan (31/08): "pra Kely não tem erro, o produto dela é muito
+        # específico e parametrizado. o do Renier que tem muitas variantes." CÓDIGO DE
+        # CATÁLOGO É A ESPECIFICAÇÃO — `VTV-250` já é a câmera inteira, com NCM e descrição.
+        # Material genérico (cabo, rack, nobreak) tem dezenas de variantes e exige spec.
+        # Pedir "sugira o padrão" a quem vende pelo código seria pior que não pedir nada.
+        # ⚠️ Os códigos VTV vivem em `products.code`, NÃO em `crm_products.sku` — são dois
+        # catálogos e eu procurei no errado primeiro. Lê os dois.
+        skus = set((await db.execute(_t(
+            "SELECT upper(sku) FROM crm_products WHERE coalesce(sku,'') <> '' "
+            "UNION SELECT upper(code) FROM products WHERE coalesce(code,'') <> ''"
+        ))).scalars().all())
+
+        def _linha(item: str) -> str:
+            txt = str(item)[:120]
+            if _tem_codigo_catalogo(txt, skus):
+                return f"• {txt}"
+            sp = _casa_spec(txt, specs)
+            if sp:
+                return f"• {txt} — {sp[:150]}"
+            if _item_sem_especificacao(txt):
+                return f"• {txt}  (especificação a definir — me sugira o padrão que vocês usam)"
+            return f"• {txt}"
+
+        nus = [str(i) for i in itens[:40]
+               if _item_sem_especificacao(str(i)) and not _casa_spec(str(i), specs)
+               and not _tem_codigo_catalogo(str(i), skus)]
+        linhas = "\n".join(_linha(i) for i in itens[:40])
+        corpo = (f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
+                 f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
+                 # 1200, não 400: em 31/08 a pergunta técnica do VTV-074 foi cortada no
+                 # meio ("a NF-e 19.535 e a") e a fornecedora receberia uma frase truncada.
+                 # Contexto de obra é onde mora a informação que evita recotação errada.
+                 + (str(args.get("observacao"))[:1200] + "\n\n"
+                    if args.get("observacao") else "")
+                 + "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!")
 
         u = await _usuario_dono(db)
         if u is None:
@@ -5524,6 +5598,38 @@ def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str
             "de verdade.")
 
 
+def _rascunho_nao_e_envio(texto: str, rascunhos: list[dict], conversation_id: int) -> str:
+    """Turno que só criou RASCUNHO não pode dizer que enviou. Reescreve, não emenda.
+
+    ⚠️ 31/08/2026 18:00 — o agente escreveu *"Enviado pro Renier (HAWK EYE) no WhatsApp ✅"*
+    ANTES de o Jordan aprovar. A tool tinha devolvido `status: rascunho` e a `instrucao`
+    dizia literalmente "NADA foi enviado ao fornecedor ainda"; ele afirmou o contrário
+    mesmo assim. **O modelo ignorou a instrução da própria ferramenta** — então instrução
+    não é o remédio.
+
+    A parede anterior ANEXAVA uma correção, e o Jordan leu "Enviado ✅" seguido de "não
+    executei nada": ver o agente se contradizer em duas linhas é pior que o erro original.
+    Aqui a afirmação errada é SUBSTITUÍDA por uma frase construída do dado real.
+    """
+    if not texto or not rascunhos:
+        return texto
+    baixo = texto.lower()
+    afirma_envio = any(
+        re.search(rf"\b{v}\b", baixo) and
+        not any(n in baixo[max(0, m.start() - 60):m.start()] for n in _NEGACOES)
+        for v in ("enviado", "enviada", "enviei", "enviamos", "mandei", "disparei")
+        for m in re.finditer(rf"\b{v}\b", baixo))
+    if not afirma_envio:
+        return texto
+    r = rascunhos[0]
+    alvo = r.get("fornecedor") or r.get("cliente") or "o destinatário"
+    logger.error("[jose-luis] conv=%s afirmou ENVIO num turno que só criou rascunho (%s) — "
+                 "texto SUBSTITUÍDO", conversation_id, r.get("tool"))
+    return (f"Montei o pedido para *{alvo}* e ele está na Central esperando o seu clique.\n\n"
+            "⚠️ *Nada saiu ainda* — o envio só acontece quando você aprovar. "
+            "Confira o texto antes: ele vai sair exatamente como está lá.")
+
+
 async def gerar_resposta(conversation_id: int) -> str | None:
     """Le o historico da conversa e gera uma sugestao de resposta (NAO envia)."""
     if not os.getenv("OPENAI_API_KEY"):
@@ -5872,6 +5978,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         _bateu_teto = False
         #: Nomes de tool efetivamente CHAMADAS neste turno. É a prova de que algo foi feito.
         _executadas: set[str] = set()
+        _rascunhos_do_turno: list[dict] = []   # o que NASCEU inerte neste turno
         for rounds in range(1, max_rounds + 1):
             try:
                 resp = await client.chat.completions.create(
@@ -5966,6 +6073,8 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 except Exception:  # noqa: BLE001
                     args = {}
                 result = await (_exec_manager_tool if owner else _exec_tool)(tc.function.name, args, conversation_id)
+                if isinstance(result, dict) and result.get("status") == "rascunho":
+                    _rascunhos_do_turno.append({**result, "tool": tc.function.name})
                 logger.info(
                     "Agente tool-call conv=%s round=%s tool=%s args=%s -> %s",
                     conversation_id,
@@ -6034,6 +6143,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         )
         texto = _tirar_puxa_saco(texto)
         texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
+        texto = _rascunho_nao_e_envio(texto, _rascunhos_do_turno, conversation_id)
         # ⭐ REDE DO FORNECEDOR (31/08/2026). Medido: com a tool disponível e o prompt
         # mandando usá-la, o modelo respondeu "vou confirmar com o Jordan" em texto e NÃO
         # chamou nada — três turnos seguidos, zero chamadas. Prompt não ganha dessa pressão
