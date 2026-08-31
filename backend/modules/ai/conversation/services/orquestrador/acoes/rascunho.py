@@ -48,10 +48,27 @@ def _garantir_executores() -> None:
     um guard na função compartilhada é menor que um import em cada chamador — e um chamador
     novo amanhã nasceria quebrado de novo.
     """
+    import importlib  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    nome = "modules.ai.conversation.services.orquestrador.tools_acao_crm"
     try:
-        from modules.ai.conversation.services.orquestrador import (  # noqa: PLC0415,F401
-            tools_acao_crm,
-        )
+        antes = len(EXECUTORES)
+        mod = importlib.import_module(nome)
+        # ⚠️ 31/08/2026, segunda vez no mesmo dia: um `import` de módulo JÁ carregado é
+        # no-op. Depois de um `docker cp` o processo continua com a versão antiga em
+        # `sys.modules`, e um executor novo nunca se registra — a Central falha com "sem
+        # executor" enquanto um `python3` recém-aberto jura que está tudo certo. Foi
+        # exatamente assim que eu verifiquei o processo errado, duas vezes.
+        #
+        # Se o import não acrescentou nada E o módulo já estava carregado, o arquivo em
+        # disco pode ser mais novo que o objeto em memória: recarrega. Só nesse caso —
+        # reload por rotina seria efeito colateral sem motivo.
+        if len(EXECUTORES) == antes and nome in sys.modules:
+            importlib.reload(mod)
+            if len(EXECUTORES) > antes:
+                logger.warning("executores recarregados do disco (+%d) — o processo estava "
+                               "com uma versão antiga de %s", len(EXECUTORES) - antes, nome)
     except Exception:  # noqa: BLE001 — import não pode derrubar a aprovação
         logger.exception("não consegui registrar os executores de domínio")
 
