@@ -98,27 +98,56 @@ async def dimensionar_visita(db, visit_report_id: str) -> dict:
     # de onde há energia e de onde o equipamento cabe. É levantamento de campo, e o campo é
     # ele. Procurei regra REAL nas propostas anteriores — a única com rack tem 2 câmeras e
     # 1 rack, o que é coincidência, não razão. Sem dado, incógnita nomeada.
+    # ⚠️ Rack COMPRADO = total − os que já existem. O da administração (16U) é aproveitado,
+    # e a spec dele NÃO é a dos novos (19" 9U): uniformizar erraria a descrição de um deles.
+    existentes, org_exist = _p(params, "racks_existentes")
+    alt_novo, _ = _p(params, "rack_novo_altura")
     if racks:
-        linhas.append({"item": "Rack", "quantidade": racks,
-                       "regra": "levantamento de campo", "origem": org_racks,
-                       "bloqueado_por": None})
+        novos = max(0, racks - (existentes or 0))
+        linhas.append({
+            "item": "Rack", "quantidade": novos,
+            "regra": (f"{racks} pontos de concentração − {existentes or 0} existente(s)"
+                      + (f"; os novos são 19\" {alt_novo}U" if alt_novo else "")),
+            "origem": f"total: {org_racks}"
+                      + (f" · existente: {org_exist}" if org_exist else ""),
+            "bloqueado_por": None})
     else:
         bloqueia("Rack", "pontos de concentração (levantamento em campo)",
-                 "um rack por ponto de concentração — depende de distância, energia e espaço")
+                 "um por ponto de concentração, MENOS "
+                 f"{existentes or 0} já existente(s) — depende de distância, energia e espaço")
 
-    # ── NOBREAK: 1 por rack ──────────────────────────────────────────────────────────────
-    if racks and nb_rack:
-        linhas.append({"item": "Nobreak", "quantidade": racks * nb_rack,
-                       "regra": f"{nb_rack} por rack × {racks} racks",
-                       "origem": org_nb, "bloqueado_por": None})
+    # ── NOBREAK: 1 por rack, e o rack existente pode já ter o dele ───────────────────────
+    tem_nb_adm, org_nb_adm = _p(params, "nobreak_rack_administracao")
+    if racks and nb_rack and tem_nb_adm is not None:
+        # se o rack da administração já tem nobreak, ele sai da conta
+        desconto = (existentes or 0) if tem_nb_adm else 0
+        linhas.append({
+            "item": "Nobreak", "quantidade": max(0, (racks - desconto) * nb_rack),
+            "regra": (f"{nb_rack} por rack × {racks} racks"
+                      + (f" − {desconto} (o rack existente já tem nobreak)" if desconto else "")),
+            "origem": f"{org_nb} · rack da administração: {org_nb_adm}",
+            "bloqueado_por": None})
+    elif racks and nb_rack:
+        bloqueia("Nobreak", "o rack de 16U da administração já tem nobreak? (campo)",
+                 f"{nb_rack} por rack × {racks} racks, menos o que já existir")
     else:
         bloqueia("Nobreak", "pontos de concentração (levantamento em campo)",
                  f"{nb_rack or '?'} por rack" + (f" ({org_nb})" if org_nb else ""))
 
-    # ── SWITCH GIGA e CABO: dependem da mesma incógnita ──────────────────────────────────
+    # ── SWITCH GIGA ─────────────────────────────────────────────────────────────────────
+    # ⚠️ Nunca some da lista. A primeira versão só o listava quando `racks` era desconhecido:
+    # respondida a pergunta dos racks, o item DESAPARECIA do orçamento. Item que some é pior
+    # que item bloqueado — ninguém procura o que não vê, e ele foi justamente o item que o
+    # FORNECEDOR teve de lembrar que faltava.
+    # E não estimo a quantidade nem sabendo os racks: depende de portas e de como a
+    # interligação é feita, que é spec de fornecedor, não conta.
     if not racks:
         bloqueia("Switch GIGA", "pontos de concentração (levantamento em campo)",
                  "interligação entre racks — quantidade sai da topologia")
+    else:
+        bloqueia("Switch GIGA", "portas e modelo (pergunta ao fornecedor)",
+                 f"interligação entre {racks} racks — o número de switches depende das "
+                 "portas de cada um, que é spec do fornecedor")
     bloqueia("Cabo", "metragem (levantamento em campo)",
              "backbone entre racks + descida por câmera — não há regra que produza metros")
     bloqueia("Eletrocalha", "metragem (levantamento em campo)",

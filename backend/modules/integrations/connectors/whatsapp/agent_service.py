@@ -3249,6 +3249,60 @@ _ACOES_CAMPO: tuple[str, ...] = (
 #:   `followup_em_lote`, `inscrever_em_sequencia` → falam com a CARTEIRA inteira.
 
 
+async def _bloco_dimensionamento(db, visit_id: str | None) -> str:
+    """O dimensionamento dentro do resumo que o Jordan lê na Central.
+
+    A tela já renderiza `resumo` — então a peça não é uma superfície nova, é fazer o texto
+    que ele JÁ lê dizer de onde cada número saiu. Era literalmente o pedido: *"quando for
+    pra tela de aprovação ver o que ele colocou. da forma como tá hoje não adianta nada"*.
+
+    Best-effort: dimensionar não pode impedir o pedido de cotação de nascer.
+    """
+    if not visit_id:
+        return ""
+    try:
+        from modules.crm.services.dimensionador import (  # noqa: PLC0415
+            dimensionar_visita,
+            render_texto,
+        )
+
+        d = await dimensionar_visita(db, visit_id)
+        if d.get("erro") or not d.get("linhas"):
+            return ""
+        return "\n\n" + render_texto(d)
+    except Exception:  # noqa: BLE001
+        logger.exception("dimensionamento não entrou no resumo (visita %s)", visit_id)
+        return ""
+
+
+_UNIDADES = ("un", "und", "unid", "unidades", "pecas", "peças", "pcs", "x")
+
+
+def _quantidade_do_item(txt: str) -> tuple[float, str]:
+    """Separa a QUANTIDADE do texto do item. Devolve (quantidade, descrição sem o número).
+
+    ⚠️ 31/08/2026 — defeito com consequência em dinheiro. O item nascia sempre com
+    `quantity=1` e o número ficava preso na string: "8 HDs de 4TB" virava
+    `quantity=1, description='8 HDs de 4TB'`. Quando o preço unitário do fornecedor
+    chegasse, `total = unit_price × 1` daria UM OITAVO do valor real, e esse total é o que
+    vira custo na proposta.
+
+    Mesma doença do `panorama`, em outro lugar: dado estruturado morando em campo
+    narrativo. Sem número no começo, devolve 1 — que é o default honesto, e a
+    `specifications` diz "quantidade a definir" quando é o caso.
+    """
+    t = str(txt or "").strip()
+    m = re.match(r"^\s*(\d+(?:[.,]\d+)?)\s*(?:x\s*)?(.*)$", t)
+    if not m or not m.group(2).strip():
+        return (1.0, t)
+    resto = m.group(2).strip()
+    # "4 TB" e "16 canais" são ESPECIFICAÇÃO, não quantidade — se o que sobra começa com
+    # unidade de medida, o número pertence à descrição.
+    if re.match(r"^(tb|gb|mp|ch|canais|mm|m\b|metros|va|kva|w|polegadas|u\b)", resto.lower()):
+        return (1.0, t)
+    return (float(m.group(1).replace(",", ".")), resto)
+
+
 def _item_sem_especificacao(txt: str) -> bool:
     """True quando a linha do item não diz NADA além do nome da coisa.
 
@@ -3380,6 +3434,7 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                        "\n\n⚠️ Sem obra vinculada: os itens não herdam o contexto de nenhum "
                        "projeto. Se é para uma obra, diga qual." if args.get("obra") is None
                        else f"\n\n⚠️ Não achei visita para a obra {args['obra']!r}.")
+                    + (await _bloco_dimensionamento(db, (visita or {}).get("id")))
                     + (f"\n\n⚠️ {len(nus)} item(ns) SEM especificação — vão sair pedindo "
                        f"o padrão do fornecedor: {', '.join(nus[:6])}. Se você já sabe a "
                        "spec, edite antes de aprovar." if nus else "")),
@@ -3397,6 +3452,116 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                 "instrucao": ("Diga ao Jordan que o pedido está na Central esperando o clique "
                               "dele, e MOSTRE o texto que vai sair e para quem. NADA foi "
                               "enviado ao fornecedor ainda.")}
+
+
+_SCHEMA_LEVANTAMENTO = {
+    "type": "function",
+    "function": {
+        "name": "levantamento_projeto",
+        "description": (
+            "O estado do LEVANTAMENTO de uma obra: o que já dá para dimensionar (com a "
+            "regra e a origem de cada número), o que está travado, e a PRÓXIMA pergunta "
+            "mais valiosa. Use SEMPRE antes de falar de cotação ou orçamento de projeto — "
+            "é assim que você deixa de perguntar o que ele já respondeu."),
+        "parameters": {
+            "type": "object",
+            "properties": {"obra": {"type": "string",
+                                    "description": "Nome do condomínio/cliente da obra."}},
+            "required": ["obra"],
+        },
+    },
+}
+
+_SCHEMA_REG_LEVANTAMENTO = {
+    "type": "function",
+    "function": {
+        "name": "registrar_levantamento",
+        "description": (
+            "Grava a resposta do Jordan a uma pergunta do levantamento, em campo "
+            "estruturado. Use assim que ele responder — se não gravar, a pergunta volta e "
+            "isso mata a confiança dele."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "obra": {"type": "string"},
+                "parametro": {"type": "string",
+                              "description": "O nome exato que veio em `levantamento_projeto`."},
+                "valor": {"description": "Número, texto ou true/false, como ele respondeu."},
+            },
+            "required": ["obra", "parametro", "valor"],
+        },
+    },
+}
+
+
+async def _visita_da_obra(db, obra: str):
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    return (await db.execute(_t(
+        "SELECT id::text, cliente_nome FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
+        "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"),
+        {"o": f"%{obra}%"})).mappings().first()
+
+
+async def _tool_levantamento_projeto(args: dict) -> dict:
+    from modules.crm.services.dimensionador import dimensionar_visita  # noqa: PLC0415
+    from modules.crm.services.levantamento import placar, proxima_pergunta  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        v = await _visita_da_obra(db, str(args.get("obra") or ""))
+        if not v:
+            return {"erro": f"não achei visita para {args.get('obra')!r}."}
+        d = await dimensionar_visita(db, v["id"])
+        pl = await placar(db, v["id"])
+        q = await proxima_pergunta(db, v["id"])
+    return {
+        "obra": v["cliente_nome"],
+        "dimensionado": [{k: l[k] for k in ("item", "quantidade", "regra", "origem")}
+                         for l in d["linhas"] if l["quantidade"] is not None],
+        "travado": [{"item": l["item"], "falta": l["bloqueado_por"]}
+                    for l in d["linhas"] if l["quantidade"] is None],
+        "placar": f"{pl['respondidas']}/{pl['total']} respondidas · "
+                  f"{pl['itens_travados']} itens travados",
+        "proxima_pergunta": (None if not q else
+                             {"parametro": q["param"], "pergunta": q["pergunta"],
+                              "quem_responde": q["dono"],
+                              "destrava": list(q["destrava"])}),
+        "instrucao": ("Faça UMA pergunta por vez — a `proxima_pergunta` e só ela. NÃO "
+                      "pergunte nada que já esteja em `dimensionado`. Se `quem_responde` "
+                      "não for o Jordan, diga a ele de quem é a resposta (síndica, campo, "
+                      "fornecedor) em vez de cobrá-la dele. Quando ele responder, chame "
+                      "`registrar_levantamento` na hora."),
+    }
+
+
+async def _tool_registrar_levantamento(args: dict) -> dict:
+    """Grava direto — sem rascunho, de propósito.
+
+    Rascunho existe para o que sai da empresa ou move dinheiro. Aqui o Jordan responde uma
+    pergunta sobre o próprio projeto, no próprio chat dele, e a resposta vai para um campo
+    que ele revê na tela de aprovação antes de qualquer coisa sair. Pôr uma aprovação no
+    meio faria ele aprovar a própria resposta — e ele responde em rajada, do celular.
+    """
+    from modules.crm.services.levantamento import registrar_resposta  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        v = await _visita_da_obra(db, str(args.get("obra") or ""))
+        if not v:
+            return {"erro": f"não achei visita para {args.get('obra')!r}."}
+        r = await registrar_resposta(
+            db, v["id"], str(args.get("parametro") or ""), args.get("valor"),
+            f"Jordan, WhatsApp {datetime.now().strftime('%d/%m/%Y')}")
+        if r.get("erro"):
+            return r
+        from modules.crm.services.levantamento import placar, proxima_pergunta  # noqa: PLC0415
+        pl = await placar(db, v["id"])
+        q = await proxima_pergunta(db, v["id"])
+    return {**r, "placar": f"{pl['respondidas']}/{pl['total']} · {pl['itens_travados']} travados",
+            "proxima_pergunta": (None if not q else
+                                 {"parametro": q["param"], "pergunta": q["pergunta"],
+                                  "quem_responde": q["dono"]}),
+            "instrucao": ("Confirme em uma linha o que gravou e faça a PRÓXIMA pergunta — "
+                          "uma só. Se não houver próxima, diga o que ainda trava a cotação.")}
 
 
 _SCHEMA_PERGUNTAR_JORDAN = {
@@ -3618,12 +3783,13 @@ async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
          # o minuto no número evita colidir com outra cotação do mesmo fornecedor no mesmo dia
          "n": f"{slug}-{datetime.now().strftime('%Y%m%d%H%M')}"})).scalar()
     for i, desc in enumerate(itens, start=1):
+        qtd, texto = _quantidade_do_item(desc)
         await db.execute(_t(
             "INSERT INTO purchase_quotation_items "
             "  (id, quotation_id, item_number, description, quantity, quantity_requested, "
             "   unit_price, total) "
-            "VALUES (gen_random_uuid(), :q, :i, :d, 1, 1, 0, 0)"),
-            {"q": qid, "i": i, "d": desc[:200]})
+            "VALUES (gen_random_uuid(), :q, :i, :d, :n, :n, 0, 0)"),
+            {"q": qid, "i": i, "d": texto[:200], "n": qtd})
     await db.commit()
     logger.info("[jose-luis] cotação %s registrada com %d itens", qid, len(itens))
     return (f"cotação enviada a {payload.get('fornecedor')} e registrada "
@@ -3697,7 +3863,8 @@ def _extras_do_dono() -> list[dict]:
     também no Bartolo, que já tem as mesmas capacidades por outro caminho.
     """
     return (_leitura_campo() + _cotacao_do_dono()
-            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR, _SCHEMA_COTACAO])
+            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR, _SCHEMA_COTACAO,
+               _SCHEMA_LEVANTAMENTO, _SCHEMA_REG_LEVANTAMENTO])
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -5190,6 +5357,10 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
             if name == "pedir_cotacao":
                 return await _tool_pedir_cotacao(args)
+            if name == "levantamento_projeto":
+                return await _tool_levantamento_projeto(args)
+            if name == "registrar_levantamento":
+                return await _tool_registrar_levantamento(args)
             if name == "agir_comercial":
                 # ⭐ ETAPA 2 — a resposta à pergunta do Jordan ("o José Luís manda o Bartolo
                 # montar e o Bartolo devolve?"). NÃO existe essa ida e volta, e ela não é
