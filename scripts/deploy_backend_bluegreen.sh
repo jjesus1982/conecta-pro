@@ -97,7 +97,32 @@ printf 'deploy blue/green pid=%s desde=%s\n' "$$" "$(date '+%F %T')" > "$LOCK/ow
 
 log "═══ BLUE/GREEN INICIADO ═══"
 
+# ── O bake publica o DISCO, não o HEAD ───────────────────────────────────────────────────
+# 31/08/2026. `docker-compose.yml` declara `build: { context: ./backend }` e o Dockerfile faz
+# `COPY . .` — então o contexto do build é o DIRETÓRIO daquele minuto, de TODAS as sessões.
+# Provado por hash: `contract_signature.py` tinha um conteúdo no git e outro no disco, e o
+# que foi para a imagem foi o do disco.
+#
+# ⚠️ Isto vinha sendo repetido ao contrário entre sessões ("o bake leva só o commitado"), e
+# pode haver quem tenha deixado WIP solto achando que estava protegido.
+#
+# AVISA, NÃO RECUSA — decisão do Jordan, e o motivo é operacional: em dia de vários bakes,
+# bloquear trava o trabalho de todos até alguém limpar. E ZERO SAÍDA com o disco limpo:
+# aviso que aparece sempre vira ruído e para de ser lido.
+avisar_wip_fora_do_head() {
+  local sujos n
+  sujos="$(git status --porcelain -- backend/ 2>/dev/null)"
+  [ -z "$sujos" ] && return 0
+  n="$(printf '%s\n' "$sujos" | grep -c '^')"
+  log "⚠️  ESTE BAKE VAI PUBLICAR $n ARQUIVO(S) ALÉM DO HEAD:"
+  printf '%s\n' "$sujos" | sed 's|^|      |' | while IFS= read -r l; do log "$l"; done
+  log "    O contexto do build é o DISCO, não o commit. Estes arquivos vão para produção"
+  log "    sem estar no git — inclusive os de outras sessões."
+  WIP_FORA_DO_HEAD="$n"
+}
+
 # 1. Build da imagem nova
+avisar_wip_fora_do_head
 log "1/7 build..."
 docker compose build backend >>"$LOG" 2>&1 || { log "ERRO no build"; exit 1; }
 
@@ -210,6 +235,13 @@ if [ "${PIPESTATUS[0]}" -ne 0 ]; then
   log "    docker compose -f docker-compose.yml -f docker-compose.celery.yml \\"
   log "      up -d --no-deps --force-recreate <servico>"
   exit 1
+fi
+
+# Repete no FIM: o deploy roda em background e o log é longo. Aviso perdido no meio de 300
+# linhas não é aviso — é registro. Aqui fica ao lado do resultado do drift, que é onde se olha.
+if [ -n "${WIP_FORA_DO_HEAD:-}" ]; then
+  log "⚠️  LEMBRETE: este bake publicou $WIP_FORA_DO_HEAD arquivo(s) que NÃO estão no git."
+  log "    Rode: git status --porcelain -- backend/"
 fi
 
 log "═══ BLUE/GREEN CONCLUÍDO — zero downtime, backend + $TOTAL worker(s) ═══"

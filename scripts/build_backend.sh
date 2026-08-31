@@ -17,4 +17,16 @@
 set -u
 cd /opt/conecta-pro
 
+# ── O build publica o DISCO, não o HEAD ──────────────────────────────────────────────────
+# 31/08/2026: `build: { context: ./backend }` + `COPY . .` — o contexto é o diretório daquele
+# minuto, de TODAS as sessões. Provado por hash em dois arquivos. Avisa, não recusa; e nada
+# aparece quando o disco está limpo, senão vira ruído e ninguém lê.
+sujos="$(git status --porcelain -- backend/ 2>/dev/null)"
+if [ -n "$sujos" ]; then
+  n="$(printf '%s\n' "$sujos" | grep -c '^')"
+  printf '\n⚠️  ESTA IMAGEM VAI CONTER %s ARQUIVO(S) ALÉM DO HEAD:\n' "$n" >&2
+  printf '%s\n' "$sujos" | sed 's|^|      |' >&2
+  printf '    O contexto do build é o DISCO, não o commit — inclusive WIP de outras sessões.\n\n' >&2
+fi
+
 exec ./scripts/com_lock.sh "$@" docker compose build backend
