@@ -747,3 +747,101 @@ async def _checar_saldo_llm(session):
     await redis.set(chave, nivel, ex=(3 * 3600 if nivel == "critico" else 24 * 3600))
     logger.warning("checar_saldo_llm: saldo US$ %.2f (%s) — dono avisado", saldo, nivel)
     return {"saldo": saldo, "nivel": nivel, "media_dia": media, "avisado": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# whatsapp.checar_canal_surdo — O CANAL ESTÁ VERDE E MUDO?
+#
+# 31/08/2026, 15:13 → 17:32: o WhatsApp parou de ENTREGAR mensagem de entrada. 2h19 sem que
+# ninguém percebesse, e o Jordan descobriu porque o agente não respondeu. Todos os monitores
+# verdes: container `healthy` há 7 semanas, `/status` HTTP 200 a cada 30s.
+#
+# ⚠️ A saída continuou funcionando — os avisos de diária saíram normalmente. Por isso é
+# invisível: metade do canal morre e a outra metade prova que "está no ar".
+#
+# POR QUE NÃO MEDIR SILÊNCIO: medido, 21 dias, dias úteis 8-18h — intervalo médio de 10
+# minutos, e só 2 passaram de 4h. Um alarme de silêncio precisaria de 4h para não gritar à
+# toa, e a falha de hoje durou 2h19: teria disparado DEPOIS de o Jordan reclamar. Serve para
+# relatório, não para alarme.
+#
+# O QUE MEDE, ENTÃO: o caminho que quebrou. Hoje, `/status` respondia 200 em milissegundos
+# enquanto a rota que fala com o WhatsApp de verdade pendurava 25 segundos sem responder.
+# Essa diferença é o sinal — e é a única coisa que distinguia "no ar" de "surdo".
+# ─────────────────────────────────────────────────────────────────────────────────────────
+
+_BAILEYS_URL = os.getenv("BAILEYS_URL", "http://baileys-api:3025")
+_BAILEYS_FONE = os.getenv("BAILEYS_CONNECTION", "+558008804414")
+
+
+async def _sonda_whatsapp(timeout: float = 12.0) -> tuple[bool, str]:
+    """(vivo, motivo). Faz um round-trip REAL ao WhatsApp, não um health check local."""
+    import httpx  # noqa: PLC0415
+
+    from modules.crm.services.orchestration import OWNER_E164  # noqa: PLC0415
+
+    jid = re.sub(r"\D", "", str(OWNER_E164 or "")) + "@s.whatsapp.net"
+    chave = os.getenv("BAILEYS_API_KEY", "")
+    url = f"{_BAILEYS_URL}/connections/{_BAILEYS_FONE}/profile-picture-url"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(url, params={"jid": jid},
+                            headers={"x-api-key": chave} if chave else None)
+        # ⚠️ 401/403 NÃO é prova de nada: a requisição morre na autenticação, ANTES de
+        # qualquer round-trip ao WhatsApp. Chamar isso de "vivo" seria a sonda mais
+        # perigosa possível — verde permanente sobre canal morto. Sem chave, ela se
+        # declara INDETERMINADA e diz o porquê, em vez de mentir.
+        if r.status_code in (401, 403):
+            return (None, f"HTTP {r.status_code} — sem BAILEYS_API_KEY, a sonda não "
+                          "alcança o WhatsApp e não prova nada")
+        # Demais respostas provam que o socket foi até o WhatsApp e voltou.
+        return (True, f"HTTP {r.status_code}")
+    except Exception as e:  # noqa: BLE001
+        return (False, type(e).__name__)
+
+
+@app.task(name="whatsapp.checar_canal_surdo", bind=True, max_retries=0)
+def checar_canal_surdo(self):  # noqa: ARG001
+    try:
+        return _run_async(_checar_canal_surdo)
+    except Exception as e:  # noqa: BLE001
+        logger.error("checar_canal_surdo: %s", e)
+        return {"erro": str(e)[:200]}
+
+
+async def _checar_canal_surdo(session):
+    from core.cache.redis import get_redis  # noqa: PLC0415
+    from modules.crm.services.orchestration import notify_owner  # noqa: PLC0415
+
+    vivo, motivo = await _sonda_whatsapp()
+    if vivo is None:
+        # Não conta como falha nem como sucesso. Um alarme que não pode medir tem de dizer
+        # isso alto, não escolher um lado.
+        logger.error("checar_canal_surdo: NÃO VERIFICADO — %s", motivo)
+        return {"vivo": None, "motivo": motivo}
+    redis = await get_redis()
+    chave = "wa:canal:falhas"
+    if vivo:
+        with contextlib.suppress(Exception):
+            await redis.delete(chave)
+        return {"vivo": True, "motivo": motivo}
+
+    # ⚠️ DUAS falhas seguidas antes de avisar. Uma sonda que expira pode ser lentidão do
+    # WhatsApp; duas em sequência são o padrão de hoje. Alarme que grita por soluço deixa
+    # de ser lido — foi a lição das 9 frases de erro em 63 segundos.
+    n = await redis.incr(chave)
+    await redis.expire(chave, 3600)
+    if n < 2:
+        logger.warning("checar_canal_surdo: sonda falhou (%s) — 1ª vez, aguardando confirmar", motivo)
+        return {"vivo": False, "motivo": motivo, "falhas": n}
+
+    if n == 2:
+        await notify_owner(
+            "🔇 *O WhatsApp pode estar surdo.*\n\n"
+            "A conexão responde, mas a sonda que fala com o WhatsApp de verdade não "
+            f"respondeu em duas tentativas seguidas ({motivo}).\n\n"
+            "Foi o que aconteceu hoje das 15:13 às 17:32: mensagem SUA não chegava, e os "
+            "avisos automáticos continuavam saindo normalmente — por isso ninguém viu.\n\n"
+            "Se eu não estiver respondendo, é isso. Reiniciar o baileys resolve e não "
+            "perde a sessão.")
+    logger.error("checar_canal_surdo: canal SURDO (%s), %ª falha — dono avisado", motivo, n)
+    return {"vivo": False, "motivo": motivo, "falhas": n, "avisado": n == 2}

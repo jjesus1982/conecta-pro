@@ -3,6 +3,7 @@ WhatsApp Controller — Endpoints REST para envio de mensagens.
 """
 
 from core.llm_client import novo_cliente
+import asyncio
 import hmac
 import json
 import logging
@@ -1102,7 +1103,23 @@ async def chatwoot_webhook(
     lead_id = None
     if direction == "in" and phone_canonical:
         try:
-            lead_id = await _match_or_create_lead(db, phone_canonical, name, content)
+            # ⏱️ TETO. 31/08/2026: o Chatwoot corta o webhook em 5s (`Net::ReadTimeout`) e
+            # devolve 499 ao nginx — a mensagem do Jordan simplesmente NÃO CHEGAVA, com
+            # tudo verde dos dois lados. Medido: `_match_or_create_lead` levava **2,28s**
+            # sozinho, e somado ao resto do handler estourava o corte. Os webhooks que
+            # funcionavam eram de SAÍDA, que não passam por aqui — por isso o canal parecia
+            # vivo enquanto a entrada estava morta.
+            #
+            # Casar lead é ACESSÓRIO; registrar a mensagem e enfileirar é o essencial.
+            # Perder o vínculo de lead custa um campo; perder a mensagem custa a conversa.
+            # ponytail: teto aqui resolve hoje — o certo é mover para a fila, como já foi
+            # feito com a análise de mídia.
+            lead_id = await asyncio.wait_for(
+                _match_or_create_lead(db, phone_canonical, name, content), timeout=1.5)
+        except asyncio.TimeoutError:
+            logger.error("Webhook Chatwoot: casamento de lead passou de 1,5s — SEGUINDO SEM "
+                         "ele para não estourar o timeout do Chatwoot (fone=%s)",
+                         phone_canonical)
         except Exception as e:  # noqa: BLE001 — log nunca deve falhar por causa do lead
             logger.error("Webhook Chatwoot: falha ao criar/achar lead: %s", e)
 

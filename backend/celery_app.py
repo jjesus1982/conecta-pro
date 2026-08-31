@@ -122,6 +122,7 @@ app.conf.task_routes = {
     # a ordem entre eles importa (a descrição precisa estar pronta antes do turno).
     "whatsapp.analisar_midia": {"queue": "webhooks"},
     "whatsapp.checar_saldo_llm": {"queue": "webhooks"},
+    "whatsapp.checar_canal_surdo": {"queue": "webhooks"},
     # Operacional - Banco de Horas / Relatórios
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
@@ -808,6 +809,13 @@ app.conf.beat_schedule = {
     # Em 31/08 a conta zerou e o Jordan só descobriu levando "problema técnico" na cara
     # durante uma hora. De hora em hora basta: o gasto diário é de ordem US$ 1-3, então
     # entre duas checagens o saldo não despenca um patamar inteiro.
+    # ── Canal do WhatsApp surdo (verde e mudo) — a cada 10 min ──
+    # 10 min porque a falha de hoje durou 2h19 e ninguém viu: o valor está em avisar antes
+    # de o Jordan reclamar. Duas sondas falhas = 20 min até o aviso, contra as 2h de hoje.
+    "whatsapp-checar-canal-surdo-10min": {
+        "task": "whatsapp.checar_canal_surdo",
+        "schedule": 600.0,
+    },
     "whatsapp-checar-saldo-llm-hourly": {
         "task": "whatsapp.checar_saldo_llm",
         "schedule": crontab(minute=7),
