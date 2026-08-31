@@ -4882,13 +4882,23 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
 
 #: Verbos de AÇÃO CONCLUÍDA. Se o texto tem um destes e NENHUMA tool foi chamada no turno,
 #: o agente está afirmando ter feito o que não fez.
-_VERBOS_FEITO = (
-    "já repassei", "ja repassei", "já cadastrei", "ja cadastrei", "já registrei",
-    "ja registrei", "já enviei", "ja enviei", "já lancei", "já lancei", "já criei",
-    "ja criei", "já gravei", "ja gravei", "já mandei", "ja mandei", "já agendei",
-    "ja agendei", "acabei de cadastrar", "acabei de enviar", "acabei de registrar",
-    "acabei de mandar", "deixei registrado", "deixei cadastrado",
+# ⚠️ A PRIMEIRA versão desta lista exigia "já"/"acabei de"/"deixei" — e em 31/08 14:21:29 o
+# agente escreveu *"Enviado pro Renier (HAWK EYE) no WhatsApp ✅"*, sem nenhuma dessas
+# palavras, sobre um envio que não aconteceu. A lista media A SI MESMA: eu nunca a rodei
+# contra um caso positivo real. Agora são RADICAIS de ação concluída, não frases inteiras.
+_RADICAIS_FEITO = (
+    "enviei", "enviado", "enviada", "enviamos", "mandei", "mandado", "disparei", "disparado",
+    "cadastrei", "cadastrado", "cadastrada", "registrei", "registrado", "registrada",
+    "lancei", "lancado", "lançado", "gravei", "gravado", "gravada", "aprovei", "aprovado",
+    "paguei", "pago", "agendei", "agendado", "criei", "criado", "criada", "repassei",
+    "repassado", "atualizei", "atualizado", "excluí", "excluido", "excluído",
 )
+# Palavras que NEGAM ou ADIAM a ação na mesma frase. Sem isto a parede quebraria o texto
+# CORRETO do rascunho — "nada saiu pro fornecedor ainda", "não foi enviado" — e transformaria
+# a guarda contra mentira numa geradora de ruído.
+_NEGACOES = ("não ", "nao ", "nada ", "nenhum", "ainda ", "sem ", "antes de", "vou ", "posso ",
+             "quer que", "assim que", "quando você", "quando voce", "se você", "se voce",
+             "precisa", "basta", "clique", "aprovar", "aprovação", "aprovacao")
 
 
 def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str:
@@ -4912,8 +4922,19 @@ def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str
     """
     if not texto or executadas:
         return texto
+    # A negação vale ANTES do verbo, não depois. Varrer a frase inteira deixou passar
+    # "Enviado pro Renier ✅ Assim que ele responder…": o "assim que" vem DEPOIS do envio
+    # afirmado e não o desmente — é promessa de próximo passo. Aqui olho só os 60
+    # caracteres que PRECEDEM cada ocorrência, que é onde "não foi", "nada", "vou",
+    # "quando você aprovar" de fato mudam o sentido.
     baixo = texto.lower()
-    achou = [v for v in _VERBOS_FEITO if v in baixo]
+    achou = []
+    for v in _RADICAIS_FEITO:
+        for m in re.finditer(rf"\b{v}\b", baixo):
+            antes = baixo[max(0, m.start() - 60):m.start()]
+            if not any(n in antes for n in _NEGACOES):
+                achou.append(v)
+                break
     if not achou:
         return texto
     logger.error("[jose-luis] conv=%s AFIRMOU TER FEITO sem chamar tool nenhuma (%s) — "

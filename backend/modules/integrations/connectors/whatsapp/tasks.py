@@ -8,6 +8,7 @@ humano (Jordan/equipe decide e manda).
 """
 
 from core.llm_client import modelo_barato, novo_cliente
+import contextlib
 import logging
 import os
 import re
@@ -648,3 +649,101 @@ def analisar_midia(self, conv_id: int, msg_id, payload: dict, phone: str | None 
     if restantes <= 0:
         processar_incoming_task.apply_async(args=[conv_id, phone], queue="webhooks", priority=8)
     return {"ok": ok, "conversation_id": conv_id, "anexos_restantes": restantes}
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# whatsapp.checar_saldo_llm — AVISO DE SALDO DO PROVEDOR DO LLM
+#
+# 31/08/2026: das 11:43 às 13:02 a conta ficou SEM CRÉDITO — 34 recusas `402 Insufficient
+# Balance`. O Jordan descobriu levando "estou com um problema técnico" na cara, três vezes,
+# durante uma hora; e o pedido dele das 12:04 só foi respondido às 13:04.
+#
+# Duas decisões que valem a pena registrar:
+#  · **Nada de LLM aqui.** O alerta dispara exatamente quando o LLM está morto. Texto fixo,
+#    entregue por `notify_owner`, que só usa a API do WhatsApp.
+#  · **Saldo sozinho não decide nada; saldo com AUTONOMIA decide.** "US$ 4,20" não diz se é
+#    para agir hoje; "US$ 4,20 · ~3 dias" diz.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+
+_SALDO_ATENCAO = float(os.getenv("LLM_SALDO_ATENCAO_USD", "5"))
+_SALDO_CRITICO = float(os.getenv("LLM_SALDO_CRITICO_USD", "2"))
+
+
+async def _saldo_provedor() -> float | None:
+    """Saldo em USD, ou None se o provedor não expõe esse endpoint.
+
+    Só a DeepSeek publica `/user/balance`. Em qualquer outro provedor devolve None e a
+    task se cala — melhor não avisar do que avisar número inventado.
+    """
+    import httpx  # noqa: PLC0415
+
+    base = (os.getenv("LLM_BASE_URL") or "").rstrip("/")
+    key = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
+    if not (base and key and "deepseek" in base):
+        return None
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(f"{base}/user/balance", headers={"Authorization": f"Bearer {key}"})
+        r.raise_for_status()
+        infos = (r.json() or {}).get("balance_infos") or []
+    return float(infos[0].get("total_balance", 0)) if infos else None
+
+
+async def _gasto_medio_diario(session) -> float:
+    """Média de gasto/dia, ignorando dias de custo ZERO.
+
+    Dia zerado é dia em que o serviço estava FORA (foi o caso de 30/08), não dia barato.
+    Incluí-lo puxaria a média para baixo e inflaria a autonomia estimada — erro na direção
+    perigosa: diria "6 dias" quando restam 3.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    return float((await session.execute(_t(
+        "SELECT coalesce(avg(d),0) FROM (SELECT sum(custo_usd) d FROM llm_usage "
+        "WHERE criado_em >= now() - interval '7 days' "
+        "GROUP BY date_trunc('day', criado_em) HAVING sum(custo_usd) > 0) x"))).scalar() or 0)
+
+
+@app.task(name="whatsapp.checar_saldo_llm", bind=True, max_retries=0)
+def checar_saldo_llm(self):  # noqa: ARG001
+    try:
+        return _run_async(_checar_saldo_llm)
+    except Exception as e:  # noqa: BLE001
+        logger.error("checar_saldo_llm: %s", e)
+        return {"erro": str(e)[:200]}
+
+
+async def _checar_saldo_llm(session):
+    from core.cache.redis import get_redis  # noqa: PLC0415
+    from modules.crm.services.orchestration import notify_owner  # noqa: PLC0415
+
+    saldo = await _saldo_provedor()
+    if saldo is None:
+        return {"pulado": "provedor não expõe saldo"}
+
+    nivel = "critico" if saldo < _SALDO_CRITICO else ("atencao" if saldo < _SALDO_ATENCAO else "ok")
+    if nivel == "ok":
+        # some o silenciador quando o saldo volta: a próxima queda avisa na hora
+        with contextlib.suppress(Exception):
+            await (await get_redis()).delete("llm:saldo:avisado")
+        return {"saldo": saldo, "nivel": "ok"}
+
+    # ⚠️ Não repetir sem MUDANÇA de patamar. A frase de erro repetida 9× em 63 segundos
+    # ensinou que aviso que se repete deixa de ser lido — e este precisa ser lido.
+    redis = await get_redis()
+    chave = "llm:saldo:avisado"
+    if (await redis.get(chave)) == nivel:
+        return {"saldo": saldo, "nivel": nivel, "silenciado": "mesmo patamar"}
+
+    media = await _gasto_medio_diario(session)
+    dias = f"~{saldo / media:.0f} dia(s)" if media > 0 else "autonomia desconhecida"
+    icone = "🔴" if nivel == "critico" else "⚠️"
+    await notify_owner(
+        f"{icone} *Saldo do José Luís: US$ {saldo:.2f}*\n\n"
+        f"Consumo médio: US$ {media:.2f}/dia → resta {dias}.\n\n"
+        "Quando zerar, ele para de responder e a mensagem vira "
+        '"estou com um problema técnico" — foi o que aconteceu hoje das 11:43 às 13:02.'
+    )
+    # janela por patamar: crítico volta a lembrar em 3h; atenção, uma vez por dia
+    await redis.set(chave, nivel, ex=(3 * 3600 if nivel == "critico" else 24 * 3600))
+    logger.warning("checar_saldo_llm: saldo US$ %.2f (%s) — dono avisado", saldo, nivel)
+    return {"saldo": saldo, "nivel": nivel, "media_dia": media, "avisado": True}

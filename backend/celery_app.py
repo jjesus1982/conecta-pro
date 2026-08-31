@@ -121,6 +121,7 @@ app.conf.task_routes = {
     # Análise de foto/áudio/vídeo. Mesma fila da resposta: é o mesmo pedaço de conversa e
     # a ordem entre eles importa (a descrição precisa estar pronta antes do turno).
     "whatsapp.analisar_midia": {"queue": "webhooks"},
+    "whatsapp.checar_saldo_llm": {"queue": "webhooks"},
     # Operacional - Banco de Horas / Relatórios
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
@@ -802,6 +803,14 @@ app.conf.beat_schedule = {
     "whatsapp-varrer-sem-resposta-2min": {
         "task": "whatsapp.varrer_sem_resposta",
         "schedule": crontab(minute="*/2"),
+    },
+    # ── Saldo do provedor do LLM -> WhatsApp do dono — de hora em hora ──
+    # Em 31/08 a conta zerou e o Jordan só descobriu levando "problema técnico" na cara
+    # durante uma hora. De hora em hora basta: o gasto diário é de ordem US$ 1-3, então
+    # entre duas checagens o saldo não despenca um patamar inteiro.
+    "whatsapp-checar-saldo-llm-hourly": {
+        "task": "whatsapp.checar_saldo_llm",
+        "schedule": crontab(minute=7),
     },
     "whatsapp-followup-conversas-0900": {
         "task": "whatsapp.followup_conversas",
