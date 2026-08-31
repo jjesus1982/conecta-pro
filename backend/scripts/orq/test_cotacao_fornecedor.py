@@ -63,6 +63,41 @@ async def main():
     ok("cotar" in str(r.get("erro", "")).lower(), "lista vazia recusa POR ISSO",
        "pedido sem item é ruído para o fornecedor")
 
+    print("\n== 3b. achar fornecedor pela PESSOA — como o Jordan fala ==")
+    # 31/08 13:13: ele pediu "cotação pro Renier" e ouviu "não achei no cadastro",
+    # com HAWK EYE (Renier Souza) cadastrado. A query lia contact_name para cumprimentar
+    # e não para achar.
+    for apelido, esperado in (("Renier", "HAWK EYE"), ("Kely", "FUTURA")):
+        r = await A._exec_manager_tool("pedir_cotacao",
+                                       {"fornecedor": apelido, "itens": ["ORACULO x"]}, 76)
+        if r.get("draft_id"):
+            CRIADOS.append(str(r["draft_id"]))
+        achou = esperado.lower() in str(r.get("fornecedor", "")).lower()
+        ok(achou, f"'{apelido}' resolve para {esperado}",
+           str(r.get("fornecedor") or r.get("erro"))[:60])
+
+    print("\n== 3c. ambiguidade NÃO escolhe sozinha ==")
+    # termo que casa com muitos: a tool tem de devolver as opções, não eleger uma.
+    r = await A._exec_manager_tool("pedir_cotacao", {"fornecedor": "a", "itens": ["ORACULO x"]}, 76)
+    if r.get("draft_id"):
+        CRIADOS.append(str(r["draft_id"]))
+    # `"erro" in r` seria verde no código anterior pelo motivo ERRADO: 'a' casava com
+    # "CEF - FGTS Digital" e a recusa vinha de falta de telefone, não de ambiguidade.
+    # A asserção exige a LISTA DE OPÇÕES — é ela que prova que a tool viu mais de um.
+    ok(len(r.get("opcoes") or []) > 1, "termo ambíguo devolve as OPÇÕES",
+       f"{len(r.get('opcoes') or [])} opções · {str(r.get('erro'))[:44]}")
+    ok(not r.get("draft_id"), "e não nasce rascunho para destino incerto")
+
+    print("\n== 3d. não achou → conferir, NUNCA oferecer cadastro ==")
+    r = await A._exec_manager_tool("pedir_cotacao",
+                                   {"fornecedor": "ZZQQ INEXISTENTE", "itens": ["x"]}, 76)
+    # a asserção afirma o que a instrução DIZ, não a ausência de uma palavra: procurar
+    # "cadastr" casava dentro da própria proibição ("NÃO ofereça cadastrar").
+    instr = str(r.get("instrucao", "")).lower()
+    ok("não ofereça cadastrar" in instr, "a instrução PROÍBE cadastrar", instr[:64])
+    ok(bool(r.get("fornecedores_com_whatsapp")), "devolve a lista para ele conferir",
+       f"{len(r.get('fornecedores_com_whatsapp') or [])} fornecedores")
+
     print("\n== 4. o caminho feliz — e ele NÃO ENVIA ==")
     async with async_session_factory() as db:
         antes = (await db.execute(text(

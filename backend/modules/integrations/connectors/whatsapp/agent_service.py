@@ -3123,17 +3123,51 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         return {"erro": "informe os itens a cotar — não invento a lista."}
 
     async with async_session_factory() as db:
-        f = (await db.execute(_t(
+        # ⭐ Busca também por `contact_name` (31/08/2026). O Jordan chama fornecedor pela
+        # PESSOA — "pede cotação pro Renier", "manda pra Kely" — e nunca pela razão social.
+        # A query lia `contact_name` só para montar o "Olá, Renier!" e não o usava para
+        # ACHAR: às 13:13 ele pediu ao Renier e ouviu "não achei no cadastro", com HAWK EYE
+        # (Renier Souza) cadastrado e com WhatsApp.
+        cands = (await db.execute(_t(
             "SELECT id, name, coalesce(contact_name,'') ct, "
-            "       coalesce(whatsapp, phone, '') fone "
+            "       coalesce(whatsapp, phone, '') fone, "
+            "       (upper(name) = upper(:r)) e_nome, "
+            "       (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
+            "        regexp_replace(:r,'[^0-9]','','g') "
+            "        AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11) e_cnpj, "
+            "       (upper(coalesce(contact_name,'')) = upper(:r)) e_contato "
             "FROM suppliers WHERE coalesce(ativo,true) AND ("
             "  upper(name) = upper(:r) OR name ILIKE :like "
-            "  OR regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
-            "     regexp_replace(:r,'[^0-9]','','g')) "
-            "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"),
-            {"r": ref, "like": f"%{ref}%"})).mappings().first()
-        if not f:
-            return {"erro": f"não achei o fornecedor {ref!r} no cadastro."}
+            "  OR contact_name ILIKE :like "
+            "  OR (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
+            "      regexp_replace(:r,'[^0-9]','','g') "
+            "      AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11)) "
+            # razão social exata > CNPJ > contato exato > parcial na razão > parcial no contato
+            "ORDER BY e_nome DESC, e_cnpj DESC, e_contato DESC, (name ILIKE :like) DESC, name"),
+            {"r": ref, "like": f"%{ref}%"})).mappings().all()
+        if not cands:
+            # ⚠️ NÃO oferecer cadastro aqui. A versão anterior respondia "quer que eu cadastre?"
+            # — se ele aceitasse, nasceria um segundo HAWK EYE. Quem não foi achado por um
+            # apelido provavelmente existe com outro nome; conferir vem antes de criar.
+            nomes = (await db.execute(_t(
+                "SELECT name || coalesce(' (' || contact_name || ')','') FROM suppliers "
+                "WHERE coalesce(ativo,true) AND coalesce(whatsapp, phone,'') <> '' "
+                "ORDER BY name LIMIT 12"))).scalars().all()
+            return {"erro": f"não achei nenhum fornecedor por {ref!r}.",
+                    "fornecedores_com_whatsapp": list(nomes),
+                    "instrucao": ("NÃO ofereça cadastrar. Pergunte se ele quis dizer um dos "
+                                  "fornecedores da lista — cadastrar de novo cria duplicata.")}
+        # Só um casamento FORTE (razão social exata, CNPJ ou contato exato) decide sozinho.
+        # Nome de pessoa colide mais que razão social, e mandar cotação para o fornecedor
+        # errado é exatamente o que a parede existe para impedir — e não se desfaz.
+        forte = [c for c in cands if c["e_nome"] or c["e_cnpj"] or c["e_contato"]]
+        if len(forte) > 1 or (not forte and len(cands) > 1):
+            opcoes = [f"{c['name']}" + (f" ({c['ct']})" if c["ct"] else "")
+                      for c in (forte or cands)[:6]]
+            return {"erro": f"{ref!r} casa com mais de um fornecedor — não vou escolher.",
+                    "opcoes": opcoes,
+                    "instrucao": "Pergunte ao Jordan qual dos dois, citando os nomes."}
+        f = (forte or cands)[0]
         numero = re.sub(r"\D", "", f["fone"] or "")
         if not numero:
             return {"erro": f"{f['name']} não tem telefone no cadastro — cadastre antes."}
