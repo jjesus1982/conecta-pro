@@ -17,6 +17,7 @@ import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from core.logging import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,30 @@ from .base import GATES
 #: tipo (str) -> executor. fn(db, aprovador_user, payload:dict) -> entity_ref:str|None.
 #: O executor chama o SERVIÇO DE DOMÍNIO REAL — é o único ponto que efetiva.
 EXECUTORES: dict[str, Callable[[AsyncSession, Any, dict], Awaitable[Any]]] = {}
+
+
+def _garantir_executores() -> None:
+    """Importa os módulos que REGISTRAM executores, no processo que for.
+
+    ⚠️ 31/08/2026 — medido: `EXECUTORES` tinha **0** entradas no processo do backend, e o
+    único lugar do repositório que importava `tools_acao_crm` eram os ORÁCULOS. Eles
+    importavam no topo, viam tudo registrado e passavam verde; a Central falhava com "sem
+    executor registrado" em TODO rascunho de CRM. O Jordan tentava aprovar a proposta da
+    VEGA desde sexta.
+
+    É o irmão exato do buraco de `_READ_OPS` consertado em 28/08 — consertei o registro de
+    LEITURA e deixei o de EXECUÇÃO com o mesmo defeito, no mesmo módulo.
+
+    A guarda mora AQUI, e não em cada caminho que aprova, porque aqui passa toda aprovação:
+    um guard na função compartilhada é menor que um import em cada chamador — e um chamador
+    novo amanhã nasceria quebrado de novo.
+    """
+    try:
+        from modules.ai.conversation.services.orquestrador import (  # noqa: PLC0415,F401
+            tools_acao_crm,
+        )
+    except Exception:  # noqa: BLE001 — import não pode derrubar a aprovação
+        logger.exception("não consegui registrar os executores de domínio")
 
 
 def registrar_executor(tipo: str, fn: Callable[[AsyncSession, Any, dict], Awaitable[Any]]) -> None:
@@ -166,7 +191,7 @@ async def executar_rascunho(db: AsyncSession, aprovador_user, draft: AgentDraft)
     """Roda o executor de domínio do tipo e marca o draft como executado. NÃO faz gate de
     OTP (o controller faz antes) nem commita (o controller commita). Levanta se o executor
     falhar — o controller trata o rollback + registro de falha."""
-    fn = EXECUTORES.get(draft.tipo)
+    fn = EXECUTORES.get(draft.tipo) or (_garantir_executores() or EXECUTORES.get(draft.tipo))
     if fn is None:
         raise ValueError(f"sem executor registrado para tipo {draft.tipo!r}")
     entity_ref = await fn(db, aprovador_user, dict(draft.payload or {}))
