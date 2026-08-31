@@ -6042,6 +6042,20 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # jeito. A promessa do agente deixa de depender de o agente cumpri-la.
         if forn and not _executadas:
             await _rede_fornecedor(forn, rows, texto, conversation_id)
+        # MEDIÇÃO DE DEGRADAÇÃO SILENCIOSA (31/08/2026). O que precisa ser provado não é
+        # que a tool funciona — é que o modelo DECIDE chamá-la. Já medi hoje que ele
+        # prefere responder em texto (3 turnos, 0 chamadas, no caso do fornecedor). Aqui
+        # não há rede automática: o Jordan está do outro lado e vê a resposta. O que fica é
+        # a marca no log, para saber se ele perguntou no 1º turno ou no 3º — funcionar no
+        # teste e irritar no uso é o desfecho que esta linha existe para pegar.
+        if owner and not _executadas:
+            _ult = (next((c for d, c in rows if d == "in"), "") or "").lower()
+            if any(k in _ult for k in ("cota", "orçament", "orcament", "dimension", "obra",
+                                       "levantament", "projeto")):
+                logger.warning(
+                    "[jose-luis] conv=%s DONO falou de projeto e o turno não chamou tool "
+                    "nenhuma — levantamento_projeto não foi usado. Pedido: %r",
+                    conversation_id, _ult[:120])
         # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, NEM em situação
         # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
         if not owner and not em_acompanhamento and not situacao_sensivel:
