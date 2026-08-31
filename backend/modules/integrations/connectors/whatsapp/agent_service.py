@@ -2770,14 +2770,32 @@ async def _contexto_fornecedor(forn: dict) -> str:
               + (f" (categoria: {forn['cat']})" if forn.get("cat") else "")]
     async with async_session_factory() as db:
         cots = (await db.execute(_t(
-            "SELECT id::text, number, to_char(quotation_date,'DD/MM/YYYY') dt, status "
-            "FROM purchase_quotations WHERE supplier_id::text = :s "
-            "  AND status IN ('enviada','recebida') "
-            "ORDER BY quotation_date DESC LIMIT 3"), {"s": forn["id"]})).mappings().all()
+            "SELECT q.id::text, q.number, to_char(q.quotation_date,'DD/MM/YYYY') dt, "
+            "       q.status, v.cliente_nome obra, "
+            "       to_char(v.data_visita,'DD/MM/YYYY') visita_dt, v.panorama "
+            "FROM purchase_quotations q "
+            "LEFT JOIN crm_visit_reports v ON v.id = q.visit_report_id "
+            "WHERE q.supplier_id::text = :s AND q.status IN ('enviada','recebida') "
+            "ORDER BY q.quotation_date DESC LIMIT 3"), {"s": forn["id"]})).mappings().all()
         if not cots:
             linhas.append("Nenhuma cotação aberta com ele no sistema. Se ele falar de um "
                           "pedido, PERGUNTE qual — não deduza.")
         for c in cots:
+            if c.get("obra"):
+                # ⭐ O item herda o projeto. "cabo" sozinho não diz nada; "cabo para 64
+                # câmeras IP PoE em topologia descentralizada" responde metade das perguntas
+                # antes de o fornecedor precisar fazê-las.
+                # ⚠️ NOME e DATA da obra, e nada de narrativa. O `panorama` do relatório é
+                # histórico ACUMULADO e envelhece: o do The Sun ainda dizia "32 câmeras IP"
+                # quando a configuração fechada é 64. Despejar isso na conversa com o
+                # fornecedor criaria um vetor de fabricação sem nenhum ganho — ele não
+                # precisa da história do negócio, precisa da spec do item, que está abaixo
+                # e é o que o Jordan definiu.
+                linhas.append(f"\nOBRA DESTA COTAÇÃO: {c['obra']}"
+                              + (f" — visita de {c['visita_dt']}" if c.get("visita_dt") else "")
+                              + "\n  ⚠️ Quantidades e specs válidas são AS DOS ITENS abaixo. "
+                                "Não cite número de câmeras, prazo ou valor que não esteja "
+                                "escrito ali.")
             itens = (await db.execute(_t(
                 "SELECT item_number, description, quantity, unit_price, "
                 "       coalesce(specifications,'') spec "
@@ -3336,6 +3354,17 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                     if args.get("observacao") else "")
                  + "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!")
 
+        # ⭐ A OBRA. Sem ela a cotação é uma lista de palavras; com ela, cada item herda o
+        # projeto — 64 câmeras IP PoE, topologia descentralizada, os 77 achados da visita.
+        # O contexto já existia no banco e estava desligado.
+        visita = None
+        if args.get("obra"):
+            visita = (await db.execute(_t(
+                "SELECT id::text, cliente_nome, to_char(data_visita,'DD/MM/YYYY') dt "
+                "FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
+                "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"),
+                {"o": f"%{args['obra']}%"})).mappings().first()
+
         u = await _usuario_dono(db)
         if u is None:
             return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
@@ -3345,11 +3374,18 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
             resumo=(f"Aprovar ENVIA esta mensagem por WhatsApp para {f['name']}"
                     f"{' (' + f['ct'] + ')' if f['ct'] else ''}, número {numero}, "
                     f"com {len(itens)} item(ns):\n\n{corpo}"
+                    + (f"\n\nOBRA: {visita['cliente_nome']} (visita de {visita['dt']}) — "
+                       "os itens ficam ligados a este projeto."
+                       if visita else
+                       "\n\n⚠️ Sem obra vinculada: os itens não herdam o contexto de nenhum "
+                       "projeto. Se é para uma obra, diga qual." if args.get("obra") is None
+                       else f"\n\n⚠️ Não achei visita para a obra {args['obra']!r}.")
                     + (f"\n\n⚠️ {len(nus)} item(ns) SEM especificação — vão sair pedindo "
                        f"o padrão do fornecedor: {', '.join(nus[:6])}. Se você já sabe a "
                        "spec, edite antes de aprovar." if nus else "")),
             payload={"numero": numero, "fornecedor": f["name"], "mensagem": corpo,
                      "supplier_id": str(f["id"]),
+                     "visit_report_id": (visita or {}).get("id"),
                      "itens": [str(i)[:200] for i in itens[:40]]},
             gate="🟡", requires_otp=False, roles_aprovador=("admin",),
             idempotency_key=f"cotacao:{numero}:{hash(corpo) & 0xffffffff}")
@@ -3573,10 +3609,12 @@ async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
     slug = re.sub(r"[^A-Z0-9]", "", str(payload.get("fornecedor", "FORN")).upper())[:12] or "FORN"
     qid = (await db.execute(_t(
         "INSERT INTO purchase_quotations "
-        "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date) "
-        "VALUES (gen_random_uuid(), :c, :s, :n, 'enviada', current_date, current_date) "
+        "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date, "
+        "   visit_report_id) "
+        "VALUES (gen_random_uuid(), :c, :s, :n, 'enviada', current_date, current_date, "
+        "        cast(nullif(coalesce(:v,''),'') as uuid)) "
         "RETURNING id"),
-        {"c": _COND_EMPRESA, "s": sid,
+        {"c": _COND_EMPRESA, "s": sid, "v": payload.get("visit_report_id") or "",
          # o minuto no número evita colidir com outra cotação do mesmo fornecedor no mesmo dia
          "n": f"{slug}-{datetime.now().strftime('%Y%m%d%H%M')}"})).scalar()
     for i, desc in enumerate(itens, start=1):
@@ -3607,6 +3645,11 @@ _SCHEMA_COTACAO = {
                 "itens": {"type": "array", "items": {"type": "string"},
                           "description": "Uma linha por item, com quantidade. "
                                          "Ex.: '64 câmeras IP PoE 4MP'."},
+                "obra": {"type": "string",
+                         "description": "Nome do cliente/condomínio da OBRA, se o pedido é "
+                                        "para um projeto. Amarra a cotação ao relatório de "
+                                        "visita — é o que faz 'cabo' virar 'cabo para 64 "
+                                        "câmeras IP PoE nesta obra'."},
                 "observacao": {"type": "string",
                                "description": "Contexto: obra, prazo, condição de pagamento."},
             },
