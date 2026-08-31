@@ -3321,6 +3321,12 @@ async def _specs_da_obra(db, visit_id: str | None) -> dict[str, str]:
     return {d: s for d, s in rows}
 
 
+def _observacao_ja_pede(obs: str) -> bool:
+    """True se a observação já pede preço/prazo/validade — aí o rodapé fixo é redundante."""
+    baixo = obs.lower()
+    return sum(k in baixo for k in ("preço", "preco", "prazo", "validade")) >= 2
+
+
 def _tem_codigo_catalogo(item: str, skus: set[str]) -> bool:
     """True se a linha cita um SKU do catálogo. O código já É a especificação."""
     if not skus:
@@ -3491,7 +3497,14 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                  # Contexto de obra é onde mora a informação que evita recotação errada.
                  + (str(args.get("observacao"))[:1200] + "\n\n"
                     if args.get("observacao") else "")
-                 + "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!")
+                 # ⚠️ O rodapé genérico SAI quando a observação já pediu o que ele pede.
+                 # Em 31/08 a cotação da Kely pedia preço, prazo e validade na observação —
+                 # de forma melhor, detalhada — e o rodapé repetia os três logo abaixo.
+                 # Mensagem que pede duas vezes a mesma coisa lê como malfeita, e é a
+                 # mesma família do que o Jordan chamou de "fuleira".
+                 + ("" if _observacao_ja_pede(str(args.get("observacao") or ""))
+                    else "Pode me passar preço, prazo de entrega e validade da proposta? "
+                         "Obrigado!"))
 
         u = await _usuario_dono(db)
         if u is None:
