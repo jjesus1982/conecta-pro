@@ -3095,6 +3095,145 @@ _ACOES_CAMPO: tuple[str, ...] = (
 #:   `followup_em_lote`, `inscrever_em_sequencia` → falam com a CARTEIRA inteira.
 
 
+async def _tool_pedir_cotacao(args: dict) -> dict:
+    """Monta o pedido de cotação a um FORNECEDOR. Nasce RASCUNHO, sempre.
+
+    ⭐ 31/08/2026 — o Jordan pediu "manda a lista pro Renier cotar" e "manda pra Kelly
+    também", e não existia caminho: das 45 tools do dono, nenhuma falava com FORNECEDOR.
+    Era o buraco entre "tenho a lista do que cotar" e "tenho o preço para propor" — que é
+    exatamente onde ele disse estar sufocado.
+
+    ⚠️ NASCE RASCUNHO SEM EXCEÇÃO, e isto não é excesso de zelo: é mensagem para TERCEIRO,
+    em nome dele, para os dois fornecedores de quem ele depende. Texto errado ao Renier não
+    se desfaz, e o Renier é o principal. Quem aprova continua sendo quem lê antes.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import (  # noqa: PLC0415
+        criar_rascunho,
+    )
+
+    ref = str(args.get("fornecedor") or "").strip()
+    itens = args.get("itens")
+    if isinstance(itens, str):
+        itens = [x.strip() for x in itens.split("\n") if x.strip()]
+    if not ref:
+        return {"erro": "informe o fornecedor (nome ou CNPJ do cadastro)."}
+    if not itens:
+        return {"erro": "informe os itens a cotar — não invento a lista."}
+
+    async with async_session_factory() as db:
+        f = (await db.execute(_t(
+            "SELECT id, name, coalesce(contact_name,'') ct, "
+            "       coalesce(whatsapp, phone, '') fone "
+            "FROM suppliers WHERE coalesce(ativo,true) AND ("
+            "  upper(name) = upper(:r) OR name ILIKE :like "
+            "  OR regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
+            "     regexp_replace(:r,'[^0-9]','','g')) "
+            "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"),
+            {"r": ref, "like": f"%{ref}%"})).mappings().first()
+        if not f:
+            return {"erro": f"não achei o fornecedor {ref!r} no cadastro."}
+        numero = re.sub(r"\D", "", f["fone"] or "")
+        if not numero:
+            return {"erro": f"{f['name']} não tem telefone no cadastro — cadastre antes."}
+
+        linhas = "\n".join(f"• {str(i)[:120]}" for i in itens[:40])
+        corpo = (f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
+                 f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
+                 + (str(args.get("observacao"))[:400] + "\n\n"
+                    if args.get("observacao") else "")
+                 + "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!")
+
+        u = await _usuario_dono(db)
+        if u is None:
+            return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
+        r = await criar_rascunho(
+            db, u, tipo="pedir_cotacao", modulo="crm",
+            titulo=f"PEDIR COTAÇÃO — {f['name'][:40]}",
+            resumo=(f"Aprovar ENVIA esta mensagem por WhatsApp para {f['name']}"
+                    f"{' (' + f['ct'] + ')' if f['ct'] else ''}, número {numero}, "
+                    f"com {len(itens)} item(ns):\n\n{corpo}"),
+            payload={"numero": numero, "fornecedor": f["name"], "mensagem": corpo,
+                     "supplier_id": str(f["id"]),
+                     "itens": [str(i)[:200] for i in itens[:40]]},
+            gate="🟡", requires_otp=False, roles_aprovador=("admin",),
+            idempotency_key=f"cotacao:{numero}:{hash(corpo) & 0xffffffff}")
+        if isinstance(r, dict) and r.get("erro"):
+            return r
+        # a chave é `draft_id`, não `id` — conferido no retorno de `criar_rascunho`
+        return {"status": "rascunho", "fornecedor": f["name"], "numero": numero,
+                "itens": len(itens), "draft_id": (r or {}).get("draft_id"),
+                "instrucao": ("Diga ao Jordan que o pedido está na Central esperando o clique "
+                              "dele, e MOSTRE o texto que vai sair e para quem. NADA foi "
+                              "enviado ao fornecedor ainda.")}
+
+
+async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
+    """Executa na APROVAÇÃO: aí sim a mensagem sai para o fornecedor."""
+    from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
+        send_text_message,
+    )
+
+    await send_text_message(payload["numero"], payload["mensagem"])
+    logger.info("[jose-luis] cotação enviada a %s (%s) — aprovada por %s",
+                payload.get("fornecedor"), payload.get("numero"),
+                getattr(aprovador_user, "email", "?"))
+
+    # A mensagem sai e o pedido FICA. Sem esta parte o WhatsApp é o único registro de que
+    # pedimos — e o que a Kely responder daqui a três dias não teria onde encostar.
+    # `unit_price`/`total` = 0 de propósito: isto é o PEDIDO, o preço vem na resposta.
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    sid, itens = payload.get("supplier_id"), (payload.get("itens") or [])
+    if not (sid and itens):
+        return f"cotação enviada a {payload.get('fornecedor')} (sem registro: payload antigo)"
+    slug = re.sub(r"[^A-Z0-9]", "", str(payload.get("fornecedor", "FORN")).upper())[:12] or "FORN"
+    qid = (await db.execute(_t(
+        "INSERT INTO purchase_quotations "
+        "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date) "
+        "VALUES (gen_random_uuid(), :c, :s, :n, 'enviada', current_date, current_date) "
+        "RETURNING id"),
+        {"c": _COND_EMPRESA, "s": sid,
+         # o minuto no número evita colidir com outra cotação do mesmo fornecedor no mesmo dia
+         "n": f"{slug}-{datetime.now().strftime('%Y%m%d%H%M')}"})).scalar()
+    for i, desc in enumerate(itens, start=1):
+        await db.execute(_t(
+            "INSERT INTO purchase_quotation_items "
+            "  (id, quotation_id, item_number, description, quantity, quantity_requested, "
+            "   unit_price, total) "
+            "VALUES (gen_random_uuid(), :q, :i, :d, 1, 1, 0, 0)"),
+            {"q": qid, "i": i, "d": desc[:200]})
+    await db.commit()
+    logger.info("[jose-luis] cotação %s registrada com %d itens", qid, len(itens))
+    return (f"cotação enviada a {payload.get('fornecedor')} e registrada "
+            f"({len(itens)} itens, status enviada)")
+
+
+_SCHEMA_COTACAO = {
+    "type": "function",
+    "function": {
+        "name": "pedir_cotacao",
+        "description": (
+            "Monta um pedido de cotação por WhatsApp para um FORNECEDOR do cadastro. Use "
+            "quando o Jordan disser 'manda a lista pro Renier cotar', 'pede preço pra Kely'. "
+            "Nasce como RASCUNHO na Central: nada sai para o fornecedor sem ele aprovar."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fornecedor": {"type": "string", "description": "Nome ou CNPJ do cadastro."},
+                "itens": {"type": "array", "items": {"type": "string"},
+                          "description": "Uma linha por item, com quantidade. "
+                                         "Ex.: '64 câmeras IP PoE 4MP'."},
+                "observacao": {"type": "string",
+                               "description": "Contexto: obra, prazo, condição de pagamento."},
+            },
+            "required": ["fornecedor", "itens"],
+        },
+    },
+}
+
+
 _SCHEMA_AGIR = {
     "type": "function",
     "function": {
@@ -3133,7 +3272,7 @@ def _extras_do_dono() -> list[dict]:
     também no Bartolo, que já tem as mesmas capacidades por outro caminho.
     """
     return (_leitura_campo() + _cotacao_do_dono()
-            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR])
+            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR, _SCHEMA_COTACAO])
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -4607,6 +4746,8 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 except Exception:  # noqa: BLE001
                     quando = O.now_manaus() + timedelta(days=1)
                 return await O.agendar_lembrete(db, quando, str(args.get("texto", "")))
+            if name == "pedir_cotacao":
+                return await _tool_pedir_cotacao(args)
             if name == "agir_comercial":
                 # ⭐ ETAPA 2 — a resposta à pergunta do Jordan ("o José Luís manda o Bartolo
                 # montar e o Bartolo devolve?"). NÃO existe essa ida e volta, e ela não é

@@ -548,6 +548,23 @@ registrar_executor("ativar_contrato", _exec_ativar_contrato)
 registrar_executor("enviar_proposta", _exec_enviar_proposta)
 
 
+# ⭐ 31/08/2026 — o executor do pedido de cotação mora no MESMO registro dos outros: a
+# aprovação na Central dispara por `tipo`, e sem isto o rascunho nasceria e o clique do
+# Jordan não faria nada — "aprovado" sem efeito é a fabricação de ação com outra roupa.
+def _reg_cotacao() -> None:
+    from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
+        _exec_pedir_cotacao,
+    )
+    registrar_executor("pedir_cotacao", _exec_pedir_cotacao)
+
+
+try:
+    _reg_cotacao()
+except Exception:  # noqa: BLE001 — import circular não pode derrubar o módulo
+    import logging as _lg
+    _lg.getLogger(__name__).warning("executor de pedir_cotacao não registrado neste processo")
+
+
 # ───────────────────────── registro (dispatcher agir_crm) ────────────────────
 
 registrar_acao("crm", "criar_lead",
