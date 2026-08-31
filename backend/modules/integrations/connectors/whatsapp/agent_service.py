@@ -3839,6 +3839,63 @@ async def _exec_registrar_resposta_cotacao(db, aprovador_user, payload: dict) ->
     return f"cotação {payload.get('numero')} atualizada com a resposta do fornecedor"
 
 
+async def _exec_complementar_cotacao(db, aprovador_user, payload: dict) -> str:
+    """Manda um COMPLEMENTO de uma cotação que já saiu — sem criar cotação nova.
+
+    31/08/2026: a cotação do Renier saiu com cinco itens "especificação a definir" tendo o
+    Jordan já definido três delas horas antes, e ele emendou à mão no WhatsApp. O registro
+    aqui ficou certo depois; o que o FORNECEDOR tem é a versão incompleta.
+
+    ⚠️ Complemento NÃO é pedido novo: usa a cotação existente. Criar outra faria o Renier
+    receber a terceira lista do mesmo material e o funil contar o pedido duas vezes.
+
+    Mesma ordem do `pedir_cotacao`, pela mesma razão: grava a spec, comita, e só então
+    envia. O que não se desfaz é a última coisa do caminho.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+    from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
+        send_text_message,
+    )
+
+    num = payload.get("numero_cotacao")
+    q = (await db.execute(_t(
+        "SELECT id::text FROM purchase_quotations WHERE number = :n"), {"n": num})).scalar()
+    if not q:
+        return f"não achei a cotação {num!r} — nada foi enviado."
+
+    for it in payload.get("specs") or []:
+        await db.execute(_t(
+            "UPDATE purchase_quotation_items SET specifications = :s "
+            "WHERE quotation_id::text = :q AND lower(description) = lower(:d)"),
+            {"s": it["spec"], "q": q, "d": it["item"]})
+    for it in payload.get("novos") or []:
+        n_item = (await db.execute(_t(
+            "SELECT coalesce(max(item_number),0) + 1 FROM purchase_quotation_items "
+            "WHERE quotation_id::text = :q"), {"q": q})).scalar()
+        await db.execute(_t(
+            "INSERT INTO purchase_quotation_items (id, quotation_id, item_number, description, "
+            "  specifications, quantity, quantity_requested, unit_price, total) "
+            "SELECT gen_random_uuid(), cast(:q as uuid), :i, :d, :s, 1, 1, 0, 0 "
+            "WHERE NOT EXISTS (SELECT 1 FROM purchase_quotation_items "
+            "  WHERE quotation_id::text = :q AND lower(description) = lower(:d))"),
+            {"q": q, "i": n_item, "d": it["item"], "s": it["spec"]})
+    await db.execute(_t(
+        "UPDATE purchase_quotations SET internal_notes = coalesce(internal_notes,'') || :m "
+        "WHERE id::text = :q"),
+        {"q": q, "m": f"\nComplemento enviado em {datetime.now():%d/%m %H:%M} "
+                      f"(aprovado por {getattr(aprovador_user, 'email', '?')})."})
+    await db.commit()
+
+    try:
+        await send_text_message(payload["numero"], payload["mensagem"])
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[jose-luis] complemento de %s gravado mas NÃO enviado", num)
+        return (f"⚠️ Atualizei a cotação {num}, mas o complemento NÃO saiu: {e}. "
+                "O registro está salvo — dá para reenviar.")
+    logger.info("[jose-luis] complemento da cotação %s enviado", num)
+    return f"complemento da cotação {num} enviado e registrado"
+
+
 async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
     """Executa na APROVAÇÃO: aí sim a mensagem sai para o fornecedor."""
     from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
