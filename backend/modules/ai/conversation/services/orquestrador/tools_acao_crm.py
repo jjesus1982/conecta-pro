@@ -554,8 +554,10 @@ registrar_executor("enviar_proposta", _exec_enviar_proposta)
 def _reg_cotacao() -> None:
     from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
         _exec_pedir_cotacao,
+        _exec_registrar_resposta_cotacao,
     )
     registrar_executor("pedir_cotacao", _exec_pedir_cotacao)
+    registrar_executor("registrar_resposta_cotacao", _exec_registrar_resposta_cotacao)
 
 
 try:

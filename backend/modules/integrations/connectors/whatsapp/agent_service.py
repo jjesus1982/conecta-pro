@@ -2478,6 +2478,12 @@ async def _foi_transferida(conversation_id: int) -> bool:
 #            (defesa em profundidade: a tool já recusa por dentro, mas o dispatcher
 #            barra na porta, sem depender do juízo do LLM).
 _TOOL_ALLOWLIST: dict[str, dict] = {
+    # ── papel FORNECEDOR (31/08/2026) ──
+    # `perguntar_ao_jordan` é write e não action: fala com o DONO, não com terceiro nem com
+    # o banco. `registrar_resposta_cotacao` grava número que vai virar preço de venda, então
+    # nasce RASCUNHO — o Jordan passou o dia corrigindo número lido de imagem.
+    "perguntar_ao_jordan": {"kind": "write"},
+    "registrar_resposta_cotacao": {"kind": "write"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2655,6 +2661,40 @@ _PAPEIS: dict[str, dict] = {
                  "visita sem pedir mais informação. Colete sintoma, quando começou, o que já tentaram e "
                  "onde fica. NÃO venda nada e NÃO fale de preço enquanto o problema estiver aberto."),
     },
+    # ⭐ FORNECEDOR (31/08/2026). Nasce quando o telefone casa com `suppliers` — nunca pela
+    # fala. Existe porque às 15:12 mandamos uma cotação ao Renier e às 15:13 ele perguntou
+    # "Qual cabo?"; o agente não sabia que aquele número era fornecedor nem que ELE MESMO
+    # tinha mandado o pedido 38 segundos antes, tratou-o como cliente perdido e chamou a
+    # equipe.
+    #
+    # ⚠️ O que ele NÃO tem é tão importante quanto o que tem: nada de cliente, contrato,
+    # funil, preço de venda. Fornecedor não enxerga o outro lado do negócio. Mesma parede
+    # de `_tools_ativas(owner=False)` — separação por INTERLOCUTOR, não por assunto.
+    "fornecedor": {
+        "tools": ("perguntar_ao_jordan", "registrar_resposta_cotacao", "transferir_conversa"),
+        "foco": ("\n\nPAPEL NESTA CONVERSA — FORNECEDOR. Quem fala é um FORNECEDOR nosso, "
+                 "identificado pelo telefone, e provavelmente está respondendo a um pedido de "
+                 "cotação que NÓS mandamos. O contexto abaixo traz as cotações abertas dele "
+                 "com os itens — use-o: pergunta como 'qual cabo?' é sobre uma LINHA daquele "
+                 "pedido, não um enigma.\n"
+                 "REGRAS INEGOCIÁVEIS AQUI:\n"
+                 "1. NUNCA invente especificação técnica (bitola, categoria, potência, "
+                 "modelo, autonomia). Material errado comprado por spec chutada é prejuízo "
+                 "real e a culpa é nossa.\n"
+                 "2. Se a especificação está no contexto (relatório de visita, item da "
+                 "cotação), responda CITANDO de onde veio.\n"
+                 "3. Se depende do Jordan, use `perguntar_ao_jordan` — mas ANTES acuse "
+                 "recebimento ao fornecedor ('boa pergunta, confirmo com o Jordan e te "
+                 "respondo'). Ele está fazendo o favor de cotar; deixá-lo mudo é pior que "
+                 "com cliente.\n"
+                 "4. Se depende dele, devolva honesto: 'a definir — me sugira o padrão que "
+                 "vocês usam nessa aplicação'.\n"
+                 "5. Quando ele mandar PREÇO, PRAZO ou VALIDADE, use "
+                 "`registrar_resposta_cotacao`. Não repita o número de volta como se fosse "
+                 "confirmado: quem confere é o Jordan.\n"
+                 "6. NÃO fale de cliente, obra nominal, valor de venda nem margem. Ele cota "
+                 "material; o negócio do outro lado não é assunto dele."),
+    },
     # Cliente da base com assunto de dinheiro/documento: acolhe e encaminha, não decide.
     "administrativo": {
         "tools": ("consultar_minha_conta", "buscar_cliente", "transferir_conversa"),
@@ -2663,6 +2703,102 @@ _PAPEIS: dict[str, dict] = {
                  "estorno, desconto ou prazo. Não venda nada aqui."),
     },
 }
+
+
+async def _fornecedor_do_telefone(db, fone: str | None) -> dict | None:
+    """O fornecedor dono deste telefone, ou None. Identidade pelo NÚMERO, nunca pela fala.
+
+    Compara só dígitos e pelos ÚLTIMOS 8 — no Brasil o nono dígito e o DDI aparecem e somem
+    conforme quem cadastrou. Casar string inteira faria o Renier virar desconhecido por um
+    "55" a mais, que é o defeito que a busca por nome já teve hoje.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    d = re.sub(r"\D", "", str(fone or ""))
+    if len(d) < 8:
+        return None
+    r = (await db.execute(_t(
+        "SELECT id::text, name, coalesce(contact_name,'') ct, coalesce(category,'') cat "
+        "FROM suppliers WHERE coalesce(ativo,true) AND right(regexp_replace("
+        "  coalesce(nullif(whatsapp,''), phone, ''),'[^0-9]','','g'), 8) = :d8 LIMIT 1"),
+        {"d8": d[-8:]})).mappings().first()
+    return dict(r) if r else None
+
+
+async def _rede_fornecedor(forn: dict, rows, texto: str, conversation_id: int) -> None:
+    """Fornecedor falou e nada foi registrado → o dono fica sabendo. Best-effort."""
+    try:
+        from modules.crm.services.orchestration import notify_owner  # noqa: PLC0415
+
+        ultima = next((c for d, c in rows if d == "in"), "") or ""
+        if not ultima.strip():
+            return
+        await notify_owner(
+            f"💬 *{forn.get('name')}*"
+            + (f" ({forn['ct']})" if forn.get("ct") else "")
+            + f" mandou:\n\n“{ultima[:500]}”\n\n"
+            f"_O José Luís respondeu:_ {str(texto or '')[:300]}\n\n"
+            "⚠️ Nada foi registrado no sistema neste turno — se precisa de decisão sua, "
+            "é agora. Ele está esperando.")
+        logger.info("[jose-luis] conv=%s rede do fornecedor: dono avisado", conversation_id)
+    except Exception:  # noqa: BLE001 — a rede não pode derrubar a resposta
+        logger.exception("rede do fornecedor falhou conv=%s", conversation_id)
+
+
+async def _fornecedor_da_conversa(conversation_id: int) -> dict | None:
+    """O fornecedor desta conversa, pelo ÚLTIMO telefone visto nela."""
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        fone = (await db.execute(_t(
+            "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+            "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
+            {"c": conversation_id})).scalar()
+        return await _fornecedor_do_telefone(db, fone)
+
+
+async def _contexto_fornecedor(forn: dict) -> str:
+    """Quem ele é + as cotações ABERTAS dele, com os itens. Só isso.
+
+    Deliberadamente NÃO carrega cliente, contrato nem valor de venda: o fornecedor não
+    enxerga o outro lado do negócio.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    linhas = [f"FORNECEDOR: {forn['name']}"
+              + (f" — falando com {forn['ct']}" if forn.get("ct") else "")
+              + (f" (categoria: {forn['cat']})" if forn.get("cat") else "")]
+    async with async_session_factory() as db:
+        cots = (await db.execute(_t(
+            "SELECT id::text, number, to_char(quotation_date,'DD/MM/YYYY') dt, status "
+            "FROM purchase_quotations WHERE supplier_id::text = :s "
+            "  AND status IN ('enviada','recebida') "
+            "ORDER BY quotation_date DESC LIMIT 3"), {"s": forn["id"]})).mappings().all()
+        if not cots:
+            linhas.append("Nenhuma cotação aberta com ele no sistema. Se ele falar de um "
+                          "pedido, PERGUNTE qual — não deduza.")
+        for c in cots:
+            itens = (await db.execute(_t(
+                "SELECT item_number, description, quantity, unit_price, "
+                "       coalesce(specifications,'') spec "
+                "FROM purchase_quotation_items WHERE quotation_id::text = :q "
+                "ORDER BY item_number"), {"q": c["id"]})).mappings().all()
+            linhas.append(f"\nCOTAÇÃO {c['number']} — enviada em {c['dt']} "
+                          f"(status: {c['status']}), {len(itens)} itens:")
+            for i in itens:
+                preco = (f" · já cotado R$ {float(i['unit_price']):.2f}"
+                         if float(i["unit_price"] or 0) > 0 else " · SEM PREÇO ainda")
+                # ⚠️ A `specifications` é o campo onde a resposta mora. Eu gravei as specs
+                # do Renier e esqueci de exibi-las aqui — o agente continuou dizendo "sem
+                # especificação" com a spec no banco. Guardar não é mostrar.
+                linhas.append(f"  {i['item_number']}. {i['description']}"
+                              f" (qtd {float(i['quantity']):g}){preco}"
+                              + (f"\n       ESPECIFICAÇÃO: {i['spec']}" if i["spec"] else ""))
+        linhas.append("\n⚠️ Item COM linha ESPECIFICAÇÃO: responda usando exatamente ela, "
+                      "citando que é a definição do Jordan para esta obra. Item SEM essa "
+                      "linha não tem spec registrada — não invente: pergunte ao Jordan ou "
+                      "peça a sugestão do fornecedor.")
+    return "\n".join(linhas)
 
 
 def _papel_por_texto(texto: str | None, *, e_cliente: bool) -> str:
@@ -3095,6 +3231,18 @@ _ACOES_CAMPO: tuple[str, ...] = (
 #:   `followup_em_lote`, `inscrever_em_sequencia` → falam com a CARTEIRA inteira.
 
 
+def _item_sem_especificacao(txt: str) -> bool:
+    """True quando a linha do item não diz NADA além do nome da coisa.
+
+    Heurística deliberadamente burra: sem número e com poucas palavras. "cabo",
+    "rack", "nobreak" caem; "8 HDs de 4TB" e "Cabo UTP Cat6 305m" não. Errar para o lado
+    de pedir especificação a mais custa uma frase; errar para menos custa uma ida e volta
+    com o fornecedor — foi o que aconteceu às 15:13.
+    """
+    t = re.sub(r"[^\w\s]", " ", str(txt or "").strip().lower())
+    return bool(t) and not re.search(r"\d", t) and len(t.split()) <= 3
+
+
 async def _tool_pedir_cotacao(args: dict) -> dict:
     """Monta o pedido de cotação a um FORNECEDOR. Nasce RASCUNHO, sempre.
 
@@ -3172,7 +3320,16 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         if not numero:
             return {"erro": f"{f['name']} não tem telefone no cadastro — cadastre antes."}
 
-        linhas = "\n".join(f"• {str(i)[:120]}" for i in itens[:40])
+        # ⭐ Item NU volta como pergunta, sempre. Em 31/08 mandamos "cabo", "rack",
+        # "nobreak" ao Renier e ele perguntou as três em 14 segundos. Em vez de sair pelado,
+        # o item sem especificação sai PEDINDO a especificação — o fornecedor é quem sabe o
+        # padrão, e uma ida e volta a menos por cotação.
+        nus = [str(i) for i in itens[:40] if _item_sem_especificacao(str(i))]
+        linhas = "\n".join(
+            f"• {str(i)[:120]}"
+            + ("  (especificação a definir — me sugira o padrão que vocês usam)"
+               if _item_sem_especificacao(str(i)) else "")
+            for i in itens[:40])
         corpo = (f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
                  f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
                  + (str(args.get("observacao"))[:400] + "\n\n"
@@ -3187,7 +3344,10 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
             titulo=f"PEDIR COTAÇÃO — {f['name'][:40]}",
             resumo=(f"Aprovar ENVIA esta mensagem por WhatsApp para {f['name']}"
                     f"{' (' + f['ct'] + ')' if f['ct'] else ''}, número {numero}, "
-                    f"com {len(itens)} item(ns):\n\n{corpo}"),
+                    f"com {len(itens)} item(ns):\n\n{corpo}"
+                    + (f"\n\n⚠️ {len(nus)} item(ns) SEM especificação — vão sair pedindo "
+                       f"o padrão do fornecedor: {', '.join(nus[:6])}. Se você já sabe a "
+                       "spec, edite antes de aprovar." if nus else "")),
             payload={"numero": numero, "fornecedor": f["name"], "mensagem": corpo,
                      "supplier_id": str(f["id"]),
                      "itens": [str(i)[:200] for i in itens[:40]]},
@@ -3201,6 +3361,194 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                 "instrucao": ("Diga ao Jordan que o pedido está na Central esperando o clique "
                               "dele, e MOSTRE o texto que vai sair e para quem. NADA foi "
                               "enviado ao fornecedor ainda.")}
+
+
+_SCHEMA_PERGUNTAR_JORDAN = {
+    "type": "function",
+    "function": {
+        "name": "perguntar_ao_jordan",
+        "description": (
+            "Leva ao Jordan uma pergunta do FORNECEDOR que só ele pode responder — "
+            "especificação técnica não registrada, quantidade, autonomia, preferência de "
+            "marca. Use SEMPRE que a resposta exigiria inventar spec. Antes de chamar, "
+            "responda ao fornecedor que vai confirmar: ele não pode ficar mudo esperando."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pergunta": {"type": "string",
+                             "description": "A pergunta do fornecedor, literal."},
+                "porque_nao_sei": {
+                    "type": "string",
+                    "description": "Por que você não consegue responder sozinho — qual dado "
+                                   "falta. Isto é obrigatório: se você sabe, responda."},
+            },
+            "required": ["pergunta", "porque_nao_sei"],
+        },
+    },
+}
+
+_SCHEMA_REG_RESPOSTA = {
+    "type": "function",
+    "function": {
+        "name": "registrar_resposta_cotacao",
+        "description": (
+            "Registra o que o FORNECEDOR respondeu numa cotação: preço por item, prazo de "
+            "entrega, validade. Nasce como RASCUNHO — o Jordan confere contra o que ele "
+            "escreveu antes de virar dado. NÃO confirme o número de volta ao fornecedor "
+            "como se estivesse fechado."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "numero_cotacao": {"type": "string",
+                                   "description": "O número que está no contexto, ex. HAWKEYE-202608311512."},
+                "itens": {
+                    "type": "array",
+                    "description": "Um por item precificado.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "item_number": {"type": "integer", "description": "A linha, como no contexto."},
+                            "preco_unitario": {"type": "number"},
+                            "observacao": {"type": "string",
+                                           "description": "O que ele disse do item (marca, modelo, spec)."},
+                        },
+                        "required": ["item_number", "preco_unitario"],
+                    },
+                },
+                "prazo_dias": {"type": "integer", "description": "Prazo de entrega em dias, se disse."},
+                "validade": {"type": "string", "description": "Validade da proposta (AAAA-MM-DD), se disse."},
+            },
+            "required": ["numero_cotacao"],
+        },
+    },
+}
+
+
+async def _tool_perguntar_ao_jordan(args: dict, conversation_id: int, forn: dict | None) -> dict:
+    """Encaminha a dúvida do fornecedor ao dono. NÃO é rascunho: fala com o DONO.
+
+    Rascunho existe para proteger terceiro de mensagem errada em nome do Jordan. Aqui o
+    destinatário É o Jordan — pôr uma aprovação no meio faria ele aprovar receber a própria
+    pergunta, e o fornecedor esperaria por isso.
+    """
+    from modules.crm.services.orchestration import notify_owner  # noqa: PLC0415
+
+    pergunta = str(args.get("pergunta") or "").strip()
+    if not pergunta:
+        return {"erro": "qual é a pergunta dele?"}
+    quem = (forn or {}).get("name") or "um fornecedor"
+    contato = (forn or {}).get("ct") or ""
+    await notify_owner(
+        f"❓ *{quem}*{' (' + contato + ')' if contato else ''} perguntou:\n\n"
+        f"“{pergunta[:600]}”\n\n"
+        f"_Não respondi porque:_ {str(args.get('porque_nao_sei') or '')[:300]}\n\n"
+        "Me diga o que responder e eu levo a ele.")
+    logger.info("[jose-luis] conv=%s pergunta de fornecedor levada ao dono", conversation_id)
+    return {"status": "perguntado",
+            "instrucao": ("Diga ao fornecedor que você já mandou a dúvida para o Jordan e "
+                          "volta com a resposta. NÃO invente a especificação enquanto isso.")}
+
+
+async def _tool_registrar_resposta_cotacao(args: dict, forn: dict | None) -> dict:
+    """Propõe gravar preço/prazo do fornecedor. RASCUNHO — número lido de conversa não é fato.
+
+    ⚠️ Este número vira preço de venda ao cliente lá na frente. O Jordan passou o dia
+    corrigindo valores que eu li de imagem e de texto; confiar na leitura sem ele ver
+    contaminaria a proposta com um erro que ninguém mais pegaria.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    num = str(args.get("numero_cotacao") or "").strip()
+    itens = args.get("itens") or []
+    if not num:
+        return {"erro": "qual cotação? use o número que está no contexto."}
+    if not (itens or args.get("prazo_dias") or args.get("validade")):
+        return {"erro": "nada para registrar — preço, prazo ou validade, algum deles."}
+
+    async with async_session_factory() as db:
+        q = (await db.execute(_t(
+            "SELECT id::text, supplier_id::text FROM purchase_quotations WHERE number = :n"),
+            {"n": num})).mappings().first()
+        if not q:
+            return {"erro": f"não achei a cotação {num!r}."}
+        # 🔒 o fornecedor só mexe na cotação DELE. Sem isto, um número no cadastro poderia
+        # preencher a cotação de outro — e o preço errado entraria na proposta certa.
+        if forn and q["supplier_id"] != forn.get("id"):
+            logger.error("[jose-luis] fornecedor %s tentou tocar cotação de outro (%s)",
+                         forn.get("name"), num)
+            return {"erro": f"a cotação {num} não é deste fornecedor."}
+
+        linhas = []
+        for it in itens[:60]:
+            n_item = it.get("item_number")
+            atual = (await db.execute(_t(
+                "SELECT description FROM purchase_quotation_items "
+                "WHERE quotation_id::text=:q AND item_number=:i"),
+                {"q": q["id"], "i": n_item})).scalar()
+            if atual is None:
+                return {"erro": f"a cotação {num} não tem item {n_item}."}
+            linhas.append(f"  {n_item}. {atual} → R$ {float(it.get('preco_unitario') or 0):.2f}"
+                          + (f"  ({str(it.get('observacao'))[:80]})" if it.get("observacao") else ""))
+
+        u = await _usuario_dono(db)
+        if u is None:
+            return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
+        extras = []
+        if args.get("prazo_dias"):
+            extras.append(f"prazo de entrega: {args['prazo_dias']} dias")
+        if args.get("validade"):
+            extras.append(f"validade: {args['validade']}")
+        resumo = (f"{(forn or {}).get('name', 'O fornecedor')} respondeu a cotação {num}. "
+                  f"Aprovar GRAVA estes números:\n\n" + "\n".join(linhas)
+                  + ("\n\n" + " · ".join(extras) if extras else "")
+                  + "\n\n⚠️ Confira contra o que ele escreveu no WhatsApp — isto foi LIDO "
+                    "da conversa, não digitado por você.")
+        r = await criar_rascunho(
+            db, u, tipo="registrar_resposta_cotacao", modulo="crm",
+            titulo=f"RESPOSTA DE COTAÇÃO — {(forn or {}).get('name', '')[:34]}",
+            resumo=resumo,
+            payload={"quotation_id": q["id"], "numero": num,
+                     "itens": [{"item_number": i.get("item_number"),
+                                "preco_unitario": float(i.get("preco_unitario") or 0),
+                                "observacao": str(i.get("observacao") or "")[:200]}
+                               for i in itens[:60]],
+                     "prazo_dias": args.get("prazo_dias"), "validade": args.get("validade")},
+            gate="🟡", requires_otp=False, roles_aprovador=("admin",),
+            idempotency_key=f"respcot:{num}:{hash(resumo) & 0xffffffff}")
+        if isinstance(r, dict) and r.get("erro"):
+            return r
+    return {"status": "rascunho", "cotacao": num, "itens": len(itens),
+            "draft_id": (r or {}).get("draft_id"),
+            "instrucao": ("Agradeça ao fornecedor e diga que vai conferir com o Jordan. NÃO "
+                          "diga que já está fechado nem repita os valores como confirmados.")}
+
+
+async def _exec_registrar_resposta_cotacao(db, aprovador_user, payload: dict) -> str:
+    """Na APROVAÇÃO: os números do fornecedor entram na cotação e ela vira `recebida`."""
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    qid = payload["quotation_id"]
+    for it in payload.get("itens") or []:
+        await db.execute(_t(
+            "UPDATE purchase_quotation_items SET unit_price = :p, "
+            "  total = :p * quantity, specifications = nullif(:o,'') "
+            "WHERE quotation_id::text = :q AND item_number = :i"),
+            {"p": it["preco_unitario"], "o": it.get("observacao") or "",
+             "q": qid, "i": it["item_number"]})
+    await db.execute(_t(
+        "UPDATE purchase_quotations SET status='recebida', response_date=now(), "
+        "  delivery_days = coalesce(:d, delivery_days), "
+        "  valid_until = coalesce(cast(nullif(:v,'') as date), valid_until), "
+        "  subtotal = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
+        "              WHERE quotation_id::text = :q), "
+        "  total = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
+        "           WHERE quotation_id::text = :q) "
+        "WHERE id::text = :q"),
+        {"d": payload.get("prazo_dias"), "v": payload.get("validade") or "", "q": qid})
+    await db.commit()
+    logger.info("[jose-luis] cotação %s recebida — aprovada por %s", payload.get("numero"),
+                getattr(aprovador_user, "email", "?"))
+    return f"cotação {payload.get('numero')} atualizada com a resposta do fornecedor"
 
 
 async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
@@ -3396,7 +3744,12 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     if not cfg:
         return base
     permitidas = set(cfg["tools"])
-    return [t for t in base if t["function"]["name"] in permitidas]
+    ativas = [t for t in base if t["function"]["name"] in permitidas]
+    if papel == "fornecedor":
+        # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
+        # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
+        ativas += [_SCHEMA_PERGUNTAR_JORDAN, _SCHEMA_REG_RESPOSTA]
+    return ativas
 
 
 # Sobrescrita CIRÚRGICA da política de preço. Nenhuma linha do SYSTEM_PROMPT é
@@ -3685,6 +4038,18 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             return await _tool_enviar_link_assinatura(conversation_id)
         if name == "consultar_cnpj":
             return await _tool_consultar_cnpj(str(args.get("cnpj", "")))
+        # ── papel FORNECEDOR ──
+        # 🔒 QUEM é o fornecedor sai do TELEFONE da conversa, nunca de argumento do modelo.
+        # Se viesse por argumento, uma frase do próprio fornecedor ("sou da Futura") poderia
+        # mover preço para a cotação de outro. Identidade pelo número, como no resto da casa.
+        if name in ("perguntar_ao_jordan", "registrar_resposta_cotacao"):
+            _forn = await _fornecedor_da_conversa(conversation_id)
+            if not _forn:
+                return {"erro": "não identifiquei este número como fornecedor do cadastro."}
+            if name == "perguntar_ao_jordan":
+                return await _tool_perguntar_ao_jordan(args, conversation_id, _forn)
+            return await _tool_registrar_resposta_cotacao(args, _forn)
+
         if name == "buscar_cliente":
             return await _tool_buscar_cliente(str(args.get("cnpj", "")))
         if name == "consultar_agenda":
@@ -4996,15 +5361,23 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # NUNCA da fala — quem não resolve a um cliente real é sempre SDR, mesmo dizendo
         # "minha câmera quebrou". Best-effort: falha aqui cai no comportamento de hoje.
         papel = None
+        forn = None
         if not owner:
             try:
                 _fone = phone_row[0] if phone_row else None
                 async with async_session_factory() as _db:
-                    _cli = await _cliente_do_telefone(_db, _fone)
-                _ult_in = next((c for d, c in rows if d == "in"), None)
-                papel = _papel_por_texto(_ult_in, e_cliente=_cli is not None)
+                    # ⭐ FORNECEDOR vem ANTES de cliente. Um número pode estar nas duas
+                    # tabelas, e quem nos manda preço de material é fornecedor naquele
+                    # momento — tratá-lo como cliente foi exatamente o erro das 15:13.
+                    forn = await _fornecedor_do_telefone(_db, _fone)
+                    _cli = None if forn else await _cliente_do_telefone(_db, _fone)
+                if forn:
+                    papel = "fornecedor"
+                else:
+                    _ult_in = next((c for d, c in rows if d == "in"), None)
+                    papel = _papel_por_texto(_ult_in, e_cliente=_cli is not None)
             except Exception:  # noqa: BLE001
-                papel = None
+                papel, forn = None, None
 
         # ⚠️ AQUI, e não lá em cima: `owner` só existe DEPOIS de resolver o telefone.
         # Eu tinha posto este cálculo antes da atribuição e derrubei o agente com
@@ -5024,6 +5397,10 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         active_tools = _tools_ativas(owner, papel)
 
         messages = [{"role": "system", "content": _system_prompt(owner, papel)}]
+        if forn:
+            # O contexto NÃO é decoração: sem a cotação e os itens, "Qual cabo?" é um
+            # enigma e o agente escala para humano — que foi o que aconteceu às 15:13.
+            messages.append({"role": "system", "content": await _contexto_fornecedor(forn)})
         if papel:
             logger.info("Agente: conv=%s papel=%s tools=%s", conversation_id, papel, len(active_tools))
 
@@ -5308,9 +5685,24 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 logger.warning("Agente: conv=%s recusou por `reasoning_content` — refazendo "
                                "SEM o histórico de tool_calls (rodada %s)",
                                conversation_id, rounds)
+                # ⭐ 31/08/2026 — PODAR NÃO PODE APAGAR O QUE A FERRAMENTA DEVOLVEU.
+                # A versão de 28/08 tirava os turnos de tool E o resultado deles. No papel
+                # FORNECEDOR isso ficou fatal: o modelo chamava a tool certa, o 400 vinha na
+                # rodada seguinte, a poda descartava a resposta da tool e sobrava um turno
+                # sem nada — o Renier levava "acho que me perdi" com a informação já em mãos.
+                # A API recusa a ESTRUTURA (assistant com tool_calls + role=tool), não o
+                # conteúdo. Então a estrutura sai e o conteúdo volta como texto.
+                _resultados = [str(m.get("content") or "")[:1500] for m in messages
+                               if isinstance(m, dict) and m.get("role") == "tool"]
                 _podado = [m for m in messages
                            if not (isinstance(m, dict)
                                    and (m.get("tool_calls") or m.get("role") == "tool"))]
+                if _resultados:
+                    _podado.append({
+                        "role": "system",
+                        "content": ("RESULTADO DAS FERRAMENTAS QUE VOCÊ JÁ CHAMOU NESTE "
+                                    "TURNO (use-o para responder; NÃO chame de novo):\n"
+                                    + "\n---\n".join(_resultados))})
                 resp = await client.chat.completions.create(
                     model=model, messages=_podado,
                     **_chat_kwargs(model, max_tokens),
@@ -5428,6 +5820,14 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         )
         texto = _tirar_puxa_saco(texto)
         texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
+        # ⭐ REDE DO FORNECEDOR (31/08/2026). Medido: com a tool disponível e o prompt
+        # mandando usá-la, o modelo respondeu "vou confirmar com o Jordan" em texto e NÃO
+        # chamou nada — três turnos seguidos, zero chamadas. Prompt não ganha dessa pressão
+        # (foi a lição da parede de hoje), então a garantia é determinística: se um
+        # FORNECEDOR falou e o turno não gerou ação nenhuma, o Jordan fica sabendo do mesmo
+        # jeito. A promessa do agente deixa de depender de o agente cumpri-la.
+        if forn and not _executadas:
+            await _rede_fornecedor(forn, rows, texto, conversation_id)
         # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, NEM em situação
         # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
         if not owner and not em_acompanhamento and not situacao_sensivel:
