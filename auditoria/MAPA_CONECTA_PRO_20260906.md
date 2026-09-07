@@ -407,8 +407,14 @@ Jordan for fazer o login pelo noVNC.
   (`/nfse-nacional/emitir`) existe, mas as notas de julho/agosto foram emitidas no portal e entraram por sincronia.
   Enquanto for assim, o botão na nota sincronizada É a tela seguinte. Quando a emissão passar a sair do ERP, o
   mesmo botão serve — a nota cai na mesma tabela.
-- Commit `3a99f0498`, hot-copy feito, oráculo `test_oraculo_cobranca_recebivel` verde (roteamento, recusas,
-  idempotência, casamento nota → conta). Vai ao ar em definitivo no bake.
+- **Emitir a nota pelo próprio ERP** (medido 07/09, 14h, sem transmitir nada): as duas empresas têm certificado válido
+  na tabela `empresas` (Eletrônica até 13/01/2027, Patrimonial até 06/07/2027) e o dry-run gera e assina o XML da DPS
+  para as duas. O que falta é UMA chave: `empresas.nfse_ambiente` está em **homologacao** nas duas (URL de produção
+  restrita do ADN). Virar `producao` é emissão no governo — **decisão sua**; o ERP nunca emitiu uma nota real (as 112
+  de 2026 entraram por sincronia do ADN). Quando virar, o passo seguinte é o formulário de emissão na tela Fiscal (hoje
+  a tela lista e sincroniza; o botão "Emitir NFS-e" não abre formulário) — e o botão "Gerar boleto" já espera a nota.
+- Commits `3a99f0498`, `03905114e`, `964740d2f`; bake das 13:36 publicou tudo (sem drift). Oráculo
+  `test_oraculo_cobranca_recebivel` verde (roteamento, recusas, idempotência, casamento nota → conta).
 
 ### 2c.12 Varredura tela a tela dos 31 módulos do redesign (07/09, tarde)
 
