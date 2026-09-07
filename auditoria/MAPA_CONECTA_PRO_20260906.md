@@ -372,6 +372,36 @@ Jordan for fazer o login pelo noVNC.
   cliente são manuais. Capacidade DESLIGADA: existem módulos de cobrança PIX recorrente e de cobrança Inter sem uso.
   Ligar = decisão do dono (é comunicação ao cliente).
 
+### 2c.11 Boleto nasce no Conecta PRO (07/09, tarde — pedido do dono)
+
+- **Decisão executada**: "os boletos são gerados da Eletrônica pelo Inter e da Patrimonial pela Cora… direto no
+  Conecta PRO… quando emitir a nota, já dar a opção de gerar o boleto". O que "já tinha" (cobrança recorrente,
+  cobrança Inter) nunca emitiu nada: `receivable_accounts` tinha **zero** contas com `boleto_id` nas duas empresas.
+- **Como ficou**: a cobrança é emitida NA conta a receber que o gerador do dia 1 já cria (nada de conta paralela),
+  roteada pela empresa credora da conta. Duas portas na tela do redesign:
+  - **Financeiro › Contas a receber**: coluna *Cobrança* (Boleto emitido / A emitir / Recebida) + botão *Emitir
+    cobrança* por linha + formulário *Cobranças do mês* (prévia por padrão — lista o que emitiria, sem emitir).
+  - **Fiscal › NFS-e emitidas (nacional)**: coluna *Cobrança* + botão *Gerar boleto* por nota — é o "fluxo natural":
+    a nota acha a conta em aberto da mesma empresa, mesmo tomador e mesma competência. Nota sem conta em aberto
+    diz isso (a de agosto já está paga; as de jan–jun nunca tiveram conta) — o código não inventa vencimento.
+  - Recusas: conta paga/cancelada, vencimento passado, sem CPF/CNPJ, abaixo de R$ 5, já emitida (idempotente).
+    Emitir é registrar no banco; **nada é enviado ao cliente** — comunicar é outro passo.
+- **Medido com R$ 5 reais contra o próprio CNPJ** (único teste possível sem envolver cliente):
+  - **Inter**: emitiu. O POST devolve só o código; linha digitável, PIX copia-e-cola e código de barras vêm do GET
+    logo depois — o adaptador agora busca na emissão (antes gravava campos vazios). `cancel_boleto` usava DELETE e
+    o Inter responde 405; virou POST e o banco aceitou (2xx), **mas 15 min depois a cobrança ainda está
+    `A_RECEBER`** — cobrança `e622b781…`, R$ 5, pagador Eletrônica, vence 10/09. Se não cancelar sozinha, cancele
+    no app do Inter ou deixe vencer: é a Eletrônica devendo R$ 5 a ela mesma, dinheiro não sai.
+  - **Cora**: recusou com `REC-0031 Cannot create invoice for own identity` — a Cora não cobra o próprio CNPJ. O
+    caminho até a API está provado; a primeira emissão real será a de um cliente (Laranjeiras, dia 10, R$ 42.544,50
+    está em aberto). Sugiro emitir UMA pelo botão, conferir no app da Cora e só então usar *Cobranças do mês*.
+- **O que falta para o fluxo ser 100 % "emitir nota → boleto na mesma tela"**: a emissão de NFS-e pelo ERP
+  (`/nfse-nacional/emitir`) existe, mas as notas de julho/agosto foram emitidas no portal e entraram por sincronia.
+  Enquanto for assim, o botão na nota sincronizada É a tela seguinte. Quando a emissão passar a sair do ERP, o
+  mesmo botão serve — a nota cai na mesma tabela.
+- Commit `3a99f0498`, hot-copy feito, oráculo `test_oraculo_cobranca_recebivel` verde (roteamento, recusas,
+  idempotência, casamento nota → conta). Vai ao ar em definitivo no bake.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
