@@ -140,11 +140,13 @@ async def criar_rascunho(
     #
     # Sucesso vazio de novo, com outra roupa: 200, mensagem plausível, e zero efeito.
     if idempotency_key:
+        # A chave mora no PRÓPRIO rascunho (payload._idem) e "vivo" = status 'rascunho'. A versão
+        # anterior procurava a chave no aviso do sino: quando o aviso não existia (origem cortada,
+        # aviso encerrado, entrega que deduplica pela mesma chave), nada era encontrado e o beat
+        # de 5 min do RiskMonitor criou 9 rascunhos idênticos em 40 min (07/09/2026).
         ja = (await db.execute(text(
-            "SELECT n.reference_id FROM communication_notifications n "
-            "JOIN agent_drafts d ON d.id::text = n.reference_id::text "
-            "WHERE n.extra_data->>'idempotency_key' = :k "
-            "  AND coalesce(n.is_active, true) = true LIMIT 1"),
+            "SELECT id FROM agent_drafts WHERE status = 'rascunho' "
+            "AND payload->>'_idem' = :k ORDER BY created_at LIMIT 1"),
             {"k": idempotency_key})).scalar()
         if ja:
             return {"status": "rascunho", "duplicado": True, "tipo": tipo,
@@ -167,7 +169,8 @@ async def criar_rascunho(
     try:
         draft = AgentDraft(
             tipo=tipo, modulo=modulo, titulo=titulo, resumo=resumo,
-            payload=payload or {}, status="rascunho", gate=gate,
+            payload={**(payload or {}), **({"_idem": idempotency_key} if idempotency_key else {})},
+            status="rascunho", gate=gate,
             requires_otp=bool(requires_otp), roles_aprovador=list(roles_aprovador),
             solicitado_por=solicitante,
             solicitado_por_nome=getattr(user, "nome", None) or getattr(user, "name", None),
