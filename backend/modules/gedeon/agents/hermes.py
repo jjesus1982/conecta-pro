@@ -274,7 +274,9 @@ class Hermes:
           'Ficha Registro de Empregado_Daniel Larroque.pdf' → 'Daniel Larroque'
           'Atestado médico - Antônio Walcicley 17-03-2026.pdf' → None (sem padrão _)
         """
-        match = re.search(r"_([^_]+)\.\w+$", nome_arquivo)
+        # Onvio nomeia "Recibo de Pagamento-08-2026-1-ALEXANDRESOUZADASILVA.pdf": o nome é o
+        # ÚLTIMO segmento, por hífen ou sublinhado, sem espaços (07/09/2026).
+        match = re.search(r"[-_ ]([A-Za-zÀ-ÿ][^-_/\\]*?)\.\w+$", nome_arquivo)
         if match:
             return match.group(1).strip()
         return None
@@ -295,20 +297,32 @@ class Hermes:
         if not nome:
             return None, None
 
+        # Compara SEM espaço e sem acento: "ALEXANDRESOUZADASILVA" = "Alexandre Souza da Silva".
+        import unicodedata as _ud
+        chave = _ud.normalize("NFKD", nome).encode("ascii", "ignore").decode().upper()
+        chave = re.sub(r"[^A-Z]", "", chave)
+        if len(chave) < 6:
+            return None, None
+        _SEM = "upper(regexp_replace(translate(e.nome, 'áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ', 'aaaaeeiooouc' || 'AAAAEEIOOOUC'), '[^A-Za-z]', '', 'g'))"
         row = db.execute(
-            text("""
+            text(f"""
                 SELECT e.id::text AS emp_id, c.id::text AS cond_id
                 FROM employee_alocacoes ea
                 JOIN employees e ON e.id = ea.employee_id
                 JOIN condominios c ON c.id = ea.condominio_id
-                WHERE ea.ativo = true
-                  AND LOWER(TRIM(e.nome)) ILIKE LOWER(TRIM(:nome))
+                WHERE ea.ativo = true AND {_SEM} = :chave
                 LIMIT 1
             """),
-            {"nome": f"%{nome}%"},
+            {"chave": chave},
         ).fetchone()
         if row:
             return row[0], row[1]
+        # Sem alocação ativa (escritório, afastado): ainda é gente da casa.
+        row = db.execute(
+            text(f"SELECT e.id::text FROM employees e WHERE {_SEM} = :chave LIMIT 1"), {"chave": chave}
+        ).fetchone()
+        if row:
+            return row[0], None
         return None, None
 
     def _update_doc_fks(
@@ -371,6 +385,10 @@ class Hermes:
         Para scope=funcionario sem FK: resolve via resolver_colaborador() (INV-4).
         INV-5: só preenche slots com file_path IS NULL.
         """
+        # Escopo nulo (o classificador de escopo do sync nunca roda): categoria de funcionário
+        # é escopo de funcionário — os 47 recibos de agosto ficavam "ignorados" por isso.
+        if not doc_scope and categoria in MAPA_TIPOS_ONVIO_FUNCIONARIO:
+            doc_scope = "funcionario"
         # Resolver employee_id quando ausente (INV-4 — nome como fallback)
         if doc_scope == "funcionario" and not employee_id:
             resolved_emp, resolved_cond = self.resolver_colaborador(nome_arquivo, db)
