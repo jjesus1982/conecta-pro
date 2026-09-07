@@ -50,7 +50,7 @@ async def build(db) -> dict:
         "sub": "Refaz o cálculo dos indicadores a partir do banco. Use quando o painel "
                "parecer defasado. Só recalcula — não altera lançamento nenhum.",
         "cta": "Recalcular", "type": "form",
-        "submit": {"endpoint": "/api/v1/analytics/executive/kpis/recalcular",
+        "submit": {"endpoint": "/api/v1/redesign/action/kpis-recalcular",
                    "okMsg": "Recálculo dos KPIs disparado"},
         "fields": [],
     }

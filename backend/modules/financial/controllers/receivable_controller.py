@@ -991,9 +991,9 @@ async def emitir_cobranca_por_nota(
     return r
 
 
-@router.post("/emitir-cobrancas-mes/{ano}/{mes}", summary="Emite boleto/PIX de todas as contas em aberto do mês ainda sem cobrança")
+@router.post("/emitir-cobrancas-mes", summary="Emite boleto/PIX de todas as contas em aberto do mês ainda sem cobrança")
 async def emitir_cobrancas_mes(
-    ano: int, mes: int,
+    ano: int = Query(..., ge=2020, le=2100), mes: int = Query(..., ge=1, le=12),
     preview: bool = Query(True, description="false = emite de verdade"),
     current_user: dict = Depends(get_current_user),
 ) -> dict:

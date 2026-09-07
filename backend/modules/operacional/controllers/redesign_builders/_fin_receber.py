@@ -39,7 +39,7 @@ async def build_receber(db, out: dict) -> None:
         "title": "Emitir cobranças do mês", "type": "form", "cta": "—",
         "sub": ("Emite boleto/PIX de TODAS as contas em aberto do mês ainda sem cobrança bancária "
                 "(Eletrônica → Inter, Patrimonial → Cora). Marque 'só prever' para ver a lista antes."),
-        "endpoint": "/api/v1/financial/receivables/emitir-cobrancas-mes/{ano}/{mes}", "method": "POST",
+        "endpoint": "/api/v1/financial/receivables/emitir-cobrancas-mes", "query": True, "method": "POST",
         "submitLabel": "Emitir cobranças do mês", "okMsg": "Processado — veja o resultado.",
         "fields": [
             {"key": "ano", "label": "Ano*", "type": "number", "value": __import__("datetime").date.today().year, "span": "span 1"},

@@ -291,6 +291,21 @@ async def onboard_cliente_endpoint(
     return await ob.onboard_cliente(db, client_id, enviar_email=enviar_email, email_override=email_override)
 
 
+@router.post("/onboard", summary="Onboarding de um cliente (client_id na query — forma que a tela do redesign consegue chamar)")
+async def onboard_cliente_query_endpoint(
+    current_user: CurrentActiveUser,
+    client_id: str,
+    enviar_email: bool = False,
+    email_override: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Mesma ação de `/{client_id}/onboard`. O formulário do redesign manda os campos como
+    query e não sabe montar path param — sem esta porta o botão batia em 404 (visto 07/09/2026)."""
+    from modules.client_portal.services import portal_onboarding_service as ob
+
+    return await ob.onboard_cliente(db, client_id, enviar_email=enviar_email, email_override=email_override)
+
+
 @router.post("/onboard/nao-logados", summary="Onboarding em lote dos que nunca logaram")
 async def onboard_nao_logados_endpoint(
     current_user: CurrentActiveUser,

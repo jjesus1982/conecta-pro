@@ -2511,6 +2511,17 @@ async def rd_action_contracheques_batch(
             "message": f"Contracheques {comp}: {ger}/{tot} gerados, {arq} arquivados no GED."}
 
 
+@router.post("/action/kpis-recalcular")
+async def rd_action_kpis_recalcular(current_user: CurrentActiveUser) -> dict:
+    """Dispara a task `analytics.recalcular_kpis` (a mesma do beat das 06:15). A tela
+    Relatórios apontava para /analytics/executive/kpis/recalcular, que nunca existiu (404
+    medido em 07/09/2026). Só recalcula — não altera lançamento."""
+    from modules.analytics.tasks import recalcular_kpis_task
+
+    r = recalcular_kpis_task.delay()
+    return {"ok": True, "message": "Recálculo dos KPIs enfileirado.", "task_id": str(r.id)}
+
+
 @router.post("/action/cert-gerar-folha")
 async def rd_action_cert_gerar_folha(
     current_user: CurrentActiveUser,
