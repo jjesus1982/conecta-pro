@@ -37,8 +37,9 @@ KPIS = [
     ("financeiro", "g-visao/tabs[1]", "A pagar (aberto)",
      "SELECT coalesce(sum(coalesce(net_value, gross_value)),0) FROM payable_accounts WHERE status='pendente'", 0.01),
     ("financeiro", "g-visao/tabs[1]", "Clientes ativos", "SELECT count(*) FROM clients WHERE status='active'", 0.0),
+    # contratos ativos = a fonte que gera as cobranças; billing_rules era cadastro velho (07/09)
     ("financeiro", "g-visao/tabs[3]", "Base recorrente (MRR)",
-     "SELECT coalesce(sum(monthly_value),0) FROM contracts WHERE status='active'", 0.01),
+     "SELECT coalesce(sum(monthly_value),0) FROM contracts WHERE status='active'", 0.0),
     # ── DP · Visão ──
     ("departamento-pessoal", "g-visao/tabs[0]", "Colaboradores ativos", "SELECT count(*) FROM employees WHERE status='ativo'", 0.0),
     # A tela conta hr_vacation_requests INTEIRA (20, inclusive canceladas/rejeitadas) — "mesma

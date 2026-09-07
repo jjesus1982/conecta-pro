@@ -117,9 +117,12 @@ async def get_financial_dashboard(
         )
         rec = rec_result.fetchone()
 
-        # MRR real (billing_rules ativas)
+        # MRR = contratos ativos — a fonte que GERA as cobranças (receivable_accounts.origem=
+        # 'contrato'). billing_rules é cadastro paralelo e estava velho: Prime Arena R$ 40.466,50
+        # (contrato R$ 33.479,60 desde maio), Parise R$ 1.700 (R$ 2.000), Hawk Eye e Parque dos
+        # Franceses sem regra — três MRRs na casa, R$ 886,90 de diferença (achado 07/09/2026).
         mrr_result = await db.execute(
-            text("SELECT COALESCE(SUM(base_value), 0) AS mrr FROM billing_rules WHERE ativo = true")
+            text("SELECT COALESCE(SUM(monthly_value), 0) AS mrr FROM contracts WHERE status = 'active'")
         )
         mrr = float((mrr_result.fetchone() or [0]).mrr or 0)
 

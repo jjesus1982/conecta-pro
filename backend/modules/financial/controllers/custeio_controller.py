@@ -65,10 +65,11 @@ async def get_custeio_abc(
         # 1. Contratos ativos + valor
         contratos_q = await db.execute(
             text("""
-            SELECT name, COALESCE(base_value, 0) AS receita
-            FROM billing_rules
-            WHERE ativo = true
-            ORDER BY base_value DESC
+            -- contratos ativos, não billing_rules (cadastro paralelo e velho — achado 07/09/2026)
+            SELECT COALESCE(c.name, ct.name, ct.id::text) AS name, COALESCE(ct.monthly_value, 0) AS receita
+            FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id
+            WHERE ct.status = 'active'
+            ORDER BY ct.monthly_value DESC
         """)
         )
         contratos = contratos_q.fetchall()
