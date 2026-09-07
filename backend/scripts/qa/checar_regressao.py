@@ -72,6 +72,9 @@ CACADORES = {
     # Tela do redesign que nenhum oráculo nem regra proativa cita (o "mapa do não-vigiado").
     # Pesado (constrói os 32 módulos): ~5 min.
     "checar_nao_vigiado.py": lambda s: _n(r"^TOTAL:\s*(\d+) tela", s),
+    # Endpoint que uma tela do redesign chama e o app não tem (ou não tem com aquele método).
+    # 3 na estreia (07/09/2026): {ano}/{mes} e {client_id} literais + rota que nunca existiu.
+    "checar_botao_morto.py": lambda s: _n(r"^TOTAL:\s*(\d+) botão", s),
 }
 
 #: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o

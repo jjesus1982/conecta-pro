@@ -6,7 +6,7 @@
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **32 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **33 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -31,7 +31,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 32 travas (código, não skill)
+## 2. As 33 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 (Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
@@ -61,6 +61,7 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_llm_martelando.py` | rotina que **martela o LLM falhando** — *30.800 chamadas/dia com 0 ok, quatro dias, e a única evidência era a fatura que não subia* | `backend/scripts/qa` |
 | `checar_import_orfao.py` | `from X import Y` com X **apagado do disco** — servidor ou celery cai no boot, um bake por vez — *três pacotes "mortos" vivos por dentro (analytics, contract_analysis, signature), cada um descoberto por um crash* | `backend/scripts/qa` |
 | `checar_beat_engole_falha.py` | task agendada cujo `except Exception` **loga e devolve normal** (AST) — task SUCCESS, `task_falha` cego — *o fechamento do razão parou 27 dias com ok=True; 55 tasks assim na estreia* | `backend/scripts/qa` |
+| `checar_botao_morto.py` | endpoint que uma tela do redesign chama e o app **não tem** — cruza os 4.300 `endpoint` dos builders com a tabela de rotas, método incluso — *3 botões davam 404 desde que nasceram: `{ano}/{mes}` literal (o front não monta path param) e uma rota que nunca existiu* | `backend/scripts/qa` |
 | `checar_tabela_fantasma.py` | `__tablename__` de tabela que **não existe em schema nenhum** — invisível ao censo de uso real por construção — *58 na estreia: a persistência inteira de governo (gov_*, 29) sem migration; `gov_sync_logs` lida pelo painel de status que devolve vazio todo dia* | `backend/scripts/qa` |
 | `checar_varchar_teto.py` | `varchar(N)` com valor **encostado no teto** e comprimentos variados — *um varchar(20) passou meses porque o nome tinha exatamente 20* | `backend/scripts/qa` |
 | `fechado_bartolo.py` · `fechado_contratos.py` · `fechado_financeiro.py` · `fechado_fiscal.py` · `fechado_gedeon.py` · `fechado_operacional.py` | critério de aceite **executável** por módulo: ✅/❌ por condição, exit code decide — *"fechado" vinha sendo afirmado em prosa*. Semanais desde 06/09: **existiam desde agosto e nenhum caminho os invocava** | `backend/scripts/qa` |
