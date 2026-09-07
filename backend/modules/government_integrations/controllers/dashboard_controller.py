@@ -151,7 +151,8 @@ class DashboardService:
         "sefaz_mdfe": "MDF-e",
         "esocial": "eSocial",
         "fgts_digital": "FGTS Digital",
-        "nfse_manaus": "NFS-e Manaus",
+        "nfse_manaus": "NFS-e Manaus (histórico até 12/2025 — emissão migrou para o ADN)",
+        "nfse_nacional": "NFS-e Nacional (ADN)",
         "receita_federal": "Receita Federal",
         "simples_nacional": "Simples Nacional",
     }
@@ -310,63 +311,78 @@ class DashboardService:
 
         return servicos
 
+    # Evidência REAL por serviço: (tabela/consulta do último sinal, consulta de volume em 30 dias).
+    # `gov_sync_logs` (SyncLog) NUNCA existiu no banco — modelo sem migration (checar_tabela_fantasma,
+    # t6, 07/09/2026) — e este painel devolvia "nao_configurado" para tudo, todo dia, em WARNING.
+    # O que prova que uma integração está viva é a linha que ela grava: checkpoint de NSU,
+    # nota sincronizada, evento do eSocial, guia do FGTS, certidão atualizada, extrato do banco.
+    # (último sinal, volume 30d, dias para "online", dias para "degraded"). Cadência importa:
+    # extrato e NFS-e chegam todo dia; guia de FGTS, DAS, certidão e evento do eSocial são
+    # mensais — 20 dias sem guia nova é o normal, não "offline".
+    CADENCIA: dict[str, tuple[int, int]] = {
+        "fgts_digital": (40, 60), "simples_nacional": (40, 60), "receita_federal": (40, 60),
+        "esocial": (40, 60), "sefaz_nfe": (8, 30),
+    }
+    EVIDENCIA: dict[str, tuple[str, str]] = {
+        "nfse_nacional": ("SELECT max(updated_at) FROM fiscal_nsu_checkpoint WHERE tipo = 'nfse_adn'",
+                          "SELECT count(*) FROM nfse_emitidas_nacional WHERE created_at >= now() - interval '30 days'"),
+        "sefaz_nfe": ("SELECT max(updated_at) FROM nfe_dist_nsu",
+                      "SELECT count(*) FROM nfe_entradas WHERE created_at >= now() - interval '30 days'"),
+        "esocial": ("SELECT max(updated_at) FROM esocial_eventos_espelho",
+                    "SELECT count(*) FROM esocial_eventos_espelho WHERE updated_at >= now() - interval '30 days'"),
+        "fgts_digital": ("SELECT max(created_at) FROM fgts_guias",
+                         "SELECT count(*) FROM fgts_guias WHERE created_at >= now() - interval '30 days'"),
+        "receita_federal": ("SELECT max(updated_at) FROM ged_certidoes WHERE document_type IN ('certidao_negativa_federal','certidao_negativa_inss')",
+                            "SELECT count(*) FROM ged_certidoes WHERE updated_at >= now() - interval '30 days'"),
+        "simples_nacional": ("SELECT max(updated_at) FROM fiscal_obligations WHERE tipo = 'DAS'",
+                             "SELECT count(*) FROM fiscal_obligations WHERE tipo = 'DAS' AND updated_at >= now() - interval '30 days'"),
+        "inter": ("SELECT max(bt.created_at) FROM bank_transactions bt JOIN bank_accounts ba ON ba.id = bt.bank_account_id WHERE ba.bank_code = '077'",
+                  "SELECT count(*) FROM bank_transactions bt JOIN bank_accounts ba ON ba.id = bt.bank_account_id WHERE ba.bank_code = '077' AND bt.created_at >= now() - interval '30 days'"),
+        "solides": ("SELECT max(created_at) FROM gp_clock_punches WHERE device_type = 'tangerino'",
+                    "SELECT count(*) FROM gp_clock_punches WHERE device_type = 'tangerino' AND created_at >= now() - interval '30 days'"),
+    }
+
     async def _agregar_sync_logs(self) -> dict[str, dict[str, Any]]:
-        """
-        Lê gov_sync_logs e devolve, por serviço, o status derivado do último
-        log e agregados de processados/erros. Se a tabela/consulta falhar,
-        devolve {} (nenhum serviço marcado online sem base real).
+        """Status por serviço a partir da EVIDÊNCIA real (tabela que a integração grava).
+
+        online = último sinal há < 2 dias · degraded = < 8 dias · offline = mais velho.
+        Serviço sem fonte de evidência (CT-e, MDF-e, gov.br, SPED, eCAC…) fica fora do
+        dict e o chamador o marca "nao_configurado" — nunca "online" sem base.
         """
         resultado: dict[str, dict[str, Any]] = {}
         try:
-            from sqlalchemy import func, select
+            from sqlalchemy import text
 
             from core.database.session import async_session_factory
 
-            from ..models.sync_models import SyncLog
-
             async with async_session_factory() as db:
-                # Agregados por serviço
-                agg_stmt = select(
-                    SyncLog.servico,
-                    func.sum(SyncLog.registros_processados),
-                    func.sum(SyncLog.registros_erro),
-                    func.max(SyncLog.inicio_execucao),
-                ).group_by(SyncLog.servico)
-                agg_rows = (await db.execute(agg_stmt)).all()
-
-                for servico, processados, erros, ultima in agg_rows:
+                for servico, (sql_ultimo, sql_volume) in self.EVIDENCIA.items():
+                    try:
+                        ultimo = (await db.execute(text(sql_ultimo))).scalar()
+                        volume = int((await db.execute(text(sql_volume))).scalar() or 0)
+                    except Exception as exc:  # noqa: BLE001 — uma fonte quebrada não cala as outras
+                        await db.rollback()
+                        logger.warning("evidência de %s indisponível: %s", servico, exc)
+                        continue
+                    if ultimo is None:
+                        continue
+                    if getattr(ultimo, "tzinfo", None) is not None:
+                        ultimo = ultimo.replace(tzinfo=None)
+                    idade = datetime.utcnow() - ultimo
+                    on, deg = self.CADENCIA.get(servico, (2, 8))
+                    if idade.days < on:
+                        st, taxa = "online", 100.0
+                    elif idade.days < deg:
+                        st, taxa = "degraded", 50.0
+                    else:
+                        st, taxa = "offline", 0.0
                     resultado[servico] = {
-                        "processados": int(processados or 0),
-                        "erros": int(erros or 0),
-                        "ultima_sincronizacao": ultima,
-                        "status": "desconhecido",
-                        "taxa_sucesso": 0.0,
+                        "processados": volume, "erros": 0, "ultima_sincronizacao": ultimo,
+                        "status": st, "taxa_sucesso": taxa,
                     }
-
-                # Status derivado do ULTIMO log de cada serviço
-                for servico in list(resultado.keys()):
-                    last_stmt = (
-                        select(SyncLog.status)
-                        .where(SyncLog.servico == servico)
-                        .order_by(SyncLog.inicio_execucao.desc())
-                        .limit(1)
-                    )
-                    last_status = (await db.execute(last_stmt)).scalar_one_or_none()
-                    status_map = {
-                        "sucesso": ("online", 100.0),
-                        "parcial": ("degraded", 50.0),
-                        "erro": ("offline", 0.0),
-                        "pendente": ("desconhecido", 0.0),
-                        "executando": ("desconhecido", 0.0),
-                    }
-                    val = getattr(last_status, "value", last_status)
-                    st, taxa = status_map.get(str(val), ("desconhecido", 0.0))
-                    resultado[servico]["status"] = st
-                    resultado[servico]["taxa_sucesso"] = taxa
-        except Exception as e:
-            logger.warning(f"Falha ao agregar gov_sync_logs (status marcado como desconhecido): {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Falha ao agregar evidência das integrações (status marcado como desconhecido): {e}")
             return {}
-
         return resultado
 
     async def _obter_endpoints_indisponiveis(self) -> list[StatusEndpoint]:
@@ -499,7 +515,7 @@ class DashboardService:
                     if not resultado.disponivel:
                         error_msg = resultado.erro
                     response_time = resultado.tempo_resposta_ms
-                elif intg["id"] in self.SERVICOS:
+                elif intg["id"] in self.EVIDENCIA:
                     info = stats.get(intg["id"])
                     if info is not None:
                         status = info["status"]
