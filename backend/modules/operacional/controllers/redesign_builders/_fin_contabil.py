@@ -326,14 +326,16 @@ async def build_contabil(db, out: dict) -> None:
         from starlette.concurrency import run_in_threadpool
 
         from modules.financial.services.apuracao_lucro_real_service import ApuracaoLucroRealService
+        from datetime import date as _hoje
         _svc = ApuracaoLucroRealService()
-        ap = await run_in_threadpool(_svc.apurar, 2026, None)
+        _ano = _hoje.today().year  # era 2026 fixo: em janeiro seguiria mostrando 2026 (achado 07/09)
+        ap = await run_in_threadpool(_svc.apurar, _ano, None)
         base = ap.get("base", {}) or {}
         apu = ap.get("apuracao", {}) or {}
         tris = []
         for _tri in (1, 2, 3, 4):
             try:
-                a = await run_in_threadpool(_svc.apurar, 2026, _tri)
+                a = await run_in_threadpool(_svc.apurar, _ano, _tri)
                 tris.append((f"{_tri}ºT", (a.get("base", {}) or {}).get("lucro_antes_ircsll", 0),
                              (a.get("apuracao", {}) or {}).get("total_irpj_csll", 0)))
             except Exception:  # noqa: BLE001
