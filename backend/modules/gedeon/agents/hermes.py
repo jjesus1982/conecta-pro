@@ -574,16 +574,38 @@ class Hermes:
             """),
             {"kit_id": kit_id, "doc_type": kit_doc_type, "emp_id": employee_id},
         ).fetchone()
-        if not slot:
+        if slot:
+            db.execute(
+                text("""
+                    UPDATE ged_kit_documents
+                    SET file_path = :caminho, source_module = 'hermes', updated_at = NOW()
+                    WHERE id = CAST(:slot_id AS uuid)
+                """),
+                {"caminho": caminho_local, "slot_id": slot[0]},
+            )
+            return True
+        # Sem slot vazio (o kit do banco não pré-cria a vaga; a linha de contracheque que existe
+        # é a gerada pelo ERP para assinatura): o ORIGINAL do Onvio entra como documento
+        # próprio, sem sobrescrever e sem duplicar o mesmo arquivo. 45 de 49 recibos de
+        # agosto/2026 morriam aqui (07/09/2026).
+        ja = db.execute(
+            text("SELECT 1 FROM ged_kit_documents WHERE kit_id = CAST(:kit_id AS uuid) "
+                 "AND employee_id = CAST(:emp_id AS uuid) AND file_path = :caminho LIMIT 1"),
+            {"kit_id": kit_id, "emp_id": employee_id, "caminho": caminho_local},
+        ).fetchone()
+        if ja:
             return False
-
+        import os as _os
         db.execute(
             text("""
-                UPDATE ged_kit_documents
-                SET file_path = :caminho, source_module = 'hermes', updated_at = NOW()
-                WHERE id = CAST(:slot_id AS uuid)
+                INSERT INTO ged_kit_documents
+                  (id, kit_id, employee_id, document_type, document_name, file_path, source_module,
+                   auto_generated, is_signed, created_at, updated_at)
+                VALUES (gen_random_uuid(), CAST(:kit_id AS uuid), CAST(:emp_id AS uuid), :tipo, :nome,
+                        :caminho, 'hermes', false, false, NOW(), NOW())
             """),
-            {"caminho": caminho_local, "slot_id": slot[0]},
+            {"kit_id": kit_id, "emp_id": employee_id, "tipo": f"{kit_doc_type}_onvio",
+             "nome": f"{_os.path.basename(caminho_local)[:150]} (original Onvio)", "caminho": caminho_local},
         )
         return True
 
