@@ -488,6 +488,9 @@ Jordan for fazer o login pelo noVNC.
 - **Central de Aprovações**: 5 rascunhos do agente esperando você e 1 "FALHOU" de 31/08 — "pedir cotação" tropeçou
   no `number` de 20 caracteres, que já foi alargado para 40 (a cotação HAWKEYE-20260831 saiu depois). O rascunho
   fica como falha até você descartá-lo na tela; não é problema vivo.
+- **"Razão sem lançamento: folha jan–jul/2026" — 7 alertas permanentes desde 11/08**: a regra ignorava o corte
+  contábil (o razão nasce em 01/08; folha anterior nunca terá lançamento, por desenho). Passa a respeitar o corte;
+  0 competências acusadas. Commit `d2265215b`.
 - **Prazos do DP** (35 vivos, confirmados no banco): **ASO — 25 dos 53 ativos com ASO vencido e 21 sem nenhum ASO
   registrado; só 7 válidos.** Ou os exames estão em dia fora do sistema (Portte/clínica) e falta registrar, ou é
   passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
