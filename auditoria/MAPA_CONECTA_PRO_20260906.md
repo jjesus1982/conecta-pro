@@ -355,6 +355,10 @@ Jordan for fazer o login pelo noVNC.
   IRRF, INSS, FGTS consignado) — a maioria no reparcelamento com a União; Patrimonial 2 (DAS 06 e 07, R$ 42.216,45).
   Registro para o dono; sistema não paga nada sozinho.
 
+- **Contratos**: as 14 cobranças de setembro nasceram do contrato certo (gerador é por contrato, dia 1). O que faltou
+  não é bug: o contrato de manutenção da Villa dos Pássaros (CTR-2026-00018, R$ 3.800) **venceu em 31/08 e continua
+  "ativo"** — renovar ou encerrar. E **10 contratos (R$ 246.538,56 de MRR) vencem em 31/12/2026**: renovação a planejar.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
