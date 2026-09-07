@@ -299,19 +299,30 @@ async def _multicnpj(db, out: dict, tbl) -> None:
     }
 
     # ── Cobertura de certidões: tipo × empresa, com o que FALTA ───────────────────
+    # A linha é o TIPO (document_type), não o nome: a mesma certidão tem nome diferente em cada
+    # empresa ("CND Estadual (SEFAZ-AM)" × "Certidão Negativa Estadual") e a grade por nome
+    # mostrava FALTA cruzado nas duas — 10 "faltas" que não existiam (07/09/2026).
+    _ROTULO = {"certidao_negativa_estadual": "CND Estadual (SEFAZ-AM)", "certidao_negativa_federal": "CND Federal (RFB/PGFN)",
+               "certidao_negativa_fgts": "CRF — FGTS (Caixa)", "certidao_negativa_inss": "CND Previdenciária",
+               "certidao_negativa_municipal": "CND Municipal (Manaus)", "certidao_negativa_trabalhista": "CNDT — Trabalhista (TST)",
+               "certidao_negativa_falencia": "Falência e Recuperação (TJ-AM)", "alvara_funcionamento": "Alvará de Funcionamento",
+               "registro_cnpj": "Registro CNPJ Ativo"}
     tipos = [r[0] for r in (await db.execute(_sql(
-        "SELECT DISTINCT name FROM ged_certidoes WHERE name IS NOT NULL ORDER BY 1"))).fetchall()]
+        "SELECT DISTINCT document_type::text FROM ged_certidoes WHERE document_type IS NOT NULL ORDER BY 1"))).fetchall()]
     if tipos:
         cob = []
         for tipo in tipos:
-            cel = [t(tipo[:42], 600, "#0F1B3A")]
+            rotulo = _ROTULO.get(tipo, tipo.replace("certidao_negativa_", "CND ").replace("_", " ").capitalize())
+            cel = [t(rotulo[:42], 600, "#0F1B3A")]
             for _eid, _nome, cnpj, _rg in empresas:
                 r = (await db.execute(_sql(
-                    f"SELECT expiry_date FROM ged_certidoes WHERE name = :n "
+                    f"SELECT expiry_date FROM ged_certidoes WHERE document_type::text = :n "
                     f"AND {_SO_DIGITOS.format('cnpj')} = {_SO_DIGITOS.format(':c')} "
                     f"ORDER BY expiry_date DESC NULLS LAST LIMIT 1"), {"n": tipo, "c": cnpj})).first()
                 if r is None:
                     cel.append(b("FALTA", "bad"))
+                elif r[0] is None:
+                    cel.append(b("cadastrada, sem validade", "info"))
                 else:
                     venc = r[0]
                     d = venc.date() if hasattr(venc, "date") else venc
