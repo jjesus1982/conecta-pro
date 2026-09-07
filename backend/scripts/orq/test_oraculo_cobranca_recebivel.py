@@ -7,6 +7,10 @@ pagador = o CNPJ da própria empresa) e afirma a regra: roteamento pela `empresa
 conta paga/vencida/sem documento/abaixo de R$ 5 é recusada, conta já emitida não reemite.
 Apaga tudo o que criou.
 
+Telas que este oráculo vigia (mesmo serviço por trás dos botões): "contas-receber" (Emitir
+cobrança por linha), "recorrencia" (prévia do mês), "gerar-cobrancas" (emissão do mês) e
+"nfse-emitidas" (Gerar boleto na nota → emitir_por_nota).
+
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_cobranca_recebivel.py
 """
 import os
