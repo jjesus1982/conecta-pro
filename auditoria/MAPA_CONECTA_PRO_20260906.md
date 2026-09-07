@@ -327,6 +327,10 @@ Jordan for fazer o login pelo noVNC.
   vivo já escriturado (dobro no razão, R$ 12.317,46 de movimento). Copiados para `lixo_20260906.accounting_entries_
   fantasma_20260907` e removidos; agosto reapurado: **−R$ 39.445,28**. Regra silenciosa; balanço e contábil verdes.
 
+- **Operacional, para o dono ver**: 9 de 9 postos sem escala vigente e 17 escalas em rascunho (triagem). O módulo de
+  escalas existe e ninguém publica escala; a cobertura mostrada (66,7%) sai de alocações, não de escala. Agentes não
+  mexem em dado operacional — fica anotado.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
