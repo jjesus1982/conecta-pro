@@ -1835,8 +1835,12 @@ async def build(db, current_user=None) -> dict:
         "       OR s.custom_fields->>'document_id_raw'=CAST(ts.id AS TEXT)) "
         "  ORDER BY s.created_at DESC LIMIT 1) sig ON true "
         "WHERE coalesce(ts.is_deleted,false)=false "
+        # A competência mostrada é a última com POPULAÇÃO (≥ 10 espelhos), não a mais nova: em
+        # 07/09/2026 setembro tinha 2 espelhos e agosto 53 — a tela mostrava os 2 e escondia o mês
+        # que de fato precisa fechar.
         "  AND (ts.reference_year, ts.reference_month) = (SELECT reference_year, reference_month "
         "       FROM time_sheets WHERE coalesce(is_deleted,false)=false "
+        "       GROUP BY reference_year, reference_month HAVING count(*) >= 10 "
         "       ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
         "  AND ts.employee_id NOT IN (SELECT CAST(id AS TEXT) FROM employees WHERE coalesce(is_homologacao,false)=true) "
         "ORDER BY ts.employee_name LIMIT 300",
@@ -1845,6 +1849,20 @@ async def build(db, current_user=None) -> dict:
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
         docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]
         + ([doc("Folha de ponto (batidas)", f"/api/v1/people-management/ponto/folha-pdf/{r[11]}/download?mes_ref={int(r[12]):02d}.{int(r[2])}", fmt="html", gate="dp")] if r[13] else [])))
+    # O subtítulo diz QUAL competência está na tela — sem isso "última competência" com 53
+    # linhas de agosto e 2 de setembro era adivinhação.
+    try:
+        from sqlalchemy import text as _tx  # noqa: PLC0415
+        _comp = (await db.execute(_tx(
+            "SELECT reference_year, reference_month FROM time_sheets WHERE coalesce(is_deleted,false)=false "
+            "GROUP BY reference_year, reference_month HAVING count(*) >= 10 "
+            "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).first()
+        if _comp and isinstance(out.get("fechamento-ponto"), dict):
+            _n = len(out["fechamento-ponto"].get("rows", []))
+            out["fechamento-ponto"]["sub"] = (f"Espelhos mensais — competência {int(_comp[1]):02d}/{int(_comp[0])} "
+                                              f"({_n} espelho(s); a mais nova com ao menos 10)")
+    except Exception:  # noqa: BLE001
+        pass
 
     # 5) Licenças / afastamentos — sst_afastamentos (nome/cargo denormalizados)
     # AÇÃO por-linha "Propor transmissão eSocial (S-2230)": afastamento = fonte do S-2230.
@@ -1979,8 +1997,20 @@ async def build(db, current_user=None) -> dict:
             ] if (r[4] or "").lower() == "pendente" else None)))
 
     # 10) eSocial — esocial_eventos_espelho (espelho do ambiente nacional)
+    # O subtítulo conta o que está baixado e o que espera download: em 07/09/2026 eram 157 de
+    # 290 sem tipo/data — não é dado sujo, é XML ainda não baixado (o governo bloqueia o
+    # espelho nos dias 1–7 do mês e limita a 10 acessos/dia; a task retoma sozinha).
+    try:
+        from sqlalchemy import text as _tx  # noqa: PLC0415
+        _esp = (await db.execute(_tx(
+            "SELECT count(*) FILTER (WHERE xml_completo IS NOT NULL), "
+            "       count(*) FILTER (WHERE xml_completo IS NULL) FROM esocial_eventos_espelho"))).first()
+        _esp_sub = (f"{int(_esp[0])} evento(s) com XML baixado · {int(_esp[1])} aguardando download "
+                    f"(tipo/data aparecem depois da baixa; governo bloqueia dias 1–7 e limita 10 acessos/dia)")
+    except Exception:  # noqa: BLE001
+        _esp_sub = "Eventos transmitidos (espelho)"
     await safe("esocial", tbl(
-        "eSocial", "Eventos transmitidos (espelho)", "Sincronizar espelho",
+        "eSocial", _esp_sub, "Sincronizar espelho",
         ["Evento", "Tipo", "Colaborador", "CPF", "Data evento", "Recibo"],
         "1.2fr 0.8fr 1.6fr 1.1fr 1fr 1.4fr",
         "SELECT coalesce(ev.id_evento,'—'), coalesce(ev.tipo,'—'), e.nome, ev.cpf_trabalhador, "
