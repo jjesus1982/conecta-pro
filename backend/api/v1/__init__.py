@@ -282,34 +282,12 @@ router.include_router(integration_router, tags=["Integrations - API Gateway"])
 
 # --- AI Sub-Modules (13 módulos especializados) ---
 from modules.ai.contract_analysis.controllers import router as ai_contract_router  # noqa: E402
-from modules.ai.data_quality.controllers import data_quality_router as ai_data_quality_router  # noqa: E402
-from modules.ai.email_assistant.controllers import router as ai_email_router  # noqa: E402
 from modules.ai.fraud_detection.controllers import router as ai_fraud_router  # noqa: E402
-from modules.ai.intelligence_hub.controllers import intelligence_hub_router  # noqa: E402
-from modules.ai.inventory_forecast.controllers import router as ai_forecast_router  # noqa: E402
-from modules.ai.knowledge_base.controllers import kb_router as ai_kb_router  # noqa: E402
-from modules.ai.meeting_assistant.controllers import meeting_assistant_router as ai_meeting_router  # noqa: E402
-from modules.ai.ocr.controllers import ocr_router as ai_ocr_router  # noqa: E402
-from modules.ai.report_generator.controllers import report_router as ai_report_router  # noqa: E402
-from modules.ai.sentiment_analysis.controllers import router as ai_sentiment_router  # noqa: E402
 from modules.ai.signature.controllers import signature_router as ai_signature_router  # noqa: E402
-from modules.ai.voice_recognition.controllers import voice_router as ai_voice_router  # noqa: E402
-from modules.ai.workflow_optimizer.controllers import router as ai_workflow_router  # noqa: E402
 
 router.include_router(ai_contract_router, prefix="/ai/contracts", tags=["AI - Análise de Contratos"])
-router.include_router(ai_data_quality_router, prefix="/ai/data-quality", tags=["AI - Qualidade de Dados"])
-router.include_router(ai_email_router, prefix="/ai/email", tags=["AI - Assistente de Email"])
 router.include_router(ai_fraud_router, prefix="/ai/fraud", tags=["AI - Detecção de Fraude"])
-router.include_router(ai_forecast_router, prefix="/ai/forecast", tags=["AI - Previsão de Inventário"])
-router.include_router(ai_kb_router, prefix="/ai/knowledge-base", tags=["AI - Base de Conhecimento"])
-router.include_router(ai_meeting_router, prefix="/ai/meetings", tags=["AI - Assistente de Reuniões"])
-router.include_router(ai_ocr_router, prefix="/ai/ocr", tags=["AI - OCR"])
-router.include_router(ai_report_router, prefix="/ai/reports", tags=["AI - Gerador de Relatórios"])
-router.include_router(ai_sentiment_router, prefix="/ai/sentiment", tags=["AI - Análise de Sentimento"])
 router.include_router(ai_signature_router, prefix="/ai/signatures", tags=["AI - Reconhecimento de Assinatura"])
-router.include_router(ai_voice_router, prefix="/ai/voice", tags=["AI - Reconhecimento de Voz"])
-router.include_router(ai_workflow_router, prefix="/ai/workflows", tags=["AI - Otimizador de Workflows"])
-router.include_router(intelligence_hub_router, prefix="/ai", tags=["Intelligence Hub - Central IA"])
 
 # --- HR (Recursos Humanos) ---
 from modules.hr.analytics_dashboard import router as hr_analytics_router  # noqa: E402
@@ -332,10 +310,6 @@ router.include_router(hr_payroll_router, prefix="/hr", tags=["HR - Payroll"])
 router.include_router(hr_rep_router, prefix="/hr", tags=["HR - REP"])
 router.include_router(hr_time_tracking_router, prefix="/hr", tags=["HR - Time Tracking"])
 
-# --- Documents (Document Intelligence OCR/IA) ---
-from modules.documents.controllers import router as documents_router  # noqa: E402
-
-router.include_router(documents_router, prefix="", tags=["Documents - Document Intelligence"])
 
 # --- Fase 3: Security, Health, Government ---
 from modules.government_integrations import government_integrations_router  # noqa: E402

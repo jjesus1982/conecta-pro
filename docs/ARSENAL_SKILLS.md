@@ -6,7 +6,7 @@
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **29 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **30 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -31,7 +31,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 29 travas (código, não skill)
+## 2. As 30 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 (Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
@@ -59,6 +59,7 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_dominio.py` (+ `verdades_dominio.py`) | verdade de domínio **curada** × código × banco × vigência — *FAIXAS_INSS_2026 com a tabela de 2024 num arquivo e a de 2026 no outro; "erro de domínio não tem trava" virou "tem, depois que um humano escreve a verdade uma vez"* | `backend/scripts/qa` |
 | `checar_bake_pendente.py` | o que está **no ar por docker cp** (docker diff) — e **assa sozinho** na madrugada se as 6 guardas passam — *14 arquivos de duas sessões no ar sem ninguém saber* | `backend/scripts/qa` |
 | `checar_llm_martelando.py` | rotina que **martela o LLM falhando** — *30.800 chamadas/dia com 0 ok, quatro dias, e a única evidência era a fatura que não subia* | `backend/scripts/qa` |
+| `checar_import_orfao.py` | `from X import Y` com X **apagado do disco** — servidor ou celery cai no boot, um bake por vez — *três pacotes "mortos" vivos por dentro (analytics, contract_analysis, signature), cada um descoberto por um crash* | `backend/scripts/qa` |
 | `checar_varchar_teto.py` | `varchar(N)` com valor **encostado no teto** e comprimentos variados — *um varchar(20) passou meses porque o nome tinha exatamente 20* | `backend/scripts/qa` |
 | `fechado_bartolo.py` · `fechado_contratos.py` · `fechado_financeiro.py` · `fechado_fiscal.py` · `fechado_gedeon.py` · `fechado_operacional.py` | critério de aceite **executável** por módulo: ✅/❌ por condição, exit code decide — *"fechado" vinha sendo afirmado em prosa*. Semanais desde 06/09: **existiam desde agosto e nenhum caminho os invocava** | `backend/scripts/qa` |
 | `varredura_op_acoes.py` | tela/ação do operacional que **existe e não tem como funcionar** (rota morta, sem tela, sem fila) — *3 achados tropeçados um a um no T4* | `backend/scripts/qa` |

@@ -130,6 +130,9 @@ TRAVAS_BINARIAS = {
     # Motor responde 200 e não produz frase. Existia desde 24/08 e nenhum caminho a invocava —
     # a própria trava de órfãs acusou por dias e ninguém ligou (06/09/2026).
     "checar_sucesso_vazio.py": ("container", "o motor do chat devolve 200 sem frase", 300),
+    # `from X import Y` com X apagado do disco: o servidor ou o celery cai no BOOT, um bake
+    # por vez (07/09/2026: analytics, ai/contract_analysis, ai/signature). Lê o disco: host.
+    "checar_import_orfao.py": ("host", "import de topo para módulo que não existe mais", 300),
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),

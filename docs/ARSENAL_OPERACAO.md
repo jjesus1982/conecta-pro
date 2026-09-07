@@ -65,6 +65,7 @@ Três estados por oráculo, e nenhum se confunde com o outro:
 | `checar_nao_vigiado.py` | container (~5 min) | `TOTAL: N tela(s) sem vigia` | tela do redesign sem oráculo nem regra que a cite? |
 | `checar_irreversivel.py` | host | `TOTAL: N função(ões) que disparam antes de gravar` | registro criado depois do disparo externo? |
 | `checar_dominio.py` | host (banco via docker) | `TOTAL: N divergência(s) de domínio` | o código diz o que `verdades_dominio.py` diz? a verdade venceu? |
+| `checar_import_orfao.py` | host | `OK checar_import_orfao` / `FAIL checar_import_orfao` | algum import de topo aponta para módulo apagado? (binária) |
 | `checar_bake_pendente.py` | host | `TOTAL: N arquivo(s) no ar fora da imagem` | o que está por docker cp? (`--assar`: assa na madrugada se as 6 guardas passam) |
 
 Sem a linha canônica a rodada é **NÃO VERIFICADA**: acusa e a base não se move (foi assim que a
