@@ -124,11 +124,14 @@ async def build(db, current_user=None) -> dict:
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp and comp[1] else "—"
         meu_liq = brl(comp[2]) if comp and comp[2] is not None else "—"
         n_pay = await _scalar(db, f"SELECT count(*) FROM hr_payslips WHERE employee_id={me_lit}")
-        n_fer = await _scalar(db, f"SELECT count(*) FROM employee_vacation_requests WHERE employee_id={me_lit}")
+        # hr_vacation_requests é a AUTORITATIVA (test_oraculo_ferias_autoritativa, 13/08); a cópia
+        # employee_vacation_requests parou em 01/04 com 14 pedidos presos em SUBMITTED — o portal
+        # mostrava ao colaborador um pedido "enviado" que o DP já tinha aprovado (achado 07/09).
+        n_fer = await _scalar(db, f"SELECT count(*) FROM hr_vacation_requests WHERE employee_id={me_lit}")
         n_ben = await _scalar(db, f"SELECT count(*) FROM employee_benefits WHERE employee_id={me_lit}")
         n_doc = await _scalar(db, f"SELECT count(*) FROM ged_kit_documents WHERE employee_id={me_lit}")
         fr = (await db.execute(text(
-            f"SELECT coalesce(status::text,'—'), count(*) FROM employee_vacation_requests "
+            f"SELECT coalesce(status::text,'—'), count(*) FROM hr_vacation_requests "
             f"WHERE employee_id={me_lit} GROUP BY 1 ORDER BY 2 DESC LIMIT 5"))).fetchall()
         return {"title": "Início", "sub": "Meu portal — dados pessoais" + _nota, "cta": "Atualizar",
                 "type": "dash", "panelGrid": "1fr 1fr",
@@ -163,7 +166,7 @@ async def build(db, current_user=None) -> dict:
         "Minhas férias", "Minhas solicitações" + _nota, "—",
         ["Início", "Fim", "Dias", "Status"], "1fr 1fr 0.7fr 0.9fr",
         f"SELECT v.start_date, v.end_date, v.days_requested, coalesce(v.status::text,'—') "
-        f"FROM employee_vacation_requests v WHERE v.employee_id={me_lit} "
+        f"FROM hr_vacation_requests v WHERE v.employee_id={me_lit} "
         f"ORDER BY v.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(_d(r[0])), t(_d(r[1])), t(str(r[2] or "—")), _pf_status(r[3])]))
 
