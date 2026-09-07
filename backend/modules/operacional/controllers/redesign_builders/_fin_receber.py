@@ -35,19 +35,6 @@ async def build_receber(db, out: dict) -> None:
             "endpoint": f"/api/v1/financial/receivables/{r[0]}/emitir-cobranca",
             "method": "POST", "btnLabel": "Emitir cobrança", "submitLabel": "Emitir no banco",
             "btnStyle": "primary", "okMsg": "Cobrança emitida. Recarregue.", "fields": []}] if r[7] else []))
-    out["cobrancas-do-mes"] = {
-        "title": "Emitir cobranças do mês", "type": "form", "cta": "—",
-        "sub": ("Emite boleto/PIX de TODAS as contas em aberto do mês ainda sem cobrança bancária "
-                "(Eletrônica → Inter, Patrimonial → Cora). Marque 'só prever' para ver a lista antes."),
-        "endpoint": "/api/v1/financial/receivables/emitir-cobrancas-mes", "query": True, "method": "POST",
-        "submitLabel": "Emitir cobranças do mês", "okMsg": "Processado — veja o resultado.",
-        "fields": [
-            {"key": "ano", "label": "Ano*", "type": "number", "value": __import__("datetime").date.today().year, "span": "span 1"},
-            {"key": "mes", "label": "Mês*", "type": "number", "value": __import__("datetime").date.today().month, "span": "span 1"},
-            {"key": "preview", "label": "Só prever (não emite)", "type": "checkbox", "value": True, "span": "span 2"},
-        ],
-    }
-
     # ── Aging com KPIs NA TELA (o clássico tem; redesign só tinha o PDF) ─────────────────
     # Mesmas faixas do endpoint /financial/receivables/aging (oráculo compara os totais).
     try:
@@ -97,53 +84,58 @@ async def build_receber(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
 
-    # ── Recorrência (MRR) — PREVIEW read-only do ciclo mensal. Mesma base do endpoint
-    # GET /billing/cobrar-recorrente/{m}/{a}/preview (10 clientes · R$270.586,96 — oráculo).
-    # O POST (que executa a cobrança) NÃO é chamado por tela nenhuma. ──
+    # ── Recorrência — PRÉVIA do que "Gerar cobranças" faria neste mês, na MESMA base da ação
+    # (contas a receber em aberto do mês, sem cobrança bancária). Antes lia clients.mrr — outra
+    # base, outro número; a prévia dizia 10 clientes e a ação emitiria outra coisa. ──
     try:
-        tot_cli = await _scalar(db, "SELECT count(*) FROM clients WHERE ativo=true AND coalesce(mrr,0)>0")
-        tot_mrr = await _scalar(db, "SELECT coalesce(sum(mrr),0) FROM clients WHERE ativo=true AND coalesce(mrr,0)>0")
-        scr = await tbl(
-            "Recorrência mensal (MRR)",
-            f"{tot_cli or 0} clientes · {brl(tot_mrr)} /mês — PREVIEW: nenhuma cobrança é disparada por esta tela",
-            "—", ["Cliente", "MRR", "Status"], "2.2fr 1fr 0.9fr",
-            "SELECT coalesce(name,'—'), mrr, CASE WHEN ativo THEN 'Ativo' ELSE 'Inativo' END "
-            "FROM clients WHERE ativo=true AND coalesce(mrr,0)>0 ORDER BY mrr DESC LIMIT 100",
-            lambda r: [t(r[0], 600, "#0F1B3A"), t(brl(r[1]), 600), b(r[2], "ok")])
-        scr["panelGrid"] = "1fr"
-        scr["panels"] = [{"title": "Ciclo do mês (preview)", "rows": [
-            {"left": "Clientes no ciclo", "right": str(tot_cli or 0), **S["info"]},
-            {"left": "Total MRR", "right": brl(tot_mrr), **S["ok"]},
-            {"left": "Disparo da cobrança", "right": "Manual/gated — aba 'Gerar cobranças'", **S["warn"]},
-        ]}]
-        out["recorrencia"] = scr
-    except Exception:  # noqa: BLE001
-        pass
-
-    # ── Gerar cobranças do mês — AÇÃO GATED (money-IN: emite cobranças REAIS aos clientes).
-    # NÃO é beat automático — exige o Jordan/Pyetra confirmar. Idempotente por cliente/período. ─
-    try:
-        _n = (await db.execute(text(
-            "SELECT count(*) FROM clients WHERE status='active' AND coalesce(mrr,0)>0"))).scalar() or 0
-        _mrr = (await db.execute(text(
-            "SELECT coalesce(sum(mrr),0) FROM clients WHERE status='active' AND coalesce(mrr,0)>0"))).scalar() or 0
-        out["gerar-cobrancas"] = {
-            "title": "Gerar cobranças recorrentes do mês",
-            "sub": (f"EMITE cobranças REAIS (PIX/boleto via Inter/Cora) aos clientes — base de {int(_n)} "
-                    f"cliente(s) ativo(s) · {brl(_mrr)}/mês. Idempotente: não recobra quem já foi cobrado no "
-                    "período. Confira a aba 'Recorrência (preview)' antes de gerar."),
-            "cta": "Gerar cobranças", "type": "form",
-            "submit": {"endpoint": "/api/v1/redesign/action/cobrar-recorrente", "gated": False,
-                       "confirm": "ATENÇÃO: isto vai EMITIR COBRANÇAS REAIS aos clientes do mês/ano informado "
-                                  "(PIX/boleto de verdade). Confirmar a emissão?",
-                       "okMsg": "Cobranças processadas."},
-            "fields": [
-                {"key": "mes", "label": "Mês* (1-12)", "type": "text", "span": "span 1", "ph": "Ex.: 7"},
-                {"key": "ano", "label": "Ano* (AAAA)", "type": "text", "span": "span 1", "ph": "Ex.: 2026"},
-            ],
+        import asyncio as _aio
+        from modules.financial.services.cobranca_recebivel_service import emitir_pendentes_mes
+        _hoje = __import__("datetime").date.today()
+        prev = await _aio.to_thread(emitir_pendentes_mes, _hoje.year, _hoje.month, True)
+        itens = prev.get("itens") or []
+        _tot = sum(float(i.get("valor") or 0) for i in itens if i.get("ok"))
+        out["recorrencia"] = {
+            "title": f"Cobranças a emitir — {_hoje.month:02d}/{_hoje.year}",
+            "sub": (f"{prev.get('total', 0)} conta(s) em aberto do mês sem boleto/PIX · {brl(_tot)} prontas para emitir — "
+                    "PRÉVIA: nada é emitido por esta tela"),
+            "cta": "—", "type": "table", "cols": ["Cliente", "Valor", "Vencimento", "Banco", "Situação"],
+            "grid": "2.2fr 1fr 1fr 0.8fr 1.6fr",
+            "rows": [{"cells": [t((i.get("cliente") or "—")[:40], 600, "#0F1B3A"), t(brl(i.get("valor") or 0), 600),
+                                t(str(i.get("vencimento") or "—")), b((i.get("banco") or "—").capitalize(), "info"),
+                                b("Pronta", "ok") if i.get("ok") else b((i.get("erro") or "—")[:60], "warn")]}
+                     for i in itens] or [{"cells": [t("Nenhuma conta em aberto do mês sem cobrança", 500), t("—"), t("—"), t("—"), t("—")]}],
+            "panelGrid": "1fr",
+            "panels": [{"title": "Ciclo do mês (prévia)", "rows": [
+                {"left": "Contas prontas", "right": str(sum(1 for i in itens if i.get("ok"))), **S["ok"]},
+                {"left": "Com pendência", "right": str(len(prev.get("erros") or [])), **S["warn"]},
+                {"left": "Disparo", "right": "Manual — aba 'Gerar cobranças'", **S["info"]},
+            ]}],
         }
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Gerar cobranças do mês — AÇÃO (money-IN): emite boleto/PIX REAIS nas contas a receber em
+    # aberto do mês (Eletrônica → Inter, Patrimonial → Cora). Exige confirmação humana; idempotente
+    # (conta que já tem boleto/PIX não é reemitida). Não envia nada ao cliente. ─
+    _hoje = __import__("datetime").date.today()
+    out["gerar-cobrancas"] = {
+        "title": "Gerar cobranças do mês",
+        "sub": ("Emite boleto/PIX no banco de cada empresa credora para TODAS as contas a receber em aberto do "
+                "mês ainda sem cobrança. Marque 'só prever' para ver a lista sem emitir. Confira a aba "
+                "'Recorrência' antes."),
+        "cta": "Gerar cobranças", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/receivables/emitir-cobrancas-mes", "query": True,
+                   "confirm": "ATENÇÃO: com 'só prever' desmarcado isto EMITE boletos/PIX REAIS no Inter e na Cora "
+                              "para as contas do mês/ano informado. Confirmar?",
+                   "okMsg": "Processado — veja o resultado.", "showResult": True},
+        "fields": [
+            {"key": "ano", "label": "Ano*", "type": "number", "value": _hoje.year, "span": "span 1"},
+            {"key": "mes", "label": "Mês*", "type": "number", "value": _hoje.month, "span": "span 1"},
+            {"key": "preview", "label": "Só prever (não emite)", "type": "select", "span": "span 2",
+             "value": "true", "options": [{"value": "true", "label": "Sim — só listar"},
+                                          {"value": "false", "label": "Não — EMITIR de verdade"}]},
+        ],
+    }
 
     # ── Régua de cobrança ATIVA (gated): fila de vencidos + tier + mensagem pronta ──────────
     _NTONE = {"lembrete": "ok", "contato_ativo": "info", "notificacao_formal": "warn",

@@ -75,6 +75,13 @@ async def main() -> int:
             except Exception as exc:  # noqa: BLE001 — módulo que não constrói é outro caçador
                 print(f"  ! {mod}: não construiu ({str(exc)[:80]})")
                 continue
+            # Form cujo endpoint não está em `submit` (o FormScreen só lê scr.submit.endpoint):
+            # a URL até existe, mas o botão não chama nada — foi assim com "Cobranças do mês" (07/09).
+            for slug, scr in out.items():
+                if isinstance(scr, dict) and scr.get("type") == "form" and not (
+                        isinstance(scr.get("submit"), dict) and scr["submit"].get("endpoint")):
+                    total += 1
+                    mortos.append(f"{mod}/{slug}: form sem submit.endpoint (o botão não chama nada)")
             acc: list[tuple[str, str]] = []
             _endpoints(json.loads(json.dumps(out, default=str)), acc)
             for ep, me in sorted(set(acc)):
