@@ -12,18 +12,33 @@ from modules.government_integrations.utils import CalculoError
 logger = logging.getLogger(__name__)
 
 
+from modules.people_management.folha.services.calculo_service import (  # noqa: E402
+    FAIXAS_INSS_2026 as _FAIXAS_FOLHA,
+)
+
+# Forma da folha (tupla) → forma deste serviço (dict). Calculado no MÓDULO, não no corpo da
+# classe: comprehension dentro de classe não enxerga atributo da classe (NameError).
+_FAIXAS_2026: list[dict[str, Decimal]] = [
+    {"limite": Decimal(str(limite)), "aliquota": Decimal(str(aliquota))}
+    for limite, aliquota in _FAIXAS_FOLHA
+]
+_TETO_2026: Decimal = sum(
+    (f["limite"] - (_FAIXAS_2026[i - 1]["limite"] if i else Decimal("0"))) * f["aliquota"]
+    for i, f in enumerate(_FAIXAS_2026)
+).quantize(Decimal("0.01"))
+
 class FGTSINSSService:
     """Service para cálculos trabalhistas (FGTS e INSS)."""
 
-    # Tabela INSS 2026 (progressiva)
-    FAIXAS_INSS_2026: list[dict[str, Decimal]] = [
-        {"limite": Decimal("1412.00"), "aliquota": Decimal("0.075")},
-        {"limite": Decimal("2666.68"), "aliquota": Decimal("0.09")},
-        {"limite": Decimal("4000.03"), "aliquota": Decimal("0.12")},
-        {"limite": Decimal("7786.02"), "aliquota": Decimal("0.14")},
-    ]
-
-    TETO_INSS_2026 = Decimal("908.86")
+    # Tabela INSS 2026 (progressiva) — UMA fonte: people_management/folha/services/
+    # calculo_service.FAIXAS_INSS_2026 (Portaria Interministerial MPS/MF nº 13/2026). Até
+    # 06/09/2026 esta classe carregava a tabela de 2024 (1.412 · 2.666,68 · 4.000,03 ·
+    # 7.786,02) sob o nome de 2026 — checar_dominio pegou: "a MESMA verdade tem 2 valores".
+    # A verdade mora na folha; aqui só se adapta a forma (tupla → dict).
+    FAIXAS_INSS_2026: list[dict[str, Decimal]] = _FAIXAS_2026
+    # Teto da contribuição = progressiva aplicada ao teto do salário de contribuição, derivada
+    # da própria tabela (era 908,86 fixo, o teto de 2024).
+    TETO_INSS_2026 = _TETO_2026
     ALIQUOTA_FGTS = Decimal("0.08")  # 8%
     MULTA_RESCISORIA = Decimal("0.40")  # 40%
 

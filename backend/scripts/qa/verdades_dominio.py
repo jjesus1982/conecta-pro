@@ -41,9 +41,8 @@ VERDADES: list[dict] = [
         "vigente_ate": "2026-12-31", "medido_em": "2026-09-06",
         "onde": [
             ("modules/people_management/folha/services/calculo_service.py", "FAIXAS_INSS_2026"),
-            # ⚠️ diverge em 06/09/2026 (tabela de 2024 sob nome de 2026) — achado real, zona gov:
-            # reportar ao Jordan, não corrigir por conta própria.
-            ("modules/government_integrations/services/fgts_inss_service.py", "FAIXAS_INSS_2026"),
+            # government_integrations/services/fgts_inss_service.py tinha a tabela de 2024 sob
+            # este nome (achado de 06/09/2026); passou a DERIVAR da folha — uma fonte só.
         ],
     },
     {

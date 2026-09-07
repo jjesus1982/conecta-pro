@@ -129,9 +129,9 @@ async def main() -> int:
         # (06/09/2026: 0 holerites de 08/2026 para 49 pessoas com ponto).
         import collections, re as _re
         por_comp = collections.Counter(_re.match(r"(\d{2}/\d{4})", x).group(1) for x in sem_pagamento if _re.match(r"(\d{2}/\d{4})", x))
-        tot_comp = collections.Counter(_re.match(r"(\d{2}/\d{4})", x).group(1) for x in (com_folha + afastados + rescisao + sem_pagamento) if _re.match(r"(\d{2}/\d{4})", x))
+        com_comp = collections.Counter(_re.match(r"(\d{2}/\d{4})", x).group(1) for x in com_folha if _re.match(r"(\d{2}/\d{4})", x))
         for comp, n in por_comp.items():
-            if n == tot_comp.get(comp):
+            if com_comp.get(comp, 0) == 0:
                 print(f"FOLHA AUSENTE: {comp} não tem NENHUM holerite no sistema — {n} pessoa(s) com ponto. "
                       f"Gerar a folha (calcular_folha_todos) é ação do DP, não conserto de código.")
         print(f"FALHA: {len(sem_pagamento)} pessoa(s) bateram ponto numa competência "
