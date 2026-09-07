@@ -85,6 +85,20 @@ register(Regra(
 
 
 # ─────────────────────────── certidao_vencendo ───────────────────────────
+#: Janela da regra (e do oráculo que a espelha — um texto só, para não divergirem):
+#:  · 30 dias para certidão de validade longa;
+#:  · 5 dias para a CRF do FGTS, que vale 30 dias e o robô renova todo dia — com 30 dias de
+#:    janela ela nascia 'vencendo' e ficava assim a vida inteira: 21 alertas permanentes em
+#:    07/09/2026, nenhum dizendo nada (se chegar a 5 dias sem renovar, aí o robô falhou);
+#:  · fora a municipal da Eletrônica: decisão do dono em 07/09/2026 (certidões só da
+#:    Patrimonial), venceu em 01/09 por escolha — alerta de escolha não é alerta.
+CERTIDAO_JANELA = (
+    "expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date "
+    "  + CASE WHEN document_type = 'certidao_negativa_fgts' THEN 5 ELSE 30 END "
+    "AND NOT (regexp_replace(coalesce(cnpj,''), '\\D', '', 'g') = '35710481000103' "
+    "         AND document_type ILIKE '%municipal%')"
+)
+
 async def _detectar_certidao_vencendo(db: AsyncSession) -> list[Achado]:
     # TZ canônico: dia-de-negócio = Manaus, NUNCA current_date (sessão Postgres em UTC) —
     # janela diária 20h-23h59 Manaus cairia no dia UTC seguinte e erraria o corte.
@@ -93,7 +107,7 @@ async def _detectar_certidao_vencendo(db: AsyncSession) -> list[Achado]:
         "       expiry_date, "
         "       (expiry_date - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
         "FROM ged_certidoes "
-        "WHERE expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date + 30"
+        f"WHERE {CERTIDAO_JANELA}"
     ))).mappings().all()
     out = []
     for r in rows:
@@ -1044,8 +1058,7 @@ if __name__ == "__main__":
 
             # ---- certidao_vencendo: Achados == oráculo (<=30d OU vencida), dia de Manaus ----
             oráculo_cert = (await db.execute(text(
-                "SELECT count(*) FROM ged_certidoes "
-                "WHERE expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date + 30"
+                f"SELECT count(*) FROM ged_certidoes WHERE {CERTIDAO_JANELA}"
             ))).scalar()
             achados_cert = await REGISTRY["certidao_vencendo"].detectar(db)
             assert len(achados_cert) == oráculo_cert, (len(achados_cert), oráculo_cert)
