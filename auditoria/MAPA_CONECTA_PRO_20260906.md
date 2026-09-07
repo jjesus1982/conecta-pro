@@ -491,6 +491,10 @@ Jordan for fazer o login pelo noVNC.
 - **"Razão sem lançamento: folha jan–jul/2026" — 7 alertas permanentes desde 11/08**: a regra ignorava o corte
   contábil (o razão nasce em 01/08; folha anterior nunca terá lançamento, por desenho). Passa a respeitar o corte;
   0 competências acusadas. Commit `d2265215b`.
+- **"Certidão vencendo": 26 abertos, 21 deles a CRF do FGTS** — ela vale 30 dias e o robô renova todo dia; com
+  janela de 30 dias nascia "vencendo" e ficava assim para sempre. FGTS passa a alertar a 5 dias (se chegar lá sem
+  renovar, o robô falhou); a municipal da Eletrônica (vencida em 01/09 por sua escolha) sai da regra. Regra e oráculo
+  lêem a mesma janela. Sobram 3: estadual (2) e Falência TJ-AM. Commits `3b24943ff`, `5c5e98e9d`.
 - **Prazos do DP** (35 vivos, confirmados no banco): **ASO — 25 dos 53 ativos com ASO vencido e 21 sem nenhum ASO
   registrado; só 7 válidos.** Ou os exames estão em dia fora do sistema (Portte/clínica) e falta registrar, ou é
   passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
