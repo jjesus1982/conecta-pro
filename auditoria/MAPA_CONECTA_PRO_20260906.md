@@ -488,7 +488,12 @@ Jordan for fazer o login pelo noVNC.
 - **Central de Aprovações**: 5 rascunhos do agente esperando você e 1 "FALHOU" de 31/08 — "pedir cotação" tropeçou
   no `number` de 20 caracteres, que já foi alargado para 40 (a cotação HAWKEYE-20260831 saiu depois). O rascunho
   fica como falha até você descartá-lo na tela; não é problema vivo.
-- **Prazos do DP**: 35 prazos vivos na tela "Prazos" — vale uma olhada sua ordenada por urgência.
+- **Prazos do DP** (35 vivos, confirmados no banco): **ASO — 25 dos 53 ativos com ASO vencido e 21 sem nenhum ASO
+  registrado; só 7 válidos.** Ou os exames estão em dia fora do sistema (Portte/clínica) e falta registrar, ou é
+  passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
+  04/08 venceu em 04/09 e o processo segue "iniciado" — desligar ou cancelar. **KEYSON DA SILVA PINTO** já estava
+  inativo desde 28/08 com o processo esquecido em "iniciado": o prazo ficava no quadro à toa; a regra passa a
+  vencer só para quem está ativo (commit `ede3e961e`) e o processo dele cai na regra de "desligamento sem processo".
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
