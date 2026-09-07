@@ -113,7 +113,42 @@ def verificar_asos_vencendo(dias_antecedencia: int = 30) -> str:
         return f"Erro: {exc}"
 
 
+def _avisar_sino_aso(asos: list) -> int:
+    """UM aviso por dia no sino, com a lista — o barramento de eventos abaixo não chega a
+    tela nenhuma (07/09/2026: 25 ASOs críticos publicados no bus, 0 no sino). Dedup por dia
+    pela mesma chave de idempotência do task_falha."""
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from sqlalchemy import text
+    from core.database.session import SyncSessionLocal
+    from modules.notifications.task_falha import _SQL_DESTINATARIOS, _SQL_SINO
+    if not asos:
+        return 0
+    dia = datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+    vencidos = [a for a in asos if int(a.dias_restantes) < 0]
+    linhas = [f"{a.funcao or 'colaborador'} · vence {a.data_vencimento} ({int(a.dias_restantes)}d)" for a in asos[:12]]
+    corpo = (f"{len(asos)} ASO(s) exigindo ação: {len(vencidos)} já vencido(s), "
+             f"{len(asos) - len(vencidos)} vencendo em até 30 dias.\n- " + "\n- ".join(linhas)
+             + (f"\n(+{len(asos) - 12} não listados)" if len(asos) > 12 else "")
+             + "\nSaúde ocupacional › ASOs no redesign.")
+    extra = json.dumps({"idempotency_key": f"sst_aso:{dia}", "origem": "sst", "familia": "dp",
+                        "severidade": "critico" if vencidos else "atencao"})
+    with SyncSessionLocal() as db:
+        dest = [r[0] for r in db.execute(text(_SQL_DESTINATARIOS)).fetchall()]
+        for uid in dest:
+            db.execute(text(_SQL_SINO), {"uid": uid, "title": f"ASO: {len(vencidos)} vencido(s), {len(asos)} a tratar",
+                                         "body": corpo[:1500], "extra": extra})
+        db.commit()
+    return len(dest)
+
+
 def _publicar_alertas_aso(asos: list) -> None:
+    try:
+        n = _avisar_sino_aso(asos)
+        logger.info("[sst] aviso de ASO no sino para %s destinatário(s)", n)
+    except Exception as exc:  # noqa: BLE001 — o bus abaixo continua mesmo se o sino falhar
+        logger.warning("[sst] não consegui avisar o sino: %s", exc)
     """Publica eventos de alerta para ASOs críticos no message bus."""
     try:
         import asyncio
