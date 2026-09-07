@@ -647,7 +647,9 @@ def sync_single_entity(condominio_id: str = None, entity_type: str = "employees"
 # ==================== HEALTH CHECK TASKS ====================
 
 
-@shared_task(name="solides.health_check")
+# Informativo: as batidas continuam entrando pelo sync mesmo quando isto estoura. Falha em
+# 60 s em vez de segurar o worker por 5 min (SoftTimeLimitExceeded diário no sino, 06/09).
+@shared_task(name="solides.health_check", soft_time_limit=60, time_limit=90)
 def check_solides_health(condominio_id: str = None):
     """
     Task para verificar saúde da conexão com Sólides.

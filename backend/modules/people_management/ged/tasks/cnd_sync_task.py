@@ -621,6 +621,11 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
     max_retries=2,
     default_retry_delay=900,
     queue="ged",
+    # Cinco portais do governo em sequência não cabem nos 300 s globais: a task morria
+    # por SoftTimeLimitExceeded todo dia (sino de 06/09) depois de atualizar só o FGTS —
+    # a municipal ficou vencida desde 01/09 sem ninguém ver.
+    soft_time_limit=1500,
+    time_limit=1800,
 )
 def ged_buscar_certidoes_portais(self) -> dict:
     """Task Celery para busca ativa de certidoes nos portais governamentais.
@@ -656,7 +661,7 @@ def ged_buscar_certidoes_portais(self) -> dict:
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, _run())
-                return future.result(timeout=300)
+                return future.result(timeout=1500)
         else:
             return asyncio.run(_run())
     except RuntimeError:
