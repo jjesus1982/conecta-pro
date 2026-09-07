@@ -21,6 +21,7 @@ GRUPOS = [
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
         ("escalas-rascunho", "Escalas em rascunho")]),
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
+        ("gerente-hoje", "Onde está o gerente"), ("gerente-checkin", "Cheguei no posto"), ("gerente-checkout", "Saí do posto"),
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),
         ("instrucoes-posto", "Instruções de posto"),
         ("passagem-turno", "Passagem de turno"), ("passagem-turno-nova", "Nova passagem"),

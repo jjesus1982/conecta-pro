@@ -1742,3 +1742,58 @@ register(Regra(
     action_url="/modulos/comercial/leads",
     detectar=_detectar_lead_sem_contato, template=_tpl_lead_sem_contato,
 ))
+
+# ─────────────────────────── gerente: visita aberta / sem check-in ───────────────────────────
+# Dono, 07/09/2026: check-in obrigatório ao chegar num posto e check-out ao sair. Duas faltas
+# que só a regra enxerga: visita aberta há mais de 4 h (esqueceu o check-out) e dia útil sem
+# nenhuma chegada registrada até as 11h (não está fazendo o check-in).
+async def _detectar_gerente_visita_aberta(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "SELECT v.id::text AS id, v.responsavel_nome AS nome, v.endereco, "
+        "       extract(epoch FROM (now() - v.checkin_at))/3600 AS horas "
+        "FROM visitas v WHERE v.tipo = 'acompanhamento' AND v.origem = 'interna' "
+        "  AND v.checkin_at IS NOT NULL AND v.checkout_at IS NULL AND coalesce(v.ativo, true) "
+        "  AND v.checkin_at < now() - interval '4 hours'"))).mappings().all()
+    return [Achado(correlation_id=f"gerente_visita_aberta:{r['id']}",
+                   dados={"nome": r["nome"] or "gerente", "posto": r["endereco"] or "posto", "horas": int(r["horas"])})
+            for r in rows]
+
+
+def _tpl_gerente_visita_aberta(d: dict) -> tuple[str, str]:
+    return (f"Gerente sem check-out há {d['horas']}h: {str(d['nome']).title()}",
+            f"{str(d['nome']).title()} fez check-in em {d['posto']} há {d['horas']} hora(s) e não registrou a saída. "
+            f"Ou ainda está lá, ou esqueceu o check-out — cobre pelo WhatsApp.")
+
+
+REGISTRY["gerente_visita_aberta"] = Regra(
+    nome="gerente_visita_aberta", familia="operacional", severidade="atencao",
+    roles_destino=("admin",), action_url="/modulos/operacional",
+    detectar=_detectar_gerente_visita_aberta, template=_tpl_gerente_visita_aberta,
+)
+
+
+async def _detectar_gerente_sem_checkin(db: AsyncSession) -> list[Achado]:
+    rows = (await db.execute(text(
+        "WITH agora AS (SELECT now() AT TIME ZONE 'America/Manaus' AS t) "
+        "SELECT e.id::text AS id, e.nome FROM employees e, agora "
+        "WHERE e.status IN ('ativo','pj_ativo') "
+        "  AND (upper(coalesce(e.cargo,'')) LIKE '%GERENTE%' OR upper(coalesce(e.cargo,'')) LIKE '%SUPERVIS%') "
+        "  AND extract(isodow FROM agora.t) BETWEEN 1 AND 5 AND agora.t::time >= '11:00' "
+        "  AND NOT EXISTS (SELECT 1 FROM visitas v WHERE v.responsavel_id = e.id AND v.tipo = 'acompanhamento' "
+        "                  AND v.checkin_at::date = agora.t::date)"))).mappings().all()
+    hoje = (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date::text"))).scalar()
+    return [Achado(correlation_id=f"gerente_sem_checkin:{r['id']}:{hoje}", dados={"nome": r["nome"], "dia": hoje}) for r in rows]
+
+
+def _tpl_gerente_sem_checkin(d: dict) -> tuple[str, str]:
+    return (f"Sem check-in hoje: {str(d['nome']).title()}",
+            f"{str(d['nome']).title()} não registrou chegada em nenhum posto hoje ({d['dia']}) até as 11h. "
+            f"O check-in ao chegar num condomínio é obrigatório — se está em campo, precisa registrar.")
+
+
+REGISTRY["gerente_sem_checkin"] = Regra(
+    nome="gerente_sem_checkin", familia="operacional", severidade="atencao",
+    roles_destino=("admin",), action_url="/modulos/operacional",
+    detectar=_detectar_gerente_sem_checkin, template=_tpl_gerente_sem_checkin,
+)
+

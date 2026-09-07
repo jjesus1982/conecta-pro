@@ -745,7 +745,21 @@ function FormScreen({ scr }: { scr: any }) {
         {(scr.fields || []).map((f: any, i: number) => (
           <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>
             <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>{f.label}</label>
-            {f.type === 'file' ? (
+            {f.type === 'geo' ? (
+              /* GPS do celular: preenche lat/lng (latKey/lngKey) — check-in do gerente no posto (07/09/2026) */
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="rd-btn rd-btn-outline" onClick={() => {
+                  if (typeof navigator === 'undefined' || !navigator.geolocation) { set(f.key, 'sem GPS neste aparelho'); return; }
+                  set(f.key, 'obtendo…');
+                  navigator.geolocation.getCurrentPosition((pos) => {
+                    const la = pos.coords.latitude.toFixed(6), lo = pos.coords.longitude.toFixed(6);
+                    set(f.latKey || 'lat', la); set(f.lngKey || 'lng', lo);
+                    set(f.key, `${la}, ${lo} (±${Math.round(pos.coords.accuracy)} m)`);
+                  }, (err) => set(f.key, `sem GPS: ${err.message}`), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+                }}>📍 Usar minha localização</button>
+                <span style={{ fontSize: 12, color: 'var(--muted, #64748B)' }}>{vals[f.key] || 'ainda não capturada'}</span>
+              </div>
+            ) : f.type === 'file' ? (
               <input className="rd-input" type="file" accept={f.accept}
                 onChange={(e) => setFiles((s) => ({ ...s, [f.key]: (e.target.files && e.target.files[0]) || null }))} />
             ) : f.type === 'select' ? (

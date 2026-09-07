@@ -2218,6 +2218,64 @@ async def build(db) -> dict:
 
     # F0 — agrupa as ~62 telas/ações em 8 grupos (fundação tabs, igual ao financeiro).
     # Chamado por ÚLTIMO: precisa de TODAS as telas/ações já montadas em out.
+    # ── Onde está o gerente (dono, 07/09/2026) ────────────────────────────────────
+    try:
+        _ger = (await db.execute(_sqltext(
+            "SELECT id::text, nome FROM employees WHERE status IN ('ativo','pj_ativo') "
+            "AND (upper(coalesce(cargo,'')) LIKE '%GERENTE%' OR upper(coalesce(cargo,'')) LIKE '%SUPERVIS%') ORDER BY nome"))).fetchall()
+        _ger_opts = [{"value": i, "label": n.title()} for i, n in _ger]
+        _posts_geo = (await db.execute(_sqltext(
+            "SELECT id::text, name, latitude IS NOT NULL FROM posts WHERE is_active ORDER BY name"))).fetchall()
+        _geo_campo = {"key": "geo", "label": "Sua localização (GPS do celular)*", "type": "geo", "span": "span 2",
+                      "latKey": "lat", "lngKey": "lng"}
+        out["gerente-checkin"] = {
+            "title": "Cheguei no posto", "type": "form", "cta": "Registrar chegada",
+            "sub": ("Check-in OBRIGATÓRIO ao chegar num condomínio. Toque em 'Usar minha localização', escolha o posto e "
+                    "registre — o Jordan é avisado na hora, com a distância até o posto."),
+            "submit": {"endpoint": "/api/v1/redesign/action/gerente-checkin", "okMsg": "Chegada registrada.", "showResult": True},
+            "fields": [
+                {"key": "post_id", "label": "Posto*", "type": "select", "span": "span 2", "ph": "Onde você está?",
+                 "options": [{"value": i, "label": n + ("" if g else " (posto sem coordenada)")} for i, n, g in _posts_geo]},
+                _geo_campo,
+                {"key": "obs", "label": "Observação", "type": "text", "span": "span 2", "ph": "opcional"},
+                {"key": "gerente_id", "label": "Registrar em nome de (só admin)", "type": "select", "span": "span 2",
+                 "ph": "eu mesmo", "options": _ger_opts},
+            ],
+        }
+        out["gerente-checkout"] = {
+            "title": "Saí do posto", "type": "form", "cta": "Registrar saída",
+            "sub": "Check-out ao sair do condomínio. Fecha a visita aberta e avisa o Jordan com o tempo de permanência.",
+            "submit": {"endpoint": "/api/v1/redesign/action/gerente-checkout", "okMsg": "Saída registrada.", "showResult": True},
+            "fields": [_geo_campo, {"key": "obs", "label": "Observação", "type": "text", "span": "span 2", "ph": "opcional"},
+                       {"key": "gerente_id", "label": "Registrar em nome de (só admin)", "type": "select", "span": "span 2",
+                        "ph": "eu mesmo", "options": _ger_opts}],
+        }
+        _vis = (await db.execute(_sqltext(
+            "SELECT v.responsavel_nome, v.endereco, v.checkin_at, v.checkout_at, v.duracao_real_minutos, "
+            "       v.checkin_latitude, v.checkin_longitude, p.latitude, p.longitude, v.numero "
+            "FROM visitas v LEFT JOIN posts p ON p.client_id = v.cliente_id AND p.is_active "
+            "WHERE v.tipo = 'acompanhamento' AND v.origem = 'interna' AND coalesce(v.ativo, true) "
+            "  AND v.data_visita >= current_date - 7 ORDER BY v.checkin_at DESC NULLS LAST LIMIT 200"))).fetchall()
+        def _lin(r):
+            d = _haversine_m(r[5], r[6], r[7], r[8]) if (r[5] and r[7]) else None
+            onde = "sem GPS" if d is None else (f"{d:.0f} m" if d <= _RAIO_POSTO_M else f"⚠️ {d:.0f} m")
+            aberta = r[2] is not None and r[3] is None
+            return [t((r[0] or "—").title(), 600, "#0F1B3A"), t((r[1] or "—")[:32]),
+                    t(r[2].strftime("%d/%m %H:%M") if r[2] else "—"), t(r[3].strftime("%H:%M") if r[3] else "—"),
+                    t(f"{int(r[4])} min" if r[4] else "—"), b(onde, "warn" if onde.startswith("⚠️") else ("mut" if onde == "sem GPS" else "ok")),
+                    b("NO POSTO", "info") if aberta else b("encerrada", "ok")]
+        _abertas = sum(1 for r in _vis if r[2] is not None and r[3] is None)
+        _hoje = sum(1 for r in _vis if r[2] is not None and r[2].date() == __import__("datetime").date.today())
+        out["gerente-hoje"] = {
+            "title": "Onde está o gerente", "type": "table", "cta": "—",
+            "sub": f"{_hoje} chegada(s) hoje · {_abertas} no posto agora · últimos 7 dias · fonte: visitas (check-in do celular)",
+            "cols": ["Gerente", "Posto", "Chegou", "Saiu", "Tempo", "Distância", "Situação"],
+            "grid": "1.4fr 1.8fr 1fr 0.7fr 0.8fr 0.9fr 0.9fr",
+            "rows": [{"cells": _lin(r)} for r in _vis] or [{"cells": [t("Nenhum check-in de gerente ainda", 500), t("—"), t("—"), t("—"), t("—"), t("—"), t("—")]}],
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[operacional] telas de gerente falharam: %s", exc)
+
     try:
         from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
         _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
@@ -2321,3 +2379,125 @@ async def build(db) -> dict:
     }
 
     return out
+
+# ── Onde está o gerente (dono, 07/09/2026): check-in obrigatório ao chegar num posto, check-out
+# ao sair, e o dono avisado a cada um. Reusa `visitas` (tipo acompanhamento, origem interna,
+# responsável supervisor) e o serviço de campo; a cerca é a coordenada do POSTO (posts), não
+# `geofence_zones` — as 31 zonas têm todas o mesmo ponto no centro de Manaus (cenário).
+_RAIO_POSTO_M = 300
+
+
+def _haversine_m(lat1, lon1, lat2, lon2) -> float | None:
+    import math
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+    except (TypeError, ValueError):
+        return None
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+async def _gerente_do_pedido(db, current_user, payload: dict) -> tuple[str, str]:
+    """(employee_id, nome) de quem está registrando. Admin pode registrar EM NOME de um gerente
+    (payload.gerente_id) — o próprio Jordan cobrindo uma ligação. Sem colaborador: erro claro."""
+    from modules.operacional.controllers.redesign_builders.portal_do_funcionario import _resolve_me
+    emp = (payload.get("gerente_id") or "").strip() or None
+    if emp and str(getattr(current_user, "role", "")).lower() not in ("admin", "superadmin", "owner"):
+        emp = None  # só admin registra por outro
+    if not emp:
+        emp = await _resolve_me(db, current_user)
+    if not emp:
+        raise HTTPException(status_code=400, detail="Seu usuário não está vinculado a um colaborador — peça ao Jordan para vincular (users.employee_id).")
+    nome = (await db.execute(_sqltext("SELECT nome FROM employees WHERE id::text = :i"), {"i": emp})).scalar()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Colaborador não encontrado.")
+    return emp, nome
+
+
+async def _avisar_dono(texto: str) -> None:
+    try:
+        from modules.crm.services.orchestration import notify_owner
+        await notify_owner(texto)
+    except Exception as exc:  # noqa: BLE001 — aviso não derruba o registro
+        logger.warning("aviso ao dono falhou: %s", exc)
+
+
+@router.post("/action/gerente-checkin")
+async def rd_action_gerente_checkin(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cheguei no posto: cria a visita e faz o check-in com o GPS do celular; avisa o dono."""
+    from datetime import date, datetime
+    from decimal import Decimal
+    from uuid import UUID
+
+    from modules.campo.models.visita import OrigemVisita, TipoResponsavel, TipoVisita
+    from modules.campo.schemas.visita import VisitaCreate
+    from modules.campo.services.visita_service import VisitaService
+
+    post_id = (payload.get("post_id") or "").strip()
+    if not post_id:
+        raise HTTPException(status_code=400, detail="Selecione o posto.")
+    emp, nome = await _gerente_do_pedido(db, current_user, payload)
+    aberta = (await db.execute(_sqltext(
+        "SELECT numero, endereco FROM visitas WHERE responsavel_id::text = :e AND checkin_at IS NOT NULL "
+        "AND checkout_at IS NOT NULL IS FALSE AND coalesce(ativo, true) ORDER BY checkin_at DESC LIMIT 1"), {"e": emp})).first()
+    if aberta:
+        raise HTTPException(status_code=400, detail=f"Você ainda está em {aberta[1]} (visita {aberta[0]}). Faça o check-out antes.")
+    post = (await db.execute(_sqltext(
+        "SELECT p.name, p.latitude, p.longitude, p.client_id::text, coalesce(p.address, ''), coalesce(p.city, ''), 0 "
+        "FROM posts p WHERE p.id::text = :i"), {"i": post_id})).first()
+    if not post:
+        raise HTTPException(status_code=400, detail="Posto não encontrado.")
+    lat, lng = payload.get("lat"), payload.get("lng")
+    dist = _haversine_m(lat, lng, post[1], post[2]) if (lat and lng and post[1] and post[2]) else None
+    raio = max(int(post[6] or 0), _RAIO_POSTO_M)
+    agora = datetime.now()
+    data = VisitaCreate(
+        tipo=TipoVisita.ACOMPANHAMENTO, origem=OrigemVisita.INTERNA,
+        responsavel_id=UUID(emp), responsavel_tipo=TipoResponsavel.SUPERVISOR, responsavel_nome=nome,
+        cliente_id=UUID(post[3]) if post[3] else None,
+        endereco=(post[4] or post[0] or "posto")[:500] if len(post[4] or post[0] or "posto") >= 5 else f"Posto {post[0]}",
+        cidade=(post[5] or None), latitude=Decimal(str(post[1])) if post[1] else None,
+        longitude=Decimal(str(post[2])) if post[2] else None,
+        data_visita=date.today(), horario_inicio=agora.time().replace(microsecond=0),
+        objetivo=f"Supervisão do posto {post[0]}" + (f" — {payload.get('obs')}" if payload.get("obs") else ""),
+    )
+    svc = VisitaService(db)
+    visita = await svc.criar_visita(data, getattr(current_user, "id", None))
+    visita = await svc.fazer_checkin(visita.id, float(lat) if lat else None, float(lng) if lng else None)
+    onde = "sem GPS" if dist is None else (f"a {dist:.0f} m do posto" if dist <= raio else f"⚠️ FORA do raio: {dist:.0f} m do posto")
+    await _avisar_dono(f"📍 *{nome.title()}* chegou em *{post[0]}* às {agora:%H:%M} ({onde}).")
+    return {"ok": True, "message": f"Check-in registrado em {post[0]} ({onde}).", "visita": str(visita.id), "numero": visita.numero}
+
+
+@router.post("/action/gerente-checkout")
+async def rd_action_gerente_checkout(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Saí do posto: fecha a visita aberta com o GPS do celular; avisa o dono com a duração."""
+    from datetime import datetime
+    from uuid import UUID
+
+    from modules.campo.services.visita_service import VisitaService
+
+    emp, nome = await _gerente_do_pedido(db, current_user, payload)
+    aberta = (await db.execute(_sqltext(
+        "SELECT id::text, endereco, checkin_at FROM visitas WHERE responsavel_id::text = :e AND checkin_at IS NOT NULL "
+        "AND checkout_at IS NULL AND coalesce(ativo, true) ORDER BY checkin_at DESC LIMIT 1"), {"e": emp})).first()
+    if not aberta:
+        raise HTTPException(status_code=400, detail="Não há check-in aberto — registre a chegada primeiro.")
+    lat, lng = payload.get("lat"), payload.get("lng")
+    visita = await VisitaService(db).fazer_checkout(UUID(aberta[0]), float(lat) if lat else None, float(lng) if lng else None)
+    # Duração e status pelo relógio do BANCO: checkin_at é gravado em UTC e o relógio do
+    # container é Manaus — subtrair os dois deu "-240 min" no primeiro teste (07/09/2026).
+    row = (await db.execute(_sqltext(
+        "UPDATE visitas SET status = 'realizada', "
+        "  duracao_real_minutos = greatest(0, (extract(epoch FROM (coalesce(checkout_at, now()) - checkin_at)) / 60))::int, "
+        "  observacoes = CASE WHEN :o <> '' THEN concat_ws(' | ', observacoes, :o) ELSE observacoes END "
+        "WHERE id::text = :i RETURNING duracao_real_minutos"), {"o": str(payload.get("obs") or "")[:500], "i": aberta[0]})).first()
+    await db.commit()
+    agora = datetime.now()
+    mins = int(row[0]) if row and row[0] is not None else None
+    await _avisar_dono(f"🚪 *{nome.title()}* saiu de *{aberta[1]}* às {agora:%H:%M}" + (f" · {mins} min no posto." if mins is not None else "."))
+    return {"ok": True, "message": f"Check-out registrado ({mins} min no posto)." if mins is not None else "Check-out registrado."}
+
