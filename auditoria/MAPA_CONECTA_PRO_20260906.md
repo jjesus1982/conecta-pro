@@ -248,6 +248,16 @@ construção de Licitações.
   pula 'pendente' (regra feita para ordem da Cora não debitada). Set: 0 de 58 linhas; ago: 165 de 260. Corrigido na
   ponte, 2.610 linhas confirmadas, 224 lançamentos escriturados (R$ 67,7 mil), agosto reapurado: resultado
   −R$ 96.110,84 (com o Inter dentro). Balanço, contábil e extrato-Cora verdes.
+- **MRR único**: Visão Financeira, forecast, margem por tipo, live e Custeio ABC liam `billing_rules` — cadastro paralelo e
+  velho (Prime Arena R$ 40.466,50 × contrato R$ 33.479,60 desde maio; Parise 1.700 × 2.000; Hawk Eye e Parque dos
+  Franceses sem regra). As cobranças reais saem de `contracts` (`receivable_accounts.origem='contrato'`, valores certos);
+  agora tudo lê `contracts`: R$ 269.700,06 em todas as telas, oráculo com tolerância zero.
+- **RiskMonitor criava um rascunho igual a cada 5 min** (10 em 45 min): a idempotência procurava a chave no aviso do sino,
+  que não existia. Chave passou a morar no próprio rascunho (`payload._idem`); 9 apagados.
+- **Travas mecânicas (04:13)**: sem regressão real — `checar_nao_vigiado` 302→299, `checar_rotas_frontend` 629→619,
+  `checar_irreversivel` 2→0; `checar_bake_pendente` 8→86 são as correções desta noite ainda fora da imagem
+  (segundo bake agendado); `checar_desmonte` acusou mais dois oráculos que deixam 1 rascunho (envio_cliente,
+  revisao_funil) — ficam para a próxima rodada.
 - **Três oráculos de cotação** deixavam rascunhos 'descartado' em produção (checar_desmonte): agora apagam; 145
   removidos.
 
