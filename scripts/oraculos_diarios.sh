@@ -1,5 +1,8 @@
 #!/bin/bash
-# Varredura diária dos 59 oráculos (exibido == banco). Cron do host, 05:00 America/Manaus.
+# Varredura diária dos oráculos `test_*.py` (exibido == banco). Cron do host, 00:00 America/Manaus.
+# Depois dela, `checar_regressao.py` roda as travas contra a linha de base; aos domingos, também
+# os gates `fechado_*`. O sino só recebe NOVIDADE (vermelho novo, resolvido, bloqueio); o
+# detalhe inteiro fica neste log.
 #
 # Roda no container do BACKEND de propósito: um oráculo tem pico de 894 MB (importa o app
 # inteiro) e todo worker Celery tem limite de 2 GB com 1,39 GB já em uso — a varredura

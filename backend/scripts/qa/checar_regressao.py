@@ -10,15 +10,29 @@ Saída: **linha de base**, o mesmo desenho do oráculo de período fechado. O qu
 registrado; o que ENTRAR depois é regressão e acusa. Assim a dívida velha não vira ruído e
 fabricação nova não passa.
 
-Baixar a linha de base (consertou algo) é automático. Subir exige commit no
-`.baseline.json` — deixar a dívida crescer é decisão, não acidente.
+Baixar a linha de base (consertou algo) é automático. Subir exige `--gravar` explícito e a
+decisão escrita na mensagem do commit — deixar a dívida crescer é decisão, não acidente.
+
+⭐ A base só se move com MEDIÇÃO VERIFICADA. Em 23/08/2026 uma rodada em que os caçadores
+não responderam (container em recreate, saída vazia) foi lida como "0 pistas", a base
+BAIXOU sozinha para 0, e a partir daí toda noite acusou "0 → 25 REGRESSÃO" por dez dias
+seguidos — a dívida era a mesma de sempre (25 a 27). Sino que toca todo dia com o mesmo
+número é sino que ninguém lê: foi assim que os 3 agentes do GEDEON ficaram 3 dias mortos.
+Agora cada caçador tem uma LINHA CANÔNICA; sem ela a rodada é NÃO VERIFICADA, acusa, e a
+base fica onde estava.
+
+Aos domingos (ou com `--gates`) rodam também os critérios de aceite `fechado_*.py` e a
+`varredura_op_acoes.py`: o número de condições ✅ de cada um entra na base e só acusa
+quando CAI. Eles existiam desde agosto e nenhum caminho os invocava.
 
     python3 backend/scripts/qa/checar_regressao.py            # confere
     python3 backend/scripts/qa/checar_regressao.py --gravar   # (re)grava a base
+    python3 backend/scripts/qa/checar_regressao.py --gates    # força os gates semanais
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,12 +45,23 @@ AQUI = Path(__file__).resolve().parent
 #: a automação dispararia a regra da parede falsamente.
 BASE = Path("/var/lib/conecta/qa_baseline.json")
 
-#: caçador -> como contar as pistas na saída dele
+#: caçador -> como contar as pistas na saída dele. Devolve None quando a saída NÃO tem a
+#: linha canônica do caçador — é o que separa "0 pistas" de "não rodou".
+def _n(padrao: str, saida: str, zero: str | None = None) -> int | None:
+    m = re.search(padrao, saida, re.M)
+    if m:
+        return int(m.group(1))
+    return 0 if (zero and zero in saida) else None
+
+
 CACADORES = {
-    "cacar_fabricacao.py": lambda s: sum(
-        1 for ln in s.splitlines() if ln.startswith("   ") and ":" in ln),
-    "checar_vocabulario.py": lambda s: sum(
-        1 for ln in s.splitlines() if ln.strip().startswith("[CRITICO]")),
+    # Lê o TOTAL da linha "N pista(s) em …", não as linhas listadas: o caçador corta a lista
+    # em 12 por família e escreve "(+8 não listadas)" — contar linhas dava 25 onde eram 37.
+    "cacar_fabricacao.py": lambda s: _n(r"^(\d+) pista\(s\) em", s, "nenhuma assinatura de fabricação"),
+    "checar_vocabulario.py": lambda s: _n(r"\((\d+) crítica\(s\)", s, "nenhuma divergência"),
+    # varchar(N) com valor encostado no teto e comprimentos variados — o `varchar(20)` que
+    # passou meses porque o nome tinha exatamente 20 (missão de 06/09/2026).
+    "checar_varchar_teto.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna", s),
 }
 
 #: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o
@@ -48,18 +73,18 @@ CACADORES_HOST = {
     # Lê a linha canônica TOTAL: soma as DUAS travas (método inexistente + forma errada).
     # A versão anterior lia só "N chamada(s)" e ignorava a trava de forma — teria deixado
     # passar exatamente os 2 casos que estouravam o dashboard de serviços.
-    "checar_repositorio.py": lambda s: next(
-        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
+    "checar_repositorio.py": lambda s: _n(r"^TOTAL:\s*(\d+)", s),
     # Espelho da de cima, do outro lado da parede: frontend chamando rota que o backend não
     # tem. Nasceu do mesmo MVP (slaService pedindo /services/sla onde existe /sla-configs).
     # 666 na estreia, 84 alcançáveis por tela — as 35 literais confirmadas 404 por HTTP.
-    "checar_rotas_frontend.py": lambda s: next(
-        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
+    "checar_rotas_frontend.py": lambda s: _n(r"^TOTAL:\s*(\d+)", s),
     # Ideia do T1: contra qual fonte DE FORA cada número foi provado, e quando. Os outros
     # oráculos comparam exibido == banco — os dois lados nossos; se o banco estiver errado,
     # ficam verdes. Foi o caso do extrato (880 duplicatas, 94 sinais invertidos).
-    "checar_oraculo_externo.py": lambda s: next(
-        (int(ln.split(":")[1]) for ln in s.splitlines() if ln.startswith("TOTAL:")), 0),
+    "checar_oraculo_externo.py": lambda s: _n(r"^TOTAL:\s*(\d+)", s),
+    # Tabela com 0 linhas: 463 de 686 em 06/09/2026. Nascer morto nunca acusou nada — agora
+    # tabela nova sem dado é regressão. Host porque cruza com o log do nginx.
+    "checar_uso_real.py": lambda s: _n(r"^TOTAL:\s*(\d+) tabela", s),
 }
 
 
@@ -75,16 +100,35 @@ _EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backe
 #: por parser da saída — em 24/08/2026 seis medições por regex sobre texto erraram nos dois
 #: sentidos no mesmo dia (três inflaram, três zeraram). Formato de saída muda; exit code é
 #: comportamento. É a mesma troca que a condição 2 do gate do Bartolo fez: de grep para sonda.
+#: (onde, o que impede, teto em segundos). O teto é POR TRAVA: a de desmonte re-executa cada
+#: oráculo que escreve (60+, até 420s cada) e estourava o teto único de 15min todo dia —
+#: "NÃO VERIFICADO" permanente é o mesmo que não ter trava.
 TRAVAS_BINARIAS = {
-    "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ"),
+    "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ", 900),
     "checar_periodo_do_servidor.py": ("container",
-                                      "competência/data vinda do MODELO e não do servidor"),
+                                      "competência/data vinda do MODELO e não do servidor", 900),
     # CONTAINER, não host: ela varre /app/scripts/orq. No host esse caminho não existe, o
     # glob volta vazio e ela imprime "0 · 0 · 0 · 0" com exit=0 — verde por caminho errado,
     # que é o pior tipo de verde e já mordeu aqui (o checar_repositorio achava 0 no container
     # pelo motivo espelhado). Liguei errado na primeira vez; a saída zerada denunciou.
     "checar_desmonte_comportamento.py": ("container",
-                                         "oráculo que escreve em produção e deixa linha"),
+                                         "oráculo que escreve em produção e deixa linha", 5400),
+    # Motor responde 200 e não produz frase. Existia desde 24/08 e nenhum caminho a invocava —
+    # a própria trava de órfãs acusou por dias e ninguém ligou (06/09/2026).
+    "checar_sucesso_vazio.py": ("container", "o motor do chat devolve 200 sem frase", 300),
+}
+
+#: Critérios de aceite por módulo. Cada um imprime ✅/❌ por condição; o que entra na base é
+#: a CONTAGEM de ✅ — condição vermelha por decisão humana pendente (destinatário, crédito de
+#: LLM) é estado conhecido, não regressão. Acusa só quando o número CAI. Semanal (domingo)
+#: porque são pesados e alguns exercitam um turno real do agente.
+GATES = {
+    "fechado_bartolo.py": ("host", 1200),
+    "fechado_contratos.py": ("host", 1200),
+    "fechado_fiscal.py": ("host", 1200),
+    "fechado_gedeon.py": ("container", 1200),
+    "fechado_operacional.py": ("container", 1200),
+    "varredura_op_acoes.py": ("container", 900),
 }
 
 #: Órfã DECLARADA: existe, ninguém roda, e está escrito por quê e de quem é. Exceção com dono
@@ -92,27 +136,56 @@ TRAVAS_BINARIAS = {
 #: ninguém invoca é exatamente a doença que o arsenal veio curar (o `tool_risk_manifest`
 #: classificava 254 tools e nenhum código o consultava).
 ORFAS_DECLARADAS: dict[str, str] = {
-    # (vazio) — `checar_desmonte_oraculos.py` foi APAGADA em 24/08/2026, não promovida a
-    # contada: ela acusou 26 oráculos e acertou 1 (96% de falso positivo). Dar linha de base a
-    # um detector assim institucionaliza o ruído em vez de removê-lo. Quem mede desmonte agora
-    # é `checar_desmonte_comportamento.py`, que EXECUTA em vez de ler o fonte.
+    # `checar_desmonte_oraculos.py` foi APAGADA em 24/08/2026, não promovida a contada: ela
+    # acusou 26 oráculos e acertou 1 (96% de falso positivo). Dar linha de base a um detector
+    # assim institucionaliza o ruído em vez de removê-lo. Quem mede desmonte agora é
+    # `checar_desmonte_comportamento.py`, que EXECUTA em vez de ler o fonte.
+    "provar_desmonte.py": "utilitário com argumentos (<oráculo> <tabela>): prova o desmonte "
+                          "de UM oráculo recém-escrito. Invocado à mão pela skill "
+                          "oraculo-conecta/entregue-de-verdade. Dono: quem escreve oráculo "
+                          "que escreve.",
 }
+
+#: Prefixos que contam como TRAVA neste diretório. `fechado_*` e `varredura_*` ficaram fora
+#: do glob até 06/09/2026 — cinco critérios de aceite executáveis, nenhum caminho invocando,
+#: e o detector de órfãs sem enxergá-los: ponto cego do próprio vigia.
+_PREFIXOS = ("checar_", "cacar_", "fechado_", "varredura_", "provar_")
 
 
 def _travas_no_disco() -> set[str]:
-    return {p.name for p in AQUI.glob("checar_*.py")} | {p.name for p in AQUI.glob("cacar_*.py")}
+    return {p.name for p in AQUI.glob("*.py") if p.name.startswith(_PREFIXOS)}
 
 
-def _rodar(script: str) -> tuple[int, str]:
+def _cmd(script: str, onde: str) -> list[str]:
+    return ([sys.executable, str(AQUI / script)] if onde == "host"
+            else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script])
+
+
+def _rodar(script: str) -> tuple[int | None, str]:
+    """(pistas, saída). pistas=None quando a saída não tem a linha canônica: NÃO VERIFICADO."""
     if script in CACADORES_HOST:
-        cmd = [sys.executable, str(AQUI / script)]
-        conta = CACADORES_HOST[script]
+        cmd, conta = _cmd(script, "host"), CACADORES_HOST[script]
     else:
-        cmd = _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
-        conta = CACADORES[script]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+        cmd, conta = _cmd(script, "container"), CACADORES[script]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    except subprocess.TimeoutExpired:
+        return None, "(não terminou em 30min)"
     saida = r.stdout + r.stderr
     return conta(saida), saida
+
+
+def _gate(script: str, onde: str, teto: int) -> tuple[int | None, int | None, str]:
+    """(✅, ❌, última linha). None quando não rodou — gate que não responde não conta."""
+    try:
+        r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)
+    except subprocess.TimeoutExpired:
+        return None, None, f"não terminou em {teto // 60}min"
+    saida = r.stdout + r.stderr
+    ok, nok = saida.count("✅"), saida.count("❌")
+    if ok + nok == 0:
+        return None, None, (saida.strip().splitlines() or ["sem saída"])[-1][:100]
+    return ok, nok, (saida.strip().splitlines() or [""])[-1][:100]
 
 
 def _avisar_no_sino(falhou: list[str]) -> None:
@@ -132,11 +205,20 @@ def main() -> int:
     BASE.parent.mkdir(parents=True, exist_ok=True)
     base = json.loads(BASE.read_text()) if BASE.exists() else {}
     agora, falhou = {}, []
+    _memo_falhas = base.pop("_falhas", {})
+    base["_falhas"] = _memo_falhas  # só leitura aqui; regravada no fim
 
     for script in {**CACADORES, **CACADORES_HOST}:
-        n, _ = _rodar(script)
-        agora[script] = n
+        n, saida = _rodar(script)
         antes = base.get(script)
+        if n is None:
+            # Saída sem a linha canônica: o caçador NÃO respondeu. Não é zero — e a base não
+            # se move. Foi assim que ela caiu a 0 em 23/08 e acusou regressão por dez dias.
+            ultima = (saida.strip().splitlines() or ["sem saída"])[-1][:90]
+            falhou.append(f"{script}: NÃO VERIFICADO (sem a linha canônica: {ultima}) — base intacta")
+            print(f"  x {script}: NÃO VERIFICADO — {ultima}")
+            continue
+        agora[script] = n
         if antes is None:
             print(f"  {script}: {n} pista(s) — sem linha de base ainda")
             continue
@@ -163,8 +245,15 @@ def main() -> int:
     # dívida aceitável. Ligada aqui porque a lição do dia em que ela nasceu foi justamente
     # esta — o `tool_risk_manifest` classificava 254 tools e NINGUÉM o consultava. Trava que
     # ninguém roda é a mesma doença que ela veio curar.
-    r = subprocess.run([sys.executable, str(AQUI / "checar_mcp_tools.py")],
-                       capture_output=True, text=True, timeout=600)
+    if gravar:
+        # `--gravar` regrava a LINHA DE BASE: só os caçadores contados importam. As travas de
+        # sim/não, os gates e a parede do agente não têm base — rodá-los aqui só atrasaria a
+        # gravação (a de desmonte leva ~1h) e colidiria com a varredura da meia-noite.
+        print("  (--gravar: travas binárias, gates e checar_mcp_tools pulados — não têm base)")
+        r = subprocess.CompletedProcess([], 0, "", "")
+    else:
+        r = subprocess.run([sys.executable, str(AQUI / "checar_mcp_tools.py")],
+                           capture_output=True, text=True, timeout=600)
     if r.returncode != 0:
         falhou.append("checar_mcp_tools: a parede do agente está fora do git, fora da "
                       "imagem, ou apontando para rota que não existe")
@@ -175,13 +264,11 @@ def main() -> int:
         print("  checar_mcp_tools: confere")
 
     # As travas de sim/não, pelo exit code.
-    for script, (onde, oque) in TRAVAS_BINARIAS.items():
-        cmd = ([sys.executable, str(AQUI / script)] if onde == "host"
-               else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script])
+    for script, (onde, oque, teto) in ({} if gravar else TRAVAS_BINARIAS).items():
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+            r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)
         except subprocess.TimeoutExpired:
-            falhou.append(f"{script}: não respondeu em 15min — NÃO VERIFICADO, não aprovado")
+            falhou.append(f"{script}: não respondeu em {teto // 60}min — NÃO VERIFICADO, não aprovado")
             print(f"  x {script}: não respondeu (NÃO VERIFICADO)")
             continue
         if r.returncode != 0:
@@ -198,8 +285,8 @@ def main() -> int:
     # "rotina que roda e não produz". Trava órfã é pior que trava ausente: ela dá a impressão
     # de cobertura que não existe, e o custo de escrevê-la já foi pago.
     orfas = _travas_no_disco() - set(CACADORES) - set(CACADORES_HOST) - set(TRAVAS_BINARIAS) \
-        - set(ORFAS_DECLARADAS) - {"checar_regressao.py", "checar_arsenal.py",
-                                   "checar_mcp_tools.py"}
+        - set(GATES) - set(ORFAS_DECLARADAS) - {"checar_regressao.py", "checar_arsenal.py",
+                                                "checar_mcp_tools.py"}
     if orfas:
         falhou.append("trava órfã (existe no disco e nenhum caminho invoca): "
                       + ", ".join(sorted(orfas)))
@@ -209,21 +296,78 @@ def main() -> int:
     else:
         print(f"  arsenal: 0 trava órfã ({len(ORFAS_DECLARADAS)} declarada(s) com dono)")
 
-    if gravar or any(agora.get(k, 0) < base.get(k, 10**9) for k in agora):
-        # Baixar a base é automático — conserto não deve exigir cerimônia. Subir, não.
-        nova = {k: min(v, base.get(k, v)) if not gravar else v for k, v in agora.items()}
+    # ── gates semanais: critérios de aceite por módulo ─────────────────────────
+    # A base guarda quantas condições ✅ cada gate tinha; acusa quando o número CAI. Sobe
+    # sozinho quando melhora — conserto não exige cerimônia, retrocesso exige explicação.
+    import datetime as _dt
+    if "--gates" in sys.argv or (_dt.date.today().isoweekday() == 7 and not gravar):
+        print("── gates semanais (critérios de aceite) ──")
+        for script, (onde, teto) in GATES.items():
+            ok, nok, ultima = _gate(script, onde, teto)
+            chave = f"gate:{script}"
+            if ok is None:
+                falhou.append(f"{script}: gate NÃO VERIFICADO ({ultima}) — base intacta")
+                print(f"  x {script}: NÃO VERIFICADO — {ultima}")
+                continue
+            antes = base.get(chave)
+            agora[chave] = ok
+            if antes is None:
+                print(f"  {script}: {ok} ✅ / {nok} ❌ — sem linha de base ainda")
+            elif ok < antes:
+                falhou.append(f"{script}: {antes} → {ok} condições ✅ (RETROCEDEU {antes - ok})")
+                print(f"  x {script}: {antes} -> {ok} ✅  RETROCESSO")
+            else:
+                print(f"  {script}: {ok} ✅ / {nok} ❌" + (f"  (+{ok - antes}, avançou)" if ok > antes else ""))
+
+    def _melhorou(k: str, v: int) -> bool:
+        return v > base.get(k, -1) if k.startswith("gate:") else v < base.get(k, 10**9)
+
+    if gravar or any(_melhorou(k, v) for k, v in agora.items()):
+        # Dívida baixa sozinha; gate sobe sozinho. O contrário exige --gravar. Chave que não
+        # foi VERIFICADA nesta rodada fica com o valor que tinha — nunca some, nunca zera.
+        nova = {k: v for k, v in base.items() if k != "_falhas"}
+        nova["_falhas"] = base.get("_falhas", {})
+        for k, v in agora.items():
+            if gravar:
+                nova[k] = v
+            elif k.startswith("gate:"):
+                nova[k] = max(v, base.get(k, v))
+            else:
+                nova[k] = min(v, base.get(k, v))
         BASE.write_text(json.dumps(nova, indent=2) + "\n")
         print(f"  linha de base atualizada: {nova}")
 
-    if falhou:
+    # O sino só toca com NOVIDADE: trava que passou a falhar, ou que voltou a passar. A mesma
+    # falha repetida fica no log e volta ao sino toda segunda. Sem isto, "0 -> 25 REGRESSÃO"
+    # tocou dez noites seguidas (28/08–06/09/2026) e ninguém abriu nenhuma.
+    import datetime as _dt2
+    chaves_agora = {f.split(":")[0] for f in falhou}
+    chaves_antes = set((base.get("_falhas") or {}).keys())
+    hoje = _dt2.date.today().isoformat()
+    base_falhas = {k: (base.get("_falhas") or {}).get(k, hoje) for k in chaves_agora}
+    try:
+        atual = json.loads(BASE.read_text()) if BASE.exists() else {}
+        atual["_falhas"] = base_falhas
+        BASE.write_text(json.dumps(atual, indent=2) + "\n")
+    except OSError as exc:
+        print(f"  (não gravei _falhas na base: {exc})")
+    novidade = chaves_agora != chaves_antes
+    if chaves_antes - chaves_agora:
+        print(f"  voltaram a passar: {', '.join(sorted(chaves_antes - chaves_agora))}")
+    if falhou and (novidade or _dt2.date.today().isoweekday() == 1):
         # Sem isto a trava vira log que ninguém lê: o alerta do sino saía só da varredura de
         # oráculos, e regressão de fabricação ficava em /var/log esperando alguém abrir.
-        _avisar_no_sino(falhou)
+        _avisar_no_sino([f + (f"  (desde {base_falhas.get(f.split(':')[0])})" if f.split(":")[0] in chaves_antes else "  NOVA")
+                         for f in falhou])
+    elif falhou:
+        print("  sino: sem novidade desde a rodada anterior — em silêncio (volta na segunda)")
+    if falhou:
         print("\nREGRESSÃO — código novo trouxe fabricação ou vocabulário fantasma:")
         for f in falhou:
             print(f"  {f}")
-        print("\nConserte, ou (se for dívida aceita) suba a base com --gravar e COMMITE o "
-              ".baseline.json — deixar a dívida crescer tem que ser decisão escrita.")
+        print(f"\nConserte, ou (se for dívida aceita) suba a base com --gravar e escreva a "
+              f"decisão na mensagem do commit — a base mora em {BASE}, fora do git de "
+              f"propósito. Deixar a dívida crescer tem que ser decisão escrita.")
         return 1
     print("\nsem regressão")
     return 0

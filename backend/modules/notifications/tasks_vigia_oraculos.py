@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 _CHAVE_BATIDA = "oraculos.ultima_varredura"
 
-#: Diária às 05:00 + folga para um deploy ter adiado a rodada da noite.
+#: Diária à 00:00 + folga para um deploy ter adiado a rodada da noite.
 _TOLERANCIA = timedelta(hours=30)
 
 
@@ -66,7 +66,7 @@ def checar_varredura_ausente() -> dict:
 
         dia = agora.strftime("%Y-%m-%d")
         corpo = (
-            f"Os 59 oráculos deveriam rodar todo dia às 05:00, e {quando}.\n\n"
+            f"A varredura dos oráculos deveria rodar todo dia à 00:00, e {quando}.\n\n"
             f"Isto NÃO quer dizer que o sistema está com problema — quer dizer que ninguém "
             f"está mais conferindo. Enquanto a varredura não rodar, o silêncio do sino não "
             f"prova mais nada: divergência entre o que a tela mostra e o que o banco tem "
