@@ -477,6 +477,19 @@ Jordan for fazer o login pelo noVNC.
 - O aviso "Saldo do José Luís" foi acalmado: 3h só no primeiro dia, depois 1/dia (eram 6/dia há 5 dias). A trava
   `checar_llm_martelando` (28ª) fica de vigia para a próxima origem que martelar.
 
+### 2c.15 O seu sino, lido de trás para frente (07/09, 15h)
+
+- **"Caixa não bate" duas vezes toda manhã** (08:16 e 08:46, 15 avisos em 7 dias, valor diferente a cada um): a regra
+  roda a cada 15 min e via o meio do caminho entre o extrato da Cora chegando às 08:10 e a escrituração das 08:40; às
+  09:00 não havia diferença nenhuma. Passa a comparar até D-2, que está em repouso (hoje: razão −4.682,54 = extrato
+  −4.682,54). Oráculo proativo 7/7 verde. Commit `10fd5454b`.
+- **"Lead sem contato há N dias": 175 não lidos** — 141 deles em 02/09 e 25 em 03/09 (rajada quando a regra
+  nasceu); desde 04/09 é 1 por dia. Não mexi: está no ritmo certo agora.
+- **Central de Aprovações**: 5 rascunhos do agente esperando você e 1 "FALHOU" de 31/08 — "pedir cotação" tropeçou
+  no `number` de 20 caracteres, que já foi alargado para 40 (a cotação HAWKEYE-20260831 saiu depois). O rascunho
+  fica como falha até você descartá-lo na tela; não é problema vivo.
+- **Prazos do DP**: 35 prazos vivos na tela "Prazos" — vale uma olhada sua ordenada por urgência.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
