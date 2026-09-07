@@ -80,9 +80,29 @@ def register(tool: ToolDef) -> ToolDef:
             f"recusada (essas vêm do runtime, nunca do LLM)"
         )
     if tool.name in _REGISTRY:
-        raise ValueError(
-            f"tool duplicada: {tool.name!r} já registrada (módulo {_REGISTRY[tool.name].module!r})"
-        )
+        antiga = _REGISTRY[tool.name]
+        mesma = (antiga.module == tool.module
+                 and getattr(antiga.handler, "__qualname__", None) == getattr(tool.handler, "__qualname__", None))
+        # Wrapper publicado pelo agente do WhatsApp (`_registrar_no_registro_unico._publicar`)
+        # cede a vez à tool NATIVA de mesmo nome, em qualquer ordem de import. O publicador
+        # já pula nomes existentes; o caminho inverso (wrapper primeiro, nativa depois)
+        # derrubava o import do consultor_escopado_controller no startup — desde 27/08/2026
+        # o servidor logava "Consultor escopado controller: tool duplicada" e não montava
+        # o controller (medido em 06/09: 2 boots, 2 avisos; último uso do chat pelo dono
+        # em 26/08).
+        publicada = str(getattr(antiga.handler, "__qualname__", "")).startswith("_registrar_no_registro_unico.")
+        if publicada and not mesma:
+            _REGISTRY[tool.name] = tool
+            return tool
+        if not mesma:
+            raise ValueError(
+                f"tool duplicada: {tool.name!r} já registrada (módulo {_REGISTRY[tool.name].module!r})"
+            )
+        # A MESMA tool (mesmo módulo, mesmo handler) registrada de novo é o módulo sendo
+        # executado duas vezes — `importlib.reload` da guarda de executores, ou import por
+        # dois nomes. Isso derrubava o processo inteiro com "tool duplicada" (06/09/2026:
+        # test_canal_ferramentas e test_endpoint_roteamento vermelhos por isso, não por
+        # defeito de escopo). Re-registro idêntico é idempotente; conflito real continua erro.
     _REGISTRY[tool.name] = tool
     return tool
 

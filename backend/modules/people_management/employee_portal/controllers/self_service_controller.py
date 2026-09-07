@@ -1330,7 +1330,14 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
                     "  (now() AT TIME ZONE 'America/Manaus') - max(punch_timestamp)"
                     ")) / 3600.0 FROM gp_clock_punches "
                     " WHERE employee_id::text = :e AND lower(coalesce(punch_type,'')) = 'entrada' "
-                    "   AND (punch_timestamp)::date = (now() AT TIME ZONE 'America/Manaus')::date"
+                    # A MESMA janela de turno do ramo de cima (14h), não o dia do calendário:
+                    # com `::date = hoje`, entre 00:00 e 14:00 a entrada de ontem à noite não
+                    # contava, `horas_desde_entrada` vinha NULL e o app voltava a pedir "saída
+                    # para o almoço" a quem estava encerrando o turno noturno. Foi por isso que
+                    # test_oraculo_ponto_invertido ficava VERMELHO à meia-noite (varredura) e
+                    # VERDE às 22h (à mão) — 06/09/2026, 3 cenários "esperado saida, veio
+                    # saida_almoco".
+                    "   AND punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'"
                 ),
                 {"e": emp},
             )

@@ -28,7 +28,11 @@ async def main() -> None:
         nomes = {t.name for t in tools}
         assert scope.tier == "gestor", scope
         assert "panorama_operacional" in nomes and "panorama_financeiro" not in nomes, nomes
-        assert not any(t.module == "self" for t in tools), "gestor não deve ter tools self"
+        # self de DADO (meu_ponto, meu_holerite…) é o que o gestor não pode ter. A meta-tool
+        # `o_que_voce_faz` (F4, 23/08/2026) é módulo "self" por ser sobre o próprio agente e
+        # vai para todo tier — o oráculo congelava "nenhuma self" e reprovava a melhoria.
+        self_dado = [t.name for t in tools if t.module == "self" and t.name != "o_que_voce_faz"]
+        assert not self_dado, f"gestor não deve ter tools self de dado: {self_dado}"
         print("OK gestor: tier=gestor, módulos org-wide, SEM financeiro/self")
 
         # LÍDER — precisa de vínculo de colaborador para o escopo de posto resolver

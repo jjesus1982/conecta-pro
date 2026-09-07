@@ -296,6 +296,7 @@ _ORACULOS = [
 
 async def main() -> int:
     falhas = 0
+    bloqueados = 0
     async with async_session_factory() as db:
         await _resolver_alvos(db)
         for rotulo, fn in _ORACULOS:
@@ -303,6 +304,13 @@ async def main() -> int:
                 await fn(db)
                 print(f"ORACULO {rotulo} PASS")
             except Exception as e:  # noqa: BLE001 — um oráculo não derruba os outros; conta como FAIL
+                from modules.ai.conversation.services.llm_credit_alert import _e_erro_de_credito
+                if _e_erro_de_credito(str(e)):
+                    # provedor de LLM sem crédito (402) não é defeito de RBAC: BLOQUEADO,
+                    # não FAIL — o oráculo 6 caiu assim em 06/09/2026 com 7/8 verdes.
+                    bloqueados += 1
+                    print(f"ORACULO {rotulo} BLOQUEADO -> {str(e)[:120]}")
+                    continue
                 falhas += 1
                 print(f"ORACULO {rotulo} FAIL -> {type(e).__name__}: {e}")
                 print("    " + traceback.format_exc().replace("\n", "\n    ").rstrip())
@@ -313,6 +321,9 @@ async def main() -> int:
         print(f"SUITE-ORACULO RBAC: {passou}/{total} PASS — fronteira PROVADA por tier.")
     else:
         print(f"SUITE-ORACULO RBAC: {passou}/{total} PASS, {falhas} FAIL — GATE BLOQUEADO.")
+    if not falhas and bloqueados:
+        print(f"BLOQUEADO: {bloqueados} oráculo(s) sem resposta do provedor de LLM (crédito)")
+        return 3
     return 1 if falhas else 0
 
 

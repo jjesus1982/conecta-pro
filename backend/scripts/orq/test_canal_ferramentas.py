@@ -123,13 +123,18 @@ def main() -> int:
         else:
             os.environ["AGENT_COTA_EM_CHAT"] = antes
 
-    # 6 · papel só filtra
+    # 6 · papel nunca acrescenta tool INTERNA. Até 31/08 a regra era "papel só filtra";
+    # o papel fornecedor ganhou tools próprias de propósito (cotação: perguntar_ao_jordan,
+    # registrar_resposta_cotacao — test_papel_fornecedor é o aceite), e o congelamento
+    # reprovava a melhoria. O que a fronteira protege é o conjunto do DONO: nada dele
+    # pode chegar a papel externo por acréscimo.
     externo = set(nomes(A._tools_ativas(owner=False)))
+    interno = set(nomes(A._tools_ativas(owner=True)))
     for papel in A._PAPEIS:
         do_papel = set(nomes(A._tools_ativas(owner=False, papel=papel)))
-        if not do_papel <= externo:
-            falhas.append(f"papel {papel!r} ACRESCENTA tool fora do conjunto externo: "
-                          f"{sorted(do_papel - externo)}")
+        vazou = (do_papel - externo) & interno
+        if vazou:
+            falhas.append(f"papel {papel!r} ACRESCENTA tool INTERNA (do dono): {sorted(vazou)}")
 
     if falhas:
         for f in falhas:
