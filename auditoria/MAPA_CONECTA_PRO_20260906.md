@@ -132,6 +132,14 @@ Não entram na fila por serem **read-only para agentes**: as 62 órfãs de escri
 
 ---
 
+## 2b. Correções que a execução fez neste mapa (07/09)
+
+- **392, não 463**: a contagem real de tabelas com 0 linhas (o 463 era estimativa do Postgres).
+- **Quarentena: 251 → 172.** 79 tabelas eram citadas por código vivo (FKs em modelos, builders) e voltaram. Regra nova: cruzar o NOME da tabela com `backend/modules` antes de mover.
+- **Dois pacotes do 🔴 estavam vivos por dentro:** `modules/analytics` (a task `analytics.recalcular_kpis` escreve `executive_kpis` todo dia; o `celery_app` a inclui — 2 workers em crash-loop no bake) e `modules/ai/contract_analysis` (o Jurídico importa `analise_contrato`). Restaurados o mínimo do primeiro e o segundo inteiro. Lição: "0 importadores" só vale medido no repositório inteiro, e o boot de prova tem que subir o servidor E o celery (agora é guarda do bake automático).
+- **Três 🟡 eram 🟢 disfarçados** (VT/VR, auto-baixa, precificação por itens) — ver `auditoria/qa/*`.
+- **Quem martelava a API**: o redator do proativo, 30.800 chamadas/dia falhando com 402. Disjuntor + fallback local no cliente único de LLM (`core/llm_client.py`).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
