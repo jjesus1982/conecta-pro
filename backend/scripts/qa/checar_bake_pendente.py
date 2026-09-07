@@ -88,7 +88,41 @@ def _guardas() -> list[str]:
         motivos.append("alembic não respondeu — NÃO VERIFICADO")
     elif not heads <= cur:
         motivos.append(f"migration pendente ({sorted(heads - cur)}): `alembic upgrade heads` é manual — bake humano")
+    # 7. BOOT DE PROVA do disco que vai virar imagem: main_production E celery_app (com os
+    #    módulos de task importados). Em 07/09/2026 um bake recriou 2 workers em crash-loop
+    #    porque celery_app incluía um pacote apagado — o servidor subia, o worker não.
+    boot = _boot_de_prova()
+    if boot:
+        motivos.append(f"boot de prova falhou: {boot}")
     return motivos
+
+
+def _boot_de_prova() -> str:
+    """Importa main_production e celery_app (+ tasks) num container DESCARTÁVEL da imagem
+    atual com o disco montado. Devolve '' se os dois sobem, senão o erro."""
+    env = _sh(["docker", "inspect", "-f", "{{range .Config.Env}}{{.}}\n{{end}}", "conecta-pro-backend"])
+    rede = _sh(["docker", "inspect", "-f", "{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}",
+                "conecta-pro-backend"]).split()
+    if not env or not rede:
+        return "não consegui ler env/rede do backend"
+    envf = Path("/tmp/conecta_boot_env.txt")
+    envf.write_text(env)
+    try:
+        r = subprocess.run(["docker", "run", "--rm", "--network", rede[0], "--env-file", str(envf),
+                            "-v", "/opt/conecta-pro/backend:/app:ro", "-w", "/app",
+                            "conecta-pro-backend:latest", "python3", "-c",
+                            "from celery_app import app; app.loader.import_default_modules(); "
+                            "n=len([t for t in app.tasks if not t.startswith('celery.')]); assert n>50, n; "
+                            "import main_production; print('BOOT_OK', n)"],
+                           capture_output=True, text=True, timeout=420)
+    except subprocess.TimeoutExpired:
+        return "não terminou em 7min"
+    finally:
+        envf.unlink(missing_ok=True)
+    if "BOOT_OK" in r.stdout:
+        return ""
+    ultimas = [ln for ln in (r.stderr + r.stdout).splitlines() if "Error" in ln or "No module" in ln]
+    return (ultimas or ["sem saída"])[-1][:200]
 
 
 def main() -> int:

@@ -77,3 +77,6 @@ units
 user_consents
 validation_results
 workflows
+contract_alerts
+contract_analyses
+contract_extracted_clauses
