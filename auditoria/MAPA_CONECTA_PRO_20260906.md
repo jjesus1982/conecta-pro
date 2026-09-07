@@ -363,8 +363,10 @@ Jordan for fazer o login pelo noVNC.
   O robô do DET perdeu a sessão gov.br (o "logado" era flag velha) e ninguém refez o login; hoje está pausado. Isso é
   prazo legal, mais importante que qualquer CND: refazer o login pelo noVNC (certificado + 2FA) e `docker unpause
   conecta-pro-det-robot`. **Prioridade do dono.**
-- CRM: 197 leads em 30 dias (WhatsApp) e 6 propostas; follow-ups automáticos pararam em 16/07 e não há inscrição
-  ativa em sequência — a máquina de acompanhamento existe e está sem uso.
+- CRM: 197 leads em 30 dias (WhatsApp) e 6 propostas. Corrigindo o que escrevi de manhã: o **follow-up de propostas
+  está vivo** (beat 08:30 — 40 registros em 30 dias, 9 na última semana, último em 04/09). O que parou em 16/07 foram os
+  follow-ups agendados à mão (`crm_followups`), e as **sequências têm zero inscrição** — a máquina existe, ninguém
+  inscreveu ninguém. Isso é uso, não bug.
 
 - **Boletos de cobrança são emitidos fora do ERP** (Eletrônica no app do Inter, Patrimonial no app da Cora — regra do
   dono, 07/09): das 13 cobranças de setembro nenhuma tem boleto, PIX ou id de cobrança ligado no sistema; `inter_cobrancas`
