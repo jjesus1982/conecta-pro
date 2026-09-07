@@ -474,7 +474,8 @@ Jordan for fazer o login pelo noVNC.
   Com crédito, o gasto esperado é o do uso real: **US$ 0,05 a 0,50 por dia** (o de 28/08, com vídeo, foi o teto).
 - **Enquanto o saldo está negativo, o José Luís está mudo**: 41 mensagens de clientes em 04/09 receberam "estou com um
   problema técnico"; 05/09, duas; 06 e 07/09, nenhuma entrada. As 8 "saídas" por dia são avisos para você, não respostas.
-- O aviso "Saldo do José Luís" foi acalmado: 3h só no primeiro dia, depois 1/dia (eram 6/dia há 5 dias). A trava
+- O aviso "Saldo do José Luís" foi acalmado: 3h só no primeiro dia, depois 1/dia (eram 6/dia há 5 dias). Provado na
+  rodada das 15:07: "silenciado: mesmo patamar", nenhuma mensagem nova. A trava
   `checar_llm_martelando` (28ª) fica de vigia para a próxima origem que martelar.
 
 ### 2c.15 O seu sino, lido de trás para frente (07/09, 15h)
