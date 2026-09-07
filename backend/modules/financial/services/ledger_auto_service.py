@@ -95,6 +95,11 @@ class LedgerAutoService:
         """
         if not valor or float(valor) <= 0 or data is None:
             return 0
+        if isinstance(data, str):
+            # Receita/ISS e tomadas chegam com data em TEXTO ('2026-08-26'); comparar str com
+            # date em `periodo_fechado` levantava TypeError, a transação inteira voltava e o
+            # razão parou em 11/08/2026 — 27 dias sem folha, nota ou tomada (achado 07/09).
+            data = date.fromisoformat(data[:10])
         if _periodo_fechado(data):
             # Período anterior ao corte (01/08/2026) está fechado: de janeiro a
             # julho a empresa operou FORA do sistema, e deixar lançamento novo
@@ -186,10 +191,14 @@ class LedgerAutoService:
         # Purga a receita/ISS antigos DESTA empresa (idempotência do repost) — ESCOPADO por
         # empresa_id: sem o filtro, fechar(Patrimonial) apagaria os lançamentos da Eletrônica
         # (e vice-versa). Multi-CNPJ: cada razão só mexe no que é seu.
+        # SÓ o período aberto (>= corte): o repost abaixo é recusado antes do corte por
+        # `_post`, então purgar tudo apagaria jan–jul (182 lançamentos, R$ 1,96 mi) e não
+        # reporia — o razão arqueológico sumiria no primeiro fechamento (achado 07/09/2026).
+        from modules.financial.services.periodo_contabil import CORTE_CONTABIL
         cur.execute(
             "DELETE FROM accounting_entries WHERE tipo_lancamento IN ('nfse_emitida','tributo_iss') "
-            "AND empresa_id = %s",
-            (empresa_id,),
+            "AND empresa_id = %s AND data_lancamento >= %s",
+            (empresa_id, CORTE_CONTABIL),
         )
 
         # SÓ as notas DESTA empresa. Sem o filtro empresa_id, as 6 notas da Patrimonial
@@ -639,4 +648,6 @@ class LedgerAutoService:
             except Exception as exc:  # noqa: BLE001 — isolamento entre CNPJs
                 logger.error("Fechamento do razão falhou p/ %s: %s", slug, exc)
                 resultados[slug] = {"ok": False, "erro": str(exc)}
-        return {"ok": True, "empresas": resultados}
+        # ok só se TODAS fecharam: de 11/08 a 07/09/2026 as duas falharam todo dia e o
+        # resultado dizia ok=True — a task ficava SUCCESS e ninguém viu 27 dias sem razão.
+        return {"ok": all(r.get("ok") for r in resultados.values()), "empresas": resultados}

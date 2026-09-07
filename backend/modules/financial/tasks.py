@@ -93,6 +93,9 @@ def fechar_razao_auto_task(self):
 
         result = LedgerAutoService().fechar_grupo()
         logger.info("Fechamento automático do razão: %s", result)
+        if not result.get("ok"):  # falha de empresa vira falha da task (retry + sino), não SUCCESS
+            erros = {k: v.get("erro") for k, v in result.get("empresas", {}).items() if not v.get("ok")}
+            raise RuntimeError(f"fechamento do razão falhou: {erros}")
         return result
     except Exception as exc:
         logger.error("Erro no fechamento do razão: %s", exc)
