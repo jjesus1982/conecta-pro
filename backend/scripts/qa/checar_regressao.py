@@ -78,6 +78,9 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # Task agendada cujo `except Exception` loga e devolve normal: a task fica SUCCESS e o
+    # task_falha (que só vê exceção) não avisa. Foi assim que o razão parou 27 dias (07/09/2026).
+    "checar_beat_engole_falha.py": lambda s: _n(r"^TOTAL: (\d+) task\(s\) que engolem falha", s, "TOTAL: 0 task"),
     # Nasceu do MVP de fechamento de `services`: 4 de 6 rotas em 500 porque o controller
     # chamava método que o repositório nunca teve. 139 chamadas assim no sistema.
     # Lê a linha canônica TOTAL: soma as DUAS travas (método inexistente + forma errada).
