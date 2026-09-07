@@ -309,6 +309,13 @@ túnel. Túnel de pé às 10:08 (saída 187.112.25.106): Caixa e TST respondem 2
 **Caixa**: muro Radware/ShieldSquare com hCaptcha; o 2captcha resolve, o widget aceita, mas o POST de validação
 devolve o muro (assinatura presa ao widget/fingerprint). Diagnosticado, não passa hoje — FGTS segue pelo
 Infosimples ou manual.
+**Receita pelo e-CAC (tentado 07/09 10:49, pelo túnel)**: hCaptcha do login do e-CAC resolve e submete; o gov.br pede
+login (sessão do robô do DET expirada); "Seu certificado digital" abre hCaptcha de imagem (sitekey 93b08d40…, callbacks
+`onHcaptchaCallback`); o token do 2captcha chegou (73 s) mas foi injetado na textarea + submit e a tela não avançou —
+o passo não testado é entregar o token via `onHcaptchaCallback(token)`. **Decisão do dono: parar; a Portte segue
+emitindo a federal (plano B).** Robô do DET ficou PAUSADO (`docker pause`) para não queimar 2captcha tentando o
+captcha do gov.br a cada ciclo sem ninguém para completar o 2FA; `docker unpause conecta-pro-det-robot` quando o
+Jordan for fazer o login pelo noVNC.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
