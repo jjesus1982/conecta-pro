@@ -402,6 +402,29 @@ Jordan for fazer o login pelo noVNC.
 - Commit `3a99f0498`, hot-copy feito, oráculo `test_oraculo_cobranca_recebivel` verde (roteamento, recusas,
   idempotência, casamento nota → conta). Vai ao ar em definitivo no bake.
 
+### 2c.12 Varredura tela a tela dos 31 módulos do redesign (07/09, tarde)
+
+- **Instrumento**: abrir cada `/redesign/data/<módulo>` e contar tabelas vazias, painéis zerados e tempo. 31 módulos,
+  ~620 telas, todas 200. O que apareceu e o que foi feito:
+- **Agendador mentia**: lia cinco tabelas `scheduler_*` que nunca receberam uma linha, e dizia "fila vazia" para um
+  beat com **97 tarefas em 9 filas**. Agora mostra a grade real do `beat_schedule`, falhas 24h/7d e a lista de falhas
+  que chegou ao sino — e diz de frente que execução bem-sucedida não é registrada (Celery sem backend de resultado).
+- **Documentos levava 16 s para abrir**: 195 leituras SSL na API do Google Drive a cada abertura (cProfile). Cache
+  Redis de 15 min por competência: 0,05 s na segunda leitura, mesmos KPIs. A primeira leitura de cada 15 min ainda
+  paga os 16 s — precomputar no beat é o passo seguinte se incomodar.
+- **Falhas de tarefa agendada nos últimos 7 dias** (pelo sino, 4 avisos por evento = 4 destinatários):
+  `integrations.sync_work_schedules_from_solides` falhava **todo dia** com coluna inexistente (`se.employee_id`,
+  `extra_data`) — casamento corrigido por `solides_id` (25 ativos casados; 0 mudanças: as escalas já batem) e nome de
+  escala sem código conhecido não vira mais texto livre em `escala_padrao`. `solides.health_check` (sonda de 5 min,
+  0,4 s normalmente) estourou UMA vez à 01:57 — transitório do Sólides, fica. `ged.buscar_certidoes_portais` estourou
+  05 e 06/09 e foi consertada de manhã (limite 1500 s); hoje rodou 06:30 e renovou FGTS e trabalhista. `proativo`
+  parou de falhar em 02/09.
+- **Telas vazias que são honestas** (tabela de origem vazia, não bug): Equipamentos (4), Marketing biblioteca/copy/
+  estrategista/brand-voice, Serviços ordens/agendamentos, Automações, Segurança mascaramento/criptografia/PIA,
+  Configurações templates/feature-flags, Assistente chat/histórico, Gestão de pessoas banco de horas/treinamentos
+  (`time_bank` e `sst_treinamentos` vazios). Portal do funcionário zerado para o admin é a parede self-only.
+- Commits `68da125b2` (telas) e `b9666abe8` (Sólides), hot-copy em todos os containers.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
