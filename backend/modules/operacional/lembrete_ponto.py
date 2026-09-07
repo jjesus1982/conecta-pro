@@ -29,7 +29,10 @@ ETAPAS: dict[int, str] = {
     10: "Você ainda não bateu o ponto do turno das {hora} no {posto}. Bata agora, por favor.",
 }
 
-PONTO_LEMBRETE_ENABLED = os.getenv("PONTO_LEMBRETE_ENABLED", "false").lower() == "true"
+# Dono, 07/09/2026 ("destrava tudo, deixa tudo funcionando"): o lembrete rodou meses em modo
+# DRY — montava as mensagens certas (5 na janela das 17:45 de hoje) e não enviava, porque a
+# variável nunca foi posta no ambiente. Ligado por padrão; PONTO_LEMBRETE_ENABLED=false desliga.
+PONTO_LEMBRETE_ENABLED = os.getenv("PONTO_LEMBRETE_ENABLED", "true").lower() == "true"
 
 # ponytail: teto por rodada protege o número Baileys de uma escala malformada
 # (ex.: 300 turnos com o mesmo horário de início). O excedente vai para o log e
