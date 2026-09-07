@@ -545,8 +545,22 @@ Jordan for fazer o login pelo noVNC.
 - Regra de mês mantida como está documentada no código: o kit da competência X leva a nota emitida em X+1 (mês de
   entrega). As notas de competência 08 emitidas de 20 a 26/08 estão no kit de julho (pasta "Agosto") por essa regra.
   Se o certo for "nota da competência", é uma linha para mudar — **sua decisão**.
-- Kits de agosto (pasta "Setembro"): 20% em todos = só as 6 certidões; o de julho está em 80% (35 arquivos). Montagem
-  automática roda dia 28. Commits `ac0011f92`, `c1c8d1e4a`, e o do kit.
+- **O que o Drive mostrou depois, lendo o PRODUTOR de cada PDF**: havia um segundo gerador, o botão "Kit real do mês"
+  (`kit_real_controller`), que fabricava com reportlab e timbrado do ERP: (a) 20 "NFS-e N.pdf" — notas de fev–mar/2026
+  da tabela antiga `nfses`, TODAS as do condomínio, sem olhar competência, com CNPJ da Eletrônica em kit da Patrimonial;
+  (b) 7 "Boleto NFS-e 08/2026.pdf" — um "BOLETO / COBRANÇA R$ 131.684,84" somando essas notas velhas; (c) 56 "guias"
+  e "certidões" desenhadas (ISS Manaus, DARF IRRF, INSS Patronal, FGTS, EFD-Reinf, DCTFWeb, "Certidao Negativa…") ao
+  lado das originais do pacote Portte/Onvio. Tudo subido em 19/08 aos kits de julho.
+- **Feito (nada apagado, tudo reversível)**: os 83 fabricados foram para a subpasta "_fora_do_kit (nota antiga gerada
+  pelo sistema, 07-09-2026)" de cada condomínio; o Kit real ficou só com o que é do sistema por natureza (contracheque,
+  recibo de VT) e anexa certidão ORIGINAL de `ged_certidoes`; o orquestrador não gera DANFSe e deduplica por número/tipo.
+  **Regra nova, sua**: a nota do kit é a da COMPETÊNCIA do kit — as 12 notas de competência 08 (+ boleto da 116) foram
+  movidas do kit de julho para o de agosto; agosto agora tem 12/12 notas do sistema; a NFS-e 32 da Ideal Flores (emitida
+  02/09) não tem arquivo — anexar o original do portal.
+- **Preço da honestidade**: o kit de julho da Ideal Flores caiu de 80% para 50% — o que sumiu era fabricado. Faltam nele,
+  de verdade: nota da competência 07 (nº 21 e 111), boleto real do banco, comprovante de INSS original.
+- Kits de agosto (pasta "Setembro"): certidões + 12 notas; folha, VT e guias ainda por subir (montagem automática dia 28).
+  Commits `44e7bd6d4`, `ac5345ac4`, `ec240c74e`, `26ccb5f90`, `fef61a2a1`.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
