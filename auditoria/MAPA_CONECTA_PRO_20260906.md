@@ -623,6 +623,32 @@ tarefas em 4 h. Baixar para 1 pouparia ~1 GB; é edição de `docker-compose*.ym
 Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc3f9`, `ee92febdc`, `7e4fe3f84`. Bake das
 00:00 torna definitivo.
 
+### 2c.18 Operacional — onde está o gerente (07/09, noite; pedido do dono)
+
+- **Pedido**: saber onde o gerente está toda vez que chega num posto; check-in e check-out obrigatórios no condomínio;
+  o dono avisado. **Medido antes de codar**: os dois gerentes (Eliziel, Gerente Operacional; Orlailson, Supervisor) são
+  PJ e não batem ponto — zero batidas em 7 dias, logo não há rastro de GPS para reaproveitar; e as 31 `geofence_zones`
+  têm TODAS a mesma coordenada (centro de Manaus) — cenário, não cerca. A cerca real é a coordenada do POSTO (`posts`,
+  8 de 9 georreferenciados; o 9º é a base/escritório).
+- **Feito**: telas "Cheguei no posto", "Saí do posto" e "Onde está o gerente" em Operacional › Postos & Presença;
+  o celular captura o GPS (tipo de campo novo `geo` no redesign — depende do deploy do frontend, em andamento);
+  a chegada cria a visita (`visitas`, tipo acompanhamento) com distância até o posto (300 m de raio; fora do raio é
+  marcado ⚠️), recusa segunda chegada sem saída, e a saída fecha com a permanência. **A cada chegada e saída você
+  recebe no WhatsApp** ("📍 Orlailson chegou em Prime Arena às 18:26, a 17 m do posto"; "🚪 saiu… 38 min"). O admin pode
+  registrar em nome do gerente (você cobrindo uma ligação).
+- **Obrigatoriedade, o que o sistema consegue impor**: duas regras proativas — visita aberta há mais de 4 h (esqueceu o
+  check-out) e gerente sem nenhum check-in até 11 h em dia útil (não está registrando). O que ele não consegue: saber que
+  o gerente chegou sem tocar no botão — isso exigiria rastreio contínuo pelo app, que hoje não existe.
+- **Logins**: Orlailson já tinha (`supervisoroperacionalpaiva@gmail.com`), agora vinculado ao cadastro; Eliziel foi criado
+  (`primetechmao@gmail.com`, senha provisória enviada só ao seu WhatsApp). Os dois entram no redesign pelo celular.
+- Provas: chegada a 17 m do Prime Arena, segunda chegada recusada, saída com 1 min medido pelo relógio do banco (o
+  primeiro teste deu "-240 min" por fuso — corrigido), avisos no seu WhatsApp, oráculo proativo 7/7, os 12 testes do
+  Operacional verdes. Commit `9d49c3436`.
+- **Operacional, o resto da passada**: 12 oráculos e testes de ação verdes (escala ciclo, ronda, banco de horas,
+  fechamento de diaristas, leituras). O que é uso, não código: 17 escalas em rascunho (agosto e setembro 100% rascunho,
+  julho publicada) e 9 postos sem escala publicada — o ciclo submeter → aprovar → publicar existe e passa no teste;
+  ninguém o executa desde julho. 20 turnos de hoje sem check-in nem batida.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
