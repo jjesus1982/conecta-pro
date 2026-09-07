@@ -395,14 +395,14 @@ async def build_contabil(db, out: dict) -> None:
             "title": "Provisões trabalhistas (férias + 13º)", "type": "table", "cta": "—",
             "sub": (f"Provisão de férias (1/9) e 13º (1/12) sobre a folha REAL (hr_payslips). "
                     f"Acumulado: base {brl(tot_base)} · férias {brl(tot_fer)} · 13º {brl(tot_dec)}. "
-                    "Postagem no razão (4.1.2.04/4.1.2.03) pela ação 'Postar provisões' — gated, idempotente."),
+                    "Postagem no razão (D 5.1.1.05 / C 2.1.1.01) pela ação 'Postar provisões' — gated, idempotente."),
             "grid": "1fr 0.9fr 1.2fr 1.2fr 1.2fr",
             "cols": ["Competência", "Func.", "Base salarial", "Provisão férias (1/9)", "Provisão 13º (1/12)"],
             "rows": rows or [{"cells": [t("Sem folha"), t("0"), t("—"), t("—"), t("—")]}],
             "panelGrid": "1fr",
             "panels": [{"title": "Lançamentos que serão postados (por competência)", "rows": [
-                {"left": "Provisão férias — D 4.1.2.04 (despesa) / C 2.1.2.01 (provisões a pagar)", "right": brl(tot_fer), **S["info"]},
-                {"left": "Provisão 13º — D 4.1.2.03 (despesa) / C 2.1.2.01 (provisões a pagar)", "right": brl(tot_dec), **S["info"]},
+                {"left": "Provisão férias — D 5.1.1.05 (Férias e 13º) / C 2.1.1.01 (provisões a pagar)", "right": brl(tot_fer), **S["info"]},
+                {"left": "Provisão 13º — D 5.1.1.05 (Férias e 13º) / C 2.1.1.01 (provisões a pagar)", "right": brl(tot_dec), **S["info"]},
                 {"left": "Total a provisionar (passivo + despesa de competência)", "right": brl(tot_fer + tot_dec), **S["warn"]},
             ]}],
         }
@@ -545,7 +545,7 @@ async def build_contabil(db, out: dict) -> None:
         from sqlalchemy import text as _text
         _rz = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
             "SELECT periodo_competencia, coalesce(sum(valor),0) FROM accounting_entries "
-            "WHERE conta_debito LIKE '4.1.1%' AND tipo_lancamento='folha' GROUP BY 1"))).fetchall()}
+            "WHERE conta_debito LIKE '5.1.1.01%' AND tipo_lancamento='folha' GROUP BY 1"))).fetchall()}
         _pt = {r[0]: float(r[1] or 0) for r in (await db.execute(_text(
             "SELECT reference_period, coalesce(sum(total_earnings),0) FROM hr_payslips GROUP BY 1"))).fetchall()}
         _comps = sorted(set(_rz) | set(_pt))

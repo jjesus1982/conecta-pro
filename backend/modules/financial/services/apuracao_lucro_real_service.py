@@ -61,19 +61,22 @@ class ApuracaoLucroRealService:
         conn = psycopg2.connect(_db_url())
         try:
             with conn.cursor() as cur:
+                # Plano de 13/08/2026 (plano_contas_caixa.saldo): receita 4.x, ISS 5.2.2.01,
+                # salários 5.1.1.01, encargos 5.1.1.02, materiais 5.1.1.06, dedutíveis = 5.x − ISS.
+                # Até 07/09/2026 lia '3.1.1' como receita — o capital social de R$ 500 mil.
+                from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO, saldo
                 cur.execute(
-                    """
+                    f"""
                     SELECT
-                        COALESCE(sum(CASE WHEN conta_credito LIKE '3.1.1%%' THEN valor ELSE 0 END),0),
-                        COALESCE(sum(CASE WHEN conta_debito  LIKE '3.1.2%%' THEN valor ELSE 0 END),0),
-                        COALESCE(sum(CASE WHEN conta_debito  LIKE '4.1.1%%' THEN valor ELSE 0 END),0),
-                        COALESCE(sum(CASE WHEN conta_debito  LIKE '4.1.2%%' THEN valor ELSE 0 END),0),
-                        COALESCE(sum(CASE WHEN conta_debito  LIKE '4.1.3%%' THEN valor ELSE 0 END),0),
-                        COALESCE(sum(CASE WHEN conta_debito  LIKE '4%%' OR conta_debito LIKE '3.2%%'
-                                          THEN valor ELSE 0 END),0),
+                        -{saldo('4', '%%')},
+                        {saldo('5.2.2.01', '%%')},
+                        {saldo('5.1.1.01', '%%')},
+                        {saldo('5.1.1.02', '%%')},
+                        {saldo('5.1.1.06', '%%')},
+                        {saldo('5', '%%')} - {saldo('5.2.2.01', '%%')},
                         count(*)
                     FROM accounting_entries
-                    WHERE status='confirmado' AND empresa_id=%s::uuid
+                    WHERE {FILTRO_RAZAO} AND empresa_id=%s::uuid
                       AND periodo_competencia = ANY(%s)
                     """,
                     (empresa_id, meses),

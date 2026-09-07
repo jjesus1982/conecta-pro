@@ -756,16 +756,17 @@ async def get_dre_mensal(
     periodo_competencia — mesma fonte de /relatorios/dre e /accounting/dre. NÃO usa
     fin_journal_entries (ledger vazio) nem condominio_id fixo."""
     try:
-        rows = (await db.execute(_sql("""
+        from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO, saldo
+        # Plano de 13/08/2026 — mesmo mapa do _dre_simplificado; até 07/09 lia o plano velho.
+        rows = (await db.execute(_sql(f"""
             SELECT periodo_competencia,
-                   SUM(CASE WHEN conta_credito LIKE '3.1.1%' THEN valor ELSE 0 END)::float AS receita_bruta,
-                   SUM(CASE WHEN conta_debito  LIKE '3.1.2%' THEN valor ELSE 0 END)::float AS deducoes,
-                   SUM(CASE WHEN conta_debito  LIKE '4.1.1%' THEN valor ELSE 0 END)::float AS pessoal,
-                   SUM(CASE WHEN conta_debito  LIKE '4.1.2%' THEN valor ELSE 0 END)::float AS encargos,
-                   SUM(CASE WHEN conta_debito  LIKE '4%' OR conta_debito LIKE '3.2%'
-                            THEN valor ELSE 0 END)::float AS despesas_op
+                   (-{saldo('4')})::float AS receita_bruta,
+                   {saldo('5.2.2.01')}::float AS deducoes,
+                   {saldo('5.1.1.01')}::float AS pessoal,
+                   {saldo('5.1.1.02')}::float AS encargos,
+                   ({saldo('5')} - {saldo('5.2.2.01')})::float AS despesas_op
             FROM accounting_entries
-            WHERE status = 'confirmado' AND LEFT(periodo_competencia, 4) = :ano
+            WHERE {FILTRO_RAZAO} AND LEFT(periodo_competencia, 4) = :ano
             GROUP BY periodo_competencia
             ORDER BY periodo_competencia
         """), {"ano": str(ano)})).mappings().all()

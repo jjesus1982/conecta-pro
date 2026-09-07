@@ -57,15 +57,23 @@ async def src_mrr(db: AsyncSession) -> Decimal | None:
 
 
 async def src_folha(db: AsyncSession) -> Decimal | None:
-    """Folha = total_earnings dos holerites da última competência disponível."""
+    """Folha = total_earnings dos holerites da última competência JÁ VENCIDA, sem 13º.
+
+    Medido em 07/09/2026: as parcelas do 13º (payslip_code '13O-2026-P1/P2') moram em
+    reference_period 2026-11 e 2026-12 desde 03/08 — "última competência" virava a 1ª parcela
+    do 13º (R$ 35.864) e a Margem Bruta do BI subia a 86,7% com a folha de novembro.
+    """
     val = await _scalar(
         db,
         """
         SELECT COALESCE(SUM(total_earnings), 0)
         FROM hr_payslips
-        WHERE (reference_year, reference_month) = (
+        WHERE payslip_code NOT LIKE '13O-%'
+          AND (reference_year, reference_month) = (
             SELECT reference_year, reference_month
             FROM hr_payslips
+            WHERE payslip_code NOT LIKE '13O-%'
+              AND make_date(reference_year, reference_month, 1) <= date_trunc('month', CURRENT_DATE)
             ORDER BY reference_year DESC, reference_month DESC
             LIMIT 1
         )

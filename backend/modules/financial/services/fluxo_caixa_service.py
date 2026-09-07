@@ -387,9 +387,9 @@ class FluxoCaixaService:
                     "SELECT competencia, count(*), sum(valor_servicos)::float FROM nfse_tomadas_nacional "
                     "WHERE competencia LIKE %s GROUP BY 1 ORDER BY 1", (f"{ano}-%",))
                 tom = {c: (n, v) for c, n, v in cur.fetchall()}
-                cur.execute(
+                cur.execute(  # 5.1.1.01 = salários (plano de 13/08/2026; até 07/09 lia 4.1.1 = receita)
                     "SELECT periodo_competencia, sum(valor)::float FROM accounting_entries "
-                    "WHERE conta_debito LIKE '4.1.1%%' AND periodo_competencia LIKE %s GROUP BY 1", (f"{ano}-%",))
+                    "WHERE conta_debito LIKE '5.1.1.01%%' AND periodo_competencia LIKE %s GROUP BY 1", (f"{ano}-%",))
                 folha = {c: v for c, v in cur.fetchall()}
             meses, tt, tf = [], 0.0, 0.0
             for comp in sorted(set(tom) | set(folha)):

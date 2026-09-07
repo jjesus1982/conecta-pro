@@ -26,7 +26,7 @@ from pathlib import Path
 
 RAIZ = Path("/opt/conecta-pro/backend")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verdades_dominio import VERDADES  # noqa: E402
+from verdades_dominio import PROIBIDO, VERDADES  # noqa: E402
 
 
 def _numeros(node: ast.AST) -> list[Decimal]:
@@ -102,6 +102,14 @@ def main() -> int:
                                f"o fallback codificado envelheceu")
         print(f"  {'x' if any(a.startswith(v['chave']) for a in achados) else 'ok'} {v['chave']}  "
               f"({len(v['onde'])} lugar(es), vigente até {v['vigente_ate']})")
+    for p in PROIBIDO:  # verdade sem número: um texto que não pode voltar a existir em modules/
+        r = subprocess.run(["grep", "-rlE", p["regex"], "--include=*.py", str(RAIZ / "modules")],  # noqa: S603,S607
+                           capture_output=True, text=True, check=False)
+        arqs = [a.replace(str(RAIZ) + "/", "") for a in r.stdout.split()]
+        arqs = [a for a in arqs if a not in p["exceto"]]
+        if arqs:
+            achados.append(f"{p['chave']}: {len(arqs)} arquivo(s) ainda com o texto proibido — {p['motivo']}: {arqs}")
+        print(f"  {'x' if arqs else 'ok'} {p['chave']}  (proibido em modules/, {len(p['exceto'])} exceção(ões))")
     print()
     for a in achados:
         print(f"   {a}")

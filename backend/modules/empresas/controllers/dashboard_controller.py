@@ -516,23 +516,20 @@ async def dashboard_contabil_grupo(
     empresas = [e["empresa"] for e in empresas_dados]
     receitas = await _receita_por_empresa(db, empresas, mes, ano)
 
-    # Ler o RAZAO REAL (accounting_entries) por empresa e competencia — mesma
-    # fonte da apuracao Lucro Real (apuracao_lucro_real_service). O plano de
-    # contas usa contas em texto: credito 3.1.1 = receita bruta de servicos;
-    # debito 3.1.2 = deducoes/ISS sobre a receita; debito 4% ou 3.2% =
-    # despesas/custos dedutiveis. Nao existem contas 5% (impostos sobre lucro
-    # sao apurados, nao lancados). periodo_competencia e VARCHAR 'YYYY-MM'.
+    # Ler o RAZAO REAL (accounting_entries) por empresa e competencia — plano de 13/08/2026
+    # (plano_contas_caixa.saldo): 4.x receita (credor), 5.2.2.01 ISS, 5.x despesas; 3.x é
+    # patrimônio e NUNCA receita (até 07/09 este leitor somava o capital social como receita).
     competencia = f"{ano:04d}-{mes:02d}"
-    razao_sql = text("""
+    from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO, saldo
+    razao_sql = text(f"""
         SELECT
             empresa_id,
-            COALESCE(SUM(CASE WHEN conta_credito LIKE '3.1.1%%' THEN valor ELSE 0 END), 0) AS receita,
-            COALESCE(SUM(CASE WHEN conta_debito  LIKE '3.1.2%%' THEN valor ELSE 0 END), 0) AS impostos,
-            COALESCE(SUM(CASE WHEN conta_debito  LIKE '4%%'
-                              OR  conta_debito  LIKE '3.2%%' THEN valor ELSE 0 END), 0) AS despesas,
+            -{saldo('4')} AS receita,
+            {saldo('5.2.2.01')} AS impostos,
+            {saldo('5')} - {saldo('5.2.2.01')} AS despesas,
             COUNT(*) AS lancamentos
         FROM accounting_entries
-        WHERE status = 'confirmado'
+        WHERE {FILTRO_RAZAO}
           AND periodo_competencia = :competencia
         GROUP BY empresa_id
     """)

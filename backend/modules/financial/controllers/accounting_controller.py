@@ -1948,18 +1948,18 @@ async def accounting_dre_consolidado(
         tot = {"receita_bruta": 0.0, "deducoes": 0.0, "despesa_pessoal": 0.0,
                "despesa_encargos": 0.0, "despesas_operacionais": 0.0, "resultado": 0.0}
         for emp_id, cnpj, razao, regime, principal in empresas:
-            cur.execute(
-                """
+            from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO, saldo
+            cur.execute(  # plano de 13/08/2026; até 07/09 lia '3.1.1' (capital social) como receita
+                f"""
                 SELECT
-                    sum(CASE WHEN conta_credito LIKE '3.1.1%%' THEN valor ELSE 0 END)::float,
-                    sum(CASE WHEN conta_debito  LIKE '3.1.2%%' THEN valor ELSE 0 END)::float,
-                    sum(CASE WHEN conta_debito  LIKE '4.1.1%%' THEN valor ELSE 0 END)::float,
-                    sum(CASE WHEN conta_debito  LIKE '4.1.2%%' THEN valor ELSE 0 END)::float,
-                    sum(CASE WHEN conta_debito  LIKE '4%%' OR conta_debito LIKE '3.2%%'
-                             THEN valor ELSE 0 END)::float,
+                    (-{saldo('4', '%%')})::float,
+                    {saldo('5.2.2.01', '%%')}::float,
+                    {saldo('5.1.1.01', '%%')}::float,
+                    {saldo('5.1.1.02', '%%')}::float,
+                    ({saldo('5', '%%')} - {saldo('5.2.2.01', '%%')})::float,
                     count(*)
                 FROM accounting_entries
-                WHERE status='confirmado' AND empresa_id = %s::uuid
+                WHERE {FILTRO_RAZAO} AND empresa_id = %s::uuid
                   AND (%s IS NULL OR periodo_competencia = %s)
                 """,
                 [emp_id, periodo, periodo],

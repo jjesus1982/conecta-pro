@@ -28,3 +28,17 @@
 ## 2ª passada (07/09)
 - **Oráculo novo `test_oraculo_fin_visao`** vigia a Visão Geral: MRR, saldo da conta principal e médias de 90 dias. Três verdes; a média de entradas diverge 5,8% do recálculo sem transferências (235.464 × 249.873): definição do builder a apurar, fica vermelha até isso.
 - Os 32 débitos do Inter sem classificação exigem categoria por contraparte (ação "Classificar saídas"): é sua.
+
+
+## 3ª passada (07/09, madrugada) — inventário de KPIs de todos os builders
+
+| Achado | Medido | Ação |
+|---|---|---|
+| Apuração Lucro Real tributava o capital social | tela: Receita líquida R$ 500.000,00 · IRPJ+CSLL R$ 146.000 · razão: 1 lançamento C 3.1.1.01 | 7 leitores movidos para `plano_contas_caixa.saldo()` (plano 13/08); `checar_dominio` proíbe `conta_credito LIKE '3.1.1` e `conta_debito LIKE '4` em modules/ |
+| DRE mensal / consolidado / Empresas no plano velho | receita 0 ou lida como custo | idem; DRE mensal 2026 agora: jan 264,6 mil … set |
+| BI: Margem bruta 86,7% | `src_folha` = "última competência" = 1ª parcela do 13º (2026-11, R$ 35.864) | `src_folha` ignora `13O-%` e competências futuras → folha ago R$ 112.411,57, margem 58,3% |
+| MRR em duas fontes | billing_rules 270.586,96 × contracts 269.700,06 | registrado; definição é do dono |
+| Agosto faturado pela metade | jul 269,9 mil × ago 175,1 mil (competência) | Jordan confere emissão |
+| Oráculo `test_oraculo_kpis_telas` | 32 KPIs de cabeçalho, 32/32 ao centavo | roda toda noite |
+
+Ficam fora do oráculo (não é SQL escalar): cobertura de postos (repo), presença (serviço), DSO/DPO, margens da DRE, tributos por CNPJ. Continuam sem vigia.

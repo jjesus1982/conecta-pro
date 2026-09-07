@@ -75,3 +75,24 @@ VERDADES: list[dict] = [
         ],
     },
 ]
+
+
+#: Textos que NÃO podem existir em backend/modules — verdade sem número. A que motivou (07/09/2026):
+#: o plano de contas do razão mudou em 13/08/2026 (3.x patrimônio, 4.x receita, 5.x despesa) e
+#: sete leitores continuaram somando `conta_credito LIKE '3.1.1'` como receita — a Apuração
+#: Lucro Real tributava o capital social de R$ 500 mil. O jeito mecânico de impedir a volta é
+#: proibir o texto; todo leitor passa por `plano_contas_caixa.saldo`.
+PROIBIDO: list[dict] = [
+    {
+        "chave": "razao_plano_velho_receita_3.1.1",
+        "regex": r"conta_credito\s+LIKE\s+'3\.1\.1",
+        "motivo": "3.1.1 é Capital Social desde 13/08/2026; receita é 4.x (plano_contas_caixa.saldo)",
+        "exceto": ["modules/financial/services/ledger_auto_service.py"],  # reparo de dado antigo, não leitura
+    },
+    {
+        "chave": "razao_plano_velho_despesa_4.x",
+        "regex": r"conta_debito\s+LIKE\s+'4(\.1\.[123])?%",
+        "motivo": "4.x é RECEITA desde 13/08/2026; folha/despesa é 5.x (plano_contas_caixa.saldo)",
+        "exceto": [],
+    },
+]

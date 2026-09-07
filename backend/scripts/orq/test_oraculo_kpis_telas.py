@@ -85,6 +85,23 @@ KPIS = [
     # ── CRM · comissões ──
     ("crm", "dashboard", "Comissões a pagar",
      "SELECT coalesce(sum(coalesce(final_commission, base_commission, 0)),0) FROM commissions WHERE status='pending' AND is_active", 0.01),
+    # ── Fiscal · Apuração Lucro Real (Eletrônica, exercício corrente) — razão no plano de 13/08:
+    # receita = saldo credor de 4.x; líquida = − ISS (5.2.2.01); sem encerramento (apuracao).
+    # Antes de 07/09/2026 esta tela mostrava R$ 500.000,00: o capital social lido como receita.
+    ("financeiro", "g-fiscal/tabs[9]", "Receita líquida",
+     "SELECT -COALESCE(SUM(CASE WHEN conta_debito LIKE '4%' THEN valor WHEN conta_credito LIKE '4%' THEN -valor ELSE 0 END),0)"
+     " - COALESCE(SUM(CASE WHEN conta_debito LIKE '5.2.2.01%' THEN valor WHEN conta_credito LIKE '5.2.2.01%' THEN -valor ELSE 0 END),0)"
+     " FROM accounting_entries WHERE status='confirmado' AND coalesce(tipo_lancamento,'')<>'apuracao'"
+     " AND empresa_id='619a3df1-8bce-49ce-b77a-04f80a0e8491' AND periodo_competencia LIKE to_char(current_date,'YYYY')||'-%'", 0.001),
+    # ── DP · folha líquida da última competência JÁ VENCIDA. As parcelas do 13º ('13O-…') moram
+    # em 2026-11/12 desde 03/08 — "max(reference_period)" pegava a 1ª parcela do 13º (achado 07/09). ──
+    ("departamento-pessoal", "g-visao/tabs[0]", "Folha líquida",
+     "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period = "
+     "(SELECT max(reference_period) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period <= to_char(current_date,'YYYY-MM'))", 0.001),
+    # ── Financeiro · recebíveis vencidos (mesma regra de 'em aberto' do periodo_contabil) ──
+    ("financeiro", "g-visao/tabs[0]", "Recebíveis vencidos",
+     "SELECT coalesce(sum(net_value),0) FROM receivable_accounts WHERE due_date < current_date AND coalesce(status::text,'') NOT ILIKE '%pag%'"
+     " AND coalesce(status::text,'') NOT ILIKE '%cancel%' AND coalesce(status::text,'') <> 'suspensa'", 0.001),
     # Documentos · "Kits do mês" NÃO entra: o builder lê do Google Drive (competência = mês
     # anterior), fonte de fora — é domínio do checar_oraculo_externo. Medido em 07/09/2026: o
     # Drive diz 15 kits de agosto; ged_document_kits tem 9 (em_montagem, 76,7%). Achado de mapa.

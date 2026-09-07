@@ -151,6 +151,14 @@ Fiscal, cada um contra SQL independente — **29/29 ao centavo**. O que a rodada
 - **Faturamento**: julho R$ 378 mil, agosto R$ 175 mil, setembro R$ 65 mil até dia 7. A casa fatura a partir do dia 25; agosto ficou pela metade do padrão (≈R$ 265 mil/mês em 2026). Confira se faltou emitir.
 - Média de entradas/saídas da Visão Financeira subestimava 15% (mês parcial na janela) — corrigido.
 
+### 2c.1 O que o inventário de KPIs de TODOS os builders expôs (07/09, madrugada)
+
+- **Razão lido no plano morto (corrigido)**: o plano de contas mudou em 13/08 (3.x patrimônio, 4.x receita, 5.x despesa) e só o `_dre_simplificado` foi reescrito. Sete leitores seguiam no plano velho: a **Apuração Lucro Real** mostrava Receita líquida R$ 500.000,00 = o lançamento do capital social, e cobrava IRPJ+CSLL de R$ 146 mil sobre ele; DRE mensal, DRE consolidado por CNPJ, dashboard de Empresas, fluxo de caixa (folha), pareamento Portte e Orçado × Realizado liam receita como custo ou zero. Agora todos passam por `plano_contas_caixa.saldo()` e o `checar_dominio` proíbe o texto velho em `modules/`. Apuração 2026 da Eletrônica no razão: receita R$ 1,55 mi, prejuízo R$ 219 mil, IRPJ zero.
+- **13º dentro da folha (corrigido no BI)**: as parcelas do 13º (`13O-2026-P1/P2`, geradas 03/08) moram em `hr_payslips` como competências 2026-11 e 2026-12. Todo leitor de "última competência" pegava a 1ª parcela: o BI mostrava Folha R$ 35.864 e **Margem bruta 86,7%**. Com a folha de agosto (R$ 112.411,57 bruta) a margem é **58,3%** e custo folha/faturamento 41,7%.
+- **Três MRRs**: Financeiro lê `billing_rules` ativas (R$ 270.586,96); BI e KPIs lêem `contracts` ativos (R$ 269.700,06); diferença R$ 886,90. **Três "clientes ativos"**: 25 no cadastro, 12 com contrato ativo, 14 contratos. Decisão de definição, não de código.
+- **Faturamento por competência**: jul R$ 269,9 mil, **ago R$ 175,1 mil** (12 notas × 14 em julho), set R$ 65,8 mil (1 nota). A operação migrou da Eletrônica (Lucro Real) para a Patrimonial (Simples, Anexo III) em jun/jul; agosto está ~R$ 95 mil abaixo do padrão. Confira se faltou emitir.
+- **Apuração Lucro Real com ano fixo** (`apurar(2026)` no builder): em janeiro vai continuar mostrando 2026. Pendente.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),

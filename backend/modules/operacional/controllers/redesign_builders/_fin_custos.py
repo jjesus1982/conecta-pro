@@ -72,7 +72,7 @@ async def build_custos(db, out: dict) -> None:
     try:
         real = (await db.execute(text(
             "SELECT to_char(data_lancamento,'YYYY_MM') mes, sum(valor) "
-            "FROM accounting_entries WHERE conta_debito LIKE '4%' AND data_lancamento IS NOT NULL "
+            "FROM accounting_entries WHERE conta_debito LIKE '5%' AND data_lancamento IS NOT NULL "  # 5.x = despesa (plano 13/08)
             "GROUP BY 1 ORDER BY 1 DESC LIMIT 12"))).fetchall()
         orc = {r[0]: float(r[1]) for r in (await db.execute(text(
             "SELECT replace(chave,'month_',''), valor FROM financial_orcamentos WHERE chave LIKE 'month_%'"))).fetchall()}

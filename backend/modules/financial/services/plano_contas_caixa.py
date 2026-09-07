@@ -33,6 +33,27 @@ CONTA_BANCO_POR_CODIGO: dict[str, str] = {
     "364": "1.1.1.03",  # Efí — Patrimonial (conta em abertura, 14/08/2026)
 }
 
+# ── Leitura do razão (plano de 13/08/2026) ──────────────────────────────────────────
+# 3.x é PATRIMÔNIO (capital social, apuração do resultado) — NUNCA receita. 4.x é receita
+# (saldo credor), 5.1.x custo de mão de obra, 5.2.2.01 ISS (dedução da receita), 5.2.x
+# despesas, 5.9.x transitória. Em 07/09/2026 sete leitores ainda somavam "3.1.1 = receita,
+# 4 = despesa" (o plano que morreu em 13/08) e a Apuração Lucro Real tributava o CAPITAL
+# SOCIAL de R$ 500 mil como receita. Todo leitor do razão passa por aqui; `checar_dominio`
+# proíbe o texto velho em modules/.
+FILTRO_RAZAO = "status = 'confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'"
+
+
+def saldo(prefixo: str, pct: str = "%") -> str:
+    """Fragmento SQL: saldo DEVEDOR (débito − crédito) das contas que começam com `prefixo`.
+
+    Receita (4.x) sai NEGATIVA — negue no chamador. `pct="%%"` quando a query vai por
+    psycopg2 com parâmetros (o driver desdobra `%%`). Encerramento (`apuracao`) fica de
+    fora pelo FILTRO_RAZAO, senão o próprio DRE da competência encerrada se anula.
+    """
+    return (f"COALESCE(SUM(CASE WHEN conta_debito LIKE '{prefixo}{pct}' THEN valor "
+            f"WHEN conta_credito LIKE '{prefixo}{pct}' THEN -valor ELSE 0 END), 0)")
+
+
 CONTA_SAIDA_A_CLASSIFICAR = "5.9.9.01"
 CONTA_ENTRADA_A_CLASSIFICAR = "4.9.9.01"
 
