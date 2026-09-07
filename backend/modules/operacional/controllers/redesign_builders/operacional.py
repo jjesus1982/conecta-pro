@@ -2417,7 +2417,10 @@ async def _gerente_do_pedido(db, current_user, payload: dict) -> tuple[str, str]
     return emp, nome
 
 
-async def _avisar_dono(texto: str) -> None:
+async def _avisar_dono(texto: str, silencio: bool = False) -> None:
+    """`silencio` só o oráculo usa (payload._silencio, admin): prova o fluxo sem acordar o dono."""
+    if silencio:
+        return
     try:
         from modules.crm.services.orchestration import notify_owner
         await notify_owner(texto)
@@ -2468,7 +2471,8 @@ async def rd_action_gerente_checkin(current_user: CurrentActiveUser, payload: di
     visita = await svc.criar_visita(data, getattr(current_user, "id", None))
     visita = await svc.fazer_checkin(visita.id, float(lat) if lat else None, float(lng) if lng else None)
     onde = "sem GPS" if dist is None else (f"a {dist:.0f} m do posto" if dist <= raio else f"⚠️ FORA do raio: {dist:.0f} m do posto")
-    await _avisar_dono(f"📍 *{nome.title()}* chegou em *{post[0]}* às {agora:%H:%M} ({onde}).")
+    await _avisar_dono(f"📍 *{nome.title()}* chegou em *{post[0]}* às {agora:%H:%M} ({onde}).",
+                       silencio=bool(payload.get("_silencio")) and str(getattr(current_user, "role", "")).lower() == "admin")
     return {"ok": True, "message": f"Check-in registrado em {post[0]} ({onde}).", "visita": str(visita.id), "numero": visita.numero}
 
 
@@ -2498,6 +2502,7 @@ async def rd_action_gerente_checkout(current_user: CurrentActiveUser, payload: d
     await db.commit()
     agora = datetime.now()
     mins = int(row[0]) if row and row[0] is not None else None
-    await _avisar_dono(f"🚪 *{nome.title()}* saiu de *{aberta[1]}* às {agora:%H:%M}" + (f" · {mins} min no posto." if mins is not None else "."))
+    await _avisar_dono(f"🚪 *{nome.title()}* saiu de *{aberta[1]}* às {agora:%H:%M}" + (f" · {mins} min no posto." if mins is not None else "."),
+                       silencio=bool(payload.get("_silencio")) and str(getattr(current_user, "role", "")).lower() == "admin")
     return {"ok": True, "message": f"Check-out registrado ({mins} min no posto)." if mins is not None else "Check-out registrado."}
 
