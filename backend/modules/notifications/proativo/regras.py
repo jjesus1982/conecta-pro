@@ -1188,6 +1188,10 @@ SQL_RAZAO_PARADO = """
       AND h.payslip_code IS NOT NULL
       AND h.reference_period IS NOT NULL
       AND h.reference_period <= to_char(now() AT TIME ZONE 'America/Manaus', 'YYYY-MM')
+      -- O razão nasce no corte contábil (01/08/2026): folha anterior a ele NUNCA terá
+      -- lançamento, por desenho. Sem este filtro a regra segurou 7 alertas permanentes
+      -- (jan–jul/2026) de 11/08 a 07/09/2026 — sete 'persistentes' que não eram de ninguém.
+      AND h.reference_period >= :corte
       AND NOT EXISTS (
           SELECT 1 FROM accounting_entries a
           WHERE a.documento_ref = 'FOLHA-' || h.payslip_code
@@ -1198,7 +1202,10 @@ SQL_RAZAO_PARADO = """
 
 
 async def _detectar_razao_parado(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(SQL_RAZAO_PARADO))).mappings().all()
+    from modules.financial.services.periodo_contabil import CORTE_CONTABIL  # noqa: PLC0415
+
+    rows = (await db.execute(text(SQL_RAZAO_PARADO),
+                             {"corte": str(CORTE_CONTABIL)[:7]})).mappings().all()
     return [
         Achado(
             correlation_id=f"razao_parado:{r['competencia']}",
