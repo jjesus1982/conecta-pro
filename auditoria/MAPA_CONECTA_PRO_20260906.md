@@ -281,6 +281,28 @@ construção de Licitações.
   oportunidade vira lead no funil; ação na tela; oráculo `test_oraculo_licitacao_crm` prova e limpa. Os 3 contratos
   de exemplo não foram vinculados (contrato ativo gera cobrança) — o clique é do dono.
 
+### 2c.7 CNDs sem API paga — o que existe e o que cada órgão deixa fazer (07/09, medido)
+
+Existe um robô de emissão no HOST (`backend/scripts/gedeon/cnd_robot.py`, Playwright + 2captcha, saldo US$ 7,32),
+disparado pelo backend via Redis (`gedeon:cnd:request`, botão "Emitir" do GEDEON), com auto-retry a cada 6 h
+(`cnd_auto_retry.sh`) que hoje cobre SÓ a Patrimonial (decisão de 19/08) e só os portais que funcionam.
+
+| Órgão | Como | Do servidor (IP 82.25.75.74) | Evidência |
+|---|---|---|---|
+| SEFAZ-AM (estadual) | robô + reCAPTCHA (2captcha) | **funciona** | PDF real da Patrimonial 03/09, válido até 03/10/2026 |
+| SEMEF Manaus (municipal) | robô + captcha de imagem (2captcha) | **funciona** | PDF real 19/08, válido até 15/02/2027 |
+| Receita/PGFN (federal = INSS) | robô + hCaptcha (2captcha) | **falha**: 2captcha devolve UNSOLVABLE (3 tentativas, 07/09) | teste real hoje; o PDF de 20/07 é a página inicial, não certidão |
+| Caixa (FGTS/CRF) | navegador real | **bloqueado por IP** (403 Azion, Chromium de verdade) | medido 07/09 |
+| TST (CNDT) | robô + captcha de imagem | **hoje não responde** (timeout IPv4 do host e do container); funcionou em 12/08 | 4 consultas ok em 12/08 |
+
+Captcha há em TODOS os portais: "zero custo externo" literal não existe; o 2captcha custa centavos por certidão
+(saldo atual dá para meses). O caro é o Infosimples (usado para FGTS e CNDT: 46 atualizações em 30 dias).
+
+Caminhos: (1) federal via e-CAC com o certificado A1 — o det-robot já faz o login gov.br com hCaptcha `rqdata`
+(o `cnd_robot` não manda `rqdata`, provável causa do UNSOLVABLE); (2) FGTS e CNDT só saem de outro IP: um
+"nó de emissão" no PC do Jordan (mesmo robô, sobe o PDF pelo `/gedeon/cnd/upload`, agora multi-CNPJ) ou um proxy.
+Decisões do dono: quais CNPJs (hoje só Patrimonial) e se o PC dele vira nó.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
