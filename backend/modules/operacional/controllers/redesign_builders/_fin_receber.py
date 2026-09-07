@@ -12,6 +12,42 @@ from modules.operacional.controllers.redesign_data_controller import (
 async def build_receber(db, out: dict) -> None:
     _, _safe, tbl = _helpers(db)
 
+    # ── Contas a receber com a COBRANÇA bancária na linha (07/09/2026) ─────────────────────
+    # Sobrescreve a tabela base: id na linha, coluna "Cobrança" (boleto/PIX emitido?) e a ação
+    # "Emitir cobrança" — Eletrônica → Inter, Patrimonial → Cora. Regra do dono: boleto nasce aqui.
+    def _pt(st):
+        s_ = (st or "").lower()
+        return ("Pago", "ok") if s_ in ("pago", "paga") else ("Parcial", "warn") if s_ == "parcial" else ("Cancelada", "mut") if "cancel" in s_ else ("Pendente", "info")
+    out["contas-receber"] = await tbl(
+        "Contas a receber", "A receber em aberto e recentes · cobrança bancária emitida pelo Conecta PRO", "Nova cobrança",
+        ["Cliente", "Descrição", "Valor", "Vencimento", "Status", "Cobrança"], "1.5fr 1.8fr 1fr 0.9fr 0.8fr 0.9fr",
+        "SELECT r.id::text, coalesce(r.customer_name,'—'), coalesce(r.description,'—'), r.net_value, r.due_date, r.status::text, "
+        "  CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN "
+        "       CASE WHEN r.empresa_id::text = '7d79ed12-d480-4906-b2e0-2b2c4d299bab' THEN 'Cora' ELSE 'Inter' END ELSE '' END, "
+        "  r.status::text IN ('pendente','parcial') AND r.boleto_id IS NULL AND r.pix_txid IS NULL AND r.due_date >= current_date "
+        "FROM receivable_accounts r ORDER BY (r.status::text IN ('pendente','parcial')) DESC, r.due_date NULLS LAST LIMIT 200",
+        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600), t(r[4].strftime('%d/%m/%Y') if r[4] else '—'),
+                   b(*_pt(r[5])), b(f"emitida · {r[6]}", "ok") if r[6] else b("sem cobrança", "warn" if r[7] else "mut")],
+        actionsfn=lambda r: ([{
+            "title": f"Emitir cobrança: {r[1][:40]}",
+            "sub": ("Registra o boleto/PIX no banco da empresa credora e grava na conta. "
+                    f"{brl(r[3])} · vence {r[4].strftime('%d/%m/%Y') if r[4] else '—'}. Não envia nada ao cliente."),
+            "endpoint": f"/api/v1/financial/receivables/{r[0]}/emitir-cobranca",
+            "method": "POST", "btnLabel": "Emitir cobrança", "submitLabel": "Emitir no banco",
+            "btnStyle": "primary", "okMsg": "Cobrança emitida. Recarregue.", "fields": []}] if r[7] else []))
+    out["cobrancas-do-mes"] = {
+        "title": "Emitir cobranças do mês", "type": "form", "cta": "—",
+        "sub": ("Emite boleto/PIX de TODAS as contas em aberto do mês ainda sem cobrança bancária "
+                "(Eletrônica → Inter, Patrimonial → Cora). Marque 'só prever' para ver a lista antes."),
+        "endpoint": "/api/v1/financial/receivables/emitir-cobrancas-mes/{ano}/{mes}", "method": "POST",
+        "submitLabel": "Emitir cobranças do mês", "okMsg": "Processado — veja o resultado.",
+        "fields": [
+            {"key": "ano", "label": "Ano*", "type": "number", "value": __import__("datetime").date.today().year, "span": "span 1"},
+            {"key": "mes", "label": "Mês*", "type": "number", "value": __import__("datetime").date.today().month, "span": "span 1"},
+            {"key": "preview", "label": "Só prever (não emite)", "type": "checkbox", "value": True, "span": "span 2"},
+        ],
+    }
+
     # ── Aging com KPIs NA TELA (o clássico tem; redesign só tinha o PDF) ─────────────────
     # Mesmas faixas do endpoint /financial/receivables/aging (oráculo compara os totais).
     try:

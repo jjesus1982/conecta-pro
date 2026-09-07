@@ -954,3 +954,51 @@ async def receivable_aging_pdf(
     pdf = aging_pdf_bytes(dados, "Contas a Receber — Aging")
     return _R(content=pdf, media_type="application/pdf",
               headers={"Content-Disposition": 'inline; filename="aging_receivable.pdf"'})
+
+
+# ── Cobrança bancária da conta a receber (07/09/2026) ────────────────────────────────────
+# Boleto/PIX nasce aqui, não no app do banco: Eletrônica → Inter, Patrimonial → Cora, pela
+# empresa credora da conta. Emitir é registrar a cobrança no banco; dinheiro não sai.
+@router.post("/{receivable_id}/emitir-cobranca", summary="Emite boleto/PIX no banco da empresa credora")
+async def emitir_cobranca_recebivel(
+    receivable_id: UUID,
+    preview: bool = Query(False, description="true = só mostra o que seria emitido"),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.cobranca_recebivel_service import emitir
+
+    r = await run_in_threadpool(emitir, str(receivable_id), preview)
+    if r.get("erro"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=r["erro"])
+    return r
+
+
+@router.post("/emitir-cobranca-por-nota/{chave_acesso}", summary="Fluxo nota → boleto: emite a cobrança da conta a receber que corresponde à NFS-e")
+async def emitir_cobranca_por_nota(
+    chave_acesso: str,
+    preview: bool = Query(False, description="true = só mostra o que seria emitido"),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.cobranca_recebivel_service import emitir_por_nota
+
+    r = await run_in_threadpool(emitir_por_nota, chave_acesso, preview)
+    if r.get("erro"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=r["erro"])
+    return r
+
+
+@router.post("/emitir-cobrancas-mes/{ano}/{mes}", summary="Emite boleto/PIX de todas as contas em aberto do mês ainda sem cobrança")
+async def emitir_cobrancas_mes(
+    ano: int, mes: int,
+    preview: bool = Query(True, description="false = emite de verdade"),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.cobranca_recebivel_service import emitir_pendentes_mes
+
+    return await run_in_threadpool(emitir_pendentes_mes, ano, mes, preview)

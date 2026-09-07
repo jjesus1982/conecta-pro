@@ -601,8 +601,17 @@ class InterAdapter(BaseBankingAdapter):
             },
         )
 
+        # Inter v3 devolve só codigoSolicitacao no POST; linha digitável, PDF e PIX
+        # vêm no GET da cobrança logo depois do registro.
+        cod = data.get("codigoSolicitacao", "")
+        if cod and not data.get("linhaDigitavel"):
+            det = await self.get_boleto(cod)
+            if det.get("success"):
+                data = {**data, "linhaDigitavel": det.get("linha_digitavel", ""),
+                        "pdfBoleto": det.get("pdf_url", ""), "pixCopiaECola": det.get("pix_copy_paste", ""),
+                        "codigoBarras": det.get("barcode", ""), "nossoNumero": det.get("nosso_numero", "")}
         return {
-            "boleto_id": data.get("codigoSolicitacao", ""),
+            "boleto_id": cod,
             "barcode": data.get("codigoBarras", ""),
             "digitable_line": data.get("linhaDigitavel", ""),
             "pdf_url": data.get("pdfBoleto", ""),
@@ -680,12 +689,12 @@ class InterAdapter(BaseBankingAdapter):
     async def cancel_boleto(self, boleto_id: str, motivo: str = "ACERTOS") -> dict:
         """
         Cancela boleto emitido.
-        DELETE /cobranca/v3/cobrancas/{id}/cancelar
+        POST /cobranca/v3/cobrancas/{id}/cancelar  (DELETE devolvia 405 — medido 07/09/2026)
         motivo: ACERTOS | APEDIDODOCLIENTE | PAGODIRETOAOCLIENTE  # pragma: allowlist secret
         """
         try:
             await self._request(
-                "DELETE",
+                "POST",
                 f"/cobranca/v3/cobrancas/{boleto_id}/cancelar",
                 json={"motivoCancelamento": motivo},
             )

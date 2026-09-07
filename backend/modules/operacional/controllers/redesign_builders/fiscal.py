@@ -328,20 +328,50 @@ async def _multicnpj(db, out: dict, tbl) -> None:
             "rows": [{"cells": c} for c in cob],
         }
 
+    def _cobranca_da_nota(cancelada, st):
+        if cancelada:
+            return b("Nota cancelada", "mut")
+        if not st:
+            return b("Sem conta a receber", "warn")
+        status, emitida = st.split("|", 1)
+        if status in ("paga", "pago"):
+            return b("Recebida", "ok")
+        if emitida:
+            return b("Boleto emitido", "ok")
+        if status in ("pendente", "parcial"):
+            return b("A emitir", "warn")
+        return b(status.capitalize(), "info")
+
     # ── NFS-e emitidas (nacional): as notas de 2026 ganham tela ───────────────────
     try:
         out["nfse-emitidas"] = await tbl(
             "NFS-e emitidas (nacional)",
             f"{await _scalar(db, 'SELECT count(*) FROM nfse_emitidas_nacional')} notas — as de 2026, por empresa emitente",
             "—",
-            ["Número", "Empresa", "Tomador", "Valor", "ISS", "Emissão"],
-            "1fr 1.5fr 2fr 1.1fr 1fr 1fr",
+            ["Número", "Empresa", "Tomador", "Valor", "ISS", "Emissão", "Cobrança"],
+            "1fr 1.5fr 2fr 1.1fr 1fr 1fr 1fr",
+            # Fluxo natural nota → boleto (dono, 07/09/2026): a coluna diz em que pé está a conta a
+            # receber da mesma empresa/tomador/competência e o botão emite a cobrança nela
+            # (Eletrônica → Inter, Patrimonial → Cora). Regra de casamento é a do serviço
+            # (`cobranca_recebivel_service.emitir_por_nota`).
             "SELECT coalesce(n.numero::text,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
-            "coalesce(n.tomador_nome,'—'), coalesce(n.valor_servicos,0), coalesce(n.iss_valor,0), n.data_emissao "
+            "coalesce(n.tomador_nome,'—'), coalesce(n.valor_servicos,0), coalesce(n.iss_valor,0), n.data_emissao, "
+            "n.chave_acesso, coalesce(n.cancelada, FALSE), "
+            "(SELECT r.status::text || CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN '|emitida' ELSE '|' END "
+            "   FROM receivable_accounts r WHERE r.deleted_at IS NULL AND r.empresa_id = n.empresa_id "
+            "    AND regexp_replace(coalesce(r.customer_document,''), '\\D', '', 'g') = regexp_replace(coalesce(n.tomador_cnpj,''), '\\D', '', 'g') "
+            "    AND r.reference_month = substr(n.competencia, 6, 2) || '/' || substr(n.competencia, 1, 4) "
+            "   ORDER BY (r.status::text IN ('pendente','parcial')) DESC, abs(r.net_value - n.valor_servicos) LIMIT 1) "
             "FROM nfse_emitidas_nacional n LEFT JOIN empresas e ON e.id = n.empresa_id "
             "ORDER BY n.data_emissao DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:26]), t((r[2] or "—")[:38]),
-                       t(brl(r[3]), 600), t(brl(r[4])), t(_fmtdate(r[5]))])
+                       t(brl(r[3]), 600), t(brl(r[4])), t(_fmtdate(r[5])), _cobranca_da_nota(r[7], r[8])],
+            actionsfn=lambda r: ([{
+                "endpoint": f"/api/v1/financial/receivables/emitir-cobranca-por-nota/{r[6]}",
+                "method": "POST", "btnLabel": "Gerar boleto", "submitLabel": "Emitir no banco",
+                "btnStyle": "primary", "okMsg": "Cobrança emitida no banco. Recarregue.", "fields": []}]
+                if (not r[7]) and (r[8] or "").split("|")[0] in ("pendente", "parcial") and not (r[8] or "").endswith("|emitida")
+                else []))
     except Exception:  # noqa: BLE001
         pass
 
