@@ -658,7 +658,7 @@ Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc
 
 ### 2c.19 Resumo do dia 07/09 — para ler amanhã de manhã
 
-**Números**: 143 commits; 57 oráculos verdes (varredura das 19h); 33 travas estáveis; bake das 13:36 e das 17:04 sem
+**Números**: 141 commits; 57 oráculos verdes (varredura das 19h); 33 travas estáveis; bake das 13:36 e das 17:04 sem
 drift; o das 00:00 publica o que subiu depois (~70 arquivos, todos no git).
 
 **O que se prova sozinho amanhã (e onde olhar)**
