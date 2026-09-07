@@ -812,11 +812,21 @@ async def _detectar_aso_vencendo(db: AsyncSession) -> list[Achado]:
     # AGREGA quando são muitos: 25 alertas individuais soterrariam a mesa e a Pyetra
     # pararia de olhar — o alerta que enterra os outros é tão ruim quanto o que não existe.
     # Até 5, alerta nominal (dá para agir um a um). Acima disso, 1 cartão com a contagem.
-    if len(rows) > 5:
+    # Quem NUNCA fez ASO não aparece em gp_asos — e é o risco maior (NR-7). Medido em
+    # 07/09/2026: 21 ativos CLT sem exame nenhum registrado, invisíveis para a regra.
+    # Entra no corpo do cartão como denominador honesto; PJ fica fora (sem obrigação).
+    sem_aso = int((await db.execute(text(
+        "SELECT count(*) FROM employees e "
+        "WHERE lower(coalesce(e.status,'')) = 'ativo' "
+        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+        "  AND NOT EXISTS (SELECT 1 FROM gp_asos a "
+        "                  WHERE CAST(a.employee_id AS TEXT) = CAST(e.id AS TEXT))"
+    ))).scalar() or 0)
+    if len(rows) > 5 or sem_aso > 5:
         vencidos = [r for r in rows if int(r["dias"]) < 0]
         return [Achado(
             correlation_id=f"dp_aso_lote:{len(rows)}:{len(vencidos)}",
-            dados={"lote": True, "total": len(rows), "vencidos": len(vencidos),
+            dados={"lote": True, "total": len(rows), "vencidos": len(vencidos), "sem_aso": sem_aso,
                    "nomes": ", ".join(r["nome"] for r in rows[:6])
                             + (f" e mais {len(rows) - 6}" if len(rows) > 6 else "")},
         )]
@@ -833,7 +843,11 @@ def _tpl_aso(d: dict) -> tuple[str, str]:
                 f"{d['vencidos']} colaborador(es) estão com ASO VENCIDO e {d['total']} no total "
                 f"precisam de renovação em até 30 dias. Sem ASO válido a pessoa não pode "
                 f"trabalhar (NR-7) e a empresa responde em fiscalização. "
-                f"São: {d['nomes']}. Agende o lote na tela de SST.")
+                f"São: {d['nomes']}. "
+                + (f"Além destes, {d['sem_aso']} ativo(s) CLT não têm NENHUM ASO registrado no "
+                   f"sistema — ou o exame ficou fora do sistema, ou nunca foi feito. "
+                   if d.get("sem_aso") else "")
+                + "Agende o lote na tela de SST.")
     if d["dias"] < 0:
         return (f"🔴 ASO VENCIDO: {d['nome']}",
                 f"O ASO de {d['nome']} venceu em {d['venc']} — há {abs(d['dias'])} dia(s). "
