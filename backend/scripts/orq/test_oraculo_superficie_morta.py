@@ -49,7 +49,8 @@ from core.database.session import async_session_factory  # noqa: E402
 MORTAS = {
     "ged_documents": "39 rotas + telas em app/modulos/documentos; o GED vivo é por KITS",
     "ged_document_shares": "23 rotas; componente DocumentShareDialog não é renderizado por página nenhuma",
-    "ged_document_versions": "11 rotas; idem DocumentVersionHistory",
+    # ged_document_versions saiu daqui em 07/09/2026: foi para a quarentena (schema lixo_20260906)
+    # no mapa de 06/09, junto das outras 🔴. Morta declarada que deixa de existir é dívida paga.
     "time_entries": "parte das 64 rotas de ponto; o ponto vivo é gp_clock_punches",
     "overtimes": "idem",
     "time_justifications": "idem",
