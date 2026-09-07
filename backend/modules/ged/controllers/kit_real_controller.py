@@ -10,6 +10,7 @@ Endpoints:
 import hashlib
 import io
 import logging
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -219,121 +220,51 @@ async def _gerar_kit_real(db: AsyncSession, kit_id: str) -> dict:
 
 
 async def _add_certidoes(db: AsyncSession, kit_id: str, comp: date) -> int:
-    """Puxa certidoes validas do bidding_certificates e gera PDFs."""
+    """Anexa ao kit o PDF ORIGINAL de cada certidão (ged_certidoes.file_path — o arquivo que o
+    robô/pessoa baixou do órgão). Dono, 07/09/2026: nada de página-resumo renderizada; a
+    versão antiga desenhava "Certidão … VALIDA" com reportlab a partir de bidding_certificates.
+    Certidão sem PDF no disco não entra (e não é inventada)."""
+    import shutil
+    from pathlib import Path
 
-    MAPA = {
-        "FGTS": "cnd_caixa",
-        "CND_FEDERAL": "cnd_receita",
-        "CND_ESTADUAL": "cnd_sefaz",
-        "CND_MUNICIPAL": "cnd_prefeitura",
-        "CNDT": "cnd_trabalhista",
-    }
-
-    certs = (
-        (
-            await db.execute(
-                text(
-                    "SELECT tipo, nome, situacao, data_validade "
-                    "FROM bidding_certificates "
-                    "WHERE ativo = true AND data_validade::date >= :hoje AND tipo IN ('FGTS','CND_FEDERAL','CND_ESTADUAL','CND_MUNICIPAL','CNDT') "
-                    "ORDER BY tipo"
-                ),
-                {"hoje": comp},
-            )
-        )
-        .mappings()
-        .all()
-    )
-
+    rows = (
+        await db.execute(text(
+            "SELECT document_type::text AS dt, name, cnpj, file_path, expiry_date "
+            "FROM ged_certidoes WHERE file_path IS NOT NULL "
+            "  AND (expiry_date IS NULL OR expiry_date >= current_date) "
+            "ORDER BY document_type, cnpj"))
+    ).mappings().all()
     added = 0
-    for c in certs:
-        doc_type = MAPA.get(c["tipo"])
-        if not doc_type:
+    for c in rows:
+        src = c["file_path"]
+        if not src or not os.path.exists(src):
             continue
-
+        dt = c["dt"] or "certidao"
+        cnpj = "".join(ch for ch in (c["cnpj"] or "") if ch.isdigit())
         exists = (
             await db.execute(
-                text("SELECT 1 FROM ged_kit_documents WHERE kit_id = :kid AND document_type = :dt"),
-                {"kid": kit_id, "dt": doc_type},
+                text("SELECT 1 FROM ged_kit_documents WHERE kit_id = :kid AND document_type = :dt "
+                     "AND coalesce(document_name,'') LIKE :nm"),
+                {"kid": kit_id, "dt": dt, "nm": f"%{cnpj[-6:] or '%'}%"},
             )
         ).first()
         if exists:
             continue
-
-        # Gerar PDF simples da certidao
-        from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-        from reportlab.lib.units import cm, mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
-        buf = io.BytesIO()
-        # topMargin 42mm p/ não sobrepor o cabeçalho da marca (logo completa Conecta Mais)
-        doc = SimpleDocTemplate(
-            buf, pagesize=A4, topMargin=42 * mm, bottomMargin=2 * cm, leftMargin=2 * cm, rightMargin=2 * cm
-        )
-        st = getSampleStyleSheet()
-        AZ = colors.HexColor("#0A2540")
-        story: list[Any] = []
-        story += [
-            Paragraph(
-                f'<b><font color="#0A2540" size="14">{c["nome"]}</font></b>', ParagraphStyle("t", alignment=TA_CENTER)
-            ),
-            Spacer(1, 0.4 * cm),
-            Paragraph(
-                f'<font size="9" color="grey">{B.EMPRESA["nome"]} — CNPJ {B.EMPRESA["cnpj"]}</font>',
-                ParagraphStyle("s", alignment=TA_CENTER),
-            ),
-            Spacer(1, 0.5 * cm),
-        ]
-        data = [
-            ["Tipo", c["tipo"]],
-            ["Situacao", c["situacao"]],
-            ["Validade", c["data_validade"].strftime("%d/%m/%Y") if c["data_validade"] else "-"],
-            ["Status", "VALIDA" if c["situacao"] in ("REGULAR", "NEGATIVA", "VALIDO") else c["situacao"]],
-        ]
-        t = Table(data, colWidths=[5 * cm, 12 * cm])
-        t.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (0, -1), AZ),
-                    ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
-                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 10),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-                    ("PADDING", (0, 0), (-1, -1), 8),
-                ]
-            )
-        )
-        story.append(t)
-        story.append(Spacer(1, 0.5 * cm))
-        story.append(
-            Paragraph(
-                '<font size="8" color="grey">Documento extraido do sistema Conecta PRO. '
-                "Consulte a autenticidade nos portais oficiais.</font>",
-                st["Normal"],
-            )
-        )
-        _brand_build(doc, story, titulo="CERTIDÃO")
-        chk = hashlib.sha256(buf.getvalue()).hexdigest()[:12]
-        fname = f"{doc_type}_{chk}.pdf"
-        Path("/app/uploads/ged/kits").mkdir(parents=True, exist_ok=True)
-        Path(f"/app/uploads/ged/kits/{fname}").write_bytes(buf.getvalue())
-        fp = f"ged/kits/{fname}"
-
+        fname = f"{dt}_{cnpj or 'x'}_{kit_id[:8]}.pdf"
+        dst = Path(f"/app/uploads/ged/kits/{fname}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        nome = f"{c['name'] or dt} — {cnpj}"
         await db.execute(
             text(
                 "INSERT INTO ged_kit_documents (id, kit_id, document_type, document_name, file_path, "
                 "source_module, auto_generated, is_signed, created_at, updated_at) "
-                "VALUES (gen_random_uuid(), :kid, :dt, :dn, :fp, 'fiscal', true, true, NOW(), NOW())"
+                "VALUES (gen_random_uuid(), :kid, :dt, :dn, :fp, 'ged', false, false, NOW(), NOW())"
             ),
-            {"kid": kit_id, "dt": doc_type, "dn": f"{c['nome'][:50]}.pdf", "fp": fp},
+            {"kid": kit_id, "dt": dt, "dn": nome[:200], "fp": f"ged/kits/{fname}"},
         )
         added += 1
-
     return added
-
 
 async def _add_fiscal_docs(db: AsyncSession, kit_id: str, comp: date) -> int:
     """Puxa FGTS, DCTF, INSS, ISS do fiscal_obligations e gera PDFs."""
@@ -566,6 +497,13 @@ async def _add_comprovantes_bancarios(db: AsyncSession, kit_id: str, employees: 
 
 
 async def _add_boleto_nfse(db: AsyncSession, kit_id: str, client_id: str, comp: date) -> int:
+    """DESLIGADO (dono, 07/09/2026): boleto no kit é o PDF do BANCO (Inter/Cora), nunca um
+    render. Esta função fabricava "BOLETO / COBRANÇA" com reportlab somando as `nfses`
+    antigas do condomínio — R$ 131.684,84 no kit de julho da Ideal Flores, medido no Drive.
+    Devolve 0; o corpo antigo segue abaixo, inalcançável."""
+    logger.info("kit real: boleto NÃO é fabricado pelo sistema (anexar o PDF do banco) — kit %s", kit_id)
+    return 0
+
     """Gera PDF de boleto a partir de receivable_accounts ou NFS-e."""
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
