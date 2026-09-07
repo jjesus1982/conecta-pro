@@ -175,6 +175,14 @@ venc. 20/07, ainda `pendente`) foi calculado sobre R$ 187.981,05, isto é, COM a
 cancelar as duas no ADN (se o prazo municipal permitir) ou aceitar o DAS cheio. Sistema não faz escrita no
 governo.
 
+**2ª puxada (06:32, a pedido — "já foram emitidas notas pelos dois CNPJ de julho e agosto")**: feed idêntico,
+NSU 532/56 sem avanço. Julho fecha: Patrimonial 10 notas (R$ 255.400,06) + Eletrônica 4 (R$ 14.500) = R$ 269.900.
+Agosto, cliente a cliente contra julho: falta **Villa dos Pássaros vigilância (R$ 33.538,33)** — não existe no ADN
+em nenhum dos dois CNPJs; e **Ideal Flores (R$ 65.842,42)** foi emitida em 02/09 (nota 32) e caiu em setembro
+porque o ADN devolve dCompet = data de emissão. Aplicado à nota 32 o mesmo tratamento das notas 109/111 de junho
+(competência corrigida, `competencia_origem_adn` guarda a original): agosto passa a R$ 240.923,23 (13 notas);
+setembro volta a zero. Só a nota de vigilância dos Pássaros continua por emitir.
+
 `NFSeNacionalService.consultar_nfse` é stub ("informações simuladas") — a consulta por chave não existe; a
 verdade é o feed de distribuição. O resumo das tomadas por empresa somava os dois CNPJs (corrigido).
 
