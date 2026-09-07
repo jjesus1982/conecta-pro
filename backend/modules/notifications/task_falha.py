@@ -22,7 +22,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from celery.signals import task_failure
+from celery.signals import task_failure, task_postrun
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,28 @@ _SQL_SINO = """
 """
 
 
+@task_postrun.connect
+def registrar_sucesso_vazio_no_sino(sender=None, retval=None, state=None, **_kwargs) -> None:
+    """Task que NÃO estoura mas devolve `{"ok": False}` / `{"erro": …}` é falha disfarçada de
+    sucesso: o fechamento do razão ficou 27 dias assim (11/08 → 07/09/2026) e este módulo,
+    que só ouve `task_failure`, não tinha o que avisar. 55 tasks engolem a própria exceção
+    (`checar_beat_engole_falha`); aqui o resultado delas vira aviso, sem mudar cada uma."""
+    try:
+        if not isinstance(retval, dict):
+            return
+        erro = None
+        if retval.get("ok") is False:
+            erro = "devolveu ok=False: " + str({k: v for k, v in retval.items() if k in ("erro", "error", "msg", "mensagem", "detalhe")} or retval)[:300]
+        elif retval.get("erro") or retval.get("error"):
+            erro = "devolveu erro: " + str(retval.get("erro") or retval.get("error"))[:300]
+        if not erro:
+            return
+        nome = getattr(sender, "name", None) or str(sender)
+        _avisar(nome, erro, titulo=f"Tarefa agendada devolveu falha: {nome}")
+    except Exception as exc:  # noqa: BLE001 — nunca derrubar a tarefa por causa do aviso
+        logger.warning("[task_falha] não consegui registrar o sucesso vazio no sino: %s", exc)
+
+
 @task_failure.connect
 def registrar_falha_no_sino(sender=None, exception=None, einfo=None, **_kwargs) -> None:
     """Grava UM alerta por tarefa por dia quando uma tarefa Celery estoura.
@@ -57,8 +79,16 @@ def registrar_falha_no_sino(sender=None, exception=None, einfo=None, **_kwargs) 
     """
     try:
         nome = getattr(sender, "name", None) or str(sender)
-        dia = datetime.now(_TZ).strftime("%Y-%m-%d")
         erro = f"{type(exception).__name__}: {exception}"[:400]
+        _avisar(nome, erro)
+    except Exception as exc:  # noqa: BLE001 — nunca derrubar a tarefa por causa do aviso
+        logger.warning("[task_falha] não consegui registrar a falha no sino: %s", exc)
+
+
+def _avisar(nome: str, erro: str, titulo: str | None = None) -> None:
+    """Um aviso por (tarefa, dia) no sino dos admins — mesmo molde para exceção e sucesso vazio."""
+    try:
+        dia = datetime.now(_TZ).strftime("%Y-%m-%d")
 
         # Importado aqui dentro: no import do módulo o app ainda está subindo.
         from core.database.session import SyncSessionLocal
@@ -73,7 +103,7 @@ def registrar_falha_no_sino(sender=None, exception=None, einfo=None, **_kwargs) 
                 "origem": "task_falha", "familia": "sistema",
                 "severidade": "critico", "tarefa": nome, "erro": erro,
             })
-            title = f"Tarefa agendada falhou: {nome}"
+            title = titulo or f"Tarefa agendada falhou: {nome}"
             body = (
                 f"A tarefa {nome} estourou hoje ({dia}).\n\n{erro}\n\n"
                 f"Se ela roda todo dia, pode estar falhando em silêncio há mais tempo — "
