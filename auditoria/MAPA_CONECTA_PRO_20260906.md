@@ -261,6 +261,26 @@ construção de Licitações.
 - **Três oráculos de cotação** deixavam rascunhos 'descartado' em produção (checar_desmonte): agora apagam; 145
   removidos.
 
+### 2c.6 Manhã de 07/09 — respostas do Jordan viradas em código
+
+- **Notas 3 e 4 de junho (Patrimonial)**: válidas no governo, desconto das retenções dado aos clientes. Flag de
+  cancelada removida; junho da Patrimonial volta a 6 notas, R$ 187.981,05 — o DAS 06 já estava certo.
+- **Villa dos Pássaros, agosto**: regra do dono — portaria e limpeza pela Patrimonial, segurança eletrônica pela
+  Eletrônica. A nota de vigilância (R$ 33.538,33) segue por emitir, pela Patrimonial.
+- **Saídas da Cora**: salário CLT/PJ e parte do VT/VR são pagos pelo app (a API não faz PIX). Regra no razão: PIX
+  para CPF de colaborador = salário (baixa do passivo), Caixa = FGTS, "Folha" do banco = salário; "pagamento"/
+  "PIX"/"Outros" deixam de valer como categoria. 109 saídas de agosto reclassificadas; resultado de agosto passa de
+  −R$ 96 mil para **−R$ 39.970,08**. Ficam 110 saídas (R$ 79,5 mil) sem regra: Sólides (R$ 28 mil), empréstimos,
+  sindicato, advogados, Portte, PJ sem CPF cadastrado — justificativa do dono.
+- **Folha de agosto**: Portte já enviou; gerar pelo Conecta PRO e comparar no pareamento (C-PAR) é passo do DP.
+- **LLM sem crédito**: as 30 mil chamadas/dia eram o redator proativo martelando (consertado 06/09; hoje 1–5/h).
+  O uso real do José Luís é pequeno (WhatsApp 263 chamadas em 7 dias, US$ 0,07). Modelo local nesta VPS (8 vCPU,
+  sem GPU) mede 0,32 token/s — inutilizável para conversa. Ver resposta no chat.
+- **Inter R$ 256 em 05/09**: VT/VR da virada da noite (confirmado pelo dono).
+- **Licitações → CRM**: construído. Contrato público vira cliente + contrato (fonte das cobranças e do MRR);
+  oportunidade vira lead no funil; ação na tela; oráculo `test_oraculo_licitacao_crm` prova e limpa. Os 3 contratos
+  de exemplo não foram vinculados (contrato ativo gera cobrança) — o clique é do dono.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
