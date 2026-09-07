@@ -236,6 +236,9 @@ construção de Licitações.
 - **Import órfão**: 23 cascas mortas removidas; trava binária nova e documentada (30 travas).
 - **Rotas do frontend sem backend**: 620, das quais 615 em código que nenhuma tela alcança; 5 alcançáveis são
   comodatos (módulo 🔴, 0 uso na vida), busca (resolvida) e dois templates que a trava não avalia.
+- **DAS da Patrimonial**: 06/2026 (R$ 17.898,58, venc. 20/07) e 07/2026 (R$ 24.317,87, venc. 20/08) seguem
+  `pendente` e **não há nenhum DAS/DARF/PGFN pago no extrato do Inter nem da Cora desde julho** — ou foi pago por
+  fora, ou está atrasado com multa correndo. Decisão do dono.
 - **Varredura completa dos 137 oráculos** em curso (todos verdes até o 85º); resultado no fim da seção.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
