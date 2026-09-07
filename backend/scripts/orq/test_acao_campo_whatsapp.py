@@ -86,7 +86,7 @@ async def main() -> int:
     async with async_session_factory() as db:
         depois = (await db.execute(text("SELECT count(*) FROM proposals"))).scalar()
         if r.get("draft_id"):
-            await db.execute(text("UPDATE agent_drafts SET status='descartado' "
+            await db.execute(text("DELETE FROM agent_drafts "
                                   "WHERE id::text = :i"), {"i": r["draft_id"]})
             await db.commit()
     checar(antes == depois, "NADA entrou no funil sem aprovação",

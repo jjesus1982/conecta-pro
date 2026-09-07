@@ -24,10 +24,10 @@ async def _limpar():
     from sqlalchemy import text as _tx
     from core.database import async_session_factory as _sf
     async with _sf() as db:
-        await db.execute(_tx("UPDATE agent_drafts SET status='descartado' "
+        await db.execute(_tx("DELETE FROM agent_drafts "
                              "WHERE id::text = ANY(:ids)"), {"ids": CRIADOS})
         await db.commit()
-    print("  🧹 %d rascunho(s) de teste descartado(s)" % len(CRIADOS))
+    print("  🧹 %d rascunho(s) de teste apagado(s)" % len(CRIADOS))
 
 def ok(cond, nome, detalhe=""):
     print("  %s %s%s" % ("✅" if cond else "❌", nome, (" — " + detalhe) if detalhe else ""))

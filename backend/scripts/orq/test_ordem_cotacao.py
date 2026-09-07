@@ -20,7 +20,7 @@ async def main():
         async with async_session_factory() as db:
             pay = (await db.execute(text("SELECT payload FROM agent_drafts WHERE id::text=:i"),
                                     {"i": str(r["draft_id"])})).scalar()
-            await db.execute(text("UPDATE agent_drafts SET status='descartado' WHERE id::text=:i"),
+            await db.execute(text("DELETE FROM agent_drafts WHERE id::text=:i"),
                              {"i": str(r["draft_id"])})
             await db.commit()
         return pay
