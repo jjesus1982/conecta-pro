@@ -456,6 +456,27 @@ Jordan for fazer o login pelo noVNC.
 - Varredura completa dos 56 oráculos à tarde: só o extrato falhou, pelo motivo acima. Commits `9cf06d495`, `a8202e508`,
   `1f890d36d`.
 
+### 2c.14 O crédito do José Luís, em números (07/09, 15h — resposta ao "só recarrego quando normalizar")
+
+| dia | quem queimou (`llm_provider` = redator das regras proativas) | uso real (WhatsApp + orquestrador + visão) |
+|---|---|---|
+| 26/08 | 1.622 chamadas · US$ 0,21 | — |
+| 27/08 | 8.950 · US$ 1,14 | US$ 0,04 |
+| 28/08 | 21.853 · US$ 2,68 | US$ 0,54 (dia pesado: 112 vídeos + 63 imagens) |
+| 01/09 | 24.105 · US$ 2,98 | US$ 0,02 |
+| 02/09 | 25.927 · US$ 3,21 | US$ 0,03 |
+| 03/09 | 30.218 · saldo zerou às ~11h (4.402 ok, o resto 402) | — |
+| 04–06/09 | ~31 mil/dia, **todas falhando** (402, custo zero) | 0 respostas a clientes |
+| 07/09 | 7.118 até as 05:00 e **4 por hora** desde então (disjuntor, commit `2f47abfe0`) | — |
+
+- **Normalizou.** O vazamento era o redator proativo (`notifications/proativo/redator.py`) chamando o LLM a cada regra
+  avaliada, ~25 mil vezes por dia — 90 % do gasto. Fechado às 05:00 de hoje com disjuntor; resíduo de 4 chamadas/hora.
+  Com crédito, o gasto esperado é o do uso real: **US$ 0,05 a 0,50 por dia** (o de 28/08, com vídeo, foi o teto).
+- **Enquanto o saldo está negativo, o José Luís está mudo**: 41 mensagens de clientes em 04/09 receberam "estou com um
+  problema técnico"; 05/09, duas; 06 e 07/09, nenhuma entrada. As 8 "saídas" por dia são avisos para você, não respostas.
+- O aviso "Saldo do José Luís" foi acalmado: 3h só no primeiro dia, depois 1/dia (eram 6/dia há 5 dias). A trava
+  `checar_llm_martelando` (28ª) fica de vigia para a próxima origem que martelar.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
