@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 #: some junto com o resto; a pessoa aprende a ignorar o remetente.
 _JANELA_DIAS = 3
 
-PORTAL_URL = os.getenv("PORTAL_URL", "https://erp.conectamais.pro/meu-espaco")
+# /meu-espaco dava 404 (medido 07/09/2026); a entrada do colaborador (CPF) é /portal-funcionario/login.
+PORTAL_URL = os.getenv("PORTAL_URL", "https://erp.conectamais.pro/portal-funcionario/login")
 
 #: `portal_notifications.notification_type` é ENUM no banco (document_pending,
 #: schedule_update, payslip_available, warning_issued, general, system). Criar um valor
