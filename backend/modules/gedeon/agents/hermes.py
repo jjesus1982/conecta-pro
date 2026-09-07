@@ -130,6 +130,7 @@ MAPA_TIPOS_ONVIO_FUNCIONARIO: dict[str, str] = {
     "escala_mes": "escala_mes",
     # categorias que o classificador do Onvio passou a reconhecer em 07/09/2026
     "comunicacao_transferencia": "comunicacao_transferencia",
+    "comprovante_rendimentos": "comprovante_rendimentos",
     "termo_salario_familia": "termo_salario_familia",
     "advertencia": "advertencia",
 }
@@ -642,6 +643,12 @@ class Hermes:
 
         with get_sync_db() as db:
             cond_to_ged = self._build_cond_to_ged_map(db)
+            # Antes de vincular: o que ficou 'outros' pelo NOME ganha categoria pelo TEXTO.
+            try:
+                from modules.gedeon.onvio.onvio_parser import reclassificar_outros_por_conteudo
+                logger.info("HERMES: reclassificação por conteúdo → %s", reclassificar_outros_por_conteudo(db))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("HERMES: reclassificação por conteúdo falhou: %s", exc)
             docs = self._get_docs_sem_vinculo(mes_ref, db)
 
             for doc in docs:
