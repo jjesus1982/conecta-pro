@@ -488,8 +488,8 @@ async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
     # `fim` calculado uma vez em subquery — repetir a expressão em SELECT e WHERE foi
     # exatamente o que escondeu o COALESCE quando o campo formal era nulo.
     rows = (await db.execute(text(
-        "SELECT id, nome, fim, (fim - current_date) AS dias, origem FROM ("
-        "  SELECT t.id::text AS id, e.nome AS nome, "
+        "SELECT id, nome, fim, (fim - current_date) AS dias, origem, status_emp FROM ("
+        "  SELECT t.id::text AS id, e.nome AS nome, lower(coalesce(e.status,'')) AS status_emp, "
         "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
         "              THEN (t.notice_start_date "
         "                    + (t.notice_period_days || ' days')::interval)::date "
@@ -499,11 +499,10 @@ async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
         "  FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
         "  WHERE lower(coalesce(t.status::text,'')) "
         "        NOT IN ('completed','cancelled') "
-        # Só quem ainda está ATIVO tem aviso prévio a vencer. Colaborador já desligado no
-        # cadastro (data_demissao) com processo esquecido em 'initiated' ficava no quadro como
-        # "último dia JÁ PASSOU" por 25 dias (KEYSON, 07/09/2026) — processo pendente é assunto
-        # da regra dp_desligamento_sem_processo, não deste prazo.
-        "    AND e.status = 'ativo'"
+        # Colaborador já inativo no cadastro com processo esquecido em 'initiated' NÃO é "aviso
+        # prévio vencendo" — mas esconder (filtrar por ativo, como fiz às 15h de 07/09/2026)
+        # deixou o processo do KEYSON invisível para qualquer regra; o oráculo cobrou. Entra
+        # com título próprio: "desligamento sem concluir no sistema".
         ") s WHERE fim IS NOT NULL AND fim <= current_date + 7"
     ))).mappings().all()
     # denominador honesto: desligamentos em curso que NENHUMA das duas leituras enxerga
@@ -517,7 +516,8 @@ async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
         correlation_id=f"dp_aviso_previo:{r['id']}:{r['fim']}",
         dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"]),
                "vencido": int(r["dias"]) < 0, "sem_registro": int(sem_registro),
-               "origem": r["origem"]},
+               "origem": r["origem"],
+               "inativo": r["status_emp"] not in ("ativo", "afastado_inss", "suspenso", "pj_ativo")},
     ) for r in rows]
 
 
@@ -527,6 +527,11 @@ def _tpl_aviso_previo(d: dict) -> tuple[str, str]:
     # iria procurar na tela um campo vazio.
     por_ultimo_dia = d.get("origem") == "ultimo_dia"
     termo = "O último dia de trabalho" if por_ultimo_dia else "O aviso prévio"
+    if d.get("inativo"):
+        return (f"Desligamento sem concluir no sistema: {d['nome']}",
+                f"{d['nome']} já consta desligado no cadastro, mas o processo de desligamento segue "
+                f"'iniciado' (prazo {d['fim']}, há {abs(d['dias'])} dia(s)). Não é aviso prévio a vencer — é "
+                f"papel por fechar: concluir (rescisão, TRCT, eSocial S-2299) ou cancelar no DP.")
     if d["vencido"]:
         cabeca = f"🔴 {'Último dia JÁ PASSOU' if por_ultimo_dia else 'Aviso prévio VENCIDO'}: {d['nome']}"
         corpo = (f"{termo} de {d['nome']} foi em {d['fim']} — há {abs(d['dias'])} dia(s). "
