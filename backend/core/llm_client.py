@@ -171,6 +171,104 @@ def _cache_do_usage(u: Any) -> int:
     return int(getattr(det, "cached_tokens", 0) or 0) if det is not None else 0
 
 
+# ── FALLBACK LOCAL ────────────────────────────────────────────────────────────────────
+# Pedido do Jordan (07/09/2026): "os módulos que dependem de API deveriam buscar dentro do
+# sistema". Existe um Ollama com `qwen3.5:4b` no volume `ollama_models` (container
+# conecta-pro-ollama, mesma rede). Quando o provedor externo falha por CRÉDITO, COTA,
+# AUTENTICAÇÃO ou CONEXÃO — não por erro de pedido — a mesma chamada é refeita no modelo
+# local. Telemetria: provedor="ollama-local", origem "<origem>|local". Pedido inválido
+# (400) NÃO cai no fallback: refazer um pedido errado noutro modelo só troca o erro.
+# Medido antes de ligar: 04–06/09 foram 30.800 chamadas/dia falhando com 402.
+_FALLBACK_CACHE: dict[str, Any] = {"ate": 0.0, "ok": False}
+_FALLBACK_SAUDE_S = 300
+
+
+def _fallback_base() -> str | None:
+    if (os.getenv("LLM_FALLBACK_LOCAL") or "1").strip().lower() in ("0", "false", "nao", "não"):
+        return None
+    return (os.getenv("LLM_FALLBACK_BASE_URL") or "http://conecta-pro-ollama:11434/v1").strip() or None
+
+
+def modelo_fallback() -> str:
+    return (os.getenv("LLM_FALLBACK_MODEL") or "qwen3.5:4b").strip()
+
+
+def _erro_de_provedor(e: BaseException) -> bool:
+    """Crédito/cota/auth/conexão/timeout: o provedor não serviu. 400 é pedido errado: não."""
+    t = f"{type(e).__name__}: {e}".lower()
+    if "400" in t or "badrequest" in t:
+        return False
+    return any(k in t for k in ("402", "insufficient", "credit", "quota", "billing", "payment",
+                                 "401", "authentication", "429", "rate limit",
+                                 "connection", "timeout", "timed out", "503", "502", "500"))
+
+
+def _fallback_disponivel() -> bool:
+    """`GET /models` no Ollama, com cache de 5 min — não bater no modelo local a cada erro."""
+    base = _fallback_base()
+    if not base:
+        return False
+    agora = time.monotonic()
+    if agora < _FALLBACK_CACHE["ate"]:
+        return bool(_FALLBACK_CACHE["ok"])
+    ok = False
+    try:
+        import urllib.request  # noqa: PLC0415
+        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=3) as r:
+            ok = r.status == 200 and modelo_fallback().split(":")[0] in r.read(4000).decode(errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        logger.info("llm_fallback: local indisponível (%s: %s)", type(exc).__name__, str(exc)[:80])
+    _FALLBACK_CACHE.update(ate=agora + _FALLBACK_SAUDE_S, ok=ok)
+    return ok
+
+
+def _cliente_fallback(assincrono: bool) -> Any:
+    from openai import AsyncOpenAI, OpenAI  # noqa: PLC0415
+    kw = {"api_key": "ollama", "base_url": _fallback_base(), "timeout": 240.0}
+    return AsyncOpenAI(**kw) if assincrono else OpenAI(**kw)
+
+
+def _kw_fallback(kw: dict) -> dict:
+    """Mesmo pedido, modelo local; parâmetros de raciocínio da OpenAI não existem no Ollama."""
+    novo = {k: v for k, v in kw.items() if k not in ("reasoning_effort", "max_completion_tokens", "store")}
+    if "max_completion_tokens" in kw and "max_tokens" not in kw:
+        novo["max_tokens"] = kw["max_completion_tokens"]
+    novo["model"] = modelo_fallback()
+    return novo
+
+
+def _refazer_local(a, kw, origem, assincrono):
+    """Corpo comum do fallback (sync/async): devolve corrotina ou resultado."""
+    t1 = time.perf_counter()
+
+    def _ok(r):
+        u = getattr(r, "usage", None)
+        registrar_uso(modelo=modelo_fallback(), origem=origem + "|local",
+                      entrada=getattr(u, "prompt_tokens", 0) or 0,
+                      saida=getattr(u, "completion_tokens", 0) or 0,
+                      duracao_ms=int((time.perf_counter() - t1) * 1000), ok=True, provedor="ollama-local")
+        return r
+
+    def _falhou(e2):
+        registrar_uso(modelo=modelo_fallback(), origem=origem + "|local", entrada=0, saida=0,
+                      duracao_ms=int((time.perf_counter() - t1) * 1000), ok=False,
+                      erro=f"{type(e2).__name__}: {e2}", provedor="ollama-local")
+
+    if assincrono:
+        async def _run():
+            try:
+                return _ok(await _cliente_fallback(True).chat.completions.create(*a, **_kw_fallback(kw)))
+            except Exception as e2:  # noqa: BLE001
+                _falhou(e2)
+                raise
+        return _run()
+    try:
+        return _ok(_cliente_fallback(False).chat.completions.create(*a, **_kw_fallback(kw)))
+    except Exception as e2:  # noqa: BLE001
+        _falhou(e2)
+        raise
+
+
 def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
     """Envolve `chat.completions.create` para anotar o consumo de cada chamada."""
     original = client.chat.completions.create
@@ -185,7 +283,12 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
                 registrar_uso(modelo=modelo, origem=origem, entrada=0, saida=0,
                               duracao_ms=int((time.perf_counter() - t0) * 1000),
                               ok=False, erro=f"{type(e).__name__}: {e}")
-                raise
+                if not (_erro_de_provedor(e) and _fallback_disponivel()):
+                    raise
+                try:
+                    return await _refazer_local(a, kw, origem, True)
+                except Exception:  # noqa: BLE001 — o erro que vale é o do provedor principal
+                    raise e
             u = getattr(r, "usage", None)
             registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
                           entrada=getattr(u, "prompt_tokens", 0) or 0,
@@ -203,7 +306,12 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
                 registrar_uso(modelo=modelo, origem=origem, entrada=0, saida=0,
                               duracao_ms=int((time.perf_counter() - t0) * 1000),
                               ok=False, erro=f"{type(e).__name__}: {e}")
-                raise
+                if not (_erro_de_provedor(e) and _fallback_disponivel()):
+                    raise
+                try:
+                    return _refazer_local(a, kw, origem, False)
+                except Exception:  # noqa: BLE001
+                    raise e
             u = getattr(r, "usage", None)
             registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
                           entrada=getattr(u, "prompt_tokens", 0) or 0,
