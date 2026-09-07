@@ -236,7 +236,7 @@ async def get_cashflow_forecast(
 
         # MRR
         mrr_result = await db.execute(
-            text("SELECT COALESCE(SUM(base_value), 0) AS mrr FROM billing_rules WHERE ativo = true")
+            text("SELECT COALESCE(SUM(monthly_value), 0) AS mrr FROM contracts WHERE status = 'active'")
         )
         mrr_row = mrr_result.fetchone()
         mrr = float(mrr_row.mrr) if (mrr_row and mrr_row.mrr is not None) else 0.0
@@ -411,7 +411,7 @@ async def get_bi_overview(
 
         # MRR real
         mrr_result = await db.execute(
-            text("SELECT COALESCE(SUM(base_value), 0) AS mrr FROM billing_rules WHERE ativo = true")
+            text("SELECT COALESCE(SUM(monthly_value), 0) AS mrr FROM contracts WHERE status = 'active'")
         )
         mrr_row = mrr_result.fetchone()
         mrr = float(mrr_row.mrr) if (mrr_row and mrr_row.mrr is not None) else 0.0
@@ -419,14 +419,15 @@ async def get_bi_overview(
         # Margem por billing_type (tipo de cobrança)
         margem_result = await db.execute(
             text("""
+            -- contratos ativos (fonte das cobranças), não billing_rules (cadastro velho — 07/09/2026)
             SELECT
-                COALESCE(billing_type, 'outros')              AS tipo,
+                COALESCE(contract_type::text, 'outros')       AS tipo,
                 COUNT(*)                                       AS contratos,
-                ROUND(SUM(base_value)::numeric, 2)            AS receita_total,
-                ROUND(AVG(base_value)::numeric, 2)            AS ticket_medio
-            FROM billing_rules
-            WHERE ativo = true
-            GROUP BY billing_type
+                ROUND(SUM(monthly_value)::numeric, 2)         AS receita_total,
+                ROUND(AVG(monthly_value)::numeric, 2)         AS ticket_medio
+            FROM contracts
+            WHERE status = 'active'
+            GROUP BY contract_type
             ORDER BY receita_total DESC
         """)
         )
@@ -558,8 +559,8 @@ async def get_bi_kpis(
         live_result = await db.execute(
             text("""
             SELECT
-                (SELECT COALESCE(round(sum(base_value)::numeric,2), 0)
-                 FROM billing_rules WHERE ativo = true) as mrr,
+                (SELECT COALESCE(round(sum(monthly_value)::numeric,2), 0)
+                 FROM contracts WHERE status = 'active') as mrr,
                 (SELECT COALESCE(round(current_balance::numeric,2), 0)
                  FROM bank_accounts WHERE bank_code = '077'
                  ORDER BY updated_at DESC LIMIT 1) as saldo_inter,
