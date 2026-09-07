@@ -151,10 +151,15 @@ def _classificar(txt: str):
 async def upload_cnd(
     document_type: str = Form(...),
     file: UploadFile = File(...),
+    cnpj: str | None = Form(None),
     current_user=Depends(get_current_user),
 ) -> dict:
-    """Registra a CND emitida manualmente: salva o PDF, lê validade/situação, grava em
-    ged_certidoes e replica no kit. Mesmo destino das automáticas."""
+    """Registra a CND emitida manualmente (ou por um nó de emissão fora deste IP — Caixa e TST
+    bloqueiam a VPS): salva o PDF, lê validade/situação, grava em ged_certidoes e replica no kit.
+
+    MULTI-CNPJ (07/09/2026): casava só por document_type e pegava a PRIMEIRA linha do tipo —
+    o CRF de um cliente ou da outra empresa seria sobrescrito. Agora casa por tipo + CNPJ; o
+    CNPJ vem do formulário ou é lido do próprio PDF; sem nenhum dos dois, a empresa principal."""
     if document_type not in PORTAL_OFICIAL:
         raise HTTPException(status_code=400, detail="document_type inválido p/ upload manual")
     content = await file.read()
@@ -163,11 +168,7 @@ async def upload_cnd(
 
     portal_key = {v: k for k, v in DOCTYPE.items()}.get(document_type, document_type)
     os.makedirs("/app/uploads/cnds", exist_ok=True)
-    path = f"/app/uploads/cnds/{portal_key}_manual.pdf"
-    with open(path, "wb") as fh:
-        fh.write(content)
-
-    # lê texto p/ validade + situação
+    # lê texto p/ validade + situação (o PDF é gravado depois de saber o CNPJ)
     txt = ""
     try:
         import fitz
@@ -179,6 +180,14 @@ async def upload_cnd(
     validade = _extrair_validade(txt)
     if validade is None:
         validade = datetime.date.today() + datetime.timedelta(days=VALIDADE_PADRAO.get(document_type, 90))
+    import re as _re
+
+    _m = _re.search(r"\b(\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2})\b", txt or "")
+    cnpj_digits = _re.sub(r"\D", "", cnpj or (_m.group(1) if _m else "") or CNPJ_EMPRESA)
+    cnpj_fmt = f"{cnpj_digits[:2]}.{cnpj_digits[2:5]}.{cnpj_digits[5:8]}/{cnpj_digits[8:12]}-{cnpj_digits[12:]}"
+    path = f"/app/uploads/cnds/{portal_key}_{cnpj_digits}.pdf"
+    with open(path, "wb") as fh:
+        fh.write(content)
 
     from sqlalchemy import text
 
@@ -188,7 +197,9 @@ async def upload_cnd(
     with get_sync_db() as db:
         body = PORTAL_OFICIAL[document_type]["nome"]
         row = db.execute(
-            text("SELECT id FROM ged_certidoes WHERE document_type=:dt LIMIT 1"), {"dt": document_type}
+            text("SELECT id FROM ged_certidoes WHERE document_type=:dt "
+                 "AND regexp_replace(coalesce(cnpj,''), '\\D', '', 'g') = :c LIMIT 1"),
+            {"dt": document_type, "c": cnpj_digits},
         ).fetchone()
         if row:
             db.execute(
@@ -210,10 +221,11 @@ async def upload_cnd(
             db.execute(
                 text(
                     "INSERT INTO ged_certidoes (id,name,document_type,issuing_body,issue_date,"
-                    "expiry_date,file_path,notes,alerta_ativo,created_at,updated_at) VALUES "
-                    "(gen_random_uuid(),:nm,:dt,:b,:i,:v,:f,:n,:a,now(),now())"
+                    "expiry_date,file_path,notes,alerta_ativo,cnpj,created_at,updated_at) VALUES "
+                    "(gen_random_uuid(),:nm,:dt,:b,:i,:v,:f,:n,:a,:cnpj,now(),now())"
                 ),
                 {
+                    "cnpj": cnpj_fmt,
                     "nm": body,
                     "dt": document_type,
                     "b": body,
