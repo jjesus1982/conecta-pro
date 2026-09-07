@@ -253,7 +253,7 @@ async def build(db) -> dict:
         "kits",
         tbl(
             "Kits de documentos",
-            f"{await _scalar(db, 'SELECT count(*) FROM ged_document_kits')} kits",
+            f"{await _scalar(db, 'SELECT count(*) FROM ged_document_kits')} kits — kit MATERIALIZADO pelo sistema (documentos gerados: contracheques, comprovantes, escalas); o kit ENTREGUE ao cliente é o do Drive, na Visão",
             "—",
             ["Competência", "Colaboradores", "Docs", "Assinados", "Completude", "Status"],
             "1fr 1fr 0.8fr 0.8fr 1fr 1.1fr",

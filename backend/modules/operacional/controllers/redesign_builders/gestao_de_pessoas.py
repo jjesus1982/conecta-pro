@@ -48,7 +48,7 @@ async def build(db) -> dict:
 
     # ---- GED · Kits (ged_document_kits) ----
     await safe("ged-kits", tbl(
-        "GED · Kits", f"{await _scalar(db, 'SELECT count(*) FROM ged_document_kits')} kits documentais",
+        "GED · Kits", f"{await _scalar(db, 'SELECT count(*) FROM ged_document_kits')} kits documentais — kit MATERIALIZADO pelo sistema (documentos gerados: contracheques, comprovantes, escalas); o kit ENTREGUE ao cliente é o do Drive, na Visão",
         "—", ["Condomínio", "Competência", "Status", "Colaboradores", "Documentos", "Conclusão"],
         "1.8fr 1fr 1fr 1fr 1fr 1fr",
         "SELECT coalesce(gc.name, k.client_id::text), k.reference_month, coalesce(k.status,'—'), "
