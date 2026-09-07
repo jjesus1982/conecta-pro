@@ -186,52 +186,9 @@ from modules.integrations.services import (  # noqa: E402
     WebhookService,
 )
 
-# Re-export submodulos - WhatsApp
-from modules.integrations.whatsapp import (  # noqa: E402
-    ChatbotResponse,
-    ChatbotService,
-    ConversationContext,
-    ConversationState,
-    ConversationType,
-    Intent,
-    MessageDirection,
-    MessageLog,
-    MessagePriority,
-    MessagePurpose,
-    MessageQueue,
-    MessageStatus,
-    MessageTemplate,
-    MessageType,
-    TemplateType,
-    WhatsAppConfig,
-    WhatsAppProvider,
-    WhatsAppService,
-    WhatsAppStatus,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    DailyReport as WhatsAppDailyReport,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    QueueStats as WhatsAppQueueStats,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    SendResponse as WhatsAppSendResponse,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    SendResult as WhatsAppSendResult,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    TemplateCategory as WhatsAppTemplateCategory,
-)
-from modules.integrations.whatsapp import (  # noqa: E402
-    TemplateStatus as WhatsAppTemplateStatus,
-)
-
-# Cria router principal que agrega todos os sub-routers
-integrations_router = APIRouter(prefix="/integrations", tags=["Integrations"])
-
-# Router padrão (backward compatibility)
-router = integration_router
+# WhatsApp legado (modules/integrations/whatsapp) foi para a quarentena em 07/09/2026: 4 modelos sem
+# tabela (wa_*), controllers nunca montados, nenhum consumidor fora deste agregador — que
+# ninguém importa. O WhatsApp vivo é modules/integrations/connectors/whatsapp (cwi_message_log).
 
 __all__ = [
     # Routers
@@ -376,34 +333,6 @@ __all__ = [
     "CampaignStats",
     "ABTestResult",
     "DripStep",
-    # ==================== WhatsApp Submodule ====================
-    # Models
-    "WhatsAppConfig",
-    "WhatsAppStatus",
-    "WhatsAppProvider",
-    "MessageTemplate",
-    "WhatsAppTemplateCategory",
-    "WhatsAppTemplateStatus",
-    "TemplateType",
-    "MessageQueue",
-    "MessageStatus",
-    "MessagePriority",
-    "MessageType",
-    "MessagePurpose",
-    "MessageLog",
-    "MessageDirection",
-    "ConversationType",
-    # Services
-    "WhatsAppService",
-    "WhatsAppSendResult",
-    "WhatsAppSendResponse",
-    "WhatsAppQueueStats",
-    "WhatsAppDailyReport",
-    "ChatbotService",
-    "ChatbotResponse",
-    "ConversationContext",
-    "ConversationState",
-    "Intent",
-]
+    ]
 
 __version__ = "1.0.0"
