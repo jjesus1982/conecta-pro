@@ -359,6 +359,13 @@ Jordan for fazer o login pelo noVNC.
   não é bug: o contrato de manutenção da Villa dos Pássaros (CTR-2026-00018, R$ 3.800) **venceu em 31/08 e continua
   "ativo"** — renovar ou encerrar. E **10 contratos (R$ 246.538,56 de MRR) vencem em 31/12/2026**: renovação a planejar.
 
+- **DET (Domicílio Eletrônico Trabalhista) sem leitura desde 03/07/2026** — 11 comunicações no banco, a última de julho.
+  O robô do DET perdeu a sessão gov.br (o "logado" era flag velha) e ninguém refez o login; hoje está pausado. Isso é
+  prazo legal, mais importante que qualquer CND: refazer o login pelo noVNC (certificado + 2FA) e `docker unpause
+  conecta-pro-det-robot`. **Prioridade do dono.**
+- CRM: 197 leads em 30 dias (WhatsApp) e 6 propostas; follow-ups automáticos pararam em 16/07 e não há inscrição
+  ativa em sequência — a máquina de acompanhamento existe e está sem uso.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
