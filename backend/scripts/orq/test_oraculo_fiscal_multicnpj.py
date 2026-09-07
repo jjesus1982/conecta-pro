@@ -92,7 +92,7 @@ async def main() -> None:
         corpo_cob = "\n".join(_texto(r) for r in (cob.get("rows") or []))
 
         tipos = [r[0] for r in (await db.execute(text(
-            "SELECT DISTINCT name FROM ged_certidoes ORDER BY 1"))).fetchall()]
+            "SELECT DISTINCT document_type::text FROM ged_certidoes WHERE document_type IS NOT NULL ORDER BY 1"  # por TIPO desde 07/09/2026 — a mesma certidão tem nome diferente em cada empresa))).fetchall()]
         assert tipos, "pré-condição: nenhuma certidão cadastrada"
         assert len(cob.get("rows") or []) == len(tipos), \
             f"{len(tipos)} tipos de certidão, {len(cob.get('rows') or [])} linha(s) na cobertura"
