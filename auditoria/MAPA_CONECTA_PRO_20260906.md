@@ -648,6 +648,12 @@ Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc
   fechamento de diaristas, leituras). O que é uso, não código: 17 escalas em rascunho (agosto e setembro 100% rascunho,
   julho publicada) e 9 postos sem escala publicada — o ciclo submeter → aprovar → publicar existe e passa no teste;
   ninguém o executa desde julho. 20 turnos de hoje sem check-in nem batida.
+- **Lembrete de ponto por WhatsApp rodava há meses em modo DRY**: o beat de 60 s montava as mensagens certas (5 na
+  janela das 17:45 de hoje: "Seu turno no Ideal Flores começa às 18:00. Bata o ponto pelo app") e NÃO enviava —
+  `PONTO_LEMBRETE_ENABLED` nunca foi posta no ambiente e o padrão era "false"; `ponto_lembrete_log` vazio. Ligado por
+  padrão no código (`.env` é zona proibida); a variável em "false" desliga. Commit `e47346976`. Os outros beats do
+  Operacional rodam: atrasos → sino (50 avisos/dia, 3 destinatários por atraso — é o desenho), cobertura diária, lembrete
+  de turno.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
