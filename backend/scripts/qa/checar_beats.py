@@ -224,9 +224,13 @@ def _engole_falha(tree) -> list[tuple[str, str]]:
 #: no máximo. Curto de propósito: cada linha aqui é uma afirmação que alguém verificou.
 #: Beat fora do mapa não é acusado, é apenas não coberto.
 _PRODUCAO = {
+    # O governo BLOQUEIA o espelho nos dias 1–7 do mês (orçamento de 10 acessos/dia fora
+    # deles). Nesses dias "sem produção" é o comportamento certo: a folga cobre o bloqueio
+    # inteiro. Medido em 06/09/2026: acusava "6 dias sem produzir" dentro do bloqueio.
     "esocial-espelho-sync": (
-        "SELECT max(criado_em)::date FROM esocial_espelho_acessos", 2,
-        "acesso ao governo registrado"),
+        "SELECT max(criado_em)::date FROM esocial_espelho_acessos",
+        9 if __import__("datetime").date.today().day <= 8 else 2,
+        "acesso ao governo registrado (dias 1–7: bloqueio do eSocial, folga de 9)"),
     "fiscal.certidoes.sync_diario": (
         "SELECT max(updated_at)::date FROM ged_certidoes", 2,
         "certidão consultada/renovada"),
