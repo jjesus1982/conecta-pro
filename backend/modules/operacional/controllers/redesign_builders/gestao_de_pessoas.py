@@ -117,10 +117,13 @@ async def build(db) -> dict:
 
     # ---- RH · Quadro de colaboradores (employees) ----
     await safe("rh", tbl(
-        "RH", f"{await _scalar(db, 'SELECT count(*) FROM employees WHERE is_active=true')} colaboradores ativos",
+        # Mesma régua do DP: ativo = status 'ativo' (CLT). `is_active=true` somava PJ, suspenso e
+        # candidato e dizia 65 onde o DP diz 53 — duas verdades para o mesmo número (07/09/2026).
+        "RH", (f"{await _scalar(db, 'SELECT count(*) FROM employees WHERE status=%s' % chr(39) + 'ativo' + chr(39))} colaboradores CLT ativos · "
+               f"{await _scalar(db, 'SELECT count(*) FROM employees WHERE status=%s' % chr(39) + 'pj_ativo' + chr(39))} PJ ativos"),
         "—", ["Colaborador", "Cargo", "Departamento", "Status"], "2fr 1.5fr 1.3fr 0.9fr",
         "SELECT nome, coalesce(cargo,'—'), coalesce(departamento,'—'), coalesce(status,'—') "
-        "FROM employees WHERE is_active=true ORDER BY nome LIMIT 300",
+        "FROM employees WHERE status IN ('ativo','pj_ativo') ORDER BY status, nome LIMIT 300",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t(r[2]),
                    b((r[3] or '—').capitalize(), "ok" if (r[3] or '').lower() in ("ativo", "active") else "mut")]))
 
