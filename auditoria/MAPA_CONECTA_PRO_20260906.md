@@ -159,6 +159,25 @@ Fiscal, cada um contra SQL independente — **29/29 ao centavo**. O que a rodada
 - **Faturamento por competência**: jul R$ 269,9 mil, **ago R$ 175,1 mil** (12 notas × 14 em julho), set R$ 65,8 mil (1 nota). A operação migrou da Eletrônica (Lucro Real) para a Patrimonial (Simples, Anexo III) em jun/jul; agosto está ~R$ 95 mil abaixo do padrão. Confira se faltou emitir.
 - **Apuração Lucro Real com ano fixo** (`apurar(2026)` no builder): em janeiro vai continuar mostrando 2026. Pendente.
 
+### 2c.2 Puxada das NFS-e dos 2 CNPJs no ADN nacional (07/09, a pedido)
+
+Rodado `NFSeNacionalSyncService.sincronizar` + `sincronizar_tomadas` para Eletrônica e Patrimonial, do NSU 0
+(o mesmo que o beat faz às 04:30). **Nenhuma nota nova**: Eletrônica 118 documentos no feed (87 vivas, 31
+substituídas, NSU 532); Patrimonial 31 (25 vivas, 6 substituídas, NSU 56). Tomadas 307 + 15. Os R$ 175 mil de
+agosto são o que a prefeitura tem — não é sincronização perdida.
+
+**O que o feed expôs**: as notas **3 (R$ 42.544,50, Laranjeiras Village) e 4 (R$ 65.842,42, Ideal Flores)**
+da Patrimonial, competência 06/2026, estão `cancelada=true` no banco desde 20/07 18:25 (flag local, sem
+`cancelamento_solicitado_em`) e **continuam vivas no ADN**: sem evento de cancelamento, sem substituição. Os
+mesmos dois clientes foram faturados em junho também pela Eletrônica (notas 109 e 111, emitidas 09 e 14/07) —
+**junho está faturado em dobro no governo, R$ 108.386,92**. O DAS 06/2026 da Patrimonial (R$ 17.898,58,
+venc. 20/07, ainda `pendente`) foi calculado sobre R$ 187.981,05, isto é, COM as duas notas. Decisão do dono:
+cancelar as duas no ADN (se o prazo municipal permitir) ou aceitar o DAS cheio. Sistema não faz escrita no
+governo.
+
+`NFSeNacionalService.consultar_nfse` é stub ("informações simuladas") — a consulta por chave não existe; a
+verdade é o feed de distribuição. O resumo das tomadas por empresa somava os dois CNPJs (corrigido).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),

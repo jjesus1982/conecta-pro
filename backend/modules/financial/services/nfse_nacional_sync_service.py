@@ -338,9 +338,10 @@ class NFSeNacionalSyncService:
                     )
                     n += 1
                 conn.commit()
-                cur.execute(
+                cur.execute(  # resumo DESTA empresa (até 07/09 somava as duas — a Patrimonial "tinha" 307 notas)
                     "SELECT competencia, count(*), sum(valor_servicos)::numeric(14,2) "
-                    "FROM nfse_tomadas_nacional WHERE competencia LIKE '2026-%' GROUP BY 1 ORDER BY 1"
+                    "FROM nfse_tomadas_nacional WHERE competencia LIKE '2026-%%' AND empresa_id = %s GROUP BY 1 ORDER BY 1",
+                    (empresa_id,),
                 )
                 por_comp = [{"competencia": c, "notas": q, "valor": float(v or 0)}
                             for c, q, v in cur.fetchall()]
