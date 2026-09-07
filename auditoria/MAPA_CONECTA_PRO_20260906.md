@@ -493,7 +493,8 @@ Jordan for fazer o login pelo noVNC.
   passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
   04/08 venceu em 04/09 e o processo segue "iniciado" — desligar ou cancelar. **KEYSON DA SILVA PINTO** já estava
   inativo desde 28/08 com o processo esquecido em "iniciado": o prazo ficava no quadro à toa; a regra passa a
-  vencer só para quem está ativo (commit `ede3e961e`) e o processo dele cai na regra de "desligamento sem processo".
+  vencer só para quem está ativo (commit `ede3e961e`); o processo dele segue "iniciado" no sistema — concluir ou
+  cancelar no DP.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
