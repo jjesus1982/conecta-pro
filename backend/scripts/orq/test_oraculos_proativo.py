@@ -48,7 +48,7 @@ from core.database import async_session_factory
 from modules.notifications.proativo import estado, redator
 from modules.notifications.proativo.entrega import resolver_usuarios_por_roles
 from modules.notifications.proativo.redator import redigir as _redigir_real
-from modules.notifications.proativo.regras import REGISTRY, Regra
+from modules.notifications.proativo.regras import CERTIDAO_JANELA, REGISTRY, Regra
 from modules.notifications.proativo.tasks import _avaliar, _digest
 
 MARK = "__ORC53__"  # marcador único dos seeds sintéticos (dupla garantia de limpeza)
@@ -58,9 +58,10 @@ _FONTES = {
     "posto_descoberto":
         "SELECT count(*) FROM posts WHERE is_active "
         "AND current_headcount < required_headcount",
+    # Mesma janela da regra (FGTS a 5 dias, municipal da Eletrônica fora) — um texto só, para
+    # oráculo e regra não divergirem (07/09/2026: 3 != 26 quando a janela mudou só na regra).
     "certidao_vencendo":
-        "SELECT count(*) FROM ged_certidoes "
-        "WHERE expiry_date <= (now() AT TIME ZONE 'America/Manaus')::date + 30",
+        f"SELECT count(*) FROM ged_certidoes WHERE {CERTIDAO_JANELA}",
     "aging_reforcado":
         "SELECT count(*) FROM receivable_accounts "
         "WHERE due_date < current_date "
