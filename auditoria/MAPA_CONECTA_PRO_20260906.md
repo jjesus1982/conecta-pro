@@ -379,8 +379,10 @@ Jordan for fazer o login pelo noVNC.
   cobrança Inter) nunca emitiu nada: `receivable_accounts` tinha **zero** contas com `boleto_id` nas duas empresas.
 - **Como ficou**: a cobrança é emitida NA conta a receber que o gerador do dia 1 já cria (nada de conta paralela),
   roteada pela empresa credora da conta. Duas portas na tela do redesign:
-  - **Financeiro › Contas a receber**: coluna *Cobrança* (Boleto emitido / A emitir / Recebida) + botão *Emitir
-    cobrança* por linha + formulário *Cobranças do mês* (prévia por padrão — lista o que emitiria, sem emitir).
+  - **Financeiro › Receber**: coluna *Cobrança* (Boleto emitido / A emitir / Recebida) + botão *Emitir cobrança*
+    por linha; aba *Recorrência* virou a PRÉVIA do mês na mesma base da ação (hoje: 8 contas, R$ 115.916,81, 5 pelo
+    Inter e 3 pela Cora, todas "Pronta"); aba *Gerar cobranças* emite de verdade (confirmação + "só prever" por padrão).
+    A prévia antiga lia `clients.mrr` e a ação antiga criava contas paralelas — duas bases, dois números; agora é uma.
   - **Fiscal › NFS-e emitidas (nacional)**: coluna *Cobrança* + botão *Gerar boleto* por nota — é o "fluxo natural":
     a nota acha a conta em aberto da mesma empresa, mesmo tomador e mesma competência. Nota sem conta em aberto
     diz isso (a de agosto já está paga; as de jan–jun nunca tiveram conta) — o código não inventa vencimento.
