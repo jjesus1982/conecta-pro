@@ -24,3 +24,7 @@
 - As 17 telas de formulário do financeiro sem vigia (cashflow-sync, gerar-parcelas, nfse-entrada-*, payables-auto-criar, custo-*, estoque-saida, just-*, orcamento-kv, pricing-calcular) foram abertas mas **não submetidas** — 💰 nunca em happy-path. Continuam sem oráculo.
 - Asaas sem saldo de abertura no corte (oráculo "NÃO COBERTO"); Cora sincroniza às 08:10.
 - Durabilidade: os 3 arquivos estão nos containers por `docker cp`; o bake automático recusa enquanto houver WIP alheio em `backend/`.
+
+## 2ª passada (07/09)
+- **Oráculo novo `test_oraculo_fin_visao`** vigia a Visão Geral: MRR, saldo da conta principal e médias de 90 dias. Três verdes; a média de entradas diverge 5,8% do recálculo sem transferências (235.464 × 249.873): definição do builder a apurar, fica vermelha até isso.
+- Os 32 débitos do Inter sem classificação exigem categoria por contraparte (ação "Classificar saídas"): é sua.
