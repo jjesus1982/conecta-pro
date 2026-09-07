@@ -208,6 +208,16 @@ verdade é o feed de distribuição. O resumo das tomadas por empresa somava os 
   de passivo). O resultado real de agosto só aparece depois do Jordan justificar.
 - Fica: notas 109/111 no razão em julho (a tabela de notas diz junho) — período arqueológico, não mexido.
 
+### 2c.4 Cascas mortas e um serviço que nunca existiu (07/09, madrugada)
+
+`checar_import_orfao` (novo, agora trava binária): 23 imports de topo para módulos apagados — todos em
+cascas que nada importava (registro legado `api/v1`, `anti_procrastination/ai_integration`, 4 extratores de
+OpenAPI). Removidos. Ficam dois guardados por try/except: `main_production` → `modules.ai.openclaw`
+(pré-existente, zona proibida) e **Licitações** → `modules.comercial.crm.services.ClientService` com
+`buscar_por_cnpj`/`criar_cliente` — serviço que **nunca existiu** (o real é `modules.clients`, síncrono, outra
+API). "Vincular contrato público a cliente do CRM" nunca funcionou e falha calado. Fica para a fase de
+construção de Licitações.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
