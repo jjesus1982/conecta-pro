@@ -599,7 +599,19 @@ um dos seis, classificador/vinculador de documentos por regex.
 - Coleta automática mensal (dia 21) consulta CNDs direto nos portais do governo (sem Infosimples) para o CNPJ da
   Eletrônica — inócua, mas fora da sua regra "certidões só da Patrimonial".
 
-Commits `c9776455c`, `3867691b6`, `62b8897c0` e o do Atlas. Bake das 00:00 torna definitivo.
+**Suas três respostas, aplicadas (07/09, 17h)**
+1. "Podem receber pelo app ou pelo WhatsApp": o aviso de assinatura do Themis passa a ir também pelo WhatsApp (serviço
+   do CRM) para quem tem celular (49 de 53 ativos), além do e-mail e da notificação no portal; SMTP fora não cala o
+   WhatsApp; o registro do lembrete diz os canais. Amostra da mensagem enviada ao seu WhatsApp; um envio real feito.
+2. "De acordo" em ensinar o classificador: 16 regras novas com os nomes reais do pacote (Recibo de Pagamento, Comunicação
+   de Transferência, NFS, TRCT, Salário Família, Prorrogação de Experiência, Advertência, DAS/PGDASD, DANFE, CNPJ…) e
+   acentos por NFKD. Reclassificados 191 de 387 "outros"; sobram 196 (nomes só com números ou só o nome da pessoa).
+   Hermes: o nome no arquivo vem sem espaços no último segmento ("…-1-ALEXANDRESOUZADASILVA") — casamento sem
+   espaço/acento, escopo de funcionário inferido, e o original entra como documento próprio quando não há slot vazio.
+   **Agosto: 45 recibos de pagamento originais vinculados aos kits do banco (7 kits), idempotente.**
+3. "Coleta mensal ou a qualquer momento": fica como está (dia 21 + botão na tela).
+
+Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc3f9`, `ee92febdc`. Bake das 00:00 torna definitivo.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
