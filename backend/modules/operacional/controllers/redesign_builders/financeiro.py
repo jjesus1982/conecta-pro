@@ -3144,13 +3144,14 @@ async def _rd_cobrar_recorrente(current_user: CurrentActiveUser, payload: dict =
         raise HTTPException(status_code=400, detail="Informe o mês (1-12) e o ano (AAAA).")
     if not (1 <= mes <= 12) or not (2020 <= ano <= 2100):
         raise HTTPException(status_code=400, detail="Mês (1-12) ou ano (AAAA) fora do intervalo.")
-    from modules.financial.services.recurring_billing_service import gerar_cobrancas_mensais
-    r = await run_in_threadpool(gerar_cobrancas_mensais, mes, ano, False)
-    if isinstance(r, dict) and r.get("success") is False:
-        raise HTTPException(status_code=400, detail=str(r.get("error") or "Falha ao gerar cobranças."))
-    tc = (r or {}).get("total_clientes", 0); tv = (r or {}).get("total_cobrado", 0); er = (r or {}).get("erros", 0)
-    return {"ok": True, "message": f"Cobranças {mes:02d}/{ano}: {tc} cliente(s) processado(s), "
-            f"{brl(tv)} cobrado, {er} erro(s)."}
+    # 07/09/2026: mesma porta, fluxo novo — emite NA conta a receber que o gerador do dia 1 já
+    # criou (Eletrônica → Inter, Patrimonial → Cora). O serviço antigo criava contas paralelas.
+    from modules.financial.services.cobranca_recebivel_service import emitir_pendentes_mes
+    r = await run_in_threadpool(emitir_pendentes_mes, ano, mes, False)
+    tv = sum(float(i.get("valor") or 0) for i in r.get("itens", []) if i.get("situacao") == "emitida")
+    return {"ok": True, "message": f"Cobranças {mes:02d}/{ano}: {r.get('total', 0)} conta(s), "
+            f"{r.get('emitidas', 0)} emitida(s), {brl(tv)}, {len(r.get('erros', []))} pendência(s).",
+            "detalhe": r}
 
 
 # ── Money-IN (cobrança) e gestão — delega às funções do console clássico ──
