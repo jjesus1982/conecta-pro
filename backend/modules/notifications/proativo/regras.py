@@ -484,7 +484,12 @@ async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
         "              THEN 'aviso' ELSE 'ultimo_dia' END AS origem "
         "  FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
         "  WHERE lower(coalesce(t.status::text,'')) "
-        "        NOT IN ('completed','cancelled')"
+        "        NOT IN ('completed','cancelled') "
+        # Só quem ainda está ATIVO tem aviso prévio a vencer. Colaborador já desligado no
+        # cadastro (data_demissao) com processo esquecido em 'initiated' ficava no quadro como
+        # "último dia JÁ PASSOU" por 25 dias (KEYSON, 07/09/2026) — processo pendente é assunto
+        # da regra dp_desligamento_sem_processo, não deste prazo.
+        "    AND e.status = 'ativo'"
         ") s WHERE fim IS NOT NULL AND fim <= current_date + 7"
     ))).mappings().all()
     # denominador honesto: desligamentos em curso que NENHUMA das duas leituras enxerga
