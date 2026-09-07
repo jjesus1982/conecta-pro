@@ -1,7 +1,5 @@
 """Operacional AI Controller — command center e performance overview (dado real)."""
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -45,15 +43,18 @@ async def _coverage(db: AsyncSession) -> dict:
 @ai_router.get("/command-center")
 async def command_center(_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
     """Command center operacional com visão de cobertura, agentes e risco semanal (dado real)."""
-    hoje = datetime.now(ZoneInfo("America/Manaus")).date()
     agentes = (await db.execute(text("SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
+    # "Presente" = NO TURNO: entrada nas últimas 14 h sem saída depois. A definição antiga
+    # (entrada no dia civil de Manaus) dava ZERO à 1h da manhã com o turno noturno inteiro
+    # trabalhando — portaria é 12x36 (medido 07/09/2026 03:30: dia civil 0 × no turno 5).
     presentes = (
         await db.execute(
             text(
-                "SELECT count(DISTINCT employee_id) FROM gp_clock_punches "
-                "WHERE punch_type='entrada' AND (punch_timestamp)::date = :h"
-            ),
-            {"h": hoje},
+                "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p "
+                "WHERE p.punch_type='entrada' AND p.punch_timestamp >= now() - interval '14 hours' "
+                "AND NOT EXISTS (SELECT 1 FROM gp_clock_punches s WHERE s.employee_id=p.employee_id "
+                "AND s.punch_type='saida' AND s.punch_timestamp > p.punch_timestamp)"
+            )
         )
     ).scalar() or 0
     cov = await _coverage(db)

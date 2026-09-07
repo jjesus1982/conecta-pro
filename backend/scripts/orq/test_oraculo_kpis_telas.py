@@ -52,11 +52,12 @@ KPIS = [
     ("operacional", "g-visao/tabs[0]", "Alocações ativas", "SELECT count(*) FROM employee_alocacoes WHERE ativo", 0.0),
     ("operacional", "g-visao/tabs[0]", "Ocorrências (7d)",
      "SELECT count(*) FROM occurrences WHERE occurred_at >= now() - interval '7 days'", 0.0),
-    # Definição do serviço (operacional/ai/controller): ENTRADAS do dia civil de Manaus. À 1h
-    # da manhã dá 0 com o turno noturno inteiro trabalhando — o rótulo é fraco para uma
-    # empresa de portaria 12x36; o oráculo afirma a definição, o mapa registra a fraqueza.
-    ("operacional", "g-visao/tabs[10]", "Presentes hoje",
-     f"SELECT count(DISTINCT employee_id) FROM gp_clock_punches WHERE punch_type='entrada' AND punch_timestamp::date = {MANAUS}", 0.0),
+    # Definição (operacional/ai/controller, 07/09/2026): NO TURNO = entrada nas últimas 14 h
+    # sem saída depois. A antiga (entrada no dia civil) dava 0 à 1h com o noturno inteiro em pé.
+    ("operacional", "g-visao/tabs[10]", "Presentes (no turno)",
+     "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p WHERE p.punch_type='entrada' "
+     "AND p.punch_timestamp >= now() - interval '14 hours' AND NOT EXISTS (SELECT 1 FROM gp_clock_punches s "
+     "WHERE s.employee_id=p.employee_id AND s.punch_type='saida' AND s.punch_timestamp > p.punch_timestamp)", 0.0),
     # ── CRM · dashboard ──
     ("crm", "dashboard", "Leads", "SELECT count(*) FROM leads", 0.0),
     ("crm", "dashboard", "Propostas", "SELECT count(*) FROM proposals", 0.0),
@@ -80,8 +81,12 @@ KPIS = [
      "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico WHERE data_emissao >= current_date - interval '12 months'),0)"
      " + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional WHERE data_emissao >= current_date - interval '12 months'),0)", 0.02),
     # ── Financeiro · faturamento do mês (NFS-e emitidas na competência corrente) ──
-    ("financeiro", "g-visao/tabs[0]", "Faturamento 2026-09",
-     "SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE date_trunc('month', data_emissao) = date_trunc('month', current_date)", 0.02),
+    # rótulo dinâmico "Faturamento <última competência com nota>" — a tela mostra o último mês
+    # da série, não o mês corrente (em 07/09 a nota de setembro foi movida para 08 e o rótulo
+    # virou "Faturamento 2026-08"; o oráculo afirma a regra, não a foto).
+    ("financeiro", "g-visao/tabs[0]", "Faturamento 20",
+     "SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
+     "AND competencia = (SELECT max(competencia) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false)", 0.02),
     # ── CRM · comissões ──
     ("crm", "dashboard", "Comissões a pagar",
      "SELECT coalesce(sum(coalesce(final_commission, base_commission, 0)),0) FROM commissions WHERE status='pending' AND is_active", 0.01),

@@ -29,6 +29,7 @@ Idempotente por (empresa, tipo, competência) — rodar de novo não duplica.
 from __future__ import annotations
 
 import logging
+import re as _re
 from calendar import monthrange
 from datetime import date
 
@@ -165,7 +166,10 @@ async def garantir_competencia(db, empresa_id: str, ano: int, mes: int,
                 " created_at, updated_at) "
                 "VALUES (gen_random_uuid(), :cond, :emp, :tipo, :nome, :desc, 'pendente', "
                 "        :mes, :ano, :venc, :obs, true, NOW(), NOW())"),
-                {"cond": cond, "emp": empresa_id, "tipo": t["tipo"], "nome": t["nome"],
+                # O nome vinha da última obrigação declarada, com o MÊS DELA dentro: "DAS Simples
+                # Nacional 07/2026" nascia para a competência 08/2026 (achado 07/09/2026).
+                {"cond": cond, "emp": empresa_id, "tipo": t["tipo"],
+                 "nome": f"{_re.sub(r'\s*\d{2}/\d{4}$', '', t['nome'] or t['tipo'])} {mes:02d}/{ano}",
                  "desc": f"Competência {mes:02d}/{ano}",
                  "mes": mes, "ano": ano, "venc": venc,
                  "obs": (f"Prazo gerado pelo calendário recorrente (a empresa declarou este "
