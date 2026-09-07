@@ -1,0 +1,722 @@
+=== BACKEND RECON v2 — prefixo 'government' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 448 · EXPOSTAS: 20 · ORFAS: 428
+  das orfas: 52 provaveis FALSO-ORFAO (builder le a tabela direto)
+             376 candidatas reais — destas, 218 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 16
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+  POST     /api/v1/government/cte/gerar-xml 
+           → Gerar XML
+           motivo: segmento nao citado no front: cte,gerar-xml
+  POST     /api/v1/government/cte/gerar-xml 
+           → Gerar XML
+           motivo: segmento nao citado no front: cte,gerar-xml
+  POST     /api/v1/government/cte/gerar-xml/download 
+           → Download XML
+           motivo: segmento nao citado no front: cte,gerar-xml
+  POST     /api/v1/government/cte/gerar-xml/download 
+           → Download XML
+           motivo: segmento nao citado no front: cte,gerar-xml
+  POST     /api/v1/government/mdfe/gerar-xml 
+           → Gerar XML
+           motivo: segmento nao citado no front: gerar-xml,mdfe
+  POST     /api/v1/government/mdfe/gerar-xml 
+           → Gerar XML
+           motivo: segmento nao citado no front: gerar-xml,mdfe
+  POST     /api/v1/government/mdfe/gerar-xml/download 
+           → Download XML
+           motivo: segmento nao citado no front: gerar-xml,mdfe
+  POST     /api/v1/government/mdfe/gerar-xml/download 
+           → Download XML
+           motivo: segmento nao citado no front: gerar-xml,mdfe
+  GET      /api/v1/government/nfce/danfe/{chave_acesso} 
+           → Gera DANFE NFC-e
+           motivo: segmento nao citado no front: danfe,nfce
+  GET      /api/v1/government/nfce/danfe/{chave_acesso} 
+           → Gera DANFE NFC-e
+           motivo: segmento nao citado no front: danfe,nfce
+  GET      /api/v1/government/nfce/xml/{chave_acesso} 
+           → Download XML NFC-e
+           motivo: segmento nao citado no front: nfce
+  GET      /api/v1/government/nfce/xml/{chave_acesso} 
+           → Download XML NFC-e
+           motivo: segmento nao citado no front: nfce
+  POST     /api/v1/government/sped-contabil/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-contabil
+  POST     /api/v1/government/sped-contabil/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-contabil
+  POST     /api/v1/government/sped-fiscal/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-fiscal
+  POST     /api/v1/government/sped-fiscal/gerar/download 🏛️
+           → Download arquivo SPED
+           motivo: segmento nao citado no front: sped-fiscal
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/government/certificates/upload 
+           → Upload de Certificado A1
+  POST     /api/v1/government/certificates/upload 
+           → Upload de Certificado A1
+  POST     /api/v1/government/certificates/validate 
+           → Valida Certificado A1
+  POST     /api/v1/government/certificates/validate 
+           → Valida Certificado A1
+  DELETE   /api/v1/government/certificates/{certificate_id} 
+           → Remove Certificado
+  DELETE   /api/v1/government/certificates/{certificate_id} 
+           → Remove Certificado
+  POST     /api/v1/government/certificates/{certificate_id}/test-sign 
+           → Testa Assinatura
+  POST     /api/v1/government/certificates/{certificate_id}/test-sign 
+           → Testa Assinatura
+  POST     /api/v1/government/cte/criar 
+           → Criar CT-e
+  POST     /api/v1/government/cte/criar 
+           → Criar CT-e
+  DELETE   /api/v1/government/cte/limpar 
+           → Limpar Cache
+  DELETE   /api/v1/government/cte/limpar 
+           → Limpar Cache
+  POST     /api/v1/government/dashboard/endpoints/{uf}/{servico}/verificar 
+           → Força verificação de disponibilidade de um endpoint específico.
+  POST     /api/v1/government/dashboard/endpoints/{uf}/{servico}/verificar 
+           → Força verificação de disponibilidade de um endpoint específico.
+  POST     /api/v1/government/dctfweb/consolidar 
+           → Consolidar declaração
+  POST     /api/v1/government/dctfweb/consolidar 
+           → Consolidar declaração
+  POST     /api/v1/government/dctfweb/criar 
+           → Criar declaração
+  POST     /api/v1/government/dctfweb/criar 
+           → Criar declaração
+  POST     /api/v1/government/dctfweb/gerar-darfs 
+           → Gerar DARFs
+  POST     /api/v1/government/dctfweb/gerar-darfs 
+           → Gerar DARFs
+  POST     /api/v1/government/dctfweb/importar-esocial 🏛️
+           → Importar eSocial
+  POST     /api/v1/government/dctfweb/importar-esocial 🏛️
+           → Importar eSocial
+  POST     /api/v1/government/dctfweb/importar-reinf 🏛️
+           → Importar EFD-Reinf
+  POST     /api/v1/government/dctfweb/importar-reinf 🏛️
+           → Importar EFD-Reinf
+  POST     /api/v1/government/dctfweb/transmitir 
+           → Transmitir declaração
+  POST     /api/v1/government/dctfweb/transmitir 
+           → Transmitir declaração
+  POST     /api/v1/government/ecac/certidao 🏛️
+           → Emitir certidao
+  POST     /api/v1/government/ecac/certidao 🏛️
+           → Emitir certidao
+  POST     /api/v1/government/ecac/simular-parcelamento 🏛️
+           → Simular parcelamento
+  POST     /api/v1/government/ecac/simular-parcelamento 🏛️
+           → Simular parcelamento
+  POST     /api/v1/government/ecac/validar-certidao 🏛️
+           → Validar certidao
+  POST     /api/v1/government/ecac/validar-certidao 🏛️
+           → Validar certidao
+  POST     /api/v1/government/efd-reinf/enviar-lote 🏛️
+           → Enviar lote de eventos
+  POST     /api/v1/government/efd-reinf/enviar-lote 🏛️
+           → Enviar lote de eventos
+  POST     /api/v1/government/efd-reinf/r1000 🏛️
+           → Gerar evento R-1000
+  POST     /api/v1/government/efd-reinf/r1000 🏛️
+           → Gerar evento R-1000
+  POST     /api/v1/government/efd-reinf/r1000/transmitir 🏛️
+           → Transmitir R-1000 para a Receita Federal
+  POST     /api/v1/government/efd-reinf/r1000/transmitir 🏛️
+           → Transmitir R-1000 para a Receita Federal
+  POST     /api/v1/government/efd-reinf/r2010 🏛️
+           → Gerar evento R-2010
+  POST     /api/v1/government/efd-reinf/r2010 🏛️
+           → Gerar evento R-2010
+  POST     /api/v1/government/efd-reinf/r2099 🏛️
+           → Gerar evento R-2099
+  POST     /api/v1/government/efd-reinf/r2099 🏛️
+           → Gerar evento R-2099
+  POST     /api/v1/government/efd-reinf/r4010 🏛️
+           → Gerar evento R-4010
+  POST     /api/v1/government/efd-reinf/r4010 🏛️
+           → Gerar evento R-4010
+  POST     /api/v1/government/efd-reinf/r4020 🏛️
+           → Gerar evento R-4020
+  POST     /api/v1/government/efd-reinf/r4020 🏛️
+           → Gerar evento R-4020
+  POST     /api/v1/government/esocial/calcular-folha 💰🏛️
+           → Calcula folha de pagamento
+  POST     /api/v1/government/esocial/calcular-folha 💰🏛️
+           → Calcula folha de pagamento
+  POST     /api/v1/government/esocial/configurar-empresa 🏛️
+           → Configura empresa no eSocial (S-1000)
+  POST     /api/v1/government/esocial/configurar-empresa 🏛️
+           → Configura empresa no eSocial (S-1000)
+  POST     /api/v1/government/esocial/gerar-lote 🏛️
+           → Gera lote de eventos eSocial
+  POST     /api/v1/government/esocial/gerar-lote 🏛️
+           → Gera lote de eventos eSocial
+  POST     /api/v1/government/esocial/transmitir-s1000 🏛️
+           → Transmite S-1000 real ao webservice do eSocial
+  POST     /api/v1/government/esocial/transmitir-s1000 🏛️
+           → Transmite S-1000 real ao webservice do eSocial
+  POST     /api/v1/government/esocial/validar-evento 🏛️
+           → Valida evento eSocial
+  POST     /api/v1/government/esocial/validar-evento 🏛️
+           → Valida evento eSocial
+  POST     /api/v1/government/extracao/cancelar/{extracao_id} 
+           → Cancela uma extração em andamento.
+  POST     /api/v1/government/extracao/cancelar/{extracao_id} 
+           → Cancela uma extração em andamento.
+  POST     /api/v1/government/extracao/iniciar 
+           → Inicia extração de dados governamentais.
+  POST     /api/v1/government/extracao/iniciar 
+           → Inicia extração de dados governamentais.
+  POST     /api/v1/government/extracao/sync/esocial 🏛️
+           → Sincroniza eSocial de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/esocial 🏛️
+           → Sincroniza eSocial de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/fgts 🏛️
+           → Sincroniza FGTS Digital de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/fgts 🏛️
+           → Sincroniza FGTS Digital de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/nfe 🏛️
+           → Sincroniza NF-e de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/nfe 🏛️
+           → Sincroniza NF-e de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/nfse 🏛️
+           → Sincroniza NFS-e de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/nfse 🏛️
+           → Sincroniza NFS-e de forma rápida (background).
+  POST     /api/v1/government/extracao/sync/rfb 
+           → Sincroniza dados da Receita Federal (background).
+  POST     /api/v1/government/extracao/sync/rfb 
+           → Sincroniza dados da Receita Federal (background).
+  POST     /api/v1/government/extracao/sync/todos 
+           → Sincroniza todos os serviços governamentais (background).
+  POST     /api/v1/government/extracao/sync/todos 
+           → Sincroniza todos os serviços governamentais (background).
+  POST     /api/v1/government/fgts-digital/calcular-folha 💰🏛️
+           → Calcular FGTS da folha
+  POST     /api/v1/government/fgts-digital/calcular-folha 💰🏛️
+           → Calcular FGTS da folha
+  POST     /api/v1/government/fgts-digital/debitos 🏛️
+           → Consultar débitos
+  POST     /api/v1/government/fgts-digital/debitos 🏛️
+           → Consultar débitos
+  POST     /api/v1/government/fgts-digital/extrato 🏛️
+           → Consultar extrato
+  POST     /api/v1/government/fgts-digital/extrato 🏛️
+           → Consultar extrato
+  POST     /api/v1/government/fgts-digital/guia-mensal 🏛️
+           → Gerar guia mensal
+  POST     /api/v1/government/fgts-digital/guia-mensal 🏛️
+           → Gerar guia mensal
+  POST     /api/v1/government/fgts-digital/guia-rescisoria 🏛️
+           → Gerar guia rescisória
+  POST     /api/v1/government/fgts-digital/guia-rescisoria 🏛️
+           → Gerar guia rescisória
+  POST     /api/v1/government/fgts-digital/importar-esocial 🏛️
+           → Importar do eSocial
+  POST     /api/v1/government/fgts-digital/importar-esocial 🏛️
+           → Importar do eSocial
+  POST     /api/v1/government/fgts-digital/relatorio-mensal 🏛️
+           → Relatório mensal
+  POST     /api/v1/government/fgts-digital/relatorio-mensal 🏛️
+           → Relatório mensal
+  POST     /api/v1/government/fgts-digital/simular-saque 🏛️
+           → Simular saque
+  POST     /api/v1/government/fgts-digital/simular-saque 🏛️
+           → Simular saque
+  POST     /api/v1/government/govbr/autorizar 
+           → Gerar URL de autorizacao
+  POST     /api/v1/government/govbr/autorizar 
+           → Gerar URL de autorizacao
+  POST     /api/v1/government/govbr/callback 
+           → Processar callback OAuth2
+  POST     /api/v1/government/govbr/callback 
+           → Processar callback OAuth2
+  POST     /api/v1/government/govbr/empresas 
+           → Obter empresas vinculadas
+  POST     /api/v1/government/govbr/empresas 
+           → Obter empresas vinculadas
+  POST     /api/v1/government/govbr/limpar-pendentes 
+           → Limpar autenticacoes pendentes
+  POST     /api/v1/government/govbr/limpar-pendentes 
+           → Limpar autenticacoes pendentes
+  POST     /api/v1/government/govbr/logout 
+           → Gerar URL de logout
+  POST     /api/v1/government/govbr/logout 
+           → Gerar URL de logout
+  POST     /api/v1/government/govbr/renovar-token 
+           → Renovar token
+  POST     /api/v1/government/govbr/renovar-token 
+           → Renovar token
+  POST     /api/v1/government/govbr/usuario 
+           → Obter dados do usuario
+  POST     /api/v1/government/govbr/usuario 
+           → Obter dados do usuario
+  POST     /api/v1/government/govbr/validar-token 
+           → Validar token
+  POST     /api/v1/government/govbr/validar-token 
+           → Validar token
+  POST     /api/v1/government/jobs/registrar-todos 
+           → Registra todos os jobs de sincronizacao para o tenant.
+  POST     /api/v1/government/jobs/registrar-todos 
+           → Registra todos os jobs de sincronizacao para o tenant.
+  PATCH    /api/v1/government/jobs/{job_id} 
+           → Atualiza configuracao de um job.
+  PATCH    /api/v1/government/jobs/{job_id} 
+           → Atualiza configuracao de um job.
+  POST     /api/v1/government/jobs/{tipo}/executar 
+           → Executa um job de sincronizacao imediatamente.
+  POST     /api/v1/government/jobs/{tipo}/executar 
+           → Executa um job de sincronizacao imediatamente.
+  POST     /api/v1/government/jobs/{tipo}/pausar 
+           → Pausa um job de sincronizacao.
+  POST     /api/v1/government/jobs/{tipo}/pausar 
+           → Pausa um job de sincronizacao.
+  POST     /api/v1/government/jobs/{tipo}/retomar 
+           → Retoma um job de sincronizacao pausado.
+  POST     /api/v1/government/jobs/{tipo}/retomar 
+           → Retoma um job de sincronizacao pausado.
+  POST     /api/v1/government/mdfe/criar 
+           → Criar MDF-e
+  POST     /api/v1/government/mdfe/criar 
+           → Criar MDF-e
+  POST     /api/v1/government/mdfe/encerrar 
+           → Encerrar MDF-e
+  POST     /api/v1/government/mdfe/encerrar 
+           → Encerrar MDF-e
+  POST     /api/v1/government/mdfe/incluir-condutor 
+           → Incluir condutor
+  POST     /api/v1/government/mdfe/incluir-condutor 
+           → Incluir condutor
+  DELETE   /api/v1/government/mdfe/limpar 
+           → Limpar dados
+  DELETE   /api/v1/government/mdfe/limpar 
+           → Limpar dados
+  POST     /api/v1/government/nfce/cancelar 
+           → Cancela NFC-e
+  POST     /api/v1/government/nfce/cancelar 
+           → Cancela NFC-e
+  POST     /api/v1/government/nfce/contingencia/transmitir 
+           → Transmite NFC-e em contingencia
+  POST     /api/v1/government/nfce/contingencia/transmitir 
+           → Transmite NFC-e em contingencia
+  POST     /api/v1/government/nfce/emitir 
+           → Emite NFC-e
+  POST     /api/v1/government/nfce/emitir 
+           → Emite NFC-e
+  POST     /api/v1/government/nfce/inutilizar 
+           → Inutiliza numeracao
+  POST     /api/v1/government/nfce/inutilizar 
+           → Inutiliza numeracao
+  POST     /api/v1/government/nfse-manaus/cancelar 🏛️
+           → Cancela NFS-e
+  POST     /api/v1/government/nfse-manaus/cancelar 🏛️
+           → Cancela NFS-e
+  POST     /api/v1/government/nfse-manaus/emitir 🏛️
+           → Emite NFS-e
+  POST     /api/v1/government/nfse-manaus/emitir 🏛️
+           → Emite NFS-e
+  POST     /api/v1/government/nfse-manaus/substituir 🏛️
+           → Substitui NFS-e
+  POST     /api/v1/government/nfse-manaus/substituir 🏛️
+           → Substitui NFS-e
+  POST     /api/v1/government/nfse-nacional/cancelar 🏛️
+           → Cancela NFS-e (Padrao Nacional)
+  POST     /api/v1/government/nfse-nacional/cancelar 🏛️
+           → Cancela NFS-e (Padrao Nacional)
+  POST     /api/v1/government/nfse-nacional/emitir 🏛️
+           → Emite DPS (Padrao Nacional)
+  POST     /api/v1/government/nfse-nacional/emitir 🏛️
+           → Emite DPS (Padrao Nacional)
+  POST     /api/v1/government/nfse-nacional/substituir 🏛️
+           → Substitui NFS-e (Padrao Nacional)
+  POST     /api/v1/government/nfse-nacional/substituir 🏛️
+           → Substitui NFS-e (Padrao Nacional)
+  POST     /api/v1/government/receita/consultar-cnpj 
+           → Consulta CNPJ na Receita Federal
+  POST     /api/v1/government/receita/consultar-cnpj 
+           → Consulta CNPJ na Receita Federal
+  POST     /api/v1/government/receita/consultar-cpf 
+           → Consulta situacao cadastral de CPF
+  POST     /api/v1/government/receita/consultar-cpf 
+           → Consulta situacao cadastral de CPF
+  POST     /api/v1/government/receita/validar-documento 
+           → Valida CPF ou CNPJ
+  POST     /api/v1/government/receita/validar-documento 
+           → Valida CPF ou CNPJ
+  POST     /api/v1/government/sefaz-am/cancelar 
+           → Cancela uma NF-e autorizada.
+  POST     /api/v1/government/sefaz-am/cancelar 
+           → Cancela uma NF-e autorizada.
+  POST     /api/v1/government/sefaz-am/carta-correcao 
+           → Registra Carta de Correcao (CC-e) para uma NF-e.
+  POST     /api/v1/government/sefaz-am/carta-correcao 
+           → Registra Carta de Correcao (CC-e) para uma NF-e.
+  POST     /api/v1/government/sefaz-am/inutilizar 
+           → Inutiliza faixa de numeracao de NF-e.
+  POST     /api/v1/government/sefaz-am/inutilizar 
+           → Inutiliza faixa de numeracao de NF-e.
+  POST     /api/v1/government/sefaz/nfe/emitir 🏛️
+           → Emite NFe/NFCe
+  POST     /api/v1/government/sefaz/nfe/emitir 🏛️
+           → Emite NFe/NFCe
+  POST     /api/v1/government/simples-nacional/das 🏛️
+           → Gerar DAS
+  POST     /api/v1/government/simples-nacional/das 🏛️
+           → Gerar DAS
+  POST     /api/v1/government/simples-nacional/fator-r 
+           → Calcular Fator R
+  POST     /api/v1/government/simples-nacional/fator-r 
+           → Calcular Fator R
+  POST     /api/v1/government/simples-nacional/pgdasd 
+           → Calcular PGDAS-D
+  POST     /api/v1/government/simples-nacional/pgdasd 
+           → Calcular PGDAS-D
+  POST     /api/v1/government/simples-nacional/simular 
+           → Simular cálculo
+  POST     /api/v1/government/simples-nacional/simular 
+           → Simular cálculo
+  POST     /api/v1/government/sped-contabil/balanco 🏛️
+           → Definir balanço
+  POST     /api/v1/government/sped-contabil/balanco 🏛️
+           → Definir balanço
+  POST     /api/v1/government/sped-contabil/conta 🏛️
+           → Adicionar conta
+  POST     /api/v1/government/sped-contabil/conta 🏛️
+           → Adicionar conta
+  POST     /api/v1/government/sped-contabil/dre 🏛️
+           → Definir DRE
+  POST     /api/v1/government/sped-contabil/dre 🏛️
+           → Definir DRE
+  POST     /api/v1/government/sped-contabil/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-contabil/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-contabil/lancamento 🏛️
+           → Adicionar lançamento
+  POST     /api/v1/government/sped-contabil/lancamento 🏛️
+           → Adicionar lançamento
+  DELETE   /api/v1/government/sped-contabil/limpar 🏛️
+           → Limpar dados
+  DELETE   /api/v1/government/sped-contabil/limpar 🏛️
+           → Limpar dados
+  POST     /api/v1/government/sped-contabil/saldos 🏛️
+           → Calcular saldos
+  POST     /api/v1/government/sped-contabil/saldos 🏛️
+           → Calcular saldos
+  POST     /api/v1/government/sped-fiscal/apuracao 🏛️
+           → Calcular apuração
+  POST     /api/v1/government/sped-fiscal/apuracao 🏛️
+           → Calcular apuração
+  POST     /api/v1/government/sped-fiscal/documento 🏛️
+           → Adicionar documento
+  POST     /api/v1/government/sped-fiscal/documento 🏛️
+           → Adicionar documento
+  POST     /api/v1/government/sped-fiscal/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-fiscal/gerar 🏛️
+           → Gerar arquivo SPED
+  POST     /api/v1/government/sped-fiscal/inventario 🏛️
+           → Adicionar item inventário
+  POST     /api/v1/government/sped-fiscal/inventario 🏛️
+           → Adicionar item inventário
+  DELETE   /api/v1/government/sped-fiscal/limpar 🏛️
+           → Limpar dados
+  DELETE   /api/v1/government/sped-fiscal/limpar 🏛️
+           → Limpar dados
+  POST     /api/v1/government/sped-fiscal/participante 🏛️
+           → Adicionar participante
+  POST     /api/v1/government/sped-fiscal/participante 🏛️
+           → Adicionar participante
+  POST     /api/v1/government/sped-fiscal/produto 🏛️
+           → Adicionar produto
+  POST     /api/v1/government/sped-fiscal/produto 🏛️
+           → Adicionar produto
+  POST     /api/v1/government/sync/agendamento 
+           → Configurar agendamento
+  POST     /api/v1/government/sync/agendamento 
+           → Configurar agendamento
+  DELETE   /api/v1/government/sync/agendamento/{cnpj}/{servico} 
+           → Remover agendamento
+  DELETE   /api/v1/government/sync/agendamento/{cnpj}/{servico} 
+           → Remover agendamento
+  POST     /api/v1/government/sync/configuracao 
+           → Configurar integração
+  POST     /api/v1/government/sync/configuracao 
+           → Configurar integração
+  DELETE   /api/v1/government/sync/jobs/{job_id} 
+           → Cancelar job
+  DELETE   /api/v1/government/sync/jobs/{job_id} 
+           → Cancelar job
+  POST     /api/v1/government/sync/todos 
+           → Sincronizar todos os serviços
+  POST     /api/v1/government/sync/todos 
+           → Sincronizar todos os serviços
+  POST     /api/v1/government/sync/{servico} 
+           → Executar sincronização de serviço
+  POST     /api/v1/government/sync/{servico} 
+           → Executar sincronização de serviço
+  POST     /api/v1/government/sync/{servico}/background 
+           → Executar sincronização em background
+  POST     /api/v1/government/sync/{servico}/background 
+           → Executar sincronização em background
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/government/certificates/  → Lista Certificados
+  GET      /api/v1/government/certificates/  → Lista Certificados
+  GET      /api/v1/government/certificates/{certificate_id}  → Obtem Certificado
+  GET      /api/v1/government/certificates/{certificate_id}  → Obtem Certificado
+  GET      /api/v1/government/certificates/{certificate_id}/public-key  → Obtem Chave Publica
+  GET      /api/v1/government/certificates/{certificate_id}/public-key  → Obtem Chave Publica
+  GET      /api/v1/government/cte/consultar-status-servico  → Consultar Status Servico
+  GET      /api/v1/government/cte/consultar-status-servico  → Consultar Status Servico
+  GET      /api/v1/government/cte/listar  → Listar CT-e
+  GET      /api/v1/government/cte/listar  → Listar CT-e
+  GET      /api/v1/government/cte/modais  → Listar Modais
+  GET      /api/v1/government/cte/modais  → Listar Modais
+  GET      /api/v1/government/cte/obter/{numero}  → Obter CT-e
+  GET      /api/v1/government/cte/obter/{numero}  → Obter CT-e
+  GET      /api/v1/government/cte/status  → Status do CT-e
+  GET      /api/v1/government/cte/status  → Status do CT-e
+  GET      /api/v1/government/cte/tipos-servico  → Listar Tipos de Servico
+  GET      /api/v1/government/cte/tipos-servico  → Listar Tipos de Servico
+  GET      /api/v1/government/dashboard/  → Obtém visão geral do dashboard de monitoramento.
+  GET      /api/v1/government/dashboard/  → Obtém visão geral do dashboard de monitoramento.
+  GET      /api/v1/government/dashboard/certificados/alertas  → Lista alertas de certificados próximos da expiração.
+  GET      /api/v1/government/dashboard/certificados/alertas  → Lista alertas de certificados próximos da expiração.
+  GET      /api/v1/government/dashboard/endpoints  → Lista status de todos os endpoints governamentais.
+  GET      /api/v1/government/dashboard/endpoints  → Lista status de todos os endpoints governamentais.
+  GET      /api/v1/government/dashboard/metricas  → Obtém métricas detalhadas para gráficos.
+  GET      /api/v1/government/dashboard/metricas  → Obtém métricas detalhadas para gráficos.
+  GET      /api/v1/government/dashboard/status  → Status de TODAS as integrações externas do sistema.
+  GET      /api/v1/government/dashboard/status  → Status de TODAS as integrações externas do sistema.
+  GET      /api/v1/government/dctfweb/codigos-receita  → Lista códigos de receita
+  GET      /api/v1/government/dctfweb/codigos-receita  → Lista códigos de receita
+  GET      /api/v1/government/dctfweb/consultar/{periodo_apuracao}  → Consultar declaração
+  GET      /api/v1/government/dctfweb/consultar/{periodo_apuracao}  → Consultar declaração
+  GET      /api/v1/government/dctfweb/status  → Status do DCTFWeb
+  GET      /api/v1/government/dctfweb/status  → Status do DCTFWeb
+  GET      /api/v1/government/dctfweb/tipos-credito  → Lista tipos de crédito
+  GET      /api/v1/government/dctfweb/tipos-credito  → Lista tipos de crédito
+  GET      /api/v1/government/dctfweb/tipos-declaracao  → Lista tipos de declaração
+  GET      /api/v1/government/dctfweb/tipos-declaracao  → Lista tipos de declaração
+  GET      /api/v1/government/ecac/debitos  → Consulta debitos
+  GET      /api/v1/government/ecac/debitos  → Consulta debitos
+  GET      /api/v1/government/ecac/declaracoes  → Consulta declaracoes
+  GET      /api/v1/government/ecac/declaracoes  → Consulta declaracoes
+  GET      /api/v1/government/ecac/parcelamentos  → Consulta parcelamentos
+  GET      /api/v1/government/ecac/parcelamentos  → Consulta parcelamentos
+  GET      /api/v1/government/ecac/situacao-fiscal  → Consulta situacao fiscal
+  GET      /api/v1/government/ecac/situacao-fiscal  → Consulta situacao fiscal
+  GET      /api/v1/government/ecac/status  → Status do e-CAC
+  GET      /api/v1/government/ecac/status  → Status do e-CAC
+  GET      /api/v1/government/efd-reinf/classificacoes-tributarias  → Lista classificações tributárias
+  GET      /api/v1/government/efd-reinf/classificacoes-tributarias  → Lista classificações tributárias
+  GET      /api/v1/government/efd-reinf/naturezas-rendimento  → Lista naturezas de rendimento
+  GET      /api/v1/government/efd-reinf/naturezas-rendimento  → Lista naturezas de rendimento
+  GET      /api/v1/government/efd-reinf/status  → Status do EFD-Reinf
+  GET      /api/v1/government/efd-reinf/status  → Status do EFD-Reinf
+  GET      /api/v1/government/extracao/status/{extracao_id}  → Obtém status de uma extração em andamento.
+  GET      /api/v1/government/extracao/status/{extracao_id}  → Obtém status de uma extração em andamento.
+  GET      /api/v1/government/fgts-digital/categorias  → Lista categorias
+  GET      /api/v1/government/fgts-digital/categorias  → Lista categorias
+  GET      /api/v1/government/fgts-digital/modalidades-saque  → Lista modalidades de saque
+  GET      /api/v1/government/fgts-digital/modalidades-saque  → Lista modalidades de saque
+  GET      /api/v1/government/fgts-digital/status  → Status do FGTS Digital
+  GET      /api/v1/government/fgts-digital/status  → Status do FGTS Digital
+  GET      /api/v1/government/govbr/autorizar  → Gerar URL de autorizacao (GET)
+  GET      /api/v1/government/govbr/autorizar  → Gerar URL de autorizacao (GET)
+  GET      /api/v1/government/govbr/callback  → Processar callback OAuth2 (GET)
+  GET      /api/v1/government/govbr/callback  → Processar callback OAuth2 (GET)
+  GET      /api/v1/government/govbr/scopes  → Listar scopes disponiveis
+  GET      /api/v1/government/govbr/scopes  → Listar scopes disponiveis
+  GET      /api/v1/government/govbr/status  → Status do Gov.br
+  GET      /api/v1/government/govbr/status  → Status do Gov.br
+  GET      /api/v1/government/health  → Health check
+  GET      /api/v1/government/health  → Health check
+  GET      /api/v1/government/jobs  → Lista todos os jobs de sincronizacao do tenant.
+  GET      /api/v1/government/jobs  → Lista todos os jobs de sincronizacao do tenant.
+  GET      /api/v1/government/jobs/configuracoes  → Lista todas as configuracoes de jobs disponiveis.
+  GET      /api/v1/government/jobs/configuracoes  → Lista todas as configuracoes de jobs disponiveis.
+  GET      /api/v1/government/jobs/status  → Obtem status geral da sincronizacao governamental.
+  GET      /api/v1/government/jobs/status  → Obtem status geral da sincronizacao governamental.
+  GET      /api/v1/government/mdfe/consultar-status-servico  → Status do servico SEFAZ
+  GET      /api/v1/government/mdfe/consultar-status-servico  → Status do servico SEFAZ
+  GET      /api/v1/government/mdfe/listar  → Lista MDF-e
+  GET      /api/v1/government/mdfe/listar  → Lista MDF-e
+  GET      /api/v1/government/mdfe/modais  → Lista modais de transporte
+  GET      /api/v1/government/mdfe/modais  → Lista modais de transporte
+  GET      /api/v1/government/mdfe/nao-encerrados  → MDF-e nao encerrados
+  GET      /api/v1/government/mdfe/nao-encerrados  → MDF-e nao encerrados
+  GET      /api/v1/government/mdfe/status  → Status do MDF-e
+  GET      /api/v1/government/mdfe/status  → Status do MDF-e
+  GET      /api/v1/government/mdfe/tipos-carroceria  → Lista tipos de carroceria
+  GET      /api/v1/government/mdfe/tipos-carroceria  → Lista tipos de carroceria
+  GET      /api/v1/government/mdfe/tipos-emitente  → Lista tipos de emitente
+  GET      /api/v1/government/mdfe/tipos-emitente  → Lista tipos de emitente
+  GET      /api/v1/government/mdfe/{mdfe_id}  → Buscar MDF-e
+  GET      /api/v1/government/mdfe/{mdfe_id}  → Buscar MDF-e
+  GET      /api/v1/government/nfce/consultar/{chave_acesso}  → Consulta NFC-e por chave
+  GET      /api/v1/government/nfce/consultar/{chave_acesso}  → Consulta NFC-e por chave
+  GET      /api/v1/government/nfce/listar  → Lista NFC-e emitidas
+  GET      /api/v1/government/nfce/listar  → Lista NFC-e emitidas
+  GET      /api/v1/government/nfce/status  → Status do servico NFC-e
+  GET      /api/v1/government/nfce/status  → Status do servico NFC-e
+  GET      /api/v1/government/nfse-nacional/codigos-servico  → Lista codigos de servico NBS
+  GET      /api/v1/government/nfse-nacional/codigos-servico  → Lista codigos de servico NBS
+  GET      /api/v1/government/nfse-nacional/consultar/dps/{id_dps}  → Consulta DPS por ID
+  GET      /api/v1/government/nfse-nacional/consultar/dps/{id_dps}  → Consulta DPS por ID
+  GET      /api/v1/government/nfse-nacional/info  → Informacoes do Padrao Nacional
+  GET      /api/v1/government/nfse-nacional/info  → Informacoes do Padrao Nacional
+  GET      /api/v1/government/nfse-nacional/migracao/comparar-padroes  → Compara padroes ABRASF x Nacional
+  GET      /api/v1/government/nfse-nacional/migracao/comparar-padroes  → Compara padroes ABRASF x Nacional
+  GET      /api/v1/government/nfse-nacional/migracao/mapeamento-servicos  → Mapeamento de codigos de servico
+  GET      /api/v1/government/nfse-nacional/migracao/mapeamento-servicos  → Mapeamento de codigos de servico
+  GET      /api/v1/government/nfse-nacional/migracao/status  → Status da migracao
+  GET      /api/v1/government/nfse-nacional/migracao/status  → Status da migracao
+  GET      /api/v1/government/nfse-nacional/status  → Valida conexao e status
+  GET      /api/v1/government/nfse-nacional/status  → Valida conexao e status
+  GET      /api/v1/government/nfse-nacional/tomadores  → Lista os tomadores (condomínios) com endereço completo, p/ o seletor do emissor.
+  GET      /api/v1/government/nfse-nacional/tomadores  → Lista os tomadores (condomínios) com endereço completo, p/ o seletor do emissor.
+  GET      /api/v1/government/sefaz-am/cadastro/cnpj/{cnpj}  → Consulta cadastro de contribuinte por CNPJ.
+  GET      /api/v1/government/sefaz-am/cadastro/cnpj/{cnpj}  → Consulta cadastro de contribuinte por CNPJ.
+  GET      /api/v1/government/sefaz-am/cadastro/ie/{inscricao_estadual}  → Consulta cadastro de contribuinte por Inscricao Estadual.
+  GET      /api/v1/government/sefaz-am/cadastro/ie/{inscricao_estadual}  → Consulta cadastro de contribuinte por Inscricao Estadual.
+  GET      /api/v1/government/sefaz-am/dfe  → Consulta DF-e destinados ao CNPJ.
+  GET      /api/v1/government/sefaz-am/dfe  → Consulta DF-e destinados ao CNPJ.
+  GET      /api/v1/government/sefaz-am/status  → Consulta status do servico SEFAZ-AM.
+  GET      /api/v1/government/sefaz-am/status  → Consulta status do servico SEFAZ-AM.
+  GET      /api/v1/government/simples-nacional/anexos  → Lista anexos
+  GET      /api/v1/government/simples-nacional/anexos  → Lista anexos
+  GET      /api/v1/government/simples-nacional/opcao  → Consultar opção
+  GET      /api/v1/government/simples-nacional/opcao  → Consultar opção
+  GET      /api/v1/government/simples-nacional/pendencias  → Consultar pendências
+  GET      /api/v1/government/simples-nacional/pendencias  → Consultar pendências
+  GET      /api/v1/government/simples-nacional/status  → Status do Simples Nacional
+  GET      /api/v1/government/simples-nacional/status  → Status do Simples Nacional
+  GET      /api/v1/government/simples-nacional/tabela-aliquotas/{anexo}  → Tabela de alíquotas
+  GET      /api/v1/government/simples-nacional/tabela-aliquotas/{anexo}  → Tabela de alíquotas
+  GET      /api/v1/government/simples-nacional/tipos-receita  → Lista tipos de receita
+  GET      /api/v1/government/simples-nacional/tipos-receita  → Lista tipos de receita
+  GET      /api/v1/government/sped-contabil/blocos  → Lista blocos
+  GET      /api/v1/government/sped-contabil/blocos  → Lista blocos
+  GET      /api/v1/government/sped-contabil/contas  → Lista contas
+  GET      /api/v1/government/sped-contabil/contas  → Lista contas
+  GET      /api/v1/government/sped-contabil/status  → Status do SPED Contábil
+  GET      /api/v1/government/sped-contabil/status  → Status do SPED Contábil
+  GET      /api/v1/government/sped-contabil/tipos-ecd  → Lista tipos de ECD
+  GET      /api/v1/government/sped-contabil/tipos-ecd  → Lista tipos de ECD
+  GET      /api/v1/government/sped-fiscal/blocos  → Lista blocos
+  GET      /api/v1/government/sped-fiscal/blocos  → Lista blocos
+  GET      /api/v1/government/sped-fiscal/documentos  → Lista documentos
+  GET      /api/v1/government/sped-fiscal/documentos  → Lista documentos
+  GET      /api/v1/government/sped-fiscal/participantes  → Lista participantes
+  GET      /api/v1/government/sped-fiscal/participantes  → Lista participantes
+  GET      /api/v1/government/sped-fiscal/produtos  → Lista produtos
+  GET      /api/v1/government/sped-fiscal/produtos  → Lista produtos
+  GET      /api/v1/government/sped-fiscal/status  → Status do SPED Fiscal
+  GET      /api/v1/government/sped-fiscal/status  → Status do SPED Fiscal
+
+### 🔵 PROVAVEIS FALSO-ORFAO (52) — builder le a tabela direto
+  GET      /api/v1/government/ecac/processos  (tabela: juridico_processos)
+  GET      /api/v1/government/ecac/processos  (tabela: juridico_processos)
+  GET      /api/v1/government/esocial/consultar/{protocolo}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/consultar/{protocolo}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/espelho/timeline/{cpf}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/espelho/timeline/{cpf}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/eventos-suportados  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/eventos-suportados  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/gaps-funcionarios  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/esocial/gaps-funcionarios  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/extracao/historico  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/extracao/historico  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/inss/guias  (tabela: inss_guias)
+  GET      /api/v1/government/inss/guias  (tabela: inss_guias)
+  GET      /api/v1/government/nfse-manaus/codigos-servico  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/codigos-servico  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/consultar/numero/{numero_nfse}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/consultar/numero/{numero_nfse}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/consultar/rps/{numero_rps}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/consultar/rps/{numero_rps}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/lote/{numero_lote}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/lote/{numero_lote}  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/status  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-manaus/status  (tabela: nfse_manaus_historico)
+  GET      /api/v1/government/nfse-nacional/consultar/nfse/{numero_nfse}  (tabela: nfse_emitidas_nacional)
+  GET      /api/v1/government/nfse-nacional/consultar/nfse/{numero_nfse}  (tabela: nfse_emitidas_nacional)
+  GET      /api/v1/government/nfse-nacional/eventos/{numero_nfse}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/nfse-nacional/eventos/{numero_nfse}  (tabela: esocial_eventos_espelho)
+  GET      /api/v1/government/sefaz-am/nfe/{chave_acesso}  (tabela: nfe_compras_estoque)
+  GET      /api/v1/government/sefaz-am/nfe/{chave_acesso}  (tabela: nfe_compras_estoque)
+  GET      /api/v1/government/sefaz/nfe/consultar/{chave_acesso}  (tabela: nfe_compras_estoque)
+  GET      /api/v1/government/sefaz/nfe/consultar/{chave_acesso}  (tabela: nfe_compras_estoque)
+  GET      /api/v1/government/sped-contabil/lancamentos  (tabela: diaria_lancamentos)
+  GET      /api/v1/government/sped-contabil/lancamentos  (tabela: diaria_lancamentos)
+  GET      /api/v1/government/sync/agendamentos/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/agendamentos/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/configuracao/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/configuracao/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/certidoes/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/certidoes/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/documentos/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/documentos/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/eventos-esocial/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/eventos-esocial/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/guias/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/dados/guias/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/historico/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/historico/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/jobs  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/jobs  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/status/{cnpj}  (tabela: solides_sync_log)
+  GET      /api/v1/government/sync/status/{cnpj}  (tabela: solides_sync_log)
+
+### ✅ EXPOSTAS (20) — com o arquivo que prova
+  GET      /api/v1/government/dashboard/eventos
+           → Lista eventos recentes do sistema.  [co-ocorrencia government+eventos] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/dashboard/eventos
+           → Lista eventos recentes do sistema.  [co-ocorrencia government+eventos] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/esocial/espelho/resumo
+           → Resumo do espelho (por tipo/ano) + anti-duplicidade  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/esocial/espelho/resumo
+           → Resumo do espelho (por tipo/ano) + anti-duplicidade  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/esocial/espelho/sincronizar
+           → Sincroniza o espelho oficial do eSocial (task Celery)  [co-ocorrencia government+sincronizar] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/esocial/espelho/sincronizar
+           → Sincroniza o espelho oficial do eSocial (task Celery)  [co-ocorrencia government+sincronizar] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/esocial/evento
+           → Envia evento eSocial  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/esocial/evento
+           → Envia evento eSocial  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/esocial/eventos
+           → Lista eventos eSocial enviados  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/esocial/eventos
+           → Lista eventos eSocial enviados  [co-ocorrencia government+esocial] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/fgts/calcular
+           → Calcula FGTS  [co-ocorrencia government+calcular] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/fgts/calcular
+           → Calcula FGTS  [co-ocorrencia government+calcular] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/fgts/guias
+           → Listar guias FGTS  [co-ocorrencia government+fgts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/fgts/guias
+           → Listar guias FGTS  [co-ocorrencia government+fgts] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/inss/calcular
+           → Calcula INSS  [co-ocorrencia government+calcular] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/government/inss/calcular
+           → Calcula INSS  [co-ocorrencia government+calcular] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/inss/tabela
+           → Tabela INSS vigente  [co-ocorrencia government+inss] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/inss/tabela
+           → Tabela INSS vigente  [co-ocorrencia government+inss] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/status
+           → Status das integracoes governamentais  [segmento unico 'government' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/government/status
+           → Status das integracoes governamentais  [segmento unico 'government' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+exit=0 stderr=0b

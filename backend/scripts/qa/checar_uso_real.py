@@ -93,6 +93,14 @@ async def _banco() -> list[dict]:
                                      "ultima_dono": r.ultima_dono.isoformat() if r.ultima_dono else None}
                               for r in escritas}}]
         for nome, vivas in tabelas:
+            if not vivas:
+                # `n_live_tup` é ESTIMATIVA e fica em 0 até o autovacuum passar: em 06/09/2026
+                # `fin_journal_entries` tinha 11 linhas e `cct_convencoes` 1 com n_live_tup=0.
+                # Zero é a única contagem que vale a pena confirmar — e é barata.
+                try:
+                    vivas = int((await db.execute(text(f'SELECT count(*) FROM "{nome}"'))).scalar() or 0)
+                except Exception:  # noqa: BLE001
+                    vivas = 0
             ultima = None
             if vivas and datas.get(nome):
                 expr = ", ".join(f'max("{c}")' for c in datas[nome])

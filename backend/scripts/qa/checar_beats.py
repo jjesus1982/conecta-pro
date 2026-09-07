@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 import inspect
 import sys
 
@@ -113,6 +114,13 @@ def _analisar(tree) -> list[tuple[str, str]]:
                 except Exception as e:  # noqa: BLE001 — qualquer falha de import é achado
                     achados.append(("🔴", f"linha {no.lineno}: `import {no.module}` "
                                           f"quebrou — {type(e).__name__}: {e}"))
+                    continue
+                if not hasattr(mod, alias.name) and importlib.util.find_spec(f"{no.module}.{alias.name}"):
+                    # `from pacote import submodulo` é import válido mesmo sem estar no
+                    # __init__. Medido em 06/09/2026: acusava `reconciliation_service` e
+                    # `pagamentos_diaristas_service` como inexistentes — os dois arquivos
+                    # existiam em todos os 8 containers. Falso vermelho desde 13/08.
+                    importados[local] = f"{no.module}.{alias.name}"
                     continue
                 if not hasattr(mod, alias.name):
                     exporta = [n for n in dir(mod) if n[:1].isupper() and not n.startswith("_")]

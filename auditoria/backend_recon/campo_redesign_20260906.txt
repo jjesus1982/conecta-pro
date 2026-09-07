@@ -1,0 +1,153 @@
+=== BACKEND RECON v2 — prefixo 'campo' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 77 · EXPOSTAS: 32 · ORFAS: 45
+  das orfas: 5 provaveis FALSO-ORFAO (builder le a tabela direto)
+             40 candidatas reais — destas, 28 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/campo/checklists/itens 
+           → Adiciona item a um template.
+  PATCH    /api/v1/campo/checklists/itens/{item_id} 
+           → Atualiza um item.
+  DELETE   /api/v1/campo/checklists/itens/{item_id} 
+           → Exclui um item (soft delete).
+  POST     /api/v1/campo/checklists/os/{ordem_servico_id}/concluir 
+           → Conclui preenchimento do checklist.
+  POST     /api/v1/campo/checklists/os/{ordem_servico_id}/iniciar 
+           → Inicia preenchimento de checklist para uma OS.
+  POST     /api/v1/campo/checklists/os/{ordem_servico_id}/responder 
+           → Responde um item do checklist.
+  POST     /api/v1/campo/checklists/templates 
+           → Cria um novo template de checklist.
+  PATCH    /api/v1/campo/checklists/templates/{template_id} 
+           → Atualiza um template.
+  DELETE   /api/v1/campo/checklists/templates/{template_id} 
+           → Exclui um template (soft delete).
+  POST     /api/v1/campo/checklists/templates/{template_id}/clonar 
+           → Clona um template existente.
+  POST     /api/v1/campo/checklists/templates/{template_id}/reordenar 
+           → Reordena itens de um template.
+  POST     /api/v1/campo/os/{os_id}/agendar 
+           → Agenda uma OS.
+  POST     /api/v1/campo/os/{os_id}/avaliacao 
+           → Registra avaliacao do cliente.
+  POST     /api/v1/campo/os/{os_id}/checkout 
+           → Registra check-out do local.
+  POST     /api/v1/campo/os/{os_id}/iniciar-deslocamento 
+           → Marca inicio do deslocamento.
+  POST     /api/v1/campo/os/{os_id}/reagendar 
+           → Reagenda uma OS.
+  POST     /api/v1/campo/technicians 
+           → Cadastra novo técnico.
+  POST     /api/v1/campo/tickets 
+           → Cria novo ticket de atendimento.
+  PUT      /api/v1/campo/tickets/{ticket_id} 
+           → Atualiza ticket.
+  POST     /api/v1/campo/tickets/{ticket_id}/assign/{technician_id} 
+           → Atribui técnico ao ticket.
+  POST     /api/v1/campo/visitas/{visita_id}/checkout 
+           → Registra check-out do local.
+  POST     /api/v1/campo/visitas/{visita_id}/followup 
+           → Agenda follow-up.
+  POST     /api/v1/campo/visitas/{visita_id}/iniciar-deslocamento 
+           → Marca inicio do deslocamento.
+  POST     /api/v1/campo/visitas/{visita_id}/interesse 💰
+           → Registra nivel de interesse.
+  POST     /api/v1/campo/visitas/{visita_id}/levantamento 
+           → Adiciona dados de levantamento tecnico.
+  POST     /api/v1/campo/visitas/{visita_id}/necessidade 
+           → Adiciona necessidade identificada.
+  POST     /api/v1/campo/visitas/{visita_id}/reagendar 
+           → Reagenda uma visita.
+  POST     /api/v1/campo/visitas/{visita_id}/resultado 
+           → Registra resultado da visita.
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/campo/checklists/itens/{item_id}  → Obtem item por ID.
+  GET      /api/v1/campo/checklists/os/{ordem_servico_id}  → Obtem checklist completo de uma OS.
+  GET      /api/v1/campo/checklists/os/{ordem_servico_id}/progresso  → Obtem progresso do checklist de uma OS.
+  GET      /api/v1/campo/monitoring/health  → Health check básico do sistema.
+  GET      /api/v1/campo/monitoring/metrics  → Métricas detalhadas do sistema.
+  GET      /api/v1/campo/monitoring/ping  → Ping simples para verificar se o serviço responde.
+  GET      /api/v1/campo/monitoring/ready  → Readiness check detalhado do sistema.
+  GET      /api/v1/campo/monitoring/status  → Status resumido do sistema.
+  GET      /api/v1/campo/os/atrasadas  → Lista OS com SLA vencido.
+  GET      /api/v1/campo/os/tecnico/{tecnico_id}  → Lista OS de um tecnico.
+  GET      /api/v1/campo/technicians  → Lista técnicos cadastrados.
+  GET      /api/v1/campo/tickets/{ticket_id}  → Consulta ticket específico.
+
+### 🔵 PROVAVEIS FALSO-ORFAO (5) — builder le a tabela direto
+  GET      /api/v1/campo/checklists/templates  (tabela: scale_templates)
+  GET      /api/v1/campo/checklists/templates/tipo/{tipo_servico}  (tabela: scale_templates)
+  GET      /api/v1/campo/checklists/templates/{template_id}  (tabela: scale_templates)
+  GET      /api/v1/campo/checklists/templates/{template_id}/itens  (tabela: scale_templates)
+  GET      /api/v1/campo/visitas/pendentes-confirmacao  (tabela: visitas)
+
+### ✅ EXPOSTAS (32) — com o arquivo que prova
+  GET      /api/v1/campo/dashboard
+           → Dashboard do CAMPO com estatísticas.  [co-ocorrencia dashboard+campo] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/campo/os/
+           → Cria uma nova Ordem de Servico.  [segmento unico 'campo' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  GET      /api/v1/campo/os/
+           → Lista Ordens de Servico com filtros e paginacao.  [segmento unico 'campo' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  GET      /api/v1/campo/os/cliente/{cliente_id}
+           → Lista OS de um cliente.  [co-ocorrencia campo+cliente] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/os/dashboard
+           → Obtem estatisticas para dashboard.  [co-ocorrencia dashboard+campo] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/campo/os/numero/{numero}
+           → Obtem OS por numero.  [co-ocorrencia numero+campo] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/os/{os_id}
+           → Obtem detalhes de uma OS.  [segmento unico 'campo' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  PATCH    /api/v1/campo/os/{os_id}
+           → Atualiza uma OS.  [segmento unico 'campo' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  DELETE   /api/v1/campo/os/{os_id}
+           → Exclui uma OS.  [segmento unico 'campo' (prova fraca)] backend/modules/operacional/controllers/redesign_builders/_op_grupos.py
+  POST     /api/v1/campo/os/{os_id}/assinatura
+           → Registra assinatura do cliente.  [co-ocorrencia assinatura+campo] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/campo/os/{os_id}/cancelar
+           → Cancela uma OS.  [co-ocorrencia cancelar+campo] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/campo/os/{os_id}/checkin
+           → Registra check-in no local.  [co-ocorrencia checkin+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  POST     /api/v1/campo/os/{os_id}/concluir
+           → Conclui uma OS.  [co-ocorrencia concluir+campo] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/campo/os/{os_id}/foto
+           → Adiciona foto a OS.  [co-ocorrencia foto+campo] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/campo/os/{os_id}/pausar
+           → Pausa uma OS em andamento.  [co-ocorrencia pausar+campo] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/campo/os/{os_id}/retomar
+           → Retoma uma OS pausada.  [co-ocorrencia retomar+campo] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/campo/visitas/
+           → Cria uma nova Visita.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  GET      /api/v1/campo/visitas/
+           → Lista Visitas com filtros e paginacao.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  GET      /api/v1/campo/visitas/cliente/{cliente_id}
+           → Lista visitas de um cliente.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  GET      /api/v1/campo/visitas/dashboard
+           → Obtem estatisticas para dashboard.  [co-ocorrencia visitas+dashboard] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/campo/visitas/lead/{lead_id}
+           → Lista visitas de um lead.  [co-ocorrencia lead+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/visitas/numero/{numero}
+           → Obtem Visita por numero.  [co-ocorrencia visitas+numero] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/visitas/responsavel/{responsavel_id}
+           → Lista visitas de um responsavel.  [co-ocorrencia responsavel+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/visitas/{visita_id}
+           → Obtem detalhes de uma Visita.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  PATCH    /api/v1/campo/visitas/{visita_id}
+           → Atualiza uma Visita.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  DELETE   /api/v1/campo/visitas/{visita_id}
+           → Exclui uma Visita.  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  POST     /api/v1/campo/visitas/{visita_id}/cancelar
+           → Cancela uma visita.  [co-ocorrencia cancelar+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/campo/visitas/{visita_id}/checkin
+           → Registra check-in no local.  [co-ocorrencia checkin+visitas] backend/modules/operacional/controllers/redesign_builders/campo.py
+  POST     /api/v1/campo/visitas/{visita_id}/confirmar
+           → Confirma uma visita.  [co-ocorrencia visitas+confirmar] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/campo/visitas/{visita_id}/foto
+           → Adiciona foto a visita.  [co-ocorrencia foto+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/campo/visitas/{visita_id}/pdf
+           → Relatório da visita em PDF (marca Conecta)  [co-ocorrencia visitas+campo] backend/modules/operacional/controllers/redesign_builders/campo.py
+  POST     /api/v1/campo/visitas/{visita_id}/proposta
+           → Vincula proposta gerada a visita.  [co-ocorrencia visitas+proposta] backend/modules/operacional/controllers/redesign_builders/crm.py
+exit=0 stderr=0b

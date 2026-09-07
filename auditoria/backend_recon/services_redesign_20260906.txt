@@ -1,0 +1,118 @@
+=== BACKEND RECON v2 — prefixo 'services' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 63 · EXPOSTAS: 1 · ORFAS: 62
+  das orfas: 7 provaveis FALSO-ORFAO (builder le a tabela direto)
+             55 candidatas reais — destas, 38 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/services/catalog 
+           → Criar Serviço
+  PUT      /api/v1/services/catalog/{service_id} 
+           → Atualizar Serviço
+  POST     /api/v1/services/catalog/{service_id}/activate 
+           → Ativar Serviço
+  POST     /api/v1/services/catalog/{service_id}/deactivate 
+           → Desativar Serviço
+  POST     /api/v1/services/catalog/{service_id}/discontinue 
+           → Descontinuar Serviço
+  POST     /api/v1/services/executions 
+           → Criar Execução
+  POST     /api/v1/services/executions/{execution_id}/arrive 
+           → Registrar Chegada
+  POST     /api/v1/services/executions/{execution_id}/checklist/{item_index} 
+           → Atualizar Checklist
+  POST     /api/v1/services/executions/{execution_id}/finish 
+           → Finalizar Execução
+  POST     /api/v1/services/executions/{execution_id}/materials 
+           → Adicionar Material
+  POST     /api/v1/services/executions/{execution_id}/pause 
+           → Pausar Execução
+  POST     /api/v1/services/executions/{execution_id}/resume 
+           → Retomar Execução
+  POST     /api/v1/services/executions/{execution_id}/signatures 
+           → Adicionar Assinatura
+  POST     /api/v1/services/executions/{execution_id}/start 
+           → Iniciar Execução
+  POST     /api/v1/services/executions/{execution_id}/start-travel 
+           → Iniciar Deslocamento
+  POST     /api/v1/services/orders 
+           → Criar Ordem
+  PUT      /api/v1/services/orders/{order_id} 
+           → Atualizar Ordem
+  POST     /api/v1/services/orders/{order_id}/approve 
+           → Aprovar Ordem
+  POST     /api/v1/services/orders/{order_id}/cancel 
+           → Cancelar Ordem
+  POST     /api/v1/services/orders/{order_id}/complete 
+           → Concluir Ordem
+  POST     /api/v1/services/orders/{order_id}/pause 
+           → Pausar Ordem
+  POST     /api/v1/services/orders/{order_id}/rate 
+           → Avaliar Ordem
+  POST     /api/v1/services/orders/{order_id}/reject 
+           → Rejeitar Ordem
+  POST     /api/v1/services/orders/{order_id}/resume 
+           → Retomar Ordem
+  POST     /api/v1/services/orders/{order_id}/schedule 
+           → Agendar Ordem
+  POST     /api/v1/services/orders/{order_id}/start 
+           → Iniciar Ordem
+  POST     /api/v1/services/orders/{order_id}/submit 
+           → Submeter Ordem
+  POST     /api/v1/services/reports 
+           → Criar Relatório
+  PUT      /api/v1/services/reports/{report_id} 
+           → Atualizar Relatório
+  POST     /api/v1/services/reports/{report_id}/approve 
+           → Aprovar Relatório
+  POST     /api/v1/services/reports/{report_id}/finalize 
+           → Finalizar Relatório
+  POST     /api/v1/services/reports/{report_id}/review 
+           → Revisar Relatório
+  POST     /api/v1/services/reports/{report_id}/send 
+           → Enviar Relatório
+  POST     /api/v1/services/sla-configs 
+           → Criar SLA
+  PUT      /api/v1/services/sla-configs/{sla_id} 
+           → Atualizar SLA
+  POST     /api/v1/services/sla-configs/{sla_id}/activate 
+           → Ativar SLA
+  POST     /api/v1/services/sla-configs/{sla_id}/deactivate 
+           → Desativar SLA
+  POST     /api/v1/services/sla-configs/{sla_id}/set-default 
+           → Definir SLA Padrão
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/services/analytics/bottlenecks  → Gargalos Identificados
+  GET      /api/v1/services/analytics/dashboard  → Dashboard Executivo
+  GET      /api/v1/services/analytics/demand/{service_id}  → Previsão de Demanda
+  GET      /api/v1/services/analytics/order-patterns  → Padrões de Ordens
+  GET      /api/v1/services/analytics/recommendations  → Recomendações de Serviços
+  GET      /api/v1/services/analytics/service/{service_id}  → Análise de Serviço
+  GET      /api/v1/services/analytics/sla-dashboard  → Dashboard de SLAs
+  GET      /api/v1/services/analytics/sla/{sla_id}  → Análise de SLA
+  GET      /api/v1/services/catalog  → Listar Serviços
+  GET      /api/v1/services/catalog/stats  → Estatísticas do Catálogo
+  GET      /api/v1/services/catalog/{service_id}  → Obter Serviço
+  GET      /api/v1/services/catalog/{service_id}/price  → Calcular Preço
+  GET      /api/v1/services/reports  → Listar Relatórios
+  GET      /api/v1/services/reports/{report_id}  → Obter Relatório
+  GET      /api/v1/services/sla-configs  → Listar SLAs
+  GET      /api/v1/services/sla-configs/{sla_id}  → Obter SLA
+  GET      /api/v1/services/sla-configs/{sla_id}/compliance-report  → Relatório de Compliance
+
+### 🔵 PROVAVEIS FALSO-ORFAO (7) — builder le a tabela direto
+  GET      /api/v1/services/executions  (tabela: scheduler_executions)
+  GET      /api/v1/services/executions/{execution_id}  (tabela: scheduler_executions)
+  GET      /api/v1/services/orders  (tabela: purchase_orders)
+  GET      /api/v1/services/orders/at-risk  (tabela: purchase_orders)
+  GET      /api/v1/services/orders/overdue  (tabela: purchase_orders)
+  GET      /api/v1/services/orders/stats  (tabela: purchase_orders)
+  GET      /api/v1/services/orders/{order_id}  (tabela: purchase_orders)
+
+### ✅ EXPOSTAS (1) — com o arquivo que prova
+  GET      /api/v1/services/analytics/services
+           → Análise de Todos Serviços  [co-ocorrencia services+services] frontend/src/components/redesign/RdBell.tsx
+exit=0 stderr=0b

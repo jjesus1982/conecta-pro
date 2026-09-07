@@ -1,0 +1,439 @@
+=== BACKEND RECON v2 — prefixo 'recruitment' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 252 · EXPOSTAS: 63 · ORFAS: 189
+  das orfas: 45 provaveis FALSO-ORFAO (builder le a tabela direto)
+             144 candidatas reais — destas, 108 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/people-management/human-resources/recruitment/applications/bulk-action 
+           → Ação em lote
+  POST     /api/v1/people-management/human-resources/recruitment/applications/position/{position_id}/update-ranking 
+           → Atualizar ranking
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/accept-proposal 
+           → Aceitar proposta
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/advance 
+           → Avançar etapa
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/hire 
+           → Contratar
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/matching 
+           → Recalcular matching
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/reject-proposal 
+           → Recusar proposta
+  PUT      /api/v1/people-management/human-resources/recruitment/applications/{application_id}/score 
+           → Atualizar scores
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-favorite 
+           → Alternar favorito
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/toggle-shortlist 
+           → Alternar lista restrita
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/activate 
+           → Ativar candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/archive 
+           → Arquivar candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/block 
+           → Bloquear candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/note 
+           → Adicionar nota
+  PUT      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/tags 
+           → Atualizar tags
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}/unblock 
+           → Desbloquear candidato
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/{primary_id}/merge/{secondary_id} 
+           → Mesclar duplicados
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/ 💰
+           → Agendar entrevista
+  PUT      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id} 💰
+           → Atualizar entrevista
+  DELETE   /api/v1/people-management/human-resources/recruitment/interviews/{interview_id} 💰
+           → Remover entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/cancel 💰
+           → Cancelar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/complete 💰
+           → Completar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-candidate 💰
+           → Confirmar presença candidato
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/confirm-interviewer 💰
+           → Confirmar presença entrevistador
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/evaluation 💰
+           → Adicionar avaliação
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/no-show 💰
+           → Marcar não compareceu
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/reschedule 💰
+           → Reagendar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/start 💰
+           → Iniciar entrevista
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/ 
+           → Criar vaga
+  PUT      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id} 
+           → Atualizar vaga
+  DELETE   /api/v1/people-management/human-resources/recruitment/job-positions/{position_id} 
+           → Remover vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/close 
+           → Fechar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/duplicate 
+           → Duplicar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/pause 
+           → Pausar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/publish 
+           → Publicar vaga
+  POST     /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}/reopen 
+           → Reabrir vaga
+  POST     /api/v1/recruitment/applications/bulk-action 
+           → Ação em lote
+  POST     /api/v1/recruitment/applications/bulk-action 
+           → Ação em lote
+  POST     /api/v1/recruitment/applications/position/{position_id}/update-ranking 
+           → Atualizar ranking
+  POST     /api/v1/recruitment/applications/position/{position_id}/update-ranking 
+           → Atualizar ranking
+  POST     /api/v1/recruitment/applications/{application_id}/accept-proposal 
+           → Aceitar proposta
+  POST     /api/v1/recruitment/applications/{application_id}/accept-proposal 
+           → Aceitar proposta
+  POST     /api/v1/recruitment/applications/{application_id}/advance 
+           → Avançar etapa
+  POST     /api/v1/recruitment/applications/{application_id}/advance 
+           → Avançar etapa
+  POST     /api/v1/recruitment/applications/{application_id}/hire 
+           → Contratar
+  POST     /api/v1/recruitment/applications/{application_id}/hire 
+           → Contratar
+  POST     /api/v1/recruitment/applications/{application_id}/matching 
+           → Recalcular matching
+  POST     /api/v1/recruitment/applications/{application_id}/matching 
+           → Recalcular matching
+  POST     /api/v1/recruitment/applications/{application_id}/reject-proposal 
+           → Recusar proposta
+  POST     /api/v1/recruitment/applications/{application_id}/reject-proposal 
+           → Recusar proposta
+  PUT      /api/v1/recruitment/applications/{application_id}/score 
+           → Atualizar scores
+  PUT      /api/v1/recruitment/applications/{application_id}/score 
+           → Atualizar scores
+  POST     /api/v1/recruitment/applications/{application_id}/toggle-favorite 
+           → Alternar favorito
+  POST     /api/v1/recruitment/applications/{application_id}/toggle-favorite 
+           → Alternar favorito
+  POST     /api/v1/recruitment/applications/{application_id}/toggle-shortlist 
+           → Alternar lista restrita
+  POST     /api/v1/recruitment/applications/{application_id}/toggle-shortlist 
+           → Alternar lista restrita
+  POST     /api/v1/recruitment/candidates/{candidate_id}/activate 
+           → Ativar candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/activate 
+           → Ativar candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/archive 
+           → Arquivar candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/archive 
+           → Arquivar candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/block 
+           → Bloquear candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/block 
+           → Bloquear candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/note 
+           → Adicionar nota
+  POST     /api/v1/recruitment/candidates/{candidate_id}/note 
+           → Adicionar nota
+  PUT      /api/v1/recruitment/candidates/{candidate_id}/tags 
+           → Atualizar tags
+  PUT      /api/v1/recruitment/candidates/{candidate_id}/tags 
+           → Atualizar tags
+  POST     /api/v1/recruitment/candidates/{candidate_id}/unblock 
+           → Desbloquear candidato
+  POST     /api/v1/recruitment/candidates/{candidate_id}/unblock 
+           → Desbloquear candidato
+  POST     /api/v1/recruitment/candidates/{primary_id}/merge/{secondary_id} 
+           → Mesclar duplicados
+  POST     /api/v1/recruitment/candidates/{primary_id}/merge/{secondary_id} 
+           → Mesclar duplicados
+  POST     /api/v1/recruitment/interviews/ 💰
+           → Agendar entrevista
+  POST     /api/v1/recruitment/interviews/ 💰
+           → Agendar entrevista
+  PUT      /api/v1/recruitment/interviews/{interview_id} 💰
+           → Atualizar entrevista
+  DELETE   /api/v1/recruitment/interviews/{interview_id} 💰
+           → Remover entrevista
+  PUT      /api/v1/recruitment/interviews/{interview_id} 💰
+           → Atualizar entrevista
+  DELETE   /api/v1/recruitment/interviews/{interview_id} 💰
+           → Remover entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/cancel 💰
+           → Cancelar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/cancel 💰
+           → Cancelar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/complete 💰
+           → Completar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/complete 💰
+           → Completar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/confirm-candidate 💰
+           → Confirmar presença candidato
+  POST     /api/v1/recruitment/interviews/{interview_id}/confirm-candidate 💰
+           → Confirmar presença candidato
+  POST     /api/v1/recruitment/interviews/{interview_id}/confirm-interviewer 💰
+           → Confirmar presença entrevistador
+  POST     /api/v1/recruitment/interviews/{interview_id}/confirm-interviewer 💰
+           → Confirmar presença entrevistador
+  POST     /api/v1/recruitment/interviews/{interview_id}/evaluation 💰
+           → Adicionar avaliação
+  POST     /api/v1/recruitment/interviews/{interview_id}/evaluation 💰
+           → Adicionar avaliação
+  POST     /api/v1/recruitment/interviews/{interview_id}/no-show 💰
+           → Marcar não compareceu
+  POST     /api/v1/recruitment/interviews/{interview_id}/no-show 💰
+           → Marcar não compareceu
+  POST     /api/v1/recruitment/interviews/{interview_id}/reschedule 💰
+           → Reagendar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/reschedule 💰
+           → Reagendar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/start 💰
+           → Iniciar entrevista
+  POST     /api/v1/recruitment/interviews/{interview_id}/start 💰
+           → Iniciar entrevista
+  POST     /api/v1/recruitment/job-positions/ 
+           → Criar vaga
+  POST     /api/v1/recruitment/job-positions/ 
+           → Criar vaga
+  PUT      /api/v1/recruitment/job-positions/{position_id} 
+           → Atualizar vaga
+  DELETE   /api/v1/recruitment/job-positions/{position_id} 
+           → Remover vaga
+  PUT      /api/v1/recruitment/job-positions/{position_id} 
+           → Atualizar vaga
+  DELETE   /api/v1/recruitment/job-positions/{position_id} 
+           → Remover vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/close 
+           → Fechar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/close 
+           → Fechar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/duplicate 
+           → Duplicar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/duplicate 
+           → Duplicar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/pause 
+           → Pausar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/pause 
+           → Pausar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/publish 
+           → Publicar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/publish 
+           → Publicar vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/reopen 
+           → Reabrir vaga
+  POST     /api/v1/recruitment/job-positions/{position_id}/reopen 
+           → Reabrir vaga
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+  GET      /api/v1/people-management/human-resources/recruitment/interviews  → Lista entrevistas com filtros e paginação.
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/  → Listar entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/available-slots  → Horários disponíveis
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/by-date-range  → Por período
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/calendar/{interviewer_id}  → Calendário de entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-confirmation  → Pendentes de confirmação
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/pending-result  → Pendentes de resultado
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/stats  → Estatísticas de entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/today  → Entrevistas de hoje
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/upcoming  → Próximas entrevistas
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}  → Buscar entrevista
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/{interview_id}/questions  → Sugestões de perguntas
+  GET      /api/v1/recruitment/interviews  → Lista entrevistas com filtros e paginação.
+  GET      /api/v1/recruitment/interviews  → Lista entrevistas com filtros e paginação.
+  GET      /api/v1/recruitment/interviews/  → Listar entrevistas
+  GET      /api/v1/recruitment/interviews/  → Listar entrevistas
+  GET      /api/v1/recruitment/interviews/available-slots  → Horários disponíveis
+  GET      /api/v1/recruitment/interviews/available-slots  → Horários disponíveis
+  GET      /api/v1/recruitment/interviews/by-date-range  → Por período
+  GET      /api/v1/recruitment/interviews/by-date-range  → Por período
+  GET      /api/v1/recruitment/interviews/calendar/{interviewer_id}  → Calendário de entrevistas
+  GET      /api/v1/recruitment/interviews/calendar/{interviewer_id}  → Calendário de entrevistas
+  GET      /api/v1/recruitment/interviews/pending-confirmation  → Pendentes de confirmação
+  GET      /api/v1/recruitment/interviews/pending-confirmation  → Pendentes de confirmação
+  GET      /api/v1/recruitment/interviews/pending-result  → Pendentes de resultado
+  GET      /api/v1/recruitment/interviews/pending-result  → Pendentes de resultado
+  GET      /api/v1/recruitment/interviews/stats  → Estatísticas de entrevistas
+  GET      /api/v1/recruitment/interviews/stats  → Estatísticas de entrevistas
+  GET      /api/v1/recruitment/interviews/today  → Entrevistas de hoje
+  GET      /api/v1/recruitment/interviews/today  → Entrevistas de hoje
+  GET      /api/v1/recruitment/interviews/upcoming  → Próximas entrevistas
+  GET      /api/v1/recruitment/interviews/upcoming  → Próximas entrevistas
+  GET      /api/v1/recruitment/interviews/{interview_id}  → Buscar entrevista
+  GET      /api/v1/recruitment/interviews/{interview_id}  → Buscar entrevista
+  GET      /api/v1/recruitment/interviews/{interview_id}/questions  → Sugestões de perguntas
+  GET      /api/v1/recruitment/interviews/{interview_id}/questions  → Sugestões de perguntas
+
+### 🔵 PROVAVEIS FALSO-ORFAO (45) — builder le a tabela direto
+  GET      /api/v1/people-management/human-resources/recruitment/applications/candidate/{candidate_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/favorites  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/applications/shortlisted/{position_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/blocked  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/recently-active  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/search-skills  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/stats  (tabela: candidates)
+  GET      /api/v1/people-management/human-resources/recruitment/interviews/application/{application_id}  (tabela: applications)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/code/{code}  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/expiring  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/open  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/stats  (tabela: job_positions)
+  GET      /api/v1/people-management/human-resources/recruitment/job-positions/{position_id}  (tabela: job_positions)
+  GET      /api/v1/recruitment/applications/candidate/{candidate_id}  (tabela: applications)
+  GET      /api/v1/recruitment/applications/candidate/{candidate_id}  (tabela: applications)
+  GET      /api/v1/recruitment/applications/favorites  (tabela: applications)
+  GET      /api/v1/recruitment/applications/favorites  (tabela: applications)
+  GET      /api/v1/recruitment/applications/shortlisted/{position_id}  (tabela: applications)
+  GET      /api/v1/recruitment/applications/shortlisted/{position_id}  (tabela: applications)
+  GET      /api/v1/recruitment/candidates/blocked  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/blocked  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/recently-active  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/recently-active  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/search-skills  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/search-skills  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/stats  (tabela: candidates)
+  GET      /api/v1/recruitment/candidates/stats  (tabela: candidates)
+  GET      /api/v1/recruitment/interviews/application/{application_id}  (tabela: applications)
+  GET      /api/v1/recruitment/interviews/application/{application_id}  (tabela: applications)
+  GET      /api/v1/recruitment/job-positions  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/code/{code}  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/code/{code}  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/expiring  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/expiring  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/open  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/open  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/stats  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/stats  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/{position_id}  (tabela: job_positions)
+  GET      /api/v1/recruitment/job-positions/{position_id}  (tabela: job_positions)
+
+### ✅ EXPOSTAS (63) — com o arquivo que prova
+  GET      /api/v1/people-management/human-resources/recruitment
+           → Agregado honesto de recrutamento: contagens reais das tabelas.  [co-ocorrencia recruitment+human-resources] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications
+           → Lista candidaturas com filtros e paginação.  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/applications/
+           → Criar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications/
+           → Listar candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications/active
+           → Candidaturas ativas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications/position/{position_id}
+           → Candidaturas de uma vaga  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications/stats
+           → Estatísticas de candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/applications/{application_id}
+           → Buscar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/people-management/human-resources/recruitment/applications/{application_id}
+           → Atualizar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/people-management/human-resources/recruitment/applications/{application_id}
+           → Remover candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/proposal
+           → Enviar proposta  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/applications/{application_id}/reject
+           → Rejeitar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/candidates
+           → Lista candidatos com filtros e paginação.  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/
+           → Criar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/
+           → Listar candidatos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/active
+           → Listar candidatos ativos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/email/{email}
+           → Buscar por email  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/candidates/import
+           → Importar candidato de currículo  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}
+           → Buscar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}
+           → Atualizar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/people-management/human-resources/recruitment/candidates/{candidate_id}
+           → Remover candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse
+           → Faz parsing de currículo PDF/DOCX usando IA.  [co-ocorrencia parse+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/people-management/human-resources/recruitment/resume/parse-text
+           → Analisa texto de currículo já extraído (sem upload de arquivo).  [co-ocorrencia parse-text+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications
+           → Lista candidaturas com filtros e paginação.  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications
+           → Lista candidaturas com filtros e paginação.  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/
+           → Criar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/
+           → Listar candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/
+           → Criar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/
+           → Listar candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/active
+           → Candidaturas ativas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/active
+           → Candidaturas ativas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/position/{position_id}
+           → Candidaturas de uma vaga  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/position/{position_id}
+           → Candidaturas de uma vaga  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/stats
+           → Estatísticas de candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/stats
+           → Estatísticas de candidaturas  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/{application_id}
+           → Buscar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/recruitment/applications/{application_id}
+           → Atualizar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/recruitment/applications/{application_id}
+           → Remover candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/applications/{application_id}
+           → Buscar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/recruitment/applications/{application_id}
+           → Atualizar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/recruitment/applications/{application_id}
+           → Remover candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/{application_id}/proposal
+           → Enviar proposta  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/{application_id}/proposal
+           → Enviar proposta  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/{application_id}/reject
+           → Rejeitar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/applications/{application_id}/reject
+           → Rejeitar candidatura  [co-ocorrencia applications+recruitment] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates
+           → Lista candidatos com filtros e paginação.  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates
+           → Lista candidatos com filtros e paginação.  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/candidates/
+           → Criar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/
+           → Listar candidatos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/candidates/
+           → Criar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/
+           → Listar candidatos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/active
+           → Listar candidatos ativos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/active
+           → Listar candidatos ativos  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/email/{email}
+           → Buscar por email  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/email/{email}
+           → Buscar por email  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/candidates/import
+           → Importar candidato de currículo  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  POST     /api/v1/recruitment/candidates/import
+           → Importar candidato de currículo  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/{candidate_id}
+           → Buscar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/recruitment/candidates/{candidate_id}
+           → Atualizar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/recruitment/candidates/{candidate_id}
+           → Remover candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  GET      /api/v1/recruitment/candidates/{candidate_id}
+           → Buscar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  PUT      /api/v1/recruitment/candidates/{candidate_id}
+           → Atualizar candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+  DELETE   /api/v1/recruitment/candidates/{candidate_id}
+           → Remover candidato  [co-ocorrencia recruitment+candidates] backend/modules/operacional/controllers/redesign_builders/rh.py
+exit=0 stderr=0b

@@ -1,0 +1,980 @@
+=== BACKEND RECON v2 — prefixo 'financial' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 600 · EXPOSTAS: 161 · ORFAS: 439
+  das orfas: 236 provaveis FALSO-ORFAO (builder le a tabela direto)
+             203 candidatas reais — destas, 203 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/financial/accounting/accounts 
+           → Cria uma nova conta contabil.
+  PATCH    /api/v1/financial/accounting/accounts/{account_id} 
+           → Atualiza conta contabil.
+  POST     /api/v1/financial/accounting/charts 
+           → Cria um novo plano de contas.
+  PATCH    /api/v1/financial/accounting/charts/{chart_id} 
+           → Atualiza plano de contas.
+  POST     /api/v1/financial/accounting/charts/{chart_id}/activate 
+           → Ativa plano de contas.
+  POST     /api/v1/financial/accounting/cost-centers 
+           → Cria um novo centro de custo.
+  PATCH    /api/v1/financial/accounting/cost-centers/{center_id} 
+           → Atualiza centro de custo.
+  POST     /api/v1/financial/accounting/journal-entries 
+           → Cria um novo lancamento contabil.
+  POST     /api/v1/financial/accounting/journal-entries/{entry_id}/approve 
+           → Aprova lancamento.
+  POST     /api/v1/financial/accounting/journal-entries/{entry_id}/post 
+           → Contabiliza lancamento.
+  POST     /api/v1/financial/accounting/journal-entries/{entry_id}/reject 
+           → Rejeita lancamento.
+  POST     /api/v1/financial/accounting/journal-entries/{entry_id}/reverse 
+           → Estorna lancamento.
+  POST     /api/v1/financial/accounting/periods 
+           → Cria um novo periodo contabil.
+  POST     /api/v1/financial/accounting/periods/{period_id}/close 
+           → Fecha periodo contabil.
+  POST     /api/v1/financial/accounting/periods/{period_id}/open 
+           → Abre periodo contabil.
+  POST     /api/v1/financial/accounting/periods/{period_id}/reopen 
+           → Reabre periodo contabil.
+  POST     /api/v1/financial/accounting/trial-balances 
+           → Cria um novo balancete.
+  POST     /api/v1/financial/accounting/trial-balances/{balance_id}/approve 
+           → Aprova balancete.
+  POST     /api/v1/financial/accounting/trial-balances/{balance_id}/generate 
+           → Gera balancete a partir dos lancamentos.
+  POST     /api/v1/financial/accounting/trial-balances/{balance_id}/publish 
+           → Publica balancete.
+  POST     /api/v1/financial/ai/advisor/chat 
+           → Chat financeiro — F2-e: consolidado no cérebro REAL do CFO (LLM ancorado nos números),
+  POST     /api/v1/financial/ai/billing/medicao 
+           → Calcula medição de um contrato por tipo de serviço.
+  POST     /api/v1/financial/bank-accounts 
+           → Criar conta bancária
+  POST     /api/v1/financial/bank-accounts/ 
+           → Cria nova conta bancária.
+  POST     /api/v1/financial/bank-accounts/transfer 
+           → Transferir entre contas
+  PUT      /api/v1/financial/bank-accounts/{account_id} 
+           → Atualizar conta bancária
+  DELETE   /api/v1/financial/bank-accounts/{account_id} 
+           → Excluir conta bancária
+  POST     /api/v1/financial/bank-accounts/{account_id}/activate 
+           → Ativar conta bancária
+  POST     /api/v1/financial/bank-accounts/{account_id}/adjust-balance 
+           → Ajustar saldo
+  POST     /api/v1/financial/bank-accounts/{account_id}/set-main 
+           → Definir como conta principal
+  POST     /api/v1/financial/bank-accounts/{account_id}/suspend 
+           → Suspender conta bancária
+  POST     /api/v1/financial/bank-reconciliations/auto 
+           → Conciliacao inteligente — 4 estrategias em cascata.
+  POST     /api/v1/financial/bank-reconciliations/{reconciliation_id}/adjustment 
+           → Criar ajuste
+  POST     /api/v1/financial/bank-reconciliations/{reconciliation_id}/complete 
+           → Finalizar conciliação
+  POST     /api/v1/financial/bank-reconciliations/{reconciliation_id}/import-statement 
+           → Importar extrato
+  POST     /api/v1/financial/bank-reconciliations/{reconciliation_id}/match 
+           → Conciliar item
+  POST     /api/v1/financial/bank-reconciliations/{reconciliation_id}/reopen 
+           → Reabrir conciliação
+  POST     /api/v1/financial/bank-transactions 
+           → Criar transação
+  POST     /api/v1/financial/bank-transactions/import 
+           → Importar transações de arquivo
+  POST     /api/v1/financial/bank-transactions/import/ofx 
+           → Importar arquivo OFX
+  PUT      /api/v1/financial/bank-transactions/{transaction_id} 
+           → Atualizar transação
+  DELETE   /api/v1/financial/bank-transactions/{transaction_id} 
+           → Excluir transação
+  POST     /api/v1/financial/bank-transactions/{transaction_id}/cancel 
+           → Cancelar transação
+  POST     /api/v1/financial/bank-transactions/{transaction_id}/confirm 
+           → Confirmar transação
+  POST     /api/v1/financial/bank-transactions/{transaction_id}/reconcile 
+           → Conciliar transação
+  POST     /api/v1/financial/billing-rules 
+           → Criar regra de cobranca
+  POST     /api/v1/financial/billing-rules/process-all 
+           → Processar todas as regras
+  PUT      /api/v1/financial/billing-rules/{rule_id} 
+           → Atualizar regra de cobranca
+  DELETE   /api/v1/financial/billing-rules/{rule_id} 
+           → Excluir regra de cobranca
+  POST     /api/v1/financial/billing-rules/{rule_id}/activate 
+           → Ativar regra
+  POST     /api/v1/financial/billing-rules/{rule_id}/cancel 
+           → Cancelar regra
+  POST     /api/v1/financial/billing-rules/{rule_id}/generate 
+           → Gerar cobrancas
+  POST     /api/v1/financial/billing-rules/{rule_id}/pause 
+           → Pausar regra
+  POST     /api/v1/financial/cashflow/ai/anomalies 
+           → Detectar anomalias
+  POST     /api/v1/financial/cashflow/ai/forecast 
+           → Gerar previsão com IA
+  POST     /api/v1/financial/cashflow/entries 
+           → Criar entrada de fluxo de caixa
+  PUT      /api/v1/financial/cashflow/entries/{entry_id} 
+           → Atualizar entrada
+  DELETE   /api/v1/financial/cashflow/entries/{entry_id} 
+           → Excluir entrada
+  POST     /api/v1/financial/cashflow/entries/{entry_id}/realize 
+           → Realizar entrada
+  POST     /api/v1/financial/cashflow/forecasts 
+           → Criar previsão
+  PUT      /api/v1/financial/cashflow/forecasts/{forecast_id} 
+           → Atualizar previsão
+  DELETE   /api/v1/financial/cashflow/forecasts/{forecast_id} 
+           → Excluir previsão
+  POST     /api/v1/financial/cashflow/forecasts/{forecast_id}/update-actuals 
+           → Atualizar valores realizados
+  POST     /api/v1/financial/conciliar/auto 
+           → Conciliação automática — Inter extrato × contas a pagar/receber
+  POST     /api/v1/financial/conciliar/{tx_id} 
+           → Conciliar transação específica
+  POST     /api/v1/financial/conciliar/{tx_id}/justificar 
+           → Registrar justificativa para saída sem nota fiscal
+  POST     /api/v1/financial/contracts/{contract_id}/renew 
+           → Renova contrato criando novo periodo com reajuste opcional.
+  POST     /api/v1/financial/customers 
+           → Criar cliente
+  PUT      /api/v1/financial/customers/{customer_id} 
+           → Atualizar cliente
+  DELETE   /api/v1/financial/customers/{customer_id} 
+           → Excluir cliente
+  POST     /api/v1/financial/customers/{customer_id}/block 
+           → Bloquear cliente
+  POST     /api/v1/financial/customers/{customer_id}/unblock 
+           → Desbloquear cliente
+  POST     /api/v1/financial/fiscal/cfop 🏛️
+           → Cria um novo CFOP.
+  PATCH    /api/v1/financial/fiscal/cfop/{cfop_id} 🏛️
+           → Atualiza CFOP.
+  POST     /api/v1/financial/fiscal/fiscal/cfop 🏛️
+           → Cria um novo CFOP.
+  PATCH    /api/v1/financial/fiscal/fiscal/cfop/{cfop_id} 🏛️
+           → Atualiza CFOP.
+  POST     /api/v1/financial/fiscal/fiscal/ncm 🏛️
+           → Cria um novo NCM.
+  PATCH    /api/v1/financial/fiscal/fiscal/ncm/{ncm_id} 🏛️
+           → Atualiza NCM.
+  POST     /api/v1/financial/fiscal/fiscal/nfe 🏛️
+           → Cria uma nova NF-e.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/cancelar 🏛️
+           → Cancela NF-e autorizada.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/emitir 🏛️
+           → Emite NF-e para a SEFAZ.
+  POST     /api/v1/financial/fiscal/fiscal/nfe/inutilizar 🏛️
+           → Inutiliza faixa de numeração de NF-e na SEFAZ — NÃO IMPLEMENTADO. Não finge inutilização
+  PATCH    /api/v1/financial/fiscal/fiscal/nfe/{nfe_id} 🏛️
+           → Atualiza NF-e em rascunho. Lê/grava a tabela REAL `nfes` (o model NFe aponta p/ `nfe`,
+  POST     /api/v1/financial/fiscal/fiscal/retencao/calcular 🏛️
+           → Calcula retencoes federais para um valor de servico.
+  POST     /api/v1/financial/fiscal/fiscal/sped 🏛️
+           → Cria arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/sped/gerar 🏛️
+           → Gera arquivo SPED — NÃO IMPLEMENTADO. Não fabrica arquivo nem registra um SPED 'gerando'
+  POST     /api/v1/financial/fiscal/fiscal/sped/{sped_id}/transmitir 🏛️
+           → Transmite arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/sped/{sped_id}/validar 🏛️
+           → Valida arquivo SPED.
+  POST     /api/v1/financial/fiscal/fiscal/suframa/config 🏛️
+           → Cria configuracao SUFRAMA.
+  POST     /api/v1/financial/fiscal/fiscal/suframa/operacao 🏛️
+           → Registra operacao com beneficio SUFRAMA.
+  POST     /api/v1/financial/fiscal/ncm 🏛️
+           → Cria um novo NCM.
+  PATCH    /api/v1/financial/fiscal/ncm/{ncm_id} 🏛️
+           → Atualiza NCM.
+  POST     /api/v1/financial/fiscal/nfe 🏛️
+           → Cria uma nova NF-e.
+  POST     /api/v1/financial/fiscal/nfe/cancelar 🏛️
+           → Cancela NF-e autorizada.
+  POST     /api/v1/financial/fiscal/nfe/emitir 🏛️
+           → Emite NF-e para a SEFAZ.
+  POST     /api/v1/financial/fiscal/nfe/inutilizar 🏛️
+           → Inutiliza faixa de numeração de NF-e na SEFAZ — NÃO IMPLEMENTADO. Não finge inutilização
+  PATCH    /api/v1/financial/fiscal/nfe/{nfe_id} 🏛️
+           → Atualiza NF-e em rascunho. Lê/grava a tabela REAL `nfes` (o model NFe aponta p/ `nfe`,
+  POST     /api/v1/financial/fiscal/retencao/calcular 🏛️
+           → Calcula retencoes federais para um valor de servico.
+  POST     /api/v1/financial/fiscal/sped 🏛️
+           → Cria arquivo SPED.
+  POST     /api/v1/financial/fiscal/sped/gerar 🏛️
+           → Gera arquivo SPED — NÃO IMPLEMENTADO. Não fabrica arquivo nem registra um SPED 'gerando'
+  POST     /api/v1/financial/fiscal/sped/{sped_id}/transmitir 🏛️
+           → Transmite arquivo SPED.
+  POST     /api/v1/financial/fiscal/sped/{sped_id}/validar 🏛️
+           → Valida arquivo SPED.
+  POST     /api/v1/financial/fiscal/suframa/config 🏛️
+           → Cria configuracao SUFRAMA.
+  POST     /api/v1/financial/fiscal/suframa/operacao 🏛️
+           → Registra operacao com beneficio SUFRAMA.
+  POST     /api/v1/financial/inventory/inventories 
+           → Cria um novo inventário.
+  POST     /api/v1/financial/inventory/inventories/{inventory_id}/finalize 
+           → Finaliza inventário.
+  POST     /api/v1/financial/inventory/inventories/{inventory_id}/start 
+           → Inicia inventário.
+  POST     /api/v1/financial/inventory/movements 
+           → Cria uma nova movimentação de estoque.
+  POST     /api/v1/financial/inventory/movements/{movement_id}/cancel 
+           → Cancela movimentação.
+  POST     /api/v1/financial/inventory/movements/{movement_id}/confirm 
+           → Confirma movimentação e atualiza estoque.
+  POST     /api/v1/financial/inventory/reservations 
+           → Cria uma nova reserva de estoque.
+  POST     /api/v1/financial/inventory/reservations/{reservation_id}/cancel 
+           → Cancela reserva.
+  POST     /api/v1/financial/inventory/reservations/{reservation_id}/release 
+           → Libera quantidade da reserva.
+  POST     /api/v1/financial/inventory/stock-items/{item_id}/block 
+           → Bloqueia item de estoque.
+  POST     /api/v1/financial/inventory/stock-items/{item_id}/unblock 
+           → Desbloqueia item de estoque.
+  POST     /api/v1/financial/inventory/warehouses 
+           → Cria um novo armazém.
+  PATCH    /api/v1/financial/inventory/warehouses/{warehouse_id} 
+           → Atualiza armazém.
+  POST     /api/v1/financial/inventory/warehouses/{warehouse_id}/block 
+           → Bloqueia armazém.
+  POST     /api/v1/financial/inventory/warehouses/{warehouse_id}/unblock 
+           → Desbloqueia armazém.
+  POST     /api/v1/financial/pagamentos-diaristas/programar-diarias-mensais/{ano}/{mes} 💰
+           → Gera o lote do dia 15 a partir das diárias trabalhadas do mês (FLUXO 2)
+  POST     /api/v1/financial/pagamentos-diaristas/programar-lancados-dia/{data} 💰
+           → Programa VT+VR (R$32) dos diaristas LANÇADOS no dia (origem diarias_dia, idempotente)
+  POST     /api/v1/financial/pagamentos-diaristas/programar/{data} 💰
+           → Programa os pagamentos VT+VR dos diaristas escalados no dia
+  POST     /api/v1/financial/pagamentos-diaristas/solicitar-otp 💰
+           → Gera o código OTP (e-mail) que libera o lote inteiro de diaristas
+  POST     /api/v1/financial/pagamentos-pj/item/{item_id}/nota-fiscal 💰🏛️
+           → Marca a nota fiscal do prestador (libera p/ o lote)
+  POST     /api/v1/financial/pagamentos-pj/programar/{ano}/{mes} 💰
+           → Materializa a folha PJ do mês no lote (idempotente)
+  POST     /api/v1/financial/pagamentos-pj/solicitar-otp/{ano}/{mes} 💰
+           → Gera o OTP (e-mail) que libera o lote Inter
+  POST     /api/v1/financial/payables/bulk-approve 
+           → Aprovar múltiplas contas
+  POST     /api/v1/financial/payables/bulk-payment 💰
+           → Pagamento em lote
+  PUT      /api/v1/financial/payables/installments/{installment_id} 
+           → Atualizar parcela
+  POST     /api/v1/financial/payables/installments/{installment_id}/pay 
+           → Registrar pagamento
+  POST     /api/v1/financial/payables/installments/{installment_id}/renegotiate 
+           → Renegociar parcela
+  POST     /api/v1/financial/payables/payments/{payment_id}/reconcile 💰
+           → Reconciliar pagamento
+  POST     /api/v1/financial/payables/process-recurring 
+           → Processar contas recorrentes
+  POST     /api/v1/financial/payables/{account_id}/approve 
+           → Aprovar conta
+  POST     /api/v1/financial/payables/{account_id}/reject 
+           → Rejeitar conta
+  POST     /api/v1/financial/payables/{account_id}/schedule 
+           → Agendar pagamento
+  POST     /api/v1/financial/purchases/ai/predict-demand 
+           → Prever demanda
+  POST     /api/v1/financial/purchases/ai/suggest-suppliers 
+           → Sugerir fornecedores
+  POST     /api/v1/financial/purchases/approvals/{approval_id}/approve 
+           → Aprovar
+  POST     /api/v1/financial/purchases/approvals/{approval_id}/delegate 
+           → Delegar aprovação
+  POST     /api/v1/financial/purchases/approvals/{approval_id}/provide-info 
+           → Fornecer informações
+  POST     /api/v1/financial/purchases/approvals/{approval_id}/reject 
+           → Rejeitar
+  POST     /api/v1/financial/purchases/approvals/{approval_id}/request-info 
+           → Solicitar informações
+  POST     /api/v1/financial/purchases/categories 
+           → Criar categoria de produto
+  PUT      /api/v1/financial/purchases/categories/{category_id} 
+           → Atualizar categoria
+  DELETE   /api/v1/financial/purchases/categories/{category_id} 
+           → Excluir categoria
+  POST     /api/v1/financial/purchases/orders 
+           → Criar ordem de compra
+  PUT      /api/v1/financial/purchases/orders/{order_id} 
+           → Atualizar ordem
+  POST     /api/v1/financial/purchases/orders/{order_id}/approve 
+           → Aprovar ordem
+  POST     /api/v1/financial/purchases/orders/{order_id}/cancel 
+           → Cancelar ordem
+  POST     /api/v1/financial/purchases/orders/{order_id}/confirm 
+           → Confirmar ordem pelo fornecedor
+  POST     /api/v1/financial/purchases/orders/{order_id}/reject 
+           → Rejeitar ordem
+  POST     /api/v1/financial/purchases/orders/{order_id}/send 
+           → Enviar ordem para fornecedor
+  POST     /api/v1/financial/purchases/products 
+           → Criar produto
+  PUT      /api/v1/financial/purchases/products/{product_id} 
+           → Atualizar produto
+  DELETE   /api/v1/financial/purchases/products/{product_id} 
+           → Excluir produto
+  POST     /api/v1/financial/purchases/products/{product_id}/block 
+           → Bloquear produto
+  POST     /api/v1/financial/purchases/quotations 
+           → Criar cotação
+  PUT      /api/v1/financial/purchases/quotations/{quotation_id} 
+           → Atualizar cotação
+  POST     /api/v1/financial/purchases/quotations/{quotation_id}/reject 
+           → Rejeitar cotação
+  POST     /api/v1/financial/purchases/quotations/{quotation_id}/score 
+           → Pontuar cotação
+  POST     /api/v1/financial/purchases/quotations/{quotation_id}/select 
+           → Selecionar cotação
+  POST     /api/v1/financial/purchases/receipts 
+           → Criar recebimento
+  PUT      /api/v1/financial/purchases/receipts/{receipt_id} 
+           → Atualizar recebimento
+  POST     /api/v1/financial/purchases/receipts/{receipt_id}/approve 
+           → Aprovar recebimento
+  POST     /api/v1/financial/purchases/receipts/{receipt_id}/divergence 
+           → Registrar divergência
+  POST     /api/v1/financial/purchases/receipts/{receipt_id}/inspect 
+           → Realizar inspeção
+  POST     /api/v1/financial/purchases/receipts/{receipt_id}/reject 
+           → Rejeitar recebimento
+  POST     /api/v1/financial/purchases/receipts/{receipt_id}/sign 
+           → Assinar recebimento
+  POST     /api/v1/financial/purchases/requisitions 
+           → Criar requisição de compra
+  PUT      /api/v1/financial/purchases/requisitions/{requisition_id} 
+           → Atualizar requisição
+  POST     /api/v1/financial/purchases/requisitions/{requisition_id}/analyze-risks 
+           → Analisar riscos da requisição
+  POST     /api/v1/financial/purchases/requisitions/{requisition_id}/approve 
+           → Aprovar requisição
+  POST     /api/v1/financial/purchases/requisitions/{requisition_id}/cancel 
+           → Cancelar requisição
+  POST     /api/v1/financial/purchases/requisitions/{requisition_id}/reject 
+           → Rejeitar requisição
+  POST     /api/v1/financial/purchases/requisitions/{requisition_id}/submit 
+           → Submeter para aprovação
+  POST     /api/v1/financial/receivable-categories 
+           → Criar categoria
+  PUT      /api/v1/financial/receivable-categories/{category_id} 
+           → Atualizar categoria
+  DELETE   /api/v1/financial/receivable-categories/{category_id} 
+           → Excluir categoria
+  POST     /api/v1/financial/receivable-categories/{category_id}/activate 
+           → Ativar categoria
+  POST     /api/v1/financial/receivable-categories/{category_id}/deactivate 
+           → Desativar categoria
+  POST     /api/v1/financial/receivables/bulk-generate-boletos 💰
+           → Gerar boletos em lote
+  POST     /api/v1/financial/receivables/bulk-notify 
+           → Notificar devedores em lote
+  POST     /api/v1/financial/receivables/bulk-payment 💰
+           → Recebimento em lote
+  PUT      /api/v1/financial/receivables/installments/{installment_id} 
+           → Atualizar parcela
+  POST     /api/v1/financial/receivables/installments/{installment_id}/generate-boleto 💰
+           → Gerar boleto
+  POST     /api/v1/financial/receivables/installments/{installment_id}/generate-pix 💰
+           → Gerar PIX
+  POST     /api/v1/financial/receivables/installments/{installment_id}/pay 
+           → Registrar recebimento
+  POST     /api/v1/financial/receivables/installments/{installment_id}/renegotiate 
+           → Renegociar parcela
+  POST     /api/v1/financial/receivables/payments/{payment_id}/reconcile 💰
+           → Reconciliar recebimento
+  POST     /api/v1/financial/receivables/{account_id}/agreement 
+           → Criar acordo de pagamento
+  POST     /api/v1/financial/receivables/{account_id}/cancel 
+           → Cancelar conta
+  POST     /api/v1/financial/receivables/{account_id}/protest 
+           → Enviar para protesto
+  POST     /api/v1/financial/receivables/{account_id}/suspend 
+           → Suspender conta
+  POST     /api/v1/financial/receivables/{account_id}/write-off 
+           → Baixar conta (perda, status_code=201)
+  POST     /api/v1/financial/relatorios/custeio/calcular 
+           → Calcula custo estimado para um tipo de serviço específico.
+  POST     /api/v1/financial/relatorios/parcelamentos 
+           → Registra um parcelamento (acordo com órgão). Até termos o robô que puxa do e-CAC/SEFAZ/
+  DELETE   /api/v1/financial/relatorios/parcelamentos/{parc_id} 
+           → parcelamento remover
+  POST     /api/v1/financial/suppliers/{supplier_id}/block 
+           → Bloquear fornecedor
+  POST     /api/v1/financial/suppliers/{supplier_id}/qualify 
+           → Qualificar fornecedor
+  POST     /api/v1/financial/suppliers/{supplier_id}/unblock 
+           → Desbloquear fornecedor
+  POST     /api/v1/mcp/financial/call/{tool_name} 
+           → Executa uma ferramenta MCP pelo nome
+  POST     /api/v1/mcp/financial/request 
+           → Handler MCP protocol nativo (tools/list, tools/call)
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (236) — builder le a tabela direto
+  GET      /api/v1/financial/accounting/accounts  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/accounts/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/accounts/tree  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/accounts/{account_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/accounts/{account_id}/balance  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/balancete  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/charts  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/charts/active  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/charts/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/charts/{chart_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/cost-centers  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/cost-centers/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/cost-centers/{center_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/dashboard  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/dre  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/dre-consolidado  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/entries  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/journal-entries  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/journal-entries/pending-approval  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/journal-entries/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/journal-entries/{entry_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/journal-entries/{entry_id}/lines  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/periods  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/periods/current  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/periods/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/periods/{period_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/trial-balances  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/trial-balances/latest  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/trial-balances/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/trial-balances/{balance_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/accounting/trial-balances/{balance_id}/items  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/advisor/health  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/advisor/recommendations  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/advisor/relatorio  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/agents/status  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/billing/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/cashflow-prediction  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/collection/analyze  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/collection/receivable/{receivable_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/command-center  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/costing/by-type  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/costing/margin-by-type  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/costing/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/ai/risks  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-accounts  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-accounts/  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-accounts/main  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-accounts/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-accounts/{account_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-reconciliations/in-progress  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-transactions  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-transactions/by-period  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-transactions/pending-reconciliation  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-transactions/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bank-transactions/{transaction_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bi-dashboard/bi/dashboards/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bi/dashboards  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bi/overview  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bi/profitability  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/bidding/dashboard  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/billing-rules  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/billing-rules/active  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/billing-rules/due-for-generation  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/billing-rules/{rule_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/ai/opportunities  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/ai/risks  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/ai/suggestions  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/cashflow/entries  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/cashflow/projection  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/category-breakdown  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/entries  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/entries/pending  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/entries/totals  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/entries/{entry_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/forecast  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/forecasts  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/forecasts/active  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/forecasts/{forecast_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/legacy/anomalies  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/legacy/predict  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/legacy/suggestions  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/projection  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/supplier-breakdown  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cashflow/trends  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cfo/adimplencia-clientes  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cfo/panorama  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cfo/previsao-custos  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cfo/projecao-caixa  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/cfo/recebido-por-cliente  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/conciliar/pendentes  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/conciliar/relatorio  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/contracts/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/custeio/abc  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/debtors  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/document/{document}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/morador/{morador_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/unidade/{unidade_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/{customer_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/customers/{customer_id}/debt-summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/cfop  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/cfop/codigo/{codigo}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/cfop/vigilancia-zfm  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/cfop/{cfop_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/das/faixas  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/das/receita-12-meses  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/cfop  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/codigo/{codigo}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/vigilancia-zfm  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/cfop/{cfop_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/das/faixas  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/das/receita-12-meses  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/ncm  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/ncm/codigo/{codigo}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/ncm/{ncm_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/nfe  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/nfe/chave/{chave_acesso}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/nfe/{nfe_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/nfse/retencoes/competencia  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/atrasadas  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/sped  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/sped/{sped_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/config  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/economia  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/fiscal/suframa/operacoes  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/ncm  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/ncm/codigo/{codigo}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/ncm/{ncm_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/nfe  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/nfe/chave/{chave_acesso}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/nfe/{nfe_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/nfse/retencoes/competencia  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/obrigacao/atrasadas  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/sped  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/sped/{sped_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/stats-real  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/suframa/config  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/suframa/economia  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/fiscal/suframa/operacoes  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/headcount  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/inventories  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/inventories/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/inventories/{inventory_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/items  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/movements  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/movements/pending  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/movements/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/movements/{movement_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/real/movimentos  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/reservations  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/reservations/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/reservations/{reservation_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/stock-items  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/stock-items/expiring  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/stock-items/low-stock  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/stock-items/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/stock-items/{item_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/warehouses  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/warehouses/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/inventory/warehouses/{warehouse_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/nfse-entrada/resumo-fiscal  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/nfse-entrada/status-sync  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/pagamentos-diaristas/lancados-dia/{data}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/pagamentos-diaristas/sugestoes-cadastro  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/due-soon  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/installments/pending  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/overdue  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/payables-aging  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/payments/pending-reconciliation  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/payables/{account_id}/installments  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/precificacao/contratos/analise  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/precificacao/simulador  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/ai/reorder-point/{product_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/ai/supplier-analysis/{supplier_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/approvals  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/approvals/my  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/approvals/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/approvals/{approval_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/categories  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/categories/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/categories/tree  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/categories/{category_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/orders  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/orders/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/orders/{order_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/products  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/products/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/products/{product_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/quotations  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/quotations/by-requisition/{requisition_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/quotations/compare/{requisition_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/quotations/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/quotations/{quotation_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/receipts  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/receipts/by-order/{order_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/receipts/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/receipts/{receipt_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/requisitions  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/requisitions/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/purchases/requisitions/{requisition_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivable-categories  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivable-categories/tree  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivable-categories/{category_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivable-categories/{category_id}/children  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/ai/cash-flow-forecast  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/ai/collection-priorities  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/ai/customer-risk/{customer_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/ai/delinquency-analysis  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/debt/customer/{customer_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/debt/unit/{unidade_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/due-soon  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/installments/pending  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/installments/{installment_id}  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/overdue  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/payments/pending-reconciliation  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/receivables-aging  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/stats  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/receivables/{account_id}/installments  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/apuracao-lucro-real  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/balancete-real  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/balanco-patrimonial  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/custeio/listar  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/custeio/margem-por-tipo  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/guias-do-mes  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/orcamentos/execucao  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/orcamentos/ytd  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/painel-fiscal  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/relatorios/parcelamentos  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/suppliers/search  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/financial/suppliers/{supplier_id}/validate-payment  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/mcp/financial/summary  (tabela: financial_pagamentos_diaristas)
+  GET      /api/v1/mcp/financial/tools  (tabela: financial_pagamentos_diaristas)
+
+### ✅ EXPOSTAS (161) — com o arquivo que prova
+  GET      /api/v1/financial/ai/billing/contracts
+           → Retorna lista de contratos pendentes de faturamento no mês.  [co-ocorrencia billing+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/ai/billing/contrato-ativado
+           → Simula ativação de contrato CRM → cria conta a receber automaticamente.  [co-ocorrencia billing+contrato-ativado] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/ai/billing/preview
+           → Retorna preview do faturamento automático do mês.  [co-ocorrencia billing+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/ai/costing/registrar
+           → Registra um custo real para um tipo de serviço.  [co-ocorrencia costing+registrar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/ai/pricing/calculate
+           → Calcula precificação ótima para um contrato de segurança.  [co-ocorrencia pricing+calculate] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/bank-reconciliations
+           → Criar conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/bank-reconciliations
+           → Listar conciliações  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/bank-reconciliations/status
+           → Status da conciliacao bancaria.  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/bank-reconciliations/{reconciliation_id}
+           → Obter conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  PUT      /api/v1/financial/bank-reconciliations/{reconciliation_id}
+           → Atualizar conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  DELETE   /api/v1/financial/bank-reconciliations/{reconciliation_id}
+           → Excluir conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/bank-reconciliations/{reconciliation_id}/details
+           → Detalhes da conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/bank-reconciliations/{reconciliation_id}/export
+           → Exportar conciliação  [co-ocorrencia bank-reconciliations+financial] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/financial/beneficiarios
+           → Busca beneficiários salvos (autocomplete nome→chave PIX)  [co-ocorrencia beneficiarios+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/beneficiarios
+           → Cadastra/atualiza um beneficiário manualmente  [co-ocorrencia beneficiarios+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/beneficiarios/seed
+           → Popula a agenda com o que já existe (pagamentos/fornecedores/funcionários/diaristas)  [co-ocorrencia beneficiarios+seed] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  DELETE   /api/v1/financial/beneficiarios/{beneficiario_id}
+           → Remove (inativa) um beneficiário da agenda  [co-ocorrencia beneficiarios+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/bi/dashboard
+           → Dashboard Business Intelligence com KPIs executivos e indicadores.  [co-ocorrencia financial+dashboard] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/bi/kpis
+           → KPIs financeiros ao vivo — financial_kpis table  [co-ocorrencia financial+kpis] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/financial/billing/cobrar-recorrente/{mes}/{ano}
+           → Executa cobrança PIX recorrente para todos os clientes com MRR no mês/ano.  [co-ocorrencia billing+cobrar-recorrente] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/billing/cobrar-recorrente/{mes}/{ano}/preview
+           → Pré-visualiza cobranças do mês/ano sem gerar PIX nem inserir registros.  [co-ocorrencia billing+cobrar-recorrente] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cashflow/cashflow/dashboard
+           → Dashboard de fluxo de caixa — formato summary.total_inflows/outflows/closing_balance.  [co-ocorrencia cashflow+cashflow] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cashflow/cashflow/dashboard
+           → Dashboard cashflow (compatível Orval — double prefix)  [co-ocorrencia cashflow+cashflow] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cashflow/dashboard
+           → Dashboard financeiro completo  [co-ocorrencia cashflow+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cashflow/lancamentos
+           → Lançamentos do fluxo de caixa (alias /cashflow/lancamentos)  [co-ocorrencia cashflow+lancamentos] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/cashflow/sync
+           → Sincronizar bank_transactions → cashflow_entries  [co-ocorrencia cashflow+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cfo/custos-recorrentes
+           → Lista custos recorrentes registrados (tributos, parcelamentos, acordos, fixos)  [co-ocorrencia custos-recorrentes+cfo] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/cfo/custos-recorrentes
+           → Registra um custo recorrente (tributo, parcelamento, acordo, custo fixo)  [co-ocorrencia custos-recorrentes+cfo] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  DELETE   /api/v1/financial/cfo/custos-recorrentes/{custo_id}
+           → Remove (inativa) um custo recorrente  [co-ocorrencia custos-recorrentes+cfo] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/cfo/historico
+           → Histórico de consultas ao CFO IA  [co-ocorrencia historico+cfo] backend/modules/operacional/controllers/redesign_builders/assistente.py
+  POST     /api/v1/financial/cfo/perguntar
+           → Pergunta ao CFO IA (ancorado nos números reais)  [co-ocorrencia cfo+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/cfo/perguntar-arquivo
+           → Consulta ao CFO analisando um anexo (PDF/DOCX/planilha/TXT)  [co-ocorrencia cfo+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/contracts
+           → Lista contratos com dados do cliente e retencoes fiscais.  [co-ocorrencia financial+contracts] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/custeio/contratos
+           → Custeio por contrato individual  [co-ocorrencia custeio+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/custos/resumo
+           → Resumo de custos: folha + encargos + despesas com nota.  [co-ocorrencia custos+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/dashboard
+           → KPIs principais do módulo financeiro  [co-ocorrencia financial+dashboard] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/diaristas/recibos/{competencia}/zip
+           → Recibos de diárias da competência (ZIP)  [co-ocorrencia recibos+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/diaristas/relatorio/pdf
+           → Lista de pagamento das diárias (PDF paisagem)  [co-ocorrencia relatorio+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/diaristas/{diarista_id}/extrato/pdf
+           → Extrato de diárias de um diarista  [co-ocorrencia financial+diaristas] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/diaristas/{diarista_id}/recibo/pdf
+           → Recibo de pagamento para assinatura  [co-ocorrencia recibo+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/fiscal/calcular/comparativo-regimes
+           → Comparar Simples vs Lucro Real  [co-ocorrencia comparativo-regimes+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/calcular/lucro-real
+           → Calcular impostos Lucro Real  [co-ocorrencia lucro-real+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/calcular/retencoes-nfse
+           → Calcular retenções na fonte NFS-e  [co-ocorrencia retencoes-nfse+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/calcular/simples
+           → Calcular DAS Simples Nacional  [co-ocorrencia simples+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/calcular/verificar-limite-simples
+           → Verificar limite do Simples Nacional  [co-ocorrencia verificar-limite-simples+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/das
+           → Cria DAS do Simples Nacional.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/das
+           → Lista DAS do Simples Nacional.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/fiscal/das/calcular
+           → Calcula DAS do Simples Nacional.  [co-ocorrencia calcular+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/das/competencia
+           → Busca DAS de uma competencia.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/dashboard
+           → Dashboard fiscal — lê a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia financial+dashboard] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/comparativo-regimes
+           → Comparar Simples vs Lucro Real  [co-ocorrencia comparativo-regimes+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/lucro-real
+           → Calcular impostos Lucro Real  [co-ocorrencia lucro-real+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/retencoes-nfse
+           → Calcular retenções na fonte NFS-e  [co-ocorrencia retencoes-nfse+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/simples
+           → Calcular DAS Simples Nacional  [co-ocorrencia simples+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/calcular/verificar-limite-simples
+           → Verificar limite do Simples Nacional  [co-ocorrencia verificar-limite-simples+calcular] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/das
+           → Cria DAS do Simples Nacional.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/das
+           → Lista DAS do Simples Nacional.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/fiscal/fiscal/das/calcular
+           → Calcula DAS do Simples Nacional.  [co-ocorrencia calcular+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/fiscal/das/competencia
+           → Busca DAS de uma competencia.  [co-ocorrencia financial+das] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/fiscal/fiscal/dashboard
+           → Dashboard fiscal — lê a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia financial+dashboard] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse
+           → Cria uma nova NFS-e.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse
+           → Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse-emitida/{chave}/danfse
+           → DANFSe (PDF) da NFS-e emitida (portal nacional)  [co-ocorrencia danfse+nfse-emitida] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse/cancelar
+           → Cancela NFS-e autorizada.  [co-ocorrencia nfse+cancelar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/nfse/emitir
+           → Emite NFS-e para a prefeitura de Manaus (ABRASF 2.0, produção real).  [co-ocorrencia emitir+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}
+           → Busca NFS-e por ID. Le a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}
+           → Atualiza NFS-e em rascunho. Lê/grava a tabela REAL `nfses` (o model NFSe aponta p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/nfse/{nfse_id}/danfse
+           → DANFSe (PDF) da NFS-e  [co-ocorrencia danfse+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/fiscal/obrigacao
+           → Cria obrigacao fiscal.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao
+           → Lista obrigacoes fiscais.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/pendentes
+           → Lista obrigacoes pendentes ordenadas por vencimento.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id}
+           → Busca obrigacao por ID.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  PATCH    /api/v1/financial/fiscal/fiscal/obrigacao/{obrigacao_id}
+           → Atualiza obrigacao fiscal.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/fiscal/retencao
+           → Cria configuracao de retencao federal.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/retencao
+           → Lista configuracoes de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/fiscal/retencao/{retencao_id}
+           → Busca configuracao de retencao por ID.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/fiscal/retencao/{retencao_id}
+           → Atualiza configuracao de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/nfse
+           → Cria uma nova NFS-e.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse
+           → Lista NFS-e emitidas da fonte autoritativa `nfse_emitidas_nacional`.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse-emitida/{chave}/danfse
+           → DANFSe (PDF) da NFS-e emitida (portal nacional)  [co-ocorrencia danfse+nfse-emitida] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/nfse/cancelar
+           → Cancela NFS-e autorizada.  [co-ocorrencia nfse+cancelar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/nfse/emitir
+           → Emite NFS-e para a prefeitura de Manaus (ABRASF 2.0, produção real).  [co-ocorrencia emitir+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse/{nfse_id}
+           → Busca NFS-e por ID. Le a tabela REAL `nfses` (o model antigo apontava p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/nfse/{nfse_id}
+           → Atualiza NFS-e em rascunho. Lê/grava a tabela REAL `nfses` (o model NFSe aponta p/ `nfse`,  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/nfse/{nfse_id}/danfse
+           → DANFSe (PDF) da NFS-e  [co-ocorrencia danfse+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/fiscal/obrigacao
+           → Cria obrigacao fiscal.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/obrigacao
+           → Lista obrigacoes fiscais.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/obrigacao/pendentes
+           → Lista obrigacoes pendentes ordenadas por vencimento.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/financial/fiscal/obrigacao/{obrigacao_id}
+           → Busca obrigacao por ID.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  PATCH    /api/v1/financial/fiscal/obrigacao/{obrigacao_id}
+           → Atualiza obrigacao fiscal.  [co-ocorrencia obrigacao+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/fiscal/retencao
+           → Cria configuracao de retencao federal.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/retencao
+           → Lista configuracoes de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/fiscal/retencao/{retencao_id}
+           → Busca configuracao de retencao por ID.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PATCH    /api/v1/financial/fiscal/retencao/{retencao_id}
+           → Atualiza configuracao de retencao.  [co-ocorrencia retencao+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/inventory/real/itens
+           → Estoque REAL a partir das NF-e de entrada (nfe_compras_estoque).  [co-ocorrencia inventory+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/inventory/real/resumo
+           → Totais do estoque real: itens, valor, unidades, saídas do mês.  [co-ocorrencia inventory+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/inventory/real/saida
+           → Baixa de material vinculada a serviço/NFS-e: reduz saldo + posta COGS no razão.  [co-ocorrencia inventory+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/nfse
+           → Lista NFS-e emitidas com filtros.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/nfse-entrada
+           → Lista NFS-e RECEBIDAS (tomadas) dos 2 CNPJs, com CATEGORIA (via suppliers), EMPRESA  [co-ocorrencia nfse-entrada+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/nfse-entrada/auto-criar-payables
+           → Cria contas a pagar automaticamente para NFS-e recebidas sem payable vinculado.  [co-ocorrencia auto-criar-payables+nfse-entrada] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/nfse-entrada/sync
+           → Sincronizar NFS-e recebidas do Portal Nacional  [co-ocorrencia nfse-entrada+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/nfse-entrada/{chave}/pdf
+           → PDF (DANFSe) da NFS-e recebida  [co-ocorrencia nfse-entrada+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/nfse/dashboard
+           → Dashboard de faturamento com metricas consolidadas.  [co-ocorrencia nfse+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/nfse/emitir
+           → Emitir NFS-e via ABRASF 2.04  [co-ocorrencia emitir+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/nfse/sync-prestador
+           → Sincronizar NFS-e emitidas pelo Conecta Mais no Portal Nacional  [co-ocorrencia sync-prestador+nfse] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/pagamentos-diaristas/executar
+           → Paga o lote via PIX (Inter). confirmar=false = prévia; true = paga (DINHEIRO SAI, exige OTP)  [co-ocorrencia pagamentos-diaristas+executar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/pagamentos-diaristas/lote
+           → Lista o lote de pagamentos (para revisar/pagar)  [co-ocorrencia pagamentos-diaristas+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/pagamentos-diaristas/manual
+           → Adiciona pagamento ao lote (cobertura CLT ou líder com N ajudantes)  [co-ocorrencia pagamentos-diaristas+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/pagamentos-diaristas/resumo
+           → Resumo do lote (para o painel/CFO)  [co-ocorrencia pagamentos-diaristas+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/pagamentos-diaristas/{pagamento_id}/cancelar
+           → Cancela um item do lote  [co-ocorrencia pagamentos-diaristas+cancelar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/pagamentos-diaristas/{pagamento_id}/marcar-pago-externo
+           → Concilia um VT+VR já pago FORA do Conecta PRO (app do banco) — não envia dinheiro  [co-ocorrencia marcar-pago-externo+pagamentos-diaristas] backend/modules/operacional/controllers/redesign_builders/_fin_grupos.py
+  POST     /api/v1/financial/pagamentos-pj/executar/{ano}/{mes}
+           → Paga o lote Inter via PIX. confirmar=false=prévia; true+OTP=paga (DINHEIRO SAI)  [co-ocorrencia pagamentos-pj+executar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/pagamentos-pj/lote/{ano}/{mes}
+           → Lote da folha PJ (Inter pagável + lista Cora + pendências)  [co-ocorrencia pagamentos-pj+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/pagamentos-pj/preview/{ano}/{mes}
+           → Prévia da folha PJ (calcula, não grava nem paga)  [co-ocorrencia pagamentos-pj+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payable/auto-criar
+           → Processa todas as notas fiscais recebidas sem conta a pagar vinculada (NFS-e + NF-e).  [co-ocorrencia auto-criar+payable] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payable/auto-criar/{nota_id}
+           → Cria conta a pagar para uma nota fiscal específica.  [co-ocorrencia auto-criar+payable] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payables
+           → Criar conta a pagar  [co-ocorrencia payables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/payables
+           → Listar contas a pagar  [co-ocorrencia payables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/payables/aging
+           → Aging de contas a pagar (alias)  [co-ocorrencia aging+payables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/payables/aging/pdf
+           → Aging em PDF (marca Conecta)  [co-ocorrencia aging+payables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payables/auto-criar
+           → Criar contas a pagar automaticamente de NFS-e e NF-e recebidas  [co-ocorrencia auto-criar+payables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payables/auto-criar/{nota_id}
+           → Criar conta a pagar para nota específica  [co-ocorrencia auto-criar+payables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/payables/payables/stats
+           → Stats de contas a pagar.  [co-ocorrencia payables+payables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/payables/payments/{payment_id}/reverse
+           → Estornar pagamento  [co-ocorrencia payables+payments] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/payables/{account_id}
+           → Buscar conta a pagar  [co-ocorrencia payables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PUT      /api/v1/financial/payables/{account_id}
+           → Atualizar conta a pagar  [co-ocorrencia payables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  DELETE   /api/v1/financial/payables/{account_id}
+           → Excluir conta a pagar  [co-ocorrencia payables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/receivables
+           → Criar conta a receber  [co-ocorrencia receivables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/receivables
+           → Listar contas a receber  [co-ocorrencia receivables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/receivables/aging
+           → Aging de contas a receber (alias)  [co-ocorrencia aging+receivables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/receivables/aging/pdf
+           → Aging em PDF (marca Conecta)  [co-ocorrencia aging+receivables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/receivables/payments/{payment_id}/reverse
+           → Estornar recebimento  [co-ocorrencia payments+receivables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/receivables/receivables/stats
+           → Stats de contas a receber.  [co-ocorrencia receivables+receivables] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/receivables/{account_id}
+           → Buscar conta a receber  [co-ocorrencia receivables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PUT      /api/v1/financial/receivables/{account_id}
+           → Atualizar conta a receber  [co-ocorrencia receivables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  DELETE   /api/v1/financial/receivables/{account_id}
+           → Excluir conta a receber  [co-ocorrencia receivables+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/balancete
+           → Balancete de verificação do mês/ano — DELEGA para `balancete_real`.  [co-ocorrencia balancete+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/balancete/pdf
+           → Balancete em PDF (marca Conecta)  [co-ocorrencia balancete+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/contas-pagar
+           → A Pagar REAL = NFS-e tomadas (fornecedores) + folha, por competência.  [co-ocorrencia contas-pagar+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/contas-receber
+           → A Receber REAL = NFS-e emitidas (cStat 100) − recebimentos de cliente no caixa.  [co-ocorrencia contas-receber+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  POST     /api/v1/financial/relatorios/custeio/registrar
+           → Registra custo real para um tipo de serviço/contrato.  [co-ocorrencia custeio+registrar] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/custeio/resumo
+           → Resumo de custos por tipo de serviço para o mês especificado.  [co-ocorrencia custeio+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/dre
+           → Gera DRE para o período especificado.  [co-ocorrencia dre+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/dre/mensal
+           → Comparativo DRE mês a mês, agregado do RAZÃO REAL (accounting_entries) por  [co-ocorrencia dre+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/dre/pdf
+           → DRE em PDF (marca Conecta)  [co-ocorrencia dre+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/fluxo-caixa
+           → DFC mensal REAL: entradas (créditos Inter), saídas por categoria justificada, saldo.  [co-ocorrencia fluxo-caixa+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/fluxo-caixa/pdf
+           → Fluxo de caixa em PDF (marca Conecta)  [co-ocorrencia fluxo-caixa+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/fornecedores
+           → Fornecedores REAIS consolidados das NFS-e tomadas (serviços comprados).  [co-ocorrencia financial+fornecedores] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/liminares
+           → liminares listar  [co-ocorrencia liminares+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  POST     /api/v1/financial/relatorios/liminares
+           → liminar criar  [co-ocorrencia liminares+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  PUT      /api/v1/financial/relatorios/liminares/{lid}/status
+           → liminar status  [co-ocorrencia liminares+financial] backend/modules/operacional/controllers/redesign_builders/empresas.py
+  GET      /api/v1/financial/relatorios/orcamentos
+           → Retorna orçamento anual. Cria automaticamente se não existir.  [co-ocorrencia orcamentos+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/orcamentos-kv
+           → Retorna o orçamento salvo no servidor (mapa chave→valor). Substitui o localStorage:  [co-ocorrencia orcamentos-kv+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PUT      /api/v1/financial/relatorios/orcamentos-kv
+           → Salva/atualiza um valor de orçamento no servidor.  [co-ocorrencia orcamentos-kv+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/relatorios/tributos
+           → Tributos por competência a partir de DADO REAL: ISS (NFS-e emitidas nacional), FGTS (encargo  [co-ocorrencia tributos+financial] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/financial/suppliers
+           → Criar fornecedor  [co-ocorrencia suppliers+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/suppliers
+           → Listar fornecedores  [co-ocorrencia suppliers+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  GET      /api/v1/financial/suppliers/stats
+           → Estatísticas de fornecedores  [co-ocorrencia stats+suppliers] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/financial/suppliers/{supplier_id}
+           → Buscar fornecedor  [co-ocorrencia suppliers+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  PUT      /api/v1/financial/suppliers/{supplier_id}
+           → Atualizar fornecedor  [co-ocorrencia suppliers+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+  DELETE   /api/v1/financial/suppliers/{supplier_id}
+           → Excluir fornecedor  [co-ocorrencia suppliers+financial] backend/modules/operacional/controllers/redesign_builders/financeiro.py
+exit=0 stderr=0b

@@ -1,0 +1,104 @@
+=== BACKEND RECON v2 — prefixo 'juridico' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 53 · EXPOSTAS: 27 · ORFAS: 26
+  das orfas: 18 provaveis FALSO-ORFAO (builder le a tabela direto)
+             8 candidatas reais — destas, 8 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/juridico/analises 
+           → Analisa um contrato cláusula-a-cláusula com IA
+  POST     /api/v1/juridico/det/comunicacao 
+           → Ingere uma comunicação do DET (texto colado) e a trata automaticamente.
+  POST     /api/v1/juridico/det/comunicacao/upload 
+           → Ingere a comunicação do DET a partir do PDF baixado do portal.
+  POST     /api/v1/juridico/det/ingest-robo 
+           → Endpoint INTERNO — o robô empurra as mensagens lidas do DET (auto-coleta periódica).
+  POST     /api/v1/juridico/escritorio/consultas 
+           → Registra uma demanda jurídica (interno vs escritório)
+  POST     /api/v1/juridico/pareceres 
+           → Gera um parecer jurídico com IA (rascunho)
+  POST     /api/v1/juridico/processos/upload 
+           → Analisa um processo a partir do PDF enviado (extrai o texto e investiga o ERP).
+  POST     /api/v1/juridico/processos/{id}/enviar-cqb 
+           → Encaminha o processo (dossiê + defesa) ao CQB Advogados por e-mail.
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (18) — builder le a tabela direto
+  GET      /api/v1/juridico/analises  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/consultor/historico  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/contexto/cliente/{cliente_id}  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/contexto/contrato/{contrato_id}  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/contexto/funcionario/{identificador}  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/contexto/panorama  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/contratos/alertas  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/escritorio/consultas  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/escritorio/roi  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/pareceres  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/pareceres/{id}  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/pareceres/{id}/pdf  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/playbook  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/prazos/alertas  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/riscos/tributario  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/skills  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/skills/contratos/tipos  (tabela: juridico_conhecimento)
+  GET      /api/v1/juridico/skills/{skill_id}  (tabela: juridico_conhecimento)
+
+### ✅ EXPOSTAS (27) — com o arquivo que prova
+  GET      /api/v1/juridico/conhecimento
+           → Precedentes/pareceres/teses da própria empresa.  [co-ocorrencia conhecimento+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/conhecimento
+           → Adiciona um precedente/parecer/tese à base de conhecimento.  [co-ocorrencia conhecimento+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/conhecimento/seed
+           → Semeia a base com os casos/procedimentos reais (idempotente).  [co-ocorrencia conhecimento+seed] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/consultor/perguntar
+           → Faz uma pergunta jurídica fundamentada (trabalhista/cível/tributária)  [co-ocorrencia juridico+perguntar] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/consultor/perguntar-arquivo
+           → Consulta jurídica analisando um arquivo anexado (PDF/DOCX/TXT)  [co-ocorrencia juridico+perguntar-arquivo] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/contexto/pessoa
+           → Busca AUTOMÁTICA de uma pessoa em todo o ERP (empregado OU prestador PJ/fornecedor/cliente).  [co-ocorrencia contexto+pessoa] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  GET      /api/v1/juridico/contratos
+           → Lista consolidada de contratos com status de alerta  [co-ocorrencia juridico+contratos] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/contratos/dashboard
+           → Painel da Central de Contratos (totais + alertas reais)  [co-ocorrencia dashboard+juridico] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/juridico/contratos/{contrato_id}
+           → Detalhe de um contrato + alertas  [co-ocorrencia juridico+contratos] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/contratos/{contrato_id}/analise
+           → Análise read-only do contrato (cláusulas/risco/compliance por regex+scoring)  [co-ocorrencia analise+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/dashboard
+           → Hub Jurídico — painel consolidado (dado real)  [co-ocorrencia dashboard+juridico] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/juridico/det/coletar
+           → Dispara a coleta automática (estado honesto enquanto gov.br OAuth não habilitado).  [co-ocorrencia coletar+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/det/comunicacoes
+           → listar  [co-ocorrencia comunicacoes+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/det/comunicacoes/{comunicacao_id}
+           → Uma comunicação completa (inteiro-teor) para ler/abrir na tela.  [co-ocorrencia comunicacoes+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/det/comunicacoes/{comunicacao_id}/pdf
+           → Baixa a comunicação do DET em PDF (padrão-ouro, reprodução fiel do inteiro-teor).  [co-ocorrencia comunicacoes+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/det/robo/coletar
+           → Coleta a caixa do DET (robô) e REGISTRA as mensagens no ERP.  [co-ocorrencia coletar+robo] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  POST     /api/v1/juridico/det/robo/login
+           → Inicia o login supervisionado do robô (sobe o navegador no noVNC).  [co-ocorrencia robo+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/det/robo/status
+           → Status do robô (logado? sessão salva?).  [co-ocorrencia robo+det] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/det/status
+           → Estado real da conexão com o DET (certificado A1 + modo de operação).  [co-ocorrencia det+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/prazos
+           → Lista prazos (gravados + automáticos) com status calculado  [co-ocorrencia prazos+juridico] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/juridico/prazos
+           → Cria um prazo/compliance  [co-ocorrencia prazos+juridico] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/juridico/processos
+           → Analisa um processo a partir do texto colado.  [co-ocorrencia processos+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/processos
+           → listar  [co-ocorrencia processos+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/processos/{id}
+           → obter  [co-ocorrencia processos+juridico] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/juridico/riscos/dashboard
+           → Painel de riscos (trabalhista + tributário) — resumo  [co-ocorrencia riscos+dashboard] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/juridico/riscos/trabalhista
+           → Risco trabalhista — exposição de passivo (estimativa)  [co-ocorrencia trabalhista+riscos] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/redesign/action/doc-juridico/{slug}
+           → Serve os PDFs (timbrados) da reorganização para o jurídico: mapa de empregados e minutas.  [co-ocorrencia doc-juridico+action] backend/modules/operacional/controllers/redesign_builders/empresas.py
+exit=0 stderr=0b

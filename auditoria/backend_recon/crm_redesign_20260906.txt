@@ -1,0 +1,462 @@
+=== BACKEND RECON v2 — prefixo 'crm' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 255 · EXPOSTAS: 104 · ORFAS: 151
+  das orfas: 65 provaveis FALSO-ORFAO (builder le a tabela direto)
+             86 candidatas reais — destas, 86 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 1
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+  POST     /api/v1/crm/docs/aditivo/pdf 
+           → Gera um TERMO ADITIVO de contrato em PDF (com selo). Enriquece pelo contrato. salvar=true: regis
+           motivo: aditivo+crm citados, mas NUNCA no mesmo arquivo
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/crm/activities/ 
+           → Registra atividade (chamada, email, visita, nota).
+  POST     /api/v1/crm/activities/timeline 
+           → Adiciona uma nota/atividade manual na timeline de um lead/deal/proposta/cliente.
+  POST     /api/v1/crm/booking-links 
+           → create booking link
+  PUT      /api/v1/crm/booking-links/{bid} 
+           → update booking link
+  DELETE   /api/v1/crm/booking-links/{bid} 
+           → delete booking link
+  POST     /api/v1/crm/commissions/calculate 
+           → Calcula e cria comissão baseado em uma proposta.
+  POST     /api/v1/crm/commissions/payments/{payment_id}/confirm 💰
+           → Confirma pagamento de comissão.
+  POST     /api/v1/crm/commissions/rules 
+           → Cria uma nova regra de comissão.
+  POST     /api/v1/crm/commissions/rules/assign 
+           → Associa regra de comissão a um vendedor específico.
+  PUT      /api/v1/crm/commissions/rules/{rule_id} 
+           → Atualiza regra de comissão.
+  DELETE   /api/v1/crm/commissions/rules/{rule_id} 
+           → Desativa regra de comissão.
+  POST     /api/v1/crm/commissions/summaries/{seller_id}/{year}/{month}/close 
+           → Fecha resumo mensal (impede alterações).
+  POST     /api/v1/crm/commissions/{commission_id}/approve 
+           → Aprova comissão para pagamento.
+  POST     /api/v1/crm/commissions/{commission_id}/payments 💰
+           → Registra pagamento de comissão.
+  POST     /api/v1/crm/contacts/ 
+           → Cria novo contato vinculado a um cliente.
+  PATCH    /api/v1/crm/contacts/{contact_id} 
+           → Atualiza contato (aceita PT ou EN; só altera campos enviados).
+  PUT      /api/v1/crm/contacts/{contact_id} 
+           → Atualiza contato (aceita PT ou EN; só altera campos enviados).
+  DELETE   /api/v1/crm/contacts/{contact_id} 
+           → Remove contato.
+  POST     /api/v1/crm/contracts/addendums/{addendum_id}/sign 
+           → Assina aditivo e aplica alterações ao contrato.
+  POST     /api/v1/crm/contracts/criar-por-modelo 
+           → Cria o contrato já ligado ao modelo/tipo/empresa. Mesma lógica das três superfícies.
+  POST     /api/v1/crm/contracts/emitir-por-modelo 
+           → Emite o contrato completo pelo modelo — a MESMA lógica que o chat usa.
+  POST     /api/v1/crm/contracts/sla-reports/{report_id}/approve 
+           → Aprova ou disputa relatório de SLA.
+  POST     /api/v1/crm/contracts/templates 
+           → Cria template de contrato.
+  PUT      /api/v1/crm/contracts/templates/{template_id} 
+           → Atualiza template.
+  DELETE   /api/v1/crm/contracts/templates/{template_id} 
+           → Remove template (soft delete).
+  POST     /api/v1/crm/contracts/templates/{template_id}/approve 
+           → Aprova template juridicamente.
+  POST     /api/v1/crm/contracts/{contract_id}/activate 
+           → Ativa o contrato após assinatura.
+  POST     /api/v1/crm/contracts/{contract_id}/addendums 
+           → Cria aditivo do contrato.
+  POST     /api/v1/crm/contracts/{contract_id}/assinar-empresa 
+           → A Conecta Mais firma o contrato pelo painel (1º signatário).
+  POST     /api/v1/crm/contracts/{contract_id}/calculate-adjustment 
+           → Calcula reajuste do contrato.
+  POST     /api/v1/crm/contracts/{contract_id}/calculate-sla 
+           → Calcula SLA do contrato baseado nos indicadores.
+  POST     /api/v1/crm/contracts/{contract_id}/enviar-link 
+           → Manda o link de assinatura ao signatário — ou devolve o link para envio manual.
+  POST     /api/v1/crm/contracts/{contract_id}/renew 
+           → Calcula renovação do contrato.
+  POST     /api/v1/crm/contracts/{contract_id}/sla-reports 
+           → Cria relatório de SLA mensal.
+  POST     /api/v1/crm/contracts/{contract_id}/suspend 
+           → Suspende um contrato ativo.
+  POST     /api/v1/crm/contracts/{contract_id}/terminate 
+           → Encerra um contrato.
+  PUT      /api/v1/crm/entities/{entity}/{entity_id}/custom 
+           → set custom values
+  POST     /api/v1/crm/forms 
+           → create form
+  PUT      /api/v1/crm/forms/{fid} 
+           → update form
+  DELETE   /api/v1/crm/forms/{fid} 
+           → delete form
+  POST     /api/v1/crm/leads/{lead_id}/recalculate-score 
+           → Recalcula o score de um lead.
+  POST     /api/v1/crm/opportunities/from-lead 
+           → Converte um lead em opportunity.
+  POST     /api/v1/crm/opportunities/{opportunity_id}/close 
+           → Fecha uma opportunity (ganhou ou perdeu).
+  PUT      /api/v1/crm/pricing/parametros 
+           → Atualiza parâmetros (sincronizar a planilha). valores = {chave: valor}.
+  POST     /api/v1/crm/pricing/simular 
+           → Simula o preço de uma função (replica o simulador da planilha). Aceita função existente OU salár
+  POST     /api/v1/crm/products 
+           → create product
+  PUT      /api/v1/crm/products/{pid} 
+           → update product
+  DELETE   /api/v1/crm/products/{pid} 
+           → delete product
+  POST     /api/v1/crm/properties 
+           → create property
+  DELETE   /api/v1/crm/properties/{pid} 
+           → delete property
+  POST     /api/v1/crm/proposals/from-opportunity 
+           → Cria proposta a partir de uma opportunity.
+  POST     /api/v1/crm/proposals/templates 
+           → Cria template de proposta.
+  PUT      /api/v1/crm/proposals/templates/{template_id} 
+           → Atualiza template.
+  DELETE   /api/v1/crm/proposals/templates/{template_id} 
+           → Remove template (soft delete).
+  POST     /api/v1/crm/proposals/{proposal_id}/accept 
+           → Marca proposta como aceita pelo cliente e gera comissão automaticamente
+  POST     /api/v1/crm/proposals/{proposal_id}/approve 
+           → Processa aprovacao/rejeicao de proposta.
+  POST     /api/v1/crm/proposals/{proposal_id}/new-version 
+           → Cria nova versao da proposta.
+  POST     /api/v1/crm/proposals/{proposal_id}/reject 
+           → Marca proposta como rejeitada pelo cliente.
+  POST     /api/v1/crm/proposals/{proposal_id}/send 
+           → Marca proposta como enviada ao cliente.
+  POST     /api/v1/crm/proposals/{proposal_id}/sign 
+           → Assinatura INTERNA pelo cliente (PÚBLICO). Registra a assinatura, aceita a proposta e dispara
+  POST     /api/v1/crm/public/booking/{slug} 
+           → public booking create
+  POST     /api/v1/crm/public/forms/{slug}/submit 
+           → public form submit
+  POST     /api/v1/crm/quotas 
+           → upsert quota
+  DELETE   /api/v1/crm/quotas/{qid} 
+           → delete quota
+  POST     /api/v1/crm/scoring/recompute 
+           → scoring recompute all
+  POST     /api/v1/crm/scoring/recompute/{lead_id} 
+           → scoring recompute one
+  POST     /api/v1/crm/scoring/rules 
+           → create scoring rule
+  PUT      /api/v1/crm/scoring/rules/{rid} 
+           → update scoring rule
+  DELETE   /api/v1/crm/scoring/rules/{rid} 
+           → delete scoring rule
+  POST     /api/v1/crm/segments 
+           → create segment
+  POST     /api/v1/crm/segments/preview 
+           → segment preview
+  PUT      /api/v1/crm/segments/{sid} 
+           → update segment
+  DELETE   /api/v1/crm/segments/{sid} 
+           → delete segment
+  POST     /api/v1/crm/sequences 
+           → create sequence
+  POST     /api/v1/crm/sequences/process-due 
+           → Processa manualmente os passos vencidos (o Celery beat chama isso de hora em hora).
+  PUT      /api/v1/crm/sequences/{sid} 
+           → update sequence
+  DELETE   /api/v1/crm/sequences/{sid} 
+           → delete sequence
+  POST     /api/v1/crm/sequences/{sid}/enroll 
+           → enroll in sequence
+  POST     /api/v1/crm/tasks/ 
+           → Cria uma tarefa/lembrete de follow-up.
+  PATCH    /api/v1/crm/tasks/{task_id} 
+           → Atualiza/conclui uma tarefa.
+  DELETE   /api/v1/crm/tasks/{task_id} 
+           → Exclui uma tarefa.
+  POST     /api/v1/crm/workflows 
+           → create workflow
+  PUT      /api/v1/crm/workflows/{wid} 
+           → update workflow
+  DELETE   /api/v1/crm/workflows/{wid} 
+           → delete workflow
+  POST     /api/v1/crm/workflows/{wid}/test 
+           → test workflow
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (65) — builder le a tabela direto
+  GET      /api/v1/crm/activities/  (tabela: crm_workflows)
+  GET      /api/v1/crm/activities/recent  (tabela: crm_workflows)
+  GET      /api/v1/crm/activities/timeline  (tabela: crm_workflows)
+  GET      /api/v1/crm/booking-links  (tabela: crm_workflows)
+  GET      /api/v1/crm/bookings  (tabela: crm_workflows)
+  GET      /api/v1/crm/ciclo/diagnostico  (tabela: crm_workflows)
+  GET      /api/v1/crm/ciclo/metricas  (tabela: crm_workflows)
+  GET      /api/v1/crm/clients/{client_id}/360  (tabela: crm_workflows)
+  GET      /api/v1/crm/commissions/rules  (tabela: crm_workflows)
+  GET      /api/v1/crm/commissions/rules/{rule_id}  (tabela: crm_workflows)
+  GET      /api/v1/crm/commissions/seller/{seller_id}/stats  (tabela: crm_workflows)
+  GET      /api/v1/crm/commissions/summaries  (tabela: crm_workflows)
+  GET      /api/v1/crm/commissions/summaries/{seller_id}/{year}/{month}  (tabela: crm_workflows)
+  GET      /api/v1/crm/contacts/  (tabela: crm_workflows)
+  GET      /api/v1/crm/contracts/templates  (tabela: crm_workflows)
+  GET      /api/v1/crm/contracts/templates/{template_id}  (tabela: crm_workflows)
+  GET      /api/v1/crm/contracts/{contract_id}/addendums  (tabela: crm_workflows)
+  GET      /api/v1/crm/contracts/{contract_id}/assinaturas  (tabela: crm_workflows)
+  GET      /api/v1/crm/contracts/{contract_id}/sla-reports  (tabela: crm_workflows)
+  GET      /api/v1/crm/cross-sell  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/charts/commissions-by-status  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/charts/leads-by-status  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/charts/opportunities-by-stage  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/charts/proposals-by-status  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/conversion-rates  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/funnel  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/seller/{seller_id}/performance  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/top-performers  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/trends/commissions  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/trends/leads  (tabela: crm_workflows)
+  GET      /api/v1/crm/dashboard/trends/sales  (tabela: crm_workflows)
+  GET      /api/v1/crm/enrichment/cep/{cep}  (tabela: crm_workflows)
+  GET      /api/v1/crm/enrichment/cnpj/{cnpj}  (tabela: crm_workflows)
+  GET      /api/v1/crm/enrichment/taxas  (tabela: crm_workflows)
+  GET      /api/v1/crm/followups/historico  (tabela: crm_workflows)
+  GET      /api/v1/crm/forecast  (tabela: crm_workflows)
+  GET      /api/v1/crm/forecast/by-seller  (tabela: crm_workflows)
+  GET      /api/v1/crm/forms  (tabela: crm_workflows)
+  GET      /api/v1/crm/forms/{fid}/submissions  (tabela: crm_workflows)
+  GET      /api/v1/crm/leads-frios  (tabela: crm_workflows)
+  GET      /api/v1/crm/leads/{lead_id}/recommended-action  (tabela: crm_workflows)
+  GET      /api/v1/crm/opportunities/pipeline/stats  (tabela: crm_workflows)
+  GET      /api/v1/crm/pipeline-resumo  (tabela: crm_workflows)
+  GET      /api/v1/crm/pricing/funcoes  (tabela: crm_workflows)
+  GET      /api/v1/crm/pricing/parametros  (tabela: crm_workflows)
+  GET      /api/v1/crm/products  (tabela: crm_workflows)
+  GET      /api/v1/crm/properties  (tabela: crm_workflows)
+  GET      /api/v1/crm/proposals/templates  (tabela: crm_workflows)
+  GET      /api/v1/crm/proposals/templates/{template_id}  (tabela: crm_workflows)
+  GET      /api/v1/crm/proposals/{proposal_id}/public  (tabela: crm_workflows)
+  GET      /api/v1/crm/proposals/{proposal_id}/track.gif  (tabela: crm_workflows)
+  GET      /api/v1/crm/public/booking/{slug}  (tabela: crm_workflows)
+  GET      /api/v1/crm/public/forms/{slug}  (tabela: crm_workflows)
+  GET      /api/v1/crm/quotas  (tabela: crm_workflows)
+  GET      /api/v1/crm/relatorio-comercial  (tabela: crm_workflows)
+  GET      /api/v1/crm/reports/comercial/pdf  (tabela: crm_workflows)
+  GET      /api/v1/crm/resumo-executivo  (tabela: crm_workflows)
+  GET      /api/v1/crm/scoring/rules  (tabela: crm_workflows)
+  GET      /api/v1/crm/segments  (tabela: crm_workflows)
+  GET      /api/v1/crm/segments/{sid}/results  (tabela: crm_workflows)
+  GET      /api/v1/crm/sequences  (tabela: crm_workflows)
+  GET      /api/v1/crm/sequences/{sid}/enrollments  (tabela: crm_workflows)
+  GET      /api/v1/crm/tasks/  (tabela: crm_workflows)
+  GET      /api/v1/crm/workflows  (tabela: crm_workflows)
+  GET      /api/v1/crm/workflows/{wid}/runs  (tabela: crm_workflows)
+
+### ✅ EXPOSTAS (104) — com o arquivo que prova
+  POST     /api/v1/bidding/erp/crm/{contract_id}
+           → Vincula contrato publico ao modulo CRM (Comercial).  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/crm/apresentacoes/exemplo
+           → Gera uma apresentação de EXEMPLO (proposta CFTV) e devolve link público — para  [co-ocorrencia apresentacoes+exemplo] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/apresentacoes/gerar
+           → Gera uma APRESENTAÇÃO no padrão Conecta PRO (mesma identidade dos documentos).  [co-ocorrencia apresentacoes+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/assets
+           → Lista os assets enviados (persistentes).  [co-ocorrencia assets+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/assets/upload
+           → Recebe um asset (logo/selo) em base64 e grava no volume PERSISTENTE /app/uploads/assets.  [co-ocorrencia assets+upload] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/audit
+           → Log de auditoria das escritas (quem/quando/o quê/resultado). Filtra por método (POST/PUT/DELETE)  [co-ocorrencia audit+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/clientes/anotar
+           → Adiciona uma anotação à ficha viva do cliente (compartilhada com o José Luís).  [co-ocorrencia anotar+clientes] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/clientes/ficha
+           → Ficha viva do cliente: dados + anotações + último status de negociação.  [co-ocorrencia ficha+clientes] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/clients
+           → Lista todos os clientes ativos com dados financeiros.  [co-ocorrencia crm+clients] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/clients/
+           → Lista todos os clientes ativos com dados financeiros.  [co-ocorrencia crm+clients] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/clients/resumo
+           → Resumo da base de clientes.  [co-ocorrencia crm+resumo] backend/modules/operacional/controllers/redesign_builders/juridico.py
+  GET      /api/v1/crm/clients/{client_id}
+           → Detalhe completo de um cliente com contratos e lead origem.  [co-ocorrencia crm+clients] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/commissions
+           → Lista comissões com filtros.  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/commissions/
+           → Cria uma nova comissão manualmente.  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/commissions/stats
+           → Retorna estatísticas de comissões.  [co-ocorrencia stats+commissions] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/commissions/{commission_id}
+           → Busca comissão por ID com detalhes de pagamentos.  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/commissions/{commission_id}
+           → Atualiza comissão (ajustes, descrição, etc).  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  DELETE   /api/v1/crm/commissions/{commission_id}
+           → Desativa comissão (soft delete).  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PATCH    /api/v1/crm/commissions/{commission_id}/status
+           → Atualiza status da comissão.  [co-ocorrencia commissions+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/contracts
+           → Cria um novo contrato.  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/contracts
+           → Lista contratos com filtros e paginação.  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/contracts/alerts
+           → Obtém alertas de contratos (vencimento, reajuste).  [co-ocorrencia alerts+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/contracts/briefing
+           → Briefing de contrato NOVO — o que perguntar antes de montar.  [co-ocorrencia briefing+crm] backend/modules/operacional/controllers/redesign_builders/marketing.py
+  GET      /api/v1/crm/contracts/stats
+           → Obtém estatísticas de contratos.  [co-ocorrencia stats+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/contracts/{contract_id}
+           → Obtém um contrato pelo ID com todos os itens.  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/contracts/{contract_id}
+           → Atualiza um contrato.  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  DELETE   /api/v1/crm/contracts/{contract_id}
+           → Remove um contrato (soft delete).  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/contracts/{contract_id}/abrir-assinatura
+           → Abre a assinatura eletrônica do contrato: a empresa assina, depois o cliente por link.  [co-ocorrencia abrir-assinatura+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/contracts/{contract_id}/items
+           → Adiciona item ao contrato.  [co-ocorrencia items+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  PUT      /api/v1/crm/contracts/{contract_id}/items/{item_id}
+           → Atualiza item do contrato.  [co-ocorrencia items+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  DELETE   /api/v1/crm/contracts/{contract_id}/items/{item_id}
+           → Remove item do contrato.  [co-ocorrencia items+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/contracts/{contract_id}/pdf
+           → Gera o PDF do contrato no padrão visual Conecta Mais (com selo).  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/contracts/{contract_id}/pdf-modelo
+           → Gera o contrato REAL a partir do modelo cadastrado (não o molde de 3 páginas).  [co-ocorrencia pdf-modelo+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/contracts/{contract_id}/submit
+           → Envia contrato para assinatura.  [co-ocorrencia crm+contracts] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/dashboard/kpis
+           → Retorna todos os KPIs principais do CRM.  [co-ocorrencia dashboard+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/docs
+           → Lista os documentos gerados/registrados (registro no Conecta PRO). Ignora arquivados.  [co-ocorrencia crm+docs] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/docs/atestado/pdf
+           → Gera um ATESTADO DE CAPACIDADE TÉCNICA em PDF (com selo). salvar=true: registra + link.  [co-ocorrencia atestado+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/docs/download/{doc_id}
+           → Download PÚBLICO (tokenizado) de um documento registrado — clicável no navegador/Cowork.  [co-ocorrencia crm+docs] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/docs/expurgar-teste
+           → Arquiva (soft-delete) TODOS os documentos de teste (teste=true). confirmar=false só mostra a con  [co-ocorrencia expurgar-teste+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/docs/orcamento/pdf
+           → Gera um ORÇAMENTO / proposta de PAGAMENTO ÚNICO (material, serviço ou ambos) no padrão-ouro.  [co-ocorrencia orcamento+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/docs/ordem-servico/pdf
+           → Gera uma ORDEM DE SERVIÇO em PDF (com selo). salvar=true: registra + link de download.  [co-ocorrencia ordem-servico+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/docs/recibo/pdf
+           → Gera um RECIBO de pagamento em PDF no padrão Conecta Mais (com selo).  [co-ocorrencia recibo+crm] backend/modules/operacional/controllers/redesign_data_controller.py
+  DELETE   /api/v1/crm/docs/{doc_id}
+           → Exclui (soft-delete) um documento registrado.  [co-ocorrencia crm+docs] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/financeiro
+           → Retrato financeiro: MRR, recebíveis, inadimplência, caixa do mês, faturamento NFS-e.  [co-ocorrencia crm+financeiro] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/followups
+           → Toque manual do José Luís. confirmar=false: preview (resolve número, sem enviar).  [co-ocorrencia followups+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/followups/lote
+           → Toque em lote em todos os clientes com proposta pendente. confirmar=false = preview.  [co-ocorrencia followups+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/followups/optout
+           → Marca um número como opt-out (não receber follow-ups).  [co-ocorrencia followups+optout] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/followups/pendentes
+           → Toques agendados/a fazer (deal, cliente, canal, data).  [co-ocorrencia followups+pendentes] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/followups/resposta
+           → Registra manualmente o retorno do cliente (quando não veio pelo inbound automático).  [co-ocorrencia followups+resposta] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/funil
+           → Funil UNIFICADO (primeiro contato → fechamento): leads de conversa + deals, por etapa,  [co-ocorrencia funil+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/leads
+           → Cria um novo lead.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/leads
+           → Lista leads com filtros e paginação.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/leads/
+           → Cria um novo lead.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/leads/
+           → Lista leads com filtros e paginação.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/leads/stats
+           → Obtém estatísticas de leads.  [co-ocorrencia stats+leads] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/leads/{lead_id}
+           → Obtém um lead pelo ID.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/leads/{lead_id}
+           → Atualiza um lead.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  DELETE   /api/v1/crm/leads/{lead_id}
+           → Remove um lead (soft delete).  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PATCH    /api/v1/crm/leads/{lead_id}/status
+           → Atualiza o status de um lead.  [co-ocorrencia leads+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/negociacoes
+           → Painel das negociações em aberto: cliente, proposta, quem conduz, última resposta.  [co-ocorrencia negociacoes+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/negociacoes/pendentes
+           → Propostas enviadas SEM resposta do cliente (com dias parados).  [co-ocorrencia negociacoes+pendentes] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/negociacoes/responsavel
+           → Define quem conduz a negociação. 'jordan' pausa o acompanhamento do José Luís; 'jose_luis' reati  [co-ocorrencia negociacoes+responsavel] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/negociacoes/status
+           → Status de uma negociação por cliente/CNPJ/nº de proposta.  [co-ocorrencia negociacoes+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/nps
+           → Resumo do NPS: respostas, média, promotores/neutros/detratores e o NPS.  [co-ocorrencia nps+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/nps/enviar
+           → Envia pesquisa NPS (0-10) a um cliente por WhatsApp. confirmar=false = preview.  [co-ocorrencia nps+enviar] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/opportunities
+           → Cria uma nova opportunity.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/opportunities
+           → Lista opportunities com filtros e paginacao.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/opportunities/
+           → Cria uma nova opportunity.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/opportunities/
+           → Lista opportunities com filtros e paginacao.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/opportunities/{opportunity_id}
+           → Obtem uma opportunity pelo ID.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/opportunities/{opportunity_id}
+           → Atualiza uma opportunity.  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  DELETE   /api/v1/crm/opportunities/{opportunity_id}
+           → Remove uma opportunity (soft delete).  [co-ocorrencia opportunities+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PATCH    /api/v1/crm/opportunities/{opportunity_id}/stage
+           → Atualiza o estagio de uma opportunity no funil.  [co-ocorrencia opportunities+stage] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/proposals
+           → Cria uma nova proposta comercial.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/proposals
+           → Lista propostas com filtros e paginacao.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/proposals/
+           → Cria uma nova proposta comercial.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/proposals/
+           → Lista propostas com filtros e paginacao.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/proposals/stats
+           → Obtem estatisticas de propostas.  [co-ocorrencia stats+proposals] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/crm/proposals/{proposal_id}
+           → Obtem uma proposta pelo ID com todos os itens.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/proposals/{proposal_id}
+           → Atualiza uma proposta.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  DELETE   /api/v1/crm/proposals/{proposal_id}
+           → Remove uma proposta (soft delete).  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  PUT      /api/v1/crm/proposals/{proposal_id}/items
+           → Substitui TODOS os itens da proposta de uma vez (a tela manda a lista completa).  [co-ocorrencia proposals+items] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/proposals/{proposal_id}/items
+           → Adiciona item a proposta.  [co-ocorrencia proposals+items] backend/modules/operacional/controllers/redesign_data_controller.py
+  DELETE   /api/v1/crm/proposals/{proposal_id}/items/{item_id}
+           → Remove item da proposta.  [co-ocorrencia proposals+items] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/crm/proposals/{proposal_id}/marcar-enviada
+           → Marca uma proposta como ENVIADA sem reenviar ao cliente (quando o envio foi feito por fora  [co-ocorrencia marcar-enviada+proposals] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/proposals/{proposal_id}/pdf
+           → Gera o PDF do orçamento (download) a partir da proposta e seus itens.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/proposals/{proposal_id}/send-completo
+           → Envia a proposta por E-MAIL **e** por WhatsApp (José Luís), o WhatsApp citando o e-mail.  [co-ocorrencia send-completo+proposals] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/proposals/{proposal_id}/send-whatsapp
+           → Envia a proposta pelo WhatsApp do José Luís: PDF + link de assinatura, com rastreio em  [co-ocorrencia send-whatsapp+proposals] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/proposals/{proposal_id}/submit
+           → Submete proposta para aprovacao.  [co-ocorrencia proposals+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/reativar-lead
+           → Reengaja um lead frio por WhatsApp (envio real). confirmar=false = preview.  [co-ocorrencia reativar-lead+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/reunioes
+           → Sugere uma reunião (status 'sugerido' — Jordan confirma).  [co-ocorrencia reunioes+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/reunioes
+           → Lista as reuniões (futuras por padrão).  [co-ocorrencia reunioes+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/reunioes/cancelar
+           → cancelar reuniao ep  [co-ocorrencia reunioes+cancelar] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/reunioes/confirmar
+           → confirmar reuniao ep  [co-ocorrencia reunioes+confirmar] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/simular-fechamento
+           → What-if: se fechar estes deals (ou todos de um estágio), como fica ganho/meta.  [co-ocorrencia simular-fechamento+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/visitas
+           → Inicia um relatório de visita técnica/comercial (rascunho).  [co-ocorrencia visitas+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/visitas
+           → Lista os relatórios de visita.  [co-ocorrencia visitas+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/visitas/achados
+           → Anexa achados (análises de foto/áudio/vídeo ou notas) ao relatório.  [co-ocorrencia achados+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  GET      /api/v1/crm/visitas/detalhe
+           → Detalhe de um relatório de visita (por id ou nome do cliente).  [co-ocorrencia visitas+detalhe] backend/modules/operacional/controllers/redesign_builders/operacional.py
+  POST     /api/v1/crm/visitas/montar
+           → Grava o relatório sintetizado (o LLM redige; aqui persiste).  [co-ocorrencia montar+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/visitas/pdf
+           → Gera o PDF do relatório de visita (com selo) e registra (download_url).  [co-ocorrencia visitas+crm] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/visitas/registrar-lead
+           → Cria/atualiza lead + oportunidade a partir da visita.  [co-ocorrencia registrar-lead+visitas] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/crm/whatsapp/cadastrar
+           → Grava/normaliza (E.164) o WhatsApp de um cliente (por CNPJ ou id) ou lead (id).  [co-ocorrencia cadastrar+whatsapp] backend/modules/operacional/controllers/redesign_builders/crm.py
+  POST     /api/v1/marketing/licitacao/convert-to-crm
+           → Converte licitação vencida em lead CRM — fecha ciclo licitação→CRM.  [co-ocorrencia convert-to-crm+licitacao] backend/modules/operacional/controllers/redesign_builders/marketing.py
+exit=0 stderr=0b

@@ -1,0 +1,156 @@
+=== BACKEND RECON v2 — prefixo 'bidding' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 88 · EXPOSTAS: 23 · ORFAS: 65
+  das orfas: 36 provaveis FALSO-ORFAO (builder le a tabela direto)
+             29 candidatas reais — destas, 29 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 0
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/bidding/agents/analyst/analisar 
+           → Analisa edital extraindo requisitos, prazos, riscos e oportunidades.
+  POST     /api/v1/bidding/agents/assessor/avaliar 
+           → Avalia viabilidade de participacao (Go/No-Go) com scoring multidimensional.
+  POST     /api/v1/bidding/agents/compiler/gerar 
+           → Gera documentos de proposta (carta, planilha, declaracoes).
+  POST     /api/v1/bidding/agents/pipeline 
+           → Executa pipeline completo: analise -> avaliacao -> precificacao.
+  POST     /api/v1/bidding/agents/pricer/calcular 
+           → Calcula precificacao com composicao de custos, BDI e cenarios.
+  POST     /api/v1/bidding/agents/scout/buscar 
+           → Busca oportunidades de licitacao nos portais configurados.
+  POST     /api/v1/bidding/agents/sentinel/verificar 
+           → Verifica status atual de todas as certidoes da empresa.
+  POST     /api/v1/bidding/agents/warrior/simular 
+           → Simula uma disputa de pregao eletronico.
+  POST     /api/v1/bidding/certificates 
+           → Cria nova certidao.
+  POST     /api/v1/bidding/certificates/atualizar-status 
+           → Atualiza status de todas as certidoes.
+  POST     /api/v1/bidding/certificates/renovar 
+           → Solicita renovacao de certidao.
+  PUT      /api/v1/bidding/certificates/{certificate_id} 
+           → Atualiza certidao.
+  DELETE   /api/v1/bidding/certificates/{certificate_id} 
+           → Remove certidao.
+  POST     /api/v1/bidding/contracts/{contract_id}/aditivo 
+           → Adiciona aditivo ao contrato.
+  POST     /api/v1/bidding/contracts/{contract_id}/reajuste/aplicar 
+           → Aplica reajuste ao contrato.
+  POST     /api/v1/bidding/contracts/{contract_id}/reajuste/calcular 
+           → Calcula reajuste do contrato.
+  POST     /api/v1/bidding/documents 
+           → Cria novo documento.
+  POST     /api/v1/bidding/documents/atualizar-status 
+           → Atualiza status de todos os documentos baseado na validade.
+  PUT      /api/v1/bidding/documents/{document_id} 
+           → Atualiza documento.
+  DELETE   /api/v1/bidding/documents/{document_id} 
+           → Remove documento.
+  POST     /api/v1/bidding/proposals/calcular-bdi 
+           → Calcula BDI da proposta.
+  POST     /api/v1/bidding/proposals/{proposal_id}/lance 
+           → Registra lance em pregao.
+  POST     /api/v1/bidding/proposals/{proposal_id}/pronta 
+           → Marca proposta como pronta para envio.
+  POST     /api/v1/bidding/tenders 
+           → Cria novo edital.
+  POST     /api/v1/bidding/tenders/sync-pncp 
+           → Sincroniza editais do PNCP.
+  PUT      /api/v1/bidding/tenders/{tender_id} 
+           → Atualiza edital.
+  DELETE   /api/v1/bidding/tenders/{tender_id} 
+           → Remove edital.
+  POST     /api/v1/bidding/tenders/{tender_id}/participar 
+           → Marca participacao em edital.
+  POST     /api/v1/bidding/tenders/{tender_id}/status 
+           → Altera status do edital.
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (36) — builder le a tabela direto
+  GET      /api/v1/bidding/agents/scout/portais  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/agents/sentinel/alertas  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/agents/sentinel/tipos  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/agents/status  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/agents/warrior/status  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates/cnpj/{cnpj}/tipo/{tipo}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates/pendentes-renovacao  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates/status/{cnpj}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates/tipos  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/certificates/{certificate_id}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/contracts/dashboard  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/contracts/vencendo  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/contracts/vigentes  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/expiring  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/habilitacao  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/status  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/tipo/{tipo}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/tipos  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/documents/{document_id}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/proposals/estatisticas  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/proposals/tender/{tender_id}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/proposals/vencedoras  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/sync/jobs  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/sync/jobs/{job_id}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/abertos  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/dashboard  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/participando  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/pncp/buscar  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/pncp/status  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/segmento/{segmento}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/{tender_id}  (tabela: bidding_public_contracts)
+  GET      /api/v1/bidding/tenders/{tender_id}/documentos  (tabela: bidding_public_contracts)
+  GET      /api/v1/financial/bidding/dashboard  (tabela: financial_beneficiarios)
+
+### ✅ EXPOSTAS (23) — com o arquivo que prova
+  GET      /api/v1/bidding/contracts
+           → Lista contratos com filtros.  [co-ocorrencia bidding+contracts] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/contracts
+           → Cria novo contrato.  [co-ocorrencia bidding+contracts] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/contracts/medicoes/{measurement_id}/aprovar
+           → Aprova uma medicao.  [co-ocorrencia bidding+medicoes] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/contracts/{contract_id}
+           → Busca contrato por ID.  [co-ocorrencia bidding+contracts] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  PUT      /api/v1/bidding/contracts/{contract_id}
+           → Atualiza contrato.  [co-ocorrencia bidding+contracts] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  DELETE   /api/v1/bidding/contracts/{contract_id}
+           → Remove contrato.  [co-ocorrencia bidding+contracts] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/contracts/{contract_id}/medicoes
+           → Lista medicoes de um contrato.  [co-ocorrencia bidding+medicoes] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/contracts/{contract_id}/medicoes
+           → Adiciona medicao ao contrato.  [co-ocorrencia bidding+medicoes] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/erp/converter/{contract_id}
+           → Converte contrato publico em entidades operacionais.  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/erp/crm/{contract_id}
+           → Vincula contrato publico ao modulo CRM (Comercial).  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/erp/fatura/{medicao_id}
+           → Gera fatura (conta a receber) a partir de medicao aprovada.  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/erp/medicao/{contract_id}
+           → Gera medicao para um contrato em um periodo especifico.  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/erp/status/{contract_id}
+           → Retorna o status de integracao de um contrato publico.  [co-ocorrencia bidding+erp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/proposals
+           → Lista propostas com filtros.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/proposals
+           → Cria nova proposta.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/proposals/{proposal_id}
+           → Busca proposta por ID.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  PUT      /api/v1/bidding/proposals/{proposal_id}
+           → Atualiza proposta.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  DELETE   /api/v1/bidding/proposals/{proposal_id}
+           → Remove proposta.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/proposals/{proposal_id}/enviar
+           → Envia proposta.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/proposals/{proposal_id}/resultado
+           → Registra resultado da proposta.  [co-ocorrencia bidding+proposals] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/sync/pncp/trigger
+           → Dispara sincronizacao manual com o PNCP.  [co-ocorrencia bidding+pncp] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  POST     /api/v1/bidding/sync/precos/trigger
+           → Dispara sincronizacao manual de precos referenciais.  [co-ocorrencia bidding+precos] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+  GET      /api/v1/bidding/sync/status
+           → Retorna status geral de sincronizacao.  [co-ocorrencia bidding+sync] backend/modules/operacional/controllers/redesign_builders/licitacoes.py
+exit=0 stderr=0b

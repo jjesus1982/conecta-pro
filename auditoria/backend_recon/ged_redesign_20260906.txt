@@ -1,0 +1,497 @@
+=== BACKEND RECON v2 — prefixo 'ged' · superficie: SO redesign (gap p/ matar o classico) ===
+rotas montadas: 295 · EXPOSTAS: 99 · ORFAS: 196
+  das orfas: 110 provaveis FALSO-ORFAO (builder le a tabela direto)
+             86 candidatas reais — destas, 86 sao de ESCRITA
+GERADORES DE DOCUMENTO orfaos: 1
+
+### 🔴 GERADORES ORFAOS (documento codado, sem superficie) — prioridade
+  POST     /api/v1/gedeon/kits/{condominio_id}/enviar 💰
+           → Enviar kit via GDrive + Email
+           motivo: gedeon+enviar citados, mas NUNCA no mesmo arquivo
+
+### 🟠 ORFAS DE ESCRITA (acao que o front nao alcanca) — fila de trabalho
+  POST     /api/v1/ged/auto-assemble 
+           → Monta kits automaticamente para todos os clientes ativos.
+  POST     /api/v1/ged/coleta-automatica 
+           → Atualiza enabled e cron_expr da coleta automática.
+  POST     /api/v1/ged/coleta-automatica/cnds/run 
+           → Dispara atualização manual de certidões (background). Lock Redis 5min.
+  POST     /api/v1/ged/coleta-automatica/run 
+           → Dispara coleta manual imediata (background). Idempotente via lock Redis.
+  PUT      /api/v1/ged/config/document-types/{doc_type_id} 
+           → Atualiza tipo de documento (ativar/desativar).
+  POST     /api/v1/ged/document-shares 
+           → Cria compartilhamento.
+  POST     /api/v1/ged/document-shares/expire-overdue/run 
+           → Expira compartilhamentos vencidos.
+  POST     /api/v1/ged/document-shares/public-link 
+           → Cria link público para documento.
+  PUT      /api/v1/ged/document-shares/{share_id:uuid} 
+           → Atualiza compartilhamento.
+  DELETE   /api/v1/ged/document-shares/{share_id:uuid} 
+           → Remove compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/accept 
+           → Aceita compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/extend 
+           → Estende validade do compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/permission 
+           → Atualiza permissão.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/regenerate-token 
+           → Regenera token de acesso.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/reject 
+           → Rejeita compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/remove-password 
+           → Remove senha do compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/revoke 
+           → Revoga compartilhamento.
+  POST     /api/v1/ged/document-shares/{share_id:uuid}/set-password 
+           → Define senha para compartilhamento.
+  POST     /api/v1/ged/document-signatures 
+           → Cria solicitação de assinatura.
+  POST     /api/v1/ged/document-signatures/bulk 
+           → Cria múltiplas solicitações de assinatura.
+  POST     /api/v1/ged/document-signatures/document/{document_id}/cancel-all 
+           → Cancela todas as assinaturas pendentes.
+  POST     /api/v1/ged/document-signatures/expire-overdue/run 
+           → Expira assinaturas vencidas.
+  POST     /api/v1/ged/document-signatures/request 
+           → Solicita assinaturas para documento.
+  PUT      /api/v1/ged/document-signatures/{signature_id:uuid} 
+           → Atualiza assinatura.
+  DELETE   /api/v1/ged/document-signatures/{signature_id:uuid} 
+           → Remove assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/cancel 
+           → Cancela assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/extend 
+           → Estende prazo de assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/notify 
+           → Envia notificação.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/refuse 
+           → Recusa assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/regenerate-token 
+           → Regenera token de assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/remind 
+           → Envia lembrete.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/sign 
+           → Registra assinatura.
+  POST     /api/v1/ged/document-signatures/{signature_id:uuid}/verify 
+           → Verifica assinatura.
+  POST     /api/v1/ged/document-tags 
+           → Cria uma nova tag.
+  POST     /api/v1/ged/document-tags/default 
+           → Cria tags padrão.
+  POST     /api/v1/ged/document-tags/default/create 
+           → Cria tags padrão.
+  POST     /api/v1/ged/document-tags/document/{document_id}/set 
+           → Define tags de um documento.
+  POST     /api/v1/ged/document-tags/suggest 
+           → Sugere tags baseado no texto.
+  POST     /api/v1/ged/document-tags/{source_tag_id}/merge/{target_tag_id} 
+           → Mescla duas tags.
+  PUT      /api/v1/ged/document-tags/{tag_id:uuid} 
+           → Atualiza tag.
+  DELETE   /api/v1/ged/document-tags/{tag_id:uuid} 
+           → Remove tag.
+  DELETE   /api/v1/ged/document-tags/{tag_id:uuid}/documents/{document_id} 
+           → Remove tag de documento.
+  POST     /api/v1/ged/document-tags/{tag_id:uuid}/documents/{document_id}/add 
+           → Adiciona tag a documento.
+  DELETE   /api/v1/ged/document-tags/{tag_id:uuid}/documents/{document_id}/remove 
+           → Remove tag de documento.
+  DELETE   /api/v1/ged/document-versions/{version_id} 
+           → Remove versão.
+  POST     /api/v1/ged/document-versions/{version_id}/archive 
+           → Arquiva versão.
+  POST     /api/v1/ged/document-versions/{version_id}/set-current 
+           → Define versão como atual.
+  POST     /api/v1/ged/documents/ai/check-duplicates 
+           → Verifica documentos duplicados.
+  POST     /api/v1/ged/documents/ai/classify 
+           → Classifica documento usando IA.
+  POST     /api/v1/ged/documents/ai/extract-keywords 
+           → Extrai palavras-chave do texto.
+  POST     /api/v1/ged/documents/check-expiry/run 
+           → Verifica e marca documentos expirados.
+  POST     /api/v1/ged/documents/{document_id:uuid}/ai/analyze-ocr 
+           → Analisa texto OCR do documento.
+  POST     /api/v1/ged/documents/{document_id:uuid}/approve 
+           → Aprova documento.
+  POST     /api/v1/ged/documents/{document_id:uuid}/archive 
+           → Arquiva documento.
+  POST     /api/v1/ged/documents/{document_id:uuid}/new-version 
+           → Cria nova versão do documento.
+  POST     /api/v1/ged/documents/{document_id:uuid}/publish 
+           → Publica documento.
+  POST     /api/v1/ged/documents/{document_id:uuid}/submit-approval 
+           → Submete documento para aprovação.
+  POST     /api/v1/ged/documents/{document_id:uuid}/unarchive 
+           → Desarquiva documento.
+  POST     /api/v1/ged/folders 
+           → Cria uma nova pasta.
+  POST     /api/v1/ged/folders/default-structure 
+           → Cria estrutura padrão de pastas.
+  POST     /api/v1/ged/folders/default-structure/create 
+           → Cria estrutura padrão de pastas.
+  PUT      /api/v1/ged/folders/{folder_id:uuid} 
+           → Atualiza pasta.
+  DELETE   /api/v1/ged/folders/{folder_id:uuid} 
+           → Remove pasta.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/archive 
+           → Arquiva pasta.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/block 
+           → Bloqueia pasta.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/move 
+           → Move pasta.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/permissions/grant 
+           → Concede permissão.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/permissions/revoke 
+           → Revoga permissão.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/unarchive 
+           → Desarquiva pasta.
+  POST     /api/v1/ged/folders/{folder_id:uuid}/unblock 
+           → Desbloqueia pasta.
+  POST     /api/v1/ged/kits/{kit_id}/approve 
+           → Aprova kit (muda status para 'aprovado').
+  POST     /api/v1/ged/kits/{kit_id}/enviar 
+           → Envia kit via GDrive + Email (atômico).
+  POST     /api/v1/ged/kits/{kit_id}/solicitar-assinaturas 
+           → Cria/garante a solicitação de assinatura do funcionário nos docs assináveis do kit.
+  POST     /api/v1/gedeon/cnd/emitir 
+           → Dispara a emissão real das CNDs (assíncrono via robô)
+  POST     /api/v1/gedeon/kits/checklist 
+           → Adiciona um evento manual ao checklist do condomínio
+  DELETE   /api/v1/gedeon/kits/checklist 
+           → Remove um evento manual do checklist
+  POST     /api/v1/gedeon/kits/entrega/marcar 
+           → Marca o kit como entregue ao cliente (entrega manual)
+  POST     /api/v1/gedeon/kits/entrega/preparar 
+           → Prepara a entrega do kit (gera capa/índice + selo). NÃO envia.
+  POST     /api/v1/gedeon/kits/faturar 
+           → Emitir NFS-e e/ou boleto do kit (confirmar=false → preview)
+  POST     /api/v1/gedeon/kits/montagem 
+           → Dispara a montagem do kit do mês (assíncrono)
+  POST     /api/v1/gedeon/kits/upload 
+           → Anexa um arquivo ao kit de um condomínio (upload manual)
+  POST     /api/v1/people-management/ged/documents/{document_id}/sign 
+           → Assina digitalmente um documento.
+  POST     /api/v1/people-management/ged/kits/auto-assemble 
+           → Monta kits automaticamente para todos os clientes ativos.
+  POST     /api/v1/people-management/ged/kits/{kit_id}/approve 
+           → Aprova o kit documental.
+  POST     /api/v1/people-management/ged/kits/{kit_id}/enviar 
+           → Envia kit via GDrive + Email (atômico).
+
+### ⚪ ORFAS DE LEITURA (candidatas reais, sem escrita)
+
+### 🔵 PROVAVEIS FALSO-ORFAO (110) — builder le a tabela direto
+  GET      /api/v1/ged/coleta-automatica  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/coleta-automatica/history  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/config/document-types  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/config/email-templates  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/document/{document_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/link/{token}/access  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/owner  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/owner/list  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/recipient  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/recipient/list  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/stats/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/{share_id:uuid}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-shares/{share_id:uuid}/access-log  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/document/{document_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/document/{document_id}/fully-signed  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/document/{document_id}/next  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/document/{document_id}/pending  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/signer  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/signer/list  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/signer/pending  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/stats/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/token/{token}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/{signature_id:uuid}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-signatures/{signature_id:uuid}/certificate  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/document/{document_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/most-used  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/most-used/list  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/name/{name}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/search/query  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/slug/{slug}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/stats/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/tree/view  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/type/{tag_type}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/{tag_id:uuid}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-tags/{tag_id:uuid}/documents  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}/compare  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}/count  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}/current  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}/stats  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/document/{document_id}/version/{version_number}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/document-versions/{version_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/ai/dashboard  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/ai/insights  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/ai/trends  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/expiring/soon  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/folder/{folder_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/pending/approval  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/pending/signature  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/search  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/search/query  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/documents/stats/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/code/{code}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/root  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/root/list  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/search/query  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/stats/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/tree/view  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/type/{folder_type}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/{folder_id:uuid}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/{folder_id:uuid}/children  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/folders/{folder_id:uuid}/permissions/check  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/contracheques/{employee_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/institucional/cct  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/institucional/comunicados  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/onboarding/{employee_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/sst/asos/vencendo  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/ged-integration/sst/{employee_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/kit-real/{kit_id}/checklist  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/kits/summary  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/kits/{kit_id}/assinaturas  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/montar/condominios  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/montar/funcionarios/{client_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/montar/servicos/{client_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/reports/by-client  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/reports/compliance  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/reports/monthly  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/ged/reports/signatures  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/alertas/vencimentos  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/atlas/anomalia/{cliente_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/atlas/historico/{cliente_id}/{competencia}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/atlas/insights  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/colaborador/{nome}/pagamentos  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/conformidade/{cliente_id}/{competencia}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/consultor/historico  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/consultor/panorama  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/context/{cliente_id}/{competencia}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/context/{cliente_id}/{competencia}/tipo2  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/dashboard  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/assinaturas  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/completude  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/completude/{condominio_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/conferir  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/conferir-lote  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/cronograma  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/dp/alinhamento  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/entrega/status  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/ficha  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/funcionarios  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/kits/montagem/{task_id}  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/sophia/buscar  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/gedeon/sophia/impacto-folha  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/people-management/ged/config/document-types  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/people-management/ged/config/email-templates  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/people-management/ged/documents/pending-signatures  (tabela: gedeon_intercorrencias)
+  GET      /api/v1/people-management/ged/kits/summary  (tabela: gedeon_intercorrencias)
+
+### ✅ EXPOSTAS (99) — com o arquivo que prova
+  GET      /api/v1/ged/certidoes
+           → Lista todas as certidões da empresa com status calculado automaticamente.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/ged/certidoes
+           → Adiciona nova certidão.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  POST     /api/v1/ged/certidoes/sync
+           → Dispara busca imediata de certidoes nos portais governamentais.  [co-ocorrencia certidoes+sync] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/ged/certidoes/sync/{param}
+           → Endpoint unificado para sync por tipo de certidão OU por CNPJ.  [co-ocorrencia certidoes+sync] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/ged/certidoes/tipos
+           → Lista os tipos de CND disponíveis para sincronização automática.  [co-ocorrencia certidoes+tipos] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  OPTIONS  /api/v1/ged/certidoes/{certidao_id}
+           → Retorna métodos permitidos para /{certidao_id}.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/ged/certidoes/{certidao_id}
+           → Retorna uma certidão pelo ID.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  PUT      /api/v1/ged/certidoes/{certidao_id}
+           → Renova ou atualiza uma certidão existente.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  DELETE   /api/v1/ged/certidoes/{certidao_id}
+           → Remove uma certidão.  [co-ocorrencia certidoes+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/ged/clients
+           → Lista clientes GED. Alias para /people-management/ged/clients.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/ged/clients/
+           → Lista clientes GED. Alias para /people-management/ged/clients.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/ged/config/schedule
+           → Retorna configuração de agendamento de envios.  [co-ocorrencia schedule+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  PUT      /api/v1/ged/config/schedule
+           → Salva configuração de agendamento.  [co-ocorrencia schedule+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/ged/dashboard
+           → Dashboard consolidado do GED com metricas operacionais.  [co-ocorrencia dashboard+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/ged/documents
+           → Cria um novo documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents
+           → Lista documentos com filtros.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/
+           → Lista documentos com filtros.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/code/{code}
+           → Busca documento por código.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/expired
+           → Retorna documentos expirados.  [co-ocorrencia documents+expired] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/expired/list
+           → Retorna documentos expirados.  [co-ocorrencia documents+expired] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/documents/upload
+           → Upload de documento com arquivo.  [co-ocorrencia documents+upload] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/{document_id:uuid}
+           → Busca documento por ID.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/ged/documents/{document_id:uuid}
+           → Atualiza documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/ged/documents/{document_id:uuid}
+           → Remove documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/documents/{document_id:uuid}/download
+           → Registra download.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/{document_id:uuid}/download
+           → Faz download do arquivo do documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/documents/{document_id:uuid}/move
+           → Move documento para outra pasta.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/{document_id:uuid}/preview
+           → Retorna URL de preview do documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/documents/{document_id:uuid}/reject
+           → Rejeita documento.  [co-ocorrencia reject+documents] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/documents/{document_id:uuid}/view
+           → Registra visualização.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/ged/documents/{document_id:uuid}/view-url
+           → Retorna URL de visualização do documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/ged/kit-real/gerar-todos
+           → Gera PDFs reais para TODOS os kits do mes.  [co-ocorrencia gerar-todos+kit-real] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/ged/kit-real/{kit_id}/gerar
+           → Gera todos os PDFs reais para um kit especifico.  [co-ocorrencia kit-real+ged] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/ged/kits
+           → Lista kits documentais com filtros.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/ged/kits
+           → Cria um novo kit documental.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/ged/kits/
+           → Lista kits documentais com filtros.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/ged/kits/generate-all-pdfs
+           → Gera PDFs para todos os kits de um mes.  [co-ocorrencia generate-all-pdfs+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/ged/kits/montar
+           → Monta kits para todos os clientes ativos que nao tem kit no mes atual.  [co-ocorrencia montar+kits] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/ged/kits/{kit_id}
+           → Retorna detalhes de um kit documental.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/ged/kits/{kit_id}/add-nfse
+           → Adiciona NFS-e reais do cliente ao kit e gera PDFs.  [co-ocorrencia add-nfse+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/ged/kits/{kit_id}/download-zip
+           → Gera e retorna ZIP do kit com todos os PDFs.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/ged/kits/{kit_id}/generate-pdfs
+           → Gera PDFs reais para todos os documentos de um kit.  [co-ocorrencia generate-pdfs+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/ged/kits/{kit_id}/send
+           → Envia kit ao cliente (muda status para 'enviado').  [co-ocorrencia send+kits] backend/modules/operacional/controllers/redesign_builders/integracoes.py
+  POST     /api/v1/ged/montar/kit
+           → Monta kit completo: gera PDFs + vincula NFS-e + retorna checklist.  [co-ocorrencia kit+montar] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/ged/stats
+           → Retorna estatísticas consolidadas do GED combinando dados de:  [co-ocorrencia stats+ged] backend/modules/operacional/controllers/redesign_data_controller.py
+  GET      /api/v1/gedeon/cnd/pdf/{document_type}
+           → Baixa o PDF da CND  [co-ocorrencia cnd+gedeon] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/gedeon/cnd/status
+           → Status da emissão + CNDs registradas  [co-ocorrencia cnd+gedeon] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  POST     /api/v1/gedeon/cnd/upload
+           → Sobe o PDF de uma CND emitida manualmente (Federal/FGTS)  [co-ocorrencia cnd+gedeon] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/gedeon/consultor/intercorrencias
+           → Lista intercorrências (filtros: condomínio, competência, status)  [co-ocorrencia intercorrencias+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/consultor/intercorrencias
+           → Registra intercorrência do mês (contratação, demissão, falta...)  [co-ocorrencia intercorrencias+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  DELETE   /api/v1/gedeon/consultor/intercorrencias/{intercorrencia_id}
+           → Exclui intercorrência (registro errado)  [co-ocorrencia intercorrencias+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  PATCH    /api/v1/gedeon/consultor/intercorrencias/{intercorrencia_id}/tratar
+           → Marca intercorrência como tratada  [co-ocorrencia intercorrencias+tratar] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/consultor/perguntar
+           → Pergunta ao Consultor GED (ancorado nos kits reais)  [co-ocorrencia gedeon+perguntar] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/consultor/perguntar-arquivo
+           → Consulta analisando um anexo (PDF/DOCX/TXT/CSV)  [co-ocorrencia gedeon+perguntar-arquivo] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/hermes/classificar
+           → classificar documento  [co-ocorrencia classificar+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  DELETE   /api/v1/gedeon/kits/arquivo
+           → Exclui (lixeira) um arquivo do kit de um condomínio  [co-ocorrencia gedeon+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/kits/condominios
+           → Condomínios elegíveis (escala — clients com contrato ativo)  [co-ocorrencia gedeon+condominios] backend/modules/operacional/controllers/redesign_builders/fiscal.py
+  GET      /api/v1/gedeon/kits/config
+           → Retorna tipo_kit por cliente ativo para o frontend saber qual checklist abrir.  [co-ocorrencia gedeon+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/kits/funcionario
+           → Visão por funcionário (todos os docs de uma pessoa)  [co-ocorrencia gedeon+funcionario] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/kits/lote
+           → Completude em lote de todos os condomínios ativos  [co-ocorrencia gedeon+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/kits/painel
+           → Painel de completude dos kits (lê o Drive)  [co-ocorrencia gedeon+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/kits/status
+           → Status consolidado de todos os kits do mes — gedeon_kit_config + Redis.  [co-ocorrencia gedeon+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/sophia/alertas
+           → SOPHIA v2.0: alertas de documentos vencendo nos próximos N dias.  [co-ocorrencia sophia+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/sophia/indexar
+           → SOPHIA v2.0: indexar/re-indexar acervo completo.  [co-ocorrencia indexar+sophia] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/sophia/perguntar
+           → SOPHIA v2.0: pergunta em linguagem natural sobre o acervo.  [co-ocorrencia sophia+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/gedeon/sophia/reindexar
+           → SOPHIA v2.0: re-indexa acervo com embedding v2.  [co-ocorrencia reindexar+sophia] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/gedeon/sophia/status
+           → SOPHIA v2.0: status do índice semântico cross-módulo.  [co-ocorrencia sophia+gedeon] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/people-management/ged/clients
+           → Lista clientes GED com paginacao e filtros.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/clients
+           → Cria um novo cliente GED (condominio ou administradora).  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/clients/{client_id}
+           → Retorna detalhes de um cliente GED pelo ID.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  PUT      /api/v1/people-management/ged/clients/{client_id}
+           → Atualiza parcialmente um cliente GED.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  DELETE   /api/v1/people-management/ged/clients/{client_id}
+           → Remove um cliente GED. Nao permite se possuir kits.  [co-ocorrencia ged+clients] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/clients/{client_id}/portal-access
+           → Habilita ou desabilita o acesso ao portal do cliente.  [co-ocorrencia portal-access+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/config/drive
+           → Retorna configuração atual do Google Drive.  [co-ocorrencia drive+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/people-management/ged/config/drive
+           → Salva configuração do Drive (folder_id, etc.).  [co-ocorrencia drive+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/people-management/ged/config/drive/connect
+           → Inicia conexão com Google Drive.  [co-ocorrencia connect+drive] backend/modules/operacional/controllers/redesign_builders/integracoes.py
+  DELETE   /api/v1/people-management/ged/config/drive/disconnect
+           → Desconecta o Google Drive.  [co-ocorrencia disconnect+drive] backend/modules/operacional/controllers/redesign_builders/integracoes.py
+  GET      /api/v1/people-management/ged/config/schedule
+           → Retorna configuração de agendamento automático.  [co-ocorrencia schedule+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  POST     /api/v1/people-management/ged/config/schedule
+           → Salva configuração de agendamento.  [co-ocorrencia schedule+config] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/people-management/ged/documents
+           → Lista documentos com filtros e paginacao.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ged/documents
+           → Upload manual de documento para um kit.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  POST     /api/v1/people-management/ged/documents/ingestao/historica
+           → Processa todos os ZIPs historicos da pasta Google Drive e alimenta SOPHIA.  [co-ocorrencia historica+ingestao] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/people-management/ged/documents/ingestao/status
+           → Retorna o status atual (ou ultimo) processo de ingestao historica.  [co-ocorrencia ingestao+documents] backend/modules/operacional/controllers/redesign_builders/documentos.py
+  GET      /api/v1/people-management/ged/documents/{document_id}
+           → Retorna detalhes de um documento pelo ID.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  PUT      /api/v1/people-management/ged/documents/{document_id}
+           → Atualiza metadados de um documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  DELETE   /api/v1/people-management/ged/documents/{document_id}
+           → Remove um documento de um kit.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/documents/{document_id}/download
+           → Download do arquivo de um documento.  [co-ocorrencia documents+ged] backend/modules/operacional/controllers/redesign_builders/departamento_pessoal.py
+  GET      /api/v1/people-management/ged/kits
+           → Lista kits documentais com filtros e paginacao.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits
+           → Lista kits documentais com filtros e paginacao.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/kits
+           → Cria um novo kit documental para um cliente/mes.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/dashboard
+           → Dashboard completo dos kits documentais.  [co-ocorrencia kits+dashboard] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}
+           → Retorna detalhes de um kit com resumo de documentos.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  PUT      /api/v1/people-management/ged/kits/{kit_id}
+           → Atualiza campos editaveis de um kit.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  DELETE   /api/v1/people-management/ged/kits/{kit_id}
+           → Remove um kit. Somente permitido se status = EM_MONTAGEM.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/kits/{kit_id}/build
+           → Dispara montagem automatica do kit.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}/export/pdf
+           → Gera e retorna o PDF consolidado do kit para download.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  GET      /api/v1/people-management/ged/kits/{kit_id}/export/zip
+           → Gera e retorna o ZIP do kit para download.  [co-ocorrencia kits+ged] backend/modules/operacional/controllers/redesign_builders/area_do_cliente.py
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send
+           → Marca o kit como enviado com metodo e destinatario.  [co-ocorrencia send+kits] backend/modules/operacional/controllers/redesign_builders/integracoes.py
+  POST     /api/v1/people-management/ged/kits/{kit_id}/send-email
+           → Envia kit por email para o cliente via EmailKitService (HTML + link Drive).  [co-ocorrencia send-email+kits] backend/modules/operacional/controllers/redesign_builders/documentos.py
+exit=0 stderr=0b
