@@ -218,6 +218,26 @@ OpenAPI). Removidos. Ficam dois guardados por try/except: `main_production` → 
 API). "Vincular contrato público a cliente do CRM" nunca funcionou e falha calado. Fica para a fase de
 construção de Licitações.
 
+### 2c.5 Noite de 07/09 — loop por todos os módulos (Jordan dormindo)
+
+- **Bake 02:53 → 03:05**: blue/green, zero drift, 8 workers na mesma imagem. Tudo do dia virou durável. A guarda
+  de WIP passou a comparar com a IMAGEM (WIP alheio já publicado não segura bake).
+- **Busca global** (caixa do topo, em todas as telas): `/api/v1/search` nunca foi montado — 0 requisições na vida.
+  Montado pelo agregador `inteligencia` (entry point é zona proibida). Provado em processo novo.
+- **Portal do Funcionário · Minhas férias** lia a tabela-cópia parada em 01/04 (14 presos em SUBMITTED); agora lê a
+  autoritativa. Provado com usuário real: 1 pedido aprovado aparece.
+- **Presença**: "presente" = no turno (entrada nas últimas 14 h sem saída). Dia civil dava 0 à 1h com 5 no posto.
+- **Sino**: 689 avisos vivos de rascunhos já encerrados (390 de oráculos, 36/dia). Gatilho no banco: rascunho que sai
+  de `rascunho` ou é apagado desativa o aviso. `checar_sino_surdo --instalar` aplica e confere os 3 gatilhos.
+- **Tarefas que estouravam todo dia**: certidões dos portais (5 portais > 300 s; municipal vencida desde 01/09 sem
+  renovar) ganhou 25 min; health check do Sólides falha em 60 s (as batidas do Tangerino seguem entrando).
+- **Calendário fiscal** nomeava a competência anterior ("DAS 07/2026" para agosto) — corrigido e renomeado.
+- **Portal do Cliente** enviava e-mail antes de gravar (2 funções) — grava primeiro; `checar_irreversivel` 2 → 0.
+- **Import órfão**: 23 cascas mortas removidas; trava binária nova e documentada (30 travas).
+- **Rotas do frontend sem backend**: 620, das quais 615 em código que nenhuma tela alcança; 5 alcançáveis são
+  comodatos (módulo 🔴, 0 uso na vida), busca (resolvida) e dois templates que a trava não avalia.
+- **Varredura completa dos 137 oráculos** em curso (todos verdes até o 85º); resultado no fim da seção.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
