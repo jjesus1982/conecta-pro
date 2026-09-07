@@ -70,10 +70,22 @@ def _guardas() -> list[str]:
     if "--agora" not in sys.argv and not (1 <= h < 5):
         motivos.append(f"fora da janela 01:00–05:00 (agora {h:02d}h) — use --agora para forçar")
     sujo = _sh(["git", "-C", str(REPO), "status", "--porcelain", "--", "backend/"]).strip()
-    if sujo:
-        n = len(sujo.splitlines())
-        motivos.append(f"{n} arquivo(s) de backend/ fora do HEAD (WIP de alguma sessão iria para produção): "
-                       + "; ".join(sujo.splitlines()[:4]))
+    # Só é exposição NOVA o que a imagem atual ainda não tem: WIP alheio que um bake anterior
+    # já publicou byte a byte não ganha nada em segurar o próximo bake — em 07/09/2026 dois
+    # arquivos assim (WIP de 19 e 22/08, já na imagem) travaram 139 arquivos de correção no ar.
+    novos = []
+    for ln in sujo.splitlines():
+        rel = ln[3:].strip().split(" -> ")[-1]
+        if not rel.startswith("backend/"):
+            continue
+        na_imagem = _sh(["docker", "run", "--rm", "--entrypoint", "sh", "conecta-pro-backend:latest",
+                         "-c", f"cat /app/{rel[len('backend/'):]} 2>/dev/null"], 60)
+        disco = (REPO / rel).read_text(errors="replace") if (REPO / rel).is_file() else None
+        if disco is None or na_imagem != disco:
+            novos.append(ln)
+    if novos:
+        motivos.append(f"{len(novos)} arquivo(s) de backend/ fora do HEAD e DIFERENTES da imagem "
+                       "(WIP de alguma sessão iria para produção): " + "; ".join(novos[:4]))
     wpp = _sh(["docker", "exec", "conecta-pro-backend", "python3", "-c",
                "from core.database.session import SyncSessionLocal; from sqlalchemy import text; "
                "print('N=', SyncSessionLocal().execute(text(\"select count(*) from cwi_message_log where created_at > now()-interval '30 minutes'\")).scalar())"])
