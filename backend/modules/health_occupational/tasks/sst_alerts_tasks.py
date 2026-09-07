@@ -43,24 +43,27 @@ def verificar_asos_vencendo(dias_antecedencia: int = 30) -> str:
             result = db.execute(
                 text(
                     """
+                    -- 07/09/2026: lia `health_asos` (família morta: a tabela nem existe) e
+                    -- engolia a exceção — nunca alertou. Os ASOs vivos estão em `gp_asos`
+                    -- (data_validade). Medido no dia: de 53 ativos, 25 com o ASO mais
+                    -- recente VENCIDO e 21 sem ASO nenhum; a janela antiga (só "vencendo")
+                    -- nunca alertaria vencido — agora o vencido é crítico.
                     SELECT
                         a.id,
-                        a.exame_id,
-                        a.numero_aso,
-                        a.resultado,
-                        a.data_vencimento,
-                        a.data_vencimento - :hoje AS dias_restantes,
-                        e.funcionario_id,
-                        e.funcao,
-                        e.setor
-                    FROM health_asos a
-                    JOIN health_medical_exams e ON e.id = a.exame_id
-                    WHERE a.ativo = TRUE
-                      AND a.cancelado = FALSE
-                      AND a.data_vencimento IS NOT NULL
-                      AND a.data_vencimento <= :limite_atencao
-                      AND a.data_vencimento >= :hoje
-                    ORDER BY a.data_vencimento ASC
+                        a.aso_id AS exame_id,
+                        coalesce(a.aso_id::text, a.id::text) AS numero_aso,
+                        CASE WHEN a.apto THEN 'apto' ELSE coalesce(a.status, 'n/d') END AS resultado,
+                        a.data_validade AS data_vencimento,
+                        a.data_validade - :hoje AS dias_restantes,
+                        a.employee_id AS funcionario_id,
+                        coalesce(e.cargo, '') AS funcao,
+                        '' AS setor
+                    FROM gp_asos a
+                    JOIN employees e ON e.id = a.employee_id AND e.status = 'ativo'
+                    WHERE a.data_validade IS NOT NULL
+                      AND a.data_validade <= :limite_atencao
+                      AND a.data_validade = (SELECT max(x.data_validade) FROM gp_asos x WHERE x.employee_id = a.employee_id)
+                    ORDER BY a.data_validade ASC
                     """
                 ),
                 {

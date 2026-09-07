@@ -413,7 +413,10 @@ def _condicoes_de_banco() -> list[tuple[bool, str, str]]:
     ultimo_acesso = _q("SELECT coalesce(max(criado_em)::date::text, '') "
                        "  FROM esocial_espelho_acessos")
     ultimo = ultimo_acesso[0][0] if ultimo_acesso else ""
-    espelho_ok = bool(ultimo) and (hoje - date.fromisoformat(ultimo)).days <= 2
+    # dias 1–7: o governo bloqueia o espelho (orçamento de 10 acessos/dia fora deles);
+    # a folga cobre o bloqueio, senão o gate reprova por desenho toda 1ª semana (07/09/2026)
+    folga = 9 if hoje.day <= 8 else 2
+    espelho_ok = bool(ultimo) and (hoje - date.fromisoformat(ultimo)).days <= folga
     janela = (f"desde o bake em uso ({desde} UTC)" if desde else "nas últimas 48h")
     det6 = (f"{len(falhas)} tarefa(s) falhando {janela} · "
             f"último acesso do espelho ao governo: {ultimo or 'NUNCA'}")
