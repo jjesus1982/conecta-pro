@@ -53,50 +53,8 @@ from modules.integrations.banking import (  # noqa: E402
 # Importa routers dos controllers
 from modules.integrations.controllers import connector_router, integration_router  # noqa: E402
 
-# Re-export submodulos - Email
-from modules.integrations.email import (  # noqa: E402
-    ABTestResult,
-    BounceType,
-    CampaignService,
-    CampaignStats,
-    CampaignStatus,
-    CampaignType,
-    DripStep,
-    EmailCampaign,
-    EmailConfig,
-    EmailConfigStatus,
-    EmailPriority,
-    EmailProvider,
-    EmailQueue,
-    EmailService,
-    EmailStatus,
-    EmailSubscription,
-    EmailTemplate,
-    EmailTracking,
-    SubscriptionSource,
-    SubscriptionStatus,
-    TrackingEventType,
-    TrackingPixel,
-    TriggerType,
-)
-from modules.integrations.email import (  # noqa: E402
-    DailyReport as EmailDailyReport,
-)
-from modules.integrations.email import (  # noqa: E402
-    QueueStats as EmailQueueStats,
-)
-from modules.integrations.email import (  # noqa: E402
-    SendResponse as EmailSendResponse,
-)
-from modules.integrations.email import (  # noqa: E402
-    SendResult as EmailSendResult,
-)
-from modules.integrations.email import (  # noqa: E402
-    TemplateCategory as EmailTemplateCategory,
-)
-from modules.integrations.email import (  # noqa: E402
-    TemplateStatus as EmailTemplateStatus,
-)
+# E-mail legado (modules/integrations/email) em quarentena desde 07/09/2026: 6 modelos sem tabela
+# (email_*), nenhuma rota, nenhum consumidor. O envio real é core.mailer.
 
 # Re-export models
 from modules.integrations.models import (  # noqa: E402
@@ -301,38 +259,6 @@ __all__ = [
     "PaymentResponse",
     "PixKey",
     "BankingAdapterError",
-    # ==================== Email Submodule ====================
-    # Models
-    "EmailConfig",
-    "EmailConfigStatus",
-    "EmailProvider",
-    "EmailTemplate",
-    "EmailTemplateCategory",
-    "EmailTemplateStatus",
-    "EmailCampaign",
-    "CampaignType",
-    "CampaignStatus",
-    "TriggerType",
-    "EmailQueue",
-    "EmailStatus",
-    "EmailPriority",
-    "BounceType",
-    "EmailTracking",
-    "TrackingEventType",
-    "EmailSubscription",
-    "SubscriptionStatus",
-    "SubscriptionSource",
-    # Services
-    "EmailService",
-    "EmailSendResult",
-    "EmailSendResponse",
-    "EmailQueueStats",
-    "EmailDailyReport",
-    "TrackingPixel",
-    "CampaignService",
-    "CampaignStats",
-    "ABTestResult",
-    "DripStep",
     ]
 
 __version__ = "1.0.0"
