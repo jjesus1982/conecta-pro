@@ -1,9 +1,12 @@
 # Arsenal de fechamento de módulo — Conecta PRO
 
+> **Operação (o que roda, quando, como ler): `docs/ARSENAL_OPERACAO.md` — uma página.**
+> Este arquivo guarda as lições e a história por trás de cada peça.
+
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **5 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **21 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -28,9 +31,10 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 13 travas (código, não skill)
+## 2. As 21 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
+(Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
 
 | Trava | Impede | Onde |
 |---|---|---|
@@ -44,9 +48,15 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_oraculo_externo.py` | número que **ninguém de fora** confirma — *ideia do T1* | `backend/scripts/qa` |
 | `checar_beats.py` | **rotina agendada que roda e não produz** — *5 camadas, ver abaixo* | `backend/scripts/qa` |
 | `checar_mcp_tools.py` | peça de parede **fora do git ou fora da imagem**; conector sem definição versionada; tool apontando para rota que não existe — *o conector do Jordan passou 2 semanas com imagem velha e nada denunciou* | `backend/scripts/qa` |
-| `checar_desmonte_oraculos.py` | oráculo que **escreve em produção sem desmontar** — *9 registros de teste vivos, um há 46 dias dizendo "será cancelada na limpeza"* | `backend/scripts/qa` |
-| `checar_desmonte_comportamento.py` | o mesmo, **medido rodando** em vez de por regex — *o detector por forma não reconheceu 2 desmontes recém-escritos* | `backend/scripts/qa` |
+| `checar_desmonte_comportamento.py` | oráculo que **escreve em produção sem desmontar**, **medido rodando** — *a versão por regex acusou 26 e acertou 1, e foi apagada em 24/08* | `backend/scripts/qa` |
 | `checar_periodo_do_servidor.py` | competência/data vinda do **modelo** e não do servidor — *o agente chutou 7/2025 e disse a um porteiro com 91 batidas que ele não tinha ponto* | `backend/scripts/qa` |
+| `checar_sucesso_vazio.py` | motor responde **200 sem frase** — *11 de 59 perguntas ao chat morriam em "(sem resposta)" com `ok=True`* | `backend/scripts/qa` |
+| `checar_uso_real.py` | **quem usa** — última escrita por família de tabela, requisições por rota, tabela nascida morta — *463 de 686 tabelas sem uma linha; nascer morto nunca acusou* | `backend/scripts/qa` |
+| `checar_varchar_teto.py` | `varchar(N)` com valor **encostado no teto** e comprimentos variados — *um varchar(20) passou meses porque o nome tinha exatamente 20* | `backend/scripts/qa` |
+| `fechado_bartolo.py` · `fechado_contratos.py` · `fechado_fiscal.py` · `fechado_gedeon.py` · `fechado_operacional.py` | critério de aceite **executável** por módulo: ✅/❌ por condição, exit code decide — *"fechado" vinha sendo afirmado em prosa*. Semanais desde 06/09: **existiam desde agosto e nenhum caminho os invocava** | `backend/scripts/qa` |
+| `varredura_op_acoes.py` | tela/ação do operacional que **existe e não tem como funcionar** (rota morta, sem tela, sem fila) — *3 achados tropeçados um a um no T4* | `backend/scripts/qa` |
+| `provar_desmonte.py` | prova de desmonte de UM oráculo, nas três perguntas e na ordem certa — *"escreveu?" vem antes de "antes == depois"* (à mão) | `backend/scripts/qa` |
+| `checar_regressao.py` | o que liga tudo isto à meia-noite: linha de base fora do git, NÃO VERIFICADO quando o caçador não responde, sino só com novidade — *a base caiu a 0 numa noite sem resposta e acusou "0 → 25" por dez noites* | `backend/scripts/qa` |
 
 ### A lacuna que faltava: **rotina que roda e não produz**
 
@@ -131,7 +141,10 @@ mundo, porque nas três ele estava confiante e errado:**
 
 **Automático, à 00:00** (madrugada: conserto sem ninguém usando o sistema).
 `checar_regressao.py` roda as travas mecânicas contra uma **linha de base** — dívida velha não
-vira ruído, fabricação nova acusa e **vai para o sino**. A base mora em
+vira ruído, fabricação nova acusa e **vai para o sino** — e só vai quando é NOVIDADE: o
+mesmo vermelho de ontem fica no log e volta ao sino na segunda-feira. Medido em 06/09/2026:
+a varredura tocou vermelho dez noites seguidas com o mesmo número, o sino recebeu 5.387
+avisos em 30 dias e o dono abriu 19. A base mora em
 `/var/lib/conecta/qa_baseline.json`, **fora do git de propósito**: ela é reescrita sozinha
 quando a dívida cai, e arquivo versionado alterado por cron deixaria o working tree sujo —
 outro terminal veria ` M` e, pela regra da parede, pararia. Automação não pode disparar a
@@ -516,12 +529,21 @@ Ao final: auditoria/qa/<MÓDULO>_AAAAMMDD.md com veredito por lente e o que NÃO
 **Mapa do não-vigiado** — cruzar a superfície (rotas, telas, KPIs) com os oráculos e devolver
 o descoberto, ordenado por raio de dano. É a única das três lacunas originais que falta; as
 outras duas viraram `cacar_fabricacao` e `checar_vocabulario`. O MVP de serviços deu meio
-caminho: `checar_rotas_frontend` já responde "que superfície do frontend aponta para o vazio".
+caminho: `checar_rotas_frontend` já responde "que superfície do frontend aponta para o vazio";
+`checar_uso_real` (06/09) responde a metade "quem de fato usa" — o cruzamento com os oráculos
+continua por fazer.
+
+**Uso real por PESSOA.** `checar_uso_real` vê escrita por tabela e requisição por rota; não vê
+QUEM. O critério de pronto da missão ("o Jordan usou num caso real") ainda se prova à mão.
+
+**Ação irreversível antes de gravar** (enviar WhatsApp e só depois inserir o registro). Regra
+da casa desde a cotação de 31/08; sem trava porque toda tentativa por forma (grep) erra nos
+dois sentidos — precisa de desenho por comportamento, e ainda não há.
 
 **Descoberta.** O T1 fechou meio financeiro sem saber que as travas existiam — *"não usei
 nenhuma das três: não sabia que existiam"*. Arsenal que ninguém acha é arsenal que não
-existe. Hoje o único caminho de descoberta é alguém colar o roteiro num prompt; não há nada
-que apresente as travas a uma sessão nova por conta própria.
+existe. Desde 06/09 há `docs/ARSENAL_OPERACAO.md`, uma página com o que roda e como ler; o
+que ainda falta é algo que a apresente a uma sessão nova sem alguém colar um roteiro.
 
 **Oráculo interno não pega banco de dados errado.** Os 67 comparam *exibido == banco*: os
 dois lados nossos. Quando o extrato teve 880 linhas duplicadas e 94 sinais invertidos, a tela

@@ -83,6 +83,13 @@ def _falhas() -> list[str]:
                        f"— alguém editou de um lado só")
 
     # ── 4. caminhos e comandos que o arsenal manda usar ────────────────────────
+    # Inclui a página OPERACIONAL (o que rodar, exit codes) — separada das lições em
+    # 06/09/2026 porque 550 linhas de história enterravam as 40 de operação.
+    operacao = REPO / "docs/ARSENAL_OPERACAO.md"
+    if not operacao.exists():
+        out.append(f"{operacao} não existe — a página operacional do arsenal sumiu")
+    else:
+        doc = doc + "\n" + operacao.read_text(encoding="utf-8")
     for caminho in sorted(set(re.findall(r"`((?:backend|scripts|docs|auditoria)/[\w./-]+)`", doc))):
         alvo = REPO / caminho
         if any(x in caminho for x in ("<", ">", "AAAA", "*")):
@@ -104,6 +111,25 @@ def _falhas() -> list[str]:
             out.append(f"OK-INFO varredura agendada: {hora}")
     except Exception as exc:  # noqa: BLE001
         out.append(f"não consegui ler o crontab: {exc}")
+
+    # ── 5b. a tabela de travas × o disco ───────────────────────────────────────
+    # Nasceu em 06/09/2026: o documento dizia "5 travas mecânicas" no cabeçalho e listava 13
+    # na tabela, citava `checar_desmonte_oraculos.py` (apagada em 24/08) e omitia
+    # `checar_sucesso_vazio.py` — e este vigia dizia "confere". Vigiava as skills e o espelho,
+    # não as travas: ponto cego do próprio vigia.
+    prefixos = ("checar_", "cacar_", "fechado_", "varredura_", "provar_")
+    qa = REPO / "backend/scripts/qa"
+    no_disco = {p.name for p in qa.glob("*.py") if p.name.startswith(prefixos)}
+    citadas_travas = set(re.findall(r"`((?:checar|cacar|fechado|varredura|provar)_\w+\.py)`", doc))
+    if citadas_travas - no_disco:
+        out.append(f"arsenal cita trava que NÃO existe em scripts/qa: {sorted(citadas_travas - no_disco)}")
+    if no_disco - citadas_travas:
+        out.append(f"trava em scripts/qa que o arsenal NÃO menciona: {sorted(no_disco - citadas_travas)}")
+    for m in re.finditer(r"(?:As|as) \*{0,2}(\d+)\*{0,2} travas", doc):
+        if int(m.group(1)) != len(no_disco):
+            out.append(f"arsenal diz '{m.group(0)}'; existem {len(no_disco)} em scripts/qa "
+                       f"(checar_/cacar_/fechado_/varredura_/provar_)")
+            break
 
     # ── 6. contagem de oráculos ────────────────────────────────────────────────
     n_orq = len([p for p in ORQ.glob("*.py") if not p.name.startswith("_")])
