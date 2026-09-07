@@ -199,6 +199,13 @@ async def main() -> None:  # noqa: PLR0915
         # hoje: movimento do dia entra no saldo do banco antes de entrar no nosso
         # extrato, e cobrar essa defasagem seria acusar o funcionamento normal.
         conferir = date.today() - timedelta(days=2)
+        # ... e num DIA ÚTIL. O saldo histórico do Inter num fim de semana não é o do dia:
+        # medido em 07/09/2026 (segunda): para sábado 05/09 o banco devolveu o saldo já com
+        # os 8 PIX de VT/VR que o extrato dele mesmo data no domingo 06/09 (R$ 256 de
+        # diferença); em 29–30/08 devolveu o saldo de sexta, sem os débitos do fim de semana.
+        # Nos dias úteis bate ao centavo. Confrontar sábado/domingo é acusar o calendário.
+        while conferir.weekday() >= 5:
+            conferir -= timedelta(days=1)
         contas = (await db.execute(text(
             "SELECT id::text, bank_name FROM bank_accounts ORDER BY bank_name"))).fetchall()
         for cid, nome in contas:
