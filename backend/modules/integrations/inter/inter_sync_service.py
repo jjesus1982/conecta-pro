@@ -494,7 +494,11 @@ class InterSyncService:
         res = await self.db.execute(_text("""
             INSERT INTO bank_transactions
               (id, bank_account_id, transaction_type, category, amount, description, transaction_date,
-               reconciliation_status, imported_from, raw_data, created_at, updated_at, ativo,
+               -- `status` explícito: sem ele a coluna caía no DEFAULT 'pendente' e a escrituração
+               -- do extrato PULA 'pendente' (regra de 14/08 p/ ordem da Cora não debitada).
+               -- Linha de EXTRATO é liquidada por definição: set/2026 do Inter tinha 0 de 58
+               -- linhas no razão e ago/2026 165 de 260 (achado 07/09).
+               status, reconciliation_status, imported_from, raw_data, created_at, updated_at, ativo,
                -- O adapter já extrai o favorecido do Inter e grava em
                -- `detalhes_destinatario` (2.459 das 2.765 linhas têm nome). A ponte
                -- não copiava: o nome chegava ao banco só dentro do TEXTO da
@@ -520,7 +524,7 @@ class InterSyncService:
               COALESCE(it.tipo_transacao,'OUTROS'),
               CASE WHEN it.tipo_operacao='C' THEN it.valor ELSE -it.valor END,
               LEFT(COALESCE(it.descricao, it.titulo, 'Transação Inter'), 500),
-              it.data_lancamento, 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true,
+              it.data_lancamento, 'confirmado', 'pendente', 'inter_api_sync', it.raw_payload, now(), now(), true,
               LEFT(NULLIF(it.detalhes_destinatario->>'nome', ''), 255),
               LEFT(NULLIF(it.detalhes_destinatario->>'cpf_cnpj', ''), 40),
               -- ⚠️ O id do BANCO, não um inventado por nós. Escrevi
