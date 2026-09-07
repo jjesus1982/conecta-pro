@@ -10,11 +10,18 @@ Data migração: 2026-03-11
 
 # --- Config ---
 # --- Audit ---
-from modules.audit.controllers import router as audit_router
 
 # --- Automation/Workflows ---
-from modules.automation.workflow.controllers import router as workflow_router
+from fastapi import APIRouter
+
 from modules.config.controllers import router as config_router
+
+# 06/09/2026: `audit` (31 rotas), `automation/workflow` (9) e `mobile` (17) foram APAGADOS —
+# 0 requisições em 15 dias, tabelas com 0 linhas (workflow_*, mobile_*). `main_production.py`
+# (zona proibida) importa estes nomes: routers VAZIOS até o bloco ser removido de lá.
+audit_router = APIRouter()
+workflow_router = APIRouter()
+mobile_router = APIRouter()
 
 # --- Integrations ---
 from modules.integrations.controllers import (
@@ -31,7 +38,6 @@ except Exception:
     whatsapp_router = None
 
 # --- Mobile ---
-from modules.mobile import mobile_router
 
 # --- Notifications ---
 from modules.notifications.controllers import compliance_router as notification_compliance_router

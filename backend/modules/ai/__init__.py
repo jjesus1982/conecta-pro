@@ -14,58 +14,8 @@ warnings.warn(
     stacklevel=2,
 )
 
-from modules.ai.models import (  # noqa: E402
-    AnomalyLog,
-    AnomalyType,
-    Feature,
-    FeatureDataType,
-    FeatureStatus,
-    FeatureStore,
-    MLModel,
-    ModelStatus,
-    ModelType,
-    Prediction,
-    PredictionLog,
-    PredictionStatus,
-    PredictionType,
-    Recommendation,
-    RecommendationStatus,
-    RecommendationType,
-    TrainingJob,
-    TrainingStatus,
-)
-from modules.ai.services import (  # noqa: E402
-    AnomalyDetector,
-    ChurnPredictor,
-    ForecastService,
-    PredictionService,
-    RecommendationEngine,
-)
-
-__all__ = [
-    # Models
-    "Prediction",
-    "PredictionType",
-    "PredictionStatus",
-    "MLModel",
-    "ModelType",
-    "ModelStatus",
-    "FeatureStore",
-    "Feature",
-    "FeatureStatus",
-    "FeatureDataType",
-    "TrainingJob",
-    "TrainingStatus",
-    "PredictionLog",
-    "AnomalyLog",
-    "AnomalyType",
-    "Recommendation",
-    "RecommendationType",
-    "RecommendationStatus",
-    # Services
-    "PredictionService",
-    "ChurnPredictor",
-    "ForecastService",
-    "AnomalyDetector",
-    "RecommendationEngine",
-]
+# 06/09/2026: `modules.ai.models`, `.services`, `.repositories`, `.schemas`, `.controllers` e os
+# 13 subpacotes de IA sem importador foram APAGADOS (50 tabelas `ai_*` com 0 linhas desde
+# 20/01; 0 requisições em 15 dias). O que vive aqui é `conversation` (orquestrador, José Luís,
+# Bartolo, Central), `consultores`, `fraud_detection` e `openclaw`. Ver auditoria/MAPA_CONECTA_PRO_20260906.md.
+__all__: list[str] = []
