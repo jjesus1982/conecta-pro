@@ -135,7 +135,15 @@ class InterSyncService:
                         -- Duas chaves convivendo: `id_transacao` quando o banco manda id,
                         -- a antiga para quem ainda não tem. Enquanto o backfill não
                         -- termina, nenhuma linha fica sem alguma proteção.
-                        ON CONFLICT ON CONSTRAINT uq_inter_transactions_dedup
+                        -- 06/09/2026: a constraint `uq_inter_transactions_dedup` NÃO EXISTE
+                        -- mais no banco (a migration 774dcd61a5fe trocou a chave pelo id do
+                        -- Inter, índice único parcial `uq_inter_tx_id_transacao`). Citar o
+                        -- nome antigo fazia TODO INSERT falhar com UndefinedObjectError —
+                        -- engolido pela task, "succeeded" com 0 sincronizadas — e o extrato
+                        -- parou em 23/08. Medido: R$ 5.260,83 de divergência = exatamente
+                        -- a soma do extrato vivo entre 24/08 e 04/09. O alvo agora é o
+                        -- índice que existe; linha sem id (as 572 herdadas) não conflita.
+                        ON CONFLICT (id_transacao) WHERE id_transacao IS NOT NULL
                         DO UPDATE SET
                           raw_payload = EXCLUDED.raw_payload,
                           detalhes_destinatario = EXCLUDED.detalhes_destinatario,

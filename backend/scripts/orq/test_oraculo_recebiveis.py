@@ -116,7 +116,11 @@ async def main() -> None:
             FROM receivable_accounts r
             JOIN bank_transactions bt ON bt.receivable_payment_id = r.id
             WHERE r.status = 'paga' AND r.paid_value IS NOT NULL
-            GROUP BY 1, 2 HAVING abs(r.paid_value - sum(bt.amount)) > 0.01
+            -- por TÍTULO (r.id), não por (cliente, valor): condomínio que paga o mesmo
+            -- valor todo mês tem dois títulos iguais, e agrupar pelo par somava agosto
+            -- com setembro e acusava "amarrado o dobro" com os vínculos certos (06/09/2026:
+            -- 3 falsos, Mirante das Flores ×2 e Residencial Vila ×1, cada um com o seu PIX)
+            GROUP BY r.id, 1, 2 HAVING abs(r.paid_value - sum(bt.amount)) > 0.01
         """))).mappings().all()
         if divergentes:
             falhas.append(

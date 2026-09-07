@@ -148,6 +148,13 @@ def inter_reconciliacao_diaria_task(self):
 
         result = _run_async(_run)
         logger.info("[Financial Task] inter_reconciliacao_diaria: %s", result)
+        if result.get("erros"):
+            # 06/09/2026: 14 dias de "succeeded" com 0 sincronizadas e um UndefinedObjectError
+            # dentro de `erros` — o extrato parou em 23/08 e nada tocou. Erro na lista é
+            # falha da task: levanta, o task_falha publica no sino, checar_beats enxerga.
+            raise RuntimeError(f"sync do Inter com {len(result['erros'])} erro(s), "
+                               f"{result.get('sincronizadas', 0)} sincronizada(s): "
+                               f"{str(result['erros'][0])[:200]}")
         return result
     except Exception as exc:
         logger.error("[Financial Task] inter_reconciliacao_diaria error: %s", exc)
