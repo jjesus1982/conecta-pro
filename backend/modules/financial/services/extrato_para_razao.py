@@ -50,6 +50,31 @@ def _conn():
     return psycopg2.connect(_raw_db_url())
 
 
+_CNPJ_CAIXA = "00360305000104"  # FGTS via Caixa Econômica Federal
+
+
+def _docs_clt(cur) -> set[str]:
+    """CPFs (só dígitos) dos colaboradores CLT — PIX da Cora para um deles é SALÁRIO já
+    provisionado pela folha (baixa do passivo 2.1.1.01), não despesa. O Jordan paga salário
+    CLT/PJ da Patrimonial pelo app da Cora (a API não faz PIX), então a saída chega sem
+    justificativa: 92 linhas, R$ 57.372,94 em agosto/2026, contadas como despesa."""
+    cur.execute("SELECT regexp_replace(coalesce(cpf,''), '\\D', '', 'g') AS cpf FROM employees WHERE coalesce(cpf,'') <> ''")
+    return {(r["cpf"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()} - {""}
+
+
+def _cat_saida(cat: str | None, documento: str | None, clt: set[str]) -> str | None:
+    """Categoria efetiva de uma saída sem justificativa: contraparte CLT → salário; Caixa → impostos (FGTS)."""
+    # categoria GENÉRICA do banco ("pagamento", "PIX", "Outros") não é enquadramento
+    if cat and cat.strip().lower() not in ("pagamento", "pix", "outros", "payment", "transferência", "transferencia"):
+        return cat
+    doc = "".join(ch for ch in (documento or "") if ch.isdigit())
+    if doc and doc in clt:
+        return "salario"
+    if doc == _CNPJ_CAIXA:
+        return "impostos"
+    return cat
+
+
 def escriturar(preview: bool = True, limite: int = 6000) -> dict:
     """Lança no razão toda movimentação bancária que ainda não tem lançamento."""
     conn = _conn()
@@ -92,6 +117,7 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 (limite,),
             )
             linhas = cur.fetchall()
+            clt = _docs_clt(cur)
 
             for r in linhas:
                 dia = r["dia"]
@@ -118,7 +144,9 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     continue
 
                 if v < 0:
-                    outra, motivo = contrapartida_saida(r["cat"], r["description"] or "")
+                    outra, motivo = contrapartida_saida(
+                        _cat_saida(r["cat"], r["documento"], clt),
+                        f"{r['description'] or ''} {r['contraparte'] or ''}")
                     cd, cc = outra, conta_banco
                 else:
                     outra, motivo = contrapartida_entrada(
@@ -192,7 +220,9 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                 """,
                 (CORTE_CONTABIL, CONTA_ENTRADA_A_CLASSIFICAR, CONTA_SAIDA_A_CLASSIFICAR),
             )
-            for r in cur.fetchall():
+            linhas = cur.fetchall()
+            clt = _docs_clt(cur)
+            for r in linhas:
                 if r["conta_credito"] == CONTA_ENTRADA_A_CLASSIFICAR and float(r["amount"] or 0) > 0:
                     conta, motivo = contrapartida_entrada(
                         f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"], r["cat"])
@@ -204,7 +234,9 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                                     "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
                                     (conta, motivo, r["id"]))
                 elif r["conta_debito"] == CONTA_SAIDA_A_CLASSIFICAR and float(r["amount"] or 0) < 0:
-                    conta, motivo = contrapartida_saida(r["cat"], r["description"] or "")
+                    conta, motivo = contrapartida_saida(
+                        _cat_saida(r["cat"], r["documento"], clt),
+                        f"{r['description'] or ''} {r['contraparte'] or ''}")
                     if conta == CONTA_SAIDA_A_CLASSIFICAR:
                         continue
                     n_sai += 1

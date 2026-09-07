@@ -92,6 +92,7 @@ _MAPA_SAIDA: dict[str, tuple[str, str]] = {
     # quem recebe. R$56,85 de "Café treinamento" estava entrando como pró-labore
     # do Eliziel, inflando o que ele ganhou.
     "reembolso": ("5.1.1.08", "despesa da empresa adiantada por colaborador"),
+    "folha": ("2.1.1.01", "categoria 'Folha' do banco — salário já provisionado, baixa do passivo"),
 
     # ── dialeto legado, 2ª leva (11/08/2026) ────────────────────────────────
     # Medido no extrato: mais grafias do MESMO sentido caindo na transitória por
