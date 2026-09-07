@@ -1,5 +1,6 @@
 """
-Middleware de AUDITORIA — registra toda escrita (POST/PUT/PATCH/DELETE) da API em crm_audit_log:
+Middleware de AUDITORIA — registra toda escrita (POST/PUT/PATCH/DELETE) da API — e, desde
+06/09/2026, cada TELA do redesign aberta (GET /api/v1/redesign/data/<slug>) — em crm_audit_log:
 quem (user_id do JWT), quando (ts), o quê (method+path), resultado (status), de onde (ip/user-agent).
 
 Best-effort e fire-and-forget: a gravação roda em background (asyncio.create_task) e NUNCA bloqueia ou
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 _WRITE = {"POST", "PUT", "PATCH", "DELETE"}
 _SKIP = ("/auth/login", "/auth/refresh", "/auth/logout", "/health", "/docs", "/openapi", "/metrics")
+#: Leitura de TELA do redesign também entra (06/09/2026): é a única forma de saber QUEM abriu
+#: o quê — o nginx não tem usuário. Só este prefixo: um GET por tela aberta, não por lista.
+_READ_TELAS = "/api/v1/redesign/data/"
 
 
 async def _gravar(user_id, method, path, status, ip, ua):
@@ -44,7 +48,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
         try:
             method = request.method
             path = request.url.path
-            if method in _WRITE and "/api/" in path and not any(s in path for s in _SKIP):
+            e_tela = method == "GET" and path.startswith(_READ_TELAS)
+            if (method in _WRITE or e_tela) and "/api/" in path and not any(s in path for s in _SKIP):
                 user_id = None
                 auth = request.headers.get("authorization", "")
                 if auth.startswith("Bearer "):

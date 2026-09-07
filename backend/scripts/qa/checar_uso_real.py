@@ -78,7 +78,17 @@ async def _banco() -> list[dict]:
                    max(ts) FILTER (WHERE user_id::text IN (SELECT id::text FROM users WHERE email = :dono))::date AS ultima_dono
             FROM crm_audit_log WHERE ts > now() - interval '30 days' AND path LIKE '/api/v1/%'
             GROUP BY 1"""), {"dono": DONO})).all()
-        out = [{"_escritas": {r.seg: {"n": int(r.n), "pessoas": int(r.pessoas),
+        telas = (await db.execute(text("""
+            SELECT split_part(path, '/', 6) AS slug, count(*) AS n, count(DISTINCT user_id) AS pessoas,
+                   max(ts)::date AS ultima,
+                   max(ts) FILTER (WHERE user_id::text IN (SELECT id::text FROM users WHERE email = :dono))::date AS ultima_dono
+            FROM crm_audit_log WHERE ts > now() - interval '30 days' AND method = 'GET'
+              AND path LIKE '/api/v1/redesign/data/%' GROUP BY 1"""), {"dono": DONO})).all()
+        out = [{"_telas": {r.slug: {"n": int(r.n), "pessoas": int(r.pessoas),
+                                   "ultima": r.ultima.isoformat() if r.ultima else None,
+                                   "ultima_dono": r.ultima_dono.isoformat() if r.ultima_dono else None}
+                           for r in telas},
+                "_escritas": {r.seg: {"n": int(r.n), "pessoas": int(r.pessoas),
                                      "ultima": r.ultima.isoformat() if r.ultima else None,
                                      "ultima_dono": r.ultima_dono.isoformat() if r.ultima_dono else None}
                               for r in escritas}}]
@@ -145,7 +155,8 @@ def _nascimento() -> dict[str, str]:
 
 
 def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_mortas: bool,
-              escritas: dict[str, dict] | None = None, dono: str = DONO) -> int:
+              escritas: dict[str, dict] | None = None, dono: str = DONO,
+              telas: dict[str, dict] | None = None) -> int:
     fam: dict[str, dict] = defaultdict(lambda: {"tab": 0, "com_dado": 0, "mortas": 0, "ultima": None})
     for t in tabelas:
         f = fam[_familia(t["tabela"])]
@@ -184,6 +195,13 @@ def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_
         print(f"   {'rota':<24}{'escritas':>9}{'pessoas':>9}  {'última':<12}{'última do dono':<14}")
         for seg, e in sorted(escritas.items(), key=lambda kv: -kv[1]["n"]):
             print(f"   /api/v1/{seg:<16}{e['n']:>9}{e['pessoas']:>9}  {e['ultima'] or '—':<12}{e['ultima_dono'] or '—':<14}")
+    print(f"\ntelas do redesign ABERTAS (crm_audit_log GET, 30 dias) · última de {dono}:")
+    if not telas:
+        print("   (nenhum registro — o middleware só grava leituras de tela a partir do bake de 06/09/2026)")
+    else:
+        print(f"   {'tela':<40}{'aberturas':>10}{'pessoas':>9}  {'última':<12}{'última do dono':<14}")
+        for slug, e in sorted(telas.items(), key=lambda kv: -kv[1]["n"]):
+            print(f"   {slug:<40}{e['n']:>10}{e['pessoas']:>9}  {e['ultima'] or '—':<12}{e['ultima_dono'] or '—':<14}")
     if por_tabela:
         print("\npor tabela (linhas · última escrita):")
         for t in tabelas:
@@ -217,8 +235,9 @@ def main() -> int:
         return 2
     dados = json.loads(linha)
     escritas = dados[0]["_escritas"] if dados and "_escritas" in dados[0] else {}
+    telas = dados[0].get("_telas", {}) if dados and "_escritas" in dados[0] else {}
     tabelas = [d for d in dados if "tabela" in d]
-    return relatorio(tabelas, _rotas(), "--tabelas" in sys.argv, "--mortas" in sys.argv, escritas, DONO)
+    return relatorio(tabelas, _rotas(), "--tabelas" in sys.argv, "--mortas" in sys.argv, escritas, DONO, telas)
 
 
 if __name__ == "__main__":

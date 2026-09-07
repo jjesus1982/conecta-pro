@@ -6,7 +6,7 @@
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **25 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **27 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -31,7 +31,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 25 travas (código, não skill)
+## 2. As 27 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 (Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
@@ -52,10 +52,12 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_periodo_do_servidor.py` | competência/data vinda do **modelo** e não do servidor — *o agente chutou 7/2025 e disse a um porteiro com 91 batidas que ele não tinha ponto* | `backend/scripts/qa` |
 | `checar_sucesso_vazio.py` | motor responde **200 sem frase** — *11 de 59 perguntas ao chat morriam em "(sem resposta)" com `ok=True`* | `backend/scripts/qa` |
 | `checar_uso_real.py` | **quem usa** — última escrita por família de tabela, requisições por rota, tabela nascida morta — *463 de 686 tabelas sem uma linha; nascer morto nunca acusou* | `backend/scripts/qa` |
-| `checar_sino_surdo.py` | origem do sino **que ninguém abre** — *5.387 avisos em 30 dias, o dono abriu 19; 8 origens surdas* | `backend/scripts/qa` |
+| `checar_sino_surdo.py` (+ `sql/sino_corte.sql`) | origem do sino **que ninguém abre** — e **corta sozinho** após 14 medições seguidas, por gatilho BEFORE INSERT — *5.387 avisos em 30 dias, o dono abriu 19; 8 origens surdas* | `backend/scripts/qa` |
 | `checar_registros_servidor.py` | registro **vazio ou encolhido** no processo que SERVE (rotas, tools, executores pela guarda, regras, beats, builders) — *executores 0 no backend, 8/8 verdes no teste* | `backend/scripts/qa` |
 | `checar_nao_vigiado.py` | tela do redesign que **nenhum oráculo nem regra cita** — *o Balanço exibiu PL de +R$ 2,02 mi por meses sem vigia* | `backend/scripts/qa` |
 | `checar_irreversivel.py` | registro **criado depois do disparo** externo (AST) — *a cotação de 31/08 saía por WhatsApp antes de existir* | `backend/scripts/qa` |
+| `checar_dominio.py` (+ `verdades_dominio.py`) | verdade de domínio **curada** × código × banco × vigência — *FAIXAS_INSS_2026 com a tabela de 2024 num arquivo e a de 2026 no outro; "erro de domínio não tem trava" virou "tem, depois que um humano escreve a verdade uma vez"* | `backend/scripts/qa` |
+| `checar_bake_pendente.py` | o que está **no ar por docker cp** (docker diff) — e **assa sozinho** na madrugada se as 6 guardas passam — *14 arquivos de duas sessões no ar sem ninguém saber* | `backend/scripts/qa` |
 | `checar_varchar_teto.py` | `varchar(N)` com valor **encostado no teto** e comprimentos variados — *um varchar(20) passou meses porque o nome tinha exatamente 20* | `backend/scripts/qa` |
 | `fechado_bartolo.py` · `fechado_contratos.py` · `fechado_fiscal.py` · `fechado_gedeon.py` · `fechado_operacional.py` | critério de aceite **executável** por módulo: ✅/❌ por condição, exit code decide — *"fechado" vinha sendo afirmado em prosa*. Semanais desde 06/09: **existiam desde agosto e nenhum caminho os invocava** | `backend/scripts/qa` |
 | `varredura_op_acoes.py` | tela/ação do operacional que **existe e não tem como funcionar** (rota morta, sem tela, sem fila) — *3 achados tropeçados um a um no T4* | `backend/scripts/qa` |
@@ -566,9 +568,12 @@ rodam em beat e **não aparecem**. O extrato, por exemplo, é vigiado por `caixa
 que é regra — quem contar só oráculos vai declarar o extrato descoberto, e quem contar só
 regras vai achar que está tudo visto às 00:00.
 
-**Erro de domínio não tem trava possível.** Alíquota errada de Anexo III, competência
-trocada, conta contábil semanticamente errada mas existente: o número tem fonte, passa em
-todos os portões, e está errado. Ali só quem entende do assunto olhando.
+**Erro de domínio: só depois que um humano olha.** Alíquota errada, competência trocada,
+conta contábil semanticamente errada: o número tem fonte, passa em todos os portões, e está
+errado. Desde 06/09 existe `verdades_dominio.py`: quem entende escreve a verdade UMA vez
+(valor, fonte, vigência) e `checar_dominio` confere todo dia que o código diz o mesmo, que
+a mesma verdade não tem dois valores, e que a vigência não venceu. O que não está na tabela
+continua sem trava — a tabela é o limite, e crescê-la é trabalho de quem entende.
 
 ### Onde as skills vivem
 

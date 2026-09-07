@@ -42,5 +42,12 @@ CONTAINER=conecta-pro-backend
   echo "── travas mecânicas ──"
   python3 /opt/conecta-pro/backend/scripts/qa/checar_regressao.py
   echo "saída travas: $?"
+
+  # Bake automático do que está no ar por docker cp — só se as 6 guardas passam (madrugada,
+  # lock livre, backend/ limpo no git, WhatsApp quieto, sem migration pendente). Recusa
+  # dizendo por quê; o motivo mais comum é WIP alheio em backend/, e é o motivo certo.
+  echo "── bake pendente ──"
+  python3 /opt/conecta-pro/backend/scripts/qa/checar_bake_pendente.py --assar
+  echo "saída bake: $?"
   exit $RC
 } >> "$LOG" 2>&1

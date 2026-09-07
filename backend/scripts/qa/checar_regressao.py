@@ -92,6 +92,11 @@ CACADORES_HOST = {
     "checar_uso_real.py": lambda s: _n(r"^TOTAL:\s*(\d+) tabela", s),
     # Registro criado DEPOIS do disparo externo (a cotação de 31/08). AST no host.
     "checar_irreversivel.py": lambda s: _n(r"^TOTAL:\s*(\d+) fun", s),
+    # Verdade de domínio curada × código × banco × vigência. Nasceu pegando FAIXAS_INSS_2026
+    # com a tabela de 2024 num arquivo e a de 2026 no outro (06/09/2026).
+    "checar_dominio.py": lambda s: _n(r"^TOTAL:\s*(\d+) diverg", s),
+    # O que está no ar por docker cp (docker diff). Cai a zero sozinho depois do bake.
+    "checar_bake_pendente.py": lambda s: _n(r"^TOTAL:\s*(\d+) arquivo", s),
 }
 
 

@@ -10,7 +10,15 @@ esta página é só operação. `backend/scripts/qa/checar_arsenal.py` confere a
 | 00:00 (cron do host) | `scripts/oraculos_diarios.sh` → varredura dos oráculos `test_*.py` de `backend/scripts/orq/` | `/var/log/conecta-oraculos.log` |
 | logo depois | `backend/scripts/qa/checar_regressao.py` → caçadores contra a linha de base + travas de sim/não | mesmo log |
 | domingo, na mesma rodada | gates `fechado_*.py` e `varredura_op_acoes.py` — conta condições ✅, acusa quando CAI | mesmo log |
+| logo depois | `checar_bake_pendente.py --assar` — assa o que está por docker cp se: lock livre, 01–05h, `backend/` limpo no git, WhatsApp quieto 30 min, sem migration pendente | `/var/log/conecta-bake-auto.log` |
 | beat do Celery | `orq.checar_varredura_ausente` — grita se a varredura não rodou em 30h | sino |
+
+**Sino: corte automático.** `checar_sino_surdo` corta sozinho a origem surda há 14 medições
+seguidas (gatilho `sino_corte_bi`; nunca o arsenal nem o digest) e avisa uma vez. Comandos:
+`--cortar <origem>` · `--religar <origem>` · `--cortadas`.
+
+**Leitura de tela com pessoa.** `crm_audit_log` passa a receber `GET /api/v1/redesign/data/<slug>`
+(middleware) — `checar_uso_real` mostra quem abriu qual tela e quando. Vale a partir do bake.
 
 **Sino só recebe NOVIDADE**: vermelho novo, resolvido, oráculo que passou a bloqueado, trava que
 passou a falhar ou voltou a passar. O mesmo vermelho repetido fica no log e volta ao sino na
@@ -55,6 +63,8 @@ Três estados por oráculo, e nenhum se confunde com o outro:
 | `checar_sino_surdo.py` | container | `TOTAL: N origem(ns) surda(s)` | origem do sino com volume e ninguém abre? |
 | `checar_nao_vigiado.py` | container (~5 min) | `TOTAL: N tela(s) sem vigia` | tela do redesign sem oráculo nem regra que a cite? |
 | `checar_irreversivel.py` | host | `TOTAL: N função(ões) que disparam antes de gravar` | registro criado depois do disparo externo? |
+| `checar_dominio.py` | host (banco via docker) | `TOTAL: N divergência(s) de domínio` | o código diz o que `verdades_dominio.py` diz? a verdade venceu? |
+| `checar_bake_pendente.py` | host | `TOTAL: N arquivo(s) no ar fora da imagem` | o que está por docker cp? (`--assar`: assa na madrugada se as 6 guardas passam) |
 
 Sem a linha canônica a rodada é **NÃO VERIFICADA**: acusa e a base não se move (foi assim que a
 base caiu a 0 em 23/08 e acusou "0 → 25" por dez noites).
