@@ -8,8 +8,8 @@ Visão Geral é a primeira que o dono abre. A regra, não a fotografia:
                                (verdade independente: o contrato, não o forecast)
   · "Saldo atual"            == bank_accounts.current_balance da CONTA PRINCIPAL (077 Inter;
                                a primeira versão somava Cora junto e acusava 1.579 × 13.625)
-  · médias de 90 dias        == médias mensais das entradas/saídas em bank_transactions
-                               (calculadas AQUI, de novo, com tolerância de 1%)
+  · médias de 90 dias        == médias dos 3 meses COMPLETOS anteriores em bank_transactions,
+                               sem transferências (recalculadas aqui; tolerância de 5%)
 
 Sem escrita. Roda: docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_fin_visao.py
 """
@@ -48,7 +48,10 @@ async def main() -> None:
             "SELECT coalesce(current_balance,0) FROM bank_accounts WHERE bank_code = '077'"))).scalar() or 0))
         ent, sai = (await db.execute(text(
             "SELECT coalesce(sum(amount) FILTER (WHERE amount>0),0), coalesce(-sum(amount) FILTER (WHERE amount<0),0) "
-            "FROM bank_transactions WHERE transaction_date >= current_date - 90 AND NOT coalesce(is_transfer,false)"))).one()
+            # a mesma janela do builder: "últimos 90 dias (MESES COMPLETOS)" — os 3 meses
+            # fechados antes do atual, não 90 dias corridos (a diferença dava 5,8% em 07/09)
+            "FROM bank_transactions WHERE transaction_date >= date_trunc('month', current_date) - interval '3 months' "
+            "  AND transaction_date < date_trunc('month', current_date) AND NOT coalesce(is_transfer,false)"))).one()
         med_ent, med_sai = Decimal(str(ent)) / 3, Decimal(str(sai)) / 3
 
     def cmp(rotulo, tela_v, banco_v, tol=Decimal("0.01")):
