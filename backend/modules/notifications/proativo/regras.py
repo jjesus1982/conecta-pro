@@ -1235,7 +1235,13 @@ register(Regra(
 # Linha de base MEDIDA em 2026-08-10: 123 grupos / 130 linhas excedentes, todas
 # de mesma origem (80 csv_import, 50 inter) e plausivelmente legítimas.
 # Quem limpar duplicata de verdade deve BAIXAR este número.
-BASE_DUPLICATAS_EXCEDENTES = 130
+#
+# 07/09/2026: a regra contava GÊMEOS LEGÍTIMOS como dobro — dois VT de R$ 32 à mesma pessoa
+# no mesmo dia têm ids DISTINTOS no banco (idx_bank_tx_external_id é UNIQUE) e não são
+# duplicata. Medido: 256 "excedentes", 135 eram gêmeos com ids distintos. Só grupo com ao
+# menos UMA linha sem external_id pode ser importação repetida: 121 hoje, todas herdadas
+# (csv_import antigo). O alerta gritou "126 novas em dobro" todo dia por um mês por isso.
+BASE_DUPLICATAS_EXCEDENTES = 121
 
 _CANONICA_SQL = (
     "regexp_replace(regexp_replace(regexp_replace("
@@ -1250,7 +1256,7 @@ SQL_EXTRATO_DUPLICADO = f"""
                {_CANONICA_SQL} AS f, count(*) AS n
         FROM bank_transactions
         GROUP BY 1, 2, 3, 4
-        HAVING count(*) > 1
+        HAVING count(*) > 1 AND count(*) > count(external_id)  -- gêmeos com ids distintos não são dobro
     ) t
 """
 
@@ -1317,13 +1323,17 @@ SQL_CAIXA_DIVERGENTE = """
          WHERE (conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%')
            AND data_lancamento >= corte.inicio
            AND data_lancamento < corte.hoje) AS razao,
+        -- ordem de pagamento INICIADA (status='pendente') não é movimento: a escrituração a
+        -- pula de propósito (14/08). Somá-la aqui fabricava "Caixa não bate" (07/09/2026).
         (SELECT coalesce(sum(amount), 0) FROM bank_transactions, corte
           WHERE transaction_date >= corte.inicio
-            AND transaction_date < corte.hoje) AS extrato,
+            AND transaction_date < corte.hoje
+            AND coalesce(status, '') <> 'pendente') AS extrato,
         (SELECT count(*) FROM bank_transactions b, corte
           WHERE b.amount <> 0
             AND b.transaction_date >= corte.inicio
             AND b.transaction_date < corte.hoje
+            AND coalesce(b.status, '') <> 'pendente'
             AND NOT EXISTS (SELECT 1 FROM accounting_entries a
                             WHERE a.bank_transaction_id = b.id)) AS sem_lancamento
 """
