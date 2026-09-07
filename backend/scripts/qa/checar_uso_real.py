@@ -100,6 +100,11 @@ async def _banco() -> list[dict]:
                 try:
                     vivas = int((await db.execute(text(f'SELECT count(*) FROM "{nome}"'))).scalar() or 0)
                 except Exception:  # noqa: BLE001
+                    # Sessão async: uma consulta que falha ABORTA a transação e toda consulta
+                    # seguinte falha junto — sem rollback, 15 tabelas com linhas saíram como 0
+                    # (06/09/2026) e a quarentena só não as levou porque o script recusa mover
+                    # tabela com linhas. Rollback aqui e no `max()` abaixo.
+                    await db.rollback()
                     vivas = 0
             ultima = None
             if vivas and datas.get(nome):
@@ -110,7 +115,7 @@ async def _banco() -> list[dict]:
                     if vals:
                         ultima = max(v.date() if isinstance(v, datetime) else v for v in vals)
                 except Exception:  # noqa: BLE001 — coluna de data com outro tipo: fica sem data
-                    pass
+                    await db.rollback()
             out.append({"tabela": nome, "linhas": int(vivas or 0),
                         "ultima": ultima.isoformat() if ultima else None})
     return out

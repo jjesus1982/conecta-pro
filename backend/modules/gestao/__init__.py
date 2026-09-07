@@ -16,12 +16,6 @@ from fastapi import APIRouter
 
 from modules.config.controllers import router as config_router
 
-# 06/09/2026: `audit` (31 rotas), `automation/workflow` (9) e `mobile` (17) foram APAGADOS —
-# 0 requisições em 15 dias, tabelas com 0 linhas (workflow_*, mobile_*). `main_production.py`
-# (zona proibida) importa estes nomes: routers VAZIOS até o bloco ser removido de lá.
-audit_router = APIRouter()
-workflow_router = APIRouter()
-mobile_router = APIRouter()
 
 # --- Integrations ---
 from modules.integrations.controllers import (
@@ -44,6 +38,13 @@ from modules.notifications.controllers import compliance_router as notification_
 from modules.notifications.controllers import intelligent_router as intelligent_notification_router
 from modules.notifications.controllers import router as notification_router
 from modules.notifications.push.controllers import router as push_notification_router
+
+# 06/09/2026: `audit` (31 rotas), `automation/workflow` (9) e `mobile` (17) foram APAGADOS —
+# 0 requisições em 15 dias, tabelas com 0 linhas (workflow_*, mobile_*). `main_production.py`
+# (zona proibida) importa estes nomes: routers VAZIOS até o bloco ser removido de lá.
+audit_router = APIRouter()
+workflow_router = APIRouter()
+mobile_router = APIRouter()
 
 __all__ = [
     # Config
