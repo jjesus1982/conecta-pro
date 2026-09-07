@@ -239,7 +239,17 @@ construção de Licitações.
 - **DAS da Patrimonial**: 06/2026 (R$ 17.898,58, venc. 20/07) e 07/2026 (R$ 24.317,87, venc. 20/08) seguem
   `pendente` e **não há nenhum DAS/DARF/PGFN pago no extrato do Inter nem da Cora desde julho** — ou foi pago por
   fora, ou está atrasado com multa correndo. Decisão do dono.
-- **Varredura completa dos 137 oráculos** em curso (todos verdes até o 85º); resultado no fim da seção.
+- **Varredura completa dos 137 oráculos (03:05 → 03:51)**: 131 verdes; 3 BLOQUEADOS por causa externa (crédito
+  do LLM ×2; porteiro sem espelho de setembro ainda); 3 vermelhos, todos tratados na hora: superfície morta
+  (tabela que foi para a quarentena saiu do inventário), balanço (agosto reapurado depois dos lançamentos do dia)
+  e extrato. Do extrato sobrou um: Inter em 05/09 nosso R$ 1.835,13 × banco R$ 1.579,13 — os 8 VT/VR de R$ 32
+  do fim da noite de 05/09; a fonte (`inter_transactions`) bate ao centavo com o nosso; é o D-2 na virada BRT/UTC.
+- **Extrato do Inter fora do razão desde 14/08**: a ponte gravava `status` no DEFAULT 'pendente' e a escrituração
+  pula 'pendente' (regra feita para ordem da Cora não debitada). Set: 0 de 58 linhas; ago: 165 de 260. Corrigido na
+  ponte, 2.610 linhas confirmadas, 224 lançamentos escriturados (R$ 67,7 mil), agosto reapurado: resultado
+  −R$ 96.110,84 (com o Inter dentro). Balanço, contábil e extrato-Cora verdes.
+- **Três oráculos de cotação** deixavam rascunhos 'descartado' em produção (checar_desmonte): agora apagam; 145
+  removidos.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
