@@ -247,7 +247,10 @@ async def get_cashflow_forecast(
                     SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS entradas,
                     SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS saidas
                 FROM bank_transactions
-                WHERE transaction_date >= CURRENT_DATE - interval '90 days'
+                -- 3 meses COMPLETOS. Era `>= CURRENT_DATE - 90 dias`: o primeiro mês entrava
+                -- pela metade e a média caía (07/09/2026: 235.464 exibido × 278.581 real, −15%);
+                -- o rótulo já dizia "meses completos" — o SQL é que não cumpria.
+                WHERE transaction_date >= date_trunc('month', CURRENT_DATE) - interval '3 months'
                   AND transaction_date < date_trunc('month', CURRENT_DATE)
                 GROUP BY 1
             )
