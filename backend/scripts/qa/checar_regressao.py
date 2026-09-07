@@ -222,7 +222,9 @@ def main() -> int:
         if antes is None:
             print(f"  {script}: {n} pista(s) — sem linha de base ainda")
             continue
-        if n > antes:
+        if n > antes and gravar:
+            print(f"  {script}: {antes} -> {n}  (+{n - antes}, ACEITO como base por --gravar)")
+        elif n > antes:
             falhou.append(f"{script}: {antes} -> {n} (+{n - antes} NOVA(s))")
             print(f"  x {script}: {antes} -> {n}  REGRESSÃO")
         elif n < antes:
