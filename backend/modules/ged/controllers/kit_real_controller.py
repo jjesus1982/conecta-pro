@@ -267,6 +267,11 @@ async def _add_certidoes(db: AsyncSession, kit_id: str, comp: date) -> int:
     return added
 
 async def _add_fiscal_docs(db: AsyncSession, kit_id: str, comp: date) -> int:
+    """DESLIGADO (dono, 07/09/2026: o kit leva documento ORIGINAL, nunca render do sistema):
+    resumo de obrigação desenhado com reportlab a partir de fiscal_obligations ('ISS Manaus', 'DARF IRRF', 'INSS Patronal', 'FGTS', 'EFD-Reinf', 'DCTFWeb' — 56 nos kits de julho, medido no Drive); a guia real é o PDF do pacote Portte/Onvio, que o orquestrador já sobe. Devolve 0; o corpo antigo segue abaixo, inalcançável."""
+    logger.info("kit real: documento NÃO é fabricado pelo sistema — kit %s", kit_id)
+    return 0
+
     """Puxa FGTS, DCTF, INSS, ISS do fiscal_obligations e gera PDFs."""
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
@@ -383,6 +388,11 @@ async def _add_fiscal_docs(db: AsyncSession, kit_id: str, comp: date) -> int:
 
 
 async def _add_comprovantes_bancarios(db: AsyncSession, kit_id: str, employees: list[dict], comp: date) -> int:
+    """DESLIGADO (dono, 07/09/2026: o kit leva documento ORIGINAL, nunca render do sistema):
+    'comprovante de salário' desenhado com reportlab listando créditos do extrato; o comprovante real é o PDF do banco (Inter), que o orquestrador já sobe. Devolve 0; o corpo antigo segue abaixo, inalcançável."""
+    logger.info("kit real: documento NÃO é fabricado pelo sistema — kit %s", kit_id)
+    return 0
+
     """Puxa comprovantes de pagamento de salario do bank_transactions."""
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
