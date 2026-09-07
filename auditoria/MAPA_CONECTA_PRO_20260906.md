@@ -331,6 +331,14 @@ Jordan for fazer o login pelo noVNC.
   escalas existe e ninguém publica escala; a cobertura mostrada (66,7%) sai de alocações, não de escala. Agentes não
   mexem em dado operacional — fica anotado.
 
+### 2c.9 Beat que engole a própria falha (07/09, 11h)
+
+- Nova trava `checar_beat_engole_falha` (AST): task agendada cujo `except Exception` loga e devolve normal. **55 na
+  estreia** (linha de base; pista, não gate). É a forma geral do defeito que parou o razão por 27 dias.
+- Em vez de mexer em 55 tasks: `task_falha` passou a ouvir `task_postrun` — resultado `{"ok": False}` ou `{"erro": …}`
+  vira aviso no sino ("Tarefa agendada devolveu falha: …"), 1 por tarefa por dia. Provado com resultado falso.
+- Bake nº 4 disparado sozinho às 11:01 pelo agendador da janela sem WhatsApp.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
