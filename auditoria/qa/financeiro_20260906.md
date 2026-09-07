@@ -42,3 +42,15 @@
 | Oráculo `test_oraculo_kpis_telas` | 32 KPIs de cabeçalho, 32/32 ao centavo | roda toda noite |
 
 Ficam fora do oráculo (não é SQL escalar): cobertura de postos (repo), presença (serviço), DSO/DPO, margens da DRE, tributos por CNPJ. Continuam sem vigia.
+
+## 4ª passada (07/09) — fechamento contábil do razão
+
+| Achado | Medido | Ação |
+|---|---|---|
+| Fechamento parado desde 11/08 | último `nfse_emitida` 11/08 09:00; task SUCCESS com `razao: {null, null}` | `_post` aceita data em texto; `fechar_grupo` ok=False ⇒ task falha |
+| Purge apagaria jan–jul | 182 lançamentos, R$ 1,96 mi, sem repost possível | purge só ≥ `CORTE_CONTABIL` |
+| Agosto fora do razão | 0 notas/folha/tomadas | fechado: 13 notas, 54 holerites, 20 tomadas; `notas_sem_razao = 0` |
+| Recebimentos em 4.9.9.01 | 13, R$ 132.898,35 (categoria `recebimento_cliente` ignorada) | extrato lê `coalesce(justificativa, category)`; `reclassificar_transitorias` no fechamento |
+| Saídas justificadas presas em 5.9.9.01 | 25 (VT/VR diaristas etc.) | reclassificadas pela regra do plano |
+| Saídas sem justificativa | 165, R$ 142.353,06 (Cora, ago) | do Jordan: justificar; oráculo não cobra o que não tem regra |
+| `test_oraculo_contabil_fecha` | 6/6 | +passo 6 (transitória com regra = 0) |

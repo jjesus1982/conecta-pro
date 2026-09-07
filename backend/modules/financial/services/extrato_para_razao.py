@@ -27,10 +27,12 @@ import psycopg2
 import psycopg2.extras
 
 from modules.financial.services.ledger_auto_service import _raw_db_url
-from modules.financial.services.periodo_contabil import periodo_fechado
+from modules.financial.services.periodo_contabil import CORTE_CONTABIL, periodo_fechado
 from modules.financial.services.plano_contas_caixa import (
     CONTA_BANCO,
     CONTA_BANCO_POR_CODIGO,
+    CONTA_ENTRADA_A_CLASSIFICAR,
+    CONTA_SAIDA_A_CLASSIFICAR,
     contrapartida_entrada,
     contrapartida_saida,
 )
@@ -61,7 +63,12 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
             cur.execute(
                 """
                 SELECT b.id::text AS id, b.amount, b.description, b.transaction_date::date AS dia,
-                       b.bank_account_id::text AS conta_id, b.justificativa_categoria AS cat,
+                       b.bank_account_id::text AS conta_id,
+                       -- justificativa do Jordan vence; sem ela, a categoria que o banco/
+                       -- categorizador já deu. Lendo só a justificativa, 13 recebimentos de
+                       -- cliente da Cora (R$ 132.898,35, ago/2026) viraram "entrada a
+                       -- classificar" e a DRE somou-os como receita em cima das notas.
+                       coalesce(b.justificativa_categoria, b.category) AS cat,
                        b.counterparty_name AS contraparte, b.counterparty_document AS documento,
                        -- empresa vem da CONTA, não da transação: o Inter é da
                        -- Eletrônica e o Cora é da Patrimonial. Sem isso o
@@ -159,3 +166,54 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
         raise
     finally:
         conn.close()
+
+
+def reclassificar_transitorias(preview: bool = False) -> dict:
+    """Tira da transitória o que já tem regra: recomputa a contrapartida de cada lançamento
+    em 4.9.9.01 / 5.9.9.01 (desde o corte) com a categoria ATUAL da transação bancária.
+
+    O extrato entra no razão no dia; a justificativa do Jordan e a categoria do banco chegam
+    depois — e o lançamento ficava na transitória para sempre (24 VT/VR de diaristas com
+    justificativa `diaristas_vtvr` ainda em 5.9.9.01, medido 07/09/2026). Só reclassifica
+    para conta NÃO transitória; nunca inventa: sem regra, fica onde está.
+    """
+    conn = _conn()
+    n_ent = n_sai = 0
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT a.id, a.conta_debito, a.conta_credito, a.valor, b.amount, b.description,
+                       b.counterparty_name AS contraparte, b.counterparty_document AS documento,
+                       coalesce(b.justificativa_categoria, b.category) AS cat
+                FROM accounting_entries a JOIN bank_transactions b ON b.id = a.bank_transaction_id
+                WHERE a.data_lancamento >= %s
+                  AND (a.conta_credito = %s OR a.conta_debito = %s)
+                """,
+                (CORTE_CONTABIL, CONTA_ENTRADA_A_CLASSIFICAR, CONTA_SAIDA_A_CLASSIFICAR),
+            )
+            for r in cur.fetchall():
+                if r["conta_credito"] == CONTA_ENTRADA_A_CLASSIFICAR and float(r["amount"] or 0) > 0:
+                    conta, motivo = contrapartida_entrada(
+                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"], r["cat"])
+                    if conta == CONTA_ENTRADA_A_CLASSIFICAR:
+                        continue
+                    n_ent += 1
+                    if not preview:
+                        cur.execute("UPDATE accounting_entries SET conta_credito=%s, "
+                                    "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
+                                    (conta, motivo, r["id"]))
+                elif r["conta_debito"] == CONTA_SAIDA_A_CLASSIFICAR and float(r["amount"] or 0) < 0:
+                    conta, motivo = contrapartida_saida(r["cat"], r["description"] or "")
+                    if conta == CONTA_SAIDA_A_CLASSIFICAR:
+                        continue
+                    n_sai += 1
+                    if not preview:
+                        cur.execute("UPDATE accounting_entries SET conta_debito=%s, "
+                                    "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
+                                    (conta, motivo, r["id"]))
+            if not preview:
+                conn.commit()
+    finally:
+        conn.close()
+    return {"entradas_reclassificadas": n_ent, "saidas_reclassificadas": n_sai, "preview": preview}

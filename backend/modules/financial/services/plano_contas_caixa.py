@@ -187,7 +187,7 @@ def contrapartida_entrada(descricao: str, documento: str | None = None,
         return "2.1.5.01", "entrada de dinheiro do sócio — a empresa passa a dever a ele"
     if cat in ("emprestimo_tomado", "emprestimo_recebido", "emprestimo"):
         return "2.1.6.01", "empréstimo recebido — aumenta o passivo, não é receita"
-    if cat in ("recebimento_cliente", "receita_cliente"):
+    if cat.replace(" ", "_") in ("recebimento_cliente", "receita_cliente", "recebimento_de_cliente"):
         return "1.1.2.01", "recebimento de cliente (categoria do extrato)"
     if any(x in d for x in _ENTRADA_CLIENTE):
         return "1.1.2.01", "recebimento de cliente"

@@ -116,6 +116,28 @@ async def main() -> None:
             assert n == 0, f"{tabela}: {n} conta(s) suspensa(s) sendo contadas como vencidas"
         print("OK vencido: nenhuma dívida suspensa contada como cobrança")
 
+        # ── 6. Transitória só guarda o que NÃO tem regra ──
+        # 07/09/2026: 13 recebimentos de cliente da Cora (R$ 132.898,35) dormiam em 4.9.9.01
+        # com category='recebimento_cliente' no extrato, e a DRE de agosto somava-os como
+        # receita em cima das NFS-e. Regra: categoria conhecida ⇒ fora da transitória.
+        from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+
+        n_ent = int((await db.execute(text(
+            "SELECT count(*) FROM accounting_entries a JOIN bank_transactions b ON b.id=a.bank_transaction_id "
+            "WHERE a.data_lancamento >= :c AND a.conta_credito='4.9.9.01' "
+            "AND lower(replace(coalesce(b.justificativa_categoria, b.category, ''), ' ', '_')) "
+            "IN ('recebimento_cliente','recebimento_de_cliente','receita_cliente','socio','transferencia_interna','emprestimo')"),
+            {"c": CORTE_CONTABIL})).scalar() or 0)
+        n_sai = int((await db.execute(text(
+            "SELECT count(*) FROM accounting_entries a JOIN bank_transactions b ON b.id=a.bank_transaction_id "
+            "WHERE a.data_lancamento >= :c AND a.conta_debito='5.9.9.01' "
+            "AND b.justificativa_categoria IS NOT NULL AND lower(b.justificativa_categoria) NOT IN ('diversos','outros','outro')"),
+            {"c": CORTE_CONTABIL})).scalar() or 0)
+        assert n_ent == 0 and n_sai == 0, (
+            f"transitória com regra conhecida: {n_ent} entrada(s) em 4.9.9.01, {n_sai} saída(s) em 5.9.9.01 "
+            "— reclassificar_transitorias não rodou ou a regra do plano regrediu")
+        print("OK transitória: só fica nela o que não tem categoria/justificativa")
+
     print("TEST oraculo_contabil_fecha PASS")
 
 

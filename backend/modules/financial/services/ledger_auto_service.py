@@ -607,6 +607,13 @@ class LedgerAutoService:
             das = self.lancar_das_parcelamento(empresa_id)
             # Recategoriza o banco Inter (conserta receita/despesa fantasma) — mantém o lucro fiel
             recat = self.recategorizar_inter(empresa_id)
+            # Transitórias (4.9.9.01 / 5.9.9.01) que já ganharam categoria/justificativa saem
+            # pela regra do plano; sem isso a DRE somava recebimento de cliente como receita.
+            try:
+                from modules.financial.services.extrato_para_razao import reclassificar_transitorias
+                recat["transitorias"] = reclassificar_transitorias()
+            except Exception as te:  # noqa: BLE001 — não derruba o fechamento
+                logger.warning("reclassificação de transitórias falhou (segue): %s", te)
             # Reconstrói folha jan/fev (ausente em hr_payslips) por âncora março + PIX real
             try:
                 folha_rec = self.reconstruir_folha_jan_fev(empresa_id)

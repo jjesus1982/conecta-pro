@@ -186,6 +186,28 @@ setembro volta a zero. Só a nota de vigilância dos Pássaros continua por emit
 `NFSeNacionalService.consultar_nfse` é stub ("informações simuladas") — a consulta por chave não existe; a
 verdade é o feed de distribuição. O resumo das tomadas por empresa somava os dois CNPJs (corrigido).
 
+### 2c.3 Fechamento contábil do razão (07/09, madrugada)
+
+- **Parado desde 11/08, em silêncio.** Receita/ISS e tomadas passam a data como texto; `periodo_fechado`
+  comparava texto com data, TypeError, a transação inteira voltava (folha junto) e `fechar_grupo` devolvia
+  `ok=True` — task SUCCESS por 27 dias sem nota, folha ou tomada no razão. `_post` normaliza a data; empresa
+  que falha derruba a task (retry + sino).
+- **Purge suicida, desarmada antes de disparar**: o repost apagava toda receita/ISS da empresa e `_post`
+  recusa datas antes do corte — jan–jul (182 lançamentos, R$ 1,96 mi) sumiria no primeiro fechamento que
+  funcionasse. Purge agora só ≥ corte.
+- **Agosto entrou**: 13 notas (R$ 240,9 mil), folha 54 (R$ 112,4 mil, holerites do motor — sem espelho
+  Portte ainda), FGTS, 20 tomadas. Toda nota viva tem lançamento.
+- **Recebimento de cliente somado como receita**: o extrato lia só a justificativa do Jordan e ignorava a
+  categoria do banco; 13 recebimentos da Cora (R$ 132.898,35) dormiam em "entrada a classificar" (4.9.9.01)
+  e a DRE de agosto dizia receita R$ 324 mil. Regra: justificativa vence, categoria do banco cobre; e
+  `reclassificar_transitorias` roda no fechamento (13 entradas → Clientes a Receber; 25 saídas com
+  justificativa → conta própria). Oráculo contábil ganhou o 6º passo: transitória só guarda o que não tem regra.
+- **DRE de agosto agora**: Eletrônica receita R$ 12,3 mil, resultado −R$ 10,3 mil; Patrimonial receita
+  R$ 228,6 mil, pessoal R$ 112,4 mil, resultado −R$ 63,1 mil — **165 saídas da Cora (R$ 142,4 mil) seguem
+  sem justificativa** em 5.9.9.01 e contam como despesa; a maioria é salário já provisionado (viraria baixa
+  de passivo). O resultado real de agosto só aparece depois do Jordan justificar.
+- Fica: notas 109/111 no razão em julho (a tabela de notas diz junho) — período arqueológico, não mexido.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
