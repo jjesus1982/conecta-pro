@@ -48,6 +48,10 @@ PROTEGIDAS = {"oraculos_diarios", "trava_qa", "vigia_oraculos", "task_falha", "s
 CHAVE_CORTE = "sino.origens_cortadas"
 CHAVE_SURDEZ = "qa.sino_surdez"
 SQL_TRIGGER = pathlib.Path(__file__).resolve().parent / "sql" / "sino_corte.sql"
+#: Rascunho encerrado/apagado desativa o aviso dele (07/09/2026: 689 avisos vivos de rascunhos
+#: mortos, 36/dia vindos da limpeza dos oráculos). Instalado junto, checado junto.
+SQL_TRIGGER_RASCUNHO = pathlib.Path(__file__).resolve().parent / "sql" / "rascunho_encerra_sino.sql"
+TRIGGERS_ESPERADOS = ("sino_corte_bi", "trg_rascunho_encerra_sino_upd", "trg_rascunho_encerra_sino_del")
 
 
 async def _cfg(db, chave: str):
@@ -71,17 +75,19 @@ async def _gravar_cfg(db, chave: str, valor, descricao: str) -> None:
 
 async def _trigger_instalado(db) -> bool:
     from sqlalchemy import text  # noqa: PLC0415
-    return bool((await db.execute(text(
-        "SELECT 1 FROM pg_trigger WHERE tgname = 'sino_corte_bi' AND NOT tgisinternal"))).scalar())
+    n = (await db.execute(text("SELECT count(*) FROM pg_trigger WHERE tgname = ANY(:t)"),
+                          {"t": list(TRIGGERS_ESPERADOS)})).scalar() or 0
+    return int(n) == len(TRIGGERS_ESPERADOS)
 
 
 async def _instalar(db) -> None:
     from sqlalchemy import text  # noqa: PLC0415
-    sql = SQL_TRIGGER.read_text()
-    # três statements; o corpo da função tem ';' dentro — separar pelo fim do $$ e pelas linhas
-    partes = [sql.split("$$;")[0] + "$$;"] + [p.strip() + ";" for p in sql.split("$$;")[1].split(";") if p.strip()]
-    for stmt in partes:
-        await db.execute(text(stmt))
+    for arq in (SQL_TRIGGER, SQL_TRIGGER_RASCUNHO):
+        sql = arq.read_text()
+        # o corpo da função tem ';' dentro — separar pelo fim do $$ e pelas linhas
+        partes = [sql.split("$$;")[0] + "$$;"] + [p.strip() + ";" for p in sql.split("$$;")[1].split(";") if p.strip()]
+        for stmt in partes:
+            await db.execute(text(stmt))
     await db.commit()
 
 
@@ -102,7 +108,7 @@ async def main() -> int:
         cortadas: list[str] = await _cfg(db, CHAVE_CORTE) or []
         if "--instalar" in sys.argv:
             await _instalar(db)
-            print("gatilho sino_corte_bi instalado" if await _trigger_instalado(db) else "FALHOU: gatilho não apareceu")
+            print("gatilhos instalados: " + ", ".join(TRIGGERS_ESPERADOS) if await _trigger_instalado(db) else "FALHOU: gatilho não apareceu")
             return 0
         if "--cortadas" in sys.argv:
             print("cortadas:", cortadas or "(nenhuma)")
@@ -118,7 +124,7 @@ async def main() -> int:
                 print(f"{acao}: {origem} → cortadas agora: {novas or '(nenhuma)'}")
                 return 0
         if not await _trigger_instalado(db):
-            print("AVISO: gatilho sino_corte_bi NÃO instalado — cortes não têm efeito. Rode --instalar.\n")
+            print(f"AVISO: gatilho(s) {TRIGGERS_ESPERADOS} incompleto(s) — cortes/encerramentos não têm efeito. Rode --instalar.\n")
         origens = (await db.execute(text("""
             SELECT coalesce(extra_data->>'origem', reference_type, '?') AS origem,
                    count(*) AS enviados, count(read_at) AS lidos,
