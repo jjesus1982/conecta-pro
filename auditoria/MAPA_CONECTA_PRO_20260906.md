@@ -317,6 +317,16 @@ emitindo a federal (plano B).** Robô do DET ficou PAUSADO (`docker pause`) para
 captcha do gov.br a cada ciclo sem ninguém para completar o 2FA; `docker unpause conecta-pro-det-robot` quando o
 Jordan for fazer o login pelo noVNC.
 
+### 2c.8 Alarmes diários que gritavam sem motivo (07/09, manhã)
+
+- **"Extrato duplicado: 126 novas em dobro"** todo dia há um mês: a regra contava gêmeos legítimos (dois VT de R$ 32 à
+  mesma pessoa no mesmo dia, ids distintos no banco). Só linha sem `external_id` pode ser importação repetida: 121, todas
+  herdadas. Silencioso agora.
+- **"Caixa não bate: R$ 1–4 mil"** 4× por dia: somava ordens de pagamento iniciadas (que a escrituração pula) e
+  carregava **20 lançamentos fantasmas** — espelhos de linhas do Inter apagadas na dedup de 22/08, 17 deles com o gêmeo
+  vivo já escriturado (dobro no razão, R$ 12.317,46 de movimento). Copiados para `lixo_20260906.accounting_entries_
+  fantasma_20260907` e removidos; agosto reapurado: **−R$ 39.445,28**. Regra silenciosa; balanço e contábil verdes.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
