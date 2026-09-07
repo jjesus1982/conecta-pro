@@ -1313,6 +1313,10 @@ TOLERANCIA_CAIXA = 1.00
 # toca sempre é alarme que ninguém lê. Os dois lados usam o MESMO corte, senão a
 # comparação fica torta.
 SQL_CAIXA_DIVERGENTE = """
+    -- Compara até D-2, não D-1: o extrato de ontem chega às 08:10 (Cora) e é escriturado
+    -- depois; a regra roda a cada 15 min e, das 08:15 às 08:46, via o meio do caminho e
+    -- tocava o sino DUAS vezes por manhã, todo dia (15 avisos em 7 dias até 07/09/2026,
+    -- valores diferentes a cada um, e às 09:00 já não havia diferença). D-2 está em repouso.
     WITH corte AS (
         SELECT (now() AT TIME ZONE 'America/Manaus')::date AS hoje,
                CAST(:inicio AS date) AS inicio
@@ -1322,17 +1326,17 @@ SQL_CAIXA_DIVERGENTE = """
          FROM accounting_entries, corte
          WHERE (conta_debito LIKE '1.1.1%' OR conta_credito LIKE '1.1.1%')
            AND data_lancamento >= corte.inicio
-           AND data_lancamento < corte.hoje) AS razao,
+           AND data_lancamento < corte.hoje - 1) AS razao,
         -- ordem de pagamento INICIADA (status='pendente') não é movimento: a escrituração a
         -- pula de propósito (14/08). Somá-la aqui fabricava "Caixa não bate" (07/09/2026).
         (SELECT coalesce(sum(amount), 0) FROM bank_transactions, corte
           WHERE transaction_date >= corte.inicio
-            AND transaction_date < corte.hoje
+            AND transaction_date < corte.hoje - 1
             AND coalesce(status, '') <> 'pendente') AS extrato,
         (SELECT count(*) FROM bank_transactions b, corte
           WHERE b.amount <> 0
             AND b.transaction_date >= corte.inicio
-            AND b.transaction_date < corte.hoje
+            AND b.transaction_date < corte.hoje - 1
             AND coalesce(b.status, '') <> 'pendente'
             AND NOT EXISTS (SELECT 1 FROM accounting_entries a
                             WHERE a.bank_transaction_id = b.id)) AS sem_lancamento
