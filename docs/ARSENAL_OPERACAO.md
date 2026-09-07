@@ -61,6 +61,7 @@ Três estados por oráculo, e nenhum se confunde com o outro:
 | `checar_oraculo_externo.py` | host | `TOTAL: N` | número que ninguém de fora confirma? |
 | `checar_uso_real.py` | host (delega banco ao container) | `TOTAL: N tabela(s) com 0 linhas` | quem escreve, quem chama, e quando? tabela nascida morta? `--quem <email>` · `--mortas` mostra nascimento |
 | `checar_sino_surdo.py` | container | `TOTAL: N origem(ns) surda(s)` | origem do sino com volume e ninguém abre? |
+| `checar_llm_martelando.py` | container | `TOTAL: N origem(ns) martelando` | origem chamando o LLM em loop com <5% de sucesso nas últimas 24h? |
 | `checar_nao_vigiado.py` | container (~5 min) | `TOTAL: N tela(s) sem vigia` | tela do redesign sem oráculo nem regra que a cite? |
 | `checar_irreversivel.py` | host | `TOTAL: N função(ões) que disparam antes de gravar` | registro criado depois do disparo externo? |
 | `checar_dominio.py` | host (banco via docker) | `TOTAL: N divergência(s) de domínio` | o código diz o que `verdades_dominio.py` diz? a verdade venceu? |

@@ -64,6 +64,8 @@ CACADORES = {
     "checar_varchar_teto.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna", s),
     # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
     "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
+    # Rotina que martela o provedor de LLM falhando: 30.800 chamadas/dia com 0 ok (07/09).
+    "checar_llm_martelando.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
     # Tela do redesign que nenhum oráculo nem regra proativa cita (o "mapa do não-vigiado").
     # Pesado (constrói os 32 módulos): ~5 min.
     "checar_nao_vigiado.py": lambda s: _n(r"^TOTAL:\s*(\d+) tela", s),
