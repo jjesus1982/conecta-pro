@@ -68,6 +68,42 @@ def _garantir_pasta(cache: dict, nome: str, parent_id: str) -> str | None:
     return fid
 
 
+def _norm_nome(s: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().upper()
+
+
+def item_ja_na_pasta(folder_id: str, chaves: list[str], empresa: str | None = None) -> str | None:
+    """Já existe na pasta um arquivo do MESMO ITEM, com qualquer nome?
+
+    `_arquivo_ja_existe` compara o nome exato — e foi assim que o kit ganhou duplicatas:
+    a Pyetra sobe a nota original do portal como "NFS-e 7.pdf" e o montador subia a
+    versão gerada como "Nota Fiscal NFS-26.pdf" ao lado (dono, 07/09/2026). Aqui o casamento
+    é por palavra-chave (número da nota, tipo da certidão). `empresa` ("PATRIMONIAL" /
+    "ELETRONICA"): um arquivo que cite OUTRA empresa não conta — o kit híbrido leva as
+    certidões das duas. Devolve o nome do arquivo que já cobre o item, ou None.
+    """
+    svc = gdrive_service._service
+    if not svc or not folder_id:
+        return None
+    try:
+        r = svc.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                             fields="files(name)", pageSize=200).execute()
+    except Exception:  # noqa: BLE001 — sem listagem, não afirmo que existe
+        return None
+    chaves_n = [_norm_nome(c) for c in chaves if c]
+    emp = _norm_nome(empresa) if empresa else ""
+    outras = {"PATRIMONIAL", "ELETRONICA"} - ({emp} if emp else set())
+    for f in r.get("files", []):
+        nome = _norm_nome(f.get("name", ""))
+        if not any(c in nome for c in chaves_n):
+            continue
+        if emp and any(o in nome for o in outras) and emp not in nome:
+            continue  # é do mesmo tipo, mas da outra empresa
+        return f.get("name")
+    return None
+
+
 def _arquivo_ja_existe(folder_id: str, nome: str) -> bool:
     svc = gdrive_service._service
     if not svc:

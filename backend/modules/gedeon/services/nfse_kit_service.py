@@ -13,7 +13,7 @@ import tempfile
 import unicodedata
 
 from modules.gdrive.services.gdrive_service import gdrive_service
-from modules.gedeon.services.kit_layout import _arquivo_ja_existe, pasta_kit_arquivo
+from modules.gedeon.services.kit_layout import item_ja_na_pasta, pasta_kit_arquivo
 from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_pdf
 from modules.gedeon.services.nfse_nacional_adn import distribuir, filtrar_vivas
 
@@ -51,13 +51,21 @@ def condominio_do_tomador(tomador: str) -> str:
     return clean.title() or (tomador or "Desconhecido")
 
 
-def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: bool = False) -> dict:
-    """Arquiva o DANFSe de cada nota emitida no mês (mes_emissao=YYYY-MM) no kit do condomínio."""
+def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: bool = False,
+                    gerar_se_faltar: bool = False) -> dict:
+    """Confere, no kit de cada condomínio, se a NFS-e do mês está anexada — e NÃO gera nada.
+
+    Regra do dono (07/09/2026): o kit leva o PDF ORIGINAL da nota (o DANFSe do portal), não
+    um render do sistema. O SEFIN nacional não entrega a DANFSe por API (501 — medido em
+    07/09/2026), então quem anexa é a Pyetra; o montador só diz o que FALTA. O casamento é
+    por número da NFS-e ou da DPS em qualquer nome de arquivo ("NFS-e 7.pdf", "Nota Fiscal
+    NFS-26.pdf"…) — o antigo comparava nome exato e subia uma cópia gerada ao lado da
+    original. `gerar_se_faltar=True` volta ao render antigo, só se alguém pedir de propósito.
+    """
+    import re as _re
+
     if not gdrive_service._service:
         gdrive_service.check_status()
-    # Multi-CNPJ E6 (kit híbrido): notas das DUAS empresas do Grupo, cada feed
-    # com seu certificado, aplicando a regra de validade (substituídas FORA —
-    # antes o feed cru colocava DANFSe de nota morta no kit).
     notas_todas: list[dict] = []
     for slug in (None, "conecta_patrimonial"):  # None = CNPJ1/legado
         try:
@@ -70,23 +78,30 @@ def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: boo
             logger.warning("DANFSe kits: feed %s falhou (%s) — segue com o outro",
                            slug or "conecta_eletronica", exc)
     notas = [n for n in notas_todas if mes_emissao in (n.get("dhProc", "") + n.get("competencia", ""))]
-    rel = {
-        "competencia": competencia,
-        "mes_emissao": mes_emissao,
-        "notas_no_mes": len(notas),
-        "arquivados": 0,
-        "por_condominio": {},
-    }
+    rel = {"competencia": competencia, "mes_emissao": mes_emissao, "notas_no_mes": len(notas),
+           "presentes": 0, "faltando": [], "arquivados": 0, "por_condominio": {}}
     for n in notas:
         cond = condominio_do_tomador(n.get("tomador", ""))
-        fn = f"Nota Fiscal NFS-{n.get('numero', '')}.pdf"
+        numero = str(n.get("numero", "")).strip()
+        ndps = (_re.search(r"<nDPS>(\d+)</nDPS>", n.get("_xml", "") or "") or [None, ""])[1]
         rel["por_condominio"].setdefault(cond, 0)
-        if dry_run:
-            rel["arquivados"] += 1
-            rel["por_condominio"][cond] += 1
+        rel["por_condominio"][cond] += 1
+        if dry_run and not gdrive_service._service:
             continue
+        fn = f"Nota Fiscal NFS-{numero}.pdf"
         folder = pasta_kit_arquivo(cond, competencia, fn)
-        if not folder or _arquivo_ja_existe(folder, fn):
+        if not folder:
+            rel["faltando"].append(f"{cond}: NFS-e {numero} (sem pasta do kit)")
+            continue
+        chaves = [f"NFS-{numero}", f"NFS-E {numero}", f"NFSE {numero}", f"NOTA {numero}"]
+        if ndps:
+            chaves += [f"NFS-{ndps}", f"NFS-E {ndps}", f"DPS {ndps}"]
+        ja = item_ja_na_pasta(folder, chaves)
+        if ja:
+            rel["presentes"] += 1
+            continue
+        if not gerar_se_faltar or dry_run:
+            rel["faltando"].append(f"{cond}: NFS-e {numero} — anexar o PDF original do portal")
             continue
         try:
             pdf = gerar_danfse_pdf(n["_xml"])
@@ -95,7 +110,6 @@ def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: boo
                 fh.write(pdf)
             if gdrive_service.fazer_upload_arquivo(path, folder, fn):
                 rel["arquivados"] += 1
-                rel["por_condominio"][cond] += 1
-        except Exception as exc:
-            logger.warning("DANFSe NFS-%s: %s", n.get("numero"), exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("DANFSe NFS-%s: %s", numero, exc)
     return rel

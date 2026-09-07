@@ -18,7 +18,7 @@ import os
 from sqlalchemy import text
 
 from modules.gdrive.services.gdrive_service import gdrive_service
-from modules.gedeon.services.kit_layout import _arquivo_ja_existe, pasta_kit_arquivo
+from modules.gedeon.services.kit_layout import item_ja_na_pasta, pasta_kit_arquivo
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,19 @@ def cnpjs_do_kit(db, condominio: str) -> set[str]:
         return set()
 
 
+#: Palavras que identificam o TIPO da certidão em qualquer nome de arquivo (manual ou do
+#: sistema). Casou uma → a pasta já tem a certidão; não sobe réplica.
+_CHAVES_TIPO: dict[str, list[str]] = {
+    "certidao_negativa_fgts": ["FGTS", "CRF"],
+    "certidao_negativa_federal": ["FEDERAL", "RECEITA", "RFB", "PGFN"],
+    "certidao_negativa_inss": ["INSS", "PREVIDENCI"],
+    "certidao_negativa_municipal": ["MUNICIPAL", "PREFEITURA", "ISS"],
+    "certidao_negativa_estadual": ["ESTADUAL", "SEFAZ"],
+    "certidao_negativa_trabalhista": ["TRABALHISTA", "CNDT", "TST"],
+    "certidao_negativa_falencia": ["FALENCIA", "FALÊNCIA", "RECUPERACAO"],
+}
+
+
 def arquivar_cnds(competencia: str, condominios: list[str], dry_run: bool = False) -> dict:
     """Replica as CNDs emitidas (com PDF e válidas) nos kits de cada condomínio.
 
@@ -162,8 +175,16 @@ def arquivar_cnds(competencia: str, condominios: list[str], dry_run: bool = Fals
                 rel["barradas"].append(f"{fn} → {cond}")
                 continue
             folder = pasta_kit_arquivo(cond, competencia, fn)  # subpasta "3. Impostos e Certidões"
-            if folder and not _arquivo_ja_existe(folder, fn):
-                if gdrive_service.fazer_upload_arquivo(file_path, folder, fn):
-                    rel["replicas"] += 1
+            if not folder:
+                continue
+            # Já tem uma certidão deste tipo (e desta empresa) na pasta, com qualquer nome?
+            # A que a Pyetra subiu do órgão vale mais que a réplica — não duplicar.
+            ja = item_ja_na_pasta(folder, _CHAVES_TIPO.get(document_type, [fn]),
+                                  empresa=("PATRIMONIAL" if _cnpj != _CNPJ_ELETRONICA else "ELETRONICA"))
+            if ja:
+                rel.setdefault("ja_tinha", []).append(f"{cond}: {ja}")
+                continue
+            if gdrive_service.fazer_upload_arquivo(file_path, folder, fn):
+                rel["replicas"] += 1
     rel["barradas"] = sorted(set(rel["barradas"]))[:12]
     return rel
