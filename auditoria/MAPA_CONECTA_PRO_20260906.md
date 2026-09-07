@@ -425,6 +425,23 @@ Jordan for fazer o login pelo noVNC.
   (`time_bank` e `sst_treinamentos` vazios). Portal do funcionário zerado para o admin é a parede self-only.
 - Commits `68da125b2` (telas) e `b9666abe8` (Sólides), hot-copy em todos os containers.
 
+### 2c.13 Botões mortos e o saldo de fim de semana (07/09, fim de tarde)
+
+- **Caçador novo, trava 33 — `checar_botao_morto.py`**: cruza os ~4.300 `endpoint` que as 620 telas do redesign
+  chamam com a tabela de rotas do app, método incluso. Estreia: **3 botões davam 404 desde que nasceram** — ninguém
+  viu porque nada explode, o usuário só desiste. Consertados e provados por HTTP:
+  - Contas a receber › *Cobranças do mês* (o de hoje): `{ano}/{mes}` literal na URL — o formulário do redesign manda
+    campos como query e nunca monta path param. Rota passa a receber por query.
+  - Área do cliente › *Onboard de um cliente*: só existia com `client_id` no caminho → porta por query, mesma ação.
+  - Relatórios › *Recalcular KPIs*: apontava para uma rota que nunca existiu → ação que enfileira a task do beat.
+- **Oráculo do extrato falhou na varredura da tarde**: "Inter em 05/09: nosso extrato R$ 1.835,13, banco R$ 1.579,13,
+  diferença R$ 256". Medido dia a dia: nos dias úteis bate ao centavo; para **sábado 05/09** o Inter devolveu o saldo já
+  com os 8 PIX de VT/VR (8 × R$ 32) que o extrato dele mesmo data no **domingo 06/09**; em 29–30/08 devolveu o saldo de
+  sexta sem os débitos do fim de semana. Não é dado errado nosso: é o banco não ter saldo histórico de fim de semana.
+  O oráculo agora confronta o último dia útil (PASS em 04/09, R$ 1.803,13 dos dois lados).
+- Varredura completa dos 56 oráculos à tarde: só o extrato falhou, pelo motivo acima. Commits `9cf06d495`, `a8202e508`,
+  `1f890d36d`.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
