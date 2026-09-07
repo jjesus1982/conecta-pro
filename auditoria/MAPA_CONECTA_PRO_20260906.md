@@ -366,6 +366,12 @@ Jordan for fazer o login pelo noVNC.
 - CRM: 197 leads em 30 dias (WhatsApp) e 6 propostas; follow-ups automáticos pararam em 16/07 e não há inscrição
   ativa em sequência — a máquina de acompanhamento existe e está sem uso.
 
+- **Boletos de cobrança são emitidos fora do ERP** (Eletrônica no app do Inter, Patrimonial no app da Cora — regra do
+  dono, 07/09): das 13 cobranças de setembro nenhuma tem boleto, PIX ou id de cobrança ligado no sistema; `inter_cobrancas`
+  tem 2 linhas. O ERP registra a conta a receber e concilia o pagamento (5 de 13 já "paga"), mas a emissão e o envio ao
+  cliente são manuais. Capacidade DESLIGADA: existem módulos de cobrança PIX recorrente e de cobrança Inter sem uso.
+  Ligar = decisão do dono (é comunicação ao cliente).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
