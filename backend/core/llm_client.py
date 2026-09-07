@@ -184,7 +184,12 @@ _FALLBACK_SAUDE_S = 300
 
 
 def _fallback_base() -> str | None:
-    if (os.getenv("LLM_FALLBACK_LOCAL") or "1").strip().lower() in ("0", "false", "nao", "não"):
+    # DESLIGADO por padrão (07/09/2026): medido com a máquina ociosa, qwen3.5:4b neste VPS
+    # gera 0,32 token/s (25 tokens em 76 s; prompt de 6 tokens em 10,8 s) — um fallback que
+    # demora 4 minutos por frase é pior que o erro. Fica pronto para ligar (LLM_FALLBACK_LOCAL=1)
+    # quando houver modelo local viável (GPU, ou CPU dedicada; hipótese a testar: o limite
+    # de 5 GiB do container com o modelo de 3,7 GiB).
+    if (os.getenv("LLM_FALLBACK_LOCAL") or "0").strip().lower() in ("0", "false", "nao", "não"):
         return None
     return (os.getenv("LLM_FALLBACK_BASE_URL") or "http://conecta-pro-ollama:11434/v1").strip() or None
 
