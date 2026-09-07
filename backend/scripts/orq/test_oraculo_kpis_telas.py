@@ -73,6 +73,21 @@ KPIS = [
     # ── Fiscal · painel ──
     ("fiscal", "painel", "Obrigações em aberto", "SELECT count(*) FROM fiscal_obligations WHERE status='pendente'", 0.0),
     ("fiscal", "painel", "NFS-e Emitidas", "SELECT count(*) FROM nfse_emitidas_nacional", 0.0),
+    # 12 meses = NFS-e Manaus (histórico, até 12/2025) + NFS-e nacional (desde 01/2026). Medido
+    # em 07/09/2026: nenhum mês com as duas fontes ao mesmo tempo e 0 notas em comum — somar
+    # é correto, não dobra.
+    ("fiscal", "painel", "Faturamento (12m)",
+     "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico WHERE data_emissao >= current_date - interval '12 months'),0)"
+     " + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional WHERE data_emissao >= current_date - interval '12 months'),0)", 0.02),
+    # ── Financeiro · faturamento do mês (NFS-e emitidas na competência corrente) ──
+    ("financeiro", "g-visao/tabs[0]", "Faturamento 2026-09",
+     "SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE date_trunc('month', data_emissao) = date_trunc('month', current_date)", 0.02),
+    # ── CRM · comissões ──
+    ("crm", "dashboard", "Comissões a pagar",
+     "SELECT coalesce(sum(coalesce(final_commission, base_commission, 0)),0) FROM commissions WHERE status='pending' AND is_active", 0.01),
+    # Documentos · "Kits do mês" NÃO entra: o builder lê do Google Drive (competência = mês
+    # anterior), fonte de fora — é domínio do checar_oraculo_externo. Medido em 07/09/2026: o
+    # Drive diz 15 kits de agosto; ged_document_kits tem 9 (em_montagem, 76,7%). Achado de mapa.
 ]
 
 

@@ -140,6 +140,17 @@ Não entram na fila por serem **read-only para agentes**: as 62 órfãs de escri
 - **Três 🟡 eram 🟢 disfarçados** (VT/VR, auto-baixa, precificação por itens) — ver `auditoria/qa/*`.
 - **Quem martelava a API**: o redator do proativo, 30.800 chamadas/dia falhando com 402. Disjuntor + fallback local no cliente único de LLM (`core/llm_client.py`).
 
+## 2c. Telas do dia a dia com vigia (07/09, 3ª passada)
+
+`test_oraculo_kpis_telas`: 29 KPIs de cabeçalho de Financeiro, DP, Operacional, CRM, RH, Gestão de pessoas e
+Fiscal, cada um contra SQL independente — **29/29 ao centavo**. O que a rodada expôs, além do que conferiu:
+
+- **Duas tabelas de férias**: a tela conta `hr_vacation_requests` (20, com canceladas/rejeitadas); o portal escreve em `employee_vacation_requests` (15). Mesma coisa, dois datasets.
+- **"Presentes hoje" = entradas do dia civil**: à 1 h da manhã dá 0 com o turno noturno inteiro trabalhando. Para portaria 12x36 o rótulo devia ser "no turno (últimas 14 h)".
+- **Kits do mês vem do Google Drive** (15 kits de agosto), e o banco tem 9 em montagem a 76,7%: Drive e `ged_document_kits` contam coisas diferentes. Fica para o `checar_oraculo_externo`.
+- **Faturamento**: julho R$ 378 mil, agosto R$ 175 mil, setembro R$ 65 mil até dia 7. A casa fatura a partir do dia 25; agosto ficou pela metade do padrão (≈R$ 265 mil/mês em 2026). Confira se faltou emitir.
+- Média de entradas/saídas da Visão Financeira subestimava 15% (mês parcial na janela) — corrigido.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
