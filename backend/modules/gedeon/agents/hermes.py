@@ -335,7 +335,12 @@ class Hermes:
                        doc_scope, condominio_id::text,
                        referente_a_employee_id::text
                 FROM onvio_documents
-                WHERE mes_ref = :mes_ref
+                -- 447 de 626 documentos não trazem mês no NOME (medido 07/09/2026) e ficavam
+                -- para sempre sem vínculo. Fallback: sem mes_ref, vale o mês anterior à data
+                -- em que o Onvio recebeu o arquivo (o pacote da competência X chega em X+1).
+                WHERE (mes_ref = :mes_ref
+                       OR (coalesce(mes_ref, '') = '' AND data_onvio IS NOT NULL
+                           AND to_char(data_onvio - interval '1 month', 'MM.YYYY') = :mes_ref))
                   AND caminho_local IS NOT NULL
             """),
             {"mes_ref": mes_ref},

@@ -131,95 +131,60 @@ def fiscal_verificar_certidoes(self):
 
 @shared_task(name="gedeon.verificar_kits_completos", bind=True, max_retries=3)
 def verificar_kits_completos(self):
-    """
-    Verifica kits GED com completion_percentage=100% e sent_at IS NULL.
-    Para cada kit completo não enviado sem notificação nas últimas 24h,
-    cria alerta interno para Jordan conferir e aprovar o envio.
-    NÃO envia email nem WhatsApp — apenas notificação in_app.
-    Idempotente: não recria notificação se já existe uma nas últimas 24h
-    para o mesmo kit (reference_id + reference_type = ged_kit_completo).
-    Agendado diariamente às 08:00 Manaus (12:00 UTC).
-    """
+    """Avisa o dono quando um kit do DRIVE (o que o cliente recebe) chega a 100%.
+
+    Antes olhava `ged_document_kits.completion_percentage = 100` — o kit MATERIALIZADO pelo
+    sistema, que estava em 100% por documento fabricado (nota/boleto/certidão desenhados) —
+    e mandou 195 "Kit Completo" ao sino entre 14/08 e 06/09/2026 enquanto o Drive dizia 20%.
+    Agora: completude real (kit_completude_service, mesmo cache da tela Documentos), da
+    competência anterior; um aviso por (condomínio, competência)."""
+    from datetime import date
+
+    from sqlalchemy import text
+
+    from core.database.session import get_sync_db
+
     try:
-        from sqlalchemy import text
-
-        from core.database.session import get_sync_db
-
+        hoje = date.today()
+        m, a = (hoje.month - 1, hoje.year) if hoje.month > 1 else (12, hoje.year - 1)
+        comp = f"{m:02d}.{a}"
+        from modules.gedeon.services.kit_completude_service import completude_kits
+        try:
+            out = completude_kits(comp)
+        except Exception as exc:  # noqa: BLE001 — Drive fora do ar não é kit completo
+            logger.warning("verificar_kits_completos: Drive indisponível (%s)", exc)
+            return {"kits_alertados": 0, "erro": str(exc)[:120]}
+        kits = out.get("kits") or out.get("condominios") or []
+        alertados = 0
         with get_sync_db() as db:
-            user_row = db.execute(
-                text("SELECT id FROM users WHERE email = 'jjesus@conectamais.pro' LIMIT 1")
-            ).fetchone()
-            if not user_row:
-                logger.warning("verificar_kits_completos: jjesus@conectamais.pro não encontrado")
-                return {"kits_alertados": 0, "erro": "usuario_nao_encontrado"}
-            user_id = user_row[0]
-
-            tenant_row = db.execute(text("SELECT id FROM tenants LIMIT 1")).fetchone()
-            if not tenant_row:
-                logger.warning("verificar_kits_completos: nenhum tenant encontrado")
-                return {"kits_alertados": 0, "erro": "tenant_nao_encontrado"}
-            tenant_id = tenant_row[0]
-
-            kits = db.execute(
-                text("""
-                    SELECT k.id, k.reference_month, gc.name AS cliente
-                    FROM ged_document_kits k
-                    LEFT JOIN ged_clients gc ON gc.id = k.client_id
-                    WHERE k.completion_percentage = 100
-                      AND k.sent_at IS NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM communication_notifications cn
-                          WHERE cn.reference_id = k.id
-                            AND cn.reference_type = 'ged_kit_completo'
-                            AND cn.created_at > NOW() - INTERVAL '24 hours'
-                      )
-                """)
-            ).fetchall()
-
-            alertados = 0
-            for kit in kits:
-                kit_id = kit[0]
-                reference_month = kit[1]
-                cliente = kit[2] or "Cliente"
-                mes_ano = reference_month.strftime("%m/%Y") if reference_month else "—"
-
-                db.execute(
-                    text("""
-                        INSERT INTO communication_notifications
-                          (tenant_id, user_id, title, body, type,
-                           reference_type, reference_id, action_url,
-                           channels, extra_data)
-                        VALUES (
-                          :tenant_id, :user_id, :title, :body, 'kit_completo',
-                          'ged_kit_completo', :reference_id,
-                          :action_url,
-                          '["in_app"]'::jsonb,
-                          '{}'::jsonb
-                        )
-                    """),
-                    {
-                        "tenant_id": str(tenant_id),
-                        "user_id": str(user_id),
-                        "title": f"Kit Completo — {cliente} ({mes_ano})",
-                        "body": (
-                            f"O kit documental de {cliente} referente a {mes_ano} "
-                            f"está 100% completo e aguarda envio. "
-                            f"Acesse o GED para conferir os documentos e enviar ao cliente."
-                        ),
-                        "reference_id": str(kit_id),
-                        "action_url": f"/ged/kits/{kit_id}",
-                    },
-                )
+            user_id = db.execute(text("SELECT id FROM users WHERE email = 'jjesus@conectamais.pro' LIMIT 1")).scalar()
+            tenant_id = db.execute(text("SELECT id FROM tenants LIMIT 1")).scalar()
+            if not user_id or not tenant_id:
+                return {"kits_alertados": 0, "erro": "usuario_ou_tenant_nao_encontrado"}
+            for k in kits:
+                pct = int(k.get("completion_percentage") or k.get("pct") or 0)
+                cond = k.get("condominio") or k.get("nome") or "?"
+                if pct < 100:
+                    continue
+                ref = f"kit_drive:{cond}:{comp}"
+                ja = db.execute(text("SELECT 1 FROM communication_notifications WHERE reference_type = 'ged_kit_completo' AND extra_data->>'ref' = :r LIMIT 1"), {"r": ref}).first()
+                if ja:
+                    continue
+                db.execute(text("""
+                    INSERT INTO communication_notifications
+                      (tenant_id, user_id, title, body, type, reference_type, reference_id, action_url, channels, extra_data)
+                    VALUES (:tenant_id, :user_id, :title, :body, 'kit_completo', 'ged_kit_completo', NULL,
+                            '/modulos/documentos', '["in_app"]'::jsonb, CAST(:extra AS jsonb))
+                """), {"tenant_id": tenant_id, "user_id": user_id,
+                       "title": f"Kit completo no Drive — {cond} ({comp})",
+                       "body": f"O kit de {cond} da competência {comp} está 100% no Drive ({k.get('total', '?')} arquivo(s)). Pode ser entregue.",
+                       "extra": '{"ref": "%s"}' % ref})
                 alertados += 1
-                logger.info("Kit completo alertado: %s — %s (%s)", kit_id, cliente, mes_ano)
-
             db.commit()
-
-        logger.info("verificar_kits_completos: %d kits alertados", alertados)
-        return {"kits_alertados": alertados}
-
+        logger.info("verificar_kits_completos %s: %d kit(s) do Drive a 100%%", comp, alertados)
+        return {"competencia": comp, "kits_no_drive": len(kits), "kits_alertados": alertados}
     except Exception as exc:
-        logger.error("verificar_kits_completos falhou: %s", exc)
+        logger.error("verificar_kits_completos: %s", exc)
         raise self.retry(exc=exc, countdown=300)
 
 
@@ -234,6 +199,11 @@ def hermes_vincular_docs_mes(self, mes_ref: str | None = None):
         from modules.gedeon.agents.hermes import Hermes
 
         hermes = Hermes()
+        if not mes_ref:
+            # Dia 1 chega o pacote da competência ANTERIOR — 'mês corrente' vinculava nada.
+            from datetime import date as _d
+            _h = _d.today(); _m, _a = (_h.month - 1, _h.year) if _h.month > 1 else (12, _h.year - 1)
+            mes_ref = f"{_m:02d}.{_a}"
         result = hermes.processar_mes(mes_ref)
         logger.info(
             "HERMES %s: %d vinculados, %d ignorados, %d erros",

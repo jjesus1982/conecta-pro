@@ -127,6 +127,12 @@ class CertidoesUpdaterService:
             except Exception as exc:
                 logger.warning("D5.4 erro em %s: %s", doc_type, exc)
                 erros.append({"document_type": doc_type, "erro": str(exc)})
+                # Sem isto a sessão fica em "transaction is aborted" e o INSERT do log de
+                # coleta no fim explode (ged.auto_collect_documents, 21/08/2026, sino).
+                try:
+                    await self.db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
 
         logger.info(
             "D5.4 CertidoesUpdater: atualizadas=%d alertas=%d erros=%d",
