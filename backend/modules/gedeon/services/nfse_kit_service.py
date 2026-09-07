@@ -77,7 +77,9 @@ def arquivar_danfse(competencia: str, mes_emissao: str = "2026-05", dry_run: boo
         except Exception as exc:  # noqa: BLE001
             logger.warning("DANFSe kits: feed %s falhou (%s) — segue com o outro",
                            slug or "conecta_eletronica", exc)
-    notas = [n for n in notas_todas if mes_emissao in (n.get("dhProc", "") + n.get("competencia", ""))]
+    # Casa pela COMPETÊNCIA da nota (dCompet, 'YYYY-MM'); sem dCompet, pelo mês de emissão.
+    notas = [n for n in notas_todas
+             if str(n.get("competencia") or n.get("dhProc") or "")[:7] == mes_emissao[:7]]
     rel = {"competencia": competencia, "mes_emissao": mes_emissao, "notas_no_mes": len(notas),
            "presentes": 0, "faltando": [], "arquivados": 0, "por_condominio": {}}
     for n in notas:

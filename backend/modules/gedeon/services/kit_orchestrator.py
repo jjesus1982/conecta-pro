@@ -44,11 +44,11 @@ def _mes_kit(competencia: str) -> tuple[int, int]:
 
 
 def _mes_emissao_nfse(competencia: str) -> str:
-    """NFS-e/Boleto do kit = mês do KIT (competência+1). Ex.: kit do trabalho de maio (05.2026)
-    leva a NFS de JUNHO ('2026-06') — serviço faturado no mês de entrega, pago no início do
-    mês seguinte. (folha/VT/impostos são da competência; a NOTA é do mês do kit.)"""
-    a, m = _mes_kit(competencia)
-    return f"{a}-{m:02d}"
+    """NFS-e do kit = nota DA COMPETÊNCIA do kit (dCompet), não a emitida no mês de entrega.
+    Dono, 07/09/2026: "a nota tem que ser a da competência do kit". Até então o kit 07.2026
+    levava as notas de competência 08 emitidas em 20–26/08. Devolve 'YYYY-MM' da competência."""
+    mes, ano = int(competencia.split(".")[0]), int(competencia.split(".")[1])
+    return f"{ano}-{mes:02d}"
 
 
 def _range_boletos(competencia: str) -> tuple[str, str]:
