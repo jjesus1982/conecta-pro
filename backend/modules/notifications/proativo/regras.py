@@ -962,6 +962,9 @@ async def _detectar_ferias_sem_decisao(db: AsyncSession) -> list[Achado]:
         "                 AND f.codigo IN ('0060','1061')) AS tem_verba "
         "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
         "WHERE upper(coalesce(v.status,'')) = 'SUBMITTED' "
+        # Quem já saiu não tem férias a decidir: MARTA (demitida 09/06) e RAIMUNDO (inativo
+        # 05/05) ficaram 130 dias em "férias sem decisão" (07/09/2026). Só ativos.
+        "  AND lower(coalesce(e.status,'')) = 'ativo' "
         "  AND v.end_date < current_date "
         "ORDER BY v.end_date"
     ))).mappings().all()
@@ -1007,6 +1010,7 @@ async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
         "       (v.end_date - current_date) AS dias "
         "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
         "WHERE upper(coalesce(v.status,'')) = 'APPROVED' "
+        "  AND lower(coalesce(e.status,'')) = 'ativo' "
         "  AND v.end_date BETWEEN current_date - 1 AND current_date + 3 "
         "ORDER BY v.end_date"
     ))).mappings().all()
