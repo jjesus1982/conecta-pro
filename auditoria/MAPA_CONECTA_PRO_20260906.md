@@ -502,7 +502,8 @@ Jordan for fazer o login pelo noVNC.
   cancelar é do RH. **Adailson** aparece duas vezes (dois pedidos).
 - **Prazos do DP** (35 vivos, confirmados no banco): **ASO — 25 dos 53 ativos com ASO vencido e 21 sem nenhum ASO
   registrado; só 7 válidos.** Ou os exames estão em dia fora do sistema (Portte/clínica) e falta registrar, ou é
-  passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
+  passivo de SST real — os dois pedem você. O cartão de ASO no quadro de prazos passa a dizer os 21 sem registro
+  (antes só via quem tinha exame vencido; commit `0cd67eaf0`). **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
   04/08 venceu em 04/09 e o processo segue "iniciado" — desligar ou cancelar. **KEYSON DA SILVA PINTO** já estava
   inativo desde 28/08 com o processo esquecido em "iniciado": o prazo ficava no quadro à toa; a regra passa a
   vencer só para quem está ativo (commit `ede3e961e`); o processo dele segue "iniciado" no sistema — concluir ou
