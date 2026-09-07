@@ -301,7 +301,11 @@ Captcha há em TODOS os portais: "zero custo externo" literal não existe; o 2ca
 Caminhos: (1) federal via e-CAC com o certificado A1 — o det-robot já faz o login gov.br com hCaptcha `rqdata`
 (o `cnd_robot` não manda `rqdata`, provável causa do UNSOLVABLE); (2) FGTS e CNDT só saem de outro IP: um
 "nó de emissão" no PC do Jordan (mesmo robô, sobe o PDF pelo `/gedeon/cnd/upload`, agora multi-CNPJ) ou um proxy.
-Decisões do dono: quais CNPJs (hoje só Patrimonial) e se o PC dele vira nó.
+Decisões do dono (07/09, manhã): **só a Patrimonial**; captcha pelo 2captcha (assinatura dele). **Nó de saída
+construído**: usuário `cndtunnel` (sem shell, só encaminhamento para 127.0.0.1:1080, chave restrita, drop-in no
+sshd), `cnd_watcher.sh` usa `socks5://127.0.0.1:1080` quando a porta existe; provado com Chromium saindo pelo
+túnel. Falta o PC do Jordan rodar `docs/no_saida_cnd/no_saida_cnd.bat` — e, com o túnel de pé, escrever e TESTAR o
+robô da Caixa (não existe) e reabrir o CNDT.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 

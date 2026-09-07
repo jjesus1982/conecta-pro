@@ -151,3 +151,4 @@ backend/scripts/qa/.baseline.json
 agents/cto/predicao/state.json
 agents/cto/predicao/historico/*.json
 agents/cto/predicao/alertas/*.json
+rotinas/no_saida_cnd_ed25519*

@@ -15,6 +15,14 @@ REQ=$(RC GETDEL gedeon:cnd:request)
 [ -z "$REQ" ] && exit 0
 
 set -a; source .env; set +a   # TWOCAPTCHA_API_KEY
+# Nó de saída (07/09/2026): Caixa bloqueia o IP da VPS na borda e o TST não responde a ele.
+# Um PC fora daqui abre `ssh -N -R 127.0.0.1:1080 cndtunnel@82.25.75.74` (túnel reverso
+# DINÂMICO do OpenSSH) e a porta 1080 vira um proxy SOCKS cuja saída é a internet DELE.
+# Quando o túnel está de pé, o robô sai por lá; sem túnel, sai direto (SEFAZ/SEMEF funcionam).
+if ss -ltn 2>/dev/null | grep -q '127.0.0.1:1080 '; then
+    export CND_PROXY="socks5://127.0.0.1:1080"
+    echo "[$(date '+%F %T')] nó de saída ativo — robô sai pelo túnel (127.0.0.1:1080)" >> /opt/conecta-pro/rotinas/cnd-watcher.log
+fi
 CNPJ=$(echo "$REQ" | python3 -c "import sys,json;print(json.load(sys.stdin).get('cnpj','35710481000103'))" 2>/dev/null || echo "35710481000103")
 PORTAIS=$(echo "$REQ" | python3 -c "import sys,json;print(' '.join(json.load(sys.stdin).get('portais',['sefaz_am','cndt','prefeitura'])))" 2>/dev/null || echo "sefaz_am cndt prefeitura")
 
