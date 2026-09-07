@@ -518,46 +518,59 @@ _COMPLETUDE_CACHE: dict = {}  # competencia -> (timestamp, resultado)
 # escrita externa (robôs direto no Drive) aparece em até 10 min ou no botão
 # "Atualizar" da tela (refresh=true).
 _COMPLETUDE_TTL = 600  # segundos
+_COMPLETUDE_ALOCKS: dict = {}
 _COMPLETUDE_LOCKS: dict = {}  # competencia -> Lock (single-flight da varredura do Drive)
 
 
 @router.get("/completude", summary="Completude REAL dos kits + checklist (lê o Drive)")
-def completude_kits_endpoint(
+async def completude_kits_endpoint(
     competencia: str | None = Query(None, regex=COMP_RE, examples=["05.2026"]),
     refresh: bool = Query(False, description="força reler o Drive (ignora o cache)"),
     current_user=Depends(get_current_user),
 ) -> dict:
     """% de montagem por condomínio calculado da estrutura real do Drive, com o
     checklist do que cada kit deve conter (folha, ponto, guias, CNDs, NFS-e...).
-    Sem `competencia` usa o mês anterior. CACHEADO ~90s (ler o Drive é pesado; sem cache,
-    abrir a dashboard durante uma montagem sobrecarrega o backend). `refresh=true` força reler."""
-    import time
+    Sem `competencia` usa o mês anterior. CACHE no Redis (15 min, mesma chave da tela
+    Documentos do redesign — uma leitura do Drive serve as duas; antes era cache em memória
+    por worker: 20 s em cada worker frio, medido 07/09/2026). `refresh=true` força reler."""
+    import asyncio
 
+    from core.cache.redis import cache_get, cache_set
     from modules.gedeon.services.kit_completude_service import completude_kits
 
     comp = competencia or _competencia_anterior()
-    cached = _COMPLETUDE_CACHE.get(comp)
-    if cached and not refresh and (time.time() - cached[0]) < _COMPLETUDE_TTL:
-        return {**cached[1], "_cache": True}
+    chave = f"redesign:documentos:drive:{comp}"
+    if not refresh:
+        try:
+            cached = await cache_get(chave)
+        except Exception:  # noqa: BLE001 — sem Redis, lê o Drive
+            cached = None
+        if isinstance(cached, dict) and cached.get("kits") is not None:
+            return {**cached, "_cache": True}
     if refresh:
         from modules.gedeon.services import kit_cache
 
         kit_cache.invalidar(competencia=comp)
-    # SINGLE-FLIGHT por competência: N abas/usuários abrindo a dashboard fria
-    # disparavam N varreduras completas do Drive em paralelo — já derrubou o
-    # backend (restart 16/07 com 2 navegações simultâneas). Concorrentes esperam
-    # a varredura em voo e reusam o resultado.
-    lk = _COMPLETUDE_LOCKS.setdefault(comp, threading.Lock())
-    with lk:
-        cached = _COMPLETUDE_CACHE.get(comp)
-        if cached and not refresh and (time.time() - cached[0]) < _COMPLETUDE_TTL:
-            return {**cached[1], "_cache": True}
+    # SINGLE-FLIGHT por competência: N abas abrindo a dashboard fria disparavam N varreduras
+    # do Drive em paralelo (restart 16/07 com 2 navegações simultâneas).
+    lk = _COMPLETUDE_ALOCKS.setdefault(comp, asyncio.Lock())
+    async with lk:
+        if not refresh:
+            try:
+                cached = await cache_get(chave)
+            except Exception:  # noqa: BLE001
+                cached = None
+            if isinstance(cached, dict) and cached.get("kits") is not None:
+                return {**cached, "_cache": True}
         try:
-            out = completude_kits(comp)
-            _COMPLETUDE_CACHE[comp] = (time.time(), out)
-            return out
+            out = await asyncio.to_thread(completude_kits, comp)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
+        try:
+            await cache_set(chave, out, ttl=900)
+        except Exception:  # noqa: BLE001
+            pass
+        return out
 
 
 def _eh_util(d: date) -> bool:

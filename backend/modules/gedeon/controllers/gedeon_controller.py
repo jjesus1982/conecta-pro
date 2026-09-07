@@ -174,10 +174,32 @@ async def kits_status_mensal(
         )
     )
     clientes = rows.mappings().all()
+    # A prontidão vem da completude REAL do Drive quando está no cache (mesma chave da tela
+    # Documentos). O contexto por eventos tem score padrão 100 e dizia "12 prontos" com o
+    # Drive em 20% (07/09/2026). Sem cache: cai no contexto, marcando a origem.
+    drive_pct: dict[str, int] = {}
+    try:
+        from core.cache.redis import cache_get
+        from modules.gedeon.services.kit_layout import nome_pasta_condominio
+        _a, _m = competencia.split("-")[0], competencia.split("-")[1]
+        _mm, _aa = (int(_m) - 1, int(_a)) if int(_m) > 1 else (12, int(_a) - 1)
+        _cached = await cache_get(f"redesign:documentos:drive:{_mm:02d}.{_aa}")
+        for k in (_cached or {}).get("kits", []) if isinstance(_cached, dict) else []:
+            drive_pct[str(k.get("condominio") or "").upper()] = int(k.get("completion_percentage") or 0)
+    except Exception:  # noqa: BLE001
+        drive_pct = {}
     status_kits = []
     for row in clientes:
         ctx = await gedeon_context.get(row["id"], competencia)
-        score = ctx.get("score_prontidao", 100)
+        pasta = None
+        try:
+            pasta = (nome_pasta_condominio(row["name"]) or "").upper() if drive_pct else None
+        except Exception:  # noqa: BLE001
+            pasta = None
+        if pasta and pasta in drive_pct:
+            score, origem = drive_pct[pasta], "drive"
+        else:
+            score, origem = ctx.get("score_prontidao", 100), "contexto"
         tipo_ok = ctx.get("tipo_kit") or row["tipo_kit"]
         status_kits.append(
             {
@@ -185,6 +207,7 @@ async def kits_status_mensal(
                 "nome": row["name"],
                 "tipo_kit": tipo_ok,
                 "score": score,
+                "origem_score": origem,
                 "pendencias": len(ctx.get("pendencias", [])),
                 "status": "pronto" if score >= 90 else "alerta" if score >= 70 else "critico",
             }

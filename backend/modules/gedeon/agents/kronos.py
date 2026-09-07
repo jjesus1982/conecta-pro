@@ -191,82 +191,20 @@ class Kronos:
         return alertas
 
     async def verificar_certidoes(self, db=None) -> list[dict]:
-        """
-        Verificar certidões — versão async.
-        Aceita sessão SQLAlchemy (AsyncSession) ou usa fallback sync.
-        """
-        if db is not None:
-            from sqlalchemy import text
+        """Mesma régua da versão síncrona (horizonte por tipo, só ativos/ASO vigente) — a versão
+        async tinha SQL próprio com 60 dias e devolvia 26/88 alertas (07/09/2026). `db` ignorado."""
+        import asyncio
 
-            hoje = date.today()
-            limite = hoje + timedelta(days=60)
-            rows = await db.execute(
-                text(
-                    "SELECT name, document_type, expiry_date "
-                    "FROM ged_certidoes "
-                    "WHERE expiry_date IS NOT NULL "
-                    "AND expiry_date <= :limite "
-                    "ORDER BY expiry_date"
-                ),
-                {"limite": limite},
-            )
-            alertas = []
-            for row in rows.fetchall():
-                nome, tipo, venc_date = row
-                alerta = calcular_nivel_alerta(venc_date)
-                alertas.append(
-                    {
-                        "nome": nome,
-                        "tipo": tipo,
-                        "data_vencimento": str(venc_date),
-                        "data_renovacao": str(data_ideal_renovacao(str(tipo), venc_date)),
-                        **alerta,
-                    }
-                )
-            return alertas
+        return await asyncio.to_thread(self.verificar_certidoes_sync)
 
-        # Fallback: subprocess (background tasks)
-        return self.verificar_certidoes_sync()
 
     async def verificar_asos_funcionarios(self, db=None) -> list[dict]:
-        """
-        Verificar ASOs — versão async.
-        Aceita sessão SQLAlchemy (AsyncSession) ou usa fallback sync.
-        """
-        if db is not None:
-            from sqlalchemy import text
+        """Mesma régua da versão síncrona (horizonte por tipo, só ativos/ASO vigente) — a versão
+        async tinha SQL próprio com 60 dias e devolvia 26/88 alertas (07/09/2026). `db` ignorado."""
+        import asyncio
 
-            hoje = date.today()
-            limite = hoje + timedelta(days=60)
-            rows = await db.execute(
-                text(
-                    "SELECT e.nome, e.cargo, "
-                    "a.data_validade, a.tipo "
-                    "FROM gp_asos a "
-                    "JOIN employees e ON e.id = a.employee_id "
-                    "WHERE a.data_validade IS NOT NULL "
-                    "AND a.data_validade <= :limite "
-                    "AND a.status != 'cancelado' "
-                    "ORDER BY a.data_validade"
-                ),
-                {"limite": limite},
-            )
-            alertas = []
-            for row in rows.fetchall():
-                nome, cargo, venc_date, tipo = row
-                alerta = calcular_nivel_alerta(venc_date)
-                alertas.append(
-                    {
-                        "funcionario": nome,
-                        "cargo": cargo,
-                        "tipo_aso": tipo or "periodico",
-                        "data_validade": str(venc_date),
-                        **alerta,
-                    }
-                )
-            return alertas
+        return await asyncio.to_thread(self.verificar_asos_sync)
 
-        return self.verificar_asos_sync()
 
     async def executar_verificacao_diaria(self) -> dict:
         """
