@@ -302,3 +302,80 @@ if __name__ == "__main__":
     # pequena do mesmo defeito que este arquivo inteiro persegue — número que ninguém alimenta.
     print(f"\n{'✅ TODOS OS ' + str(len(casos)) + ' CASOS PASSARAM' if erros == 0 else f'❌ {erros}/{len(casos)} FALHARAM'}")
     assert erros == 0, "Testes falharam — não commitar"
+
+
+# ── Classificação por CONTEÚDO (07/09/2026) ────────────────────────────────────────────
+# 196 documentos do pacote têm nome que não diz nada ("12345.pdf", só o nome da pessoa). O
+# texto da primeira página diz: 96 "COMPROVANTE DE RENDIMENTOS", 6 DAS, contratos, fichas…
+_REGRAS_CONTEUDO: list[tuple[str, str]] = [
+    ("COMPROVANTE DE RENDIMENTOS", "comprovante_rendimentos"),
+    ("DOCUMENTO DE ARRECADACAO DO SIMPLES", "das_simples_nacional"),
+    ("RESUMO DA FOLHA", "folha_pagamento"),
+    ("RECIBO DE FERIAS", "ferias"),
+    ("AVISO DE FERIAS", "ferias"),
+    ("TERMO DE RESCISAO", "rescisao"),
+    ("DADOS DO EMPREGADOR", "ficha_registro"),
+    ("CONTRATO DE EXPERIENCIA", "contrato_trabalho"),
+    ("CONTRATO DE TRABALHO", "contrato_trabalho"),
+    ("INSTRUMENTO PARTICULAR DE CONTRATO", "contrato_trabalho"),
+    ("ATESTADO DE SAUDE OCUPACIONAL", "aso"),
+    ("ATESTADO", "atestado"),
+    ("CARTEIRA DE IDENTIDADE", "documento_pessoal"),
+    ("REGISTRO GERAL", "documento_pessoal"),
+    ("CERTIDAO NEGATIVA", "certidao"),
+    ("CERTIFICADO DE REGULARIDADE DO FGTS", "certidao"),
+    ("GOVERNO DO ESTADO", "dar_sefaz"),
+    ("NOTA FISCAL DE SERVICO", "nfse"),
+    ("DANFE", "nfe_danfe"),
+]
+
+
+def classificar_por_conteudo(texto: str) -> str:
+    """Categoria pelo texto da primeira página; '' se não reconhecer. Texto vazio = scan
+    sem OCR → 'documento_digitalizado' (é o que ele é; não é 'outros')."""
+    import unicodedata as _ud
+
+    t = _ud.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().upper()
+    t = re.sub(r"\s+", " ", t)
+    if not t.strip():
+        return "documento_digitalizado"
+    for chave, cat in _REGRAS_CONTEUDO:
+        if chave in t:
+            return cat
+    return ""
+
+
+def reclassificar_outros_por_conteudo(db, limite: int = 500) -> dict:
+    """Lê a 1ª página dos 'outros' com arquivo local e reclassifica. Idempotente (só toca
+    'outros'). Chamado no início do Hermes mensal; pode ser chamado à mão."""
+    import os
+
+    from sqlalchemy import text as _t
+
+    try:
+        from PyPDF2 import PdfReader
+    except Exception:  # noqa: BLE001
+        return {"erro": "PyPDF2 indisponível"}
+    rows = db.execute(_t(
+        "SELECT id::text, caminho_local FROM onvio_documents "
+        "WHERE categoria = 'outros' AND caminho_local IS NOT NULL ORDER BY created_at DESC LIMIT :n"),
+        {"n": limite}).fetchall()
+    rel: dict = {"lidos": 0, "reclassificados": 0, "por_categoria": {}}
+    for did, cam in rows:
+        if not cam or not os.path.exists(cam) or not cam.lower().endswith(".pdf"):
+            continue
+        try:
+            r = PdfReader(cam)
+            texto = " ".join((pg.extract_text() or "") for pg in r.pages[:1])
+        except Exception:  # noqa: BLE001
+            continue
+        rel["lidos"] += 1
+        cat = classificar_por_conteudo(texto)
+        if not cat:
+            continue
+        db.execute(_t("UPDATE onvio_documents SET categoria = :c, metodo_extracao = coalesce(metodo_extracao, 'conteudo_pdf') "
+                      "WHERE id::text = :i AND categoria = 'outros'"), {"c": cat, "i": did})
+        rel["reclassificados"] += 1
+        rel["por_categoria"][cat] = rel["por_categoria"].get(cat, 0) + 1
+    db.commit()
+    return rel
