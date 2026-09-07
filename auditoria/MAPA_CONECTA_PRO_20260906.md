@@ -509,6 +509,45 @@ Jordan for fazer o login pelo noVNC.
   vencer só para quem está ativo (commit `ede3e961e`); o processo dele segue "iniciado" no sistema — concluir ou
   cancelar no DP.
 
+### 2c.16 DP · Fiscal · RH · GED — loop pedido pelo dono (07/09, fim de tarde)
+
+**DP**
+- Fechamento de ponto mostrava setembro (2 espelhos) e escondia agosto (53): passa a mostrar a última competência
+  com população e a nomeia. Junho é o único mês com fechamento (50); **julho e agosto nunca fecharam** — a folha saiu
+  sem o ponto fechado. Isso é operação (Pyetra), não código.
+- Espelho do eSocial: 157 de 290 eventos sem tipo/data são XML ainda não baixado — o governo bloqueia o espelho nos
+  dias 1–7 e limita 10 acessos/dia (a task pula sozinha e retoma 08/09 às 09:10); em 31/08 o próprio governo devolveu
+  HTTP 500 nos 8 acessos. A tela agora diz "133 baixados · 157 aguardando". Não é bug.
+- Tela "Jornadas do mês corrente" traz também o mês anterior (é a janela da consulta, com seletor de competência).
+
+**Fiscal**
+- Grade de cobertura de certidões comparava por NOME e a mesma certidão tem nome diferente em cada empresa: 10 "FALTA"
+  que não existiam. Por tipo: 9 tipos, 2 faltas reais (Falência para a Eletrônica — sua decisão; Registro CNPJ para a
+  Patrimonial). DCTFWeb/Reinf "cumpridas" com valor zero têm procedência (recibo do pacote da Portte no Drive; baixa
+  aprovada por você) — não é invenção.
+- Guias FGTS/INSS do Onvio param em 12/2025 e 11/2025 — a fonte secou; as obrigações de 2026 vêm do calendário legal.
+
+**RH**
+- Candidatos (10), entrevistas (4), planos de carreira (11), clima (3), vagas (10): tudo criado em 16/03 e nunca mais
+  tocado — parece carga de demonstração num painel que diz "dados reais". Decida: apagar ou usar.
+- Gestão de Pessoas dizia "65 colaboradores ativos" (is_active) onde o DP diz 53 (status ativo): passa a usar a régua
+  do DP e mostra os 8 PJ à parte.
+
+**GED (seu pedido: notas duplicadas, CND original, "outras coisas")**
+- Medido no Drive: os PDFs das certidões no banco SÃO os originais dos órgãos (Caixa wkhtmltopdf, Receita iText, TST
+  OpenPDF, SEFAZ/prefeitura Chromium, um "caixa_manual" impresso do seu Mac); o kit já anexava esses. O que o sistema
+  GERAVA era a nota: `Nota Fiscal NFS-N.pdf` renderizada do XML, ao lado da original que a Pyetra sobe do portal
+  (`NFS-e N.pdf`) — comparação por nome exato, daí a duplicata.
+- Corrigido: o kit **não gera mais DANFSe** (o SEFIN nacional devolve 501 para a DANFSe por API — não existe PDF
+  oficial por integração), confere por número da NFS-e/DPS em qualquer nome e devolve a lista "faltando: anexar o
+  original do portal"; certidão do mesmo tipo (e empresa) já na pasta não é duplicada. Nada é apagado; o kit de julho
+  fica como está. Provas só de leitura: julho 12/12 presentes; agosto lista a NFS-e 32 da Ideal Flores.
+- Regra de mês mantida como está documentada no código: o kit da competência X leva a nota emitida em X+1 (mês de
+  entrega). As notas de competência 08 emitidas de 20 a 26/08 estão no kit de julho (pasta "Agosto") por essa regra.
+  Se o certo for "nota da competência", é uma linha para mudar — **sua decisão**.
+- Kits de agosto (pasta "Setembro"): 20% em todos = só as 6 certidões; o de julho está em 80% (35 arquivos). Montagem
+  automática roda dia 28. Commits `ac0011f92`, `c1c8d1e4a`, e o do kit.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
