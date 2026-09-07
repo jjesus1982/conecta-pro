@@ -139,6 +139,9 @@ class PortalKitAccessService:
             select(KitDocument)
             .where(KitDocument.kit_id == str(kit.id))
             .where(KitDocument.file_path.like("/app/uploads/%"))
+            # Documento FABRICADO pelo sistema (nota/boleto/certidão renderizados) nunca vai ao
+            # cliente — dono, 07/09/2026. As 62 linhas dos kits 08/2026 estão marcadas em `notes`.
+            .where(~func.coalesce(KitDocument.notes, "").like("FABRICADO%"))
             .order_by(KitDocument.document_type, KitDocument.document_name)
         )
         documents = result.scalars().all()
