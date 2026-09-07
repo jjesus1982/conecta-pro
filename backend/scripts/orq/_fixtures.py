@@ -25,6 +25,25 @@ class _U:
     permissions: list = field(default_factory=list)
 
 
+#: Exit code que a varredura lê como BLOQUEADO — nem verde nem vermelho. Nasceu em
+#: 06/09/2026: `test_papel_fornecedor` reprovava por "Insufficient Balance" do provedor de
+#: LLM e `test_caso_de_uso_porteiro` por não haver espelho apurado no dia 6 do mês. Nenhum
+#: dos dois é defeito de produto, e os dois contavam como vermelho todo dia — e vermelho
+#: que não é defeito ensina a ignorar o vermelho que é.
+EXIT_BLOQUEADO = 3
+
+
+def bloqueado(motivo: str) -> None:
+    """Encerra o oráculo como BLOQUEADO: dependência externa fora ou pré-condição de dado.
+
+    Use quando a pergunta do oráculo NÃO PODE ser respondida hoje — não quando a resposta é
+    "não". Um `assert` que falha é vermelho; isto é "não deu para medir", que é resultado
+    válido e diferente.
+    """
+    print(f"BLOQUEADO: {motivo}")
+    raise SystemExit(EXIT_BLOQUEADO)
+
+
 def tela(telas: dict, slug: str) -> dict | None:
     """Resolve um slug do redesign até a tela REAL, seguindo `groupRef`.
 

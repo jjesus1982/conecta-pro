@@ -19,7 +19,11 @@ O que este oráculo mede, ponta a ponta, no caminho real:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import bloqueado  # noqa: E402
 
 PERGUNTA = "quantas horas eu fiz esse mês?"
 
@@ -59,17 +63,15 @@ async def main() -> int:
     async with async_session_factory() as db:
         escolha = await _escolher_porteiro(db)
         if escolha is None:
-            print("FAIL: nenhum CLT com batida no mês — o caso de uso não é testável hoje")
-            return 1
+            bloqueado("nenhum CLT com batida no mês — o caso de uso não é testável hoje")
         u, scope, tools, batidas = escolha
 
         hoje = (await db.execute(__import__("sqlalchemy").text(
             "SELECT (now() AT TIME ZONE 'America/Manaus')::date"))).scalar()
         esp = await asyncio.to_thread(_espelho_sync, str(scope.employee_id), hoje.month, hoje.year)
         if not esp or not esp.get("horas_trabalhadas"):
-            print(f"FAIL: sem espelho apurado em {hoje.month:02d}/{hoje.year} para o colaborador "
-                  f"escolhido — não dá para provar o positivo sem dado real")
-            return 1
+            bloqueado(f"sem espelho apurado em {hoje.month:02d}/{hoje.year} para o colaborador "
+                      f"escolhido — não dá para provar o positivo sem dado real")
         no_banco = str(esp["horas_trabalhadas"])          # ex.: "83:55"
 
         out = await run_engine(

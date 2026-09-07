@@ -7,7 +7,12 @@ humano** — que foi o que ele fez às 15:13:52 de 31/08.
 Por isso a parte 4 roda um TURNO DE VERDADE sobre a conversa real, com `notify_owner`
 interceptado. `gerar_resposta` não envia nada — ela devolve texto.
 """
-import asyncio, sys
+import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fixtures import bloqueado  # noqa: E402
 sys.path.insert(0, "/app")
 import main_production  # noqa: F401
 
@@ -74,6 +79,22 @@ async def main():
         texto = await A.gerar_resposta(86)
     finally:
         _orq.notify_owner = orig
+
+    if True:  # sempre: no 402 o agente devolve um texto de FALLBACK, não vazio (medido 06/09)
+        # O agente engole a exceção do provedor e responde com frase de contorno; o que
+        # denuncia é o registro em `llm_usage`. Sem saldo/cota no provedor a pergunta deste oráculo não tem resposta
+        # hoje — é BLOQUEADO, não vermelho (06/09/2026: dias seguidos de "Insufficient
+        # Balance" contados como defeito do José Luís).
+        from sqlalchemy import text
+
+        from core.database import async_session_factory
+        from modules.ai.conversation.services.llm_credit_alert import _e_erro_de_credito
+        async with async_session_factory() as db:
+            erro = (await db.execute(text(
+                "SELECT erro FROM llm_usage WHERE ok = false AND criado_em > now() - "
+                "interval '3 minutes' ORDER BY criado_em DESC LIMIT 1"))).scalar()
+        if erro and _e_erro_de_credito(erro):
+            bloqueado(f"provedor de LLM sem crédito: {erro[:90]}")
 
     print("     RESPOSTA GERADA:\n     " + str(texto or "«nada»")[:400].replace("\n", "\n     "))
     baixo = (texto or "").lower()

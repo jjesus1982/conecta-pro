@@ -137,8 +137,10 @@ async def main() -> int:
         alvo = sys.argv[sys.argv.index("--um") + 1]
 
     fila = []
-    for f in sorted(ORQ.glob("*.py")):
-        if f.name.startswith("_") or (alvo and f.name != alvo):
+    # Só `test_*.py` — mesma fila da varredura. Importadores e semeadores da pasta
+    # (`importar_*`, `semear_*`) escrevem de propósito e exigem `--gravar`: não são oráculos.
+    for f in sorted(ORQ.glob("test_*.py")):
+        if alvo and f.name != alvo:
             continue
         txt = f.read_text(errors="replace")
         tabs = _tabelas(txt) or TABELAS_DECLARADAS.get(f.name, [])
