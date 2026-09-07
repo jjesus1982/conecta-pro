@@ -32,9 +32,15 @@ TIPOS_DOCUMENTO = {
     r"atestado.*medico|medical.*certificate": "atestado_medico",
     r"epi|equipamento.*protecao": "ficha_epi",
     # Certidões
-    r"cnd|certidao.*negativa.*debito": "cnd_federal",
-    r"crf.*fgts|regularidade.*fgts": "crf_fgts",
-    r"certidao.*trabalhista": "certidao_trabalhista",
+    # Ordem importa: o genérico "cnd" ficava ANTES dos específicos e "CND-FGTS-05-09-2026.pdf"
+    # virava cnd_federal (medido 07/09/2026). Específicos primeiro, federal por último.
+    r"crf.*fgts|regularidade.*fgts|cnd.*fgts|fgts.*(cnd|crf|certid)": "crf_fgts",
+    r"cndt|certidao.*trabalhista|cnd.*trabalhista|debitos.*trabalhistas|tst": "certidao_trabalhista",
+    r"cnd.*municipal|certidao.*municipal|prefeitura|cnd.*manaus": "cnd_municipal",
+    r"cnd.*estadual|certidao.*estadual|sefaz": "cnd_estadual",
+    r"cnd.*(inss|previdenc)|certidao.*previdenc": "cnd_inss",
+    r"falenc|recuperacao.*judicial|concordata": "certidao_falencia",
+    r"cnd|certidao.*negativa.*debito|receita.*federal|rfb|pgfn": "cnd_federal",
     r"alvara.*funcionamento": "alvara_funcionamento",
     # Fiscal
     r"nota.*fiscal|nfs?-?e|nfse": "nota_fiscal",
@@ -57,6 +63,10 @@ _CATEGORIAS: dict[str, str] = {
     "cnd_federal": "certidoes",
     "crf_fgts": "certidoes",
     "certidao_trabalhista": "certidoes",
+    "cnd_municipal": "certidoes",
+    "cnd_estadual": "certidoes",
+    "cnd_inss": "certidoes",
+    "certidao_falencia": "certidoes",
     "alvara_funcionamento": "certidoes",
     "nota_fiscal": "fiscal",
     "boleto": "fiscal",
@@ -67,6 +77,10 @@ _CATEGORIAS: dict[str, str] = {
 _REUTILIZAVEIS: dict[str, bool] = {
     "cnd_federal": True,
     "crf_fgts": False,  # validade mensal
+    "cnd_municipal": True,
+    "cnd_estadual": True,
+    "cnd_inss": True,
+    "certidao_falencia": True,
     "certidao_trabalhista": True,
     "alvara_funcionamento": True,
     "holerite": False,
@@ -158,7 +172,9 @@ class Hermes:
         Classificar documento automaticamente.
         Retorna tipo, categoria e metadados detectados.
         """
-        texto = (nome_arquivo + " " + conteudo_preview).lower()
+        # Sem acento: "Certidão Negativa de Débitos Trabalhistas.pdf" caía em "outros" (07/09/2026).
+        import unicodedata as _ud
+        texto = _ud.normalize("NFKD", nome_arquivo + " " + conteudo_preview).encode("ascii", "ignore").decode().lower()
         texto = re.sub(r"[_\-.]", " ", texto)
 
         for pattern, tipo in TIPOS_DOCUMENTO.items():
