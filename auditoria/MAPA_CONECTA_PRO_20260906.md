@@ -562,6 +562,45 @@ Jordan for fazer o login pelo noVNC.
 - Kits de agosto (pasta "Setembro"): certidões + 12 notas; folha, VT e guias ainda por subir (montagem automática dia 28).
   Commits `44e7bd6d4`, `ac5345ac4`, `ec240c74e`, `26ccb5f90`, `fef61a2a1`.
 
+### 2c.17 GEDEON a fundo — seus seis agentes, o fluxo autônomo e o que estava quebrado (07/09, noite)
+
+**Estrutura (medida)**: 17 mil linhas em `modules/gedeon`; 6 agentes (Hermes documental, Kronos vencimentos, Themis
+assinaturas, Atlas aprendizado, Argos conformidade, Sophia busca semântica); 56 rotas; 15 tarefas no beat; fluxo por
+eventos em Redis Streams (12 streams, consumidor `conecta-pro` sem atraso — vivo). Não é "Hermes Agent" externo: Hermes é
+um dos seis, classificador/vinculador de documentos por regex.
+
+**Quebrado e consertado**
+- Hermes classificava "CND-FGTS-…" como CND federal (o genérico `cnd` vinha antes dos específicos) e perdia nomes com
+  acento ("Certidão Negativa de Débitos Trabalhistas" → "outros"). Regras reordenadas, sem acento, tipos novos
+  (FGTS, municipal, estadual, INSS, falência, trabalhista). 14 nomes reais testados, todos certos.
+- Kronos usava `docker exec psql` de dentro do container, 60 dias para tudo e todos os ASOs de todo mundo: 26 certidões
+  e 88 ASOs "em alerta" (há 53 ativos). Agora SQL direto, FGTS a 5 dias, demais a 30, só ASO vigente de ativo: 3
+  certidões e 25 ASOs — os mesmos números do DP. As versões async delegam às síncronas.
+- `gedeon.verificar_kits_completos` olhava o kit MATERIALIZADO a 100% (por documento fabricado) e mandou 195 "Kit
+  Completo" ao sino com o Drive em 20%. Agora usa a completude real do Drive; 15 kits, 0 a 100%, 0 avisos. E registra
+  no Atlas quando um kit do Drive fecha — Atlas dizia "0 kits registrados" porque só o Kit real o alimentava.
+- `kits/status` dizia "12 prontos" pelo score padrão 100 do contexto por eventos. Agora lê o Drive (cache): 2 prontos,
+  10 críticos — a verdade. `/kits/completude` tinha cache em memória por worker (20 s em cada worker frio); cache Redis
+  compartilhado com a tela Documentos: 0,02 s.
+- `ged.auto_collect_documents` (dia 21) abortava a transação num cliente de CND e o log de coleta explodia: rollback.
+- Hermes mensal rodava dia 1 para o MÊS CORRENTE (sem pacote ainda) e 447 de 626 documentos Onvio não têm mês no nome
+  (nunca vinculavam). Agora processa a competência anterior e usa a data de recepção como fallback. **Mas** os 49
+  candidatos de agosto estão todos como "outros" no classificador do Onvio — vinculação continua em zero até esse
+  classificador aprender os nomes reais ("Prorrogação Contrato Experiência", "Declaração Deslocamento VT"…). Fica.
+
+**O que é desenho, não bug (para você saber)**
+- Themis conta como "pendente" todo documento não assinado do kit (2.920) e avisa ~36 pessoas por dia (29/08, 01/09,
+  04/09) por e-mail + notificação no portal. Em 30 dias: 231 notificações no portal, **1 lida**. Os colaboradores não
+  entram no portal; a assinatura (372 assinados) acontece por outro caminho. Vale decidir se o aviso continua.
+- Contexto por eventos (dashboard "1 cliente"): só recebe eventos de folha/holerite/NFS-e/ponto, que quase não
+  disparam para os condomínios; o trabalho real passa pelo Drive/Onvio. `gedeon/dashboard` segue lendo esse contexto;
+  `kits/status` já lê o Drive.
+- Sophia: 857 documentos indexados, embeddings OpenAI, busca respondendo. Argos: só pelo endpoint de conformidade.
+- Coleta automática mensal (dia 21) consulta CNDs direto nos portais do governo (sem Infosimples) para o CNPJ da
+  Eletrônica — inócua, mas fora da sua regra "certidões só da Patrimonial".
+
+Commits `c9776455c`, `3867691b6`, `62b8897c0` e o do Atlas. Bake das 00:00 torna definitivo.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
