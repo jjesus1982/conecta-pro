@@ -120,7 +120,8 @@ async def build(db, current_user=None) -> dict:
     async def _dash():
         comp = (await db.execute(text(
             f"SELECT reference_year, reference_month, net_salary FROM hr_payslips "
-            f"WHERE employee_id={me_lit} ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
+            f"WHERE employee_id={me_lit} AND payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
+            f"ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp and comp[1] else "—"
         meu_liq = brl(comp[2]) if comp and comp[2] is not None else "—"
         n_pay = await _scalar(db, f"SELECT count(*) FROM hr_payslips WHERE employee_id={me_lit}")

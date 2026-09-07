@@ -91,6 +91,7 @@ async def _folha_por_empresa(db: AsyncSession) -> dict[str, dict[str, Any]]:
                     "WHERE em.is_active IS TRUE "
                     "  AND (hp.reference_year, hp.reference_month) = ("
                     "       SELECT reference_year, reference_month FROM hr_payslips "
+                    "       WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
                     "       ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
                     "GROUP BY e.slug"
                 )

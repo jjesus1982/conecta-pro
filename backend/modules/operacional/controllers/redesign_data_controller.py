@@ -655,8 +655,9 @@ async def _build_dp(db: AsyncSession) -> dict:
         # folha real fechada — 07/2026, 102 holerites, R$ 165.612,95. Primeiro número que o
         # DP vê ao abrir o módulo; errado por um fator de cinco.
         _ULT_COMP = (
+            # sem 13º (payslip_code '13O-…' mora em 11/12 desde 03/08) e sem competência futura
             "SELECT reference_year, reference_month FROM hr_payslips "
-            "WHERE make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
+            "WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
             "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"
         )
         comp = (await db.execute(text(_ULT_COMP))).fetchone()
@@ -711,7 +712,7 @@ async def _build_dp(db: AsyncSession) -> dict:
         ["Colaborador", "Competência", "Salário base", "Líquido", "Status"], "2fr 1fr 1fr 1fr 0.9fr",
         "SELECT e.nome, p.reference_month, p.reference_year, p.base_salary, p.net_salary, p.status::text "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
-        "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "WHERE (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
         "ORDER BY e.nome LIMIT 300",
         lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(brl(r[3])), t(brl(r[4]), 600), b("Processada", "ok") if (r[5] or '').lower() in ("processed", "processada", "fechada", "paga") else b(r[5] or "—", "info")]))
     # Folha · Rubricas — breakdown de proventos/descontos por rubrica (unnest do JSON earnings/deductions da última competência)
@@ -721,12 +722,12 @@ async def _build_dp(db: AsyncSession) -> dict:
         "SELECT e.nome, p.reference_month, p.reference_year, elem->>'description', 'Provento', (elem->>'value')::numeric "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
         "CROSS JOIN LATERAL jsonb_array_elements(p.earnings::jsonb) elem "
-        "WHERE p.earnings IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "WHERE p.earnings IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
         "UNION ALL "
         "SELECT e.nome, p.reference_month, p.reference_year, elem->>'description', 'Desconto', (elem->>'value')::numeric "
         "FROM hr_payslips p LEFT JOIN employees e ON e.id=p.employee_id "
         "CROSS JOIN LATERAL jsonb_array_elements(p.deductions::jsonb) elem "
-        "WHERE p.deductions IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
+        "WHERE p.deductions IS NOT NULL AND (p.reference_year,p.reference_month)=(SELECT reference_year,reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1) "
         "ORDER BY 1, 5 DESC LIMIT 400",
         lambda r: [t(r[0] or '—', 600, "#0F1B3A", initials(r[0] or '')), t(f"{(r[1] or 0):02d}/{r[2] or ''}"), t(r[3] or '—'),
                    b(r[4], "ok" if r[4] == "Provento" else "bad"), t(brl(r[5]) if r[5] is not None else '—', 600)]))
@@ -2039,7 +2040,7 @@ async def _build_relatorios(db: AsyncSession) -> dict:
                     {"title": "Comercial", "sub": "Funil e vendas", "badge": "Ativo", **S["info"], "hasStats": True,
                      "stats": [{"v": str(leads), "l": "Leads"}, {"v": str(prop), "l": "Propostas"}, {"v": str(contr), "l": "Contratos"}]},
                     {"title": "Departamento Pessoal", "sub": "Folha e benefícios", "badge": "Ativo", **S["ok"], "hasStats": True,
-                     "stats": [{"v": str(holerites), "l": "Holerites"}, {"v": brl(await sc("SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")), "l": "Folha líq."}]},
+                     "stats": [{"v": str(holerites), "l": "Holerites"}, {"v": brl(await sc("SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")), "l": "Folha líq."}]},
                 ]}
 
     await safe("central", _central())
@@ -2203,9 +2204,9 @@ async def _build_portal_funcionario(db: AsyncSession) -> dict:
     n_reemb = await _scalar(db, "SELECT count(*) FROM reimbursement_requests")
 
     async def _dash():
-        comp = (await db.execute(text("SELECT reference_year, reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
+        comp = (await db.execute(text("SELECT reference_year, reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).fetchone()
         comp_lbl = f"{comp[1]:02d}/{comp[0]}" if comp else "—"
-        liq = await _scalar(db, "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")
+        liq = await _scalar(db, "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE (reference_year,reference_month)=(SELECT reference_year,reference_month FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) ORDER BY reference_year DESC, reference_month DESC LIMIT 1)")
         fr = (await db.execute(text("SELECT coalesce(status::text,'—'), count(*) FROM hr_vacation_requests GROUP BY 1 ORDER BY 2 DESC LIMIT 5"))).fetchall()
         return {"title": "Início", "sub": "Portal do Funcionário — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",
                 "kpis": [

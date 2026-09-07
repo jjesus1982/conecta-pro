@@ -1595,6 +1595,7 @@ async def build(db, current_user=None) -> dict:
         from sqlalchemy import text as _sqltext
         _cmp = (await db.execute(_sqltext(
             "SELECT reference_month, reference_year FROM hr_payslips "
+            "WHERE payslip_code NOT LIKE '13O-%' AND make_date(reference_year, reference_month, 1) <= date_trunc('month', current_date) "
             "ORDER BY reference_year DESC, reference_month DESC LIMIT 1"))).first()
         if _cmp and out.get("folha"):
             _m, _a = int(_cmp[0]), int(_cmp[1])
