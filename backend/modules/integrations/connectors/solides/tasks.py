@@ -800,26 +800,38 @@ def sync_work_schedules_from_solides(self) -> dict:
                 elif "24" in sched_upper and "72" in sched_upper:
                     schedule_map[sid] = "24x72"
                 else:
-                    schedule_map[sid] = name[:30]
+                    # Não grava nome livre em escala_padrao: a coluna é um código lido pela
+                    # escala (12x36/44h/24x72). Nome desconhecido fica de fora e vai ao log.
+                    logger.info("[Solides] work-schedule %s (%s) sem código conhecido — ignorada", sid, name)
 
         # Buscar employees com solides_id e atualizar escala
         updated = 0
         with engine.connect() as conn:
             # Buscar employees com solides_id mapeado
             rows = conn.execute(
+                # solides_employees não tem employee_id nem extra_data (falhava todo dia com
+                # UndefinedColumn — visto no sino em 07/09/2026): o casamento é pelo solides_id
+                # que os dois lados guardam, e a escala vem de dados_adicionais.currentWorkSchedule.
                 sa_text(
-                    "SELECT e.id, se.extra_data "
+                    "SELECT e.id, se.dados_adicionais, e.escala_padrao "
                     "FROM employees e "
-                    "JOIN solides_employees se ON se.employee_id = e.id "
-                    "WHERE e.status = 'ativo'"
+                    "JOIN solides_employees se ON se.solides_id::text = e.solides_id::text "
+                    "WHERE e.status = 'ativo' AND e.solides_id IS NOT NULL"
                 )
             ).fetchall()
 
             for row in rows:
                 emp_id = row[0]
                 extra = row[1] or {}
-                sched_id = str(extra.get("workScheduleId", "") or extra.get("work_schedule_id", ""))
-                if sched_id and sched_id in schedule_map:
+                if isinstance(extra, str):
+                    import json as _json
+                    try:
+                        extra = _json.loads(extra)
+                    except ValueError:
+                        extra = {}
+                cws = extra.get("currentWorkSchedule") or {}
+                sched_id = str(cws.get("id", "") or extra.get("workScheduleId", "") or extra.get("work_schedule_id", ""))
+                if sched_id and sched_id in schedule_map and schedule_map[sched_id] != row[2]:
                     conn.execute(
                         sa_text("UPDATE employees SET escala_padrao = :e WHERE id = :id"),
                         {"e": schedule_map[sched_id], "id": emp_id},
