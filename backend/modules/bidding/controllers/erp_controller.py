@@ -176,6 +176,20 @@ async def gerar_fatura(
         )
 
 
+@router.post("/lead/{opportunity_id}", status_code=201)
+async def oportunidade_para_lead(
+    opportunity_id: UUID,
+    current_user: CurrentActiveUser,
+    db: Session = Depends(get_db),
+):
+    """Oportunidade de licitação → lead no funil do CRM (idempotente)."""
+    service = ERPIntegrationService(db)
+    try:
+        return await service.oportunidade_para_lead(opportunity_id=opportunity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 @router.post("/crm/{contract_id}", status_code=201)
 async def contrato_para_crm(
     contract_id: UUID,

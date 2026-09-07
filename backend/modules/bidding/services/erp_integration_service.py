@@ -9,7 +9,9 @@ Gera NFS-e via integracao com modulo fiscal.
 """
 
 import contextlib
+import json
 import logging
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -932,103 +934,106 @@ class ERPIntegrationService:
     # ------------------------------------------------------------------ #
 
     async def contrato_para_crm(self, contract_id: UUID) -> dict:
+        """Contrato público → CRM/Financeiro: o órgão vira CLIENTE (`clients`) e o contrato
+        público vira CONTRATO (`contracts`, status active) — a mesma fonte que gera as cobranças
+        mensais (`receivable_accounts.origem='contrato'`) e o MRR.
+
+        Reescrito em 07/09/2026: a versão anterior importava `modules.comercial.crm.services.
+        ClientService` com `buscar_por_cnpj`/`criar_cliente`, um serviço que NUNCA existiu —
+        "Vincular ao CRM" respondia "pendente_integracao" para sempre. Idempotente: cliente
+        casa por CNPJ (só dígitos), contrato por `contract_number` = número do contrato público.
         """
-        Contrato Publico -> Modulo CRM (Comercial).
+        from sqlalchemy import text as _t
 
-        Cria ou vincula um registro de cliente no CRM a partir dos dados
-        do orgao contratante do contrato publico.
-
-        Args:
-            contract_id: ID do contrato publico.
-
-        Returns:
-            dict com status da integracao e dados do cliente CRM.
-
-        Raises:
-            ValueError: Se contrato nao encontrado.
-        """
         contract = await self._get_contract(contract_id)
+        cnpj = re.sub(r"\D", "", contract.orgao_cnpj or "")
+        if not cnpj:
+            raise ValueError(f"Contrato {contract.numero_contrato} sem CNPJ do órgão — não dá para vincular")
+        numero = f"{contract.numero_contrato}"
 
-        try:
-            from modules.comercial.crm.services import ClientService
+        row = (await self.db.execute(_t(
+            "SELECT id::text, name FROM clients WHERE regexp_replace(coalesce(document_number,''), '\\D', '', 'g') = :c "
+            "ORDER BY created_at LIMIT 1"), {"c": cnpj})).first()
+        status_cli = "vinculado"
+        if row:
+            cliente_id, cliente_nome = row[0], row[1]
+        else:
+            status_cli = "criado"
+            cliente_id = str((await self.db.execute(_t(
+                "INSERT INTO clients (id, code, name, document_type, document_number, client_type, status, email, "
+                " ativo, plus_enabled, guardian_enabled, address_state, crm_origin, notes, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), "
+                "  'CLI-' || to_char(now(), 'YYYY') || '-' || lpad((SELECT count(*) + 1 FROM clients)::text, 5, '0'), "
+                "  :nome, 'cnpj', :doc, 'government', 'active', '', true, false, false, :uf, 'licitacao', :obs, now(), now()) "
+                "RETURNING id"),
+                {"nome": (contract.orgao_nome or "Órgão público")[:200], "doc": cnpj, "uf": (contract.orgao_uf or None),
+                 "obs": f"Cliente criado a partir do contrato público {numero} (licitação)"})).scalar())
+            cliente_nome = contract.orgao_nome
 
-            client_service = ClientService(self.db)
+        ctr = (await self.db.execute(_t(
+            "SELECT id::text FROM contracts WHERE contract_number = :n LIMIT 1"), {"n": numero})).scalar()
+        status_ctr = "vinculado"
+        if not ctr:
+            status_ctr = "criado"
+            prazo = int(contract.prazo_meses or 0) or 12
+            total = float(contract.valor_contrato or 0)
+            empresa = (await self.db.execute(_t(
+                "SELECT id::text FROM empresas WHERE is_principal LIMIT 1"))).scalar()
+            ctr = str((await self.db.execute(_t(
+                "INSERT INTO contracts (id, client_id, contract_number, name, description, contract_type, status, "
+                " monthly_value, total_value, start_date, end_date, tipo_servico, empresa_id, is_active, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), CAST(:cli AS uuid), :n, :nome, :desc, 'recurring', 'active', "
+                "  :mensal, :total, :ini, :fim, 'licitacao', CAST(:emp AS uuid), true, now(), now()) RETURNING id"),
+                {"cli": cliente_id, "n": numero,
+                 "nome": (contract.objeto_resumido or contract.objeto or f"Contrato público {numero}")[:200],
+                 "desc": (f"Contrato público {numero} · {contract.orgao_nome} · PNCP {contract.pncp_id or '—'}")[:500],
+                 "mensal": round(total / prazo, 2), "total": total,
+                 "ini": contract.data_vigencia_inicio or contract.data_assinatura or date.today(),
+                 "fim": contract.data_vigencia_fim, "emp": empresa})).scalar())
+        await self.db.commit()
+        logger.info("CRM: contrato público %s → cliente %s (%s), contrato %s (%s)",
+                    numero, cliente_id, status_cli, ctr, status_ctr)
+        return {
+            "status": "criado" if "criado" in (status_cli, status_ctr) else "vinculado",
+            "cliente_id": cliente_id, "cliente_nome": cliente_nome, "cliente": status_cli,
+            "contrato_crm_id": ctr, "contrato_crm": status_ctr,
+            "contrato_id": str(contract.id), "numero_contrato": f"{contract.numero_contrato}/{contract.ano_contrato}",
+            "mensagem": (f"Órgão {status_cli} como cliente e contrato {status_ctr} no comercial/financeiro — "
+                         "a cobrança mensal passa a nascer daqui."),
+        }
 
-            # Tenta encontrar cliente existente pelo CNPJ do orgao
-            cliente_existente = None
-            if contract.orgao_cnpj:
-                cliente_existente = await client_service.buscar_por_cnpj(contract.orgao_cnpj)
+    async def oportunidade_para_lead(self, opportunity_id: UUID) -> dict:
+        """Oportunidade de licitação → LEAD no funil do CRM (`leads`, source='licitacao').
+        Idempotente por `custom_fields.bidding_opportunity_id`. Não cria cliente: lead é intenção,
+        cliente é contrato assinado (`contrato_para_crm`)."""
+        from sqlalchemy import text as _t
 
-            if cliente_existente:
-                logger.info(
-                    "CRM: cliente existente encontrado para orgao %s (CNPJ %s): %s",
-                    contract.orgao_nome,
-                    contract.orgao_cnpj,
-                    cliente_existente.id,
-                )
-                return {
-                    "status": "vinculado",
-                    "cliente_id": str(cliente_existente.id),
-                    "cliente_nome": getattr(cliente_existente, "nome", None)
-                    or getattr(cliente_existente, "razao_social", None),
-                    "contrato_id": str(contract.id),
-                    "numero_contrato": f"{contract.numero_contrato}/{contract.ano_contrato}",
-                    "mensagem": "Cliente CRM existente vinculado ao contrato.",
-                }
-
-            # Cria novo cliente a partir dos dados do orgao
-            novo_cliente = await client_service.criar_cliente(
-                {
-                    "razao_social": contract.orgao_nome,
-                    "cnpj": contract.orgao_cnpj,
-                    "uf": contract.orgao_uf,
-                    "tipo": "orgao_publico",
-                    "origem": "licitacao",
-                    "observacoes": (
-                        f"Cliente criado automaticamente a partir do contrato "
-                        f"{contract.numero_contrato}/{contract.ano_contrato} (licitacao)"
-                    ),
-                }
-            )
-
-            await self.db.commit()
-
-            logger.info(
-                "CRM: novo cliente criado para orgao %s (CNPJ %s): %s",
-                contract.orgao_nome,
-                contract.orgao_cnpj,
-                novo_cliente.id,
-            )
-
-            return {
-                "status": "criado",
-                "cliente_id": str(novo_cliente.id),
-                "cliente_nome": contract.orgao_nome,
-                "contrato_id": str(contract.id),
-                "numero_contrato": f"{contract.numero_contrato}/{contract.ano_contrato}",
-                "mensagem": "Novo cliente CRM criado e vinculado ao contrato.",
-            }
-
-        except ImportError as e:
-            logger.warning("CRM integration not available (module not found): %s", e)
-            return {
-                "status": "pendente_integracao",
-                "contrato_id": str(contract.id),
-                "numero_contrato": f"{contract.numero_contrato}/{contract.ano_contrato}",
-                "orgao_nome": contract.orgao_nome,
-                "orgao_cnpj": contract.orgao_cnpj,
-                "mensagem": f"Modulo CRM nao disponivel: {e}",
-            }
-        except Exception as e:
-            logger.warning("CRM integration failed for contract %s: %s", contract_id, e)
-            return {
-                "status": "pendente_integracao",
-                "contrato_id": str(contract.id),
-                "numero_contrato": f"{contract.numero_contrato}/{contract.ano_contrato}",
-                "orgao_nome": contract.orgao_nome,
-                "orgao_cnpj": contract.orgao_cnpj,
-                "mensagem": f"Falha na integracao CRM: {e}",
-            }
+        opp = (await self.db.execute(_t(
+            "SELECT id::text, orgao_nome, orgao_cnpj, objeto, valor_estimado, uf, municipio, portal, url_edital, status "
+            "FROM bidding_opportunities WHERE id = :i"), {"i": str(opportunity_id)})).mappings().first()
+        if not opp:
+            raise ValueError(f"Oportunidade {opportunity_id} não encontrada")
+        ja = (await self.db.execute(_t(
+            "SELECT id::text FROM leads WHERE custom_fields->>'bidding_opportunity_id' = :i AND is_active LIMIT 1"),
+            {"i": opp["id"]})).scalar()
+        if ja:
+            return {"status": "vinculado", "lead_id": ja, "oportunidade_id": opp["id"],
+                    "mensagem": "Esta oportunidade já está no funil do CRM."}
+        lead_id = str((await self.db.execute(_t(
+            "INSERT INTO leads (id, name, company, source, status, score, probability, expected_value, notes, "
+            " custom_fields, is_active, created_at, updated_at) "
+            "VALUES (gen_random_uuid(), :nome, :empresa, 'licitacao', 'new', 0, 0, :valor, :notas, "
+            "  CAST(:cf AS jsonb), true, now(), now()) RETURNING id"),
+            {"nome": (opp["orgao_nome"] or "Órgão público")[:200], "empresa": (opp["orgao_nome"] or "")[:200],
+             "valor": float(opp["valor_estimado"] or 0),
+             "notas": (f"Licitação ({opp['portal'] or 'portal'}) · {opp['objeto'] or ''} · {opp['municipio'] or ''}/{opp['uf'] or ''} · "
+                       f"{opp['url_edital'] or ''}")[:2000],
+             "cf": json.dumps({"bidding_opportunity_id": opp["id"], "orgao_cnpj": opp["orgao_cnpj"],
+                               "status_licitacao": opp["status"]})})).scalar())
+        await self.db.commit()
+        logger.info("CRM: oportunidade %s → lead %s", opp["id"], lead_id)
+        return {"status": "criado", "lead_id": lead_id, "oportunidade_id": opp["id"],
+                "mensagem": "Oportunidade entrou no funil do CRM como lead (fonte: licitação)."}
 
     async def _get_contract(self, contract_id: UUID) -> PublicContract:
         """Busca contrato publico por ID. Raises ValueError se nao encontrado."""

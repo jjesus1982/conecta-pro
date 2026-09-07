@@ -205,6 +205,26 @@ async def build(db) -> dict:
         "fields": [],
     }
 
+    # ── Oportunidades → funil do CRM (07/09/2026) ─────────────────────────────────
+    # Sobrescreve a aba base: mesma consulta + coluna "CRM" (lead já criado?) + ação que chama
+    # /bidding/erp/lead/{id} (idempotente). Lead é intenção; cliente é contrato assinado.
+    await safe("oportunidades", tbl(
+        "Oportunidades", "Licitações captadas · cada uma pode virar lead no funil do CRM", "Atualizar",
+        ["Objeto", "Órgão", "UF", "Valor estimado", "Encerra", "Status", "CRM"], "2fr 1.5fr 0.5fr 1fr 0.9fr 0.8fr 0.7fr",
+        "SELECT o.id, o.objeto, coalesce(o.orgao_nome,'—'), coalesce(o.uf,'—'), o.valor_estimado, o.data_encerramento, "
+        "coalesce(o.status,'—'), (SELECT count(*) FROM leads l WHERE l.custom_fields->>'bidding_opportunity_id' = o.id::text AND l.is_active) "
+        "FROM bidding_opportunities o ORDER BY o.data_encerramento DESC NULLS LAST LIMIT 200",
+        lambda r: [t((r[1] or '—')[:80], 600, _ND), t((r[2] or '—')[:40]), t(r[3]),
+                   t(brl(r[4]) if r[4] is not None else '—'), t(_d(r[5])), b((r[6] or '—').capitalize(), "info"),
+                   b("no funil" if (r[7] or 0) else "—", "ok" if (r[7] or 0) else "mut")],
+        actionsfn=lambda r: [
+            {"title": f"Levar ao funil do CRM: {(r[2] or '')[:40]}",
+             "sub": "Cria um lead (fonte: licitação) para este órgão/objeto. Já existe? Não duplica.",
+             "endpoint": f"/api/v1/bidding/erp/lead/{r[0]}",
+             "method": "POST", "btnLabel": "Virar lead", "submitLabel": "Criar lead no CRM",
+             "btnStyle": "outline", "okMsg": "Lead criado no CRM. Recarregue.", "fields": []},
+        ]))
+
     # ── Contratos publicos e medicoes (2026-08-10) ─────────────────────────────────
     # As 4 rotas /bidding/erp/* levam {contract_id} ou {medicao_id} no CAMINHO. Aqui elas
     # cabem: o id vem da LINHA. Como tela solta, exigiriam colar UUID a mao.
