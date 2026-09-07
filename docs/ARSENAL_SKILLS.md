@@ -6,7 +6,7 @@
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **21 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **25 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -31,7 +31,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 21 travas (código, não skill)
+## 2. As 25 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 (Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
@@ -52,6 +52,10 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_periodo_do_servidor.py` | competência/data vinda do **modelo** e não do servidor — *o agente chutou 7/2025 e disse a um porteiro com 91 batidas que ele não tinha ponto* | `backend/scripts/qa` |
 | `checar_sucesso_vazio.py` | motor responde **200 sem frase** — *11 de 59 perguntas ao chat morriam em "(sem resposta)" com `ok=True`* | `backend/scripts/qa` |
 | `checar_uso_real.py` | **quem usa** — última escrita por família de tabela, requisições por rota, tabela nascida morta — *463 de 686 tabelas sem uma linha; nascer morto nunca acusou* | `backend/scripts/qa` |
+| `checar_sino_surdo.py` | origem do sino **que ninguém abre** — *5.387 avisos em 30 dias, o dono abriu 19; 8 origens surdas* | `backend/scripts/qa` |
+| `checar_registros_servidor.py` | registro **vazio ou encolhido** no processo que SERVE (rotas, tools, executores pela guarda, regras, beats, builders) — *executores 0 no backend, 8/8 verdes no teste* | `backend/scripts/qa` |
+| `checar_nao_vigiado.py` | tela do redesign que **nenhum oráculo nem regra cita** — *o Balanço exibiu PL de +R$ 2,02 mi por meses sem vigia* | `backend/scripts/qa` |
+| `checar_irreversivel.py` | registro **criado depois do disparo** externo (AST) — *a cotação de 31/08 saía por WhatsApp antes de existir* | `backend/scripts/qa` |
 | `checar_varchar_teto.py` | `varchar(N)` com valor **encostado no teto** e comprimentos variados — *um varchar(20) passou meses porque o nome tinha exatamente 20* | `backend/scripts/qa` |
 | `fechado_bartolo.py` · `fechado_contratos.py` · `fechado_fiscal.py` · `fechado_gedeon.py` · `fechado_operacional.py` | critério de aceite **executável** por módulo: ✅/❌ por condição, exit code decide — *"fechado" vinha sendo afirmado em prosa*. Semanais desde 06/09: **existiam desde agosto e nenhum caminho os invocava** | `backend/scripts/qa` |
 | `varredura_op_acoes.py` | tela/ação do operacional que **existe e não tem como funcionar** (rota morta, sem tela, sem fila) — *3 achados tropeçados um a um no T4* | `backend/scripts/qa` |
@@ -533,12 +537,15 @@ caminho: `checar_rotas_frontend` já responde "que superfície do frontend apont
 `checar_uso_real` (06/09) responde a metade "quem de fato usa" — o cruzamento com os oráculos
 continua por fazer.
 
-**Uso real por PESSOA.** `checar_uso_real` vê escrita por tabela e requisição por rota; não vê
-QUEM. O critério de pronto da missão ("o Jordan usou num caso real") ainda se prova à mão.
+**Uso real por PESSOA, nas leituras.** `checar_uso_real` vê escrita autenticada por rota e
+por pessoa (`crm_audit_log` grava todo POST/PUT/PATCH/DELETE com o `user_id` do JWT), mas
+leitura só aparece no nginx, sem usuário. "O Jordan abriu a tela" não é medível; "o Jordan
+gravou algo por esta rota" é.
 
-**Ação irreversível antes de gravar** (enviar WhatsApp e só depois inserir o registro). Regra
-da casa desde a cotação de 31/08; sem trava porque toda tentativa por forma (grep) erra nos
-dois sentidos — precisa de desenho por comportamento, e ainda não há.
+**Ação irreversível antes de gravar** tem trava desde 06/09 (`checar_irreversivel`, por AST,
+só criação). Ela é forma, e forma erra: os 6 primeiros achados eram `UPDATE enviado=true`
+depois do envio — a ordem certa — e foram conferidos um a um antes da base. Envio por
+`httpx.post` a host externo continua fora dela.
 
 **Descoberta.** O T1 fechou meio financeiro sem saber que as travas existiam — *"não usei
 nenhuma das três: não sabia que existiam"*. Arsenal que ninguém acha é arsenal que não

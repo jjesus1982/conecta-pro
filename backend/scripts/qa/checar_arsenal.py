@@ -131,6 +131,13 @@ def _falhas() -> list[str]:
                        f"(checar_/cacar_/fechado_/varredura_/provar_)")
             break
 
+    # ── 5c. descoberta: o CLAUDE.md (lido por toda sessão) aponta para a página operacional?
+    # "Arsenal que ninguém acha é arsenal que não existe" (§6). O T1 fechou meio financeiro
+    # sem saber que as travas existiam. O único texto que toda sessão lê é o CLAUDE.md.
+    claude_md = REPO / "CLAUDE.md"
+    if not claude_md.exists() or "docs/ARSENAL_OPERACAO.md" not in claude_md.read_text(encoding="utf-8"):
+        out.append("CLAUDE.md não aponta para docs/ARSENAL_OPERACAO.md — sessão nova não descobre o arsenal")
+
     # ── 6. contagem de oráculos ────────────────────────────────────────────────
     n_orq = len([p for p in ORQ.glob("*.py") if not p.name.startswith("_")])
     for m in re.finditer(r"(\d+)\s+or[áa]culos", doc):

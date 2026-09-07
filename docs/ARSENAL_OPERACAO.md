@@ -51,7 +51,10 @@ Três estados por oráculo, e nenhum se confunde com o outro:
 | `checar_repositorio.py` | host | `TOTAL: N` | chamada a método que o repositório não tem? |
 | `checar_rotas_frontend.py` | host | `TOTAL: N` | front chamando rota que o backend não tem? |
 | `checar_oraculo_externo.py` | host | `TOTAL: N` | número que ninguém de fora confirma? |
-| `checar_uso_real.py` | host (delega banco ao container) | `TOTAL: N tabela(s) com 0 linhas` | quem escreve, quem chama, e quando? tabela nascida morta? |
+| `checar_uso_real.py` | host (delega banco ao container) | `TOTAL: N tabela(s) com 0 linhas` | quem escreve, quem chama, e quando? tabela nascida morta? `--quem <email>` · `--mortas` mostra nascimento |
+| `checar_sino_surdo.py` | container | `TOTAL: N origem(ns) surda(s)` | origem do sino com volume e ninguém abre? |
+| `checar_nao_vigiado.py` | container (~5 min) | `TOTAL: N tela(s) sem vigia` | tela do redesign sem oráculo nem regra que a cite? |
+| `checar_irreversivel.py` | host | `TOTAL: N função(ões) que disparam antes de gravar` | registro criado depois do disparo externo? |
 
 Sem a linha canônica a rodada é **NÃO VERIFICADA**: acusa e a base não se move (foi assim que a
 base caiu a 0 em 23/08 e acusou "0 → 25" por dez noites).
@@ -59,7 +62,8 @@ base caiu a 0 em 23/08 e acusou "0 → 25" por dez noites).
 **Sim/não** (exit code decide; teto por trava): `checar_beats.py` (rotina agendada que não
 produz), `checar_periodo_do_servidor.py` (data vinda do modelo), `checar_desmonte_comportamento.py`
 (oráculo que deixa linha em produção — ~1h, só `test_*`), `checar_sucesso_vazio.py` (motor responde
-200 sem frase), `checar_arsenal.py` (este documento mentindo), `checar_mcp_tools.py` (peça de
+200 sem frase), `checar_registros_servidor.py` (registro vazio ou encolhido no processo do servidor;
+memória em `system_configs`, `--aceitar` para encolhimento deliberado), `checar_arsenal.py` (este documento mentindo), `checar_mcp_tools.py` (peça de
 parede fora do git ou da imagem).
 
 **Gates semanais** (condições ✅ entram na base; acusa quando o número cai): `fechado_bartolo.py`,

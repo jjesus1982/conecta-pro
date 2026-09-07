@@ -71,6 +71,12 @@ Compete com SAP/NetSuite/Salesforce com compliance brasileiro nativo.
 | 09 UX | 6.9/10 | 🔄 em correção |
 | 10 Docs | 5.2/10 | 🔄 este fix |
 
+## Arsenal de QA — leia antes de dizer "pronto"
+Uma página: `docs/ARSENAL_OPERACAO.md` (o que roda à 00:00, os três estados de um oráculo,
+os caçadores e suas linhas canônicas, comandos). As lições por trás: `docs/ARSENAL_SKILLS.md`.
+Instrumento do mapa VIVO · DESLIGADO · MORTO: `python3 backend/scripts/qa/checar_uso_real.py`.
+Trava nova entra em `backend/scripts/qa/checar_regressao.py` ou é declarada órfã com dono.
+
 ## Comandos Essenciais
 ```bash
 # Token de autenticação
