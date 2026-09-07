@@ -100,12 +100,27 @@ async def build(db) -> dict:
         _n = datetime.now()
         _m, _a = (_n.month - 1, _n.year) if _n.month > 1 else (12, _n.year - 1)
         comp = f"{_m:02d}.{_a}"
+        # A leitura do Drive custava 15 s A CADA abertura da tela (medido 07/09/2026: 195 leituras
+        # SSL na API do Google). O kit do mês anterior muda devagar; 15 min de cache no Redis
+        # bastam — e a chave leva a competência, então a virada do mês não lê cache velho.
         drive, erro = None, ""
+        _ck = f"redesign:documentos:drive:{comp}"
         try:
-            blocos = await asyncio.to_thread(_blocos_do_contrato)
-            drive = await asyncio.to_thread(_completude_drive, comp, blocos)
-        except Exception as exc:  # noqa: BLE001
-            erro = str(exc)[:70]
+            from core.cache.redis import cache_get, cache_set
+            drive = await cache_get(_ck)
+        except Exception:  # noqa: BLE001 — sem Redis, lê o Drive como antes
+            drive = None
+        if not isinstance(drive, dict):
+            drive = None
+            try:
+                blocos = await asyncio.to_thread(_blocos_do_contrato)
+                drive = await asyncio.to_thread(_completude_drive, comp, blocos)
+                try:
+                    await cache_set(_ck, drive, ttl=900)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception as exc:  # noqa: BLE001
+                erro = str(exc)[:70]
 
         acervo = {
             "title": "Acervo no banco (histórico)",
