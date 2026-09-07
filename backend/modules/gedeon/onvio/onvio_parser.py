@@ -196,6 +196,9 @@ def classificar_documento(nome: str, created_date: str | None = None) -> dict:
         (bool(re.search(r"\bCNPJ\b", u)) or "INSCRICAO MUNICIPAL" in u_nc, "empresa_docs"),
         (u.startswith("PROCESSO"), "processo_judicial"),
         (bool(re.search(r"^RG[_ ]", u)), "documento_pessoal"),
+        ("ANTECEDENTES" in u or bool(re.search(r"\bCNH\b", u)) or "COMPROVANTE DE RESIDENCIA" in u_nc, "documento_pessoal"),
+        ("CERTIFICADO" in u, "certificado_nr"),
+        ("COMPROVANTE DE PAGAMENTO" in u or "RECIBO DE ADESAO" in u_nc, "comprovante_pagamento"),
         # Genéricos por último
         ("CAMSCANNER" in u, "documento_digitalizado"),
         ("PORTAL" in u and "EMPREGADOR" in u, "portal_empregador"),
