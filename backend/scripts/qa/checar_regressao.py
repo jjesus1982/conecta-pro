@@ -58,6 +58,9 @@ CACADORES = {
     # Lê o TOTAL da linha "N pista(s) em …", não as linhas listadas: o caçador corta a lista
     # em 12 por família e escreve "(+8 não listadas)" — contar linhas dava 25 onde eram 37.
     "cacar_fabricacao.py": lambda s: _n(r"^(\d+) pista\(s\) em", s, "nenhuma assinatura de fabricação"),
+    # `__tablename__` sem tabela em schema nenhum (t6, 07/09/2026): o censo de uso real não vê
+    # esta família por construção. 58 na estreia (gov_* 29, email_* 6, campo_* 4, wa_* 4).
+    "checar_tabela_fantasma.py": lambda s: _n(r"fantasmas (\d+) \(", s, "fantasmas 0"),
     "checar_vocabulario.py": lambda s: _n(r"\((\d+) crítica\(s\)", s, "nenhuma divergência"),
     # varchar(N) com valor encostado no teto e comprimentos variados — o `varchar(20)` que
     # passou meses porque o nome tinha exatamente 20 (missão de 06/09/2026).
