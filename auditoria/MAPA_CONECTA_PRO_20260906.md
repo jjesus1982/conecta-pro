@@ -339,6 +339,22 @@ Jordan for fazer o login pelo noVNC.
   vira aviso no sino ("Tarefa agendada devolveu falha: …"), 1 por tarefa por dia. Provado com resultado falso.
 - Bake nº 4 disparado sozinho às 11:01 pelo agendador da janela sem WhatsApp.
 
+### 2c.10 Tarde de 07/09 — DP, quarentenas e o que fica no radar
+
+- **DP**: seis leitores de "última competência da folha" (Folha · Colaboradores, Rubricas, Início do portal, comparativo,
+  Meus holerites, limiar de caixa baixo) pegavam dezembro/2026 (parcela do 13º, R$ 30 mil) como folha atual. Todos
+  passam a ignorar `13O-…` e meses futuros: agosto, 54 holerites; limiar da Patrimonial R$ 109.058,51.
+- **Quarentena** (git rm, boot de prova servidor+celery OK): `modules/integrations/whatsapp` (4 modelos sem tabela,
+  controllers nunca montados, só re-exportado pelo agregador que ninguém importa) e `modules/integrations/email`
+  (6 modelos sem tabela, nenhuma rota; o envio real é `core.mailer`). Tabelas fantasmas: 58 → 48 no próximo bake.
+- **Fantasmas que ficam** (decisão pendente): `gov_*` 29 — a persistência inteira de governo declarada sem migration,
+  usada por serviços que nunca gravaram (o painel de status já não depende dela); `health_*` 4, `fgts_*` 3, `nfe/nfse/
+  nfse_lotes` (modelos antigos do fiscal), `inss_contribuicoes`, 2 do anti-procrastinação. 10 são entulho (classe nunca
+  usada fora do arquivo).
+- **Obrigações fiscais vencidas em aberto**: Eletrônica 17 (R$ 51.623,05 informados, 8 sem valor; maio–julho: FGTS, ISS,
+  IRRF, INSS, FGTS consignado) — a maioria no reparcelamento com a União; Patrimonial 2 (DAS 06 e 07, R$ 42.216,45).
+  Registro para o dono; sistema não paga nada sozinho.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
