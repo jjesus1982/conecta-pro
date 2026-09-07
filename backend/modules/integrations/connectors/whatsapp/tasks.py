@@ -12,7 +12,7 @@ import contextlib
 import logging
 import os
 import re
-from datetime import date
+from datetime import UTC, date, datetime
 
 from celery_app import app
 
@@ -724,7 +724,9 @@ async def _checar_saldo_llm(session):
     if nivel == "ok":
         # some o silenciador quando o saldo volta: a próxima queda avisa na hora
         with contextlib.suppress(Exception):
-            await (await get_redis()).delete("llm:saldo:avisado")
+            r = await get_redis()
+            await r.delete("llm:saldo:avisado")
+            await r.delete("llm:saldo:desde")
         return {"saldo": saldo, "nivel": "ok"}
 
     # ⚠️ Não repetir sem MUDANÇA de patamar. A frase de erro repetida 9× em 63 segundos
@@ -734,17 +736,33 @@ async def _checar_saldo_llm(session):
     if (await redis.get(chave)) == nivel:
         return {"saldo": saldo, "nivel": nivel, "silenciado": "mesmo patamar"}
 
+    # Crítico lembra a cada 3h SÓ no primeiro dia. Depois disso a informação é a mesma e o
+    # dono já a tem: de 03 a 07/09/2026 foram 29 avisos "US$ -0.02" — seis por dia, cinco
+    # dias — e um aviso que se repete deixa de ser lido. Do segundo dia em diante, um por dia.
+    chave_desde = "llm:saldo:desde"
+    desde = await redis.get(chave_desde)
+    if not desde:
+        desde = datetime.now(UTC).isoformat()
+        await redis.set(chave_desde, desde, ex=30 * 24 * 3600)
+    desde_s = desde.decode() if isinstance(desde, bytes) else str(desde)
+    try:
+        horas_no_patamar = (datetime.now(UTC) - datetime.fromisoformat(desde_s)).total_seconds() / 3600
+    except ValueError:
+        horas_no_patamar = 0.0
+
     media = await _gasto_medio_diario(session)
     dias = f"~{saldo / media:.0f} dia(s)" if media > 0 else "autonomia desconhecida"
     icone = "🔴" if nivel == "critico" else "⚠️"
-    await notify_owner(
-        f"{icone} *Saldo do José Luís: US$ {saldo:.2f}*\n\n"
-        f"Consumo médio: US$ {media:.2f}/dia → resta {dias}.\n\n"
-        "Quando zerar, ele para de responder e a mensagem vira "
-        '"estou com um problema técnico" — foi o que aconteceu hoje das 11:43 às 13:02.'
-    )
-    # janela por patamar: crítico volta a lembrar em 3h; atenção, uma vez por dia
-    await redis.set(chave, nivel, ex=(3 * 3600 if nivel == "critico" else 24 * 3600))
+    if saldo <= 0:
+        corpo = ("Zerou: o José Luís NÃO está respondendo aos clientes no WhatsApp (a mensagem deles "
+                 "vira \"estou com um problema técnico\"). Volta assim que houver crédito no provedor.")
+    else:
+        corpo = (f"Consumo médio: US$ {media:.2f}/dia → resta {dias}.\n\n"
+                 "Quando zerar, ele para de responder e a mensagem vira \"estou com um problema técnico\".")
+    await notify_owner(f"{icone} *Saldo do José Luís: US$ {saldo:.2f}*\n\n{corpo}")
+    # janela por patamar: crítico lembra em 3h no primeiro dia; depois, e no 'atenção', uma vez por dia
+    repete_em = 3 * 3600 if (nivel == "critico" and horas_no_patamar < 24) else 24 * 3600
+    await redis.set(chave, nivel, ex=repete_em)
     logger.warning("checar_saldo_llm: saldo US$ %.2f (%s) — dono avisado", saldo, nivel)
     return {"saldo": saldo, "nivel": nivel, "media_dia": media, "avisado": True}
 
