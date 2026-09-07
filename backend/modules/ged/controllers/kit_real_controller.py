@@ -821,6 +821,15 @@ async def _upsert_doc(db: AsyncSession, kit_id: str, doc_type: str, doc_name: st
 
 
 async def _add_nfse_to_kit(db: AsyncSession, kit_id: str, client_id: str, comp: date) -> int:
+    """DESLIGADO (dono, 07/09/2026): o kit leva o PDF ORIGINAL da nota (portal), nunca um
+    render do sistema. Esta função pegava TODAS as `nfses` do condomínio (tabela antiga, até
+    03/2026) sem olhar competência, renderizava "NFS-e Nº N" com timbrado do ERP e subia ao
+    kit — 20 notas velhas nos kits de julho, medido no Drive. Fica a assinatura; devolve 0."""
+    logger.info("kit real: nota NÃO é gerada pelo sistema (anexar o original do portal) — kit %s", kit_id)
+    return 0
+
+
+async def _add_nfse_to_kit_DESLIGADO(db: AsyncSession, kit_id: str, client_id: str, comp: date) -> int:
     """Adiciona NFS-e do cliente (meses jan e fev) ao kit."""
     from modules.ged.controllers.kit_pdf_controller import _gerar_nfse_pdf, _save_pdf
 
