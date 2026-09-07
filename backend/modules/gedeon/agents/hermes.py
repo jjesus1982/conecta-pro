@@ -115,6 +115,9 @@ MAPA_TIPOS_ONVIO_EMPRESA: dict[str, str] = {
     "empresa_docs": "outro",
     "inss_guia": "gps_inss",
     "dar_sefaz": "dar_sefaz",
+    "nfse": "nfse",
+    "nfe_danfe": "outro",
+    "processo_judicial": "outro",
 }
 
 # Mapa Onvio categoria → ged_kit_documents document_type — docs per-funcionário
@@ -125,6 +128,10 @@ MAPA_TIPOS_ONVIO_FUNCIONARIO: dict[str, str] = {
     "atestado": "aso",
     "folha_ponto": "folha_ponto",
     "escala_mes": "escala_mes",
+    # categorias que o classificador do Onvio passou a reconhecer em 07/09/2026
+    "comunicacao_transferencia": "comunicacao_transferencia",
+    "termo_salario_familia": "termo_salario_familia",
+    "advertencia": "advertencia",
 }
 
 # Categorias de comprovante de pagamento que devem ser buscadas no Banco Inter

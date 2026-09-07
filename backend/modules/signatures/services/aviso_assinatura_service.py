@@ -47,7 +47,7 @@ _TITULO_LEMBRETE = "Lembrete de assinatura enviado por e-mail"
 
 _SQL_PENDENTES = text(
     """
-    SELECT e.id::text AS eid, e.nome, e.email,
+    SELECT e.id::text AS eid, e.nome, e.email, coalesce(e.celular, e.telefone, '') AS fone,
            count(*) AS qtd,
            string_agg(DISTINCT r.document_type, ',') AS tipos,
            max(r.created_at) AS mais_recente
@@ -60,14 +60,16 @@ _SQL_PENDENTES = text(
        -- para arquivo sumido. Avisar sobre elas manda a pessoa bater numa porta fechada e
        -- ensina que o aviso não vale nada. O e-mail promete só o que o portal entrega.
        AND coalesce(r.document_path,'') <> ''
-       AND coalesce(e.email,'') <> ''
+       -- Dono, 07/09/2026: "podem receber pelo app ou pelo WhatsApp" — quem tem celular
+       -- também é avisado (231 notificações no portal em 30 dias, 1 lida).
+       AND (coalesce(e.email,'') <> '' OR coalesce(e.celular, e.telefone, '') <> '')
        AND lower(coalesce(e.status,'')) IN ('ativo','afastado_inss','suspenso')
        AND NOT EXISTS (
              SELECT 1 FROM portal_notifications n
               WHERE n.employee_id = e.id
                 AND n.title = :titulo_lembrete
                 AND n.created_at > now() - make_interval(days => :janela))
-     GROUP BY e.id, e.nome, e.email
+     GROUP BY e.id, e.nome, e.email, coalesce(e.celular, e.telefone, '')
      ORDER BY count(*) DESC
     """
 )
@@ -155,18 +157,83 @@ def avisar_pendentes(db, dry_run: bool = True, limite: int | None = None) -> dic
 
     cfg = _config_smtp()
     ctx = ssl.create_default_context()
+    server = None
     try:
         if cfg["ssl"]:
-            server: smtplib.SMTP = smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx)
+            server = smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx)
         else:
             server = smtplib.SMTP(cfg["host"], cfg["port"])
             server.starttls(context=ctx)
         if cfg["pass"]:
             server.login(cfg["user"], cfg["pass"])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — sem SMTP, o WhatsApp ainda sai
         logger.warning("aviso de assinatura: SMTP indisponível: %s", exc)
         rel["erro_smtp"] = str(exc)[:120]
-        return rel
+        server = None
+    rel["whatsapp"] = 0
+    try:
+        for r in linhas:
+            resumo = _lista_legivel(r["tipos"], r["qtd"])
+            canais: list[str] = []
+            if server and r["email"]:
+                try:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = "Você tem documento para assinar — Conecta Mais"
+                    msg["From"] = cfg["from"]
+                    msg["To"] = r["email"]
+                    msg.attach(MIMEText(_html(r["nome"], resumo), "html", "utf-8"))
+                    server.sendmail(cfg["user"], r["email"], msg.as_bytes())
+                    canais.append(f"e-mail {r['email']}")
+                except Exception as exc:  # noqa: BLE001 — um e-mail ruim não cala os outros
+                    logger.warning("aviso de assinatura (e-mail) para %s: %s", r["nome"], exc)
+            if r.get("fone"):
+                try:
+                    if enviar_whatsapp(r["fone"], mensagem_whatsapp(r["nome"], resumo)):
+                        canais.append(f"WhatsApp {r['fone']}")
+                        rel["whatsapp"] += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("aviso de assinatura (WhatsApp) para %s: %s", r["nome"], exc)
+            if not canais:
+                rel["falhas"] += 1
+                continue
+            # Registra o lembrete: é ele que segura o reenvio dentro da janela.
+            db.execute(_SQL_REGISTRA, {"eid": r["eid"], "titulo": _TITULO_LEMBRETE,
+                                       "msg": f"{' + '.join(canais)} — {resumo}"})
+            rel["enviados"] += 1
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:  # noqa: BLE001
+                pass
+    return rel
+
+
+def mensagem_whatsapp(nome: str, resumo: str) -> str:
+    primeiro = (nome or "").split()[0].title() if nome else ""
+    return (f"Olá, {primeiro}! Aqui é a Conecta Mais. Você tem {resumo} para assinar no portal do "
+            f"colaborador. Entre com seu CPF em {PORTAL_URL} e assine — leva um minuto. "
+            f"Se não conseguir entrar, responda aqui que a gente ajuda.")
+
+
+def enviar_whatsapp(fone: str, texto: str) -> bool:
+    """Manda pelo mesmo serviço do CRM (Chatwoot/Baileys). Síncrono: roda o coroutine num loop
+    próprio, numa thread, porque quem chama (a task do beat) não está num event loop."""
+    import asyncio
+    import concurrent.futures
+
+    from modules.integrations.connectors.whatsapp.service import send_text_message
+
+    def _run():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(send_text_message(fone, texto))
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        r = ex.submit(_run).result(timeout=60) or {}
+    return str(r.get("status", "")).lower() in ("sent", "ok", "success", "queued") or bool(r.get("id") or r.get("message_id"))
 
     try:
         for r in linhas:

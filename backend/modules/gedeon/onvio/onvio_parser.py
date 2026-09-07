@@ -92,7 +92,9 @@ def classificar_documento(nome: str, created_date: str | None = None) -> dict:
     """
     u = nome.upper()
     u_ns = u.replace(" ", "")  # sem espaços (para RESUMODEBITOS, etc.)
-    u_nc = u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A").replace("É", "E").replace("Ê", "E")
+    import unicodedata as _ud
+    # NFKD cobre TODOS os acentos ("SALÁRIO FAMÍLIA" tinha Í e Á que a lista à mão não tratava).
+    u_nc = _ud.normalize("NFKD", u).encode("ascii", "ignore").decode()
 
     mes_ref = extract_mes_ref(nome)
 
@@ -177,6 +179,23 @@ def classificar_documento(nome: str, created_date: str | None = None) -> dict:
         ),
         ("ALVARA" in u_nc or "ALVARÁ" in u, "alvara"),
         ("CND" in u or "CERTIDAO" in u_nc or "CERTIDÃO" in u, "certidao"),
+        # Nomes REAIS do pacote que caíam em 'outros' (447 de 626 em 07/09/2026; dono: "de acordo").
+        ("COMUNICACAO DE TRANSFERENCIA" in u_nc, "comunicacao_transferencia"),
+        ("RECIBO DE PAGAMENTO" in u, "recibo_folha"),
+        (bool(re.search(r"\bNFS-?E?\b|NOTA FISCAL", u)), "nfse"),
+        ("SITUACAO CADASTRAL" in u_nc, "empresa_docs"),
+        (bool(re.search(r"\bTRCT\b", u)), "rescisao"),
+        ("SALARIO FAMILIA" in u_nc, "termo_salario_familia"),
+        ("PRORROGACAO" in u_nc and "EXPERIENCIA" in u_nc, "contrato_trabalho"),
+        ("ADVERTENCIA" in u_nc, "advertencia"),
+        (bool(re.search(r"\bDANFE\b", u)), "nfe_danfe"),
+        ("PGDASD" in u or "GUIA DAS" in u or bool(re.search(r"\bDAS\b", u)), "das_simples_nacional"),
+        ("RESUMODEBITOS" in u_ns, "dctfweb_resumo_debitos"),
+        ("RESUMOCREDITOS" in u_ns, "dctfweb_resumo_creditos"),
+        ("DECLARACAOCOMPLETA" in u_ns, "dctfweb_declaracao"),
+        (bool(re.search(r"\bCNPJ\b", u)) or "INSCRICAO MUNICIPAL" in u_nc, "empresa_docs"),
+        (u.startswith("PROCESSO"), "processo_judicial"),
+        (bool(re.search(r"^RG[_ ]", u)), "documento_pessoal"),
         # Genéricos por último
         ("CAMSCANNER" in u, "documento_digitalizado"),
         ("PORTAL" in u and "EMPREGADOR" in u, "portal_empregador"),
