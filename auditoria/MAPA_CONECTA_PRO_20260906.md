@@ -656,6 +656,26 @@ Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc
   Operacional rodam: atrasos → sino (50 avisos/dia, 3 destinatários por atraso — é o desenho), cobertura diária, lembrete
   de turno.
 
+### 2c.19 Resumo do dia 07/09 — para ler amanhã de manhã
+
+**Números**: 143 commits; 57 oráculos verdes (varredura das 19h); 33 travas estáveis; bake das 13:36 e das 17:04 sem
+drift; o das 00:00 publica o que subiu depois (~70 arquivos, todos no git).
+
+**O que se prova sozinho amanhã (e onde olhar)**
+- 05:00 fecha o razão; 06:30 renova certidões (só Patrimonial); 08:00 "kit completo" olha o Drive; 08:10 Cora → 08:40
+  escrituração (a regra de caixa agora espera D-2, sem os dois toques falsos das 08:16/08:46).
+- 09:00 Themis avisa ~35 colaboradores por e-mail + WhatsApp (link do portal corrigido — /meu-espaco dava 404).
+- 09:10 espelho do eSocial volta a baixar (governo libera após o dia 7): os 157 "sem tipo" começam a ganhar tipo.
+- 11:00 regra "gerente sem check-in" — acusa quem não registrou chegada (hoje acusaria o Eliziel).
+- Lembrete de ponto por WhatsApp (05:45/06:00/06:10, 06:45…, 17:45…): primeiro dia real; conferir `ponto_lembrete_log`.
+- 15 min: regras proativas (337 → 305 estados abertos, sem esconder nada real).
+
+**Fica com você** (tudo já no seu WhatsApp ou no mapa): crédito do LLM; virar NFS-e do ERP para produção; primeira
+cobrança real pela Cora; boleto de teste de R$ 5 no Inter; ASOs (25 vencidos + 21 sem registro); Adailson (aviso prévio
+vencido, ativo); Keyson (processo por concluir); 11 férias sem decisão; escalas de agosto/setembro em rascunho; 219 leads
+sem contato; nota 32 da Ideal Flores no kit de agosto; RH com dados de demonstração; `celery-sefaz` (concurrency no
+compose); DET sem leitura desde 03/07.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
