@@ -496,6 +496,10 @@ Jordan for fazer o login pelo noVNC.
   janela de 30 dias nascia "vencendo" e ficava assim para sempre. FGTS passa a alertar a 5 dias (se chegar lá sem
   renovar, o robô falhou); a municipal da Eletrônica (vencida em 01/09 por sua escolha) sai da regra. Regra e oráculo
   lêem a mesma janela. Sobram 3: estadual (2) e Falência TJ-AM. Commits `3b24943ff`, `5c5e98e9d`.
+- **"Férias sem decisão" (13)**: dois são de gente que já saiu (Marta, demitida em 09/06; Raimundo, inativo desde
+  05/05) — 130 dias no quadro à toa; regra passa a olhar só ativos (commit abaixo). Os 11 restantes são reais e
+  antigos (a maioria com 130 dias): pedidos "submetidos" cujo período já passou — aprovar retroativo, rejeitar ou
+  cancelar é do RH. **Adailson** aparece duas vezes (dois pedidos).
 - **Prazos do DP** (35 vivos, confirmados no banco): **ASO — 25 dos 53 ativos com ASO vencido e 21 sem nenhum ASO
   registrado; só 7 válidos.** Ou os exames estão em dia fora do sistema (Portte/clínica) e falta registrar, ou é
   passivo de SST real — os dois pedem você. **ADAILSON SERRA ALVES**: ativo, aviso prévio de 30 dias contado de
