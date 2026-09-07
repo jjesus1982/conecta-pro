@@ -142,6 +142,7 @@ GATES = {
     "fechado_contratos.py": ("host", 1200),
     "fechado_fiscal.py": ("host", 1200),
     "fechado_gedeon.py": ("container", 1200),
+    "fechado_financeiro.py": ("container", 1500),
     "fechado_operacional.py": ("container", 1200),
     "varredura_op_acoes.py": ("container", 900),
 }
