@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import subprocess
 import sys
@@ -45,6 +46,9 @@ NGINX = Path("/var/log/nginx")
 _RE_LOG = re.compile(r'\[(\d{2}/\w{3}/\d{4}):[^\]]*\] "(?:GET|POST|PUT|PATCH|DELETE) /api/v1/([a-z0-9_-]+)')
 _IGNORAR_ROTAS = {"auth", "health", "notifications"}
 _COLS_DATA = ("created_at", "criado_em", "data_criacao", "updated_at", "atualizado_em")
+#: O critério de "pronto" da missão é "o Jordan usou". `--quem <email>` troca a pessoa.
+DONO = os.getenv("USO_REAL_DONO", "jjesus@conectamais.pro")
+ALEMBIC = Path("/opt/conecta-pro/backend/alembic/versions")
 
 
 def _familia(tabela: str) -> str:
@@ -66,7 +70,18 @@ async def _banco() -> list[dict]:
         datas: dict[str, list[str]] = defaultdict(list)
         for t, c in cols:
             datas[t].append(c)
-        out = []
+        # escritas AUTENTICADAS por rota (crm_audit_log: todo POST/PUT/PATCH/DELETE com user_id
+        # do JWT — é a única fonte que diz QUEM): por segmento, 30 dias, e a última do dono.
+        escritas = (await db.execute(text("""
+            SELECT split_part(path, '/', 4) AS seg, count(*) AS n, count(DISTINCT user_id) AS pessoas,
+                   max(ts)::date AS ultima,
+                   max(ts) FILTER (WHERE user_id::text IN (SELECT id::text FROM users WHERE email = :dono))::date AS ultima_dono
+            FROM crm_audit_log WHERE ts > now() - interval '30 days' AND path LIKE '/api/v1/%'
+            GROUP BY 1"""), {"dono": DONO})).all()
+        out = [{"_escritas": {r.seg: {"n": int(r.n), "pessoas": int(r.pessoas),
+                                     "ultima": r.ultima.isoformat() if r.ultima else None,
+                                     "ultima_dono": r.ultima_dono.isoformat() if r.ultima_dono else None}
+                              for r in escritas}}]
         for nome, vivas in tabelas:
             ultima = None
             if vivas and datas.get(nome):
@@ -112,7 +127,25 @@ def _dias(iso: str | None) -> str:
     return "—" if not iso else str(max(0, (date.today() - date.fromisoformat(iso)).days))
 
 
-def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_mortas: bool) -> int:
+def _nascimento() -> dict[str, str]:
+    """tabela -> data do commit que criou a migration mais antiga que a cita (host, git)."""
+    if not ALEMBIC.is_dir():
+        return {}
+    datas: dict[str, str] = {}
+    for arq in ALEMBIC.glob("*.py"):
+        r = subprocess.run(["git", "-C", "/opt/conecta-pro", "log", "--diff-filter=A", "--format=%as", "--", str(arq)],
+                           capture_output=True, text=True)
+        dia = (r.stdout.strip().splitlines() or [""])[-1]
+        if not dia:
+            continue
+        for nome in set(re.findall(r"""['"]([a-z][a-z0-9_]{3,})['"]""", arq.read_text(errors="replace"))):
+            if nome not in datas or dia < datas[nome]:
+                datas[nome] = dia
+    return datas
+
+
+def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_mortas: bool,
+              escritas: dict[str, dict] | None = None, dono: str = DONO) -> int:
     fam: dict[str, dict] = defaultdict(lambda: {"tab": 0, "com_dado": 0, "mortas": 0, "ultima": None})
     for t in tabelas:
         f = fam[_familia(t["tabela"])]
@@ -125,9 +158,11 @@ def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_
     hoje = date.today().isoformat()
 
     if so_mortas:
-        print(f"tabelas com 0 linhas — medido em {hoje}:")
+        nasc = _nascimento()
+        print(f"tabelas com 0 linhas — medido em {hoje} (nascimento = migration mais antiga que a cita; "
+              f"'sem migration' = criada por create_all/SQL solto):")
         for t in mortas:
-            print(f"   {t['tabela']}")
+            print(f"   {t['tabela']:<48} {nasc.get(t['tabela'], 'sem migration')}")
         print(f"\nTOTAL: {len(mortas)} tabela(s) com 0 linhas")
         return 1 if mortas else 0
 
@@ -144,6 +179,11 @@ def relatorio(tabelas: list[dict], rotas: dict[str, dict], por_tabela: bool, so_
             print("\nrotas com uso e sem família de tabela com o mesmo nome (prefixo ≠ tabela, normal):")
             for k in so_rota:
                 print(f"   /api/v1/{k:<24} {rotas[k]['req']:>6} req · última {rotas[k]['ultima']}")
+    if escritas:
+        print(f"\nescritas AUTENTICADAS por rota (crm_audit_log, 30 dias) · última de {dono}:")
+        print(f"   {'rota':<24}{'escritas':>9}{'pessoas':>9}  {'última':<12}{'última do dono':<14}")
+        for seg, e in sorted(escritas.items(), key=lambda kv: -kv[1]["n"]):
+            print(f"   /api/v1/{seg:<16}{e['n']:>9}{e['pessoas']:>9}  {e['ultima'] or '—':<12}{e['ultima_dono'] or '—':<14}")
     if por_tabela:
         print("\npor tabela (linhas · última escrita):")
         for t in tabelas:
@@ -162,17 +202,23 @@ def main() -> int:
             return 2
         print(json.dumps(asyncio.run(_banco())))
         return 0
+    if "--quem" in sys.argv:
+        global DONO
+        DONO = sys.argv[sys.argv.index("--quem") + 1]
     if not Path("/opt/conecta-pro").is_dir():
         print("RECUSO: roda no HOST (precisa do docker e do /var/log/nginx)")
         return 2
-    r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
-                        "python3", "/app/scripts/qa/checar_uso_real.py", "--banco"],
+    r = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "-e", f"USO_REAL_DONO={DONO}",
+                        "conecta-pro-backend", "python3", "/app/scripts/qa/checar_uso_real.py", "--banco"],
                        capture_output=True, text=True, timeout=900)
     linha = next((ln for ln in r.stdout.splitlines() if ln.startswith("[")), "")
     if not linha:
         print(f"RECUSO: o container não respondeu — {(r.stderr or r.stdout).strip()[-200:]}")
         return 2
-    return relatorio(json.loads(linha), _rotas(), "--tabelas" in sys.argv, "--mortas" in sys.argv)
+    dados = json.loads(linha)
+    escritas = dados[0]["_escritas"] if dados and "_escritas" in dados[0] else {}
+    tabelas = [d for d in dados if "tabela" in d]
+    return relatorio(tabelas, _rotas(), "--tabelas" in sys.argv, "--mortas" in sys.argv, escritas, DONO)
 
 
 if __name__ == "__main__":

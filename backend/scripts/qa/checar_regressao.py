@@ -62,6 +62,11 @@ CACADORES = {
     # varchar(N) com valor encostado no teto e comprimentos variados — o `varchar(20)` que
     # passou meses porque o nome tinha exatamente 20 (missão de 06/09/2026).
     "checar_varchar_teto.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna", s),
+    # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
+    "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
+    # Tela do redesign que nenhum oráculo nem regra proativa cita (o "mapa do não-vigiado").
+    # Pesado (constrói os 32 módulos): ~5 min.
+    "checar_nao_vigiado.py": lambda s: _n(r"^TOTAL:\s*(\d+) tela", s),
 }
 
 #: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o
@@ -85,6 +90,8 @@ CACADORES_HOST = {
     # Tabela com 0 linhas: 463 de 686 em 06/09/2026. Nascer morto nunca acusou nada — agora
     # tabela nova sem dado é regressão. Host porque cruza com o log do nginx.
     "checar_uso_real.py": lambda s: _n(r"^TOTAL:\s*(\d+) tabela", s),
+    # Registro criado DEPOIS do disparo externo (a cotação de 31/08). AST no host.
+    "checar_irreversivel.py": lambda s: _n(r"^TOTAL:\s*(\d+) fun", s),
 }
 
 
@@ -116,6 +123,9 @@ TRAVAS_BINARIAS = {
     # Motor responde 200 e não produz frase. Existia desde 24/08 e nenhum caminho a invocava —
     # a própria trava de órfãs acusou por dias e ninguém ligou (06/09/2026).
     "checar_sucesso_vazio.py": ("container", "o motor do chat devolve 200 sem frase", 300),
+    # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
+    # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
+    "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),
 }
 
 #: Critérios de aceite por módulo. Cada um imprime ✅/❌ por condição; o que entra na base é
