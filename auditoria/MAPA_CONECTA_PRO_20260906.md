@@ -304,8 +304,11 @@ Caminhos: (1) federal via e-CAC com o certificado A1 — o det-robot já faz o l
 Decisões do dono (07/09, manhã): **só a Patrimonial**; captcha pelo 2captcha (assinatura dele). **Nó de saída
 construído**: usuário `cndtunnel` (sem shell, só encaminhamento para 127.0.0.1:1080, chave restrita, drop-in no
 sshd), `cnd_watcher.sh` usa `socks5://127.0.0.1:1080` quando a porta existe; provado com Chromium saindo pelo
-túnel. Falta o PC do Jordan rodar `docs/no_saida_cnd/no_saida_cnd.bat` — e, com o túnel de pé, escrever e TESTAR o
-robô da Caixa (não existe) e reabrir o CNDT.
+túnel. Túnel de pé às 10:08 (saída 187.112.25.106): Caixa e TST respondem 200 por ele. **CNDT emitida de verdade**
+(`cnd_robo2.py`, nº 74869638/2026, válida até 06/03/2027) — Infosimples deixa de ser necessário para o CNDT.
+**Caixa**: muro Radware/ShieldSquare com hCaptcha; o 2captcha resolve, o widget aceita, mas o POST de validação
+devolve o muro (assinatura presa ao widget/fingerprint). Diagnosticado, não passa hoje — FGTS segue pelo
+Infosimples ou manual.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
