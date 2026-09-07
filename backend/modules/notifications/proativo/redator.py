@@ -79,8 +79,35 @@ def _valores(texto: str) -> set[Decimal]:
     return out
 
 
+#: Disjuntor. Medido em 06–07/09/2026: com o provedor sem crédito (402), este redator
+#: continuava chamando o LLM para CADA achado a cada 15 min — 34 chamadas por minuto,
+#: 30.800 por dia, todas falhando, quatro dias seguidos. Erro de crédito/cota/autenticação
+#: não muda de um achado para o outro: uma falha dessas desliga o LLM por uma hora (o
+#: template continua saindo) e uma chamada por hora reprova o disjuntor sozinha.
+_LLM_OFF_ATE: float = 0.0
+_DISJUNTOR_S = 3600
+
+
+def _llm_desligado() -> bool:
+    import time  # noqa: PLC0415
+    return time.monotonic() < _LLM_OFF_ATE
+
+
+def _desligar_llm(exc: BaseException) -> None:
+    global _LLM_OFF_ATE  # noqa: PLW0603
+    import time  # noqa: PLC0415
+    from modules.ai.conversation.services.llm_credit_alert import _e_erro_de_credito  # noqa: PLC0415
+    txt = str(exc)
+    if _e_erro_de_credito(txt) or "401" in txt or "Authentication" in txt:
+        _LLM_OFF_ATE = time.monotonic() + _DISJUNTOR_S
+        logger.warning("[proativo] redator: provedor de LLM sem crédito/autenticação — "
+                       "template por %d min (%s)", _DISJUNTOR_S // 60, txt[:80])
+
+
 async def redigir(regra, achado, *, gerar_fn=None):
     tpl_title, tpl_body = regra.template(achado.dados)
+    if gerar_fn is None and _llm_desligado():
+        return tpl_title, tpl_body
     # Severidade dinâmica: pendência das reviews T1/T2 — o achado pode carregar
     # uma severidade per-instância (ex. vencida=critico vs a vencer=atencao) que
     # sobrescreve a severidade estática da regra.
@@ -117,6 +144,8 @@ async def redigir(regra, achado, *, gerar_fn=None):
         logger.info("[proativo] redator sem groundedness (%s) → template", regra.nome)
     except Exception as exc:  # noqa: BLE001 — degradação graciosa
         logger.info("[proativo] redator LLM off (%s: %s) → template", regra.nome, exc)
+        if gerar_fn is None or True:
+            _desligar_llm(exc)
     return tpl_title, tpl_body
 
 
