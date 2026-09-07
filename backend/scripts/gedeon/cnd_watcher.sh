@@ -40,7 +40,13 @@ for P in $PORTAIS; do
         federal) TETO=900 ;;
         *)       TETO=400 ;;
     esac
-    OUT=$(timeout "$TETO" python3 backend/scripts/gedeon/cnd_robot.py "$P" "$CNPJ" 2>>"$LOG" | grep '^{' | tail -1)
+    # TST e Caixa mudaram de cara e só saem pelo nó de saída: robô próprio (cnd_robo2.py,
+    # 07/09/2026), mesmo contrato de saída. Os demais seguem no cnd_robot.py.
+    case "$P" in
+        cndt|caixa) ROBO=backend/scripts/gedeon/cnd_robo2.py ;;
+        *)          ROBO=backend/scripts/gedeon/cnd_robot.py ;;
+    esac
+    OUT=$(timeout "$TETO" python3 "$ROBO" "$P" "$CNPJ" 2>>"$LOG" | grep '^{' | tail -1)
     if [ -n "$OUT" ]; then
         echo "$OUT" >> /opt/conecta-pro/uploads/cnd_results.jsonl
     else
