@@ -367,6 +367,10 @@ Jordan for fazer o login pelo noVNC.
   está vivo** (beat 08:30 — 40 registros em 30 dias, 9 na última semana, último em 04/09). O que parou em 16/07 foram os
   follow-ups agendados à mão (`crm_followups`), e as **sequências têm zero inscrição** — a máquina existe, ninguém
   inscreveu ninguém. Isso é uso, não bug.
+  E o follow-up de propostas gera a lista mas **não envia nada**: 40 registros em 30 dias, todos "pulados — disparo
+  desligado (gate LGPD)". O envio automático ao cliente está atrás da chave `FOLLOWUP_AUTO_SEND` (desligada de
+  propósito). Ligar é comunicação ao cliente — **decisão sua**; enquanto isso, o disparo manual existe na tela do CRM
+  ("Tocar follow-up") e na ferramenta do assistente.
 
 - **Boletos de cobrança são emitidos fora do ERP** (Eletrônica no app do Inter, Patrimonial no app da Cora — regra do
   dono, 07/09): das 13 cobranças de setembro nenhuma tem boleto, PIX ou id de cobrança ligado no sistema; `inter_cobrancas`
