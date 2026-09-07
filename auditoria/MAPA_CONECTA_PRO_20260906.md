@@ -611,7 +611,17 @@ um dos seis, classificador/vinculador de documentos por regex.
    **Agosto: 45 recibos de pagamento originais vinculados aos kits do banco (7 kits), idempotente.**
 3. "Coleta mensal ou a qualquer momento": fica como está (dia 21 + botão na tela).
 
-Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc3f9`, `ee92febdc`. Bake das 00:00 torna definitivo.
+4. Passo seguinte, já feito (07/09, 18h): classificação por CONTEÚDO da 1ª página para o que o nome não diz — 165 dos
+   196 restantes ganharam categoria (96 "Comprovante de Rendimentos", 51 scans sem texto viram "documento digitalizado",
+   6 DAS, 5 fichas, 4 contratos…). Sobram 31 "outros" em 626 (eram 447 de manhã). O Hermes mensal roda isso antes de
+   vincular.
+
+**Memória (medido 07/09, 17h40)**: host com 9,4 GB livres de 32; `celery-sefaz` em 1,66 GB de 2 GB de teto — não é
+vazamento: cada processo filho carrega o app inteiro (~900 MB) e o compose fixa `concurrency=3` numa fila que rodou 2
+tarefas em 4 h. Baixar para 1 pouparia ~1 GB; é edição de `docker-compose*.yml` — zona proibida, **decisão sua**.
+
+Commits `c9776455c`, `3867691b6`, `62b8897c0`, `7ec4f2be9`, `ba1a96636`, `7b85cc3f9`, `ee92febdc`, `7e4fe3f84`. Bake das
+00:00 torna definitivo.
 
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
