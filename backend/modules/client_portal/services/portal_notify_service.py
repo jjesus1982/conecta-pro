@@ -61,6 +61,15 @@ async def notificar(
     ).mappings().first()
     email = email_override or (contato["contact_email"] if contato else None)
 
+    # GRAVA ANTES DE DISPARAR (regra da casa, checar_irreversivel): se o envio estourar, o aviso
+    # existe no sino do portal; o canal é atualizado depois do envio.
+    aviso = ClientPortalNotification(
+        client_id=client_id, tipo=tipo, titulo=titulo, mensagem=mensagem, link=link,
+        canal_email=False, canal_whatsapp=False,
+    )
+    db.add(aviso)
+    await db.commit()
+
     enviou_email = False
     # email_override (teste do admin) envia mesmo com o envio externo desligado
     if email and ((_ENVIO_EXTERNO_ATIVO and (prefs.get("email_notifications") or forcar_email)) or email_override):
@@ -81,11 +90,8 @@ async def notificar(
 
     enviou_wpp = False  # WhatsApp via José Luís — best-effort (infra Baileys/Chatwoot); hook futuro
 
-    aviso = ClientPortalNotification(
-        client_id=client_id, tipo=tipo, titulo=titulo, mensagem=mensagem, link=link,
-        canal_email=enviou_email, canal_whatsapp=enviou_wpp,
-    )
-    db.add(aviso)
+    aviso.canal_email = enviou_email
+    aviso.canal_whatsapp = enviou_wpp
     await db.commit()
     await db.refresh(aviso)
     return {"id": aviso.id, "email": enviou_email, "whatsapp": enviou_wpp}

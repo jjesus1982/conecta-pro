@@ -85,6 +85,16 @@ async def onboard_cliente(
         ),
         {"u": username, "h": bcrypt.hash(senha), "cid": client_id},
     )
+    # Credenciais GRAVADAS antes do e-mail que as carrega (checar_irreversivel): sem isto, um
+    # erro no envio desfazia a senha que o síndico já recebeu.
+    await db.execute(
+        text(
+            "INSERT INTO portal_access_logs (client_id, action, details, created_at) "
+            "VALUES (:cid,'provision', :d, NOW())"
+        ),
+        {"cid": client_id, "d": "Onboarding: credenciais provisionadas; e-mail a enviar"},
+    )
+    await db.commit()
 
     destino = email_override or row["contact_email"]
     email_real = _email_e_do_sindico(destino)
@@ -110,8 +120,9 @@ async def onboard_cliente(
 
     await db.execute(
         text(
-            "INSERT INTO portal_access_logs (client_id, action, details, created_at) "
-            "VALUES (:cid,'provision', :d, NOW())"
+            "UPDATE portal_access_logs SET details = :d WHERE id = ("
+            "SELECT id FROM portal_access_logs WHERE client_id = :cid AND action = 'provision' "
+            "ORDER BY created_at DESC LIMIT 1)"
         ),
         {"cid": client_id, "d": f"Onboarding: e-mail {'enviado a '+destino if enviou else 'NÃO enviado ('+str(motivo)+')'}"},
     )
