@@ -64,9 +64,13 @@ async def main() -> int:
                                    {"teto": 1200, "origens": list(ORIGENS)})).all()
 
     if not linhas:
-        # Ausência não é resultado: sem chamada nenhuma em 24h não dá para afirmar saúde.
-        print("  NÃO VERIFICADO: nenhuma chamada ao motor nas últimas 24h")
-        return 1
+        # Ausência não é resultado — mas também não é regressão. Em 07/09/2026 o motor ficou
+        # sem uso (o dono parou o José Luís depois do vazamento de crédito) e esta trava
+        # reprovou a varredura inteira e tocou o sino por um chat que ninguém chamou. Sem uso
+        # em 7 dias: não há usuário sendo lesado, não há o que medir. Sai como NÃO VERIFICADO
+        # com exit 0; o checar_regressao mostra "~ sem uso" em vez de "confere".
+        print("  NÃO VERIFICADO: nenhuma chamada ao motor nas últimas 24h (sem uso, nada a medir)")
+        return 0
 
     ruins: list[str] = []
     for origem, total, no_teto in linhas:

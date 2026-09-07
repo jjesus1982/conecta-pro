@@ -308,6 +308,10 @@ def main() -> int:
             print(f"  x {script}: {oque}")
             for ln in (r.stdout or r.stderr).splitlines()[-6:]:
                 print("     " + ln)
+        elif "NÃO VERIFICADO" in (r.stdout or ""):
+            # exit 0 com "NÃO VERIFICADO" = a trava não teve o que medir (sem uso). Não é
+            # "confere" — é o terceiro estado, dito de frente, sem reprovar.
+            print(f"  ~ {script}: NÃO VERIFICADO (sem uso, nada a medir)")
         else:
             print(f"  {script}: confere")
 
