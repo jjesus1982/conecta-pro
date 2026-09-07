@@ -166,6 +166,17 @@ def verificar_kits_completos(self):
                 cond = k.get("condominio") or k.get("nome") or "?"
                 if pct < 100:
                     continue
+                # Atlas aprende do fluxo REAL (só o 'Kit real' o alimentava; o Drive, nunca).
+                try:
+                    from modules.gedeon.agents.atlas import atlas as _atlas
+                    _cid = db.execute(text("SELECT c.id::text FROM clients c WHERE upper(c.name) LIKE '%' || upper(:n) || '%' LIMIT 1"),
+                                      {"n": cond.split()[0] if cond else "?"}).scalar()
+                    if _cid:
+                        _atlas.registrar_kit_concluido(client_id=_cid, competencia=comp, tipo_kit="drive",
+                                                       score_final=pct, docs_total=int(k.get("total") or 0), docs_auto=0,
+                                                       observacoes="kit do Drive a 100% (verificar_kits_completos)", criado_por="kronos")
+                except Exception as _exc:  # noqa: BLE001 — aprendizado não derruba o aviso
+                    logger.warning("atlas.registrar_kit_concluido falhou p/ %s: %s", cond, _exc)
                 ref = f"kit_drive:{cond}:{comp}"
                 ja = db.execute(text("SELECT 1 FROM communication_notifications WHERE reference_type = 'ged_kit_completo' AND extra_data->>'ref' = :r LIMIT 1"), {"r": ref}).first()
                 if ja:
