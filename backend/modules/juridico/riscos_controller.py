@@ -21,11 +21,3 @@ from . import riscos_service as svc
 router = APIRouter(prefix="/juridico/riscos", tags=["Jurídico - Riscos"])
 
 
-@router.get("/dashboard", summary="Painel de riscos (trabalhista + tributário) — resumo")
-def dashboard(
-    db: Session = Depends(get_sync_db_dependency),
-    current_user=Depends(get_current_active_user),
-) -> dict:
-    return svc.dashboard_riscos(db)
-
-

@@ -53,18 +53,6 @@ class ManualIn(BaseModel):
     tipo: str = "cobertura_clt"
 
 
-@router.post("/manual", summary="Adiciona pagamento ao lote (cobertura CLT ou líder com N ajudantes)")
-async def manual(
-    body: ManualIn,
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    return await svc.adicionar_manual(
-        db, data=body.data, beneficiario=body.beneficiario, pix_key=body.pix_key,
-        quantidade=body.quantidade, valor=body.valor, tipo=body.tipo, cpf=body.cpf,
-        user_id=str(getattr(current_user, "id", None)))
-
-
 @router.post("/{pagamento_id}/cancelar", summary="Cancela um item do lote")
 async def cancelar(
     pagamento_id: int,

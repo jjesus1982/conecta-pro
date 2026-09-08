@@ -92,20 +92,6 @@ async def list_suppliers(  # pylint: disable=too-many-locals,unused-argument
 
 
 @router.get(
-    "/stats",
-    response_model=SupplierStats,
-    summary="Estatísticas de fornecedores",
-)
-async def get_stats(  # pylint: disable=unused-argument
-    condominio_id: UUID | None = Query(None),
-    service: SupplierService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> SupplierStats:
-    """Retorna estatísticas de fornecedores."""
-    return await service.get_stats(condominio_id)
-
-
-@router.get(
     "/{supplier_id}",
     response_model=SupplierResponse,
     summary="Buscar fornecedor",

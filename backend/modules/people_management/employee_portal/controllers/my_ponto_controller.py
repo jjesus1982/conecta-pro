@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Portal - Ponto e Banco de Horas"])
 
-@router.get("/ponto/historico")
+# 08/09/2026: rota /portal/ponto/historico apagada (redundante — meu-espaco usa /self-service/meu-ponto, que chama esta função por import)
 async def get_ponto_historico(
     employee_id: CurrentEmployeeId,
     mes: int = Query(default=None, ge=1, le=12, description="Mes (1-12)"),

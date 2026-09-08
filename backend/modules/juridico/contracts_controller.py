@@ -17,11 +17,6 @@ from . import contracts_service as svc
 router = APIRouter(prefix="/juridico/contratos", tags=["Jurídico - Central de Contratos"])
 
 
-@router.get("/dashboard", summary="Painel da Central de Contratos (totais + alertas reais)")
-def dashboard(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
-    return svc.dashboard_contratos(db)
-
-
 @router.get("/{contrato_id}", summary="Detalhe de um contrato + alertas")
 def detalhe(contrato_id: str, db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     c = svc.obter_contrato(db, contrato_id)

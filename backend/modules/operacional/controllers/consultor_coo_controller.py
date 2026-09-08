@@ -32,14 +32,6 @@ class ConsultaOut(BaseModel):
     panorama: dict | None = None
 
 
-@router.get("/panorama", summary="Fotografia real da operação (postos, alocações, diaristas, ocorrências)")
-async def obter_panorama(
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    return await svc.panorama(db)
-
-
 @router.post("/perguntar", response_model=ConsultaOut, summary="Pergunta ao Consultor Operacional (ancorado na operação real)")
 async def perguntar(
     body: PerguntaIn,

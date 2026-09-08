@@ -32,8 +32,9 @@ REDESIGN = ["backend/modules/operacional/controllers/redesign_builders/*.py", "b
             "frontend/src/components/gdrive/*.tsx"]
 INTERNA = ["mcp-server/server.py", "agents/**/*.py", "backend/modules/**/tasks*.py", "backend/modules/**/tasks/*.py",
            "backend/modules/ai/conversation/services/orquestrador/*.py", "backend/modules/**/services/*.py", "backend/core/**/*.py",
-           "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py",
+           "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py", "rotinas/**/*.sh",
            "/etc/nginx/sites-enabled/*", "/etc/cron.d/*", "/var/spool/cron/crontabs/*"]
+DONO = ("/api/v1/reimbursements/",)  # decisão do dono (07/09/2026): "/api/v1/reimbursements/* fica intocado" (departamento_pessoal.py:552)
 EXTERNO = re.compile(r"webhook|callback|/oauth|/solides/|/inter/(?:pix|cobranca)")  # quem chama é o banco/Sólides/Meta
 CLASSICO = ["frontend/src/**/*.ts", "frontend/src/**/*.tsx"]
 
@@ -51,7 +52,7 @@ def _read(patterns: list[str]) -> str:
     return "\n".join(buf)
 
 
-_CONST = re.compile(r"^\s*(?:const |let |export const )?([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*[\"'`]([^\"'`\n]*?(/api/v1[\w/.-]*))[\"'`]", re.M)
+_CONST = re.compile(r"^\s*(?:const |let |export const )?([A-Za-z_][A-Za-z0-9_]*)\s*[:=][^\n]*?((/api/v1[\w/.-]*))[\"'`]", re.M)  # `${env}/api/v1/portal` também
 
 
 def _normalizar(txt: str) -> str:
@@ -63,7 +64,7 @@ def _normalizar(txt: str) -> str:
     for name, pref in consts.items():
         txt = txt.replace("{" + name + "}", pref).replace("${" + name + "}", pref)
     txt = re.sub(r"(['\"])\s*\n\s*\1", "", txt)  # 'a'\n'b' → 'ab'
-    txt = re.sub(r"portalFetch(?:<[^>]*>)?\(\s*[`'\"](/)", r"portalFetch(`/api/v1/portal\1", txt)
+    txt = re.sub(r"portalFetch(?:<.*?>)?\(\s*[`'\"](/)", r"portalFetch(`/api/v1/portal\1", txt, flags=re.S)  # genérico pode ocupar várias linhas
     return txt
 
 
@@ -111,20 +112,36 @@ def importado(handler: str, txt: str) -> bool:
     return handler in _IMPORTADOS
 
 
+_RX: dict[str, re.Pattern] = {}
+
+
 def usada(path: str, txt: str) -> bool:
     core = path.replace("/api/v1", "")
     if core in txt or path in txt:
         return True
-    pre = core.split("{")[0].rstrip("/")
-    if len(pre) > 12:
-        return pre in txt
-    return len(pre) >= 8 and pre.count("/") >= 2 and (pre + "/") in txt  # /crm/leads/{id}, /clients/{id}/activate
+    if "{" in core:  # /users/{user_id}/activate casa com /users/{uid}/activate, /users/${id}/activate, /users/{r[6]}/activate
+        rx = _RX.get(core)
+        if rx is None:
+            var = r"[^/\\s'\"`)]+"
+            esc = re.sub(r"\\\{[^}]*\\\}", "@VAR@", re.escape(core))  # marcador sem "/" para poder partir por segmento
+            head, _, last = esc.rpartition("/")  # último segmento literal pode vir de variável: f"/clients/{cid}/{rota}"
+            pat = esc if last == "@VAR@" else f"{head}/(?:{last}|\\{{[^}}]*\\}}|\\$\\{{[^}}]*\\}})"
+            rx = _RX[core] = re.compile(pat.replace("@VAR@", var))
+        if rx.search(txt):
+            return True
+        pre = core.split("{")[0].rstrip("/")
+        return len(pre) > 12 and pre in txt  # regra antiga (prefixo literal longo) como rede de segurança
+    seg = core.rsplit("/", 1)
+    if len(seg) == 2 and seg[0].count("/") >= 2 and (seg[0] + "/{") in txt:  # f"/crm/reunioes/{_ep}" com _ep in ("confirmar","cancelar")
+        return True
+    pre = core.rstrip("/")
+    return len(pre) > 12 and pre in txt
 
 
 def main() -> int:
     tsv = sys.argv[sys.argv.index("--tsv") + 1] if "--tsv" in sys.argv else None
     red, inte, cla = _read(REDESIGN), _read(INTERNA), _read(CLASSICO)
-    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "alias": [], "externo": [], "classico": [], "nenhum": []}
+    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "alias": [], "externo": [], "dono": [], "classico": [], "nenhum": []}
     todas = [(m, p, h) for m, p, h in rotas() if not p.startswith(SKIP) and p not in ("/", "/api", "/api/v1")]
     cobertos: set[str] = set()  # handlers alcançados por path do redesign/interna
     pend = []
@@ -135,7 +152,7 @@ def main() -> int:
         else:
             pend.append((m, p, h))
     for m, p, h in pend:  # montagem dupla (main_production.py, fora do escopo editável): mesmo handler já coberto
-        k = "alias" if h in cobertos else "externo" if EXTERNO.search(p) else "classico" if usada(p, cla) else "nenhum"
+        k = "alias" if h in cobertos else "externo" if EXTERNO.search(p) else "dono" if p.startswith(DONO) else "classico" if usada(p, cla) else "nenhum"
         classes[k].append((m, p))
     tot = sum(len(v) for v in classes.values())
     for k, v in classes.items():

@@ -81,30 +81,6 @@ async def portal_me(
     return {"employee_id": employee_id, "nome": "Funcionario"}
 
 
-@router.get("/dashboard", response_model=PortalDashboard)
-async def get_dashboard(
-    employee_id: CurrentEmployeeId,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Retorna dados do dashboard do funcionario autenticado."""
-    try:
-        service = PortalService(db)
-        dashboard_data = await service.get_dashboard(employee_id)
-        if dashboard_data:
-            return PortalDashboard(**dashboard_data)
-    except Exception as exc:
-        logger.warning("Erro ao carregar dashboard: %s", exc)
-
-    return PortalDashboard(
-        name="Funcionario",
-        position=None,
-        workplace=None,
-        next_shift=None,
-        pending_documents=0,
-        unread_notifications=0,
-    )
-
-
 def _mask_cpf(cpf: str) -> str:
     """Mascara CPF: 035.***.*42-38."""
     if not cpf or len(cpf) < 11:

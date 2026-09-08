@@ -191,35 +191,6 @@ async def meus_pendentes(
 # --------------------------------------------------------------------------- #
 # 2c) ASSINAR EM LOTE (funcionário logado — limpa o histórico de uma vez)
 # --------------------------------------------------------------------------- #
-@router.post(
-    "/empresa/assinar-lote",
-    summary="EMPRESA assina em lote o que aguarda a co-assinatura dela",
-    description="Assina de uma vez tudo que está pendente do lado da empresa (espelho de "
-    "ponto, contrato, prorrogação). Existe porque a tela assinava UM POR VEZ: em 21/08/2026 "
-    "havia 53 espelhos aguardando — 53 cliques, que ninguém faz, e o kit do condomínio "
-    "parado esperando. Cada assinatura é real e passa pelas mesmas travas da individual; "
-    "um documento que falhe não aborta o lote.",
-)
-async def assinar_lote_empresa(
-    payload: AssinarLoteEmpresaSchema,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    if not getattr(current_user, "is_superuser", False) and not getattr(current_user, "is_admin", False):
-        raise HTTPException(
-            status_code=http_status.HTTP_403_FORBIDDEN,
-            detail="Assinar pela empresa exige usuário administrador.",
-        )
-    svc = UniversalSignatureService(db)
-    return await svc.assinar_lote_empresa(
-        company_signer_id=current_user.id,
-        signer_name=getattr(current_user, "full_name", None) or current_user.email,
-        request_ids=payload.request_ids,
-        document_type=payload.document_type,
-        limite=payload.limite,
-        evidence=_evidence_from(request, payload.evidence),
-    )
 
 
 @router.post(

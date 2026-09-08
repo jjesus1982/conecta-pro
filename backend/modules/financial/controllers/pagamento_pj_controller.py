@@ -25,15 +25,6 @@ async def programar(ano: int, mes: int, current_user=Depends(get_current_active_
         raise HTTPException(status_code=500, detail=f"Falha ao programar: {e}") from e
 
 
-@router.get("/lote/{ano}/{mes}", summary="Lote da folha PJ (Inter pagável + lista Cora + pendências)")
-async def lote(ano: int, mes: int, current_user=Depends(get_current_active_user),
-               db: AsyncSession = Depends(get_db)):
-    try:
-        return await svc.listar_lote(db, mes, ano)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Falha ao listar: {e}") from e
-
-
 class ExecutarBody(BaseModel):
     confirmar: bool = False
     otp_code: str | None = None

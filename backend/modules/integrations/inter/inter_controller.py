@@ -106,19 +106,6 @@ async def resumo_extrato(
 # ── D6.2 — CONCILIAÇÃO FOLHA ─────────────────────────────────────────────────
 
 
-@router.get("/payroll/pagamentos")
-async def listar_pagamentos(
-    competencia: str = Query(..., description="YYYY-MM"),
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Lista conciliação de folha da competência."""
-    from modules.integrations.inter.conciliacao_service import ConciliacaoService
-
-    rows = await ConciliacaoService(db).listar_pagamentos(competencia)
-    return {"competencia": competencia, "total": len(rows), "pagamentos": rows}
-
-
 @router.get("/payroll/divergencias")
 async def listar_divergencias(
     db: AsyncSession = Depends(get_db),
@@ -487,21 +474,6 @@ def categorizar_transacao(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return result
-
-
-@router.get("/colaborador/{nome}/categorias")
-def listar_categorias_colaborador(
-    nome: str,
-    mes_ref: str = Query(..., description="Mês de referência — formato MM.YYYY"),
-    apenas_kit: bool = Query(False),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_sync_db_dependency),
-):
-    """Lista transações de um colaborador no mês com categorização."""
-    from modules.integrations.inter.services.categorizacao_service import InterCategorizacaoService
-
-    svc = InterCategorizacaoService(db)
-    return svc.listar_por_colaborador(nome, mes_ref, apenas_kit=apenas_kit)
 
 
 @router.post("/categorias/auto-processar", status_code=200)

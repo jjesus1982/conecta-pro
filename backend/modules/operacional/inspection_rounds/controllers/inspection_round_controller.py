@@ -158,24 +158,6 @@ async def get_stats(
 
 
 @router.get(
-    "/dashboard",
-    response_model=InspectionDashboardStats,
-    summary="Dashboard de rondas",
-    description="Retorna estatisticas do dashboard de rondas.",
-)
-async def get_dashboard(
-    current_user: CurrentActiveUser,
-    tenant_id: UUID | None = Query(None, description="ID do tenant (opcional)"),
-    _start_date: datetime | None = Query(None, description="Data inicial"),
-    _end_date: datetime | None = Query(None, description="Data final"),
-    service: InspectionRoundService = Depends(get_inspection_service),
-) -> InspectionDashboardStats:
-    """Retorna estatisticas do dashboard."""
-    tenant_str = str(tenant_id) if tenant_id else None
-    return await service.get_dashboard_stats(tenant_str)
-
-
-@router.get(
     "/{round_id}",
     response_model=InspectionRoundResponse,
     summary="Buscar ronda",

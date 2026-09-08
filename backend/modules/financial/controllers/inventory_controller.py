@@ -54,15 +54,6 @@ class SaidaEstoquePayload(BaseModel):
     nfse_id: str | None = None
 
 
-@router.get("/real/itens")
-async def estoque_real_itens(
-    busca: str | None = Query(None, description="Busca por descrição ou código"),
-    _current_user: dict = Depends(get_current_user),
-) -> list:
-    """Estoque REAL a partir das NF-e de entrada (nfe_compras_estoque)."""
-    return _estoque_real.listar_itens(busca)
-
-
 @router.get("/real/resumo")
 async def estoque_real_resumo(_current_user: dict = Depends(get_current_user)) -> dict:
     """Totais do estoque real: itens, valor, unidades, saídas do mês."""

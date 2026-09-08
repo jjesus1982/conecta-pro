@@ -661,62 +661,6 @@ class PayBatchRequest(BaseModel):
     )
 
 
-@payroll_router.post(
-    "/pay-batch",
-    summary="Agendamento lote folha — pendente_pagamento",
-    description=(
-        "Monta payload PIX por funcionário e registra como pendente_pagamento "
-        "para aprovação manual. NUNCA envia PIX real. "
-        "modo=simulacao: preview sem alterar banco. "
-        "modo=execucao: insere em payroll_payments com status=pendente_pagamento."
-    ),
-)
-async def pagar_folha_lote(
-    body: PayBatchRequest,
-    _user: CurrentActiveUser = None,  # noqa: B008
-):
-    """
-    POST /api/v1/people-management/dp/payroll/pay-batch
-    Body: {"mes_referencia": "2026-03", "modo": "simulacao|execucao"}
-
-    IMPORTANTE: NÃO executa PIX real.
-    - simulacao: preview sem alterar banco de dados
-    - execucao: registra como 'pendente_pagamento' para aprovação manual
-    """
-    try:
-        ano_str, mes_str = body.mes_referencia.split("-")
-        mes = int(mes_str)
-        ano = int(ano_str)
-    except (ValueError, AttributeError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"mes_referencia inválido: '{body.mes_referencia}'. Use formato AAAA-MM.",
-        ) from exc
-
-    if not (1 <= mes <= 12):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Mês inválido: {mes}. Deve ser entre 1 e 12.",
-        )
-
-    if body.modo.lower() == "execucao":
-        # Registra como pendente_pagamento — NÃO envia PIX real
-        from modules.people_management.services.folha_payment_service import (
-            registrar_lote_pendente,
-        )
-
-        resultado = registrar_lote_pendente(mes, ano)
-    else:
-        # Simulação — apenas preview sem tocar banco
-        from modules.people_management.services.folha_payment_service import (
-            processar_folha_completa,
-        )
-
-        resultado = await processar_folha_completa(mes, ano, apenas_preview=True)
-
-    return {**resultado, "mes_referencia": body.mes_referencia, "modo": body.modo}
-
-
 @router.post(
     "/folha/funcionario/{employee_id}/pix-key/gerar-otp",
     summary="Gera OTP p/ liberar a troca de chave PIX (e-mail Jordan)",

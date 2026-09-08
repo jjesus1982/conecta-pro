@@ -96,30 +96,6 @@ async def list_queue(
     return items
 
 
-@router.get("/queue/stats", response_model=QueueStatsResponse)
-async def get_queue_stats(
-    current_user: CurrentActiveUser,
-    db: Session = Depends(get_sync_db_dependency),
-) -> QueueStatsResponse:
-    """Obtém estatísticas da fila."""
-    tenant_id = get_tenant_id(current_user)
-
-    service = NotificationService(db, tenant_id)
-    stats = service.get_queue_stats()
-
-    return QueueStatsResponse(
-        total_pending=stats["by_status"].get("pending", 0),
-        total_scheduled=stats["by_status"].get("scheduled", 0),
-        total_processing=stats["by_status"].get("processing", 0),
-        total_sent=stats["by_status"].get("sent", 0),
-        total_delivered=stats["by_status"].get("delivered", 0),
-        total_failed=stats["by_status"].get("failed", 0),
-        total_retry=stats["by_status"].get("retry", 0),
-        by_channel=stats["by_channel"],
-        oldest_pending_at=stats["oldest_pending_at"],
-    )
-
-
 # =============================================================================
 # Logs & History
 # =============================================================================
