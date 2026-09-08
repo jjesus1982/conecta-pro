@@ -1026,6 +1026,27 @@ a contadora; liminares; interjornada; reajuste com percentual obrigatório; clas
 apagadas (banking pagamento por código de barras/DARF, Sólides, gateway) ficam quebradas por desenho — o
 clássico está fora do escopo.
 
+
+### §2c.29 — Licitações desligadas; fim da revisão 100% do backend (08/09/2026 ~15h Manaus)
+
+**Bidding (1ccb469a9):** o revisor deu MORTA para as 88 rotas — todas as tabelas são seed de 12/03; o
+sync do PNCP batia numa URL 404 doze vezes por dia há 26 dias (~2.900 chamadas externas, 0 registros) e
+os botões ERP do redesign criavam conta a receber, lead e posto **reais** a partir de licitação fictícia,
+sem idempotência. Apagadas 97 rotas, 3 entradas do beat, as ações do redesign (as tabelas ficam como
+consulta, com aviso), e as 108 notificações "Certidão CRÍTICA — Licitações (11)" que o beat inventava a
+cada 6 h. A aba Certidões, o relatório de compliance do GED e os alertas do BI passam a ler
+`ged_certidoes` (58 vivas, com PDF e CNPJ). Relatório: `auditoria/qa/revisao_20260908/bidding.md`.
+
+**Estado final do loop:** todos os módulos do inventário do backend foram revisados e corrigidos; rotas
+apagadas hoje ≈ 1.330 (de ~3.975); 0 botão morto no redesign; os relatórios dos revisores estão em
+`auditoria/qa/revisao_20260908/`. Regressão do arsenal e varredura dos oráculos rodando ao fim do dia.
+
+**ATENÇÃO — hot-copy é volátil:** tudo que foi corrigido hoje está no ar por `docker cp` e no git, mas o
+bake noturno (`scripts/oraculos_diarios.sh` → imagem) **se recusa a assar enquanto houver WIP alheio em
+backend/** (hoje: `crm/services/contract_signature.py` e `scripts/gedeon/cnd_robot.py`, de outras
+sessões). Se os containers forem recriados antes do bake, o código volta ao da imagem. Alguém precisa
+commitar ou descartar esses dois arquivos e rodar `./scripts/deploy_backend_bluegreen.sh`.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
