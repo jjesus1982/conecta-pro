@@ -166,7 +166,6 @@ ENDPOINT_CHECKS = {
     ],
     "Financeiro": [
         "/financial/accounting/dre",
-        "/financial/accounting/journal-entries",
         "/financial/bi/kpis?condominio_id=a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     ],
     "DP/RH": [
