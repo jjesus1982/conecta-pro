@@ -413,6 +413,13 @@ function FormScreen({ scr }: { scr: any }) {
   const [scanOpen, setScanOpen] = useState(false);
   const [colar, setColar] = useState(''); // campo "colar código" (PIX copia-e-cola / linha digitável)
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+  // QA E2E 08/09: campo com `value` no builder (mês/ano, competência, período) não entrava no estado → o input
+  // abria vazio e o envio dava 422 / deixava {mes}/{ano} sem preencher. Semeia o estado com os valores padrão.
+  useEffect(() => {
+    const v: Record<string, string> = {};
+    for (const f of (scr.fields || []) as any[]) { if (f && f.key && f.value != null && f.value !== '') v[f.key] = typeof f.value === 'string' ? f.value : JSON.stringify(f.value); }
+    if (Object.keys(v).length) setVals((s) => ({ ...v, ...s }));
+  }, [scr]);
   const recarregar = useContext(ReloadCtx); // re-busca os dados do módulo após um write (refresca selects de outros forms)
   const gated = !!(scr.submit && scr.submit.gated); // ação money/gov (visual de aviso)
   const [preBusy, setPreBusy] = useState(false);

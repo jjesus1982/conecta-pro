@@ -53,6 +53,10 @@ export function useNotifications(): UseNotificationsReturn {
       setLoading(false);
       return;
     }
+    // QA E2E 08/09: na tela de login (sem token) esta chamada devolvia 401 no console a cada carga.
+    let _tok: string | null = null;
+    try { _tok = localStorage.getItem('access_token'); } catch { /* */ }
+    if (!_tok) { return; }
 
     try {
       setLoading(true);

@@ -1,0 +1,6 @@
+# ações seguras (1ª rodada, 19h05) — abrir e cancelar ação/edição por linha; consultas já preenchidas
+ABRIR crm/leads Status → form inline 3 campos ✓ · crm/clientes Editar → 12 campos ✓ · operacional diaristas Editar → 5 ✓ · rh cct-cargos Editar → 10 ✓ · configuracoes usuarios Permissões → 2 ✓ · fiscal certidões Baixar → PDF baixado ✓ · saude cat Transmitir → confirmação 1 campo (não confirmado) ✓ · documentos kits Solicitar assinaturas → confirmação ✓ · empresas liminares status → confirmação ✓ · integracoes inter Corrigir → 3 campos ✓
+CONSULTAR fluxo-resumo ✓ · fluxo-tendencia ✓ · onvio-status ✓ · jose-luis-dashboard ✓ · gedeon-panorama ✓ · det-robo-status ✓ (todas "Consulta feita")
+CONSULTAR inter-categorias-stats → 422 · pagar-folha-preview/status → 422 ({mes}/{ano} não substituídos) — CAUSA ÚNICA: o FormScreen não semeava o estado com o `value` dos campos (mês/ano/competência abriam vazios). Corrigido no ModuleView (useEffect) → deploy do frontend e re-teste abaixo.
+CONSULTAR dre-consolidado → "sem botão": aba está em g-fiscal, não g-contabil (erro do roteiro, não do produto)
+CONSULTAR portal calculadora-rescisao → 401: usuário jjesus sem vínculo de colaborador (CurrentEmployeeId) — esperado

@@ -1,0 +1,3 @@
+# grupo 5 — operacional 96 telas (g-visao 11 · g-escalas 22 · g-postos 13 · g-equipe 11 · g-diaristas 7 · g-disciplina 8 · g-rondas 11 · g-comunicacao 8 · soltas 5) · 0 erro · 0 4xx · 0 relogin · 1,5 s em média
+lentas (>3 s): notificacoes-marcar-todas 3,3 s (1ª carga do módulo) · g-visao/visao 3,4 s
+vazias: nenhuma (passagem-turno lista 0 porque as 2 passagens estão inativas no banco — honesto)

@@ -1,0 +1,3 @@
+# grupo 6 — financeiro 139 telas (g-visao 18 · g-receber 18 · g-pagar 8 · g-pagar-pessoas 12 · g-pagar-contas 5 · g-pagar-ordens 8 · g-bancos 23 · g-fiscal 20 · g-custos 15 · g-cadastros 11 · gerar-parcelas) · 0 erro · 0 4xx · 0 relogin
+DESEMPENHO: 4,2 s em média por tela no teste (cada goto recarrega os dados do módulo inteiro — 139 telas num payload; no uso real a troca de aba é client-side). Piores: pix-recebidos 11,2 s · sincronizar-pix 7,8 s · programar-vtvr-dia 7,5 s · custos 7,4 s · agentes 7,1 s · ordens-pagamento 6,6 s · cora 6,1 s · banking 6,0 s · conciliacao-por-liquido 6,0 s
+vazias: nenhuma
