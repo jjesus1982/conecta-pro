@@ -236,7 +236,13 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
                     "fields": fields}
 
     try:  # POST /users/{id}/aprovar · PATCH /users/{id}/activate|deactivate|permissions · (GET /users/pending por SQL)
-        from api.v1.endpoints.users import MODULOS_VALIDOS, PERFIS_APROVACAO
+        # main_production carrega users.py por spec_from_file_location("users"); `import api.v1.endpoints.users`
+        # importaria o pacote api.v1 inteiro (27 s no 1º pedido de cada worker — QA E2E 08/09). Reusa o módulo carregado.
+        import importlib.util as _ilu, sys as _sys
+        _u = _sys.modules.get("users")
+        if _u is None or not hasattr(_u, "PERFIS_APROVACAO"):
+            _spec = _ilu.spec_from_file_location("users", "/app/api/v1/endpoints/users.py"); _u = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_u)
+        MODULOS_VALIDOS, PERFIS_APROVACAO = _u.MODULOS_VALIDOS, _u.PERFIS_APROVACAO
         emps = await _emps()
         perfis = [{"value": k, "label": v.get("label", k) + (" (só o CEO)" if v.get("somente_ceo") else "")} for k, v in PERFIS_APROVACAO.items()]
         mods = [{"value": m, "label": m.replace("module:", "").upper()} for m in sorted(MODULOS_VALIDOS)]

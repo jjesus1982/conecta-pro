@@ -30,6 +30,9 @@ async (page) => {
           await page.getByRole('textbox', { name: '••••••••' }).fill('JsJ618908@#%');
           await page.getByRole('button', { name: 'Entrar' }).click();
           await page.waitForURL(u => !String(u).includes('/login'), {timeout: 30000});
+          // o token entra no localStorage depois do redirect — sem esperar, a próxima navegação cai no guard
+          try { await page.waitForFunction(() => { try { return !!localStorage.getItem('access_token'); } catch (e) { return false; } }, null, {timeout: 15000}); } catch (e) {}
+          await page.waitForTimeout(1500);
           relogins++;
           await page.goto(url, {waitUntil:'domcontentloaded', timeout: 30000});
           try { await page.waitForFunction(() => { const m=document.querySelector('main.rd-content')||document.querySelector('main'); return m && m.innerText.length>50 && !document.body.innerText.includes('carregando…'); }, null, {timeout: 20000}); } catch(e) {}
