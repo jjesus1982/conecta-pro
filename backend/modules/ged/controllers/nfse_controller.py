@@ -505,8 +505,7 @@ async def bidding_dashboard(
     # Certidoes
     certs = await db.execute(
         text("""
-        SELECT id, tipo, nome, situacao, status, data_validade, ativo
-        FROM bidding_certificates WHERE ativo = true ORDER BY data_validade ASC
+        SELECT id, tipo, nome, situacao, status, data_validade, ativo FROM (SELECT document_type AS tipo, name AS nome, CASE WHEN expiry_date IS NULL THEN 'sem_validade' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valida' ELSE 'vencida' END AS situacao, CASE WHEN expiry_date IS NULL THEN 'unknown' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valid' ELSE 'expired' END AS status, expiry_date AS data_validade, true AS ativo, id, cnpj, issuing_body AS orgao_emissor, file_path FROM ged_certidoes WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') IN (SELECT regexp_replace(cnpj,'[^0-9]','','g') FROM empresas)) c ORDER BY data_validade ASC
     """)
     )
     all_certs = []

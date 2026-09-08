@@ -19,8 +19,6 @@ SLUG = "licitacoes"
 _ICO_L = "M3 3v18h18M7 16l4-4 3 3 5-6"
 
 EXTRA_MENU: list[dict] = [
-    {"id": "sync-pncp", "label": "Sincronizar PNCP", "icon": _ICO_L},
-    {"id": "sync-precos", "label": "Sincronizar preços", "icon": _ICO_L},
     {"id": "contratos-publicos", "label": "Contratos públicos", "icon": _ICO_L},
     {"id": "medicoes", "label": "Medicoes", "icon": _ICO_L},
 ]
@@ -187,23 +185,6 @@ async def build(db) -> dict:
     # As 4 rotas /bidding/erp/* (converter, crm, medicao, fatura) ficaram DE FORA: levam
     # {contract_id}/{medicao_id} no CAMINHO, e o endpoint do form e fixo. Lugar certo delas
     # e acao por LINHA na tabela de contratos publicos — nao tela pedindo UUID colado.
-    out["sync-pncp"] = {
-        "title": "Sincronizar com o PNCP",
-        "sub": "Puxa editais e contratos do Portal Nacional de Contratações Públicas. "
-               "Só LÊ do portal — não envia nada, não assina nada.",
-        "cta": "Sincronizar agora", "type": "form",
-        "submit": {"endpoint": "/api/v1/bidding/sync/pncp/trigger",
-                   "okMsg": "Sincronização com o PNCP disparada"},
-        "fields": [],
-    }
-    out["sync-precos"] = {
-        "title": "Sincronizar preços referenciais",
-        "sub": "Atualiza a tabela de preços de referência usada para montar proposta.",
-        "cta": "Sincronizar agora", "type": "form",
-        "submit": {"endpoint": "/api/v1/bidding/sync/precos/trigger",
-                   "okMsg": "Sincronização de preços disparada"},
-        "fields": [],
-    }
 
     # ── Oportunidades → funil do CRM (07/09/2026) ─────────────────────────────────
     # Sobrescreve a aba base: mesma consulta + coluna "CRM" (lead já criado?) + ação que chama
@@ -281,5 +262,15 @@ async def build(db) -> dict:
              "method": "POST", "btnLabel": "Faturar", "submitLabel": "Gerar fatura",
              "btnStyle": "primary", "okMsg": "Fatura gerada. Recarregue.", "fields": []},
         ]))
+
+    # 08/09/2026: módulo de licitações DESLIGADO (só seed de 12/03; sync do PNCP batia em URL 404 e os
+    # botões ERP criavam conta a receber/lead/posto reais a partir de dado fictício). As tabelas ficam
+    # como consulta; nenhuma ação.
+    for _k in ("oportunidades", "contratos-publicos", "medicoes", "licitacoes", "propostas-publicas"):
+        _scr = out.get(_k)
+        if isinstance(_scr, dict):
+            for _row in _scr.get("rows", []) or []:
+                _row.pop("actions", None)
+            _scr["sub"] = "Módulo desligado em 08/09/2026 — dado de demonstração (seed de 12/03). " + str(_scr.get("sub", ""))
 
     return out

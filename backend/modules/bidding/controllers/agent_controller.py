@@ -10,28 +10,20 @@ import re
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
-from core.database import get_db
 from modules.bidding.agents.analyst_agent import AnalystAgent
 from modules.bidding.agents.assessor_agent import AssessorAgent, CompanyProfile
-from modules.bidding.agents.base_agent import AgentStatus
 from modules.bidding.agents.compiler_agent import CompilerAgent
 from modules.bidding.agents.orchestrator import PipelineOrchestrator
 from modules.bidding.agents.pricer_agent import PricerAgent
-from modules.bidding.agents.scout_agent import ScoutAgent, ScoutSearchParams
+from modules.bidding.agents.scout_agent import ScoutAgent
 from modules.bidding.agents.sentinel_agent import SentinelAgent
 from modules.bidding.models.analysis import BiddingAnalysis
 from modules.bidding.models.certificate import Certificate, CertificateStatus
 from modules.bidding.agents.warrior_agent import WarriorAgent
-from modules.bidding.schemas.analysis import AnalystRequest
-from modules.bidding.schemas.assessment import AssessorRequest
-from modules.bidding.schemas.opportunity import ScoutRequest
-from modules.bidding.schemas.pipeline import PipelineRequest
-from modules.bidding.schemas.pricing import PricerRequest
 
 logger = logging.getLogger(__name__)
 
@@ -367,397 +359,27 @@ async def _carregar_documentos_sentinel(db: AsyncSession) -> list[dict]:
 # ============================================================
 # Status geral dos agentes
 # ============================================================
-@router.get("/status")
-async def list_agents_status(current_user: CurrentActiveUser):
-    """Lista todos os agentes e seus status de implementacao."""
-    return {
-        "agents": AGENTS_REGISTRY,
-        "total": len(AGENTS_REGISTRY),
-        "operational": sum(1 for a in AGENTS_REGISTRY if a["status"] == AgentStatus.OPERATIONAL.value),
-        "development": sum(1 for a in AGENTS_REGISTRY if a["status"] == AgentStatus.DEVELOPMENT.value),
-        "planned": sum(1 for a in AGENTS_REGISTRY if a["status"] == AgentStatus.PLANNED.value),
-    }
-
-
 # ============================================================
 # Scout - Busca de oportunidades
 # ============================================================
-@router.post("/scout/buscar", status_code=201)
-async def scout_buscar(current_user: CurrentActiveUser, request: ScoutRequest):
-    """Busca oportunidades de licitacao nos portais configurados."""
-    try:
-        search_params = ScoutSearchParams(
-            keywords=request.keywords or ["vigilancia", "seguranca patrimonial", "portaria"],
-            ufs=[request.uf] if request.uf else ["AM"],
-            modalidades=[request.modalidade] if request.modalidade else None,
-            valor_minimo=request.valor_min,
-            valor_maximo=request.valor_max,
-            portais=request.portais
-            if hasattr(request, "portais") and request.portais
-            else ["pncp", "comprasnet", "licitacoes_e", "ecompras_am"],
-        )
-        result = await scout_agent.run(search_params=search_params)
-        if result.success:
-            opportunities = result.data if isinstance(result.data, list) else result.data.get("opportunities", [])
-            return {
-                "status": "success",
-                "agent": "scout",
-                "opportunities": opportunities,
-                "total": len(opportunities),
-                "portal": request.portal or "todos",
-            }
-        return {
-            "status": "error",
-            "agent": "scout",
-            "message": result.error or "Erro na busca",
-        }
-    except Exception as e:
-        logger.error(f"Erro no agente Scout: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar agente Scout: {str(e)}",
-        )
-
-
-@router.get("/scout/portais")
-async def scout_portais(current_user: CurrentActiveUser):
-    """Lista portais de licitacao disponiveis para busca."""
-    return {
-        "portais": [
-            {
-                "id": "pncp",
-                "nome": "Portal Nacional de Contratacoes Publicas",
-                "url": "https://pncp.gov.br",
-                "status": "disponivel",
-                "tipo": "federal",
-            },
-            {
-                "id": "comprasnet",
-                "nome": "ComprasNet / Compras.gov.br",
-                "url": "https://www.gov.br/compras",
-                "status": "disponivel",
-                "tipo": "federal",
-            },
-            {
-                "id": "bec",
-                "nome": "Bolsa Eletronica de Compras (SP)",
-                "url": "https://www.bec.sp.gov.br",
-                "status": "planejado",
-                "tipo": "estadual",
-            },
-            {
-                "id": "licitacoes_e",
-                "nome": "Licitacoes-e (BB)",
-                "url": "https://www.licitacoes-e.com.br",
-                "status": "planejado",
-                "tipo": "banco",
-            },
-            {
-                "id": "e_compras_am",
-                "nome": "e-Compras Amazonas",
-                "url": "https://www.e-compras.am.gov.br",
-                "status": "planejado",
-                "tipo": "estadual",
-            },
-        ],
-        "total": 5,
-    }
-
-
 # ============================================================
 # Analyst - Analise de editais
 # ============================================================
-@router.post("/analyst/analisar", status_code=201)
-async def analyst_analisar(current_user: CurrentActiveUser, request: AnalystRequest):
-    """Analisa edital extraindo requisitos, prazos, riscos e oportunidades."""
-    try:
-        if not request.tender_id and not request.edital_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Informe tender_id ou edital_text para analise",
-            )
-        result = await analyst_agent.run(
-            edital_text=request.edital_text or "",
-        )
-        if result.success:
-            return {
-                "status": "success",
-                "agent": "analyst",
-                "analysis": result.data,
-            }
-        return {
-            "status": "error",
-            "agent": "analyst",
-            "message": result.error or "Erro na analise",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Erro no agente Analyst: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar agente Analyst: {str(e)}",
-        )
-
-
 # ============================================================
 # Assessor - Avaliacao Go/No-Go
 # ============================================================
-@router.post("/assessor/avaliar", status_code=201)
-async def assessor_avaliar(
-    current_user: CurrentActiveUser,
-    request: AssessorRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Avalia viabilidade de participacao (Go/No-Go) com scoring multidimensional."""
-    try:
-        if not request.tender_id and not request.analysis_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Informe tender_id ou analysis_id para avaliacao",
-            )
-        # Carregar a analise REAL de bidding_analyses (por analysis_id ou tender_id)
-        analysis = await _carregar_analise_real(db, request.analysis_id, request.tender_id)
-        if analysis is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Analise nao encontrada para o analysis_id/tender_id informado",
-            )
-        # Perfil da empresa com dados REAIS (colaboradores, documentos validos)
-        company_profile = await _montar_company_profile(db)
-        result = await assessor_agent.run(
-            analysis=analysis,
-            company_profile=company_profile,
-        )
-        if result.success:
-            return {
-                "status": "success",
-                "agent": "assessor",
-                "assessment": result.data,
-            }
-        return {
-            "status": "error",
-            "agent": "assessor",
-            "message": result.error or "Erro na avaliacao",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Erro no agente Assessor: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar agente Assessor: {str(e)}",
-        )
-
-
 # ============================================================
 # Pricer - Precificacao
 # ============================================================
-@router.post("/pricer/calcular", status_code=201)
-async def pricer_calcular(current_user: CurrentActiveUser, request: PricerRequest):
-    """Calcula precificacao com composicao de custos, BDI e cenarios."""
-    try:
-        pricing_input = {
-            "regime_tributario": request.regime_tributario or "simples",
-            "bdi_percentual": request.bdi_percentual,
-            "cenario": request.cenario or "moderado",
-        }
-        result = await pricer_agent.run(pricing_input=pricing_input)
-        if result.success:
-            return {
-                "status": "success",
-                "agent": "pricer",
-                "pricing": result.data,
-            }
-        return {
-            "status": "error",
-            "agent": "pricer",
-            "message": result.error or "Erro na precificacao",
-        }
-    except Exception as e:
-        logger.error(f"Erro no agente Pricer: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar agente Pricer: {str(e)}",
-        )
-
-
 # ============================================================
 # Pipeline - Execucao completa
 # ============================================================
-@router.post("/pipeline", status_code=201)
-async def run_pipeline(current_user: CurrentActiveUser, request: PipelineRequest):
-    """Executa pipeline completo: analise -> avaliacao -> precificacao."""
-    try:
-        if not request.tender_id and not request.edital_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Informe tender_id ou edital_text para o pipeline",
-            )
-        if request.edital_text:
-            # Analise de edital direto (ANALYST + ASSESSOR)
-            pipeline_result = await orchestrator.run_analysis_only(
-                edital_text=request.edital_text,
-            )
-        else:
-            # Pipeline completo com busca (SCOUT → ANALYST → ASSESSOR → PRICER)
-            pipeline_result = await orchestrator.run_full_pipeline()
-        return {
-            "status": pipeline_result.status_geral,
-            "agent": "pipeline",
-            "pipeline": {
-                "pipeline_id": pipeline_result.pipeline_id,
-                "status": pipeline_result.status_geral,
-                "etapas": [
-                    {"nome": e.step.value, "status": e.status, "duracao_ms": e.duration_ms}
-                    for e in pipeline_result.steps_executados
-                ],
-                "analise": pipeline_result.analise,
-                "avaliacao": pipeline_result.avaliacao,
-                "precificacao": pipeline_result.precificacao,
-                "score_final": pipeline_result.score_final,
-                "recomendacao": pipeline_result.recomendacao_final,
-            },
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Erro no pipeline de agentes: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar pipeline: {str(e)}",
-        )
-
-
 # ============================================================
 # Sentinel - Monitoramento de certidoes
 # ============================================================
-@router.get("/sentinel/tipos")
-async def sentinel_tipos(current_user: CurrentActiveUser):
-    """Lista tipos de certidoes monitoradas pelo agente Sentinel."""
-    return {
-        "tipos": CERTIFICATE_TYPES,
-        "total": len(CERTIFICATE_TYPES),
-    }
-
-
-@router.post("/sentinel/verificar", status_code=201)
-async def sentinel_verificar(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
-    """Verifica status atual de todas as certidoes da empresa."""
-    try:
-        # Carregar certidoes/documentos REAIS de bidding_certificates
-        documentos_reais = await _carregar_documentos_sentinel(db)
-        result = await sentinel_agent.run(documentos=documentos_reais or None, cnpj=EMPRESA_CNPJ)
-        if result.success:
-            return {
-                "status": "success",
-                "agent": "sentinel",
-                "verificacao": result.data,
-            }
-        return {
-            "status": "error",
-            "agent": "sentinel",
-            "message": result.error or "Erro na verificacao",
-        }
-    except Exception as e:
-        logger.error(f"Erro no agente Sentinel: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao executar agente Sentinel: {str(e)}",
-        )
-
-
-@router.get("/sentinel/alertas")
-async def sentinel_alertas(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
-    """Retorna certidoes proximas do vencimento ou vencidas."""
-    try:
-        # Carregar certidoes/documentos REAIS de bidding_certificates
-        documentos_reais = await _carregar_documentos_sentinel(db)
-        result = await sentinel_agent.run(documentos=documentos_reais or None, cnpj=EMPRESA_CNPJ)
-        if result.success:
-            documentos = result.data.get("documentos", [])
-            alertas = [d for d in documentos if d.get("nivel_alerta") in ("urgente", "critico", "atencao")]
-            return {
-                "status": "success",
-                "agent": "sentinel",
-                "alertas": alertas,
-                "total": len(alertas),
-                "apto_licitar": result.data.get("apto_licitar", False),
-            }
-        return {
-            "status": "error",
-            "agent": "sentinel",
-            "message": result.error or "Erro ao consultar alertas",
-        }
-    except Exception as e:
-        logger.error(f"Erro ao consultar alertas: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao consultar alertas: {str(e)}",
-        )
-
-
 # ============================================================
 # Warrior - Robo de disputa
 # ============================================================
-@router.get("/warrior/status")
-async def warrior_status(current_user: CurrentActiveUser):
-    """Retorna status do robo de disputa (Warrior)."""
-    return {
-        "status": warrior_agent.AGENT_STATUS.value,
-        "agent": "warrior",
-        "message": "Warrior disponivel para simulacao de disputas",
-        "modos": ["simulacao"],
-        "portais_reais": [],
-    }
-
-
-@router.post("/warrior/simular", status_code=201)
-async def warrior_simular(
-    current_user: CurrentActiveUser,
-    valor_referencia: float = 100000.0,
-    estrategia: str = "moderado",
-    piso_minimo: float | None = None,
-    num_rodadas: int = 10,
-    concorrentes: int = 3,
-):
-    """Simula uma disputa de pregao eletronico."""
-    try:
-        result = await warrior_agent.run(
-            valor_referencia=valor_referencia,
-            estrategia=estrategia,
-            piso_minimo=piso_minimo or valor_referencia * 0.7,
-            num_rodadas=num_rodadas,
-            concorrentes=concorrentes,
-        )
-        if result.success:
-            return {"status": "success", "agent": "warrior", "simulacao": result.data}
-        return {"status": "error", "agent": "warrior", "message": result.error or "Erro na simulacao"}
-    except Exception as e:
-        logger.error(f"Erro no Warrior: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro na simulacao: {str(e)}")
-
-
 # ============================================================
 # Compiler - Geracao de documentos
 # ============================================================
-@router.post("/compiler/gerar", status_code=201)
-async def compiler_gerar(
-    current_user: CurrentActiveUser,
-    edital_numero: str = "001/2026",
-    objeto: str = "Contratacao de servicos de vigilancia patrimonial",
-    valor_total: float = 100000.0,
-    regime_tributario: str = "simples",
-):
-    """Gera documentos de proposta (carta, planilha, declaracoes)."""
-    try:
-        result = await compiler_agent.run(
-            analysis_data={"numero_edital": edital_numero, "objeto": objeto, "modalidade": "Pregao Eletronico"},
-            pricing_data={"valor_total": valor_total, "regime_tributario": regime_tributario},
-        )
-        if result.success:
-            return {"status": "success", "agent": "compiler", "documentos": result.data}
-        return {"status": "error", "agent": "compiler", "message": result.error or "Erro na geracao"}
-    except Exception as e:
-        logger.error(f"Erro no Compiler: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro na geracao: {str(e)}")

@@ -104,10 +104,6 @@ app.conf.task_routes = {
     "solides.cleanup_old_logs": {"queue": "maintenance"},
     "solides.cleanup_old_webhooks": {"queue": "maintenance"},
     # Bidding - Sync PNCP
-    "bidding.sync_pncp_oportunidades": {"queue": "gov.batch"},
-    "bidding.sync_pncp_precos": {"queue": "gov.batch"},
-    "bidding.verificar_certidoes_vencimento": {"queue": "gov.batch"},
-    "bidding.processar_pipeline_edital": {"queue": "gov.batch"},
     # Operacional - Notificações Push
     "operacional.check_late_employees": {"queue": "operacional"},
     "operacional.check_pending_approvals": {"queue": "operacional"},
@@ -517,27 +513,6 @@ app.conf.beat_schedule = {
         "task": "operacional.daily_coverage_report",
         "schedule": 86400.0,  # 24 horas
         "options": {"queue": "operacional"},
-    },
-    # =========================================================================
-    # BIDDING - SYNC PNCP / CERTIDÕES
-    # =========================================================================
-    # Sync oportunidades PNCP a cada 2 horas
-    "bidding-sync-pncp-2h": {
-        "task": "bidding.sync_pncp_oportunidades",
-        "schedule": 7200.0,  # 2 horas
-        "options": {"queue": "gov.batch"},
-    },
-    # Verificação de certidões a cada 6 horas
-    "bidding-check-certidoes-6h": {
-        "task": "bidding.verificar_certidoes_vencimento",
-        "schedule": 21600.0,  # 6 horas
-        "options": {"queue": "gov.batch"},
-    },
-    # Sync preços de referência diário
-    "bidding-sync-precos-daily": {
-        "task": "bidding.sync_pncp_precos",
-        "schedule": 86400.0,  # 24 horas
-        "options": {"queue": "gov.batch"},
     },
     # =========================================================================
     # SST - SAÚDE E SEGURANÇA DO TRABALHO

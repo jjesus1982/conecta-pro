@@ -120,8 +120,7 @@ async def report_compliance(
     """Relatório de compliance — certidões e prazos."""
     result = await db.execute(
         text("""
-        SELECT tipo, nome, situacao, status, data_validade, ativo
-        FROM bidding_certificates WHERE ativo = true
+        SELECT tipo, nome, situacao, status, data_validade, ativo FROM (SELECT document_type AS tipo, name AS nome, CASE WHEN expiry_date IS NULL THEN 'sem_validade' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valida' ELSE 'vencida' END AS situacao, CASE WHEN expiry_date IS NULL THEN 'unknown' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valid' ELSE 'expired' END AS status, expiry_date AS data_validade, true AS ativo, id, cnpj, issuing_body AS orgao_emissor, file_path FROM ged_certidoes WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') IN (SELECT regexp_replace(cnpj,'[^0-9]','','g') FROM empresas)) c
         ORDER BY data_validade ASC
         """)
     )
@@ -139,7 +138,7 @@ async def report_compliance(
                 "situacao": r["situacao"],
                 "status": r["status"],
                 "data_validade": r["data_validade"].isoformat() if r["data_validade"] else None,
-                "dias_restantes": (r["data_validade"].date() - today).days if r["data_validade"] else None,
+                "dias_restantes": ((r["data_validade"].date() if hasattr(r["data_validade"], "date") and not isinstance(r["data_validade"], d) else r["data_validade"]) - today).days if r["data_validade"] else None,
             }
             for r in rows
         ],
@@ -364,7 +363,7 @@ async def get_relatorio_mensal(
             COUNT(*) FILTER (WHERE status = 'expired') as vencidas,
             COUNT(*) FILTER (WHERE data_validade <= CURRENT_TIMESTAMP + INTERVAL '30 days'
                 AND status = 'valid') as vencendo_30d
-        FROM bidding_certificates
+        FROM (SELECT document_type AS tipo, name AS nome, CASE WHEN expiry_date IS NULL THEN 'sem_validade' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valida' ELSE 'vencida' END AS situacao, CASE WHEN expiry_date IS NULL THEN 'unknown' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'valid' ELSE 'expired' END AS status, expiry_date AS data_validade, true AS ativo, id, cnpj, issuing_body AS orgao_emissor, file_path FROM ged_certidoes WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') IN (SELECT regexp_replace(cnpj,'[^0-9]','','g') FROM empresas)) c
         WHERE ativo = true
         """)
     )

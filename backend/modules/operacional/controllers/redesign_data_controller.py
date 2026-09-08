@@ -2203,10 +2203,11 @@ async def _build_licitacoes(db: AsyncSession) -> dict:
         "FROM bidding_public_contracts ORDER BY data_assinatura DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:55]), t((r[2] or '—')[:35]), t(brl(r[3]) if r[3] is not None else '—'), t(_fmtdate(r[4])), b((r[5] or '—').capitalize(), "ok")]))
     await safe("certidoes", tbl(
-        "Certidões", f"{await _scalar(db, 'SELECT count(*) FROM bidding_certificates')} certidões", "Nova certidão",
+        "Certidões", f"{await _scalar(db, 'SELECT count(*) FROM ged_certidoes')} certidões (ged_certidoes — a fonte viva; bidding_certificates era seed)", "—",
         ["Certidão", "Tipo", "Órgão", "Validade", "Situação"], "1.8fr 1.2fr 1.4fr 1fr 0.9fr",
-        "SELECT coalesce(nome,'—'), coalesce(tipo,'—'), coalesce(orgao_emissor,'—'), data_validade, coalesce(situacao, status, '—') "
-        "FROM bidding_certificates ORDER BY data_validade ASC NULLS LAST LIMIT 200",
+        "SELECT coalesce(name,'—'), coalesce(document_type,'—'), coalesce(issuing_body,'—'), expiry_date, "
+        "CASE WHEN expiry_date IS NULL THEN '—' WHEN expiry_date >= (now() AT TIME ZONE 'America/Manaus')::date THEN 'válida' ELSE 'vencida' END "
+        "FROM ged_certidoes ORDER BY expiry_date ASC NULLS LAST LIMIT 200",
         lambda r: [t((r[0] or '—')[:45], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—')[:35]), t(_fmtdate(r[3])), b((r[4] or '—').capitalize(), "info")]))
     # disputas (list)
     drows = (await db.execute(text(
