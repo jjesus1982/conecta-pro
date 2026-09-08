@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -499,74 +499,6 @@ def _serialize_payslip(p: Any) -> dict:
 
 
 # ─────────────────────── UPLOAD PDF FOLHA ─────────────────────────
-
-
-@router.post(
-    "/folha/upload",
-    summary="Upload PDF Extrato Mensal Domínio/Portte — importa rubricas",
-    description=(
-        "Recebe PDF do Extrato Mensal Portte Contabil/Domínio Sistemas. "
-        "Extrai rubricas por funcionário e popula hr_payslip_items. "
-        "NÃO modifica totais de hr_payslips (fonte: Domínio importado pelo T2). "
-        "Preenche bases fiscais (INSS/FGTS/IRRF) somente se ainda NULL."
-    ),
-)
-async def upload_folha_pdf(
-    current_user: CurrentActiveUser,
-    mes: int = Query(..., ge=1, le=12, description="Mês de competência"),
-    ano: int = Query(..., ge=2020, le=2030, description="Ano de competência"),
-    arquivo: UploadFile = File(..., description="PDF Extrato Mensal Domínio"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Fluxo:
-    1. Salva PDF em /uploads/folhas/AAAA-MM/
-    2. Extrai funcionários e rubricas via FolhaPDFParser
-    3. Para cada funcionário, localiza hr_payslip por CPF + competência
-    4. Insere rubricas em hr_payslip_items (substitui anteriores)
-    5. Preenche bases fiscais se NULL (não conflita com T2)
-    """
-    import os
-
-    import psycopg2
-
-    from modules.people_management.services.folha_pdf_parser import (
-        FolhaPDFParser,
-        importar_rubricas,
-    )
-
-    if not arquivo.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Arquivo deve ser PDF")
-
-    pasta = f"/app/uploads/folhas/{ano:04d}-{mes:02d}"
-    os.makedirs(pasta, exist_ok=True)
-    pdf_path = f"{pasta}/extrato_{ano:04d}_{mes:02d}.pdf"
-    with open(pdf_path, "wb") as f:
-        f.write(await arquivo.read())
-
-    parser = FolhaPDFParser(pdf_path)
-    funcs = parser.parse()
-    if not funcs:
-        raise HTTPException(422, "Não foi possível extrair dados do PDF")
-
-    validacao = parser.validar_totais()
-    # DATABASE_URL usa +asyncpg — converter para psycopg2
-    raw_url = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
-    conn = psycopg2.connect(raw_url)
-    try:
-        resultado = importar_rubricas(parser, mes, ano, conn)
-    finally:
-        conn.close()
-
-    return {
-        "arquivo": pdf_path,
-        "funcionarios": len(funcs),
-        "validacao": validacao,
-        "rubricas": resultado,
-    }
-
-
-# ─────────────────── FOLHA PIX — PAGAMENTO VIA BANCO INTER ────────────────────
 
 
 @router.get(

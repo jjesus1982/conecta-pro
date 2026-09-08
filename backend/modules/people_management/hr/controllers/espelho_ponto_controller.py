@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -86,47 +86,6 @@ def fechar_mes_ponto(
             closed_by=_quem_fechou(current_user),
             force=body.force,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get(
-    "/fechamento-status",
-    summary="Status de fechamento do ponto por funcionário (calculado/anomalia/fechado/homologado)",
-)
-def fechamento_status_ponto(
-    mes: int = Query(..., ge=1, le=12),
-    ano: int = Query(..., ge=2020, le=2100),
-    employee_id: str | None = Query(None),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_sync_db_dependency),
-) -> Any:
-    """Lê `time_sheets` do mês e devolve, por funcionário, se o espelho foi calculado,
-    quantas anomalias abertas tem, se está fechado e se já foi homologado (assinado
-    pelo funcionário no Meu Espaço)."""
-    from modules.people_management.hr.services.espelho_service import fechamento_status
-
-    return fechamento_status(db, mes, ano, employee_id=employee_id)
-
-
-@router.post(
-    "/calcular",
-    summary="(Re)calcular o espelho de UM funcionário sem fechar o mês",
-)
-def calcular_espelho_endpoint(
-    employee_id: str = Body(..., embed=True),
-    mes: int = Body(..., embed=True),
-    ano: int = Body(..., embed=True),
-    force: bool = Body(False, embed=True),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_sync_db_dependency),
-) -> Any:
-    """Roda o motor para um único funcionário (status='calculado'), útil para o
-    painel do DP recalcular antes de fechar. Não fecha o mês."""
-    from modules.people_management.hr.services.espelho_service import calcular_espelho
-
-    try:
-        return calcular_espelho(db, employee_id, mes, ano, force=force)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

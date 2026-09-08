@@ -188,20 +188,6 @@ async def sophia_indexar(
     return {"status": "ok", **resultado}
 
 
-@router.get("/colaborador/{nome}/pagamentos")
-async def colaborador_pagamentos(
-    nome: str,
-    mes_ref: str | None = Query(None, description="Filtro de mês — formato MM.YYYY ex: 03.2026"),
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """G9.1 — Busca pagamentos do Banco Inter por nome do colaborador."""
-    from modules.gedeon.services.inter_comprovante_service import InterComprovanteService
-
-    svc = InterComprovanteService(db)
-    return await svc.gerar_resumo_pagamentos(nome=nome, mes_ref=mes_ref)
-
-
 def _gerar_checklist(ctx: dict) -> dict:
     return {
         "movimentacao": {

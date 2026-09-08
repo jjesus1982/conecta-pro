@@ -291,45 +291,6 @@ async def converter_lead_para_crm(
     }
 
 
-@router.get("/leads/stats")
-async def stats_mkt_leads(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)):
-    """Estatísticas de leads por campanha."""
-    result = await db.execute(
-        text("""
-        SELECT
-            mc.name as campanha,
-            COUNT(ml.id) as total,
-            COUNT(*) FILTER (WHERE ml.status = 'new') as novos,
-            COUNT(*) FILTER (WHERE ml.status = 'contacted') as contactados,
-            COUNT(*) FILTER (WHERE ml.status = 'qualified') as qualificados,
-            COUNT(*) FILTER (WHERE ml.status = 'converted') as convertidos,
-            COUNT(*) FILTER (WHERE ml.status = 'lost') as perdidos,
-            ROUND(COUNT(*) FILTER (WHERE ml.status = 'converted')::numeric / NULLIF(COUNT(ml.id), 0) * 100, 1) as taxa_conversao
-        FROM marketing_campaigns mc
-        LEFT JOIN marketing_leads ml ON ml.campaign_id = mc.id
-        GROUP BY mc.id, mc.name
-        ORDER BY total DESC
-    """)
-    )
-    rows = result.fetchall()
-    return {
-        "campanhas": [
-            {
-                "campanha": r[0],
-                "total": r[1],
-                "novos": r[2],
-                "contactados": r[3],
-                "qualificados": r[4],
-                "convertidos": r[5],
-                "perdidos": r[6],
-                "taxa_conversao": float(r[7]) if r[7] else 0,
-            }
-            for r in rows
-        ],
-        "gerado_em": datetime.now().isoformat(),
-    }
-
-
 # === INTERLIGAÇÃO LICITAÇÕES → CRM ===
 
 

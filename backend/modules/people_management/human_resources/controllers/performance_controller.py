@@ -69,30 +69,6 @@ async def visao_integrada(
         )
 
 
-@router.get(
-    "/visao-integrada/{employee_id}",
-    summary="Visao integrada de desempenho de um funcionario",
-)
-async def visao_integrada_funcionario(
-    employee_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Visao integrada de desempenho para um funcionario ativo especifico."""
-    service = IntegratedPerformanceService(db)
-    try:
-        result = await service.visao_integrada(employee_id=str(employee_id))
-    except Exception as e:
-        logger.error(f"Erro na visao integrada de desempenho ({employee_id}): {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao montar visao integrada de desempenho.",
-        )
-    if result.get("erro"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["erro"])
-    return result
-
-
 @router.post(
     "/reviews",
     response_model=PerformanceReviewResponse,

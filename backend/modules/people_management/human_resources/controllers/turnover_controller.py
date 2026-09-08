@@ -38,33 +38,6 @@ MOTIVOS_DESLIGAMENTO: dict[str, str] = {
 }
 
 
-@router.get("/desligados-sem-motivo")
-async def desligados_sem_motivo(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Lista os desligados cujo motivo ainda não foi informado (gap da análise de turnover)."""
-    rows = (
-        await db.execute(
-            text(
-                "SELECT CAST(id AS TEXT) AS id, nome, coalesce(cargo,'—') AS cargo, data_demissao "
-                "FROM employees WHERE data_demissao IS NOT NULL "
-                "AND nullif(trim(coalesce(motivo_desligamento,'')),'') IS NULL "
-                "ORDER BY data_demissao DESC"
-            )
-        )
-    ).mappings().all()
-    return {
-        "desligados": [
-            {"id": r["id"], "nome": r["nome"], "cargo": r["cargo"],
-             "data_demissao": r["data_demissao"].isoformat() if r["data_demissao"] else None}
-            for r in rows
-        ],
-        "motivos": [{"value": k, "label": v} for k, v in MOTIVOS_DESLIGAMENTO.items()],
-        "total": len(rows),
-    }
-
-
 class RegistrarMotivoBody(BaseModel):
     employee_id: str
     motivo: str

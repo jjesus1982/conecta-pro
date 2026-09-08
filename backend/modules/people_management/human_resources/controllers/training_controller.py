@@ -12,7 +12,6 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
@@ -27,7 +26,6 @@ from modules.people_management.human_resources.schemas.training import (
     TrainingCourseCreate,
     TrainingCourseListResponse,
     TrainingCourseResponse,
-    TrainingCourseUpdate,
     TrainingCreate,
     TrainingEnrollmentCreate,
     TrainingEnrollmentListResponse,
@@ -102,69 +100,6 @@ async def list_courses(
         page=result["page"],
         page_size=result["page_size"],
     )
-
-
-@router.get(
-    "/courses/{course_id}",
-    response_model=TrainingCourseResponse,
-    summary="Buscar curso por ID",
-)
-async def get_course(
-    course_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> TrainingCourseResponse:
-    """Busca um curso pelo identificador."""
-    service = TrainingService(db)
-    course = await service.get_course(course_id)
-    if not course:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso nao encontrado.",
-        )
-    return TrainingCourseResponse.model_validate(course)
-
-
-@router.put(
-    "/courses/{course_id}",
-    response_model=TrainingCourseResponse,
-    summary="Atualizar curso",
-)
-async def update_course(
-    course_id: UUID,
-    data: TrainingCourseUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> TrainingCourseResponse:
-    """Atualiza os dados de um curso."""
-    service = TrainingService(db)
-    course = await service.update_course(course_id, data)
-    if not course:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso nao encontrado.",
-        )
-    return TrainingCourseResponse.model_validate(course)
-
-
-@router.delete(
-    "/courses/{course_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Desativar curso",
-)
-async def delete_course(
-    course_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> None:
-    """Desativa um curso (soft delete)."""
-    service = TrainingService(db)
-    deleted = await service.delete_course(course_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso nao encontrado.",
-        )
 
 
 # =============================================================================
@@ -283,31 +218,6 @@ async def list_enrollments(
 # IMPORTANTE: rota literal /certificates DEVE vir antes de /{training_id},
 # senão "certificates" é interpretado como UUID e dá 422 (a tela rh/certificados ficava vazia).
 @router.get("/certificates", summary="Listar certificados de treinamento")
-@router.get("/certificates/", include_in_schema=False)
-async def list_certificates(
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-) -> dict:
-    """Lista certificados emitidos (com nome do colaborador e do curso)."""
-    total = (await db.execute(text("SELECT count(*) FROM training_certificates"))).scalar() or 0
-    rows = await db.execute(
-        text(
-            "SELECT tc.id::text AS id, tc.certificate_number, tc.employee_id::text AS employee_id, "
-            "tc.course_id::text AS course_id, e.nome AS employee_name, c.name AS course_name, "
-            "tc.issued_at, tc.expires_at, tc.status "
-            "FROM training_certificates tc "
-            "LEFT JOIN employees e ON tc.employee_id = e.id "
-            "LEFT JOIN training_courses c ON tc.course_id = c.id "
-            "ORDER BY tc.issued_at DESC NULLS LAST LIMIT :limit OFFSET :offset"
-        ),
-        {"limit": page_size, "offset": (page - 1) * page_size},
-    )
-    items = [dict(r) for r in rows.mappings().all()]
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
-
-
 @router.get(
     "/{training_id}",
     response_model=TrainingResponse,
@@ -427,32 +337,3 @@ async def issue_certificate(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.get(
-    "/certificates/expiring",
-    response_model=list[TrainingCertificateResponse],
-    summary="Certificados proximos do vencimento",
-)
-async def get_expiring_certificates(
-    days_ahead: int = Query(30, ge=1, le=365),
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> list[TrainingCertificateResponse]:
-    """Lista certificados que vencerao nos proximos N dias."""
-    service = TrainingService(db)
-    certificates = await service.get_expiring_certificates(days_ahead=days_ahead)
-    return [TrainingCertificateResponse.model_validate(c) for c in certificates]
-
-
-@router.get(
-    "/mandatory-check/{employee_id}",
-    summary="Verificar treinamentos obrigatorios",
-)
-async def check_mandatory_trainings(
-    employee_id: UUID,
-    workplace_type: str = Query(..., description="Tipo de posto de trabalho"),
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Verifica treinamentos obrigatorios de um funcionario para um tipo de posto."""
-    service = TrainingService(db)
-    return await service.check_mandatory_for_workplace(employee_id, workplace_type)

@@ -4,7 +4,6 @@ Sprint 30: Cadastro de Clientes/Condomínios
 """
 
 import logging
-from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,7 +17,6 @@ from modules.clients.schemas.client_schemas import (
     ClientFilter,
     ClientResponse,
     ClientUpdate,
-    CondominiumCreate,
     CondominiumListResponse,
     CondominiumResponse,
     CondominiumUpdate,
@@ -107,17 +105,6 @@ async def get_client(
     return client
 
 
-@router.get("/{client_id}/full", response_model=ClientResponse)
-async def get_client_full(
-    client_id: UUID, current_user: CurrentActiveUser, service: ClientService = Depends(get_service)
-) -> ClientResponse:
-    """Obtém um cliente com todas as relações."""
-    client = service.get_client_full(client_id)
-    if not client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado")
-    return client
-
-
 @router.put("/{client_id}", response_model=ClientResponse)
 async def update_client(
     current_user: CurrentActiveUser, client_id: UUID, data: ClientUpdate, service: ClientService = Depends(get_service)
@@ -127,15 +114,6 @@ async def update_client(
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado")
     return client
-
-
-@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_client(
-    client_id: UUID, current_user: CurrentActiveUser, service: ClientService = Depends(get_service)
-) -> None:
-    """Remove um cliente."""
-    if not service.delete_client(client_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado")
 
 
 @router.post("/{client_id}/activate", response_model=ClientResponse)
@@ -177,20 +155,6 @@ async def block_client(
     return client
 
 
-@router.post("/{client_id}/set-defaulter", response_model=ClientResponse)
-async def set_defaulter(
-    current_user: CurrentActiveUser,
-    client_id: UUID,
-    debt_amount: Decimal = Query(..., gt=0),
-    service: ClientService = Depends(get_service),
-) -> ClientResponse:
-    """Marca cliente como inadimplente."""
-    client = service.set_defaulter(client_id, debt_amount)
-    if not client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado")
-    return client
-
-
 @router.post("/{client_id}/clear-defaulter", response_model=ClientResponse)
 async def clear_defaulter(
     client_id: UUID, current_user: CurrentActiveUser, service: ClientService = Depends(get_service)
@@ -205,22 +169,6 @@ async def clear_defaulter(
 # =============================================================================
 # CONDOMINIUM ENDPOINTS
 # =============================================================================
-
-
-@router.post("/{client_id}/condominiums", response_model=CondominiumResponse, status_code=status.HTTP_201_CREATED)
-async def create_condominium(
-    current_user: CurrentActiveUser,
-    client_id: UUID,
-    data: CondominiumCreate,
-    service: ClientService = Depends(get_service),
-) -> CondominiumResponse:
-    """Cria um novo condomínio para o cliente."""
-    data.client_id = client_id
-    try:
-        condominium = service.create_condominium(data)
-        return condominium
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/{client_id}/condominiums", response_model=list[CondominiumListResponse])

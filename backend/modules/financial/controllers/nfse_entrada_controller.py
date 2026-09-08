@@ -9,7 +9,6 @@ Endpoints para:
 
 import logging
 import re
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import text
@@ -152,49 +151,5 @@ async def resumo_fiscal(
 
 
 # ── Conciliacao Bancaria ─────────────────────────────────────────────────────
-
-
-@router.get("/fiscal/stats-real")
-async def fiscal_stats_real(
-    condominio_id: UUID = Query(None),
-    db: AsyncSession = Depends(get_session),
-    _user: dict = Depends(get_current_user),
-) -> dict:
-    """Stats fiscais baseadas em NFS-e reais emitidas (fonte autoritativa).
-
-    FONTE: nfse_emitidas_nacional (portal nacional ADN, só cStat 100 — mesma fonte
-    do DRE/relatorios). A tabela legada `nfses` cobria só jan-fev/2026 (27 notas) e
-    subreportava a receita de serviço em ~62%.
-    """
-    nfse = (
-        await db.execute(
-            text(
-                "SELECT COUNT(*) as total, "
-                "COALESCE(SUM(valor_servicos),0) as receita, "
-                "COALESCE(SUM(iss_valor),0) as iss "
-                "FROM nfse_emitidas_nacional"
-            )
-        )
-    ).fetchone()
-    # competencia é VARCHAR 'YYYY-MM' na fonte nacional — usar direto (padrão do DRE)
-    por_mes = (
-        await db.execute(
-            text(
-                "SELECT competencia as mes, "
-                "COUNT(*) as qtd, SUM(valor_servicos) as valor "
-                "FROM nfse_emitidas_nacional GROUP BY competencia ORDER BY competencia"
-            )
-        )
-    ).fetchall()
-    return {
-        "total_nfse": int(nfse.total) if nfse else 0,
-        "receita_bruta": float(nfse.receita) if nfse else 0,
-        "iss_total": float(nfse.iss) if nfse else 0,
-        "receita_liquida": float((nfse.receita or 0) - (nfse.iss or 0)) if nfse else 0,
-        "por_mes": [dict(r._mapping) for r in por_mes],
-    }
-
-
-# ── Custos Resumo ───────────────────────────────────────────────────────────
 
 

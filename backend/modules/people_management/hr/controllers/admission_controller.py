@@ -68,19 +68,6 @@ async def create_admission(
 
 
 @router.get(
-    "/checklist",
-    summary="Checklist de Documentos",
-    description="Retorna lista paginada de processos de admissão com filtro por status.",
-)
-async def get_document_checklist(
-    include_security: bool = Query(True, description="Incluir documentos de vigilância"),
-) -> Any:
-    """Retorna checklist padrão de documentos para admissão."""
-    service = AdmissionService(db=None)  # type: ignore[arg-type]
-    return service.generate_document_checklist(include_security=include_security)
-
-
-@router.get(
     "/stats",
     summary="Estatísticas de Admissão",
     description="Retorna lista paginada de processos de admissão com filtro por status.",

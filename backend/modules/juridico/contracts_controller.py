@@ -22,12 +22,6 @@ def dashboard(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_curr
     return svc.dashboard_contratos(db)
 
 
-@router.get("/alertas", summary="Só os alertas (vencimento/renovação/reajuste/assinatura)")
-def alertas(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
-    d = svc.dashboard_contratos(db)
-    return {"referencia": d["referencia"], "total": len(d["alertas"]), "alertas": d["alertas"]}
-
-
 @router.get("/{contrato_id}", summary="Detalhe de um contrato + alertas")
 def detalhe(contrato_id: str, db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     c = svc.obter_contrato(db, contrato_id)

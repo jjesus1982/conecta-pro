@@ -19,15 +19,11 @@ from modules.financial.schemas.payable import (
     PayableAccountResponse,
     PayableAccountStats,
     PayableAccountUpdate,
-    PayableBulkApproveRequest,
-    PayableBulkPaymentRequest,
     PayableInstallmentRenegotiateRequest,
     PayableInstallmentResponse,
     PayableInstallmentUpdate,
     PayablePaymentCreate,
-    PayablePaymentReconcileRequest,
     PayablePaymentResponse,
-    PayablePaymentReverseRequest,
     PayableScheduleRequest,
 )
 from modules.financial.services.payable_service import PayableService
@@ -148,23 +144,6 @@ async def get_overdue(
 ) -> list[PayableAccountListResponse]:
     """Retorna contas vencidas."""
     accounts = await service.get_overdue_accounts(condominio_id, limit)
-    return [PayableAccountListResponse.model_validate(a) for a in accounts]
-
-
-@router.get(
-    "/due-soon",
-    response_model=list[PayableAccountListResponse],
-    summary="Contas a vencer",
-)
-async def get_due_soon(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    days: int = Query(7, ge=1, le=90, description="Dias para vencimento"),
-    limit: int = Query(100, ge=1, le=500),
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> list[PayableAccountListResponse]:
-    """Retorna contas a vencer nos próximos dias."""
-    accounts = await service.get_due_soon_accounts(condominio_id, days, limit)
     return [PayableAccountListResponse.model_validate(a) for a in accounts]
 
 
@@ -318,21 +297,6 @@ async def approve_account(
         return PayableAccountResponse.model_validate(account)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post("/bulk-approve", summary="Aprovar múltiplas contas", status_code=201)
-async def bulk_approve(
-    data: PayableBulkApproveRequest,
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> dict[str, int]:
-    """Aprova múltiplas contas."""
-    success, errors = await service.bulk_approve(data, current_user.id)
-    return {
-        "success_count": success,
-        "error_count": errors,
-        "total": len(data.account_ids),
-    }
 
 
 @router.post("/{account_id}/reject", response_model=PayableAccountResponse, summary="Rejeitar conta", status_code=201)
@@ -500,87 +464,6 @@ async def register_payment(
         return PayablePaymentResponse.model_validate(payment)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post("/bulk-payment", summary="Pagamento em lote", status_code=201)
-async def bulk_payment(
-    data: PayableBulkPaymentRequest,
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Processa pagamento em lote."""
-    success, errors, payment_ids = await service.bulk_payment(data, current_user.id)
-    return {
-        "success_count": success,
-        "error_count": errors,
-        "total": len(data.installment_ids),
-        "payment_ids": [str(p) for p in payment_ids],
-    }
-
-
-@router.post(
-    "/payments/{payment_id}/reverse",
-    response_model=PayablePaymentResponse,
-    summary="Estornar pagamento",
-    status_code=201,
-)
-async def reverse_payment(
-    payment_id: UUID,
-    data: PayablePaymentReverseRequest,
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> PayablePaymentResponse:
-    """Estorna um pagamento."""
-    try:
-        payment = await service.reverse_payment(payment_id, data, current_user.id)
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Pagamento não encontrado",
-            )
-        return PayablePaymentResponse.model_validate(payment)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post(
-    "/payments/{payment_id}/reconcile",
-    response_model=PayablePaymentResponse,
-    summary="Reconciliar pagamento",
-    status_code=201,
-)
-async def reconcile_payment(
-    payment_id: UUID,
-    data: PayablePaymentReconcileRequest,
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> PayablePaymentResponse:
-    """Reconcilia pagamento com extrato bancário."""
-    try:
-        payment = await service.reconcile_payment(payment_id, data, current_user.id)
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Pagamento não encontrado",
-            )
-        return PayablePaymentResponse.model_validate(payment)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.get(
-    "/payments/pending-reconciliation",
-    response_model=list[PayablePaymentResponse],
-    summary="Pagamentos pendentes de reconciliação",
-)
-async def get_pending_reconciliation(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    service: PayableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> list[PayablePaymentResponse]:
-    """Retorna pagamentos pendentes de reconciliação."""
-    payments = await service.get_pending_reconciliation(condominio_id)
-    return [PayablePaymentResponse.model_validate(p) for p in payments]
 
 
 # ==================== RECORRÊNCIA ====================

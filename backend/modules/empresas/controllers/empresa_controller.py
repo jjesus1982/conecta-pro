@@ -11,8 +11,6 @@ from core.auth import CurrentActiveUser, get_tenant_id
 from core.database import get_db
 from modules.empresas.schemas.empresa_schemas import (
     EmpresaListResponse,
-    LiminarCreate,
-    LiminarResponse,
     SimulacaoRegime,
 )
 from modules.empresas.services import empresa_service
@@ -93,56 +91,5 @@ async def simular_mudanca_regime(
 # ===================================================================
 # LIMINARES ENDPOINTS
 # ===================================================================
-
-
-@router.post(
-    "/{empresa_id}/liminares",
-    response_model=LiminarResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Cadastrar liminar",
-)
-async def cadastrar_liminar(
-    empresa_id: UUID,
-    dados: LiminarCreate,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> LiminarResponse:
-    """Cadastra uma liminar judicial para a empresa."""
-    try:
-        condominio_id = UUID(get_tenant_id(current_user))
-        return await empresa_service.cadastrar_liminar(db, empresa_id, dados, condominio_id)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Erro ao cadastrar liminar: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao cadastrar liminar",
-        ) from exc
-
-
-@router.get(
-    "/{empresa_id}/liminares",
-    response_model=list[LiminarResponse],
-    status_code=status.HTTP_200_OK,
-    summary="Listar liminares",
-)
-async def listar_liminares(
-    empresa_id: UUID,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[LiminarResponse]:
-    """Lista todas as liminares de uma empresa."""
-    try:
-        condominio_id = UUID(get_tenant_id(current_user))
-        return await empresa_service.listar_liminares(db, empresa_id, condominio_id)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Erro ao listar liminares: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao listar liminares",
-        ) from exc
 
 

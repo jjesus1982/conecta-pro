@@ -85,36 +85,6 @@ async def list_billing_rules(
 
 
 @router.get(
-    "/active",
-    response_model=list[BillingRuleResponse],
-    summary="Regras ativas",
-)
-async def get_active_rules(
-    condominio_id: UUID | None = Query(None),
-    repo: BillingRuleRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-):
-    """Retorna regras de cobranca ativas."""
-    rules = await repo.get_active(condominio_id)
-    return [BillingRuleResponse.model_validate(r) for r in rules]
-
-
-@router.get(
-    "/due-for-generation",
-    response_model=list[BillingRuleResponse],
-    summary="Regras para geracao",
-)
-async def get_rules_due_for_generation(
-    condominio_id: UUID | None = Query(None),
-    repo: BillingRuleRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-):
-    """Retorna regras que precisam gerar cobrancas."""
-    rules = await repo.get_due_for_generation(condominio_id)
-    return [BillingRuleResponse.model_validate(r) for r in rules]
-
-
-@router.get(
     "/{rule_id}",
     response_model=BillingRuleResponse,
     summary="Buscar regra de cobranca",

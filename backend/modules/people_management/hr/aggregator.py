@@ -17,6 +17,7 @@ from core.database import get_db
 
 logger = logging.getLogger(__name__)
 
+# 08/09/2026: reembolsos e benefícios CCT saem daqui — vivem em /api/v1/reimbursements e /api/v1/cct (redesign chama esses). benefits_router fica: redesign usa /people-management/hr/benefits
 router = APIRouter(prefix="/hr", tags=["Departamento Pessoal"])
 
 # Importar e incluir todos os sub-routers
@@ -54,8 +55,8 @@ try:
     from modules.people_management.hr.controllers.benefits_controller import (
         router as benefits_router,
     )
-
     router.include_router(benefits_router)
+
     logger.debug("DP: benefits_router incluído")
 except ImportError as e:
     logger.warning("DP: falha ao incluir benefits_router: %s", e)
@@ -155,7 +156,6 @@ try:
         router as reimbursement_router,
     )
 
-    router.include_router(reimbursement_router)
     logger.debug("DP: reimbursement_router incluído")
 except ImportError as e:
     logger.warning("DP: falha ao incluir reimbursement_router: %s", e)
@@ -233,7 +233,6 @@ except ImportError as e:
 try:
     from modules.cct.controllers.benefits_controller import router as cct_benefits_router
 
-    router.include_router(cct_benefits_router)
     logger.debug("DP: cct_benefits_router incluído (/beneficios)")
 except ImportError as e:
     logger.warning("DP: falha ao incluir cct_benefits_router: %s", e)

@@ -21,7 +21,6 @@ from modules.people_management.ged.schemas.kit import (
     KitCreate,
     KitListResponse,
     KitResponse,
-    KitSummary,
     KitUpdate,
 )
 from modules.people_management.ged.services.export_service import ExportService
@@ -74,82 +73,6 @@ async def list_kits(
         skip=skip,
         limit=limit,
     )
-
-
-@router.get("/summary", response_model=KitSummary)
-async def get_kit_summary(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    year: int | None = Query(None, ge=2020, le=2030, description="Ano de referencia"),
-    month: int | None = Query(None, ge=1, le=12, description="Mes de referencia"),
-) -> Any:
-    """Retorna resumo geral dos kits para dashboard."""
-    service = KitService(db)
-    reference_month = None
-    if year and month:
-        reference_month = date(year, month, 1)
-    return await service.get_kit_summary(reference_month=reference_month)
-
-
-@router.get("/dashboard")
-async def get_kit_dashboard(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    year: int | None = Query(None, ge=2020, le=2030),
-    month: int | None = Query(None, ge=1, le=12),
-) -> Any:
-    """Dashboard completo dos kits documentais.
-
-    Retorna resumo + proxima geracao + clientes sem kit.
-    """
-    from datetime import datetime
-
-    from modules.people_management.ged.models.client import GedClient
-    from modules.people_management.ged.models.document_kit import GedDocumentKit
-
-    now = datetime.now()
-    ref_year = year or now.year
-    ref_month = month or now.month
-    ref_date = date(ref_year, ref_month, 1)
-
-    # Summary basico
-    service = KitService(db)
-    summary = await service.get_kit_summary(reference_month=ref_date)
-
-    # Proxima geracao (dia 1 do proximo mes as 02:00)
-    if ref_month == 12:
-        next_month = date(ref_year + 1, 1, 1)
-    else:
-        next_month = date(ref_year, ref_month + 1, 1)
-    proxima_geracao = f"{next_month.isoformat()}T02:00:00"
-
-    # Clientes sem kit neste mes
-    from sqlalchemy import select
-
-    all_clients_q = select(GedClient.id, GedClient.name)
-    all_clients = (await db.execute(all_clients_q)).all()
-
-    clients_with_kit_q = select(GedDocumentKit.client_id).where(GedDocumentKit.reference_month == ref_date).distinct()
-    clients_with_kit = {row[0] for row in (await db.execute(clients_with_kit_q)).all()}
-
-    clientes_sem_kit = [{"id": str(cid), "name": cname} for cid, cname in all_clients if cid not in clients_with_kit]
-
-    # Scheduler status
-    try:
-        from modules.document_kits import scheduler as kit_scheduler
-
-        sched_status = kit_scheduler.get_scheduler_status()
-    except Exception:
-        sched_status = {"running": False, "message": "Scheduler indisponivel"}
-
-    return {
-        "reference_month": ref_date.isoformat(),
-        "summary": summary,
-        "proxima_geracao": proxima_geracao,
-        "scheduler": sched_status,
-        "clientes_sem_kit": clientes_sem_kit,
-        "total_clientes_sem_kit": len(clientes_sem_kit),
-    }
 
 
 @router.post("", response_model=KitResponse, status_code=201)
@@ -243,28 +166,6 @@ async def build_kit(
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/auto-assemble", status_code=201)
-async def auto_assemble_kits(
-    reference_month: date | None = Query(None, description="Mes de referencia (default: mes atual)"),
-    current_user: CurrentActiveUser = None,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Monta kits automaticamente para todos os clientes ativos.
-
-    Coleta documentos de DP, Fiscal e Operacoes automaticamente
-    para cada cliente que tem funcionarios alocados.
-    """
-    ref = reference_month or date.today().replace(day=1)
-    builder = KitBuilderService(db)
-    try:
-        result = await builder.auto_build_all_kits(ref)
-        await db.commit()
-        return result
-    except Exception as e:
-        logger.error(f"Erro no auto-assemble: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{kit_id}/send", response_model=KitResponse, status_code=201)

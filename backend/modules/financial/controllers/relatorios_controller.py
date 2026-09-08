@@ -133,32 +133,6 @@ async def _ensure_liminares(db: AsyncSession) -> None:
     await db.commit()
 
 
-@router.get("/liminares")
-async def liminares_listar(
-    db: AsyncSession = Depends(get_session),
-    _user: dict = Depends(get_current_user),
-) -> dict:
-    await _ensure_liminares(db)
-    rows = (await db.execute(_sql("SELECT * FROM fiscal_liminares ORDER BY created_at"))).mappings().all()
-    return {"liminares": [dict(r) for r in rows]}
-
-
-@router.post("/liminares", status_code=201)
-async def liminar_criar(
-    body: LiminarIn,
-    db: AsyncSession = Depends(get_session),
-    _user: dict = Depends(get_current_user),
-) -> dict:
-    await _ensure_liminares(db)
-    r = await db.execute(_sql("""
-        INSERT INTO fiscal_liminares (tipo, descricao, status, processo, tributo, empresa, observacao)
-        VALUES (:t,:d,:s,:p,:tr,:e,:o) RETURNING id
-    """), {"t": body.tipo, "d": body.descricao, "s": body.status, "p": body.processo,
-           "tr": body.tributo, "e": body.empresa, "o": body.observacao})
-    await db.commit()
-    return {"ok": True, "id": int(r.scalar())}
-
-
 @router.put("/liminares/{lid}/status")
 async def liminar_status(
     lid: int, status: str = Query(...),
@@ -657,13 +631,6 @@ async def contas_a_pagar_ep(ano: int = Query(2026), _user: dict = Depends(get_cu
     return FluxoCaixaService().contas_a_pagar(ano)
 
 
-@router.get("/fornecedores")
-async def fornecedores_ep(ano: int = Query(2026), _user: dict = Depends(get_current_user)) -> dict:
-    """Fornecedores REAIS consolidados das NFS-e tomadas (serviços comprados)."""
-    from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
-    return FluxoCaixaService().fornecedores(ano)
-
-
 @router.get("/apuracao-lucro-real")
 async def apuracao_lucro_real(
     ano: int = Query(2026, ge=2020, le=2100),
@@ -877,97 +844,6 @@ async def _get_balancete_obsoleto(
             "diferenca": 0.0,
             "aviso": "Sem lançamentos contábeis para o período",
         }
-
-
-@router.get("/balanco-patrimonial")
-async def get_balanco_patrimonial(
-    data_referencia: date = Query(..., description="Data de referência (ex: 2026-03-31)"),
-    condominio_id: UUID | None = Query(None),  # noqa: ARG001 — compat de assinatura
-    db: AsyncSession = Depends(get_session),  # noqa: ARG001 — idem
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Balanço Patrimonial a partir do razão REAL (`accounting_entries`).
-
-    Era 501 honesto até 13/08/2026, e o motivo era verdadeiro: o razão não tinha
-    NENHUM lançamento no grupo 3.x, e derivar o PL por diferença (Ativo − Passivo)
-    seria inventar número contábil.
-
-    O que mudou: a apuração de resultado passou a existir
-    (`apuracao_resultado.apurar`). O PL não é mais derivado por diferença — ele é
-    ESCRITURADO: cada competência fechada encerra 4.x e 5.x contra
-    `3.2.1.01 Lucros ou Prejuízos Acumulados`. 42 competências encerradas,
-    R$-200.904,64 levados ao PL, e a conta de passagem 3.3.1.01 voltou a zero.
-
-    ⚠️ O que continua NÃO SABIDO e vem declarado na resposta, não escondido:
-    capital social e lucros acumulados até 31/12/2025 só existem no balanço
-    fechado pelo contador. Enquanto não entrarem, o PL aqui é só o resultado que
-    ESTE razão conhece — por isso `pl_completo: false`.
-    """
-    linhas = (await db.execute(_sql("""
-        WITH mov AS (
-            SELECT conta_debito AS conta, valor AS v FROM accounting_entries
-             WHERE data_lancamento <= :ate
-            UNION ALL
-            SELECT conta_credito, -valor FROM accounting_entries
-             WHERE data_lancamento <= :ate
-        )
-        SELECT left(conta, 1) AS grupo, round(sum(v), 2) AS saldo
-        FROM mov GROUP BY 1 ORDER BY 1
-    """), {"ate": data_referencia})).fetchall()
-    g = {r[0]: float(r[1] or 0) for r in linhas}
-    ativo = round(g.get("1", 0.0), 2)
-    passivo = round(-g.get("2", 0.0), 2)
-    pl_escriturado = round(-g.get("3", 0.0), 2)
-    resultado_aberto = round(-g.get("4", 0.0) - g.get("5", 0.0), 2)
-    dif = round(ativo - (passivo + pl_escriturado + resultado_aberto), 2)
-
-    contas = (await db.execute(_sql("""
-        WITH mov AS (
-            SELECT conta_debito AS conta, valor AS v FROM accounting_entries
-             WHERE data_lancamento <= :ate
-            UNION ALL
-            SELECT conta_credito, -valor FROM accounting_entries
-             WHERE data_lancamento <= :ate
-        )
-        SELECT conta, round(sum(v), 2) AS saldo FROM mov
-        GROUP BY 1 HAVING abs(sum(v)) > 0.005 ORDER BY conta
-    """), {"ate": data_referencia})).fetchall()
-    nomes = {r[0]: r[1] for r in (await db.execute(_sql(
-        "SELECT code, name FROM fin_accounting_accounts"))).fetchall()}
-
-    return {
-        "data_referencia": str(data_referencia),
-        "ativo": ativo,
-        "passivo": passivo,
-        "patrimonio_liquido": pl_escriturado,
-        "resultado_do_periodo_em_curso": resultado_aberto,
-        "fecha": abs(dif) < 0.01,
-        "diferenca": dif,
-        # REGRA, não bandeira fixa: o PL está completo quando a conta de abertura
-        # `3.9.9.01 Saldo de Abertura a Identificar` zera. Enquanto ela tiver saldo,
-        # existe patrimônio declarado cuja contrapartida ninguém identificou — e o
-        # balanço fecharia dizendo mais do que sabe. Era um `False` chumbado; virou
-        # medida, então o dia em que o contador entregar o balanço de abertura o
-        # sistema reconhece sozinho.
-        "pl_completo": abs(_saldo_abertura_a_identificar(contas)) < 0.01,
-        "saldo_abertura_a_identificar": _saldo_abertura_a_identificar(contas),
-        # O capital SUBSCRITO é fato público na Receita (BrasilAPI) e entra aqui como
-        # informação, NÃO como lançamento: subscrito ≠ integralizado. Quanto entrou de
-        # verdade só o contrato social diz, e postar R$600 mil como integralizado seria
-        # fabricar patrimônio. Fica nomeado para que a lacuna tenha tamanho em vez de
-        # ser um "falta alguma coisa" genérico.
-        "capital_social_subscrito": await _capital_social_subscrito(),
-        "aviso": ("Capital social integralizado JÁ registrado (R$600.000, confirmado pelo "
-                  "sócio em 13/08/2026 e conferido contra a Receita). O que falta é o "
-                  "BALANÇO DE ABERTURA do contador: em que ativos esse capital se "
-                  "transformou e qual o lucro/prejuízo acumulado até 31/12/2025. Enquanto "
-                  "não entrar, 3.9.9.01 carrega a contrapartida e `pl_completo` é false."),
-        "contas": [{"conta": c, "nome": nomes.get(c, "(não mapeada no plano)"),
-                    "saldo": float(s)} for c, s in contas],
-        "fonte": "accounting_entries (razão real) + apuração de resultado por competência",
-    }
-
-
 
 
 def _saldo_abertura_a_identificar(contas) -> float:

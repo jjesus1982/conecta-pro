@@ -106,23 +106,6 @@ async def get_stats(  # pylint: disable=unused-argument
 
 
 @router.get(
-    "/search",
-    response_model=list[SupplierListResponse],
-    summary="Busca rápida de fornecedores",
-)
-async def search_suppliers(  # pylint: disable=unused-argument
-    condominio_id: UUID | None = Query(None),
-    q: str = Query(..., min_length=2, description="Termo de busca"),
-    limit: int = Query(10, ge=1, le=50),
-    service: SupplierService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-):
-    """Busca rápida de fornecedores ativos."""
-    suppliers = await service.search(condominio_id, q, limit)
-    return [SupplierListResponse.model_validate(s) for s in suppliers]
-
-
-@router.get(
     "/{supplier_id}",
     response_model=SupplierResponse,
     summary="Buscar fornecedor",

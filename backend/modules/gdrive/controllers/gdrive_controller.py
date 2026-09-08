@@ -4,10 +4,9 @@ Endpoints para status, autorização OAuth2 e envio de kits ao Google Drive.
 """
 
 import logging
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
@@ -81,117 +80,6 @@ async def gdrive_status(
 
 
 # ── AUTORIZAR ──────────────────────────────────────────────────────────────────
-
-
-@router.post("/kits/{cliente_id}/{competencia}/montar-e-enviar")
-async def montar_e_enviar(
-    cliente_id: str,
-    competencia: str,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Monta o kit do cliente para a competência e envia ao Google Drive.
-    Se o kit não existir, retorna erro orientando a criá-lo antes.
-    competencia: YYYY-MM
-    """
-    from modules.people_management.ged.models.document_kit import GedDocumentKit
-
-    # Verificar drive conectado
-    svc = _drive_service(db)
-    creds = await svc.check_credentials()
-
-    if not creds.get("configured"):
-        return {
-            "drive": {
-                "sucesso": False,
-                "erro": "Google Drive não conectado",
-                "acao": "autorizar — acesse Configurações GED",
-            },
-            "share_link": None,
-            "email": {"sucesso": False},
-        }
-
-    # Encontrar kit pelo client_id + competencia (reference_month)
-    try:
-        ano, mes = competencia.split("-")
-        ref_month = date(int(ano), int(mes), 1)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=422, detail="Competência inválida. Use YYYY-MM.")
-
-    result = await db.execute(
-        select(GedDocumentKit).where(
-            GedDocumentKit.client_id == cliente_id,
-            GedDocumentKit.reference_month == ref_month,
-        )
-    )
-    kit = result.scalar_one_or_none()
-
-    if not kit:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Kit não encontrado para cliente {cliente_id} em {competencia}. "
-            "Monte o kit primeiro usando o botão 'Montar com GEDEON'.",
-        )
-
-    # Sincronizar com Drive
-    try:
-        sync = await svc.sync_kit_to_drive(str(kit.id))
-        await db.commit()
-    except Exception as exc:
-        logger.error("Erro sync Drive: %s", exc)
-        return {
-            "drive": {
-                "sucesso": False,
-                "erro": str(exc),
-            },
-            "share_link": None,
-            "email": {"sucesso": False},
-        }
-
-    share_link = sync.get("drive_link") or kit.google_drive_link
-    uploaded = sync.get("uploaded", 0)
-    errors = sync.get("errors", 0)
-
-    # Enviar e-mail automaticamente após montar no Drive
-    from modules.gdrive.services.email_kit_service import email_kit_service as _email_svc
-
-    resultado_email = _email_svc.enviar_kit_por_email(
-        client_id=cliente_id,
-        competencia=competencia,
-        share_link=share_link,
-    )
-
-    # G2: Atualizar sent_at após envio bem-sucedido
-    if resultado_email.get("sucesso"):
-        await db.execute(
-            text(
-                "UPDATE ged_document_kits "
-                "SET sent_at = NOW(), sent_method = 'email', sent_to = :email "
-                "WHERE id = :kit_id"
-            ),
-            {"kit_id": str(kit.id), "email": resultado_email.get("destinatario", "")},
-        )
-        await db.commit()
-
-    return {
-        "drive": {
-            "sucesso": sync.get("configured", False),
-            "kit_id": str(kit.id),
-            "documentos_enviados": uploaded,
-            "erros": errors,
-        },
-        "share_link": share_link,
-        "email": resultado_email,
-        "mensagem": (
-            f"✅ {uploaded} documentos enviados ao Drive"
-            if uploaded > 0
-            else "⚠️ Drive conectado mas nenhum documento local encontrado para enviar"
-        ),
-    }
-
-
-# ── ENDPOINTS DE E-MAIL ───────────────────────────────
 
 
 @router.post("/kits/{client_id}/{competencia}/enviar-email")

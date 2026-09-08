@@ -57,46 +57,6 @@ async def listar_cargos_cct(current_user: CurrentActiveUser, db: AsyncSession = 
 
 
 @router.get(
-    "/funcionarios",
-    summary="Funcionários Vinculados à CCT",
-    description="Lista funcionários com vínculo à CCT e status de conformidade salarial.",
-)
-async def listar_funcionarios_cct(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)):
-    """Lista funcionários com vínculo CCT."""
-    result = await db.execute(
-        text("""
-        SELECT
-            e.id, e.nome, e.cargo, e.salario_base,
-            c.cargo_nome as cargo_cct, c.piso_salarial as piso_cct,
-            c.adicional_periculosidade_percentual,
-            CASE WHEN e.salario_base >= c.piso_salarial THEN 'conforme' ELSE 'abaixo_piso' END as status
-        FROM employees e
-        JOIN cct_cargos c ON e.cct_cargo_id::text = c.id::text
-        WHERE e.status = 'ativo'
-        ORDER BY e.cargo, e.nome
-    """)
-    )
-    rows = result.fetchall()
-
-    return {
-        "funcionarios": [
-            {
-                "id": r[0],
-                "nome": r[1],
-                "cargo": r[2],
-                "salario_atual": float(r[3]) if r[3] else 0,
-                "cargo_cct": r[4],
-                "piso_cct": float(r[5]) if r[5] else 0,
-                "adicional_periculosidade_percentual": float(r[6]) if r[6] else 0,
-                "status_cct": r[7],
-            }
-            for r in rows
-        ],
-        "total": len(rows),
-    }
-
-
-@router.get(
     "/conformidade",
     summary="Verificar Conformidade Salarial",
     description="Identifica funcionários com salário abaixo do piso CCT e calcula custo de adequação.",

@@ -92,47 +92,6 @@ async def get_employees_stats(
 
 
 @router.get(
-    "/discipline",
-    summary="Visão Geral Disciplinar",
-    description="Retorna lista paginada de funcionários ativos com suporte a busca por nome, CPF e matrícula.",
-)
-async def list_discipline_overview(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-) -> Any:
-    """Lista medidas disciplinares ativas de todos os funcionários."""
-    try:
-        result = await db.execute(
-            text(
-                "SELECT da.id::text, da.employee_id::text, e.nome as employee_name, "
-                "da.action_type, da.reason_description AS description, da.status, da.created_at::text "
-                "FROM disciplinary_actions da "
-                "JOIN employees e ON da.employee_id = e.id "
-                "ORDER BY da.created_at DESC "
-                "LIMIT :limit OFFSET :offset"
-            ),
-            {"limit": page_size, "offset": (page - 1) * page_size},
-        )
-        rows = result.mappings().all()
-        count_result = await db.execute(text("SELECT COUNT(*) FROM disciplinary_actions"))
-        total = count_result.scalar() or 0
-        return {
-            "items": [dict(r) for r in rows],
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": max(1, (total + page_size - 1) // page_size),
-        }
-    except Exception:
-        # Era `return {"items": []}` — a coluna errada (da.description) virou "nenhuma medida"
-        # com 200 durante meses (revisão 08/09/2026). Falha é falha.
-        logger.exception("discipline: listagem falhou")
-        raise
-
-
-@router.get(
     "/search",
     summary="Buscar Funcionários",
     response_model=DPEmployeeList,

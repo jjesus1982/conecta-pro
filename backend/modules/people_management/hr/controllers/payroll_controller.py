@@ -5,11 +5,10 @@ Re-exporta endpoints de folha do módulo HR e adiciona endpoints
 para cálculo individual, fechamento mensal e contracheque PDF.
 """
 
-import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,44 +128,6 @@ async def get_payroll_summary(
         "fonte": "sem_folha_importada",
         "aviso": "Sem holerites em hr_payslips para esta competência — aguardando dado real.",
     }
-
-
-@router.get(
-    "/employee/{employee_id}/calculate",
-    summary="Calcular Folha Individual",
-    description="Calcula proventos e descontos da folha de pagamento individual para a competência informada.",
-)
-async def calculate_employee_payroll(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    month: int = Query(..., ge=1, le=12, description="Mês de referência"),
-    year: int = Query(..., ge=2020, le=2030, description="Ano de referência"),
-) -> Any:
-    """Calcula a folha de pagamento de um funcionário.
-
-    Delegado à engine OFICIAL (folha/calculo_service, CCT 2026): esta rota devolvia só o
-    salário base (Adailson 08/2026: R$ 1.464,21 aqui × R$ 2.138,66 na folha real, que é a
-    que gera holerite, TRCT e exportações). Dois números para a mesma pessoa era defeito
-    (medido 08/09/2026)."""
-    from core.database.session import get_sync_db_dependency
-    from modules.people_management.folha.services import calculo_service
-
-    def _run():
-        gen = get_sync_db_dependency()
-        sdb = next(gen)
-        try:
-            return calculo_service.calcular_folha_colaborador(sdb, str(employee_id), month, year)
-        finally:
-            try:
-                next(gen)
-            except StopIteration:
-                pass
-
-    result = await asyncio.to_thread(_run)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
 
 
 @router.get(

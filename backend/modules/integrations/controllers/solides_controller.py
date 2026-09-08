@@ -446,31 +446,6 @@ async def receive_webhook(
 # ==================== ENDPOINT DE HEALTH CHECK ====================
 
 
-@router.post("/beneficios/sync", status_code=200, tags=["Solides - Benefícios GED"])
-def solides_beneficios_sync(
-    mes_ref: str | None = Query(None, description="Mês MM.YYYY — sem valor: todos os meses"),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_sync_db_dependency),
-):
-    """
-    Sincroniza pedidos de benefícios VT/VA Sólides.
-
-    1. Tenta API Sólides (benefit-orders) — retorna [] se endpoint 404
-    2. Fallback: cria solides_benefit_orders a partir das inter_transactions SOLIDES
-       (PIX lump-sum ao CNPJ Sólides/SWAP IP S.A.)
-
-    Nota: A API Sólides (Tangerino) não expõe endpoint de benefit-orders (apenas HR/DP).
-    O breakdown por funcionário requer upload do relatório Sólides (PDF/CSV).
-    """
-    from modules.integrations.connectors.solides.benefit_service import SolidesBenefitService
-
-    svc = SolidesBenefitService(db)
-    result = svc.sync_benefit_orders(mes_ref=mes_ref)
-    match_result = svc.match_inter_transactions()
-    result["match_inter"] = match_result
-    return result
-
-
 @router.post("/beneficios/vincular-kits", status_code=200, tags=["Solides - Benefícios GED"])
 def solides_beneficios_vincular_kits(
     mes_ref: str | None = Query(None, description="Mês MM.YYYY — sem valor: todos os meses"),

@@ -10,13 +10,10 @@ import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi import status as http_status
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_db
-from modules.people_management.employee_portal.auth import CurrentEmployeeId
 
 logger = logging.getLogger(__name__)
 
@@ -256,134 +253,3 @@ async def _load_employee(db: AsyncSession, employee_id: Any) -> Any:
     return result.scalar_one_or_none()
 
 
-@router.get(
-    "/my-data",
-    response_model=MyDataResponse,
-    summary="Meus dados pessoais",
-    description="Retorna dados pessoais do funcionario logado.",
-)
-async def get_my_data(
-    employee_id: CurrentEmployeeId,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Retorna dados pessoais do funcionario autenticado."""
-    try:
-        employee = await _load_employee(db, employee_id)
-        if employee:
-            return _build_my_data_response(employee)
-    except (ImportError, Exception) as e:
-        logger.warning(f"Erro ao buscar dados do funcionario {employee_id}: {e}")
-
-    return MyDataResponse(
-        nome="Funcionario",
-        cpf="***.***.***.***-**",
-    )
-
-
-@router.get(
-    "/onboarding-status",
-    summary="Status do onboarding obrigatório",
-    description="Indica se o funcionário logado ainda precisa completar o cadastro "
-    "(campos obrigatórios do S-2200 eSocial faltando em `employees`). Fonte única.",
-)
-async def get_onboarding_status(
-    employee_id: CurrentEmployeeId,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Computa o status do onboarding do funcionário logado (fonte: employees)."""
-    employee = await _load_employee(db, employee_id)
-    if not employee:
-        # Sem vínculo/registro: não bloqueia com formulário (nada a preencher aqui).
-        return {
-            "pendente": False,
-            "bloqueante": False,
-            "modo_transicao": True,
-            "total_obrigatorios": len(ONBOARDING_REQUIRED_FIELDS),
-            "total_ok": 0,
-            "campos_ok": [],
-            "campos_faltantes": [],
-            "facial_cadastrada": False,
-            "facial_pendente": True,
-        }
-    return _compute_onboarding_status(employee)
-
-
-@router.put(
-    "/my-data",
-    summary="Atualizar meus dados",
-    description="Atualiza os dados pessoais/contato (grava direto em employees, fonte única). "
-    "Retorna os dados + o status de onboarding recomputado.",
-)
-async def update_my_data(
-    update_data: UpdateMyDataRequest,
-    employee_id: CurrentEmployeeId,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Atualiza dados pessoais do funcionario autenticado (grava DIRETO em employees).
-
-    FONTE ÚNICA: nada é gravado em tabela paralela. O DP lê o MESMO registro.
-    Só dados pessoais/contato — cargo/salário/status/matrícula/CPF são rejeitados.
-    Retorna os dados atualizados + o status de onboarding recomputado.
-    """
-    update_fields = update_data.model_dump(exclude_unset=True)
-
-    # Compat: se veio 'endereco' (campo único) e não veio 'logradouro',
-    # grava o texto no logradouro (fonte única estruturada em employees).
-    endereco_legado = update_fields.pop("endereco", None)
-    if endereco_legado is not None and "logradouro" not in update_fields:
-        update_fields["logradouro"] = endereco_legado
-
-    if not update_fields:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail="Nenhum campo para atualizar.",
-        )
-
-    # Guarda de segurança: só dados pessoais/contato. NUNCA cargo/salário/status/etc.
-    invalid_fields = set(update_fields.keys()) - SELF_EDITABLE_FIELDS
-    if invalid_fields:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail=f"Campos nao permitidos para atualizacao: {sorted(invalid_fields)}. "
-            "Cargo, salário, status e matrícula são gerenciados pelo DP.",
-        )
-
-    try:
-        employee = await _load_employee(db, employee_id)
-
-        if employee:
-            for field, value in update_fields.items():
-                if hasattr(employee, field):
-                    # Normaliza strings vazias para NULL (mantém "faltante" honesto).
-                    if isinstance(value, str) and value.strip() == "":
-                        value = None
-                    setattr(employee, field, value)
-            await db.commit()
-            await db.refresh(employee)
-
-            logger.info(
-                "Dados atualizados (self-service) p/ employee %s: %s",
-                employee_id,
-                list(update_fields.keys()),
-            )
-
-            # Devolve o registro REAL + status recomputado (front libera o Meu Espaço
-            # quando onboarding.pendente == False).
-            resp = _build_my_data_response(employee).model_dump()
-            resp["onboarding"] = _compute_onboarding_status(employee)
-            return resp
-
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Erro ao atualizar dados: {e}")
-        raise HTTPException(
-            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao atualizar dados. Tente novamente.",
-        )
-
-    # Funcionario nao encontrado.
-    raise HTTPException(
-        status_code=http_status.HTTP_404_NOT_FOUND,
-        detail="Funcionario nao encontrado.",
-    )

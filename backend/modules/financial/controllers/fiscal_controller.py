@@ -14,18 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user, require_permission
 from core.database.session import get_db
-from modules.financial.models.fiscal_obligation import (
-    SIMPLES_ANEXO_III_FAIXAS,
-)
 from modules.financial.repositories.fiscal_repository import FiscalRepository
 from modules.financial.schemas.fiscal_schemas import (
     CalculoLucroRealRequest,
     CalculoSimplesRequest,
     ComparativoRegimesRequest,
-    NCMCreate,
-    NCMListResponse,
-    NCMResponse,
-    NCMUpdate,
     ObrigacaoFiscalCreate,
     ObrigacaoFiscalListResponse,
     ObrigacaoFiscalResponse,
@@ -52,96 +45,6 @@ def get_repository(db: AsyncSession = Depends(get_db)) -> FiscalRepository:
 # ============================================================
 # NCM Endpoints
 # ============================================================
-
-
-@router.post("/ncm", response_model=NCMResponse, status_code=status.HTTP_201_CREATED)
-async def criar_ncm(
-    data: NCMCreate,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(require_permission("fiscal:ncm:create")),
-) -> NCMResponse:
-    """Cria um novo NCM."""
-    try:
-        ncm = await repo.create_ncm(data.model_dump())
-        logger.info(f"NCM {ncm.codigo} criado por {getattr(current_user, 'email', '')}")
-        return NCMResponse.model_validate(ncm)
-    except Exception as e:
-        logger.error(f"Erro ao criar NCM: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao criar NCM")
-
-
-@router.get("/ncm", response_model=NCMListResponse)
-async def listar_ncms(
-    capitulo: str | None = None,
-    posicao: str | None = None,
-    tributacao_monofasica: bool | None = None,
-    zfm_isento_ipi: bool | None = None,
-    active: bool = True,
-    vigente: bool = True,
-    search: str | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),
-) -> NCMListResponse:
-    """Lista NCMs com filtros."""
-    ncms, total = await repo.list_ncms(
-        capitulo=capitulo,
-        posicao=posicao,
-        tributacao_monofasica=tributacao_monofasica,
-        zfm_isento_ipi=zfm_isento_ipi,
-        active=active,
-        vigente=vigente,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-    return NCMListResponse(
-        items=[NCMResponse.model_validate(n) for n in ncms],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@router.get("/ncm/{ncm_id}", response_model=NCMResponse)
-async def obter_ncm(
-    ncm_id: UUID,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),
-) -> NCMResponse:
-    """Busca NCM por ID."""
-    ncm = await repo.get_ncm_by_id(ncm_id)
-    if not ncm:
-        raise HTTPException(status_code=404, detail="NCM nao encontrado")
-    return NCMResponse.model_validate(ncm)
-
-
-@router.get("/ncm/codigo/{codigo}", response_model=NCMResponse)
-async def obter_ncm_por_codigo(
-    codigo: str,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),
-) -> NCMResponse:
-    """Busca NCM por codigo."""
-    ncm = await repo.get_ncm_by_codigo(codigo)
-    if not ncm:
-        raise HTTPException(status_code=404, detail="NCM nao encontrado")
-    return NCMResponse.model_validate(ncm)
-
-
-@router.patch("/ncm/{ncm_id}", response_model=NCMResponse)
-async def atualizar_ncm(
-    ncm_id: UUID,
-    data: NCMUpdate,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(require_permission("fiscal:ncm:update")),
-) -> NCMResponse:
-    """Atualiza NCM."""
-    ncm = await repo.update_ncm(ncm_id, data.model_dump(exclude_unset=True))
-    if not ncm:
-        raise HTTPException(status_code=404, detail="NCM nao encontrado")
-    return NCMResponse.model_validate(ncm)
 
 
 # ============================================================
@@ -337,28 +240,6 @@ async def listar_obrigacoes(
     )
 
 
-@router.get("/obrigacao/pendentes")
-async def listar_obrigacoes_pendentes(
-    condominio_id: UUID,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),
-) -> list[ObrigacaoFiscalResponse]:
-    """Lista obrigacoes pendentes ordenadas por vencimento."""
-    obrigacoes = await repo.get_obrigacoes_pendentes(condominio_id)
-    return [ObrigacaoFiscalResponse.model_validate(o) for o in obrigacoes]
-
-
-@router.get("/obrigacao/atrasadas")
-async def listar_obrigacoes_atrasadas(
-    condominio_id: UUID,
-    repo: FiscalRepository = Depends(get_repository),
-    current_user: dict = Depends(get_current_user),
-) -> list[ObrigacaoFiscalResponse]:
-    """Lista obrigacoes atrasadas."""
-    obrigacoes = await repo.get_obrigacoes_atrasadas(condominio_id)
-    return [ObrigacaoFiscalResponse.model_validate(o) for o in obrigacoes]
-
-
 @router.get("/obrigacao/{obrigacao_id}", response_model=ObrigacaoFiscalResponse)
 async def obter_obrigacao(
     obrigacao_id: UUID,
@@ -389,26 +270,6 @@ async def atualizar_obrigacao(
 # ============================================================
 # Simples Nacional / DAS Endpoints
 # ============================================================
-
-
-@router.get("/das/faixas")
-async def obter_faixas_simples(
-    anexo: str = Query("III", description="III, IV ou V"),
-    current_user: dict = Depends(get_current_user),
-) -> list[dict[str, Any]]:
-    """Retorna tabela de faixas do Simples Nacional.
-
-    Anexo III - Servicos de vigilancia, limpeza, conservacao:
-    - ISS INCLUSO no DAS
-    - CPP INCLUSO no DAS (nao reter INSS adicional)
-    """
-    if anexo == "III":
-        return SIMPLES_ANEXO_III_FAIXAS
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Anexo {anexo} nao implementado. Use III.",
-        )
 
 
 # ============================================================

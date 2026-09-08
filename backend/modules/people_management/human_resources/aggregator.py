@@ -40,8 +40,8 @@ try:
     from modules.people_management.human_resources.controllers.recruitment_controller import (
         router as recruitment_router,
     )
-
     router.include_router(recruitment_router)
+
     logger.info("RH: Router de recrutamento carregado.")
 except ImportError:
     logger.warning("RH: Modulo de recrutamento nao disponivel.")

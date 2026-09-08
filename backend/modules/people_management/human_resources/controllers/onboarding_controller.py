@@ -5,7 +5,6 @@ Fornece dashboard com colaboradores em periodo de experiencia
 e vencimentos proximos, baseados na tabela employees.
 """
 
-import asyncio
 import logging
 from typing import Any
 
@@ -15,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
-from modules.people_management.human_resources.publishers import publish_onboarding_item_concluido
 
 logger = logging.getLogger(__name__)
 
@@ -76,60 +74,6 @@ async def onboarding_dashboard(
     except Exception as exc:
         logger.warning("Erro no dashboard onboarding: %s", exc)
         return {"em_experiencia": 0, "vencendo_30_dias": 0, "colaboradores": []}
-
-
-@router.get("/{employee_id}/checklist")
-async def get_checklist(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Checklist de onboarding do colaborador."""
-    try:
-        items = (
-            (
-                await db.execute(
-                    text(
-                        "SELECT c.id, c.etapa, c.titulo, c.responsavel, "
-                        "c.prazo_data, c.concluido, c.data_conclusao, c.observacao "
-                        "FROM rh_onboarding_checklist c "
-                        "WHERE c.employee_id = :eid ORDER BY c.etapa"
-                    ),
-                    {"eid": employee_id},
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return {"employee_id": employee_id, "items": [dict(i) for i in items]}
-    except Exception as exc:
-        logger.warning("Erro ao buscar checklist: %s", exc)
-        return {"employee_id": employee_id, "items": []}
-
-
-@router.post("/{employee_id}/checklist/{item_id}/concluir", status_code=201)
-async def concluir_item(
-    employee_id: str,
-    item_id: int,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Marca etapa do checklist como concluida."""
-    try:
-        await db.execute(
-            text(
-                "UPDATE rh_onboarding_checklist SET concluido=TRUE, "
-                "data_conclusao=CURRENT_DATE, updated_at=NOW() "
-                "WHERE id=:iid AND employee_id=:eid"
-            ),
-            {"iid": item_id, "eid": employee_id},
-        )
-        await db.commit()
-        asyncio.create_task(publish_onboarding_item_concluido(employee_id=employee_id, item_id=item_id))
-        return {"status": "ok", "item_id": item_id, "concluido": True}
-    except Exception as exc:
-        logger.warning("Erro ao concluir item: %s", exc)
-        return {"status": "erro", "detail": str(exc)}
 
 
 @router.get("/pendencias")

@@ -6,7 +6,7 @@ movimentação de pessoal. Base legal: CLT + CCT SINDECOMPRESTS AM000613/2025.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,23 +82,3 @@ async def perguntar_arquivo(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-@router.get("/historico", summary="Histórico de consultas ao Consultor de Pessoas")
-async def historico(
-    area: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    if area is not None and area.strip().lower() not in svc.AREAS_VALIDAS:
-        raise HTTPException(status_code=422, detail=f"Área inválida '{area}'.")
-    consultas = await svc.listar_consultas(db=db, area=area, limit=limit)
-    return {"total": len(consultas), "consultas": consultas}
-
-
-# ── Gate module:dp (padrão modules/financeiro/__init__.py) ──────────────────
-# Consultor CHRO (/rh/consultor) montado DIRETO no main (fora do aggregator PM).
-from core.permissions import requer_modulo as _requer_modulo  # noqa: E402
-
-_dep_dp = _requer_modulo("dp")
-for _route in router.routes:
-    _route.dependencies.append(_dep_dp)

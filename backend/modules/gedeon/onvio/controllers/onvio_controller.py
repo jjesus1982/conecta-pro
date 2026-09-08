@@ -97,6 +97,23 @@ def _classificar_extras(nome: str) -> str | None:
     return None
 
 
+_CATEGORIAS_FISCAIS = [
+    "inss_guia",
+    "fgts_guia",
+    "fgts_consignado",
+    "fgts_relatorio",
+    "fgts_consignado_relatorio",
+    "dctfweb_declaracao",
+    "dctfweb_recibo",
+    "dctfweb_debitos",
+    "dctfweb_creditos",
+    "dctfweb_resumo_debitos",
+    "dctfweb_resumo_creditos",
+    "dctfweb_extrato",
+    "dctfweb_situacao",
+]
+
+
 @router.get("/status")
 async def status_sessao():
     """Verifica se a sessão Onvio está ativa no Redis."""
@@ -311,91 +328,6 @@ async def extrair_valores(
     except Exception as exc:
         logger.error("Erro na extração de valores: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/guias/fgts")
-async def listar_guias_fgts(mes_ref: str | None = None, db: AsyncSession = Depends(get_db)):
-    sql = """
-        SELECT id, mes_ref, tipo, valor, status, arquivo_pdf,
-               vencimento, codigo_barras, confianca_extracao,
-               metodo_extracao, revisao_manual, extraido_em
-        FROM fgts_guias
-    """
-    params: dict = {}
-    if mes_ref:
-        sql += " WHERE mes_ref = :mes_ref"
-        params["mes_ref"] = mes_ref
-    sql += " ORDER BY mes_ref DESC"
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
-    return [
-        {
-            "id": str(r["id"]),
-            "mes_ref": r["mes_ref"],
-            "tipo": r["tipo"],
-            "valor": float(r["valor"]) if r["valor"] is not None else None,
-            "status": r["status"],
-            "arquivo_pdf": r["arquivo_pdf"],
-            "vencimento": str(r["vencimento"]) if r["vencimento"] else None,
-            "codigo_barras": r["codigo_barras"],
-            "confianca_extracao": r["confianca_extracao"],
-            "metodo_extracao": r["metodo_extracao"],
-            "revisao_manual": r["revisao_manual"],
-            "extraido_em": str(r["extraido_em"]) if r["extraido_em"] else None,
-        }
-        for r in rows
-    ]
-
-
-@router.get("/guias/inss")
-async def listar_guias_inss(mes_ref: str | None = None, db: AsyncSession = Depends(get_db)):
-    sql = """
-        SELECT id, mes_ref, competencia, valor, status, arquivo_pdf,
-               vencimento, codigo_barras, confianca_extracao,
-               metodo_extracao, revisao_manual, extraido_em
-        FROM inss_guias
-    """
-    params: dict = {}
-    if mes_ref:
-        sql += " WHERE mes_ref = :mes_ref"
-        params["mes_ref"] = mes_ref
-    sql += " ORDER BY mes_ref DESC"
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
-    return [
-        {
-            "id": str(r["id"]),
-            "mes_ref": r["mes_ref"],
-            "competencia": r["competencia"],
-            "valor": float(r["valor"]) if r["valor"] is not None else None,
-            "status": r["status"],
-            "arquivo_pdf": r["arquivo_pdf"],
-            "vencimento": str(r["vencimento"]) if r["vencimento"] else None,
-            "codigo_barras": r["codigo_barras"],
-            "confianca_extracao": r["confianca_extracao"],
-            "metodo_extracao": r["metodo_extracao"],
-            "revisao_manual": r["revisao_manual"],
-            "extraido_em": str(r["extraido_em"]) if r["extraido_em"] else None,
-        }
-        for r in rows
-    ]
-
-
-_CATEGORIAS_FISCAIS = [
-    "inss_guia",
-    "fgts_guia",
-    "fgts_consignado",
-    "fgts_relatorio",
-    "fgts_consignado_relatorio",
-    "dctfweb_declaracao",
-    "dctfweb_recibo",
-    "dctfweb_debitos",
-    "dctfweb_creditos",
-    "dctfweb_resumo_debitos",
-    "dctfweb_resumo_creditos",
-    "dctfweb_extrato",
-    "dctfweb_situacao",
-]
 
 
 @router.get("/valores-fiscais-resumo")

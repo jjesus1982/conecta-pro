@@ -43,14 +43,6 @@ async def lote(
     return {"total_itens": len(itens), "total_a_pagar": total, "itens": itens}
 
 
-@router.get("/resumo", summary="Resumo do lote (para o painel/CFO)")
-async def resumo(
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    return await svc.resumo(db)
-
-
 class ManualIn(BaseModel):
     data: str = Field(..., description="YYYY-MM-DD")
     beneficiario: str

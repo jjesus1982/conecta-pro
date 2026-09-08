@@ -22,14 +22,11 @@ from modules.financial.schemas.receivable import (
     ReceivableAccountResponse,
     ReceivableAccountStats,
     ReceivableAccountUpdate,
-    ReceivableBulkPaymentRequest,
     ReceivableInstallmentRenegotiateRequest,
     ReceivableInstallmentResponse,
     ReceivableInstallmentUpdate,
     ReceivablePaymentCreate,
-    ReceivablePaymentReconcileRequest,
     ReceivablePaymentResponse,
-    ReceivablePaymentReverseRequest,
     ReceivableProtestRequest,
     ReceivableWriteOffRequest,
 )
@@ -159,23 +156,6 @@ async def get_overdue(
 ) -> list[ReceivableAccountListResponse]:
     """Retorna contas vencidas."""
     accounts = await service.get_overdue_accounts(condominio_id, limit)
-    return [ReceivableAccountListResponse.model_validate(a) for a in accounts]
-
-
-@router.get(
-    "/due-soon",
-    response_model=list[ReceivableAccountListResponse],
-    summary="Contas a vencer",
-)
-async def get_due_soon(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio (opcional)"),
-    days: int = Query(7, ge=1, le=90, description="Dias para vencimento"),
-    limit: int = Query(100, ge=1, le=500),
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> list[ReceivableAccountListResponse]:
-    """Retorna contas a vencer nos proximos dias."""
-    accounts = await service.get_due_soon_accounts(condominio_id, days, limit)
     return [ReceivableAccountListResponse.model_validate(a) for a in accounts]
 
 
@@ -593,87 +573,6 @@ async def register_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/bulk-payment", summary="Recebimento em lote", status_code=201)
-async def bulk_payment(
-    data: ReceivableBulkPaymentRequest,
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Processa recebimento em lote."""
-    success, errors, payment_ids = await service.bulk_payment(data, current_user.id)
-    return {
-        "success_count": success,
-        "error_count": errors,
-        "total": len(data.installment_ids),
-        "payment_ids": [str(p) for p in payment_ids],
-    }
-
-
-@router.post(
-    "/payments/{payment_id}/reverse",
-    response_model=ReceivablePaymentResponse,
-    summary="Estornar recebimento",
-    status_code=201,
-)
-async def reverse_payment(
-    payment_id: UUID,
-    data: ReceivablePaymentReverseRequest,
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> ReceivablePaymentResponse:
-    """Estorna um recebimento."""
-    try:
-        payment = await service.reverse_payment(payment_id, data, current_user.id)
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Recebimento nao encontrado",
-            )
-        return ReceivablePaymentResponse.model_validate(payment)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post(
-    "/payments/{payment_id}/reconcile",
-    response_model=ReceivablePaymentResponse,
-    summary="Reconciliar recebimento",
-    status_code=201,
-)
-async def reconcile_payment(
-    payment_id: UUID,
-    data: ReceivablePaymentReconcileRequest,
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),
-) -> ReceivablePaymentResponse:
-    """Reconcilia recebimento com extrato bancario."""
-    try:
-        payment = await service.reconcile_payment(payment_id, data, current_user.id)
-        if not payment:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Recebimento nao encontrado",
-            )
-        return ReceivablePaymentResponse.model_validate(payment)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.get(
-    "/payments/pending-reconciliation",
-    response_model=list[ReceivablePaymentResponse],
-    summary="Recebimentos pendentes de reconciliacao",
-)
-async def get_pending_reconciliation(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> list[ReceivablePaymentResponse]:
-    """Retorna recebimentos pendentes de reconciliacao."""
-    payments = await service.get_pending_reconciliation(condominio_id)
-    return [ReceivablePaymentResponse.model_validate(p) for p in payments]
-
-
 # ==================== NOTIFICACOES ====================
 
 
@@ -683,155 +582,7 @@ async def get_pending_reconciliation(
 # ==================== DIVIDAS ====================
 
 
-@router.get(
-    "/debt/customer/{customer_id}",
-    summary="Divida do cliente",
-)
-async def get_customer_debt(
-    customer_id: UUID,
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Retorna divida total e vencida do cliente."""
-    total, overdue = await service.get_customer_debt(customer_id)
-    return {
-        "customer_id": str(customer_id),
-        "total_debt": float(total),
-        "overdue_debt": float(overdue),
-    }
-
-
-@router.get(
-    "/debt/unit/{unidade_id}",
-    summary="Divida da unidade",
-)
-async def get_unit_debt(
-    unidade_id: UUID,
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Retorna divida total e vencida da unidade."""
-    total, overdue = await service.get_unit_debt(unidade_id)
-    return {
-        "unidade_id": str(unidade_id),
-        "total_debt": float(total),
-        "overdue_debt": float(overdue),
-    }
-
-
 # ==================== IA ====================
-
-
-@router.get(
-    "/ai/customer-risk/{customer_id}",
-    summary="Analise de risco do cliente (IA)",
-)
-async def get_customer_risk(
-    customer_id: UUID,
-    ai_service: ReceivableAIService = Depends(get_ai_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Retorna analise de risco do cliente usando IA."""
-    try:
-        risk = await ai_service.calculate_customer_risk(customer_id)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    return {
-        "customer_id": str(risk.customer_id),
-        "risk_score": risk.risk_score,
-        "risk_level": risk.risk_level,
-        "total_debt": float(risk.total_debt),
-        "overdue_debt": float(risk.overdue_debt),
-        "payment_history_score": risk.payment_history_score,
-        "average_delay_days": risk.average_delay_days,
-        "on_time_payment_rate": risk.on_time_payment_rate,
-        "factors": risk.factors,
-        "recommendations": risk.recommendations,
-    }
-
-
-@router.get(
-    "/ai/collection-priorities",
-    summary="Prioridades de cobranca (IA)",
-)
-async def get_collection_priorities(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    limit: int = Query(20, ge=1, le=100),
-    ai_service: ReceivableAIService = Depends(get_ai_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> list[dict[str, Any]]:
-    """Retorna lista priorizada de cobrancas usando IA."""
-    priorities = await ai_service.get_collection_priorities(condominio_id, limit)
-    return [
-        {
-            "account_id": str(p.account_id),
-            "customer_id": str(p.customer_id),
-            "priority_score": p.priority_score,
-            "priority_level": p.priority_level,
-            "total_due": float(p.total_due),
-            "days_overdue": p.days_overdue,
-            "risk_score": p.risk_score,
-            "recommended_action": p.recommended_action,
-            "reason": p.reason,
-        }
-        for p in priorities
-    ]
-
-
-@router.get(
-    "/ai/cash-flow-forecast",
-    summary="Previsao de fluxo de caixa (IA)",
-)
-async def get_cash_flow_forecast(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    months: int = Query(6, ge=1, le=12, description="Meses de previsao"),
-    ai_service: ReceivableAIService = Depends(get_ai_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Retorna previsao de fluxo de caixa usando IA."""
-    forecast = await ai_service.forecast_cash_flow(condominio_id, months)
-    return {
-        "condominio_id": str(forecast.condominio_id),
-        "period_start": forecast.period_start.isoformat(),
-        "period_end": forecast.period_end.isoformat(),
-        "expected_income": float(forecast.expected_income),
-        "probable_income": float(forecast.probable_income),
-        "at_risk_income": float(forecast.at_risk_income),
-        "monthly_breakdown": [
-            {
-                "month": m["month"],
-                "expected": float(m["expected"]),
-                "probable": float(m["probable"]),
-            }
-            for m in forecast.monthly_breakdown
-        ],
-        "confidence_level": forecast.confidence_level,
-    }
-
-
-@router.get(
-    "/ai/delinquency-analysis",
-    summary="Analise de inadimplencia (IA)",
-)
-async def get_delinquency_analysis(
-    condominio_id: UUID | None = Query(None, description="ID do condomínio"),
-    ai_service: ReceivableAIService = Depends(get_ai_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Retorna analise de inadimplencia usando IA."""
-    analysis = await ai_service.analyze_delinquency(condominio_id)
-    return {
-        "condominio_id": str(analysis.condominio_id),
-        "total_customers": analysis.total_customers,
-        "delinquent_customers": analysis.delinquent_customers,
-        "delinquency_rate": analysis.delinquency_rate,
-        "total_overdue": float(analysis.total_overdue),
-        "average_days_overdue": analysis.average_days_overdue,
-        "aging_breakdown": analysis.aging_breakdown,
-        "trend": analysis.trend,
-        "risk_distribution": analysis.risk_distribution,
-        "recommendations": analysis.recommendations,
-    }
 
 
 @router.get("/aging/pdf", summary="Aging em PDF (marca Conecta)")

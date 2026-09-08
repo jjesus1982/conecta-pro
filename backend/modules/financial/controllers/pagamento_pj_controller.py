@@ -16,14 +16,6 @@ from modules.financial.services import pagamento_pj_service as svc
 router = APIRouter(prefix="/financial/pagamentos-pj", tags=["Financeiro - Pagamentos PJ"])
 
 
-@router.get("/preview/{ano}/{mes}", summary="Prévia da folha PJ (calcula, não grava nem paga)")
-async def preview(ano: int, mes: int, current_user=Depends(get_current_active_user)):
-    try:
-        return svc.calcular_folha_pj(mes, ano)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Falha no preview: {e}") from e
-
-
 @router.post("/programar/{ano}/{mes}", summary="Materializa a folha PJ do mês no lote (idempotente)")
 async def programar(ano: int, mes: int, current_user=Depends(get_current_active_user),
                     db: AsyncSession = Depends(get_db)):

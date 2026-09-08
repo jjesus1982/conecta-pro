@@ -255,27 +255,6 @@ async def registrar_retorno(
 # ================================================================
 
 
-@router.get("/nr1/dashboard")
-async def get_nr1_dashboard(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Dashboard NR-1 — indice de risco calculado dinamicamente."""
-    service = SSTService(db)
-    return await service.get_dashboard_nr1()
-
-
-@router.get("/nr1/colaboradores-risco")
-async def listar_colaboradores_risco(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Colaboradores por nivel de risco NR-1."""
-    service = SSTService(db)
-    items = await service.listar_colaboradores_risco()
-    return {"total": len(items), "colaboradores": items}
-
-
 @router.get("/nr1/compliance")
 async def get_nr1_compliance(
     current_user: CurrentActiveUser,
@@ -1239,16 +1218,6 @@ async def listar_fichas_epi(
     }
 
 
-@router.get("/epi/fichas/minhas")
-async def minhas_fichas_epi(
-    employee_id: CurrentEmployeeId,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Fichas de EPI do funcionário logado no Portal (para assinar)."""
-    fichas = await FichaEPIService(db).listar_fichas(None, str(employee_id))
-    return {"total": len(fichas), "fichas": fichas}
-
-
 @router.get("/epi/fichas/{ficha_id}/pdf")
 async def download_ficha_epi_pdf(
     ficha_id: str,
@@ -1455,41 +1424,6 @@ async def listar_ajuda_medicamento(
 # ================================================================
 # CIPA (NR-5)
 # ================================================================
-
-
-@router.get("/cipa/membros")
-async def listar_cipa_membros(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Lista membros da CIPA."""
-    from sqlalchemy import text as sql_text
-
-    try:
-        result = await db.execute(
-            sql_text(
-                "SELECT membro_id, employee_id, employee_nome, funcao, representacao, "
-                "data_posse, data_fim_mandato, status FROM sst_cipa_membros "
-                "WHERE status = 'ativo' ORDER BY funcao"
-            )
-        )
-        membros = [
-            {
-                "membro_id": r[0],
-                "employee_id": r[1],
-                "nome": r[2],
-                "funcao": r[3],
-                "representacao": r[4],
-                "data_posse": str(r[5]) if r[5] else None,
-                "data_fim_mandato": str(r[6]) if r[6] else None,
-                "status": r[7],
-            }
-            for r in result.fetchall()
-        ]
-    except Exception as exc:
-        logger.warning("SST listar membros CIPA: %s", exc)
-        membros = []
-    return {"total": len(membros), "membros": membros}
 
 
 @router.get("/cipa/reunioes")

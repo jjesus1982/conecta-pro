@@ -22,10 +22,8 @@ from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.hr.publishers import publish_ponto_registrado
 from modules.people_management.hr.schemas.time_record import (
-    ClockInRequest,
     ClockOutRequest,
     DailyRecordsResponse,
-    MonthlySummaryResponse,
     TimeRecordCreate,
     TimeRecordListResponse,
     TimeRecordResponse,
@@ -80,61 +78,6 @@ async def get_daily_records(
     """Retorna todos os registros de ponto de um dia específico."""
     service = TimeRecordService(db)
     return await service.get_daily(record_date)
-
-
-@router.get(
-    "/employee/{employee_id}/summary",
-    summary="Resumo Mensal de Ponto",
-    response_model=MonthlySummaryResponse,
-    description="Retorna lista paginada de registros de ponto com filtros por funcionário, período e status.",
-)
-async def get_employee_summary(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    month: int = Query(..., ge=1, le=12, description="Mês (1-12)"),
-    year: int = Query(..., ge=2020, description="Ano"),
-) -> Any:
-    """Retorna resumo mensal de ponto de um funcionário (horas, extras, faltas)."""
-    service = TimeRecordService(db)
-    return await service.get_summary(employee_id, month, year)
-
-
-@router.post(
-    "/clock-in",
-    summary="Batida de Entrada",
-    response_model=TimeRecordResponse,
-    status_code=201,
-    description="Retorna lista paginada de registros de ponto com filtros por funcionário, período e status.",
-)
-async def clock_in(
-    data: ClockInRequest,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Registra batida de entrada (clock-in) para um funcionário."""
-    service = TimeRecordService(db)
-    try:
-        result = await service.clock_in(
-            employee_id=data.employee_id,
-            location_lat=data.location_lat,
-            location_lng=data.location_lng,
-            posto_id=data.posto_id,
-            device_type=data.device_type,
-            notes=data.notes,
-            created_by=str(current_user.id),
-        )
-    except ValueError as e:  # "já existe entrada em aberto" era 500 (revisão 08/09/2026)
-        raise HTTPException(status_code=409, detail=str(e))
-    await db.commit()
-    asyncio.create_task(
-        publish_ponto_registrado(
-            employee_id=str(data.employee_id),
-            tipo="clock_in",
-            record_id=str(getattr(result, "id", "")),
-        )
-    )
-    return result
 
 
 @router.post(

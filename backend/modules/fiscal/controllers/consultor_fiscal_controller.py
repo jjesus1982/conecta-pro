@@ -85,14 +85,3 @@ async def perguntar_arquivo(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-@router.get("/historico", summary="Histórico de consultas ao Consultor Fiscal")
-async def historico(
-    area: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    if area is not None and area.strip().lower() not in svc.AREAS_VALIDAS:
-        raise HTTPException(status_code=422, detail=f"Área inválida '{area}'.")
-    consultas = await svc.listar_consultas(db=db, area=area, limit=limit)
-    return {"total": len(consultas), "consultas": consultas}

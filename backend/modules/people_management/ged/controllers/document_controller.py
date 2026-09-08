@@ -164,17 +164,6 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/pending-signatures")
-async def get_pending_signatures(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    employee_id: str = Query(..., description="ID do funcionario"),
-) -> Any:
-    """Retorna documentos pendentes de assinatura para um funcionario."""
-    sig_service = SignatureIntegrationService(db)
-    return await sig_service.get_pending_signatures(employee_id)
-
-
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
     document_id: str,
@@ -385,11 +374,3 @@ async def ingestao_historica(
     return {"pasta_gdrive": pasta, **resultado}
 
 
-@router.get("/ingestao/status", tags=["GED - Ingestao Historica"])
-async def ingestao_status(
-    current_user: CurrentActiveUser,
-):
-    """Retorna o status atual (ou ultimo) processo de ingestao historica."""
-    from modules.people_management.ged.services.ingestao_historica import get_status
-
-    return get_status()

@@ -109,6 +109,36 @@ class DesligamentoESocialRequest(BaseModel):
     verbas_rescisorias: list[dict[str, Any]] | None = None
 
 
+_STATUS_MAP = {
+    "transmitida": "enviado",
+    "enfileirada": "enviado",
+    "processando": "enviado",
+    "aceita": "aceito",
+    "aceito": "aceito",
+    "rejeitada": "rejeitado",
+    "rejeitado": "rejeitado",
+    "erro": "rejeitado",
+    "nao_transmitida": "pendente",
+    "pendente": "pendente",
+}
+
+
+
+_TIPO_DESC = {
+    "S-1200": "Remuneração do Trabalhador",
+    "S-1210": "Pagamentos de Rendimentos",
+    "S-2200": "Cadastramento Inicial / Admissão",
+    "S-2205": "Alteração de Dados Cadastrais",
+    "S-2206": "Alteração de Contrato",
+    "S-2210": "Comunicação de Acidente (CAT)",
+    "S-2220": "Monitoramento da Saúde (ASO)",
+    "S-2230": "Afastamento Temporário",
+    "S-2240": "Condições Ambientais do Trabalho",
+    "S-2299": "Desligamento",
+    "S-3000": "Exclusão de Eventos",
+}
+
+
 @router.post(
     "/s2200/gerar",
     summary="Gerar XML S-2200 Admissao",
@@ -200,50 +230,6 @@ async def gerar_s2299(
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="S2299_{request.matricula}.xml"'},
     )
-
-
-@router.post(
-    "/validar",
-    summary="Validar XML eSocial",
-    status_code=201,
-    description="Valida a estrutura de um XML eSocial antes da transmissão.",
-)
-async def validar_xml_esocial(
-    xml_content: str,
-    current_user: CurrentActiveUser,
-) -> Any:
-    """Valida estrutura de um XML eSocial."""
-    return ESocialEventService.validar_xml(xml_content)
-
-
-# Descrição amigável dos leiautes (rótulo apenas; a fonte é sempre o banco).
-_TIPO_DESC = {
-    "S-1200": "Remuneração do Trabalhador",
-    "S-1210": "Pagamentos de Rendimentos",
-    "S-2200": "Cadastramento Inicial / Admissão",
-    "S-2205": "Alteração de Dados Cadastrais",
-    "S-2206": "Alteração de Contrato",
-    "S-2210": "Comunicação de Acidente (CAT)",
-    "S-2220": "Monitoramento da Saúde (ASO)",
-    "S-2230": "Afastamento Temporário",
-    "S-2240": "Condições Ambientais do Trabalho",
-    "S-2299": "Desligamento",
-    "S-3000": "Exclusão de Eventos",
-}
-
-# Normaliza os status crus (nossos + do espelho) para os 4 baldes da tela DP.
-_STATUS_MAP = {
-    "transmitida": "enviado",
-    "enfileirada": "enviado",
-    "processando": "enviado",
-    "aceita": "aceito",
-    "aceito": "aceito",
-    "rejeitada": "rejeitado",
-    "rejeitado": "rejeitado",
-    "erro": "rejeitado",
-    "nao_transmitida": "pendente",
-    "pendente": "pendente",
-}
 
 
 @router.get(

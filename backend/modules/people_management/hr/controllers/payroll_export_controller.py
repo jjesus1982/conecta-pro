@@ -123,53 +123,6 @@ def _calc_oficial_sync(employee_id: str, month: int, year: int) -> dict:
             pass
 
 
-@router.get(
-    "/contracheque/{employee_id}/{competencia}",
-    summary="Gerar Contracheque PDF",
-    description="Gera PDF do holerite de um funcionário para a competência e arquiva no GED.",
-)
-async def gerar_contracheque_pdf(
-    employee_id: str,
-    competencia: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Gera PDF do contracheque (holerite) de um funcionário.
-
-    Args:
-        employee_id: ID do funcionário.
-        competencia: Mês/ano no formato YYYY-MM.
-    """
-    try:
-        parts = competencia.split("-")
-        year, month = int(parts[0]), int(parts[1])
-    except (ValueError, IndexError):
-        raise HTTPException(400, "Formato de competência inválido. Use YYYY-MM.")
-
-    calc = await asyncio.to_thread(_calc_oficial_sync, employee_id, month, year)
-    if "error" in calc:
-        raise HTTPException(404, calc["error"])
-    pdf_bytes = calc.pop("_pdf")
-
-    # Hook GED: arquivar contracheque automaticamente
-    await _arquivar_contracheque_ged(
-        db,
-        employee_id,
-        calc.get("employee_name", ""),
-        competencia,
-        year,
-        month,
-        pdf_bytes,
-    )
-
-    nome = calc.get("employee_name", "funcionario").replace(" ", "_")
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="contracheque_{nome}_{competencia}.pdf"'},
-    )
-
-
 @router.post(
     "/contracheques-batch/{competencia}",
     summary="Gerar Contracheques em Lote",

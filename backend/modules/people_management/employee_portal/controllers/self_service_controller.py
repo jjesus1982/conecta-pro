@@ -419,26 +419,6 @@ async def meus_beneficios(
     return resultado
 
 
-@router.get(
-    "/meus-documentos-a-assinar",
-    summary="Meus documentos pendentes de assinatura",
-    description="Atalho self-service para as assinaturas pendentes do funcionário "
-    "logado (mesma fonte de GET /signatures/meus-pendentes).",
-)
-async def meus_documentos_a_assinar(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    emp = _employee_id(current_user)
-    from modules.signatures.services.universal_signature_service import (
-        UniversalSignatureService,
-    )
-
-    svc = UniversalSignatureService(db)
-    pendentes = await svc.pendentes_do_funcionario(UUID(emp))
-    return {"employee_id": emp, "total": len(pendentes), "pendentes": pendentes}
-
-
 # =========================================================================== #
 # Treinamentos / Dados pessoais / Documentos / CCT
 # (self-service — reusa os my_*_controller com o employee_id do JWT Google)
@@ -636,25 +616,6 @@ async def baixar_meu_documento(
     )
 
 
-@router.get(
-    "/minha-cct",
-    summary="Minha CCT / meus direitos e piso",
-    description="Direitos do trabalhador conforme a CCT vigente e o cargo do funcionário "
-    "logado (piso, benefícios garantidos, adicionais, estabilidades).",
-)
-async def minha_cct(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    # DESATIVADO (decisão Jordan 2026-07-13): não expor ao funcionário o piso/adicionais
-    # "que ele deveria receber" — comparado ao holerite, viraria prova de gap num contencioso
-    # trabalhista. O dado da CCT segue disponível para o DP/gestão, não para o self-service.
-    raise HTTPException(
-        status_code=http_status.HTTP_404_NOT_FOUND,
-        detail="Recurso indisponível.",
-    )
-
-
 # =========================================================================== #
 # PONTO ANTI-FRAUDE (self-service): bater ponto + status do dia
 # GPS geofence + selfie foto + timestamp (fase 1). Facial = fase 2.
@@ -733,99 +694,6 @@ async def _estado_ponto_hoje(db: AsyncSession, employee_id: str) -> dict[str, An
     ultima = batidas[-1] if batidas else None
     tem_entrada_aberta = bool(ultima and ultima["punch_type"] == "entrada")
     return {"batidas": batidas, "ultima": ultima, "entrada_aberta": tem_entrada_aberta}
-
-
-@router.post(
-    "/bater-ponto",
-    summary="Bater ponto (funcionário) — GPS geofence + selfie",
-    description="Registra a batida do funcionário logado. Resolve o posto ATUAL pela "
-    "alocação ativa, calcula o geofence (haversine) contra as coordenadas reais do "
-    "posto e salva a selfie como evidência anti-fraude. tipo='auto' alterna "
-    "entrada/saída pelo estado do dia.",
-)
-async def bater_ponto(
-    payload: BaterPontoRequest = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> Any:
-    emp = _employee_id(current_user)
-    from modules.people_management.hr.services.time_record_service import (
-        TimeRecordService,
-    )
-
-    svc = TimeRecordService(db)
-
-    # 1. Descobrir o posto atual. SEGURANÇA anti-fraude: um posto_id vindo do cliente só
-    # é aceito se pertencer a uma ALOCAÇÃO ATIVA do próprio funcionário — senão o geofence
-    # seria medido contra um posto escolhido por ele (marcaria dentro_geofence fora do posto
-    # real). Posto não-pertencente é ignorado e cai na alocação real.
-    posto_id = payload.posto_id
-    posto_nome = None
-    if posto_id:
-        prow = (
-            await db.execute(
-                _sqltext(
-                    "SELECT p.name FROM allocations a JOIN posts p ON p.id = a.post_id "
-                    "WHERE a.employee_id::text = :e AND p.id::text = :p "
-                    "AND a.status = 'active' AND a.is_active = true "
-                    "AND (a.end_date IS NULL OR a.end_date >= :today) LIMIT 1"
-                ),
-                {"e": str(emp), "p": str(posto_id), "today": _date.today()},
-            )
-        ).first()
-        if prow:
-            posto_nome = prow[0]
-        else:
-            posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
-    else:
-        posto_id, posto_nome = await _posto_atual_do_funcionario(db, emp)
-
-    # 2. Decidir entrada x saída.
-    estado = await _estado_ponto_hoje(db, emp)
-    tipo = (payload.tipo or "auto").lower()
-    if tipo == "auto":
-        tipo = "saida" if estado["entrada_aberta"] else "entrada"
-
-    # 3. Executar a batida (geofence + selfie são feitos no service).
-    if tipo == "entrada":
-        resultado = await svc.clock_in(
-            employee_id=emp,
-            location_lat=payload.latitude,
-            location_lng=payload.longitude,
-            posto_id=posto_id,
-            device_type="conecta_pro_app",
-            notes=payload.observacao,
-            created_by=str(current_user.id),
-            foto_base64=payload.foto_base64,
-            accuracy=payload.accuracy,
-        )
-    elif tipo == "saida":
-        if not estado["entrada_aberta"]:
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail="Não há entrada aberta hoje para registrar saída.",
-            )
-        resultado = await svc.clock_out(
-            record_id=str(estado["ultima"]["punch_id"]),
-            location_lat=payload.latitude,
-            location_lng=payload.longitude,
-            notes=payload.observacao,
-            created_by=str(current_user.id),
-            foto_base64=payload.foto_base64,
-            accuracy=payload.accuracy,
-        )
-    else:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail="tipo inválido — use 'entrada', 'saida' ou 'auto'.",
-        )
-
-    await db.commit()
-    resultado["tipo"] = tipo
-    resultado["employee_id"] = emp
-    if not resultado.get("posto_nome"):
-        resultado["posto_nome"] = posto_nome
-    return resultado
 
 
 @router.get(

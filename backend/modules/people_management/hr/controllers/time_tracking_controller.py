@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,19 +74,3 @@ async def register_from_operations(
     return result
 
 
-@router.get(
-    "/employee/{employee_id}/entries",
-    summary="Registros de Ponto do Funcionário",
-    description="Retorna registros de ponto de um funcionário com filtro por período.",
-)
-async def get_employee_entries(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    start_date: datetime | None = Query(None),
-    end_date: datetime | None = Query(None),
-) -> Any:
-    """Lista registros de ponto de um funcionário."""
-    service = TimeTrackingService(db)
-    entries = await service.get_entries(employee_id, start_date=start_date, end_date=end_date)
-    return {"items": entries, "total": len(entries)}

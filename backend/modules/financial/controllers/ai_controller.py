@@ -19,7 +19,6 @@ from modules.financial.agents.cashflow_predictor import CashflowPredictorAgent
 from modules.financial.agents.collection_negotiator import CollectionNegotiatorAgent
 from modules.financial.agents.financial_advisor import FinancialAdvisorAgent
 from modules.financial.agents.pricing_optimizer import PricingOptimizerAgent
-from modules.financial.agents.risk_monitor import RiskMonitorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -385,71 +384,6 @@ async def get_command_center(
 # ===================================================================
 
 
-@router.get("/risks", response_model=list[RiskAlert])
-async def get_risks(
-    condominio_id: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna lista de alertas de risco financeiro via RiskMonitorAgent.
-
-    Verifica:
-    - Contas a receber vencidas (inadimplência por faixa)
-    - Liquidez dos próximos 7 dias
-    - Concentração de receita (>20% em 1 cliente)
-    - Margem operacional
-    """
-    try:
-        agent = RiskMonitorAgent(session)
-        raw_alerts = await agent.scan()
-        return [RiskAlert(**a) for a in raw_alerts if isinstance(a, dict)]
-    except Exception as exc:
-        logger.warning("Erro no RiskMonitorAgent, usando fallback: %s", exc)
-        # Fallback com lógica original
-        alerts: list[RiskAlert] = []
-        try:
-            from sqlalchemy import func, select
-
-            from modules.financial.models.receivable_account import ReceivableAccount, ReceivableStatus
-
-            metrics = await _calculate_default_metrics(session, condominio_id)
-            alerts = _build_alerts(metrics)
-            total_recv = metrics["total_recv"]
-            if total_recv > 0:
-                conc_q = (
-                    select(
-                        ReceivableAccount.customer_id,
-                        func.sum(ReceivableAccount.net_value).label("total"),
-                    )
-                    .where(ReceivableAccount.status != ReceivableStatus.CANCELADA.value)
-                    .group_by(ReceivableAccount.customer_id)
-                    .order_by(func.sum(ReceivableAccount.net_value).desc())
-                    .limit(1)
-                )
-                top_result = (await session.execute(conc_q)).first()
-                if top_result and top_result.total:
-                    concentration = float(top_result.total / total_recv * 100)
-                    if concentration > 40:
-                        alerts.append(
-                            RiskAlert(
-                                level="amarelo",
-                                category="concentracao",
-                                title=f"Concentração de receita: {concentration:.0f}% em 1 cliente",
-                                description=(
-                                    "Alto risco de concentração. "
-                                    "Diversifique a base de clientes para reduzir dependência."
-                                ),
-                                value=float(top_result.total),
-                                action="Prospectar novos clientes para diluir concentração de receita",
-                            )
-                        )
-        except Exception as exc2:
-            logger.warning("Erro no fallback de riscos: %s", exc2)
-        return alerts
-
-
-# ENDPOINT 4 — CASHFLOW PREDICTION
 # ===================================================================
 
 
@@ -469,17 +403,6 @@ async def get_collection_analysis(
     """
     agent = CollectionNegotiatorAgent(session)
     return await agent.analisar()
-
-
-@router.get("/collection/receivable/{receivable_id}")
-async def analyze_receivable(
-    receivable_id: str,
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """Analisa uma conta a receber específica e retorna a melhor estratégia de cobrança."""
-    agent = CollectionNegotiatorAgent(session)
-    return await agent.analyze_receivable(receivable_id)
 
 
 # ===================================================================
@@ -727,84 +650,6 @@ class RegistrarCustoRequest(BaseModel):
     custo_total: float
     margem_contratual: float = 0.0
     breakdown: dict[str, float] = {}
-
-
-@router.get("/costing/by-type")
-async def get_costing_by_type(
-    tipo: str = Query(
-        ..., description="Tipo de serviço: portaria, limpeza, jardinagem, seguranca_eletronica, portaria_remota"
-    ),
-    mes: str = Query(default="", description="Mês no formato YYYY-MM (padrão: mês atual)"),
-    contrato_id: int = Query(default=None),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna breakdown de custos para um tipo de serviço em um mês.
-    Prioriza dados reais das tabelas de custo; usa benchmarks como fallback.
-    """
-    from modules.financial.services.cost_by_type_service import CostByTypeService
-
-    if mes:
-        try:
-            parts = mes.split("-")
-            ref_date = date(int(parts[0]), int(parts[1]), 1)
-        except Exception:
-            ref_date = date.today().replace(day=1)
-    else:
-        ref_date = date.today().replace(day=1)
-
-    service = CostByTypeService(session)
-    resultado = await service.calcular_custo_estimado(
-        tipo=tipo,
-        contrato_id=contrato_id,
-        mes=ref_date,
-    )
-    registros = await service.listar_custos_por_tipo(tipo=tipo, mes=ref_date)
-    resultado["registros"] = registros
-    return resultado
-
-
-@router.get("/costing/summary")
-async def get_costing_summary(
-    mes: str = Query(default="", description="Mês no formato YYYY-MM (padrão: mês atual)"),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna resumo de custos e margens para todos os tipos de serviço no mês.
-    Inclui análise AI do CostingAnalyzerAgent.
-    """
-    from modules.financial.agents.costing_analyzer import CostingAnalyzerAgent
-    from modules.financial.services.cost_by_type_service import CostByTypeService
-
-    if mes:
-        try:
-            parts = mes.split("-")
-            ref_date = date(int(parts[0]), int(parts[1]), 1)
-        except Exception:
-            ref_date = date.today().replace(day=1)
-    else:
-        ref_date = date.today().replace(day=1)
-
-    service = CostByTypeService(session)
-    resumo = await service.get_resumo_margem_por_tipo(ref_date)
-
-    # Tentar análise AI do CostingAnalyzerAgent
-    analise = None
-    try:
-        agent = CostingAnalyzerAgent(session)
-        analise = await agent.analisar_margens()
-    except Exception as exc:
-        logger.debug("CostingAnalyzerAgent indisponível no summary: %s", exc)
-
-    return {
-        "mes": ref_date.isoformat(),
-        "resumo_por_tipo": resumo,
-        "analise_ai": analise,
-        "total_custo": sum(r["custo_total"] for r in resumo),
-        "total_margem": sum(r["margem_contratual"] for r in resumo),
-    }
 
 
 @router.post("/costing/registrar", status_code=201)

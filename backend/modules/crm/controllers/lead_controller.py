@@ -130,27 +130,6 @@ async def list_leads(  # pylint: disable=too-many-locals
     )
 
 
-@router.get("/{lead_id}", response_model=LeadResponse)
-async def get_lead(
-    lead_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> LeadResponse:
-    """
-    Obtém um lead pelo ID.
-    """
-    repo = LeadRepository(db)
-    lead = await repo.get_by_id(lead_id)
-
-    if not lead:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead não encontrado",
-        )
-
-    return LeadResponse.model_validate(lead)
-
-
 @router.put("/{lead_id}", response_model=LeadResponse)
 async def update_lead(
     lead_id: str,

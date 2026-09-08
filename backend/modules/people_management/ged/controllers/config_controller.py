@@ -22,6 +22,10 @@ CREDENTIALS_PATH = os.environ.get(
 )
 
 
+_AGENDAMENTO_PADRAO = {"enabled": False, "cron_expression": "0 8 5 * *", "description": "Todo dia 5 às 08h", "last_run": None}
+
+
+
 @router.get("/drive")
 async def get_drive_config(
     current_user=Depends(get_current_user),
@@ -86,34 +90,6 @@ async def disconnect_drive(
         except OSError as exc:
             return {"disconnected": False, "message": f"Não consegui renomear a credencial: {exc}"}
     return {"disconnected": False, "message": f"Nenhuma credencial em {CREDENTIALS_PATH} neste servidor — nada a desconectar."}
-
-
-@router.get("/email-templates")
-async def get_email_templates(
-    current_user=Depends(get_current_user),
-):
-    """Lista templates de e-mail disponíveis."""
-    return [
-        {"id": "kit_pronto", "name": "Kit Pronto para Revisão", "assunto": "Kit Documental — {cliente} {competencia}"},
-        {"id": "kit_enviado", "name": "Kit Enviado ao Cliente", "assunto": "Documentos disponíveis — {competencia}"},
-    ]
-
-
-@router.get("/document-types")
-async def get_document_types(
-    current_user=Depends(get_current_user),
-):
-    """Lista tipos de documento habilitados."""
-    return [
-        {"id": "holerite", "name": "Holerite", "code": "holerite", "enabled": True},
-        {"id": "ponto", "name": "Folha de Ponto", "code": "ponto", "enabled": True},
-        {"id": "guia_fgts", "name": "Guia FGTS", "code": "guia_fgts", "enabled": True},
-        {"id": "certidao", "name": "Certidões", "code": "certidao", "enabled": True},
-    ]
-
-
-
-_AGENDAMENTO_PADRAO = {"enabled": False, "cron_expression": "0 8 5 * *", "description": "Todo dia 5 às 08h", "last_run": None}
 
 
 async def _ler_agendamento(db: AsyncSession) -> dict:
