@@ -518,50 +518,30 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
 
     from sqlalchemy import text as _t
 
-    # Buscar clientes ativos com CNPJ (document_type='cnpj', document_number nao nulo)
-    try:
-        rows = await db.execute(
-            _t(
-                "SELECT id::text, name, document_number AS cnpj "
-                "FROM clients "
-                "WHERE document_type = 'cnpj' "
-                "AND document_number IS NOT NULL "
-                "AND LENGTH(REGEXP_REPLACE(document_number, '[^0-9]', '', 'g')) = 14 "
-                "AND status = 'active' "
-                "ORDER BY name"
-            )
-        )
-        clientes = rows.mappings().all()
-    except Exception as exc:
-        logger.warning("Erro ao buscar clientes com CNPJ: %s — usando EMPRESA_CNPJ", exc)
-        clientes = []
-
-    # Fallback: usar CNPJ da empresa se nenhum cliente encontrado
-    if not clientes:
-        cnpj_empresa = re.sub(r"\D", "", EMPRESA_CNPJ)
-        logger.info(
-            "buscar_todas_certidoes: nenhum cliente com CNPJ — usando EMPRESA_CNPJ %s",
-            cnpj_empresa,
-        )
-        clientes = [{"id": "", "name": "Conecta Mais", "cnpj": cnpj_empresa}]
-
-    # Multi-CNPJ E6: as empresas DO GRUPO vêm SEMPRE primeiro (as duas — CNPJ1 e
-    # CNPJ2/empregador dos CLT). Cada (cnpj × tipo) tem linha própria em
-    # ged_certidoes; um verde do CNPJ1 nunca mascara o CNPJ2 (pré-mortem F4).
+    # Decisão do dono (07/09/2026): certidão é SÓ da Patrimonial (66.014.833) — é ela que o
+    # condomínio exige para pagar. Até aqui a tarefa varria os CNPJs de TODOS os clientes
+    # (condomínios) e caía no CNPJ do grupo só como fallback: cada 06:30 gastava Infosimples
+    # em CRF-FGTS de cliente (46 consultas em 30 dias) e a Eletrônica entrava junto.
+    # Se a Patrimonial não estiver em `empresas`, cai para as empresas ativas do grupo.
     try:
         grupo_rows = await db.execute(
             _t(
                 "SELECT '' AS id, razao_social AS name, "
-                "REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') AS cnpj "
+                "REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') AS cnpj, slug "
                 "FROM empresas WHERE status = 'ativa' AND cnpj IS NOT NULL "
-                "ORDER BY is_principal DESC"
+                "ORDER BY (slug = 'conecta_patrimonial') DESC, is_principal DESC"
             )
         )
         grupo = list(grupo_rows.mappings().all())
-        cnpjs_grupo = {g["cnpj"] for g in grupo}
-        clientes = grupo + [c for c in clientes if re.sub(r"\D", "", str(c["cnpj"])) not in cnpjs_grupo]
+        patrimonial = [g for g in grupo if g["slug"] == "conecta_patrimonial"]
+        clientes = patrimonial or grupo
     except Exception as exc:  # noqa: BLE001
         logger.warning("buscar_todas_certidoes: falha ao carregar empresas do Grupo (%s)", exc)
+        clientes = []
+    if not clientes:
+        cnpj_empresa = re.sub(r"\D", "", EMPRESA_CNPJ)
+        logger.info("buscar_todas_certidoes: sem empresa no cadastro — usando EMPRESA_CNPJ %s", cnpj_empresa)
+        clientes = [{"id": "", "name": "Conecta Mais", "cnpj": cnpj_empresa}]
 
     logger.info(
         "buscar_todas_certidoes iniciado — %d cliente(s) com CNPJ",

@@ -58,8 +58,13 @@ async def main() -> None:
         # vence no silêncio — e é ela que o condomínio exige para pagar a Patrimonial.
         # Anulada de propósito (validade < emissão) não conta: já é um pedido de emissão
         # manual, não um vigia dormindo.
-        paradas = (await db.execute(text("""
-            SELECT c.cnpj, c.document_type, c.expiry_date
+        # Decisão do dono (07/09/2026): o vigia automático cobre SÓ a Patrimonial e SÓ os tipos
+        # que o sync das 06:30 renova (FGTS, federal, trabalhista). Estadual/municipal/falência
+        # e CNPJs de cliente não são "vigia dormindo": são emissão manual — viram AVISO, não falha.
+        todas = (await db.execute(text("""
+            SELECT c.cnpj, c.document_type, c.expiry_date,
+                   c.cnpj = (SELECT REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') FROM empresas
+                              WHERE slug = 'conecta_patrimonial' LIMIT 1) AS patrimonial
               FROM ged_certidoes c
              WHERE c.expiry_date IS NOT NULL
                AND c.expiry_date >= c.issue_date
@@ -67,6 +72,11 @@ async def main() -> None:
                AND c.updated_at::date < c.expiry_date - CAST(:janela AS integer)
              ORDER BY c.expiry_date
         """), {"janela": JANELA_RENOVACAO})).fetchall()
+        RENOVAVEIS = {"certidao_negativa_fgts", "certidao_negativa_federal", "certidao_negativa_trabalhista"}
+        paradas = [(c, t, v) for c, t, v, pat in todas if pat and t in RENOVAVEIS]
+        manuais = [(c, t, v) for c, t, v, pat in todas if not (pat and t in RENOVAVEIS)]
+        if manuais:
+            print(f"AVISO (emissão manual / fora do vigia): {[f'{c}/{t} vence {v}' for c, t, v in manuais]}")
         assert not paradas, (
             f"{len(paradas)} certidão(ões) vencendo em ≤{JANELA_RENOVACAO} dias sem renovação "
             f"disparada: {[f'{c}/{t} vence {v}' for c, t, v in paradas]}")
