@@ -74,10 +74,10 @@
 **Files:**
 - Create: `scripts/qa/e2e_playwright/cobertura_20260908.js` (walk) e `auditoria/qa/QA_E2E_20260908.md` (relatório)
 
-- [ ] **Step 1:** Login em https://erp.conectamais.pro (usuário jjesus@conectamais.pro), navegar `/redesign/<slug>` para os 32 módulos; em cada um, abrir cada item do menu e cada aba de grupo; esperar `main.rd-content` com innerText > 50; registrar `tela|nav|ms|len|btns|ERRO|console|API4xx`. Reusar `scripts/qa/e2e_playwright/*.js` de 07/09 como base (mesmo formato de saída).
-- [ ] **Step 2:** Ações seguras como usuário: abrir cada modal de ação por linha e cancelar; enviar formulários de CONSULTA (calculadoras, consultas CNPJ/CEP, ficha 360, simulações com `confirmar=false`); NUNCA formulários que movem dinheiro, falam com governo, enviam WhatsApp/e-mail ou apagam.
-- [ ] **Step 3:** Consolidar: tela em branco, erro de console, API 4xx/5xx, tempo > 8 s, botão que abre e falha. Corrigir cada achado (builder/rota), hot-copy, re-testar só as telas afetadas.
-- [ ] **Step 4:** Relatório `auditoria/qa/QA_E2E_20260908.md` (telas abertas, ações exercitadas, achados e correções, o que ficou para o Jordan), commit, mapa §2c.32, memória de retomada atualizada.
+- [x] **Step 1:** Login em https://erp.conectamais.pro (usuário jjesus@conectamais.pro), navegar `/redesign/<slug>` para os 32 módulos; em cada um, abrir cada item do menu e cada aba de grupo; esperar `main.rd-content` com innerText > 50; registrar `tela|nav|ms|len|btns|ERRO|console|API4xx`. Reusar `scripts/qa/e2e_playwright/*.js` de 07/09 como base (mesmo formato de saída).
+- [x] **Step 2:** Ações seguras como usuário: abrir cada modal de ação por linha e cancelar; enviar formulários de CONSULTA (calculadoras, consultas CNPJ/CEP, ficha 360, simulações com `confirmar=false`); NUNCA formulários que movem dinheiro, falam com governo, enviam WhatsApp/e-mail ou apagam.
+- [x] **Step 3:** Consolidar: tela em branco, erro de console, API 4xx/5xx, tempo > 8 s, botão que abre e falha. Corrigir cada achado (builder/rota), hot-copy, re-testar só as telas afetadas.
+- [x] **Step 4:** Relatório `auditoria/qa/QA_E2E_20260908.md` (telas abertas, ações exercitadas, achados e correções, o que ficou para o Jordan), commit, mapa §2c.32, memória de retomada atualizada.
 
 ## Self-Review
 - Cobertura do pedido: medir (T1) → vereditos e ação nas 569 (T2–T3) → 249 só-clássico (T4) → 100% travado, durável e verde (T5) → E2E Playwright (T6). ✔
@@ -90,3 +90,4 @@
 - Tasks 1–5 concluídas às 18h10 Manaus: `nenhum: 0 · classico: 0` (T6, 1220 rotas). Bake blue-green disparado em seguida.
 - Mudança de definição durante a execução: apps-satélite vivos (`/modulos/meu-espaco`, homologação, painel de ponto, login, candidato, PJ, primeiro acesso) contam como redesign; `/api/v1/reimbursements/*` conta como "dono"; webhooks como "externo"; montagem dupla como "alias". Relatórios por lote em `auditoria/qa/revisao_20260908/`.
 - Pendente da Task 5: linha canônica no `docs/ARSENAL_OPERACAO.md`, `checar_regressao --gravar`, oráculos, drift pós-bake.
+- Task 6 concluída às 19h15: QA E2E Playwright em 727 telas/34 módulos (0 em branco, 0 4xx), 10 ações abertas/canceladas, 11 consultas verdes após o conserto do FormScreen; relatório `auditoria/qa/QA_E2E_20260908.md`, mapa §2c.32. Bake final com os 5 consertos hot-copiados fica para a janela noturna (checar_bake_pendente recusa fora de 01–05h e com WhatsApp em uso).
