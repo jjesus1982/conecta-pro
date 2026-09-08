@@ -1,6 +1,6 @@
 # Cobertura 100% do redesign (rotas × telas) — Plano de Implementação
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline, sessão fase5, modo autônomo por ordem do Jordan). Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline, sessão fase5, modo autônomo por ordem do Jordan). Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Toda rota montada na API do Conecta PRO é alcançada pelo redesign (tela/ação), ou consumida por automação/assistente/MCP/tarefa, ou apagada — medido por script, com 0 botão morto, 0 import quebrado, oráculos verdes, imagem assada, e QA E2E como usuário final no Playwright MCP.
 
@@ -29,8 +29,8 @@
 **Interfaces:**
 - Produces: `python3 backend/scripts/qa/checar_cobertura_rotas.py [--tsv saida.tsv]` imprime `TOTAL nenhum: N · classico: M` e grava TSV `classe\tMETODO\tpath`. Exit 0 sempre (é medidor); a trava é o número.
 
-- [ ] **Step 1:** Escrever o script (host): enumera rotas com `docker exec -e PYTHONPATH=/app -w /app conecta-pro-backend python3 -c "import main_production as m; ..."` (APIRoute methods/paths), classifica por texto em: redesign (`redesign_builders/*.py`, `redesign_data_controller.py`, `redesign_write_gate.py`, `frontend/src/app/{redesign,portal-funcionario,area-cliente,assinar}/**`, `frontend/src/components/redesign/*.tsx`), interna (`mcp-server/server.py`, `agents/**`, `backend/modules/**/tasks*.py`, `backend/modules/**/tasks/*.py`, `backend/modules/ai/conversation/services/orquestrador/*.py`, `backend/modules/**/services/*.py`, `backend/core/**`, `backend/scripts/orq/*.py`, `scripts/*.sh`, `nginx`), clássico (`frontend/src/**` restante), nenhum. Match: path literal, e prefixo literal antes do primeiro `{` (≥ 12 chars). Exclui `/api/v1/redesign`, `/health`, `/auth`, `/docs`, `/openapi`.
-- [ ] **Step 2:** Rodar e guardar a linha de base: `python3 backend/scripts/qa/checar_cobertura_rotas.py --tsv auditoria/qa/revisao_20260908/cobertura_rotas_T0.tsv` → esperado ≈ `nenhum: 569 · classico: 249`.
+- [x] **Step 1:** Escrever o script (host): enumera rotas com `docker exec -e PYTHONPATH=/app -w /app conecta-pro-backend python3 -c "import main_production as m; ..."` (APIRoute methods/paths), classifica por texto em: redesign (`redesign_builders/*.py`, `redesign_data_controller.py`, `redesign_write_gate.py`, `frontend/src/app/{redesign,portal-funcionario,area-cliente,assinar}/**`, `frontend/src/components/redesign/*.tsx`), interna (`mcp-server/server.py`, `agents/**`, `backend/modules/**/tasks*.py`, `backend/modules/**/tasks/*.py`, `backend/modules/ai/conversation/services/orquestrador/*.py`, `backend/modules/**/services/*.py`, `backend/core/**`, `backend/scripts/orq/*.py`, `scripts/*.sh`, `nginx`), clássico (`frontend/src/**` restante), nenhum. Match: path literal, e prefixo literal antes do primeiro `{` (≥ 12 chars). Exclui `/api/v1/redesign`, `/health`, `/auth`, `/docs`, `/openapi`.
+- [x] **Step 2:** Rodar e guardar a linha de base: `python3 backend/scripts/qa/checar_cobertura_rotas.py --tsv auditoria/qa/revisao_20260908/cobertura_rotas_T0.tsv` → esperado ≈ `nenhum: 569 · classico: 249`.
 - [ ] **Step 3:** Registrar no `docs/ARSENAL_OPERACAO.md` a linha canônica e o alvo (0 · 0). Commit: `chore(arsenal): medidor de cobertura rotas×telas`.
 
 ### Task 2: Aplicar vereditos das 569 — bucket people-management (254)
@@ -39,19 +39,19 @@
 - Modify: controllers em `backend/modules/people_management/**/controllers/*.py` (apagar MORTA), `backend/modules/operacional/controllers/redesign_builders/{departamento_pessoal,rh,saude_ocupacional,portal_do_funcionario}.py` (LIGAR), `_dp_grupos.py` (abas)
 - Test: caçador de imports no container (script da §2c.29), `checar_botao_morto.py` no container, smoke GET
 
-- [ ] **Step 1:** Ler o relatório do revisor (`auditoria/qa/revisao_20260908/pm_sem_chamador.md`, gravar do output do agente). Separar listas MORTA / LIGAR / VIVA-INTERNA.
-- [ ] **Step 2:** Para cada MORTA: `grep -rn "import <handler>" backend/` → se importado por orquestrador/redesign/oráculo, reclassificar INTERNA. Apagar as demais com o removedor por (método, path) já usado hoje (regex `@router.<m>(\s*"<path>"` até o próximo bloco de topo); `ruff --select F401 --fix`; `py_compile`.
-- [ ] **Step 3:** Para cada LIGAR: tela no builder certo, reusando `tbl` (SQL) para leitura e form/ação por linha para escrita; rotas com `{id}` no caminho viram ação por linha ou `/redesign/action/*` que chama o handler. Sem GET no form. Tabs em `_dp_grupos.py` ANTES de `montar_grupos(out)`.
-- [ ] **Step 4:** Hot-copy `people_management` + `operacional`; pyc; prova de import; caçador de imports no container (`TOTAL 0` além dos 3 pré-existentes); HUP; `checar_botao_morto.py` → `TOTAL: 0`; smoke GET das rotas mantidas (200) e apagadas (404).
-- [ ] **Step 5:** Commit `fix(people-management): cobertura — N mortas apagadas, M telas ligadas (nenhum X→Y)`; anotar no mapa §2c.31.
+- [x] **Step 1:** Ler o relatório do revisor (`auditoria/qa/revisao_20260908/pm_sem_chamador.md`, gravar do output do agente). Separar listas MORTA / LIGAR / VIVA-INTERNA.
+- [x] **Step 2:** Para cada MORTA: `grep -rn "import <handler>" backend/` → se importado por orquestrador/redesign/oráculo, reclassificar INTERNA. Apagar as demais com o removedor por (método, path) já usado hoje (regex `@router.<m>(\s*"<path>"` até o próximo bloco de topo); `ruff --select F401 --fix`; `py_compile`.
+- [x] **Step 3:** Para cada LIGAR: tela no builder certo, reusando `tbl` (SQL) para leitura e form/ação por linha para escrita; rotas com `{id}` no caminho viram ação por linha ou `/redesign/action/*` que chama o handler. Sem GET no form. Tabs em `_dp_grupos.py` ANTES de `montar_grupos(out)`.
+- [x] **Step 4:** Hot-copy `people_management` + `operacional`; pyc; prova de import; caçador de imports no container (`TOTAL 0` além dos 3 pré-existentes); HUP; `checar_botao_morto.py` → `TOTAL: 0`; smoke GET das rotas mantidas (200) e apagadas (404).
+- [x] **Step 5:** Commit `fix(people-management): cobertura — N mortas apagadas, M telas ligadas (nenhum X→Y)`; anotar no mapa §2c.31.
 
 ### Task 3: Aplicar vereditos das 569 — bucket fora do PM (315)
 
 **Files:**
 - Modify: controllers de `financial`, `campo`, `clients`, `ged`, `gedeon`, `crm`, `marketing`, `operacional`, `client_portal`, `users` (MORTA); builders `financeiro/_fin_*`, `campo`, `crm`, `documentos`, `area_do_cliente`, `configuracoes` (LIGAR)
 
-- [ ] **Step 1:** Ler o relatório (`auditoria/qa/revisao_20260908/outros_sem_chamador.md`). `/webhooks/inter/*` e `/financeiro/inter/*` são VIVA/INTERNA por definição. `/campo/os/*` (0 OS em 6 meses): MORTA — apagar rotas e deixar as tools MCP de OS honestas (mensagem), registrar no mapa como decisão tomada pela regra "sem dado, sem chamador".
-- [ ] **Step 2–5:** Igual à Task 2 (grep de import → apagar → ligar → hot-copy dos módulos tocados → caçadores → smoke → commit por módulo).
+- [x] **Step 1:** Ler o relatório (`auditoria/qa/revisao_20260908/outros_sem_chamador.md`). `/webhooks/inter/*` e `/financeiro/inter/*` são VIVA/INTERNA por definição. `/campo/os/*` (0 OS em 6 meses): MORTA — apagar rotas e deixar as tools MCP de OS honestas (mensagem), registrar no mapa como decisão tomada pela regra "sem dado, sem chamador".
+- [x] **Step 2–5:** Igual à Task 2 (grep de import → apagar → ligar → hot-copy dos módulos tocados → caçadores → smoke → commit por módulo).
 
 ### Task 4: As 249 rotas só-clássico
 
@@ -59,15 +59,15 @@
 - Modify: mesmos builders/controllers, conforme veredito
 - Create: `auditoria/qa/revisao_20260908/classico_only.md`
 
-- [ ] **Step 1:** Gerar a lista pelo medidor (`classe == classico`) e dar veredito por dado: `count(*)` da tabela principal de cada rota (SELECT no banco). Dado real → LIGAR (tela/ação no redesign); sem dado → MORTA.
-- [ ] **Step 2–4:** Aplicar como nas Tasks 2–3. Commit `fix(redesign): rotas só-clássico — N ligadas, M apagadas (classico 249→0)`.
+- [x] **Step 1:** Gerar a lista pelo medidor (`classe == classico`) e dar veredito por dado: `count(*)` da tabela principal de cada rota (SELECT no banco). Dado real → LIGAR (tela/ação no redesign); sem dado → MORTA.
+- [x] **Step 2–4:** Aplicar como nas Tasks 2–3. Commit `fix(redesign): rotas só-clássico — N ligadas, M apagadas (classico 249→0)`.
 
 ### Task 5: Fechar o número e travar
 
-- [ ] **Step 1:** `python3 backend/scripts/qa/checar_cobertura_rotas.py --tsv auditoria/qa/revisao_20260908/cobertura_rotas_T1.tsv` → esperado `nenhum: 0 · classico: 0`. Se sobrar, cada sobra ganha veredito explícito no relatório (INTERNA provada por arquivo:linha) e o medidor aprende o chamador (adicionar o caminho ao conjunto "interna").
-- [ ] **Step 2:** Caçador de imports no container → 0 novos; `checar_botao_morto.py` → 0; `python3 backend/scripts/qa/checar_regressao.py --gravar < /dev/null` (background, `-u`) com a decisão na mensagem do commit.
-- [ ] **Step 3:** Varredura dos oráculos (`bash scripts/oraculos_diarios.sh`, background): vermelhos só de ambiente (supervisor, crédito de IA, permissão do 5_4b). Oráculo quebrado por poda legítima → ajustar/aposentar com motivo.
-- [ ] **Step 4:** Bake: `backend/` limpo (`git status --porcelain backend/` = 0) → `./scripts/deploy_backend_bluegreen.sh` (background) → `./scripts/checar_drift_workers.sh` sem drift. Commit + mapa §2c.31 com os números antes → depois.
+- [x] **Step 1:** `python3 backend/scripts/qa/checar_cobertura_rotas.py --tsv auditoria/qa/revisao_20260908/cobertura_rotas_T1.tsv` → esperado `nenhum: 0 · classico: 0`. Se sobrar, cada sobra ganha veredito explícito no relatório (INTERNA provada por arquivo:linha) e o medidor aprende o chamador (adicionar o caminho ao conjunto "interna").
+- [x] **Step 2:** Caçador de imports no container → 0 novos; `checar_botao_morto.py` → 0; `python3 backend/scripts/qa/checar_regressao.py --gravar < /dev/null` (background, `-u`) com a decisão na mensagem do commit.
+- [x] **Step 3:** Varredura dos oráculos (`bash scripts/oraculos_diarios.sh`, background): vermelhos só de ambiente (supervisor, crédito de IA, permissão do 5_4b). Oráculo quebrado por poda legítima → ajustar/aposentar com motivo.
+- [x] **Step 4:** Bake: `backend/` limpo (`git status --porcelain backend/` = 0) → `./scripts/deploy_backend_bluegreen.sh` (background) → `./scripts/checar_drift_workers.sh` sem drift. Commit + mapa §2c.31 com os números antes → depois.
 
 ### Task 6: QA E2E como auditor usuário final (Playwright MCP, Chromium)
 
@@ -83,3 +83,10 @@
 - Cobertura do pedido: medir (T1) → vereditos e ação nas 569 (T2–T3) → 249 só-clássico (T4) → 100% travado, durável e verde (T5) → E2E Playwright (T6). ✔
 - Sem placeholders: cada task nomeia os arquivos, o comando e o número esperado. ✔
 - Nomes consistentes: `checar_cobertura_rotas.py`, classes `redesign|interna|classico|nenhum`, `_ligar_generico.py`. ✔
+
+
+## Execução (08/09/2026)
+
+- Tasks 1–5 concluídas às 18h10 Manaus: `nenhum: 0 · classico: 0` (T6, 1220 rotas). Bake blue-green disparado em seguida.
+- Mudança de definição durante a execução: apps-satélite vivos (`/modulos/meu-espaco`, homologação, painel de ponto, login, candidato, PJ, primeiro acesso) contam como redesign; `/api/v1/reimbursements/*` conta como "dono"; webhooks como "externo"; montagem dupla como "alias". Relatórios por lote em `auditoria/qa/revisao_20260908/`.
+- Pendente da Task 5: linha canônica no `docs/ARSENAL_OPERACAO.md`, `checar_regressao --gravar`, oráculos, drift pós-bake.

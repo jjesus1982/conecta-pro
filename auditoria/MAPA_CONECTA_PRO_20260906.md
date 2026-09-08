@@ -1087,6 +1087,65 @@ pedir autorização explícita antes.
 loopback seguem 200. **Ainda públicas em 0.0.0.0: 5555 (Flower) e 9093 (Alertmanager)** — recomendo
 fechar igual; aguardando autorização.
 
+### §2c.31 — Cobertura 100% das rotas no redesign (08/09/2026, 15h–18h Manaus)
+
+**O número, medido** (`backend/scripts/qa/checar_cobertura_rotas.py`, tsv T0…T6 em `auditoria/qa/revisao_20260908/`):
+
+| momento | rotas montadas | sem chamador | só clássico |
+|---|---|---|---|
+| T0 (15h) | 1752 | 569 | 249 |
+| T1 lote PM + outros | 1441 | 287 | 238 |
+| T2 lote só-clássico | 1317 | 258 | 57 |
+| T3 medidor vê apps-satélite | 1274 | 31 | 65 |
+| T6 (18h10) | **1220** | **0** | **0** |
+
+Classes finais: redesign 819 · interna 357 (MCP, Hermes, tasks, serviços, robôs, cron) · alias 23 (montagem
+dupla em main_production.py, mesmo handler já coberto) · externo 15 (webhooks do banco/Sólides/Meta) · dono 6
+(`/api/v1/reimbursements/*`, decisão de 07/09).
+
+**Como se chegou:** seis agentes de veredito só-leitura (código + `count(*)`), 300 rotas por rodada, cada um
+devolvendo MORTA / REDUNDANTE / LIGAR / INTERNA-ESCONDIDA / EXTERNO com prova (arquivo:linha ou contagem).
+Relatórios em `auditoria/qa/revisao_20260908/*.md`. Apagados ~520 handlers ao todo no dia (podar com filtro
+de alias + recusa de handler importado; a última rodada por AST porque regex cortou decorator multilinha).
+Ligados 78 telas/ações em cinco lotes (`_ligar_lote{3,4,5}_20260908` nos builders + `_fin_ligar4.py`):
+diaristas, escalas (gerar/salvar template), comunicados (confirmar/leituras), bater ponto e assinaturas no
+portal, ativação do ponto, LTCAT, fila de notificações, GED (tipos, coleta, histórico, executar), certidões
+(emitir robô / subir PDF / avisar cliente), Drive (status/desconectar), NFS-e nacional (dry-run), Inter
+categorização, Onvio, auditoria de pagamentos, parcelas, recorrentes, folha PJ (programar/NF), fluxo de caixa
+×4, DRE consolidado, estoque, liminares, kits (documentos/assinaturas), GEDEON ×5, José Luís, leads status,
+clientes editar, medidas assinaturas, DET/processo por arquivo, placar dos consultores, rondas indicadores,
+usuários (aprovar/ativar/desativar/permissões), CCT cargos/feriados, onboarding, desempenho integrado,
+S-2200, links PJ, certificações, homologação do espelho, folha PIX prévia/status, SST (calendário legal,
+esteira PCMSO, prontuário, ASO retroativo, CAT abrir/transmitir, ficha de EPI, risco), direitos CCT e
+simulador de rescisão do funcionário.
+
+**Frontend (BUILD_ID conecta-pro-1788903230478):** o renderizador ganhou `multiselect` (fiscal.py já emitia e
+não desenhava), form GET sem corpo (formulários de CONSULTA) e `{chave}` no endpoint vira parâmetro de path
+(rota com id no caminho vira form). Área do cliente: assiduidade e escalas, badge de avisos, resumo financeiro.
+
+**O que o medidor aprendeu (cada regra nasceu de um padrão que um agente apontou):** apps-satélite vivos
+contam como redesign — `/modulos/meu-espaco` É o portal do funcionário (as páginas de `portal-funcionario` só
+redirecionam), mais homologação, painel de ponto, login facial, candidato, PJ, primeiro acesso, e os helpers
+que importam (`services/portal`, `hooks/useNotifications`, `components/gdrive`); URL montada em pedaços
+(constante de prefixo, concatenação implícita, `portalFetch`); rota com parâmetro casa por regex e o último
+segmento pode ser variável; handler reusado por import (inclusive por referência) ou compartilhado por
+montagem dupla; `rotinas/` e cron do host; webhooks são chamador externo.
+
+**Decisões tomadas pela regra "sem dado, sem chamador" (reversíveis — está tudo no git):** campo/os (0 OS),
+recruitment/interviews e climate (0 linhas), time-bank (0), sst/treinamentos (0), cashflow entries manuais
+(8.370 linhas todas de sync), consultor panorama ×5 (Hermes usa o serviço direto), rondas/dashboard (=stats).
+
+**Efeitos colaterais medidos no dia e corrigidos:** builder `rh` quebrou por handler do CCT apagado (alias
+`Sc.`/`Cp.`/`Hf.`); `benefits_router` reinserido antes do import derrubou o agregador hr inteiro (584 botões
+mortos num boot); portal importava tarde 4 handlers apagados (voltaram com seus imports); constantes de módulo
+engolidas pela poda (5 arquivos); decorator multilinha cortado por regex (cashflow) → AST; `deploy_frontend.sh`
+aborta com BUILD_ID igual (rm antes); pkill que casa o próprio shell. Botão morto = 0, imports AST = 0 novos.
+
+**Depende do Jordan:** trocar o laço de assinatura em lote da empresa por `assinar_lote_empresa` (fluxo OTP;
+a rota foi apagada, a ação por laço segue); `INTER_WEBHOOK_CA_PATH` no `.env`; tool `_vagas` do Hermes ainda
+importa `list_positions` (recruitment aposentado); 25 `ClientDisconnect` no webhook do Chatwoot durante os
+HUPs do dia — se o Chatwoot não reenvia, mensagens daquela janela podem ter ficado sem log.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
