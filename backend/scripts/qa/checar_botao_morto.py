@@ -92,6 +92,27 @@ async def main() -> int:
                 if v != "ok":
                     mortos.append(f"{mod}: {me} {ep}" + ("  (rota existe, método não)" if v == "metodo" else "")
                                   + ("  ({…} literal — o front não monta path param)" if "{" in ep else ""))
+    # Tela definida DEPOIS de montar_grupos(out) e listada como aba de grupo: a aba não nasce e a
+    # tela só abre por URL direta — foi assim com 16 telas do Financeiro (07/09/2026, medido pelo
+    # navegador). Checagem estática nos builders que têm um _*_grupos.py ao lado.
+    import pathlib
+    import re as _re
+    _dir = pathlib.Path(RD.__file__).parent / "redesign_builders"
+    for _g in sorted(_dir.glob("_*_grupos.py")):
+        _tabs = set(_re.findall(r'\("([a-z0-9-]+)", "[^"]+"\)', _g.read_text(encoding="utf-8")))
+        for _b in _dir.glob("*.py"):
+            _src = _b.read_text(encoding="utf-8")
+            if _b.name.startswith("_") or f"from modules.operacional.controllers.redesign_builders.{_g.stem} import" not in _src:
+                continue
+            _linhas = _src.split("\n")
+            _calls = [i for i, l in enumerate(_linhas) if _re.match(r"\s+montar_grupos\(out\)", l)]
+            if not _calls:
+                continue
+            for i, l in enumerate(_linhas[_calls[-1] + 1:], start=_calls[-1] + 2):
+                _m = _re.match(r'\s*out\["([a-z0-9-]+)"\]\s*=', l)
+                if _m and _m.group(1) in _tabs:
+                    total += 1
+                    mortos.append(f"{_b.name}:{i}: tela '{_m.group(1)}' definida DEPOIS de montar_grupos — a aba não nasce")
     for m in mortos:
         print("  ", m)
     print(f"{total} referência(s) a endpoint em {len(RD.BUILDERS)} módulo(s) do redesign")
