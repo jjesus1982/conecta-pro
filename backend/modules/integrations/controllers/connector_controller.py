@@ -128,7 +128,8 @@ async def create_account(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Conector '{data.connector_type}' não disponível"
         )
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant ID não encontrado no usuário")
 
@@ -172,7 +173,8 @@ async def list_accounts(
 
     from modules.integrations.models.integration_account import IntegrationAccount
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     # Query base
     query = select(IntegrationAccount).where(IntegrationAccount.tenant_id == tenant_id, IntegrationAccount.ativo)
@@ -211,7 +213,8 @@ async def get_account(
 
     from modules.integrations.models.integration_account import IntegrationAccount
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     query = select(IntegrationAccount).where(
         IntegrationAccount.id == account_id, IntegrationAccount.tenant_id == tenant_id, IntegrationAccount.ativo
@@ -237,7 +240,8 @@ async def update_account(
 
     from modules.integrations.models.integration_account import IntegrationAccount
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     query = select(IntegrationAccount).where(
         IntegrationAccount.id == account_id, IntegrationAccount.tenant_id == tenant_id, IntegrationAccount.ativo
@@ -277,7 +281,8 @@ async def delete_account(
 
     from modules.integrations.models.integration_account import IntegrationAccount
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     query = select(IntegrationAccount).where(
         IntegrationAccount.id == account_id, IntegrationAccount.tenant_id == tenant_id, IntegrationAccount.ativo
@@ -309,7 +314,8 @@ async def health_check_account(
     from modules.integrations.models.integration_account import IntegrationAccount
     from modules.integrations.sync.engine import ConnectorRegistry
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     # Buscar conta
     query = select(IntegrationAccount).where(
@@ -400,7 +406,8 @@ async def start_sync(
     from modules.integrations.models.integration_account import IntegrationAccount
     from modules.integrations.models.sync_run import SyncRun
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     # Buscar conta
     query = select(IntegrationAccount).where(
@@ -454,7 +461,8 @@ async def list_sync_runs(
 
     from modules.integrations.models.sync_run import SyncRun
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     # Query base
     query = select(SyncRun).where(SyncRun.tenant_id == tenant_id, SyncRun.ativo)
@@ -495,7 +503,8 @@ async def get_sync_run(
 
     from modules.integrations.models.sync_run import SyncRun
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     query = select(SyncRun).where(SyncRun.id == run_id, SyncRun.tenant_id == tenant_id)
     result = await db.execute(query)
@@ -516,7 +525,8 @@ async def cancel_sync_run(
 
     from modules.integrations.models.sync_run import SyncRun
 
-    tenant_id = current_user.get("tenant_id") or current_user.get("condominio_id")
+    # current_user é o modelo User, não dict — `.get` estourava 500 em /connectors/sync/runs (07/09/2026)
+    tenant_id = getattr(current_user, "tenant_id", None) or getattr(current_user, "condominio_id", None)
 
     query = select(SyncRun).where(SyncRun.id == run_id, SyncRun.tenant_id == tenant_id)
     result = await db.execute(query)

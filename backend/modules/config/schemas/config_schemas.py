@@ -242,6 +242,13 @@ class SystemConfigValueUpdate(BaseModel):
 
 
 class SystemConfigResponse(SystemConfigBase):
+    # Resposta tolera linha gravada por SQL cru (só chave+valor — os 5 registros do Arsenal):
+    # 25 × "Input should be a valid string" derrubavam GET /config/system com 500 (07/09/2026).
+    nome: str | None = None
+    scope: str | None = None
+    valor_type: str | None = None
+    priority: str | None = None
+    cache_ttl_seconds: int | None = None
     """Schema de resposta para SystemConfig."""
 
     id: UUID

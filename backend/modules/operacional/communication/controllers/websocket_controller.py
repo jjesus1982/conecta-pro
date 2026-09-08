@@ -167,11 +167,9 @@ class ConnectionManager:
             # Remove conexao
             del self.active_connections[connection_id]
 
-        logger.info(
-            "WebSocket desconectado",
-            action="websocket_disconnect",
-            connection_id=connection_id,
-        )
+        # logging padrão não aceita kwargs (era loguru): estourava TypeError em TODA desconexão —
+        # 298 tracebacks em 12 min (medido 07/09/2026 na varredura do clássico).
+        logger.info("WebSocket desconectado: %s", connection_id)
 
     async def _send_to_connection(
         self,

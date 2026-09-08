@@ -67,6 +67,11 @@ class BankAccountUpdate(BaseModel):
 
 
 class BankAccountResponse(BankAccountBase):
+    # Resposta tolera cadastro incompleto: a conta Cora está sem agência/número no banco e o
+    # 3 × "Input should be a valid string" derrubava a LISTA inteira com 500 (07/09/2026).
+    agency: str | None = None
+    account_number: str | None = None
+    account_digit: str | None = None
     """Schema de resposta para conta bancaria."""
 
     model_config = ConfigDict(from_attributes=True)
