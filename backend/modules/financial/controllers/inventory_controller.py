@@ -1027,6 +1027,9 @@ async def list_reservations(
         )
         return [StockReservationListResponse.model_validate(r) for r in reservations]
     except Exception as e:
+        if "fin_stock_reservations" in str(e):  # tabela nunca migrada neste banco: sem reservas, não 500 (08/09/2026)
+            db.rollback()
+            return []
         logger.error(f"Erro ao listar reservas: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

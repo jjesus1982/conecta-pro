@@ -2674,12 +2674,12 @@ async def build(db, current_user=None) -> dict:
         " CASE WHEN nullif(trim(coalesce(e.pis,'')),'') IS NULL THEN 'PIS' END,"
         " CASE WHEN nullif(trim(coalesce(e.cpf,'')),'') IS NULL THEN 'CPF' END,"
         " CASE WHEN e.data_nascimento IS NULL THEN 'nascimento' END,"
-        " CASE WHEN nullif(trim(coalesce(e.pix,'')),'') IS NULL THEN 'chave PIX' END,"
+        " CASE WHEN coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL THEN 'chave PIX' END,"
         " CASE WHEN nullif(trim(coalesce(e.celular,'')),'') IS NULL THEN 'celular' END,"
         " CASE WHEN e.cct_cargo_id IS NULL THEN 'cargo CCT' END], NULL), ', ') AS faltando "
         "FROM employees e WHERE e.status='ativo' AND coalesce(e.is_homologacao,false)=false "
         "AND (nullif(trim(coalesce(e.pis,'')),'') IS NULL OR nullif(trim(coalesce(e.cpf,'')),'') IS NULL OR e.data_nascimento IS NULL "
-        " OR nullif(trim(coalesce(e.pix,'')),'') IS NULL OR nullif(trim(coalesce(e.celular,'')),'') IS NULL OR e.cct_cargo_id IS NULL) "
+        " OR coalesce(nullif(e.pix_key,''), nullif(e.pix,'')) IS NULL OR nullif(trim(coalesce(e.celular,'')),'') IS NULL OR e.cct_cargo_id IS NULL) "
         "ORDER BY e.nome LIMIT 200",
         lambda r: [t(r[0], 600, _ND, initials(r[0] or "")), b(r[1] or "—", "warn")]))
     await safe("esocial-eventos", tbl(
