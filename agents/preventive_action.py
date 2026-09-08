@@ -241,7 +241,7 @@ MODULE_HEALTH_CHECKS = {
     },
     # --- Módulos backend (check via HTTP code — 401 = módulo carregado, 000 = down) ---
     "financeiro": {
-        "check": "curl -so /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/api/v1/financial/accounting/charts/",
+        "check": "curl -so /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/api/v1/financial/accounting/dre",
         "expect_not": "000",
         "criticality": "critical",
         "description": "Módulo financeiro (466 endpoints)",

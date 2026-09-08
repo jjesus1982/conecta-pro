@@ -163,9 +163,10 @@ class AgenteContabilidade(BaseAgent):
     MODULO = "financeiro"
     SUBMODULO = "contabilidade"
     ENDPOINTS = [
-        f'/api/v1/financial/accounting/accounts?condominio_id={COND}',
-        f'/api/v1/financial/accounting/cost-centers?condominio_id={COND}',
-        f'/api/v1/financial/accounting/periods?condominio_id={COND}',
+        # 08/09/2026: o ledger fin_* (accounts/cost-centers/periods) foi apagado — sonda o que existe
+        '/api/v1/financial/accounting/dre',
+        '/api/v1/financial/relatorios/balancete-real',
+        '/api/v1/financial/relatorios/tributos?ano=2026',
     ]
     CONHECE_BUGS = [
         {

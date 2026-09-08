@@ -217,13 +217,6 @@ async def build(db) -> dict:
                     mode="blob",
                 ),
                 doc(
-                    "Export conciliação (CSV)",
-                    "/api/v1/financial/bank-reconciliations/e9d72c71-eabd-4652-9de8-f1b9b2357b7e/export?export_format=csv",
-                    fmt="csv",
-                    mode="json",
-                    gate="financeiro",
-                ),
-                doc(
                     "SPED (aguardando)",
                     disabled=True,
                     motivo="Aguardando emissão real — botão liga quando o arquivo existir",

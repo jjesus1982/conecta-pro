@@ -169,7 +169,7 @@ ENDPOINT_CHECKS = {
         "/ged/kits",
     ],
     "Financeiro": [
-        "/financial/accounting/cost-centers",
+        "/financial/accounting/dre",  # cost-centers apagado em 08/09/2026
     ],
     "DP/RH": [
         "/people-management/hr/employees?page_size=1",

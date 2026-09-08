@@ -52,12 +52,12 @@ CONTRATOS = [
         ),
     },
     {
-        "nome": "financeiro_centros_custo",
-        "endpoint": "/api/v1/financial/accounting/cost-centers",
+        "nome": "financeiro_dre",
+        "endpoint": "/api/v1/financial/accounting/dre",  # cost-centers apagado em 08/09/2026
         "validar": lambda d: (
             []
             if isinstance(d, (list, dict))
-            else ["Centros de custo: resposta inválida"]
+            else ["DRE: resposta inválida"]
         ),
     },
     {
