@@ -77,6 +77,22 @@ async def build(db) -> dict:
             _linhas.sort(key=lambda o: o.data_vencimento or _h)
         else:
             _linhas = ObligationsMonitorAgent().gerar_calendario_grupo(_h.month, _h.year).consolidado
+        # Obrigações de meses ANTERIORES ainda pendentes e vencidas: a aba só olhava o mês corrente
+        # e dizia "Atrasadas 0" com 19 pendentes vencidas de 04–07/2026 no cadastro, enquanto a
+        # Visão contava 28 em aberto (medido 07/09/2026 pelo navegador). Entram como "atrasada".
+        try:
+            from types import SimpleNamespace as _NS
+            _venc = (await db.execute(text(
+                "SELECT coalesce(e.razao_social, '—'), o.tipo::text, coalesce(o.descricao, ''), o.data_vencimento "
+                "FROM fiscal_obligations o LEFT JOIN empresas e ON e.id = o.empresa_id "
+                "WHERE o.active AND o.status::text = 'pendente' "
+                "AND o.data_vencimento < date_trunc('month', (now() AT TIME ZONE 'America/Manaus'))::date "
+                "ORDER BY o.data_vencimento"))).fetchall()
+            _linhas = [_NS(empresa_nome=r[0], tipo=r[1], descricao=r[2], data_vencimento=r[3], status="atrasada")
+                       for r in _venc] + list(_linhas)
+        except Exception as _exc:  # noqa: BLE001
+            await db.rollback()
+            logger.warning("empresas: obrigações vencidas de meses anteriores não carregadas: %s", _exc)
         _at = sum(1 for o in _linhas if o.status == "atrasada")
         _pe = sum(1 for o in _linhas if o.status == "pendente")
         _co = sum(1 for o in _linhas if o.status == "concluida")

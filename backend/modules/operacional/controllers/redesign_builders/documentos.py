@@ -110,15 +110,31 @@ async def build(db) -> dict:
             drive = await cache_get(_ck)
         except Exception:  # noqa: BLE001 — sem Redis, lê o Drive como antes
             drive = None
+        # Cache "velho serve, novo chega atrás": a leitura fria do Drive leva ~20 s e a tela ficava
+        # em "carregando…" toda vez que o cache de 15 min expirava (medido 07/09/2026 pelo navegador).
+        # Guarda por 6 h; passados 15 min, devolve o que tem e renova em segundo plano.
+        import time as _time
+
+        async def _ler_e_guardar():
+            blocos = await asyncio.to_thread(_blocos_do_contrato)
+            d = await asyncio.to_thread(_completude_drive, comp, blocos)
+            if isinstance(d, dict):
+                d["_lido_em"] = _time.time()
+                try:
+                    await cache_set(_ck, d, ttl=6 * 3600)
+                except Exception:  # noqa: BLE001
+                    pass
+            return d
+
+        if isinstance(drive, dict) and _time.time() - float(drive.get("_lido_em") or 0) > 900:
+            try:
+                asyncio.get_running_loop().create_task(_ler_e_guardar())
+            except Exception:  # noqa: BLE001
+                pass
         if not isinstance(drive, dict):
             drive = None
             try:
-                blocos = await asyncio.to_thread(_blocos_do_contrato)
-                drive = await asyncio.to_thread(_completude_drive, comp, blocos)
-                try:
-                    await cache_set(_ck, drive, ttl=900)
-                except Exception:  # noqa: BLE001
-                    pass
+                drive = await _ler_e_guardar()
             except Exception as exc:  # noqa: BLE001
                 erro = str(exc)[:70]
 

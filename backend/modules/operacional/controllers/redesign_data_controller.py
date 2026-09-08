@@ -2264,11 +2264,16 @@ async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
     except Exception:
         uid_lit = _ZERO
     _wt = f"(assigned_to_id::text={uid_lit} OR created_by_id::text={uid_lit})"
-    n_not = await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit}")
+    # Notificações = as do colaborador (portal) + as do USUÁRIO no sino (communication_notifications,
+    # a fonte de /operacional/comunicacao/notificacoes que o cabeçalho lê). Só a primeira deixava o
+    # "Meu espaço" do Jordan em 0 com o sino marcando centenas (medido 07/09/2026 pelo navegador).
+    _q_sino = f"SELECT count(*) FROM communication_notifications WHERE user_id::text={uid_lit} AND coalesce(is_active,true)"
+    n_not = (await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit}")) + (await _scalar(db, _q_sino))
     n_task = await _scalar(db, f"SELECT count(*) FROM crm_tasks WHERE {_wt}")
 
     async def _visao():
-        nlidas = await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit} AND coalesce(is_read,false)=false")
+        nlidas = (await _scalar(db, f"SELECT count(*) FROM portal_notifications WHERE employee_id={me_lit} AND coalesce(is_read,false)=false")) \
+            + (await _scalar(db, _q_sino + " AND read_at IS NULL"))
         n_reemb = await _scalar(db, f"SELECT count(*) FROM reimbursement_requests WHERE requester_id::text={uid_lit}")
         ty = (await db.execute(text(f"SELECT coalesce(notification_type::text,'—'), count(*) FROM portal_notifications WHERE employee_id={me_lit} GROUP BY 1 ORDER BY 2 DESC LIMIT 6"))).fetchall()
         return {"title": "Meu espaço", "sub": "Área pessoal — dados reais", "cta": "Atualizar", "type": "dash", "panelGrid": "1fr 1fr",

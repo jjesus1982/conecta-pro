@@ -96,7 +96,8 @@ async def build(db) -> dict:
     # disco (checagem os no builder) — muitas guias têm path mas o Onvio não manteve o arquivo local.
     try:
         out["guias-fgts"] = await tbl(
-            "Guias FGTS", f"{await _scalar(db, 'SELECT count(*) FROM fgts_guias')} guias (Onvio)", "—",
+            "Guias FGTS", f"{await _scalar(db, 'SELECT count(*) FROM fgts_guias')} guias — histórico Onvio até "
+                          f"{await _scalar(db, "SELECT coalesce(max(mes_ref),'—') FROM fgts_guias")}; as de 2026 (GFD) estão em Guias / Obrigações", "—",
             ["Competência", "Tipo", "Documento", "Status"], "1fr 1.4fr 0.9fr 0.9fr",
             "SELECT id, coalesce(mes_ref,'—'), coalesce(tipo,'—'), arquivo_pdf, coalesce(status,'—') "
             "FROM fgts_guias ORDER BY mes_ref DESC NULLS LAST, tipo LIMIT 200",
@@ -108,7 +109,8 @@ async def build(db) -> dict:
         pass
     try:
         out["guias-inss"] = await tbl(
-            "Guias INSS", f"{await _scalar(db, 'SELECT count(*) FROM inss_guias')} guias (Onvio)", "—",
+            "Guias INSS", f"{await _scalar(db, 'SELECT count(*) FROM inss_guias')} guias — histórico Onvio até "
+                          f"{await _scalar(db, "SELECT coalesce(max(mes_ref),'—') FROM inss_guias")}; as de 2026 (DCTFWeb) estão em Guias / Obrigações", "—",
             ["Competência", "Documento", "Status"], "1.2fr 0.9fr 0.9fr",
             "SELECT id, coalesce(competencia, mes_ref, '—'), arquivo_pdf, coalesce(status,'—') "
             "FROM inss_guias ORDER BY mes_ref DESC NULLS LAST LIMIT 200",
