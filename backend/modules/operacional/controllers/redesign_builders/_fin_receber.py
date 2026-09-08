@@ -24,7 +24,7 @@ async def build_receber(db, out: dict) -> None:
         "SELECT r.id::text, coalesce(r.customer_name,'—'), coalesce(r.description,'—'), r.net_value, r.due_date, r.status::text, "
         "  CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN "
         "       CASE WHEN r.empresa_id::text = '7d79ed12-d480-4906-b2e0-2b2c4d299bab' THEN 'Cora' ELSE 'Inter' END ELSE '' END, "
-        "  r.status::text IN ('pendente','parcial') AND r.boleto_id IS NULL AND r.pix_txid IS NULL AND r.due_date >= current_date "
+        "  r.status::text IN ('pendente','parcial') AND r.boleto_id IS NULL AND r.pix_txid IS NULL AND r.due_date >= (now() AT TIME ZONE 'America/Manaus')::date "
         "FROM receivable_accounts r ORDER BY (r.status::text IN ('pendente','parcial')) DESC, r.due_date NULLS LAST LIMIT 200",
         lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600), t(r[4].strftime('%d/%m/%Y') if r[4] else '—'),
                    b(*_pt(r[5])), b(f"emitida · {r[6]}", "ok") if r[6] else b("sem cobrança", "warn" if r[7] else "mut")],

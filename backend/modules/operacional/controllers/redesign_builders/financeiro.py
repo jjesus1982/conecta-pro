@@ -1550,7 +1550,9 @@ ORDER BY b.comp DESC, b.cnpj"""
         out["diarias-sobrepostas"]["filterCol"] = 7
         out["diarias-sobrepostas"]["filterLabel"] = "Pagamento"
 
-    montar_grupos(out)
+    # montar_grupos(out) fica no FIM do build (antes do return): as 16 telas definidas abaixo
+    # ("fios soltos", CFO, justificativas…) são abas de grupo e ficavam VAZIAS porque os grupos
+    # eram montados antes de elas existirem (medido 07/09/2026 pelo navegador: aba em branco).
 
     # ── Fios soltos do financeiro (2026-08-10) ─────────────────────────────────────
     # DE FORA de proposito: conciliar/auto e bank-reconciliations/auto JA tem botao pela
@@ -1824,6 +1826,7 @@ ORDER BY b.comp DESC, b.cnpj"""
         "fields": [],
     }
 
+    montar_grupos(out)   # SEMPRE por último — ver comentário acima
     return out
 
 

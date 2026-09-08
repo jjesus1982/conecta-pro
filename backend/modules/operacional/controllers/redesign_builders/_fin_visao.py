@@ -176,10 +176,13 @@ async def build_visao(db, out: dict) -> None:
         _fat_ult = float(_fatm[-1][1] or 0) if _fatm else 0.0
         _venc = (await db.execute(_text(
             "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
-            f"WHERE due_date < current_date AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
+            f"WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
         _n_venc, _v_venc = int(_venc[0] or 0), float(_venc[1] or 0)
         _pag7 = float((await db.execute(_text(
-            "SELECT coalesce(sum(net_value),0) FROM payable_accounts WHERE due_date BETWEEN current_date AND current_date+7 "
+            # Data de MANAUS, não UTC: às 20h locais o current_date já é amanhã e a conta que vence HOJE some
+            # do 'próx. 7 dias' (medido 07/09/2026: folha de R$ 95 mil sumiu do KPI; oráculo kpis_telas acusou).
+            "SELECT coalesce(sum(net_value),0) FROM payable_accounts WHERE due_date BETWEEN (now() AT TIME ZONE 'America/Manaus')::date "
+            "AND (now() AT TIME ZONE 'America/Manaus')::date + 7 "
             f"AND {SQL_CONTA_EM_ABERTO}"))).scalar() or 0)
         out["cockpit"] = {
             "title": "Cockpit executivo", "type": "dash", "cta": "—",
