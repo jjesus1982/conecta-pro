@@ -18,6 +18,7 @@ from modules.crm.schemas.opportunity import (
     OpportunityResponse,
     OpportunityStageUpdate,
     OpportunityUpdate,
+    PipelineStats,
 )
 from modules.crm.services.pipeline_sync import ensure_contract_for_won_opportunity
 from modules.crm.services.timeline import log_activity
@@ -88,6 +89,21 @@ async def list_opportunities(  # pylint: disable=too-many-locals
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+@router.get("/pipeline/stats", response_model=PipelineStats)
+async def get_pipeline_stats(
+    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
+    db: AsyncSession = Depends(get_db),
+    owner_id: str | None = None,
+) -> PipelineStats:
+    """
+    Obtem estatisticas do pipeline de vendas.
+
+    Inclui: valor total, valor ponderado, win rate, tempo medio de fechamento.
+    """
+    repo = OpportunityRepository(db)
+    return await repo.get_pipeline_stats(owner_id=owner_id)
 
 
 @router.get("/{opportunity_id}", response_model=OpportunityResponse)

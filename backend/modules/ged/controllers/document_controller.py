@@ -3,6 +3,7 @@
 import hashlib
 import logging
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -12,6 +13,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -119,6 +121,140 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro interno ao fazer upload: {str(e)}",
         ) from e
+
+
+@router.get("/search")
+async def search_documents(
+    q: str = Query("", description="Texto de busca"),
+    document_type: str | None = Query(None, alias="document_type"),
+    category: str | None = Query(None),
+    status_filter: str | None = Query(None, alias="status"),
+    origin: str | None = Query(None),
+    signed: str | None = Query(None),
+    client_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Busca documentos em ged_documents e ged_kit_documents (UNION)."""
+    from sqlalchemy import text as sql_text
+
+    items: list[dict[str, Any]] = []
+    q_val = q.strip() if q else ""
+
+    # --- Parte 1: ged_documents (uploads avulsos) ---
+    # Excluir quando filtros específicos de kit estão ativos
+    if not client_id and (not origin or origin == "ged"):
+        ged_cond = ["1=1"]
+        ged_p: dict[str, Any] = {}
+        if q_val:
+            ged_cond.append(
+                "(LOWER(title) LIKE :q OR LOWER(description) LIKE :q "
+                "OR LOWER(file_name) LIKE :q OR LOWER(ocr_text) LIKE :q)"
+            )
+            ged_p["q"] = f"%{q_val.lower()}%"
+        if document_type:
+            ged_cond.append("document_type = :dtype")
+            ged_p["dtype"] = document_type
+        if category:
+            ged_cond.append("category = :cat")
+            ged_p["cat"] = category
+        if status_filter:
+            ged_cond.append("status = :st")
+            ged_p["st"] = status_filter
+        if signed is not None and signed != "":
+            ged_cond.append("is_signed = :sgn")
+            ged_p["sgn"] = signed.lower() == "true"
+
+        ged_result = await db.execute(
+            sql_text(
+                "SELECT id::text, title, document_type, "
+                "is_signed, status, created_at, category "
+                f"FROM ged_documents WHERE {' AND '.join(ged_cond)} "
+                "ORDER BY created_at DESC LIMIT :lim"
+            ),
+            {**ged_p, "lim": limit},
+        )
+        for r in ged_result.mappings().all():
+            items.append(
+                {
+                    "id": str(r["id"]),
+                    "title": r["title"],
+                    "name": r["title"],
+                    "document_type": r["document_type"] or "—",
+                    "kit_id": None,
+                    "kit_name": None,
+                    "employee_name": None,
+                    "signed": bool(r["is_signed"]),
+                    "status": r["status"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    "category": r["category"],
+                    "origin": "ged",
+                }
+            )
+
+    # --- Parte 2: ged_kit_documents (documentos reais dos kits) ---
+    # Excluir apenas quando filtros exclusivos de ged_documents estão ativos
+    if not category and (not origin or origin != "ged"):
+        kit_cond = ["1=1"]
+        kit_p: dict[str, Any] = {}
+        if q_val:
+            kit_cond.append("(LOWER(gkd.document_name) LIKE :q OR LOWER(e.nome) LIKE :q OR LOWER(gc.name) LIKE :q)")
+            kit_p["q"] = f"%{q_val.lower()}%"
+        if document_type:
+            kit_cond.append("gkd.document_type = :dtype")
+            kit_p["dtype"] = document_type
+        if origin:
+            kit_cond.append("gkd.source_module = :origin")
+            kit_p["origin"] = origin
+        if signed is not None and signed != "":
+            kit_cond.append("gkd.is_signed = :sgn")
+            kit_p["sgn"] = signed.lower() == "true"
+        if client_id:
+            kit_cond.append("dk.client_id::text = :cid")
+            kit_p["cid"] = client_id
+
+        kit_result = await db.execute(
+            sql_text(
+                "SELECT gkd.id::text, gkd.document_name AS title, "
+                "gkd.document_type, gkd.kit_id::text AS kit_id, "
+                "gc.name AS kit_name, e.nome AS employee_name, "
+                "gkd.is_signed, gkd.source_module AS origin, gkd.created_at "
+                "FROM ged_kit_documents gkd "
+                "LEFT JOIN ged_document_kits dk ON dk.id = gkd.kit_id "
+                "LEFT JOIN ged_clients gc ON gc.id = dk.client_id "
+                "LEFT JOIN employees e ON e.id = gkd.employee_id::uuid "
+                f"WHERE {' AND '.join(kit_cond)} "
+                "ORDER BY gkd.created_at DESC LIMIT :lim"
+            ),
+            {**kit_p, "lim": limit},
+        )
+        for r in kit_result.mappings().all():
+            items.append(
+                {
+                    "id": str(r["id"]),
+                    "title": r["title"],
+                    "name": r["title"],
+                    "document_type": r["document_type"] or "—",
+                    "kit_id": r["kit_id"],
+                    "kit_name": r["kit_name"],
+                    "employee_name": r["employee_name"],
+                    "signed": bool(r["is_signed"]),
+                    "status": None,
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    "category": None,
+                    "origin": r["origin"],
+                }
+            )
+
+    items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    items = items[:limit]
+
+    return {
+        "total": len(items),
+        "query": q,
+        "items": items,
+    }
 
 
 @router.get("/{document_id:uuid}", response_model=DocumentResponse)

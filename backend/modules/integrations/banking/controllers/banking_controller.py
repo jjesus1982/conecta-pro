@@ -744,6 +744,20 @@ async def get_boleto(
     return await adapter.get_boleto(boleto_id)
 
 
+@router.delete("/boleto/{boleto_id}", summary="Cancelar boleto emitido")
+async def cancel_boleto(
+    boleto_id: str,
+    motivo: str = "ACERTOS",
+    current_user=Depends(get_current_user),
+):
+    """Cancela boleto. motivo: ACERTOS | APEDIDODOCLIENTE | PAGODIRETOAOCLIENTE"""  # pragma: allowlist secret
+    service = _get_banking_service()
+    adapter = service._adapters.get("077")
+    if adapter is None:
+        return {"success": False, "error": "Banco Inter não configurado"}
+    return await adapter.cancel_boleto(boleto_id, motivo)
+
+
 class TEDRequest(BaseModel):
     valor: float
     banco: str

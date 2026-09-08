@@ -5,9 +5,10 @@ Suporte: boletos, DARF, tributos, lotes
 
 import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from core.auth.dependencies import get_current_user
 
 
 def _build_inter_adapter():
@@ -64,3 +65,17 @@ class BatchPaymentRequest(BaseModel):
     pagamentos: list[BatchPaymentItem]
 
 
+@router.post("/cancel/{payment_id}", summary="Cancelar pagamento agendado")
+async def cancel_payment(
+    payment_id: str,
+    _user: dict = Depends(get_current_user),
+) -> dict:
+    """Cancela pagamento agendado (antes da data de execução)."""
+    adapter = _build_inter_adapter()
+    ok = await adapter.cancel_payment(payment_id)  # adapter devolve bool
+    return {
+        "success": bool(ok),
+        "payment_id": payment_id,
+        "mensagem": "Pagamento cancelado." if ok
+        else "Não foi possível cancelar (pagamento não encontrado ou já executado).",
+    }

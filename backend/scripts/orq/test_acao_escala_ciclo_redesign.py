@@ -30,6 +30,12 @@ async def main() -> None:
             assert sub["ok"] and sub["status"] == "pending_approval", f"submeter: {sub}"
             apr = await rd_action_escala_aprovar(current_user=u, payload={"scale_id": sid, "notes": "ok"}, db=db)
             assert apr["ok"] and apr["status"] == "approved", f"aprovar: {apr}"
+            # publicar exige turnos (regra de 07/09/2026: "escala sem turnos — gere os turnos antes de publicar")
+            await db.execute(text(
+                "INSERT INTO shifts (id, scale_id, post_id, shift_date, planned_start_time, planned_end_time, planned_hours) "
+                "VALUES (gen_random_uuid(), CAST(:s AS uuid), CAST(:p AS uuid), DATE '2099-12-01', TIME '07:00', TIME '19:00', 12)"),
+                {"s": sid, "p": str(post_id)})
+            await db.commit()
             pub = await rd_action_escala_publicar(current_user=u, payload={"scale_id": sid}, db=db)
             assert pub["ok"] and pub["status"] == "published", f"publicar: {pub}"
             st = (await db.execute(text("SELECT status::text FROM scales WHERE id::text=:i"), {"i": sid})).scalar()

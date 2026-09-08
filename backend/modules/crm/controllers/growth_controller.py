@@ -435,6 +435,19 @@ async def enroll_in_sequence(
     return {"enrollment_id": eid, "enrolled": bool(eid)}
 
 
+@router.get("/sequences/{sid}/enrollments")
+async def list_enrollments(sid: str, db: AsyncSession = Depends(get_db)):
+    return _rows(
+        await db.execute(
+            text("""
+        SELECT e.*, l.name lead_name, l.email lead_email FROM crm_sequence_enrollments e
+        LEFT JOIN leads l ON l.id = e.lead_id WHERE e.sequence_id=:s ORDER BY e.enrolled_at DESC
+    """),
+            {"s": sid},
+        )
+    )
+
+
 # =====================================================================================
 # 2) WORKFLOWS / AUTOMAÇÃO
 # =====================================================================================

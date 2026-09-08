@@ -164,6 +164,55 @@ async def deletar_contato(
 # === ACTIVITIES ===
 
 
+@router.get("/activities/")
+async def listar_atividades(
+    current_user: CurrentActiveUser,
+    client_id: str | None = Query(None),
+    limit: int = Query(20, le=100),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Lista atividades CRM."""
+    where = ""
+    params: dict = {"lim": limit}
+    if client_id:
+        where = "WHERE a.client_id = :client_id"
+        params["client_id"] = client_id
+
+    result = await db.execute(
+        text(f"""
+        SELECT a.id, a.client_id, a.type, a.subject, a.description,
+               a.outcome, a.scheduled_at, a.completed_at, a.created_at,
+               c.name as client_name
+        FROM crm_activities a
+        JOIN clients c ON a.client_id = c.id
+        {where}
+        ORDER BY a.created_at DESC
+        LIMIT :lim
+    """),
+        params,
+    )
+    rows = result.fetchall()
+
+    return {
+        "items": [
+            {
+                "id": str(r[0]),
+                "client_id": str(r[1]),
+                "type": r[2],
+                "subject": r[3],
+                "description": r[4],
+                "outcome": r[5],
+                "scheduled_at": r[6].isoformat() if r[6] else None,
+                "completed_at": r[7].isoformat() if r[7] else None,
+                "created_at": r[8].isoformat() if r[8] else None,
+                "client_name": r[9],
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+    }
+
+
 # === 360° CLIENT VIEW ===
 
 

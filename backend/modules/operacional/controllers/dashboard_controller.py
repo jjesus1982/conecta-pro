@@ -13,9 +13,15 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.dependencies import CurrentActiveUser
+from core.database import get_db
+from modules.operacional.services.integration_service import (
+    get_integration_service,
+)
 
 router = APIRouter()
 
@@ -98,6 +104,43 @@ class SugestaoDiaristaResponse(BaseModel):
 # =============================================================================
 # ENDPOINTS - DASHBOARD
 # =============================================================================
+
+
+@router.get(
+    "/dashboard",
+    response_model=DashboardResponse,
+    summary="Dashboard unificado",
+    description="Retorna métricas consolidadas de funcionários fixos e diaristas",
+)
+async def get_dashboard(
+    current_user: CurrentActiveUser,
+    data: date | None = Query(None, description="Data de referência (default: hoje)"),
+    cliente_id: UUID | None = Query(None, description="Filtrar por cliente"),
+    db: AsyncSession = Depends(get_db),
+) -> DashboardResponse:
+    """
+    Retorna dashboard unificado do operacional.
+
+    Inclui:
+    - Status de postos
+    - Escalas e turnos
+    - Funcionários alocados
+    - Diaristas em serviço
+    - Taxa de ocupação
+    - Alertas automáticos
+    """
+    service = get_integration_service(db)
+
+    try:
+        dashboard = await service.get_dashboard_unificado(
+            data_referencia=data,
+            cliente_id=cliente_id,
+        )
+        return dashboard
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao gerar dashboard: {str(e)}"
+        )
 
 
 # =============================================================================

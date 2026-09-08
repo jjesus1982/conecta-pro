@@ -4,13 +4,17 @@ o contexto acumulado antes de montar um kit.
 """
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
 from core.database import get_db
 from modules.gedeon.agents.hermes import hermes
+from modules.gedeon.agents.kronos import kronos
+from modules.gedeon.context.gedeon_context import gedeon_context
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,96 @@ async def classificar_documento(
 ):
     resultado = hermes.classificar_documento(nome_arquivo, conteudo_preview)
     return {"nome_arquivo": nome_arquivo, **resultado}
+
+
+@router.get("/kits/status")
+async def kits_status_mensal(
+    competencia: str | None = None,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Status consolidado de todos os kits do mes — gedeon_kit_config + Redis."""
+    if not competencia:
+        competencia = datetime.utcnow().strftime("%Y-%m")
+    rows = await db.execute(
+        sa_text(
+            "SELECT c.id::text AS id, c.name, gkc.tipo_kit "
+            "FROM gedeon_kit_config gkc "
+            "JOIN clients c ON c.id = gkc.client_id "
+            "WHERE gkc.ativo = TRUE ORDER BY c.name"
+        )
+    )
+    clientes = rows.mappings().all()
+    # A prontidão vem da completude REAL do Drive quando está no cache (mesma chave da tela
+    # Documentos). O contexto por eventos tem score padrão 100 e dizia "12 prontos" com o
+    # Drive em 20% (07/09/2026). Sem cache: cai no contexto, marcando a origem.
+    drive_pct: dict[str, int] = {}
+    try:
+        from core.cache.redis import cache_get
+        from modules.gedeon.services.kit_layout import nome_pasta_condominio
+        _a, _m = competencia.split("-")[0], competencia.split("-")[1]
+        _mm, _aa = (int(_m) - 1, int(_a)) if int(_m) > 1 else (12, int(_a) - 1)
+        _cached = await cache_get(f"redesign:documentos:drive:{_mm:02d}.{_aa}")
+        for k in (_cached or {}).get("kits", []) if isinstance(_cached, dict) else []:
+            drive_pct[str(k.get("condominio") or "").upper()] = int(k.get("completion_percentage") or 0)
+    except Exception:  # noqa: BLE001
+        drive_pct = {}
+    status_kits = []
+    for row in clientes:
+        ctx = await gedeon_context.get(row["id"], competencia)
+        pasta = None
+        try:
+            pasta = (nome_pasta_condominio(row["name"]) or "").upper() if drive_pct else None
+        except Exception:  # noqa: BLE001
+            pasta = None
+        if pasta and pasta in drive_pct:
+            score, origem = drive_pct[pasta], "drive"
+        else:
+            score, origem = ctx.get("score_prontidao", 100), "contexto"
+        tipo_ok = ctx.get("tipo_kit") or row["tipo_kit"]
+        status_kits.append(
+            {
+                "cliente_id": row["id"],
+                "nome": row["name"],
+                "tipo_kit": tipo_ok,
+                "score": score,
+                "origem_score": origem,
+                "pendencias": len(ctx.get("pendencias", [])),
+                "status": "pronto" if score >= 90 else "alerta" if score >= 70 else "critico",
+            }
+        )
+    venc_alerta = len(await kronos.verificar_certidoes(db=db))
+    return {
+        "competencia": competencia,
+        "total_clientes": len(status_kits),
+        "prontos": sum(1 for k in status_kits if k["status"] == "pronto"),
+        "alertas": sum(1 for k in status_kits if k["status"] == "alerta"),
+        "criticos": sum(1 for k in status_kits if k["status"] == "critico"),
+        "vencimentos_alerta": venc_alerta,
+        "kits": status_kits,
+    }
+
+
+@router.get("/kits/config")
+async def kits_config(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retorna tipo_kit por cliente ativo para o frontend saber qual checklist abrir."""
+    rows = await db.execute(
+        sa_text(
+            "SELECT c.id::text AS id, c.name, gkc.tipo_kit, gkc.servicos "
+            "FROM gedeon_kit_config gkc "
+            "JOIN clients c ON c.id = gkc.client_id "
+            "WHERE gkc.ativo = TRUE ORDER BY c.name"
+        )
+    )
+    return {
+        "configs": [
+            {"cliente_id": r["id"], "nome": r["name"], "tipo_kit": r["tipo_kit"], "servicos": r["servicos"] or []}
+            for r in rows.mappings().all()
+        ]
+    }
 
 
 @router.post("/sophia/perguntar")

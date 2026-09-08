@@ -311,7 +311,7 @@ async def pendentes_sem_resposta(db: AsyncSession, dias: int = REMINDER_AFTER_DA
             AND COALESCE(n.responsavel,'jose_luis')='jose_luis'
             AND n.last_client_reply_at IS NULL
             AND COALESCE(n.proposta_enviada_em, p.created_at) <= now() - make_interval(days => :d)
-          ORDER BY 1, COALESCE(n.proposta_enviada_em, p.created_at) ASC
+          ORDER BY COALESCE(NULLIF(regexp_replace(p.client_phone,'[^0-9]','','g'),''), p.id::text), COALESCE(n.proposta_enviada_em, p.created_at) ASC
         ) t ORDER BY ref ASC  -- um toque por telefone (mesmo cliente com 2 propostas recebia 2 mensagens, 08/09/2026)
     """),
                 {"d": dias},
