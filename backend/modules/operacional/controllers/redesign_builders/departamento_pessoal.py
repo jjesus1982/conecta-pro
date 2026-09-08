@@ -1932,6 +1932,11 @@ async def build(db, current_user=None) -> dict:
         lambda r: [t(r[0]), t(r[1] or "—", 600, _ND), t(brl(r[2]), 600),
                    t(_d(r[3])), _rei_status(r[4])],
         actionsfn=lambda r: (
+            [{"title": f"Enviar para aprovação — {r[1]}", "endpoint": f"/api/v1/reimbursements/{r[5]}/submit", "method": "POST",
+              "btnLabel": "Enviar", "btnStyle": "primary", "submitLabel": "Enviar rascunho", "okMsg": "Reembolso enviado. Recarregue.", "fields": []},
+             {"title": f"Cancelar — {r[1]}", "endpoint": f"/api/v1/reimbursements/{r[5]}/cancel", "method": "POST",
+              "btnLabel": "Cancelar", "btnStyle": "outline", "submitLabel": "Cancelar reembolso", "okMsg": "Reembolso cancelado. Recarregue.", "fields": []}]
+            if str(r[4] or "").lower() in ("rascunho", "draft") else []) + (
             [
                 {"title": f"Aprovar reembolso {r[0]}",
                  "endpoint": f"/api/v1/redesign/action/reembolso-aprovar?rid={r[5]}",

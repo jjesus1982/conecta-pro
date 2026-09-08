@@ -8,6 +8,7 @@ Oráculo: todo valor exibido == fato no banco. Vazio-real = 0/"aguardando dado".
 NUNCA fabricar. Este controller é somente leitura.
 """
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -17,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import CurrentActiveUser, require_permission
 from core.database import get_db
 from modules.operacional.scope import OperationalScope, get_operational_scope
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -1527,9 +1530,19 @@ async def _build_gp(db: AsyncSession) -> dict:
     await safe("visao", _visao())
     await safe("ged", tbl("GED — Documentos", f"{n_ged} documentos", "Enviar documento",
         ["Documento", "Tipo", "Colaborador", "Assinado"], "2fr 1.4fr 1.6fr 0.9fr",
-        "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed "
+        "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed, CAST(g.id AS TEXT), coalesce(g.notes,'') "
         "FROM ged_kit_documents g LEFT JOIN employees e ON e.id=g.employee_id ORDER BY g.created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")],
+        # LIGAR (revisão 08/09/2026): renomear/anotar e remover documento errado do kit
+        actionsfn=lambda r: [
+            {"title": f"Editar documento — {r[0]}", "endpoint": f"/api/v1/people-management/ged/documents/{r[4]}", "method": "PUT",
+             "btnLabel": "Editar", "btnStyle": "outline", "submitLabel": "Salvar", "okMsg": "Documento atualizado. Recarregue.",
+             "fields": [{"key": "document_name", "label": "Nome", "type": "text", "value": r[0] or ""},
+                        {"key": "notes", "label": "Observações", "type": "textarea", "value": r[5] or ""}]},
+            {"title": f"Remover do kit — {r[0]}", "endpoint": f"/api/v1/people-management/ged/documents/{r[4]}", "method": "DELETE",
+             "btnLabel": "Remover", "btnStyle": "outline", "submitLabel": "Remover documento",
+             "confirm": "Remove o documento do kit (o arquivo original não é apagado do Drive). Confirma?",
+             "okMsg": "Documento removido. Recarregue.", "fields": []}]))
     await safe("ponto", tbl("Ponto eletrônico", f"{n_punch} batidas", "Registrar",
         ["Colaborador", "Data/Hora", "Tipo", "Status"], "2fr 1.2fr 1fr 0.9fr",
         "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp,'DD/MM HH24:MI'), coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—') "
@@ -2250,9 +2263,19 @@ async def _build_portal_funcionario(db: AsyncSession) -> dict:
     await safe("documentos", tbl(
         "Meus documentos", f"{await _scalar(db, 'SELECT count(*) FROM ged_kit_documents')} documentos", "Enviar",
         ["Documento", "Tipo", "Colaborador", "Assinado"], "2fr 1.4fr 1.6fr 0.9fr",
-        "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed "
+        "SELECT coalesce(g.document_name,'—'), coalesce(g.document_type::text,'—'), coalesce(e.nome,'—'), g.is_signed, CAST(g.id AS TEXT), coalesce(g.notes,'') "
         "FROM ged_kit_documents g LEFT JOIN employees e ON e.id=g.employee_id ORDER BY g.created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")]))
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(r[2]), b("Assinado", "ok") if r[3] else b("Pendente", "warn")],
+        # LIGAR (revisão 08/09/2026): renomear/anotar e remover documento errado do kit
+        actionsfn=lambda r: [
+            {"title": f"Editar documento — {r[0]}", "endpoint": f"/api/v1/people-management/ged/documents/{r[4]}", "method": "PUT",
+             "btnLabel": "Editar", "btnStyle": "outline", "submitLabel": "Salvar", "okMsg": "Documento atualizado. Recarregue.",
+             "fields": [{"key": "document_name", "label": "Nome", "type": "text", "value": r[0] or ""},
+                        {"key": "notes", "label": "Observações", "type": "textarea", "value": r[5] or ""}]},
+            {"title": f"Remover do kit — {r[0]}", "endpoint": f"/api/v1/people-management/ged/documents/{r[4]}", "method": "DELETE",
+             "btnLabel": "Remover", "btnStyle": "outline", "submitLabel": "Remover documento",
+             "confirm": "Remove o documento do kit (o arquivo original não é apagado do Drive). Confirma?",
+             "okMsg": "Documento removido. Recarregue.", "fields": []}]))
     return out
 
 
@@ -2317,6 +2340,59 @@ async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
     if not nitems:
         nitems = [{"title": "Sem notificações", "meta": "aguardando dado", "dot": "#16A34A", "badge": "OK", **S["ok"]}]
     out["notificacoes"] = {"title": "Notificações", "sub": f"{len(nrows)} notificações", "cta": "Marcar lidas", "type": "list", "items": nitems}
+    # ── LIGAR (revisão 08/09/2026): ouvidoria, meus dados e assinaturas pendentes existiam só por API ──
+    _SS = "/api/v1/people-management/portal/self-service"
+    out["ouvidoria-abrir"] = {
+        "title": "Ouvidoria — abrir manifestação",
+        "sub": "Denúncia, reclamação, sugestão ou elogio. Anônima por padrão: a empresa responde sem saber quem escreveu.",
+        "cta": "Enviar", "type": "form",
+        "submit": {"endpoint": f"{_SS}/ouvidoria", "okMsg": "Manifestação registrada — guarde o protocolo.", "showResult": True},
+        "fields": [
+            {"key": "categoria", "label": "Categoria", "type": "select", "span": "span 1",
+             "options": [{"value": v, "label": l} for v, l in (("denuncia", "Denúncia"), ("reclamacao", "Reclamação"),
+                                                              ("sugestao", "Sugestão"), ("elogio", "Elogio"), ("outro", "Outro"))]},
+            {"key": "anonimo", "label": "Anônima?", "type": "select", "span": "span 1",
+             "options": [{"value": "true", "label": "Sim (padrão)"}, {"value": "false", "label": "Não — quero ser identificado"}]},
+            {"key": "mensagem", "label": "Mensagem*", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    try:
+        out["minhas-manifestacoes"] = await tbl(
+            "Ouvidoria — minhas manifestações", "Só as identificadas aparecem aqui (as anônimas não guardam quem enviou)", "—",
+            ["Protocolo", "Categoria", "Mensagem", "Status", "Resposta"], "1fr 1fr 2fr 0.8fr 2fr",
+            f"SELECT coalesce(protocolo,'—'), coalesce(categoria::text,'—'), coalesce(mensagem,''), coalesce(status::text,'aberta'), "
+            f"coalesce(resposta,'') FROM ouvidoria_manifestacoes WHERE employee_id={me_lit} ORDER BY created_at DESC LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").capitalize()), t(r[2][:80]),
+                       b((r[3] or "—").capitalize(), "ok" if (r[3] or "").lower() in ("respondida", "encerrada") else "warn"), t(r[4][:80] or "—")])
+        out["assinaturas-pendentes"] = await tbl(
+            "Documentos aguardando minha assinatura", "Holerites, espelhos, contratos e comunicados que precisam do seu 'de acordo'", "—",
+            ["Documento", "Tipo", "Solicitado em", "Vence", "Status"], "2fr 1fr 1fr 1fr 0.8fr",
+            f"SELECT coalesce(title,'—'), coalesce(document_type,'—'), created_at, due_date, coalesce(status::text,'—') "
+            f"FROM sig_signature_requests WHERE signer_type='employee' AND CAST(signer_id AS TEXT)={me_lit} "
+            f"AND coalesce(status::text,'') NOT IN ('signed','assinado','cancelled','cancelado','expired') ORDER BY created_at DESC LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ")), t(_fmtdate(r[2])), t(_fmtdate(r[3])),
+                       b((r[4] or "—").capitalize(), "warn")])
+    except Exception as _exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("meu-espaco: ouvidoria/assinaturas não montadas: %s", _exc)
+    out["meus-dados"] = {
+        "title": "Meus dados", "sub": "Contato e endereço — o DP vê a alteração na ficha. Nome, CPF e cargo só o DP altera.",
+        "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": f"{_SS}/meus-dados", "method": "PUT", "okMsg": "Dados atualizados"},
+        "fields": [
+            {"key": "celular", "label": "Celular (WhatsApp)", "type": "text", "span": "span 1"},
+            {"key": "telefone", "label": "Telefone", "type": "text", "span": "span 1"},
+            {"key": "email", "label": "E-mail", "type": "text", "span": "span 2"},
+            {"key": "cep", "label": "CEP", "type": "text", "span": "span 1"},
+            {"key": "logradouro", "label": "Rua/Av.", "type": "text", "span": "span 1"},
+            {"key": "numero", "label": "Número", "type": "text", "span": "span 1"},
+            {"key": "complemento", "label": "Complemento", "type": "text", "span": "span 1"},
+            {"key": "bairro", "label": "Bairro", "type": "text", "span": "span 1"},
+            {"key": "cidade", "label": "Cidade", "type": "text", "span": "span 1"},
+            {"key": "uf", "label": "UF", "type": "text", "span": "span 1"},
+        ],
+    }
+
     return out
 
 
@@ -3780,6 +3856,8 @@ EXTRA_MENU = {
     ],
     "saude-ocupacional": [
         {"id": "esocial", "label": "eSocial · Transmissão", "icon": "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"},
+        {"id": "asos-vencendo", "label": "ASOs vencendo (30 dias)", "icon": "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"},
+        {"id": "cipa-membros", "label": "CIPA · Membros", "icon": "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"},
     ],
     "fiscal": [
         {"id": "guias-fgts", "label": "Guias FGTS", "icon": "M3 10h18M7 15h4M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},

@@ -672,12 +672,22 @@ async def build(db) -> dict:
         "FROM disciplinary_templates ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[1], 600, _ND), b((r[2] or '—').replace('_', ' ').capitalize(), "info"),
                    b("Padrao", "ok") if r[3] else b("—", "mut")],
+        # LIGAR (revisão 08/09/2026): editar modelo; o padrão do tipo não tem "Excluir" (era apagável)
         actionsfn=lambda r: [
+            {"title": f"Editar o modelo {r[1]}",
+             "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/templates/{r[0]}",
+             "method": "PATCH", "btnLabel": "Editar", "btnStyle": "outline", "submitLabel": "Salvar modelo",
+             "okMsg": "Modelo atualizado. Recarregue.",
+             "fields": [{"key": "name", "label": "Nome", "type": "text", "value": r[1] or ""},
+                        {"key": "content", "label": "Texto do modelo (deixe vazio para manter)", "type": "textarea", "value": ""},
+                        {"key": "is_default", "label": "Padrão para o tipo?", "type": "select",
+                         "options": [{"value": "false", "label": "Não"}, {"value": "true", "label": "Sim"}]}]},
+        ] + ([] if r[3] else [
             {"title": f"Excluir o modelo {r[1]}",
              "endpoint": f"/api/v1/people-management/hr/discipline/medidas-administrativas/templates/{r[0]}",
              "method": "DELETE", "btnLabel": "Excluir", "submitLabel": "Excluir modelo",
              "btnStyle": "outline", "okMsg": "Modelo excluido. Recarregue.", "fields": []},
-        ]))
+        ])))
     if isinstance(out.get("disc-templates"), dict):
         out["disc-templates"]["ctaTo"] = "disc-template-novo"
 

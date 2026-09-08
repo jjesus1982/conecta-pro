@@ -1,11 +1,15 @@
 """Saúde ocupacional (T1) — delega ao _build_saude do monólito e ESTENDE com
 estabilidade (garantia de emprego) e alertas (ASOs vencidos). Leitura real; ação
 legal (transmitir eSocial) segue GATED."""
+import logging
+
 from sqlalchemy import text
 
 from modules.operacional.controllers.redesign_data_controller import (
     S, _build_saude, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
+
+logger = logging.getLogger(__name__)
 
 SLUG = "saude-ocupacional"
 EXTRA_MENU: list[dict] = [
@@ -147,6 +151,28 @@ async def build(db) -> dict:
 
     # CIPA (2026-08-10): o backend registrava a reuniao e nao havia tela. O endpoint recebe
     # um dict livre; as chaves lidas sao data_reuniao (obrigatoria), tipo e pauta.
+    # LIGAR (revisão 08/09/2026): vencimentos dos próximos 30 dias e membros da CIPA — existiam só por API
+    try:
+        out["asos-vencendo"] = await tbl(
+            "ASOs vencendo em 30 dias", "Renovar antes de vencer — sem ASO válido o colaborador não trabalha (NR-7)", "—",
+            ["Colaborador", "Tipo", "Vence em", "Dias"], "2fr 1fr 1fr 0.7fr",
+            "SELECT coalesce(e.nome,'—'), coalesce(a.tipo::text,'—'), a.data_validade, "
+            "(a.data_validade - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
+            "FROM gp_asos a JOIN employees e ON e.id=a.employee_id "
+            "WHERE e.status='ativo' AND a.data_validade BETWEEN (now() AT TIME ZONE 'America/Manaus')::date "
+            "AND (now() AT TIME ZONE 'America/Manaus')::date + 30 ORDER BY a.data_validade LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—").replace("_", " ").capitalize()),
+                       t(r[2].strftime("%d/%m/%Y") if r[2] else "—"), b(str(r[3]), "warn" if (r[3] or 0) <= 10 else "info")])
+        out["cipa-membros"] = await tbl(
+            "CIPA — membros", "Composição vigente (eleitos e indicados) com posse e fim de mandato", "—",
+            ["Membro", "Função", "Representação", "Posse", "Fim do mandato", "Status"], "1.8fr 1fr 1fr 0.9fr 0.9fr 0.8fr",
+            "SELECT coalesce(employee_nome,'—'), coalesce(funcao,'—'), coalesce(representacao,'—'), data_posse, data_fim_mandato, "
+            "coalesce(status,'—') FROM sst_cipa_membros ORDER BY data_posse DESC NULLS LAST LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3].strftime("%d/%m/%Y") if r[3] else "—"),
+                       t(r[4].strftime("%d/%m/%Y") if r[4] else "—"), b((r[5] or "—").capitalize(), "ok" if (r[5] or "").lower() == "ativo" else "mut")])
+    except Exception as _exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("saude: asos-vencendo/cipa-membros não montadas: %s", _exc)
     out["cipa-reuniao"] = {
         "title": "Registrar reunião da CIPA",
         "sub": "Ata mínima da reunião: data, tipo e pauta. Ordinária é a do calendário; "
