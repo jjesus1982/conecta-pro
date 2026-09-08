@@ -44,6 +44,14 @@ EXTRA_MENU: list[dict] = [
     {"id": "painel-por-empresa", "label": "Painel por empresa (CNPJ)", "icon": _ICO_CALC},
     {"id": "certidoes-cobertura", "label": "Cobertura de certidões", "icon": _ICO_CALC},
     {"id": "nfse-emitidas", "label": "NFS-e emitidas (nacional)", "icon": _ICO_CALC},
+    # LIGAR 08/09/2026 (revisão 100%): rotas que existiam sem tela.
+    {"id": "parcelamentos", "label": "Parcelamentos e acordos", "icon": _ICO_CALC},
+    {"id": "parcelamento-novo", "label": "Registrar parcelamento", "icon": _ICO_CALC},
+    {"id": "apuracao-lucro-real", "label": "Apuração IRPJ/CSLL (Lucro Real)", "icon": _ICO_CALC},
+    {"id": "dre-mensal", "label": "DRE mês a mês", "icon": _ICO_CALC},
+    {"id": "aging-receber", "label": "A receber por competência", "icon": _ICO_CALC},
+    {"id": "aging-pagar", "label": "A pagar por competência", "icon": _ICO_CALC},
+    {"id": "kpis-financeiros", "label": "KPIs financeiros (beat)", "icon": _ICO_CALC},
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -229,7 +237,133 @@ async def build(db) -> dict:
         ],
     }
 
+    await _ligar_20260908(db, out)
     return out
+
+
+async def _ligar_20260908(db, out: dict) -> None:
+    """Rotas que existiam sem tela (revisão 100%, 08/09/2026). Cada bloco é independente:
+    uma falha não derruba as outras."""
+    import asyncio
+
+    _, _, tbl = _helpers(db)
+    hoje = _date.today()
+    try:
+        out["parcelamentos"] = await tbl(
+            "Parcelamentos e acordos", "Acordos com PGFN/RFB/Prefeitura e o saldo devedor de cada um", "Registrar",
+            ["Órgão", "Acordo", "Descrição", "Total", "Parcelas", "Saldo devedor", "Status"],
+            "0.8fr 1.1fr 2fr 1fr 0.8fr 1fr 0.8fr",
+            "SELECT id::text, coalesce(orgao,'—'), coalesce(numero_acordo,'—'), coalesce(descricao,'—'), "
+            "coalesce(valor_total,0), coalesce(num_parcelas,0), coalesce(parcelas_pagas,0), coalesce(parcela_valor,0), "
+            "coalesce(status,'ativo') FROM fiscal_parcelamentos ORDER BY status, orgao, created_at DESC LIMIT 200",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t((r[3] or "—")[:60]), t(brl(r[4]), 600),
+                       t(f"{r[6]}/{r[5]}"), t(brl(max(float(r[5] or 0) - float(r[6] or 0), 0) * float(r[7] or 0)), 600),
+                       b(str(r[8]).capitalize(), "ok" if str(r[8]) == "ativo" else "info")],
+            actionsfn=lambda r: [{
+                "title": f"Remover acordo {r[2]}", "sub": "Apaga o registro do parcelamento (não altera nada no órgão).",
+                "endpoint": f"/api/v1/financial/relatorios/parcelamentos/{r[0]}", "method": "DELETE",
+                "btnLabel": "Remover", "submitLabel": "Remover", "btnStyle": "danger",
+                "confirm": f"Remover o acordo {r[2]}?", "okMsg": "Removido. Recarregue.", "fields": []}])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tela parcelamentos: %s", exc)
+    out["parcelamento-novo"] = {
+        "title": "Registrar parcelamento", "sub": "Acordo já firmado com o órgão. Só registra — não negocia nem paga.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/financial/relatorios/parcelamentos", "okMsg": "Parcelamento registrado"},
+        "fields": [
+            {"key": "orgao", "label": "Órgão*", "type": "select", "span": "span 1",
+             "options": [{"value": "PGFN", "label": "PGFN (Dívida Ativa)"}, {"value": "RFB", "label": "Receita Federal"},
+                         {"value": "PREFEITURA", "label": "Prefeitura (ISS)"}, {"value": "FGTS", "label": "FGTS"},
+                         {"value": "INSS", "label": "INSS"}, {"value": "SEFAZ", "label": "SEFAZ-AM"}]},
+            {"key": "numero_acordo", "label": "Nº do acordo*", "type": "text", "span": "span 1"},
+            {"key": "descricao", "label": "Descrição*", "type": "text", "span": "span 2"},
+            {"key": "valor_total", "label": "Valor total (R$)*", "type": "number", "span": "span 1"},
+            {"key": "num_parcelas", "label": "Nº de parcelas*", "type": "number", "span": "span 1"},
+            {"key": "parcela_valor", "label": "Valor da parcela (R$)*", "type": "number", "span": "span 1"},
+            {"key": "dia_vencimento", "label": "Dia do vencimento*", "type": "number", "span": "span 1"},
+            {"key": "competencia_inicio", "label": "1ª competência (MM/AAAA)*", "type": "text", "span": "span 1", "ph": "02/2026"},
+            {"key": "parcelas_pagas", "label": "Parcelas já pagas", "type": "number", "span": "span 1"},
+            {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2"},
+        ],
+    }
+    try:
+        from modules.financial.controllers.relatorios_controller import apuracao_lucro_real
+        a = await apuracao_lucro_real(ano=hoje.year, trimestre=None, empresa_id=None, _user={})
+        base, ap = a.get("base", {}), a.get("apuracao", {})
+        out["apuracao-lucro-real"] = {
+            "title": f"Apuração IRPJ/CSLL — Lucro Real {hoje.year}",
+            "sub": "Base = resultado do razão (receita − ISS − despesas dedutíveis), não presunção. "
+                   "Consulta — não gera guia.",
+            "type": "dash", "panelGrid": "1fr 1fr",
+            "kpis": [
+                {"v": brl(base.get("lucro_antes_ircsll", 0)), "l": "Lucro antes de IRPJ/CSLL", "icon": _ICO_CALC,
+                 "color": "#16A34A" if float(base.get("lucro_antes_ircsll", 0) or 0) >= 0 else "#DC2626"},
+                {"v": brl(ap.get("total_irpj_csll", 0)), "l": "IRPJ + CSLL devidos", "icon": _ICO_CALC, "color": "#C2410C"},
+                {"v": brl(base.get("receita_liquida", 0)), "l": "Receita líquida", "icon": _ICO_CALC, "color": "#0F1B3A"},
+                {"v": brl(base.get("despesas_dedutiveis_total", 0)), "l": "Despesas dedutíveis", "icon": _ICO_CALC, "color": "#0F1B3A"},
+            ],
+            "panels": [
+                {"title": "Base de cálculo", "rows": [{"left": k.replace("_", " ").capitalize(), "right": brl(v)}
+                                                     for k, v in base.items() if isinstance(v, (int, float))]},
+                {"title": "Apuração", "rows": [{"left": k.replace("_", " ").capitalize(), "right": brl(v) if "carga" not in k else f"{v}%"}
+                                               for k, v in ap.items() if isinstance(v, (int, float))]},
+            ],
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tela apuracao-lucro-real: %s", exc)
+    try:
+        from modules.financial.controllers.relatorios_controller import get_dre_mensal
+        d = await get_dre_mensal(ano=hoje.year, condominio_id=None, db=db, _current_user={})
+        m = d.get("meses", {})
+        ms = m.get("months", [])
+        out["dre-mensal"] = {
+            "title": f"DRE mês a mês — {hoje.year}", "sub": "Receita, custos, despesas e resultado por competência (razão real).",
+            "type": "dash", "panelGrid": "1fr",
+            "kpis": [
+                {"v": brl(sum(m.get("receita_bruta", []))), "l": "Receita bruta no ano", "icon": _ICO_CALC, "color": "#16A34A"},
+                {"v": brl(sum(m.get("lucro_liquido", []))), "l": "Resultado no ano", "icon": _ICO_CALC,
+                 "color": "#16A34A" if sum(m.get("lucro_liquido", [])) >= 0 else "#DC2626"},
+            ],
+            "panels": [{"title": "Por competência", "rows": [
+                {"left": f"{ms[i][5:]}/{ms[i][:4]} · receita {brl(m['receita_bruta'][i])} · custos {brl(m['custos'][i])} · despesas {brl(m['despesas'][i])}",
+                 "right": brl(m["lucro_liquido"][i])} for i in range(len(ms))]}],
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tela dre-mensal: %s", exc)
+    try:
+        from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
+        svc = FluxoCaixaService()
+        for key, titulo, fn, campo in (("aging-receber", "A receber por competência", svc.contas_a_receber, "a_receber"),
+                                       ("aging-pagar", "A pagar por competência", svc.contas_a_pagar, "a_pagar")):
+            r = await asyncio.to_thread(fn, hoje.year)
+            meses = r.get("meses", [])
+            out[key] = {
+                "title": f"{titulo} — {hoje.year}",
+                "sub": "Faturado × recebido (FIFO por competência). O que ainda falta entrar/sair, mês a mês.",
+                "type": "dash", "panelGrid": "1fr",
+                "kpis": [{"v": brl(sum(float(x.get(campo, 0) or 0) for x in meses)), "l": "Em aberto no ano",
+                          "icon": _ICO_CALC, "color": "#C2410C"}],
+                "panels": [{"title": "Por competência", "rows": [
+                    {"left": f"{x.get('competencia')} · {x.get('notas', x.get('titulos', 0))} docs · "
+                             f"{brl(x.get('faturado', x.get('devido', 0)))} faturado · {brl(x.get('recebido', x.get('pago', 0)))} liquidado",
+                     "right": brl(x.get(campo, 0))} for x in meses]}],
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tela aging: %s", exc)
+    try:
+        rows = (await db.execute(_sql(
+            "SELECT coalesce(nome_curto, nome), coalesce(valor_atual,0), coalesce(unidade,''), categoria::text, ultima_atualizacao "
+            "FROM financial_kpis WHERE coalesce(ativo, true) ORDER BY \"order\" NULLS LAST, nome"))).fetchall()
+        out["kpis-financeiros"] = {
+            "title": "KPIs financeiros (beat)", "sub": "Os indicadores que o beat recalcula todo dia às 04:25.",
+            "type": "dash", "panelGrid": "1fr",
+            "kpis": [{"v": (brl(r[1]) if r[2] == "R$" else f"{r[1]}{'%' if r[2] == '%' else ''}"), "l": r[0],
+                      "icon": _ICO_CALC, "color": "#0F1B3A"} for r in rows[:6]],
+            "panels": [{"title": "Todos", "rows": [{"left": f"{r[0]} ({r[3]}) · {str(r[4])[:16]}",
+                                                   "right": brl(r[1]) if r[2] == "R$" else f"{r[1]} {r[2] or ''}"} for r in rows]}],
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tela kpis-financeiros: %s", exc)
 
 
 #: SQL de empresa: `ged_certidoes` guarda o CNPJ como TEXTO e `empresas.cnpj` vem formatado
@@ -379,6 +513,7 @@ async def _multicnpj(db, out: dict, tbl) -> None:
             "ORDER BY n.data_emissao DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:26]), t((r[2] or "—")[:38]),
                        t(brl(r[3]), 600), t(brl(r[4])), t(_fmtdate(r[5])), _cobranca_da_nota(r[7], r[8])],
+            docsfn=lambda r: [doc("DANFSe", f"/api/v1/financial/fiscal/nfse-emitida/{r[6]}/danfse")],  # LIGAR 08/09/2026
             actionsfn=lambda r: ([{
                 "endpoint": f"/api/v1/financial/receivables/emitir-cobranca-por-nota/{r[6]}",
                 "method": "POST", "btnLabel": "Gerar boleto", "submitLabel": "Emitir no banco",
@@ -400,13 +535,29 @@ async def _multicnpj(db, out: dict, tbl) -> None:
             "1.6fr 1.3fr 1fr 1fr 1fr 0.9fr",
             "SELECT coalesce(o.nome,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
             "coalesce(to_char(make_date(o.competencia_ano, greatest(o.competencia_mes,1), 1),'MM/YYYY'),'—'), "
-            "coalesce(o.valor_devido,0), o.data_vencimento, o.status::text "
+            "coalesce(o.valor_devido,0), o.data_vencimento, o.status::text, o.id::text "
             "FROM fiscal_obligations o LEFT JOIN empresas e ON e.id = o.empresa_id "
             "ORDER BY o.data_vencimento DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:24]), t(r[2]), t(brl(r[3]), 600),
                        t(_fmtdate(r[4])),
-                       b("Cumprida", "ok") if (r[5] or "").lower() in ("cumprida", "cumprido", "pago", "paga")
-                       else b((r[5] or "Pendente").capitalize(), "warn")])
+                       b("Cumprida", "ok") if (r[5] or "").lower() in ("cumprida", "cumprido", "pago", "paga", "concluida")
+                       else b((r[5] or "Pendente").capitalize(), "warn")],
+            # LIGAR 08/09/2026: não havia como dar baixa numa obrigação pela tela nova.
+            actionsfn=lambda r: [] if (r[5] or "").lower() in ("concluida", "cancelada") else [{
+                "title": f"Dar baixa — {r[0]}", "sub": "Registra o pagamento da guia. Só marca — não paga nada.",
+                "endpoint": f"/api/v1/financial/fiscal/obrigacao/{r[6]}", "method": "PATCH",
+                "btnLabel": "Dar baixa", "submitLabel": "Registrar baixa", "btnStyle": "primary",
+                "okMsg": "Obrigação atualizada. Recarregue.",
+                "fields": [
+                    {"key": "status", "label": "Status*", "type": "select", "span": "span 1",
+                     "options": [{"value": "concluida", "label": "Concluída (paga)"},
+                                 {"value": "cancelada", "label": "Cancelada"},
+                                 {"value": "pendente", "label": "Pendente"}]},
+                    {"key": "valor_pago", "label": "Valor pago (R$)", "type": "number", "span": "span 1"},
+                    {"key": "data_pagamento", "label": "Data do pagamento", "type": "date", "span": "span 1"},
+                    {"key": "numero_recibo", "label": "Nº do recibo", "type": "text", "span": "span 1"},
+                    {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2"},
+                ]}])
     except Exception:  # noqa: BLE001
         pass
 
