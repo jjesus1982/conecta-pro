@@ -55,6 +55,7 @@ GRUPOS = [
         ("medida-aprovar", "Aprovar medida"), ("medida-rejeitar", "Rejeitar medida"),
         ("medida-documento", "Documento da medida")]),
     ("g-rondas", "Rondas & Ocorrências", "Rondas, mobile e ocorrências", [
+        ("rondas-resumo-inspetores", "Prestação de contas"),
         ("rondas", "Rondas"), ("ronda-checkpoints", "Checkpoints"), ("ronda-mobile", "Ronda mobile"),
         ("ocorrencias", "Ocorrências"),
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),

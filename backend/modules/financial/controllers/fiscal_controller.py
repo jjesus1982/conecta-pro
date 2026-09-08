@@ -248,7 +248,9 @@ async def listar_nfses(
 
     return [
         {
-            "id": r["chave_acesso"] or r["numero"],
+            "id": r["chave_acesso"] or r["numero"],  # é a CHAVE (50 dígitos), não UUID: o detalhe/DANFSe é /nfse-emitida/{chave}/danfse
+            "chave_acesso": r["chave_acesso"],
+            "danfse_url": f"/api/v1/financial/fiscal/nfse-emitida/{r['chave_acesso']}/danfse" if r["chave_acesso"] else None,
             "number": r["numero"],
             "series": None,
             "recipient_name": r["tomador_nome"],
@@ -434,20 +436,24 @@ async def obter_dashboard_fiscal(
     if not ano:
         ano = date.today().year
 
-    total_nfse = (await db.execute(text("SELECT count(*) FROM nfse_emitidas_nacional"))).scalar() or 0
+    _viva = "coalesce(cancelada,false) = false"
+    total_nfse = (await db.execute(text(f"SELECT count(*) FROM nfse_emitidas_nacional WHERE {_viva}"))).scalar() or 0
     total_nfse_mes = (
         await db.execute(
             text(
-                "SELECT count(*) FROM nfse_emitidas_nacional "
-                "WHERE CAST(substr(competencia, 6, 2) AS int) = :m "
+                f"SELECT count(*) FROM nfse_emitidas_nacional WHERE {_viva} "
+                "AND CAST(substr(competencia, 6, 2) AS int) = :m "
                 "AND CAST(left(competencia, 4) AS int) = :a"
             ),
             {"m": mes, "a": ano},
         )
     ).scalar() or 0
     valor_total = (
-        await db.execute(text("SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional"))
+        await db.execute(text(f"SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional WHERE {_viva}"))
     ).scalar() or 0
+    valor_mes = (await db.execute(text(
+        f"SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional WHERE {_viva} "
+        "AND CAST(substr(competencia, 6, 2) AS int) = :m AND CAST(left(competencia, 4) AS int) = :a"), {"m": mes, "a": ano})).scalar() or 0
     try:
         obrig_pend = (
             await db.execute(
@@ -480,8 +486,11 @@ async def obter_dashboard_fiscal(
         "stats": {
             "total_nfse_emitidas": int(total_nfse),
             "total_nfe_emitidas": 0,
-            "total_nfe_mes": int(total_nfse_mes),
-            "valor_total_nfse": float(valor_total),
+            "total_nfe_mes": int(total_nfse_mes),  # chave histórica: é contagem de NFS-e (a empresa não emite NF-e)
+            "total_nfse_mes": int(total_nfse_mes),
+            "valor_total_nfse": float(valor_total),  # acumulado histórico
+            "valor_total_nfse_historico": float(valor_total),
+            "valor_nfse_mes": float(valor_mes),
             "obrigacoes_pendentes": int(obrig_pend),
         },
         "notas_recentes": notas_recentes,
