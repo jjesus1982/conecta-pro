@@ -25,7 +25,9 @@ REDESIGN = ["backend/modules/operacional/controllers/redesign_builders/*.py", "b
             "frontend/src/app/portal-funcionario/**/*.tsx", "frontend/src/app/area-cliente/**/*.tsx", "frontend/src/app/assinar/**/*.tsx"]
 INTERNA = ["mcp-server/server.py", "agents/**/*.py", "backend/modules/**/tasks*.py", "backend/modules/**/tasks/*.py",
            "backend/modules/ai/conversation/services/orquestrador/*.py", "backend/modules/**/services/*.py", "backend/core/**/*.py",
-           "backend/scripts/orq/*.py", "scripts/*.sh", "/etc/nginx/sites-enabled/*"]
+           "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py",
+           "/etc/nginx/sites-enabled/*", "/etc/cron.d/*", "/var/spool/cron/crontabs/*"]
+EXTERNO = re.compile(r"webhook|callback|/oauth|/solides/|/inter/(?:pix|cobranca)")  # quem chama é o banco/Sólides/Meta
 CLASSICO = ["frontend/src/**/*.ts", "frontend/src/**/*.tsx"]
 
 
@@ -57,19 +59,32 @@ def rotas() -> list[tuple[str, str, str]]:
     return sorted(seen)
 
 
+_IMPORTADOS: set[str] | None = None
+
+
+def _indexar_imports(txt: str) -> set[str]:
+    """Uma passada só sobre o corpus: todo nome trazido por `from modules.x import (a, b as c)` e todo
+    `alias.nome(` de módulo importado por `from modules.x import mod as alias`. Devolve 'modules.x.nome'."""
+    idx: set[str] = set()
+    aliases: dict[str, set[str]] = {}  # alias -> {'modules.x.mod'}
+    for mod, body in re.findall(r"from (modules\.[\w.]+) import[ \t]*\(?([^)]*?)\)?[ \t]*\n", txt):
+        for part in body.split(","):
+            bits = [x.strip() for x in part.strip().split(" as ")]
+            if bits and re.match(r"^[A-Za-z_]\w*$", bits[0]):
+                idx.add(f"{mod}.{bits[0]}")
+                aliases.setdefault(bits[-1], set()).add(f"{mod}.{bits[0]}")
+    for alias, fn in set(re.findall(r"\b([A-Za-z_]\w*)\.([a-z_][a-z0-9_]*)\(", txt)):  # uma passada
+        for full in aliases.get(alias, ()):
+            idx.add(f"{full}.{fn}")
+    return idx
+
+
 def importado(handler: str, txt: str) -> bool:
     """O handler é reusado por import (builder do redesign, MCP, orquestrador…) — chamador interno sem URL."""
-    mod, _, fn = handler.rpartition(".")
-    if not mod.startswith("modules."):
-        return False
-    if re.search(r"from %s import[^\n]*\b%s\b" % (re.escape(mod), re.escape(fn)), txt):
-        return True
-    alias = mod.rsplit(".", 1)[-1]
-    if re.search(r"from %s import[^\n]*\b%s\b" % (re.escape(mod.rsplit(".", 1)[0]), re.escape(alias)), txt):
-        for a in re.findall(r"\b%s(?: as (\w+))?" % re.escape(alias), txt):
-            if re.search(r"\b%s\.%s\(" % (re.escape(a or alias), re.escape(fn)), txt):
-                return True
-    return False
+    global _IMPORTADOS
+    if _IMPORTADOS is None:
+        _IMPORTADOS = _indexar_imports(txt)
+    return handler in _IMPORTADOS
 
 
 def usada(path: str, txt: str) -> bool:
@@ -83,7 +98,7 @@ def usada(path: str, txt: str) -> bool:
 def main() -> int:
     tsv = sys.argv[sys.argv.index("--tsv") + 1] if "--tsv" in sys.argv else None
     red, inte, cla = _read(REDESIGN), _read(INTERNA), _read(CLASSICO)
-    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "alias": [], "classico": [], "nenhum": []}
+    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "alias": [], "externo": [], "classico": [], "nenhum": []}
     todas = [(m, p, h) for m, p, h in rotas() if not p.startswith(SKIP) and p not in ("/", "/api", "/api/v1")]
     cobertos: set[str] = set()  # handlers alcançados por path do redesign/interna
     pend = []
@@ -94,7 +109,7 @@ def main() -> int:
         else:
             pend.append((m, p, h))
     for m, p, h in pend:  # montagem dupla (main_production.py, fora do escopo editável): mesmo handler já coberto
-        k = "alias" if h in cobertos else "classico" if usada(p, cla) else "nenhum"
+        k = "alias" if h in cobertos else "externo" if EXTERNO.search(p) else "classico" if usada(p, cla) else "nenhum"
         classes[k].append((m, p))
     tot = sum(len(v) for v in classes.values())
     for k, v in classes.items():
