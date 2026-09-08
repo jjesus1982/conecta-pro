@@ -136,6 +136,146 @@ async def rd_action_contract_create(current_user: CurrentActiveUser, payload: di
             "message": "Contrato criado (rascunho)"}
 
 
+# ── LIGAR 08/09/2026: formulários que precisam de {id} no caminho da rota do CRM ─────────
+def _num(v, default=0.0) -> float:
+    try:
+        return float(_brl_norm(str(v))) if v not in (None, "") else default
+    except (ValueError, TypeError):
+        return default
+
+
+@router.post("/action/contrato-item-novo")
+async def rd_action_contrato_item_novo(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.crm.repositories.contract_repository import ContractRepository
+    from modules.crm.schemas.contract import ContractItemCreate
+    cid = (payload.get("contract_id") or "").strip()
+    if len(cid) != 36:
+        raise HTTPException(status_code=400, detail="Selecione o contrato.")
+    try:
+        data = ContractItemCreate(service_type=payload.get("service_type") or "security", service_name=(payload.get("service_name") or "").strip(),
+                                  description=(payload.get("description") or "").strip() or None,
+                                  quantity=int(_num(payload.get("quantity"), 1) or 1), unit_price=str(_num(payload.get("unit_price"))))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    item = await ContractRepository(db).add_item(cid, data)
+    if not item:
+        raise HTTPException(status_code=400, detail="Contrato não encontrado ou não aceita itens neste status.")
+    return {"ok": True, "id": str(item.id), "message": "Item adicionado ao contrato"}
+
+
+@router.post("/action/aditivo-novo")
+async def rd_action_aditivo_novo(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.crm.repositories.contract_repository import ContractRepository
+    from modules.crm.schemas.contract import ContractAddendumCreate
+    cid = (payload.get("contract_id") or "").strip()
+    if len(cid) != 36:
+        raise HTTPException(status_code=400, detail="Selecione o contrato.")
+    try:
+        data = ContractAddendumCreate(
+            addendum_type=payload.get("addendum_type") or "other", effective_date=payload.get("effective_date"),
+            description=(payload.get("description") or "").strip(), reason=(payload.get("reason") or "").strip() or None,
+            new_value=str(_num(payload["new_value"])) if payload.get("new_value") not in (None, "") else None,
+            adjustment_percent=str(_num(payload["adjustment_percent"])) if payload.get("adjustment_percent") not in (None, "") else None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    add = await ContractRepository(db).create_addendum(cid, data, created_by_id=str(current_user.id))
+    if not add:
+        raise HTTPException(status_code=400, detail="Contrato não encontrado.")
+    return {"ok": True, "id": str(add.id), "message": f"Aditivo nº {getattr(add, 'addendum_number', '')} registrado"}
+
+
+@router.post("/action/proposta-item-novo")
+async def rd_action_proposta_item_novo(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from modules.crm.repositories.proposal_repository import ProposalRepository
+    from modules.crm.schemas.proposal import ProposalItemCreate
+    pid = (payload.get("proposal_id") or "").strip()
+    if len(pid) != 36:
+        raise HTTPException(status_code=400, detail="Selecione a proposta.")
+    try:
+        data = ProposalItemCreate(code=None, name=(payload.get("name") or "").strip(), description=(payload.get("description") or "").strip() or None,
+                                  unit=(payload.get("unit") or "un").strip(), quantity=_num(payload.get("quantity"), 1) or 1,
+                                  unit_price=_num(payload.get("unit_price")), discount_percent=_num(payload.get("discount_percent")))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    item = await ProposalRepository(db).add_item(pid, data)
+    if not item:
+        raise HTTPException(status_code=400, detail="Proposta não encontrada ou já enviada.")
+    return {"ok": True, "id": str(item.id), "message": "Item adicionado à proposta"}
+
+
+def _clients_service():
+    from core.database.session import SyncSessionLocal
+    from modules.clients.services.client_service import ClientService
+    sess = SyncSessionLocal()
+    return sess, ClientService(sess)
+
+
+@router.post("/action/condominio-novo")
+async def rd_action_condominio_novo(current_user: CurrentActiveUser, payload: dict = Body(...)) -> dict:
+    import asyncio
+    from uuid import UUID as _U
+    from modules.clients.schemas.client_schemas import CondominiumCreate
+    cid = (payload.get("client_id") or "").strip()
+    if len(cid) != 36 or len((payload.get("name") or "").strip()) < 2:
+        raise HTTPException(status_code=400, detail="Selecione o cliente e informe o nome.")
+    campos = {k: (str(payload.get(k)).strip() or None) for k in ("cnpj", "address_street", "address_number", "address_neighborhood", "address_city", "syndic_name", "syndic_phone") if payload.get(k)}
+    if payload.get("total_units"):
+        campos["total_units"] = int(_num(payload["total_units"]))
+    def _run():
+        sess, svc = _clients_service()
+        try:
+            data = CondominiumCreate(client_id=_U(cid), name=payload["name"].strip()[:200], **campos)
+            c = svc.create_condominium(data, created_by=_U(str(current_user.id)))
+            sess.commit()
+            return str(c.id), c.name
+        finally:
+            sess.close()
+    try:
+        oid, nome = await asyncio.to_thread(_run)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Não foi possível criar: {e}")
+    return {"ok": True, "id": oid, "message": f"Condomínio {nome} criado"}
+
+
+@router.post("/action/cliente-inadimplente")
+async def rd_action_cliente_inadimplente(current_user: CurrentActiveUser, payload: dict = Body(...)) -> dict:
+    import asyncio
+    from decimal import Decimal
+    from uuid import UUID as _U
+    cid = (payload.get("client_id") or "").strip(); valor = _num(payload.get("debt_amount"))
+    if len(cid) != 36 or valor <= 0:
+        raise HTTPException(status_code=400, detail="Selecione o cliente e informe o valor em aberto (> 0).")
+    def _run():
+        sess, svc = _clients_service()
+        try:
+            c = svc.set_defaulter(_U(cid), Decimal(str(round(valor, 2))), updated_by=_U(str(current_user.id)))
+            if not c:
+                return None
+            sess.commit(); return c.name
+        finally:
+            sess.close()
+    nome = await asyncio.to_thread(_run)
+    if not nome:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    return {"ok": True, "message": f"{nome} marcado como inadimplente (R$ {valor:,.2f})"}
+
+
+@router.post("/action/contrato-reajuste-calcular")
+async def rd_action_contrato_reajuste_calcular(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    from datetime import date as _date
+    from modules.crm.controllers.contract_controller import calculate_adjustment
+    cid = (payload.get("contract_id") or "").strip()
+    if len(cid) != 36:
+        raise HTTPException(status_code=400, detail="Selecione o contrato.")
+    pct = _num(payload.get("custom_percent"))
+    if pct <= 0:
+        raise HTTPException(status_code=422, detail="Informe o percentual de reajuste (o índice não é consultado automaticamente).")
+    ed = payload.get("effective_date") or None
+    res = await calculate_adjustment(cid, current_user, db, custom_percent=pct, effective_date=_date.fromisoformat(ed) if ed else None)
+    d = res.model_dump() if hasattr(res, "model_dump") else dict(res)
+    return {"ok": True, "message": "Só simulação — nada foi alterado no contrato.", **{k: (str(v) if not isinstance(v, (int, float, str, type(None))) else v) for k, v in d.items()}}
+
+
 @router.post("/action/contract-submit")
 async def rd_action_contract_submit(current_user: CurrentActiveUser, cid: str, db=Depends(get_db)) -> dict:
     """Envia contrato para assinatura (DRAFT→PENDING_SIGNATURE) — reusa o handler clássico
@@ -222,6 +362,24 @@ EXTRA_MENU: list[dict] = [
     {"id": "visita-achados", "label": "Anexar achados a visita", "icon": _ICO_DOC},
     {"id": "asset-upload", "label": "Enviar logo/selo", "icon": _ICO_DOC},
     {"id": "expurgar-teste", "label": "Arquivar documentos de teste", "icon": _ICO_DOC},
+    # LIGAR 08/09/2026 (revisão 100%): rotas que existiam sem tela no redesign
+    {"id": "contato-novo", "label": "Novo contato", "icon": _ICO_CHAT},
+    {"id": "produtos", "label": "Produtos (catálogo)", "icon": _ICO_DOC},
+    {"id": "produto-novo", "label": "Novo produto", "icon": _ICO_DOC},
+    {"id": "timeline-nota", "label": "Anotar na timeline", "icon": _ICO_CHAT},
+    {"id": "tarefas", "label": "Tarefas", "icon": _ICO_CAL},
+    {"id": "contrato-itens", "label": "Itens de contrato", "icon": _ICO_DOC},
+    {"id": "contrato-item-novo", "label": "Novo item de contrato", "icon": _ICO_DOC},
+    {"id": "aditivos", "label": "Aditivos", "icon": _ICO_DOC},
+    {"id": "aditivo-novo", "label": "Novo aditivo", "icon": _ICO_DOC},
+    {"id": "modelos-contrato", "label": "Modelos de contrato", "icon": _ICO_DOC},
+    {"id": "modelo-contrato-novo", "label": "Novo modelo de contrato", "icon": _ICO_DOC},
+    {"id": "proposta-itens", "label": "Itens de proposta", "icon": _ICO_DOC},
+    {"id": "proposta-item-novo", "label": "Novo item de proposta", "icon": _ICO_DOC},
+    {"id": "condominios", "label": "Condomínios", "icon": _ICO_DOC},
+    {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC},
+    {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT},
+    {"id": "contrato-reajuste-calcular", "label": "Calcular reajuste de contrato", "icon": _ICO_DOC},
 ]
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
@@ -237,9 +395,18 @@ def _proposta_actions(r):
     """Ações da proposta por LINHA. As 3 rotas de envio levam {proposal_id} no CAMINHO —
     é aqui que elas cabem: o id vem da linha, não de um UUID colado à mão numa tela solta.
     Só aparecem em rascunho/aprovada, que é quando enviar faz sentido (a rota 404 no resto)."""
+    pid = r[0]
+    if (r[5] or "").lower() == "sent":  # LIGAR 08/09/2026: aceite gera comissão + contrato
+        return [
+            {"title": f"Cliente ACEITOU a proposta {r[1]}", "sub": "Gera a comissão e o contrato a partir da proposta.",
+             "endpoint": f"/api/v1/crm/proposals/{pid}/accept", "method": "POST", "btnLabel": "Aceita",
+             "submitLabel": "Registrar aceite", "btnStyle": "primary", "okMsg": "Aceite registrado. Recarregue.", "fields": []},
+            {"title": f"Cliente RECUSOU a proposta {r[1]}",
+             "endpoint": f"/api/v1/crm/proposals/{pid}/reject", "method": "POST", "btnLabel": "Recusada",
+             "submitLabel": "Registrar recusa", "btnStyle": "outline", "okMsg": "Recusa registrada. Recarregue.", "fields": []},
+        ]
     if (r[5] or "").lower() not in ("draft", "approved"):
         return None
-    pid = r[0]
     return [
         {"title": f"Enviar proposta {r[1]} ao cliente",
          "endpoint": f"/api/v1/redesign/action/proposal-send?pid={pid}",
@@ -309,6 +476,21 @@ def _contrato_actions(r):
                                      "type": "text", "span": "span 1", "value": "cliente"},
                                     {"key": "email", "label": "E-mail (vazio devolve o link)",
                                      "type": "text", "span": "span 1", "value": ""}]})
+    if st == "active":  # LIGAR 08/09/2026
+        acts.append({"title": f"Suspender contrato {r[1]}", "endpoint": f"/api/v1/crm/contracts/{r[0]}/suspend",
+                     "method": "POST", "btnLabel": "Suspender", "submitLabel": "Suspender", "btnStyle": "outline",
+                     "okMsg": "Contrato suspenso. Recarregue.", "fields": []})
+        acts.append({"title": f"Renovar contrato {r[1]}",
+                     "sub": "Informe a nova data de fim e, se houver, o percentual de reajuste (o índice não é consultado automaticamente).",
+                     "endpoint": f"/api/v1/crm/contracts/{r[0]}/renew", "method": "POST", "btnLabel": "Renovar",
+                     "submitLabel": "Calcular renovação", "btnStyle": "outline", "okMsg": "Renovação calculada — veja a mensagem.",
+                     "fields": [{"key": "new_end_date", "label": "Nova data de fim*", "type": "date", "span": "span 1", "value": ""},
+                                {"key": "adjustment_percent", "label": "Reajuste (%)", "type": "number", "span": "span 1", "value": ""},
+                                {"key": "new_monthly_value", "label": "Novo valor mensal (R$)", "type": "number", "span": "span 1", "value": ""}]})
+    if st in ("active", "suspended"):
+        acts.append({"title": f"ENCERRAR contrato {r[1]}", "sub": "Encerra a vigência. Sai do MRR.",
+                     "endpoint": f"/api/v1/crm/contracts/{r[0]}/terminate", "method": "POST", "btnLabel": "Encerrar",
+                     "submitLabel": "Encerrar contrato", "btnStyle": "outline", "okMsg": "Contrato encerrado. Recarregue.", "fields": []})
     if st in ("draft", "pending_signature", "active"):
         acts.append({"title": f"Cancelar contrato {r[1]}",
                      "endpoint": f"/api/v1/redesign/action/contract-cancel?cid={r[0]}",
@@ -317,6 +499,24 @@ def _contrato_actions(r):
                      "fields": [{"key": "reason", "label": "Motivo do cancelamento (obrigatório)",
                                  "type": "textarea", "span": "span 2", "value": ""}]})
     return acts or None
+
+
+def _cliente_actions(r):
+    """Status do cliente por linha (LIGAR 08/09/2026). r[6]=id, r[5]=status, r[7]=inadimplente."""
+    cid, st = r[6], (r[5] or "").lower()
+    def _a(titulo, rota, label, style="outline", sub=None):
+        return {"title": f"{titulo} — {r[0]}", "sub": sub, "endpoint": f"/api/v1/clients/{cid}/{rota}", "method": "POST",
+                "btnLabel": label, "submitLabel": label, "btnStyle": style, "okMsg": f"{label}: feito. Recarregue.", "fields": []}
+    acts = []
+    if st != "active":
+        acts.append(_a("Ativar cliente", "activate", "Ativar", "primary"))
+    if st == "active":
+        acts.append(_a("Suspender cliente", "suspend", "Suspender"))
+    if st not in ("blocked",):
+        acts.append(_a("Bloquear cliente", "block", "Bloquear", sub="Bloqueio comercial (inadimplência grave, litígio)."))
+    if r[7]:
+        acts.append(_a("Limpar inadimplência", "clear-defaulter", "Regularizar", "primary"))
+    return acts
 
 
 async def build(db) -> dict:
@@ -333,11 +533,15 @@ async def build(db) -> dict:
     await safe("leads", tbl(
         "Leads", f"{await _scalar(db, 'SELECT count(*) FROM leads')} leads", "Novo lead",
         ["Lead", "Empresa", "Origem", "Valor estimado", "Status"], "2fr 1.5fr 1fr 1fr 0.9fr",
-        "SELECT name, coalesce(company,'—'), coalesce(source,'—'), coalesce(expected_value,0), coalesce(status::text,'—') "
+        "SELECT name, coalesce(company,'—'), coalesce(source,'—'), coalesce(expected_value,0), coalesce(status::text,'—'), id::text "
         "FROM leads ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]),
                    b((r[2] or '—').replace('_', ' ').capitalize(), "mut"), t(brl(r[3]), 600),
-                   b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))]))
+                   b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))],
+        actionsfn=lambda r: [{"title": f"Arquivar lead {r[0]}", "sub": "Some da lista; não apaga o histórico.",
+                              "endpoint": f"/api/v1/crm/leads/{r[5]}", "method": "DELETE", "btnLabel": "Arquivar",
+                              "submitLabel": "Arquivar", "btnStyle": "outline", "confirm": f"Arquivar o lead {r[0]}?",
+                              "okMsg": "Lead arquivado. Recarregue.", "fields": []}]))
 
     # ---- Fidelidade: oportunidades e propostas mostram KPIs de resumo no clássico.
     #      Tela 'table' não tem KPI-card (não edito ModuleView) → trago no subtítulo. ----
@@ -379,11 +583,24 @@ async def build(db) -> dict:
         "Contatos", f"{await _scalar(db, 'SELECT count(*) FROM crm_contacts')} contatos",
         "—", ["Contato", "Cliente", "Cargo", "Email", "Telefone", "Principal"], "1.6fr 1.8fr 1fr 1.8fr 1.1fr 0.8fr",
         "SELECT c.name, coalesce(cl.name,'—'), coalesce(c.role,'—'), coalesce(c.email,'—'), "
-        "coalesce(nullif(c.phone,''), c.whatsapp, '—'), c.is_primary "
+        "coalesce(nullif(c.phone,''), c.whatsapp, '—'), c.is_primary, c.id::text, coalesce(c.role,''), coalesce(c.email,''), "
+        "coalesce(c.phone,''), coalesce(c.whatsapp,''), coalesce(c.notes,'') "
         "FROM crm_contacts c LEFT JOIN clients cl ON cl.id=c.client_id "
         "ORDER BY c.is_primary DESC NULLS LAST, c.name LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]), t((r[2] or '—').capitalize()),
-                   t(r[3]), t(r[4]), b("Principal", "ok") if r[5] else b("—", "mut")]))
+                   t(r[3]), t(r[4]), b("Principal", "ok") if r[5] else b("—", "mut")],
+        actionsfn=lambda r: [  # LIGAR 08/09/2026
+            {"title": f"Editar contato {r[0]}", "endpoint": f"/api/v1/crm/contacts/{r[6]}", "method": "PATCH",
+             "btnLabel": "Editar", "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Contato atualizado. Recarregue.",
+             "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                        {"key": "role", "label": "Cargo", "type": "text", "span": "span 1", "value": r[7]},
+                        {"key": "email", "label": "E-mail", "type": "text", "span": "span 1", "value": r[8]},
+                        {"key": "phone", "label": "Telefone", "type": "text", "span": "span 1", "value": r[9]},
+                        {"key": "whatsapp", "label": "WhatsApp", "type": "text", "span": "span 1", "value": r[10]},
+                        {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "value": r[11]}]},
+            {"title": f"Remover contato {r[0]}", "endpoint": f"/api/v1/crm/contacts/{r[6]}", "method": "DELETE",
+             "btnLabel": "Remover", "submitLabel": "Remover", "btnStyle": "outline", "confirm": f"Remover {r[0]}?",
+             "okMsg": "Contato removido. Recarregue.", "fields": []}]))
 
     # ---- Clientes (clients) ----
     _cl_tot = await _scalar(db, "SELECT count(*) FROM clients WHERE ativo=true")
@@ -394,10 +611,12 @@ async def build(db) -> dict:
         "Clientes",
         f"{_cl_tot} clientes · Ativos {_cl_ativos} · Condomínios {_cl_cond} · Bloqueados {_cl_bloq}",
         "—", ["Cliente", "CNPJ", "Email", "Segmento", "MRR", "Status"], "1.8fr 1.3fr 1.8fr 1.1fr 1fr 0.8fr",
-        "SELECT name, coalesce(document_number,'—'), coalesce(email,'—'), coalesce(segment::text,'—'), coalesce(mrr,0), status::text "
+        "SELECT name, coalesce(document_number,'—'), coalesce(email,'—'), coalesce(segment::text,'—'), coalesce(mrr,0), status::text, "
+        "id::text, coalesce(is_defaulter,false) "
         "FROM clients ORDER BY mrr DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_cnpj(r[1])), t(r[2]), t((r[3] or '—').capitalize()),
-                   t(brl(r[4]), 600), b("Ativo", "ok") if r[5] == "active" else b((r[5] or '—').capitalize(), "mut")]))
+                   t(brl(r[4]), 600), b("Ativo", "ok") if r[5] == "active" else b((r[5] or '—').capitalize(), "mut")],
+        actionsfn=_cliente_actions))
 
     # ---- Growth · funil de atividades (crm_activities agregado — real) ----
     await safe("growth", tbl(
@@ -836,4 +1055,232 @@ async def build(db) -> dict:
         ],
     }
 
+    await _ligar_20260908(db, out, tbl)
     return out
+
+
+async def _ligar_20260908(db, out: dict, tbl) -> None:
+    """Rotas que existiam sem tela (revisão 100%, 08/09/2026): contatos, produtos, timeline, tarefas,
+    itens/aditivos/modelos de contrato, itens de proposta, condomínios, inadimplência, reajuste."""
+    async def _opts(sql):
+        try:
+            return [{"value": str(a), "label": str(b_)} for a, b_ in (await db.execute(text(sql))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+    cli = await _opts("SELECT id, name FROM clients WHERE coalesce(ativo,true) ORDER BY name LIMIT 300")
+    ctr = await _opts("SELECT ct.id, coalesce(ct.contract_number,'—') || ' · ' || coalesce(cl.name, ct.name, '—') FROM contracts ct "
+                      "LEFT JOIN clients cl ON cl.id=ct.client_id WHERE ct.status::text IN ('draft','pending_signature','active','suspended') "
+                      "ORDER BY ct.contract_number DESC LIMIT 300")
+    prop = await _opts("SELECT id, coalesce(number,'—') || ' · ' || coalesce(client_name,'—') FROM proposals "
+                       "WHERE coalesce(is_active,true) AND status::text IN ('draft','approved') ORDER BY created_at DESC LIMIT 200")
+    _sel = lambda key, label, opts, span="span 2": {"key": key, "label": label, "type": "select", "span": span, "ph": "Selecione", "options": opts}  # noqa: E731
+    _ST = [{"value": v, "label": l} for v, l in (("security", "Segurança/portaria"), ("cleaning", "Limpeza"), ("electronic_security", "Segurança eletrônica"),
+                                                ("remote_gatehouse", "Portaria remota"), ("facilities", "Facilities"), ("gardening", "Jardinagem"), ("maintenance", "Manutenção"))]
+
+    out["contato-novo"] = {
+        "title": "Novo contato", "sub": "Pessoa de contato num cliente (síndico, zelador, financeiro).", "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/contacts/", "okMsg": "Contato criado"},
+        "fields": [_sel("client_id", "Cliente*", cli), {"key": "name", "label": "Nome*", "type": "text", "span": "span 2"},
+                   {"key": "role", "label": "Cargo", "type": "text", "span": "span 1"}, {"key": "email", "label": "E-mail", "type": "text", "span": "span 1"},
+                   {"key": "phone", "label": "Telefone", "type": "text", "span": "span 1"}, {"key": "whatsapp", "label": "WhatsApp", "type": "text", "span": "span 1"},
+                   {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2"}]}
+    try:
+        out["produtos"] = await tbl(
+            "Produtos (catálogo)", f"{await _scalar(db, 'SELECT count(*) FROM crm_products WHERE coalesce(is_active,true)')} produtos e serviços — base dos itens de proposta", "Novo produto",
+            ["Produto", "SKU", "Categoria", "Unidade", "Preço", "Recorrente"], "2fr 1fr 1fr 0.7fr 1fr 0.8fr",
+            "SELECT name, coalesce(sku,'—'), coalesce(category,'—'), coalesce(unit,'un'), coalesce(unit_price,0), coalesce(is_recurring,false), id::text, "
+            "coalesce(description,''), coalesce(service_type,'') FROM crm_products WHERE coalesce(is_active,true) ORDER BY category, name LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(r[2]), t(r[3]), t(brl(r[4]), 600), b("Mensal", "ok") if r[5] else b("Único", "mut")],
+            actionsfn=lambda r: [
+                {"title": f"Editar {r[0]}", "endpoint": f"/api/v1/crm/products/{r[6]}", "method": "PUT", "btnLabel": "Editar", "submitLabel": "Salvar",
+                 "btnStyle": "outline", "okMsg": "Produto atualizado. Recarregue.",
+                 "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                            {"key": "sku", "label": "SKU", "type": "text", "span": "span 1", "value": "" if r[1] == "—" else r[1]},
+                            {"key": "category", "label": "Categoria", "type": "text", "span": "span 1", "value": "" if r[2] == "—" else r[2]},
+                            {"key": "unit", "label": "Unidade", "type": "text", "span": "span 1", "value": r[3]},
+                            {"key": "unit_price", "label": "Preço (R$)", "type": "number", "span": "span 1", "value": str(r[4])},
+                            {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "value": r[7]}]},
+                {"title": f"Desativar {r[0]}", "endpoint": f"/api/v1/crm/products/{r[6]}", "method": "DELETE", "btnLabel": "Desativar",
+                 "submitLabel": "Desativar", "btnStyle": "outline", "confirm": f"Desativar {r[0]}?", "okMsg": "Produto desativado. Recarregue.", "fields": []}])
+        out["produtos"]["ctaTo"] = "produto-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["produto-novo"] = {
+        "title": "Novo produto", "sub": "Entra no catálogo e pode ser usado como item de proposta.", "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/products", "okMsg": "Produto criado"},
+        "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2"}, {"key": "sku", "label": "SKU", "type": "text", "span": "span 1"},
+                   {"key": "category", "label": "Categoria", "type": "text", "span": "span 1"}, {"key": "unit", "label": "Unidade", "type": "text", "span": "span 1", "ph": "un"},
+                   {"key": "unit_price", "label": "Preço (R$)*", "type": "number", "span": "span 1"},
+                   {"key": "is_recurring", "label": "Recorrente (mensal)?", "type": "select", "span": "span 1", "ph": "Não",
+                    "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]},
+                   {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"}]}
+    out["timeline-nota"] = {
+        "title": "Anotar na timeline", "sub": "Registra uma nota/ligação/reunião no histórico do cliente ou do lead.", "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/activities/timeline", "okMsg": "Registrado na timeline"},
+        "fields": [{"key": "subject", "label": "Assunto*", "type": "text", "span": "span 2"},
+                   {"key": "type", "label": "Tipo", "type": "select", "span": "span 1", "ph": "Nota",
+                    "options": [{"value": v, "label": l} for v, l in (("note", "Nota"), ("call", "Ligação"), ("meeting", "Reunião"), ("email", "E-mail"), ("whatsapp", "WhatsApp"), ("visit", "Visita"))]},
+                   _sel("client_id", "Cliente", cli, "span 1"), {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"}]}
+    try:
+        out["tarefas"] = await tbl(
+            "Tarefas", f"{await _scalar(db, 'SELECT count(*) FROM crm_tasks')} tarefas comerciais", "Nova tarefa",
+            ["Tarefa", "Cliente", "Prioridade", "Vencimento", "Status"], "2fr 1.4fr 0.9fr 1fr 0.9fr",
+            "SELECT coalesce(tk.title,'—'), coalesce(cl.name,'—'), coalesce(tk.priority::text,'—'), tk.due_date, coalesce(tk.status::text,'—'), tk.id::text "
+            "FROM crm_tasks tk LEFT JOIN clients cl ON cl.id=tk.client_id ORDER BY (tk.status::text='done'), tk.due_date NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), b((r[2] or '—').capitalize(), "info"), t(_fmtdate(r[3])),
+                       b("Concluída", "ok") if r[4] == "done" else b((r[4] or '—').capitalize(), "warn")],
+            actionsfn=lambda r: ([{"title": f"Concluir tarefa — {r[0]}", "endpoint": f"/api/v1/crm/tasks/{r[5]}", "method": "PATCH",
+                                   "btnLabel": "Concluir", "submitLabel": "Marcar concluída", "btnStyle": "primary", "okMsg": "Tarefa concluída. Recarregue.",
+                                   "fields": [{"key": "status", "label": "Status", "type": "text", "span": "span 1", "value": "done"}]}] if r[4] != "done" else [])
+                                + [{"title": f"Excluir tarefa — {r[0]}", "endpoint": f"/api/v1/crm/tasks/{r[5]}", "method": "DELETE", "btnLabel": "Excluir",
+                                    "submitLabel": "Excluir", "btnStyle": "outline", "confirm": "Excluir a tarefa?", "okMsg": "Tarefa excluída. Recarregue.", "fields": []}])
+        out["tarefas"]["ctaTo"] = "nova-tarefa"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    try:
+        out["contrato-itens"] = await tbl(
+            "Itens de contrato", f"{await _scalar(db, 'SELECT count(*) FROM contract_items WHERE coalesce(is_active,true)')} itens (postos/serviços por contrato)", "Novo item",
+            ["Contrato", "Serviço", "Tipo", "Qtd", "Unitário", "Total"], "1.4fr 2fr 1fr 0.6fr 1fr 1fr",
+            "SELECT coalesce(ct.contract_number,'—'), coalesce(i.service_name,'—'), coalesce(i.service_type::text,'—'), coalesce(i.quantity,0), "
+            "coalesce(i.unit_price,0), coalesce(i.total_price, i.quantity*i.unit_price, 0), i.id::text, ct.id::text, coalesce(i.description,'') "
+            "FROM contract_items i JOIN contracts ct ON ct.id=i.contract_id WHERE coalesce(i.is_active,true) ORDER BY ct.contract_number DESC, i.service_name LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—').replace('_', ' ').capitalize()), t(str(r[3])), t(brl(r[4])), t(brl(r[5]), 600)],
+            actionsfn=lambda r: [
+                {"title": f"Editar item — {r[1]}", "endpoint": f"/api/v1/crm/contracts/{r[7]}/items/{r[6]}", "method": "PUT", "btnLabel": "Editar",
+                 "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Item atualizado. Recarregue.",
+                 "fields": [{"key": "service_name", "label": "Serviço*", "type": "text", "span": "span 2", "value": r[1]},
+                            {"key": "quantity", "label": "Quantidade", "type": "number", "span": "span 1", "value": str(r[3])},
+                            {"key": "unit_price", "label": "Unitário (R$)", "type": "number", "span": "span 1", "value": str(r[4])},
+                            {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "value": r[8]}]},
+                {"title": f"Remover item — {r[1]}", "endpoint": f"/api/v1/crm/contracts/{r[7]}/items/{r[6]}", "method": "DELETE", "btnLabel": "Remover",
+                 "submitLabel": "Remover", "btnStyle": "outline", "confirm": "Remover o item do contrato?", "okMsg": "Item removido. Recarregue.", "fields": []}])
+        out["contrato-itens"]["ctaTo"] = "contrato-item-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["contrato-item-novo"] = {
+        "title": "Novo item de contrato", "sub": "Posto ou serviço que compõe o valor do contrato.", "cta": "Adicionar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-item-novo", "okMsg": "Item adicionado"},
+        "fields": [_sel("contract_id", "Contrato*", ctr), {"key": "service_name", "label": "Serviço*", "type": "text", "span": "span 2"},
+                   {"key": "service_type", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Selecione", "options": _ST},
+                   {"key": "quantity", "label": "Quantidade*", "type": "number", "span": "span 1", "ph": "1"},
+                   {"key": "unit_price", "label": "Unitário (R$)*", "type": "number", "span": "span 1"},
+                   {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"}]}
+    try:
+        out["aditivos"] = await tbl(
+            "Aditivos", f"{await _scalar(db, 'SELECT count(*) FROM contract_addendums WHERE coalesce(is_active,true)')} aditivos contratuais", "Novo aditivo",
+            ["Contrato", "Nº", "Tipo", "Vigência", "Novo valor", "Assinado"], "1.4fr 0.7fr 1.2fr 1fr 1fr 0.8fr",
+            "SELECT coalesce(ct.contract_number,'—'), coalesce(a.addendum_number::text,'—'), coalesce(a.addendum_type::text,'—'), a.effective_date, "
+            "a.new_value, coalesce(a.signed,false), a.id::text, coalesce(a.description,'') "
+            "FROM contract_addendums a JOIN contracts ct ON ct.id=a.contract_id WHERE coalesce(a.is_active,true) ORDER BY a.effective_date DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t((r[2] or '—').replace('_', ' ').capitalize()), t(_fmtdate(r[3])),
+                       t(brl(r[4]) if r[4] is not None else '—'), b("Sim", "ok") if r[5] else b("Pendente", "warn")],
+            actionsfn=lambda r: [] if r[5] else [{"title": f"Registrar assinatura do aditivo {r[1]} — {r[0]}",
+                                                  "sub": "Informe o id do documento assinado (assinatura universal).",
+                                                  "endpoint": f"/api/v1/crm/contracts/addendums/{r[6]}/sign", "method": "POST", "btnLabel": "Assinado",
+                                                  "submitLabel": "Registrar assinatura", "btnStyle": "outline", "okMsg": "Aditivo assinado. Recarregue.",
+                                                  "fields": [{"key": "signature_document_id", "label": "Documento assinado (id)*", "type": "text", "span": "span 2", "value": ""}]}])
+        out["aditivos"]["ctaTo"] = "aditivo-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["aditivo-novo"] = {
+        "title": "Novo aditivo", "sub": "Reajuste, mudança de escopo/equipe/prazo. Só registra — o PDF sai em «Documentos».", "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/aditivo-novo", "okMsg": "Aditivo registrado"},
+        "fields": [_sel("contract_id", "Contrato*", ctr),
+                   {"key": "addendum_type", "label": "Tipo*", "type": "select", "span": "span 1", "ph": "Selecione",
+                    "options": [{"value": v, "label": l} for v, l in (("adjustment", "Reajuste"), ("scope_change", "Escopo"), ("team_change", "Equipe"), ("term_change", "Prazo"), ("equipment_change", "Equipamentos"), ("other", "Outro"))]},
+                   {"key": "effective_date", "label": "Vigência a partir de*", "type": "date", "span": "span 1"},
+                   {"key": "description", "label": "Descrição* (mín. 10 caracteres)", "type": "textarea", "span": "span 2"},
+                   {"key": "reason", "label": "Motivo", "type": "text", "span": "span 2"},
+                   {"key": "new_value", "label": "Novo valor mensal (R$)", "type": "number", "span": "span 1"},
+                   {"key": "adjustment_percent", "label": "Reajuste (%)", "type": "number", "span": "span 1"}]}
+    try:
+        out["modelos-contrato"] = await tbl(
+            "Modelos de contrato", f"{await _scalar(db, 'SELECT count(*) FROM contract_templates')} modelos — base do «Contrato completo» (pdf-modelo)", "Novo modelo",
+            ["Modelo", "Serviço", "Aprovado", "Cláusulas"], "2fr 1.2fr 0.8fr 0.8fr",
+            "SELECT name, coalesce(service_type::text,'—'), coalesce(approved_by_legal,false), "
+            "CASE WHEN jsonb_typeof(clauses)='array' THEN jsonb_array_length(clauses) ELSE 0 END, id::text, coalesce(description,'') "
+            "FROM contract_templates WHERE coalesce(is_active,true) ORDER BY name LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ').capitalize()), b("Sim", "ok") if r[2] else b("Não", "warn"), t(str(r[3]))],
+            actionsfn=lambda r: ([] if r[2] else [{"title": f"Aprovar modelo {r[0]}", "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}/approve", "method": "POST",
+                                                   "btnLabel": "Aprovar", "submitLabel": "Aprovar", "btnStyle": "primary", "okMsg": "Modelo aprovado. Recarregue.", "fields": []}])
+                                + [{"title": f"Editar modelo {r[0]}", "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}", "method": "PUT", "btnLabel": "Editar",
+                                    "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Modelo atualizado. Recarregue.",
+                                    "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                                               {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "value": r[5]}]},
+                                   {"title": f"Excluir modelo {r[0]}", "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}", "method": "DELETE", "btnLabel": "Excluir",
+                                    "submitLabel": "Excluir", "btnStyle": "outline", "confirm": f"Excluir o modelo {r[0]}?", "okMsg": "Modelo excluído. Recarregue.", "fields": []}])
+        out["modelos-contrato"]["ctaTo"] = "modelo-contrato-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["modelo-contrato-novo"] = {
+        "title": "Novo modelo de contrato", "sub": "Texto-base com variáveis {{cliente}}, {{valor}}… Precisa ser aprovado antes de usar.", "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/crm/contracts/templates", "okMsg": "Modelo criado (pendente de aprovação)"},
+        "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2"},
+                   {"key": "service_type", "label": "Serviço", "type": "select", "span": "span 1", "ph": "Selecione", "options": _ST},
+                   {"key": "description", "label": "Descrição", "type": "text", "span": "span 1"},
+                   {"key": "content_template", "label": "Texto do contrato* (mín. 100 caracteres)", "type": "textarea", "span": "span 2"}]}
+    try:
+        out["proposta-itens"] = await tbl(
+            "Itens de proposta", f"{await _scalar(db, 'SELECT count(*) FROM proposal_items WHERE coalesce(is_active,true)')} itens — o que compõe cada proposta", "Novo item",
+            ["Proposta", "Item", "Qtd", "Unitário", "Desc. %", "Total", "Opcional"], "1.4fr 2fr 0.5fr 1fr 0.6fr 1fr 0.7fr",
+            "SELECT coalesce(p.number,'—'), coalesce(i.name,'—'), coalesce(i.quantity,0), coalesce(i.unit_price,0), coalesce(i.discount_percent,0), "
+            "coalesce(i.total,0), coalesce(i.is_optional,false), i.id::text, p.id::text, p.status::text "
+            "FROM proposal_items i JOIN proposals p ON p.id=i.proposal_id WHERE coalesce(i.is_active,true) AND coalesce(p.is_active,true) "
+            "ORDER BY p.created_at DESC, i.sort_order LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(str(r[2])), t(brl(r[3])), t(str(r[4])), t(brl(r[5]), 600), b("Sim", "info") if r[6] else b("—", "mut")],
+            actionsfn=lambda r: [{"title": f"Remover item — {r[1]} ({r[0]})", "endpoint": f"/api/v1/crm/proposals/{r[8]}/items/{r[7]}", "method": "DELETE",
+                                  "btnLabel": "Remover", "submitLabel": "Remover", "btnStyle": "outline", "confirm": "Remover o item da proposta?",
+                                  "okMsg": "Item removido. Recarregue.", "fields": []}] if (r[9] or "") in ("draft", "approved") else [])
+        out["proposta-itens"]["ctaTo"] = "proposta-item-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["proposta-item-novo"] = {
+        "title": "Novo item de proposta", "sub": "Só em proposta em rascunho/aprovada (ainda não enviada).", "cta": "Adicionar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/proposta-item-novo", "okMsg": "Item adicionado"},
+        "fields": [_sel("proposal_id", "Proposta*", prop), {"key": "name", "label": "Item*", "type": "text", "span": "span 2"},
+                   {"key": "unit", "label": "Unidade*", "type": "text", "span": "span 1", "ph": "posto / un / mês"},
+                   {"key": "quantity", "label": "Quantidade*", "type": "number", "span": "span 1"},
+                   {"key": "unit_price", "label": "Unitário (R$)*", "type": "number", "span": "span 1"},
+                   {"key": "discount_percent", "label": "Desconto (%)", "type": "number", "span": "span 1", "ph": "0"},
+                   {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"}]}
+    try:
+        out["condominios"] = await tbl(
+            "Condomínios", f"{await _scalar(db, 'SELECT count(*) FROM condominiums WHERE coalesce(ativo,true)')} condomínios atendidos (dado do cliente)", "Novo condomínio",
+            ["Condomínio", "Cliente", "CNPJ", "Bairro", "Unidades", "Status"], "2fr 1.6fr 1.2fr 1fr 0.7fr 0.8fr",
+            "SELECT c.name, coalesce(cl.name,'—'), coalesce(c.cnpj,'—'), coalesce(c.address_neighborhood,'—'), coalesce(c.total_units,0), coalesce(c.status::text,'—'), "
+            "c.id::text, coalesce(c.syndic_name,''), coalesce(c.syndic_phone,''), coalesce(c.address_street,''), coalesce(c.address_number,'') "
+            "FROM condominiums c LEFT JOIN clients cl ON cl.id=c.client_id WHERE coalesce(c.ativo,true) ORDER BY c.name LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), t(_cnpj(r[2]) if r[2] != '—' else '—'), t(r[3]), t(str(r[4])), b((r[5] or '—').capitalize(), "info")],
+            actionsfn=lambda r: [
+                {"title": f"Editar condomínio {r[0]}", "endpoint": f"/api/v1/clients/condominiums/{r[6]}", "method": "PUT", "btnLabel": "Editar",
+                 "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Condomínio atualizado. Recarregue.",
+                 "fields": [{"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                            {"key": "syndic_name", "label": "Síndico", "type": "text", "span": "span 1", "value": r[7]},
+                            {"key": "syndic_phone", "label": "Telefone do síndico", "type": "text", "span": "span 1", "value": r[8]},
+                            {"key": "address_street", "label": "Logradouro", "type": "text", "span": "span 1", "value": r[9]},
+                            {"key": "address_number", "label": "Número", "type": "text", "span": "span 1", "value": r[10]},
+                            {"key": "total_units", "label": "Unidades", "type": "number", "span": "span 1", "value": str(r[4])}]},
+                {"title": f"Remover condomínio {r[0]}", "endpoint": f"/api/v1/clients/condominiums/{r[6]}", "method": "DELETE", "btnLabel": "Remover",
+                 "submitLabel": "Remover", "btnStyle": "outline", "confirm": f"Remover {r[0]}?", "okMsg": "Condomínio removido. Recarregue.", "fields": []}])
+        out["condominios"]["ctaTo"] = "condominio-novo"
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["condominio-novo"] = {
+        "title": "Novo condomínio", "sub": "Condomínio atendido, vinculado ao cliente (administradora ou o próprio condomínio).", "cta": "Salvar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/condominio-novo", "okMsg": "Condomínio criado"},
+        "fields": [_sel("client_id", "Cliente*", cli), {"key": "name", "label": "Nome*", "type": "text", "span": "span 2"},
+                   {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1"}, {"key": "total_units", "label": "Unidades", "type": "number", "span": "span 1"},
+                   {"key": "address_street", "label": "Logradouro", "type": "text", "span": "span 1"}, {"key": "address_number", "label": "Número", "type": "text", "span": "span 1"},
+                   {"key": "address_neighborhood", "label": "Bairro", "type": "text", "span": "span 1"}, {"key": "address_city", "label": "Cidade", "type": "text", "span": "span 1", "ph": "Manaus"},
+                   {"key": "syndic_name", "label": "Síndico", "type": "text", "span": "span 1"}, {"key": "syndic_phone", "label": "Telefone do síndico", "type": "text", "span": "span 1"}]}
+    out["cliente-inadimplente"] = {
+        "title": "Marcar inadimplência", "sub": "Marca o cliente como inadimplente com o valor em aberto. Para regularizar, use o botão na linha do cliente.",
+        "cta": "Marcar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cliente-inadimplente", "okMsg": "Cliente marcado como inadimplente", "confirm": "Marcar o cliente como inadimplente?"},
+        "fields": [_sel("client_id", "Cliente*", cli), {"key": "debt_amount", "label": "Valor em aberto (R$)*", "type": "number", "span": "span 1"}]}
+    out["contrato-reajuste-calcular"] = {
+        "title": "Calcular reajuste de contrato", "sub": "Só calcula e mostra — não altera o contrato. Informe o percentual (o índice não é consultado automaticamente).",
+        "cta": "Calcular", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/contrato-reajuste-calcular", "okMsg": "Reajuste calculado", "showResult": True},
+        "fields": [_sel("contract_id", "Contrato*", ctr), {"key": "custom_percent", "label": "Percentual (%)*", "type": "number", "span": "span 1"},
+                   {"key": "effective_date", "label": "Vigência", "type": "date", "span": "span 1"}]}
