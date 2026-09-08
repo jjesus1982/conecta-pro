@@ -1041,6 +1041,14 @@ cada 6 h. A aba Certidões, o relatório de compliance do GED e os alertas do BI
 apagadas hoje ≈ 1.330 (de ~3.975); 0 botão morto no redesign; os relatórios dos revisores estão em
 `auditoria/qa/revisao_20260908/`. Regressão do arsenal e varredura dos oráculos rodando ao fim do dia.
 
+**Fechamento (17h):** a varredura dos oráculos e a regressão do arsenal apontaram o furo da poda: as tools de
+leitura do Hermes (`modules/ai/conversation/services/orquestrador/tools_read_*.py`) e três ações do redesign
+importam handlers de controller direto — os revisores não olharam lá. Restaurados 17 handlers (d5c7f3471),
+caçador novo aplicado (import de todo /app/modules + imports dos oráculos, dentro do container → 0 quebrado),
+follow-up em lote corrigido (DISTINCT ON), oráculos de escala e diaristas ajustados, base do arsenal subida
+com a decisão no commit (ed7b1df34). Vermelhos que ficam são ambiente, não código: sem usuário 'supervisor'
+(2 oráculos + RBAC), LLM sem crédito (decisão sua), permissão de arquivo no container (5_4b).
+
 **ATENÇÃO — hot-copy é volátil:** tudo que foi corrigido hoje está no ar por `docker cp` e no git, mas o
 bake noturno (`scripts/oraculos_diarios.sh` → imagem) **se recusa a assar enquanto houver WIP alheio em
 backend/** (hoje: `crm/services/contract_signature.py` e `scripts/gedeon/cnd_robot.py`, de outras
