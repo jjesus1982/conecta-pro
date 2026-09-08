@@ -214,3 +214,15 @@ async def delete_condominium(
 # =============================================================================
 
 
+# 08/09/2026 (QA E2E): restaurada — a home do redesign chama /clients/{id}/condominiums por cliente (CondominioProvider).
+@router.get("/{client_id}/condominiums", response_model=list[CondominiumListResponse])
+async def list_condominiums(
+    client_id: UUID,
+    current_user: CurrentActiveUser,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    service: ClientService = Depends(get_service),
+) -> list[CondominiumListResponse]:
+    """Lista condomínios do cliente."""
+    condominiums, _ = service.list_condominiums(client_id, skip, limit)
+    return condominiums

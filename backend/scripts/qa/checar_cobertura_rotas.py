@@ -29,7 +29,10 @@ REDESIGN = ["backend/modules/operacional/controllers/redesign_builders/*.py", "b
             "frontend/src/app/modulos/meu-espaco/**/*.tsx", "frontend/src/app/homologacao/**/*.tsx", "frontend/src/app/painel-ponto/**/*.tsx",
             "frontend/src/app/login/**/*.tsx", "frontend/src/app/candidato/**/*.tsx", "frontend/src/app/autocadastro-pj/**/*.tsx",
             "frontend/src/app/primeiro-acesso/**/*.tsx", "frontend/src/services/portal/*.ts", "frontend/src/hooks/useNotifications.ts",
-            "frontend/src/components/gdrive/*.tsx"]
+            "frontend/src/components/gdrive/*.tsx",
+            # providers do layout RAIZ (rodam em toda página, inclusive no redesign): CondominioProvider chama
+            # /clients e /clients/{id}/condominiums — apagar essa rota derrubou a home do redesign (QA 08/09)
+            "frontend/src/contexts/**/*.tsx", "frontend/src/contexts/**/*.ts"]
 INTERNA = ["mcp-server/server.py", "agents/**/*.py", "backend/modules/**/tasks*.py", "backend/modules/**/tasks/*.py",
            "backend/modules/ai/conversation/services/orquestrador/*.py", "backend/modules/**/services/*.py", "backend/core/**/*.py",
            "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py", "rotinas/**/*.sh",
