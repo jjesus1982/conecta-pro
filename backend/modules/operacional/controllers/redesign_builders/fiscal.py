@@ -241,6 +241,14 @@ async def build(db) -> dict:
     return out
 
 
+def _fmt_kpi(v, unidade: str) -> str:
+    u = (unidade or "").strip()
+    if u in ("R$", "BRL"):
+        return brl(v)
+    n = f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".").rstrip("0").rstrip(",")
+    return f"{n}{'%' if u == '%' else (' ' + u if u else '')}"
+
+
 async def _ligar_20260908(db, out: dict) -> None:
     """Rotas que existiam sem tela (revisão 100%, 08/09/2026). Cada bloco é independente:
     uma falha não derruba as outras."""
@@ -357,10 +365,9 @@ async def _ligar_20260908(db, out: dict) -> None:
         out["kpis-financeiros"] = {
             "title": "KPIs financeiros (beat)", "sub": "Os indicadores que o beat recalcula todo dia às 04:25.",
             "type": "dash", "panelGrid": "1fr",
-            "kpis": [{"v": (brl(r[1]) if r[2] == "R$" else f"{r[1]}{'%' if r[2] == '%' else ''}"), "l": r[0],
-                      "icon": _ICO_CALC, "color": "#0F1B3A"} for r in rows[:6]],
+            "kpis": [{"v": _fmt_kpi(r[1], r[2]), "l": r[0], "icon": _ICO_CALC, "color": "#0F1B3A"} for r in rows[:6]],
             "panels": [{"title": "Todos", "rows": [{"left": f"{r[0]} ({r[3]}) · {str(r[4])[:16]}",
-                                                   "right": brl(r[1]) if r[2] == "R$" else f"{r[1]} {r[2] or ''}"} for r in rows]}],
+                                                   "right": _fmt_kpi(r[1], r[2])} for r in rows]}],
         }
     except Exception as exc:  # noqa: BLE001
         logger.warning("tela kpis-financeiros: %s", exc)

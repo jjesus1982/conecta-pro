@@ -445,7 +445,11 @@ async def criar_diarista(db: AsyncSession, nome: str, cpf: str | None = None, pi
         {"n": nome, "c": cpf_n, "p": pix_n, "t": tel, "e": em.lower() if em else None})
     row = r.first()
     await db.commit()
-    return {"ok": True, "id": int(row[0]) if row else None, "ja_existia": row is None}
+    if row is None:  # devolvia ok=True sem gravar e descartava CPF/PIX informados (08/09/2026)
+        ex = (await db.execute(text("SELECT id FROM diaria_diaristas WHERE lower(nome) = lower(:n)"), {"n": nome})).first()
+        return {"ok": False, "id": int(ex[0]) if ex else None, "ja_existia": True,
+                "mensagem": f"Já existe diarista com o nome '{nome}' (id {ex[0] if ex else '?'}). Edite o cadastro existente."}
+    return {"ok": True, "id": int(row[0]), "ja_existia": False}
 
 
 async def remover_diarista(db: AsyncSession, diarista_id: int) -> dict[str, Any]:

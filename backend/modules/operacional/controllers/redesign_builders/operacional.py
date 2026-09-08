@@ -409,100 +409,6 @@ async def rd_action_alerta_ack(current_user: CurrentActiveUser, payload: dict = 
         lambda: acknowledge_alert(alert_id=aid, current_user=current_user, db=db), "reconhecido", "alerta")
 
 
-@router.post("/action/diarista-ativar")
-async def rd_action_diarista_ativar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    import uuid as _uuid
-
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    did = (payload.get("diarist_id") or "").strip()
-    try:
-        _did = _uuid.UUID(did)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="Selecione o diarista.")
-    return await _entry_gate(db, did, lambda: DiaristService(db).activate_diarist(_did), "ativado", "diarista")
-
-
-@router.post("/action/diarista-desativar")
-async def rd_action_diarista_desativar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    import uuid as _uuid
-
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    did = (payload.get("diarist_id") or "").strip()
-    try:
-        _did = _uuid.UUID(did)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="Selecione o diarista.")
-    return await _entry_gate(db, did, lambda: DiaristService(db).deactivate_diarist(_did), "desativado", "diarista")
-
-
-@router.post("/action/diarista-avaliar")
-async def rd_action_diarista_avaliar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristEvaluationCreate
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    did = (payload.get("diarist_id") or "").strip()
-    if not did:
-        raise HTTPException(status_code=400, detail="Selecione o diarista.")
-    try:
-        nota = int(payload.get("nota_geral") or 0)
-    except (ValueError, TypeError):
-        nota = 0
-    if not 1 <= nota <= 5:
-        raise HTTPException(status_code=400, detail="Nota geral deve ser de 1 a 5.")
-    cond = (await db.execute(_sqltext(
-        "SELECT condominio_id FROM diarist_schedules WHERE diarist_id::text=:d AND condominio_id IS NOT NULL "
-        "ORDER BY created_at DESC LIMIT 1"), {"d": did})).scalar()
-    if not cond:
-        raise HTTPException(status_code=400, detail="Diarista sem condomínio vinculado — não há contexto para avaliar.")
-    try:
-        data = DiaristEvaluationCreate(diarist_id=did, condominio_id=str(cond), avaliador_id=str(current_user.id),
-                                       avaliador_nome=(getattr(current_user, "name", "") or "—"),
-                                       nota_geral=nota, comentario=(payload.get("comentario") or None))
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-    try:
-        ev = await DiaristService(db).create_evaluation(data)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Falha ao avaliar: {e}")
-    return {"ok": True, "id": str(getattr(ev, "id", None)), "message": "Avaliação registrada"}
-
-
-@router.post("/action/diarista-fechamento")
-async def rd_action_diarista_fechamento(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    """Gera o FECHAMENTO de diaristas do mês = cria os registros DiaristPayment PENDENTE (op_write,
-    SEM dinheiro). O pagamento em si é gated OTP no financeiro (/action/pagar-diaristas). Reuso do
-    serviço; nunca move dinheiro aqui."""
-    from fastapi import HTTPException
-
-    from modules.operacional.controllers.redesign_write_gate import GateError, op_write
-    from modules.operacional.diaristas.schemas.diarist_schemas import PayrollGenerateRequest
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    cond = (payload.get("condominio_id") or "").strip()
-    comp = (payload.get("competencia") or "").strip()
-    if not cond:
-        raise HTTPException(status_code=400, detail="Selecione o condomínio.")
-    if len(comp) != 7 or comp[4] != "-":
-        raise HTTPException(status_code=400, detail="Informe a competência no formato AAAA-MM.")
-    try:
-        data = PayrollGenerateRequest(condominio_id=cond, competencia=comp)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-
-    try:
-        res = await op_write(db, real_write=lambda: DiaristService(db).generate_payroll_payments(data),
-                             idempotency_key=f"diar-fech:{cond}:{comp}")
-    except GateError as ge:
-        raise HTTPException(status_code=400, detail=str(ge))
-    tot = res.get("total_gerados", 0) if isinstance(res, dict) else 0
-    return {"ok": True, "total_gerados": tot,
-            "message": f"Fechamento gerado: {tot} pagamento(s) pendente(s). Pagamento é gated (OTP) no financeiro."}
-
-
 def _mgr_scope(current_user):
     """Scope de GESTOR p/ ações do redesign (mesmo padrão do quadro de presença).
     Humano-operado: a parede real é o RBAC do módulo no redesign + auth da rota."""
@@ -903,35 +809,6 @@ async def rd_action_substituicao_concluir(current_user: CurrentActiveUser, paylo
     return {"ok": True, "msg": "Substituição concluída."}
 
 
-@router.post("/action/diarista-escala-criar")
-async def rd_action_diarista_escala_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    """Agenda um diarista (diarist_schedules) — reuso do DiaristService.create_schedule.
-    Dá create-path à tabela diarist_schedules (antes só-leitura no redesign). valor_previsto ≠ pagamento (OTP fica no financeiro)."""
-    import uuid as _uuid
-
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristScheduleCreate
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    try:
-        did = _uuid.UUID((payload.get("diarist_id") or "").strip())
-        cond = _uuid.UUID((payload.get("condominio_id") or "").strip())
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="Selecione diarista e condomínio.")
-    if not (payload.get("data_trabalho") or "").strip():
-        raise HTTPException(status_code=400, detail="Informe a data de trabalho.")
-    kw = {"diarist_id": did, "condominio_id": cond, "data_trabalho": payload["data_trabalho"].strip()}
-    for k in ("hora_inicio", "hora_fim", "valor_previsto", "observacoes"):
-        if payload.get(k):
-            kw[k] = payload[k]
-    try:
-        data = DiaristScheduleCreate(**kw)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-    r = await DiaristService(db).create_schedule(data)
-    return {"ok": True, "msg": "Escala de diarista criada.", "id": str(getattr(r, "id", "") or "")}
-
-
 @router.post("/action/banco-horas-editar")
 async def rd_action_bh_editar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Edita um lançamento de banco de horas PENDENTE (horas/motivo/descrição) — reuso do update_entry."""
@@ -983,66 +860,6 @@ async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dic
     res = await excluir_lancamento(db, _lid)
     await db.commit()
     return {"ok": True, "msg": (res.get("message") if isinstance(res, dict) else None) or "Lançamento de diária excluído."}
-
-
-@router.post("/action/diarista-assignment-criar")
-async def rd_action_assignment_criar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    """Cria uma alocação recorrente de diarista (diarist_assignments — tabela própria, NÃO allocations).
-    Reuso do DiaristService.create_assignment."""
-    import uuid as _uuid
-
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.schemas.diarist_schemas import DiaristAssignmentCreate
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    try:
-        did = _uuid.UUID((payload.get("diarist_id") or "").strip())
-        cond = _uuid.UUID((payload.get("condominio_id") or "").strip())
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="Selecione diarista e condomínio.")
-    if not (payload.get("data_inicio") or "").strip():
-        raise HTTPException(status_code=400, detail="Informe a data de início.")
-    kw = {"diarist_id": did, "condominio_id": cond,
-          "servico_tipo": (payload.get("servico_tipo") or "portaria").strip(),
-          "data_inicio": payload["data_inicio"].strip()}
-    for k in ("data_fim", "servico_descricao", "local_servico"):
-        if payload.get(k):
-            kw[k] = payload[k]
-    try:
-        data = DiaristAssignmentCreate(**kw)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-    r = await DiaristService(db).create_assignment(data)
-    return {"ok": True, "msg": "Alocação de diarista criada.", "id": str(getattr(r, "id", "") or "")}
-
-
-@router.post("/action/diarista-assignment-cancelar")
-async def rd_action_assignment_cancelar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
-    """Cancela uma alocação recorrente de diarista — reuso do DiaristService.cancel_assignment."""
-    import uuid as _uuid
-
-    from fastapi import HTTPException
-
-    from modules.operacional.diaristas.services.diarist_service import DiaristService
-    try:
-        _aid = _uuid.UUID((payload.get("assignment_id") or "").strip())
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="Selecione a alocação.")
-    ok = await DiaristService(db).cancel_assignment(_aid)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Alocação não encontrada.")
-    return {"ok": True, "msg": "Alocação cancelada."}
-
-
-# F0: menu extra ZERADO — as antigas entradas de ação viram ABAS dos 8 grupos (_op_grupos.py),
-# igual ao financeiro. A navegação agrupada evita a sidebar com 60+ itens soltos.
-EXTRA_MENU: list[dict] = [
-    {"id": "consultor-op", "label": "Consultor operacional", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
-    {"id": "consultor-op-arquivo", "label": "Consultor operacional — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
-    {"id": "otimizar-escala", "label": "Otimizador de escala (dia)", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
-    {"id": "otimizar-escala-mes", "label": "Otimizador de escala (mes)", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
-    {"id": "diarista-alocar", "label": "Alocar diarista", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
-]
 
 
 async def build(db) -> dict:
@@ -1989,64 +1806,10 @@ async def build(db) -> dict:
             ]}
         _di_on = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
         _di_off = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists WHERE NOT coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
-        _di_all = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM diarists ORDER BY nome LIMIT 300"))).fetchall()
-        _diopt = lambda rows: [{"value": str(i), "label": n} for i, n in rows]
-        out["diarista-ativar"] = {
-            "title": "Ativar diarista", "sub": "Reativa um diarista inativo", "cta": "Ativar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-ativar", "okMsg": "Diarista ativado"},
-            "fields": [{"key": "diarist_id", "label": "Diarista (inativo)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_off)}]}
-        out["diarista-desativar"] = {
-            "title": "Desativar diarista", "sub": "Desativa um diarista ativo", "cta": "Desativar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-desativar", "okMsg": "Diarista desativado"},
-            "fields": [{"key": "diarist_id", "label": "Diarista (ativo)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)}]}
-        out["diarista-avaliar"] = {
-            "title": "Avaliar diarista", "sub": "Registra avaliação (nota 1–5) de um diarista", "cta": "Avaliar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-avaliar", "okMsg": "Avaliação registrada"},
-            "fields": [{"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_all)},
-                       {"key": "nota_geral", "label": "Nota geral (1–5)*", "type": "select", "span": "span 1", "ph": "Nota",
-                        "options": [{"value": str(k), "label": str(k)} for k in (1, 2, 3, 4, 5)]},
-                       {"key": "comentario", "label": "Comentário", "type": "textarea", "span": "span 2", "ph": "Opcional…"}]}
-        _conds = (await db.execute(_sqltext("SELECT id, coalesce(nome,'—') FROM condominios WHERE coalesce(ativo,true) ORDER BY nome LIMIT 300"))).fetchall()
-        out["diarista-fechamento"] = {
-            "title": "Gerar fechamento de diaristas", "sub": "Cria os pagamentos PENDENTES do mês · pagamento é gated (OTP) no financeiro", "cta": "Gerar fechamento",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-fechamento", "okMsg": "Fechamento gerado"},
-            "fields": [{"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
-                        "options": [{"value": str(i), "label": n} for i, n in _conds]},
-                       {"key": "competencia", "label": "Competência (AAAA-MM)*", "type": "text", "span": "span 1", "ph": "2026-07"}]}
-        out["diarista-escala-criar"] = {
-            "title": "Escalar diarista (agenda)", "sub": "Agenda um diarista para um dia num condomínio (valor previsto ≠ pagamento)", "cta": "Escalar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-escala-criar", "okMsg": "Escala criada"},
-            "fields": [
-                {"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)},
-                {"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
-                 "options": [{"value": str(i), "label": n} for i, n in _conds]},
-                {"key": "data_trabalho", "label": "Data*", "type": "date", "span": "span 1"},
-                {"key": "hora_inicio", "label": "Início", "type": "text", "span": "span 1", "ph": "HH:MM (pad 08:00)"},
-                {"key": "hora_fim", "label": "Fim", "type": "text", "span": "span 1", "ph": "HH:MM (pad 17:00)"},
-                {"key": "valor_previsto", "label": "Valor previsto (R$)", "type": "text", "span": "span 1", "ph": "Opcional"},
-                {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
-            ]}
-        out["diarista-assignment-criar"] = {
-            "title": "Alocar diarista (recorrente)", "sub": "Vincula um diarista a um condomínio por um período", "cta": "Alocar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-assignment-criar", "okMsg": "Alocação criada"},
-            "fields": [
-                {"key": "diarist_id", "label": "Diarista*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _diopt(_di_on)},
-                {"key": "condominio_id", "label": "Condomínio*", "type": "select", "span": "span 2", "ph": "Selecione",
-                 "options": [{"value": str(i), "label": n} for i, n in _conds]},
-                {"key": "servico_tipo", "label": "Tipo de serviço", "type": "text", "span": "span 1", "ph": "Ex.: portaria"},
-                {"key": "data_inicio", "label": "Início*", "type": "date", "span": "span 1"},
-                {"key": "data_fim", "label": "Fim", "type": "date", "span": "span 1"},
-                {"key": "servico_descricao", "label": "Descrição", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
-            ]}
-        _asg = (await db.execute(_sqltext(
-            "SELECT a.id, coalesce(d.nome,'—'), a.data_inicio FROM diarist_assignments a "
-            "LEFT JOIN diarists d ON d.id=a.diarist_id WHERE coalesce(a.ativo,true) "
-            "ORDER BY a.data_inicio DESC NULLS LAST LIMIT 200"))).fetchall()
-        out["diarista-assignment-cancelar"] = {
-            "title": "Cancelar alocação de diarista", "sub": "Encerra uma alocação recorrente ativa", "cta": "Cancelar",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/diarista-assignment-cancelar", "okMsg": "Alocação cancelada"},
-            "fields": [{"key": "assignment_id", "label": "Alocação ativa*", "type": "select", "span": "span 2", "ph": "Selecione",
-                        "options": [{"value": str(i), "label": f"{n} · desde {_fmtdate(dt)}"} for i, n, dt in _asg]}]}
+        # Telas do universo diarist_* (ativar/desativar/avaliar/fechamento/escala/alocação) APOSENTADAS em
+        # 08/09/2026: 0 linhas desde jan/2026 e serviço quebrado em todo caminho de escrita (enum × varchar,
+        # campos inexistentes). O cadastro vivo é diaria_* (aba 'diarias'); o fechamento vivo é o de
+        # financial_pagamentos_diaristas no financeiro.
         _dl = (await db.execute(_sqltext(
             "SELECT l.id, coalesce(l.posto,'—'), l.data, coalesce(l.funcao,'—') FROM diaria_lancamentos l "
             "WHERE l.status='lancado' ORDER BY l.data DESC NULLS LAST LIMIT 300"))).fetchall()
