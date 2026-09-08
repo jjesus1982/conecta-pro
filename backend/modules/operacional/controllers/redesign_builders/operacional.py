@@ -228,11 +228,28 @@ async def rd_action_escala_rejeitar(current_user: CurrentActiveUser, payload: di
 
 @router.post("/action/escala-publicar")
 async def rd_action_escala_publicar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    import asyncio as _aio
+
+    from fastapi import HTTPException
+
+    from modules.operacional.publishers import publish_escala_publicada
     from modules.operacional.repositories.scale_repository import ScaleRepository
     aid = (payload.get("scale_id") or "").strip()
     repo = ScaleRepository(db)
-    return await _scale_action(db, aid,
+    # Mesma guarda do controller clássico (scale_controller.publish_scale): escala sem turno não publica.
+    if aid:
+        n_turnos = (await db.execute(_sqltext("SELECT count(*) FROM shifts WHERE scale_id::text=:sid"), {"sid": aid})).scalar() or 0
+        if not n_turnos:
+            raise HTTPException(status_code=422, detail="escala sem turnos — gere os turnos antes de publicar")
+    out = await _scale_action(db, aid,
         lambda: repo.publish(aid, str(current_user.id)), "publicada")
+    sc = await repo.get_by_id(aid)
+    if sc is not None:
+        _aio.create_task(publish_escala_publicada(
+            escala_id=aid, cliente_id=None,
+            competencia=f"{sc.year}-{int(sc.month):02d}" if getattr(sc, "month", None) and getattr(sc, "year", None) else None,
+            total_turnos=int(getattr(sc, "total_shifts", 0) or 0), funcionarios=[]))
+    return out
 
 
 async def _entry_gate(db, entry_id, coro_factory, ok_status, noun="registro"):
@@ -1832,8 +1849,9 @@ async def build(db) -> dict:
     # Forms do ciclo de escala (submeter/aprovar/rejeitar/publicar) — selects por status real.
     # Sólides é fonte da verdade; aqui só o CICLO das nossas escalas, sem gerar/sobrescrever cego.
     try:
-        _sq = ("SELECT id, coalesce(name,'—'), month, year FROM scales "
-               "WHERE coalesce(is_active,true) AND status::text=:st ORDER BY year DESC NULLS LAST, month DESC NULLS LAST LIMIT 200")
+        # Rótulo leva o POSTO: sem ele as 7 escalas do mês eram indistinguíveis no select (medido 07/09/2026).
+        _sq = ("SELECT s.id, coalesce(p.name, s.name, '—'), s.month, s.year FROM scales s LEFT JOIN posts p ON p.id=s.post_id "
+               "WHERE coalesce(s.is_active,true) AND s.status::text=:st ORDER BY s.year DESC NULLS LAST, s.month DESC NULLS LAST, p.name LIMIT 200")
         _s_draft = (await db.execute(_sqltext(_sq), {"st": "draft"})).fetchall()
         _s_pend = (await db.execute(_sqltext(_sq), {"st": "pending_approval"})).fetchall()
         _s_appr = (await db.execute(_sqltext(_sq), {"st": "approved"})).fetchall()
@@ -1857,7 +1875,8 @@ async def build(db) -> dict:
             "title": "Publicar escala", "sub": "Publica uma escala aprovada (envia aos funcionários)", "cta": "Publicar",
             "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/escala-publicar", "okMsg": "Escala publicada"},
             "fields": [{"key": "scale_id", "label": "Escala (aprovada)*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _sopt(_s_appr)}]}
-    except Exception:  # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("redesign operacional: forms do ciclo de escala falharam: %s", _e)
         await db.rollback()
 
     # Forms de aprovação de banco de horas (select lançamentos pendentes)
