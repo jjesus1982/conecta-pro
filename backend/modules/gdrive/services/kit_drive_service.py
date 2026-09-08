@@ -215,7 +215,7 @@ class KitDriveService:
                 detalhes.append({"arquivo": file_name, "status": "erro", "detalhe": str(exc)})
 
         # 6. Gerar link da pasta do mês
-        share_link = gdrive_service.obter_link_pasta(month_folder, tornar_publico=True)
+        share_link = gdrive_service.obter_link_pasta(month_folder, tornar_publico=False)  # holerites não podem ser públicos por link (08/09/2026)
 
         # 7. Salvar kit no banco (gdrive_kits + ged_document_kits.google_drive_link)
         _exec(

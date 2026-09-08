@@ -78,17 +78,14 @@ class EmailKitService:
     def _buscar_email_cliente(self, client_id: str) -> str | None:
         """Buscar e-mail do cliente no banco."""
         # G1: ged_clients.contact_email é a fonte correta (clients.email é NULL para todos os kits GED)
+        import re as _re
+        if not _re.fullmatch(r"[0-9a-fA-F-]{36}", str(client_id or "")):  # id vai num shell: só UUID passa (08/09/2026)
+            return None
         rows = _psql(f"SELECT contact_email FROM ged_clients WHERE id='{client_id}' LIMIT 1")
         if rows and rows[0].strip():
             return rows[0].strip()
-        # Fallback: crm_contacts
-        rows = _psql(
-            f"SELECT cc.email FROM crm_contacts cc "
-            f"JOIN ged_clients gc ON gc.id='{client_id}' "
-            f"WHERE cc.email IS NOT NULL LIMIT 1"
-        )
-        if rows:
-            return rows[0].strip()
+        # Fallback por crm_contacts REMOVIDO (08/09/2026): era JOIN cartesiano — mandava o kit
+        # (holerites) para o contato de OUTRO cliente. Sem e-mail no ged_clients, não envia.
         return None
 
     def _nome_mes(self, competencia: str) -> str:

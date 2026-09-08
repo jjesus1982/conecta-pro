@@ -6,7 +6,7 @@ Endpoints para status, autorização OAuth2 e envio de kits ao Google Drive.
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,97 +81,6 @@ async def gdrive_status(
 
 
 # ── AUTORIZAR ──────────────────────────────────────────────────────────────────
-
-
-@router.post("/autorizar")
-async def gdrive_autorizar(
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Retorna URL de autorização do Google Drive (OAuth2 / service account).
-    Se já conectado, confirma o status.
-    """
-    svc = _drive_service(db)
-    creds = await svc.check_credentials()
-
-    if creds.get("configured"):
-        return {
-            "ja_autorizado": True,
-            "mensagem": "Google Drive já está conectado.",
-            "url_autorizacao": None,
-        }
-
-    # Sem credenciais: retornar guia de configuração
-    return {
-        "ja_autorizado": False,
-        "mensagem": (
-            "Para conectar o Google Drive, faça upload do arquivo "
-            "de service account (JSON) em: "
-            "/opt/conecta-pro/config/google_drive_credentials.json"
-        ),
-        "url_autorizacao": "/modulos/gestao-pessoas/ged/configuracoes",
-        "instrucoes": [
-            "1. Acesse Google Cloud Console → IAM → Service Accounts",
-            "2. Crie uma conta de serviço com permissão ao Drive",
-            "3. Baixe a chave JSON",
-            "4. Faça upload via: POST /api/v1/gdrive/credenciais",
-        ],
-    }
-
-
-# ── LISTA DE KITS NO DRIVE ─────────────────────────────────────────────────────
-
-
-@router.get("/kits")
-async def listar_kits_drive(
-    client_id: str | None = None,
-    current_user=Depends(get_current_user),
-):
-    """Listar todos os kits montados no Drive."""
-    from modules.gdrive.services.kit_drive_service import kit_drive_service
-
-    kits = kit_drive_service.listar_kits_drive(client_id)
-    return {"total": len(kits), "kits": kits}
-
-
-# ── STATUS DE INGESTÃO ─────────────────────────────────────────────────────────
-
-
-@router.get("/ingestao/status")
-async def gdrive_ingestao_status(
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Status da última sincronização/ingestão de kits para o Drive."""
-    from sqlalchemy import text as sa_text
-
-    rows = await db.execute(
-        sa_text(
-            "SELECT "
-            "  COUNT(*) FILTER (WHERE google_drive_link IS NOT NULL) AS enviados, "
-            "  COUNT(*) FILTER (WHERE google_drive_link IS NULL) AS pendentes, "
-            "  COUNT(*) AS total, "
-            "  MAX(updated_at)::text AS ultima_atualizacao "
-            "FROM ged_document_kits"
-        )
-    )
-    row = dict(rows.mappings().one())
-
-    svc = _drive_service(db)
-    creds = await svc.check_credentials()
-
-    return {
-        "drive_conectado": creds.get("configured", False),
-        "kits_enviados": row.get("enviados", 0),
-        "kits_pendentes": row.get("pendentes", 0),
-        "total_kits": row.get("total", 0),
-        "ultima_atualizacao": row.get("ultima_atualizacao"),
-        "status": "ativo" if creds.get("configured") else "aguardando_autorizacao",
-    }
-
-
-# ── MONTAR E ENVIAR ────────────────────────────────────────────────────────────
 
 
 @router.post("/kits/{cliente_id}/{competencia}/montar-e-enviar")
@@ -292,13 +201,17 @@ async def enviar_kit_email(
     destinatario: str | None = None,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    body: dict | None = Body(None),
 ):
     """
     Enviar kit por e-mail.
     Link para kits > 10MB, anexos para menores.
+    08/09/2026: o redesign manda `destinatario` no corpo JSON — aceita query e corpo.
     """
     from modules.gdrive.services.email_kit_service import email_kit_service
 
+    if not destinatario and isinstance(body, dict):
+        destinatario = (body.get("destinatario") or "").strip() or None
     resultado = email_kit_service.enviar_kit_por_email(
         client_id=client_id,
         competencia=competencia,
@@ -354,21 +267,6 @@ async def montar_kit_drive(
     tipo_kit = row["tipo_kit"] if row else "maos_de_obra"
     resultado = await kit_drive_service.montar_kit_no_drive(client_id, competencia, tipo_kit)
     return resultado
-
-
-@router.get("/kits/{client_id}/{competencia}/link")
-async def obter_link_kit(
-    client_id: str,
-    competencia: str,
-    current_user=Depends(get_current_user),
-):
-    """Obter link do kit já montado no Drive."""
-    from modules.gdrive.services.kit_drive_service import kit_drive_service
-
-    link = kit_drive_service.obter_link_kit(client_id, competencia)
-    if not link:
-        raise HTTPException(status_code=404, detail="Kit não encontrado no Drive")
-    return {"share_link": link, "client_id": client_id, "competencia": competencia}
 
 
 @router.get("/portal/{client_id}/kits")

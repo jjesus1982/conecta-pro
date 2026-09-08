@@ -80,7 +80,7 @@ async def _conciliar_invoice(invoice_id: str, event_type: str) -> None:
         res = await db.execute(
             text(
                 "UPDATE receivable_accounts SET "
-                "status = CASE WHEN :st = 'PAID' THEN 'pago' ELSE status END, "
+                "status = CASE WHEN :st = 'PAID' THEN 'paga' ELSE status END, "
                 "updated_at = NOW() "
                 "WHERE pix_txid = :iid OR pix_txid = :code "
                 "   OR metadata->>'cora_invoice_id' = :iid"

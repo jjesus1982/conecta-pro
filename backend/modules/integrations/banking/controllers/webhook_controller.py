@@ -9,8 +9,9 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Depends
 
+from core.auth.dependencies import get_current_user
 router = APIRouter(prefix="/webhooks", tags=["Webhooks — Inter"])
 logger = logging.getLogger(__name__)
 INTER_WEBHOOK_SECRET = os.getenv("INTER_WEBHOOK_SECRET", "")  # pragma: allowlist secret
@@ -122,7 +123,7 @@ async def _processar_pix_recebido(pix_data: dict) -> dict:
                 created_at, updated_at
             ) VALUES (
                 gen_random_uuid(), %s::uuid, 'credito', 'pix_recebido',
-                %s, %s, NOW(),
+                %s, %s, (now() AT TIME ZONE 'America/Manaus'),
                 %s, %s, 'pendente', %s,
                 NOW(), NOW()
             )
@@ -156,8 +157,8 @@ async def _processar_pix_recebido(pix_data: dict) -> dict:
             cur.execute(
                 """
                 UPDATE receivable_accounts SET
-                    status = 'recebido',
-                    data_recebimento = CURRENT_DATE,
+                    status = 'paga',
+                    data_recebimento = (now() AT TIME ZONE 'America/Manaus')::date,
                     transacao_bancaria_id = %s,
                     updated_at = NOW()
                 WHERE pix_txid = %s
@@ -177,12 +178,14 @@ async def _processar_pix_recebido(pix_data: dict) -> dict:
                     "metodo": "txid",
                 }
 
-        # Fallback: conciliar por valor + janela de 7 dias
+        # Fallback por valor DESLIGADO (08/09/2026): dois clientes com a mesma mensalidade viravam um só.
+        conn.commit()
+        return {"conciliado": False, "motivo": "PIX sem txid conhecido — conciliar pelo extrato", "e2e_id": e2e_id, "valor": valor}
         cur.execute(
             """
             UPDATE receivable_accounts SET
-                status = 'recebido',
-                data_recebimento = CURRENT_DATE,
+                status = 'paga',
+                data_recebimento = (now() AT TIME ZONE 'America/Manaus')::date,
                 transacao_bancaria_id = %s,
                 updated_at = NOW()
             WHERE id = (
@@ -228,6 +231,8 @@ async def _processar_boleto_pago(boleto_data: dict) -> dict:
         boleto_id = boleto_data.get("codigoSolicitacao", "")
         valor = float(boleto_data.get("valorTotal", 0) or 0)
         situacao = str(boleto_data.get("situacao", "")).upper()
+        if not boleto_id:  # sem código, o ILIKE '%%' marcava TODOS os pendentes como pagos (08/09/2026)
+            return {"boleto_id": "", "situacao": situacao, "conciliado": False, "ignorado": "evento sem codigoSolicitacao"}
 
         # Só PAGAMENTO concilia. EXPIRADO/CANCELADO/A_RECEBER etc. são registrados e
         # ignorados — antes deste guard, QUALQUER evento marcaria a fatura como recebida.
@@ -238,8 +243,8 @@ async def _processar_boleto_pago(boleto_data: dict) -> dict:
         cur.execute(
             """
             UPDATE receivable_accounts SET
-                status = 'recebido',
-                data_recebimento = CURRENT_DATE,
+                status = 'paga',
+                data_recebimento = (now() AT TIME ZONE 'America/Manaus')::date,
                 updated_at = NOW()
             WHERE (boleto_number ILIKE %s OR pix_txid = %s)
               AND status = 'pendente'
@@ -287,7 +292,7 @@ async def webhook_pix(
         logger.info("Webhook PIX Inter: %s", str(payload)[:200])
         _log_webhook(payload, "pix", "/webhooks/inter/pix")
 
-        pix_list = payload.get("pix", [payload])
+        pix_list = payload if isinstance(payload, list) else payload.get("pix", [payload])
         resultados = []
         for pix in pix_list:
             resultado = await _processar_pix_recebido(pix)
@@ -297,7 +302,7 @@ async def webhook_pix(
 
     except Exception as e:
         logger.error("Webhook PIX erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)
 
 
 @router.post(
@@ -324,7 +329,7 @@ async def webhook_boleto(request: Request):
         return {"status": "ok", "processados": len(resultados), "resultados": resultados}
     except Exception as e:
         logger.error("Webhook Boleto erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)
 
 
 def _build_inter_adapter():
@@ -356,7 +361,7 @@ def _build_inter_adapter():
 
 
 @router.post("/inter/configurar", summary="Configurar webhooks no painel Inter")
-async def configurar_webhooks_inter():
+async def configurar_webhooks_inter(_user: dict = Depends(get_current_user)):
     """
     Registra os webhooks no Banco Inter apontando para
     os endpoints do Conecta PRO.
@@ -382,7 +387,7 @@ async def configurar_webhooks_inter():
 
 
 @router.get("/inter/status", summary="Status dos webhooks configurados")
-async def status_webhooks():
+async def status_webhooks(_user: dict = Depends(get_current_user)):
     """Consulta webhooks configurados no Inter."""
     adapter, erro = _build_inter_adapter()
     if adapter is None:
@@ -442,7 +447,7 @@ async def webhook_pagamento_pix(request: Request):
         return {"status": "ok", "tipo": "pagamento_pix", "valor": valor, "conciliado": conciliado}
     except Exception as e:
         logger.error("Webhook pagamento PIX erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)
 
 
 @router.post(
@@ -491,7 +496,7 @@ async def webhook_pagamento_boleto(request: Request):
         return {"status": "ok", "tipo": "pagamento_boleto", "valor": valor, "conciliado": conciliado}
     except Exception as e:
         logger.error("Webhook pagamento boleto erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)
 
 
 @router.post(
@@ -509,7 +514,7 @@ async def webhook_recorrencia(request: Request):
         return {"status": "ok", "tipo": "recorrencia", "payload": payload}
     except Exception as e:
         logger.error("Webhook recorrência erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)
 
 
 @router.post(
@@ -539,8 +544,8 @@ async def webhook_cobranca_recorrente(request: Request):
                 cur.execute(
                     """
                     UPDATE receivable_accounts SET
-                        status = 'recebido',
-                        data_recebimento = CURRENT_DATE,
+                        status = 'paga',
+                        data_recebimento = (now() AT TIME ZONE 'America/Manaus')::date,
                         updated_at = NOW()
                     WHERE pix_txid = %s
                       AND status = 'pendente'
@@ -560,4 +565,4 @@ async def webhook_cobranca_recorrente(request: Request):
         return {"status": "ok", "tipo": "cobranca_recorrente", "valor": valor, "conciliado": conciliado}
     except Exception as e:
         logger.error("Webhook cobrança recorrente erro: %s", e)
-        return {"status": "erro", "detalhe": str(e)}
+        raise HTTPException(status_code=500, detail="erro interno ao processar webhook")  # 5xx faz o Inter reenviar (08/09/2026)

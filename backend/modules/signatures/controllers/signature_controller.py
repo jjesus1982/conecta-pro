@@ -87,6 +87,8 @@ async def criar_solicitacao(
 ) -> Any:
     """Cria a solicitação. Requer Bearer (admin ou portal); usa o sub como requester."""
     requested_by = _resolve_requester(credentials)
+    if requested_by is None:  # 08/09/2026: sem token criava solicitação no tenant default
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Autenticação obrigatória.")
     svc = UniversalSignatureService(db)
 
     try:
@@ -139,7 +141,10 @@ async def status_documento(
     document_type: str = Path(...),
     document_id: str = Path(...),
     db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> Any:
+    if _decode_sub(credentials) is None:  # 08/09/2026: status de assinatura era público
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Autenticação obrigatória.")
     svc = UniversalSignatureService(db)
     return await svc.status(document_type=document_type, document_id=document_id)
 
@@ -563,6 +568,8 @@ async def public_sign(
     # No contrato a ordem é decisão do Jordan e tem efeito jurídico: o cliente não pode
     # firmar um instrumento que a CONTRATADA ainda não firmou. Link vaza, é encaminhado e
     # vale 30 dias — processo não é trava.
+    if not await _limite_ok(f"sig:pin:{token}", 6, 900):  # 08/09/2026: PIN de 6 dígitos sem limite de tentativas
+        raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 15 minutos e peça um novo código.")
     req_ord = await svc._get_request_by_token(token)  # noqa: SLF001
     if req_ord is not None and (req_ord.document_type or "").lower() in {"contrato", "contract"}:
         pendente_antes = (await db.execute(sa_text(

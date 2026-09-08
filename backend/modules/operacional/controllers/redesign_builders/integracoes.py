@@ -134,12 +134,14 @@ async def build(db) -> dict:
         "title": "Avisar o cliente da NFS-e por WhatsApp",
         "sub": "Manda a notificação da nota emitida. Efeito EXTERNO: a mensagem sai agora.",
         "cta": "Enviar", "type": "form",
-        "submit": {"endpoint": "/api/v1/whatsapp/send/nfse-notification", "query": True,
+        "submit": {"endpoint": "/api/v1/whatsapp/send/nfse-notification",
                    "okMsg": "Notificação enviada", "showResult": True,
                    "confirm": "Envia a mensagem ao cliente AGORA. Confirma?"},
-        "fields": [
-            {"key": "user_id", "label": "Destinatario (id do usuário)*", "type": "text",
-             "span": "span 2"},
+        "fields": [  # 08/09/2026: a rota exige JSON (phone, client_name, nfse_number, value); mandava user_id na query → 422
+            {"key": "phone", "label": "WhatsApp do cliente*", "type": "text", "span": "span 1", "ph": "+5592..."},
+            {"key": "client_name", "label": "Nome do cliente*", "type": "text", "span": "span 1"},
+            {"key": "nfse_number", "label": "Número da NFS-e*", "type": "text", "span": "span 1"},
+            {"key": "value", "label": "Valor (R$)*", "type": "number", "span": "span 1"},
         ],
     }
 

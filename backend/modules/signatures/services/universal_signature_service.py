@@ -42,7 +42,7 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.ai.signature.models.signature import (
@@ -1098,6 +1098,7 @@ class UniversalSignatureService:
                 SignatureRequest.signer_type == str(SignerType.EMPLOYEE),
                 SignatureRequest.signer_id == employee_id,
                 SignatureRequest.status.in_([str(s) for s in self._PENDING_STATUSES]),
+                or_(SignatureRequest.expires_at.is_(None), SignatureRequest.expires_at > datetime.now()),  # vencidas não são "a assinar" (08/09/2026)
             )
             .order_by(SignatureRequest.created_at.asc())
         )

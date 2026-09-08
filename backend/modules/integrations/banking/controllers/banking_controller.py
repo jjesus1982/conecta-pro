@@ -7,7 +7,7 @@ Endpoints para consulta de saldos, extratos e status de conexão.
 import asyncio
 import logging
 import os
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -375,56 +375,6 @@ async def get_bank_balances(
     )
 
 
-@router.get("/statement", response_model=BankingStatementResponse)
-async def get_bank_statement(
-    days: int = Query(default=30, ge=1, le=365),
-    bank_code: str | None = Query(default=None),
-    current_user=Depends(get_current_user),
-):
-    """Consulta extrato bancário recente."""
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days)
-
-    transactions: list[BankTransactionItem] = []
-    service = _get_banking_service()
-
-    banks_to_query = []
-    if bank_code:
-        banks_to_query.append(bank_code)
-    else:
-        banks_to_query = ["077"]
-
-    for code in banks_to_query:
-        try:
-            statement = await service.get_statement(code, start_date, end_date)
-            for tx in statement.transactions:
-                tx_type = "credit" if tx.amount >= 0 else "debit"
-                transactions.append(
-                    BankTransactionItem(
-                        id=tx.transaction_id,
-                        bank_code=code,
-                        date=tx.date.isoformat() if tx.date else "",
-                        description=tx.description or "",
-                        amount=float(abs(tx.amount)),
-                        type=tx_type,
-                        category=str(tx.transaction_type) if tx.transaction_type else None,
-                    )
-                )
-        except Exception as exc:
-            logger.debug("Extrato indisponível para banco %s: %s", code, str(exc))
-
-    total_credits = sum(t.amount for t in transactions if t.type == "credit")
-    total_debits = sum(t.amount for t in transactions if t.type == "debit")
-
-    return BankingStatementResponse(
-        transactions=transactions,
-        total_credits=total_credits,
-        total_debits=total_debits,
-        period_start=start_date.isoformat(),
-        period_end=end_date.isoformat(),
-    )
-
-
 @router.get("/status", response_model=list[BankConnectionStatus])
 async def get_bank_status(
     current_user=Depends(get_current_user),
@@ -675,45 +625,6 @@ async def generate_pix_charge(
         )
 
 
-@router.get("/boleto", include_in_schema=False)
-@router.get("/boleto/list", response_model=BoletoListResponse)
-async def list_boletos(
-    bank_code: str | None = Query(default=None),
-    status: str | None = Query(default=None),
-    days: int = Query(default=30, ge=1, le=365),
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Lista boletos emitidos via Banco Inter (lê a tabela inter_cobrancas)."""
-    from sqlalchemy import text as _text
-    boletos: list[BoletoListItem] = []
-    try:
-        rows = await db.execute(_text(
-            """SELECT cobranca_id_inter, valor, vencimento, pagador, status,
-                      url_boleto, pix_copia_cola, barcode, linha_digitavel, descricao, created_at
-               FROM inter_cobrancas
-               WHERE created_at >= now() - make_interval(days => :d)
-               ORDER BY created_at DESC"""), {"d": days})
-        for r in rows.mappings().all():
-            if status and (r["status"] or "").upper() != status.upper():
-                continue
-            pag = r["pagador"] if isinstance(r["pagador"], dict) else {}
-            boletos.append(BoletoListItem(
-                boleto_id=str(r["cobranca_id_inter"] or ""),
-                bank_code="077", bank_name="Banco Inter",
-                amount=float(r["valor"] or 0),
-                due_date=str(r["vencimento"] or "")[:10],
-                payer_name=(pag.get("nome") or "") if pag else "",
-                status=r["status"] or "A_RECEBER",
-                barcode=r["barcode"], digitable_line=r["linha_digitavel"],
-                pdf_url=r["url_boleto"] or (r["pix_copia_cola"] or None),
-                created_at=r["created_at"].isoformat() if r["created_at"] else None,
-            ))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("list_boletos (inter_cobrancas): %s", e)
-    return BoletoListResponse(boletos=boletos, total=len(boletos))
-
-
 @router.get("/statement/full", response_model=BankStatementFullResponse)
 async def get_bank_statement_full(
     days: int = Query(default=30, ge=1, le=365),
@@ -833,20 +744,6 @@ async def get_boleto(
     return await adapter.get_boleto(boleto_id)
 
 
-@router.delete("/boleto/{boleto_id}", summary="Cancelar boleto emitido")
-async def cancel_boleto(
-    boleto_id: str,
-    motivo: str = "ACERTOS",
-    current_user=Depends(get_current_user),
-):
-    """Cancela boleto. motivo: ACERTOS | APEDIDODOCLIENTE | PAGODIRETOAOCLIENTE"""  # pragma: allowlist secret
-    service = _get_banking_service()
-    adapter = service._adapters.get("077")
-    if adapter is None:
-        return {"success": False, "error": "Banco Inter não configurado"}
-    return await adapter.cancel_boleto(boleto_id, motivo)
-
-
 class TEDRequest(BaseModel):
     valor: float
     banco: str
@@ -858,134 +755,6 @@ class TEDRequest(BaseModel):
     descricao: str = ""
 
 
-@router.post("/ted/gerar-otp", summary="Gera OTP (e-mail Jordan) p/ liberar uma TED")
-async def gerar_otp_ted(
-    req: TEDRequest,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Gera o código que libera UMA transferência TED. NÃO move dinheiro.
-
-    Mesmo mecanismo da folha (tabela `inter_lote_otp`, e-mail ao Jordan, TTL): o código
-    vai para o e-mail dele e vale uma vez só.
-    """
-    import secrets
-    import uuid as _uuid
-
-    from sqlalchemy import text as _text
-
-    limite = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
-    if req.valor <= 0:
-        return {"ok": False, "mensagem": "Valor deve ser maior que zero."}
-    if req.valor > limite:
-        return {"ok": False,
-                "mensagem": f"TED de R$ {req.valor:.2f} excede o teto diário R$ {limite:.2f}."}
-
-    lote_id = str(_uuid.uuid4())
-    code = f"{secrets.randbelow(900000) + 100000}"
-    exp = datetime.now(UTC) + timedelta(seconds=600)
-    await db.execute(_text(
-        "INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l,:c,:e,false)"),
-        {"l": lote_id, "c": code, "e": exp})
-    await db.commit()
-    email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
-    try:
-        from modules.integrations.inter.services.payment_service import _enviar_otp_email
-        await _enviar_otp_email(email, code, req.valor,
-                                f"TED p/ {req.nome} ({req.cpf_cnpj})",
-                                f"banco {req.banco} ag {req.agencia} cc {req.conta}")
-    except Exception as exc:  # noqa: BLE001 — falha de e-mail não pode liberar o pagamento
-        logger.warning("OTP TED: falha ao enviar e-mail: %s", exc)
-    return {"ok": True, "lote_id": lote_id, "valor": req.valor,
-            "message": f"Código enviado para {email}", "expires_in_seconds": 600}
-
-
-@router.post("/ted/transfer", summary="Realizar transferência TED (exige OTP)")
-async def initiate_ted(
-    req: TEDRequest,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    otp_code: str = Query(None, description="Código OTP recebido por e-mail (obrigatório)"),
-    lote_id: str = Query(None, description="lote_id devolvido por .../ted/gerar-otp (obrigatório)"),
-):
-    """Transferência TED para qualquer banco. tipo_conta: CORRENTE | POUPANCA | PAGAMENTO.
-
-    💰 DINHEIRO QUE SAI → exige OTP humano e respeita o teto diário.
-
-    ANTES (até 10/08/2026) esta rota ia DIRETO ao adaptador do Inter: sem OTP, sem teto,
-    sem confirmação. Bastava um POST autenticado para transferir qualquer valor a qualquer
-    CPF/CNPJ — e nada no sistema chamava esta rota, ou seja, era uma porta aberta sem uso.
-    O gate reusa o MESMO mecanismo da folha (`inter_lote_otp`), não inventa outro.
-    """
-    limite = float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000.00"))
-    if req.valor <= 0:
-        return {"success": False, "error": "Valor deve ser maior que zero."}
-    if req.valor > limite:
-        return {"success": False, "teto_excedido": True,
-                "error": f"TED de R$ {req.valor:.2f} excede o teto diário R$ {limite:.2f}."}
-    if not otp_code or not lote_id:
-        return {
-            "success": False,
-            "otp_requerido": True,
-            "mensagem": "OTP obrigatório. Gere em /banking/ted/gerar-otp e informe "
-                        "lote_id + otp_code para transferir.",
-        }
-    # lote_id e coluna UUID: texto qualquer faz o asyncpg levantar DataError — que NAO e
-    # ValueError e vazava como 500. Valida o formato ANTES de consultar, e o except pega
-    # qualquer falha: quem sonda a rota recebe recusa limpa, nunca stack trace.
-    import uuid as _uuid_mod
-    try:
-        _uuid_mod.UUID(str(lote_id))
-    except (ValueError, AttributeError, TypeError):
-        return {"success": False, "otp_invalido": True,
-                "mensagem": "lote_id inválido. Gere um novo em /banking/ted/gerar-otp."}
-    from modules.financial.pagamentos_diaristas_service import _validar_e_consumir_otp_lote
-    try:
-        await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
-    except ValueError as exc:
-        return {"success": False, "otp_invalido": True, "mensagem": str(exc)}
-    except Exception as exc:  # noqa: BLE001 — falha ao validar NUNCA pode liberar a TED
-        logger.warning("TED: falha ao validar OTP (%s): %s", type(exc).__name__, exc)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-        return {"success": False, "otp_invalido": True,
-                "mensagem": "Não foi possível validar o código. Gere um novo e tente de novo."}
-    await db.commit()
-
-    service = _get_banking_service()
-    adapter = service._adapters.get("077")
-    if adapter is None:
-        return {"success": False, "error": "Banco Inter não configurado"}
-    logger.warning("TED AUTORIZADA por OTP: R$ %.2f p/ %s (%s) banco %s",
-                   req.valor, req.nome, req.cpf_cnpj, req.banco)
-    return await adapter.initiate_ted(
-        req.valor,
-        req.banco,
-        req.agencia,
-        req.conta,
-        req.tipo_conta,
-        req.cpf_cnpj,
-        req.nome,
-        req.descricao,
-    )
-
-
-@router.get("/pix/received", summary="Consultar PIX recebidos")
-async def get_pix_received(
-    data_inicio: str | None = None,
-    data_fim: str | None = None,
-    current_user=Depends(get_current_user),
-):
-    """Lista PIX recebidos na conta Inter por período."""
-    service = _get_banking_service()
-    adapter = service._adapters.get("077")
-    if adapter is None:
-        return {"success": False, "error": "Banco Inter não configurado"}
-    return await adapter.get_pix_received(data_inicio, data_fim)
-
-
 class PIXRefundRequest(BaseModel):
     e2e_id: str
     refund_id: str
@@ -993,19 +762,3 @@ class PIXRefundRequest(BaseModel):
     motivo: str = "Devolucao solicitada"
 
 
-@router.post("/pix/refund", summary="Solicitar devolução de PIX")
-async def request_pix_refund(
-    req: PIXRefundRequest,
-    current_user=Depends(get_current_user),
-):
-    """Solicita devolução (estorno) de PIX recebido."""
-    service = _get_banking_service()
-    adapter = service._adapters.get("077")
-    if adapter is None:
-        return {"success": False, "error": "Banco Inter não configurado"}
-    return await adapter.request_pix_refund(
-        req.e2e_id,
-        req.refund_id,
-        req.valor,
-        req.motivo,
-    )

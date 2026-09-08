@@ -130,7 +130,7 @@ class WhatsAppService:
         import os  # noqa: PLC0415
 
         base = os.getenv("BAILEYS_API_URL", "http://baileys-api:3025").rstrip("/")
-        key = os.getenv("BAILEYS_API_KEY", "4d7a746ea5e34217cd0f8608261da0ced68de602847022ba")
+        key = os.getenv("BAILEYS_API_KEY", "")  # 08/09/2026: a chave estava chumbada no código
         sender = os.getenv("BAILEYS_COMPANY_PHONE") or os.getenv("WHATSAPP_SENDER") or "+558008804414"
         digits = "".join(c for c in phone_e164 if c.isdigit())
         if not (key and digits):
