@@ -127,13 +127,29 @@ async def run_engine(
     provider = "openai"
 
     for _round in range(1, max_rounds + 1):
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=active_tools if active_tools else None,
-            tool_choice="auto" if active_tools else None,
-            **_chat_kwargs(model, max_tokens),
-        )
+        try:
+            resp = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=active_tools if active_tools else None,
+                tool_choice="auto" if active_tools else None,
+                **_chat_kwargs(model, max_tokens),
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Provedor sem crédito (402) ou limitado (429) virava 500 genérico na tela
+            # ("Não consegui responder agora (erro 500)") — medido 07/09/2026 pelo navegador.
+            # Vira 503 com o motivo, para quem está na tela saber que é saldo, não bug.
+            _st = getattr(exc, "status_code", None)
+            if _st in (402, 429):
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=("Assistente indisponível: o provedor de IA está sem crédito (402). "
+                            "Recarregue o saldo para reativar." if _st == 402 else
+                            "Assistente ocupado (limite do provedor, 429). Tente de novo em instantes."),
+                ) from exc
+            raise
         escolha = resp.choices[0]
         msg = escolha.message
         tool_calls = getattr(msg, "tool_calls", None)
