@@ -28,6 +28,20 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     t,
 )
 
+
+def _brl_norm(s) -> str:
+    """Normaliza dinheiro DIGITADO em formulário para string numérica ("1920.50").
+    Aceita "1.920,50", "1920,50", "1920.50", "R$ 1.920,50" e "1920". O antigo
+    `.replace(".", "").replace(",", ".")` tratava TODO ponto como milhar: "1920.50"
+    virava 192050 — o simulador de preço do CRM devolveu R$ 476 mil por posto
+    (medido 07/09/2026 pelo navegador)."""
+    s = str(s or "").replace("R$", "").replace(" ", "").strip()
+    if "," in s:
+        return s.replace(".", "").replace(",", ".")
+    if s.count(".") == 1 and 1 <= len(s.split(".")[1]) <= 2:
+        return s
+    return s.replace(".", "")
+
 SLUG = "financeiro"
 
 # F0: menu extra ZERADO — as antigas entradas viram ABAS dos 7 grupos (_fin_grupos.py).
@@ -2304,7 +2318,7 @@ def _rd_parse_valor(s):
     if not s:
         return None
     if "," in s and "." in s:
-        s = s.replace(".", "").replace(",", ".")
+        s = _brl_norm(s)
     elif "," in s:
         s = s.replace(",", ".")
     try:
@@ -2576,7 +2590,7 @@ async def _rd_baixar_recebivel(current_user: CurrentActiveUser, payload: dict = 
         raise HTTPException(status_code=400, detail=f"Conta já está '{row[2]}'. Nada a fazer.")
 
     nota = _Dec(str(row[1] or 0))
-    bruto = str(payload.get("valor_recebido") or "").strip().replace(".", "").replace(",", ".")
+    bruto = _brl_norm(str(payload.get("valor_recebido") or "").strip())
     try:
         recebido = _Dec(bruto) if bruto else nota
     except Exception:  # noqa: BLE001

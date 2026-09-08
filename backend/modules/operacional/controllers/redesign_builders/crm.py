@@ -20,6 +20,20 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     t,
 )
 
+
+def _brl_norm(s) -> str:
+    """Normaliza dinheiro DIGITADO em formulário para string numérica ("1920.50").
+    Aceita "1.920,50", "1920,50", "1920.50", "R$ 1.920,50" e "1920". O antigo
+    `.replace(".", "").replace(",", ".")` tratava TODO ponto como milhar: "1920.50"
+    virava 192050 — o simulador de preço do CRM devolveu R$ 476 mil por posto
+    (medido 07/09/2026 pelo navegador)."""
+    s = str(s or "").replace("R$", "").replace(" ", "").strip()
+    if "," in s:
+        return s.replace(".", "").replace(",", ".")
+    if s.count(".") == 1 and 1 <= len(s.split(".")[1]) <= 2:
+        return s
+    return s.replace(".", "")
+
 SLUG = "crm"
 
 # Nota: o base _build_crm JÁ tem os forms de escrita (novo-lead, nova-tarefa,
@@ -102,7 +116,7 @@ async def rd_action_contract_create(current_user: CurrentActiveUser, payload: di
     if len(name) < 3:
         raise HTTPException(status_code=400, detail="Informe o nome do contrato (mín. 3 caracteres).")
     try:
-        monthly = float(str(payload.get("monthly_value") or payload.get("valor") or "0").replace(".", "").replace(",", "."))
+        monthly = float(_brl_norm(str(payload.get("monthly_value") or payload.get("valor") or "0")))
     except (ValueError, TypeError):
         monthly = 0.0
     try:

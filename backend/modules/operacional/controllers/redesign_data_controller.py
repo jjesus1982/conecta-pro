@@ -20,6 +20,20 @@ from modules.operacional.scope import OperationalScope, get_operational_scope
 
 router = APIRouter()
 
+
+def _brl_norm(s) -> str:
+    """Normaliza dinheiro DIGITADO em formulário para string numérica ("1920.50").
+    Aceita "1.920,50", "1920,50", "1920.50", "R$ 1.920,50" e "1920". O antigo
+    `.replace(".", "").replace(",", ".")` tratava TODO ponto como milhar: "1920.50"
+    virava 192050 — o simulador de preço do CRM devolveu R$ 476 mil por posto
+    (medido 07/09/2026 pelo navegador)."""
+    s = str(s or "").replace("R$", "").replace(" ", "").strip()
+    if "," in s:
+        return s.replace(".", "").replace(",", ".")
+    if s.count(".") == 1 and 1 <= len(s.split(".")[1]) <= 2:
+        return s
+    return s.replace(".", "")
+
 # Paleta de status (idêntica ao pacote)
 S = {
     "ok": {"color": "#16A34A", "bg": "#E7F7ED"},
@@ -2575,7 +2589,7 @@ async def rd_action_lead(
     ev = payload.get("expected_value")
     if ev not in (None, ""):
         try:
-            kwargs["expected_value"] = float(str(ev).replace(".", "").replace(",", "."))
+            kwargs["expected_value"] = float(_brl_norm(str(ev)))
         except (ValueError, TypeError):
             pass
     try:
@@ -2733,7 +2747,7 @@ async def rd_action_proposal(
     if not client_name:
         raise HTTPException(status_code=400, detail="Selecione o cliente da proposta.")
     try:
-        valor = float(str(payload.get("valor") or "0").replace(".", "").replace(",", "."))
+        valor = float(_brl_norm(str(payload.get("valor") or "0")))
     except (ValueError, TypeError):
         valor = 0.0
     item_name = (payload.get("item_name") or title).strip()[:255]
@@ -3156,7 +3170,7 @@ async def rd_action_payable(
     if len(desc) < 3:
         raise HTTPException(status_code=400, detail="Descrição (mínimo 3 caracteres).")
     try:
-        valor = Decimal(str(payload.get("valor") or "0").replace(".", "").replace(",", "."))
+        valor = Decimal(_brl_norm(str(payload.get("valor") or "0")))
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail="Valor inválido.")
     if valor <= 0:
@@ -3200,7 +3214,7 @@ async def rd_action_receivable(
     if len(desc) < 3:
         raise HTTPException(status_code=400, detail="Descrição (mínimo 3 caracteres).")
     try:
-        valor = Decimal(str(payload.get("valor") or "0").replace(".", "").replace(",", "."))
+        valor = Decimal(_brl_norm(str(payload.get("valor") or "0")))
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail="Valor inválido.")
     if valor <= 0:
@@ -3299,7 +3313,7 @@ async def rd_action_reembolso(
     if cat not in _REEMBOLSO_CATS:
         raise HTTPException(status_code=400, detail="Selecione a categoria da despesa.")
     try:
-        valor = Decimal(str(payload.get("valor") or "0").replace(".", "").replace(",", "."))
+        valor = Decimal(_brl_norm(str(payload.get("valor") or "0")))
     except (InvalidOperation, ValueError):
         raise HTTPException(status_code=400, detail="Valor inválido.")
     if valor <= 0:
@@ -3391,7 +3405,7 @@ async def rd_action_job_position(
         if not raw:
             return None
         try:
-            return Decimal(raw.replace(".", "").replace(",", "."))
+            return Decimal(_brl_norm(raw))
         except (InvalidOperation, ValueError):
             raise HTTPException(status_code=400, detail=f"Valor de salário inválido ({key}).")
 
@@ -3567,7 +3581,7 @@ async def rd_action_rescisao_calc(
         if not raw:
             return Decimal("0")
         try:
-            return Decimal(raw.replace(".", "").replace(",", "."))
+            return Decimal(_brl_norm(raw))
         except (InvalidOperation, ValueError):
             return Decimal("0")
 
@@ -3602,7 +3616,7 @@ async def rd_action_simular_preco(
         if not raw:
             return Decimal(default)
         try:
-            return Decimal(raw.replace(".", "").replace(",", "."))
+            return Decimal(_brl_norm(raw))
         except (InvalidOperation, ValueError):
             raise HTTPException(status_code=400, detail=f"Valor inválido em '{k}'.")
 
@@ -3694,7 +3708,7 @@ async def rd_action_custeio_cct(
         if not raw:
             return Decimal(default)
         try:
-            return Decimal(raw.replace(".", "").replace(",", "."))
+            return Decimal(_brl_norm(raw))
         except (InvalidOperation, ValueError):
             raise HTTPException(status_code=400, detail=f"Valor inválido em '{k}'.")
 
