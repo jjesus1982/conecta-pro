@@ -698,6 +698,56 @@ Playwright na tela de produção (erp.conectamais.pro/redesign), logado como voc
 **Commits desta rodada**: 8076ee256 (escala: guarda + evento + rótulo por posto), e2cf38646 (rescisão grava o cálculo).
 Ambos já em hot-copy; o bake das 00:00 publica.
 
+### 2c.21 QA E2E como auditor-usuário final — 24 módulos do redesign + 317 páginas do clássico (07/09, 22:40–23:50)
+
+Chromium (Playwright) logado como você, em produção. Roteiro por módulo: abrir CADA aba de CADA grupo, medir se
+carrega, erros de console, chamadas de API 4xx/5xx, texto de erro, tela em branco; depois preencher e submeter 10
+calculadoras/simulações, clicar "Ver", "Exportar", buscar e abrir o assistente. Achados completos em
+`auditoria/qa/QA_E2E_20260907.md`.
+
+**Redesign — 553 telas em 24 módulos: 553 carregam, 0 erro de console, 0 chamada de API com falha.** O que estava errado
+era conteúdo/lógica, não carregamento — e cada item abaixo foi corrigido nesta noite (commits no fim):
+
+| Módulo | Defeito visto pela tela | Correção |
+|---|---|---|
+| Financeiro | 16 telas (CFO, precificação, justificativas, sync NFS-e…) não apareciam em aba nenhuma — só por URL | grupos montados por último no build; trava nova em `checar_botao_morto` |
+| Financeiro | KPI "A pagar (próx. 7 dias)" R$ 7.834 × banco R$ 103.160 — `current_date` em UTC escondia a folha de R$ 95 mil que vence hoje | data de Manaus (KPI e botão "Emitir cobrança") |
+| CRM | Simular preço: R$ 476 mil/posto, R$ 22,9 milhões de contrato — "1920.50" virava 192050 | normalizador único de dinheiro nos 12 formulários que tinham o mesmo parser |
+| Documentos | 20 s em "carregando…" a cada 15 min (Drive frio) | cache 6 h + renovação em segundo plano |
+| Meu espaço | "0 notificações" com o sino em centenas | soma a fonte do sino (1.013 · 949 não lidas) |
+| Empresas | "Atrasadas 0" com 19 obrigações pendentes vencidas de abril a julho | entram como atrasadas (27 · 19 atrasadas · 8 pendentes) |
+| Fiscal | Guias FGTS/INSS mostravam tabela morta do Onvio (12/2025, 11/2025) | subtítulo honesto apontando para Guias/Obrigações |
+| Assistente | "erro 500" — era 402 sem crédito do provedor | 503 com o motivo na tela |
+| Escalas (Operacional) | 7 escalas com o mesmo nome no select; publicar sem guarda | rótulo por posto; guarda + evento |
+| Rescisão (DP) | "Calcular verbas" não gravava nada | grava valores + snapshot |
+
+**Sistema clássico (/modulos) — 317 páginas: todas abrem, mas as APIs por trás têm fios soltos.** Corrigidos 6 × 500:
+websocket de notificações (298 tracebacks em 12 min), sync runs, contas bancárias (conta Cora sem agência),
+/config/system, /config/dashboard e página Tenants (JS). Ficam como **decisão** (não é código de tela, é módulo sem
+backend ou sem migração): equipamentos (404), automações/workflows (404), relatórios/analytics (404 — apagado dia 07 e
+restaurado só o mínimo), licitações clássico (bidding/* 404), segurança clássico (404), Sólides clássico (tabelas
+`solides_sync_*` inexistentes), agendador (`scheduler_queue` inexistente), tipo `tenantstatus` inexistente. O
+redesign cobre esses módulos com dado real — o clássico deles é vitrine vazia. Os 503 em dezenas de páginas foram o
+**nginx limitando** (`frontend_limit` 50 r/s) os prefetches do Next durante a minha varredura de 30 páginas/min;
+não mexi no nginx.
+
+**O que só você resolve (dado, não código)** — 5 eventos eSocial S-2220 rejeitados desde 09/07 (Anilson, Andrew,
+Ailton, Ademir, Adailson); 88 ASOs vencidos (25 colaboradores ativos sem ASO válido); 51 espelhos de ponto
+aguardando SUA assinatura; 12 desligados sem motivo registrado; 213 leads sem destino e 15 propostas sem contrato;
+7 contas do mês sem boleto/PIX (R$ 73.372,31 — um clique em "Gerar cobranças"); 47 pessoas que receberam VT/VR por PIX
+sem cadastro de diarista; R$ 224.367,05 de saídas bancárias sem classificação; "Jordan Jesus" e "Gizely Jesus"
+cadastrados como diaristas (jan/2026); um "COLABORADOR TESTE HOMOLOGACAO" ativo; obrigações pendentes vencidas de
+04–07/2026 (FGTS/ISS/INSS/IRRF Eletrônica, DAS Patrimonial) — pagas sem baixa ou atrasadas; folha 08/2026 da
+Patrimonial (R$ 95.326,25, vence 07/09) "pendente" no contas a pagar; certidões de emissão manual vencendo 18/09
+(estadual Eletrônica, falência Patrimonial); trilha LGPD praticamente vazia (5 eventos de auditoria).
+
+**Sem uso (a máquina existe, ninguém usa):** substituições, banco de horas, passagem de turno, avaliação de equipe,
+compras/requisições, estoque real, orçado×realizado, ordens de serviço, agendamentos, meta comercial do mês.
+
+**Commits desta rodada:** 8076ee256, e2cf38646, 0673b404e, d91dc65fd, e4bf16895, bc01257e7, 6cdeb34f8, e279d7055,
+ed476077a, 992fb9514, 29428d69b. Backend em hot-copy; frontend publicado às 23:41 (BUILD_ID conecta-pro-1788838799864); o bake
+das 00:00 publica o resto.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
