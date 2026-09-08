@@ -52,7 +52,6 @@ _ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
 
 EXTRA_MENU: list[dict] = [
     {"id": "kits-conferencia", "label": "Conferência dos kits (ATLAS)", "icon": "M3 3v18h18"},
-    {"id": "kits-completude", "label": "Completude dos kits", "icon": "M3 3v18h18"},
     {"id": "kits-assinaturas-pendentes", "label": "Assinaturas pendentes dos kits", "icon": "M3 3v18h18"},
     {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-preparar", "label": "Preparar entrega de kit", "icon": "M3 3v18h18"},
@@ -750,28 +749,42 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
         opts = [{"value": (c.get("nome") if isinstance(c, dict) else str(c)), "label": (c.get("nome") if isinstance(c, dict) else str(c))} for c in lista]
     except Exception as exc:  # noqa: BLE001
         logger.warning("kits: condominios elegíveis: %s", exc); opts = []
-    for key, fn, titulo, sub, kw in (
-        ("kits-conferencia", O.conferir_lote_endpoint, f"Conferência dos kits — {comp}", "Selo ATLAS por condomínio: o que falta em cada kit. Mesmo dado da API /gedeon/kits/conferir-lote.", {"competencia": comp, "refresh": False}),
-        ("kits-completude", O.completude_kits_endpoint, f"Completude dos kits — {comp}", "Documentos presentes × esperados por condomínio.", {"competencia": comp, "refresh": False}),
-        ("kits-assinaturas-pendentes", O.pendencias_assinatura_endpoint, f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura (funcionário ou empresa).", {"competencia": comp, "condominio": None}),
-    ):
+    if not opts:  # o serviço pode falhar fora (Drive/SSL): cai para os clientes do GED, que é a lista real dos kits
         try:
-            res = await chamar(fn, db, **kw)
-            out[key] = tabela_de_lista(titulo, sub, res) if _lista(res) else painel_de_dict(titulo, sub, res)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("kits %s: %s", key, exc)
+            from sqlalchemy import text as _t
+            opts = [{"value": n, "label": n} for (n,) in (await db.execute(_t("SELECT name FROM ged_clients WHERE coalesce(is_active,true) ORDER BY name LIMIT 100"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+    # Leitura SEM tocar o Drive na página: a conferência ATLAS vem só do cache em memória do
+    # processo (o lote percorre o Drive e segura um lock — isso é para a API/MCP, não para um GET
+    # de tela); a completude já está na tela "visao" (mesmo cache Redis). Assinaturas = banco.
     try:
-        linhas = []
-        for o in opts[:40]:
-            try:
-                st = await chamar(O.status_entrega_endpoint, db, condominio=o["value"], competencia=comp)
-                st = st if isinstance(st, dict) else {"status": st}
-                linhas.append({"condominio": o["value"], **{k: v for k, v in st.items() if not isinstance(v, (list, dict))}})
-            except Exception as exc:  # noqa: BLE001
-                linhas.append({"condominio": o["value"], "erro": str(exc)[:80]})
-        out["kits-entrega-status"] = tabela_de_lista(f"Entrega dos kits — {comp}", "Preparado? Entregue? Por qual canal? Um condomínio por linha.", linhas)
+        cached = O._ATLAS_LOTE_CACHE.get(comp)
+        if cached:
+            selos = cached[1].get("selos") or cached[1].get("condominios") or cached[1]
+            linhas = [{"condominio": k, **({kk: vv for kk, vv in v.items() if not isinstance(vv, (list, dict))} if isinstance(v, dict) else {"selo": v})} for k, v in (selos.items() if isinstance(selos, dict) else [])]
+            out["kits-conferencia"] = tabela_de_lista(f"Conferência dos kits — {comp}", "Selo ATLAS por condomínio (última conferência em cache, ~90 s).", linhas)
+        else:
+            out["kits-conferencia"] = painel_de_dict(f"Conferência dos kits — {comp}", "Nenhuma conferência em cache neste processo.",
+                                                    {"como_conferir": "peça ao assistente 'conferir os kits do mês' (MCP consultar_kits) ou chame GET /gedeon/kits/conferir-lote — a varredura lê o Drive e leva ~20 s"})
     except Exception as exc:  # noqa: BLE001
-        logger.warning("kits entrega status: %s", exc)
+        logger.warning("kits conferencia: %s", exc)
+    try:
+        res = await asyncio.wait_for(asyncio.to_thread(lambda: __import__("modules.gedeon.services.kit_assinatura_service", fromlist=["pendencias_assinatura"]).pendencias_assinatura(comp, None)), timeout=8)
+        out["kits-assinaturas-pendentes"] = tabela_de_lista(f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura (funcionário ou empresa).", res) if _lista(res) else painel_de_dict(f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura.", res)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("kits assinaturas: %s", str(exc)[:120])
+    try:
+        from sqlalchemy import text as _t
+        rows = (await db.execute(_t(
+            "SELECT g.name, to_char(k.reference_month,'MM/YYYY'), k.sent_at, coalesce(k.sent_method,'—'), coalesce(k.sent_to,'—'), "
+            "coalesce(k.google_drive_link,'') <> '' FROM ged_document_kits k JOIN ged_clients g ON g.id=k.client_id "
+            "WHERE to_char(k.reference_month,'MM.YYYY') = :c ORDER BY g.name"), {"c": comp})).fetchall()  # competência do orquestrador é MM.AAAA
+        linhas = [{"condominio": r[0], "competencia": r[1], "entregue_em": r[2].strftime("%d/%m %H:%M") if r[2] else "—", "canal": r[3], "para": r[4], "no_drive": bool(r[5])} for r in rows]
+        out["kits-entrega-status"] = tabela_de_lista(f"Entrega dos kits — {comp}", "Entregue? Quando, por qual canal e para quem (ged_document_kits). Um condomínio por linha.", linhas,
+                                                     cols=["condominio", "competencia", "entregue_em", "canal", "para", "no_drive"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); logger.warning("kits entrega status: %s", exc)
     out["kit-entrega-preparar"] = {
         "title": "Preparar entrega de kit", "sub": "Monta o pacote de entrega (ZIP/links) do kit do condomínio. Não envia nada.",
         "cta": "Preparar", "type": "form",
