@@ -305,6 +305,27 @@ class TerminationService:
             "total_liquido": float(calc["total_liquido"]),
         }
 
+    async def calcular_e_gravar(self, termination: TerminationProcess) -> dict:
+        """Calcula as verbas e GRAVA no processo (valores + snapshot). Mesmo bloco que a
+        conclusão usa — o botão "Calcular verbas" da tela devolvia 201 e não gravava nada
+        (medido 07/09/2026: linha continuava sem valor). Quem chama faz o commit."""
+        import json as _json
+
+        calc = await self.calculate_severance(
+            termination.employee_id,
+            TerminationType(termination.type),
+            termination.last_working_day,
+        )
+        termination.severance_amount = calc.get("aviso_previo_indenizado", 0)
+        termination.vacation_balance_amount = calc.get("ferias_vencidas", 0) + calc.get("ferias_proporcionais", 0)
+        termination.thirteenth_salary_amount = calc.get("decimo_terceiro_proporcional", 0)
+        termination.fgts_amount = calc.get("multa_fgts_40", 0)
+        termination.total_amount = calc.get("total_liquido", 0)
+        # Snapshot do calc COMPLETO (aditivo): é o que foi homologado. O TRCT no chat renderiza
+        # SÓ daqui, nunca recalcula. JSON-safe (default=str) porque calc tem date.
+        termination.verbas_snapshot = _json.loads(_json.dumps(calc, default=str))
+        return calc
+
     async def complete_termination(
         self,
         termination_id: str | UUID,
@@ -326,22 +347,7 @@ class TerminationService:
 
         # Calcular verbas se ainda não calculadas
         if not termination.total_amount and termination.last_working_day:
-            calc = await self.calculate_severance(
-                termination.employee_id,
-                TerminationType(termination.type),
-                termination.last_working_day,
-            )
-            termination.severance_amount = calc.get("aviso_previo_indenizado", 0)
-            termination.vacation_balance_amount = calc.get("ferias_vencidas", 0) + calc.get("ferias_proporcionais", 0)
-            termination.thirteenth_salary_amount = calc.get("decimo_terceiro_proporcional", 0)
-            termination.fgts_amount = calc.get("multa_fgts_40", 0)
-            termination.total_amount = calc.get("total_liquido", 0)
-            # Snapshot do calc COMPLETO no momento da finalização (aditivo): é o que foi
-            # homologado. O TRCT no chat renderiza SÓ daqui, nunca recalcula. JSON-safe
-            # (default=str) porque calc tem date (last_working_day) — o gerador lê a string ISO.
-            import json as _json
-
-            termination.verbas_snapshot = _json.loads(_json.dumps(calc, default=str))
+            await self.calcular_e_gravar(termination)
 
         termination.status = TerminationStatus.COMPLETED
 

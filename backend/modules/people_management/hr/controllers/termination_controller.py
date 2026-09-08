@@ -282,13 +282,12 @@ async def calculate_severance(
         )
 
     try:
-        calculation = await service.calculate_severance(
-            termination.employee_id,
-            TerminationType(termination.type),
-            termination.last_working_day,
-        )
+        # Grava o cálculo no processo (antes só devolvia e descartava — a tela nunca mudava).
+        calculation = await service.calcular_e_gravar(termination)
+        await db.commit()
         return calculation
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
