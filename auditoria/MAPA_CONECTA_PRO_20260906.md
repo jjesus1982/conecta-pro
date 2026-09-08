@@ -856,6 +856,45 @@ accounting fin_* exceto DRE, inventory fin_* exceto /real/*).
 verdade; (3) confirmar que a empresa não emitirá NF-e (apaguei os endpoints; o modelo fica); (4) o evento
 de conciliação falsa no bus.
 
+
+### §2c.24 — Financeiro lotes 2 e 3 + Operacional/diaristas (08/09/2026, 03h–05h Manaus)
+
+**Financeiro lote 2 (commit 92769cfbc):** baixa de parcela usa a parcela do caminho (o body podia trazer
+outra); recorrência não recria a conta do mesmo vencimento a cada chamada; emissão de cobrança reserva a
+conta antes de falar com o banco (dois cliques emitiam duas cobranças; falha devolve a reserva); estoque
+posta COGS em `5.1.1.06` (o `4.1.3.01` era do plano velho) com hoje de Manaus; CFO lê o teto do `.env`
+(o prompt dizia R$ 5.000 fixo) e conta só contratos `active`; `ai/cashflow-prediction` e `ai/advisor/health`
+apagadas; command-center devolve 503 em vez de saúde inventada; sugestões de diarista leem `diaria_diaristas`;
+DRE sem período = mês atual (somava a vida inteira); `QuotationStatus` ganha `erro_envio`.
+
+**Telas ligadas no fiscal (commit 4822bb2d0):** dar baixa em obrigação (PATCH, pela linha da tabela de
+guias), DANFSe por chave em cada NFS-e emitida, parcelamentos (lista com saldo devedor + registrar + remover),
+apuração IRPJ/CSLL do Lucro Real, DRE mês a mês, a receber e a pagar por competência (FIFO), KPIs do beat.
+Liminares ficam de fora até o Jordan dizer qual tabela é a verdade.
+
+**Financeiro lote 3 (commit 31360e63d):** 214 rotas mortas apagadas em 9 controllers — compras (68),
+conciliação bancária (13), contas bancárias (12), transações bancárias (13), clientes do contas a receber
+(12), categorias (9), ledger `fin_*` da contabilidade (49; ficam `/dre` e `/dre-consolidado`), estoque
+legado (34; fica `/real/*`), conciliação automática (4; fica `justificar`). Prova: tabelas vazias ou
+alimentadas por outro caminho (extrato vem do sync do Inter; cotações vivem no WhatsApp); 0 chamador no
+redesign/MCP. As sondas dos agentes 24h que batiam em `accounting/charts|cost-centers|periods` foram
+reapontadas para `/accounting/dre` (commits 54e33d82a e seguinte); sem isso o ciclo das 00:00 acusaria
+404 como regressão.
+
+**Operacional — diaristas (commit ed2ac622c):** o módulo tinha dois universos. `diarist_*` (51 rotas,
+9 tabelas) tinha 3 linhas de teste, 0 movimento desde 27/01/2026 e escrita quebrada em todo caminho (enum
+× varchar, campos que não existem no schema, IRRF sempre 0, INSS 20% em vez de 11%). Apagadas 63 rotas
+(fica `consulta-cpf`, que deixa de dizer "achado" quando a BrasilAPI só validou o formato) e as 7 telas +
+7 ações do redesign que gravavam nas tabelas mortas. O cadastro vivo é `diaria_*` (62 diaristas, 427
+lançamentos) e o fechamento vivo é o do financeiro. `criar_diarista` com nome repetido devolvia ok sem
+gravar e descartava CPF/PIX — agora devolve o id existente e ok=false.
+
+**Estado do loop:** people-management ✅ · financeiro ✅ (lotes 1–3; fila residual no §2c.23) · operacional
+em revisão (diaristas ✅; rondas/ocorrências/comunicação/escalas/presença com revisor em curso) · CRM com
+revisor em curso · government, ged, gedeon, campo, jurídico, clients, empresas, integrations na fila.
+Os revisores anteriores caíram por limite de uso da sessão às 00:5x; relançados às 04:4x com escopo
+econômico.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
