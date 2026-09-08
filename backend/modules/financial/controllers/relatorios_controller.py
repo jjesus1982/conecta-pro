@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import get_current_user
 from core.database import get_session
 from modules.financial.services.balance_sheet_service import BalanceSheetService
-from modules.financial.services.budget_service import BudgetPeriodType, BudgetService
-from modules.financial.services.cost_by_type_service import CostByTypeService
 from modules.financial.services.dre_service import DREService
 
 logger = logging.getLogger(__name__)
@@ -594,7 +592,7 @@ async def tributos_consolidados(
     fgts_rows = (await db.execute(_sql("""
         SELECT CAST(substr(periodo_competencia,6,2) AS int) m, COALESCE(SUM(valor),0) fgts
         FROM accounting_entries
-        WHERE conta_debito = '4.1.2.01' AND historico ILIKE 'FGTS%'
+        WHERE conta_debito LIKE '5.1.1.02%' AND historico ILIKE 'FGTS%'  -- plano novo (4.1.2.01 era o velho: dava FGTS=0 o ano inteiro, 08/09/2026)
               AND LEFT(periodo_competencia,4) = :ano
         GROUP BY 1
     """), {"ano": str(ano)})).fetchall()
@@ -618,7 +616,7 @@ async def tributos_consolidados(
             "mes": m, "competencia": f"{m:02d}/{ano}",
             "iss": round(iss, 2), "iss_base": round(base, 2),
             "fgts": round(fgts, 2), "inss": round(inss, 2),
-            "pis": 0.0, "cofins": 0.0,  # zerados por liminar
+            "pis": None, "cofins": None,  # sem apuração aqui: a liminar é da Patrimonial (a_solicitar); a Eletrônica é Lucro Real e deve PIS/COFINS
             "total": round(iss + fgts + inss, 2),
             "sem_dado": not tem,
         })
@@ -627,11 +625,11 @@ async def tributos_consolidados(
         "meses": meses,
         "totais": {
             "iss": round(tot_iss, 2), "fgts": round(tot_fgts, 2), "inss": round(tot_inss, 2),
-            "pis": 0.0, "cofins": 0.0, "total": round(tot_iss + tot_fgts + tot_inss, 2),
+            "pis": None, "cofins": None, "total": round(tot_iss + tot_fgts + tot_inss, 2),
         },
         "fonte": "ISS = NFS-e emitidas nacional (iss_valor); FGTS = encargo patronal 8% do razão "
                  "(accounting_entries, por competência); INSS patronal sem dado real (=0). "
-                 "PIS/COFINS zerados por liminar.",
+                 "PIS/COFINS não apurados aqui (null): a liminar é da Patrimonial e está a_solicitar; a Eletrônica é Lucro Real.",
         "observacao": "Meses sem NFS-e ou sem folha lançada aparecem zerados (dado real parcial, "
                       "nada estimado). INSS patronal não é rastreado no sistema hoje (liminar de INSS "
                       "não retido a solicitar); não é o INSS retido do empregado.",
@@ -1042,256 +1040,6 @@ async def _get_balanco_patrimonial_obsoleto(
 
 # ---------------------------------------------------------------------------
 # Orçamento
-# ---------------------------------------------------------------------------
-
-
-@router.get("/orcamentos")
-async def get_orcamento(
-    ano: int = Query(..., ge=2020, le=2100),
-    condominio_id: UUID | None = Query(None),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Retorna orçamento anual. Cria automaticamente se não existir."""
-    try:
-        svc = BudgetService(db)
-        report = await svc.create_budget(
-            condominio_id=condominio_id or UUID("00000000-0000-0000-0000-000000000001"),
-            year=ano,
-            period_type=BudgetPeriodType.ANNUAL,
-            base_on_previous=True,
-        )
-        return {
-            "ano": ano,
-            "status": report.status.value if hasattr(report.status, "value") else str(report.status),
-            "periodo": report.period_type.value if hasattr(report.period_type, "value") else str(report.period_type),
-            "total_orcado": float(getattr(report, "total_budgeted", 0)),
-            "linhas": [
-                {
-                    "conta_codigo": item.account_code,
-                    "conta_nome": item.account_name,
-                    "total_orcado": float(item.total_budgeted),
-                    "jan": float(item.jan),
-                    "fev": float(item.feb),
-                    "mar": float(item.mar),
-                    "abr": float(item.apr),
-                    "mai": float(item.may),
-                    "jun": float(item.jun),
-                    "jul": float(item.jul),
-                    "ago": float(item.aug),
-                    "set": float(item.sep),
-                    "out": float(item.oct),
-                    "nov": float(item.nov),
-                    "dez": float(item.dec),
-                }
-                for item in getattr(report, "items", [])
-            ],
-        }
-    except Exception as e:
-        logger.warning("Erro ao criar/buscar orçamento: %s", e)
-        return {
-            "ano": ano,
-            "status": "sem_dados",
-            "linhas": [],
-            "total_orcado": 0.0,
-            "aviso": "Sem lançamentos do ano anterior para projetar orçamento",
-        }
-
-
-@router.get("/orcamentos/execucao")
-async def get_orcamento_execucao(
-    ano: int = Query(..., ge=2020, le=2100),
-    mes: int = Query(..., ge=1, le=12),
-    condominio_id: UUID | None = Query(None),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Execução orçamentária: orçado vs realizado até o mês especificado."""
-    try:
-        svc = BudgetService(db)
-        report = await svc.get_budget_execution(
-            condominio_id=condominio_id or UUID("00000000-0000-0000-0000-000000000001"),
-            year=ano,
-            month=mes,
-        )
-        if hasattr(report, "to_dict"):
-            return report.to_dict()
-        linhas = []
-        for item in getattr(report, "items", []):
-            linhas.append(
-                {
-                    "conta_codigo": getattr(item, "account_code", ""),
-                    "conta_nome": getattr(item, "account_name", ""),
-                    "orcado": float(getattr(item, "budgeted", 0)),
-                    "realizado": float(getattr(item, "realized", 0)),
-                    "variacao": float(getattr(item, "variance", 0)),
-                    "variacao_pct": float(getattr(item, "variance_pct", 0)),
-                    "tipo_variacao": getattr(item, "variance_type", ""),
-                }
-            )
-        return {
-            "ano": ano,
-            "mes": mes,
-            "total_orcado": float(getattr(report, "total_budgeted", 0)),
-            "total_realizado": float(getattr(report, "total_realized", 0)),
-            "variacao_total": float(getattr(report, "total_variance", 0)),
-            "linhas": linhas,
-        }
-    except Exception as e:
-        logger.warning("Erro execução orçamentária: %s", e)
-        return {
-            "ano": ano,
-            "mes": mes,
-            "total_orcado": 0.0,
-            "total_realizado": 0.0,
-            "variacao_total": 0.0,
-            "linhas": [],
-            "aviso": "Sem dados orçamentários para o período",
-        }
-
-
-@router.get("/orcamentos/ytd")
-async def get_orcamento_ytd(
-    ano: int = Query(..., ge=2020, le=2100),
-    condominio_id: UUID | None = Query(None),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Execução YTD (Year-To-Date) do orçamento."""
-    mes_atual = date.today().month
-    try:
-        svc = BudgetService(db)
-        report = await svc.get_ytd_execution(
-            condominio_id=condominio_id or UUID("00000000-0000-0000-0000-000000000001"),
-            year=ano,
-        )
-        if hasattr(report, "to_dict"):
-            return report.to_dict()
-        return {
-            "ano": ano,
-            "mes_referencia": mes_atual,
-            "total_orcado_ytd": float(getattr(report, "total_budgeted_ytd", 0)),
-            "total_realizado_ytd": float(getattr(report, "total_realized_ytd", 0)),
-            "variacao_ytd": float(getattr(report, "total_variance_ytd", 0)),
-            "linhas": [],
-        }
-    except Exception as e:
-        logger.warning("Erro YTD orçamento: %s", e)
-        return {
-            "ano": ano,
-            "mes_referencia": mes_atual,
-            "total_orcado_ytd": 0.0,
-            "total_realizado_ytd": 0.0,
-            "variacao_ytd": 0.0,
-            "linhas": [],
-            "aviso": "Sem dados orçamentários",
-        }
-
-
-# ---------------------------------------------------------------------------
-# Custeio por Tipo de Serviço
-# ---------------------------------------------------------------------------
-
-
-@router.get("/custeio/resumo")
-async def get_custeio_resumo(
-    mes: date = Query(..., description="Mês de referência (ex: 2026-03-01)"),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Resumo de custos por tipo de serviço para o mês especificado."""
-    svc = CostByTypeService(db)
-    tipos = []
-    for tipo in TIPOS_SERVICO:
-        try:
-            dados = await svc.calcular_custo_estimado(tipo=tipo, contrato_id=None, mes=mes)
-            tipos.append(dados)
-        except Exception as e:
-            logger.debug("Custeio %s: %s", tipo, e)
-            tipos.append({"tipo": tipo, "custo_total": 0.0, "erro": str(e)})
-    total_geral = sum(t.get("custo_total", 0) for t in tipos)
-    return {
-        "mes": mes.isoformat(),
-        "total_geral": total_geral,
-        "tipos": tipos,
-    }
-
-
-@router.post("/custeio/calcular", status_code=201)
-async def calcular_custo(
-    tipo: str,
-    mes: date,
-    contrato_id: int | None = None,
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Calcula custo estimado para um tipo de serviço específico."""
-    svc = CostByTypeService(db)
-    return await svc.calcular_custo_estimado(tipo=tipo, contrato_id=contrato_id, mes=mes)
-
-
-@router.get("/custeio/margem-por-tipo")
-async def get_margem_por_tipo(
-    mes: date = Query(..., description="Mês de referência (ex: 2026-03-01)"),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Margem de contribuição por tipo de serviço."""
-    svc = CostByTypeService(db)
-    try:
-        resumo = await svc.get_resumo_margem_por_tipo(mes=mes)
-        return {"mes": mes.isoformat(), "tipos": resumo}
-    except Exception as e:
-        logger.warning("Erro margem por tipo: %s", e)
-        return {"mes": mes.isoformat(), "tipos": [], "aviso": str(e)}
-
-
-@router.get("/custeio/listar")
-async def listar_custos(
-    tipo: str | None = Query(None),
-    mes: date | None = Query(None),
-    contrato_id: int | None = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Lista custos registrados por tipo."""
-    svc = CostByTypeService(db)
-    try:
-        itens = await svc.listar_custos_por_tipo(
-            tipo=tipo,
-            mes=mes,
-            contrato_id=contrato_id,
-            skip=skip,
-            limit=limit,
-        )
-        return {"total": len(itens), "itens": itens}
-    except Exception as e:
-        logger.warning("Erro listar custos: %s", e)
-        return {"total": 0, "itens": [], "aviso": str(e)}
-
-
-@router.post("/custeio/registrar", status_code=201)
-async def registrar_custo(
-    payload: dict,
-    db: AsyncSession = Depends(get_session),
-    _current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Registra custo real para um tipo de serviço/contrato."""
-    svc = CostByTypeService(db)
-    try:
-        resultado = await svc.registrar_custo(**payload)
-        return {"sucesso": True, "dados": resultado}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        )
-
-
-# ---------------------------------------------------------------------------
-# DRE simplificado (fallback quando não há dados contábeis)
 # ---------------------------------------------------------------------------
 
 

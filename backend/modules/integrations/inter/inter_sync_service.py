@@ -309,9 +309,12 @@ class InterSyncService:
                 if len(livres) == 1:
                     rid = str(livres[0]["id"])
                     tomados.add(rid)
+                    # 'paga' (ReceivableStatus) — 'pago' não existe no enum e o título ficava
+                    # em aberto no aging (HAWK EYE R$ 4.000, revisão 08/09/2026); guarda a data e o rastro
                     await self.db.execute(_text(
-                        "UPDATE receivable_accounts SET status='pago', paid_value=COALESCE(net_value,gross_value), "
-                        "remaining_value=0, updated_at=now() WHERE id=:id"), {"id": rid})
+                        "UPDATE receivable_accounts SET status='paga', paid_value=COALESCE(net_value,gross_value), "
+                        "remaining_value=0, payment_date=:pd, updated_at=now() WHERE id=:id"),
+                        {"id": rid, "pd": c["transaction_date"]})
                     casados_recebiveis += 1
             await self.db.commit()
         except Exception as exc:  # noqa: BLE001

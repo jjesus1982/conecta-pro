@@ -1,5 +1,6 @@
 """D6.3 — CobrancaService: gerencia cobranças/boletos Inter no banco de dados."""
 
+from decimal import Decimal
 import logging
 from datetime import date
 from typing import Any
@@ -185,12 +186,16 @@ class CobrancaService:
         try:
             autenticado = await adapter.authenticate()
             if autenticado:
+                # assinatura real do adapter (amount/due_date/payer_*): os kwargs antigos davam
+                # TypeError engolido e a cobrança ficava PENDENTE para sempre (revisão 08/09/2026)
+                _pag = pagador or {}
                 result = await adapter.generate_boleto(
-                    valor=valor,
-                    vencimento=vencimento.isoformat(),
-                    descricao=descricao,
+                    amount=Decimal(str(valor)),
+                    due_date=vencimento,
+                    payer_name=str(_pag.get("nome") or _pag.get("name") or "Cliente"),
+                    payer_document=str(_pag.get("cpfCnpj") or _pag.get("cpf_cnpj") or _pag.get("documento") or ""),
+                    description=descricao,
                     seu_numero=seu_numero,
-                    pagador=pagador or {},
                 )
                 cobranca_id_inter = result.get("codigoSolicitacao") or result.get("nosso_numero")
                 url_boleto = result.get("linkBoleto") or result.get("url_boleto")

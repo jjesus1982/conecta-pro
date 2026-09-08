@@ -116,10 +116,21 @@ class InterPaymentService:
             return Decimal(str(balance.available))
         except Exception as exc:
             logger.warning("D7 _get_saldo_inter falhou: %s", exc)
-            return Decimal("0")
+            raise PaymentError(f"Saldo do Inter indisponível agora ({str(exc)[:80]}) — pagamento não liberado.") from exc
 
     async def _get_consumido_hoje(self) -> Decimal:
-        row = (await self.db.execute(text("SELECT get_limite_diario_consumido()"))).scalar()
+        """Quanto já saiu HOJE (dia de Manaus) por todas as portas. A função SQL antiga só somava
+        aprovado/executado/confirmado (deixava de fora 'aguardando_aprovacao', que JÁ foi enviado ao
+        banco) e usava CURRENT_DATE em UTC — às 20h de Manaus o dia virava (revisão 08/09/2026)."""
+        row = (await self.db.execute(text(
+            "SELECT coalesce((SELECT sum(valor) FROM inter_payments "
+            "   WHERE status IN ('aprovado','executado','confirmado','aguardando_aprovacao') "
+            "   AND (coalesce(approved_at, executed_at, updated_at) AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+            " + coalesce((SELECT sum(valor) FROM financial_pagamentos_diaristas WHERE status='pago' "
+            "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+            " + coalesce((SELECT sum(valor) FROM financial_pagamentos_pj WHERE status='pago' "
+            "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+        ))).scalar()
         return Decimal(str(row or 0))
 
     # ── preparar ──────────────────────────────────────────────────────────────
@@ -601,8 +612,10 @@ class InterPaymentService:
 
         if not row:
             raise PaymentError(f"payment_id não encontrado: {payment_id}")
-        if row["status"] in ("executado", "confirmado"):
-            raise StatusInvalidoError(f"Não é possível cancelar status='{row['status']}'")
+        if row["status"] in ("executado", "confirmado", "aguardando_aprovacao"):
+            # 'aguardando_aprovacao' JÁ foi enviado ao banco (tem inter_payment_id): cancelar só no ERP
+            # deixava 'cancelado' aqui enquanto o dinheiro saía e liberava o teto (revisão 08/09/2026)
+            raise StatusInvalidoError(f"Não é possível cancelar status='{row['status']}' — o pagamento já está no banco.")
         if row["status"] == "cancelado":
             return {"id": payment_id, "status": "cancelado", "motivo": "já cancelado"}
 

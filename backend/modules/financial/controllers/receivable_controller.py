@@ -22,12 +22,7 @@ from modules.financial.schemas.receivable import (
     ReceivableAccountResponse,
     ReceivableAccountStats,
     ReceivableAccountUpdate,
-    ReceivableAgreementRequest,
-    ReceivableBulkBoletoRequest,
-    ReceivableBulkNotifyRequest,
     ReceivableBulkPaymentRequest,
-    ReceivableInstallmentBoletoRequest,
-    ReceivableInstallmentPixRequest,
     ReceivableInstallmentRenegotiateRequest,
     ReceivableInstallmentResponse,
     ReceivableInstallmentUpdate,
@@ -560,68 +555,6 @@ async def renegotiate_installment(
 # ==================== BOLETO/PIX ====================
 
 
-@router.post(
-    "/installments/{installment_id}/generate-boleto",
-    response_model=ReceivableInstallmentResponse,
-    summary="Gerar boleto",
-    status_code=201,
-)
-async def generate_boleto(
-    installment_id: UUID,
-    data: ReceivableInstallmentBoletoRequest,  # pylint: disable=unused-argument
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> ReceivableInstallmentResponse:
-    """Gera boleto para uma parcela."""
-    installment = await service.get_installment(installment_id)
-    if not installment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Parcela nao encontrada",
-        )
-    # Integrar com servico de boletos (a implementar)
-    return ReceivableInstallmentResponse.model_validate(installment)
-
-
-@router.post(
-    "/installments/{installment_id}/generate-pix",
-    response_model=ReceivableInstallmentResponse,
-    summary="Gerar PIX",
-    status_code=201,
-)
-async def generate_pix(
-    installment_id: UUID,
-    data: ReceivableInstallmentPixRequest,  # pylint: disable=unused-argument
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> ReceivableInstallmentResponse:
-    """Gera codigo PIX para uma parcela."""
-    installment = await service.get_installment(installment_id)
-    if not installment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Parcela nao encontrada",
-        )
-    # Integrar com servico de PIX (a implementar)
-    return ReceivableInstallmentResponse.model_validate(installment)
-
-
-@router.post("/bulk-generate-boletos", summary="Gerar boletos em lote", status_code=201)
-async def bulk_generate_boletos(
-    data: ReceivableBulkBoletoRequest,
-    service: ReceivableService = Depends(get_service),  # pylint: disable=unused-argument
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Gera boletos para multiplas parcelas."""
-    # Implementar geracao em lote (a implementar)
-    return {
-        "success_count": 0,
-        "error_count": len(data.installment_ids),
-        "total": len(data.installment_ids),
-        "message": "Integracao com gateway de boletos pendente",
-    }
-
-
 # ==================== RECEBIMENTOS ====================
 
 
@@ -744,46 +677,7 @@ async def get_pending_reconciliation(
 # ==================== NOTIFICACOES ====================
 
 
-@router.post("/bulk-notify", summary="Notificar devedores em lote", status_code=201)
-async def bulk_notify(
-    data: ReceivableBulkNotifyRequest,
-    service: ReceivableService = Depends(get_service),  # pylint: disable=unused-argument
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> dict[str, Any]:
-    """Envia notificacoes para devedores em lote."""
-    # Implementar notificacoes
-    return {
-        "success_count": 0,
-        "error_count": len(data.account_ids),
-        "total": len(data.account_ids),
-        "message": "Integracao com servico de notificacoes pendente",
-    }
-
-
 # ==================== ACORDO ====================
-
-
-@router.post(
-    "/{account_id}/agreement",
-    response_model=ReceivableAccountResponse,
-    summary="Criar acordo de pagamento",
-    status_code=201,
-)
-async def create_agreement(
-    account_id: UUID,
-    data: ReceivableAgreementRequest,  # pylint: disable=unused-argument
-    service: ReceivableService = Depends(get_service),
-    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
-) -> ReceivableAccountResponse:
-    """Cria acordo de pagamento para conta vencida."""
-    account = await service.get_account(account_id)
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conta nao encontrada",
-        )
-    # Implementar logica de acordo
-    return ReceivableAccountResponse.model_validate(account)
 
 
 # ==================== DIVIDAS ====================

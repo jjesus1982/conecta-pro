@@ -9,17 +9,18 @@ Commit: feat(financial): 3 endpoints críticos 404 → 200
 Dados reais: 2.875 transações, saldo R$ 36.476,27
 """
 
-import traceback
 import uuid
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
 from core.database.session import get_db
 
+import logging
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/financial", tags=["Financial Dashboard"])
 
 
@@ -59,21 +60,21 @@ async def get_financial_dashboard(
             text("""
             SELECT
                 COALESCE(SUM(CASE WHEN amount > 0
-                    AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE)
+                    AND date_trunc('month', transaction_date) = date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date)
                     THEN amount ELSE 0 END), 0) AS entradas_mes,
                 COALESCE(SUM(CASE WHEN amount < 0
-                    AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE)
+                    AND date_trunc('month', transaction_date) = date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date)
                     THEN ABS(amount) ELSE 0 END), 0) AS saidas_mes,
                 COALESCE(SUM(CASE WHEN amount > 0
                     AND date_trunc('month', transaction_date) =
-                        date_trunc('month', CURRENT_DATE - interval '1 month')
+                        date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date - interval '1 month')
                     THEN amount ELSE 0 END), 0) AS entradas_ant,
                 COALESCE(SUM(CASE WHEN amount < 0
                     AND date_trunc('month', transaction_date) =
-                        date_trunc('month', CURRENT_DATE - interval '1 month')
+                        date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date - interval '1 month')
                     THEN ABS(amount) ELSE 0 END), 0) AS saidas_ant,
                 COUNT(CASE WHEN date_trunc('month', transaction_date) =
-                    date_trunc('month', CURRENT_DATE) THEN 1 END) AS txs_mes
+                    date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date) THEN 1 END) AS txs_mes
             FROM bank_transactions
         """)
         )
@@ -88,13 +89,13 @@ async def get_financial_dashboard(
             text("""
             SELECT
                 COALESCE(SUM(net_value) FILTER (
-                    WHERE due_date < CURRENT_DATE
+                    WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date
                     AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')), 0) AS vencido,
                 COALESCE(SUM(net_value) FILTER (
-                    WHERE due_date >= CURRENT_DATE
+                    WHERE due_date >= (now() AT TIME ZONE 'America/Manaus')::date
                     AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')), 0) AS a_vencer,
                 COUNT(*) FILTER (
-                    WHERE due_date < CURRENT_DATE
+                    WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date
                     AND status NOT IN ('pago','cancelado','cancelled','cancelada','baixada')) AS qtd_vencido
             FROM payable_accounts
         """)
@@ -106,7 +107,7 @@ async def get_financial_dashboard(
             text("""
             SELECT
                 COALESCE(SUM(net_value) FILTER (
-                    WHERE due_date < CURRENT_DATE
+                    WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date
                     AND status NOT IN ('pago','cancelado','cancelled','paga','cancelada','baixada')), 0) AS vencido,
                 COALESCE(SUM(net_value) FILTER (
                     WHERE status NOT IN ('pago','cancelado','cancelled','paga','cancelada','baixada')), 0) AS total_pendente,
@@ -134,7 +135,7 @@ async def get_financial_dashboard(
                    COUNT(*) AS qtd
             FROM bank_transactions
             WHERE amount < 0
-              AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE)
+              AND date_trunc('month', transaction_date) = date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date)
               AND category IS NOT NULL AND category != ''
             GROUP BY category
             ORDER BY total DESC
@@ -205,7 +206,8 @@ async def get_financial_dashboard(
             },
         }
     except Exception as e:
-        return {"error": str(e), "detail": traceback.format_exc()[-800:]}
+        logger.exception("painel financeiro falhou")
+        raise HTTPException(status_code=503, detail=f"painel indisponível: {e}") from e  # era 200 com {"error"} (08/09/2026)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -250,11 +252,11 @@ async def get_cashflow_forecast(
                     SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS entradas,
                     SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS saidas
                 FROM bank_transactions
-                -- 3 meses COMPLETOS. Era `>= CURRENT_DATE - 90 dias`: o primeiro mês entrava
+                -- 3 meses COMPLETOS. Era `>= (now() AT TIME ZONE 'America/Manaus')::date - 90 dias`: o primeiro mês entrava
                 -- pela metade e a média caía (07/09/2026: 235.464 exibido × 278.581 real, −15%);
                 -- o rótulo já dizia "meses completos" — o SQL é que não cumpria.
-                WHERE transaction_date >= date_trunc('month', CURRENT_DATE) - interval '3 months'
-                  AND transaction_date < date_trunc('month', CURRENT_DATE)
+                WHERE transaction_date >= date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date) - interval '3 months'
+                  AND transaction_date < date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date)
                 GROUP BY 1
             )
             SELECT
@@ -340,201 +342,12 @@ async def get_cashflow_forecast(
             "alerta_ruptura": alerta_ruptura,
         }
     except Exception as e:
-        return {"error": str(e), "detail": traceback.format_exc()[-800:]}
+        logger.exception("painel financeiro falhou")
+        raise HTTPException(status_code=503, detail=f"painel indisponível: {e}") from e  # era 200 com {"error"} (08/09/2026)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GET /financial/bi/overview
-# ──────────────────────────────────────────────────────────────────────────────
-@router.get("/bi/overview", summary="Visão BI: receita vs despesa 6 meses, DRE, margem")
-async def get_bi_overview(
-    condominio_id: uuid.UUID | None = Query(None),
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Visão BI completa com dados 100% reais:
-    - Receita vs Despesa últimos 6 meses
-    - DRE simplificado do mês atual por categoria de transação
-    - Margem por tipo de cobrança (billing_rules)
-    - Indicadores: margem_bruta%, EBITDA%, resultado_liquido%
-    """
-    try:
-        # Receita vs Despesa últimos 6 meses
-        mensal_result = await db.execute(
-            text("""
-            SELECT
-                to_char(date_trunc('month', transaction_date), 'MM/YYYY') AS mes,
-                date_trunc('month', transaction_date) AS mes_date,
-                ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)::numeric, 2) AS receita,
-                ROUND(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END)::numeric, 2) AS despesa,
-                ROUND(SUM(amount)::numeric, 2) AS resultado,
-                COUNT(*) AS transacoes
-            FROM bank_transactions
-            WHERE transaction_date >= date_trunc('month', CURRENT_DATE - interval '5 months')
-            GROUP BY 1, 2
-            ORDER BY 2 ASC
-        """)
-        )
-        meses = mensal_result.fetchall()
-
-        # DRE por categorias de bank_transactions do mês atual
-        dre_result = await db.execute(
-            text("""
-            SELECT
-                ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)::numeric, 2)        AS receita_bruta,
-                ROUND(SUM(CASE WHEN category = 'folha_pagamento' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS folha,
-                ROUND(SUM(CASE WHEN category = 'fornecedores' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS fornecedores,
-                ROUND(SUM(CASE WHEN category = 'impostos' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS impostos,
-                ROUND(SUM(CASE WHEN category = 'operacional' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS operacional,
-                ROUND(SUM(CASE WHEN category = 'pro_labore' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS pro_labore,
-                ROUND(SUM(CASE WHEN category = 'financiamentos' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS financiamentos,
-                ROUND(SUM(CASE WHEN category = 'beneficios' AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS beneficios,
-                ROUND(SUM(CASE WHEN category NOT IN (
-                    'folha_pagamento','fornecedores','impostos','operacional',
-                    'pro_labore','financiamentos','beneficios',
-                    'receita','receita_cliente','reembolso','estorno')
-                               AND amount < 0
-                               THEN ABS(amount) ELSE 0 END)::numeric, 2)                    AS outros_custos
-            FROM bank_transactions
-            WHERE date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE)
-        """)
-        )
-        dre = dre_result.fetchone()
-
-        # MRR real
-        mrr_result = await db.execute(
-            text("SELECT COALESCE(SUM(monthly_value), 0) AS mrr FROM contracts WHERE status = 'active'")
-        )
-        mrr_row = mrr_result.fetchone()
-        mrr = float(mrr_row.mrr) if (mrr_row and mrr_row.mrr is not None) else 0.0
-
-        # Margem por billing_type (tipo de cobrança)
-        margem_result = await db.execute(
-            text("""
-            -- contratos ativos (fonte das cobranças), não billing_rules (cadastro velho — 07/09/2026)
-            SELECT
-                COALESCE(contract_type::text, 'outros')       AS tipo,
-                COUNT(*)                                       AS contratos,
-                ROUND(SUM(monthly_value)::numeric, 2)         AS receita_total,
-                ROUND(AVG(monthly_value)::numeric, 2)         AS ticket_medio
-            FROM contracts
-            WHERE status = 'active'
-            GROUP BY contract_type
-            ORDER BY receita_total DESC
-        """)
-        )
-        margens = margem_result.fetchall()
-
-        # Montar DRE — SEM fabricar receita a partir do MRR.
-        # Se não há lançamentos no mês, receita E custos são 0 (base coerente);
-        # sinalizamos honestamente em vez de forjar 100% de lucro.
-        rec_bruta = float(dre.receita_bruta or 0)
-        dre_sem_lancamentos = rec_bruta == 0
-
-        folha = float(dre.folha or 0)
-        fornec = float(dre.fornecedores or 0)
-        impostos = float(dre.impostos or 0)
-        operacional = float(dre.operacional or 0)
-        pro_labore = float(dre.pro_labore or 0)
-        financ = float(dre.financiamentos or 0)
-        beneficios = float(dre.beneficios or 0)
-        outros = float(dre.outros_custos or 0)
-
-        cpv = folha + fornec + beneficios
-        margem_bruta = rec_bruta - cpv
-        desp_op = impostos + operacional + outros
-        ebitda = margem_bruta - desp_op
-        resultado_liq = ebitda - pro_labore - financ
-
-        def pct(valor, base):
-            if not base or base == 0:
-                return 0.0
-            return round(valor / base * 100, 1)
-
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "receita_vs_despesa_6m": [
-                {
-                    "mes": r.mes,
-                    "receita": float(r.receita),
-                    "despesa": float(r.despesa),
-                    "resultado": float(r.resultado),
-                    "transacoes": int(r.transacoes),
-                }
-                for r in meses
-            ],
-            "dre_mes_atual": {
-                "periodo": date.today().strftime("%m/%Y"),
-                "sem_lancamentos": dre_sem_lancamentos,
-                "aviso": (
-                    "Sem lançamentos financeiros no mês corrente — DRE zerada (não estimada por MRR)."
-                    if dre_sem_lancamentos
-                    else None
-                ),
-                "receita_bruta": round(rec_bruta, 2),
-                "cpv": {
-                    "folha": folha,
-                    "fornecedores": fornec,
-                    "beneficios": beneficios,
-                    "total": round(cpv, 2),
-                },
-                "margem_bruta": {
-                    "valor": round(margem_bruta, 2),
-                    "pct": pct(margem_bruta, rec_bruta),
-                },
-                "despesas_operacionais": {
-                    "impostos": impostos,
-                    "operacional": operacional,
-                    "outros": outros,
-                    "total": round(desp_op, 2),
-                },
-                "ebitda": {
-                    "valor": round(ebitda, 2),
-                    "pct": pct(ebitda, rec_bruta),
-                },
-                "resultado_liquido": {
-                    "valor": round(resultado_liq, 2),
-                    "pct": pct(resultado_liq, rec_bruta),
-                },
-            },
-            "margem_por_servico": [
-                {
-                    "tipo": r.tipo,
-                    "contratos": int(r.contratos),
-                    "receita_total": float(r.receita_total),
-                    "ticket_medio": float(r.ticket_medio),
-                    "pct_mrr": pct(float(r.receita_total), mrr),
-                }
-                for r in margens
-            ],
-            "mrr_atual": mrr,
-            "indicadores": {
-                "margem_bruta_pct": pct(margem_bruta, rec_bruta),
-                "ebitda_pct": pct(ebitda, rec_bruta),
-                "resultado_liquido_pct": pct(resultado_liq, rec_bruta),
-                "status_margem": (
-                    "saudavel"
-                    if pct(margem_bruta, rec_bruta) >= 25
-                    else "atencao"
-                    if pct(margem_bruta, rec_bruta) >= 15
-                    else "critico"
-                ),
-            },
-        }
-    except Exception as e:
-        return {"error": str(e), "detail": traceback.format_exc()[-800:]}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /financial/bi/kpis
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/bi/kpis", summary="KPIs financeiros ao vivo — financial_kpis table")
 async def get_bi_kpis(
@@ -565,11 +378,11 @@ async def get_bi_kpis(
                  FROM bank_accounts WHERE bank_code = '077'
                  ORDER BY updated_at DESC LIMIT 1) as saldo_inter,
                 (SELECT count(*) FROM receivable_accounts
-                 WHERE due_date < CURRENT_DATE
+                 WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date
                  AND status NOT IN ('paga','cancelada','baixada')) as inadimplentes,
                 (SELECT COALESCE(round(sum(net_value)::numeric,2), 0)
                  FROM receivable_accounts
-                 WHERE due_date < CURRENT_DATE
+                 WHERE due_date < (now() AT TIME ZONE 'America/Manaus')::date
                  AND status NOT IN ('paga','cancelada','baixada')) as total_inadimplencia,
                 (SELECT round(count(CASE WHEN category IS NOT NULL AND category != '' THEN 1 END)::numeric /
                  NULLIF(count(*), 0) * 100, 1)
@@ -617,139 +430,10 @@ async def get_bi_kpis(
             "total_kpis": len(kpis_rows),
         }
     except Exception as e:
-        return {"error": str(e), "detail": traceback.format_exc()[-800:]}
+        logger.exception("painel financeiro falhou")
+        raise HTTPException(status_code=503, detail=f"painel indisponível: {e}") from e  # era 200 com {"error"} (08/09/2026)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # GET /financial/bi/dashboards
 # ──────────────────────────────────────────────────────────────────────────────
-@router.get("/bi/dashboards", summary="Dashboards BI configurados com widgets")
-async def get_bi_dashboards(
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Configuração dos dashboards BI com widgets e métricas do painel executivo.
-    """
-    try:
-        result = await db.execute(
-            text("""
-            SELECT id, nome, descricao, is_default, ativo, created_at, updated_at
-            FROM financial_dashboards
-            WHERE ativo = true
-            ORDER BY is_default DESC, updated_at DESC
-            LIMIT 20
-            """)
-        )
-        rows = result.fetchall()
-
-        if not rows:
-            return {
-                "timestamp": datetime.now().isoformat(),
-                "total_dashboards": 0,
-                "dashboards": [],
-                "painel_padrao": {
-                    "nome": "Painel Financeiro Conecta PRO",
-                    "widgets": [
-                        {"id": "mrr", "titulo": "MRR", "tipo": "kpi", "endpoint": "/financial/dashboard"},
-                        {
-                            "id": "cashflow",
-                            "titulo": "Cashflow 30d",
-                            "tipo": "chart",
-                            "endpoint": "/financial/cashflow/forecast",
-                        },
-                        {
-                            "id": "inadimplencia",
-                            "titulo": "Inadimplência",
-                            "tipo": "kpi",
-                            "endpoint": "/financial/receivables",
-                        },
-                        {
-                            "id": "custeio",
-                            "titulo": "Custeio ABC",
-                            "tipo": "table",
-                            "endpoint": "/financial/custeio/abc",
-                        },
-                        {
-                            "id": "precificacao",
-                            "titulo": "Precificação",
-                            "tipo": "table",
-                            "endpoint": "/financial/precificacao/contratos/analise",
-                        },
-                        {
-                            "id": "compliance",
-                            "titulo": "Compliance LR",
-                            "tipo": "gauge",
-                            "endpoint": "/justificativa/compliance",
-                        },
-                    ],
-                },
-            }
-
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "total_dashboards": len(rows),
-            "dashboards": [
-                {
-                    "id": str(r.id),
-                    "nome": r.nome,
-                    "descricao": r.descricao,
-                    "padrao": r.is_default,
-                    "ativo": r.ativo,
-                    "criado_em": str(r.created_at),
-                    "atualizado_em": str(r.updated_at),
-                }
-                for r in rows
-            ],
-        }
-    except Exception as e:
-        return {"error": str(e), "detail": traceback.format_exc()[-800:]}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# GET /financial/bi/profitability
-# ──────────────────────────────────────────────────────────────────────────────
-@router.get("/bi/profitability", summary="Análise de lucratividade do período")
-async def get_bi_profitability(
-    condominio_id: uuid.UUID | None = Query(None),
-    period_days: int = Query(30, ge=1, le=365),
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Receita vs Custos vs Margem bruta para o período solicitado."""
-    try:
-        result = await db.execute(
-            text("""
-            SELECT
-                COALESCE(SUM(CASE WHEN entry_type = 'entrada'
-                                  THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS revenue,
-                COALESCE(SUM(CASE WHEN entry_type = 'saida'
-                                  THEN COALESCE(realized_amount, expected_amount, 0) ELSE 0 END), 0) AS costs
-            FROM cashflow_entries
-            WHERE entry_date >= (CURRENT_DATE - :days * INTERVAL '1 day')
-            """),
-            {"days": period_days},
-        )
-        row = result.fetchone()
-        revenue = float(row.revenue) if row else 0.0
-        costs = float(row.costs) if row else 0.0
-        gross_profit = revenue - costs
-        margin = (gross_profit / revenue * 100) if revenue > 0 else 0.0
-        return {
-            "period_days": period_days,
-            "revenue": revenue,
-            "costs": costs,
-            "gross_profit": gross_profit,
-            "margin_percent": round(margin, 2),
-            "generated_at": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        return {
-            "period_days": period_days,
-            "revenue": 0.0,
-            "costs": 0.0,
-            "gross_profit": 0.0,
-            "margin_percent": 0.0,
-            "generated_at": datetime.now().isoformat(),
-            "error": str(e),
-        }

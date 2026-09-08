@@ -498,6 +498,22 @@ async def gerar_otp_lote(
                         f"O código existe, mas você não vai recebê-lo. Verifique o e-mail configurado antes de tentar de novo."), "expires_in_seconds": OTP_TTL_SECONDS}
 
 
+
+async def _pago_hoje_todas_as_fontes(db: AsyncSession) -> float:
+    """Quanto já saiu HOJE (Manaus) por todas as portas: pagamentos Inter avulsos + lotes de
+    diaristas + folha PJ. O teto antes só olhava o lote da vez — repetir /executar N vezes passava
+    (revisão 08/09/2026)."""
+    row = (await db.execute(text(
+        "SELECT coalesce((SELECT sum(valor) FROM inter_payments WHERE status IN ('aprovado','executado','confirmado') "
+        "   AND (approved_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+        " + coalesce((SELECT sum(valor) FROM financial_pagamentos_diaristas WHERE status='pago' "
+        "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+        " + coalesce((SELECT sum(valor) FROM financial_pagamentos_pj WHERE status='pago' "
+        "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+    ))).scalar()
+    return float(row or 0)
+
+
 async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code: str) -> None:
     """Valida o OTP do lote (inter_lote_otp) e o marca como usado. Levanta ValueError se inválido."""
     now = datetime.now(UTC)
@@ -509,7 +525,14 @@ async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code:
         raise ValueError("Nenhum código válido para este lote (expirado ou inexistente). Gere um novo.")
     if str(otp["code"]) != str(otp_code):
         raise ValueError("Código OTP incorreto.")
-    await db.execute(text("UPDATE inter_lote_otp SET used = true WHERE id = :id"), {"id": str(otp["id"])})
+    # Consumo ATÔMICO e commitado ANTES de qualquer PIX: sem `AND used=false` + commit, duas
+    # chamadas concorrentes ao /executar liam used=false e o lote saía em dobro (revisão 08/09/2026).
+    consumido = (await db.execute(text(
+        "UPDATE inter_lote_otp SET used = true WHERE id = :id AND used = false RETURNING id"),
+        {"id": str(otp["id"])})).first()
+    if not consumido:
+        raise ValueError("Este código já foi usado. Gere um novo código para pagar de novo.")
+    await db.commit()
 
 
 async def executar_lote(
@@ -549,6 +572,10 @@ async def executar_lote(
     if not lote_id or not otp_code:
         return {"ok": False, "mensagem": "Código OTP obrigatório. Gere o código e informe-o para pagar.",
                 "otp_requerido": True}
+    ja_hoje = await _pago_hoje_todas_as_fontes(db)
+    if ja_hoje + total > LIMITE_LOTE_DIARIO:
+        return {"ok": False, "mensagem": (f"Teto diário: já saíram R$ {ja_hoje:.2f} hoje (Inter + lotes); este lote de "
+                                          f"R$ {total:.2f} passaria de R$ {LIMITE_LOTE_DIARIO:.2f}.")}
     try:
         await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
     except ValueError as exc:
@@ -579,6 +606,7 @@ async def executar_lote(
                 await db.execute(text(
                     "UPDATE financial_pagamentos_diaristas SET status='pago', descricao=descricao||' | e2e:'||:ref, updated_at=now() WHERE id=:id"),
                     {"ref": str(ref)[:60], "id": i["id"]})
+                await db.commit()  # por item: PIX que saiu fica 'pago' mesmo se o próximo falhar/derrubar
                 pagos.append({"id": i["id"], "nome": i["beneficiario"], "valor": float(i["valor"]), "ref": str(ref)[:60]})
             except Exception as e:  # noqa: BLE001
                 logger.error("Falha ao pagar diarista %s: %s", i["id"], e)

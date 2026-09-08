@@ -746,7 +746,8 @@ class FiscalRepository:
             .where(
                 and_(
                     FiscalObligation.condominio_id == condominio_id,
-                    FiscalObligation.status == "atrasada",
+                    FiscalObligation.status == "pendente",   # nunca houve status 'atrasada' (0 linhas): atrasada = pendente vencida
+                    FiscalObligation.data_vencimento < date.today(),
                     FiscalObligation.active.is_(True),
                 )
             )

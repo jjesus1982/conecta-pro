@@ -56,7 +56,7 @@ async def financial_overview_stats(
         await db.execute(
             text(
                 "SELECT COALESCE(SUM(net_value), 0) FROM receivable_accounts "
-                "WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE"
+                "WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < (now() AT TIME ZONE 'America/Manaus')::date"
             )
         )
     ).scalar()
@@ -81,8 +81,8 @@ async def payable_stats(
             "SELECT "
             "  COUNT(*) FILTER (WHERE status NOT IN ('pago','paga','cancelada')) as pendentes, "
             "  COALESCE(SUM(net_value) FILTER (WHERE status NOT IN ('pago','paga','cancelada')), 0) as total_pendente, "
-            "  COUNT(*) FILTER (WHERE status NOT IN ('pago','paga','cancelada') AND due_date < CURRENT_DATE) as vencidas, "
-            "  COALESCE(SUM(net_value) FILTER (WHERE status NOT IN ('pago','paga','cancelada') AND due_date < CURRENT_DATE), 0) as total_vencido, "
+            "  COUNT(*) FILTER (WHERE status NOT IN ('pago','paga','cancelada') AND due_date < (now() AT TIME ZONE 'America/Manaus')::date) as vencidas, "
+            "  COALESCE(SUM(net_value) FILTER (WHERE status NOT IN ('pago','paga','cancelada') AND due_date < (now() AT TIME ZONE 'America/Manaus')::date), 0) as total_vencido, "
             "  COUNT(*) FILTER (WHERE status IN ('pago','paga')) as pagas, "
             "  COALESCE(SUM(net_value) FILTER (WHERE status IN ('pago','paga')), 0) as total_pago "
             "FROM payable_accounts"
@@ -116,8 +116,8 @@ async def receivable_stats(
             "  COUNT(*) as total, "
             "  COUNT(*) FILTER (WHERE status NOT IN ('paga','cancelada','baixada')) as pendentes, "
             f"  COALESCE(SUM({saldo}) FILTER (WHERE status NOT IN ('paga','cancelada','baixada')), 0) as total_pendente, "
-            "  COUNT(*) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE) as vencidas, "
-            f"  COALESCE(SUM({saldo}) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < CURRENT_DATE), 0) as total_vencido, "
+            "  COUNT(*) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < (now() AT TIME ZONE 'America/Manaus')::date) as vencidas, "
+            f"  COALESCE(SUM({saldo}) FILTER (WHERE status NOT IN ('paga','cancelada','baixada') AND due_date < (now() AT TIME ZONE 'America/Manaus')::date), 0) as total_vencido, "
             "  COUNT(*) FILTER (WHERE status IN ('paga')) as recebidas, "
             "  COALESCE(SUM(COALESCE(paid_value, net_value)) FILTER (WHERE status IN ('paga')), 0) as total_recebido "
             "FROM receivable_accounts"

@@ -6,10 +6,9 @@ emissao via ABRASF 2.04 (Prefeitura de Manaus) e metricas de faturamento.
 """
 
 import logging
-from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,204 +73,6 @@ class EmitirNFSeResponse(BaseModel):
 
 
 # ── Endpoint de emissão ───────────────────────────────────────────────────────
-
-
-@router.post(
-    "/nfse/emitir",
-    response_model=EmitirNFSeResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Emitir NFS-e via ABRASF 2.04",
-    description=(
-        "Emite Nota Fiscal de Serviços Eletrônica para a Prefeitura de Manaus. "
-        "Aceita nfse_id (carrega dados do banco) ou payload completo com dados do tomador e serviço."
-    ),
-    tags=["NFS-e"],
-)
-async def emitir_nfse(
-    payload: EmitirNFSeRequest,
-    current_user: CurrentActiveUser = None,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """
-    Emite NFS-e conectando ao WebService ABRASF 2.04 da Prefeitura de Manaus.
-
-    Fluxo:
-    1. Se nfse_id fornecido → carrega dados da tabela nfses
-    2. Monta tomador_data e servico_data
-    3. Chama NFSeManausService.emitir_nfse()
-    4. Atualiza registro no banco com numero_nfse, codigo_verificacao, xml
-    5. Retorna resultado
-    """
-    try:
-        from modules.government_integrations.services.nfse_manaus_service import (
-            get_nfse_manaus_service,
-        )
-    except ImportError as exc:
-        logger.error("Falha ao importar NFSeManausService: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Serviço de integração NFS-e não disponível.",
-        )
-
-    # ── 1. Carregar dados do banco se nfse_id informado ──────────────────────
-    nfse_row: Any = None
-    if payload.nfse_id:
-        result = await db.execute(
-            text("SELECT * FROM nfses WHERE id = :id AND active = true"),
-            {"id": payload.nfse_id},
-        )
-        nfse_row = result.mappings().first()
-        if not nfse_row:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"NFS-e id={payload.nfse_id} não encontrada.",
-            )
-
-    # ── 2. Montar tomador_data ───────────────────────────────────────────────
-    if nfse_row:
-        tomador_data = {
-            "cpf_cnpj": nfse_row["tomador_cpf_cnpj"],
-            "razao_social": nfse_row["tomador_razao_social"],
-            "endereco": nfse_row["tomador_logradouro"],
-            "numero": nfse_row["tomador_numero"],
-            "bairro": nfse_row["tomador_bairro"],
-            "cidade": nfse_row["tomador_municipio"],
-            "uf": nfse_row["tomador_uf"],
-            "cep": nfse_row["tomador_cep"],
-            "email": nfse_row.get("tomador_email"),
-            "telefone": nfse_row.get("tomador_telefone"),
-            "inscricao_municipal": nfse_row.get("tomador_inscricao_municipal"),
-            "complemento": nfse_row.get("tomador_complemento"),
-        }
-    else:
-        missing = [
-            f
-            for f in (
-                "tomador_cpf_cnpj",
-                "tomador_razao_social",
-                "tomador_endereco",
-                "tomador_numero",
-                "tomador_bairro",
-                "tomador_cidade",
-                "tomador_uf",
-                "tomador_cep",
-            )
-            if not getattr(payload, f, None)
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Campos obrigatórios ausentes: {missing}. Informe nfse_id ou payload completo.",
-            )
-        tomador_data = {
-            "cpf_cnpj": payload.tomador_cpf_cnpj,
-            "razao_social": payload.tomador_razao_social,
-            "endereco": payload.tomador_endereco,
-            "numero": payload.tomador_numero,
-            "bairro": payload.tomador_bairro,
-            "cidade": payload.tomador_cidade,
-            "uf": payload.tomador_uf,
-            "cep": payload.tomador_cep,
-            "email": payload.tomador_email,
-            "telefone": payload.tomador_telefone,
-        }
-
-    # ── 3. Montar servico_data ───────────────────────────────────────────────
-    if nfse_row:
-        servico_data = {
-            "codigo_servico": nfse_row["codigo_servico"],
-            "discriminacao": nfse_row["discriminacao"] or nfse_row["descricao_servico"],
-            "valor_servicos": Decimal(str(nfse_row["valor_servicos"])),
-            "valor_deducoes": Decimal(str(nfse_row.get("valor_deducoes") or 0)),
-            "valor_pis": Decimal(str(nfse_row.get("pis_valor") or 0)),
-            "valor_cofins": Decimal(str(nfse_row.get("cofins_valor") or 0)),
-            "valor_inss": Decimal(str(nfse_row.get("inss_valor") or 0)),
-            "valor_ir": Decimal(str(nfse_row.get("ir_valor") or 0)),
-            "valor_csll": Decimal(str(nfse_row.get("csll_valor") or 0)),
-            "valor_iss": Decimal(str(nfse_row.get("iss_valor") or 0)),
-            "aliquota_iss": Decimal(str(nfse_row.get("iss_aliquota") or "0.05")),
-            "iss_retido": bool(nfse_row.get("iss_retido", False)),
-            "codigo_cnae": nfse_row.get("codigo_cnae"),
-        }
-        competencia = nfse_row["data_competencia"].strftime("%Y-%m") if nfse_row.get("data_competencia") else None
-        natureza_operacao = nfse_row.get("natureza_operacao", payload.natureza_operacao)
-    else:
-        if not payload.codigo_servico or not payload.discriminacao or payload.valor_servicos is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="codigo_servico, discriminacao e valor_servicos são obrigatórios.",
-            )
-        servico_data = {
-            "codigo_servico": payload.codigo_servico,
-            "discriminacao": payload.discriminacao,
-            "valor_servicos": Decimal(str(payload.valor_servicos)),
-            "valor_deducoes": Decimal(str(payload.valor_deducoes)),
-            "valor_pis": Decimal(str(payload.valor_pis)),
-            "valor_cofins": Decimal(str(payload.valor_cofins)),
-            "valor_inss": Decimal(str(payload.valor_inss)),
-            "valor_ir": Decimal(str(payload.valor_ir)),
-            "valor_csll": Decimal(str(payload.valor_csll)),
-            "aliquota_iss": Decimal(str(payload.aliquota_iss)),
-            "iss_retido": payload.iss_retido,
-        }
-        competencia = payload.competencia
-        natureza_operacao = payload.natureza_operacao
-
-    # ── 4. Chamar NFSeManausService ──────────────────────────────────────────
-    try:
-        svc = get_nfse_manaus_service()
-        resultado = svc.emitir_nfse(
-            tomador_data=tomador_data,
-            servico_data=servico_data,
-            competencia=competencia,
-            natureza_operacao=natureza_operacao,
-            optante_simples=payload.optante_simples,
-        )
-    except Exception as exc:
-        logger.error("Erro ao emitir NFS-e via ABRASF: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Erro na integração com Prefeitura de Manaus: {exc}",
-        )
-
-    # ── 5. Atualizar banco se tinha nfse_id ──────────────────────────────────
-    if nfse_row and (resultado.get("numero_nfse") or resultado.get("protocolo")):
-        await db.execute(
-            text("""
-                UPDATE nfses SET
-                    numero_nfse          = COALESCE(:num, numero_nfse),
-                    codigo_verificacao   = COALESCE(:cod, codigo_verificacao),
-                    protocolo            = COALESCE(:prot, protocolo),
-                    status               = :status,
-                    mensagem_retorno     = :msg,
-                    xml_enviado          = COALESCE(:xml_env, xml_enviado),
-                    xml_retorno          = COALESCE(:xml_ret, xml_retorno),
-                    data_processamento   = NOW(),
-                    updated_at           = NOW()
-                WHERE id = :id
-            """),
-            {
-                "num": resultado.get("numero_nfse"),
-                "cod": resultado.get("codigo_verificacao"),
-                "prot": resultado.get("protocolo"),
-                "status": resultado.get("status", "processando"),
-                "msg": resultado.get("mensagem"),
-                "xml_env": resultado.get("xml_envio"),
-                "xml_ret": resultado.get("xml_retorno"),
-                "id": payload.nfse_id,
-            },
-        )
-        await db.commit()
-
-    # ── 6. Retornar resultado ────────────────────────────────────────────────
-    return EmitirNFSeResponse(
-        numero_nfse=resultado.get("numero_nfse"),
-        codigo_verificacao=resultado.get("codigo_verificacao"),
-        status=resultado.get("status", "processando"),
-        protocolo=resultado.get("protocolo"),
-        mensagem=resultado.get("mensagem"),
-        xml=resultado.get("xml_retorno") or resultado.get("xml_envio"),
-    )
 
 
 @router.get("/nfse")
@@ -469,7 +270,7 @@ async def list_contracts(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Lista contratos com dados do cliente e retencoes fiscais."""
-    conditions = ["ct.is_active = true"]
+    conditions = ["ct.is_active = true", "ct.status <> 'draft'"]  # rascunho não é MRR (somava R$ 23.900 a mais)
     params: dict[str, Any] = {}
     if status_filter:
         conditions.append("ct.status = :status")
@@ -630,7 +431,7 @@ async def renew_contract(
             grace_period_days, notice_period_days, auto_renewal, renewal_period_months,
             renewal_notification_days, adjustment_enabled, has_sla, signature_required,
             sla_config, is_active, created_at)
-        VALUES (:id, :num, :cid, :type, 'ativo', :name, :desc, :mv, :tv, 0, :sd, :ed,
+        VALUES (:id, :num, :cid, :type, 'active', :name, :desc, :mv, :tv, 0, :sd, :ed,  -- 'ativo' sumia do MRR (filtra 'active'), 08/09/2026
             0, 30, true, :months, 30, true, false, true, :sla, true, NOW())
     """),
         {
@@ -803,7 +604,7 @@ async def headcount_by_client(
         SELECT
             g.id as client_id,
             g.name as cliente,
-            g.cnpj as cnpj,
+            g.document_number as cnpj,
             count(DISTINCT a.employee_id) as headcount,
             (SELECT sum(e2.salario_base)
              FROM employees e2
@@ -823,13 +624,13 @@ async def headcount_by_client(
             COALESCE((
                 SELECT sum(n.valor_servicos)
                 FROM nfse_emitidas_nacional n
-                WHERE regexp_replace(g.cnpj, '[^0-9]', '', 'g') = n.tomador_cnpj
+                WHERE regexp_replace(g.document_number, '[^0-9]', '', 'g') = n.tomador_cnpj
                 AND n.competencia = (
                     SELECT MAX(n2.competencia) FROM nfse_emitidas_nacional n2
-                    WHERE regexp_replace(g.cnpj, '[^0-9]', '', 'g') = n2.tomador_cnpj
+                    WHERE regexp_replace(g.document_number, '[^0-9]', '', 'g') = n2.tomador_cnpj
                 )
             ), 0) as contrato_mensal
-        FROM ged_clients g
+        FROM clients g  -- posts.client_id aponta para clients, não ged_clients (headcount era sempre 0, 08/09/2026)
         JOIN posts p ON p.client_id::text = g.id::text AND p.is_active = true
         JOIN allocations a ON a.post_id = p.id AND a.status = 'active'
         JOIN employees e ON e.id = a.employee_id AND e.is_active = true

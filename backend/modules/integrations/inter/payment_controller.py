@@ -167,7 +167,6 @@ async def listar_pagamentos(
     return {"payments": await svc.listar(status_filter, payment_type, from_date, to_date, limit)}
 
 
-@router.get("/folha/postos")
 async def folha_postos(
     competencia: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -207,7 +206,6 @@ async def folha_postos(
     }
 
 
-@router.get("/folha/funcionarios")
 async def folha_funcionarios(
     posto: str | None = None,
     competencia: str | None = None,
@@ -276,7 +274,6 @@ def _so_digitos(s: str) -> str:
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
-@router.post("/folha/verificar-chaves")
 async def folha_verificar_chaves(
     payload: VerificarChavesPayload,
     db: AsyncSession = Depends(get_db),
@@ -400,7 +397,6 @@ class ExecutarLotePayload(BaseModel):
     otp_code: str = Field(min_length=6, max_length=6)
 
 
-@router.post("/folha/lote/preparar", status_code=201)
 async def folha_lote_preparar(
     payload: PrepararLotePayload,
     db: AsyncSession = Depends(get_db),
@@ -413,7 +409,6 @@ async def folha_lote_preparar(
     return await svc.preparar_lote(db, payload.posto, payload.competencia, itens, str(current_user.id))
 
 
-@router.post("/folha/lote/{lote_id}/gerar-otp")
 async def folha_lote_gerar_otp(
     lote_id: str,
     db: AsyncSession = Depends(get_db),
@@ -427,7 +422,6 @@ async def folha_lote_gerar_otp(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/folha/lote/{lote_id}/executar")
 async def folha_lote_executar(
     lote_id: str,
     payload: ExecutarLotePayload,
@@ -447,7 +441,6 @@ class SalvarChavePayload(BaseModel):
     pix_key_type: str = "CPF"  # CPF | CNPJ | EMAIL | TELEFONE | EVP
 
 
-@router.patch("/folha/funcionario/{funcionario_id}/chave")
 async def folha_salvar_chave(
     funcionario_id: str,
     payload: SalvarChavePayload,
@@ -604,7 +597,7 @@ async def extrair_boleto_pdf(
 
 
 # Status em que o pagamento AINDA NÃO saiu do Inter — não existe comprovante para eles.
-_STATUS_NAO_EFETIVADO = ("preparado", "aprovado", "cancelado", "erro")
+_STATUS_NAO_EFETIVADO = ("preparado", "aprovado", "cancelado", "erro", "aguardando_aprovacao")  # aguardando = ainda não liquidou
 
 
 def _pagamento_efetivado(row) -> bool:

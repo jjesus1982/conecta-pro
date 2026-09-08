@@ -198,7 +198,7 @@ async def get_payables_aging(
             COUNT(*)                           AS quantidade,
             COALESCE(SUM(net_value), 0)        AS valor_total
         FROM payable_accounts
-        WHERE status NOT IN ('pago', 'cancelado')
+        WHERE status NOT IN ('pago', 'cancelada', 'cancelado')  -- enum é 'cancelada': 64 canceladas inflavam o aging em R$ 90.758 (08/09/2026)
           AND ativo = TRUE
           {filters}
         GROUP BY 1

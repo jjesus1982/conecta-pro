@@ -125,7 +125,7 @@ class ConciliacaoService:
         for tx in txs:
             tx_valor = Decimal(str(tx["valor"]))
             dest = tx.get("detalhes_destinatario") or {}
-            dest_cpf = dest.get("cpfCnpj", dest.get("cpf", "")).replace(".", "").replace("-", "")
+            dest_cpf = str(dest.get("cpf_cnpj") or dest.get("cpfCnpj") or dest.get("cpf") or "").replace(".", "").replace("-", "")  # a chave gravada pelo sync é cpf_cnpj (08/09/2026)
 
             matched_emp = None
             match_tipo = None

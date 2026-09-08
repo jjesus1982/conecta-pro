@@ -25,7 +25,6 @@ import secrets
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 
 import psycopg2
 import psycopg2.extras
@@ -189,8 +188,10 @@ async def programar_folha_pj(db: AsyncSession, mes: int, ano: int,
                   pix_key=EXCLUDED.pix_key, valor=EXCLUDED.valor, salario=EXCLUDED.salario,
                   va_vt=EXCLUDED.va_vt, banco=EXCLUDED.banco, empresa_slug=EXCLUDED.empresa_slug,
                   nf_exigida=EXCLUDED.nf_exigida,
-                  status=CASE WHEN financial_pagamentos_pj.status='pago'
-                              THEN financial_pagamentos_pj.status ELSE EXCLUDED.status END,
+                  status=CASE WHEN financial_pagamentos_pj.status='pago' THEN financial_pagamentos_pj.status
+                              WHEN coalesce(financial_pagamentos_pj.nf_ok,false) AND EXCLUDED.status='aguardando_nf'
+                                   THEN financial_pagamentos_pj.status  -- NF já marcada: não regride (08/09/2026)
+                              ELSE EXCLUDED.status END,
                   updated_at=NOW()
                WHERE financial_pagamentos_pj.status <> 'pago'
                RETURNING (xmax=0) AS inserted"""),
@@ -224,7 +225,7 @@ async def listar_lote(db: AsyncSession, mes: int, ano: int) -> dict:
     return {
         "competencia": comp, "itens": itens,
         "inter_pagaveis": [i for i in inter if i["status"] == "a_revisar"],
-        "cora_lista_app": [i for i in cora if i["status"] in ("pagar_no_app", "aguardando_nf")],
+        "cora_lista_app": [i for i in cora if i["status"] == "pagar_no_app"],  # sem NF não entra na lista do app
         "pendencias": [i for i in itens if i["status"] in ("sem_pix", "aguardando_nf")],
         "total": round(sum(i["valor"] for i in itens), 2),
     }
@@ -266,7 +267,11 @@ async def _validar_otp(db: AsyncSession, lote_id: str, code: str) -> None:
         raise ValueError("Código expirado ou inexistente. Gere um novo.")
     if str(row["code"]) != str(code).strip():
         raise ValueError("Código OTP incorreto.")
-    await db.execute(text("UPDATE inter_lote_otp SET used=true WHERE id=:i"), {"i": row["id"]})
+    consumido = (await db.execute(text(
+        "UPDATE inter_lote_otp SET used=true WHERE id=:i AND used=false RETURNING id"), {"i": row["id"]})).first()
+    if not consumido:  # consumo atômico: duas chamadas concorrentes não pagam o lote em dobro (08/09/2026)
+        raise ValueError("Este código já foi usado. Gere um novo código.")
+    await db.commit()
 
 
 async def executar_lote(db: AsyncSession, mes: int, ano: int, *, confirmar: bool = False,
@@ -294,6 +299,11 @@ async def executar_lote(db: AsyncSession, mes: int, ano: int, *, confirmar: bool
         return {"ok": False, "mensagem": f"Lote R$ {total:.2f} excede o limite R$ {LIMITE_LOTE:.2f}."}
     if not lote_id or not otp_code:
         return {"ok": False, "otp_requerido": True, "mensagem": "OTP obrigatório. Gere o código e informe-o."}
+    from modules.financial.pagamentos_diaristas_service import _pago_hoje_todas_as_fontes
+    ja_hoje = await _pago_hoje_todas_as_fontes(db)
+    if ja_hoje + total > LIMITE_LOTE:
+        return {"ok": False, "mensagem": (f"Teto diário: já saíram R$ {ja_hoje:.2f} hoje (Inter + lotes); este lote de "
+                                          f"R$ {total:.2f} passaria de R$ {LIMITE_LOTE:.2f}.")}
     try:
         await _validar_otp(db, lote_id, otp_code)
     except ValueError as exc:
@@ -321,6 +331,7 @@ async def executar_lote(db: AsyncSession, mes: int, ano: int, *, confirmar: bool
                 await db.execute(text(
                     "UPDATE financial_pagamentos_pj SET status='pago', e2e_ref=:r, updated_at=NOW() WHERE id=:id"),
                     {"r": str(ref)[:80], "id": i["id"]})
+                await db.commit()  # por item
                 pagos.append({"nome": i["beneficiario"], "valor": float(i["valor"]), "ref": str(ref)[:80]})
             except Exception as e:  # noqa: BLE001
                 logger.error("Falha ao pagar PJ %s: %s", i["id"], e)

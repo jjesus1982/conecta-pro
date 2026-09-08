@@ -804,6 +804,58 @@ aguardando minha assinatura, meus dados. GED — editar/remover documento do kit
 - 47 holerites `source=conecta` em 11/2026 e 12/2026 (competências futuras) e checklist de onboarding de semente
   (102 itens "vencidos" de 24/02) — apagar?
 
+
+### §2c.23 — Financeiro: revisão 100% do código, lote 1 (08/09/2026, 00h–03h Manaus)
+
+**Método:** 4 agentes só-leitura (dinheiro-que-sai, contas/cobrança, custeio/BI, fiscal+relatórios), cada
+achado provado no banco; correções aplicadas, hot-copy nos 8 containers, HUP, smoke, 0 botão morto.
+Relatórios finais em `auditoria/qa/revisao_20260908/`.
+
+**Incidente (relatado antes de tudo).** O agente fiscal disparou `POST /financial/bank-reconciliations/auto`
+por engano às 00:49 e a rota conciliou um PIX de R$ 4.300 (Concregrama Prime Arena) com o receivable de
+R$ 33.479,60 do Prime Arena por casar a palavra "PRIME", sem conferir valor. Restaurei as duas linhas para
+`pendente` (bank_transactions 2ce29fd4…, receivable_accounts a20ce2cc…) e apaguei a rota. Um evento
+`publish_nota_emitida("conciliacao_1", 33479.6)` foi ao event bus e não foi desfeito.
+
+**Dinheiro que sai (aplicado):** OTP consumido com `UPDATE … AND used=false RETURNING` (não dá para reusar);
+commit por item pago; teto diário soma TODAS as fontes (Inter + diaristas + PJ) em Manaus e conta
+`aguardando_aprovacao`; saldo Inter indisponível vira erro, não zero; cancelar não alcança lote em aprovação;
+7 rotas `/folha/*` de lote do Inter apagadas (13 ficam). Sync do Inter baixa recebível como `paga` com data.
+Boleto pelo kit chamava o adapter com kwargs que não existem (TypeError engolido, cobrança ficava pendente
+para sempre) — corrigido para a assinatura real. Conciliação lia `cpfCnpj` onde o sync grava `cpf_cnpj`.
+
+**Fiscal (aplicado):** calculadora de retenções (tela viva): IRRF 1% para vigilância/portaria/limpeza
+(art. 716 RIR/2018) e 1,5% só para serviço profissional; prestador no Simples não sofre IR/CSLL/PIS/COFINS
+(IN 765/2007, IN 459/2004); dispensa quando IR ≤ R$ 10 ou PCC ≤ R$ 10. **Validar com a contadora antes de
+o cliente usar.** Tributos consolidados: FGTS lia a conta velha `4.1.2.01` (dava 0 o ano todo) — agora
+`5.1.1.02` (R$ 60.987,20 em 2026); PIS/COFINS deixam de ser "zerados por liminar" (a liminar é da
+Patrimonial e está a_solicitar) e saem como `null`. Obrigações atrasadas = pendente vencida (19, era 0).
+Painéis financeiros: `CURRENT_DATE` (UTC) trocado por hoje de Manaus (23 ocorrências); 5 handlers que
+devolviam 200 com `{"error"}` agora 503. Headcount por cliente lia `ged_clients` (0) — agora `clients` (53).
+Contrato renovado nascia `ativo` e sumia do MRR (`active`); MRR não soma rascunho.
+
+**Apagadas (74 rotas):** fiscal legado sobre tabelas inexistentes/vazias — CFOP ×6, retenção ×5, NF-e ×8,
+NFS-e legada ×6, SPED ×6, DAS ×5 (fica `/das/faixas`), SUFRAMA ×5, `/stats`; relatórios `/orcamentos` ×3
+(ledger morto) e `/custeio` ×5 (tabelas em `lixo_20260906`); BI overview/dashboards/profitability; stubs de
+recebível (boleto/PIX/lote/notificar/acordo) e de regra de cobrança (generate/process-all); NFS-e de entrada
+legada ×9 (auto-criar ×3, conciliação auto e status, custos/resumo, sync ×2, status-sync); `POST /financial/
+nfse/emitir` (ABRASF, default Simples). As três telas do redesign que apontavam para elas saíram; o caminho
+real das NFS-e tomadas é `registrar-obrigacoes` (as 86 sem pagável são de 2025, antes do horizonte).
+
+**Fica para o lote 2 (fila):** LIGAR — DANFSe por chave na lista de emitidas, baixa de obrigação
+(`PATCH /obrigacao/{id}`), liminares (depois de unificar `fiscal_liminares` × `liminares`), parcelamentos,
+aging por competência (contas-receber/pagar/fornecedores), apuração Lucro Real, DRE mensal, balanço,
+`/bi/kpis`, saldo-limite, prioridades de cobrança, projeção de caixa. Corrigir — lista de NFS-e devolve chave
+e o detalhe exige UUID; dashboard fiscal com chaves trocadas; forecast parte do saldo de uma conta só;
+`cashflow_dashboard` do clássico inventa números; `_ensure_*` cria tabela em GET; DAS acima de 4,8M dá 500;
+adicional IRPJ com teto fixo; custeio ABC/precificação/rentabilidade (ver relatório 3). Desmontar routers
+mortos (purchase 68, bank_reconciliation 13, bank_account, bank_transaction, customer, receivable_category,
+accounting fin_* exceto DRE, inventory fin_* exceto /real/*).
+
+**Depende do Jordan:** (1) alíquotas da calculadora com a contadora; (2) qual tabela de liminares é a
+verdade; (3) confirmar que a empresa não emitirá NF-e (apaguei os endpoints; o modelo fica); (4) o evento
+de conciliação falsa no bus.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),

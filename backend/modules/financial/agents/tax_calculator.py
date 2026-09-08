@@ -417,54 +417,59 @@ class TaxCalculatorAgent:
 
     # ── Retenções na Fonte ───────────────────────────────────────────────────
 
+    # IRRF por tipo de serviço (RIR/2018): art. 716 = 1% para limpeza, conservação, segurança,
+    # vigilância e locação de mão de obra; art. 714 = 1,5% para serviços profissionais.
+    _IR_POR_SERVICO = {
+        "vigilancia": "0.01", "seguranca": "0.01", "portaria": "0.01", "limpeza": "0.01",
+        "conservacao": "0.01", "locacao_mao_obra": "0.01", "monitoramento": "0.015",
+        "profissional": "0.015", "seg_eletronica": "0.015",
+    }
+
     def calcular_retencoes_nfse(
         self,
         valor_servico: Decimal,
         regime_empresa: str = "simples_nacional",
         liminares: list[str] | None = None,
+        tipo_servico: str = "vigilancia",
     ) -> CalculoRetencoes:
         """
-        Calcula retenções na fonte sobre NFS-e.
+        Calcula retenções na fonte sobre NFS-e (tomador PJ). Revisto 08/09/2026:
 
-        Regras:
-        - INSS 11%: Se Simples, verificar liminar. Se Lucro Real, sempre retém.
-        - IR 1.5%: Para serviços de vigilância acima de R$ 215,05/mês
-        - CSLL 1%: Empresa tomadora PJ
-        - PIS 0.65% + COFINS 3%: Se Lucro Real. Se Simples + liminar: zerados
-        - ISS 5%: Retenção pelo tomador (Manaus)
+        - INSS 11% (cessão de mão de obra, Lei 8.212 art. 31): vale para Lucro Real E Simples
+          (anexo IV). Só a liminar `inss_nao_retido` afasta.
+        - Prestador no Simples NÃO sofre IRRF (IN RFB 765/2007) nem CSLL/PIS/COFINS
+          (IN RFB 459/2004 art. 3º II) — independe de liminar.
+        - Lucro Real: IR 1% (art. 716) ou 1,5% (art. 714) conforme o serviço, dispensado se
+          o imposto ≤ R$ 10 (Lei 9.430 art. 67); CSLL 1% + PIS 0,65% + COFINS 3% dispensados
+          se a soma ≤ R$ 10 (Lei 10.925/2004 art. 5º).
+        - ISS 5% Manaus retido pelo tomador.
         """
         liminares = liminares or []
+        q = lambda v: Decimal(v).quantize(Decimal("0.01"), ROUND_HALF_UP)  # noqa: E731
         resultado = CalculoRetencoes(valor_servico=valor_servico)
+        simples = regime_empresa == "simples_nacional"
 
-        # INSS 11%
-        if regime_empresa == "lucro_real" or "inss_nao_retido" not in liminares:
-            resultado.inss = (valor_servico * Decimal("0.11")).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
+        if "inss_nao_retido" in liminares:
             resultado.liminares_aplicadas.append("inss_nao_retido")
-
-        # IR 1.5% (vigilância - serviços especializados)
-        if valor_servico >= Decimal("215.05"):
-            resultado.ir = (valor_servico * Decimal("0.015")).quantize(Decimal("0.01"), ROUND_HALF_UP)
-
-        # CSLL 1%
-        resultado.csll = (valor_servico * Decimal("0.01")).quantize(Decimal("0.01"), ROUND_HALF_UP)
-
-        # PIS 0.65% + COFINS 3%
-        if "pis_cofins_zero" in liminares and regime_empresa == "simples_nacional":
-            resultado.liminares_aplicadas.append("pis_cofins_zero")
         else:
-            resultado.pis = (valor_servico * Decimal("0.0065")).quantize(Decimal("0.01"), ROUND_HALF_UP)
-            resultado.cofins = (valor_servico * Decimal("0.03")).quantize(Decimal("0.01"), ROUND_HALF_UP)
+            resultado.inss = q(valor_servico * Decimal("0.11"))
 
-        # ISS 5% Manaus
-        resultado.iss = (valor_servico * Decimal("0.05")).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        if not simples:
+            ir = q(valor_servico * Decimal(self._IR_POR_SERVICO.get(tipo_servico, "0.015")))
+            resultado.ir = ir if ir > Decimal("10") else Decimal("0")
+            csll = q(valor_servico * Decimal("0.01"))
+            pis = q(valor_servico * Decimal("0.0065"))
+            cofins = q(valor_servico * Decimal("0.03"))
+            if csll + pis + cofins > Decimal("10"):
+                resultado.csll, resultado.pis, resultado.cofins = csll, pis, cofins
+        elif "pis_cofins_zero" in liminares:
+            resultado.liminares_aplicadas.append("pis_cofins_zero")
 
-        resultado.total_retencoes = (
+        resultado.iss = q(valor_servico * Decimal("0.05"))
+        resultado.total_retencoes = q(
             resultado.inss + resultado.ir + resultado.csll + resultado.pis + resultado.cofins + resultado.iss
-        ).quantize(Decimal("0.01"), ROUND_HALF_UP)
-
-        resultado.valor_liquido = (valor_servico - resultado.total_retencoes).quantize(Decimal("0.01"), ROUND_HALF_UP)
-
+        )
+        resultado.valor_liquido = q(valor_servico - resultado.total_retencoes)
         return resultado
 
     # ── Verificação Limite Simples ─────────────────────────────────────────

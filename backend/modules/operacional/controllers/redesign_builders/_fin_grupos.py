@@ -31,7 +31,7 @@ GRUPOS = [
     # o mapa sem deixar placa é pior que não mudar.
     ("g-pagar", "Pagar", "O que a empresa deve. Diaristas, VT/VR e folha estão em «Pessoas & Folha» · boleto, PIX e impostos em «Contas & Impostos» · lotes e o que já saiu em «Ordens & Histórico».", [
         ("contas-pagar", "Contas a Pagar"), ("registrar-conta-pagar", "Registrar conta"),
-        ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"), ("nfse-entrada-payaveis", "NFS-e entrada × pagável"), ("nfse-entrada-auto-payaveis", "Criar pagáveis (todas)"),
+        ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"),
         ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
     ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa. Contas e impostos ficam em «Contas & Impostos»; a lista de dívidas, em «Pagar».", [
         # ⚠️ Nome de aba tem de dizer O QUE SAI. "Pagar diaristas" foi lido pelo Jordan
@@ -75,7 +75,7 @@ GRUPOS = [
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
         ("postar-provisoes", "Postar provisões"), ("postar-inss", "Postar INSS"),
         ("pareamento-portte", "Pareamento Portte"), ("pareamento-tributos", "Pareamento tributos"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
-        ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto"), ("nfse-sync-prestador", "Sincronizar NFS-e emitidas")]),
+        ("contabilidade", "Extrato categorizado"), ("cancelar-boleto", "Cancelar boleto"),]),
     ("g-custos", "Custos & Orçamento", "Custos, custeio, precificação e orçamento", [
         ("rentabilidade", "Rentabilidade por contrato"), ("resultado-cnpj", "Resultado por CNPJ"),
         ("custos", "Custos"), ("custeio-abc", "Custeio ABC"),

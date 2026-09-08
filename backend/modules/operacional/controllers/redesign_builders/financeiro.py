@@ -1681,19 +1681,7 @@ ORDER BY b.comp DESC, b.cnpj"""
             {"key": "motivo", "label": "Motivo", "type": "textarea", "span": "span 2"},
         ],
     }
-    out["nfse-sync-prestador"] = {
-        "title": "Sincronizar NFS-e emitidas",
-        "sub": "Puxa do Portal Nacional as notas que emitimos. So LE do portal - não emite "
-               "nem cancela nada.",
-        "cta": "Sincronizar", "type": "form",
-        "submit": {"endpoint": "/api/v1/financial/nfse/sync-prestador", "query": True,
-                   "okMsg": "Sincronizacao disparada", "showResult": True},
-        "fields": [
-            {"key": "data_inicio", "label": "De", "type": "date", "span": "span 1"},
-            {"key": "data_fim", "label": "Ate", "type": "date", "span": "span 1"},
-        ],
-    }
-
+    
     # Custos recorrentes (2026-08-10): o DELETE leva {custo_id} no CAMINHO -> acao por LINHA.
     # A tela de criar ja existe acima; faltava ver e remover.
     await safe("custos-recorrentes-lista", tbl(
@@ -1805,40 +1793,9 @@ ORDER BY b.comp DESC, b.cnpj"""
         "fields": [],
     }
 
-    # NFS-e entrada x pagavel (2026-08-10). Tabela PROPRIA, lendo `nfse_entrada` — que e a
-    # que o payable_auto_service consulta (filtra payable_id IS NULL). A tela 'NFS-e entrada'
-    # que ja existia le `nfse_tomadas_nacional`, tabela DIFERENTE: pendurar a acao la daria
-    # botao que nunca acha a nota.
-    await safe("nfse-entrada-payaveis", tbl(
-        "NFS-e entrada x pagável", "Notas de fornecedor e a conta a pagar de cada uma", "—",
-        ["Prestador", "Numero", "Competencia", "Valor", "Pagavel"],
-        "1.8fr 1fr 1fr 1fr 1fr",
-        # competencia aqui e DATE, nao texto: coalesce com travessao faz o Postgres recusar
-        # ("invalid input syntax for type date"). Mesma familia da armadilha do enum — sai
-        # como coluna crua e a formatacao fica no Python.
-        "SELECT id, coalesce(prestador_nome,'—'), coalesce(numero_nfse,'—'), "
-        "competencia, coalesce(valor_servico,0), payable_id "
-        "FROM nfse_entrada ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(str(r[3])[:7] if r[3] else '—'),
-                   t(brl(r[4]), 600),
-                   b("Criado", "ok") if r[5] else b("Sem pagavel", "warn")],
-        actionsfn=lambda r: None if r[5] else [
-            {"title": f"Criar a conta a pagar desta nota — {r[1]}",
-             "sub": "Lança o pagável a partir da nota. So LANÇA — não paga.",
-             "endpoint": f"/api/v1/financial/payable/auto-criar/{r[0]}",
-             "method": "POST", "btnLabel": "Criar pagável", "submitLabel": "Criar conta a pagar",
-             "btnStyle": "primary", "okMsg": "Pagável criado. Recarregue.", "fields": []},
-        ]))
-    out["nfse-entrada-auto-payaveis"] = {
-        "title": "Criar pagáveis de TODAS as NFS-e de entrada",
-        "sub": "Varre as notas de fornecedor sem pagável e lança a conta de cada uma. "
-               "Hoje não ha nenhuma pendente — o botao fica honesto mesmo assim.",
-        "cta": "Criar pagáveis", "type": "form",
-        "submit": {"endpoint": "/api/v1/financial/nfse-entrada/auto-criar-payables",
-                   "okMsg": "Pagáveis criados", "showResult": True,
-                   "confirm": "Lança conta a pagar para TODA NFS-e de entrada sem pagável. Confirma?"},
-        "fields": [],
-    }
+    # nfse-entrada-payaveis / auto-payaveis / sync-prestador APOSENTADAS 08/09/2026: liam a tabela
+    # legada nfse_entrada (10 notas, todas com pagavel). O caminho real e registrar-obrigacoes
+    # (payable_sources_service sobre nfse_tomadas_nacional) e o sync e o beat sincronizar_nfse_nacional.
 
     montar_grupos(out)   # SEMPRE por último — ver comentário acima
     return out
