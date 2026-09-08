@@ -51,6 +51,12 @@ logger = logging.getLogger(__name__)
 _ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "ged-tipos-documento", "label": "GED — tipos de documento", "icon": "M3 3v18h18"},
+    {"id": "ged-coleta-automatica", "label": "GED — coleta automática", "icon": "M3 3v18h18"},
+    {"id": "ged-coleta-configurar", "label": "GED — configurar coleta", "icon": "M3 3v18h18"},
+    {"id": "cnd-emitir", "label": "Certidões — emitir (robô)", "icon": "M3 3v18h18"},
+    {"id": "cnd-upload", "label": "Certidões — subir PDF", "icon": "M3 3v18h18"},
+    {"id": "certidoes-avisar", "label": "Certidões — avisar cliente", "icon": "M3 3v18h18"},
     {"id": "kits-conferencia", "label": "Conferência dos kits (ATLAS)", "icon": "M3 3v18h18"},
     {"id": "kits-assinaturas-pendentes", "label": "Assinaturas pendentes dos kits", "icon": "M3 3v18h18"},
     {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
@@ -735,6 +741,7 @@ async def build(db) -> dict:
     }
 
     await _ligar_kits_20260908(db, out)
+    await _ligar_lote3_20260908(db, out)
     return out
 
 
@@ -826,3 +833,76 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
 def _lista(res) -> bool:
     from modules.operacional.controllers.redesign_builders._ligar_generico import _lista_em
     return bool(_lista_em(res))
+
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # GET /ged/config/document-types
+        from modules.ged.controllers import ged_config_controller as Gc
+        res = await chamar(Gc.get_document_types, db)
+        out["ged-tipos-documento"] = tabela_de_lista("GED — tipos de documento", "Catálogo de tipos usado nos kits (obrigatório/ativo) · fonte: ged_document_types", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("ged-tipos-documento: %s", exc)
+    try:  # GET/POST /ged/coleta-automatica
+        row = (await db.execute(_T("SELECT enabled, cron_expr, timezone, last_run, last_status, updated_at, updated_by FROM ged_coleta_config ORDER BY id LIMIT 1"))).first()
+        painel = {"ligada": bool(row[0]) if row else False, "cron": row[1] if row else None, "fuso": row[2] if row else None,
+                  "ultima_execucao": _fd(row[3], "%d/%m/%Y %H:%M") if row and row[3] else "nunca", "ultimo_status": row[4] if row else None,
+                  "atualizado_em": _fd(row[5], "%d/%m/%Y %H:%M") if row and row[5] else None, "atualizado_por": row[6] if row else None}
+        out["ged-coleta-automatica"] = painel_de_dict("GED — coleta automática", "Robô que busca guias/notas nos portais todo mês (tarefa auto_collect_task lê esta configuração) · fonte: ged_coleta_config", painel, kpis_de=["ligada", "cron", "ultima_execucao", "ultimo_status"])
+        out["ged-coleta-configurar"] = {
+            "title": "GED — configurar coleta automática", "sub": "Liga/desliga o robô e define o cron (ex.: 0 6 21 * * = dia 21 às 06:00). É a configuração que a tarefa Celery lê — diferente do 'agendamento de envio' dos kits.",
+            "cta": "Salvar", "type": "form", "submit": {"endpoint": "/api/v1/ged/coleta-automatica", "okMsg": "Configuração salva. Recarregue.", "showResult": True},
+            "fields": [selecionar("enabled", "Ligada?", _SN, "span 1"), {"key": "cron_expr", "label": "Cron*", "type": "text", "span": "span 1", "value": (row[1] if row else "0 6 21 * *") or "0 6 21 * *"}]}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("ged-coleta: %s", exc)
+    try:  # POST /gedeon/cnd/emitir + POST /gedeon/cnd/upload (decisão do dono 07/09: certidões só da Patrimonial)
+        emp = (await db.execute(_T("SELECT cnpj, razao_social FROM empresas WHERE slug='conecta_patrimonial' LIMIT 1"))).first()
+        cnpj = emp[0] if emp else ""
+        out["cnd-emitir"] = {
+            "title": "Certidões — emitir pelo robô", "sub": f"Enfileira a emissão para o robô (SEFAZ-AM, CNDT, Prefeitura). Federal e Caixa são manuais: emita no portal e suba o PDF ao lado. Empresa: {emp[1] if emp else '—'}.",
+            "cta": "Emitir", "type": "form", "submit": {"endpoint": "/api/v1/gedeon/cnd/emitir", "okMsg": "Emissão enfileirada — acompanhe em Certidões (CND).", "showResult": True},
+            "fields": [{"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                       {"key": "portais", "label": "Portais", "type": "multiselect", "span": "span 1", "options": [{"value": v, "label": l} for v, l in (("sefaz_am", "SEFAZ-AM"), ("cndt", "CNDT (TST)"), ("prefeitura", "Prefeitura de Manaus"))]}]}
+        out["cnd-upload"] = {
+            "title": "Certidões — subir PDF emitido manualmente", "sub": "Federal (RFB/PGFN) e FGTS (Caixa) não têm robô: suba o PDF e a validade é lida do próprio documento.",
+            "cta": "Enviar", "type": "form", "submit": {"endpoint": "/api/v1/gedeon/cnd/upload", "multipart": True, "okMsg": "Certidão registrada. Recarregue.", "showResult": True},
+            "fields": [selecionar("document_type", "Tipo*", [{"value": v, "label": l} for v, l in (("federal", "Federal — RFB/PGFN"), ("caixa", "FGTS — Caixa"))], "span 1"),
+                       {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                       {"key": "file", "label": "PDF da certidão*", "type": "file", "span": "span 2"}]}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("cnd: %s", exc)
+    try:  # POST /whatsapp/send/certificate-alert
+        out["certidoes-avisar"] = await tbl(
+            "Certidões — avisar cliente por WhatsApp", "Avisa o síndico/cliente que uma certidão vence (ou venceu). Informe telefone e nome; o resto vem da certidão · fonte: ged_certidoes", "—",
+            ["Certidão", "Tipo", "Validade", "Situação"], "2.2fr 1fr 0.9fr 1fr",
+            "SELECT coalesce(name,'—'), coalesce(document_type,'—'), expiry_date, (expiry_date - current_date) FROM ged_certidoes WHERE expiry_date IS NOT NULL ORDER BY expiry_date ASC LIMIT 200",
+            lambda r: [t(r[0][:60], 600, "#0F1B3A"), t(r[1]), t(_fd(r[2])), b("Vencida" if (r[3] or 0) < 0 else (f"Vence em {r[3]}d" if (r[3] or 0) <= 30 else "Válida"), "bad" if (r[3] or 0) < 0 else "warn" if (r[3] or 0) <= 30 else "ok")],
+            actionsfn=lambda r: [{"title": f"Avisar por WhatsApp — {r[0][:40]}", "endpoint": "/api/v1/whatsapp/send/certificate-alert", "method": "POST",
+                                  "btnLabel": "Avisar cliente", "btnStyle": "outline", "submitLabel": "Enviar WhatsApp", "okMsg": "Aviso enviado.",
+                                  "fields": [{"key": "phone", "label": "Telefone (com DDD)*", "type": "text", "span": "span 1"},
+                                             {"key": "client_name", "label": "Nome do cliente*", "type": "text", "span": "span 1"},
+                                             {"key": "certificate_type", "label": "Certidão", "type": "text", "span": "span 1", "value": r[1]},
+                                             {"key": "expiry_date", "label": "Validade", "type": "text", "span": "span 1", "value": _fd(r[2])},
+                                             {"key": "days_remaining", "label": "Dias restantes", "type": "number", "span": "span 1", "value": int(r[3] or 0)}]}])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("certidoes-avisar: %s", exc)

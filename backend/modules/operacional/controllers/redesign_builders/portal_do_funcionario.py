@@ -25,6 +25,9 @@ from modules.operacional.controllers.redesign_data_controller import (
 
 SLUG = "portal-do-funcionario"
 EXTRA_MENU: list[dict] = [
+    {"id": "comunicados", "label": "Comunicados", "icon": "M3 3v18h18"},
+    {"id": "bater-ponto", "label": "Bater ponto", "icon": "M3 3v18h18"},
+    {"id": "assinaturas-pendentes", "label": "Assinaturas pendentes", "icon": "M3 3v18h18"},
     {"id": "ouvidoria", "label": "Ouvidoria", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
 ]
 _ND = "#0F1B3A"
@@ -259,4 +262,59 @@ async def build(db, current_user=None) -> dict:
              ]},
         ]))
 
+    await _ligar_lote3_20260908(db, out, me if _vinc else None, current_user)
     return out
+
+
+async def _ligar_lote3_20260908(db, out: dict, me, current_user) -> None:
+    """LIGAR lote 3 (08/09/2026): comunicados (confirmar leitura), bater ponto, assinaturas pendentes — sempre do usuário logado."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    uid = str(getattr(current_user, "id", "") or "")
+    me_lit = f"'{me}'" if me else "'00000000-0000-0000-0000-000000000000'"
+
+    try:  # POST /operacional/comunicados/{id}/confirmar
+        out["comunicados"] = await tbl(
+            "Comunicados", "Comunicados publicados · confirme a leitura quando o comunicado pedir · fonte: communication_announcements", "—",
+            ["Título", "Tipo", "Prioridade", "Publicado", "Situação"], "2.2fr 0.9fr 0.9fr 0.9fr 1fr",
+            f"SELECT a.id::text, coalesce(a.titulo,'—'), coalesce(a.tipo,'—'), coalesce(a.prioridade,'—'), a.data_publicacao, coalesce(a.requer_confirmacao,false), "
+            f"(SELECT max(r.confirmed_at) FROM communication_announcement_reads r WHERE r.announcement_id=a.id AND r.user_id::text='{uid}') "
+            "FROM communication_announcements a WHERE coalesce(a.is_active,true) AND a.status='publicado' AND (a.data_expiracao IS NULL OR a.data_expiracao >= now()) "
+            "ORDER BY a.data_publicacao DESC NULLS LAST LIMIT 100",
+            lambda r: [t(r[1][:70], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(_d(r[4])), b("Confirmado" if r[6] else ("Confirmar leitura" if r[5] else "Informativo"), "ok" if r[6] else ("warn" if r[5] else "mut"))],
+            actionsfn=lambda r: [{"title": f"Confirmar leitura — {r[1][:50]}", "endpoint": f"/api/v1/operacional/comunicados/{r[0]}/confirmar", "method": "POST",
+                                  "btnLabel": "Confirmar leitura", "btnStyle": "primary", "submitLabel": "Confirmo que li", "okMsg": "Leitura confirmada.", "fields": []}] if (r[5] and not r[6]) else [])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("portal comunicados: %s", exc)
+
+    try:  # POST /people-management/ponto/batida/me?punch_type=…
+        ult = None
+        if me:
+            ult = (await db.execute(_T(f"SELECT punch_type, punch_timestamp FROM gp_clock_punches WHERE employee_id={me_lit} ORDER BY punch_timestamp DESC LIMIT 1"))).first()
+        tipos = [("entrada", "Entrada"), ("saida_almoco", "Saída para almoço"), ("retorno_almoco", "Retorno do almoço"), ("saida", "Saída")]
+        sub = ("Registra a batida do usuário logado, hora do servidor (sem foto/GPS por aqui — o painel de ponto continua sendo o caminho com reconhecimento facial)."
+               + (f" Última batida: {str(ult[0]).replace('_', ' ')} em {_d(ult[1], '%d/%m %H:%M')}." if ult else " Nenhuma batida registrada ainda."))
+        out["bater-ponto"] = {"title": "Bater ponto", "sub": sub if me else "Seu usuário não está vinculado a um colaborador — nada a registrar.", "cta": "—", "type": "table",
+                              "searchHint": "", "grid": "1.4fr 1fr", "cols": ["Batida", "Quando"],
+                              "rows": [{"cells": [t(lbl, 600, "#0F1B3A"), t("agora")],
+                                        "actions": [{"title": f"Bater ponto — {lbl}", "endpoint": f"/api/v1/people-management/ponto/batida/me?punch_type={k}", "method": "POST",
+                                                     "btnLabel": lbl, "btnStyle": "primary", "submitLabel": "Registrar batida", "okMsg": "Batida registrada.", "fields": []}]}
+                                       for k, lbl in tipos] if me else []}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("portal bater-ponto: %s", exc)
+
+    try:  # GET /signatures/meus-pendentes (por SQL) + POST /signatures/assinar-lote
+        out["assinaturas-pendentes"] = await tbl(
+            "Assinaturas pendentes", "Documentos esperando a sua assinatura · fonte: sig_signature_requests", "—",
+            ["Documento", "Tipo", "Finalidade", "Pedido em", "Vence em"], "2.2fr 1fr 1fr 0.9fr 0.9fr",
+            f"SELECT id::text, coalesce(title, document_name, '—'), coalesce(document_type,'—'), coalesce(purpose,'—'), created_at, due_date "
+            f"FROM sig_signature_requests WHERE upper(status)='PENDING' AND (signer_id::text='{uid}' OR signer_id::text={me_lit}) ORDER BY created_at DESC LIMIT 100",
+            lambda r: [t(r[1][:70], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(_d(r[4])), t(_d(r[5]))],
+            actionsfn=lambda r: [{"title": f"Assinar — {r[1][:50]}", "endpoint": "/api/v1/signatures/assinar-lote", "method": "POST",
+                                  "btnLabel": "Assinar", "btnStyle": "primary", "submitLabel": "Assinar agora", "okMsg": "Assinado.",
+                                  "fields": [{"key": "request_ids", "label": "Pedido(s)", "type": "json", "span": "span 2", "value": f'["{r[0]}"]'}]}])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("portal assinaturas: %s", exc)

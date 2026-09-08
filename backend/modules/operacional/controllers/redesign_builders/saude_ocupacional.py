@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 SLUG = "saude-ocupacional"
 EXTRA_MENU: list[dict] = [
+    {"id": "ltcat", "label": "LTCAT", "icon": "M3 3v18h18"},
+    {"id": "ltcat-atualizar", "label": "LTCAT — atualizar", "icon": "M3 3v18h18"},
     {"id": "fichas-epi", "label": "Fichas de EPI",
      "icon": "M9 12l2 2 4-4M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"},
     {"id": "cipa-reuniao", "label": "Registrar reunião da CIPA", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
@@ -190,4 +192,48 @@ async def build(db) -> dict:
         ],
     }
 
+    await _ligar_lote3_20260908(db, out)
     return out
+
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # GET /people-management/sst/ltcat/status + PUT /people-management/sst/ltcat
+        row = (await db.execute(_T("SELECT status, responsavel_tecnico, registro_conselho, validade_inicio, validade_fim, observacoes, updated_at FROM sst_ltcat ORDER BY updated_at DESC NULLS LAST LIMIT 1"))).first()
+        dias = (row[4] - __import__("datetime").date.today()).days if row and row[4] else None
+        painel = {"status": (row[0] if row else "sem registro"), "responsavel_tecnico": row[1] if row else None, "registro_conselho": row[2] if row else None,
+                  "validade_inicio": _fd(row[3]) if row else None, "validade_fim": _fd(row[4]) if row else None,
+                  "dias_para_vencer": dias, "observacoes": row[5] if row else None, "atualizado_em": _fd(row[6], "%d/%m/%Y %H:%M") if row else None}
+        out["ltcat"] = painel_de_dict("LTCAT — laudo técnico das condições ambientais", "Situação do laudo (NR-15/16, base do eSocial S-2240) · fonte: sst_ltcat", painel, kpis_de=["status", "validade_fim", "dias_para_vencer", "responsavel_tecnico"])
+        _ST = [{"value": v, "label": v.replace("_", " ").capitalize()} for v in ("pendente_elaboracao", "em_elaboracao", "vigente", "vencido")]
+        out["ltcat-atualizar"] = {
+            "title": "LTCAT — atualizar", "sub": "Responsável técnico, registro no conselho, validade e status. Campos em branco não são alterados.",
+            "cta": "Salvar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/sst/ltcat", "method": "PUT", "okMsg": "LTCAT atualizado. Recarregue.", "showResult": True},
+            "fields": [selecionar("status", "Status", _ST, "span 1"),
+                       {"key": "responsavel_tecnico", "label": "Responsável técnico", "type": "text", "span": "span 1", "value": (row[1] if row else "") or ""},
+                       {"key": "registro_conselho", "label": "Registro no conselho (CREA/CRM)", "type": "text", "span": "span 1", "value": (row[2] if row else "") or ""},
+                       {"key": "validade_inicio", "label": "Validade — início", "type": "date", "span": "span 1"},
+                       {"key": "validade_fim", "label": "Validade — fim", "type": "date", "span": "span 1"},
+                       {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2", "value": (row[5] if row else "") or ""}]}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("ltcat: %s", exc)

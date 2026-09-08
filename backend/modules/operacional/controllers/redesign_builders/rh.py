@@ -22,6 +22,8 @@ SLUG = "rh"
 _ICO_CCT = "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "ativacao-ponto-monitor", "label": "Ativação do ponto — monitor", "icon": "M3 3v18h18"},
+    {"id": "ativacao-ponto", "label": "Ativação do ponto — colaboradores", "icon": "M3 3v18h18"},
     {"id": "cct-taxa-negocial", "label": "CCT — taxa negocial", "icon": "M3 3v18h18"},
     {"id": "cct-jornadas-permitidas", "label": "CCT — jornadas permitidas", "icon": "M3 3v18h18"},
     {"id": "cct-feriados", "label": "CCT — feriados", "icon": "M3 3v18h18"},
@@ -904,6 +906,7 @@ async def build(db) -> dict:
         logger.warning("rh: telas LIGAR (carreira/treinamento/360) não montadas: %s", _exc)
 
     await _ligar_cct_20260908(db, out)
+    await _ligar_lote3_20260908(db, out)
     return out
 
 
@@ -952,3 +955,44 @@ async def _ligar_cct_20260908(db, out: dict) -> None:
                    {"key": "data_demissao", "label": "Demissão*", "type": "date", "span": "span 1"}, {"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1"},
                    selecionar("motivo", "Motivo*", [{"value": v, "label": l} for v, l in (("sem_justa_causa", "Sem justa causa"), ("pedido_demissao", "Pedido de demissão"), ("justa_causa", "Justa causa"), ("acordo", "Acordo (art. 484-A)"), ("termino_contrato", "Término de contrato"))], "span 1"),
                    selecionar("aviso_previo_cumprido", "Aviso prévio cumprido?", _SN, "span 1"), {"key": "dias_aviso_previo", "label": "Dias de aviso", "type": "number", "span": "span 1", "ph": "30"}]}
+
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # GET /people-management/human-resources/ativacao-ponto (+/monitor) e POST /{employee_id}/reenviar
+        from modules.people_management.human_resources.controllers import ativacao_ponto_controller as Ap
+        try:
+            mon = await chamar(Ap.monitor, db)
+            out["ativacao-ponto-monitor"] = painel_de_dict("Ativação do ponto — monitor ao vivo", "Adesão (ativação, rosto, contingência), batidas de hoje e últimas atividades. Fato do banco, nunca estimado.", mon)
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback(); _log.warning("ativacao-ponto-monitor: %s", exc)
+        out["ativacao-ponto"] = await tbl(
+            "Ativação do ponto — por colaborador", "Quem já fez o primeiro acesso e cadastrou o rosto; reenviar o convite por linha · fonte: employees", "—",
+            ["Colaborador", "Telefone", "E-mail", "Rosto cadastrado", "Primeiro acesso"], "2fr 1fr 1.6fr 1fr 1fr",
+            "SELECT id::text, coalesce(nome,'—'), coalesce(telefone,'—'), coalesce(email,'—'), face_enrolled_at, primeiro_acesso_em "
+            "FROM employees WHERE status='ativo' ORDER BY (primeiro_acesso_em IS NULL) DESC, nome LIMIT 400",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3][:40]), b(_fd(r[4]) if r[4] else "Não", "ok" if r[4] else "warn"), b(_fd(r[5]) if r[5] else "Pendente", "ok" if r[5] else "warn")],
+            actionsfn=lambda r: [{"title": f"Reenviar convite de ativação — {r[1]}", "endpoint": f"/api/v1/people-management/human-resources/ativacao-ponto/{r[0]}/reenviar", "method": "POST",
+                                  "btnLabel": "Reenviar convite", "btnStyle": "outline", "submitLabel": "Reenviar", "okMsg": "Convite reenviado pelos canais disponíveis.", "fields": []}] if not r[5] else [])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("ativacao-ponto: %s", exc)

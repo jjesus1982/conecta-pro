@@ -28,6 +28,7 @@ SLUG = "fiscal"
 #: fantasma). NUNCA popular isto dentro de build(): cresceria a cada requisição.
 _ICO_CALC = "M9 11H3v10h6V11zM15 3H9v18h6V3zM21 7h-6v14h6V7z"
 EXTRA_MENU: list[dict] = [
+    {"id": "nfse-emitir-dps", "label": "NFS-e nacional — emitir DPS", "icon": "M3 3v18h18"},
     {"id": "calc-simples", "label": "Calcular DAS (Simples)", "icon": _ICO_CALC},
     {"id": "calc-lucro-real", "label": "Calcular Lucro Real", "icon": _ICO_CALC},
     {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC},
@@ -238,6 +239,7 @@ async def build(db) -> dict:
     }
 
     await _ligar_20260908(db, out)
+    await _ligar_lote3_20260908(db, out)
     return out
 
 
@@ -819,3 +821,36 @@ def _calculadoras_tributarias(out: dict) -> None:
         ],
     }
 
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    out["nfse-emitir-dps"] = {  # POST /government/nfse-nacional/emitir — dry_run por padrão
+        "title": "NFS-e nacional — emitir DPS", "sub": "Emite uma nota pelo padrão nacional (ADN). Fica em SIMULAÇÃO (dry_run) até você trocar para 'não' — aí transmite de verdade. Tomador e serviço em JSON.",
+        "cta": "Emitir", "type": "form", "submit": {"endpoint": "/api/v1/government/nfse-nacional/emitir", "okMsg": "Processado — veja o resultado.", "showResult": True},
+        "fields": [{"key": "tomador", "label": "Tomador (JSON)*", "type": "json", "span": "span 2",
+                    "value": '{"cpf_cnpj": "", "razao_social": "", "logradouro": "", "numero": "S/N", "bairro": "", "codigo_municipio": "1302603", "uf": "AM", "cep": "", "email": ""}'},
+                   {"key": "servico", "label": "Serviço (JSON)*", "type": "json", "span": "span 2",
+                    "value": '{"codigo_tributacao_nacional": "1.1701.10.00", "descricao": "", "valor_servico": 0}'},
+                   {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"},
+                   selecionar("tipo_tributacao", "Tributação", [{"value": "1", "label": "1 — no município"}, {"value": "2", "label": "2 — fora do município"}, {"value": "3", "label": "3 — isenção"}, {"value": "4", "label": "4 — imune"}], "span 1"),
+                   selecionar("dry_run", "Simulação (dry run)?", _SN, "span 1")]}

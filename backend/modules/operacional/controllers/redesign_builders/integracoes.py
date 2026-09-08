@@ -10,6 +10,8 @@ SLUG = "integracoes"
 _ICO_I = "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "gdrive-status", "label": "Google Drive — status", "icon": "M3 3v18h18"},
+    {"id": "solides-sincronizar-escalas", "label": "Sincronizar escalas (Sólides)", "icon": "M3 3v18h18"},
     {"id": "onvio-reclassificar", "label": "Reclassificar (Onvio)", "icon": _ICO_I},
     {"id": "solides-sincronizar", "label": "Sincronizar ponto (Sólides)", "icon": _ICO_I},
     {"id": "drive-conectar", "label": "Conectar Google Drive", "icon": _ICO_I},
@@ -145,4 +147,39 @@ async def build(db) -> dict:
         ],
     }
 
+    await _ligar_lote3_20260908(db, out)
     return out
+
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # GET /gdrive/status (por SQL — a página nunca chama o Drive)
+        row = (await db.execute(_T("SELECT owner_email, is_connected, token_expiry, root_folder_id, kits_folder_id, updated_at FROM gdrive_config ORDER BY updated_at DESC NULLS LAST LIMIT 1"))).first()
+        painel = {"conectado": bool(row[1]) if row else False, "conta": row[0] if row else None, "token_expira_em": _fd(row[2], "%d/%m/%Y %H:%M") if row and row[2] else None,
+                  "pasta_raiz": row[3] if row else None, "pasta_kits": row[4] if row else None, "atualizado_em": _fd(row[5], "%d/%m/%Y %H:%M") if row and row[5] else None}
+        out["gdrive-status"] = painel_de_dict("Google Drive — status da conexão", "Conta conectada e pastas usadas pelos kits · fonte: gdrive_config (sem chamar o Drive)", painel, kpis_de=["conectado", "conta", "token_expira_em"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("gdrive-status: %s", exc)
+    out["solides-sincronizar-escalas"] = {  # POST /people-management/ponto/sync-escalas
+        "title": "Sincronizar escalas (Sólides)", "sub": f"Traz as escalas de trabalho cadastradas no Sólides para solides_work_schedules ({await _n('SELECT count(*) FROM solides_work_schedules')} hoje). Diferente da sincronização de batidas.",
+        "cta": "Sincronizar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/ponto/sync-escalas", "okMsg": "Escalas sincronizadas.", "showResult": True}, "fields": []}

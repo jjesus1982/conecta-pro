@@ -15,7 +15,10 @@ from modules.operacional.controllers.redesign_data_controller import (
 )
 
 SLUG = "configuracoes"
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    {"id": "notificacoes-fila-resumo", "label": "Notificações — resumo", "icon": "M3 3v18h18"},
+    {"id": "notificacoes-fila", "label": "Notificações — fila", "icon": "M3 3v18h18"},
+]
 _ND = "#0F1B3A"
 
 
@@ -152,4 +155,45 @@ async def build(db) -> dict:
         "FROM consultor_memorias WHERE coalesce(ativo,true) ORDER BY created_at DESC LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(r[2]), t(_d(r[3]))]))
 
+    await _ligar_lote3_20260908(db, out)
     return out
+
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # GET /notifications/queue + /queue/stats (por SQL)
+        st = (await db.execute(_T("SELECT status::text, channel_type, count(*) FROM notification_queue GROUP BY 1,2 ORDER BY 3 DESC"))).fetchall()
+        tot = sum(r[2] for r in st)
+        painel = {"total": tot, "entregues": sum(r[2] for r in st if r[0] == "delivered"), "pendentes": sum(r[2] for r in st if r[0] == "pending"),
+                  "expiradas": sum(r[2] for r in st if r[0] == "expired"), "falhas": sum(r[2] for r in st if r[0] in ("failed", "error")),
+                  "por_status_e_canal": [{"status": r[0], "canal": r[1], "qtde": r[2]} for r in st]}
+        out["notificacoes-fila-resumo"] = painel_de_dict("Fila de notificações — resumo", "Push/e-mail/WhatsApp enfileirados pelo sistema (sino, SST, alertas) · fonte: notification_queue", painel, kpis_de=["total", "entregues", "pendentes", "expiradas"])
+        out["notificacoes-fila"] = await tbl(
+            "Fila de notificações", f"{tot} item(ns) · últimos 200 · fonte: notification_queue", "—",
+            ["Destinatário", "Canal", "Assunto", "Status", "Agendada", "Enviada", "Erro"], "1.4fr 0.7fr 2fr 0.8fr 0.9fr 0.9fr 1.2fr",
+            "SELECT coalesce(recipient_name, recipient_address, '—'), coalesce(channel_type,'—'), coalesce(subject, left(body, 60), '—'), status::text, scheduled_at, sent_at, coalesce(last_error,'') "
+            "FROM notification_queue ORDER BY coalesce(scheduled_at, created_at) DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0][:36], 600, "#0F1B3A"), t(r[1]), t(r[2][:60]), b(r[3].capitalize(), "ok" if r[3] == "delivered" else "warn" if r[3] == "pending" else "bad" if r[3] in ("failed", "error") else "mut"),
+                       t(_fd(r[4], "%d/%m %H:%M")), t(_fd(r[5], "%d/%m %H:%M")), t(r[6][:40] or "—")])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("notificacoes-fila: %s", exc)

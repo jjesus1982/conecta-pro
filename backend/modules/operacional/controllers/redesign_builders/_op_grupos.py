@@ -12,7 +12,7 @@ GRUPOS = [
         ("consultor", "Consultor IA"), ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
         ("escalas-mes", "Escalas do mês"), ("grade-redesenhar", "Redesenhar grade"),
-        ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"),
+        ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template"),
         ("escalas-visual", "Editor visual"), ("alocacoes", "Alocações"), ("turnos", "Turnos"),
         ("substituicoes", "Substituições"), ("escala-submeter", "Submeter escala"),
         ("escala-aprovar", "Aprovar escala"), ("escala-rejeitar", "Rejeitar escala"),
@@ -48,7 +48,7 @@ GRUPOS = [
     ("g-diaristas", "Diaristas", "Diárias, cadastro e fechamento", [
         ("diarias", "Lançar diárias"), ("diaristas", "Diaristas"),
         ("lancar-diaria", "Lançar diária"), ("cadastrar-diarista", "Cadastrar diarista"),
-        ("diaria-excluir", "Excluir diária"), ("diaristas-fechamento", "Fechamento")]),
+        ("diaria-excluir", "Excluir diária"), ("diaristas-fechamento", "Fechamento"), ("diaristas-cadastro", "Cadastro")]),
     ("g-disciplina", "Disciplina & RH", "Disciplinar, medidas e reembolsos", [
         ("disciplinar", "Disciplinar"), ("medidas-administrativas", "Medidas admin."),
         ("reembolsos", "Reembolsos"), ("medida-assinar", "Assinar medida"),
@@ -67,7 +67,7 @@ GRUPOS = [
     # (outro módulo) e "notificacoes-marcar-todas" não existe em builder nenhum. Clicar em
     # qualquer uma abria tela vazia — o mesmo "Aguardando dado" que já derrubou este módulo.
     ("g-comunicacao", "Comunicação", "Comunicados e alertas", [
-        ("comunicados", "Comunicados"),
+        ("comunicados", "Comunicados"), ("comunicados-leituras", "Leituras"),
         ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
         ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta")]),

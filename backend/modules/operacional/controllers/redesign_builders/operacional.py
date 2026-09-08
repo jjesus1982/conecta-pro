@@ -884,9 +884,103 @@ async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dic
 
 
 
+
+async def _ligar_lote3_20260908(db, out: dict) -> None:
+    """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
+    import logging as _lg
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    try:  # PATCH/DELETE /operacional/diarias/diaristas/{id}
+        out["diaristas-cadastro"] = await tbl(
+            "Diaristas — cadastro", f"{await _n('SELECT count(*) FROM diaria_diaristas')} diarista(s) · editar ou inativar por linha · fonte: diaria_diaristas", "—",
+            ["Nome", "CPF", "PIX", "Telefone", "E-mail", "Ativo"], "1.8fr 1fr 1.2fr 1fr 1.4fr 0.6fr",
+            "SELECT id, coalesce(nome,'—'), coalesce(cpf,'—'), coalesce(pix,'—'), coalesce(telefone,''), coalesce(email,''), coalesce(ativo,true) "
+            "FROM diaria_diaristas ORDER BY ativo DESC, nome LIMIT 300",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(r[4] or "—"), t(r[5] or "—"), b("Sim" if r[6] else "Não", "ok" if r[6] else "mut")],
+            actionsfn=lambda r: ([
+                {"title": f"Editar diarista — {r[1]}", "endpoint": f"/api/v1/operacional/diarias/diaristas/{r[0]}", "method": "PATCH",
+                 "btnLabel": "Editar", "btnStyle": "outline", "submitLabel": "Salvar", "okMsg": "Diarista atualizado. Recarregue.",
+                 "fields": [{"key": "nome", "label": "Nome", "type": "text", "span": "span 2", "value": r[1]},
+                            {"key": "telefone", "label": "Telefone", "type": "text", "span": "span 1", "value": r[4]},
+                            {"key": "email", "label": "E-mail", "type": "text", "span": "span 1", "value": r[5]},
+                            {"key": "pix", "label": "Chave PIX", "type": "text", "span": "span 2", "value": "" if r[3] == "—" else r[3]}]},
+                {"title": f"Inativar/apagar diarista — {r[1]}", "endpoint": f"/api/v1/operacional/diarias/diaristas/{r[0]}", "method": "DELETE",
+                 "btnLabel": "Inativar", "btnStyle": "danger", "submitLabel": "Confirmar", "fields": [],
+                 "okMsg": "Apagado (ou inativado, se já tinha lançamentos). Recarregue."}] if r[6] else [
+                {"title": f"Reativar diarista — {r[1]}", "endpoint": f"/api/v1/operacional/diarias/diaristas/{r[0]}", "method": "PATCH",
+                 "btnLabel": "Reativar", "btnStyle": "outline", "submitLabel": "Reativar", "okMsg": "Reativado. Recarregue.",
+                 "fields": [selecionar("ativo", "Ativo", _SN, "span 1")]}]))
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("diaristas-cadastro: %s", exc)
+
+    postos, emps = [], []
+    try:
+        postos = [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, name FROM posts WHERE coalesce(is_active,true) ORDER BY name"))).fetchall()]
+        emps = [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    from datetime import date as _d
+    hoje = _d.today()
+    out["escala-gerar"] = {  # POST /operacional/scales/generate
+        "title": "Gerar escala do posto", "sub": "Gera os turnos do mês para um posto com os colaboradores escolhidos. Nasce em rascunho — depois submeter → aprovar → publicar.",
+        "cta": "Gerar", "type": "form", "submit": {"endpoint": "/api/v1/operacional/scales/generate", "okMsg": "Escala gerada em rascunho. Recarregue.", "showResult": True},
+        "fields": [selecionar("post_id", "Posto*", postos),
+                   {"key": "month", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month},
+                   {"key": "year", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year},
+                   selecionar("scale_type", "Tipo de escala*", [{"value": v, "label": v} for v in ("12x36", "6x1", "5x2", "5x1", "4x2", "turno_revezamento")], "span 1"),
+                   {"key": "employee_ids", "label": "Colaboradores*", "type": "multiselect", "span": "span 2", "options": emps}]}
+
+    try:  # POST /operacional/scales/templates/from-scale
+        out["escalas-template-salvar"] = await tbl(
+            "Salvar escala como template", "Escolha uma escala existente e guarde-a como modelo reutilizável · fonte: scales → scale_templates", "—",
+            ["Escala", "Posto", "Competência", "Tipo", "Status"], "1.8fr 1.6fr 0.9fr 0.8fr 0.9fr",
+            "SELECT coalesce(s.name,'—'), coalesce(p.name,'—'), lpad(s.month::text,2,'0') || '/' || s.year, coalesce(s.scale_type::text,'—'), coalesce(s.status::text,'—'), s.id::text "
+            "FROM scales s LEFT JOIN posts p ON p.id=s.post_id WHERE coalesce(s.is_active,true) ORDER BY s.year DESC, s.month DESC, p.name LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or "—")[:30]), t(r[2]), t(r[3]), b((r[4] or "—").replace("_", " ").capitalize(), "ok" if r[4] == "published" else "info")],
+            actionsfn=lambda r: [{"title": f"Salvar como template — {r[0]}", "endpoint": "/api/v1/operacional/scales/templates/from-scale", "method": "POST",
+                                  "btnLabel": "Salvar template", "btnStyle": "outline", "submitLabel": "Salvar", "okMsg": "Template criado. Veja em Escalas → Templates.",
+                                  "fields": [{"key": "scale_id", "label": "Escala (id)", "type": "text", "span": "span 2", "value": r[5]},
+                                             {"key": "name", "label": "Nome do template*", "type": "text", "span": "span 2", "value": f"{r[1]} {r[3]}"[:100]},
+                                             {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2", "value": ""},
+                                             selecionar("include_employee_mapping", "Manter os colaboradores?", _SN, "span 1")]}])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("escalas-template-salvar: %s", exc)
+
+    try:  # GET /operacional/comunicados/{id}/leituras — a mesma conta, por SQL, para todos os comunicados
+        out["comunicados-leituras"] = await tbl(
+            "Comunicados — leituras e confirmações", "Quem leu e quem confirmou cada comunicado · fonte: communication_announcement_reads", "—",
+            ["Comunicado", "Status", "Publicado", "Destinatários", "Leituras", "Confirmações", "Exige confirmação"], "2.2fr 0.8fr 0.9fr 0.9fr 0.7fr 0.9fr 0.9fr",
+            "SELECT coalesce(a.titulo,'—'), coalesce(a.status,'—'), a.data_publicacao, coalesce(a.total_destinatarios,0), "
+            "count(r.id) FILTER (WHERE r.read_at IS NOT NULL), count(r.id) FILTER (WHERE r.confirmed_at IS NOT NULL), coalesce(a.requer_confirmacao,false) "
+            "FROM communication_announcements a LEFT JOIN communication_announcement_reads r ON r.announcement_id=a.id AND coalesce(r.is_active,true) "
+            "WHERE coalesce(a.is_active,true) GROUP BY a.id ORDER BY a.data_publicacao DESC NULLS LAST, a.created_at DESC LIMIT 100",
+            lambda r: [t(r[0][:60], 600, "#0F1B3A"), b(r[1].capitalize(), "ok" if r[1] == "publicado" else "mut"), t(_fd(r[2])), t(str(r[3])), t(str(r[4])),
+                       b(str(r[5]), "ok" if r[5] and r[5] >= r[3] else ("warn" if r[6] else "mut")), t("Sim" if r[6] else "Não")])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("comunicados-leituras: %s", exc)
+
+
 async def _ligar_20260908_op(db, out: dict, tbl) -> None:
     await _ligar_escalas_grade_20260908(db, out, tbl)
     await _ligar_20260908_op_rondas(db, out, tbl)
+    await _ligar_lote3_20260908(db, out)
 
 
 async def _ligar_escalas_grade_20260908(db, out: dict, tbl) -> None:
@@ -1243,10 +1337,12 @@ async def build(db) -> dict:
         out["passagem-turno"] = await tbl(
             "Passagem de turno", f"{n_pt} passagem(ns) · fonte: operacional_passagens_turno", "—",
             ["Posto", "Turno", "Autor", "Data", "Resumo"], "1.6fr 1fr 1.3fr 0.9fr 2fr",
-            "SELECT coalesce(p.name,'—'), coalesce(pt.turno,'—'), coalesce(pt.author_nome,'—'), pt.data_turno, coalesce(pt.resumo,'—') "
+            "SELECT coalesce(p.name,'—'), coalesce(pt.turno,'—'), coalesce(pt.author_nome,'—'), pt.data_turno, coalesce(pt.resumo,'—'), pt.id::text "
             "FROM operacional_passagens_turno pt LEFT JOIN posts p ON p.id=pt.post_id "
             "WHERE coalesce(pt.is_active,true) ORDER BY pt.criada_em DESC NULLS LAST LIMIT 200",
-            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').capitalize()), t(r[2]), t(_fmtdate(r[3])), t((r[4] or '—')[:80])])
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').capitalize()), t(r[2]), t(_fmtdate(r[3])), t((r[4] or '—')[:80])],
+            actionsfn=lambda r: [{"title": f"Marcar passagem como lida — {r[0]}", "endpoint": f"/api/v1/operacional/passagem-turno/{r[5]}/lida", "method": "POST",
+                                  "btnLabel": "Marcar lida", "btnStyle": "outline", "submitLabel": "Li esta passagem", "okMsg": "Passagem marcada como lida.", "fields": []}])
     except Exception:  # noqa: BLE001
         pass
 
@@ -2354,5 +2450,3 @@ async def rd_action_gerente_checkout(current_user: CurrentActiveUser, payload: d
     await _avisar_dono(f"🚪 *{nome.title()}* saiu de *{aberta[1]}* às {agora:%H:%M}" + (f" · {mins} min no posto." if mins is not None else "."),
                        silencio=bool(payload.get("_silencio")) and str(getattr(current_user, "role", "")).lower() == "admin")
     return {"ok": True, "message": f"Check-out registrado ({mins} min no posto)." if mins is not None else "Check-out registrado."}
-
-
