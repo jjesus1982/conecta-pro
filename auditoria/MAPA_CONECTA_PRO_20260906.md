@@ -1146,6 +1146,39 @@ a rota foi apagada, a ação por laço segue); `INTER_WEBHOOK_CA_PATH` no `.env`
 importa `list_positions` (recruitment aposentado); 25 `ClientDisconnect` no webhook do Chatwoot durante os
 HUPs do dia — se o Chatwoot não reenvia, mensagens daquela janela podem ter ficado sem log.
 
+### §2c.32 — QA E2E como usuário final, com correções (08/09/2026, 18h15–19h30 Manaus)
+
+**O que foi feito:** Playwright (Chromium) logado como jjesus abriu **727 telas em 34 módulos** do redesign
+(cada item de menu e cada aba de grupo — 139 só no financeiro, 96 no operacional, 118 em RH+DP), mais 10 ações
+por linha abertas e canceladas e 11 consultas disparadas. Relatório: `auditoria/qa/QA_E2E_20260908.md`; brutos em
+`auditoria/qa/e2e_20260908/`; roteiros em `scripts/qa/e2e_playwright/` (regenerados do `/redesign/data`).
+
+**Resultado:** 0 tela em branco, 0 erro de console de código, 0 API 4xx/5xx nas telas. Durabilidade: bake
+blue-green das 18:15 sem drift (imagem nova nos 8 workers); re-bake ao fim do QA com os consertos abaixo.
+
+**Consertado no ato (cada um com o número antes → depois):**
+1. Home do redesign disparava 15× 404 em `/clients/{id}/condominiums` — o `CondominioProvider` do layout raiz vive
+   em `frontend/src/contexts/`, fora do que o medidor via como redesign; a rota tinha sido apagada como só-clássico.
+   Handler restaurado; medidor aprendeu `src/contexts/**`.
+2. meu-espaço › Notificações: 941 "não lidas" no KPI e lista vazia — lista agora inclui o sino.
+3. Jurídico 4 s por tela → 0,33 s: o builder esperava até 3 s pelo robô do DET a cada abertura; virou consulta por clique.
+4. Configurações 11 s no 1º pedido de cada worker → 1,3 s: `import api.v1.endpoints.users` puxava o pacote inteiro.
+5. Formulários com valor padrão (mês/ano/competência) abriam vazios e davam 422 — o FormScreen não semeava o
+   estado com `value`; só os forms de linha faziam. Corrigido no renderizador (um `useEffect`).
+6. 401 em `/notifications/push` na tela de login (hook do layout raiz sem token) — guard.
+
+**Achados que ficam, ditos de frente:** `/redesign/data/financeiro` são 11 MB (450 KB gzip) e 2,3–3,8 s — cada
+abertura por URL recarrega o módulo inteiro (4,2 s por tela no teste; a troca de aba no app é client-side).
+Sessão de 30 min (cookie) derruba para o login no meio do trabalho. Usuário sem vínculo de colaborador vê o
+portal vazio (honesto) e a calculadora de rescisão responde 401. Recrutamento/clima/treinamentos/equipamentos
+mostram 0 com mensagem — coerente com as decisões do dia. Licitações avisa "módulo desligado".
+
+**Lição para o medidor e para o método:** dois dos seis consertos (1 e 6) eram rotas/hook que só o QA de navegador
+revela — o medidor de cobertura casa texto, e provider de layout raiz é código compartilhado com o clássico.
+Regra nova no `checar_cobertura_rotas.py`: `frontend/src/contexts/**` é redesign. A regressão ganhou a trava
+`checar_cobertura_rotas.py` (binária, 0 · 0) e aceitou `checar_rotas_frontend` 965→1083 (chamadas do clássico a
+rotas apagadas hoje — clássico fora do escopo por decisão do dono).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),

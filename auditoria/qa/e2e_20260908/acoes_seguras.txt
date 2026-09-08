@@ -4,3 +4,5 @@ CONSULTAR fluxo-resumo ✓ · fluxo-tendencia ✓ · onvio-status ✓ · jose-lu
 CONSULTAR inter-categorias-stats → 422 · pagar-folha-preview/status → 422 ({mes}/{ano} não substituídos) — CAUSA ÚNICA: o FormScreen não semeava o estado com o `value` dos campos (mês/ano/competência abriam vazios). Corrigido no ModuleView (useEffect) → deploy do frontend e re-teste abaixo.
 CONSULTAR dre-consolidado → "sem botão": aba está em g-fiscal, não g-contabil (erro do roteiro, não do produto)
 CONSULTAR portal calculadora-rescisao → 401: usuário jjesus sem vínculo de colaborador (CurrentEmployeeId) — esperado
+# re-teste 19h12 (frontend BUILD_ID conecta-pro-1788908910768, FormScreen com valores padrão)
+CONSULTAR inter-categorias-stats (mes_ref 09.2026) ✓ · pagar-folha-preview (9/2026) ✓ · pagar-folha-status ✓ · dre-consolidado (2026-09, aba em g-fiscal) ✓ · prontuario-sst (1º colaborador do select) ✓ — todas "Consulta feita", 0 4xx
