@@ -615,8 +615,19 @@ class ConfigService:
 
     async def get_config_dashboard(self) -> ConfigDashboard:
         """Retorna dashboard de configurações."""
-        stats = await self.repository.get_config_dashboard_stats()
-        recent = await self.repository.get_recent_tenants(5)
+        # O tipo `tenantstatus` não existe neste banco (sem migração): o painel inteiro caía
+        # com 500 por causa do bloco de tenants. Sem tenants, painel parcial (07/09/2026).
+        from sqlalchemy.exc import DBAPIError, ProgrammingError
+
+        try:
+            stats = await self.repository.get_config_dashboard_stats()
+            recent = await self.repository.get_recent_tenants(5)
+        except (ProgrammingError, DBAPIError):
+            await self.db.rollback()
+            stats = {"total_tenants": 0, "active_tenants": 0, "trial_tenants": 0, "suspended_tenants": 0,
+                     "total_configs": 0, "total_feature_flags": 0, "active_feature_flags": 0,
+                     "total_notification_templates": 0}
+            recent = []
 
         return ConfigDashboard(
             total_tenants=stats["total_tenants"],

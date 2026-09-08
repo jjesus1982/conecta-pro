@@ -475,17 +475,23 @@ async def list_sync_runs(
     if run_status:
         query = query.where(SyncRun.status == run_status)
 
-    # Count total
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
+    # A tabela sync_runs nunca foi criada neste banco (sem migração): a tela clássica de
+    # Integrações › Sync caía com 500. Sem tabela = sem execuções, lista vazia (07/09/2026).
+    from sqlalchemy.exc import ProgrammingError
 
-    # Paginação
-    offset = (page - 1) * page_size
-    query = query.offset(offset).limit(page_size).order_by(SyncRun.created_at.desc())
+    try:
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
 
-    result = await db.execute(query)
-    runs = result.scalars().all()
+        offset = (page - 1) * page_size
+        query = query.offset(offset).limit(page_size).order_by(SyncRun.created_at.desc())
+
+        result = await db.execute(query)
+        runs = result.scalars().all()
+    except ProgrammingError:
+        await db.rollback()
+        return SyncRunList(items=[], total=0, page=page, page_size=page_size, pages=0)
 
     pages = (total + page_size - 1) // page_size
 
