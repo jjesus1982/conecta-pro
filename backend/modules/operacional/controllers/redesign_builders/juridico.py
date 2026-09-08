@@ -2,14 +2,28 @@
 Ação legal (parecer/transmitir) fica GATED. Ver auditoria/parity/DIVISAO_3T.md."""
 from sqlalchemy import text
 
+from sqlalchemy import text as _sql
+import logging
 from modules.operacional.controllers.redesign_data_controller import (
     IC, S, _ICF, _fmtdate, _helpers, _scalar, b, brl, doc, t,
 )
 
 SLUG = "juridico"
+
+logger = logging.getLogger(__name__)
 _ICO_J = "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"
 
 EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólito
+    {"id": "prazos", "label": "Prazos", "icon": "M3 3v18h18"},
+    {"id": "playbook", "label": "Playbook jurídico", "icon": "M3 3v18h18"},
+    {"id": "escritorio-consultas", "label": "Consultas ao escritório", "icon": "M3 3v18h18"},
+    {"id": "escritorio-consulta-nova", "label": "Registrar consulta ao escritório", "icon": "M3 3v18h18"},
+    {"id": "det-status", "label": "DET — status", "icon": "M3 3v18h18"},
+    {"id": "det-comunicacao-texto", "label": "Ingerir comunicação do DET (texto)", "icon": "M3 3v18h18"},
+    {"id": "processo-analisar", "label": "Analisar processo (texto)", "icon": "M3 3v18h18"},
+    {"id": "conhecimento-novo", "label": "Adicionar conhecimento", "icon": "M3 3v18h18"},
+    {"id": "parecer-novo", "label": "Gerar parecer", "icon": "M3 3v18h18"},
+    {"id": "analise-nova", "label": "Analisar documento", "icon": "M3 3v18h18"},
     {"id": "contrato-novo-modelo", "label": "Solicitar contrato novo", "icon": _ICO_J},
     {"id": "consultor-perguntar", "label": "Consultor jurídico", "icon": _ICO_J},
     {"id": "det-coletar", "label": "Coletar DET", "icon": _ICO_J},
@@ -43,8 +57,13 @@ async def build(db) -> dict:
     await safe("visao", _visao())
     await safe("processos", tbl("Processos", f"{n_proc} processos", "Novo processo",
         ["Número", "Tipo", "Reclamante", "Status"], "1.4fr 1.2fr 1.8fr 0.9fr",
-        "SELECT coalesce(numero,'—'), coalesce(tipo::text,'—'), coalesce(reclamante,'—'), status::text FROM juridico_processos ORDER BY created_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t(r[2]), b(r[3] or "—", "info")]))
+        "SELECT coalesce(numero,'—'), coalesce(tipo::text,'—'), coalesce(reclamante,'—'), status::text, id::text FROM juridico_processos ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t(r[2]), b(r[3] or "—", "info")],
+        actionsfn=lambda r: [{"title": f"Enviar processo {r[0]} ao escritório (CQB)", "sub": "Manda o dossiê por e-mail ao escritório. Simule antes.",
+                              "endpoint": f"/api/v1/juridico/processos/{r[4]}/enviar-cqb", "method": "POST", "btnLabel": "Enviar CQB",
+                              "submitLabel": "Enviar", "btnStyle": "outline", "okMsg": "Envio processado — veja a mensagem.",
+                              "fields": [{"key": "destinatario", "label": "E-mail do escritório", "type": "text", "span": "span 2", "value": ""},
+                                         {"key": "confirmar", "label": "Modo (false = simular)", "type": "text", "span": "span 1", "value": "false"}]}]))
 
     # DET — Comunicações (Domicílio Eletrônico Trabalhista). Serve tanto o EXTRA_MENU
     # 'det-comunicacoes' quanto o item de menu json 'processos-det' (mesma fonte real).
@@ -79,7 +98,7 @@ async def build(db) -> dict:
         "1.1fr 1.6fr 1.1fr 0.85fr 0.85fr 1fr 0.9fr",
         "SELECT coalesce(c.contract_number,'—'), coalesce(cl.name,'—'), "
         "coalesce(c.tipo_servico::text,'—'), c.start_date, c.end_date, c.monthly_value, "
-        "coalesce(c.status::text,'—'), c.template_id::text "
+        "coalesce(c.status::text,'—'), c.template_id::text, c.id::text "
         "FROM contracts c LEFT JOIN clients cl ON cl.id=c.client_id "
         "WHERE coalesce(c.is_active,true) ORDER BY c.start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:34]), t((r[2] or '—').replace('_', ' ')),
@@ -270,6 +289,7 @@ async def build(db) -> dict:
     # 'det-coletar-auto' aposentada 08/09/2026: a rota /det/coletar era um stub (coletadas: 0 fixo).
     # O caminho real é o robô ('Coletar DET').
 
+    await _ligar_jur_20260908(db, out)
     return out
 
 
@@ -365,3 +385,72 @@ def tela_contrato_novo() -> dict:
              "type": "number"},
         ],
     }
+
+
+async def _ligar_jur_20260908(db, out: dict) -> None:
+    """LIGAR 08/09/2026: prazos, playbook, escritório, DET, processos por texto, conhecimento, parecer, análise."""
+    from modules.juridico import conhecimento_controller as K, det_controller as D, escritorio_controller as E, hub_controller as H
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    for key, fn, titulo, sub, kw in (
+        ("prazos", H.listar_prazos, "Prazos jurídicos", "Prazos manuais + automáticos (vencimento/renovação/reajuste dos contratos).", {"incluir_automaticos": True, "status": None}),
+        ("playbook", K.listar_playbook, "Playbook jurídico", "Regras da casa: o que fazer em cada situação (6 entradas + o que você adicionar).", {}),
+        ("escritorio-consultas", E.listar_consultas, "Consultas ao escritório", "O que foi perguntado ao escritório externo, quando e quanto custou.", {"resolvido_por": None, "area": None, "data_inicio": None, "data_fim": None, "limit": 200}),
+    ):
+        try:
+            res = await chamar(fn, db, **kw)
+            out[key] = tabela_de_lista(titulo, sub, res)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("juridico %s: %s", key, exc)
+    try:
+        roi = await chamar(E.roi, db, meses=12)
+        if isinstance(roi, dict) and "escritorio-consultas" in out:
+            out["escritorio-consultas"]["sub"] += " · ROI 12 meses: " + " · ".join(f"{k} {v}" for k, v in roi.items() if not isinstance(v, (list, dict)))[:160]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        st = await chamar(D.status, db)
+        try:
+            rb = await chamar(D.robo_status, db)
+        except Exception as exc:  # noqa: BLE001
+            rb = {"robo": f"indisponível: {str(exc)[:60]}"}
+        out["det-status"] = painel_de_dict("DET — status", "Domicílio Eletrônico Trabalhista: comunicações ingeridas e situação do robô de coleta.", {**(st if isinstance(st, dict) else {"status": st}), "robo": rb})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("det status: %s", exc)
+    emp = []
+    try:
+        emp = [{"value": str(i), "label": n} for i, n in (await db.execute(_sql("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 300"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    _AREAS = [{"value": v, "label": v.capitalize()} for v in ("trabalhista", "tributario", "civel", "contratual", "lgpd", "administrativo", "outro")]
+    out["escritorio-consulta-nova"] = {
+        "title": "Registrar consulta ao escritório", "sub": "Registra a consulta feita ao escritório externo (ou resolvida internamente) e o custo. Alimenta o ROI.",
+        "cta": "Registrar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/escritorio/consultas", "okMsg": "Consulta registrada"},
+        "fields": [{"key": "assunto", "label": "Assunto*", "type": "text", "span": "span 2"}, selecionar("area", "Área", _AREAS, "span 1"),
+                   selecionar("resolvido_por", "Resolvido por*", [{"value": "interno", "label": "Interno (Conecta)"}, {"value": "escritorio", "label": "Escritório externo"}, {"value": "ia", "label": "Consultor IA"}], "span 1"),
+                   {"key": "custo", "label": "Custo (R$)", "type": "number", "span": "span 1"}, {"key": "data", "label": "Data", "type": "date", "span": "span 1"},
+                   {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2"}]}
+    out["det-comunicacao-texto"] = {
+        "title": "Ingerir comunicação do DET (texto)", "sub": "Cole o texto da comunicação recebida no DET; o sistema classifica, extrai prazo e registra.",
+        "cta": "Ingerir", "type": "form", "submit": {"endpoint": "/api/v1/juridico/det/comunicacao", "okMsg": "Comunicação registrada", "showResult": True},
+        "fields": [{"key": "texto", "label": "Texto da comunicação*", "type": "textarea", "span": "span 2"}]}
+    out["processo-analisar"] = {
+        "title": "Analisar processo (texto)", "sub": "Cole a petição/notificação; a análise extrai pedidos, entidades e monta o dossiê. Não envia nada.",
+        "cta": "Analisar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/processos", "okMsg": "Processo analisado", "showResult": True},
+        "fields": [{"key": "numero", "label": "Número do processo", "type": "text", "span": "span 1"}, {"key": "tipo", "label": "Tipo", "type": "text", "span": "span 1", "ph": "trabalhista"},
+                   selecionar("employee_id", "Colaborador envolvido", emp), {"key": "texto", "label": "Texto*", "type": "textarea", "span": "span 2"}]}
+    out["conhecimento-novo"] = {
+        "title": "Adicionar conhecimento", "sub": "Precedente, tese ou regra que o consultor jurídico passa a considerar.",
+        "cta": "Salvar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/conhecimento", "okMsg": "Conhecimento adicionado"},
+        "fields": [selecionar("tipo", "Tipo*", [{"value": v, "label": v.capitalize()} for v in ("precedente", "tese", "regra", "modelo")], "span 1"), selecionar("area", "Área*", _AREAS, "span 1"),
+                   {"key": "titulo", "label": "Título*", "type": "text", "span": "span 2"}, {"key": "palavras_chave", "label": "Palavras-chave", "type": "text", "span": "span 2"},
+                   {"key": "resumo", "label": "Resumo", "type": "textarea", "span": "span 2"}, {"key": "fundamentacao", "label": "Fundamentação", "type": "textarea", "span": "span 2"},
+                   {"key": "desfecho", "label": "Desfecho", "type": "text", "span": "span 1"}, {"key": "fonte", "label": "Fonte", "type": "text", "span": "span 1"}]}
+    out["parecer-novo"] = {
+        "title": "Gerar parecer", "sub": "Parecer jurídico em PDF no padrão da casa, a partir do contexto informado (usa o provedor de IA).",
+        "cta": "Gerar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/pareceres", "okMsg": "Parecer gerado", "showResult": True},
+        "fields": [selecionar("area", "Área*", _AREAS, "span 1"), {"key": "titulo", "label": "Título*", "type": "text", "span": "span 1"},
+                   {"key": "contexto", "label": "Contexto / pergunta*", "type": "textarea", "span": "span 2"}]}
+    out["analise-nova"] = {
+        "title": "Analisar documento", "sub": "Análise de cláusulas e riscos de um documento colado (usa o provedor de IA).",
+        "cta": "Analisar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/analises", "okMsg": "Análise registrada", "showResult": True},
+        "fields": [{"key": "nome", "label": "Nome do documento*", "type": "text", "span": "span 2"}, {"key": "conteudo", "label": "Conteúdo*", "type": "textarea", "span": "span 2"}]}

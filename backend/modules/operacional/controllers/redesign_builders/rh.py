@@ -8,6 +8,8 @@ Telas com tabela conceitualmente certa porém vazia devolvem 0 linhas honestas
 
 import logging
 
+from sqlalchemy import text as _sqltext
+
 from modules.operacional.controllers.redesign_data_controller import (
     _build_rh,
     _helpers,
@@ -20,6 +22,13 @@ SLUG = "rh"
 _ICO_CCT = "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "cct-taxa-negocial", "label": "CCT — taxa negocial", "icon": "M3 3v18h18"},
+    {"id": "cct-jornadas-permitidas", "label": "CCT — jornadas permitidas", "icon": "M3 3v18h18"},
+    {"id": "cct-feriados", "label": "CCT — feriados", "icon": "M3 3v18h18"},
+    {"id": "cct-compliance-resumo", "label": "CCT — compliance do mês", "icon": "M3 3v18h18"},
+    {"id": "cct-adicionais", "label": "CCT — calcular adicionais", "icon": "M3 3v18h18"},
+    {"id": "cct-estabilidade", "label": "CCT — verificar estabilidade", "icon": "M3 3v18h18"},
+    {"id": "cct-rescisao-validar", "label": "CCT — validar rescisão", "icon": "M3 3v18h18"},
     # CCT SINDECOMPRESTS AM000613/2025 — as 6 calculadoras existiam no backend sem tela.
     {"id": "cct-hora-extra", "label": "CCT — Hora extra", "icon": _ICO_CCT},
     {"id": "cct-noturno", "label": "CCT — Adicional noturno", "icon": _ICO_CCT},
@@ -894,4 +903,52 @@ async def build(db) -> dict:
         await db.rollback()
         logger.warning("rh: telas LIGAR (carreira/treinamento/360) não montadas: %s", _exc)
 
+    await _ligar_cct_20260908(db, out)
     return out
+
+
+async def _ligar_cct_20260908(db, out: dict) -> None:
+    """LIGAR 08/09/2026: rotas da CCT que só existiam por API/MCP."""
+    from datetime import date as _d
+    from modules.cct.controllers import benefits_controller as Bf, compliance_controller as Cp, holidays_controller as Hf, schedule_controller as Sc
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    hoje = _d.today()
+    for key, fn, titulo, sub, kw, painel in (
+        ("cct-taxa-negocial", Bf.get_taxa_negocial, "CCT — taxa negocial", "Taxa negocial prevista na CCT SINDECOMPRESTS para o mês.", {"mes": hoje.month}, True),
+        ("cct-jornadas-permitidas", Sc.get_jornadas_permitidas, "CCT — jornadas permitidas", "Escalas que a convenção admite (12x36, 44h, …) e seus limites.", {}, False),
+        ("cct-feriados", Hf.get_feriados, "CCT — feriados", "Feriados considerados para adicional e escala.", {}, False),
+        ("cct-compliance-resumo", Cp.get_resumo_compliance, f"CCT — compliance {hoje.strftime('%m/%Y')}", "Conformidade da folha com a convenção (piso, adicionais, benefícios).", {"periodo": hoje.strftime("%Y-%m"), "empresa_id": None}, True),
+    ):
+        try:
+            res = await chamar(fn, db, **kw)
+            out[key] = painel_de_dict(titulo, sub, res) if painel or not isinstance(res, list) else tabela_de_lista(titulo, sub, res)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cct %s: %s", key, exc)
+    emp = []
+    try:
+        emp = [{"value": str(i), "label": n} for i, n in (await db.execute(_sqltext("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 300"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    out["cct-adicionais"] = {
+        "title": "CCT — calcular adicionais", "sub": "Adicionais por pessoa conforme a CCT (ronda, acúmulo, jardinagem/piscina, insalubridade, periculosidade). Só calcula.",
+        "cta": "Calcular", "type": "form", "submit": {"endpoint": "/api/v1/cct/jornadas/adicionais", "okMsg": "Calculado", "showResult": True},
+        "fields": [{"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1"},
+                   selecionar("jornada_tipo", "Jornada", [{"value": v, "label": v} for v in ("12x36", "44h", "40h", "36h")], "span 1"),
+                   selecionar("ronda_permanente", "Ronda permanente?", _SN, "span 1"), selecionar("acumulo_funcao", "Acúmulo de função?", _SN, "span 1"),
+                   selecionar("servicos_jardinagem_piscina", "Jardinagem/piscina?", _SN, "span 1"), selecionar("insalubridade", "Insalubridade?", _SN, "span 1"),
+                   selecionar("periculosidade", "Periculosidade?", _SN, "span 1")]}
+    out["cct-estabilidade"] = {
+        "title": "CCT — verificar estabilidade", "sub": "Diz se o colaborador tem estabilidade (pré-aposentadoria, acidente, gestante) antes de qualquer desligamento.",
+        "cta": "Verificar", "type": "form", "submit": {"endpoint": "/api/v1/cct/compliance/estabilidade", "okMsg": "Verificado", "showResult": True},
+        "fields": [selecionar("employee_id", "Colaborador*", emp), {"key": "data_admissao", "label": "Admissão", "type": "date", "span": "span 1"},
+                   {"key": "data_nascimento", "label": "Nascimento", "type": "date", "span": "span 1"},
+                   selecionar("acidente_trabalho", "Acidente de trabalho?", _SN, "span 1"), {"key": "data_alta_inss", "label": "Alta do INSS", "type": "date", "span": "span 1"},
+                   selecionar("gestante", "Gestante?", _SN, "span 1"), {"key": "data_parto", "label": "Data do parto", "type": "date", "span": "span 1"}]}
+    out["cct-rescisao-validar"] = {
+        "title": "CCT — validar rescisão", "sub": "Confere aviso prévio, homologação e verbas obrigatórias pela CCT antes de fechar a rescisão. Só valida.",
+        "cta": "Validar", "type": "form", "submit": {"endpoint": "/api/v1/cct/rescisao/validar", "okMsg": "Validado", "showResult": True},
+        "fields": [selecionar("employee_id", "Colaborador*", emp), {"key": "data_admissao", "label": "Admissão*", "type": "date", "span": "span 1"},
+                   {"key": "data_demissao", "label": "Demissão*", "type": "date", "span": "span 1"}, {"key": "salario_base", "label": "Salário base (R$)*", "type": "number", "span": "span 1"},
+                   selecionar("motivo", "Motivo*", [{"value": v, "label": l} for v, l in (("sem_justa_causa", "Sem justa causa"), ("pedido_demissao", "Pedido de demissão"), ("justa_causa", "Justa causa"), ("acordo", "Acordo (art. 484-A)"), ("termino_contrato", "Término de contrato"))], "span 1"),
+                   selecionar("aviso_previo_cumprido", "Aviso prévio cumprido?", _SN, "span 1"), {"key": "dias_aviso_previo", "label": "Dias de aviso", "type": "number", "span": "span 1", "ph": "30"}]}

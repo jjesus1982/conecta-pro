@@ -7,6 +7,7 @@ Ver o comentário em `_visao()` para os números que motivaram.
 import asyncio
 from datetime import date, datetime
 
+import logging
 from modules.operacional.controllers.redesign_data_controller import (
     IC,
     S,
@@ -45,9 +46,19 @@ def _completude_drive(competencia: str, blocos: dict | None = None) -> dict:
 
 
 SLUG = "documentos"
+
+logger = logging.getLogger(__name__)
 _ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "kits-conferencia", "label": "Conferência dos kits (ATLAS)", "icon": "M3 3v18h18"},
+    {"id": "kits-completude", "label": "Completude dos kits", "icon": "M3 3v18h18"},
+    {"id": "kits-assinaturas-pendentes", "label": "Assinaturas pendentes dos kits", "icon": "M3 3v18h18"},
+    {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
+    {"id": "kit-entrega-preparar", "label": "Preparar entrega de kit", "icon": "M3 3v18h18"},
+    {"id": "kit-entrega-marcar", "label": "Marcar kit como entregue", "icon": "M3 3v18h18"},
+    {"id": "kit-faturar", "label": "Faturar kit (boleto)", "icon": "M3 3v18h18"},
+    {"id": "kit-checklist-evento", "label": "Registrar evento no checklist do kit", "icon": "M3 3v18h18"},
     {"id": "gedeon-perguntar", "label": "Consultor GEDEON", "icon": _ICO_D},
     {"id": "gedeon-intercorrencia", "label": "Registrar intercorrência", "icon": _ICO_D},
     {"id": "sophia-indexar", "label": "Indexar acervo (SOPHIA)", "icon": _ICO_D},
@@ -724,4 +735,73 @@ async def build(db) -> dict:
         ],
     }
 
+    await _ligar_kits_20260908(db, out)
     return out
+
+
+async def _ligar_kits_20260908(db, out: dict) -> None:
+    """LIGAR 08/09/2026: rotas do orquestrador de kits que só existiam por API/MCP."""
+    from modules.gedeon.controllers import orquestrador_controller as O
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    comp = O._competencia_anterior()
+    try:
+        conds = await chamar(O.condominios_elegiveis_endpoint, db)
+        lista = conds if isinstance(conds, list) else (conds or {}).get("condominios", [])
+        opts = [{"value": (c.get("nome") if isinstance(c, dict) else str(c)), "label": (c.get("nome") if isinstance(c, dict) else str(c))} for c in lista]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("kits: condominios elegíveis: %s", exc); opts = []
+    for key, fn, titulo, sub, kw in (
+        ("kits-conferencia", O.conferir_lote_endpoint, f"Conferência dos kits — {comp}", "Selo ATLAS por condomínio: o que falta em cada kit. Mesmo dado da API /gedeon/kits/conferir-lote.", {"competencia": comp, "refresh": False}),
+        ("kits-completude", O.completude_kits_endpoint, f"Completude dos kits — {comp}", "Documentos presentes × esperados por condomínio.", {"competencia": comp, "refresh": False}),
+        ("kits-assinaturas-pendentes", O.pendencias_assinatura_endpoint, f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura (funcionário ou empresa).", {"competencia": comp, "condominio": None}),
+    ):
+        try:
+            res = await chamar(fn, db, **kw)
+            out[key] = tabela_de_lista(titulo, sub, res) if _lista(res) else painel_de_dict(titulo, sub, res)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("kits %s: %s", key, exc)
+    try:
+        linhas = []
+        for o in opts[:40]:
+            try:
+                st = await chamar(O.status_entrega_endpoint, db, condominio=o["value"], competencia=comp)
+                st = st if isinstance(st, dict) else {"status": st}
+                linhas.append({"condominio": o["value"], **{k: v for k, v in st.items() if not isinstance(v, (list, dict))}})
+            except Exception as exc:  # noqa: BLE001
+                linhas.append({"condominio": o["value"], "erro": str(exc)[:80]})
+        out["kits-entrega-status"] = tabela_de_lista(f"Entrega dos kits — {comp}", "Preparado? Entregue? Por qual canal? Um condomínio por linha.", linhas)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("kits entrega status: %s", exc)
+    out["kit-entrega-preparar"] = {
+        "title": "Preparar entrega de kit", "sub": "Monta o pacote de entrega (ZIP/links) do kit do condomínio. Não envia nada.",
+        "cta": "Preparar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/kits/entrega/preparar", "query": True, "okMsg": "Entrega preparada", "showResult": True},
+        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp}]}
+    out["kit-entrega-marcar"] = {
+        "title": "Marcar kit como entregue", "sub": "Registra que o kit chegou ao cliente e por qual canal. Só registra.",
+        "cta": "Marcar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/kits/entrega/marcar", "okMsg": "Entrega registrada"},
+        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+                   selecionar("canal", "Canal*", [{"value": v, "label": l} for v, l in (("email", "E-mail"), ("whatsapp", "WhatsApp"), ("drive", "Google Drive"), ("presencial", "Presencial"))], "span 1"),
+                   {"key": "obs", "label": "Observação", "type": "textarea", "span": "span 2"}]}
+    out["kit-faturar"] = {
+        "title": "Faturar kit (boleto)", "sub": "Emite a cobrança do kit no banco. A NFS-e NÃO sai por aqui: o caminho pelo provedor antigo (Ábaco) foi desligado; a nota vai pelo Portal Nacional.",
+        "cta": "Faturar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/kits/faturar", "okMsg": "Faturamento disparado", "showResult": True,
+                   "confirm": "Emite boleto REAL no banco para este condomínio. Confirma?"},
+        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+                   selecionar("tipo", "O que emitir*", [{"value": "boleto", "label": "Boleto (Inter/Cora)"}], "span 1"),
+                   selecionar("confirmar", "Modo*", [{"value": "false", "label": "Só simular (padrão)"}, {"value": "true", "label": "EMITIR de verdade"}], "span 2")]}
+    out["kit-checklist-evento"] = {
+        "title": "Registrar evento no checklist do kit", "sub": "Admissão, demissão, afastamento, férias… o que muda o kit da competência.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/gedeon/kits/checklist", "okMsg": "Evento registrado"},
+        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+                   selecionar("tipo", "Tipo*", [{"value": v, "label": v.capitalize()} for v in ("admissao", "demissao", "afastamento", "ferias", "substituicao", "outro")], "span 1"),
+                   {"key": "funcionario", "label": "Funcionário", "type": "text", "span": "span 1"}, {"key": "data", "label": "Data", "type": "date", "span": "span 1"},
+                   {"key": "descricao", "label": "Descrição*", "type": "textarea", "span": "span 2"}]}
+
+
+def _lista(res) -> bool:
+    from modules.operacional.controllers.redesign_builders._ligar_generico import _lista_em
+    return bool(_lista_em(res))
