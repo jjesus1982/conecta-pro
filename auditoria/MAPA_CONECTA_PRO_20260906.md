@@ -895,6 +895,36 @@ revisor em curso · government, ged, gedeon, campo, jurídico, clients, empresas
 Os revisores anteriores caíram por limite de uso da sessão às 00:5x; relançados às 04:4x com escopo
 econômico.
 
+
+### §2c.25 — Checkpoint 08/09 08:30 Manaus: GED, módulos mortos, operacional lote 2, CRM lote 1
+
+**Commits desde a §2c.24:** 436602863 (GED: DMS vazio aposentado, 131 rotas; ficam kits/certidões/config/
+upload), a20a84d73 (retention 70 + document_kits 54 + scheduler 26 + services 63 sem rotas; MCP
+dashboard_clima honesto), fc34e9ac5 (operacional lote 2: comunicados publicar/leituras 500, gerador 12x36,
+interjornada do substituto, HE base planejada, encerrar alocação cancela turnos — KEYSON demitido tinha
+12 turnos de setembro, corrigido no banco —, alocação duplicada 409, templates de escala com tenant zero,
+triagem/rondas em Manaus, 31 rotas mortas) e o commit do CRM lote 1 (ver mensagem do commit).
+
+**CRM — onde parou.** Lote 1 aplicado e no ar (hot-copy + HUP + smoke): defeitos 1, 5, 7, 8, 9, 10, 12,
+13, 14 do relatório `auditoria/qa/revisao_20260908/crm_clients.md` e as 132 rotas MORTA apagadas.
+Não aplicados de propósito: 2 (rotas de IA apagadas em vez de corrigidas), 3 e 11 (dashboard apagado),
+4 (commissions apagadas; fica só GET /crm/commissions), 6 (rota apagada). **Falta o lote 2 = as 48 rotas
+LIGAR** no redesign (contatos CRUD, produtos, itens de proposta, itens/aditivos/modelos de contrato,
+status do cliente, condomínios, aceitar/recusar proposta, concluir tarefa, ficha 360, timeline, autofill
+CNPJ/CEP). Pendência menor: `GET /crm/proposals/stats` responde 500 (apagada, mas `/{proposal_id}` captura
+"stats" e quebra ao converter) — trocar por 404.
+
+**Operacional — falta:** LIGAR ×6 (grade PUT, escala PATCH/reject, substituição DELETE, banco de horas
+DELETE, resumo de inspetores) e o defeito 8 do clássico (PUT × PATCH), fora do escopo.
+
+**Fila:** government (448, só leitura), gedeon (70), campo (77), juridico (52), empresas (36),
+integrations (103), bidding (88 — decisão do Jordan: licitações sem uso humano), recruitment (166 —
+decisão do Jordan), notifications (76; só notification_queue tem dado), client_portal (61), config (51),
+health_occupational (40), security_lgpd (29), cct (23), ai (23; assinatura universal viva).
+
+**Depende do Jordan (novo):** confirmar a regra de interjornada aplicada (noturno D-1 não cobre D);
+reajuste de contrato agora exige percentual informado.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
