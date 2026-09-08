@@ -117,3 +117,6 @@ python3 backend/scripts/qa/checar_uso_real.py --mortas   # só as com 0 linhas
 - Número em comentário leva a data em que foi medido.
 - `git commit -m … -- <arquivos>`; arquivo novo exige `git add` nomeado; confira o EXIT CODE.
 - Dinheiro que sai e governo: nunca happy-path. Operacional: relatório, nunca correção.
+
+## Cobertura rotas × telas (08/09/2026)
+`python3 backend/scripts/qa/checar_cobertura_rotas.py [--tsv saida.tsv]` — enumera as rotas montadas dentro do container e classifica cada uma pelo chamador (redesign · interna · classico · nenhum). Linha canônica: `TOTAL nenhum: N · classico: M · rotas: R`. Alvo do loop de 08/09: `nenhum: 0 · classico: 0` (clássico está fora do escopo: rota só-clássico com dado real ganha tela no redesign; sem dado, é apagada). Base T0 em `auditoria/qa/revisao_20260908/cobertura_rotas_T0.tsv` (569 · 249 · 1752). Trava declarada com dono (sessão fase5) até entrar no `checar_regressao.py`.
