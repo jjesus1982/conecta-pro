@@ -138,7 +138,7 @@ def force_backup():
 def check_module_health(module):
     """Health check específico de um módulo backend."""
     module_endpoints = {
-        "financeiro": "/api/v1/financial/accounting/charts/",
+        "financeiro": "/api/v1/financial/accounting/dre",  # charts apagado 08/09/2026
         "operacional": "/api/v1/operacional/posts/",
         "rh": "/api/v1/people-management/dp/dashboard/",
         "crm": "/api/v1/crm/leads/",
