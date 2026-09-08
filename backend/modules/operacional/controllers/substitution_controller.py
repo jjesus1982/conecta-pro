@@ -17,14 +17,12 @@ from modules.operacional.permissions import Permission, require_operacional_perm
 from modules.operacional.publishers import publish_substituicao_realizada
 from modules.operacional.repositories.substitution_repository import SubstitutionRepository
 from modules.operacional.schemas.substitution import (
-    SubstituteSuggestion,
     SubstitutionConfirm,
     SubstitutionCreate,
     SubstitutionFilter,
     SubstitutionListResponse,
     SubstitutionReject,
     SubstitutionResponse,
-    SubstitutionSuggestRequest,
     SubstitutionUpdate,
 )
 
@@ -136,41 +134,6 @@ async def get_pending_substitutions(
     substitutions, _ = await repo.list(filters=filters, page=1, page_size=100)
 
     return [SubstitutionResponse.model_validate(s) for s in substitutions]
-
-
-@router.post(
-    "/suggest",
-    response_model=list[SubstituteSuggestion],
-    dependencies=[require_operacional_permission(Permission.SUBSTITUTIONS_CREATE)],
-)
-async def suggest_substitutes(
-    data: SubstitutionSuggestRequest,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),  # pylint: disable=unused-argument
-) -> list[SubstituteSuggestion]:
-    """
-    Sugere substitutos usando IA.
-
-    Analisa disponibilidade, qualificações, distância e histórico
-    para recomendar os melhores candidatos.
-    """
-    # PENDENTE: Buscar dados do turno e funcionários disponíveis do banco
-    # Por enquanto, retorna lista vazia com log
-
-    logger.info(
-        "Solicitação de sugestões de substitutos",
-        action="suggest_substitutes",
-        shift_id=str(data.shift_id),
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-    )
-
-    # Exemplo de como usar o serviço (quando tiver os dados):
-    # shift = await shift_repo.get_by_id(data.shift_id)
-    # available = await allocation_repo.get_available_employees(...)
-    # suggestions = substitution_service.suggest_substitutes(shift, available, data)
-
-    return []
 
 
 @router.get(

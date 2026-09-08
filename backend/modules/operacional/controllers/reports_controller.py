@@ -128,22 +128,6 @@ async def hours_report(
 
 
 @router.get(
-    "/overtime",
-    response_model=HoursReportResponse,
-    dependencies=[require_operacional_permission(Permission.REPORTS_VIEW)],
-)
-async def overtime_report(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    start_date: date | None = Query(None),
-    end_date: date | None = Query(None),
-    employee_id: str | None = Query(None),
-) -> HoursReportResponse:
-    """Relatorio de horas extras (alias para /hours)."""
-    return await hours_report(current_user, db, start_date, end_date, employee_id)
-
-
-@router.get(
     "/costs",
     response_model=CostsReportResponse,
     dependencies=[require_operacional_permission(Permission.REPORTS_VIEW)],

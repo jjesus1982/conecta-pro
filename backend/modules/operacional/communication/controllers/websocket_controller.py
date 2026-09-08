@@ -579,20 +579,3 @@ async def websocket_notifications(
             await manager.disconnect(connection_id)
 
 
-@router.get(
-    "/ws/status",
-    summary="Status das conexoes WebSocket",
-    description="Retorna estatisticas das conexoes WebSocket ativas",
-)
-async def get_websocket_status() -> dict[str, Any]:
-    """
-    Retorna status das conexoes WebSocket.
-
-    Returns:
-        Estatisticas das conexoes
-    """
-    return {
-        "total_connections": manager.get_connection_count(),
-        "users_connected": len(manager.user_connections),
-        "tenants_connected": len(manager.tenant_connections),
-    }

@@ -163,6 +163,13 @@ class Announcement(Base):
     def publish_at(self) -> datetime | None:
         return self.data_publicacao
 
+    def can_be_published(self) -> bool:  # faltava: publicar dava 500 (08/09/2026)
+        return self.status in (AnnouncementStatus.DRAFT.value, AnnouncementStatus.RASCUNHO.value,
+                               AnnouncementStatus.SCHEDULED.value, AnnouncementStatus.AGENDADO.value)
+
+    def _get_total_targets(self) -> int:
+        return int(self.total_destinatarios or 0)
+
     @property
     def expires_at(self) -> datetime | None:
         return self.data_expiracao

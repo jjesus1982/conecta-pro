@@ -2140,25 +2140,7 @@ async def build(db) -> dict:
              "ph": '["id-do-posto-1", "id-do-posto-2"]'},
         ],
     }
-    out["diarista-alocar"] = {
-        "title": "Alocar diarista",
-        "sub": "Aloca um diarista em condomínio por período. GRAVA a alocação — confira o "
-               "período antes.",
-        "cta": "Alocar", "type": "form",
-        "submit": {"endpoint": "/api/v1/operacional/unificado/alocar-diarista",
-                   "okMsg": "Diarista alocado",
-                   "confirm": "Isto GRAVA a alocação do diarista no período informado. Confirma?"},
-        "fields": [
-            {"key": "diarista_id", "label": "Diarista (id)*", "type": "text", "span": "span 1"},
-            {"key": "condominio_id", "label": "Condomínio (id)*", "type": "text", "span": "span 1"},
-            {"key": "data_inicio", "label": "Inicio*", "type": "date", "span": "span 1"},
-            {"key": "data_fim", "label": "Fim", "type": "date", "span": "span 1"},
-            {"key": "unidade_id", "label": "Unidade (id)", "type": "text", "span": "span 1"},
-            {"key": "valor_acordado", "label": "Valor acordado (R$)", "type": "number",
-             "span": "span 1"},
-            {"key": "observacoes", "label": "Observacoes", "type": "textarea", "span": "span 2"},
-        ],
-    }
+    # tela diarista-alocar aposentada 08/09/2026 (gravava em diarist_assignments, universo morto)
 
     return out
 

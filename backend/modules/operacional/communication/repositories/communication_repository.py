@@ -325,13 +325,15 @@ class AnnouncementRepository:
             logger.warning(f"Comunicado nao pode ser publicado: {announcement_id}")
             return None
 
+        # publish_at/published_at/published_by são @property sem setter: gravar nas colunas reais (08/09/2026)
         if schedule_at:
             announcement.status = AnnouncementStatus.SCHEDULED.value
-            announcement.publish_at = schedule_at
+            announcement.data_publicacao = schedule_at
         else:
             announcement.status = AnnouncementStatus.PUBLISHED.value
-            announcement.published_at = datetime.utcnow()
-            announcement.published_by = published_by
+            announcement.data_publicacao = datetime.now()
+            if published_by:
+                announcement.created_by = str(published_by)
 
         announcement.updated_at = datetime.utcnow()
 

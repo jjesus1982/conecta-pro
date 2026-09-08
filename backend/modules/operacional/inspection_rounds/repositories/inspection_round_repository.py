@@ -159,8 +159,9 @@ class InspectionRoundRepository:
 
     async def get_rounds_scheduled_today(self, tenant_id: str | None = None) -> builtins.list[InspectionRound]:
         """Retorna rondas agendadas para hoje."""
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=999999)
+        _agora = datetime.now()  # container em America/Manaus; utcnow() virava "amanhã" às 20h (08/09/2026)
+        today_start = _agora.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = _agora.replace(hour=23, minute=59, second=59, microsecond=999999)
 
         conditions = [
             InspectionRound.status == InspectionRoundStatus.AGENDADA.value,

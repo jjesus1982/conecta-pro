@@ -139,10 +139,7 @@ class OccurrenceAttachment(Base):
     )
 
     # === Relacionamento ===
-    occurrence: Mapped[Occurrence] = relationship(
-        "Occurrence",
-        back_populates="attachments",
-    )
+    occurrence: Mapped[Occurrence] = relationship("Occurrence")  # Occurrence não tem a relação inversa: back_populates derrubava todos os mappers (08/09/2026)
 
     def __repr__(self) -> str:
         """Representacao string do objeto."""

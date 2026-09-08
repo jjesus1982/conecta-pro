@@ -299,6 +299,10 @@ async def sugerir_substitutos(
                         SELECT 1 FROM shifts s2 WHERE s2.employee_id=e.id AND s2.shift_date=:dia
                           AND s2.is_active AND NOT s2.is_off_day
                           AND s2.status IN ('scheduled','in_progress','completed'))
+                      AND NOT EXISTS (  -- interjornada (CLT art. 66): noturno na véspera (vira a meia-noite) não cobre hoje
+                        SELECT 1 FROM shifts s3 WHERE s3.employee_id=e.id AND s3.shift_date=CAST(:dia AS date) - 1
+                          AND s3.is_active AND NOT s3.is_off_day AND s3.planned_end_time <= s3.planned_start_time
+                          AND s3.status IN ('scheduled','in_progress','completed'))
                       AND NOT EXISTS (
                         SELECT 1 FROM hr_vacation_requests v WHERE v.employee_id=e.id
                           AND upper(v.status) IN ('APPROVED','IN_PROGRESS','SCHEDULED')
@@ -392,8 +396,10 @@ async def escalar_substituto(
             await db.execute(
                 text(
                     """SELECT p.name FROM shifts s JOIN posts p ON p.id=s.post_id
-                       WHERE s.employee_id=CAST(:e AS uuid) AND s.shift_date=:dia AND s.is_active
+                       WHERE s.employee_id=CAST(:e AS uuid) AND s.is_active
                          AND NOT s.is_off_day AND s.status IN ('scheduled','in_progress','completed')
+                         AND (s.shift_date=:dia
+                              OR (s.shift_date=CAST(:dia AS date) - 1 AND s.planned_end_time <= s.planned_start_time))
                        LIMIT 1"""
                 ),
                 {"e": body.employee_id, "dia": sub["data"]},

@@ -7,20 +7,17 @@ from datetime import date
 from typing import Any
 from uuid import UUID  # [Operacoes] tipar path id -> 500 (uuid cast) vira 422
 
-from fastapi import Response, APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from core.logging import logger
-from core.rate_limit import BULK_LIMIT, limiter
 from modules.operacional.models.shift import ShiftStatus
 from modules.operacional.permissions import Permission, require_operacional_permission
 from modules.operacional.publishers import publish_turno_encerrado, publish_turno_iniciado
 from modules.operacional.repositories.shift_repository import ShiftRepository
 from modules.operacional.schemas.shift import (
-    ShiftBulkOperationResult,
-    ShiftBulkUpdate,
     ShiftCheckIn,
     ShiftCheckOut,
     ShiftCreate,
@@ -377,38 +374,3 @@ async def delete_shift(
     )
 
 
-@router.patch(
-    "/bulk",
-    response_model=ShiftBulkOperationResult,
-    dependencies=[require_operacional_permission(Permission.SHIFTS_CREATE)],
-)
-@limiter.limit(BULK_LIMIT)
-async def bulk_update_shifts(
-    request: Request,
-    response: Response,  # exigido pelo slowapi
-    data: ShiftBulkUpdate,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> ShiftBulkOperationResult:
-    """
-    Atualiza múltiplos turnos em lote.
-
-    Útil para atribuir funcionários a múltiplos turnos de uma vez,
-    alterar status em massa, ou outras operações em lote.
-
-    Retorna contagem de sucessos e erros.
-    """
-    repo = ShiftRepository(db)
-    result: dict[str, int] = await repo.bulk_update(data.items)
-
-    logger.info(
-        "Bulk update de turnos",
-        action="bulk_update_shifts",
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-        requested_count=len(data.items),
-        success_count=result["success_count"],
-        error_count=result["error_count"],
-    )
-
-    return ShiftBulkOperationResult(**result)

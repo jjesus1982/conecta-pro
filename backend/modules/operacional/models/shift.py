@@ -186,9 +186,10 @@ class Shift(Base):
         duration = (end - start).total_seconds() / 3600
         return max(0, duration)
 
-    def calculate_overtime(self, regular_hours: float = 8.0) -> float:
-        """Calcula horas extras."""
+    def calculate_overtime(self, regular_hours: float | None = None) -> float:
+        """Calcula horas extras. Base = horas PLANEJADAS do turno (12x36 não gera 4h extras por dia, 08/09/2026)."""
         actual = self.actual_hours or self.planned_hours
+        regular_hours = regular_hours or self.planned_hours or 8.0
         if actual > regular_hours:
             return actual - regular_hours
         return 0.0

@@ -170,6 +170,8 @@ class ScaleGenerator:
         work_hours = config.get("work_hours", 12)
 
         # Dividir funcionários entre turno diurno e noturno
+        if len(employee_ids) < 2:
+            raise ValueError("Escala 12x36 exige ao menos 2 colaboradores (1 por turno alternando os dias).")
         mid = len(employee_ids) // 2 or 1
         day_employees = employee_ids[:mid]
         night_employees = employee_ids[mid:] or employee_ids[:1]
@@ -181,7 +183,7 @@ class ScaleGenerator:
 
             # 12x36: trabalha 1 dia, folga 1.5 dias (aproximadamente)
             # Simplificação: alterna funcionários a cada dia
-            employee_id = day_employees[day_idx % len(day_employees)]
+            employee_id = day_employees[(day - 1) % len(day_employees)]  # 12x36: alterna a cada dia (08/09/2026)
 
             is_holiday = current_date in self.holidays
 
@@ -200,14 +202,12 @@ class ScaleGenerator:
             shifts.append(shift)
 
             # Alterna a cada 2 dias (simula 12x36)
-            if day % 2 == 0:
-                day_idx += 1
 
         # Gerar turnos noturnos
         night_idx = 0
         for day in range(1, days_in_month + 1):
             current_date = start_date.replace(day=day)
-            employee_id = night_employees[night_idx % len(night_employees)]
+            employee_id = night_employees[(day - 1) % len(night_employees)]
 
             is_holiday = current_date in self.holidays
 
@@ -225,8 +225,6 @@ class ScaleGenerator:
             )
             shifts.append(shift)
 
-            if day % 2 == 0:
-                night_idx += 1
 
         return shifts
 

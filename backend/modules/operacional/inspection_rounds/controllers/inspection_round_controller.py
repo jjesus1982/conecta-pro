@@ -25,7 +25,6 @@ from core.database import get_db
 from modules.operacional.publishers import publish_ronda_concluida
 
 from ..schemas import (
-    ApplyDisciplinaryRequest,
     CheckpointCreate,
     CheckpointResponse,
     CheckpointUpdate,
@@ -37,7 +36,6 @@ from ..schemas import (
     InspectionRoundResponse,
     InspectionRoundSummary,
     InspectionRoundUpdate,
-    RegisterOccurrenceRequest,
     StartRoundRequest,
 )
 from ..services import (
@@ -592,84 +590,6 @@ async def update_checkpoint(
 # =============================================================================
 # OCORRENCIA E MEDIDA DISCIPLINAR ENDPOINTS
 # =============================================================================
-
-
-@router.post(
-    "/{round_id}/registrar-ocorrencia",
-    response_model=dict,
-    status_code=status.HTTP_201_CREATED,
-    summary="Registrar ocorrencia",
-    description="Registra uma ocorrencia durante a ronda.",
-)
-async def register_occurrence(
-    round_id: UUID,
-    data: RegisterOccurrenceRequest,
-    current_user: CurrentActiveUser,
-    service: InspectionRoundService = Depends(get_inspection_service),
-) -> dict:
-    """Registra uma ocorrencia durante a ronda."""
-    try:
-        checkpoint, occurrence_info = service.register_occurrence(str(round_id), data)
-        return {
-            "checkpoint": CheckpointResponse.model_validate(checkpoint),
-            "occurrence": occurrence_info,
-            "message": f"Ocorrencia {occurrence_info['occurrence_code']} registrada com sucesso",
-        }
-    except InspectionRoundNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
-    except InspectionRoundValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as e:
-        logger.error(f"Erro ao registrar ocorrencia: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro interno ao registrar ocorrencia",
-        )
-
-
-@router.post(
-    "/{round_id}/aplicar-medida-disciplinar",
-    response_model=dict,
-    status_code=status.HTTP_201_CREATED,
-    summary="Aplicar medida disciplinar",
-    description="Aplica medida disciplinar durante a ronda.",
-)
-async def apply_disciplinary_action(
-    round_id: UUID,
-    data: ApplyDisciplinaryRequest,
-    current_user: CurrentActiveUser,
-    service: InspectionRoundService = Depends(get_inspection_service),
-) -> dict:
-    """Aplica medida disciplinar durante a ronda."""
-    try:
-        checkpoint, action_info = service.apply_disciplinary_action(str(round_id), data)
-        return {
-            "checkpoint": CheckpointResponse.model_validate(checkpoint),
-            "disciplinary_action": action_info,
-            "message": (f"Medida disciplinar {action_info['disciplinary_action_code']} aplicada com sucesso"),
-        }
-    except InspectionRoundNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
-    except InspectionRoundValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as e:
-        logger.error(f"Erro ao aplicar medida disciplinar: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro interno ao aplicar medida disciplinar",
-        )
 
 
 # =============================================================================

@@ -8,7 +8,7 @@ Definições HONESTAS usadas aqui (não alterar consultor_coo_service — a
 definição dele é outra):
 - Ocorrência aberta  = occurrences.status IN ('aberta','em_analise') AND is_active
 - Escala vigente     = scales.is_active AND status IN ('published','in_progress')
-                       AND CURRENT_DATE BETWEEN start_date AND end_date
+                       AND (now() AT TIME ZONE 'America/Manaus')::date BETWEEN start_date AND end_date
 - Posto sem vigência = posts.is_active sem nenhuma escala vigente
 Tabelas vazias → zeros/listas vazias (nunca fabricar dado).
 """
@@ -108,7 +108,7 @@ async def _passagens_hoje(db: AsyncSession) -> list[PassagemHoje]:
                    pt.resumo, pt.pendencias, pt.criada_em
             FROM operacional_passagens_turno pt
             JOIN posts p ON p.id = pt.post_id
-            WHERE pt.data_turno = CURRENT_DATE AND pt.is_active = true
+            WHERE pt.data_turno = (now() AT TIME ZONE 'America/Manaus')::date AND pt.is_active = true
             ORDER BY pt.criada_em DESC
             """
         )
@@ -167,7 +167,7 @@ async def _escalas(db: AsyncSession) -> EscalasPainel:
                     AND s.status IN ('published', 'in_progress')
                     AND s.start_date IS NOT NULL
                     AND s.end_date IS NOT NULL
-                    AND CURRENT_DATE BETWEEN s.start_date AND s.end_date
+                    AND (now() AT TIME ZONE 'America/Manaus')::date BETWEEN s.start_date AND s.end_date
               )
             ORDER BY p.name
             """
@@ -201,8 +201,8 @@ async def _movimentacoes(db: AsyncSession) -> list[MovimentacaoProgramada]:
     eventos: list[MovimentacaoProgramada] = []
 
     # Hoje/limite pelo relógio do banco (mesma referência das outras queries)
-    hoje = (await db.execute(text("SELECT CURRENT_DATE"))).scalar()
-    limite = (await db.execute(text("SELECT CURRENT_DATE + 45"))).scalar()
+    hoje = (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date"))).scalar()
+    limite = (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date + 45"))).scalar()
 
     # 1) Fins de alocação programados (allocations ativas com end_date futura)
     fins_result = await db.execute(
@@ -218,8 +218,8 @@ async def _movimentacoes(db: AsyncSession) -> list[MovimentacaoProgramada]:
             WHERE a.status = 'active'
               AND a.is_active = true
               AND a.end_date IS NOT NULL
-              AND a.end_date >= CURRENT_DATE
-              AND a.end_date <= CURRENT_DATE + 45
+              AND a.end_date >= (now() AT TIME ZONE 'America/Manaus')::date
+              AND a.end_date <= (now() AT TIME ZONE 'America/Manaus')::date + 45
             """
         )
     )
@@ -243,7 +243,7 @@ async def _movimentacoes(db: AsyncSession) -> list[MovimentacaoProgramada]:
             FROM hr_vacation_requests v
             LEFT JOIN employees e ON e.id = v.employee_id
             WHERE upper(v.status) IN ('APPROVED', 'IN_PROGRESS', 'SCHEDULED')
-              AND (v.start_date >= CURRENT_DATE OR v.return_date >= CURRENT_DATE)
+              AND (v.start_date >= (now() AT TIME ZONE 'America/Manaus')::date OR v.return_date >= (now() AT TIME ZONE 'America/Manaus')::date)
             """
         )
     )
@@ -329,8 +329,8 @@ async def _presenca_30d(db: AsyncSession) -> Presenca30d:
                    ) AS dias_presentes
             FROM shifts sh
             LEFT JOIN posts p ON p.id = sh.post_id
-            WHERE sh.shift_date >= CURRENT_DATE - 30
-              AND sh.shift_date <= CURRENT_DATE - 1
+            WHERE sh.shift_date >= (now() AT TIME ZONE 'America/Manaus')::date - 30
+              AND sh.shift_date <= (now() AT TIME ZONE 'America/Manaus')::date - 1
               AND sh.status = 'scheduled'
               AND sh.is_active = true
               AND sh.is_off_day = false

@@ -77,7 +77,7 @@ class ScaleTemplateRepository:
         )
 
         if tenant_id:
-            query = query.where(ScaleTemplate.tenant_id == tenant_id)
+            query = query.where(ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]))
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
@@ -101,13 +101,13 @@ class ScaleTemplateRepository:
         Returns:
             Tupla (templates, total)
         """
-        query = select(ScaleTemplate).where(ScaleTemplate.tenant_id == tenant_id)
+        query = select(ScaleTemplate).where(ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]))
 
         if not include_inactive:
             query = query.where(ScaleTemplate.is_active.is_(True))
 
         # Count total
-        count_query = select(func.count(ScaleTemplate.id)).where(ScaleTemplate.tenant_id == tenant_id)
+        count_query = select(func.count(ScaleTemplate.id)).where(ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]))
         if not include_inactive:
             count_query = count_query.where(ScaleTemplate.is_active.is_(True))
 
@@ -225,7 +225,7 @@ class ScaleTemplateRepository:
         query = (
             select(ScaleTemplate)
             .where(
-                ScaleTemplate.tenant_id == tenant_id,
+                ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]),
                 ScaleTemplate.is_active.is_(True),
                 ScaleTemplate.times_used > 0,
             )
@@ -254,7 +254,7 @@ class ScaleTemplateRepository:
         query = (
             select(ScaleTemplate)
             .where(
-                ScaleTemplate.tenant_id == tenant_id,
+                ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]),
                 ScaleTemplate.is_active.is_(True),
             )
             .order_by(ScaleTemplate.created_at.desc())
@@ -277,7 +277,7 @@ class ScaleTemplateRepository:
         # Total de templates ativos
         active_result = await self.db.execute(
             select(func.count(ScaleTemplate.id)).where(
-                ScaleTemplate.tenant_id == tenant_id,
+                ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]),
                 ScaleTemplate.is_active.is_(True),
             )
         )
@@ -286,7 +286,7 @@ class ScaleTemplateRepository:
         # Total de templates inativos
         inactive_result = await self.db.execute(
             select(func.count(ScaleTemplate.id)).where(
-                ScaleTemplate.tenant_id == tenant_id,
+                ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]),
                 ScaleTemplate.is_active.is_(False),
             )
         )
@@ -295,7 +295,7 @@ class ScaleTemplateRepository:
         # Média de uso
         avg_result = await self.db.execute(
             select(func.avg(ScaleTemplate.times_used)).where(
-                ScaleTemplate.tenant_id == tenant_id,
+                ScaleTemplate.tenant_id.in_([tenant_id, "00000000-0000-0000-0000-000000000000"]),
                 ScaleTemplate.is_active.is_(True),
             )
         )

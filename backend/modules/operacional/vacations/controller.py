@@ -12,7 +12,7 @@ estado fantasma que o DP nunca vê.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +20,8 @@ from core.auth.dependencies import CurrentActiveUser, get_current_active_user
 from core.database import get_db
 
 from .schemas import (
-    VacationRequestCreate,
     VacationRequestListResponse,
     VacationRequestResponse,
-    VacationRequestUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,63 +145,3 @@ async def list_vacation_requests(
         return VacationRequestListResponse(items=[], total=0, pendente=0, aprovado=0, rejeitado=0)
 
 
-@router.post("", status_code=501)
-async def create_vacation_request(
-    data: VacationRequestCreate,
-    current_user: CurrentActiveUser,
-) -> None:
-    """DESABILITADO: escrita é responsabilidade do módulo DP."""
-    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
-
-
-@router.get("/{request_id}", response_model=VacationRequestResponse)
-async def get_vacation_request(
-    request_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
-) -> VacationRequestResponse:
-    """Busca uma solicitação pelo ID (fonte canônica: hr_vacation_requests)."""
-    result = await db.execute(
-        text(_BASE_SELECT + " WHERE CAST(h.id AS TEXT) = :rid"),
-        {"rid": request_id},
-    )
-    row = result.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
-    return _row_to_response(row)
-
-
-@router.patch("/{request_id}", status_code=501)
-async def update_vacation_request(
-    request_id: str,
-    data: VacationRequestUpdate,
-    current_user: CurrentActiveUser,
-) -> None:
-    """DESABILITADO: escrita é responsabilidade do módulo DP."""
-    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
-
-
-@router.post("/{request_id}/approve", status_code=501)
-async def approve_vacation_request(
-    request_id: str,
-    current_user: CurrentActiveUser,
-) -> None:
-    """DESABILITADO: aprovação é responsabilidade do módulo DP."""
-    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
-
-
-@router.post("/{request_id}/reject", status_code=501)
-async def reject_vacation_request(
-    request_id: str,
-    current_user: CurrentActiveUser,
-    reason: str | None = None,
-) -> None:
-    """DESABILITADO: rejeição é responsabilidade do módulo DP."""
-    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)
-
-
-@router.delete("/{request_id}", status_code=501)
-async def delete_vacation_request(
-    request_id: str,
-    current_user: CurrentActiveUser,
-) -> None:
-    """DESABILITADO: cancelamento é responsabilidade do módulo DP."""
-    raise HTTPException(status_code=501, detail=_READ_ONLY_DETAIL)

@@ -7,22 +7,18 @@ from datetime import date
 from typing import Any
 from uuid import UUID  # path id tipado :uuid → /bulk deixa de ser engolido por /{id}
 
-from fastapi import Response, APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from core.logging import logger
-from core.rate_limit import BULK_LIMIT, limiter
 from modules.operacional.models.allocation import AllocationStatus
 from modules.operacional.permissions import Permission, require_operacional_permission
 from modules.operacional.publishers import publish_alocacao_criada
 from modules.operacional.repositories.allocation_repository import AllocationRepository
 from modules.operacional.schemas.allocation import (
-    AllocationBulkDelete,
-    AllocationBulkOperationResult,
-    AllocationBulkUpdate,
     AllocationCreate,
     AllocationFilter,
     AllocationListResponse,
@@ -51,7 +47,10 @@ async def create_allocation(
     Requer autenticação.
     """
     repo = AllocationRepository(db)
-    allocation: Any = await repo.create(data)
+    try:
+        allocation: Any = await repo.create(data)
+    except ValueError as exc:  # alocação ativa duplicada dava 500 (08/09/2026)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     logger.info(
         "Allocation criada com sucesso",
@@ -386,69 +385,3 @@ async def delete_allocation(
     )
 
 
-@router.delete(
-    "/bulk",
-    response_model=AllocationBulkOperationResult,
-    dependencies=[require_operacional_permission(Permission.ALLOCATIONS_EDIT)],
-)
-@limiter.limit(BULK_LIMIT)
-async def bulk_delete_allocations(
-    request: Request,
-    response: Response,  # exigido pelo slowapi
-    data: AllocationBulkDelete,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> AllocationBulkOperationResult:
-    """
-    Deleta múltiplas alocações em lote (soft delete).
-
-    Retorna contagem de sucessos e erros.
-    """
-    repo = AllocationRepository(db)
-    result: dict[str, int] = await repo.bulk_delete(data.allocation_ids)
-
-    logger.info(
-        "Bulk delete de alocações",
-        action="bulk_delete_allocations",
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-        requested_count=len(data.allocation_ids),
-        success_count=result["success_count"],
-        error_count=result["error_count"],
-    )
-
-    return AllocationBulkOperationResult(**result)
-
-
-@router.patch(
-    "/bulk",
-    response_model=AllocationBulkOperationResult,
-    dependencies=[require_operacional_permission(Permission.ALLOCATIONS_EDIT)],
-)
-@limiter.limit(BULK_LIMIT)
-async def bulk_update_allocations(
-    request: Request,
-    response: Response,  # exigido pelo slowapi
-    data: AllocationBulkUpdate,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> AllocationBulkOperationResult:
-    """
-    Atualiza múltiplas alocações em lote.
-
-    Retorna contagem de sucessos e erros.
-    """
-    repo = AllocationRepository(db)
-    result: dict[str, int] = await repo.bulk_update(data.items)
-
-    logger.info(
-        "Bulk update de alocações",
-        action="bulk_update_allocations",
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-        requested_count=len(data.items),
-        success_count=result["success_count"],
-        error_count=result["error_count"],
-    )
-
-    return AllocationBulkOperationResult(**result)

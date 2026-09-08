@@ -475,6 +475,15 @@ class AllocationRepository:
             allocation.notes = f"{allocation.notes or ''}\n[Encerramento] {notes}".strip()
         allocation.updated_at = datetime.utcnow()
 
+        # Encerrar sem cancelar os turnos futuros deixava demitido escalado o mês inteiro (KEYSON, 08/09/2026)
+        from sqlalchemy import text as _t
+        await self.db.execute(_t(
+            "UPDATE shifts SET status='cancelled', needs_substitution=false, "
+            "notes=COALESCE(notes,'') || ' | cancelado: alocação encerrada', updated_at=now() "
+            "WHERE employee_id=CAST(:e AS uuid) AND post_id=CAST(:p AS uuid) AND shift_date >= :desde "
+            "AND status='scheduled' AND is_active AND actual_start_time IS NULL"),
+            {"e": str(allocation.employee_id), "p": str(allocation.post_id), "desde": end_date})
+
         await self.db.commit()
         await self.db.refresh(allocation)
 
