@@ -32,7 +32,8 @@ GRUPOS = [
 
     ("g-ponto", "Ponto & Jornada", "Batidas, justificativas e fechamento do mês", [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
-        ("fechar-mes-ponto", "Fechar mês"),
+        ("fechar-mes-ponto", "Fechar mês"), ("espelho-fechar", "Espelho: calcular/fechar"),
+        ("ponto-lancar", "Lançamento manual"), ("ponto-ajuste", "Ajustar batida"),
         ("revisar-justificativa", "Revisar justificativas")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [

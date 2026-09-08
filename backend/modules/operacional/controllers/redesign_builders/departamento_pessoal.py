@@ -904,6 +904,16 @@ async def _rescisao_screen(db):
             except Exception:
                 val = None
         _term_actions = ([
+            {"title": f"Editar rescisão — {nome or '—'}",
+             "endpoint": f"/api/v1/people-management/hr/terminations/{tid}", "method": "PATCH",
+             "btnLabel": "Editar", "btnStyle": "outline", "submitLabel": "Salvar",
+             "okMsg": "Rescisão atualizada. Recarregue a tela.",
+             "fields": [{"key": "last_working_day", "label": "Último dia de trabalho", "type": "date",
+                         "value": lwd.isoformat() if lwd else ""},
+                        {"key": "notice_period_days", "label": "Dias de aviso prévio", "type": "text", "value": ""},
+                        {"key": "exit_interview_done", "label": "Entrevista de desligamento feita?", "type": "select",
+                         "options": [{"value": "false", "label": "Não"}, {"value": "true", "label": "Sim"}]},
+                        {"key": "exit_interview_notes", "label": "Notas da entrevista", "type": "textarea", "value": ""}]},
             {"title": f"Calcular verbas — {nome or '—'}",
              "endpoint": f"/api/v1/people-management/hr/terminations/{tid}/calculate",
              "method": "POST", "btnLabel": "Calcular verbas", "btnStyle": "outline",
@@ -1330,7 +1340,24 @@ async def build(db, current_user=None) -> dict:
         docsfn=lambda r: [
             doc("Holerite", f"/api/v1/people-management/dp/payslips/{r[8]}/pdf", fmt="pdf", gate="financeiro"),
             doc("Recibo VT/VR", f"/api/v1/people-management/folha/recibo-vt-vr/{r[9]}/{r[10]}/{r[11]}/pdf", fmt="pdf", gate="financeiro"),
-        ]))
+        ],
+        # Ciclo do holerite (LIGAR, revisão 08/09/2026): sem "Publicar" o Meu Espaço do funcionário
+        # não vê o holerite; sem "Cancelar" um lançamento errado fica para sempre.
+        actionsfn=lambda r: (
+            [{"title": f"Publicar holerite — {r[0] or '—'} {r[12]}",
+              "endpoint": f"/api/v1/people-management/dp/payslips/{r[8]}/publicar", "method": "PATCH",
+              "btnLabel": "Publicar", "btnStyle": "primary", "submitLabel": "Publicar para o funcionário",
+              "okMsg": "Holerite publicado — aparece no Meu Espaço do colaborador. Recarregue.", "fields": []}]
+            if str(r[7] or "").lower() in ("draft", "rascunho") else
+            [{"title": f"Voltar a rascunho — {r[0] or '—'} {r[12]}",
+              "endpoint": f"/api/v1/people-management/dp/payslips/{r[8]}/rascunho", "method": "PATCH",
+              "btnLabel": "Despublicar", "btnStyle": "outline", "submitLabel": "Voltar a rascunho",
+              "okMsg": "Holerite voltou a rascunho. Recarregue.", "fields": []}]
+        ) + [{"title": f"Cancelar holerite — {r[0] or '—'} {r[12]}",
+              "endpoint": f"/api/v1/people-management/dp/payslips/{r[8]}", "method": "DELETE",
+              "btnLabel": "Cancelar", "btnStyle": "outline", "submitLabel": "Cancelar este holerite",
+              "confirm": "Cancela o holerite desta competência. Confirma?",
+              "okMsg": "Holerite cancelado. Recarregue.", "fields": []}]))
     # marca o seletor de competência (coluna 0) — o ModuleView renderiza o dropdown e filtra client-side
     if out.get("folha"):
         out["folha"]["filterCol"] = 0
@@ -2546,6 +2573,57 @@ async def build(db, current_user=None) -> dict:
         _eo = await _emp_opts_ativos()
         out["registrar-licenca"] = _tela_registrar_licenca(_eo)
         out["renovar-aso"] = _tela_renovar_aso(_eo)
+        # ── Ponto & Jornada: três portas que só existiam por API (LIGAR, revisão 08/09/2026) ──
+        out["espelho-fechar"] = {
+            "title": "Espelho do mês — calcular e fechar",
+            "sub": "Calcula o espelho (Portaria 671) de todos os ativos e fecha os que não têm anomalia aberta. "
+                   "'Só calcular' mostra as anomalias sem fechar nada.",
+            "cta": "Executar", "type": "form",
+            "submit": {"endpoint": "/api/v1/people-management/hr/ponto/fechar-mes", "showResult": True,
+                       "okMsg": "Espelho processado — veja o resultado abaixo.",
+                       "confirm": "Fechar o espelho do mês para todos os colaboradores ativos. Confirma?"},
+            "fields": [
+                {"key": "mes", "label": "Mês*", "type": "select", "span": "span 1",
+                 "options": [{"value": str(m), "label": f"{m:02d}"} for m in range(1, 13)]},
+                {"key": "ano", "label": "Ano*", "type": "select", "span": "span 1",
+                 "options": [{"value": str(a), "label": str(a)} for a in (2025, 2026, 2027)]},
+                {"key": "fechar", "label": "Ação", "type": "select", "span": "span 2",
+                 "options": [{"value": "true", "label": "Calcular e FECHAR"}, {"value": "false", "label": "Só calcular (mostra anomalias)"}]},
+                {"key": "employee_id", "label": "Só um colaborador (opcional)", "type": "select", "span": "span 2",
+                 "ph": "Todos os ativos", "options": _eo},
+            ],
+        }
+        out["ponto-lancar"] = {
+            "title": "Lançamento manual de ponto",
+            "sub": "Registro feito pelo DP quando a batida não aconteceu (facial falhou, esqueceu). Fica marcado como manual.",
+            "cta": "Lançar", "type": "form",
+            "submit": {"endpoint": "/api/v1/people-management/hr/time-records", "okMsg": "Registro lançado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _eo},
+                {"key": "record_date", "label": "Data*", "type": "date", "span": "span 1"},
+                {"key": "clock_in", "label": "Entrada (AAAA-MM-DDTHH:MM)", "type": "text", "span": "span 1"},
+                {"key": "clock_out", "label": "Saída (AAAA-MM-DDTHH:MM)", "type": "text", "span": "span 1"},
+                {"key": "clock_in_lunch", "label": "Saída almoço", "type": "text", "span": "span 1"},
+                {"key": "clock_out_lunch", "label": "Retorno almoço", "type": "text", "span": "span 1"},
+                {"key": "justification", "label": "Justificativa*", "type": "textarea", "span": "span 2"},
+            ],
+        }
+        out["ponto-ajuste"] = {
+            "title": "Ajuste de batida",
+            "sub": "Corrige uma batida existente (horário ou tipo). O motivo fica na trilha de auditoria.",
+            "cta": "Ajustar", "type": "form",
+            "submit": {"endpoint": "/api/v1/people-management/ponto/ajuste", "okMsg": "Batida ajustada"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _eo},
+                {"key": "data", "label": "Data (AAAA-MM-DD)*", "type": "date", "span": "span 1"},
+                {"key": "punch_type", "label": "Tipo*", "type": "select", "span": "span 1",
+                 "options": [{"value": v, "label": l} for v, l in (("entrada", "Entrada"), ("saida_almoco", "Saída almoço"),
+                                                                  ("retorno_almoco", "Retorno almoço"), ("saida", "Saída"))]},
+                {"key": "timestamp", "label": "Horário correto (AAAA-MM-DDTHH:MM)*", "type": "text", "span": "span 1"},
+                {"key": "ajustado_por", "label": "Ajustado por*", "type": "text", "span": "span 1", "value": "DP"},
+                {"key": "motivo", "label": "Motivo* (mín. 5 caracteres)", "type": "textarea", "span": "span 2"},
+            ],
+        }
         out["revisar-justificativa"] = await _tela_revisar_justificativa(db, current_user)
     except Exception:
         try:

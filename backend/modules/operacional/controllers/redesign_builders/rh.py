@@ -6,6 +6,8 @@ Telas com tabela conceitualmente certa porém vazia devolvem 0 linhas honestas
 ("sem registro"), nunca mock.
 """
 
+import logging
+
 from modules.operacional.controllers.redesign_data_controller import (
     _build_rh,
     _helpers,
@@ -43,6 +45,12 @@ EXTRA_MENU: list[dict] = [
     {"id": "holerites-lote", "label": "Importar holerites em lote", "icon": _ICO_CCT},
     {"id": "ciclo-avaliacao", "label": "Iniciar ciclo de avaliação", "icon": _ICO_CCT},
     {"id": "esocial-s2299", "label": "eSocial S-2299 (gerar XML)", "icon": _ICO_CCT},
+    {"id": "carreira-novo", "label": "Carreira — novo plano", "icon": _ICO_CCT},
+    {"id": "curso-novo", "label": "Treinamento — novo curso", "icon": _ICO_CCT},
+    {"id": "treinamento-novo", "label": "Treinamento — nova turma", "icon": _ICO_CCT},
+    {"id": "treinamento-matricular", "label": "Treinamento — matricular", "icon": _ICO_CCT},
+    {"id": "e360-novo", "label": "Avaliação 360 — abrir ciclo", "icon": _ICO_CCT},
+    {"id": "e360-ciclos", "label": "Avaliação 360 — ciclos", "icon": _ICO_CCT},
 ]
 
 _MOTIVO = [{"value": v, "label": lbl} for v, lbl in (
@@ -141,6 +149,9 @@ def _bs(v):
     if s in ("rejeitado", "reprovado", "cancelado", "rejected", "withdrawn", "fechado", "closed"):
         return b(v or "—", "bad")
     return b(v or "—", "info")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _bb(v, sim="Sim", nao="Não", ts="ok", tn="mut"):
@@ -781,5 +792,87 @@ async def build(db) -> dict:
              "ph": '[{"codigo": "1000", "valor": 1670.00}, {"codigo": "5502", "valor": 320.00}]'},
         ],
     }
+
+    # ── LIGAR (revisão 08/09/2026): carreira, cursos, treinamentos, matrícula e ciclo 360 ─────
+    # As rotas existiam sem tela; a lista do RH só lia. Opções vêm do banco (nada inventado).
+    try:
+        _emps = (await db.execute(_sqltext(
+            "SELECT CAST(id AS TEXT), nome FROM employees WHERE status='ativo' "
+            "AND coalesce(is_homologacao,false)=false ORDER BY nome"))).fetchall()
+        _emp_opt = [{"value": i_, "label": n_} for i_, n_ in _emps]
+        _cursos = (await db.execute(_sqltext("SELECT CAST(id AS TEXT), name FROM training_courses WHERE coalesce(is_active,true) ORDER BY name"))).fetchall()
+        _trein = (await db.execute(_sqltext(
+            "SELECT CAST(t.id AS TEXT), t.title || ' · ' || to_char(t.start_date,'DD/MM/YYYY') FROM trainings t "
+            "WHERE coalesce(t.status::text,'') NOT IN ('cancelled','completed') ORDER BY t.start_date DESC"))).fetchall()
+        _HR = "/api/v1/people-management/human-resources"
+        _niveis = [{"value": v, "label": l} for v, l in (("junior", "Júnior"), ("pleno", "Pleno"), ("senior", "Sênior"),
+                                                         ("specialist", "Especialista"), ("coordinator", "Coordenador"), ("manager", "Gerente"))]
+        out["carreira-novo"] = {
+            "title": "Novo plano de carreira", "sub": "Trilha do colaborador: de onde está para onde vai, com prazo. Marcos entram depois.",
+            "cta": "Criar plano", "type": "form", "submit": {"endpoint": f"{_HR}/career/plans", "okMsg": "Plano de carreira criado"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _emp_opt},
+                {"key": "current_position", "label": "Cargo atual*", "type": "text", "span": "span 1"},
+                {"key": "target_position", "label": "Cargo alvo*", "type": "text", "span": "span 1"},
+                {"key": "current_level", "label": "Nível atual*", "type": "select", "span": "span 1", "options": _niveis},
+                {"key": "target_level", "label": "Nível alvo*", "type": "select", "span": "span 1", "options": _niveis},
+                {"key": "estimated_timeline_months", "label": "Prazo (meses)", "type": "text", "span": "span 1", "value": "12"},
+            ]}
+        out["curso-novo"] = {
+            "title": "Novo curso (catálogo)", "sub": "Curso reutilizável: turmas nascem dele. Obrigatório = entra no check de treinamento obrigatório.",
+            "cta": "Cadastrar curso", "type": "form", "submit": {"endpoint": f"{_HR}/training/courses", "okMsg": "Curso cadastrado"},
+            "fields": [
+                {"key": "name", "label": "Nome*", "type": "text", "span": "span 2"},
+                {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"},
+                {"key": "category", "label": "Categoria*", "type": "select", "span": "span 1",
+                 "options": [{"value": v, "label": l} for v, l in (("mandatory_security", "Obrigatório — segurança"), ("mandatory_safety", "Obrigatório — SST"),
+                                                                  ("technical", "Técnico"), ("behavioral", "Comportamental"), ("leadership", "Liderança"), ("compliance", "Compliance"))]},
+                {"key": "duration_hours", "label": "Carga horária (h)*", "type": "text", "span": "span 1", "value": "4"},
+                {"key": "is_mandatory", "label": "Obrigatório?", "type": "select", "span": "span 1",
+                 "options": [{"value": "false", "label": "Não"}, {"value": "true", "label": "Sim"}]},
+                {"key": "validity_months", "label": "Validade do certificado (meses)", "type": "text", "span": "span 1"},
+            ]}
+        out["treinamento-novo"] = {
+            "title": "Nova turma de treinamento", "sub": "Turma com data, local e instrutor, a partir de um curso do catálogo.",
+            "cta": "Abrir turma", "type": "form", "submit": {"endpoint": f"{_HR}/training/", "okMsg": "Turma criada"},
+            "fields": [
+                {"key": "course_id", "label": "Curso*", "type": "select", "span": "span 2", "ph": "Selecione", "options": [{"value": i_, "label": n_} for i_, n_ in _cursos]},
+                {"key": "title", "label": "Título*", "type": "text", "span": "span 2"},
+                {"key": "start_date", "label": "Início (AAAA-MM-DDTHH:MM)*", "type": "text", "span": "span 1"},
+                {"key": "end_date", "label": "Fim (AAAA-MM-DDTHH:MM)", "type": "text", "span": "span 1"},
+                {"key": "location", "label": "Local", "type": "text", "span": "span 1"},
+                {"key": "instructor_name", "label": "Instrutor", "type": "text", "span": "span 1"},
+            ]}
+        out["treinamento-matricular"] = {
+            "title": "Matricular colaborador", "sub": "Inscreve um colaborador numa turma aberta.",
+            "cta": "Matricular", "type": "form", "submit": {"endpoint": f"{_HR}/training/enrollments", "okMsg": "Matrícula feita"},
+            "fields": [
+                {"key": "training_id", "label": "Turma*", "type": "select", "span": "span 2", "ph": "Selecione", "options": [{"value": i_, "label": n_} for i_, n_ in _trein]},
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _emp_opt},
+            ]}
+        out["e360-novo"] = {
+            "title": "Abrir ciclo de avaliação 360", "sub": "Cria o ciclo do colaborador (rascunho). Depois 'Iniciar coleta' libera os avaliadores.",
+            "cta": "Abrir ciclo", "type": "form", "submit": {"endpoint": f"{_HR}/evaluation-360/ciclos", "okMsg": "Ciclo criado (rascunho)"},
+            "fields": [
+                {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": _emp_opt},
+                {"key": "employee_name", "label": "Nome (como aparece no relatório)*", "type": "text", "span": "span 2"},
+                {"key": "period_start", "label": "Período — início*", "type": "date", "span": "span 1"},
+                {"key": "period_end", "label": "Período — fim*", "type": "date", "span": "span 1"},
+            ]}
+        _ciclos = (await db.execute(_sqltext(
+            "SELECT CAST(id AS TEXT), coalesce(employee_name,'—') || ' · ' || coalesce(status::text,'') FROM evaluation_360_cycles "
+            "ORDER BY created_at DESC LIMIT 100"))).fetchall()
+        await safe("e360-ciclos", tbl(
+            "Ciclos de avaliação 360", "Um ciclo por colaborador · iniciar libera a coleta; o resultado fecha o ciclo", "—",
+            ["Colaborador", "Período", "Status", "Respostas"], "1.8fr 1.2fr 0.9fr 0.8fr",
+            "SELECT CAST(c.id AS TEXT), coalesce(c.employee_name,'—'), c.period_start, c.period_end, coalesce(c.status::text,'—'), "
+            "(SELECT count(*) FROM evaluation_360_responses r WHERE r.cycle_id=c.id) FROM evaluation_360_cycles c ORDER BY c.created_at DESC LIMIT 100",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(f"{r[2]:%d/%m/%Y} – {r[3]:%d/%m/%Y}" if r[2] and r[3] else "—"), b((r[4] or "—").replace("_", " "), "info"), t(str(r[5] or 0))],
+            actionsfn=lambda r: ([{"title": f"Iniciar coleta — {r[1]}", "endpoint": f"{_HR}/evaluation-360/ciclos/{r[0]}/start",
+                                   "method": "POST", "btnLabel": "Iniciar coleta", "btnStyle": "primary", "submitLabel": "Iniciar",
+                                   "okMsg": "Coleta iniciada. Recarregue.", "fields": []}] if str(r[4] or "").lower() in ("draft", "rascunho") else [])))
+    except Exception as _exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("rh: telas LIGAR (carreira/treinamento/360) não montadas: %s", _exc)
 
     return out
