@@ -7,7 +7,7 @@ Endpoints para tabela salarial, validacao e reajuste.
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -81,17 +81,3 @@ async def auditar_salario(
     }
 
 
-@router.get("/auditorias")
-async def listar_auditorias(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    employee_id: str | None = Query(None),
-    apenas_nao_conformes: bool = Query(False),
-) -> Any:
-    """Lista auditorias salariais registradas."""
-    service = SalaryService(db)
-    audits = await service.listar_auditorias(
-        employee_id=employee_id,
-        apenas_nao_conformes=apenas_nao_conformes,
-    )
-    return {"items": list(audits), "total": len(audits)}

@@ -58,18 +58,3 @@ async def alertas_prazos(
     return await prazos_service.alertas_prazos(db)
 
 
-@router.post("/prazos", status_code=201, summary="Cria um prazo/compliance")
-async def criar_prazo(
-    payload: PrazoCreate,
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    return await prazos_service.criar_prazo(
-        db,
-        titulo=payload.titulo,
-        data_limite=payload.data_limite,
-        tipo=payload.tipo,
-        status=payload.status,
-        contrato_id=payload.contrato_id,
-        descricao=payload.descricao,
-    )

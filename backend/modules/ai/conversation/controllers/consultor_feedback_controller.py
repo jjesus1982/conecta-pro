@@ -58,17 +58,6 @@ async def placar(
     return await consultor_hub.placar_aprendizado(db)
 
 
-@router.get(
-    "/memorias/pendentes",
-    summary="Fila de memórias aguardando revisão (propor→aprovar) — diretoria",
-)
-async def memorias_pendentes(
-    user=Depends(require_consultor_executivo),
-    db: AsyncSession = Depends(get_db),
-):
-    return await consultor_hub.listar_memorias_pendentes(db)
-
-
 @router.post(
     "/memorias/{memoria_id}/aprovar",
     summary="Aprova memória pendente → entra no contexto compartilhado — diretoria",

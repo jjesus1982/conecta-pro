@@ -91,7 +91,9 @@ def status_cnd(current_user=Depends(get_current_user)) -> dict:
                 text(
                     "SELECT document_type, name, issuing_body, issue_date, expiry_date, "
                     "notes, alerta_ativo, file_path FROM ged_certidoes "
-                    "WHERE document_type = ANY(:dts) ORDER BY document_type"
+                    "WHERE document_type = ANY(:dts) "
+                    "AND regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') IN (SELECT regexp_replace(cnpj,'[^0-9]','','g') FROM empresas) "
+                    "ORDER BY document_type, expiry_date DESC NULLS LAST"
                 ),
                 {"dts": list(DOCTYPE.values())},
             ).fetchall()
@@ -265,7 +267,9 @@ def baixar_pdf(document_type: str, current_user=Depends(get_current_user)):
 
     with get_sync_db() as db:
         row = db.execute(
-            text("SELECT file_path, name FROM ged_certidoes WHERE document_type=:dt LIMIT 1"), {"dt": document_type}
+            text("SELECT file_path, name FROM ged_certidoes WHERE document_type=:dt "
+                 "AND regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') IN (SELECT regexp_replace(cnpj,'[^0-9]','','g') FROM empresas) "
+                 "AND file_path IS NOT NULL ORDER BY expiry_date DESC NULLS LAST LIMIT 1"), {"dt": document_type}  # 08/09/2026: LIMIT 1 sem CNPJ pegava certidão de outro CNPJ
         ).fetchone()
     if not row or not row[0] or not os.path.exists(row[0]):
         raise HTTPException(status_code=404, detail="PDF não encontrado — emita a CND primeiro")

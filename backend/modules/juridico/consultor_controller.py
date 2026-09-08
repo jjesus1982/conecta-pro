@@ -6,7 +6,7 @@ A IA assiste; o escritório certifica. Toda resposta traz disclaimer e sinal de 
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
@@ -130,22 +130,3 @@ async def perguntar_arquivo(
     return resultado
 
 
-@router.get(
-    "/historico",
-    summary="Histórico de consultas jurídicas (opcional por área)",
-)
-async def historico(
-    current_user=Depends(get_current_active_user),
-    area: str | None = Query(
-        default=None, description="Filtra por área: trabalhista | civel | tributaria"
-    ),
-    limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    if area is not None and area.strip().lower() not in svc.AREAS_VALIDAS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Área inválida '{area}'. Válidas: {', '.join(svc.AREAS_VALIDAS)}.",
-        )
-    consultas = await svc.listar_consultas(db=db, area=area, limit=limit)
-    return {"total": len(consultas), "consultas": consultas}

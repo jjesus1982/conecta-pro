@@ -45,21 +45,6 @@ def exportar_plano_contas(current_user: CurrentActiveUser, empresa_slug: str):
     return agent.gerar_plano_contas(empresa_slug)
 
 
-@router.post("/lancamentos")
-def exportar_lancamentos(current_user: CurrentActiveUser, req: ExportarLancamentosRequest):
-    return agent.exportar_lancamentos(req.empresa_slug, req.periodo, req.lancamentos)
-
-
-@router.post("/clientes")
-def exportar_clientes(current_user: CurrentActiveUser, req: ExportarClientesRequest):
-    return agent.exportar_clientes(req.empresa_slug, req.clientes)
-
-
-@router.post("/nfse")
-def exportar_nfse(current_user: CurrentActiveUser, req: ExportarNfseRequest):
-    return agent.exportar_nfse_para_dominio(req.empresa_slug, req.periodo, req.notas)
-
-
 @router.get("/download/plano-contas/{empresa_slug}", response_class=PlainTextResponse)
 def download_plano_contas(current_user: CurrentActiveUser, empresa_slug: str):
     resultado = agent.gerar_plano_contas(empresa_slug)

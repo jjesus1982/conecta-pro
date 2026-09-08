@@ -58,16 +58,17 @@ async def enqueue_alert(
             INSERT INTO notification_queue
               (id, tenant_id, notification_id, correlation_id, source_entity_type,
                source_entity_id, category, recipient_address, channel_type, status,
-               priority, subject, body, enqueued_at, created_at, updated_at)
+               priority, subject, body, enqueued_at, created_at, updated_at, user_id)
             VALUES
               (gen_random_uuid(), :tid, :nid, :corr, :set, CAST(:sid AS uuid), :cat,
-               'push', 'push', 'pending', :prio, :subj, :body, now(), now(), now())
+               'push', 'push', 'pending', :prio, :subj, :body, now(), now(), now(),
+               (SELECT id FROM users WHERE email = 'jjesus@conectamais.pro' LIMIT 1))
             ON CONFLICT (tenant_id, correlation_id, user_id) WHERE correlation_id IS NOT NULL
             DO UPDATE SET subject = EXCLUDED.subject, body = EXCLUDED.body,
                           priority = EXCLUDED.priority, status = 'pending', updated_at = now()
             RETURNING id;
             """
-        ),
+        ),  # 08/09/2026: sem user_id o sino (que filtra por usuário) nunca mostrava estes alertas
         {"tid": tid, "nid": f"alert-{uuid4().hex}", "corr": corr,
          "set": source_entity_type, "sid": sid, "cat": category, "prio": prio,
          "subj": title, "body": body},

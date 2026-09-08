@@ -35,16 +35,6 @@ class ResumoContabilRequest(BaseModel):
     despesas_admin: float = 0
 
 
-@router.post("/lancamentos/folha")
-def lancamentos_folha(current_user: CurrentActiveUser, req: LancamentosFolhaRequest):
-    return agent.gerar_lancamentos_folha(req.empresa_slug, req.competencia, req.funcionarios)
-
-
-@router.post("/lancamentos/impostos")
-def lancamentos_impostos(current_user: CurrentActiveUser, req: LancamentosImpostosRequest):
-    return agent.gerar_lancamentos_impostos(req.empresa_slug, req.competencia, req.impostos, req.regime)
-
-
 @router.post("/resumo-mensal")
 def resumo_mensal(current_user: CurrentActiveUser, req: ResumoContabilRequest):
     return agent.resumo_contabil_mensal(

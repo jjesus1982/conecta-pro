@@ -17,20 +17,12 @@ from modules.campo.schemas.visita import (
     VisitaCheckoutRequest,
     VisitaConfirmarRequest,
     VisitaCreate,
-    VisitaDashboardStats,
     VisitaFiltro,
-    VisitaFollowupRequest,
-    VisitaFotoRequest,
-    VisitaInteresseRequest,
-    VisitaLevantamentoRequest,
     VisitaListItem,
-    VisitaNecessidadeRequest,
     VisitaPaginatedResponse,
-    VisitaPropostaRequest,
     VisitaRead,
     VisitaReagendarRequest,
     VisitaResultadoRequest,
-    VisitaUpdate,
 )
 from modules.campo.services.visita_service import VisitaService
 
@@ -99,16 +91,6 @@ async def listar_visitas(
     return await service.listar_visitas(filtro, page, page_size)
 
 
-@router.get("/pendentes-confirmacao", response_model=list[VisitaListItem])
-async def listar_pendentes_confirmacao(
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Lista visitas que precisam confirmacao."""
-    visitas = await service.listar_pendentes_confirmacao()
-    return [VisitaListItem.model_validate(v) for v in visitas]
-
-
 @router.get("/responsavel/{responsavel_id}", response_model=list[VisitaListItem])
 async def listar_visitas_responsavel(
     responsavel_id: UUID,
@@ -144,17 +126,6 @@ async def listar_visitas_lead(
     return [VisitaListItem.model_validate(v) for v in visitas]
 
 
-@router.get("/dashboard", response_model=VisitaDashboardStats)
-async def obter_dashboard(
-    current_user: CurrentActiveUser,
-    responsavel_id: UUID | None = None,
-    periodo_dias: int = Query(30, ge=1, le=365),
-    service: VisitaService = Depends(get_service),
-):
-    """Obtem estatisticas para dashboard."""
-    return await service.obter_estatisticas(responsavel_id, periodo_dias)
-
-
 @router.get("/{visita_id}", response_model=VisitaRead)
 async def obter_visita(
     visita_id: UUID,
@@ -181,32 +152,6 @@ async def obter_visita_por_numero(
     return VisitaRead.model_validate(visita)
 
 
-@router.patch("/{visita_id}", response_model=VisitaRead)
-async def atualizar_visita(
-    visita_id: UUID,
-    data: VisitaUpdate,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Atualiza uma Visita."""
-    visita = await service.atualizar_visita(visita_id, data)
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
-@router.delete("/{visita_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def excluir_visita(
-    visita_id: UUID,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Exclui uma Visita."""
-    success = await service.excluir_visita(visita_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-
-
 # =============================================================================
 # ACOES DO FLUXO
 # =============================================================================
@@ -222,22 +167,6 @@ async def confirmar_visita(
     """Confirma uma visita."""
     try:
         visita = await service.confirmar_visita(visita_id, data.confirmado_por)
-        if not visita:
-            raise HTTPException(status_code=404, detail="Visita nao encontrada")
-        return VisitaRead.model_validate(visita)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/{visita_id}/iniciar-deslocamento", response_model=VisitaRead)
-async def iniciar_deslocamento(
-    visita_id: UUID,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Marca inicio do deslocamento."""
-    try:
-        visita = await service.iniciar_deslocamento(visita_id)
         if not visita:
             raise HTTPException(status_code=404, detail="Visita nao encontrada")
         return VisitaRead.model_validate(visita)
@@ -340,108 +269,14 @@ async def reagendar_visita(
 # =============================================================================
 
 
-@router.post("/{visita_id}/interesse", response_model=VisitaRead)
-async def registrar_interesse(
-    visita_id: UUID,
-    data: VisitaInteresseRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Registra nivel de interesse."""
-    try:
-        servicos = [s.model_dump() for s in data.servicos] if data.servicos else None
-        visita = await service.registrar_interesse(visita_id, data.nivel, servicos)
-        if not visita:
-            raise HTTPException(status_code=404, detail="Visita nao encontrada")
-        return VisitaRead.model_validate(visita)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/{visita_id}/proposta", response_model=VisitaRead)
-async def vincular_proposta(
-    visita_id: UUID,
-    data: VisitaPropostaRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Vincula proposta gerada a visita."""
-    visita = await service.vincular_proposta(visita_id, data.proposta_id, data.valor)
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
 # =============================================================================
 # LEVANTAMENTO TECNICO
 # =============================================================================
 
 
-@router.post("/{visita_id}/levantamento", response_model=VisitaRead, status_code=201)
-async def adicionar_levantamento(
-    visita_id: UUID,
-    data: VisitaLevantamentoRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Adiciona dados de levantamento tecnico."""
-    visita = await service.adicionar_levantamento(visita_id, data.dados.model_dump())
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
-@router.post("/{visita_id}/necessidade", response_model=VisitaRead, status_code=201)
-async def adicionar_necessidade(
-    visita_id: UUID,
-    data: VisitaNecessidadeRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Adiciona necessidade identificada."""
-    visita = await service.adicionar_necessidade(
-        visita_id,
-        data.categoria,
-        data.descricao,
-        data.prioridade,
-        data.estimativa_valor,
-    )
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
 # =============================================================================
 # FOLLOW-UP E FOTOS
 # =============================================================================
-
-
-@router.post("/{visita_id}/followup", response_model=VisitaRead)
-async def agendar_followup(
-    visita_id: UUID,
-    data: VisitaFollowupRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Agenda follow-up."""
-    visita = await service.agendar_followup(visita_id, data.data, data.tipo, data.observacoes)
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
-@router.post("/{visita_id}/foto", response_model=VisitaRead, status_code=201)
-async def adicionar_foto(
-    visita_id: UUID,
-    data: VisitaFotoRequest,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Adiciona foto a visita."""
-    visita = await service.adicionar_foto(visita_id, data.url, data.descricao, data.tipo)
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
 
 
 @router.get("/{visita_id}/pdf", summary="Relatório da visita em PDF (marca Conecta)")

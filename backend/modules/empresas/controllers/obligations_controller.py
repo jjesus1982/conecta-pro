@@ -113,8 +113,8 @@ def _serializar(o: ObrigacaoCalendario) -> dict:
 
 @router.get("/calendario/grupo")
 async def calendario_grupo(
-    mes: int = Query(default=date.today().month, ge=1, le=12),
-    ano: int = Query(default=date.today().year, ge=2024, le=2030),
+    mes: int = Query(default_factory=lambda: date.today().month, ge=1, le=12),
+    ano: int = Query(default_factory=lambda: date.today().year, ge=2024, le=2030),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -147,39 +147,6 @@ async def calendario_grupo(
             {"empresa": o.empresa_nome, "empresa_slug": o.empresa_slug, **_serializar(o)}
             for o in sorted(todas, key=lambda x: (x.data_vencimento or hoje))
         ],
-    }
-
-
-@router.get("/calendario/{empresa_slug}")
-async def calendario_empresa(
-    empresa_slug: str,
-    mes: int = Query(default=date.today().month, ge=1, le=12),
-    ano: int = Query(default=date.today().year, ge=2024, le=2030),
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Calendário de obrigações de uma empresa específica."""
-    regime_map = {
-        "conecta_eletronica": "lucro_real",
-        "conecta_patrimonial": "simples_nacional",
-    }
-    nome_map = {
-        "conecta_eletronica": "Conecta Mais Eletrônica",
-        "conecta_patrimonial": "Conecta Mais Patrimonial",
-    }
-    regime = regime_map.get(empresa_slug, "lucro_real")
-    nome = nome_map.get(empresa_slug, empresa_slug)
-    reais = (await _reais_por_empresa(db, mes, ano)).get(empresa_slug)
-    obs = reais or _agent.gerar_calendario_empresa(empresa_slug, nome, regime, mes, ano)
-    return {
-        "empresa_slug": empresa_slug,
-        "empresa_nome": nome,
-        "regime": regime,
-        "mes": mes,
-        "ano": ano,
-        "total": len(obs),
-        "fonte": "cadastro" if reais else "previsto_pelo_regime",
-        "obrigacoes": [_serializar(o) for o in obs],
     }
 
 
@@ -238,12 +205,3 @@ async def alertas_vencimentos(
             "fonte": fonte}
 
 
-@router.get("/dispensadas-simples")
-async def obrigacoes_dispensadas(current_user=Depends(get_current_user)):
-    """Lista obrigações das quais o Simples Nacional é dispensado."""
-    return {
-        "regime": "Simples Nacional",
-        "empresa": "Conecta Mais Patrimonial",
-        "dispensadas": _agent.obrigacoes_dispensadas_simples(),
-        "observacao": "Empresas do Simples Nacional são dispensadas dessas obrigações conforme LC 123/2006",
-    }

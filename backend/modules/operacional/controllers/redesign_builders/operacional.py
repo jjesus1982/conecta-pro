@@ -862,6 +862,26 @@ async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dic
     return {"ok": True, "msg": (res.get("message") if isinstance(res, dict) else None) or "Lançamento de diária excluído."}
 
 
+
+async def _ligar_20260908_op(db, out: dict, tbl) -> None:
+    """LIGAR 08/09/2026: GET /rondas/gestao/resumo-inspetores existia sem tela."""
+    try:
+        out["rondas-resumo-inspetores"] = await tbl(
+            "Rondas — prestação de contas por inspetor (30 dias)",
+            "Rondas, condomínios visitados, fotos e dias com registro. O silêncio também é sinal.", "—",
+            ["Inspetor", "Rondas", "Concluídas", "Condomínios", "Checkpoints", "Fotos", "Dias c/ registro", "Última atividade"],
+            "1.6fr 0.6fr 0.7fr 0.8fr 0.8fr 0.6fr 0.9fr 1fr",
+            "SELECT max(r.inspector_name), count(DISTINCT r.id), count(DISTINCT r.id) FILTER (WHERE r.status='concluida'), "
+            "count(DISTINCT c.post_id), count(c.id), COALESCE(sum(jsonb_array_length(COALESCE(c.photos,'[]'::jsonb))),0), "
+            "count(DISTINCT (c.created_at)::date), max(c.created_at) "
+            "FROM inspection_rounds r LEFT JOIN inspection_checkpoints c ON c.inspection_round_id = r.id "
+            "WHERE r.is_active AND r.created_at >= now() - interval '30 days' GROUP BY r.inspector_id ORDER BY 1",
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(str(r[1])), t(str(r[2])), t(str(r[3])), t(str(r[4])), t(str(r[5])),
+                       b(str(r[6]), "ok" if (r[6] or 0) >= 20 else "warn"), t(_fmtdate(r[7], "%d/%m %H:%M") if r[7] else "—")])
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+
+
 async def build(db) -> dict:
     out = await _build_operacional(db)
     _, _safe, tbl = _helpers(db)
@@ -2273,21 +2293,3 @@ async def rd_action_gerente_checkout(current_user: CurrentActiveUser, payload: d
     return {"ok": True, "message": f"Check-out registrado ({mins} min no posto)." if mins is not None else "Check-out registrado."}
 
 
-
-async def _ligar_20260908_op(db, out: dict, tbl) -> None:
-    """LIGAR 08/09/2026: GET /rondas/gestao/resumo-inspetores existia sem tela."""
-    try:
-        out["rondas-resumo-inspetores"] = await tbl(
-            "Rondas — prestação de contas por inspetor (30 dias)",
-            "Rondas, condomínios visitados, fotos e dias com registro. O silêncio também é sinal.", "—",
-            ["Inspetor", "Rondas", "Concluídas", "Condomínios", "Checkpoints", "Fotos", "Dias c/ registro", "Última atividade"],
-            "1.6fr 0.6fr 0.7fr 0.8fr 0.8fr 0.6fr 0.9fr 1fr",
-            "SELECT max(r.inspector_name), count(DISTINCT r.id), count(DISTINCT r.id) FILTER (WHERE r.status='concluida'), "
-            "count(DISTINCT c.post_id), count(c.id), COALESCE(sum(jsonb_array_length(COALESCE(c.photos,'[]'::jsonb))),0), "
-            "count(DISTINCT (c.created_at)::date), max(c.created_at) "
-            "FROM inspection_rounds r LEFT JOIN inspection_checkpoints c ON c.inspection_round_id = r.id "
-            "WHERE r.is_active AND r.created_at >= now() - interval '30 days' GROUP BY r.inspector_id ORDER BY 1",
-            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(str(r[1])), t(str(r[2])), t(str(r[3])), t(str(r[4])), t(str(r[5])),
-                       b(str(r[6]), "ok" if (r[6] or 0) >= 20 else "warn"), t(_fmtdate(r[7], "%d/%m %H:%M") if r[7] else "—")])
-    except Exception:  # noqa: BLE001
-        await db.rollback()

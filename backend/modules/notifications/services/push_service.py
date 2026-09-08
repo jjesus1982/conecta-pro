@@ -315,7 +315,7 @@ class PushNotificationService:
             )
 
             if unread_only:
-                query = query.filter(NotificationQueue.opened.is_(False))
+                query = query.filter(NotificationQueue.opened.is_(False), NotificationQueue.status != "expired")
 
             notifications = query.order_by(NotificationQueue.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -450,6 +450,7 @@ class PushNotificationService:
                     NotificationQueue.user_id == user_id,
                     NotificationQueue.channel_type == "push",
                     NotificationQueue.opened.is_(False),
+                    NotificationQueue.status != "expired",  # 460 "não lidas" eram 443 expiradas (08/09/2026)
                 )
                 .count()
             )

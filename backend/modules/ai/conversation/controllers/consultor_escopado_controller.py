@@ -290,29 +290,6 @@ def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = Fal
     return sp
 
 
-@router.post("/consultar")
-async def consultar(
-    payload: ConsultarIn,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_active_user),
-):
-    pergunta = payload.pergunta.strip()
-    # UNIFICAÇÃO (colapsa o antigo desvio do admin p/ o Hermes-gateway): o dono passa pelo MESMO
-    # motor único (run_engine), com a persona EXECUTIVO (lente CEO) por padrão — a menos que uma
-    # persona/rota específica seja pedida. Cérebro é gpt-5 nos dois; aqui ganha identidade real +
-    # rascunhos + o alcance in-process (U2). Ver project_unificacao_hermes_chat_flutuante.
-    is_admin = (getattr(user, "role", "") or "").lower() == "admin"
-    persona = payload.persona or ("ceo" if is_admin else None)
-    scope, tools = await _resolver_tier_e_tools(db, user)
-    out = await run_engine(
-        db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, persona), origem="consultor_escopado",
-    )
-    if is_admin:
-        out["tier"] = "diretoria"
-    return out
-
-
 @router.post("/executar")
 async def executar(
     payload: ConsultarIn,

@@ -84,18 +84,6 @@ def _serializar(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.get(
-    "/anomalias/pendentes",
-    summary="Lista suspeitas de anomalia de pagamento pendentes de revisão — diretoria",
-)
-async def listar_pendentes(
-    user=Depends(require_diretoria),
-    db: AsyncSession = Depends(get_db),
-) -> list[dict[str, Any]]:
-    rows = (await db.execute(text(_SELECT_PENDENTES))).mappings().all()
-    return [_serializar(dict(r)) for r in rows]
-
-
 async def _carregar_pending(db: AsyncSession, alerta_id: UUID) -> dict[str, Any]:
     row = (
         await db.execute(

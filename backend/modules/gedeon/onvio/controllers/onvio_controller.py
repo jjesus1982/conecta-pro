@@ -229,15 +229,20 @@ async def reclassificar_documentos():
 
                 por_categoria[nova_cat] = por_categoria.get(nova_cat, 0) + 1
 
-            # Limpar tabelas derivadas e repopular
-            db.query(FgtsGuia).delete()
-            db.query(InssGuia).delete()
+            # 08/09/2026: o DELETE apagava valor/vencimento/código de barras de 38 guias (R$ 269 mil)
+            # e o extrator não repõe (extraido_em fica preenchido). Agora só cria o que falta.
+            _fgts_ok = {r[0] for r in db.query(FgtsGuia.onvio_doc_id).all()}
+            _inss_ok = {r[0] for r in db.query(InssGuia.onvio_doc_id).all()}
 
             fgts_count = 0
             inss_count = 0
             for d in docs:
                 cat = d.categoria or ""
+                if not (d.mes_ref or "").strip():
+                    continue  # sem competência não vira guia (gerava linhas com mes_ref vazio)
                 if cat.startswith("fgts_") and cat != "fgts_crf":
+                    if d.id in _fgts_ok:
+                        continue
                     db.add(
                         FgtsGuia(
                             mes_ref=d.mes_ref or "",
@@ -248,6 +253,8 @@ async def reclassificar_documentos():
                     )
                     fgts_count += 1
                 elif cat == "inss_guia":
+                    if d.id in _inss_ok:
+                        continue
                     db.add(
                         InssGuia(
                             mes_ref=d.mes_ref or "",

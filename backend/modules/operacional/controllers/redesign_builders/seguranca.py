@@ -87,7 +87,10 @@ async def build(db) -> dict:
         "cta": "Abrir PIA", "type": "form",
         "submit": {"endpoint": "/api/v1/security/lgpd/pia/create", "okMsg": "PIA aberta",
                    "showResult": True},
-        "fields": [],
+        "fields": [  # 08/09/2026: sem campos mandava {} → 422 sempre
+            {"key": "project_name", "label": "Projeto / tratamento*", "type": "text", "span": "span 2"},
+            {"key": "description", "label": "Descrição", "type": "textarea", "span": "span 2"},
+        ],
     }
     out["lgpd-apagamento"] = {
         "title": "LGPD — registrar pedido de apagamento",
@@ -97,7 +100,11 @@ async def build(db) -> dict:
         "submit": {"endpoint": "/api/v1/security/lgpd/erasure/request",
                    "okMsg": "Pedido de apagamento registrado", "showResult": True,
                    "confirm": "Registra um pedido formal de apagamento de dados (LGPD). Confirma?"},
-        "fields": [],
+        "fields": [
+            {"key": "titular_id", "label": "Id do titular (funcionário/cliente)*", "type": "text", "span": "span 1"},
+            {"key": "titular_email", "label": "E-mail do titular*", "type": "text", "span": "span 1"},
+            {"key": "reason", "label": "Motivo*", "type": "textarea", "span": "span 2"},
+        ],
     }
 
     # Pedidos de apagamento (2026-08-10): processar leva {request_id} no CAMINHO -> acao

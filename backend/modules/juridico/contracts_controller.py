@@ -18,18 +18,18 @@ router = APIRouter(prefix="/juridico/contratos", tags=["Jurídico - Central de C
 
 
 @router.get("/dashboard", summary="Painel da Central de Contratos (totais + alertas reais)")
-def dashboard(db: Session = Depends(get_sync_db_dependency)) -> dict:
+def dashboard(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     return svc.dashboard_contratos(db)
 
 
 @router.get("/alertas", summary="Só os alertas (vencimento/renovação/reajuste/assinatura)")
-def alertas(db: Session = Depends(get_sync_db_dependency)) -> dict:
+def alertas(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     d = svc.dashboard_contratos(db)
     return {"referencia": d["referencia"], "total": len(d["alertas"]), "alertas": d["alertas"]}
 
 
 @router.get("/{contrato_id}", summary="Detalhe de um contrato + alertas")
-def detalhe(contrato_id: str, db: Session = Depends(get_sync_db_dependency)) -> dict:
+def detalhe(contrato_id: str, db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     c = svc.obter_contrato(db, contrato_id)
     if not c:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
@@ -37,7 +37,7 @@ def detalhe(contrato_id: str, db: Session = Depends(get_sync_db_dependency)) -> 
 
 
 @router.get("", summary="Lista consolidada de contratos com status de alerta")
-def listar(db: Session = Depends(get_sync_db_dependency)) -> dict:
+def listar(db: Session = Depends(get_sync_db_dependency), _u=Depends(get_current_active_user)) -> dict:
     return svc.listar_contratos(db)
 
 

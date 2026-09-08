@@ -7,7 +7,6 @@ indisponível, a resposta é honesta e o registro é marcado como tal.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,47 +43,6 @@ async def criar_parecer(
     )
 
 
-@router.get("/pareceres", summary="Lista os pareceres mais recentes")
-async def listar_pareceres(
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = None,  # noqa: RUF013
-) -> dict:
-    itens = await parecer_svc.listar_pareceres(db, limit=limit)
-    return {"total": len(itens), "pareceres": itens}
-
-
-@router.get("/pareceres/{id}", summary="Detalhe de um parecer")
-async def obter_parecer(
-    id: str,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = None,  # noqa: RUF013
-) -> dict:
-    p = await parecer_svc.obter_parecer(db, id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Parecer não encontrado")
-    return p
-
-
-@router.get("/pareceres/{id}/pdf", summary="PDF do parecer (padrão-ouro)")
-async def parecer_pdf(
-    id: str,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = None,  # noqa: RUF013
-) -> Response:
-    p = await parecer_svc.obter_parecer(db, id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Parecer não encontrado")
-    pdf = parecer_svc.gerar_pdf_parecer(p)
-    filename = f"parecer_{id}.pdf"
-    return Response(
-        content=pdf,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
-    )
-
-
-# ── Análise de contrato ─────────────────────────────────────────────────────
 @router.post("/analises", summary="Analisa um contrato cláusula-a-cláusula com IA")
 async def criar_analise(
     body: AnaliseRequest,
@@ -99,11 +57,3 @@ async def criar_analise(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-@router.get("/analises", summary="Lista as análises de contrato mais recentes")
-async def listar_analises(
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = None,  # noqa: RUF013
-) -> dict:
-    itens = await analise_svc.listar_analises(db, limit=limit)
-    return {"total": len(itens), "analises": itens}

@@ -5,15 +5,13 @@ Recebe mensagens do WhatsApp (Evolution API) e as converte em tickets
 de suporte, ou adiciona mensagens a tickets existentes.
 """
 
-import hashlib
 import logging
 import os
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from core.auth.dependencies import CurrentActiveUser
 from modules.client_portal.services.whatsapp_ia_service import responder_com_ia
 
 logger = logging.getLogger(__name__)
@@ -218,45 +216,3 @@ def _send_whatsapp_reply(phone: str, message: str) -> None:
 # ============================================================
 
 
-@router.post("/webhook", status_code=status.HTTP_200_OK)
-async def receive_whatsapp_webhook(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    x_webhook_secret: str | None = Header(None, alias="X-Webhook-Secret"),
-) -> dict:
-    """Recebe webhook do Evolution API e processa mensagens em background."""
-    # Validar secret se configurado
-    if WEBHOOK_SECRET:
-        secret = x_webhook_secret or request.query_params.get("secret", "")
-        if (
-            not secret
-            or not hashlib.sha256(secret.encode()).hexdigest() == hashlib.sha256(WEBHOOK_SECRET.encode()).hexdigest()
-        ):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Secret inválido")
-
-    try:
-        payload = await request.json()
-    except Exception:
-        return {"ok": True}  # Responder 200 sempre para não gerar retentativas
-
-    # Ignorar mensagens enviadas pela própria empresa
-    if _is_from_me(payload):
-        return {"ok": True}
-
-    # Processar em background para responder rapidamente
-    background_tasks.add_task(_process_whatsapp_message, payload)
-    return {"ok": True}
-
-
-@router.get("/config")
-async def get_whatsapp_config(current_user: CurrentActiveUser) -> WhatsAppConfigResponse:
-    """Retorna configuração pública do WhatsApp (número, status)."""
-    return WhatsAppConfigResponse(
-        whatsapp_number=WHATSAPP_NUMBER,
-        enabled=bool(WHATSAPP_NUMBER and os.getenv("EVOLUTION_API_URL")),
-        message=(
-            f"Envie mensagem para {WHATSAPP_NUMBER} para abrir chamados"
-            if WHATSAPP_NUMBER
-            else "WhatsApp não configurado"
-        ),
-    )

@@ -13,7 +13,6 @@ from core.auth.dependencies import CurrentActiveUser
 from modules.cct.schemas.termination_schemas import (
     TerminationValidationRequest,
     ThirteenthSalaryRequest,
-    VacationProportionalRequest,
 )
 from modules.cct.services.termination_service import TerminationService
 
@@ -37,21 +36,6 @@ async def validar_rescisao(
         motivo=data.motivo,
         aviso_previo_cumprido=data.aviso_previo_cumprido,
         dias_aviso_previo=data.dias_aviso_previo,
-    )
-
-
-@router.post("/ferias")
-async def calcular_ferias(
-    data: VacationProportionalRequest,
-    current_user: CurrentActiveUser,
-) -> Any:
-    """Calcula ferias proporcionais conforme tabela de faltas CCT."""
-    service = TerminationService()
-    return service.calcular_ferias(
-        salario_base=data.salario_base,
-        faltas_periodo=data.faltas_periodo,
-        meses_trabalhados=data.meses_trabalhados,
-        abono_pecuniario=data.abono_pecuniario,
     )
 
 

@@ -108,21 +108,3 @@ async def get_greeting(
     return await service.get_greeting(client_id=client_id)
 
 
-@router.post("/feedback", response_model=FeedbackResponse)
-async def submit_feedback(
-    body: FeedbackRequest,
-    client_id: str = Depends(get_current_portal_client),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """
-    Registra feedback do cliente sobre uma resposta do assistente.
-
-    Ajuda a melhorar a qualidade das respostas ao longo do tempo.
-    """
-    service = PortalAssistantService(db)
-    ok = await service.record_feedback(
-        client_id=client_id,
-        message_id=body.message_id,
-        rating=body.rating,
-    )
-    return {"ok": ok}

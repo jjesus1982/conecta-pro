@@ -182,8 +182,8 @@ def _receita_fiscal(dados_empresa: dict) -> tuple[Decimal, str]:
 
 @router.get("/fiscal/grupo")
 async def dashboard_fiscal_grupo(
-    mes: int = Query(default=date.today().month),
-    ano: int = Query(default=date.today().year),
+    mes: int = Query(default_factory=lambda: date.today().month),
+    ano: int = Query(default_factory=lambda: date.today().year),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -318,8 +318,8 @@ async def dashboard_fiscal_grupo(
 
 @router.get("/rentabilidade/grupo")
 async def dashboard_rentabilidade_grupo(
-    mes: int = Query(default=date.today().month),
-    ano: int = Query(default=date.today().year),
+    mes: int = Query(default_factory=lambda: date.today().month),
+    ano: int = Query(default_factory=lambda: date.today().year),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -497,8 +497,8 @@ async def dashboard_rentabilidade_grupo(
 
 @router.get("/contabil/grupo")
 async def dashboard_contabil_grupo(
-    mes: int = Query(default=date.today().month),
-    ano: int = Query(default=date.today().year),
+    mes: int = Query(default_factory=lambda: date.today().month),
+    ano: int = Query(default_factory=lambda: date.today().year),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):

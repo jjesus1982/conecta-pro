@@ -49,60 +49,6 @@ async def list_kits(
     )
 
 
-@router.get("/historico-drive", summary="Historico de kits com links do Drive")
-async def historico_drive(
-    client_id: str = Depends(get_current_portal_client),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Historico de kits documentais com links do Google Drive.
-
-    Retorna os ultimos 24 meses de kits que possuem link no Drive,
-    ordenados do mais recente ao mais antigo.
-    """
-    from sqlalchemy import func as sa_func
-    from sqlalchemy import select as sa_select
-
-    from modules.people_management.ged.models.document_kit import GedDocumentKit
-    from modules.people_management.ged.models.kit_document import KitDocument
-
-    result = await db.execute(
-        sa_select(GedDocumentKit)
-        .where(
-            GedDocumentKit.client_id == client_id,
-            GedDocumentKit.google_drive_link.isnot(None),
-        )
-        .order_by(GedDocumentKit.reference_month.desc())
-        .limit(24)
-    )
-    kits = result.scalars().all()
-
-    # total_docs AO VIVO (COUNT real em ged_kit_documents) numa única query
-    # agregada — a coluna stored total_documents fica stale.
-    doc_counts: dict[str, int] = {}
-    kit_ids = [str(kit.id) for kit in kits]
-    if kit_ids:
-        counts_result = await db.execute(
-            sa_select(KitDocument.kit_id, sa_func.count())
-            .where(KitDocument.kit_id.in_(kit_ids))
-            .group_by(KitDocument.kit_id)
-        )
-        doc_counts = {str(row[0]): int(row[1] or 0) for row in counts_result.all()}
-
-    return {
-        "total": len(kits),
-        "kits": [
-            {
-                "competencia": kit.reference_month.strftime("%Y-%m"),
-                "total_docs": doc_counts.get(str(kit.id), 0),
-                "share_link": kit.google_drive_link,
-                "status": kit.status,
-                "criado_em": str(kit.created_at.date()) if kit.created_at else "",
-            }
-            for kit in kits
-        ],
-    }
-
-
 @router.get("/{kit_id}", response_model=PortalKitResponse)
 async def get_kit(
     kit_id: str,

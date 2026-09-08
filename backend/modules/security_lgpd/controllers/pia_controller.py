@@ -118,26 +118,3 @@ async def get_pia(
         )
 
 
-@router.get("/risk-categories", include_in_schema=False)
-@router.get(
-    "/risk-categories/list",
-    response_model=StandardResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Lista categorias de risco",
-    description="Retorna categorias de risco disponiveis.",
-)
-async def list_risk_categories(current_user: CurrentActiveUser) -> StandardResponse:
-    """
-    Lista categorias de risco disponiveis.
-
-    Returns:
-        StandardResponse: Lista de categorias de risco.
-    """
-    service = PIAService()
-    categories = service.get_risk_categories()
-
-    return StandardResponse(
-        success=True,
-        message="Categorias de risco disponiveis",
-        data={"risk_categories": categories},
-    )

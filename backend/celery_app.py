@@ -139,9 +139,6 @@ app.conf.task_routes = {
     # SST - Alertas internos no sino (notification_queue) — usuários admin
     "sst.alertas_diarios": {"queue": "operacional"},
     # SST - Saúde Ocupacional (health_occupational)
-    "sst.verificar_asos_vencendo": {"queue": "operacional"},
-    "sst.verificar_epis_vencendo": {"queue": "operacional"},
-    "sst.verificar_exames_pendentes": {"queue": "operacional"},
     # GED - Kits e CNDs (roteadas para worker operacional)
     "ged.auto_collect_documents": {"queue": "operacional"},
     "ged.sync_cnds": {"queue": "operacional"},
@@ -577,24 +574,6 @@ app.conf.beat_schedule = {
     # =========================================================================
     # SST - SAÚDE OCUPACIONAL (health_occupational) — Alertas automáticos
     # =========================================================================
-    # Verifica ASOs vencendo diariamente às 07:00
-    "sst-verificar-asos-vencendo-daily": {
-        "task": "sst.verificar_asos_vencendo",
-        "schedule": crontab(hour="7", minute="0"),
-        "options": {"queue": "operacional"},
-    },
-    # Verifica EPIs vencendo diariamente às 07:30
-    "sst-verificar-epis-vencendo-daily": {
-        "task": "sst.verificar_epis_vencendo",
-        "schedule": crontab(hour="7", minute="30"),
-        "options": {"queue": "operacional"},
-    },
-    # Verifica exames periódicos pendentes diariamente às 08:00
-    "sst-verificar-exames-pendentes-daily": {
-        "task": "sst.verificar_exames_pendentes",
-        "schedule": crontab(hour="8", minute="0"),
-        "options": {"queue": "operacional"},
-    },
     # Alertas SST no sino INTERNO (notification_queue → GET /notifications/push)
     # diário 08:00 America/Manaus: ASOs vencendo 30d, ASOs vencidas (semanal,
     # segunda), CATs sem eSocial >4h (prazo legal 1 dia útil), fichas EPI 7+ dias

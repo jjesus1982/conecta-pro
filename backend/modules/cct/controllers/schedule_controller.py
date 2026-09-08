@@ -14,7 +14,6 @@ from modules.cct.schemas.schedule_schemas import (
     AdicionaisCalculationRequest,
     NightShiftCalculationRequest,
     OvertimeCalculationRequest,
-    ScheduleValidationRequest,
 )
 from modules.cct.services.schedule_service import ScheduleService
 
@@ -30,16 +29,6 @@ async def get_jornadas_permitidas(
     """Retorna jornadas permitidas pela CCT 2026."""
     service = ScheduleService()
     return {"jornadas": service.get_jornadas_permitidas()}
-
-
-@router.post("/validar")
-async def validar_jornada(
-    data: ScheduleValidationRequest,
-    current_user: CurrentActiveUser,
-) -> Any:
-    """Valida tipo de jornada e carga horaria contra CCT."""
-    service = ScheduleService()
-    return service.validar_jornada(data.jornada_tipo, data.carga_semanal)
 
 
 @router.post("/hora-extra")

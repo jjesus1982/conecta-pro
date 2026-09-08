@@ -11,15 +11,6 @@ from modules.juridico import conhecimento_service as CS
 router = APIRouter(prefix="/juridico", tags=["Jurídico - Conhecimento & Playbook"])
 
 
-@router.get("/conhecimento")
-async def listar_conhecimento(
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Precedentes/pareceres/teses da própria empresa."""
-    return {"conhecimento": await CS.listar_conhecimento(db)}
-
-
 @router.get("/playbook")
 async def listar_playbook(
     current_user=Depends(get_current_active_user),

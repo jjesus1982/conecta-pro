@@ -1,5 +1,5 @@
 """Monitoramento DET — endpoints. Status do certificado, ingestão de comunicação e coleta."""
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,19 +119,10 @@ async def ingest_robo(
     return {"ok": True, "registradas": novos}
 
 
-@router.post("/coletar")
-async def coletar(
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Dispara a coleta automática (estado honesto enquanto gov.br OAuth não habilitado)."""
-    return await DET.coletar_automatico(db)
-
-
 # ── Robô Playwright (login supervisionado via noVNC + coleta headless) ────────
-import os as _os
+import os as _os  # noqa: E402
 
-import httpx as _httpx
+import httpx as _httpx  # noqa: E402
 
 ROBOT_URL = _os.environ.get("DET_ROBOT_URL", "http://conecta-pro-det-robot:8099")
 NOVNC_URL = "/det-vnc/vnc.html?autoconnect=1&resize=scale&path=det-vnc/websockify"

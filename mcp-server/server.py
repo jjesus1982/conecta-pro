@@ -2544,19 +2544,19 @@ async def listar_entrevistas() -> dict:
 @mcp.tool
 async def estoque_epi() -> dict:
     """Estoque de EPIs (equipamentos de proteção — NR-6)."""
-    return await erp.get("/health-occupational/epi/estoque")
+    return await erp.get("/people-management/sst/epi")  # health_occupational aposentado 08/09/2026
 
 
 @mcp.tool
 async def status_pcmso() -> dict:
     """Estatísticas/status do PCMSO (exames ocupacionais — NR-7)."""
-    return await erp.get("/health-occupational/pcmso/estatisticas")
+    return await erp.get("/people-management/sst/pcmso/status")
 
 
 @mcp.tool
 async def status_ppra() -> dict:
     """Estatísticas do PPRA/PGR (riscos ocupacionais — NR-9)."""
-    return await erp.get("/health-occupational/ppra/estatisticas")
+    return await erp.get("/people-management/sst/ppra/status")
 
 
 @mcp.tool

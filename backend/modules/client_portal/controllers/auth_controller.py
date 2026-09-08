@@ -15,7 +15,6 @@ from core.rate_limit import limiter
 from modules.client_portal.schemas.auth import (
     PortalLoginRequest,
     PortalLoginResponse,
-    PortalTokenRefresh,
 )
 from modules.client_portal.services.auth_service import PortalAuthService
 
@@ -54,42 +53,3 @@ async def portal_login(
         raise HTTPException(status_code=401, detail=str(e))
 
 
-@router.post("/refresh", response_model=PortalLoginResponse)
-async def portal_refresh(
-    data: PortalTokenRefresh,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Renova o token JWT do portal.
-
-    Invalida o token atual e emite um novo com validade estendida.
-    """
-    ip_address = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
-
-    service = PortalAuthService(db)
-    try:
-        result = await service.refresh_token(
-            current_token=data.access_token,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
-
-
-@router.post("/logout")
-async def portal_logout(
-    data: PortalTokenRefresh,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Encerra a sessao do cliente no portal.
-
-    Invalida o token JWT atual, impedindo uso futuro.
-    """
-    service = PortalAuthService(db)
-    result = await service.logout(token=data.access_token)
-    await db.commit()
-    return result

@@ -65,15 +65,6 @@ async def analisar_por_upload(
     return res
 
 
-@router.get("")
-async def listar(
-    limit: int = 50,
-    current_user=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    return {"processos": await PS.listar_processos(db, limit=limit)}
-
-
 @router.get("/{id}")
 async def obter(
     id: str,

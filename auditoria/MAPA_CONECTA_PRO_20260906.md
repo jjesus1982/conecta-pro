@@ -968,6 +968,41 @@ de EPI falhando todo dia e registrada como sucesso; push 100% em 500; portal com
 licitações e recrutamento (ainda sem decisão); health_occupational inteiro (duplica /people-management/
 sst — pode ser aposentado).
 
+
+### §2c.27 — Módulos menores (gedeon, campo, notifications, client_portal, juridico, config, health_occupational, empresas, security_lgpd, cct, ai) — 08/09/2026 ~12h
+
+Relatório do revisor: `auditoria/qa/revisao_20260908/modulos_menores.md` (540 rotas, 329 mortas).
+
+**Corrigido:** `/onvio/reclassificar` não apaga mais as guias (38 guias com R$ 269 mil de valor
+extraído sumiam a cada clique) — só cria as que faltam e ignora documento sem competência; contratos
+jurídicos exigem login (4 rotas devolviam 16 contratos e o MRR a qualquer um); sino: alerta de risco sem
+dono vai para o Jordan (7 alertas invisíveis desde 21/07) e "não lidas" ignora as 443 expiradas; CND: PDF e
+status só dos dois CNPJs da empresa, PDF mais recente (o LIMIT 1 pegava certidão de outro CNPJ);
+painéis de empresas e obrigações calculam mês/ano a cada chamada (o default congelava no boot);
+formulários LGPD (PIA e apagamento) ganharam os campos que a rota exige (mandavam {} → 422).
+
+**Aposentado:** health_occupational inteiro (40 rotas: duplicava `/people-management/sst`, com ORM que não
+bate com o banco e task diária falhando desde sempre) — as 3 tools MCP (estoque_epi, status_pcmso,
+status_ppra) apontam para o SST vivo e as 3 tasks saíram do beat; config_controller (47; 1 tenant e 6
+configs escritos por SQL, drift em 3 tabelas); notifications intelligent (23) e push (23) — mocks em
+memória e tabelas inexistentes — e 23 mortas do notification_controller (ficam sino, marcar lida,
+subscribe, fila); security_lgpd consent/audit/encryption/masking/status (17; chave gerada por request,
+tabelas vazias); campo checklist (18; tabelas inexistentes), monitoring (5), tickets/técnicos (6) e 11
+rotas de visita sem chamador; gedeon controllers/onvio (5 sombreadas), kit_controller (3) e 14 de
+gedeon_controller (Redis com 2 clientes; ficam Hermes, Sophia e pagamentos do colaborador); client_portal
+auth refresh/logout, kit_approval, tickets de escrita (ORM ≠ tabela), notifications, mcp, whatsapp,
+historico-drive, feedback (19); juridico skills, pareceres GET, analises GET, consultor histórico,
+contexto/pessoa, processos GET, conhecimento GET, prazos POST, det/coletar (13); empresas demonstrativos
+(dado fabricado), Domínio POSTs, bookkeeper lançamentos, migrador cálculos, CRUD de empresa por API,
+liminares/ativas e PATCH (22); cct auditorias, benefícios validar/config, jornadas validar, compliance
+verificar/metadata (tabela inexistente), rescisão férias (regra errada) (8); ai consultar/chat-consultar/
+memórias-pendentes/anomalias-pendentes (4).
+
+**Não apliquei (decisão do Jordan):** ordem_servico do campo (22 rotas, 0 OS em 6 meses, mas tem tela e
+tools MCP) — fica até você dizer se OS é produto; DET_ROBO_TOKEN e o robô pausado; onboarding do portal
+que regera senha em laço (sem tela nova, só clássico); consolidar `modules/cct` com
+`people_management/cct` (gêmeo hardcoded).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
