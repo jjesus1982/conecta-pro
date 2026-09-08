@@ -2592,7 +2592,9 @@ async def beneficios_cct(cargo: str | None = None) -> dict:
 @mcp.tool
 async def dashboard_clima() -> dict:
     """Indicadores da pesquisa de clima organizacional."""
-    return await erp.get("/retention/climate/dashboard")
+    # 08/09/2026: o módulo retention foi aposentado (tabela climate_scores nunca existiu; 0 respostas).
+    return {"ok": False, "mensagem": "Pesquisa de clima não está implantada: não há respostas nem tabela. "
+                                    "Nenhum indicador para mostrar."}
 
 
 
