@@ -2333,8 +2333,13 @@ async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
         f"SELECT coalesce(title,'—'), coalesce(priority::text,'—'), due_date, coalesce(status::text,'—') FROM crm_tasks WHERE {_wt} ORDER BY due_date NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or "—").capitalize(), "info"), t(_fmtdate(r[2])), b((r[3] or "—").capitalize(), "info")]))
     nrows = (await db.execute(text(
+        # QA E2E 08/09: o KPI "Não lidas" soma portal_notifications (por colaborador) + communication_notifications
+        # (sino, por usuário), mas a lista só lia a primeira → 941 não lidas e lista vazia. Agora lista as duas.
         f"SELECT coalesce(n.title,'—'), coalesce(n.message,''), coalesce(n.is_read,false), n.created_at, coalesce(e.nome,'—') "
-        f"FROM portal_notifications n LEFT JOIN employees e ON e.id=n.employee_id WHERE n.employee_id={me_lit} ORDER BY n.created_at DESC NULLS LAST LIMIT 100"))).fetchall()
+        f"FROM portal_notifications n LEFT JOIN employees e ON e.id=n.employee_id WHERE n.employee_id={me_lit} "
+        f"UNION ALL SELECT coalesce(c.title,'—'), coalesce(c.body,''), (c.read_at IS NOT NULL), c.created_at, 'Sino' "
+        f"FROM communication_notifications c WHERE c.user_id::text={uid_lit} AND coalesce(c.is_active,true) "
+        f"ORDER BY 4 DESC NULLS LAST LIMIT 100"))).fetchall()
     nitems = [{"title": (ti or "—"), "meta": f"{(msg or '')[:70]} · {nm} · {_fmtdate(dt, '%d/%m/%Y %H:%M')}",
                "dot": "#16A34A" if rd else "#C2410C", "badge": "Lida" if rd else "Nova", **(S["ok"] if rd else S["warn"])}
               for ti, msg, rd, dt, nm in nrows]

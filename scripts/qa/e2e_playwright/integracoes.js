@@ -1,5 +1,5 @@
 async (page) => {
-  const MOD = "integracoes"; const TABS = [["", "visao"], ["", "solides"], ["", "logs"], ["", "sync"], ["", "onvio-reclassificar"], ["", "solides-sincronizar"], ["", "drive-conectar"], ["", "drive-desconectar"], ["", "onvio-extrair"], ["", "solides-vincular-kits"], ["", "inter-sync-cobrancas"], ["", "inter-hermes-linkar"], ["", "whatsapp-nfse"]];
+  const MOD = "integracoes"; const TABS = [["", "visao"], ["", "solides"], ["", "logs"], ["", "sync"], ["", "onvio-reclassificar"], ["", "solides-sincronizar"], ["", "drive-conectar"], ["", "drive-desconectar"], ["", "onvio-extrair"], ["", "solides-vincular-kits"], ["", "inter-sync-cobrancas"], ["", "inter-hermes-linkar"], ["", "whatsapp-nfse"], ["", "gdrive-status"], ["", "solides-sincronizar-escalas"], ["", "inter-categorizacao"], ["", "inter-categorias-stats"], ["", "inter-categorias-auto"], ["", "onvio-documentos"], ["", "onvio-historico"], ["", "onvio-stats"], ["", "onvio-status"], ["", "gdrive-desconectar"]];
   const out = []; let cons = []; let fails = [];
   const onCons = m => { if (m.type()==='error') cons.push(m.text().slice(0,160)); };
   const onResp = r => { try { const u=r.url(); if (u.includes('/api/') && r.status()>=400) fails.push(r.status()+' '+u.replace('https://erp.conectamais.pro','').slice(0,120)); } catch(e){} };

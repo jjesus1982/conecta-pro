@@ -1,5 +1,5 @@
 async (page) => {
-  const MOD = "portal-do-funcionario"; const TABS = [["", "dashboard"], ["", "contracheque"], ["", "ferias"], ["", "ponto"], ["", "beneficios"], ["", "escalas"], ["", "documentos"], ["", "treinamentos"], ["", "dados-pessoais"], ["", "ouvidoria"], ["", "comunicados"], ["", "bater-ponto"], ["", "assinaturas-pendentes"], ["", "contracheques-ged"], ["", "meus-direitos-cct"], ["", "calculadora-rescisao"]];
+  const MOD = "equipamentos"; const TABS = [["", "visao"], ["", "patrimonio"], ["", "comodatos"], ["", "manutencoes"]];
   const out = []; let cons = []; let fails = [];
   const onCons = m => { if (m.type()==='error') cons.push(m.text().slice(0,160)); };
   const onResp = r => { try { const u=r.url(); if (u.includes('/api/') && r.status()>=400) fails.push(r.status()+' '+u.replace('https://erp.conectamais.pro','').slice(0,120)); } catch(e){} };

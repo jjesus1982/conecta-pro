@@ -1,5 +1,5 @@
 async (page) => {
-  const MOD = "licitacoes"; const TABS = [["", "visao"], ["", "oportunidades"], ["", "editais"], ["", "propostas"], ["", "contratos"], ["", "certidoes"], ["", "disputas"], ["", "documentos"], ["", "resultados"], ["", "sync-pncp"], ["", "sync-precos"], ["", "contratos-publicos"], ["", "medicoes"]];
+  const MOD = "licitacoes"; const TABS = [["", "visao"], ["", "oportunidades"], ["", "editais"], ["", "propostas"], ["", "contratos"], ["", "certidoes"], ["", "disputas"], ["", "documentos"], ["", "resultados"], ["", "contratos-publicos"], ["", "medicoes"]];
   const out = []; let cons = []; let fails = [];
   const onCons = m => { if (m.type()==='error') cons.push(m.text().slice(0,160)); };
   const onResp = r => { try { const u=r.url(); if (u.includes('/api/') && r.status()>=400) fails.push(r.status()+' '+u.replace('https://erp.conectamais.pro','').slice(0,120)); } catch(e){} };

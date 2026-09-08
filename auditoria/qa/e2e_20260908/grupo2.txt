@@ -1,0 +1,8 @@
+# grupo 2 — 160 telas, 7 módulos, todas nav=ok, 0 console-error, 0 API 4xx/5xx (18:27–18:33)
+empresas: 18 telas ok (visão, obrigações 27, demonstrativos, rentabilidade, liminares 2 + 8 ações de status, migrador, assinar holerites/espelhos(51)/recibos/documentos, documentos assinados 4, ciência de comunicados, reorganização, gerar docs do mês, resumo contábil, empresas do grupo)
+fiscal: 33 telas ok (painel, NFS-e 831, guias 63, DCTFWeb, Reinf, FGTS 50, INSS 7, certidões 58 ×2, painel por empresa, cobertura, NFS-e emitidas 112, 5 calculadoras, nova obrigação, retenções, sync guias/NF-e, consultor ×2, multi-tributos, XML NF-e, parcelamentos, apuração LR, DRE mensal, aging ×2, KPIs, emitir DPS)
+gestao-de-pessoas: 21 telas ok (GED 3337 docs, ponto 12.7k chars, espelho 50, ASO 97, EPI 220, kits 124, envios 49, assinaturas 372/3337, banco 0, RH 53+8, treinamentos 0, cargos 51, consultor ×3, carreira, inscrições)
+integracoes: 23 telas ok (Sólides 44/20, logs, sync, Onvio ×6, Drive conectar/desconectar/status/OAuth, Inter categorização 2490 + stats + auto, hermes linkar, whatsapp nfse)
+juridico: 26 telas ok — TEMPO 3,9–4,5 s por tela (todas; as outras ficam em ~1 s) → achado de desempenho
+portal-do-funcionario: 16 telas ok — usuário jjesus sem vínculo de colaborador: telas pessoais vazias com aviso honesto ("vincule seu cadastro"); comunicados 16 botões (confirmar leitura)
+saude-ocupacional: 23 telas ok (ASO 97, EPI 220, riscos 20, eSocial, CAT 3 + transmitir 6 botões, afastamentos 8, estabilidade 1, alertas 88 ASOs vencidos, fichas 1, CIPA, LTCAT ×2, calendário legal, esteira PCMSO, prontuário, ASO retroativo, CAT abrir, ficha gerar, risco novo)

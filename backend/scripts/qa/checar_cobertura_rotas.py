@@ -167,7 +167,7 @@ def main() -> int:
         c = Counter("/".join(p.split("/")[3:5]) for m, p in classes[k])
         print(f"  {k} por prefixo: {c.most_common(12)}")
     print(f"TOTAL nenhum: {len(classes['nenhum'])} · classico: {len(classes['classico'])} · rotas: {tot}")
-    return 0
+    return 0 if not classes['nenhum'] and not classes['classico'] else 1  # trava binária: rota sem chamador reprova
 
 
 if __name__ == "__main__":

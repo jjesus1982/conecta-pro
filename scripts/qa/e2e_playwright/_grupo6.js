@@ -1,0 +1,55 @@
+async (page) => {
+  const GRUPO = [["financeiro", [["", "gerar-parcelas"], ["g-visao", "cockpit"], ["g-visao", "dashboard"], ["g-visao", "fluxo-caixa"], ["g-visao", "projecao"], ["g-visao", "dre-inline"], ["g-visao", "indicadores"], ["g-visao", "tendencias"], ["g-visao", "raio-x"], ["g-visao", "cfo"], ["g-visao", "cfo-perguntar"], ["g-visao", "cfo-perguntar-arquivo"], ["g-visao", "cashflow-sync"], ["g-visao", "fluxo-resumo"], ["g-visao", "fluxo-tendencia"], ["g-visao", "fluxo-categorias"], ["g-visao", "fluxo-fornecedores"], ["g-visao", "agentes"], ["g-visao", "relatorios"], ["g-receber", "contas-receber"], ["g-receber", "nfse-a-receber"], ["g-receber", "gerar-contas-de-nfse"], ["g-receber", "cobrancas"], ["g-receber", "regua"], ["g-receber", "fila-cobranca"], ["g-receber", "registrar-cobranca"], ["g-receber", "recorrencia"], ["g-receber", "gerar-cobrancas"], ["g-receber", "boletos"], ["g-receber", "emitir-boleto"], ["g-receber", "cobrar-pix"], ["g-receber", "faturamento"], ["g-receber", "clientes"], ["g-receber", "gerar-recebiveis"], ["g-receber", "baixar-recebivel"], ["g-receber", "registrar-conta-receber"], ["g-receber", "billing-contrato-ativado"], ["g-pagar", "contas-pagar"], ["g-pagar", "registrar-conta-pagar"], ["g-pagar", "registrar-obrigacoes"], ["g-pagar", "payables-auto-criar"], ["g-pagar", "baixar-pagavel"], ["g-pagar", "fila-aprovacao"], ["g-pagar", "pagaveis-recorrentes-gerar"], ["g-pagar", "parcelas-pendentes"], ["g-pagar-pessoas", "folha-pj-programar"], ["g-pagar-pessoas", "pagamentos-diaristas"], ["g-pagar-pessoas", "pagar-diaristas"], ["g-pagar-pessoas", "programar-vtvr-dia"], ["g-pagar-pessoas", "adicionar-vtvr-avulso"], ["g-pagar-pessoas", "programar-diarias-mes"], ["g-pagar-pessoas", "pagamentos-pj"], ["g-pagar-pessoas", "pagar-folha-pj"], ["g-pagar-pessoas", "pagar-folha-clt"], ["g-pagar-pessoas", "documentos-diaristas"], ["g-pagar-pessoas", "diaristas-a-cadastrar"], ["g-pagar-pessoas", "diarias-sobrepostas"], ["g-pagar-contas", "pagar-boleto"], ["g-pagar-contas", "enviar-pix"], ["g-pagar-contas", "transferir-ted"], ["g-pagar-contas", "pagar-darf"], ["g-pagar-contas", "pagar-gps"], ["g-pagar-ordens", "ordens-pagamento"], ["g-pagar-ordens", "montar-ordem"], ["g-pagar-ordens", "aprovar-ordem"], ["g-pagar-ordens", "executar-no-app"], ["g-pagar-ordens", "pagamentos-inter"], ["g-pagar-ordens", "marcar-pago-externo"], ["g-pagar-ordens", "cancelar-pagamento"], ["g-pagar-ordens", "audit-log"], ["g-bancos", "saldos"], ["g-bancos", "contas-bancarias"], ["g-bancos", "inter"], ["g-bancos", "cora"], ["g-bancos", "banking"], ["g-bancos", "pix-recebidos"], ["g-bancos", "sincronizar-pix"], ["g-bancos", "devolver-pix"], ["g-bancos", "ajustar-saldo"], ["g-bancos", "conciliacao-bancaria"], ["g-bancos", "conciliar-auto"], ["g-bancos", "conciliar-classificados"], ["g-bancos", "classificar-saidas"], ["g-bancos", "corrigir-classificacao"], ["g-bancos", "conciliacao-consolidada"], ["g-bancos", "consolidacao-grupo"], ["g-bancos", "conciliacao-por-liquido"], ["g-bancos", "aplicar-conciliacao-liquido"], ["g-bancos", "conciliacao"], ["g-bancos", "inter-pagamentos"], ["g-bancos", "just-registrar"], ["g-bancos", "just-classificar"], ["g-bancos", "just-alertar"], ["g-fiscal", "fiscal"], ["g-fiscal", "nfse-entrada"], ["g-fiscal", "plano-contas"], ["g-fiscal", "lancamentos"], ["g-fiscal", "balancete"], ["g-fiscal", "balanco-patrimonial"], ["g-fiscal", "indices-liquidez"], ["g-fiscal", "dre-caixa"], ["g-fiscal", "dre-analise-vertical"], ["g-fiscal", "dre-consolidado"], ["g-fiscal", "apuracao-resultado"], ["g-fiscal", "provisoes-trabalhistas"], ["g-fiscal", "postar-provisoes"], ["g-fiscal", "postar-inss"], ["g-fiscal", "pareamento-portte"], ["g-fiscal", "pareamento-tributos"], ["g-fiscal", "das-eletronica"], ["g-fiscal", "das-patrimonial"], ["g-fiscal", "contabilidade"], ["g-fiscal", "cancelar-boleto"], ["g-custos", "rentabilidade"], ["g-custos", "resultado-cnpj"], ["g-custos", "custos"], ["g-custos", "custeio-abc"], ["g-custos", "custeio-contratos"], ["g-custos", "custeio"], ["g-custos", "custeio-cct"], ["g-custos", "precificacao"], ["g-custos", "orcamentos"], ["g-custos", "orcado-realizado"], ["g-custos", "pricing-calcular"], ["g-custos", "custo-registrar"], ["g-custos", "custo-recorrente-novo"], ["g-custos", "custos-recorrentes-lista"], ["g-custos", "orcamento-kv"], ["g-cadastros", "fornecedores"], ["g-cadastros", "fornecedores-categoria"], ["g-cadastros", "contratos"], ["g-cadastros", "compras-reais"], ["g-cadastros", "compras"], ["g-cadastros", "estoque-real"], ["g-cadastros", "estoque"], ["g-cadastros", "estoque-saida"], ["g-cadastros", "estoque-movimentos"], ["g-cadastros", "estoque-resumo"], ["g-cadastros", "beneficiarios-seed"]]]];
+  const linhas = []; let relogins = 0;
+  for (const [MOD, TABS] of GRUPO) {
+    const out = []; let cons = []; let fails = [];
+    const onCons = m => { if (m.type()==='error') cons.push(m.text().slice(0,160)); };
+    const onResp = r => { try { const u=r.url(); if (u.includes('/api/') && r.status()>=400) fails.push(r.status()+' '+u.replace('https://erp.conectamais.pro','').slice(0,120)); } catch(e){} };
+    page.on('console', onCons); page.on('response', onResp);
+    for (const [gid, tid] of TABS) {
+      cons = []; fails = [];
+      const url = 'https://erp.conectamais.pro/redesign/' + MOD + (gid ? `?t=${gid}&tab=${tid}` : `?t=${tid}`);
+      const t0 = Date.now(); let nav='ok';
+      try { await page.goto(url, {waitUntil:'domcontentloaded', timeout: 30000}); } catch(e) { nav='goto:'+String(e).slice(0,80); }
+      try { await page.waitForFunction(() => { const m=document.querySelector('main.rd-content')||document.querySelector('main'); return m && m.innerText.length>50 && !document.body.innerText.includes('carregando…'); }, null, {timeout: 20000}); } catch(e) { nav = nav==='ok' ? 'timeout-carregando' : nav; }
+      await page.waitForTimeout(600);
+      const info = await page.evaluate(() => {
+        const m = document.querySelector('main.rd-content') || document.querySelector('main');
+        const t = m ? m.innerText : document.body.innerText;
+        const login = location.pathname.includes('/login');
+        const btns = [...(m||document).querySelectorAll('button')].map(b=>b.innerText.trim()).filter(Boolean).length;
+        const erro = /Erro ao|Falha ao|Internal Server|Unexpected|undefined|NaN|\[object Object\]/.test(t);
+        return {len: t.length, login, btns, erro, head: t.replace(/\s+/g,' ').slice(0,70)};
+      }).catch(e => ({len:0, login:false, btns:0, erro:true, head:'evaluate:'+String(e).slice(0,60)}));
+
+      if (info.login) {
+        // sessão caiu (JWT expira): reloga e refaz esta tela uma vez
+        try {
+          await page.goto('https://erp.conectamais.pro/redesign/login', {waitUntil:'domcontentloaded', timeout: 30000});
+          await page.getByRole('textbox', { name: 'voce@empresa.com' }).fill('jjesus@conectamais.pro');
+          await page.getByRole('textbox', { name: '••••••••' }).fill('JsJ618908@#%');
+          await page.getByRole('button', { name: 'Entrar' }).click();
+          await page.waitForURL(u => !String(u).includes('/login'), {timeout: 30000});
+          relogins++;
+          await page.goto(url, {waitUntil:'domcontentloaded', timeout: 30000});
+          try { await page.waitForFunction(() => { const m=document.querySelector('main.rd-content')||document.querySelector('main'); return m && m.innerText.length>50 && !document.body.innerText.includes('carregando…'); }, null, {timeout: 20000}); } catch(e) {}
+          await page.waitForTimeout(600);
+          const info2 = await page.evaluate(() => {
+            const m = document.querySelector('main.rd-content') || document.querySelector('main');
+            const t = m ? m.innerText : document.body.innerText;
+            const btns = [...(m||document).querySelectorAll('button')].map(b=>b.innerText.trim()).filter(Boolean).length;
+            const erro = /Erro ao|Falha ao|Internal Server|Unexpected|undefined|NaN|\[object Object\]/.test(t);
+            return {len: t.length, login: location.pathname.includes('/login'), btns, erro, head: t.replace(/\s+/g,' ').slice(0,70)};
+          }).catch(e => info);
+          Object.assign(info, info2); nav = info.login ? 'login-falhou' : 'ok(relogin)';
+        } catch (e) { nav = 'relogin:' + String(e).slice(0,60); }
+      }
+      out.push({gid, tid, nav, ms: Date.now()-t0, ...info, cons: [...new Set(cons)].slice(0,4), fails: [...new Set(fails)].slice(0,4)});
+    }
+    page.off('console', onCons); page.off('response', onResp);
+    linhas.push(...out.map(o=>[MOD,(o.gid?o.gid+'/':'')+o.tid,o.nav,o.ms,o.len,o.btns,o.erro?'ERRO':'',o.cons.join(' ~ '),o.fails.join(' ~ '),o.head.slice(0,70)].join('|')));
+  }
+  try { await page.evaluate((t) => { try { localStorage.setItem('__e2e', t); } catch (e) {} }, linhas.join('\n')); throw new Error('sem fs'); const fs = null; fs.writeFileSync('/opt/conecta-pro/auditoria/qa/e2e_20260908/grupo6.txt', linhas.join('\n')+'\n'); } catch (e) { /* resultado completo em localStorage.__e2e */ }
+  const ruins = linhas.filter(l => /\|(goto:|timeout)|\|ERRO\||\|[45]\d\d /.test(l));
+  return `telas=${linhas.length} suspeitas=${ruins.length} relogins=${relogins}\n` + ruins.join('\n');
+}

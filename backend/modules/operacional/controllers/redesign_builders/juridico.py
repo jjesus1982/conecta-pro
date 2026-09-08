@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _ICO_J = "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"
 
 EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólito
+    {"id": "det-robo-status", "label": "DET — status do robô", "icon": "M3 3v18h18"},
     {"id": "det-comunicacao-arquivo", "label": "Ingerir comunicação do DET (arquivo)", "icon": "M3 3v18h18"},
     {"id": "processo-analisar-arquivo", "label": "Analisar processo (arquivo)", "icon": "M3 3v18h18"},
     {"id": "prazos", "label": "Prazos", "icon": "M3 3v18h18"},
@@ -413,10 +414,10 @@ async def _ligar_jur_20260908(db, out: dict) -> None:
     try:
         import asyncio as _aio
         st = await _aio.wait_for(chamar(D.status, db), timeout=5)
-        try:
-            rb = await _aio.wait_for(chamar(D.robo_status, db), timeout=3)  # o robô pausado segura 15 s; a página não espera
-        except Exception as exc:  # noqa: BLE001
-            rb = {"robo": f"indisponível: {str(exc)[:60] or 'sem resposta em 3 s'}"}
+        # QA E2E 08/09: a página esperava até 3 s pelo robô do DET (httpx) em TODA abertura do jurídico
+        # (4 s por tela contra ~1 s nos outros módulos). Regra da casa: página não fala com robô.
+        # O status do robô virou consulta que o usuário dispara (det-robo-status, abaixo).
+        rb = {"robo": "consulte em 'DET — status do robô' (não é lido ao abrir a página)"}
         out["det-status"] = painel_de_dict("DET — status", "Domicílio Eletrônico Trabalhista: comunicações ingeridas e situação do robô de coleta.", {**(st if isinstance(st, dict) else {"status": st}), "robo": rb})
     except Exception as exc:  # noqa: BLE001
         logger.warning("det status: %s", exc)
@@ -496,6 +497,9 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
         emp = [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
     except Exception:  # noqa: BLE001
         await db.rollback()
+    out["det-robo-status"] = {  # GET /juridico/det/robo/status — só quando o usuário clica (o robô pausado segura 15 s)
+        "title": "DET — status do robô", "sub": "Pergunta ao robô do DET se está logado/pausado. Só quando você clica — a página não espera o robô.",
+        "cta": "Consultar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/det/robo/status", "method": "GET", "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True}, "fields": []}
     out["det-comunicacao-arquivo"] = {  # POST /juridico/det/comunicacao/upload (multipart)
         "title": "Ingerir comunicação do DET (arquivo)", "sub": "Suba o PDF baixado do DET; o sistema extrai o texto, classifica, acha o prazo e registra — igual à versão texto.",
         "cta": "Ingerir", "type": "form", "submit": {"endpoint": "/api/v1/juridico/det/comunicacao/upload", "multipart": True, "okMsg": "Comunicação registrada", "showResult": True},

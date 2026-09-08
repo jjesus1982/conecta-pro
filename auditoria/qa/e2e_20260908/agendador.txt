@@ -1,0 +1,3 @@
+visao|ok|1673|445|0||||Agendador Grade do Celery beat (declarada no código) e falhas que cheg
+tarefas|ok|900|7301|86||||Tarefas agendadas 85 entradas do beat_schedule — minuto hora dia-mês m
+execucoes|ok|1062|42174|201|ERRO|||Falhas de execução 32 nos últimos 7 dias — o que task_failure / retorn

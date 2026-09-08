@@ -1,5 +1,5 @@
 async (page) => {
-  const MOD = "saude-ocupacional"; const TABS = [["", "visao"], ["", "exames"], ["", "epi"], ["", "riscos"], ["", "esocial"], ["", "cat"], ["", "afastamentos"], ["", "estabilidade"], ["", "alertas"], ["", "fichas-epi"], ["", "cipa-reuniao"]];
+  const MOD = "saude-ocupacional"; const TABS = [["", "visao"], ["", "exames"], ["", "epi"], ["", "riscos"], ["", "esocial"], ["", "cat"], ["", "afastamentos"], ["", "estabilidade"], ["", "alertas"], ["", "fichas-epi"], ["", "asos-vencendo"], ["", "cipa-membros"], ["", "cipa-reuniao"], ["", "ltcat"], ["", "ltcat-atualizar"], ["", "sst-calendario-legal"], ["", "pcmso-esteira"], ["", "prontuario-sst"], ["", "aso-retroativo"], ["", "cat-abrir"], ["", "cat-transmitir"], ["", "epi-ficha-gerar"], ["", "risco-novo"]];
   const out = []; let cons = []; let fails = [];
   const onCons = m => { if (m.type()==='error') cons.push(m.text().slice(0,160)); };
   const onResp = r => { try { const u=r.url(); if (u.includes('/api/') && r.status()>=400) fails.push(r.status()+' '+u.replace('https://erp.conectamais.pro','').slice(0,120)); } catch(e){} };
