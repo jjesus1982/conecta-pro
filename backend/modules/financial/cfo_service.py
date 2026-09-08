@@ -159,6 +159,15 @@ async def _garantir_tabela(db: AsyncSession) -> None:
 # Motor de contexto financeiro REAL (a sacada — o CFO enxerga os números vivos)
 # --------------------------------------------------------------------------- #
 
+def _limite_diario() -> float:
+    """Mesmo knob do gate de pagamentos (.env CONECTA_LIMITE_DIARIO_PAGAMENTOS) — o prompt dizia R$ 5.000 fixo."""
+    import os
+    try:
+        return float(os.getenv("CONECTA_LIMITE_DIARIO_PAGAMENTOS", "5000"))
+    except ValueError:
+        return 5000.0
+
+
 async def _num(db: AsyncSession, sql: str, default: float = 0.0) -> float:
     try:
         r = await db.execute(text(sql))
@@ -314,8 +323,8 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
     p["pagar_vencido"] = await _num(db, "SELECT COALESCE(SUM(net_value),0) FROM payable_accounts WHERE status='pendente' AND due_date < CURRENT_DATE")
     p["pagar_qtd"] = await _num(db, "SELECT COUNT(*) FROM payable_accounts WHERE status='pendente'")
     # Contratos / MRR
-    p["contratos"] = await _num(db, "SELECT COUNT(*) FROM contracts")
-    p["mrr_contratado"] = await _num(db, "SELECT COALESCE(SUM(monthly_value),0) FROM contracts")
+    p["contratos"] = await _num(db, "SELECT COUNT(*) FROM contracts WHERE status = 'active'")
+    p["mrr_contratado"] = await _num(db, "SELECT COALESCE(SUM(monthly_value),0) FROM contracts WHERE status = 'active'")
     # NFS-e (faturamento) — FONTE REAL nfse_emitidas_nacional (portal nacional, cStat 100, todo 2026)
     p["nfse_qtd"] = await _num(db, "SELECT COUNT(*) FROM nfse_emitidas_nacional WHERE COALESCE(cancelada,FALSE)=FALSE")
     p["nfse_total"] = await _num(db, "SELECT COALESCE(SUM(valor_servicos),0) FROM nfse_emitidas_nacional WHERE COALESCE(cancelada,FALSE)=FALSE")
@@ -706,7 +715,7 @@ def _formatar_contexto_financeiro(p: dict[str, Any]) -> str:
     linhas.append(
         "CAPACIDADES DO SISTEMA (Banco Inter integrado): é possível EMITIR boleto/PIX de cobrança e "
         "PAGAR boleto/DARF/GPS/TED por dentro do Conecta PRO. Pagamento exige aprovação do gestor por "
-        "código OTP (limite R$5.000/dia). Ao recomendar cobrar ou pagar, indique que a ação pode ser "
+        f"código OTP (limite R${_limite_diario():,.0f}/dia). Ao recomendar cobrar ou pagar, indique que a ação pode ser "
         "feita no sistema — NUNCA afirme que já pagou/cobrou; isso depende da confirmação do gestor.")
     return "\n".join([x for x in linhas if x]) + "\n=== FIM DA SITUAÇÃO REAL ===\n"
 

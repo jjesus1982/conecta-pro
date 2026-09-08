@@ -689,7 +689,7 @@ async def sugestoes_cadastro_historico(db: AsyncSession, dias: int = 30, valor: 
     rows = await db.execute(text(
         """SELECT COALESCE(descricao, raw_payload->>'description','') AS d, COUNT(*) AS n
            FROM inter_transactions
-           WHERE abs(valor)=:v AND data_lancamento >= CURRENT_DATE - make_interval(days => :dias)
+           WHERE abs(valor)=:v AND data_lancamento >= (now() AT TIME ZONE 'America/Manaus')::date - make_interval(days => :dias)
            GROUP BY 1"""), {"v": valor, "dias": dias})
     por_nome: dict[str, int] = {}
     for r in rows.mappings().all():
@@ -697,7 +697,7 @@ async def sugestoes_cadastro_historico(db: AsyncSession, dias: int = 30, valor: 
         if nome:
             por_nome[nome] = por_nome.get(nome, 0) + int(r["n"])
     # já cadastrados (por nome, case-insensitive)
-    ex = await db.execute(text("SELECT lower(nome) FROM diarists"))
+    ex = await db.execute(text("SELECT lower(nome) FROM diarists UNION SELECT lower(nome) FROM diaria_diaristas"))  # o cadastro vivo é diaria_diaristas (62); diarists tem 3 de teste
     cadastrados = {row[0] for row in ex.all()}
     sugestoes = [
         {"nome": n, "pagamentos_periodo": c, "ja_cadastrado": n.lower() in cadastrados}

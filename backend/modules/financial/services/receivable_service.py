@@ -245,6 +245,8 @@ class ReceivableService:
         user_id: UUID,
     ) -> ReceivablePayment:
         """Registra recebimento de uma parcela."""
+        if getattr(data, "installment_id", None) != installment_id:
+            data = data.model_copy(update={"installment_id": installment_id})  # a parcela do caminho manda (08/09/2026)
         installment = await self.installment_repo.get_by_id(installment_id)
         if not installment:
             raise ValueError("Parcela nao encontrada")

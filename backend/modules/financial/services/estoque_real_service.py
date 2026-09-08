@@ -5,7 +5,7 @@ Entrada: já populada pelo nfe_entrada_sync_service (itens dos procNFe → nfe_c
 Saída: baixa por vínculo material↔serviço quando se emite/registra um serviço. Cada baixa:
   1. reduz qty_on_hand do item,
   2. registra em nfe_estoque_movimentos (histórico auditável),
-  3. posta o CUSTO (COGS) no razão accounting_entries: D 4.1.3.01 (Custo de Materiais) /
+  3. posta o CUSTO (COGS) no razão accounting_entries: D 5.1.1.06 (Custo de Materiais — plano vigente; 4.1.3.01 era do plano velho, 08/09/2026) /
      C 1.1.4.01 (Estoque), alimentando o DRE (despesa) → elo com o Financeiro.
 
 NUNCA fabrica: custo = avg_cost real do item; saldo insuficiente é barrado.
@@ -91,7 +91,7 @@ class EstoqueRealService:
                 n_itens, valor, unidades = cur.fetchone()
                 cur.execute(
                     "SELECT COALESCE(sum(valor_total),0), count(*) FROM nfe_estoque_movimentos "
-                    "WHERE tipo='saida' AND to_char(data_mov,'YYYY-MM')=to_char(CURRENT_DATE,'YYYY-MM')"
+                    "WHERE tipo='saida' AND to_char(data_mov,'YYYY-MM')=to_char((now() AT TIME ZONE 'America/Manaus')::date,'YYYY-MM')"
                 )
                 saidas_valor, saidas_qtd = cur.fetchone()
                 cur.execute("SELECT count(*) FROM nfe_compras_estoque WHERE qty_on_hand <= 0")
@@ -175,8 +175,8 @@ class EstoqueRealService:
                     "INSERT INTO accounting_entries "
                     "(data_lancamento, conta_debito, conta_credito, valor, historico, "
                     " tipo_lancamento, documento_ref, periodo_competencia, status, empresa_id) "
-                    "SELECT CURRENT_DATE, '4.1.3.01', '1.1.4.01', %s, %s, 'baixa_estoque', %s, "
-                    " to_char(CURRENT_DATE,'YYYY-MM'), 'confirmado', %s "
+                    "SELECT (now() AT TIME ZONE 'America/Manaus')::date, '5.1.1.06', '1.1.4.01', %s, %s, 'baixa_estoque', %s, "
+                    " to_char((now() AT TIME ZONE 'America/Manaus')::date,'YYYY-MM'), 'confirmado', %s "
                     "WHERE NOT EXISTS (SELECT 1 FROM accounting_entries WHERE documento_ref=%s)",
                     (valor, hist[:250], ref, empresa_id, ref),
                 )

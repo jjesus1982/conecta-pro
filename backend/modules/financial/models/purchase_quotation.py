@@ -37,6 +37,7 @@ class QuotationStatus(StrEnum):
     EM_ANALISE = "em_analise"
     APROVADA = "aprovada"
     REJEITADA = "rejeitada"
+    ERRO_ENVIO = "erro_envio"  # gravado pelo envio por WhatsApp quando falha (08/09/2026)
     SELECIONADA = "selecionada"  # Vencedora
     NAO_SELECIONADA = "nao_selecionada"
     EXPIRADA = "expirada"

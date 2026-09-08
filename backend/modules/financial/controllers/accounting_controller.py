@@ -1870,6 +1870,9 @@ async def accounting_dre(
     _current_user: dict = Depends(get_current_user),
 ) -> dict:
     """DRE a partir dos lançamentos contábeis reais (accounting_entries).
+    if not periodo:  # sem período somava a vida inteira e rotulava como DRE do mês (08/09/2026)
+        from datetime import date as _d
+        periodo = _d.today().strftime("%Y-%m")
 
     Plano de contas REAL: 4.x = RECEITA (4.1.1 = serviços/NFS-e), 5.x = DESPESA (5.1 = pessoal/folha+
     encargos, 5.2 = operacional/tomadas), 5.2.2 = ISS (dedução da receita). Os filtros antigos usavam

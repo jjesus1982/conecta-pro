@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.financial.models.payable_account import PayableAccount, PayableStatus
@@ -216,6 +217,8 @@ class PayableService:
         user_id: UUID,
     ) -> PayablePayment:
         """Registra pagamento de uma parcela."""
+        if getattr(data, "installment_id", None) != installment_id:
+            data = data.model_copy(update={"installment_id": installment_id})  # a parcela do caminho manda (08/09/2026)
         installment = await self.installment_repo.get_by_id(installment_id)
         if not installment:
             raise ValueError("Parcela não encontrada")
@@ -453,6 +456,11 @@ class PayableService:
 
             if next_date and next_date <= reference_date + timedelta(days=30):
                 # Cria nova conta baseada na recorrente
+                ja_existe = (await self.session.execute(text(
+                    "SELECT 1 FROM payable_accounts WHERE parent_recurrence_id = :pai AND due_date = :venc LIMIT 1"
+                ), {"pai": account.parent_recurrence_id or account.id, "venc": next_date})).first()
+                if ja_existe:  # cada chamada duplicava a conta do mês (08/09/2026)
+                    continue
                 new_data = PayableAccountCreate(
                     condominio_id=condominio_id,
                     supplier_id=account.supplier_id,

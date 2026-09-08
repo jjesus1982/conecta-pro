@@ -70,6 +70,14 @@ def _emitir_inter(conta: dict) -> dict:
         return {"success": False, "banco": "inter", "error": str(exc)[:300]}
 
 
+
+def _emitir_por_banco(banco: str, conta: dict, documento: str, venc) -> dict:
+    if banco == "cora":
+        return _chamar_cobranca_cora(conta["code"], conta["valor"], documento, conta["nome"], conta["descricao"],
+                                     venc.isoformat())
+    return _emitir_inter(conta)
+
+
 def emitir(receivable_id: str, preview: bool = False) -> dict:
     """Emite (ou só mostra, com preview=True) a cobrança bancária de UMA conta a receber."""
     with _get_conn() as conn:
@@ -101,14 +109,24 @@ def emitir(receivable_id: str, preview: bool = False) -> dict:
     if preview:
         return {**base, "ok": True, "situacao": "preview", "documento": documento, "email": email}
 
-    if banco == "cora":
-        r = _chamar_cobranca_cora(conta["code"], conta["valor"], documento, conta["nome"], conta["descricao"],
-                                  venc.isoformat())
-    else:
-        r = _emitir_inter(conta)
+    with _get_conn() as conn:  # reserva: só um emissor por conta (dois cliques emitiam duas cobranças, 08/09/2026)
+        with conn.cursor() as cur:
+            cur.execute("UPDATE receivable_accounts SET boleto_id = 'reservando' WHERE id::text = %s "
+                        "AND boleto_id IS NULL AND pix_txid IS NULL RETURNING id", (rid,))
+            reservou = cur.fetchone() is not None
+        conn.commit()
+    if not reservou:
+        return {**base, "ok": True, "situacao": "ja_emitida", "boleto_id": "em emissão por outra chamada", "pix_txid": None}
+    try:
+        r = _emitir_por_banco(banco, conta, documento, venc)
+    except Exception as exc:  # noqa: BLE001
+        r = {"success": False, "error": str(exc)}
     if not r.get("success"):
+        with _get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE receivable_accounts SET boleto_id = NULL WHERE id::text = %s AND boleto_id = 'reservando'", (rid,))
+            conn.commit()
         return {**base, "erro": f"{banco}: {r.get('error')}"}
-
     meta = {"banco": banco, "emitido_em": date.today().isoformat(), "resposta": {k: v for k, v in r.items() if k != "bruto"}}
     with _get_conn() as conn:
         with conn.cursor() as cur:

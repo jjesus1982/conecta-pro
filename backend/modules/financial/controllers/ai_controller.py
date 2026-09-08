@@ -369,9 +369,10 @@ async def get_command_center(
         )
 
     except Exception as exc:
-        logger.warning("Erro no command center: %s. Usando health default.", exc)
+        logger.exception("Erro no command center")
+        raise HTTPException(status_code=503, detail=f"command center indisponível: {exc}") from exc  # era 200 com health inventado
 
-    return CommandCenterResponse(
+    return CommandCenterResponse(  # pragma: no cover — inalcançável, mantido só para o tipo
         health=default_health,
         alerts=[],
         insights=[],
@@ -452,148 +453,6 @@ async def get_risks(
 # ===================================================================
 
 
-@router.get("/cashflow-prediction", response_model=CashflowPrediction)
-async def get_cashflow_prediction(
-    days: int = Query(default=90, ge=7, le=365),
-    condominio_id: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna previsão de fluxo de caixa para os próximos N dias.
-
-    Usa CashflowPredictorAgent (Fase 2); com fallback para CashFlowAIService
-    e projeção linear simples.
-    """
-
-    today = date.today()
-
-    # Tentar CashflowPredictorAgent (Fase 2)
-    try:
-        agent = CashflowPredictorAgent(session)
-        cf = await agent.predict(days=days)
-        if cf:
-            return CashflowPrediction(
-                current_balance=cf.get("current_balance", 0.0),
-                predicted_30d=cf.get("predicted_30d", 0.0),
-                predicted_60d=cf.get("predicted_60d", 0.0),
-                predicted_90d=cf.get("predicted_90d", 0.0),
-                trend=cf.get("trend", "estavel"),
-                confidence=cf.get("confidence", 0.3),
-                points=[CashflowPoint(**p) for p in cf.get("points", [])],
-                gaps=cf.get("gaps", []),
-                scenario_optimistic=cf.get("scenario_optimistic", 0.0),
-                scenario_pessimistic=cf.get("scenario_pessimistic", 0.0),
-            )
-    except Exception as exc:
-        logger.debug("CashflowPredictorAgent indisponível, usando fallback: %s", exc)
-
-    # Fallback: CashFlowAIService
-    try:
-        from modules.financial.services.cashflow_ai_service import CashFlowAIService
-
-        ai_service = CashFlowAIService(session)
-        months_ahead = max(1, days // 30)
-        forecast = await ai_service.generate_forecast(
-            condominio_id=condominio_id or None,
-            months_ahead=months_ahead,
-        )
-        if forecast:
-            return forecast
-    except Exception as exc:
-        logger.debug("CashFlowAIService indisponível, usando fallback: %s", exc)
-
-    # Fallback: projeção simples baseada em dados históricos
-    try:
-        from sqlalchemy import and_, func, select
-
-        from modules.financial.models.payable_account import PayableAccount
-        from modules.financial.models.receivable_account import ReceivableAccount, ReceivableStatus
-
-        # Receita média dos últimos 30 dias
-        past_30 = today - timedelta(days=30)
-        recv_q = select(func.coalesce(func.sum(ReceivableAccount.net_value), 0)).where(
-            and_(
-                ReceivableAccount.payment_date >= past_30,
-                ReceivableAccount.status == ReceivableStatus.PAGA.value,
-            )
-        )
-        avg_recv_month = float((await session.execute(recv_q)).scalar_one() or 0)
-
-        pay_q = select(func.coalesce(func.sum(PayableAccount.net_value), 0)).where(
-            and_(
-                PayableAccount.payment_date >= past_30,
-                PayableAccount.status.in_(("pago", "paga")),
-            )
-        )
-        avg_pay_month = float((await session.execute(pay_q)).scalar_one() or 0)
-
-        net_daily = (avg_recv_month - avg_pay_month) / 30
-        current_balance = avg_recv_month - avg_pay_month  # estimativa de saldo atual
-
-        # Gerar pontos de projeção (a cada 7 dias)
-        points: list[CashflowPoint] = []
-        gaps: list[dict] = []
-        balance = current_balance
-        step = 7
-        for i in range(step, days + 1, step):
-            balance += net_daily * step
-            point_date = today + timedelta(days=i)
-            expected = balance
-            optimistic = balance * 1.10
-            pessimistic = balance * 0.90
-            points.append(
-                CashflowPoint(
-                    date=point_date.isoformat(),
-                    expected_balance=round(expected, 2),
-                    optimistic_balance=round(optimistic, 2),
-                    pessimistic_balance=round(pessimistic, 2),
-                )
-            )
-            if pessimistic < 0:
-                gaps.append({"date": point_date.isoformat(), "projected_balance": round(pessimistic, 2)})
-
-        days_30 = current_balance + net_daily * 30
-        days_60 = current_balance + net_daily * 60
-        days_90 = current_balance + net_daily * 90
-
-        if net_daily > 0:
-            trend = "positivo"
-        elif net_daily < 0:
-            trend = "negativo"
-        else:
-            trend = "estavel"
-
-        return CashflowPrediction(
-            current_balance=round(current_balance, 2),
-            predicted_30d=round(days_30, 2),
-            predicted_60d=round(days_60, 2),
-            predicted_90d=round(days_90, 2),
-            trend=trend,
-            confidence=0.65,
-            points=points,
-            gaps=gaps,
-            scenario_optimistic=round(days_90 * 1.15, 2),
-            scenario_pessimistic=round(days_90 * 0.85, 2),
-        )
-
-    except Exception as exc:
-        logger.warning("Erro ao gerar previsão de caixa: %s", exc)
-        # Resposta neutra em caso de falha total
-        return CashflowPrediction(
-            current_balance=0.0,
-            predicted_30d=0.0,
-            predicted_60d=0.0,
-            predicted_90d=0.0,
-            trend="estavel",
-            confidence=0.0,
-            points=[],
-            gaps=[],
-            scenario_optimistic=0.0,
-            scenario_pessimistic=0.0,
-        )
-
-
 # ===================================================================
 # ENDPOINT 5a — COLLECTION: ANÁLISE DE INADIMPLENTES
 # ===================================================================
@@ -659,19 +518,6 @@ async def calculate_pricing(
 # ===================================================================
 # ENDPOINT 5c — ADVISOR: SAÚDE FINANCEIRA + RECOMENDAÇÕES + CHAT
 # ===================================================================
-
-
-@router.get("/advisor/health")
-async def get_financial_health(
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna health check completo da saúde financeira da empresa.
-    Score 0-100, indicadores detalhados, narrativa e alertas críticos.
-    """
-    agent = FinancialAdvisorAgent(session)
-    return await agent.gerar_health_check()
 
 
 @router.get("/advisor/recommendations")
