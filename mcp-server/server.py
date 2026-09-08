@@ -2517,13 +2517,13 @@ async def dashboard_campo() -> dict:
 @mcp.tool
 async def listar_vagas(status: str | None = None) -> dict:
     """Lista VAGAS de recrutamento (status opcional)."""
-    return await erp.get("/recruitment/job-positions", params={"status": status} if status else None)
+    return await erp.get("/people-management/human-resources/candidatos/postos")  # recruitment aposentado 08/09/2026 (0 vagas cadastradas); postos com vaga na esteira
 
 
 @mcp.tool
 async def vagas_abertas() -> dict:
     """Lista só as vagas ABERTAS (em recrutamento)."""
-    return await erp.get("/recruitment/job-positions/open")
+    return await erp.get("/people-management/human-resources/candidatos/postos")
 
 
 @mcp.tool
@@ -2532,13 +2532,13 @@ async def listar_candidatos(busca: str | None = None, page: int = 1) -> dict:
     params = {"page": page, "page_size": 30}
     if busca:
         params["q"] = busca
-    return await erp.get("/recruitment/candidates", params=params)
+    return await erp.get("/people-management/human-resources/candidatos", params=params)  # esteira real
 
 
 @mcp.tool
 async def listar_entrevistas() -> dict:
     """Lista ENTREVISTAS agendadas do recrutamento."""
-    return await erp.get("/recruitment/interviews")
+    return {"ok": False, "mensagem": "Entrevistas não são registradas no ERP (o pacote recruitment foi aposentado em 08/09/2026: 0 registros desde sempre). A esteira de candidatos é por posto: use listar_candidatos."}
 
 
 @mcp.tool
