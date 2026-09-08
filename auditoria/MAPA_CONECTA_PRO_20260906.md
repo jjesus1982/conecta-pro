@@ -1055,6 +1055,31 @@ backend/** (hoje: `crm/services/contract_signature.py` e `scripts/gedeon/cnd_rob
 sessões). Se os containers forem recriados antes do bake, o código volta ao da imagem. Alguém precisa
 commitar ou descartar esses dois arquivos e rodar `./scripts/deploy_backend_bluegreen.sh`.
 
+
+### §2c.30 — Telas que faltavam, bake durável, porta 8080 (08/09/2026, 14h–15h Manaus)
+
+**Cobertura do redesign (bf03f75be, b721a1e62, dda4d1ea6):** as ~45 rotas que os revisores dos módulos
+menores marcaram LIGAR ganharam tela: kits do GEDEON (conferência ATLAS do cache, assinaturas pendentes pelo
+banco, status de entrega, preparar/marcar entrega, faturar só boleto, evento de checklist), jurídico
+(prazos, playbook, consultas ao escritório com ROI, status do DET, registrar consulta, ingerir comunicação,
+analisar processo, conhecimento, parecer, análise, enviar CQB por linha), CCT no RH (taxa negocial,
+jornadas, feriados, compliance do mês, adicionais, estabilidade, validar rescisão) e visitas de campo
+(tabela com confirmar/check-in/check-out/resultado/reagendar/cancelar/PDF e agendar). Helper novo
+`_ligar_generico.py` chama o handler do controller direto e desenha lista/dict sem conhecer o formato.
+Lição que custou um worker: a tela de documentos chamou um serviço do kit que lê o Google Drive numa
+thread → `free(): corrupted unsorted chunks` e a página caiu (000). Regra: **página do redesign não fala com
+Drive, robô ou governo**; lê cache/banco e, se precisar de rede, timeout ≤ 3 s. Ficam sem tela, por
+decisão: ficha 360 e autofill CNPJ/CEP do CRM (o form do frontend não faz GET), grade PUT/escala PATCH.
+
+**Durabilidade:** com autorização do Jordan, o WIP alheio de `backend/` foi para um stash
+(`git stash list` → "WIP alheio…", recuperável) e o blue-green assou a imagem 3eaa2312bc62 às 14:01, sem
+drift nos 8 workers. Os builders ligados depois disso estão em hot-copy e commitados — o bake das 00:00 os
+assa, já que `backend/` está limpo.
+
+**Segurança:** porta 8080 fechada na eth0 (DOCKER-USER, persistida em /etc/iptables/rules.v4), nginx e
+loopback seguem 200. **Ainda públicas em 0.0.0.0: 5555 (Flower) e 9093 (Alertmanager)** — recomendo
+fechar igual; aguardando autorização.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
