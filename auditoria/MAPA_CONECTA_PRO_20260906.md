@@ -1003,6 +1003,29 @@ tools MCP) — fica até você dizer se OS é produto; DET_ROBO_TOKEN e o robô 
 que regera senha em laço (sem tela nova, só clássico); consolidar `modules/cct` com
 `people_management/cct` (gêmeo hardcoded).
 
+
+### §2c.28 — Recruitment aposentado, rotas miúdas, o que resta (08/09/2026 ~14h Manaus)
+
+**Recruitment (7e44976c5):** as 7 tabelas do pacote (candidates, job_positions, applications, interviews,
+educations, experiences, skills) têm 0 linhas desde sempre; o recrutamento real é a esteira de candidatos por
+posto (`/people-management/human-resources/candidatos`, tela viva no RH). As 79 rotas (166 no inventário
+por montagem dupla) foram apagadas e as 4 tools MCP (listar_vagas, vagas_abertas, listar_candidatos,
+listar_entrevistas) apontam para a esteira ou respondem honesto.
+
+**Miúdos (61a1d9519):** emissão de NF-e legada do fiscal_contabil (a empresa não emite NF-e), listagens de
+NF-e/entrada sem chamador, status do otimizador de escala e das guias, fiscal-dashboard do clássico,
+nfse-multi servicos/empresas/identificar — 14 rotas. `det-coletar-auto` saiu do jurídico (0d9d50143).
+
+**Estado do loop de revisão 100% (backend):** todos os módulos do inventário foram revisados e corrigidos,
+exceto **bidding** (88 rotas; revisor em curso — tem dado real e sync diário). Rotas apagadas hoje: ≈1.230.
+Regressão do arsenal e varredura dos oráculos rodando para confirmar que nada vivo caiu.
+
+**Para o Jordan:** porta 8080 no firewall (urgente); INTER_WEBHOOK_CA_PATH; DET_ROBO_TOKEN; ordem_servico
+do campo (0 OS em 6 meses); consolidar `modules/cct` com `people_management/cct`; alíquotas de retenção com
+a contadora; liminares; interjornada; reajuste com percentual obrigatório; classic pages que chamavam rotas
+apagadas (banking pagamento por código de barras/DARF, Sólides, gateway) ficam quebradas por desenho — o
+clássico está fora do escopo.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
