@@ -205,26 +205,3 @@ async def sync_guias(
     return await run_in_threadpool(sync_guias_drive, forcar)
 
 
-@router.get("/status", summary="Status da pasta de guias no Drive")
-async def status_guias(current_user: CurrentActiveUser) -> Any:
-    """Lista o que existe na pasta (sem baixar) e o que já foi processado."""
-    from modules.fiscal_contabil.obrigacoes.guias_drive_service import GUIAS_DRIVE_ROOT
-    from modules.gdrive.services.gdrive_service import GDriveService
-
-    def _status() -> dict[str, Any]:
-        svc = GDriveService()
-        if not svc.esta_conectado():
-            return {"ok": False, "erro": "Google Drive não conectado"}
-        raiz = svc.listar_arquivos(GUIAS_DRIVE_ROOT)
-        pastas = {}
-        for p in raiz:
-            if p.get("mimeType") == "application/vnd.google-apps.folder":
-                pastas[p["name"]] = [
-                    {"nome": a["name"], "modificado": a.get("modifiedTime")}
-                    for a in svc.listar_arquivos(p["id"])
-                    if a.get("mimeType") == "application/pdf"
-                ]
-        soltos = [f["name"] for f in raiz if f.get("mimeType") == "application/pdf"]
-        return {"ok": True, "raiz": GUIAS_DRIVE_ROOT, "pastas": pastas, "pdfs_na_raiz": soltos}
-
-    return await run_in_threadpool(_status)

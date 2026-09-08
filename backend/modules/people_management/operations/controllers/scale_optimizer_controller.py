@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 
 from core.auth.dependencies import CurrentActiveUser
 from modules.people_management.operations.services.scale_optimizer_service import (
-    HAS_SCIPY,
     ScaleOptimizerService,
 )
 from modules.people_management.operations.services.scale_optimizer_service import (
@@ -147,17 +146,3 @@ async def otimizar_escala_mensal(
     return svc.optimize_month(request.year, request.month, employees, posts)
 
 
-@router.get("/status")
-async def status_otimizador(
-    current_user: CurrentActiveUser,
-) -> Any:
-    """Retorna status do otimizador (scipy disponível, algoritmo em uso)."""
-    return {
-        "scipy_available": HAS_SCIPY,
-        "algorithm": "hungarian" if HAS_SCIPY else "greedy",
-        "clt_rules": {
-            "min_interjornada_hours": 11,
-            "max_horas_extras_mes": 44,
-            "dsr_per_week": 1,
-        },
-    }

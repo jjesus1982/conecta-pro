@@ -57,27 +57,6 @@ async def listar_pendentes(
     return listar_sem_justificativa(mes, ano)
 
 
-@router.get(
-    "/verificar-fechamento/{mes}/{ano}",
-    summary="Verificar se período pode ser fechado",
-)
-async def verificar_fechamento(
-    mes: int,
-    ano: int,
-    _user=Depends(get_current_user),
-):
-    """
-    Verifica se há saídas sem justificativa no período.
-    Bloqueia fechamento contábil se houver pendências.
-    Dispara alerta Telegram se bloqueado.
-    """
-    from modules.financial.services.justificativa_service import (
-        verificar_fechamento_periodo,
-    )
-
-    return verificar_fechamento_periodo(mes, ano)
-
-
 @router.post(
     "/alertar",
     summary="Disparar alerta Telegram sobre pendências",
@@ -137,21 +116,3 @@ async def compliance_report(_user=Depends(get_current_user)):
     return relatorio_compliance()
 
 
-@router.get(
-    "/categorias",
-    summary="Listar categorias válidas de justificativa",
-)
-async def categorias():
-    """Retorna categorias válidas para justificativa de saída sem nota."""
-    return {
-        "categorias": [
-            {"id": "salario", "desc": "Pagamento de salário ou pró-labore"},
-            {"id": "adiantamento", "desc": "Adiantamento a funcionário"},
-            {"id": "reembolso", "desc": "Reembolso de despesas"},
-            {"id": "taxa_bancaria", "desc": "Tarifas e taxas bancárias"},
-            {"id": "imposto", "desc": "Pagamento de impostos e guias"},
-            {"id": "servico_sem_nf", "desc": "Serviço sem obrigação fiscal"},
-            {"id": "transferencia_interna", "desc": "Movimentação entre contas próprias"},
-            {"id": "outros", "desc": "Outros (requer descrição detalhada)"},
-        ]
-    }

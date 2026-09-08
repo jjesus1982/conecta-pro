@@ -12,8 +12,6 @@ from pydantic import BaseModel, Field
 from core.auth.dependencies import get_current_user
 from modules.fiscal.publishers import publish_nfs_emitida
 from modules.fiscal.services.nfse_multi_empresa_service import (
-    EMPRESAS_CONFIG,
-    refresh_empresas_config,
     DadosNFSeMultiEmpresa,
     NfseMultiEmpresaService,
 )
@@ -124,29 +122,6 @@ async def preparar_nfse_multi(
     }
 
 
-@router.get(
-    "/identificar-empresa/{tipo_servico}",
-    summary="Identificar empresa para tipo de servico",
-    response_model=dict[str, Any],
-)
-async def identificar_empresa_nfse(
-    tipo_servico: str,
-    current_user=Depends(get_current_user),
-) -> dict[str, Any]:
-    """Identifica qual empresa deve emitir NFS-e para o tipo de serviço."""
-    empresa = _service.identificar_empresa(tipo_servico)
-    refresh_empresas_config()
-    empresa_cfg = EMPRESAS_CONFIG.get(empresa, {})
-    return {
-        "tipo_servico": tipo_servico,
-        "empresa_emissora": empresa,
-        "regime": empresa_cfg.get("regime"),
-        "tem_cnpj": empresa_cfg.get("cnpj") is not None,
-        "liminares_previstas": empresa_cfg.get("liminares", []),
-        "mensagem": f"Servicos de '{tipo_servico}' -> {empresa}",
-    }
-
-
 @router.post(
     "/calcular-tributos",
     summary="Calcular tributos NFS-e com liminares",
@@ -164,57 +139,3 @@ async def calcular_tributos_nfse(
     )
 
 
-@router.get(
-    "/empresas",
-    summary="Listar empresas disponíveis para emissão",
-    response_model=dict[str, Any],
-)
-async def listar_empresas_nfse(
-    current_user=Depends(get_current_user),
-) -> dict[str, Any]:
-    """Lista todas as empresas configuradas e seus status de emissão."""
-    refresh_empresas_config()
-    empresas_list = []
-    for slug, cfg in EMPRESAS_CONFIG.items():
-        empresas_list.append(
-            {
-                "slug": slug,
-                "razao_social": cfg.get("razao_social"),
-                "cnpj": cfg.get("cnpj"),
-                "inscricao_municipal": cfg.get("inscricao_municipal"),
-                "regime": cfg.get("regime"),
-                "ambiente": cfg.get("ambiente"),
-                "pode_emitir": cfg.get("cnpj") is not None,
-                "liminares": cfg.get("liminares", []),
-            }
-        )
-    return {
-        "empresas": empresas_list,
-        "total": len(empresas_list),
-    }
-
-
-@router.get(
-    "/servicos",
-    summary="Listar tipos de servico e empresa mapeada",
-    response_model=dict[str, Any],
-)
-async def listar_servicos_mapeados(
-    current_user=Depends(get_current_user),
-) -> dict[str, Any]:
-    """Retorna o mapeamento de tipos de serviço para empresas emissoras."""
-    from modules.fiscal.services.nfse_multi_empresa_service import (
-        SERVICOS_ELETRONICOS,
-        SERVICOS_HUMANIZADOS,
-    )
-
-    return {
-        "eletronica": {
-            "empresa": "conecta_eletronica",
-            "servicos": SERVICOS_ELETRONICOS,
-        },
-        "patrimonial": {
-            "empresa": "conecta_patrimonial",
-            "servicos": SERVICOS_HUMANIZADOS,
-        },
-    }
