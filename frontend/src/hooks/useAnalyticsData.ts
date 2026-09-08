@@ -60,7 +60,7 @@ export function useAnalyticsData(): UseAnalyticsDataReturn {
         customInstance<{ items?: Array<{ departamento?: string }>; total?: number }>({
           url: '/api/v1/operacional/employees/',
           method: 'GET',
-          params: { page: 1, page_size: 1000 },
+          params: { page: 1, page_size: 100 },
         }),
         customInstance<Record<string, unknown>>({
           url: '/api/v1/operacional/scales/stats',

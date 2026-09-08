@@ -62,7 +62,7 @@ export default function AvaliacoesPage() {
       const [reviewsRes, ciclosRes, empRes] = await Promise.all([
         fetch(`${API_BASE}/performance/reviews?limit=100`, { headers }),
         fetch(`${API_BASE}/evaluation-360/ciclos`, { headers }).catch(() => null),
-        fetch(`/api/v1/people-management/hr/employees?page=1&page_size=200`, { headers }).catch(() => null),
+        fetch(`/api/v1/people-management/hr/employees?page=1&page_size=100`, { headers }).catch(() => null),
       ]);
       if (empRes?.ok) {
         const data = await empRes.json();

@@ -143,7 +143,7 @@ export default function TenantsPage() {
     };
     return (
       <Badge className={map[plan] || 'bg-gray-100 text-gray-800'}>
-        {plan.charAt(0).toUpperCase() + plan.slice(1)}
+        {(plan || '—').charAt(0).toUpperCase() + (plan || '—').slice(1)}
       </Badge>
     );
   };
