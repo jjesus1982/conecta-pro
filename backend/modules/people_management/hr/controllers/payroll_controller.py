@@ -146,12 +146,30 @@ async def calculate_employee_payroll(
     month: int = Query(..., ge=1, le=12, description="Mês de referência"),
     year: int = Query(..., ge=2020, le=2030, description="Ano de referência"),
 ) -> Any:
-    """Calcula a folha de pagamento de um funcionário."""
-    service = PayrollService(db)
-    try:
-        return await service.calculate_employee_payroll(employee_id, month, year)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Calcula a folha de pagamento de um funcionário.
+
+    Delegado à engine OFICIAL (folha/calculo_service, CCT 2026): esta rota devolvia só o
+    salário base (Adailson 08/2026: R$ 1.464,21 aqui × R$ 2.138,66 na folha real, que é a
+    que gera holerite, TRCT e exportações). Dois números para a mesma pessoa era defeito
+    (medido 08/09/2026)."""
+    from core.database.session import get_sync_db_dependency
+    from modules.people_management.folha.services import calculo_service
+
+    def _run():
+        gen = get_sync_db_dependency()
+        sdb = next(gen)
+        try:
+            return calculo_service.calcular_folha_colaborador(sdb, str(employee_id), month, year)
+        finally:
+            try:
+                next(gen)
+            except StopIteration:
+                pass
+
+    result = await asyncio.to_thread(_run)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 @router.get(
@@ -166,46 +184,15 @@ async def generate_payslip_pdf(
     month: int = Query(..., ge=1, le=12, description="Mes de referencia"),
     year: int = Query(..., ge=2020, le=2030, description="Ano de referencia"),
 ) -> StreamingResponse:
-    """Gera contracheque em PDF para um funcionario e competencia."""
-    service = PayrollService(db)
-    try:
-        calc = await service.calculate_employee_payroll(employee_id, month, year)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Gera contracheque em PDF para um funcionario e competencia.
 
-    pdf_bytes = _build_payslip_pdf(calc, month, year)
+    Redireciona para o holerite OFICIAL (folha/holerite/{id}/{mes}/{ano}/pdf, padrão-ouro,
+    engine CCT 2026). O PDF próprio desta rota nascia da engine legada, com valor errado
+    (ver `calculate_employee_payroll`)."""
+    from fastapi.responses import RedirectResponse
 
-    # Assinatura universal do HOLERITE → só EMPLOYEE (recibo de salário; memória do
-    # Jordan: incluir_empresa=False). Idempotente por (employee_id × competência) —
-    # MESMA chave dos demais endpoints de holerite. À prova de falha.
-    try:
-        from modules.signatures.helpers import (
-            document_hash_sha256,
-            garantir_solicitacao_assinatura,
-        )
-
-        await garantir_solicitacao_assinatura(
-            db,
-            document_type="payslip",
-            document_id=f"{employee_id}:{year}-{month:02d}",
-            title=f"Holerite {month:02d}/{year} - {calc.get('employee_name') or employee_id[:8]}",
-            document_hash=document_hash_sha256(pdf_bytes),
-            employee_id=str(employee_id),
-            employee_name=calc.get("employee_name"),
-            employee_document=calc.get("cpf") or None,
-            requested_by=current_user.id,
-        )
-        await db.commit()
-    except Exception as sig_exc:  # noqa: BLE001
-        import logging as _logging
-
-        _logging.getLogger(__name__).warning("Assinatura do holerite (payroll) não criada: %s", sig_exc)
-
-    filename = f"contracheque_{calc['employee_name'].replace(' ', '_')}_{month:02d}_{year}.pdf"
-    return StreamingResponse(
-        BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    return RedirectResponse(
+        url=f"/api/v1/people-management/folha/holerite/{employee_id}/{month}/{year}/pdf", status_code=307
     )
 
 
