@@ -170,21 +170,32 @@ async def _action_send_whatsapp(db, entity, params) -> str:
     if await F.recent_touch_count(db, canon) > 0:
         return "skip: antispam (toque recente)"
     phone = to_e164_br(phone) or phone
+    # Grava ANTES de disparar (irreversível: se o processo cair depois do envio, o toque já está
+    # registrado e o antispam vê). Falha no envio marca 'erro' na mesma linha.
+    from sqlalchemy import text as _t
+    fid = None
+    try:
+        fid = (await db.execute(_t(
+            "INSERT INTO crm_followups (phone_canonical, phone_e164, canal, template, mensagem, status, enviado_em, created_at) "
+            "VALUES (:p, :e, 'whatsapp', 'sequencia', :m, 'enviando', now(), now()) RETURNING id"),
+            {"p": canon, "e": phone, "m": msg[:2000]})).scalar()
+        await db.commit()
+    except Exception as exc2:  # noqa: BLE001
+        logger.info("registro do toque da cadência falhou: %s", exc2)
     try:
         from modules.integrations.connectors.whatsapp.service import send_text_message  # type: ignore
 
         await send_text_message(phone, msg)
-        try:
-            from sqlalchemy import text as _t
-            await db.execute(_t(
-                "INSERT INTO crm_followups (phone_canonical, phone_e164, canal, template, mensagem, status, enviado_em, created_at) "
-                "VALUES (:p, :e, 'whatsapp', 'sequencia', :m, 'enviado', now(), now())"),
-                {"p": canon, "e": phone, "m": msg[:2000]})
-        except Exception as exc2:  # noqa: BLE001
-            logger.info("registro do toque da cadência falhou: %s", exc2)
+        if fid is not None:
+            await db.execute(_t("UPDATE crm_followups SET status='enviado' WHERE id=:i"), {"i": fid}); await db.commit()
         return "whatsapp enviado"
     except Exception as exc:  # noqa: BLE001
         logger.info("whatsapp indisponível (%s) — registrado só log", exc)
+        if fid is not None:
+            try:
+                await db.execute(_t("UPDATE crm_followups SET status='erro', detalhe=:d WHERE id=:i"), {"i": fid, "d": str(exc)[:500]}); await db.commit()
+            except Exception:  # noqa: BLE001
+                pass
         return f"whatsapp indisponível: {exc}"
 
 

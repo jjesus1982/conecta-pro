@@ -2318,7 +2318,7 @@ async def status_simples_nacional() -> dict:
 @mcp.tool
 async def pendencias_simples() -> dict:
     """Pendências no Simples Nacional."""
-    return await erp.get("/government/simples-nacional/pendencias")
+    return {"ok": False, "mensagem": "Pendências do Simples não são consultadas: a rota devolvia lista vazia com 'Implementar' e foi aposentada em 08/09/2026. A Eletrônica é Lucro Real; para obrigações use calendario_obrigacoes/alertas_obrigacoes."}
 
 
 # ---- Obrigações ----
