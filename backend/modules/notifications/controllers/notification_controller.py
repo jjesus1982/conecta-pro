@@ -135,28 +135,6 @@ async def get_queue_stats(
 # =============================================================================
 
 
-@router.post("/push/subscribe", status_code=status.HTTP_200_OK)
-async def subscribe_push(
-    device_token: str,
-    platform: str,
-    device_info: dict | None = None,
-    current_user: CurrentActiveUser = None,
-    db: Session = Depends(get_sync_db_dependency),
-) -> dict:
-    """Registra dispositivo para receber notificações push."""
-    tenant_id = get_tenant_id(current_user)
-
-    service = PushNotificationService(db, tenant_id)
-    result = service.subscribe_device(
-        user_id=current_user.id,
-        device_token=device_token,
-        platform=platform,
-        device_info=device_info,
-    )
-
-    return result
-
-
 @router.get("/push", status_code=status.HTTP_200_OK)
 async def list_push_notifications(
     unread_only: bool = False,
@@ -209,20 +187,6 @@ async def mark_push_as_read(
         notification_id=notification_id,
         user_id=current_user.id,
     )
-
-    return result
-
-
-@router.post("/push/read-all", status_code=status.HTTP_200_OK)
-async def mark_all_push_as_read(
-    current_user: CurrentActiveUser = None,
-    db: Session = Depends(get_sync_db_dependency),
-) -> dict:
-    """Marca todas as notificações como lidas."""
-    tenant_id = get_tenant_id(current_user)
-
-    service = PushNotificationService(db, tenant_id)
-    result = service.mark_all_as_read(user_id=current_user.id)
 
     return result
 

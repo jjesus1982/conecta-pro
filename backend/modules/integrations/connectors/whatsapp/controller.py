@@ -92,29 +92,6 @@ async def get_whatsapp_status(current_user: CurrentActiveUser) -> WhatsAppStatus
     )
 
 
-@router.post("/send/kit-notification", response_model=SendResponse)
-async def send_kit_notification(
-    request: SendKitNotificationRequest,
-    user_id: CurrentUserId,
-    current_user: CurrentActiveUser,
-) -> SendResponse:
-    """Envia notificacao de kit documental via WhatsApp."""
-    result = await whatsapp_service.send_kit_notification(
-        phone=request.phone,
-        client_name=request.client_name,
-        month=request.month,
-        year=request.year,
-        documents_count=request.documents_count,
-        portal_url=request.portal_url,
-    )
-    return SendResponse(
-        success=result.get("status") == "sent",
-        status=result.get("status", "unknown"),
-        phone=result.get("phone"),
-        data=result,
-    )
-
-
 @router.post("/send/certificate-alert", response_model=SendResponse)
 async def send_certificate_alert(
     request: SendCertAlertRequest,

@@ -287,39 +287,3 @@ async def delete_post(
     )
 
 
-@router.get(
-    "/contract/{contract_id}",
-    response_model=list[PostResponse],
-    dependencies=[require_operacional_permission(Permission.POSTS_VIEW)],
-)
-async def get_posts_by_contract(
-    contract_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[PostResponse]:
-    """
-    Lista postos de um contrato.
-    """
-    repo = PostRepository(db)
-    posts: list[Any] = await repo.get_by_contract(contract_id)
-
-    return [PostResponse.model_validate(post) for post in posts]
-
-
-@router.get(
-    "/client/{client_id}",
-    response_model=list[PostResponse],
-    dependencies=[require_operacional_permission(Permission.POSTS_VIEW)],
-)
-async def get_posts_by_client(
-    client_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[PostResponse]:
-    """
-    Lista postos de um cliente.
-    """
-    repo = PostRepository(db)
-    posts: list[Any] = await repo.get_by_client(client_id)
-
-    return [PostResponse.model_validate(post) for post in posts]

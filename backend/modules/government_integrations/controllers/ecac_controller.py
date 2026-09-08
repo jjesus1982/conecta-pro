@@ -110,29 +110,3 @@ async def consultar_debitos(
         )
 
 
-@router.get(
-    "/parcelamentos",
-    response_model=StandardResponse,
-    summary="Consulta parcelamentos",
-    description="Consulta parcelamentos ativos do contribuinte",
-)
-async def consultar_parcelamentos(
-    current_user: CurrentActiveUser,
-    situacao: str | None = Query(None, description="Filtro por situacao (ativo, encerrado)"),
-    service: EcacService = Depends(get_service),
-) -> StandardResponse:
-    """Consulta parcelamentos ativos."""
-    try:
-        resultado = service.consultar_parcelamentos(situacao=situacao)
-
-        return StandardResponse(
-            success=True, message=f"Parcelamentos consultados: {resultado['quantidade']} encontrados", data=resultado
-        )
-
-    except Exception as e:
-        logger.error(f"Erro ao consultar parcelamentos: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao consultar parcelamentos: {str(e)}"
-        )
-
-

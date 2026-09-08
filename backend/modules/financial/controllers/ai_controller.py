@@ -313,72 +313,6 @@ def _build_health(metrics: dict, alerts: list[RiskAlert]) -> HealthCheck:
 # ===================================================================
 
 
-@router.get("/command-center", response_model=CommandCenterResponse)
-async def get_command_center(
-    condominio_id: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """Retorna visão consolidada do AI Command Center financeiro."""
-    from datetime import datetime
-
-    default_health = HealthCheck(
-        score=70,
-        classification="bom",
-        liquidity=0.0,
-        default_rate=0.0,
-        revenue_trend="estavel",
-        margin_avg=0.0,
-        alerts_count=0,
-    )
-
-    # F2-c: caminho ÚNICO e honesto (sem o orquestrador redundante). Métricas reais do
-    # banco → health/alerts/insights; cashflow direto do CashflowPredictorAgent.
-    try:
-        metrics = await _calculate_default_metrics(session, condominio_id)
-        alerts = _build_alerts(metrics)
-        insights = _build_insights(metrics)
-        health = _build_health(metrics, alerts)
-
-        cashflow = None
-        try:
-            pred = await CashflowPredictorAgent(session).predict(days=90)
-            if isinstance(pred, dict):
-                cashflow = CashflowPrediction(
-                    current_balance=pred.get("current_balance", 0.0),
-                    predicted_30d=pred.get("predicted_30d", 0.0),
-                    predicted_60d=pred.get("predicted_60d", 0.0),
-                    predicted_90d=pred.get("predicted_90d", 0.0),
-                    trend=pred.get("trend", "estavel"),
-                    confidence=pred.get("confidence", 0.3),
-                    points=[CashflowPoint(**p) for p in pred.get("points", [])],
-                    gaps=pred.get("gaps", []),
-                    scenario_optimistic=pred.get("scenario_optimistic", 0.0),
-                    scenario_pessimistic=pred.get("scenario_pessimistic", 0.0),
-                )
-        except Exception as exc:
-            logger.debug("Erro ao montar CashflowPrediction: %s", exc)
-
-        return CommandCenterResponse(
-            health=health,
-            alerts=alerts,
-            insights=insights,
-            cashflow=cashflow,
-            updated_at=datetime.now().isoformat(),
-        )
-
-    except Exception as exc:
-        logger.exception("Erro no command center")
-        raise HTTPException(status_code=503, detail=f"command center indisponível: {exc}") from exc  # era 200 com health inventado
-
-    return CommandCenterResponse(  # pragma: no cover — inalcançável, mantido só para o tipo
-        health=default_health,
-        alerts=[],
-        insights=[],
-        updated_at=datetime.now().isoformat(),
-    )
-
-
 # ===================================================================
 # ENDPOINT 2 — RISKS
 # ===================================================================
@@ -390,19 +324,6 @@ async def get_command_center(
 # ===================================================================
 # ENDPOINT 5a — COLLECTION: ANÁLISE DE INADIMPLENTES
 # ===================================================================
-
-
-@router.get("/collection/analyze")
-async def get_collection_analysis(
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna análise completa de inadimplentes com estratégias de cobrança
-    personalizadas por nível de atraso (CollectionNegotiatorAgent).
-    """
-    agent = CollectionNegotiatorAgent(session)
-    return await agent.analisar()
 
 
 # ===================================================================
@@ -443,80 +364,14 @@ async def calculate_pricing(
 # ===================================================================
 
 
-@router.get("/advisor/recommendations")
-async def get_recommendations(
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna lista priorizada de recomendações financeiras baseadas nos dados reais do sistema.
-    """
-    agent = FinancialAdvisorAgent(session)
-    return await agent.gerar_recomendacoes()
-
-
 class AdvisorChatRequest(BaseModel):
     pergunta: str
     condominio_id: str = ""
 
 
-@router.post("/advisor/chat", status_code=201)
-async def advisor_chat(
-    request: AdvisorChatRequest,
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """Chat financeiro — F2-e: consolidado no cérebro REAL do CFO (LLM ancorado nos números),
-    aposentando o chat-template duplicado. Mesmo shape {resposta:...} que o front já lê."""
-    from modules.financial import cfo_service
-
-    try:
-        return await cfo_service.consultar(
-            session, area="estrategico", pergunta=request.pergunta,
-            user_id=str(getattr(current_user, "id", None)),
-        )
-    except ValueError as exc:
-        return {"resposta": str(exc), "escalonar": False}
-
-
-@router.get("/advisor/relatorio")
-async def get_relatorio_executivo(
-    periodo: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Gera relatório executivo financeiro completo para o período.
-
-    Query param: periodo=YYYY-MM (padrão: mês atual)
-
-    Retorna: sumário executivo, KPIs, destaques, pontos de atenção,
-    comparativo com período anterior e recomendações priorizadas.
-    """
-    agent = FinancialAdvisorAgent(session)
-    return await agent.gerar_relatorio_executivo(periodo or None)
-
-
 # ===================================================================
 # ENDPOINT 5d — COSTING: MARGEM POR TIPO DE SERVIÇO
 # ===================================================================
-
-
-@router.get("/costing/margin-by-type")
-async def get_margin_by_service_type(
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna margem média por tipo de serviço (portaria, limpeza, jardinagem,
-    seguranca_eletronica, portaria_remota) para o mês atual e os 2 anteriores.
-
-    Sem dados reais → retorna vazio honesto (fonte='sem_dados'); NÃO fabrica benchmarks.
-    """
-    from modules.financial.agents.costing_analyzer import CostingAnalyzerAgent
-
-    agent = CostingAnalyzerAgent(session)
-    return await agent.execute("get_margin_by_service_type")
 
 
 # ===================================================================
@@ -536,77 +391,10 @@ def _parse_mes(mes_str: str | None) -> date:
         return today.replace(day=1)
 
 
-@router.get("/billing/summary")
-async def get_billing_summary(
-    mes: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna resumo de faturamento do mês.
-
-    Query param: mes=YYYY-MM (padrão: mês atual)
-    """
-    mes_date = _parse_mes(mes)
-    agent = BillingAutomatorAgent(session)
-    return await agent.gerar_resumo_faturamento(mes_date)
-
-
-@router.get("/billing/contracts")
-async def get_billing_contracts(
-    mes: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna lista de contratos pendentes de faturamento no mês.
-
-    Query param: mes=YYYY-MM (padrão: mês atual)
-    """
-    mes_date = _parse_mes(mes)
-    agent = BillingAutomatorAgent(session)
-    return await agent.listar_contratos_para_faturar(mes_date)
-
-
 class MedicaoRequest(BaseModel):
     tipo: str = "portaria"
     descricao: str = "Contrato de portaria/serviços para condomínios"
     periodo_dias: int = 30
-
-
-@router.post("/billing/medicao", status_code=201)
-async def calcular_medicao(
-    request: MedicaoRequest,
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Calcula medição de um contrato por tipo de serviço.
-
-    Tipos: portaria, limpeza, jardinagem, seguranca_eletronica, portaria_remota
-    """
-    agent = BillingAutomatorAgent(session)
-    return agent.calcular_medicao(
-        contrato_descricao=request.descricao,
-        tipo=request.tipo,
-        periodo_dias=request.periodo_dias,
-    )
-
-
-@router.get("/billing/preview")
-async def get_billing_preview(
-    mes: str = Query(default=""),
-    session: AsyncSession = Depends(get_db_session),
-    current_user=Depends(get_current_user),
-):
-    """
-    Retorna preview do faturamento automático do mês.
-
-    Query param: mes=YYYY-MM (padrão: mês atual)
-    """
-    mes_date = _parse_mes(mes)
-    agent = BillingAutomatorAgent(session)
-    return await agent.executar_faturamento_preview(mes_date)
 
 
 class ContratoAtivadoRequest(BaseModel):
@@ -686,57 +474,3 @@ async def registrar_custo_tipo(
     return resultado
 
 
-@router.get("/agents/status", summary="Status dos agentes GEDEON financeiros")
-async def get_agents_status(
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-):
-    """Status de todos os agentes com skills carregadas."""
-    from datetime import datetime
-
-    from modules.financial.agents.skill_loader import SkillLoader
-
-    # F2-d parede "nunca fabricar": só estes 3 rodam AGENDADOS (celery beat). O restante
-    # é sob demanda (chamado por API/tela) — antes o schedule anunciava horários inexistentes.
-    agents_config = [
-        {"name": "RiskMonitorAgent", "schedule": "a cada 5 min (beat)",
-         "skills": ["kpis-financeiros", "matriz-riscos-negocio"]},
-        {
-            "name": "CashflowPredictorAgent",
-            "schedule": "diário 07:15 (beat)",
-            "skills": ["projecao-fluxo-caixa-12-meses", "analise-fluxo-caixa-real"],
-        },
-        {"name": "CollectionNegotiatorAgent", "schedule": "diário 09:00 (beat)",
-         "skills": ["gestao-inadimplencia"]},
-        {
-            "name": "FinancialAdvisorAgent",
-            "schedule": "sob demanda",
-            "skills": ["dre-gerencial", "kpis-financeiros", "analise-fluxo-caixa-real"],
-        },
-        {
-            "name": "PricingOptimizerAgent",
-            "schedule": "sob demanda",
-            "skills": ["framework-precificacao-margem", "break-even-ponto-equilibrio"],
-        },
-        {"name": "TaxCalculatorAgent", "schedule": "sob demanda", "skills": ["tributario-lucro-real"]},
-        {"name": "BillingAutomatorAgent", "schedule": "sob demanda", "skills": []},
-        {"name": "CostingAnalyzerAgent", "schedule": "sob demanda", "skills": ["analise-margem-por-servico"]},
-    ]
-
-    skills_available = SkillLoader.list_available()
-
-    return {
-        "total_agents": len(agents_config),
-        "skills_available": len(skills_available),
-        "skills_list": skills_available,
-        "gedeon_layer": "Layer 2 — Financial",
-        "timestamp": datetime.now().isoformat(),
-        "agents": [
-            {
-                **agent,
-                "skills_loaded": [s for s in agent["skills"] if any(s in sk for sk in skills_available)],
-                "skills_missing": [s for s in agent["skills"] if not any(s in sk for sk in skills_available)],
-            }
-            for agent in agents_config
-        ],
-    }

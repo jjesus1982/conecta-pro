@@ -177,31 +177,6 @@ async def get_expiring_entries(
 
 
 @router.get(
-    "/summary/{employee_id}",
-    response_model=TimeBankSummary,
-    dependencies=[require_operacional_permission(Permission.TIMEBANK_VIEW_ALL, Permission.TIMEBANK_VIEW_OWN)],
-)
-async def get_employee_summary(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> TimeBankSummary:
-    """
-    Obtém resumo do banco de horas de um funcionário.
-    """
-    repo = TimeBankRepository(db)
-    summary = await repo.get_summary(employee_id)
-
-    if not summary:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Funcionário não encontrado ou sem entradas",
-        )
-
-    return summary
-
-
-@router.get(
     "/stats",
     response_model=TimeBankStats,
     dependencies=[require_operacional_permission(Permission.TIMEBANK_VIEW_ALL)],
@@ -252,73 +227,6 @@ async def get_expiration_alerts(
     alerts = time_bank_service.check_expiration_alerts(entries_dict)
 
     return alerts
-
-
-@router.get(
-    "/monthly-summary/{employee_id}",
-    dependencies=[require_operacional_permission(Permission.TIMEBANK_VIEW_ALL, Permission.TIMEBANK_VIEW_OWN)],
-)
-async def get_monthly_summary(
-    employee_id: str,
-    month: int = Query(..., ge=1, le=12),
-    year: int = Query(..., ge=2020, le=2100),
-    current_user: CurrentActiveUser = None,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """
-    Obtém resumo mensal do banco de horas de um funcionário.
-    """
-    repo = TimeBankRepository(db)
-
-    # Buscar entradas do funcionário
-    filters = TimeBankFilter(employee_id=employee_id)
-    entries, _ = await repo.list(filters=filters, page=1, page_size=1000)
-
-    # Converter para formato do serviço
-    entries_dict: list[dict[str, Any]] = [
-        {
-            "id": str(e.id),
-            "entry_type": e.entry_type,
-            "hours": e.hours,
-            "reference_date": str(e.reference_date),
-        }
-        for e in entries
-    ]
-
-    summary = time_bank_service.calculate_monthly_summary(entries_dict, month, year)
-
-    return summary
-
-
-@router.get(
-    "/recommendations/{employee_id}",
-    dependencies=[require_operacional_permission(Permission.TIMEBANK_VIEW_ALL, Permission.TIMEBANK_VIEW_OWN)],
-)
-async def get_recommendations(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[str]:
-    """
-    Obtém recomendações de gestão do banco de horas.
-    """
-    repo = TimeBankRepository(db)
-
-    # Obter resumo
-    summary = await repo.get_summary(employee_id)
-    if not summary:
-        return []
-
-    # Calcular média mensal (simplificado)
-    monthly_avg = abs(summary.total_credit) / 6 if summary.total_credit else 0
-
-    recommendations = time_bank_service.get_recommendations(
-        summary.current_balance,
-        summary.expiring_soon,
-        monthly_avg,
-    )
-
-    return recommendations
 
 
 @router.post(

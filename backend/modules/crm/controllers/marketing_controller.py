@@ -349,119 +349,6 @@ async def converter_licitacao_para_crm(
 _QUALIFIED_PLUS = "('qualified','proposal','negotiation','won')"
 
 
-@router.get("/funil")
-async def funil_real(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)):
-    """Funil de vendas com dados REAIS: leads (por origem) -> qualificados -> clientes -> MRR."""
-    # 1) Funil de leads (total / qualificados / ganhos)
-    lead_row = (
-        await db.execute(
-            text(
-                f"""
-        SELECT
-          count(*) AS leads_total,
-          count(*) FILTER (WHERE status IN {_QUALIFIED_PLUS}
-                           OR (qualificacao IS NOT NULL AND qualificacao::text <> '{{}}')) AS qualificados,
-          count(*) FILTER (WHERE status = 'won') AS ganhos
-        FROM leads WHERE is_active
-        """
-            )
-        )
-    ).fetchone()
-
-    # 2) Clientes + MRR + quantos vieram de lead
-    cli_row = (
-        await db.execute(
-            text(
-                """
-        SELECT
-          count(*) FILTER (WHERE c.ativo) AS clientes_ativos,
-          count(*) FILTER (WHERE c.ativo AND c.lead_id IS NOT NULL) AS clientes_de_lead,
-          COALESCE(SUM(
-            (SELECT SUM(cc.monthly_value) FROM client_contracts cc
-             WHERE cc.client_id = c.id AND cc.status = 'active')
-          ), 0) AS mrr_total
-        FROM clients c
-        """
-            )
-        )
-    ).fetchone()
-
-    # 3) Quebra por origem (leads por source + clientes/MRR atribuídos àquela origem)
-    origem_rows = (
-        await db.execute(
-            text(
-                f"""
-        WITH leads_src AS (
-          SELECT source,
-                 count(*) AS leads,
-                 count(*) FILTER (WHERE status IN {_QUALIFIED_PLUS}
-                                  OR (qualificacao IS NOT NULL AND qualificacao::text <> '{{}}')) AS qualificados
-          FROM leads WHERE is_active GROUP BY source
-        ),
-        cli_src AS (
-          SELECT COALESCE(l.source, 'direto') AS source,
-                 count(*) AS clientes,
-                 COALESCE(SUM(
-                   (SELECT SUM(cc.monthly_value) FROM client_contracts cc
-                    WHERE cc.client_id = c.id AND cc.status = 'active')
-                 ), 0) AS mrr
-          FROM clients c LEFT JOIN leads l ON c.lead_id = l.id
-          WHERE c.ativo GROUP BY COALESCE(l.source, 'direto')
-        )
-        SELECT COALESCE(ls.source, cs.source) AS origem,
-               COALESCE(ls.leads, 0) AS leads,
-               COALESCE(ls.qualificados, 0) AS qualificados,
-               COALESCE(cs.clientes, 0) AS clientes,
-               COALESCE(cs.mrr, 0) AS mrr
-        FROM leads_src ls FULL OUTER JOIN cli_src cs ON ls.source = cs.source
-        ORDER BY leads DESC, clientes DESC
-        """
-            )
-        )
-    ).fetchall()
-
-    leads_total = lead_row.leads_total or 0
-    qualificados = lead_row.qualificados or 0
-    clientes_ativos = cli_row.clientes_ativos or 0
-    clientes_de_lead = cli_row.clientes_de_lead or 0
-
-    def _pct(num, den):
-        return round((num / den) * 100, 1) if den else 0.0
-
-    por_origem = []
-    for r in origem_rows:
-        por_origem.append(
-            {
-                "origem": r.origem,
-                "leads": r.leads,
-                "qualificados": r.qualificados,
-                "clientes": r.clientes,
-                "mrr": float(r.mrr or 0),
-                "conversao": _pct(r.clientes, r.leads),
-            }
-        )
-
-    return {
-        "funil": [
-            {"stage": "Leads", "value": leads_total},
-            {"stage": "Qualificados", "value": qualificados},
-            {"stage": "Convertidos (de lead)", "value": clientes_de_lead},
-            {"stage": "Clientes ativos", "value": clientes_ativos},
-        ],
-        "por_origem": por_origem,
-        "totais": {
-            "leads": leads_total,
-            "qualificados": qualificados,
-            "clientes_ativos": clientes_ativos,
-            "clientes_de_lead": clientes_de_lead,
-            "mrr_total": float(cli_row.mrr_total or 0),
-            "taxa_lead_qualificado": _pct(qualificados, leads_total),
-            "taxa_lead_cliente": _pct(clientes_de_lead, leads_total),
-        },
-        "gerado_em": datetime.now().isoformat(),
-    }
-
-
 # === COPYWRITER AGENT (Conecta Marketing AI — F2) ===
 
 
@@ -471,14 +358,6 @@ class CopywriterRequest(BaseModel):
     objetivo: str | None = None
     publico: str | None = None
     n_variacoes: int = 3
-
-
-@router.get("/copywriter/formats")
-async def listar_formatos_copywriter(current_user: CurrentActiveUser):
-    """Lista os formatos de conteúdo que o agente copywriter sabe gerar."""
-    from modules.crm.services.copywriter_agent import formatos_suportados
-
-    return {"formatos": formatos_suportados()}
 
 
 @router.post("/copywriter/generate")
@@ -577,58 +456,6 @@ def _content_to_dict(c) -> dict:
     }
 
 
-@router.post("/content/", status_code=201)
-async def salvar_conteudo(
-    data: ContentSaveRequest,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Salva uma peça na biblioteca (default: aprovada)."""
-    from modules.crm.models.marketing_content import ContentStatus, MarketingContentDraft
-
-    status = data.status if data.status in (s.value for s in ContentStatus) else ContentStatus.APROVADO.value
-    item = MarketingContentDraft(
-        formato=data.formato,
-        formato_label=data.formato_label,
-        titulo=data.titulo,
-        conteudo=data.conteudo,
-        observacao=data.observacao,
-        briefing=data.briefing,
-        objetivo=data.objetivo,
-        publico=data.publico,
-        modelo=data.modelo,
-        status=status,
-        created_by_id=getattr(current_user, "id", None),
-        approved_at=datetime.utcnow() if status == ContentStatus.APROVADO.value else None,
-    )
-    db.add(item)
-    await db.commit()
-    await db.refresh(item)
-    return _content_to_dict(item)
-
-
-@router.get("/content/")
-async def listar_conteudo(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_async_session),
-    status: str | None = Query(None),
-    formato: str | None = Query(None),
-):
-    """Lista peças da biblioteca, filtrando por status e/ou formato."""
-    from sqlalchemy import select
-
-    from modules.crm.models.marketing_content import MarketingContentDraft
-
-    stmt = select(MarketingContentDraft)
-    if status:
-        stmt = stmt.where(MarketingContentDraft.status == status)
-    if formato:
-        stmt = stmt.where(MarketingContentDraft.formato == formato)
-    stmt = stmt.order_by(MarketingContentDraft.created_at.desc())
-    rows = (await db.execute(stmt)).scalars().all()
-    return {"items": [_content_to_dict(c) for c in rows], "total": len(rows)}
-
-
 class ContentEditRequest(BaseModel):
     titulo: str | None = None
     conteudo: str | None = None
@@ -718,17 +545,3 @@ async def atualizar_status_conteudo(
     return _content_to_dict(item)
 
 
-@router.delete("/content/{content_id}", status_code=204)
-async def excluir_conteudo(
-    content_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Exclui uma peça da biblioteca."""
-    from modules.crm.models.marketing_content import MarketingContentDraft
-
-    item = await db.get(MarketingContentDraft, content_id)
-    if item:
-        await db.delete(item)
-        await db.commit()
-    return None

@@ -91,41 +91,6 @@ async def listar_visitas(
     return await service.listar_visitas(filtro, page, page_size)
 
 
-@router.get("/responsavel/{responsavel_id}", response_model=list[VisitaListItem])
-async def listar_visitas_responsavel(
-    responsavel_id: UUID,
-    current_user: CurrentActiveUser,
-    data: date | None = None,
-    apenas_agendadas: bool = False,
-    service: VisitaService = Depends(get_service),
-):
-    """Lista visitas de um responsavel."""
-    visitas = await service.listar_visitas_responsavel(responsavel_id, data, apenas_agendadas)
-    return [VisitaListItem.model_validate(v) for v in visitas]
-
-
-@router.get("/cliente/{cliente_id}", response_model=list[VisitaListItem])
-async def listar_visitas_cliente(
-    cliente_id: UUID,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Lista visitas de um cliente."""
-    visitas = await service.listar_visitas_cliente(cliente_id)
-    return [VisitaListItem.model_validate(v) for v in visitas]
-
-
-@router.get("/lead/{lead_id}", response_model=list[VisitaListItem])
-async def listar_visitas_lead(
-    lead_id: UUID,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Lista visitas de um lead."""
-    visitas = await service.listar_visitas_lead(lead_id)
-    return [VisitaListItem.model_validate(v) for v in visitas]
-
-
 @router.get("/{visita_id}", response_model=VisitaRead)
 async def obter_visita(
     visita_id: UUID,
@@ -134,19 +99,6 @@ async def obter_visita(
 ):
     """Obtem detalhes de uma Visita."""
     visita = await service.obter_visita(visita_id)
-    if not visita:
-        raise HTTPException(status_code=404, detail="Visita nao encontrada")
-    return VisitaRead.model_validate(visita)
-
-
-@router.get("/numero/{numero}", response_model=VisitaRead)
-async def obter_visita_por_numero(
-    numero: str,
-    current_user: CurrentActiveUser,
-    service: VisitaService = Depends(get_service),
-):
-    """Obtem Visita por numero."""
-    visita = await service.obter_visita_por_numero(numero)
     if not visita:
         raise HTTPException(status_code=404, detail="Visita nao encontrada")
     return VisitaRead.model_validate(visita)

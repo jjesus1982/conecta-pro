@@ -115,59 +115,6 @@ async def list_shifts(  # pylint: disable=too-many-locals
 
 
 @router.get(
-    "/today",
-    dependencies=[require_operacional_permission(Permission.SHIFTS_VIEW_ALL, Permission.SHIFTS_VIEW_OWN)],
-)
-async def get_today_shifts(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    post_id: str | None = None,
-) -> ShiftListResponse:
-    """
-    Lista turnos do dia atual.
-    """
-    repo = ShiftRepository(db)
-    today = date.today()
-
-    filters = ShiftFilter(
-        start_date=today,
-        end_date=today,
-        post_id=post_id,
-    )
-
-    shifts: list[Any]
-    total: int
-    shifts, total = await repo.list(filters=filters, page=1, page_size=100)
-
-    return ShiftListResponse(
-        items=[ShiftResponse.model_validate(shift) for shift in shifts],
-        total=total,
-        page=1,
-        page_size=100,
-        total_pages=1,
-    )
-
-
-@router.get(
-    "/scale/{scale_id}",
-    response_model=list[ShiftResponse],
-    dependencies=[require_operacional_permission(Permission.SHIFTS_VIEW_ALL, Permission.SHIFTS_VIEW_OWN)],
-)
-async def get_shifts_by_scale(
-    scale_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[ShiftResponse]:
-    """
-    Lista todos os turnos de uma escala.
-    """
-    repo = ShiftRepository(db)
-    shifts: list[Any] = await repo.get_by_scale(scale_id)
-
-    return [ShiftResponse.model_validate(shift) for shift in shifts]
-
-
-@router.get(
     "/{shift_id}",
     response_model=ShiftResponse,
     dependencies=[require_operacional_permission(Permission.SHIFTS_VIEW_ALL, Permission.SHIFTS_VIEW_OWN)],

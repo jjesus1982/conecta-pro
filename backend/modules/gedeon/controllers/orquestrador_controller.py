@@ -144,62 +144,6 @@ def _invalidar_kit(comp: str, cond: str) -> None:
     _COMPLETUDE_CACHE.pop(comp, None)
 
 
-@router.post("/upload", summary="Anexa um arquivo ao kit de um condomínio (upload manual)")
-async def upload_kit(
-    competencia: str = Form(..., regex=COMP_RE),
-    condominio: str = Form(...),
-    file: UploadFile = File(...),
-    subpasta: str | None = Form(None),  # opcional: força a subpasta; senão classifica pelo nome
-    current_user=Depends(get_current_user),
-) -> dict:
-    """Sobe um arquivo manual (TRCT digitalizado, atestado, ou qualquer doc que não vem do
-    Sólides/Onvio/Inter) direto na subpasta certa do kit do condomínio, no Drive."""
-    import os
-    import tempfile
-
-    from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_layout import (
-        SUBPASTAS,
-        _garantir_pasta,
-        garantir_pasta_kit,
-        pasta_kit_arquivo,
-    )
-
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="arquivo vazio")
-    nome = os.path.basename(file.filename or "anexo.pdf")
-
-    if not gdrive_service._service:
-        gdrive_service.check_status()
-    if not gdrive_service._service:
-        raise HTTPException(status_code=503, detail="Google Drive não conectado")
-
-    # destino: subpasta forçada (se válida) OU classificada pelo nome do arquivo
-    if subpasta and subpasta in SUBPASTAS:
-        base = garantir_pasta_kit(condominio, competencia)
-        folder = _garantir_pasta({}, subpasta, base) if base else None
-    else:
-        folder = pasta_kit_arquivo(condominio, competencia, nome)
-    if not folder:
-        raise HTTPException(status_code=502, detail="não foi possível criar a pasta do kit")
-
-    fd, tmp = tempfile.mkstemp(suffix=os.path.splitext(nome)[1] or ".pdf")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(content)
-        ok = gdrive_service.fazer_upload_arquivo(tmp, folder, nome)
-    finally:
-        try:
-            os.remove(tmp)
-        except Exception:
-            pass
-    if not ok:
-        raise HTTPException(status_code=502, detail="falha no upload ao Drive")
-    _invalidar_kit(competencia, condominio)  # ficha/ATLAS/completude refletem o novo anexo
-    return {"ok": True, "condominio": condominio, "competencia": competencia, "arquivo": nome, "bytes": len(content)}
-
-
 @router.delete("/arquivo", summary="Exclui (lixeira) um arquivo do kit de um condomínio")
 def excluir_arquivo_kit(
     file_id: str = Query(...),
@@ -388,13 +332,6 @@ def alinhamento_dp_endpoint(
     from modules.gedeon.services.kit_dp_service import alinhamento_dp
 
     return alinhamento_dp(competencia or _competencia_anterior(), condominio)
-
-
-@router.get("/condominios", summary="Condomínios elegíveis (escala — clients com contrato ativo)")
-def condominios_elegiveis_endpoint(current_user=Depends(get_current_user)) -> dict:
-    from modules.gedeon.services.kit_dp_service import condominios_elegiveis
-
-    return condominios_elegiveis()
 
 
 @router.get("/funcionarios", summary="Funcionários da folha do condomínio (p/ a visão por funcionário)")
@@ -669,63 +606,3 @@ def cronograma(
     }
 
 
-@router.get("/painel", summary="Painel de completude dos kits (lê o Drive)")
-def painel_kits(
-    competencia: str = Query(..., regex=COMP_RE, examples=["05.2026"]),
-    current_user=Depends(get_current_user),
-) -> dict:
-    """Para cada condomínio: contagem de docs por subpasta + link do Drive."""
-    from modules.gdrive.services.gdrive_service import gdrive_service
-    from modules.gedeon.services.kit_layout import SUBPASTAS, garantir_pasta_kit, mes_kit_de_competencia
-    from modules.gedeon.services.kit_orchestrator import CONDOMINIOS_PADRAO
-
-    if not gdrive_service._service:
-        gdrive_service.check_status()
-    svc = gdrive_service._service
-    if not svc:
-        raise HTTPException(status_code=503, detail="Google Drive não conectado")
-
-    def _list(parent_id: str, extra: str = "") -> list[dict]:
-        q = f"'{parent_id}' in parents and trashed=false" + extra
-        return (
-            svc.files()
-            .list(
-                q=q,
-                fields="files(id,name,mimeType)",
-                pageSize=300,
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
-            )
-            .execute()
-            .get("files", [])
-        )
-
-    condominios = []
-    for cond in CONDOMINIOS_PADRAO:
-        base = garantir_pasta_kit(cond, competencia)
-        link, subs, total = None, [], 0
-        if base:
-            try:
-                meta = svc.files().get(fileId=base, fields="webViewLink", supportsAllDrives=True).execute()
-                link = meta.get("webViewLink")
-            except Exception:
-                pass
-            folders = {f["name"]: f["id"] for f in _list(base) if f["mimeType"] == _FOLDER_MIME}
-            for sp in SUBPASTAS:
-                fid = folders.get(sp)
-                n = len([x for x in _list(fid) if x["mimeType"] != _FOLDER_MIME]) if fid else 0
-                subs.append({"nome": sp, "docs": n})
-                total += n
-        condominios.append(
-            {
-                "condominio": cond,
-                "total": total,
-                "subpastas": subs,
-                "drive_link": link,
-            }
-        )
-    return {
-        "competencia": competencia,
-        "mes_kit": mes_kit_de_competencia(competencia),
-        "condominios": condominios,
-    }

@@ -274,57 +274,6 @@ async def list_occurrences(
     )
 
 
-@router.get(
-    "/stats",
-    response_model=OccurrenceStats,
-    dependencies=[require_operacional_permission(Permission.OCCURRENCES_VIEW)],
-)
-async def get_occurrence_stats(
-    current_user: CurrentActiveUser,
-    scope: OperationalScope = Depends(get_operational_scope),
-    db: AsyncSession = Depends(get_db),
-) -> OccurrenceStats:
-    """
-    Obtém estatísticas de ocorrências.
-
-    Escopo por posto: líder vê stats SÓ dos postos que lidera.
-    (Cache removido: resposta depende do escopo do usuário — cache compartilhado vazaria dados.)
-    """
-    repo = OccurrenceRepository(db)
-    scope_ids = None if scope.all_posts else scope_post_ids_or_403(scope)
-    return await repo.get_stats(post_ids=scope_ids)
-
-
-@router.get(
-    "/by-post/{post_id}",
-    response_model=list[OccurrenceResponse],
-    dependencies=[require_operacional_permission(Permission.OCCURRENCES_VIEW)],
-)
-async def get_occurrences_by_post(
-    post_id: str,
-    current_user: CurrentActiveUser,
-    scope: OperationalScope = Depends(get_operational_scope),
-    db: AsyncSession = Depends(get_db),
-) -> list[OccurrenceResponse]:
-    """
-    Busca ocorrências de um posto específico.
-
-    Escopo por posto: líder só consulta postos que lidera (403 fora do escopo).
-    """
-    if not scope.all_posts:
-        allowed_post_ids = scope_post_ids_or_403(scope)
-        if post_id not in allowed_post_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Posto fora do seu escopo: você só vê ocorrências dos postos que lidera.",
-            )
-
-    repo = OccurrenceRepository(db)
-    occurrences = await repo.get_by_post(post_id)
-
-    return [OccurrenceResponse.model_validate(occ) for occ in occurrences]
-
-
 async def _get_occurrence_in_scope(
     occurrence_id: str,
     scope: OperationalScope,

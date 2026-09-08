@@ -40,23 +40,6 @@ async def registrar_justificativa(
     return resultado
 
 
-@router.get(
-    "/pendentes",
-    summary="Listar saídas sem justificativa",
-)
-async def listar_pendentes(
-    mes: int | None = None,
-    ano: int | None = None,
-    _user=Depends(get_current_user),
-):
-    """Lista transações de saída que ainda precisam de justificativa."""
-    from modules.financial.services.justificativa_service import (
-        listar_sem_justificativa,
-    )
-
-    return listar_sem_justificativa(mes, ano)
-
-
 @router.post(
     "/alertar",
     summary="Disparar alerta Telegram sobre pendências",
@@ -97,22 +80,5 @@ async def classificar_auto(
         apenas_sem_categoria=apenas_sem_categoria,
         responsavel=responsavel,
     )
-
-
-@router.get(
-    "/compliance",
-    summary="Relatório de compliance Lucro Real — estado das justificativas",
-)
-async def compliance_report(_user=Depends(get_current_user)):
-    """
-    Retorna percentual de compliance das saídas bancárias:
-    - total_debitos, conciliados, justificados, pendentes_criticos
-    - valor_pendente, compliance_pct
-    """
-    from modules.financial.services.lucro_real_justificativa_service import (
-        relatorio_compliance,
-    )
-
-    return relatorio_compliance()
 
 

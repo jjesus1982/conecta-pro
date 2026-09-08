@@ -58,15 +58,6 @@ async def lancamentos(mes: int | None = Query(default=None, ge=1, le=12),
     return await svc.listar_lancamentos(db, mes=mes, ano=ano, data=data)
 
 
-@router.delete("/lancamentos/{lancamento_id}", summary="Exclui um lançamento")
-async def excluir(lancamento_id: int, current_user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    res = await svc.excluir_lancamento(db, lancamento_id)
-    if not res.get("ok"):
-        raise HTTPException(status_code=int(res.get("http_status", 422)),
-                            detail=res.get("mensagem", "Não foi possível excluir o lançamento."))
-    return res
-
-
 @router.get("/resumo-diarista", summary="Resumo por diarista (a lista de pagamento do dia 15)")
 async def resumo_diarista(mes: int = Query(...), ano: int = Query(...),
                           current_user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
@@ -85,15 +76,6 @@ class DiaristaIn(BaseModel):
     pix: str | None = Field(default=None, description="Chave PIX OBRIGATÓRIA (CPF, +55 telefone, e-mail ou UUID)")
     telefone: str | None = Field(default=None, description="Contato — exigido telefone OU e-mail")
     email: str | None = Field(default=None, description="Contato — exigido telefone OU e-mail")
-
-
-@router.post("/diaristas", summary="Cadastra um diarista (CPF + PIX válidos obrigatórios; telefone ou e-mail)")
-async def criar_diarista(body: DiaristaIn, current_user=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    res = await svc.criar_diarista(db, nome=body.nome, cpf=body.cpf, pix=body.pix,
-                                   telefone=body.telefone, email=body.email)
-    if not res.get("ok"):
-        raise HTTPException(status_code=422, detail=res.get("mensagem", "Dados inválidos para cadastro de diarista."))
-    return res
 
 
 class DiaristaUpdIn(BaseModel):

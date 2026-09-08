@@ -148,39 +148,6 @@ async def list_templates(
 
 
 @router.get(
-    "/stats",
-    response_model=ScaleTemplateStats,
-    dependencies=[require_operacional_permission(Permission.SCALES_VIEW_ALL, Permission.SCALES_VIEW_OWN)],
-)
-@cache_response(ttl=300, prefix="api:scale_template")  # 5 minutos
-async def get_template_stats(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> ScaleTemplateStats:
-    """
-    Obtém estatísticas de templates.
-
-    Cache: 5 minutos
-    """
-    repo = ScaleTemplateRepository(db)
-
-    tenant_id = get_tenant_id(current_user)
-
-    stats = await repo.get_stats(tenant_id)
-    most_used = await repo.get_most_used(tenant_id, limit=5)
-    recently_created = await repo.get_recently_created(tenant_id, limit=5)
-
-    return ScaleTemplateStats(
-        total=stats["total"],
-        active=stats["active"],
-        inactive=stats["inactive"],
-        avg_usage=stats["avg_usage"],
-        most_used=[ScaleTemplateResponse.model_validate(t) for t in most_used],
-        recently_created=[ScaleTemplateResponse.model_validate(t) for t in recently_created],
-    )
-
-
-@router.get(
     "/{template_id}",
     response_model=ScaleTemplateResponse,
     dependencies=[require_operacional_permission(Permission.SCALES_VIEW_ALL, Permission.SCALES_VIEW_OWN)],

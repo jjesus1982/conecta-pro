@@ -12,6 +12,7 @@ do primeiro `{` (≥ 12 chars). Uso: python3 backend/scripts/qa/checar_cobertura
 from __future__ import annotations
 
 import glob
+import re
 import os
 import subprocess
 import sys
@@ -41,12 +42,34 @@ def _read(patterns: list[str]) -> str:
     return "\n".join(buf)
 
 
-def rotas() -> list[tuple[str, str]]:
+def rotas() -> list[tuple[str, str, str]]:
+    """(método, path, handler) — handler = módulo.função, para reconhecer montagem dupla e reuso por import."""
     code = ("import main_production as m\nfrom fastapi.routing import APIRoute\n"
-            "for r in m.app.routes:\n    if isinstance(r, APIRoute):\n        [print(x, r.path) for x in r.methods]\n")
+            "for r in m.app.routes:\n    if isinstance(r, APIRoute):\n"
+            "        [print(x, r.endpoint.__module__ + '.' + r.endpoint.__name__, r.path) for x in r.methods]\n")
     out = subprocess.run(["docker", "exec", "-e", "PYTHONPATH=/app", "-w", "/app", "conecta-pro-backend", "python3", "-c", code],
                          capture_output=True, text=True, timeout=600).stdout
-    return sorted({tuple(l.split(" ", 1)) for l in out.splitlines() if l.split(" ")[0] in ("GET", "POST", "PUT", "PATCH", "DELETE") and " " in l})
+    seen = set()
+    for l in out.splitlines():
+        parts = l.split(" ", 2)
+        if len(parts) == 3 and parts[0] in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            seen.add((parts[0], parts[2], parts[1]))
+    return sorted(seen)
+
+
+def importado(handler: str, txt: str) -> bool:
+    """O handler é reusado por import (builder do redesign, MCP, orquestrador…) — chamador interno sem URL."""
+    mod, _, fn = handler.rpartition(".")
+    if not mod.startswith("modules."):
+        return False
+    if re.search(r"from %s import[^\n]*\b%s\b" % (re.escape(mod), re.escape(fn)), txt):
+        return True
+    alias = mod.rsplit(".", 1)[-1]
+    if re.search(r"from %s import[^\n]*\b%s\b" % (re.escape(mod.rsplit(".", 1)[0]), re.escape(alias)), txt):
+        for a in re.findall(r"\b%s(?: as (\w+))?" % re.escape(alias), txt):
+            if re.search(r"\b%s\.%s\(" % (re.escape(a or alias), re.escape(fn)), txt):
+                return True
+    return False
 
 
 def usada(path: str, txt: str) -> bool:
@@ -60,11 +83,18 @@ def usada(path: str, txt: str) -> bool:
 def main() -> int:
     tsv = sys.argv[sys.argv.index("--tsv") + 1] if "--tsv" in sys.argv else None
     red, inte, cla = _read(REDESIGN), _read(INTERNA), _read(CLASSICO)
-    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "classico": [], "nenhum": []}
-    for m, p in rotas():
-        if p.startswith(SKIP) or p in ("/", "/api", "/api/v1"):
-            continue
-        k = "redesign" if usada(p, red) else "interna" if usada(p, inte) else "classico" if usada(p, cla) else "nenhum"
+    classes: dict[str, list[tuple[str, str]]] = {"redesign": [], "interna": [], "alias": [], "classico": [], "nenhum": []}
+    todas = [(m, p, h) for m, p, h in rotas() if not p.startswith(SKIP) and p not in ("/", "/api", "/api/v1")]
+    cobertos: set[str] = set()  # handlers alcançados por path do redesign/interna
+    pend = []
+    for m, p, h in todas:
+        k = "redesign" if usada(p, red) else "interna" if usada(p, inte) or importado(h, red + inte) else None
+        if k:
+            classes[k].append((m, p)); cobertos.add(h)
+        else:
+            pend.append((m, p, h))
+    for m, p, h in pend:  # montagem dupla (main_production.py, fora do escopo editável): mesmo handler já coberto
+        k = "alias" if h in cobertos else "classico" if usada(p, cla) else "nenhum"
         classes[k].append((m, p))
     tot = sum(len(v) for v in classes.values())
     for k, v in classes.items():

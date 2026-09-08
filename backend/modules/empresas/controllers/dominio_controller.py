@@ -40,11 +40,6 @@ async def dominio_status(current_user: CurrentActiveUser):
     return await get_status()
 
 
-@router.get("/plano-contas/{empresa_slug}")
-def exportar_plano_contas(current_user: CurrentActiveUser, empresa_slug: str):
-    return agent.gerar_plano_contas(empresa_slug)
-
-
 @router.get("/download/plano-contas/{empresa_slug}", response_class=PlainTextResponse)
 def download_plano_contas(current_user: CurrentActiveUser, empresa_slug: str):
     resultado = agent.gerar_plano_contas(empresa_slug)

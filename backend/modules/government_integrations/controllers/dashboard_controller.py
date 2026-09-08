@@ -556,21 +556,6 @@ class DashboardService:
 dashboard_service = DashboardService()
 
 
-@router.get("/status", response_model=IntegrationStatusResponse)
-async def obter_status_integracoes(current_user: CurrentActiveUser):
-    """
-    Status de TODAS as integrações externas do sistema.
-
-    Retorna status (online/offline/degraded), tempo de resposta e erros
-    para cada integração: Banking (Inter), Government (SEFAZ, Gov.br, etc.), HR (Sólides).
-    """
-    try:
-        return await dashboard_service.obter_status_integracoes()
-    except Exception as e:
-        logger.error(f"Erro ao obter status das integrações: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro ao verificar integrações")
-
-
 @router.get("/certificados/alertas", response_model=list[AlertaCertificado])
 async def listar_alertas_certificados(
     current_user: CurrentActiveUser,

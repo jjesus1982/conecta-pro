@@ -176,24 +176,6 @@ async def get_dashboard(
 
 
 @router.get(
-    "/minhas-rondas",
-    response_model=list[InspectionRoundSummary],
-    summary="Minhas rondas",
-    description="Lista rondas do inspetor logado.",
-)
-async def get_my_rounds(
-    current_user: CurrentActiveUser,
-    inspector_id: UUID = Query(..., description="ID do inspetor"),
-    tenant_id: UUID = Query(..., description="ID do tenant"),
-    limit: int = Query(50, ge=1, le=200),
-    service: InspectionRoundService = Depends(get_inspection_service),
-) -> list[InspectionRoundSummary]:
-    """Lista rondas do inspetor."""
-    rounds = await service.get_rounds_by_inspector(str(inspector_id), str(tenant_id), limit)
-    return [InspectionRoundSummary.model_validate(r) for r in rounds]
-
-
-@router.get(
     "/{round_id}",
     response_model=InspectionRoundResponse,
     summary="Buscar ronda",

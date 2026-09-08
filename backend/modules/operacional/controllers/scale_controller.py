@@ -211,25 +211,6 @@ async def list_scales(
 
 
 @router.get(
-    "/stats",
-    response_model=ScaleStats,
-    dependencies=[require_operacional_permission(Permission.SCALES_VIEW_ALL, Permission.SCALES_VIEW_OWN)],
-)
-@cache_response(ttl=180, prefix="api:scale")  # 3 minutos
-async def get_scale_stats(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> ScaleStats:
-    """
-    Obtém estatísticas de escalas.
-
-    Cache: 3 minutos
-    """
-    repo = ScaleRepository(db)
-    return await repo.get_stats()
-
-
-@router.get(
     "/{scale_id}",
     response_model=ScaleResponse,
     dependencies=[require_operacional_permission(Permission.SCALES_VIEW_ALL, Permission.SCALES_VIEW_OWN)],
@@ -517,39 +498,3 @@ async def delete_scale(
     )
 
 
-@router.post(
-    "/auto-generate",
-    status_code=status.HTTP_200_OK,
-    dependencies=[require_operacional_permission(Permission.SCALES_CREATE)],
-)
-@limiter.limit(CRITICAL_LIMIT)
-async def auto_generate_scales(
-    request: Request,
-    response: Response,  # exigido pelo slowapi p/ endpoints que retornam dict
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    month: int | None = Query(None, ge=1, le=12, description="Mês (se não especificado, usa mês atual)"),
-    year: int | None = Query(None, ge=2020, le=2100, description="Ano (se não especificado, usa ano atual)"),
-) -> dict[str, Any]:
-    """
-    Gera escalas automaticamente para todos os postos com alocações ativas.
-
-    Se mês/ano não especificados, gera para o mês atual.
-    Útil para inicializar o sistema ou gerar escalas mensalmente.
-    """
-    service = AutoScaleService(db)
-
-    result: dict[str, Any]
-    if month and year:
-        result = await service.generate_scales_for_month(month, year, created_by=current_user.id)
-    else:
-        result = await service.generate_scales_for_current_month(created_by=current_user.id)
-
-    logger.info(
-        "Geração automática de escalas executada",
-        action="auto_generate_scales",
-        user_id=str(current_user.id),
-        user_email=current_user.email,
-        result=result,
-    )
-    return result

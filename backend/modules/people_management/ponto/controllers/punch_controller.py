@@ -181,17 +181,6 @@ async def get_batidas_me(
         return {"employee_id": None, "date": date.today().isoformat(), "batidas": []}
 
 
-@router.post("/sync", response_model=PunchSyncResponse, status_code=201)
-async def sync_offline_punches(
-    data: PunchSyncRequest,
-    db: AsyncSession = Depends(get_db),
-) -> PunchSyncResponse:
-    """Sincroniza batidas feitas em modo offline."""
-    service = PunchService(db)
-    result = await service.sync_offline_punches(data.punches)
-    return PunchSyncResponse(**result)
-
-
 @router.get("/batidas/{employee_id}")
 async def get_batidas_dia(
     employee_id: str,

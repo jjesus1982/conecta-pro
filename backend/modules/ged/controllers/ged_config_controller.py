@@ -65,17 +65,6 @@ async def list_ged_clients(
     }
 
 
-@router.put("/config/document-types/{doc_type_id}")
-async def update_document_type(
-    doc_type_id: str,
-    data: dict[str, Any],
-    current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Atualiza tipo de documento (ativar/desativar)."""
-    logger.info("Document type %s updated: %s", doc_type_id, data)
-    return {"id": doc_type_id, **data, "updated": True}
-
-
 @router.get("/reports/by-client")
 async def report_by_client(
     current_user: dict = Depends(get_current_user),

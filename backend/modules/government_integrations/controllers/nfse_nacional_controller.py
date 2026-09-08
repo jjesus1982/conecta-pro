@@ -172,14 +172,3 @@ async def validar_conexao(current_user: CurrentActiveUser) -> StandardResponse:
         )
 
 
-@router.get("/tomadores", response_model=StandardResponse)
-async def listar_tomadores_endpoint(current_user: CurrentActiveUser) -> StandardResponse:
-    """Lista os tomadores (condomínios) com endereço completo, p/ o seletor do emissor."""
-    try:
-        from modules.gedeon.services.nfse_nacional_adn import listar_tomadores
-
-        tomadores = listar_tomadores()
-        return StandardResponse(success=True, message=f"{len(tomadores)} tomadores", data={"tomadores": tomadores})
-    except Exception as e:
-        logger.error(f"Erro ao listar tomadores: {e}", exc_info=True)
-        return StandardResponse(success=False, message=f"Erro: {str(e)[:120]}", data={"tomadores": []})
