@@ -925,6 +925,49 @@ health_occupational (40), security_lgpd (29), cct (23), ai (23; assinatura unive
 **Depende do Jordan (novo):** confirmar a regra de interjornada aplicada (noturno D-1 não cobre D);
 reajuste de contrato agora exige percentual informado.
 
+
+### §2c.26 — CRM lote 2, government, integrations (08/09/2026, 09h–12h Manaus)
+
+**CRM lote 2 (9a9fcace1):** as 48 rotas que existiam sem tela entraram no redesign — ações por linha
+(cliente ativar/suspender/bloquear/regularizar; lead arquivar; proposta enviada aceita/recusada; contrato
+suspender/renovar/encerrar; contato editar/remover; tarefa concluir/excluir), tabelas de produtos (115),
+tarefas, itens e aditivos de contrato, modelos de contrato, itens de proposta e condomínios, e os
+formulários correspondentes. Ficam de fora ficha 360 e autofill de CNPJ/CEP (o formulário do frontend
+não faz GET). Operacional: prestação de contas por inspetor ligada (0bad1d9bd/85e76b41f).
+
+**Government (fa74d9536) — o achado mais grave do dia:** seis POSTs do eSocial estavam SEM
+autenticação e dois deles transmitiam ao governo em produção; a porta 8080 está publicada em 0.0.0.0 e
+a regra DOCKER-USER só fecha a 3001. As rotas foram apagadas (o único caminho de transmissão que fica é
+o do DP, com login). **Falta o Jordan fechar a 8080 no firewall como a 3001** — isso é infra, não
+código. Também: 189 de 224 rotas eram mortas (cte, mdfe, nfce, sefaz, govbr, sync, jobs, extração
+DistDFe do NSU 0 sem trava, certificados em memória, mocks com success=True) e foram apagadas;
+/esocial/eventos passa a ler o espelho real (330 eventos, era tabela órfã com 0); guias FGTS/INSS
+filtram os tipos reais (29, era 0); DCTFWeb aceita a Patrimonial e usa os terceiros do FPAS 515;
+NFS-e nacional rejeitada devolve 422; beat sem as sondas nocivas (2.000 GETs/dia às SEFAZ) e sem as
+tasks vazias; MCP resolve CPF na timeline eSocial. Relatório: `auditoria/qa/revisao_20260908/
+government_integrations.md`. **Não apliquei** (decisão/infra): idempotência do eSocial (só o DP
+transmite e é gated), faturar kit pelo Ábaco legado (módulo gedeon, próximo lote), Reinf sucesso falso
+(rotas VIVA no clássico, XML em memória — sem efeito externo).
+
+**Integrations (commit seguinte):** webhooks do Inter gravavam 'recebido' e o Cora 'pago' — o sistema
+só entende 'paga'; evento de boleto sem código marcava TODOS os pendentes; conciliação por valor casava
+o recebível errado (desligada); pagamento por código de barras/DARF sem OTP e sem teto (apagado — o
+caminho com gate é o do Inter payments); assinaturas: criar solicitação e consultar status sem token,
+PIN sem limite de tentativas, vencidas listadas como pendentes; Drive: pasta de holerites pública por
+link, e-mail do kit podendo ir a contato de outro cliente, id no shell; chave do Baileys no código;
+78 rotas mortas (gateway, connectors, Sólides quebrada pelo lixo, banking, Drive). Relatório:
+`integrations_gdrive_signatures.md`. **Não apliquei:** validação de assinatura dos webhooks do Inter
+(exige INTER_WEBHOOK_CA_PATH no .env — infra), token do DET, Asaas.
+
+**Módulos menores (relatório `modulos_menores.md`, 540 rotas, 329 mortas):** próximo lote. O mais
+grave: /onvio/reclassificar apaga o valor de 38 guias (R$ 269 mil) e o extrator não repõe; contratos
+jurídicos sem autenticação; 7 alertas de risco invisíveis no sino há 7 semanas (sem user_id); task
+de EPI falhando todo dia e registrada como sucesso; push 100% em 500; portal com ORM ≠ tabela.
+
+**Depende do Jordan (novo):** fechar a porta 8080 no firewall; INTER_WEBHOOK_CA_PATH; DET_ROBO_TOKEN;
+licitações e recrutamento (ainda sem decisão); health_occupational inteiro (duplica /people-management/
+sst — pode ser aposentado).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
