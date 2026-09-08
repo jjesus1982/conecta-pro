@@ -676,6 +676,28 @@ vencido, ativo); Keyson (processo por concluir); 11 férias sem decisão; escala
 sem contato; nota 32 da Ideal Flores no kit de agosto; RH com dados de demonstração; `celery-sefaz` (concurrency no
 compose); DET sem leitura desde 03/07.
 
+### 2c.20 Os testes que você autorizou — feitos como usuário final, pelo navegador (07/09, 22:00–22:40)
+
+Playwright na tela de produção (erp.conectamais.pro/redesign), logado como você. Cada item: o que fiz, o que provou.
+
+| # | Teste | Resultado | Prova |
+|---|-------|-----------|-------|
+| 1 | **Primeira cobrança pela Cora** — Laranjeiras 09/2026, R$ 42.544,50 | **VALIDADO** | Financeiro › Receber › "Emitir cobrança" › "Emitir no banco". Cora devolveu `inv_nYxmSFguQBWBgcbUE90crbw`, status OPEN, boleto + PIX gravados na conta a receber; PDF real de 89 KB baixado da URL do boleto; a linha mostra "emitida · Cora". Tomador 24.632.786/0001-28. |
+| 2 | **Boleto de teste no Inter** (R$ 5, vence 10/09) | **REPROVADO (banco)** | Cancelamento aceito 3× (POST …/cancelar, 202) e o boleto segue `A_RECEBER`. O Inter processa assíncrono e não confirma. Se não cancelar até 10/09, vence sozinho (é contra o próprio CNPJ, sem cobrança a terceiro). Conferir no app do Inter. |
+| 3 | **Escalas em rascunho** (7 de setembro) | **VALIDADO + 2 correções** | Michelangelo pela tela: Submeter → Aprovar → Publicar; as outras 6 pelos mesmos endpoints. As 7 estão `published`. Corrigido: (a) o select mostrava 7 opções com o MESMO nome, sem o posto — agora "Condomínio X · 09/2026"; (b) a tela do redesign publicava sem a guarda de escala vazia e sem disparar o evento — agora igual ao clássico. Publicar **não manda WhatsApp** a ninguém: o controller clássico tem um "PENDENTE: notificar funcionários" desde sempre. As 10 escalas de agosto (mês fechado) ficaram em rascunho de propósito. |
+| 4 | **Keyson** | **VALIDADO + 1 correção** | "Calcular verbas" devolvia 201 e **não gravava nada** (a linha continuava sem valor) — corrigido: agora grava valores + snapshot. Depois "Concluir": processo `completed`, funcionário `demitido` em 14/08, benefícios encerrados. **Divergência para você**: o processo tem último dia 14/08 (o que você informou em 12/08); o cadastro tinha 28/08 vindo do Sólides. Concluí com 14/08. |
+| 5 | **Férias sem decisão** | **VALIDADO** | Bianca (01–30/04/2026, período já passou): "Rejeitar" com motivo → `REJECTED`, motivo gravado. Restam 12 `SUBMITTED` em `hr_vacation_requests` para o DP decidir na mesma tela. |
+| 6 | **ASOs** | **VALIDADO** | "Agendar/renovar ASO": Adailson, **demissional**, 09/09 → gravado `agendado`. A clínica ficou "a confirmar pelo DP". Achado colateral: existe um "COLABORADOR TESTE HOMOLOGACAO" na lista de funcionários ativos. |
+| 7 | **Adailson** | **CALCULADO, NÃO CONCLUÍDO** | R$ 4.408,61 líquido, mas o cálculo alerta: férias vencidas **presumidas** (30 dias, R$ 1.920,50 + 1/3) e há férias pagas na folha em 05 e 06/2026 — pode estar pagando período gozado. DP confirma o saldo antes de homologar. Último dia 04/09 (já passou; ele segue "ativo" no cadastro até concluir). |
+| 8 | **219 leads** | **VALIDADO (simulação); envio real não disparado** | CRM › "Tocar cliente": lead de 07/09, modo "só simular" → número resolvido (+55 92 8408-5029), texto e canal certos. O envio real é um clique ("ENVIAR de verdade") — não disparei às 22:36 de propósito: mensagem comercial a prospect de madrugada. Fica para amanhã de manhã, seu ou meu. |
+| 9 | **Nota 32 da Ideal Flores** | **BLOQUEADO** | A nota existe no banco (competência 08/2026, emitida 02/09, R$ 65.842,42, chave …954170). O kit 08.2026 no Drive tem **Faturamento vazio** (o 07.2026 também). O PDF original não está no sistema e a API nacional não o entrega (Sefin devolve o XML, mas `danfse` → 501). Só sai do portal, à mão: baixar e soltar em "4. Faturamento" do kit 08.2026 — o sistema reconhece pelo número no nome do arquivo. Onvio costuma entregar depois (as de abril/maio vieram por ele). |
+| 10 | **Dados de demonstração do RH** | **FEITO (quarentena)** | Candidatos com e-mail `@email.com`, vagas "Teste"/"CIC-Test", cursos de 16/03: copiados para o schema `lixo_rh_demo_20260907` (13 tabelas) e apagados das vivas, em uma transação. Documentos e checagens de candidatos **ficaram** (apontam para funcionários reais, jul–ago). Restaurar = INSERT … SELECT de volta. |
+| 11 | **celery-sefaz** | **REVERTIDO; sem ganho** | Tentei `pool_shrink` em runtime. Erro meu: sem `-d`, o comando foi a TODOS os workers; revertido em 1 min (todos de volta ao pool de origem — 2 processos, sefaz 3). Memória do sefaz caiu de 1,65 para 1,28 GiB com 1 processo a menos, mas isso não sobrevive a restart: o ajuste real é `concurrency` no compose, que eu não edito. |
+| 12 | **DET** | **BLOQUEADO (você)** | Container pausado desde 14:33 por decisão da manhã (não queimar 2captcha sem alguém para o 2FA). Login gov.br com certificado + 2FA pelo noVNC e `docker unpause conecta-pro-det-robot`. |
+
+**Commits desta rodada**: 8076ee256 (escala: guarda + evento + rótulo por posto), e2cf38646 (rescisão grava o cálculo).
+Ambos já em hot-copy; o bake das 00:00 publica.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
