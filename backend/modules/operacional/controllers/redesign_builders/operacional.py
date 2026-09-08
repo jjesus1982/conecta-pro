@@ -2063,7 +2063,7 @@ async def build(db) -> dict:
         _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
         _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
         await _ligar_20260908_op(db, out, tbl)  # ANTES de montar_grupos: a aba só nasce se a tela já existir
-    montar_grupos(out)
+        montar_grupos(out)
     except Exception as e:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
         # Mas NÃO em silêncio: um NameError aqui (um acento numa f-string) deixou o módulo
         # inteiro em "Aguardando dado" — HTTP 200, 1.3MB de payload, zero pista no log.
