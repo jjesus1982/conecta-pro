@@ -11,6 +11,7 @@ GRUPOS = [
         ("campo", "Campo"), ("triagem", "Triagem"), ("relatorios", "Relatórios"),
         ("consultor", "Consultor IA"), ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
+        ("escalas-mes", "Escalas do mês"), ("grade-redesenhar", "Redesenhar grade"),
         ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"),
         ("escalas-visual", "Editor visual"), ("alocacoes", "Alocações"), ("turnos", "Turnos"),
         ("substituicoes", "Substituições"), ("escala-submeter", "Submeter escala"),

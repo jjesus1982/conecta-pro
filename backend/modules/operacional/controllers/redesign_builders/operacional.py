@@ -809,6 +809,27 @@ async def rd_action_substituicao_concluir(current_user: CurrentActiveUser, paylo
     return {"ok": True, "msg": "Substituição concluída."}
 
 
+
+@router.post("/action/grade-redesenhar")
+async def rd_action_grade_redesenhar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Reusa PUT /operacional/grade/{post_id}/colaborador (o form do redesign não põe id no caminho)."""
+    from modules.operacional.controllers.grade_controller import GradeColaboradorBody, redesenhar_grade_colaborador
+    from modules.operacional.scope import get_operational_scope
+    post_id = (payload.get("post_id") or "").strip()
+    if len(post_id) != 36 or len((payload.get("employee_id") or "").strip()) != 36 or not payload.get("a_partir_de"):
+        raise HTTPException(status_code=400, detail="Selecione posto, colaborador e a data de início.")
+    try:
+        body = GradeColaboradorBody(employee_id=payload["employee_id"].strip(), a_partir_de=payload["a_partir_de"],
+                                    padrao=payload.get("padrao") or "12x36", turno=payload.get("turno") or "diurno",
+                                    paridade=(payload.get("paridade") or None), inicio=(payload.get("inicio") or None),
+                                    fim_de_semana=payload.get("fim_de_semana") or "sabado")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
+    scope = await get_operational_scope(current_user=current_user, db=db)
+    res = await redesenhar_grade_colaborador(post_id, body, scope=scope, db=db)
+    d = res.model_dump() if hasattr(res, "model_dump") else res
+    return {"ok": True, "message": "Grade redesenhada", **(d if isinstance(d, dict) else {"resultado": d})}
+
 @router.post("/action/banco-horas-editar")
 async def rd_action_bh_editar(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
     """Edita um lançamento de banco de horas PENDENTE (horas/motivo/descrição) — reuso do update_entry."""
@@ -864,6 +885,48 @@ async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dic
 
 
 async def _ligar_20260908_op(db, out: dict, tbl) -> None:
+    await _ligar_escalas_grade_20260908(db, out, tbl)
+    await _ligar_20260908_op_rondas(db, out, tbl)
+
+
+async def _ligar_escalas_grade_20260908(db, out: dict, tbl) -> None:
+    """LIGAR 08/09/2026: PATCH /scales/{id} (editar observações) e PUT /grade/{post}/colaborador (redesenhar)."""
+    try:
+        out["escalas-mes"] = await tbl(
+            "Escalas do mês (ciclo)", f"{await _scalar(db, 'SELECT count(*) FROM scales WHERE coalesce(is_active,true)')} escalas — rascunho → aprovação → publicada. Editar observações por linha.", "—",
+            ["Escala", "Posto", "Competência", "Tipo", "Turnos", "Status"], "1.6fr 1.6fr 0.9fr 0.8fr 0.7fr 0.9fr",
+            "SELECT coalesce(s.name,'—'), coalesce(p.name,'—'), lpad(s.month::text,2,'0') || '/' || s.year, coalesce(s.scale_type::text,'—'), "
+            "coalesce(s.total_shifts,0), coalesce(s.status::text,'—'), s.id::text, coalesce(s.notes,'') "
+            "FROM scales s LEFT JOIN posts p ON p.id=s.post_id WHERE coalesce(s.is_active,true) ORDER BY s.year DESC, s.month DESC, p.name LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:30]), t(r[2]), t((r[3] or '—')), t(str(r[4])),
+                       b((r[5] or '—').replace('_', ' ').capitalize(), "ok" if r[5] == "published" else "warn" if r[5] in ("pending_approval", "approved") else "info")],
+            actionsfn=lambda r: [{"title": f"Observações da escala {r[0]}", "endpoint": f"/api/v1/operacional/scales/{r[6]}", "method": "PATCH",
+                                  "btnLabel": "Editar", "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Escala atualizada. Recarregue.",
+                                  "fields": [{"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "value": r[7]}]}] if r[5] != "published" else [])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); logger.warning("escalas-mes: %s", exc)
+    try:
+        postos = [{"value": str(i), "label": n} for i, n in (await db.execute(_sqltext("SELECT id, name FROM posts WHERE coalesce(is_active,true) ORDER BY name"))).fetchall()]
+        emps = [{"value": str(i), "label": n} for i, n in (await db.execute(_sqltext("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 300"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback(); postos, emps = [], []
+    _o = lambda pairs, span="span 1": {"type": "select", "span": span, "ph": "Selecione", "options": [{"value": v, "label": l} for v, l in pairs]}  # noqa: E731
+    out["grade-redesenhar"] = {
+        "title": "Redesenhar grade de um colaborador", "sub": "Recria os turnos futuros do colaborador no posto a partir da data (12x36 dia/noite ou comercial 44h). Cancela os turnos planejados antigos e gera os novos.",
+        "cta": "Redesenhar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/grade-redesenhar", "okMsg": "Grade redesenhada", "showResult": True,
+                   "confirm": "Isso cancela os turnos planejados do colaborador a partir da data e gera os novos. Confirma?"},
+        "fields": [{"key": "post_id", "label": "Posto*", "span": "span 1", "type": "select", "ph": "Selecione", "options": postos},
+                   {"key": "employee_id", "label": "Colaborador*", "span": "span 1", "type": "select", "ph": "Selecione", "options": emps},
+                   {"key": "a_partir_de", "label": "A partir de*", "type": "date", "span": "span 1"},
+                   {"key": "padrao", "label": "Padrão*", **_o((("12x36", "12x36"), ("comercial", "Comercial 44h")))},
+                   {"key": "turno", "label": "Turno", **_o((("diurno", "Diurno"), ("noturno", "Noturno")))},
+                   {"key": "paridade", "label": "Paridade (12x36)", **_o((("pares", "Dias pares"), ("impares", "Dias ímpares")))},
+                   {"key": "inicio", "label": "Início (HH:MM)", "type": "text", "span": "span 1", "ph": "07:00"},
+                   {"key": "fim_de_semana", "label": "Fim de semana (comercial)", **_o((("sabado", "Sábado"), ("domingo", "Domingo"), ("nenhum", "Nenhum")))}]}
+
+
+async def _ligar_20260908_op_rondas(db, out: dict, tbl) -> None:
     """LIGAR 08/09/2026: GET /rondas/gestao/resumo-inspetores existia sem tela."""
     try:
         out["rondas-resumo-inspetores"] = await tbl(

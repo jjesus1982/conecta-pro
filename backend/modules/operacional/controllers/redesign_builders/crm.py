@@ -276,6 +276,36 @@ async def rd_action_contrato_reajuste_calcular(current_user: CurrentActiveUser, 
     return {"ok": True, "message": "Só simulação — nada foi alterado no contrato.", **{k: (str(v) if not isinstance(v, (int, float, str, type(None))) else v) for k, v in d.items()}}
 
 
+
+@router.post("/action/cliente-ficha-360")
+async def rd_action_cliente_ficha_360(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Reusa GET /crm/clients/{id}/360 (o form do redesign só faz POST)."""
+    from uuid import UUID as _U
+    from modules.crm.controllers.contact_controller import visao_360_cliente
+    cid = (payload.get("client_id") or "").strip()
+    if len(cid) != 36:
+        raise HTTPException(status_code=400, detail="Selecione o cliente.")
+    res = await visao_360_cliente(_U(cid), current_user, db)
+    d = res.model_dump() if hasattr(res, "model_dump") else res
+    return {"ok": True, "message": "Ficha 360 carregada", **(d if isinstance(d, dict) else {"ficha": d})}
+
+
+@router.post("/action/consultar-cnpj-cep")
+async def rd_action_consultar_cnpj_cep(current_user: CurrentActiveUser, payload: dict = Body(...)) -> dict:
+    """Reusa GET /crm/enrichment/cnpj/{cnpj} e /cep/{cep} (BrasilAPI com cache)."""
+    from fastapi import Response
+    from modules.crm.controllers.enrichment_controller import enrich_cep, enrich_cnpj
+    tipo = (payload.get("tipo") or "cnpj").strip().lower()
+    valor = "".join(ch for ch in str(payload.get("valor") or "") if ch.isdigit())
+    if tipo == "cep" and len(valor) != 8:
+        raise HTTPException(status_code=422, detail="CEP precisa ter 8 dígitos.")
+    if tipo == "cnpj" and len(valor) != 14:
+        raise HTTPException(status_code=422, detail="CNPJ precisa ter 14 dígitos.")
+    fn = enrich_cep if tipo == "cep" else enrich_cnpj
+    res = await fn(valor, Response(), current_user)
+    d = res.model_dump() if hasattr(res, "model_dump") else res
+    return {"ok": True, "message": f"{tipo.upper()} consultado", **(d if isinstance(d, dict) else {"dados": d})}
+
 @router.post("/action/contract-submit")
 async def rd_action_contract_submit(current_user: CurrentActiveUser, cid: str, db=Depends(get_db)) -> dict:
     """Envia contrato para assinatura (DRAFT→PENDING_SIGNATURE) — reusa o handler clássico
@@ -380,6 +410,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC},
     {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT},
     {"id": "contrato-reajuste-calcular", "label": "Calcular reajuste de contrato", "icon": _ICO_DOC},
+    {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT},
+    {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC},
 ]
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
@@ -1278,6 +1310,17 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
         "cta": "Marcar", "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/cliente-inadimplente", "okMsg": "Cliente marcado como inadimplente", "confirm": "Marcar o cliente como inadimplente?"},
         "fields": [_sel("client_id", "Cliente*", cli), {"key": "debt_amount", "label": "Valor em aberto (R$)*", "type": "number", "span": "span 1"}]}
+    out["cliente-ficha-360"] = {
+        "title": "Ficha 360 do cliente", "sub": "Contratos, NFS-e, oportunidades, atividades e contatos do cliente numa consulta só. Só lê.",
+        "cta": "Ver ficha", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/cliente-ficha-360", "okMsg": "Ficha carregada", "showResult": True},
+        "fields": [_sel("client_id", "Cliente*", cli)]}
+    out["consultar-cnpj-cep"] = {
+        "title": "Consultar CNPJ / CEP", "sub": "Busca os dados cadastrais (Receita/BrasilAPI) para preencher cliente ou condomínio sem digitar tudo. Só consulta.",
+        "cta": "Consultar", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/consultar-cnpj-cep", "okMsg": "Consulta feita", "showResult": True},
+        "fields": [_sel("tipo", "O que consultar*", [{"value": "cnpj", "label": "CNPJ"}, {"value": "cep", "label": "CEP"}], "span 1"),
+                   {"key": "valor", "label": "Número*", "type": "text", "span": "span 1", "ph": "só dígitos"}]}
     out["contrato-reajuste-calcular"] = {
         "title": "Calcular reajuste de contrato", "sub": "Só calcula e mostra — não altera o contrato. Informe o percentual (o índice não é consultado automaticamente).",
         "cta": "Calcular", "type": "form",
