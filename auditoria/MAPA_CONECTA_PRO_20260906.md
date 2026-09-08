@@ -1076,6 +1076,13 @@ decisão: ficha 360 e autofill CNPJ/CEP do CRM (o form do frontend não faz GET)
 drift nos 8 workers. Os builders ligados depois disso estão em hot-copy e commitados — o bake das 00:00 os
 assa, já que `backend/` está limpo.
 
+**Complemento 15h30 (39102533a):** as últimas rotas vivas sem tela ganharam tela — ficha 360 e consulta
+CNPJ/CEP no CRM (ações que reutilizam os handlers GET), escalas do mês com edição por linha e redesenho de
+grade no operacional. Portas 5555 (Flower) e 9093 (Alertmanager) fechadas na eth0 com a autorização do
+Jordan (regras persistidas). O Jordan vai subir a pasta de chaves/certificado do Inter por scp; configurar
+`INTER_WEBHOOK_CA_PATH` (e o mTLS do webhook) exige editar o `.env`, que é zona proibida para a sessão —
+pedir autorização explícita antes.
+
 **Segurança:** porta 8080 fechada na eth0 (DOCKER-USER, persistida em /etc/iptables/rules.v4), nginx e
 loopback seguem 200. **Ainda públicas em 0.0.0.0: 5555 (Flower) e 9093 (Alertmanager)** — recomendo
 fechar igual; aguardando autorização.
