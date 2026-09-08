@@ -408,11 +408,12 @@ async def _ligar_jur_20260908(db, out: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
     try:
-        st = await chamar(D.status, db)
+        import asyncio as _aio
+        st = await _aio.wait_for(chamar(D.status, db), timeout=5)
         try:
-            rb = await chamar(D.robo_status, db)
+            rb = await _aio.wait_for(chamar(D.robo_status, db), timeout=3)  # o robô pausado segura 15 s; a página não espera
         except Exception as exc:  # noqa: BLE001
-            rb = {"robo": f"indisponível: {str(exc)[:60]}"}
+            rb = {"robo": f"indisponível: {str(exc)[:60] or 'sem resposta em 3 s'}"}
         out["det-status"] = painel_de_dict("DET — status", "Domicílio Eletrônico Trabalhista: comunicações ingeridas e situação do robô de coleta.", {**(st if isinstance(st, dict) else {"status": st}), "robo": rb})
     except Exception as exc:  # noqa: BLE001
         logger.warning("det status: %s", exc)

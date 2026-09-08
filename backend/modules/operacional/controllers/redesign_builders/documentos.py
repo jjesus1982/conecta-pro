@@ -769,11 +769,19 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
                                                     {"como_conferir": "peça ao assistente 'conferir os kits do mês' (MCP consultar_kits) ou chame GET /gedeon/kits/conferir-lote — a varredura lê o Drive e leva ~20 s"})
     except Exception as exc:  # noqa: BLE001
         logger.warning("kits conferencia: %s", exc)
+    # Assinaturas pendentes pelo BANCO (assinatura universal), não pelo Drive: o serviço do kit lê o
+    # Drive numa thread e derrubou o worker (08/09/2026, "free(): corrupted unsorted chunks").
     try:
-        res = await asyncio.wait_for(asyncio.to_thread(lambda: __import__("modules.gedeon.services.kit_assinatura_service", fromlist=["pendencias_assinatura"]).pendencias_assinatura(comp, None)), timeout=8)
-        out["kits-assinaturas-pendentes"] = tabela_de_lista(f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura (funcionário ou empresa).", res) if _lista(res) else painel_de_dict(f"Assinaturas pendentes — {comp}", "Holerites/recibos do kit ainda sem assinatura.", res)
+        from sqlalchemy import text as _t
+        rows = (await db.execute(_t(
+            "SELECT coalesce(signer_name,'—'), coalesce(signer_type::text,'—'), coalesce(document_type,'—'), coalesce(reference_code,'—'), "
+            "status::text, expires_at FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
+            "AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at DESC LIMIT 200"))).fetchall()
+        linhas = [{"signatario": r[0], "papel": r[1], "documento": r[2], "referencia": r[3], "status": r[4], "expira_em": r[5].strftime("%d/%m") if r[5] else "—"} for r in rows]
+        out["kits-assinaturas-pendentes"] = tabela_de_lista("Assinaturas pendentes", f"{len(linhas)} solicitações de assinatura abertas (holerites, recibos, comunicados, contratos) — assinatura universal.", linhas,
+                                                            cols=["signatario", "papel", "documento", "referencia", "status", "expira_em"])
     except Exception as exc:  # noqa: BLE001
-        logger.warning("kits assinaturas: %s", str(exc)[:120])
+        await db.rollback(); logger.warning("kits assinaturas: %s", str(exc)[:120])
     try:
         from sqlalchemy import text as _t
         rows = (await db.execute(_t(
