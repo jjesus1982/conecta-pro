@@ -748,6 +748,62 @@ compras/requisições, estoque real, orçado×realizado, ordens de serviço, age
 ed476077a, 992fb9514, 29428d69b. Backend em hot-copy; frontend publicado às 23:41 (BUILD_ID conecta-pro-1788838799864); o bake
 das 00:00 publica o resto.
 
+### 2c.22 Revisão de código — people-management (08/09, 00:00–01:00) · primeiro módulo da fase "100%"
+
+Direção do dono (08/09): revisar e corrigir 100% do código no que precisar e depois cobrir 100% do backend no
+redesign; o clássico não interessa. Medido antes de começar: 3.160 rotas /api, 301 com tela no redesign (9%).
+people-management tinha **697 rotas** (64 no redesign, 44 só no clássico, 589 sem tela).
+
+**Método**: inventário das rotas (função, arquivo, resumo) + prova de execução de 194 leituras (0 × 5xx) + quatro
+revisores de código em paralelo, por pacote, cada um obrigado a provar no banco (psql) o que acusou. Resultado:
+**117 defeitos com prova** (DP núcleo 20 · folha/ponto 19 · RH/recrutamento/reembolso/disciplinar 52 · portal/GED/SST 26)
+e vereditos rota a rota (VIVA / LIGAR / INTERNA / MORTA). Relatórios completos na sessão; lista de rotas em
+`auditoria/qa/rotas_sem_tela.txt`.
+
+**Corrigido nesta noite (commits 9a0fc7042, bc62bead8, 2c536e031, 413a8490f e o seguinte)** — o que doía de verdade:
+- Duas engines de folha davam dois números para a mesma pessoa (Adailson 08/2026: R$ 1.464 × R$ 2.138). A legada
+  (/hr/payroll) agora delega à engine CCT; contracheque e arquivo no GED pela engine oficial.
+- Medidas disciplinares invisíveis para a API (tenant errado nas 5 linhas) — a tela mostrava, os botões davam 404.
+- Reembolso: item REJEITADO pelo aprovador era pago; "processar" gravava conta a pagar inventada (agora cria a real);
+  admin não via "prontos para pagar".
+- Ponto: justificativa dava 500 sempre (coluna NOT NULL faltando); batida noturna após 00h virava "entrada"
+  (33 falsas em 23/08); fechamento/sync em cascata sem savepoint; recálculo de espelho que zerava folha e apagava
+  assinatura, bloqueado.
+- Admissão: concluir quebrava (data de nascimento em texto) e exigia CPF que a admissão já tem — nenhuma admissão
+  virava funcionário por caminho algum.
+- Afastamento "acidente" não gerava estabilidade acidentária (art. 118) — mapeado para o tipo do domínio.
+- ASO realizado ficava sem validade (nunca vencia, nunca aparecia no compliance); restrições em JSON inválido; tipo livre.
+- Download de documento do kit falhava para 60% dos documentos (Drive/Inter/base errada) — no GED e no Meu Espaço.
+- CIPA: 2.834 reuniões idênticas (2.833 apagadas; POST dedupe; GET paginado). Total de holerites era o tamanho da página.
+- Vagas: pausar/reabrir/fechar chamavam métodos inexistentes (500). JSONB mutado in-place não gravava (notas/avaliações).
+- Paridade 12x36 da esteira não virava em mês de 31 dias (contrafase com a grade). Assinatura disciplinar levava o
+  nome do usuário logado como "funcionário". utcnow em colunas com fuso (+4h) e sem fuso (mistura) — 14 pontos.
+- Fingimentos de sucesso apagados: folha ajuste/fechar/conferência/**importar Alterdata** (a tela do redesign dizia
+  que importava), /hr/payroll/close, integração DP↔RH↔Ops (10 stubs + "status active"), time-tracking (17 rotas de
+  escrita sobre tabela vazia), folha-pdf HTML, medida por ocorrência. Ferramenta MCP `fechar_folha` diz a verdade.
+- **30 rotas mortas apagadas**; router de integração fictícia desmontado.
+
+**Ligado no redesign (22 portas que só existiam por API)**: DP — publicar/despublicar/cancelar holerite, editar
+rescisão, espelho calcular/fechar, lançamento manual, ajuste de batida, enviar/cancelar reembolso em rascunho (9
+presos). RH — plano de carreira, curso, turma, matrícula, ciclo 360 (abrir + iniciar coleta), editar modelo
+disciplinar. Saúde — ASOs vencendo 30 dias, membros da CIPA. Meu Espaço — ouvidoria (abrir + minhas), documentos
+aguardando minha assinatura, meus dados. GED — editar/remover documento do kit.
+
+**Fica para você (decisão, não código)**
+- Portal do funcionário por token (34 rotas): ninguém emite esse token desde que o login virou Google; as funções
+  vivem via self-service. Apagar o router? Recomendo sim.
+- Recrutamento: o pacote `modules/recruitment` (candidates/vagas/applications/interviews) está vazio e é servido só
+  pelo clássico e por 4 ferramentas MCP; o caminho real é a **esteira** (employees status=candidato). Aposentar o
+  pacote e apontar as MCP para a esteira?
+- Migrações que faltam (não edito alembic): `sync_runs`, tipo `tenantstatus`, `solides_sync_*`, `scheduler_queue`.
+- PPP (INSS) gera conteúdo fixo ("colete balístico", CNAE de vigilância) — a empresa é portaria; precisa de
+  fatores de risco reais de `gp_risks`/LTCAT antes de qualquer emissão.
+- Tokens públicos (painel-ponto, homologação, candidato, PJ) têm default fixo no código e a env não está setada —
+  setar `PAINEL_PONTO_TOKEN` e afins no `.env` (não toco).
+- `main_production.py` inclui o router de recrutamento duas vezes (83 rotas duplicadas) — arquivo proibido para mim.
+- 47 holerites `source=conecta` em 11/2026 e 12/2026 (competências futuras) e checklist de onboarding de semente
+  (102 itens "vencidos" de 24/02) — apagar?
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
