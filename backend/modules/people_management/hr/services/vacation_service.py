@@ -512,7 +512,9 @@ class VacationService:
             if employee_id:
                 params["employeeId"] = employee_id
 
-            resp = httpx.get(f"{base_url}/absence/find-all", headers=headers, params=params, timeout=30)
+            # httpx.get SÍNCRONO dentro de async travava o event loop do worker (revisão 08/09/2026)
+            async with httpx.AsyncClient(timeout=30) as _cli:
+                resp = await _cli.get(f"{base_url}/absence/find-all", headers=headers, params=params)
             if resp.status_code != 200:
                 return {"success": False, "reason": f"api_{resp.status_code}", "total_importadas": 0}
 
@@ -547,30 +549,40 @@ class VacationService:
                         continue
                     local_emp_id = row[0]
 
-                    source_id = f"solides_ferias_{solides_id}"
+                    # Grava na FONTE CANÔNICA de férias (hr_vacation_requests), que é a que a tela
+                    # lê — antes ia para gp_justifications como "falta" e o botão "Sincronizar
+                    # Sólides" nunca mudava a tela (revisão 08/09/2026). Idempotente pelo código.
+                    from datetime import date as _date, timedelta as _td
+
+                    request_code = f"FER-SOL-{solides_id}"[:50]
                     dup = (
                         await self.db.execute(
-                            text("SELECT 1 FROM gp_justifications WHERE source_id = :sid LIMIT 1"),
-                            {"sid": source_id},
+                            text("SELECT 1 FROM hr_vacation_requests WHERE request_code = :c LIMIT 1"),
+                            {"c": request_code},
                         )
                     ).fetchone()
                     if dup:
                         atualizadas += 1
                         continue
-
+                    sd = _date.fromisoformat(str(start_raw)[:10])
+                    ed = _date.fromisoformat(str(end_raw or start_raw)[:10])
                     await self.db.execute(
-                        text("""
-                            INSERT INTO gp_justifications
-                            (justification_id, employee_id, justification_type, reason, category,
-                             status, source, source_id, created_at)
-                            VALUES (:jid, :eid, 'falta',
-                                    :reason, 'outro', 'aprovada', 'solides', :source_id, NOW())
-                        """),
+                        text(
+                            "INSERT INTO hr_vacation_requests "
+                            "(id, condominio_id, employee_id, status, request_code, start_date, end_date, "
+                            " return_date, days_requested, sell_days, advance_13th, employee_notes, hr_notes, "
+                            " created_at, updated_at) VALUES "
+                            "(CAST(:id AS uuid), CAST(:cond AS uuid), CAST(:emp AS uuid), 'APPROVED', :code, "
+                            " :sd, :ed, :rd, :days, 0, false, :notes, 'Importada do Sólides', NOW(), NOW())"
+                        ),
                         {
-                            "jid": str(uuid4()),
-                            "eid": local_emp_id,
-                            "reason": f"Férias Sólides: {start_raw[:10]} a {end_raw[:10] if end_raw else start_raw[:10]}",
-                            "source_id": source_id,
+                            "id": str(uuid4()),
+                            "cond": _HVR_DEFAULT_CONDOMINIO_ID,
+                            "emp": str(local_emp_id),
+                            "code": request_code,
+                            "sd": sd, "ed": ed, "rd": ed + _td(days=1),
+                            "days": (ed - sd).days + 1,
+                            "notes": f"Férias Sólides {solides_id}",
                         },
                     )
                     await self.db.flush()

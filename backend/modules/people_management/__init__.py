@@ -53,7 +53,9 @@ def register_routers() -> None:
     try:
         from .integration.aggregator import router as integration_router
 
-        router.include_router(integration_router)
+        # 08/09/2026: NÃO montar — os 10 POSTs são stubs (nada grava) e /integration/status
+        # devolve 'active' fixo. Código fica para referência; rota some do app.
+        _ = integration_router
     except Exception as e:
         import logging
 

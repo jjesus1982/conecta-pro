@@ -1847,8 +1847,7 @@ async def build(db, current_user=None) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
-        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]
-        + ([doc("Folha de ponto (batidas)", f"/api/v1/people-management/ponto/folha-pdf/{r[11]}/download?mes_ref={int(r[12]):02d}.{int(r[2])}", fmt="html", gate="dp")] if r[13] else [])))
+        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]))
     # O subtítulo diz QUAL competência está na tela — sem isso "última competência" com 53
     # linhas de agosto e 2 de setembro era adivinhação.
     try:

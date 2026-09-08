@@ -1,7 +1,7 @@
 """Service para Interview."""
 
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -188,7 +188,7 @@ class InterviewService:
             return None
 
         interview.status = InterviewStatus.CONFIRMADA
-        interview.updated_at = datetime.utcnow()
+        interview.updated_at = datetime.now(UTC)
         await self.session.commit()
 
         logger.info(
@@ -209,7 +209,7 @@ class InterviewService:
             return None
 
         interview.status = InterviewStatus.CONFIRMADA
-        interview.updated_at = datetime.utcnow()
+        interview.updated_at = datetime.now(UTC)
         await self.session.commit()
 
         logger.info(
@@ -387,20 +387,20 @@ class InterviewService:
             return None
 
         # Armazena avaliacao em interviewer_notes (JSONB)
-        notes = interview.interviewer_notes or {}
-        evaluations = notes.get("evaluations", [])
+        notes = dict(interview.interviewer_notes or {})  # cópia: mutação in-place não é gravada
+        evaluations = list(notes.get("evaluations", []))
         evaluations.append(
             {
                 "competency": data.competency,
                 "score": data.score,
                 "notes": data.notes,
                 "evaluator_id": data.evaluator_id,
-                "evaluated_at": datetime.utcnow().isoformat(),
+                "evaluated_at": datetime.now(UTC).isoformat(),
             }
         )
         notes["evaluations"] = evaluations
         interview.interviewer_notes = notes
-        interview.updated_at = datetime.utcnow()
+        interview.updated_at = datetime.now(UTC)
 
         await self.session.commit()
 

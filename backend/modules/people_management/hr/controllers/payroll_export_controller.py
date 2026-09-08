@@ -16,7 +16,6 @@ from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from modules.people_management.hr.publishers import publish_holerite_gerado
 from modules.people_management.hr.services.payroll_export_service import PayrollExportService
-from modules.people_management.hr.services.payroll_service import PayrollService
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +95,34 @@ async def exportar_dominio(
     )
 
 
+def _calc_oficial_sync(employee_id: str, month: int, year: int) -> dict:
+    """Holerite pela engine OFICIAL (folha/calculo_service, CCT 2026) — a mesma do PDF padrão-ouro,
+    do TRCT e da exportação Domínio. A engine legada (PayrollService) só via salário base e
+    arquivava no GED um contracheque com valor errado (revisão 08/09/2026)."""
+    from core.database.session import get_sync_db_dependency
+    from modules.people_management.folha.services import calculo_service
+    from modules.people_management.folha.services.holerite_pdf import montar_holerite_pdf
+
+    gen = get_sync_db_dependency()
+    sdb = next(gen)
+    try:
+        calc = calculo_service.calcular_folha_colaborador(sdb, str(employee_id), month, year)
+        if "error" in calc:
+            return calc
+        from sqlalchemy import text as _t
+        row = sdb.execute(_t("SELECT cpf, pis, matricula, data_admissao FROM employees WHERE CAST(id AS TEXT)=:e"),
+                          {"e": str(employee_id)}).first()
+        fdad = {"cpf": row[0], "pis": row[1], "matricula": row[2], "data_admissao": row[3]} if row else {}
+        calc["employee_name"] = calc.get("employee_nome") or calc.get("employee_name") or ""
+        calc["_pdf"] = montar_holerite_pdf(calc, fdad)
+        return calc
+    finally:
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+
+
 @router.get(
     "/contracheque/{employee_id}/{competencia}",
     summary="Gerar Contracheque PDF",
@@ -119,13 +146,10 @@ async def gerar_contracheque_pdf(
     except (ValueError, IndexError):
         raise HTTPException(400, "Formato de competência inválido. Use YYYY-MM.")
 
-    payroll_svc = PayrollService(db)
-    try:
-        calc = await payroll_svc.calculate_employee_payroll(employee_id, month, year)
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-
-    pdf_bytes = PayrollExportService.gerar_contracheque_pdf(calc)
+    calc = await asyncio.to_thread(_calc_oficial_sync, employee_id, month, year)
+    if "error" in calc:
+        raise HTTPException(404, calc["error"])
+    pdf_bytes = calc.pop("_pdf")
 
     # Hook GED: arquivar contracheque automaticamente
     await _arquivar_contracheque_ged(
@@ -167,7 +191,6 @@ async def gerar_contracheques_batch(
     except (ValueError, IndexError):
         raise HTTPException(400, "Formato de competência inválido. Use YYYY-MM.")
 
-    payroll_svc = PayrollService(db)
     from sqlalchemy import func, select
 
     from modules.operacional.models.employee import Employee
@@ -178,21 +201,18 @@ async def gerar_contracheques_batch(
     employees = result.scalars().all()
 
     folha_data = []
+    pdfs: dict[str, bytes] = {}
     for emp in employees:
         try:
-            calc = await payroll_svc.calculate_employee_payroll(str(emp.id), month, year)
+            calc = await asyncio.to_thread(_calc_oficial_sync, str(emp.id), month, year)
+            if "error" in calc:
+                logger.warning("Folha %s: %s", emp.id, calc["error"])
+                continue
+            pdfs[str(emp.id)] = calc.pop("_pdf")
+            calc["employee_id"] = str(emp.id)
             folha_data.append(calc)
-        except Exception as exc:
-            # defense-in-depth: se um cálculo falhar, faz rollback para não envenenar a transação
-            # dos próximos (a causa-raiz do cascata — query solides_absences — foi corrigida no
-            # payroll_service; isto evita regressão futura se outra query opcional falhar).
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Erro ao calcular folha do funcionário %s: %s", emp.id, exc)
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-
-    pdfs = PayrollExportService.gerar_contracheques_batch(folha_data)
 
     # Hook GED: arquivar todos os contracheques em batch
     arquivados = 0

@@ -12,7 +12,7 @@ Implementa logica de negocio para gestao completa de treinamentos:
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
@@ -193,7 +193,7 @@ class TrainingService:
             return None
 
         training.status = TrainingStatus.COMPLETED
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         # Marcar confirmados como presentes
         await self.session.execute(
@@ -280,7 +280,7 @@ class TrainingService:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         for field, value in update_data.items():
             setattr(enrollment, field, value)
@@ -348,7 +348,7 @@ class TrainingService:
         course = course_result.scalar_one_or_none()
 
         # Calcular validade
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         expires_at = None
         if course and course.validity_months:
             expires_at = now + timedelta(days=course.validity_months * 30)
@@ -378,7 +378,7 @@ class TrainingService:
 
     async def get_expiring_certificates(self, days_ahead: int = 30) -> list[TrainingCertificate]:
         """Busca certificados proximos do vencimento."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         limit_date = now + timedelta(days=days_ahead)
 
         result = await self.session.execute(
@@ -420,7 +420,7 @@ class TrainingService:
                 relevant_courses.append(course)
 
         # Buscar certificados validos do funcionario
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         cert_result = await self.session.execute(
             select(TrainingCertificate).where(
                 and_(

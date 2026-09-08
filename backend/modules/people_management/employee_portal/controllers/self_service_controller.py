@@ -594,6 +594,13 @@ async def baixar_meu_documento(
         )
 
     file_path = row["file_path"]
+    if str(file_path).startswith(("http://", "https://")):  # documento no Drive: abre lá
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url=file_path, status_code=307)
+    if str(file_path).startswith("/inter/"):
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND,
+                            detail="Comprovante bancário: não há arquivo no seu espaço; peça ao DP.")
     # Resolve base de storage (GED). Aceita path absoluto ou relativo.
     base = os.environ.get("GED_STORAGE_PATH", "/app/uploads")
     full = file_path if os.path.isabs(file_path) else os.path.join(base, file_path)

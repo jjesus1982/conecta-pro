@@ -609,6 +609,8 @@ async def submit_for_approval(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Medida disciplinar nao encontrada",
         )
+    except DisciplinaryValidationError as e:  # sem template padrão gerava 500 (revisão 08/09/2026)
+        raise HTTPException(status_code=422, detail=str(e))
     except DisciplinaryWorkflowError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -706,12 +708,23 @@ async def sign_document(
     """Registra assinatura digital."""
     try:
         service = get_signature_service(db)
+        signer_name = current_user.name or current_user.email
+        signer_cpf = getattr(current_user, "cpf", None)
+        if str(getattr(request, "signer_type", "") or "").lower() == "employee":
+            # assinatura do FUNCIONÁRIO leva nome/CPF do funcionário da medida — não do usuário
+            # logado (as 3 assinaturas do banco tinham "Jordan Jesus" como employee, CPF nulo)
+            from sqlalchemy import text as _t
+            _row = (await db.execute(_t(
+                "SELECT e.nome, e.cpf FROM disciplinary_actions da JOIN employees e ON e.id::text = da.employee_id::text "
+                "WHERE da.id::text = :a"), {"a": str(action_id)})).first()
+            if _row:
+                signer_name, signer_cpf = _row[0] or signer_name, _row[1] or signer_cpf
         signature = await service.sign_document(
             action_id=action_id,
             tenant_id=get_tenant_id(current_user),
             signer_id=str(current_user.id),
-            signer_name=current_user.name or current_user.email,
-            signer_cpf=getattr(current_user, "cpf", None),
+            signer_name=signer_name,
+            signer_cpf=signer_cpf,
             request=request,
         )
 

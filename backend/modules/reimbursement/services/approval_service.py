@@ -86,10 +86,14 @@ class ApprovalService:
                 if not item.is_active:
                     continue
 
-                if rejected_items and item.id in rejected_items:
-                    item.reject(rejected_items[item.id])
+                # chaves chegam como str (JSON) e item.id é UUID: comparar por texto, senão o item
+                # rejeitado pelo aprovador era aprovado e pago (revisão 08/09/2026)
+                _rej = {str(k): v for k, v in (rejected_items or {}).items()}
+                _apr = {str(k) for k in (approved_items or [])}
+                if str(item.id) in _rej:
+                    item.reject(_rej[str(item.id)])
                 elif approved_items:
-                    if item.id in approved_items:
+                    if str(item.id) in _apr:
                         item.approve()
                 else:
                     # Se não especificou itens, aprova todos
@@ -235,13 +239,13 @@ class ApprovalService:
         # Para criar a conta a pagar
         # payable = await self._create_payable_account(request, due_date, user_id)
 
-        # Por enquanto, simula a criação da conta a pagar
-        # Em produção, isso chamaria o PayableService
-        import uuid as uuid_lib
-
-        fake_payable_id = uuid_lib.uuid4()
-
-        request.mark_as_processed(user_id, fake_payable_id)
+        # Não fingir: gravar um payable_account_id inventado e marcar "processado" fazia a tela
+        # dizer que a conta a pagar nasceu quando nada nasceu (revisão 08/09/2026). Cria a conta
+        # a pagar de verdade; se o serviço financeiro não aceitar, a falha sobe.
+        payable = await self._create_payable_account(request, due_date, user_id)
+        if payable is None or getattr(payable, "id", None) is None:
+            raise ValueError("Não foi possível criar a conta a pagar do reembolso — processamento não concluído.")
+        request.mark_as_processed(user_id, payable.id)
 
         if notes:
             request.internal_notes = (request.internal_notes or "") + f"\n[Processamento] {notes}"
@@ -262,25 +266,21 @@ class ApprovalService:
 
         Este método seria implementado para integrar com o módulo financeiro.
         """
-        # Importa o service do financeiro
-        # from modules.financial.services.payable_service import PayableService
-        # from modules.financial.schemas.payable import PayableAccountCreate
+        # Integração REAL com o financeiro (revisão 08/09/2026): antes era um esboço comentado e
+        # o processamento gravava um id inventado. Sem commit aqui — quem chama comita.
+        from modules.financial.schemas.payable import PayableAccountCreate
+        from modules.financial.services.payable_service import PayableService
 
-        # payable_data = PayableAccountCreate(
-        #     condominio_id=request.condominio_id,
-        #     description=f"Reembolso {request.code} - {request.title}",
-        #     gross_value=str(request.approved_amount),
-        #     due_date=due_date,
-        #     payable_type="avulsa",
-        #     cost_center=request.cost_center,
-        #     notes=f"Reembolso de despesas: {request.description}",
-        # )
-
-        # payable_service = PayableService(self.session)
-        # payable = await payable_service.create_account(payable_data, user_id)
-        # return payable
-
-        pass
+        payable_data = PayableAccountCreate(
+            condominio_id=request.condominio_id,
+            description=f"Reembolso {request.code} - {request.title}",
+            gross_value=str(request.approved_amount or request.total_amount),
+            due_date=due_date,
+            payable_type="avulsa",
+            cost_center=getattr(request, "cost_center", None),
+            notes=f"Reembolso de despesas: {request.description or ''}"[:500],
+        )
+        return await PayableService(self.session).account_repo.create(payable_data, user_id)
 
     def check_approval_permission(
         self,

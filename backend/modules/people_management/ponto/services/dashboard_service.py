@@ -662,7 +662,7 @@ def sync_solides_ponto(db: Session, periodo_inicio: str | None, periodo_fim: str
                 if not has_source_id:
                     reason_text = f"{reason_text} [solides_{solides_id}]"
 
-                now = datetime.utcnow()
+                now = datetime.now()
                 new_id = str(uuid4())
 
                 if has_source and has_source_id:
@@ -778,7 +778,7 @@ def sync_solides_ponto(db: Session, periodo_inicio: str | None, periodo_fim: str
                 if not has_source_id:
                     reason_text = f"{reason_text} [solides_occ_{solides_id}]"
 
-                now = datetime.utcnow()
+                now = datetime.now()
                 new_id = str(uuid4())
 
                 if has_source and has_source_id:
@@ -966,7 +966,7 @@ def registrar_ajuste(db: Session, ajuste: dict[str, Any]) -> dict[str, Any]:
     from uuid import uuid4
 
     punch_id = str(uuid4())
-    now = datetime.utcnow()
+    now = datetime.now()
 
     # employee_id na gp_clock_punches eh UUID — usar o UUID direto (nao hash)
     emp_uuid = ajuste["employee_id"]

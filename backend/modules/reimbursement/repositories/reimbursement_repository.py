@@ -223,11 +223,13 @@ class ReimbursementRepository:
         limit: int = 100,
     ) -> tuple[list[ReimbursementRequest], int]:
         """Lista solicitações aprovadas prontas para pagamento."""
-        query = select(ReimbursementRequest).where(
-            ReimbursementRequest.condominio_id == condominio_id,
+        _conds = [
             ReimbursementRequest.is_active == True,  # noqa: E712
             ReimbursementRequest.status == ReimbursementStatus.APROVADO.value,
-        )
+        ]
+        if condominio_id is not None:  # admin (None) vê todas; `== None` virava IS NULL e escondia tudo
+            _conds.append(ReimbursementRequest.condominio_id == condominio_id)
+        query = select(ReimbursementRequest).where(*_conds)
 
         # Conta total
         count_query = select(func.count()).select_from(query.subquery())

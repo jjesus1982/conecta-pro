@@ -182,7 +182,9 @@ class JobPositionService:
         if position.status != PositionStatus.ABERTA:
             raise ValueError("Apenas vagas abertas podem ser pausadas")
 
-        position.pause(reason)
+        position.status = PositionStatus.PAUSADA  # model não tem pause(): era AttributeError/500
+        if reason:
+            position.internal_notes = ((getattr(position, 'internal_notes', '') or '') + f'\n[pausa] {reason}').strip()
         await self.session.commit()
 
         logger.info(
@@ -209,7 +211,7 @@ class JobPositionService:
         if position.status != PositionStatus.PAUSADA:
             raise ValueError("Apenas vagas pausadas podem ser reabertas")
 
-        position.open()
+        position.status = PositionStatus.ABERTA
         await self.session.commit()
 
         logger.info(
@@ -234,7 +236,12 @@ class JobPositionService:
         if not position:
             return None
 
-        position.close(reason)
+        from datetime import UTC, datetime as _dt
+        position.status = PositionStatus.FECHADA
+        if hasattr(position, 'closed_at'):
+            position.closed_at = _dt.now(UTC)
+        if reason:
+            position.internal_notes = ((getattr(position, 'internal_notes', '') or '') + f'\n[fechamento] {reason}').strip()
         await self.session.commit()
 
         logger.info(

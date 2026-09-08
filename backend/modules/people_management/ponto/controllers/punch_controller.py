@@ -101,19 +101,25 @@ _PUNCH_SEQUENCE = ["entrada", "saida_almoco", "retorno_almoco", "saida"]
 
 
 async def _next_punch_type(db: AsyncSession, employee_id: str) -> str:
-    """Detecta o próximo tipo de batida com base nas batidas de hoje."""
-    today = date.today()
+    """Detecta o próximo tipo de batida pela JORNADA em curso, não pelo dia civil.
+
+    Turno noturno (12x36 das 19h às 7h): à 1h da manhã o dia civil tem 0 batidas e o
+    antigo cálculo devolvia "entrada" para quem estava SAINDO — 33 entradas falsas na
+    auditoria de 23/08/2026. Jornada = batidas das últimas 18 h, reiniciando após uma "saida"."""
     rows = (
         await db.execute(
             text(
                 "SELECT punch_type FROM gp_clock_punches "
-                "WHERE employee_id = :eid AND DATE((punch_timestamp)) = :today "
+                "WHERE employee_id = :eid AND punch_timestamp >= NOW() - INTERVAL '18 hours' "
                 "ORDER BY punch_timestamp ASC"
             ),
-            {"eid": employee_id, "today": today},
+            {"eid": employee_id},
         )
     ).fetchall()
-    count = len(rows)
+    tipos = [r[0] for r in rows]
+    if "saida" in tipos:
+        tipos = tipos[len(tipos) - tipos[::-1].index("saida"):]  # só a jornada depois da última saída
+    count = len(tipos)
     if count >= len(_PUNCH_SEQUENCE):
         return "saida"
     return _PUNCH_SEQUENCE[count]
@@ -267,7 +273,7 @@ async def revisar_justificativa(
 
 @router.get("/justificativas/pendentes")
 async def get_justificativas_pendentes(
-    employee_id: int | None = None,
+    employee_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Lista justificativas pendentes de aprovacao."""
@@ -320,7 +326,8 @@ async def fechar_mes_todos(
     fechados, erros = 0, []
     for (eid,) in rows:
         try:
-            await service.fechar_mes(eid, mes, ano, fechado_por)
+            async with db.begin_nested():  # savepoint: a falha de um não aborta a transação dos demais
+                await service.fechar_mes(eid, mes, ano, fechado_por)
             fechados += 1
         except Exception as e:  # noqa: BLE001
             erros.append({"employee_id": eid, "erro": str(e)[:120]})
@@ -474,11 +481,6 @@ async def colaboradores_sem_escala(
 # ==================== FOLHA DE PONTO PDF ====================
 
 
-@router.post(
-    "/folha-pdf/{employee_id}",
-    summary="Gerar folha de ponto HTML por funcionário/mês",
-    status_code=201,
-)
 async def gerar_folha_pdf(
     employee_id: str,
     mes_ref: str = Query(..., description="Mês de referência no formato MM.YYYY"),
@@ -493,10 +495,6 @@ async def gerar_folha_pdf(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.get(
-    "/folha-pdf/{employee_id}/download",
-    summary="Download da folha de ponto HTML",
-)
 async def download_folha_pdf(
     employee_id: str,
     mes_ref: str = Query(..., description="Mês de referência no formato MM.YYYY"),

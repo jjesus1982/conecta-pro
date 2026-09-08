@@ -2083,7 +2083,10 @@ async def calcular_folha_todos(mes: int, ano: int) -> dict:
 @mcp.tool
 async def fechar_folha(mes: int, ano: int) -> dict:
     """FECHA a folha de uma competência (mes/ano). Ação de gestão — confirme antes."""
-    return await erp.post(f"/people-management/folha/fechar/{mes}/{ano}", json={})
+    # A rota /folha/fechar foi apagada em 08/09/2026: devolvia "fechada" sem gravar nada. A folha
+    # oficial vem da Portte (hr_payslips); o ERP calcula, confere e exporta, não "fecha".
+    return {"ok": False, "detail": "Fechamento de folha não existe no ERP: a folha oficial é importada da Portte; "
+                                   "use calcular_folha_todos para conferir e exportar_folha_dominio para exportar."}
 
 
 # ---- Ponto eletrônico ----

@@ -10,7 +10,6 @@ from modules.operacional.controllers.redesign_data_controller import (
     _build_rh,
     _helpers,
     b,
-    brl,
     initials,
     t,
 )
@@ -41,7 +40,6 @@ EXTRA_MENU: list[dict] = [
     {"id": "disc-template-novo", "label": "Novo modelo de medida", "icon": _ICO_CCT},
     {"id": "disc-verificar-assinatura", "label": "Verificar assinatura", "icon": _ICO_CCT},
     {"id": "cct-convencoes", "label": "CCT — convencoes e feriados", "icon": _ICO_CCT},
-    {"id": "folha-alterdata", "label": "Importar folha (Alterdata)", "icon": _ICO_CCT},
     {"id": "holerites-lote", "label": "Importar holerites em lote", "icon": _ICO_CCT},
     {"id": "ciclo-avaliacao", "label": "Iniciar ciclo de avaliação", "icon": _ICO_CCT},
     {"id": "esocial-s2299", "label": "eSocial S-2299 (gerar XML)", "icon": _ICO_CCT},
@@ -275,6 +273,7 @@ async def build(db) -> dict:
     #     Fecha o data_gap do turnover: o RH informa o motivo REAL (vocabulário CLT). Não fabrica.
     try:
         from sqlalchemy import text as _sqltext
+
         from modules.people_management.human_resources.controllers.turnover_controller import (
             MOTIVOS_DESLIGAMENTO as _MOT,
         )
@@ -733,21 +732,6 @@ async def build(db) -> dict:
     # ── Ultimo lote (2026-08-10) ────────────────────────────────────────────────────
     # Estas quatro sao de DP/RH. Ficam aqui porque departamento_pessoal.py esta com
     # trabalho NAO COMMITADO de outra sessao — mexer la levaria o inacabado deles junto.
-    out["folha-alterdata"] = {
-        "title": "Importar folha do Alterdata",
-        "sub": "Le o CSV exportado do Alterdata e carrega a folha da competência. Confira "
-               "mes e ano: importar na competência errada mistura folha.",
-        "cta": "Importar", "type": "form",
-        "submit": {"endpoint": "/api/v1/people-management/folha/importar-alterdata",
-                   "multipart": True, "query": True,
-                   "okMsg": "Folha importada", "showResult": True,
-                   "confirm": "Importa a folha do CSV na competência informada. Confirma?"},
-        "fields": [
-            {"key": "arquivo", "label": "CSV do Alterdata*", "type": "file", "span": "span 2"},
-            {"key": "mes", "label": "Mes*", "type": "number", "span": "span 1", "ph": "8"},
-            {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "ph": "2026"},
-        ],
-    }
     out["holerites-lote"] = {
         "title": "Importar holerites em lote",
         "sub": "Ate 100 por lote. Cada item e um holerite; o exemplo mostra a forma.",

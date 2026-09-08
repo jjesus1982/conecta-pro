@@ -7,6 +7,7 @@ upload manual, assinatura digital, download e listagem.
 
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -111,6 +112,10 @@ async def upload_document(
 ) -> Any:
     """Upload manual de documento para um kit."""
     collector = DocumentCollectorService(db)
+    try:  # kit_id entra no caminho do disco: só UUID (kit_id="../x" escrevia fora do storage)
+        kit_id = str(uuid.UUID(str(kit_id)))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="kit_id inválido")
 
     # Determinar nome do documento
     final_name = document_name or file.filename or f"documento_{document_type}"
@@ -270,14 +275,23 @@ async def download_document(
     if not doc.file_path:
         raise HTTPException(status_code=404, detail="Documento nao possui arquivo vinculado")
 
+    # 275 documentos apontam para o Drive (URL) e 44 para uma rota interna do Inter: não são
+    # arquivos em disco. E a base de path-traversal era /app/uploads fixa enquanto o path relativo
+    # é resolvido contra GED_STORAGE_BASE — 60% dos downloads davam 400 (revisão 08/09/2026).
+    if str(doc.file_path).startswith(("http://", "https://")):
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url=doc.file_path, status_code=307)
+    if str(doc.file_path).startswith("/inter/"):
+        raise HTTPException(status_code=404, detail="Comprovante bancário: abra pelo módulo Financeiro (Inter), não há arquivo no GED.")
     full_path = doc.file_path
     if not os.path.isabs(doc.file_path):
         full_path = os.path.join(GED_STORAGE_BASE, doc.file_path)
 
-    # Path traversal protection (INV-3)
-    _base = Path("/app/uploads").resolve()
+    # Path traversal protection (INV-3): o alvo tem de ficar sob uma das bases de storage
+    _bases = [Path(GED_STORAGE_BASE).resolve(), Path("/app/uploads").resolve()]
     _target = Path(full_path).resolve()
-    if not _target.is_relative_to(_base):
+    if not any(_target.is_relative_to(b) for b in _bases):
         raise HTTPException(status_code=400, detail="Path de arquivo invalido")
 
     if not _target.exists():

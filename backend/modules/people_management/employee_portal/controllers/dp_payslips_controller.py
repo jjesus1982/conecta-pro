@@ -103,16 +103,19 @@ async def listar_payslips(
 
         result = await db.execute(stmt)
         payslips = result.scalars().all()
+        # total REAL (era len(página): "876 holerites" apareciam como 20 — revisão 08/09/2026)
+        from sqlalchemy import func as _func, select as _select
+        total = (await db.execute(_select(_func.count()).select_from(stmt.order_by(None).offset(None).limit(None).subquery()))).scalar() or 0
 
         return {
             "payslips": [_serialize_payslip(p) for p in payslips],
             "page": page,
             "page_size": effective_page_size,
-            "total": len(payslips),
+            "total": int(total),
         }
-    except Exception as exc:
-        logger.warning("Erro ao listar payslips: %s", exc)
-        return {"payslips": [], "page": page, "page_size": page_size, "total": 0}
+    except Exception:
+        logger.exception("Erro ao listar payslips")
+        raise
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -128,6 +131,8 @@ async def criar_payslip(
         return _serialize_payslip(payslip)
     except Exception as exc:
         await db.rollback()
+        if "uq_hr_payslips_code" in str(exc) or "duplicate key" in str(exc).lower():
+            raise HTTPException(status_code=409, detail="Já existe holerite deste funcionário nesta competência.") from exc
         logger.error("Erro ao criar payslip: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

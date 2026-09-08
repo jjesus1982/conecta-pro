@@ -115,11 +115,16 @@ async def list_reimbursements(
     """Lista todas as solicitações de reembolso (para gestores). Admins veem todos."""
     from datetime import date
 
+    try:
+        _ds = date.fromisoformat(expense_date_start) if expense_date_start else None
+        _de = date.fromisoformat(expense_date_end) if expense_date_end else None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Datas devem estar no formato AAAA-MM-DD")
     filters = ReimbursementRequestFilter(
         status=status_filter,
         approval_level=approval_level,
-        expense_date_start=date.fromisoformat(expense_date_start) if expense_date_start else None,
-        expense_date_end=date.fromisoformat(expense_date_end) if expense_date_end else None,
+        expense_date_start=_ds,
+        expense_date_end=_de,
         search=search,
         cost_center=cost_center,
         project=project,

@@ -1141,7 +1141,7 @@ def get_dashboard_folha(db: Session, mes: int, ano: int) -> dict[str, Any]:
             elif "IRRF" in desc or "IR " in desc or desc.startswith("IR"):
                 total_irrf += _d(d.get("valor", 0))
         func_list.append({
-            "id": h.get("employee_id") or h.get("id"), "nome": h.get("nome"),
+            "id": h.get("employee_id") or h.get("id"), "nome": h.get("nome") or h.get("employee_nome"),
             "cargo": cargo, "salario_base": h.get("salario_base"),
             "total_proventos": h.get("total_proventos"), "total_descontos": h.get("total_descontos"),
             "salario_liquido": h.get("liquido"), "fgts_value": h.get("fgts_empresa"),

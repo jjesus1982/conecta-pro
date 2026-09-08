@@ -49,12 +49,6 @@ class OperationsTimeEntry(BaseModel):
     notes: str | None = None
 
 
-@router.post(
-    "/from-operations",
-    summary="Registrar Ponto de Turno Operacional",
-    status_code=201,
-    description="Registra ponto automaticamente a partir de dados de turno do módulo operacional.",
-)
 async def register_from_operations(
     data: OperationsTimeEntry,
     current_user: CurrentActiveUser,

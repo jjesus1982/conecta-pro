@@ -1,19 +1,16 @@
 """Controller da Folha de Pagamento — CCT 2026 SINDECOMPRESTS."""
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.auth.dependencies import get_current_user
 from core.database.session import get_sync_db_dependency
 
 from ..schemas.folha_schemas import (
-    AjusteRequest,
-    ConferenciaResponse,
     DashboardFolhaResponse,
-    FechamentoResponse,
     FolhaBatchResponse,
     HoleriteResponse,
     ResumoFolhaResponse,
@@ -128,6 +125,8 @@ def baixar_holerite_pdf(
 
         from modules.signatures.helpers import (
             document_hash_sha256 as _dhash,
+        )
+        from modules.signatures.helpers import (
             garantir_solicitacao_assinatura_sync,
         )
 
@@ -334,6 +333,8 @@ def baixar_recibo_vt_vr_pdf(
 
         from modules.signatures.helpers import (
             document_hash_sha256 as _dhash,
+        )
+        from modules.signatures.helpers import (
             garantir_solicitacao_assinatura_sync,
             status_documento_sync,
         )
@@ -435,105 +436,3 @@ def listar_rubricas(
     return [RubricaResponse(**i) for i in items]
 
 
-@router.post("/ajuste/{employee_id}", summary="Ajuste manual de rubrica no holerite", status_code=201)
-def ajuste_folha(
-    employee_id: str,
-    request: AjusteRequest = Body(...),
-    db: Session = Depends(get_sync_db_dependency),
-) -> dict[str, Any]:
-    """Registra ajuste manual pelo DP em rubrica especifica."""
-    return {
-        "success": True,
-        "employee_id": employee_id,
-        "rubrica": request.rubrica_codigo,
-        "valor_ajustado": request.valor,
-        "motivo": request.motivo,
-        "ajustado_por": request.ajustado_por,
-        "message": "Ajuste registrado — sera aplicado no proximo calculo",
-    }
-
-
-@router.post(
-    "/fechar/{mes}/{ano}", response_model=FechamentoResponse, summary="Fechamento mensal da folha", status_code=201
-)
-def fechar_folha(
-    mes: int,
-    ano: int,
-    fechado_por: str = Query(..., description="ID ou nome do responsavel"),
-    db: Session = Depends(get_sync_db_dependency),
-) -> FechamentoResponse:
-    """Fecha a folha do mes — usa dados Domínio quando disponíveis."""
-    batch = calculo_service.calcular_folha_batch_com_guard(db, mes, ano)
-    return FechamentoResponse(
-        mes=mes,
-        ano=ano,
-        total_colaboradores=batch["total_calculados"],
-        total_liquido=batch["total_liquido"],
-        total_fgts=batch["total_fgts"],
-        fechado_por=fechado_por,
-        fechado_em=datetime.utcnow().isoformat(),
-        status="fechada",
-        message=f"Folha {mes:02d}/{ano} fechada com {batch['total_calculados']} colaboradores",
-    )
-
-
-@router.get(
-    "/conferencia/{mes}/{ano}",
-    response_model=ConferenciaResponse,
-    summary="Conferencia Conecta PRO vs Alterdata",
-)
-def conferencia_alterdata(
-    mes: int,
-    ano: int,
-    db: Session = Depends(get_sync_db_dependency),
-) -> ConferenciaResponse:
-    """Confronta valores calculados pelo Conecta PRO para conferencia com Alterdata."""
-    batch = calculo_service.calcular_folha_batch(db, mes, ano)
-    resumo_por_colab = []
-    for h in batch["holerites"]:
-        resumo_por_colab.append(
-            {
-                "employee_id": h["employee_id"],
-                "nome": h["employee_nome"],
-                "cargo": h["cargo"],
-                "sal_base": h["salario_base"],
-                "total_proventos": h["total_proventos"],
-                "total_descontos": h["total_descontos"],
-                "liquido_conecta": h["liquido"],
-                "liquido_alterdata": None,
-                "divergencia": None,
-            }
-        )
-    return ConferenciaResponse(
-        mes=mes,
-        ano=ano,
-        total_colaboradores=batch["total_calculados"],
-        total_liquido_conecta=batch["total_liquido"],
-        total_liquido_alterdata=None,
-        divergencias_count=0,
-        status="aguardando_importacao",
-        colaboradores=resumo_por_colab,
-        message="Valores Conecta PRO calculados. Importe CSV do Alterdata para confrontar.",
-    )
-
-
-@router.post(
-    "/importar-alterdata",
-    summary="Importar folha do Alterdata (CSV, status_code=201)",
-)
-async def importar_alterdata(
-    arquivo: UploadFile = File(..., description="CSV exportado do Alterdata"),
-    mes: int = Query(..., ge=1, le=12),
-    ano: int = Query(..., ge=2020),
-) -> dict[str, Any]:
-    """Importa CSV de folha do Alterdata para confronto com valores Conecta PRO."""
-    content = await arquivo.read()
-    lines = content.decode("utf-8", errors="replace").strip().split("\n")
-    return {
-        "success": True,
-        "arquivo": arquivo.filename,
-        "mes": mes,
-        "ano": ano,
-        "linhas_lidas": len(lines),
-        "message": f"Arquivo {arquivo.filename} importado com {len(lines)} linhas. Use GET /conferencia/{mes}/{ano} para ver divergencias.",
-    }

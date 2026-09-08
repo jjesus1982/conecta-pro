@@ -74,7 +74,8 @@ async def list_leaves(
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
     except Exception:
-        return {"items": [], "total": 0, "page": 1, "page_size": 20, "total_pages": 1}
+        logger.exception("leaves: listagem falhou")
+        raise
 
 
 @router.post("", status_code=201, summary="Registrar licença/afastamento")
@@ -94,14 +95,27 @@ async def criar_leave(data: dict, current_user: CurrentActiveUser, db: AsyncSess
         except Exception:  # noqa: BLE001
             return None
 
+    try:
+        _uuid.UUID(emp)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="employee_id inválido")
     nrow = (await db.execute(_sqltext("SELECT nome FROM employees WHERE id::text = :e"), {"e": emp})).first()
-    nome = nrow[0] if nrow else "—"
+    if not nrow:
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
+    nome = nrow[0]
     lid = str(_uuid.uuid4())
 
     tipo_af = data.get("leave_type") or data.get("tipo") or "licenca"
+    # A tela manda "acidente"/"medica"/"maternidade"; o domínio (e a estabilidade acidentária,
+    # art. 118 Lei 8.213) conhece "acidente_trabalho"/"doenca"/"licenca_maternidade". Sem o
+    # mapa, acidente lançado pelo DP gravava gera_estabilidade=false (revisão 08/09/2026).
+    tipo_af = {"acidente": "acidente_trabalho", "medica": "doenca", "medico": "doenca",
+               "maternidade": "licenca_maternidade", "paternidade": "licenca_paternidade"}.get(tipo_af, tipo_af)
     cid_af = data.get("cid")
     di_af = _ld(data.get("start_date"))
     df_af = _ld(data.get("end_date"))
+    if not di_af:
+        raise HTTPException(status_code=422, detail="start_date é obrigatório (AAAA-MM-DD)")
     # ESTABILIDADE ACIDENTÁRIA (art. 118 Lei 8.213): o registro via /leaves TAMBÉM tem
     # que derivar gera_estabilidade/estabilidade_ate — senão um acidente lançado por aqui
     # não aparece no painel de estabilidade e o colaborador pode ser demitido dentro do

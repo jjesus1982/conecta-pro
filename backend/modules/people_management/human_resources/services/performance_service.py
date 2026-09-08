@@ -11,7 +11,7 @@ Implementa logica de negocio para gestao de avaliacoes:
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import bindparam, func, select, text
@@ -304,7 +304,7 @@ class PerformanceService:
             raise ValueError("Avaliacao deve ter um score para ser concluida.")
 
         review.status = ReviewStatus.COMPLETED
-        review.completed_at = datetime.utcnow()
+        review.completed_at = datetime.now(UTC)
 
         await self.session.commit()
         await self.session.refresh(review)

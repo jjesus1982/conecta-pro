@@ -303,10 +303,18 @@ class AdmissionService:
         _dados_cand = (admission.documents_received or {}).get("_dados_candidato") or {}
         _pis = employee_data.get("pis") or _dados_cand.get("pis_pasep")
         _nasc = employee_data.get("data_nascimento") or _dados_cand.get("birth_date")
+        if isinstance(_nasc, str):
+            # gravado como ISO em documents_received; asyncpg exige date em coluna Date
+            from datetime import date as _date
+            try:
+                _nasc = _date.fromisoformat(_nasc[:10])
+            except ValueError:
+                _nasc = None
 
         # Validação de identidade: CPF obrigatório + SEM duplicidade — senão cria dois
         # employees do mesmo CPF (folha duplicada + eSocial S-2200 quebra por payload).
-        _cpf = (employee_data.get("cpf") or "").strip()
+        # CPF/nome/cargo caem para o que a ADMISSÃO já tem: o chamador (MCP concluir_admissao) manda {}
+        _cpf = (employee_data.get("cpf") or getattr(admission, "cpf", None) or "").strip()
         if not _cpf:
             raise ValueError("CPF é obrigatório para concluir a admissão.")
         # comparação por dígitos (form manda mascarado; banco guarda só dígitos)
@@ -324,7 +332,7 @@ class AdmissionService:
         # Criar Employee
         employee = Employee(
             id=uuid4(),
-            nome=employee_data.get("nome", ""),
+            nome=employee_data.get("nome") or getattr(admission, "candidate_name", None) or "",
             email=employee_data.get("email"),
             cpf=_digits or _cpf,  # convenção do banco: só dígitos
             matricula=employee_data.get("matricula"),

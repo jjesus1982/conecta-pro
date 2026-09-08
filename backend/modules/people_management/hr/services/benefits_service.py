@@ -158,4 +158,9 @@ class BenefitsService:
             "total_employee_contribution": round(total_employee, 2),
             "total_company_contribution": round(total_company, 2),
             "total_cost": round(total_employee + total_company, 2),
+            # aliases lidos pela tela de benefícios (active_count/total_company/total_employee/total)
+            "active_count": len(benefits),
+            "total_company": round(total_company, 2),
+            "total_employee": round(total_employee, 2),
+            "total": round(total_employee + total_company, 2),
         }

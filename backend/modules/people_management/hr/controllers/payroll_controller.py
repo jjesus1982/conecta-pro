@@ -15,8 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
-from modules.people_management.hr.publishers import publish_folha_fechada
-from modules.people_management.hr.services.payroll_service import PayrollService
 
 logger = logging.getLogger(__name__)
 
@@ -339,27 +337,3 @@ async def list_rubricas(
     }
 
 
-@router.post(
-    "/close",
-    summary="Fechar Folha Mensal",
-    status_code=201,
-    description="Fecha e processa a folha de pagamento mensal para todos os funcionários ativos.",
-)
-async def close_payroll(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    month: int = Query(..., ge=1, le=12, description="Mês de referência"),
-    year: int = Query(..., ge=2020, le=2030, description="Ano de referência"),
-) -> Any:
-    """Fecha a folha de pagamento mensal para todos os funcionários ativos."""
-    service = PayrollService(db)
-    result = await service.close_payroll(month, year)
-    await db.commit()
-    asyncio.create_task(
-        publish_folha_fechada(
-            competencia=f"{month:02d}/{year}",
-            total_funcionarios=result.get("total_funcionarios", 0) if isinstance(result, dict) else 0,
-            total_bruto=float(result.get("total_bruto", 0.0)) if isinstance(result, dict) else 0.0,
-        )
-    )
-    return result

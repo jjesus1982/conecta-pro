@@ -118,6 +118,12 @@ class TimeSheetService:
         Returns:
             TimeSheet atualizado
         """
+        # Este motor lê time_entries/overtimes/time_justifications (0 linhas): recalcular uma
+        # folha que o motor de ESPELHO (/hr/ponto) já calculou ou fechou zerava horas/faltas e
+        # apagava a assinatura do funcionário — mesmo com force (revisão 08/09/2026).
+        if sheet.status in (TimeSheetStatus.CALCULADO, TimeSheetStatus.FECHADO, TimeSheetStatus.APROVADO,
+                            TimeSheetStatus.ENVIADO_FOLHA):
+            raise ValueError(f"Folha {sheet.code} está '{sheet.status}': recálculo por este caminho é destrutivo; use /hr/ponto/calcular.")
         if sheet.status != TimeSheetStatus.ABERTO and not force:
             logger.warning(f"Folha {sheet.code} não está aberta para recálculo")
             return sheet

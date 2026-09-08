@@ -753,10 +753,13 @@ async def agendar_aso(
     """Agenda um ASO."""
     from modules.people_management.sst.models.aso import ASOModel
 
+    tipo = {"retorno": "retorno_trabalho"}.get(data.tipo, data.tipo)  # rótulo da tela → domínio
+    if tipo not in ASO_TIPOS_VALIDOS:
+        raise HTTPException(status_code=422, detail=f"tipo inválido: {data.tipo}. Válidos: {sorted(ASO_TIPOS_VALIDOS)}")
     aso = ASOModel(
         aso_id=str(uuid4()),
         employee_id=data.employee_id,
-        tipo=data.tipo,
+        tipo=tipo,
         data_agendamento=data.data_agendamento,
         clinica=data.clinica,
         status="agendado",
@@ -830,13 +833,23 @@ async def registrar_resultado_aso(
     from sqlalchemy import text as sql_text
 
     try:
+        import json as _json
+
+        hoje = date.today()  # Manaus (TZ do container); CURRENT_DATE do Postgres é UTC
+        tipo_row = (await db.execute(sql_text("SELECT tipo FROM gp_asos WHERE aso_id = :aid"), {"aid": aso_id})).first()
+        if not tipo_row:
+            raise HTTPException(status_code=404, detail="ASO nao encontrado")
+        # validade: 12 meses (NR-7); demissional não tem validade. Sem isto o ASO realizado
+        # continuava "sem_aso" no compliance e nunca aparecia como vencendo (revisão 08/09/2026)
+        validade = None if str(tipo_row[0] or "").startswith("demissional") else _somar_meses(hoje, 12)
         result = await db.execute(
             sql_text(
-                "UPDATE gp_asos SET apto = :apto, restricoes = :rest, medico = :med, "
-                "crm = :crm, status = 'realizado', data_realizacao = CURRENT_DATE "
-                "WHERE aso_id = :aid"
+                "UPDATE gp_asos SET apto = :apto, restricoes = CAST(:rest AS jsonb), medico = :med, "
+                "crm = :crm, observacoes = coalesce(:obs, observacoes), status = 'realizado', "
+                "data_realizacao = :hoje, data_validade = :validade WHERE aso_id = :aid"
             ),
-            {"apto": data.apto, "rest": str(data.restricoes), "med": data.medico, "crm": data.crm, "aid": aso_id},
+            {"apto": data.apto, "rest": _json.dumps(data.restricoes or []), "med": data.medico, "crm": data.crm,
+             "obs": data.observacoes, "hoje": hoje, "validade": validade, "aid": aso_id},
         )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="ASO nao encontrado")
@@ -1490,7 +1503,7 @@ async def listar_cipa_reunioes(
     try:
         result = await db.execute(
             sql_text(
-                "SELECT reuniao_id, data_reuniao, tipo, pauta, status FROM sst_cipa_reunioes ORDER BY data_reuniao DESC"
+                "SELECT reuniao_id, data_reuniao, tipo, pauta, status FROM sst_cipa_reunioes ORDER BY data_reuniao DESC LIMIT 200"
             )
         )
         reunioes = [
@@ -1515,7 +1528,16 @@ async def registrar_reuniao_cipa(
     reuniao_id = str(uuid4())
     if not data.get("data_reuniao"):
         raise HTTPException(status_code=422, detail="Campo 'data_reuniao' é obrigatório.")
-    data_reuniao = date.fromisoformat(data.get("data_reuniao"))
+    try:
+        data_reuniao = date.fromisoformat(str(data.get("data_reuniao") or ""))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="data_reuniao deve ser AAAA-MM-DD")
+    # dedupe: a mesma ata já foi gravada 2.834 vezes (18–21/03/2026, ~175/dia) — revisão 08/09/2026
+    _dup = (await db.execute(sql_text(
+        "SELECT reuniao_id FROM sst_cipa_reunioes WHERE data_reuniao = :d AND tipo = :t AND pauta = :p LIMIT 1"),
+        {"d": data_reuniao, "t": data.get("tipo", "ordinaria"), "p": data.get("pauta", "")})).first()
+    if _dup:
+        return {"reuniao_id": str(_dup[0]), "ja_existia": True}
     await db.execute(
         sql_text(
             "INSERT INTO sst_cipa_reunioes (reuniao_id, data_reuniao, tipo, pauta, status, created_at) "

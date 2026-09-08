@@ -9,7 +9,7 @@ Implementa logica de negocio para gestao de planos de carreira:
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import bindparam, func, select, text
@@ -259,7 +259,7 @@ class CareerService:
         updated_milestones[milestone_index] = {
             **milestone,
             "completed": True,
-            "completed_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
         plan.milestones = updated_milestones
 
@@ -267,7 +267,7 @@ class CareerService:
         all_completed = all(m.get("completed", False) for m in plan.milestones)
         if all_completed:
             plan.status = CareerPlanStatus.COMPLETED
-            plan.completed_at = datetime.utcnow()
+            plan.completed_at = datetime.now(UTC)
             logger.info(f"Plano de carreira concluido (ID: {plan.id}) - todos milestones completos")
 
         await self.session.commit()

@@ -201,24 +201,29 @@ class PunchService:
         errors: list[dict[str, Any]] = []
 
         for p in punches:
-            # Verificar duplicata no banco
-            ts = p.timestamp or datetime.now().isoformat()
-            existing = await self.db.execute(
-                select(ClockPunchModel.id)
-                .where(
-                    ClockPunchModel.employee_id == p.employee_id,
-                    ClockPunchModel.punch_type == p.punch_type,
-                    ClockPunchModel.punch_timestamp == datetime.fromisoformat(str(ts)),
-                )
-                .limit(1)
-            )
-            if existing.scalar_one_or_none():
-                duplicates += 1
-                continue
-
             try:
-                await self.registrar_batida(p)
-                synced += 1
+                async with self.db.begin_nested():  # savepoint: erro de uma batida não aborta as demais
+                    # Duplicata: timestamp normalizado para Manaus NAIVE (coluna é sem fuso; o app
+                    # manda ISO com offset e a comparação estourava por batida — revisão 08/09/2026)
+                    ts = p.timestamp or datetime.now().isoformat()
+                    ts_dt = datetime.fromisoformat(str(ts))
+                    if ts_dt.tzinfo is not None:
+                        from zoneinfo import ZoneInfo
+                        ts_dt = ts_dt.astimezone(ZoneInfo("America/Manaus")).replace(tzinfo=None)
+                    existing = await self.db.execute(
+                        select(ClockPunchModel.id)
+                        .where(
+                            ClockPunchModel.employee_id == p.employee_id,
+                            ClockPunchModel.punch_type == p.punch_type,
+                            ClockPunchModel.punch_timestamp == ts_dt,
+                        )
+                        .limit(1)
+                    )
+                    if existing.scalar_one_or_none():
+                        duplicates += 1
+                        continue
+                    await self.registrar_batida(p)
+                    synced += 1
             except Exception as e:
                 logger.warning("Erro ao sincronizar batida: %s", e)
                 errors.append({"employee_id": p.employee_id, "error": str(e)[:200]})
@@ -468,7 +473,7 @@ class PunchService:
 
         justification.status = "aprovada" if action == "aprovar" else "rejeitada"
         justification.reviewed_by = reviewer_id
-        justification.reviewed_at = datetime.utcnow()
+        justification.reviewed_at = datetime.now()
         justification.review_notes = notes
 
         await self.db.flush()
@@ -483,7 +488,7 @@ class PunchService:
 
         return justification.to_dict()
 
-    async def get_justificativas_pendentes(self, employee_id: int | None = None) -> list[dict[str, Any]]:
+    async def get_justificativas_pendentes(self, employee_id: str | None = None) -> list[dict[str, Any]]:
         """Retorna justificativas pendentes de aprovacao.
 
         Args:
@@ -598,7 +603,7 @@ class PunchService:
             )
             await self.db.delete(orfa)
 
-        agora = datetime.utcnow()
+        agora = datetime.now()
         if existing is not None:
             existing.total_horas_trabalhadas = horas_trabalhadas  # REAL: soma dos pares entrada/saida
             # Extras 50/100 e faltas: sem base confiavel de escala/jornada esperada
@@ -719,7 +724,7 @@ class PunchService:
                 return
 
             solides_employee_id = str(row[0])
-            start_date = datetime.utcnow().date().isoformat()
+            start_date = datetime.now().date().isoformat()
 
             from modules.integrations.connectors.solides.connector import SolidesConnector
 

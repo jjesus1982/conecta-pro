@@ -107,7 +107,7 @@ async def list_discipline_overview(
         result = await db.execute(
             text(
                 "SELECT da.id::text, da.employee_id::text, e.nome as employee_name, "
-                "da.action_type, da.description, da.status, da.created_at::text "
+                "da.action_type, da.reason_description AS description, da.status, da.created_at::text "
                 "FROM disciplinary_actions da "
                 "JOIN employees e ON da.employee_id = e.id "
                 "ORDER BY da.created_at DESC "
@@ -126,7 +126,10 @@ async def list_discipline_overview(
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
     except Exception:
-        return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
+        # Era `return {"items": []}` — a coluna errada (da.description) virou "nenhuma medida"
+        # com 200 durante meses (revisão 08/09/2026). Falha é falha.
+        logger.exception("discipline: listagem falhou")
+        raise
 
 
 @router.get(

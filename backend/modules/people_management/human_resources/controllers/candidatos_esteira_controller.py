@@ -458,6 +458,9 @@ async def _gerar_escala(db: AsyncSession, employee_id: str, post_id: str, padrao
                  "      WHERE scale_id=CAST(:sc AS uuid) AND is_active) q WHERE s.id=CAST(:sc AS uuid)"),
             {"sc": sid},
         )
+        # meses de 31 dias invertem a paridade do mês seguinte (mesma regra do grade_controller)
+        if padrao == "12x36" and calendar.monthrange(y, m)[1] % 2 == 1:
+            par = 1 - par
         m += 1
         if m > 12:
             m = 1; y += 1

@@ -1,7 +1,7 @@
 """Service para Candidate."""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -232,7 +232,7 @@ class CandidateService:
         candidate = await self.repository.get_by_id(candidate_id)
         if candidate:
             candidate.status = CandidateStatus.ARQUIVADO
-            candidate.updated_at = datetime.utcnow()
+            candidate.updated_at = datetime.now(UTC)
             await self.session.commit()
             logger.info(
                 f"Candidato arquivado: {candidate.name}",
@@ -253,7 +253,7 @@ class CandidateService:
         candidate = await self.repository.get_by_id(candidate_id)
         if candidate:
             candidate.status = CandidateStatus.ATIVO
-            candidate.updated_at = datetime.utcnow()
+            candidate.updated_at = datetime.now(UTC)
             await self.session.commit()
             logger.info(
                 f"Candidato ativado: {candidate.name}",
@@ -277,7 +277,7 @@ class CandidateService:
         # Cria candidato com dados extraídos
         create_data = CandidateCreate(
             name=parsed.get("name", "Candidato Importado"),
-            email=parsed.get("email", f"imported_{datetime.utcnow().timestamp()}@temp.com"),
+            email=parsed.get("email", f"imported_{datetime.now(UTC).timestamp()}@temp.com"),
             phone=parsed.get("phone"),
             source=data.source or CandidateSource.SITE,
             resume_text=data.resume_text,
@@ -310,7 +310,7 @@ class CandidateService:
         candidate = await self.repository.get_by_id(candidate_id)
         if candidate:
             candidate.tags = tags
-            candidate.updated_at = datetime.utcnow()
+            candidate.updated_at = datetime.now(UTC)
             await self.session.commit()
         return candidate
 
@@ -329,18 +329,18 @@ class CandidateService:
         candidate = await self.repository.get_by_id(candidate_id)
         if candidate:
             # DB nao tem coluna 'notes' — usa ai_analysis como storage alternativo
-            analysis = candidate.ai_analysis or {}
-            notes_list = analysis.get("notes", [])
+            analysis = dict(candidate.ai_analysis or {})  # cópia: mutação in-place não é gravada
+            notes_list = list(analysis.get("notes", []))
             notes_list.append(
                 {
                     "text": note,
                     "author": author,
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 }
             )
             analysis["notes"] = notes_list
             candidate.ai_analysis = analysis
-            candidate.updated_at = datetime.utcnow()
+            candidate.updated_at = datetime.now(UTC)
             await self.session.commit()
         return candidate
 
@@ -383,7 +383,7 @@ class CandidateService:
         # Remove secundário
         await self.repository.soft_delete(secondary_id)
 
-        primary.updated_at = datetime.utcnow()
+        primary.updated_at = datetime.now(UTC)
         await self.session.commit()
 
         logger.info(

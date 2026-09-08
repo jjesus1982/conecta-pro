@@ -8,6 +8,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from modules.recruitment.models.application import Application
 from modules.recruitment.models.interview import (
     Interview,
     InterviewResult,
@@ -79,7 +80,10 @@ class InterviewRepository:
         """Busca entrevista por ID com relacionamentos."""
         result = await self.session.execute(
             select(Interview)
-            .options(selectinload(Interview.application))
+            .options(
+                selectinload(Interview.application).selectinload(Application.candidate),
+                selectinload(Interview.application).selectinload(Application.job_position),
+            )
             .where(
                 and_(
                     Interview.id == interview_id,

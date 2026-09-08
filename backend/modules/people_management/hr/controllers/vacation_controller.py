@@ -11,6 +11,8 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+import uuid as _uuid_mod
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import text as _sqltext
@@ -356,7 +358,7 @@ async def gerar_aviso_previo_ferias(
 
     vacation_start = start_date.strftime("%d/%m/%Y") if start_date else "—"
     vacation_end = end_date.strftime("%d/%m/%Y") if end_date else "—"
-    vacation_days = days or (str((end_date - start_date).days + 1) if start_date and end_date else "30")
+    vacation_days = _normalize_days(days) or (str((end_date - start_date).days + 1) if start_date and end_date else "30")
 
     if start_date:
         period_end_dt = start_date - timedelta(days=1)
@@ -502,8 +504,20 @@ async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncS
             return None
 
     sd, ed = _d(data.get("start_date")), _d(data.get("end_date"))
+    if sd and not ed and data.get("days"):
+        # MCP solicitar_ferias manda start_date + days (sem end_date): derivar, não recusar
+        try:
+            ed = sd + _td(days=int(str(data["days"]).split()[0]) - 1)
+        except (ValueError, IndexError):
+            ed = None
     if not sd or not ed:
-        raise HTTPException(status_code=422, detail="start_date e end_date são obrigatórios")
+        raise HTTPException(status_code=422, detail="start_date e end_date (ou days) são obrigatórios")
+    try:
+        _uuid_mod.UUID(emp)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="employee_id inválido")
+    if not (await db.execute(_sqltext("SELECT 1 FROM employees WHERE id = CAST(:e AS uuid)"), {"e": emp})).first():
+        raise HTTPException(status_code=404, detail="Colaborador não encontrado")
     if ed < sd:
         raise HTTPException(status_code=422, detail="A data de término não pode ser anterior à data de início.")
     # Teto legal: férias nunca excedem 30 dias corridos (CLT art. 130). Este endpoint recebe

@@ -747,7 +747,7 @@ def calcular_espelho(
         ts.hourly_rate = Decimal(str(round(hourly_rate, 2)))
     ts.extra_metadata = metadata
     ts.notes = " | ".join(obs) if obs else None
-    ts.last_calculated_at = _dt.utcnow()
+    ts.last_calculated_at = _dt.now()
 
     db.flush()
 
@@ -934,7 +934,7 @@ def fechar_mes(
             )
             if ts is not None:
                 ts.status = STATUS_FECHADO
-                ts.closed_at = datetime.utcnow()
+                ts.closed_at = datetime.now()
                 ts.closed_by_id = (closed_by or "")[:50] or None
                 ts.closed_by_name = closed_by
                 db.flush()

@@ -5,16 +5,14 @@ Re-exporta endpoints disciplinares do operacional e adiciona endpoints DP:
 histórico por funcionário e criação a partir de ocorrência.
 """
 
-import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
-from modules.operacional.publishers import publish_medida_disciplinar_criada
 from modules.people_management.hr.services.discipline_service import DisciplineService
 
 logger = logging.getLogger(__name__)
@@ -48,36 +46,3 @@ async def get_employee_discipline_history(
     return await service.get_employee_history(employee_id, page=page, page_size=page_size)
 
 
-@router.post(
-    "/from-occurrence/{occurrence_id}",
-    summary="Criar Ação Disciplinar de Ocorrência",
-    status_code=201,
-    description="Cria medida disciplinar vinculada a uma ocorrência operacional existente.",
-)
-async def create_from_occurrence(
-    occurrence_id: str,
-    current_user: CurrentActiveUser,
-    action_type: str = Query(..., description="Tipo de ação disciplinar"),
-    description: str | None = Query(None, description="Descrição/justificativa"),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Cria medida disciplinar a partir de uma ocorrência operacional."""
-    service = DisciplineService(db)
-    try:
-        result = await service.create_from_occurrence(
-            occurrence_id=occurrence_id,
-            action_type=action_type,
-            description=description,
-            created_by_id=current_user.id,
-        )
-        await db.commit()
-        asyncio.create_task(
-            publish_medida_disciplinar_criada(
-                action_id=str(getattr(result, "id", occurrence_id)),
-                employee_id=str(getattr(result, "employee_id", "") or ""),
-                action_type=action_type,
-            )
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))

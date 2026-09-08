@@ -840,27 +840,31 @@ class TimeRecordService:
         if "justification" in data and data["justification"] is not None:
             # Create justification record
             justification_id = str(uuid4())
+            # justification_type é NOT NULL: sem ela o INSERT falhava, o except engolia e a
+            # transação abortada derrubava o UPDATE seguinte — PATCH com justificativa dava
+            # 500 sempre (revisão 08/09/2026). Savepoint isola o INSERT.
             try:
-                await self.db.execute(
-                    text("""
-                        INSERT INTO gp_justifications (
-                            justification_id, employee_id, punch_id,
-                            reason, status, created_at
-                        ) VALUES (
-                            :jid, :emp_id, :pid, :reason, 'pendente', :created_at
-                        )
-                    """),
-                    {
-                        "jid": justification_id,
-                        "emp_id": row["employee_id"],
-                        "pid": row["punch_id"],
-                        "reason": data["justification"],
-                        "created_at": now,
-                    },
-                )
+                async with self.db.begin_nested():
+                    await self.db.execute(
+                        text("""
+                            INSERT INTO gp_justifications (
+                                justification_id, employee_id, punch_id, justification_type,
+                                reason, status, created_at
+                            ) VALUES (
+                                :jid, :emp_id, :pid, 'ajuste', :reason, 'pendente', :created_at
+                            )
+                        """),
+                        {
+                            "jid": justification_id,
+                            "emp_id": row["employee_id"],
+                            "pid": row["punch_id"],
+                            "reason": data["justification"],
+                            "created_at": now,
+                        },
+                    )
             except Exception:
-                # Table may not exist, store in notes
-                logger.debug("gp_justifications nao existe, armazenando em notes")
+                logger.exception("gp_justifications: INSERT falhou (punch %s)", row["punch_id"])
+                raise
 
             sets.append("justification_id = :jid")
             params["jid"] = justification_id

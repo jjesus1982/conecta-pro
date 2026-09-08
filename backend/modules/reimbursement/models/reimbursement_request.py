@@ -1,7 +1,7 @@
 """Model para solicitações de reembolso."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -196,7 +196,7 @@ class ReimbursementRequest(Base):
         self.total_amount = self.calculate_total()
         self.approval_level = self.determine_approval_level().value
         self.status = ReimbursementStatus.PENDENTE.value
-        self.submitted_at = datetime.utcnow()
+        self.submitted_at = datetime.now(UTC)
 
     def approve(self, user_id: uuid.UUID, comments: str | None = None) -> None:
         """Aprova a solicitação."""
@@ -208,7 +208,7 @@ class ReimbursementRequest(Base):
 
         self.approved_amount = self.calculate_approved_total()
         self.approved_by = user_id
-        self.approved_at = datetime.utcnow()
+        self.approved_at = datetime.now(UTC)
         self.status = ReimbursementStatus.APROVADO.value
 
         if comments:
@@ -223,7 +223,7 @@ class ReimbursementRequest(Base):
             raise ValueError(f"Solicitação em status {self.status} não pode ser rejeitada")
 
         self.approved_by = user_id
-        self.approved_at = datetime.utcnow()
+        self.approved_at = datetime.now(UTC)
         self.rejection_reason = reason
         self.status = ReimbursementStatus.REJEITADO.value
 
@@ -250,7 +250,7 @@ class ReimbursementRequest(Base):
 
         self.payable_account_id = payable_account_id
         self.processed_by = user_id
-        self.processed_at = datetime.utcnow()
+        self.processed_at = datetime.now(UTC)
         self.status = ReimbursementStatus.PROCESSADO.value
 
     def return_to_draft(self, reason: str | None = None) -> None:

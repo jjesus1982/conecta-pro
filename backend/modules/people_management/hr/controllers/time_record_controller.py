@@ -114,15 +114,18 @@ async def clock_in(
 ) -> Any:
     """Registra batida de entrada (clock-in) para um funcionário."""
     service = TimeRecordService(db)
-    result = await service.clock_in(
-        employee_id=data.employee_id,
-        location_lat=data.location_lat,
-        location_lng=data.location_lng,
-        posto_id=data.posto_id,
-        device_type=data.device_type,
-        notes=data.notes,
-        created_by=str(current_user.id),
-    )
+    try:
+        result = await service.clock_in(
+            employee_id=data.employee_id,
+            location_lat=data.location_lat,
+            location_lng=data.location_lng,
+            posto_id=data.posto_id,
+            device_type=data.device_type,
+            notes=data.notes,
+            created_by=str(current_user.id),
+        )
+    except ValueError as e:  # "já existe entrada em aberto" era 500 (revisão 08/09/2026)
+        raise HTTPException(status_code=409, detail=str(e))
     await db.commit()
     asyncio.create_task(
         publish_ponto_registrado(
@@ -232,11 +235,14 @@ async def update_time_record(
 ) -> Any:
     """Atualiza/justifica um registro de ponto."""
     service = TimeRecordService(db)
-    record = await service.update_record(
-        record_id=record_id,
-        data=data.model_dump(exclude_unset=True),
-        updated_by=str(current_user.id),
-    )
+    try:
+        record = await service.update_record(
+            record_id=record_id,
+            data=data.model_dump(exclude_unset=True),
+            updated_by=str(current_user.id),
+        )
+    except ValueError as e:  # tipo de batida inválido era 500
+        raise HTTPException(status_code=400, detail=str(e))
     if not record:
         raise HTTPException(status_code=404, detail="Registro de ponto não encontrado")
     await db.commit()
