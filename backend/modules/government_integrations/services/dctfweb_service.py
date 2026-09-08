@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 class DCTFWebService:
     """Service para operações DCTFWeb."""
 
-    def __init__(self):
-        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
-        empresa = get_empresa_fiscal()
+    def __init__(self, empresa_slug: str | None = None):
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas).
+        08/09/2026: sem slug era sempre a Eletrônica — a Patrimonial nunca foi apurada."""
+        empresa = get_empresa_fiscal(empresa_slug)
         self.cnpj = empresa.cnpj
         self.razao_social = empresa.razao_social
         self.ambiente = os.getenv("DCTFWEB_ENVIRONMENT", "producao")
@@ -163,12 +164,14 @@ class DCTFWebService:
         rat = inss_base * Decimal("0.03")
         terceiros_total = inss_base * Decimal("0.058")
         # distribuição usual do Sistema S para código de FPAS de vigilância/serviços
+        # FPAS 515 (serviços/vigilância): Salário-Educação 2,5% + INCRA 0,2% + SESC 1,5% + SENAC 1,0%
+        # + SEBRAE 0,6% = 5,8%. Antes estava SEST/SENAT/SENAR (FPAS do transporte), somando 5,3%.
         terceiros = {
-            "1184": _q(inss_base * Decimal("0.025")),  # Salário Educação 2,5%
-            "1208": _q(inss_base * Decimal("0.015")),  # SEST 1,5%
-            "1211": _q(inss_base * Decimal("0.010")),  # SENAT 1,0%
-            "1187": _q(inss_base * Decimal("0.002")),  # INCRA 0,2%
-            "1205": _q(inss_base * Decimal("0.001")),  # SENAR 0,1% (quando aplicável)
+            "salario_educacao": _q(inss_base * Decimal("0.025")),
+            "incra": _q(inss_base * Decimal("0.002")),
+            "sesc": _q(inss_base * Decimal("0.015")),
+            "senac": _q(inss_base * Decimal("0.010")),
+            "sebrae": _q(inss_base * Decimal("0.006")),
         }
 
         dados = {

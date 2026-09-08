@@ -1276,7 +1276,7 @@ async def _one_proposal(pid: str) -> dict:
 async def cadastrar_whatsapp_cliente(cnpj_ou_id: str, numero: str) -> dict:
     """Grava/normaliza (E.164 +55…) o WhatsApp de um cliente (por CNPJ ou id) ou lead (id).
     Pré-requisito para o José Luís enviar follow-up/proposta por WhatsApp."""
-    return await erp.post("/crm/whatsapp/cadastrar", json={"cnpj_ou_id": cnpj_ou_id, "numero": numero}, drive=salvar_no_drive)
+    return await erp.post("/crm/whatsapp/cadastrar", json={"cnpj_ou_id": cnpj_ou_id, "numero": numero})  # drive=salvar_no_drive era nome indefinido → NameError (08/09/2026)
 
 
 @mcp.tool
@@ -2678,8 +2678,18 @@ async def esocial_espelho_resumo() -> dict:
 
 @mcp.tool
 async def esocial_timeline_funcionario(employee_id: str) -> dict:
-    """Linha do tempo eSocial de um funcionário (S-2200/2230/2299 e protocolos)."""
-    return await erp.get(f"/government/esocial/espelho/timeline/{employee_id}")
+    """Linha do tempo eSocial de um funcionário (S-2200/2230/2299 e protocolos). Aceita id do
+    funcionário OU CPF — a rota é por CPF (08/09/2026: com UUID devolvia sempre vazio)."""
+    chave = "".join(ch for ch in str(employee_id) if ch.isdigit())
+    if len(chave) != 11:
+        try:
+            emp = await erp.get(f"/people-management/hr/employees/{employee_id}")
+            chave = "".join(ch for ch in str((emp or {}).get("cpf") or (emp or {}).get("data", {}).get("cpf") or "") if ch.isdigit())
+        except Exception:  # noqa: BLE001
+            chave = ""
+        if len(chave) != 11:
+            return {"ok": False, "mensagem": "Não achei o CPF desse funcionário — informe o CPF diretamente."}
+    return await erp.get(f"/government/esocial/espelho/timeline/{chave}")
 
 
 @mcp.tool

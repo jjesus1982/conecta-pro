@@ -112,7 +112,7 @@ async def _carregar_empregador_cnpj(db: Any) -> str:
 async def acessos_hoje(db: Any) -> int:
     return (
         await db.execute(
-            text("SELECT count(*) FROM esocial_espelho_acessos WHERE criado_em::date = CURRENT_DATE")
+            text("SELECT count(*) FROM esocial_espelho_acessos WHERE criado_em::date = (now() AT TIME ZONE 'America/Manaus')::date")
         )
     ).scalar() or 0
 

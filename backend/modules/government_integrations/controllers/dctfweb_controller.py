@@ -6,18 +6,14 @@ Endpoints para geração e transmissão de DCTFWeb.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 
 from core.auth.dependencies import CurrentActiveUser
 
 from ..schemas.common import StandardResponse
 from ..schemas.dctfweb import (
     ConsolidarDeclaracaoRequest,
-    CriarDeclaracaoRequest,
     GerarDarfsRequest,
-    ImportarESocialRequest,
-    ImportarReinfRequest,
-    TransmitirDeclaracaoRequest,
 )
 from ..services.dctfweb_service import DCTFWebService, get_dctfweb_service
 
@@ -26,9 +22,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dctfweb", tags=["DCTFWeb"])
 
 
-def get_service() -> DCTFWebService:
-    """Dependency para obter o service."""
-    return get_dctfweb_service()
+def get_service(
+    empresa: str | None = Query(None, description="Slug da empresa: conecta_eletronica | conecta_patrimonial (vazio = principal)"),
+) -> DCTFWebService:
+    """Dependency para obter o service. 08/09/2026: sem `empresa` era sempre a Eletrônica."""
+    return DCTFWebService(empresa) if empresa else get_dctfweb_service()
 
 
 @router.get(
@@ -49,157 +47,6 @@ async def get_status(
     except Exception as e:
         logger.error(f"Erro ao obter status: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao obter status: {str(e)}")
-
-
-@router.get(
-    "/codigos-receita",
-    response_model=StandardResponse,
-    summary="Lista códigos de receita",
-    description="Retorna a lista de códigos de receita disponíveis",
-)
-async def listar_codigos_receita(
-    current_user: CurrentActiveUser, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Lista códigos de receita."""
-    try:
-        codigos = service.listar_codigos_receita()
-
-        return StandardResponse(success=True, message="Códigos de receita listados", data=codigos)
-
-    except Exception as e:
-        logger.error(f"Erro ao listar códigos: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.get(
-    "/tipos-declaracao",
-    response_model=StandardResponse,
-    summary="Lista tipos de declaração",
-    description="Retorna a lista de tipos de declaração DCTFWeb",
-)
-async def listar_tipos_declaracao(
-    current_user: CurrentActiveUser, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Lista tipos de declaração."""
-    try:
-        tipos = service.listar_tipos_declaracao()
-
-        return StandardResponse(success=True, message="Tipos de declaração listados", data=tipos)
-
-    except Exception as e:
-        logger.error(f"Erro ao listar tipos: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.get(
-    "/tipos-credito",
-    response_model=StandardResponse,
-    summary="Lista tipos de crédito",
-    description="Retorna a lista de tipos de crédito vinculáveis",
-)
-async def listar_tipos_credito(
-    current_user: CurrentActiveUser, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Lista tipos de crédito."""
-    try:
-        tipos = service.listar_tipos_credito()
-
-        return StandardResponse(success=True, message="Tipos de crédito listados", data=tipos)
-
-    except Exception as e:
-        logger.error(f"Erro ao listar tipos: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.post(
-    "/criar",
-    response_model=StandardResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Criar declaração",
-    description="Cria uma nova declaração DCTFWeb",
-)
-async def criar_declaracao(
-    current_user: CurrentActiveUser, request: CriarDeclaracaoRequest, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Cria nova declaração."""
-    try:
-        resultado = service.criar_declaracao(
-            periodo_apuracao=request.periodo_apuracao,
-            tipo=request.tipo.value,
-        )
-
-        return StandardResponse(
-            success=True, message=f"DCTFWeb criada para período {request.periodo_apuracao}", data=resultado
-        )
-
-    except ValueError as e:
-        logger.warning(f"Erro de validação: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao criar declaração: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.post(
-    "/importar-esocial",
-    response_model=StandardResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Importar eSocial",
-    description="Cria declaração e importa dados do eSocial",
-)
-async def importar_esocial(
-    current_user: CurrentActiveUser, request: ImportarESocialRequest, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Importa dados do eSocial."""
-    try:
-        dados = request.dados_esocial.model_dump(exclude_none=True)
-
-        resultado = service.importar_esocial(
-            periodo_apuracao=request.periodo_apuracao,
-            dados_esocial=dados,
-        )
-
-        return StandardResponse(success=True, message="Dados eSocial importados para DCTFWeb", data=resultado)
-
-    except ValueError as e:
-        logger.warning(f"Erro de validação: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao importar eSocial: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.post(
-    "/importar-reinf",
-    response_model=StandardResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Importar EFD-Reinf",
-    description="Cria declaração e importa dados da EFD-Reinf",
-)
-async def importar_reinf(
-    current_user: CurrentActiveUser, request: ImportarReinfRequest, service: DCTFWebService = Depends(get_service)
-) -> StandardResponse:
-    """Importa dados da EFD-Reinf."""
-    try:
-        dados = request.dados_reinf.model_dump(exclude_none=True)
-
-        # Converte retencoes para formato esperado
-        if "retencoes_tomados" in dados:
-            dados["retencoes_tomados"] = list(dados["retencoes_tomados"])
-
-        resultado = service.importar_reinf(
-            periodo_apuracao=request.periodo_apuracao,
-            dados_reinf=dados,
-        )
-
-        return StandardResponse(success=True, message="Dados EFD-Reinf importados para DCTFWeb", data=resultado)
-
-    except ValueError as e:
-        logger.warning(f"Erro de validação: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao importar EFD-Reinf: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
 
 
 @router.post(
@@ -264,41 +111,6 @@ async def gerar_darfs(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Erro ao gerar DARFs: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
-
-
-@router.post(
-    "/transmitir",
-    response_model=StandardResponse,
-    summary="Transmitir declaração",
-    description="Transmite a declaração DCTFWeb",
-    status_code=201,
-)
-async def transmitir_declaracao(
-    current_user: CurrentActiveUser,
-    request: TransmitirDeclaracaoRequest,
-    service: DCTFWebService = Depends(get_service),
-) -> StandardResponse:
-    """Transmite declaração."""
-    try:
-        dados_esocial = request.dados_esocial.model_dump(exclude_none=True) if request.dados_esocial else None
-        dados_reinf = request.dados_reinf.model_dump(exclude_none=True) if request.dados_reinf else None
-
-        resultado = service.transmitir(
-            periodo_apuracao=request.periodo_apuracao,
-            dados_esocial=dados_esocial,
-            dados_reinf=dados_reinf,
-        )
-
-        return StandardResponse(
-            success=True, message=f"DCTFWeb transmitida: {resultado['numero_recibo']}", data=resultado
-        )
-
-    except ValueError as e:
-        logger.warning(f"Erro de validação: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao transmitir: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")
 
 

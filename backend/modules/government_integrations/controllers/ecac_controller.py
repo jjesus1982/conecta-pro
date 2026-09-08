@@ -12,12 +12,7 @@ from core.auth.dependencies import CurrentActiveUser
 
 from ..schemas.common import StandardResponse
 from ..schemas.ecac import (
-    EmitirCertidaoRequest,
-    SimularParcelamentoRequest,
     SituacaoDebitoEnum,
-    SituacaoProcessoEnum,
-    TipoDeclaracaoEnum,
-    ValidarCertidaoRequest,
 )
 from ..services.ecac_service import EcacService, get_ecac_service
 
@@ -116,103 +111,6 @@ async def consultar_debitos(
 
 
 @router.get(
-    "/declaracoes",
-    response_model=StandardResponse,
-    summary="Consulta declaracoes",
-    description="Consulta declaracoes transmitidas no e-CAC",
-)
-async def consultar_declaracoes(
-    current_user: CurrentActiveUser,
-    tipo: TipoDeclaracaoEnum = Query(..., description="Tipo de declaracao"),
-    exercicio_inicio: int = Query(..., ge=2000, le=2100, description="Exercicio inicial"),
-    exercicio_fim: int | None = Query(None, ge=2000, le=2100, description="Exercicio final"),
-    service: EcacService = Depends(get_service),
-) -> StandardResponse:
-    """Consulta declaracoes transmitidas."""
-    try:
-        resultado = service.consultar_declaracoes(
-            tipo=tipo.value,
-            exercicio_inicio=exercicio_inicio,
-            exercicio_fim=exercicio_fim,
-        )
-
-        return StandardResponse(
-            success=True, message=f"Declaracoes consultadas: {resultado['quantidade']} encontradas", data=resultado
-        )
-
-    except ValueError as e:
-        logger.warning(f"Erro de validacao consulta declaracoes: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao consultar declaracoes: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao consultar declaracoes: {str(e)}"
-        )
-
-
-@router.post(
-    "/certidao",
-    response_model=StandardResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Emitir certidao",
-    description="Emite certidao fiscal (CND/CPEN) via e-CAC",
-)
-async def emitir_certidao(
-    current_user: CurrentActiveUser, request: EmitirCertidaoRequest, service: EcacService = Depends(get_service)
-) -> StandardResponse:
-    """Emite certidao fiscal."""
-    try:
-        resultado = service.emitir_certidao(
-            finalidade=request.finalidade,
-            cpf_cnpj=request.cpf_cnpj,
-        )
-
-        return StandardResponse(
-            success=True, message=f"Certidao {resultado['tipo'].upper()} emitida com sucesso", data=resultado
-        )
-
-    except ValueError as e:
-        logger.warning(f"Erro de validacao emissao certidao: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao emitir certidao: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao emitir certidao: {str(e)}"
-        )
-
-
-@router.post(
-    "/validar-certidao",
-    response_model=StandardResponse,
-    summary="Validar certidao",
-    description="Valida autenticidade de uma certidao fiscal",
-    status_code=201,
-)
-async def validar_certidao(
-    current_user: CurrentActiveUser, request: ValidarCertidaoRequest, service: EcacService = Depends(get_service)
-) -> StandardResponse:
-    """Valida autenticidade de certidao."""
-    try:
-        resultado = service.validar_certidao(
-            numero=request.numero,
-            codigo_controle=request.codigo_controle,
-        )
-
-        mensagem = "Certidao valida" if resultado["valida"] else "Certidao invalida ou nao encontrada"
-
-        return StandardResponse(success=True, message=mensagem, data=resultado)
-
-    except ValueError as e:
-        logger.warning(f"Erro de validacao: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao validar certidao: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao validar certidao: {str(e)}"
-        )
-
-
-@router.get(
     "/parcelamentos",
     response_model=StandardResponse,
     summary="Consulta parcelamentos",
@@ -238,64 +136,3 @@ async def consultar_parcelamentos(
         )
 
 
-@router.post(
-    "/simular-parcelamento",
-    response_model=StandardResponse,
-    summary="Simular parcelamento",
-    description="Simula parcelamento de debitos fiscais",
-    status_code=201,
-)
-async def simular_parcelamento(
-    current_user: CurrentActiveUser, request: SimularParcelamentoRequest, service: EcacService = Depends(get_service)
-) -> StandardResponse:
-    """Simula parcelamento de debitos."""
-    try:
-        resultado = service.simular_parcelamento(
-            debitos=request.debitos,
-            quantidade_parcelas=request.quantidade_parcelas,
-        )
-
-        return StandardResponse(
-            success=True,
-            message=f"Simulacao de parcelamento em {request.quantidade_parcelas}x realizada",
-            data=resultado,
-        )
-
-    except ValueError as e:
-        logger.warning(f"Erro de validacao simulacao: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao simular parcelamento: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao simular parcelamento: {str(e)}"
-        )
-
-
-@router.get(
-    "/processos",
-    response_model=StandardResponse,
-    summary="Consulta processos",
-    description="Consulta processos digitais (e-Processo) do contribuinte",
-)
-async def consultar_processos(
-    current_user: CurrentActiveUser,
-    situacao: SituacaoProcessoEnum | None = Query(None, description="Filtro por situacao do processo"),
-    numero_processo: str | None = Query(None, description="Numero especifico do processo"),
-    service: EcacService = Depends(get_service),
-) -> StandardResponse:
-    """Consulta processos digitais."""
-    try:
-        resultado = service.consultar_processos(
-            situacao=situacao.value if situacao else None,
-            numero_processo=numero_processo,
-        )
-
-        return StandardResponse(
-            success=True, message=f"Processos consultados: {resultado['quantidade']} encontrados", data=resultado
-        )
-
-    except Exception as e:
-        logger.error(f"Erro ao consultar processos: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao consultar processos: {str(e)}"
-        )

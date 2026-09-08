@@ -51,28 +51,6 @@ async def get_status(
 
 
 @router.get(
-    "/naturezas-rendimento",
-    response_model=StandardResponse,
-    summary="Lista naturezas de rendimento",
-    description="Retorna a lista de códigos de natureza de rendimento disponíveis",
-)
-async def listar_naturezas_rendimento(
-    current_user: CurrentActiveUser, service: EFDReinfService = Depends(get_service)
-) -> StandardResponse:
-    """Lista naturezas de rendimento disponíveis."""
-    try:
-        naturezas = service.listar_naturezas_rendimento()
-
-        return StandardResponse(success=True, message="Naturezas de rendimento listadas", data=naturezas)
-
-    except Exception as e:
-        logger.error(f"Erro ao listar naturezas: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao listar naturezas: {str(e)}"
-        )
-
-
-@router.get(
     "/classificacoes-tributarias",
     response_model=StandardResponse,
     summary="Lista classificações tributárias",
@@ -255,53 +233,3 @@ async def gerar_r2099(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao gerar evento: {str(e)}")
 
 
-@router.post(
-    "/enviar-lote",
-    response_model=StandardResponse,
-    summary="Enviar lote de eventos",
-    description="Envia um lote de eventos XML para a Receita Federal",
-    status_code=201,
-)
-async def enviar_lote(
-    eventos_xml: list[str], current_user: CurrentActiveUser, service: EFDReinfService = Depends(get_service)
-) -> StandardResponse:
-    """Envia lote de eventos para a Receita Federal."""
-    try:
-        if not eventos_xml:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Lista de eventos não pode ser vazia")
-
-        resultado = service.enviar_lote(eventos_xml)
-
-        return StandardResponse(success=True, message=f"Lote enviado com {len(eventos_xml)} eventos", data=resultado)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Erro ao enviar lote: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao enviar lote: {str(e)}")
-
-
-@router.post(
-    "/r1000/transmitir",
-    response_model=StandardResponse,
-    summary="Transmitir R-1000 para a Receita Federal",
-    description="Transmite o R-1000 de verdade via SOAP + mTLS com certificado A1",
-    status_code=201,
-)
-async def transmitir_r1000(
-    current_user: CurrentActiveUser, service: EFDReinfService = Depends(get_service)
-) -> StandardResponse:
-    """Transmite R-1000 real para a Receita Federal."""
-    try:
-        resultado = service.transmitir_r1000_real()
-
-        if resultado.get("sucesso"):
-            msg = f"R-1000 transmitido! Protocolo: {resultado.get('protocolo', 'N/A')}"
-        else:
-            msg = f"R-1000 com erro: {resultado.get('erro', 'desconhecido')}"
-
-        return StandardResponse(success=resultado.get("sucesso", False), message=msg, data=resultado)
-
-    except Exception as e:
-        logger.error(f"Erro ao transmitir R-1000: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro: {str(e)}")

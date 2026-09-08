@@ -401,45 +401,11 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute=0, hour=8, day_of_month="25"),
         "options": {"queue": "gov.batch"},
     },
-    # Verificação de disponibilidade a cada 5 minutos
-    "check-endpoints-5min": {
-        "task": "government_integrations.tasks.monitoring.verificar_disponibilidade",
-        "schedule": 300.0,  # 5 minutos
-        "options": {"queue": "gov.batch"},
-    },
-    # Verificação de certificados a cada 6 horas
-    "check-certificates-6h": {
-        "task": "government_integrations.tasks.monitoring.verificar_certificados",
-        "schedule": 21600.0,  # 6 horas
-        "options": {"queue": "gov.batch"},
-    },
-    # Reprocessamento de falhas a cada 15 minutos
-    "reprocess-failures-15min": {
-        "task": "government_integrations.tasks.reprocess.reprocessar_falhas",
-        "schedule": 900.0,  # 15 minutos
-        "options": {"queue": "gov.batch"},
-    },
-    # Relatório diário às 06:00
-    "daily-report": {
-        "task": "government_integrations.tasks.monitoring.gerar_relatorio_diario",
-        "schedule": 86400.0,  # 24 horas
-        "options": {"queue": "gov.batch"},
-    },
-    # Limpeza de cache diária
-    "cleanup-cache-daily": {
-        "task": "government_integrations.tasks.maintenance.limpar_cache",
-        "schedule": 86400.0,  # 24 horas
-        "options": {"queue": "gov.batch"},
-    },
     # =========================================================================
-    # FISCAL — NFS-e ENTRADA + NF-e ENTRADA (RECEBIMENTO AUTOMÁTICO)
+    # FISCAL — NF-e ENTRADA (RECEBIMENTO AUTOMÁTICO). 08/09/2026: saíram do beat check-endpoints (2.000 GETs/dia
+    # às SEFAZ para empresa que não emite NF-e), check-certificates/reprocess/daily-report/cleanup (tasks vazias)
+    # e fiscal-nfse-entrada (405 diário; as tomadas vêm de financial.sincronizar_nfse_nacional).
     # =========================================================================
-    # NFS-e recebidas (Portal Nacional) — diariamente às 06:30
-    "fiscal-nfse-entrada-diario": {
-        "task": "government_integrations.tasks.sync.sincronizar_nfse_entrada",
-        "schedule": crontab(hour=6, minute=30),
-        "options": {"queue": "gov.nfse"},
-    },
     # NF-e recebidas (SEFAZ DistribuicaoDFe) — a cada 2 horas
     "fiscal-nfe-entrada-2h": {
         "task": "government_integrations.tasks.sync.sincronizar_nfe_entrada",
