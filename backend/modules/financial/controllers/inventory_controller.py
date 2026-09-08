@@ -1045,6 +1045,10 @@ async def get_reservation_stats(
         stats = repo.get_stats(_current_user.condominio_id)
         return ReservationStats(**stats)
     except Exception as e:
+        if "fin_stock_reservations" in str(e):  # tabela nunca migrada: estatísticas zeradas, não 500 (08/09/2026)
+            db.rollback()
+            return ReservationStats()
+    except Exception as e:
         logger.error(f"Erro ao obter estatísticas: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

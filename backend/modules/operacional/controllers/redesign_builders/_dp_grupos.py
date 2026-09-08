@@ -21,7 +21,8 @@ do build.
 GRUPOS = [
     ("g-visao", "Visão geral", "Quadro de pessoal, contratos e cadastro", [
         ("visao", "Resumo"), ("funcionarios", "Funcionários"),
-        ("contratos", "Contratos"), ("importar-cadastro", "Importar cadastro")]),
+        ("contratos", "Contratos"), ("headcount", "Headcount"), ("cadastro-incompleto", "Cadastro incompleto"),
+        ("sem-escala", "Sem alocação"), ("cct-conformidade", "Conformidade CCT"), ("importar-cadastro", "Importar cadastro")]),
 
     ("g-admissao", "Admissão & Cadastro", "Entrada do colaborador, documentos e certificações", [
         ("admissao", "Admissões"), ("nova-admissao", "Nova admissão"),
@@ -57,7 +58,7 @@ GRUPOS = [
 
     ("g-saude", "Saúde & eSocial", "ASO (NR-7) e espelho dos eventos do eSocial", [
         ("renovar-aso", "Agendar/renovar ASO"),
-        ("esocial", "eSocial"), ("sincronizar-esocial", "Sincronizar espelho")]),
+        ("esocial", "eSocial"), ("esocial-eventos", "eSocial · eventos próprios"), ("sincronizar-esocial", "Sincronizar espelho")]),
 
     ("g-desligamento", "Desligamento", "Aviso prévio, cálculo e rescisão", [
         ("aviso-previo", "Aviso prévio"), ("rescisao", "Rescisões"),

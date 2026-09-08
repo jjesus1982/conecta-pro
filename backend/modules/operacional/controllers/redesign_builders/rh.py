@@ -214,9 +214,13 @@ async def build(db) -> dict:
         "1.9fr 0.9fr 0.9fr 1.4fr 1.2fr 0.7fr 0.9fr",
         "SELECT coalesce(title,'—'), start_date, end_date, coalesce(location,'—'), "
         "coalesce(instructor_name,'—'), coalesce(current_participants,0), coalesce(max_participants,0), "
-        "coalesce(status::text,'—') FROM trainings ORDER BY start_date DESC NULLS LAST LIMIT 200",
+        "coalesce(status::text,'—'), CAST(id AS TEXT) FROM trainings ORDER BY start_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0] or "—", 600, _ND), t(_d(r[1])), t(_d(r[2])), t(r[3]), t(r[4]),
-                   t(f"{r[5]}/{r[6]}"), _tr_status(r[7])]))
+                   t(f"{r[5]}/{r[6]}"), _tr_status(r[7])],
+        actionsfn=lambda r: ([{"title": f"Concluir turma — {r[0]}", "endpoint": f"/api/v1/people-management/human-resources/training/{r[8]}/complete",
+                               "method": "POST", "btnLabel": "Concluir", "btnStyle": "primary", "submitLabel": "Concluir turma",
+                               "okMsg": "Turma concluída — matriculados presentes viram 'concluído'. Recarregue.", "fields": []}]
+                             if str(r[7] or "").lower() in ("scheduled", "in_progress", "agendado", "em_andamento") else [])))
 
     # 5) Cursos — training_courses (real; 0 = honesto)
     await safe("cursos", tbl(
@@ -235,7 +239,7 @@ async def build(db) -> dict:
         "Avaliações", "Avaliações de desempenho (RH)", "—",
         ["Colaborador", "Avaliador", "Tipo", "Score", "Status"],
         "1.8fr 1.6fr 1fr 0.8fr 1fr",
-        "SELECT emp.nome, rev.nome, pr.type::text, coalesce(pr.calibrated_score, pr.overall_score), pr.status::text "
+        "SELECT emp.nome, rev.nome, pr.type::text, coalesce(pr.calibrated_score, pr.overall_score), pr.status::text, CAST(pr.id AS TEXT) "
         "FROM performance_reviews pr "
         "LEFT JOIN employees emp ON emp.id::text = pr.employee_id::text "
         "LEFT JOIN employees rev ON rev.id::text = pr.reviewer_id::text "
@@ -243,7 +247,12 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")), t(r[1] or "—"),
                    t(_AVAL_TIPO.get((r[2] or "").lower(), (r[2] or "—").capitalize())),
                    t(f"{float(r[3]):.1f}" if r[3] is not None else "—", 600),
-                   _aval_status(r[4])]))
+                   _aval_status(r[4])],
+        actionsfn=lambda r: ([{"title": f"Concluir avaliação — {r[0] or '—'}",
+                               "endpoint": f"/api/v1/people-management/human-resources/performance/reviews/{r[5]}/complete",
+                               "method": "POST", "btnLabel": "Concluir", "btnStyle": "primary", "submitLabel": "Concluir avaliação",
+                               "okMsg": "Avaliação concluída. Recarregue.", "fields": []}]
+                             if str(r[4] or "").lower() not in ("completed", "concluida", "concluída", "cancelled") else [])))
 
     # 7) Carreira — career_plans (real; 0 = honesto)
     await safe("carreira", tbl(

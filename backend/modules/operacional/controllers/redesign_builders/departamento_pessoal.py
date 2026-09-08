@@ -2642,6 +2642,55 @@ async def build(db, current_user=None) -> dict:
     # montada, mas sem entrada no menu e sem aba: invisível.
     from modules.operacional.controllers.redesign_builders._dp_grupos import montar_grupos
 
+    # ── LIGAR (revisão 08/09/2026): quatro leituras que só existiam por API, agora por SQL ──
+    _HOJE = "(now() AT TIME ZONE 'America/Manaus')::date"
+    await safe("cct-conformidade", tbl(
+        "Conformidade CCT — salário × piso", "Ativos com salário-base abaixo do piso do cargo na CCT (custo de adequação na coluna Diferença)", "—",
+        ["Colaborador", "Cargo", "Salário", "Cargo CCT", "Piso", "Diferença"], "1.8fr 1.2fr 0.9fr 1.4fr 0.9fr 0.9fr",
+        "SELECT e.nome, coalesce(e.cargo,'—'), e.salario_base, c.cargo_nome, c.piso_salarial, c.piso_salarial - e.salario_base "
+        "FROM employees e JOIN cct_cargos c ON e.cct_cargo_id::text = c.id::text "
+        "WHERE e.status='ativo' AND e.salario_base < c.piso_salarial ORDER BY (c.piso_salarial - e.salario_base) DESC LIMIT 200",
+        lambda r: [t(r[0], 600, _ND, initials(r[0] or "")), t(r[1]), t(brl(r[2])), t(r[3]), t(brl(r[4])), b(brl(r[5]), "bad")]))
+    await safe("headcount", tbl(
+        "Headcount por cargo", "Ativos CLT por cargo (fonte: employees) — sem homologação, sem PJ", "—",
+        ["Cargo", "Ativos", "Admitidos 90d", "Desligados 90d"], "2fr 0.8fr 1fr 1fr",
+        f"SELECT coalesce(e.cargo,'—'), count(*) FILTER (WHERE e.status='ativo'), "
+        f"count(*) FILTER (WHERE e.data_admissao >= {_HOJE} - 90), "
+        f"count(*) FILTER (WHERE e.status IN ('demitido','inativo') AND e.data_demissao >= {_HOJE} - 90) "
+        "FROM employees e WHERE coalesce(e.is_homologacao,false)=false AND coalesce(e.tipo_contrato::text,'') NOT ILIKE '%pj%' "
+        "GROUP BY 1 HAVING count(*) FILTER (WHERE e.status='ativo') > 0 ORDER BY 2 DESC, 1 LIMIT 200",
+        lambda r: [t(r[0], 600, _ND), t(str(r[1]), 600), t(str(r[2])), b(str(r[3]), "warn" if r[3] else "mut")]))
+    await safe("sem-escala", tbl(
+        "Ativos sem alocação em posto", "Colaborador ativo sem alocação vigente — não entra em escala nem em presença", "—",
+        ["Colaborador", "Cargo", "Admissão"], "2fr 1.4fr 1fr",
+        f"SELECT e.nome, coalesce(e.cargo,'—'), e.data_admissao FROM employees e WHERE e.status='ativo' "
+        f"AND coalesce(e.is_homologacao,false)=false AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.employee_id=e.id "
+        f"AND coalesce(a.is_active,true) AND (a.end_date IS NULL OR a.end_date >= {_HOJE})) ORDER BY e.nome LIMIT 200",
+        lambda r: [t(r[0], 600, _ND, initials(r[0] or "")), t(r[1]), t(_d(r[2]))]))
+    await safe("cadastro-incompleto", tbl(
+        "Cadastro incompleto", "Ativos sem PIS, CPF, nascimento, chave PIX, celular ou cargo CCT — trava folha, eSocial e pagamento", "—",
+        ["Colaborador", "Faltando"], "1.6fr 3fr",
+        "SELECT e.nome, array_to_string(ARRAY_REMOVE(ARRAY["
+        " CASE WHEN nullif(trim(coalesce(e.pis,'')),'') IS NULL THEN 'PIS' END,"
+        " CASE WHEN nullif(trim(coalesce(e.cpf,'')),'') IS NULL THEN 'CPF' END,"
+        " CASE WHEN e.data_nascimento IS NULL THEN 'nascimento' END,"
+        " CASE WHEN nullif(trim(coalesce(e.pix,'')),'') IS NULL THEN 'chave PIX' END,"
+        " CASE WHEN nullif(trim(coalesce(e.celular,'')),'') IS NULL THEN 'celular' END,"
+        " CASE WHEN e.cct_cargo_id IS NULL THEN 'cargo CCT' END], NULL), ', ') AS faltando "
+        "FROM employees e WHERE e.status='ativo' AND coalesce(e.is_homologacao,false)=false "
+        "AND (nullif(trim(coalesce(e.pis,'')),'') IS NULL OR nullif(trim(coalesce(e.cpf,'')),'') IS NULL OR e.data_nascimento IS NULL "
+        " OR nullif(trim(coalesce(e.pix,'')),'') IS NULL OR nullif(trim(coalesce(e.celular,'')),'') IS NULL OR e.cct_cargo_id IS NULL) "
+        "ORDER BY e.nome LIMIT 200",
+        lambda r: [t(r[0], 600, _ND, initials(r[0] or "")), b(r[1] or "—", "warn")]))
+    await safe("esocial-eventos", tbl(
+        "eSocial — eventos próprios", "S-2220 (ASO) e S-2230 (afastamento) gerados pelo ERP e o estado da transmissão", "—",
+        ["Evento", "Colaborador", "Referência", "Status", "Protocolo"], "0.7fr 1.8fr 1fr 1fr 1.4fr",
+        "SELECT * FROM (SELECT 'S-2220' AS tipo, e.nome, a.data_realizacao::text AS ref, coalesce(a.esocial_status,'—') AS st, coalesce(a.esocial_protocolo,'') AS prot, a.updated_at AS quando "
+        "FROM gp_asos a JOIN employees e ON e.id=a.employee_id WHERE a.esocial_status IS NOT NULL AND a.esocial_status <> 'nao_transmitida' "
+        "UNION ALL SELECT 'S-2230', e.nome, f.data_inicio::text, coalesce(f.esocial_status,'—'), coalesce(f.esocial_protocolo,''), f.updated_at "
+        "FROM sst_afastamentos f JOIN employees e ON e.id=f.employee_id WHERE f.esocial_status IS NOT NULL AND f.esocial_status <> 'nao_transmitida') x "
+        "ORDER BY quando DESC NULLS LAST LIMIT 200",
+        lambda r: [b(r[0], "info"), t(r[1], 600, _ND), t(r[2] or "—"), b((r[3] or "—").replace("_", " "), "ok" if (r[3] or "") in ("recibo_casado", "aceita", "transmitida") else ("bad" if "rejeit" in (r[3] or "") or "erro" in (r[3] or "") else "warn")), t((r[4] or "—")[:34])]))
     montar_grupos(out)
 
     return out

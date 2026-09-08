@@ -311,6 +311,10 @@ class NCMUpdate(BaseModel):
 
 
 class NCMResponse(NCMBase):
+    # Resposta tolera NULL do banco nas flags (3 × 'Input should be a valid boolean' derrubavam GET /fiscal/ncm — 08/09/2026)
+    tributacao_monofasica: bool | None = None
+    zfm_isento_ipi: bool | None = None
+    zfm_reduz_ii: bool | None = None
     """Response de NCM."""
 
     id: UUID
