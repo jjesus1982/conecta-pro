@@ -34,13 +34,15 @@ class ClientType(StrEnum):
 
 
 class ClientStatus(StrEnum):
+    """Valores = labels REAIS do enum client_status_enum do banco (08/09/2026): antes nenhum
+    batia ("ativo" × "active") e qualquer comparação estourava 500."""
     PROSPECT = "prospect"
-    ATIVO = "ativo"
-    INATIVO = "inativo"
-    SUSPENSO = "suspenso"
-    BLOQUEADO = "bloqueado"
-    INADIMPLENTE = "inadimplente"
-    ENCERRADO = "encerrado"
+    ATIVO = "active"
+    INATIVO = "churned"
+    SUSPENSO = "suspended"
+    BLOQUEADO = "blocked"
+    INADIMPLENTE = "defaulter"
+    ENCERRADO = "cancelled"
 
 
 class ClientSegment(StrEnum):

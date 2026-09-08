@@ -2,7 +2,6 @@
 Controller (endpoints) para Lead.
 """
 
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,18 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 from core.logging import logger
-from modules.crm.models.lead import LeadSource, LeadStatus
+from modules.crm.models.lead import LeadStatus
 from modules.crm.repositories.lead_repository import LeadRepository
 from modules.crm.schemas.lead import (
     LeadCreate,
     LeadFilter,
     LeadListResponse,
     LeadResponse,
-    LeadStats,
     LeadStatusUpdate,
     LeadUpdate,
 )
-from modules.crm.services.lead_service import lead_service
 from modules.crm.services.pipeline_sync import ensure_opportunity_for_lead
 from modules.crm.services.timeline import log_activity
 
@@ -133,21 +130,6 @@ async def list_leads(  # pylint: disable=too-many-locals
     )
 
 
-@router.get("/stats", response_model=LeadStats)
-async def get_lead_stats(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    assigned_to_id: str | None = None,
-) -> LeadStats:
-    """
-    Obtém estatísticas de leads.
-
-    Pode filtrar por responsável.
-    """
-    repo = LeadRepository(db)
-    return await repo.get_stats(assigned_to_id=assigned_to_id)
-
-
 @router.get("/{lead_id}", response_model=LeadResponse)
 async def get_lead(
     lead_id: str,
@@ -242,61 +224,6 @@ async def update_lead_status(
         )
 
     return LeadResponse.model_validate(lead)
-
-
-@router.post("/{lead_id}/recalculate-score", response_model=LeadResponse, status_code=201)
-async def recalculate_lead_score(
-    lead_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> LeadResponse:
-    """
-    Recalcula o score de um lead.
-
-    Útil após atualizações manuais ou mudanças nos critérios.
-    """
-    repo = LeadRepository(db)
-    lead = await repo.update_score(lead_id)
-
-    if not lead:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead não encontrado",
-        )
-
-    return LeadResponse.model_validate(lead)
-
-
-@router.get("/{lead_id}/recommended-action")
-async def get_recommended_action(
-    lead_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """
-    Obtém ação recomendada para um lead.
-
-    Baseado no score, status e histórico.
-    """
-    repo = LeadRepository(db)
-    lead = await repo.get_by_id(lead_id)
-
-    if not lead:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead não encontrado",
-        )
-
-    action = lead_service.get_recommended_action(lead)
-    next_contact = lead_service.get_next_contact_date(lead)
-
-    return {
-        "lead_id": lead.id,
-        "score": lead.score,
-        "status": lead.status,
-        "recommended_action": action,
-        "next_contact_date": next_contact.isoformat() if next_contact else None,
-    }
 
 
 @router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)

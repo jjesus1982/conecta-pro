@@ -13,7 +13,6 @@ from core.logging import logger
 from modules.crm.models.proposal import ProposalStatus, ProposalType
 from modules.crm.repositories.proposal_repository import ProposalRepository
 from modules.crm.schemas.proposal import (
-    ProposalApprovalRequest,
     ProposalCreate,
     ProposalCreateFromOpportunity,
     ProposalDetailResponse,
@@ -22,10 +21,6 @@ from modules.crm.schemas.proposal import (
     ProposalItemResponse,
     ProposalListResponse,
     ProposalResponse,
-    ProposalStats,
-    ProposalTemplateCreate,
-    ProposalTemplateResponse,
-    ProposalTemplateUpdate,
     ProposalUpdate,
 )
 from modules.crm.services.pipeline_sync import ensure_contract_for_proposal, sync_opportunity_for_proposal
@@ -305,119 +300,7 @@ async def list_proposals(  # pylint: disable=too-many-locals
     )
 
 
-@router.get("/stats", response_model=ProposalStats)
-async def get_proposal_stats(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    created_by_id: str | None = None,
-) -> ProposalStats:
-    """
-    Obtem estatisticas de propostas.
-
-    Inclui: taxa de aceitacao, valor medio, tempo de resposta.
-    """
-    repo = ProposalRepository(db)
-    return await repo.get_stats(created_by_id=created_by_id)
-
-
 # ============== Template Endpoints (antes de /{proposal_id} — evita captura de rota) ==============
-
-
-@router.post(
-    "/templates",
-    response_model=ProposalTemplateResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_template(
-    data: ProposalTemplateCreate,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ProposalTemplateResponse:
-    """
-    Cria template de proposta.
-    """
-    repo = ProposalRepository(db)
-    template = await repo.create_template(data)
-    logger.info(f"Template criado por {current_user.email}: {template.name}")
-    return ProposalTemplateResponse.model_validate(template)
-
-
-@router.get("/templates", response_model=list[ProposalTemplateResponse])
-async def list_templates(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> list[ProposalTemplateResponse]:
-    """
-    Lista todos os templates ativos.
-    """
-    repo = ProposalRepository(db)
-    templates = await repo.list_templates()
-    return [ProposalTemplateResponse.model_validate(t) for t in templates]
-
-
-@router.get("/templates/{template_id}", response_model=ProposalTemplateResponse)
-async def get_template(
-    template_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ProposalTemplateResponse:
-    """
-    Obtem template por ID.
-    """
-    repo = ProposalRepository(db)
-    template = await repo.get_template_by_id(template_id)
-
-    if not template:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template nao encontrado",
-        )
-
-    return ProposalTemplateResponse.model_validate(template)
-
-
-@router.put("/templates/{template_id}", response_model=ProposalTemplateResponse)
-async def update_template(
-    template_id: str,
-    data: ProposalTemplateUpdate,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ProposalTemplateResponse:
-    """
-    Atualiza template.
-    """
-    repo = ProposalRepository(db)
-    template = await repo.update_template(template_id, data)
-
-    if not template:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template nao encontrado",
-        )
-
-    logger.info(f"Template atualizado por {current_user.email}: {template.name}")
-    return ProposalTemplateResponse.model_validate(template)
-
-
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_template(
-    template_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """
-    Remove template (soft delete).
-    """
-    repo = ProposalRepository(db)
-    deleted = await repo.delete_template(template_id)
-
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template nao encontrado",
-        )
-
-    logger.info(f"Template deletado por {current_user.email}: {template_id}")
 
 
 @router.get("/{proposal_id}", response_model=ProposalDetailResponse)
@@ -464,55 +347,6 @@ async def update_proposal(
 
     logger.info(f"Proposal atualizada por {current_user.email}: {proposal.number}")
     return ProposalDetailResponse.model_validate(proposal)
-
-
-@router.post("/{proposal_id}/submit", response_model=ProposalResponse, status_code=201)
-async def submit_proposal_for_approval(
-    proposal_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ProposalResponse:
-    """
-    Submete proposta para aprovacao.
-
-    Muda status de DRAFT para PENDING_APPROVAL.
-    """
-    repo = ProposalRepository(db)
-    proposal = await repo.submit_for_approval(proposal_id, str(current_user.id))
-
-    if not proposal:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Proposta nao encontrada ou nao esta em rascunho",
-        )
-
-    logger.info(f"Proposal submetida por {current_user.email}: {proposal.number}")
-    return ProposalResponse.model_validate(proposal)
-
-
-@router.post("/{proposal_id}/approve", response_model=ProposalResponse, status_code=201)
-async def process_proposal_approval(
-    proposal_id: str,
-    data: ProposalApprovalRequest,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ProposalResponse:
-    """
-    Processa aprovacao/rejeicao de proposta.
-
-    Acoes: approve, reject, request_changes.
-    """
-    repo = ProposalRepository(db)
-    proposal = await repo.process_approval(proposal_id, data, str(current_user.id))
-
-    if not proposal:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Proposta nao encontrada ou nao esta pendente",
-        )
-
-    logger.info(f"Proposal {proposal.number} {data.action.value} por {current_user.email}")
-    return ProposalResponse.model_validate(proposal)
 
 
 @router.post("/{proposal_id}/send", response_model=ProposalResponse, status_code=201)

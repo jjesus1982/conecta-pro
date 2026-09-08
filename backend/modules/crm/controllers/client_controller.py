@@ -7,9 +7,8 @@ convertidos com dados financeiros (MRR, contratos) para o módulo CRM.
 
 import logging
 from datetime import datetime
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,10 +52,10 @@ async def listar_clientes(
             c.crm_origin, c.lead_id,
             c.created_at,
             COALESCE(
-                (SELECT SUM(cc.monthly_value) FROM client_contracts cc
+                (SELECT SUM(cc.monthly_value) FROM contracts cc
                  WHERE cc.client_id = c.id AND cc.status = 'active'), 0
             ) as mrr,
-            (SELECT COUNT(*) FROM client_contracts cc
+            (SELECT COUNT(*) FROM contracts cc
              WHERE cc.client_id = c.id AND cc.status = 'active') as contratos_ativos,
             l.name as lead_name, l.source as lead_source
         FROM clients c
@@ -112,89 +111,3 @@ async def listar_clientes(
     }
 
 
-@router.get("/resumo")
-async def resumo_clientes(current_user: CurrentActiveUser, db: AsyncSession = Depends(get_async_session)):
-    """Resumo da base de clientes."""
-    result = await db.execute(
-        text("""
-        SELECT
-            COUNT(*) FILTER (WHERE c.ativo) as ativos,
-            COUNT(*) FILTER (WHERE NOT c.ativo) as inativos,
-            COUNT(*) FILTER (WHERE c.is_defaulter) as inadimplentes,
-            COUNT(*) FILTER (WHERE c.is_vip) as vip,
-            COUNT(c.lead_id) as originados_crm,
-            COALESCE(SUM(
-                (SELECT SUM(cc.monthly_value) FROM client_contracts cc
-                 WHERE cc.client_id = c.id AND cc.status = 'active')
-            ), 0) as mrr_total,
-            COUNT(DISTINCT c.segment) as segmentos
-        FROM clients c
-    """)
-    )
-    row = result.fetchone()
-
-    return {
-        "clientes_ativos": row[0],
-        "clientes_inativos": row[1],
-        "inadimplentes": row[2],
-        "vip": row[3],
-        "originados_crm": row[4],
-        "mrr_total": float(row[5]),
-        "segmentos": row[6],
-        "gerado_em": datetime.now().isoformat(),
-    }
-
-
-@router.get("/{client_id}")
-async def detalhe_cliente(
-    client_id: UUID,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Detalhe completo de um cliente com contratos e lead origem."""
-    result = await db.execute(
-        text("""
-        SELECT
-            c.*, l.name as lead_name, l.source as lead_source, l.score as lead_score
-        FROM clients c
-        LEFT JOIN leads l ON c.lead_id = l.id
-        WHERE c.id = :cid
-    """),
-        {"cid": str(client_id)},
-    )
-    row = result.fetchone()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Cliente não encontrado")
-
-    # Buscar contratos
-    contratos = await db.execute(
-        text("""
-        SELECT id, service_type, monthly_value, start_date, end_date, status
-        FROM client_contracts WHERE client_id = :cid ORDER BY start_date DESC
-    """),
-        {"cid": str(client_id)},
-    )
-
-    return {
-        "id": str(row.id),
-        "name": row.name,
-        "cnpj": row.document_number,
-        "email": row.email,
-        "phone": row.phone,
-        "status": row.status,
-        "segment": row.segment,
-        "health_score": row.health_score,
-        "crm_origin": row.crm_origin,
-        "lead_name": row.lead_name if hasattr(row, "lead_name") else None,
-        "contratos": [
-            {
-                "id": str(ct.id),
-                "service_type": ct.service_type,
-                "monthly_value": float(ct.monthly_value) if ct.monthly_value else 0,
-                "start_date": str(ct.start_date) if ct.start_date else None,
-                "status": ct.status,
-            }
-            for ct in contratos.fetchall()
-        ],
-    }

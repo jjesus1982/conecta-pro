@@ -70,12 +70,10 @@ class ContractAlert(BaseModel):
 class ContractService:
     """Serviço para operações de contrato."""
 
-    # Índices de reajuste simulados (em produção, buscar de API externa)
-    ECONOMIC_INDICES = {
-        AdjustmentIndex.IGPM: Decimal("4.50"),
-        AdjustmentIndex.IPCA: Decimal("4.23"),
-        AdjustmentIndex.INPC: Decimal("4.18"),
-    }
+    # 08/09/2026: os índices eram constantes de 2024 (IGPM 4,50 / IPCA 4,23 / INPC 4,18) aplicadas a
+    # 14 contratos com reajuste habilitado. O acumulado 12m não é consultado automaticamente: quem
+    # reajusta informa o percentual (custom_percent). Sem ele, o cálculo recusa em vez de inventar.
+    ECONOMIC_INDICES: dict = {}
 
     def calculate_renewal(
         self,
@@ -124,8 +122,8 @@ class ContractService:
                 adjustment_percent = custom_adjustment_percent
             elif contract.adjustment_index == AdjustmentIndex.FIXED:
                 adjustment_percent = contract.adjustment_fixed_percent or Decimal("0")
-            elif contract.adjustment_index in self.ECONOMIC_INDICES:
-                adjustment_percent = self.ECONOMIC_INDICES[contract.adjustment_index]
+            elif contract.adjustment_index != AdjustmentIndex.FIXED:
+                raise ValueError(f"Informe o percentual de reajuste: o acumulado 12m do índice {getattr(contract.adjustment_index, 'value', contract.adjustment_index)} não é consultado automaticamente.")
 
             if adjustment_percent > 0:
                 multiplier = Decimal("1") + (adjustment_percent / Decimal("100"))

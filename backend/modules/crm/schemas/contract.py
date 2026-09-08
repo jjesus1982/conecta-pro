@@ -84,7 +84,7 @@ class ContractCreate(ContractBase):
     proposal_id: str | None = Field(None, min_length=36, max_length=36)
     template_id: str | None = Field(None, min_length=36, max_length=36)
     content: str | None = None
-    clauses: list[dict[str, Any]] | None = None
+    clauses: list[dict[str, Any] | str] | None = None  # no banco há modelos com cláusulas em texto (08/09/2026)
     commercial_manager_id: str | None = Field(None, min_length=36, max_length=36)
     account_manager_id: str | None = Field(None, min_length=36, max_length=36)
 
@@ -229,7 +229,7 @@ class ContractDetailResponse(ContractResponse):
     next_adjustment_date: date | None = None
     sla_config: dict[str, Any] | None = None
     content: str | None = None
-    clauses: list[dict[str, Any]] | None = None
+    clauses: list[dict[str, Any] | str] | None = None  # no banco há modelos com cláusulas em texto (08/09/2026)
     signature_required: bool
     signature_provider: str | None = None
     signed_at: datetime | None = None
@@ -378,7 +378,7 @@ class ContractTemplateCreate(BaseModel):
     description: str | None = None
     service_type: ServiceType | None = None
     content_template: str = Field(..., min_length=100)
-    clauses: list[dict[str, Any]] | None = None
+    clauses: list[dict[str, Any] | str] | None = None  # no banco há modelos com cláusulas em texto (08/09/2026)
     variables: list[str] | None = None
 
 
@@ -389,7 +389,7 @@ class ContractTemplateUpdate(BaseModel):
     description: str | None = None
     service_type: ServiceType | None = None
     content_template: str | None = Field(None, min_length=100)
-    clauses: list[dict[str, Any]] | None = None
+    clauses: list[dict[str, Any] | str] | None = None  # no banco há modelos com cláusulas em texto (08/09/2026)
     variables: list[str] | None = None
 
 
@@ -408,7 +408,7 @@ class ContractTemplateResponse(BaseModel):
     # service_type aceita qualquer string — dados históricos ('admissao', 'ferias') pré-enum §20.7 H-T4-1
     service_type: str | None = None
     content_template: str
-    clauses: list[dict[str, Any]] | None = None
+    clauses: list[dict[str, Any] | str] | None = None  # no banco há modelos com cláusulas em texto (08/09/2026)
     variables: list[str] | None = None
     version: int
     approved_by_legal: bool

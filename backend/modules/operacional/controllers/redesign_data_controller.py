@@ -3124,6 +3124,16 @@ async def rd_action_opp_stage(
     opp = await OpportunityRepository(db).update_stage(str(opp_id), st, (payload.get("notes") or "").strip() or None)
     if not opp:
         raise HTTPException(status_code=404, detail="Oportunidade não encontrada.")
+    # 08/09/2026: a rota do CRM cria o contrato no ganho e registra na timeline; a tela nova não fazia nenhum dos dois
+    from modules.crm.services.pipeline_sync import ensure_contract_for_won_opportunity
+    from modules.crm.services.timeline import log_activity
+    try:
+        await ensure_contract_for_won_opportunity(db, opp)
+        await log_activity(db, "deal_stage", f"Deal movido para {st.value}", opportunity_id=str(opp.id))
+    except TypeError:
+        await log_activity(db, "deal_stage", f"Deal movido para {st.value}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pós-processamento do estágio falhou: %s", exc)
     return {"ok": True, "id": str(opp.id), "message": f"Oportunidade movida para “{st.value}”"}
 
 

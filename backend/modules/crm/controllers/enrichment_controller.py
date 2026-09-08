@@ -16,8 +16,6 @@ from modules.integrations.brasilapi.exceptions import (
 from ..schemas.enrichment import (
     CEPEnrichment,
     CNPJEnrichment,
-    TaxaItem,
-    TaxasResponse,
 )
 
 router = APIRouter(prefix="/enrichment", tags=["CRM - Enrichment"])
@@ -121,31 +119,3 @@ async def enrich_cep(
     )
 
 
-@router.get("/taxas", response_model=TaxasResponse)
-async def get_taxas(
-    response: Response,
-    current_user: CurrentActiveUser,
-):
-    t0 = time.monotonic()
-    try:
-        taxas, cache_hit = await _client.get_taxas()
-    except BrasilAPIUnavailableError:
-        raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível")
-
-    latency_ms = (time.monotonic() - t0) * 1000
-    logger.info(f"enrichment taxas cache_hit={cache_hit} latency_ms={latency_ms:.0f}")
-    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-
-    def _find(nome_lower: str) -> float | None:
-        for t in taxas:
-            if t.nome.lower() == nome_lower:
-                return t.valor
-        return None
-
-    return TaxasResponse(
-        taxas=[TaxaItem(nome=t.nome, valor=t.valor) for t in taxas],
-        selic=_find("selic"),
-        cdi=_find("cdi"),
-        ipca=_find("ipca"),
-        cache_hit=cache_hit,
-    )

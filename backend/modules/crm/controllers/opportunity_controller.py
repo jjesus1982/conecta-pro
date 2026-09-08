@@ -13,13 +13,11 @@ from modules.crm.repositories.opportunity_repository import OpportunityRepositor
 from modules.crm.schemas.opportunity import (
     OpportunityClose,
     OpportunityCreate,
-    OpportunityCreateFromLead,
     OpportunityFilter,
     OpportunityListResponse,
     OpportunityResponse,
     OpportunityStageUpdate,
     OpportunityUpdate,
-    PipelineStats,
 )
 from modules.crm.services.pipeline_sync import ensure_contract_for_won_opportunity
 from modules.crm.services.timeline import log_activity
@@ -42,34 +40,6 @@ async def create_opportunity(
     repo = OpportunityRepository(db)
     opportunity = await repo.create(data)
     logger.info(f"Opportunity criada por {current_user.email}: {opportunity.id}")
-    return OpportunityResponse.model_validate(opportunity)
-
-
-@router.post(
-    "/from-lead",
-    response_model=OpportunityResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_opportunity_from_lead(
-    data: OpportunityCreateFromLead,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> OpportunityResponse:
-    """
-    Converte um lead em opportunity.
-
-    O lead e marcado como WON (convertido) e seus dados sao copiados.
-    """
-    repo = OpportunityRepository(db)
-    opportunity = await repo.create_from_lead(data)
-
-    if not opportunity:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lead nao encontrado ou inativo",
-        )
-
-    logger.info(f"Lead {data.lead_id} convertido em Opportunity {opportunity.id} por {current_user.email}")
     return OpportunityResponse.model_validate(opportunity)
 
 
@@ -118,21 +88,6 @@ async def list_opportunities(  # pylint: disable=too-many-locals
         page_size=page_size,
         total_pages=total_pages,
     )
-
-
-@router.get("/pipeline/stats", response_model=PipelineStats)
-async def get_pipeline_stats(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    owner_id: str | None = None,
-) -> PipelineStats:
-    """
-    Obtem estatisticas do pipeline de vendas.
-
-    Inclui: valor total, valor ponderado, win rate, tempo medio de fechamento.
-    """
-    repo = OpportunityRepository(db)
-    return await repo.get_pipeline_stats(owner_id=owner_id)
 
 
 @router.get("/{opportunity_id}", response_model=OpportunityResponse)

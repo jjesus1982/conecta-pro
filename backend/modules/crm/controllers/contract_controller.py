@@ -31,10 +31,6 @@ from modules.crm.schemas.contract import (
     ContractListResponse,
     ContractRenewal,
     ContractResponse,
-    ContractSLAReportApprove,
-    ContractSLAReportCreate,
-    ContractSLAReportResponse,
-    ContractStats,
     ContractTemplateCreate,
     ContractTemplateListResponse,
     ContractTemplateResponse,
@@ -43,10 +39,8 @@ from modules.crm.schemas.contract import (
 )
 from modules.crm.services.contract_service import (
     AdjustmentResult,
-    ContractAlert,
     ContractService,
     RenewalResult,
-    SLACalculation,
 )
 
 router = APIRouter(prefix="/contracts", tags=["CRM - Contracts"])
@@ -509,44 +503,6 @@ async def list_contracts(  # pylint: disable=too-many-locals
     )
 
 
-@router.get("/stats", response_model=ContractStats)
-async def get_contract_stats(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    client_id: str | None = None,
-    commercial_manager_id: str | None = None,
-) -> ContractStats:
-    """
-    Obtém estatísticas de contratos.
-    """
-    repo = ContractRepository(db)
-    return await repo.get_stats(
-        client_id=client_id,
-        commercial_manager_id=commercial_manager_id,
-    )
-
-
-@router.get("/alerts", response_model=list[ContractAlert])
-async def get_contract_alerts(
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    days_ahead: int = Query(30, ge=1, le=90),
-) -> list[ContractAlert]:
-    """
-    Obtém alertas de contratos (vencimento, reajuste).
-    """
-    repo = ContractRepository(db)
-    service = ContractService()
-
-    contracts, _ = await repo.list(
-        filters=ContractFilter(status=ContractStatus.ACTIVE),
-        page=1,
-        page_size=1000,
-    )
-
-    return service.get_contract_alerts(contracts, days_ahead=days_ahead)
-
-
 # ============== Contract Template Endpoints (antes de /{contract_id} para evitar captura) ==============
 
 
@@ -809,11 +765,14 @@ async def calculate_renewal(
             detail="Contrato não encontrado",
         )
 
-    return service.calculate_renewal(
-        contract=contract,
-        custom_adjustment_percent=data.adjustment_percent,
-        new_end_date=data.new_end_date,
-    )
+    try:
+        return service.calculate_renewal(
+            contract=contract,
+            custom_adjustment_percent=data.adjustment_percent,
+            new_end_date=data.new_end_date,
+        )
+    except ValueError as exc:  # índice sem percentual (08/09/2026)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/{contract_id}/calculate-adjustment", response_model=AdjustmentResult, status_code=201)
@@ -840,11 +799,14 @@ async def calculate_adjustment(
             detail="Contrato não encontrado",
         )
 
-    return service.calculate_adjustment(
-        contract=contract,
-        custom_percent=Decimal(str(custom_percent)) if custom_percent else None,
-        effective_date=effective_date,
-    )
+    try:
+        return service.calculate_adjustment(
+            contract=contract,
+            custom_percent=Decimal(str(custom_percent)) if custom_percent else None,
+            effective_date=effective_date,
+        )
+    except ValueError as exc:  # índice sem percentual (08/09/2026)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1099,98 +1061,6 @@ async def delete_template(
 
 
 # ============== SLA Report Endpoints ==============
-
-
-@router.post("/{contract_id}/sla-reports", response_model=ContractSLAReportResponse, status_code=201)
-async def create_sla_report(
-    contract_id: str,
-    data: ContractSLAReportCreate,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ContractSLAReportResponse:
-    """
-    Cria relatório de SLA mensal.
-    """
-    repo = ContractRepository(db)
-    report = await repo.create_sla_report(contract_id, data, generated_by_id=str(current_user.id))
-
-    if not report:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Contrato não encontrado, não tem SLA, ou relatório já existe",
-        )
-
-    logger.info(f"SLA Report criado por {current_user.email}: {report.period_label}")
-    return ContractSLAReportResponse.model_validate(report)
-
-
-@router.get("/{contract_id}/sla-reports", response_model=list[ContractSLAReportResponse])
-async def list_sla_reports(
-    contract_id: str,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-    year: int | None = None,
-) -> list[ContractSLAReportResponse]:
-    """
-    Lista relatórios de SLA do contrato.
-    """
-    repo = ContractRepository(db)
-    reports = await repo.list_sla_reports(contract_id, year=year)
-    return [ContractSLAReportResponse.model_validate(r) for r in reports]
-
-
-@router.post("/sla-reports/{report_id}/approve", response_model=ContractSLAReportResponse, status_code=201)
-async def approve_sla_report(
-    report_id: str,
-    data: ContractSLAReportApprove,
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> ContractSLAReportResponse:
-    """
-    Aprova ou disputa relatório de SLA.
-    """
-    repo = ContractRepository(db)
-    report = await repo.approve_sla_report(
-        report_id,
-        approved_by_id=str(current_user.id),
-        disputed=data.disputed,
-    )
-
-    if not report:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Relatório não encontrado ou não está em rascunho",
-        )
-
-    action = "disputado" if data.disputed else "aprovado"
-    logger.info(f"SLA Report {action} por {current_user.email}: {report.period_label}")
-    return ContractSLAReportResponse.model_validate(report)
-
-
-@router.post("/{contract_id}/calculate-sla", response_model=SLACalculation, status_code=201)
-async def calculate_sla(
-    contract_id: str,
-    indicator_results: list[dict],
-    current_user: CurrentActiveUser,  # pylint: disable=unused-argument
-    db: AsyncSession = Depends(get_db),
-) -> SLACalculation:
-    """
-    Calcula SLA do contrato baseado nos indicadores.
-
-    Retorna simulação sem salvar relatório.
-    """
-    repo = ContractRepository(db)
-    service = ContractService()
-
-    contract = await repo.get_by_id(contract_id)
-
-    if not contract:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Contrato não encontrado",
-        )
-
-    return service.calculate_sla(contract, indicator_results)
 
 
 # ============================================================================

@@ -159,10 +159,29 @@ async def _action_send_whatsapp(db, entity, params) -> str:
     if not phone:
         return "skip: sem telefone"
     msg = _render(params.get("message", params.get("body", "")), entity)
+    # 08/09/2026: a cadência mandava para o telefone cru, sem opt-out, sem antispam e sem registro.
+    from modules.crm.services import followups as F
+    from modules.crm.services.phone import canonical_br, to_e164_br
+    canon = canonical_br(phone)
+    if not canon:
+        return "skip: telefone inválido"
+    if await F.is_opted_out(db, canon):
+        return "skip: opt-out"
+    if await F.recent_touch_count(db, canon) > 0:
+        return "skip: antispam (toque recente)"
+    phone = to_e164_br(phone) or phone
     try:
         from modules.integrations.connectors.whatsapp.service import send_text_message  # type: ignore
 
         await send_text_message(phone, msg)
+        try:
+            from sqlalchemy import text as _t
+            await db.execute(_t(
+                "INSERT INTO crm_followups (phone_canonical, phone_e164, canal, template, mensagem, status, enviado_em, created_at) "
+                "VALUES (:p, :e, 'whatsapp', 'sequencia', :m, 'enviado', now(), now())"),
+                {"p": canon, "e": phone, "m": msg[:2000]})
+        except Exception as exc2:  # noqa: BLE001
+            logger.info("registro do toque da cadência falhou: %s", exc2)
         return "whatsapp enviado"
     except Exception as exc:  # noqa: BLE001
         logger.info("whatsapp indisponível (%s) — registrado só log", exc)

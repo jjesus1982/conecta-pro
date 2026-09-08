@@ -9,14 +9,13 @@ import os
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_active_user
 from core.database import get_db
-from modules.crm.models.lead import Lead
 from modules.crm.services import growth_services as G
 
 router = APIRouter(tags=["CRM - Growth"])
@@ -436,25 +435,6 @@ async def enroll_in_sequence(
     return {"enrollment_id": eid, "enrolled": bool(eid)}
 
 
-@router.get("/sequences/{sid}/enrollments")
-async def list_enrollments(sid: str, db: AsyncSession = Depends(get_db)):
-    return _rows(
-        await db.execute(
-            text("""
-        SELECT e.*, l.name lead_name, l.email lead_email FROM crm_sequence_enrollments e
-        LEFT JOIN leads l ON l.id = e.lead_id WHERE e.sequence_id=:s ORDER BY e.enrolled_at DESC
-    """),
-            {"s": sid},
-        )
-    )
-
-
-@router.post("/sequences/process-due")
-async def process_due(_=Depends(get_current_active_user), db: AsyncSession = Depends(get_db), limit: int = 100):
-    """Processa manualmente os passos vencidos (o Celery beat chama isso de hora em hora)."""
-    return await G.process_due_enrollments(db, limit)
-
-
 # =====================================================================================
 # 2) WORKFLOWS / AUTOMAÇÃO
 # =====================================================================================
@@ -467,90 +447,8 @@ class WorkflowIn(BaseModel):
     is_active: bool = True
 
 
-@router.get("/workflows")
-async def list_workflows(db: AsyncSession = Depends(get_db)):
-    return _rows(await db.execute(text("SELECT * FROM crm_workflows ORDER BY created_at DESC")))
-
-
-@router.post("/workflows", status_code=201)
-async def create_workflow(data: WorkflowIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    import json
-
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_workflows (id, name, description, trigger_event, conditions, actions, is_active,
-                                   run_count, created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :description, :trigger_event, CAST(:conditions AS jsonb),
-                CAST(:actions AS jsonb), :is_active, 0, now(), now()) RETURNING *
-    """,
-            {
-                **data.model_dump(exclude={"conditions", "actions"}),
-                "conditions": json.dumps(data.conditions),
-                "actions": json.dumps(data.actions),
-            },
-        )
-        or {}
-    )
-
-
-@router.put("/workflows/{wid}")
-async def update_workflow(
-    wid: str, data: WorkflowIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    import json
-
-    row = await _one(
-        db,
-        """
-        UPDATE crm_workflows SET name=:name, description=:description, trigger_event=:trigger_event,
-            conditions=CAST(:conditions AS jsonb), actions=CAST(:actions AS jsonb), is_active=:is_active,
-            updated_at=now() WHERE id=:id RETURNING *
-    """,
-        {
-            **data.model_dump(exclude={"conditions", "actions"}),
-            "conditions": json.dumps(data.conditions),
-            "actions": json.dumps(data.actions),
-            "id": wid,
-        },
-    )
-    if not row:
-        raise HTTPException(404, "Workflow não encontrado")
-    return row
-
-
-@router.delete("/workflows/{wid}", status_code=204)
-async def delete_workflow(wid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_workflows WHERE id=:id"), {"id": wid})
-    await db.commit()
-
-
 class WorkflowTestIn(BaseModel):
     lead_id: str
-
-
-@router.post("/workflows/{wid}/test")
-async def test_workflow(
-    wid: str, data: WorkflowTestIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    wf = await _one(db, "SELECT trigger_event FROM crm_workflows WHERE id=:id", {"id": wid})
-    if not wf:
-        raise HTTPException(404, "Workflow não encontrado")
-    lead = await _one(db, "SELECT * FROM leads WHERE id=:id", {"id": data.lead_id})
-    if not lead:
-        raise HTTPException(404, "Lead não encontrado")
-    fired = await G.run_workflows_for_event(db, wf["trigger_event"], lead, "lead")
-    return {"fired": fired}
-
-
-@router.get("/workflows/{wid}/runs")
-async def workflow_runs(wid: str, db: AsyncSession = Depends(get_db)):
-    return _rows(
-        await db.execute(
-            text("SELECT * FROM crm_workflow_runs WHERE workflow_id=:w ORDER BY created_at DESC LIMIT 100"), {"w": wid}
-        )
-    )
 
 
 # =====================================================================================
@@ -565,122 +463,6 @@ class FormIn(BaseModel):
     is_active: bool = True
 
 
-@router.get("/forms")
-async def list_forms(db: AsyncSession = Depends(get_db)):
-    return _rows(await db.execute(text("SELECT * FROM crm_forms ORDER BY created_at DESC")))
-
-
-@router.post("/forms", status_code=201)
-async def create_form(data: FormIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    import json
-
-    exists = await _one(db, "SELECT id FROM crm_forms WHERE slug=:s", {"s": data.slug})
-    if exists:
-        raise HTTPException(409, "Já existe um formulário com esse slug")
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_forms (id, name, slug, fields, redirect_url, source, submit_count, is_active,
-                               created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :slug, CAST(:fields AS jsonb), :redirect_url, :source, 0,
-                :is_active, now(), now()) RETURNING *
-    """,
-            {**data.model_dump(exclude={"fields"}), "fields": json.dumps(data.fields)},
-        )
-        or {}
-    )
-
-
-@router.put("/forms/{fid}")
-async def update_form(fid: str, data: FormIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    import json
-
-    row = await _one(
-        db,
-        """
-        UPDATE crm_forms SET name=:name, slug=:slug, fields=CAST(:fields AS jsonb), redirect_url=:redirect_url,
-            source=:source, is_active=:is_active, updated_at=now() WHERE id=:id RETURNING *
-    """,
-        {**data.model_dump(exclude={"fields"}), "fields": json.dumps(data.fields), "id": fid},
-    )
-    if not row:
-        raise HTTPException(404, "Formulário não encontrado")
-    return row
-
-
-@router.delete("/forms/{fid}", status_code=204)
-async def delete_form(fid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_forms WHERE id=:id"), {"id": fid})
-    await db.commit()
-
-
-@router.get("/forms/{fid}/submissions")
-async def form_submissions(fid: str, db: AsyncSession = Depends(get_db)):
-    return _rows(
-        await db.execute(
-            text("SELECT * FROM crm_form_submissions WHERE form_id=:f ORDER BY created_at DESC LIMIT 200"), {"f": fid}
-        )
-    )
-
-
-# ---- PÚBLICO (sem auth) ----
-@router.get("/public/forms/{slug}")
-async def public_form(slug: str, db: AsyncSession = Depends(get_db)):
-    form = await _one(
-        db, "SELECT id, name, slug, fields, redirect_url FROM crm_forms WHERE slug=:s AND is_active=true", {"s": slug}
-    )
-    if not form:
-        raise HTTPException(404, "Formulário não encontrado")
-    return form
-
-
-@router.post("/public/forms/{slug}/submit", status_code=201)
-async def public_form_submit(slug: str, payload: dict, request: Request, db: AsyncSession = Depends(get_db)):
-    form = await _one(db, "SELECT id, source FROM crm_forms WHERE slug=:s AND is_active=true", {"s": slug})
-    if not form:
-        raise HTTPException(404, "Formulário não encontrado")
-    import json
-
-    name = (payload.get("name") or payload.get("nome") or "Lead do site")[:255]
-    email = payload.get("email")
-    phone = payload.get("phone") or payload.get("telefone")
-    company = payload.get("company") or payload.get("empresa")
-    # Dedup (endpoint PÚBLICO, sem auth: antes não tinha nenhum — cada submit criava lead).
-    # Reaproveita o lead existente do mesmo contato; a origem dele é preservada.
-    from modules.crm.repositories.lead_repository import LeadRepository
-
-    _dup = await LeadRepository(db).find_duplicate(phone=phone, email=email)
-    if _dup:
-        lead_id = str(_dup.id)
-    else:
-        # cria o lead via ORM (aplica defaults score/probability/expected_value)
-        lead = Lead(
-            name=name, email=email, phone=phone, company=company,
-            source=form["source"] or "website", status="new",
-        )
-        db.add(lead)
-        await db.flush()
-        lead_id = str(lead.id)
-    xff = request.headers.get("x-forwarded-for")
-    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
-    await db.execute(
-        text("""
-        INSERT INTO crm_form_submissions (id, form_id, data, lead_id, ip_address, created_at)
-        VALUES (gen_random_uuid(), :f, CAST(:data AS jsonb), :lead, :ip, now())
-    """),
-        {"f": form["id"], "data": json.dumps(payload), "lead": lead_id, "ip": ip},
-    )
-    await db.execute(text("UPDATE crm_forms SET submit_count = submit_count + 1 WHERE id=:f"), {"f": form["id"]})
-    await db.commit()
-    # dispara workflows do evento form_submitted + scoring
-    leaddict = await _one(db, "SELECT * FROM leads WHERE id=:id", {"id": lead_id})
-    await G.run_workflows_for_event(db, "form_submitted", leaddict or {"id": lead_id}, "lead")
-    await G.run_workflows_for_event(db, "lead_created", leaddict or {"id": lead_id}, "lead")
-    await G.recompute_lead_score(db, lead_id)
-    return {"ok": True, "lead_id": lead_id}
-
-
 # =====================================================================================
 # 5) AGENDAMENTO DE REUNIÃO/VISTORIA
 # =====================================================================================
@@ -692,131 +474,12 @@ class BookingLinkIn(BaseModel):
     is_active: bool = True
 
 
-@router.get("/booking-links")
-async def list_booking_links(db: AsyncSession = Depends(get_db)):
-    return _rows(await db.execute(text("SELECT * FROM crm_booking_links ORDER BY created_at DESC")))
-
-
-@router.post("/booking-links", status_code=201)
-async def create_booking_link(
-    data: BookingLinkIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    import json
-
-    if await _one(db, "SELECT id FROM crm_booking_links WHERE slug=:s", {"s": data.slug}):
-        raise HTTPException(409, "Slug já existe")
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_booking_links (id, name, slug, duration_min, weekly_availability, is_active,
-                                       created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :slug, :duration_min, CAST(:wa AS jsonb), :is_active, now(), now())
-        RETURNING *
-    """,
-            {**data.model_dump(exclude={"weekly_availability"}), "wa": json.dumps(data.weekly_availability)},
-        )
-        or {}
-    )
-
-
-@router.put("/booking-links/{bid}")
-async def update_booking_link(
-    bid: str, data: BookingLinkIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    import json
-
-    row = await _one(
-        db,
-        """
-        UPDATE crm_booking_links SET name=:name, slug=:slug, duration_min=:duration_min,
-            weekly_availability=CAST(:wa AS jsonb), is_active=:is_active, updated_at=now() WHERE id=:id RETURNING *
-    """,
-        {**data.model_dump(exclude={"weekly_availability"}), "wa": json.dumps(data.weekly_availability), "id": bid},
-    )
-    if not row:
-        raise HTTPException(404, "Link não encontrado")
-    return row
-
-
-@router.delete("/booking-links/{bid}", status_code=204)
-async def delete_booking_link(bid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_booking_links WHERE id=:id"), {"id": bid})
-    await db.commit()
-
-
-@router.get("/bookings")
-async def list_bookings(db: AsyncSession = Depends(get_db)):
-    return _rows(
-        await db.execute(
-            text("""
-        SELECT b.*, bl.name link_name FROM crm_bookings b
-        LEFT JOIN crm_booking_links bl ON bl.id=b.booking_link_id ORDER BY b.scheduled_at DESC LIMIT 200""")
-        )
-    )
-
-
-# ---- PÚBLICO ----
-@router.get("/public/booking/{slug}")
-async def public_booking_link(slug: str, db: AsyncSession = Depends(get_db)):
-    link = await _one(
-        db,
-        """SELECT id, name, slug, duration_min, weekly_availability
-                             FROM crm_booking_links WHERE slug=:s AND is_active=true""",
-        {"s": slug},
-    )
-    if not link:
-        raise HTTPException(404, "Link de agendamento não encontrado")
-    return link
-
-
 class BookingIn(BaseModel):
     name: str
     email: str | None = None
     phone: str | None = None
     scheduled_at: datetime
     notes: str | None = None
-
-
-@router.post("/public/booking/{slug}", status_code=201)
-async def public_booking_create(slug: str, data: BookingIn, db: AsyncSession = Depends(get_db)):
-    link = await _one(db, "SELECT id FROM crm_booking_links WHERE slug=:s AND is_active=true", {"s": slug})
-    if not link:
-        raise HTTPException(404, "Link de agendamento não encontrado")
-    # Dedup (endpoint PÚBLICO, sem auth: antes não tinha nenhum — cada agendamento
-    # criava lead novo, mesmo do contato que já era lead).
-    from modules.crm.repositories.lead_repository import LeadRepository
-
-    _dup = await LeadRepository(db).find_duplicate(phone=data.phone, email=data.email)
-    if _dup:
-        lead_id = str(_dup.id)
-    else:
-        lead = Lead(name=data.name[:255], email=data.email, phone=data.phone, source="website", status="new")
-        db.add(lead)
-        await db.flush()
-        lead_id = str(lead.id)
-    booking = await _one(
-        db,
-        """
-        INSERT INTO crm_bookings (id, booking_link_id, name, email, phone, scheduled_at, status, notes,
-                                  lead_id, created_at, updated_at)
-        VALUES (gen_random_uuid(), :bl, :name, :email, :phone, :sched, 'scheduled', :notes, :lead, now(), now())
-        RETURNING *
-    """,
-        {
-            "bl": link["id"],
-            "name": data.name[:255],
-            "email": data.email,
-            "phone": data.phone,
-            "sched": data.scheduled_at,
-            "notes": data.notes,
-            "lead": lead_id,
-        },
-    )
-    await db.commit()
-    leaddict = await _one(db, "SELECT * FROM leads WHERE id=:id", {"id": lead_id})
-    await G.run_workflows_for_event(db, "meeting_booked", leaddict or {"id": lead_id}, "lead")
-    return {"ok": True, "booking_id": booking["id"] if booking else None, "lead_id": lead_id}
 
 
 # =====================================================================================
@@ -829,81 +492,9 @@ class SegmentIn(BaseModel):
     is_active: bool = True
 
 
-@router.get("/segments")
-async def list_segments(db: AsyncSession = Depends(get_db)):
-    return _rows(await db.execute(text("SELECT * FROM crm_segments ORDER BY created_at DESC")))
-
-
-@router.post("/segments", status_code=201)
-async def create_segment(data: SegmentIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    import json
-
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_segments (id, name, entity, filters, is_active, created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :entity, CAST(:filters AS jsonb), :is_active, now(), now()) RETURNING *
-    """,
-            {**data.model_dump(exclude={"filters"}), "filters": json.dumps(data.filters)},
-        )
-        or {}
-    )
-
-
-@router.put("/segments/{sid}")
-async def update_segment(
-    sid: str, data: SegmentIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    import json
-
-    row = await _one(
-        db,
-        """
-        UPDATE crm_segments SET name=:name, entity=:entity, filters=CAST(:filters AS jsonb),
-            is_active=:is_active, updated_at=now() WHERE id=:id RETURNING *
-    """,
-        {**data.model_dump(exclude={"filters"}), "filters": json.dumps(data.filters), "id": sid},
-    )
-    if not row:
-        raise HTTPException(404, "Segmento não encontrado")
-    return row
-
-
-@router.delete("/segments/{sid}", status_code=204)
-async def delete_segment(sid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_segments WHERE id=:id"), {"id": sid})
-    await db.commit()
-
-
-@router.get("/segments/{sid}/results")
-async def segment_results(sid: str, db: AsyncSession = Depends(get_db)):
-    seg = await _one(db, "SELECT entity, filters FROM crm_segments WHERE id=:id", {"id": sid})
-    if not seg:
-        raise HTTPException(404, "Segmento não encontrado")
-    built = G.build_segment_sql(seg["entity"], list(seg["filters"] or []))
-    if not built:
-        raise HTTPException(400, "Entidade de segmento inválida")
-    sql, params = built
-    rows = _rows(await db.execute(text(sql), params))
-    return {"count": len(rows), "results": rows}
-
-
 class SegmentPreviewIn(BaseModel):
     entity: str = "lead"
     filters: list[dict] = []
-
-
-@router.post("/segments/preview")
-async def segment_preview(
-    data: SegmentPreviewIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    built = G.build_segment_sql(data.entity, data.filters)
-    if not built:
-        raise HTTPException(400, "Entidade inválida")
-    sql, params = built
-    rows = _rows(await db.execute(text(sql), params))
-    return {"count": len(rows), "results": rows[:100]}
 
 
 # =====================================================================================
@@ -918,81 +509,8 @@ class CustomPropIn(BaseModel):
     is_active: bool = True
 
 
-@router.get("/properties")
-async def list_properties(db: AsyncSession = Depends(get_db), entity: str | None = None):
-    if entity:
-        return _rows(
-            await db.execute(
-                text("SELECT * FROM crm_custom_properties WHERE entity=:e AND is_active=true ORDER BY label"),
-                {"e": entity},
-            )
-        )
-    return _rows(
-        await db.execute(text("SELECT * FROM crm_custom_properties WHERE is_active=true ORDER BY entity, label"))
-    )
-
-
-@router.post("/properties", status_code=201)
-async def create_property(data: CustomPropIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    import json
-
-    if data.entity not in ("lead", "opportunity"):
-        raise HTTPException(400, "entity deve ser 'lead' ou 'opportunity'")
-    if await _one(
-        db, "SELECT id FROM crm_custom_properties WHERE entity=:e AND key=:k", {"e": data.entity, "k": data.key}
-    ):
-        raise HTTPException(409, "Já existe propriedade com essa chave nessa entidade")
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_custom_properties (id, entity, key, label, field_type, options, is_active, created_at, updated_at)
-        VALUES (gen_random_uuid(), :entity, :key, :label, :field_type, CAST(:options AS jsonb), :is_active, now(), now())
-        RETURNING *
-    """,
-            {
-                **data.model_dump(exclude={"options"}),
-                "options": json.dumps(data.options) if data.options is not None else None,
-            },
-        )
-        or {}
-    )
-
-
-@router.delete("/properties/{pid}", status_code=204)
-async def delete_property(pid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("UPDATE crm_custom_properties SET is_active=false WHERE id=:id"), {"id": pid})
-    await db.commit()
-
-
 class CustomValuesIn(BaseModel):
     values: dict
-
-
-@router.put("/entities/{entity}/{entity_id}/custom")
-async def set_custom_values(
-    entity: str,
-    entity_id: str,
-    data: CustomValuesIn,
-    _=Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    table = {"lead": "leads", "opportunity": "opportunities"}.get(entity)
-    if not table:
-        raise HTTPException(400, "entity inválida")
-    import json
-
-    row = await _one(
-        db,
-        f"""
-        UPDATE {table} SET custom_fields = COALESCE(custom_fields,'{{}}'::jsonb) || CAST(:v AS jsonb)
-        WHERE id=:id RETURNING id, custom_fields
-    """,
-        {"v": json.dumps(data.values), "id": entity_id},
-    )
-    if not row:
-        raise HTTPException(404, "Registro não encontrado")
-    return row
 
 
 # =====================================================================================
@@ -1005,65 +523,6 @@ class ScoringRuleIn(BaseModel):
     value: str | None = None
     points: int = 0
     is_active: bool = True
-
-
-@router.get("/scoring/rules")
-async def list_scoring_rules(db: AsyncSession = Depends(get_db)):
-    return _rows(await db.execute(text("SELECT * FROM crm_scoring_rules ORDER BY created_at DESC")))
-
-
-@router.post("/scoring/rules", status_code=201)
-async def create_scoring_rule(
-    data: ScoringRuleIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    return (
-        await _one(
-            db,
-            """
-        INSERT INTO crm_scoring_rules (id, name, field, operator, value, points, is_active, created_at, updated_at)
-        VALUES (gen_random_uuid(), :name, :field, :operator, :value, :points, :is_active, now(), now()) RETURNING *
-    """,
-            data.model_dump(),
-        )
-        or {}
-    )
-
-
-@router.put("/scoring/rules/{rid}")
-async def update_scoring_rule(
-    rid: str, data: ScoringRuleIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
-):
-    row = await _one(
-        db,
-        """
-        UPDATE crm_scoring_rules SET name=:name, field=:field, operator=:operator, value=:value,
-            points=:points, is_active=:is_active, updated_at=now() WHERE id=:id RETURNING *
-    """,
-        {**data.model_dump(), "id": rid},
-    )
-    if not row:
-        raise HTTPException(404, "Regra não encontrada")
-    return row
-
-
-@router.delete("/scoring/rules/{rid}", status_code=204)
-async def delete_scoring_rule(rid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_scoring_rules WHERE id=:id"), {"id": rid})
-    await db.commit()
-
-
-@router.post("/scoring/recompute")
-async def scoring_recompute_all(_=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    n = await G.recompute_all_lead_scores(db)
-    return {"updated": n}
-
-
-@router.post("/scoring/recompute/{lead_id}")
-async def scoring_recompute_one(lead_id: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    score = await G.recompute_lead_score(db, lead_id)
-    if score is None:
-        raise HTTPException(404, "Lead não encontrado")
-    return {"lead_id": lead_id, "score": score}
 
 
 # =====================================================================================
@@ -1119,12 +578,6 @@ async def upsert_quota(data: QuotaIn, _=Depends(get_current_active_user), db: As
     )
 
 
-@router.delete("/quotas/{qid}", status_code=204)
-async def delete_quota(qid: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(text("DELETE FROM crm_quotas WHERE id=:id"), {"id": qid})
-    await db.commit()
-
-
 @router.get("/forecast")
 async def forecast(db: AsyncSession = Depends(get_db)):
     """Previsão ponderada do pipeline aberto por estágio + total ponderado, e metas do mês."""
@@ -1148,8 +601,9 @@ async def forecast(db: AsyncSession = Depends(get_db)):
         db,
         """
         SELECT COALESCE(SUM(value),0) v, count(*) c FROM opportunities
-        WHERE stage='closed_won' AND EXTRACT(MONTH FROM updated_at)=EXTRACT(MONTH FROM now())
-          AND EXTRACT(YEAR FROM updated_at)=EXTRACT(YEAR FROM now())
+        WHERE stage='closed_won'
+          AND date_trunc('month', COALESCE(actual_close_date, (updated_at AT TIME ZONE 'America/Manaus')::date))
+              = date_trunc('month', (now() AT TIME ZONE 'America/Manaus')::date)  -- era updated_at em UTC (08/09/2026)
     """,
         {},
     )
@@ -1157,7 +611,8 @@ async def forecast(db: AsyncSession = Depends(get_db)):
         db,
         """
         SELECT COALESCE(SUM(target_value),0) t, COALESCE(MAX(target_count),0) c FROM crm_quotas
-        WHERE period_year=EXTRACT(YEAR FROM now()) AND period_month=EXTRACT(MONTH FROM now())
+        WHERE period_year=EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/Manaus'))
+          AND period_month=EXTRACT(MONTH FROM (now() AT TIME ZONE 'America/Manaus'))
     """,
         {},
     )
@@ -1179,20 +634,6 @@ async def forecast(db: AsyncSession = Depends(get_db)):
         "atingimento_contratos_pct": round((contratos_fechados / meta_contratos * 100), 1) if meta_contratos else None,
         "by_stage": by_stage,
     }
-
-
-@router.get("/forecast/by-seller")
-async def forecast_by_seller(db: AsyncSession = Depends(get_db)):
-    rows = _rows(
-        await db.execute(
-            text("""
-        SELECT owner_id seller_id, count(*) open_deals, COALESCE(SUM(value),0) open_value
-        FROM opportunities WHERE stage NOT IN ('closed_won','closed_lost') AND is_active = true
-        GROUP BY owner_id
-    """)
-        )
-    )
-    return {"sellers": rows}
 
 
 @router.get("/reports/comercial/pdf")
@@ -1534,12 +975,6 @@ async def negociacoes_pendentes(db: AsyncSession = Depends(get_db)):
     return {"pendentes": await O.pendentes_sem_resposta(db)}
 
 
-@router.get("/negociacoes/status")
-async def negociacao_status(cliente: str, db: AsyncSession = Depends(get_db)):
-    """Status de uma negociação por cliente/CNPJ/nº de proposta."""
-    return await O.status_cliente(db, cliente)
-
-
 class ResponsavelIn(BaseModel):
     cliente: str
     responsavel: str  # 'jordan' (assumir/pausa) | 'jose_luis' (devolver/reativa)
@@ -1562,12 +997,6 @@ async def definir_responsavel(
 async def resumo_executivo_endpoint(db: AsyncSession = Depends(get_db)):
     """Retrato da casa: pipeline + propostas + leads + contratos/MRR + pendências, num lugar só."""
     return await O.resumo_executivo(db)
-
-
-@router.get("/pipeline-resumo")
-async def pipeline_resumo_endpoint(db: AsyncSession = Depends(get_db)):
-    """Funil: deals por estágio, valor aberto, previsão ponderada, ganho do mês e meta."""
-    return await O.resumo_pipeline(db)
 
 
 # =====================================================================================
@@ -1938,39 +1367,6 @@ async def gerar_apresentacao(
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{slug}.pptx"'},
     )
-
-
-@router.get("/apresentacoes/exemplo")
-async def apresentacao_exemplo(db: AsyncSession = Depends(get_db)):
-    """Gera uma apresentação de EXEMPLO (proposta CFTV) e devolve link público — para
-    conferir o padrão visual no navegador."""
-    from modules.crm.services.presentation_builder import build_pptx, pptx_to_pdf
-
-    dados = {
-        "titulo": "Vídeo Monitoramento Inteligente",
-        "subtitulo": "Sistema Sentinela com Inteligência Artificial",
-        "cliente": "Grupo PARVI", "local": "Manaus/AM", "data": "Julho/2026",
-        "slides": [
-            {"tipo": "problema", "titulo": "O Desafio", "subtitulo": "O que precisamos resolver no seu pátio", "itens": [
-                {"titulo": "Pátio aberto de 4.421 m²", "desc": "Grande área sem barreira física, exposta a invasões."},
-                {"titulo": "Entrada exposta", "desc": "Acesso principal sem monitoramento contínuo."},
-                {"titulo": "Sem energia e rede no local", "desc": "Infraestrutura precisa ser autônoma."},
-                {"titulo": "Vigilância 24h necessária", "desc": "Risco em qualquer horário, inclusive madrugada."}]},
-            {"tipo": "sobre"},
-            {"tipo": "solucao", "titulo": "Nossa Solução", "subtitulo": "Cobertura total com tecnologia própria", "cards": [
-                {"titulo": "Cobertura total do muro", "desc": "Perímetro de ~255 m sem ponto cego."},
-                {"titulo": "8 câmeras 360°", "desc": "Visão panorâmica em cores, mesmo no escuro."},
-                {"titulo": "Analítico de placa", "desc": "Leitura automática de veículos (LPR)."},
-                {"titulo": "Sinalização ostensiva", "desc": "Inibição visível de invasores."}]},
-            {"tipo": "investimento", "titulo": "Investimento", "opcoes": [
-                {"nome": "Locação 12 meses", "valor": "R$ 3.026/mês", "itens": ["Torre completa", "Sentinela + IA", "Nuvem", "Central 24h", "Manutenção"]},
-                {"nome": "Locação 24 meses", "valor": "R$ 2.361/mês", "destaque": True, "itens": ["Tudo do plano 12m", "Melhor custo-benefício", "Prioridade de suporte"]}],
-                "observacao": "Valores de locação. Referência de compra à vista sob consulta."},
-            {"tipo": "contato", "cta": "Vamos proteger seu pátio?"},
-        ],
-    }
-    pdf = pptx_to_pdf(build_pptx(dados))
-    return await _salvar_pdf(db, "apresentacao", "Exemplo — Padrão de Apresentação Conecta PRO", pdf)
 
 
 # ==================== ORÇAMENTO / PROPOSTA DE PAGAMENTO ÚNICO (material/serviço) ====================
