@@ -271,7 +271,7 @@ MODULE_HEALTH_CHECKS = {
         "description": "CRM (100 endpoints)",
     },
     "ged": {
-        "check": "curl -so /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/api/v1/ged/documents/",
+        "check": "curl -so /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/api/v1/ged/kits",
         "expect_not": "000",
         "criticality": "high",
         "description": "GED (139 endpoints)",

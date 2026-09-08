@@ -159,7 +159,7 @@ ENDPOINT_CHECKS = {
         "/operacional/medidas-administrativas",
     ],
     "GED": [
-        "/ged/documents",
+        "/ged/kits",  # documents (DMS vazio) apagado 08/09/2026
         "/ged/folders",
         "/ged/document-tags",
         "/ged/document-shares",

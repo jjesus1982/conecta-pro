@@ -165,7 +165,7 @@ ENDPOINT_CHECKS = {
         "/operacional/shifts/",
     ],
     "GED": [
-        "/ged/documents",
+        "/ged/kits",  # documents apagado 08/09/2026
         "/ged/kits",
     ],
     "Financeiro": [

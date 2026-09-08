@@ -142,7 +142,7 @@ def check_module_health(module):
         "operacional": "/api/v1/operacional/posts/",
         "rh": "/api/v1/people-management/dp/dashboard/",
         "crm": "/api/v1/crm/leads/",
-        "ged": "/api/v1/ged/documents/",
+        "ged": "/api/v1/ged/kits",  # documents apagado 08/09/2026
         "government": "/api/v1/government/nfse/manaus/status",
         "clientes": "/api/v1/clients/",
         "bidding": "/api/v1/bidding/opportunities/",
