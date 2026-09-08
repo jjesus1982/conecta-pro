@@ -262,18 +262,6 @@ async def _disparar(db: Session, ids: list[str] | None, canais: list[str], dry_r
     }
 
 
-@router.post("/disparar")
-async def disparar(
-    body: DispararBody,
-    db: Session = Depends(get_sync_db_dependency),
-    current_user: User = Depends(get_current_active_user),
-) -> dict[str, Any]:
-    """Dispara o link de primeiro acesso (e-mail + WhatsApp). `dry_run=true` só simula."""
-    if not body.canais:
-        raise HTTPException(status_code=422, detail="Escolha ao menos um canal (email/whatsapp).")
-    return await _disparar(db, body.employee_ids, body.canais, body.dry_run)
-
-
 @router.post("/{employee_id}/reenviar")
 async def reenviar(
     employee_id: str,

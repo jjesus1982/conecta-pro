@@ -156,6 +156,7 @@ async def build(db) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND), t(r[1]), t(r[2]), t(_d(r[3]))]))
 
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote5_20260908(db, out)
     return out
 
 
@@ -197,3 +198,75 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                        t(_fd(r[4], "%d/%m %H:%M")), t(_fd(r[5], "%d/%m %H:%M")), t(r[6][:40] or "—")])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("notificacoes-fila: %s", exc)
+
+
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # POST /users/{id}/aprovar · PATCH /users/{id}/activate|deactivate|permissions · (GET /users/pending por SQL)
+        from api.v1.endpoints.users import MODULOS_VALIDOS, PERFIS_APROVACAO
+        emps = await _emps()
+        perfis = [{"value": k, "label": v.get("label", k) + (" (só o CEO)" if v.get("somente_ceo") else "")} for k, v in PERFIS_APROVACAO.items()]
+        mods = [{"value": m, "label": m.replace("module:", "").upper()} for m in sorted(MODULOS_VALIDOS)]
+
+        def _acoes(r):
+            uid, nome, role, ativo, perms = r[4], r[0], (r[2] or "").lower(), bool(r[3]), r[5] or []
+            acts = []
+            if role == "pending":
+                acts.append({"title": f"Aprovar usuário — {nome}", "sub": "Aplica o preset do perfil (role + permissões + vínculo) em uma chamada.",
+                             "endpoint": f"/api/v1/users/{uid}/aprovar", "method": "POST", "btnLabel": "Aprovar", "btnStyle": "primary", "submitLabel": "Aprovar",
+                             "okMsg": "Usuário aprovado. Recarregue.",
+                             "fields": [selecionar("perfil", "Perfil*", perfis, "span 1"), selecionar("employee_id", "Colaborador (obrigatório p/ funcionário e líder)", emps, "span 1")]})
+            if ativo:
+                acts.append({"title": f"Desativar — {nome}", "endpoint": f"/api/v1/users/{uid}/deactivate", "method": "PATCH", "btnLabel": "Desativar", "btnStyle": "danger",
+                             "submitLabel": "Desativar", "confirm": f"Desativar o acesso de {nome}?", "okMsg": "Usuário desativado. Recarregue.", "fields": []})
+            else:
+                acts.append({"title": f"Ativar — {nome}", "endpoint": f"/api/v1/users/{uid}/activate", "method": "PATCH", "btnLabel": "Ativar", "btnStyle": "outline",
+                             "submitLabel": "Ativar", "okMsg": "Usuário ativado. Recarregue.", "fields": []})
+            acts.append({"title": f"Permissões por módulo — {nome}", "sub": "Só o CEO altera. Financeiro não entra por aqui (users.py MODULOS_VALIDOS).",
+                         "endpoint": f"/api/v1/users/{uid}/permissions", "method": "PATCH", "btnLabel": "Permissões", "btnStyle": "outline", "submitLabel": "Salvar",
+                         "okMsg": "Permissões atualizadas. Recarregue.",
+                         "fields": [{"key": "permissions", "label": "Módulos", "type": "multiselect", "span": "span 2", "options": mods, "value": __import__("json").dumps([p for p in perms if p in MODULOS_VALIDOS])}]})
+            return acts
+        out["usuarios"] = await tbl(
+            "Usuários", f"{await _n('SELECT count(*) FROM users')} usuários · aprovar pendentes, ativar/desativar e permissões por linha · fonte: users", "—",
+            ["Usuário", "E-mail", "Perfil", "Status", "Módulos"], "1.6fr 1.8fr 1fr 0.8fr 1.4fr",
+            "SELECT coalesce(name,'—'), coalesce(email,'—'), coalesce(role::text,'—'), coalesce(is_active,false), id::text, permissions "
+            "FROM users ORDER BY (role::text='pending') DESC, name LIMIT 300",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1]), b("Pendente" if (r[2] or "").lower() == "pending" else (r[2] or "—").replace("_", " ").capitalize(), "warn" if (r[2] or "").lower() == "pending" else "info"),
+                       b("Ativo", "ok") if r[3] else b("Inativo", "mut"), t(", ".join(str(p).replace("module:", "") for p in (r[5] or []))[:60] or "—")],
+            actionsfn=_acoes)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("usuarios lote5: %s", exc)

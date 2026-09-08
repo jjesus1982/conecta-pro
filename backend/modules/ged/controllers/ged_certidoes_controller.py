@@ -166,25 +166,6 @@ async def criar_certidao(
 # antes de /{certidao_id} para evitar que FastAPI capture o path como ID.
 
 
-@router.get("/certidoes/tipos")
-async def listar_tipos_certidao(
-    current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Lista os tipos de CND disponíveis para sincronização automática."""
-    from modules.people_management.ged.tasks.cnd_sync_task import CERTIDAO_CONFIG
-
-    tipos = [
-        {
-            "key": key,
-            "document_type": cfg["document_type"],
-            "name": cfg["name"],
-            "issuing_body": cfg["issuing_body"],
-        }
-        for key, cfg in CERTIDAO_CONFIG.items()
-    ]
-    return {"tipos": tipos, "total": len(tipos)}
-
-
 @router.options("/certidoes/{certidao_id}", include_in_schema=False)
 async def options_certidao(certidao_id: str):
     """Retorna métodos permitidos para /{certidao_id}."""

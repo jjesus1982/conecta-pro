@@ -94,17 +94,6 @@ async def list_clients(  # pylint: disable=too-many-locals
     return clients
 
 
-@router.get("/{client_id}", response_model=ClientResponse)
-async def get_client(
-    client_id: UUID, current_user: CurrentActiveUser, service: ClientService = Depends(get_service)
-) -> ClientResponse:
-    """Obtém um cliente por ID."""
-    client = service.get_client(client_id)
-    if not client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cliente não encontrado")
-    return client
-
-
 @router.put("/{client_id}", response_model=ClientResponse)
 async def update_client(
     current_user: CurrentActiveUser, client_id: UUID, data: ClientUpdate, service: ClientService = Depends(get_service)
@@ -169,19 +158,6 @@ async def clear_defaulter(
 # =============================================================================
 # CONDOMINIUM ENDPOINTS
 # =============================================================================
-
-
-@router.get("/{client_id}/condominiums", response_model=list[CondominiumListResponse])
-async def list_condominiums(
-    client_id: UUID,
-    current_user: CurrentActiveUser,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
-    service: ClientService = Depends(get_service),
-) -> list[CondominiumListResponse]:
-    """Lista condomínios do cliente."""
-    condominiums, _ = service.list_condominiums(client_id, skip, limit)
-    return condominiums
 
 
 @router.get("/condominiums/{condominium_id}", response_model=CondominiumResponse)

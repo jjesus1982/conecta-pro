@@ -293,11 +293,15 @@ async def build(db) -> dict:
     await safe("pagamentos-pj", tbl(
         "Pagamentos PJ", f"{await _scalar(db, 'SELECT count(*) FROM financial_pagamentos_pj')} pagamentos (folha PJ) — visibilidade; o pagamento é sempre com gate OTP humano",
         "—", ["Competência", "Beneficiário", "Empresa", "Valor", "NF", "Status"], "1fr 2fr 1.3fr 1fr 1fr 1fr",
-        "SELECT coalesce(competencia,'—'), coalesce(beneficiario,'—'), coalesce(empresa_slug,'—'), valor, coalesce(status,'—'), nf_exigida, nf_ok "
+        "SELECT coalesce(competencia,'—'), coalesce(beneficiario,'—'), coalesce(empresa_slug,'—'), valor, coalesce(status,'—'), nf_exigida, nf_ok, id "
         "FROM financial_pagamentos_pj ORDER BY competencia DESC NULLS LAST, valor DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1], 600, "#0F1B3A", initials(r[1])),
                    t((r[2] or '—').replace('_', ' ').title()), t(brl(r[3]), 600),
-                   _nf(r[5], r[6]), b((r[4] or '—').replace('_', ' ').capitalize(), _pj_tone.get((r[4] or '').lower(), "info"))]))
+                   _nf(r[5], r[6]), b((r[4] or '—').replace('_', ' ').capitalize(), _pj_tone.get((r[4] or '').lower(), "info"))],
+        actionsfn=lambda r: [{"title": f"Nota fiscal do PJ — {r[1]} {r[0]}", "endpoint": f"/api/v1/financial/pagamentos-pj/item/{r[7]}/nota-fiscal", "method": "POST",
+                              "btnLabel": "NF recebida?", "btnStyle": "outline", "submitLabel": "Registrar", "okMsg": "Situação da NF registrada. Recarregue.",
+                              "fields": [{"key": "ok", "label": "Nota fiscal recebida e conferida?", "type": "select", "span": "span 2", "value": "true" if r[6] else "false",
+                                          "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]}]}] if r[5] else []))
 
     # ---- Fluxo de caixa (bank_transactions — entradas/saídas reais) ----
     await safe("fluxo-caixa", tbl(
@@ -1797,6 +1801,8 @@ ORDER BY b.comp DESC, b.cnpj"""
     # legada nfse_entrada (10 notas, todas com pagavel). O caminho real e registrar-obrigacoes
     # (payable_sources_service sobre nfse_tomadas_nacional) e o sync e o beat sincronizar_nfse_nacional.
 
+    from modules.operacional.controllers.redesign_builders._fin_ligar4 import build_ligar4
+    await build_ligar4(db, out)  # lote 4 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)   # SEMPRE por último — ver comentário acima
     return out
 
@@ -3209,3 +3215,5 @@ async def _rd_cancelar_pagamento(current_user: CurrentActiveUser, payload: dict 
     if not (isinstance(res, dict) and res.get("success")):
         raise HTTPException(status_code=400, detail=(res or {}).get("mensagem") or "Não foi possível cancelar o pagamento.")
     return {"ok": True, "message": res.get("mensagem") or "Pagamento cancelado."}
+
+# _ligar_lote4_20260908: ver _fin_ligar4.py

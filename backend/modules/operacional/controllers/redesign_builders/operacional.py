@@ -885,6 +885,46 @@ async def rd_action_diaria_excluir(current_user: CurrentActiveUser, payload: dic
 
 
 
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /operacional/rondas/stats — mesma conta por SQL
+        st = (await db.execute(_T("SELECT coalesce(status::text,'—'), count(*), coalesce(sum(total_occurrences),0) FROM inspection_rounds WHERE coalesce(is_active,true) GROUP BY 1"))).fetchall()
+        painel = {"total_rondas": sum(r[1] for r in st), "concluidas": sum(r[1] for r in st if r[0] in ("concluida", "completed")), "em_andamento": sum(r[1] for r in st if r[0] in ("em_andamento", "in_progress")),
+                  "agendadas": sum(r[1] for r in st if r[0] in ("agendada", "scheduled")), "ocorrencias_registradas": sum(r[2] for r in st), "por_status": [{"status": r[0], "qtde": r[1]} for r in st]}
+        out["rondas-stats"] = painel_de_dict("Rondas — indicadores", "Rondas por status e ocorrências registradas nelas · fonte: inspection_rounds", painel, kpis_de=["total_rondas", "concluidas", "em_andamento", "ocorrencias_registradas"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("rondas-stats: %s", exc)
+
+
 async def _ligar_lote3_20260908(db, out: dict) -> None:
     """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
     import logging as _lg
@@ -981,6 +1021,7 @@ async def _ligar_20260908_op(db, out: dict, tbl) -> None:
     await _ligar_escalas_grade_20260908(db, out, tbl)
     await _ligar_20260908_op_rondas(db, out, tbl)
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote4_20260908(db, out)
 
 
 async def _ligar_escalas_grade_20260908(db, out: dict, tbl) -> None:

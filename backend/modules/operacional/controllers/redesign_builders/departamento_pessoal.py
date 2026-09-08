@@ -1265,6 +1265,62 @@ async def _tela_revisar_justificativa(db, current_user=None) -> dict:
     }
 
 
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /people-management/human-resources/prestadores-pj/links-empresa
+        from modules.people_management.human_resources.controllers import prestadores_pj_controller as Pj
+        res = await chamar(Pj.links_empresa, db)
+        out["prestadores-pj-links-empresa"] = painel_de_dict("Prestadores PJ — links de autocadastro por empresa", "Links fixos por CNPJ para o prestador se cadastrar sozinho (autocadastro-pj).", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("prestadores-pj-links-empresa: %s", exc)
+    comp = hoje.strftime("%Y-%m")
+    out["certificacoes-gerar-folha"] = {  # POST /people-management/certifications/gerar-folha/{competencia}
+        "title": "Certificações — gerar da folha", "sub": "Cria as certificações de cálculo (hr_certifications) de todos os holerites da competência para conferência. Não altera a folha.",
+        "cta": "Gerar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/certifications/gerar-folha/{competencia}", "okMsg": "Certificações geradas — veja o resultado.", "showResult": True},
+        "fields": [{"key": "competencia", "label": "Competência (AAAA-MM)*", "type": "text", "span": "span 1", "value": comp}]}
+    out["espelho-solicitar-homologacao"] = {  # POST /people-management/hr/ponto/espelho/solicitar-homologacao/{mes}/{ano}
+        "title": "Espelho de ponto — solicitar homologação", "sub": "Envia os espelhos FECHADOS do mês para assinatura dos colaboradores (sig_signature_requests, tipo espelho_ponto). Só cria os pedidos.",
+        "cta": "Solicitar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/hr/ponto/espelho/solicitar-homologacao/{mes}/{ano}", "okMsg": "Pedidos de assinatura criados — veja o resultado.", "showResult": True},
+        "fields": [{"key": "mes", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month}, {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year}]}
+    _consulta("pagar-folha-preview", "Folha CLT via PIX — prévia", "Quem receberia, quanto e por qual chave PIX, antes de gerar o OTP. Só leitura.",
+              "/api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/preview", [{"key": "mes", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month}, {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year}])
+    _consulta("pagar-folha-status", "Folha CLT via PIX — status do lote", "Situação do lote de pagamento da folha (OTP, enviados, confirmados, erros). Só leitura.",
+              "/api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/status", [{"key": "mes", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month}, {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year}])
+
+
 async def build(db, current_user=None) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
@@ -2691,6 +2747,7 @@ async def build(db, current_user=None) -> dict:
         "FROM sst_afastamentos f JOIN employees e ON e.id=f.employee_id WHERE f.esocial_status IS NOT NULL AND f.esocial_status <> 'nao_transmitida') x "
         "ORDER BY quando DESC NULLS LAST LIMIT 200",
         lambda r: [b(r[0], "info"), t(r[1], 600, _ND), t(r[2] or "—"), b((r[3] or "—").replace("_", " "), "ok" if (r[3] or "") in ("recibo_casado", "aceita", "transmitida") else ("bad" if "rejeit" in (r[3] or "") or "erro" in (r[3] or "") else "warn")), t((r[4] or "—")[:34])]))
+    await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)
 
     return out

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Shield, Home, FolderOpen, MessageSquare, Settings, LogOut, ShieldCheck, BadgeDollarSign, Bell } from 'lucide-react';
+import { avisos } from '@/services/portal/portalApi';
 import PortalAssistantWidget from './components/PortalAssistantWidget';
 
 const navLinks = [
@@ -21,6 +22,14 @@ export default function AreaClienteLayout({ children }: { children: React.ReactN
   const router = useRouter();
   const [clientName, setClientName] = useState<string>('');
   const [isChecking, setIsChecking] = useState(true);
+
+  const [naoLidas, setNaoLidas] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    const ler = () => avisos.naoLidas().then((r) => { if (vivo) setNaoLidas(r.nao_lidas || 0); }).catch(() => {});
+    ler(); const id = setInterval(ler, 120000);
+    return () => { vivo = false; clearInterval(id); };
+  }, [pathname]);
 
   useEffect(() => {
     const token = localStorage.getItem('portal_token');
@@ -116,6 +125,9 @@ export default function AreaClienteLayout({ children }: { children: React.ReactN
                   >
                     <Icon className="h-4 w-4" />
                     {link.label}
+                    {link.href === '/area-cliente/notificacoes' && naoLidas > 0 && (
+                      <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[11px] font-semibold tabular-nums">{naoLidas}</span>
+                    )}
                   </Link>
                 );
               })}

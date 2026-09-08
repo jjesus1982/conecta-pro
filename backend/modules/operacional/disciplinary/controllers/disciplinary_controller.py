@@ -217,39 +217,6 @@ async def get_disciplinary_stats(
     return await service.get_stats(get_tenant_id(current_user))
 
 
-@router.get(
-    "/medidas-administrativas/pendentes",
-    response_model=list[DisciplinaryActionResponse],
-    summary="Listar pendentes de aprovacao",
-    description="Lista medidas pendentes de aprovacao",
-)
-async def get_pending_approval(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[DisciplinaryActionResponse]:
-    """Lista medidas pendentes de aprovacao."""
-    service = get_disciplinary_service(db)
-    actions = await service.get_pending_approval(get_tenant_id(current_user))
-    return [DisciplinaryActionResponse.model_validate(a) for a in actions]
-
-
-@router.get(
-    "/medidas-administrativas/funcionario/{employee_id}",
-    response_model=list[DisciplinaryActionResponse],
-    summary="Historico do funcionario",
-    description="Lista historico disciplinar de um funcionario",
-)
-async def get_employee_history(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> list[DisciplinaryActionResponse]:
-    """Lista historico disciplinar de um funcionario."""
-    service = get_disciplinary_service(db)
-    actions = await service.get_employee_history(employee_id, get_tenant_id(current_user))
-    return [DisciplinaryActionResponse.model_validate(a) for a in actions]
-
-
 # =============================================================================
 # ROTAS ESTATICAS - devem vir ANTES de /{action_id}
 # =============================================================================

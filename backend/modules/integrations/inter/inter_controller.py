@@ -91,49 +91,6 @@ async def get_saldo(current_user=Depends(get_current_user)):
 # ── D6.1 — EXTRATO + SYNC ────────────────────────────────────────────────────
 
 
-@router.post("/sync-extrato", status_code=202)
-async def sync_extrato(
-    background_tasks: BackgroundTasks,
-    dias: int = Query(default=7, ge=1, le=90),
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Sincroniza extrato Inter dos últimos N dias em inter_transactions (background)."""
-
-    async def _run():
-        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-        from core.config.settings import get_settings
-        from modules.integrations.inter.inter_sync_service import InterSyncService
-
-        settings = get_settings()
-        engine = create_async_engine(settings.database_url)
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        async with factory() as session:
-            result = await InterSyncService(session).sincronizar_extrato(dias=dias)
-            logger.info("D6.1 sync-extrato concluído: %s", result)
-
-    background_tasks.add_task(_run)
-    return {"status": "started", "dias": dias, "message": "Sincronização iniciada em background."}
-
-
-@router.get("/transactions")
-async def list_transactions(
-    inicio: date | None = Query(default=None),
-    fim: date | None = Query(default=None),
-    tipo: str | None = Query(default=None, description="C ou D"),
-    limit: int = Query(default=100, ge=1, le=500),
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Lista transações sincronizadas em inter_transactions."""
-    from modules.integrations.inter.inter_sync_service import InterSyncService
-
-    svc = InterSyncService(db)
-    rows = await svc.listar_transactions(inicio=inicio, fim=fim, tipo_operacao=tipo, limit=limit)
-    return {"total": len(rows), "transactions": rows}
-
-
 @router.get("/extrato/resumo")
 async def resumo_extrato(
     dias: int = Query(default=30, ge=1, le=365),
@@ -147,25 +104,6 @@ async def resumo_extrato(
 
 
 # ── D6.2 — CONCILIAÇÃO FOLHA ─────────────────────────────────────────────────
-
-
-@router.post("/conciliar/{competencia}")
-async def conciliar_folha(
-    competencia: str,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Concilia transactions de débito da competência com folha de pagamento.
-
-    competencia: '2026-04'
-    """
-    if len(competencia) != 7 or "-" not in competencia:
-        raise HTTPException(status_code=400, detail="competencia deve ser 'YYYY-MM'")
-    from modules.integrations.inter.conciliacao_service import ConciliacaoService
-
-    svc = ConciliacaoService(db)
-    await svc.preparar_competencia(competencia)
-    return await svc.conciliar_folha(competencia)
 
 
 @router.get("/payroll/pagamentos")
@@ -564,21 +502,6 @@ def listar_categorias_colaborador(
 
     svc = InterCategorizacaoService(db)
     return svc.listar_por_colaborador(nome, mes_ref, apenas_kit=apenas_kit)
-
-
-@router.post("/colaborador/{nome}/auto-categorizar")
-def auto_categorizar_colaborador(
-    nome: str,
-    mes_ref: str = Query(..., description="Mês de referência — formato MM.YYYY"),
-    apenas_sem_categoria: bool = Query(True),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_sync_db_dependency),
-):
-    """Auto-categoriza transações de um colaborador no mês por heurísticas + histórico."""
-    from modules.integrations.inter.services.categorizacao_service import InterCategorizacaoService
-
-    svc = InterCategorizacaoService(db)
-    return svc.auto_categorizar_colaborador(nome, mes_ref, apenas_sem_categoria)
 
 
 @router.post("/categorias/auto-processar", status_code=200)

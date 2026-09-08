@@ -253,22 +253,6 @@ async def update_user_permissions(
     return UserListItem.from_user(user)
 
 
-@router.get("/pending")
-async def list_pending_users(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
-):
-    """Lista usuarios aguardando aprovacao (admin only).
-
-    UserListItem (role como str): UserResponse usa o enum UserRole, que nao
-    contem 'pending' — model_validate estourava 500 aqui.
-    """
-    result = await db.execute(select(User).where(User.role == "pending").order_by(User.created_at.desc()))
-    users = result.scalars().all()
-    logger.info(f"Admin {current_user.email} listou {len(users)} usuarios pendentes")
-    return [UserListItem.from_user(u) for u in users]
-
-
 class UserAprovarBody(BaseModel):
     """Body do POST /users/{id}/aprovar."""
 
@@ -276,29 +260,6 @@ class UserAprovarBody(BaseModel):
     employee_id: UUID | None = None
 
 
-@router.get("/perfis")
-async def list_perfis(
-    current_user: User = Depends(require_admin),
-):
-    """Catálogo dos presets de aprovação por perfil (para o frontend)."""
-    return {
-        "perfis": [
-            {
-                "value": nome,
-                "label": p["label"],
-                "descricao": p["descricao"],
-                "role": p["role"],
-                "permissions": p["permissions"],
-                "somente_ceo": p["somente_ceo"],
-                "requer_employee_id": p["requer_employee_id"],
-            }
-            for nome, p in PERFIS_APROVACAO.items()
-        ]
-    }
-
-
-# Nota: retorna UserListItem (role como str) — UserRole (enum do UserResponse) não
-# contém os roles operacionais (gerente_operacional/lider) e quebraria a serialização.
 @router.post("/{user_id}/aprovar", response_model=UserListItem)
 async def aprovar_user(
     user_id: str,

@@ -29,17 +29,3 @@ def dashboard(
     return svc.dashboard_riscos(db)
 
 
-@router.get("/trabalhista", summary="Risco trabalhista — exposição de passivo (estimativa)")
-def trabalhista(
-    db: Session = Depends(get_sync_db_dependency),
-    current_user=Depends(get_current_active_user),
-) -> dict:
-    return svc.riscos_trabalhista(db)
-
-
-@router.get("/tributario", summary="Risco tributário — enquadramento/carga/retenções")
-def tributario(
-    db: Session = Depends(get_sync_db_dependency),
-    current_user=Depends(get_current_active_user),
-) -> dict:
-    return svc.riscos_tributario(db)

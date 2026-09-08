@@ -22,7 +22,14 @@ ROOT = "/opt/conecta-pro"
 SKIP = ("/api/v1/redesign", "/api/v1/health", "/api/v1/auth", "/health", "/metrics", "/docs", "/openapi", "/redoc")
 REDESIGN = ["backend/modules/operacional/controllers/redesign_builders/*.py", "backend/modules/operacional/controllers/redesign_data_controller.py",
             "backend/modules/operacional/controllers/redesign_write_gate.py", "frontend/src/app/redesign/**/*.tsx", "frontend/src/components/redesign/*.tsx",
-            "frontend/src/app/portal-funcionario/**/*.tsx", "frontend/src/app/area-cliente/**/*.tsx", "frontend/src/app/assinar/**/*.tsx"]
+            "frontend/src/app/portal-funcionario/**/*.tsx", "frontend/src/app/area-cliente/**/*.tsx", "frontend/src/app/assinar/**/*.tsx",
+            # apps-satélite VIVOS do redesign (08/09): portal-funcionario só redireciona para /modulos/meu-espaco — é ele o portal
+            # real (1.635 batidas faciais em 30 dias); os públicos (homologação, painel de ponto, login facial, candidato, PJ,
+            # primeiro acesso) são a porta de entrada. Helpers que esses apps importam também contam.
+            "frontend/src/app/modulos/meu-espaco/**/*.tsx", "frontend/src/app/homologacao/**/*.tsx", "frontend/src/app/painel-ponto/**/*.tsx",
+            "frontend/src/app/login/**/*.tsx", "frontend/src/app/candidato/**/*.tsx", "frontend/src/app/autocadastro-pj/**/*.tsx",
+            "frontend/src/app/primeiro-acesso/**/*.tsx", "frontend/src/services/portal/*.ts", "frontend/src/hooks/useNotifications.ts",
+            "frontend/src/components/gdrive/*.tsx"]
 INTERNA = ["mcp-server/server.py", "agents/**/*.py", "backend/modules/**/tasks*.py", "backend/modules/**/tasks/*.py",
            "backend/modules/ai/conversation/services/orquestrador/*.py", "backend/modules/**/services/*.py", "backend/core/**/*.py",
            "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py",
@@ -38,10 +45,26 @@ def _read(patterns: list[str]) -> str:
             if any(x in f for x in ("node_modules", "/.next/", "graphify", "__pycache__", "/transcritos/")):
                 continue
             try:
-                buf.append(open(f, errors="ignore").read())
+                buf.append(_normalizar(open(f, errors="ignore").read()))
             except OSError:
                 pass
     return "\n".join(buf)
+
+
+_CONST = re.compile(r"^\s*(?:const |let |export const )?([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*[\"'`]([^\"'`\n]*?(/api/v1[\w/.-]*))[\"'`]", re.M)
+
+
+def _normalizar(txt: str) -> str:
+    """Faz aparecer no texto a URL que o código monta em pedaços (padrões medidos em 08/09):
+    - constante de prefixo: `_HR = "/api/v1/people-management/human-resources"` + f"{_HR}/training" ou `${API_BASE}/kits`
+    - concatenação implícita de literais em Python ('…/discipline/' '…/estatisticas')
+    - portalFetch('/avisos') da área do cliente → /api/v1/portal/avisos"""
+    consts = {name: pref for name, _full, pref in _CONST.findall(txt)}
+    for name, pref in consts.items():
+        txt = txt.replace("{" + name + "}", pref).replace("${" + name + "}", pref)
+    txt = re.sub(r"(['\"])\s*\n\s*\1", "", txt)  # 'a'\n'b' → 'ab'
+    txt = re.sub(r"portalFetch(?:<[^>]*>)?\(\s*[`'\"](/)", r"portalFetch(`/api/v1/portal\1", txt)
+    return txt
 
 
 def rotas() -> list[tuple[str, str, str]]:
@@ -67,13 +90,14 @@ def _indexar_imports(txt: str) -> set[str]:
     `alias.nome(` de módulo importado por `from modules.x import mod as alias`. Devolve 'modules.x.nome'."""
     idx: set[str] = set()
     aliases: dict[str, set[str]] = {}  # alias -> {'modules.x.mod'}
-    for mod, body in re.findall(r"from (modules\.[\w.]+) import[ \t]*\(?([^)]*?)\)?[ \t]*\n", txt):
+    blocos = re.findall(r"from (modules\.[\w.]+) import[ \t]*\(([^)]*)\)", txt) + re.findall(r"from (modules\.[\w.]+) import[ \t]*([^\n(]+)\n", txt)
+    for mod, body in blocos:
         for part in body.split(","):
             bits = [x.strip() for x in part.strip().split(" as ")]
             if bits and re.match(r"^[A-Za-z_]\w*$", bits[0]):
                 idx.add(f"{mod}.{bits[0]}")
                 aliases.setdefault(bits[-1], set()).add(f"{mod}.{bits[0]}")
-    for alias, fn in set(re.findall(r"\b([A-Za-z_]\w*)\.([a-z_][a-z0-9_]*)\(", txt)):  # uma passada
+    for alias, fn in set(re.findall(r"\b([A-Za-z_]\w*)\.([a-z_][a-z0-9_]*)\s*[(,)]", txt)):  # chamada OU referência (chamar(Mod.fn, …))
         for full in aliases.get(alias, ()):
             idx.add(f"{full}.{fn}")
     return idx
@@ -92,7 +116,9 @@ def usada(path: str, txt: str) -> bool:
     if core in txt or path in txt:
         return True
     pre = core.split("{")[0].rstrip("/")
-    return len(pre) > 12 and pre in txt
+    if len(pre) > 12:
+        return pre in txt
+    return len(pre) >= 8 and pre.count("/") >= 2 and (pre + "/") in txt  # /crm/leads/{id}, /clients/{id}/activate
 
 
 def main() -> int:

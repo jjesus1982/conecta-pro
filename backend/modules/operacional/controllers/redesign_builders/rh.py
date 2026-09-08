@@ -22,6 +22,12 @@ SLUG = "rh"
 _ICO_CCT = "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "cct-cargos", "label": "CCT — cargos e pisos", "icon": "M3 3v18h18"},
+    {"id": "cct-feriados-admin", "label": "CCT — feriados cadastrados", "icon": "M3 3v18h18"},
+    {"id": "onboarding-pendencias", "label": "Onboarding — pendências", "icon": "M3 3v18h18"},
+    {"id": "performance-visao-integrada", "label": "Desempenho — visão integrada", "icon": "M3 3v18h18"},
+    {"id": "esocial-s2200-gerar", "label": "eSocial — gerar S-2200", "icon": "M3 3v18h18"},
+    {"id": "disc-assinaturas", "label": "Medidas — assinaturas", "icon": "M3 3v18h18"},
     {"id": "ativacao-ponto-monitor", "label": "Ativação do ponto — monitor", "icon": "M3 3v18h18"},
     {"id": "ativacao-ponto", "label": "Ativação do ponto — colaboradores", "icon": "M3 3v18h18"},
     {"id": "cct-taxa-negocial", "label": "CCT — taxa negocial", "icon": "M3 3v18h18"},
@@ -907,6 +913,8 @@ async def build(db) -> dict:
 
     await _ligar_cct_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote4_20260908(db, out)
+    await _ligar_lote5_20260908(db, out)
     return out
 
 
@@ -996,3 +1004,133 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                                   "btnLabel": "Reenviar convite", "btnStyle": "outline", "submitLabel": "Reenviar", "okMsg": "Convite reenviado pelos canais disponíveis.", "fields": []}] if not r[5] else [])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("ativacao-ponto: %s", exc)
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /people-management/hr/discipline/assinaturas/documento/{id} — por SQL, todas as medidas
+        n_ass = await _n("SELECT count(*) FROM digital_signatures WHERE document_type='disciplinary_action'")
+        out["disc-assinaturas"] = await tbl(
+            "Medidas disciplinares — assinaturas", f"{n_ass} assinatura(s) · quem assinou cada medida, quando e de onde · fonte: digital_signatures", "—",
+            ["Medida", "Colaborador", "Assinante", "Tipo", "Quando", "Válida", "IP"], "0.9fr 1.6fr 1.6fr 0.8fr 1fr 0.6fr 0.8fr",
+            "SELECT coalesce(a.code,'—'), coalesce(a.employee_name,'—'), coalesce(s.signer_name,'—'), coalesce(s.signer_type,'—'), s.created_at, coalesce(s.is_valid,true), coalesce(s.ip_address,'—') "
+            "FROM digital_signatures s LEFT JOIN disciplinary_actions a ON a.id=s.document_id WHERE s.document_type='disciplinary_action' ORDER BY s.created_at DESC LIMIT 200",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1][:36]), t(r[2][:36]), b(r[3].capitalize(), "info"), t(_fd(r[4], "%d/%m/%Y %H:%M")), b("Sim" if r[5] else "Não", "ok" if r[5] else "bad"), t(r[6])])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("disc-assinaturas: %s", exc)
+
+
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # PUT /people-management/admin/cct/cargos/{id}
+        out["cct-cargos"] = await tbl(
+            "CCT — cargos e pisos", f"{await _n('SELECT count(*) FROM cct_cargos')} cargos da convenção · editar por linha · fonte: cct_cargos", "—",
+            ["Cargo", "Piso", "Noturno", "Periculosidade", "Insalubridade", "HE", "Jornada", "Ativo"], "2fr 0.9fr 0.7fr 0.8fr 0.8fr 0.6fr 0.7fr 0.6fr",
+            "SELECT id::text, coalesce(cargo_nome,'—'), piso_salarial, adicional_noturno_percentual, adicional_periculosidade_percentual, adicional_insalubridade_percentual, "
+            "horas_extras_percentual, jornada_semanal_horas, coalesce(is_active,true), horas_extras_noturnas_percentual, coalesce(adicional_tipo,'') FROM cct_cargos ORDER BY is_active DESC, cargo_nome LIMIT 300",
+            lambda r: [t(r[1][:44], 600, "#0F1B3A"), t(brl(r[2]) if r[2] is not None else "—", 600), t(f"{r[3]}%" if r[3] is not None else "—"), t(f"{r[4]}%" if r[4] is not None else "—"),
+                       t(f"{r[5]}%" if r[5] is not None else "—"), t(f"{r[6]}%" if r[6] is not None else "—"), t(f"{r[7]}h" if r[7] else "—"), b("Sim" if r[8] else "Não", "ok" if r[8] else "mut")],
+            editfn=lambda r: {"title": f"Editar cargo — {r[1]}", "endpoint": f"/api/v1/people-management/admin/cct/cargos/{r[0]}", "method": "PUT",
+                              "fields": [{"key": "cargo_nome", "label": "Cargo", "type": "text", "value": r[1]}, {"key": "piso_salarial", "label": "Piso (R$)", "type": "text", "value": str(r[2] or "")},
+                                         {"key": "adicional_noturno_percentual", "label": "Noturno %", "type": "text", "value": str(r[3] or "")}, {"key": "adicional_periculosidade_percentual", "label": "Periculosidade %", "type": "text", "value": str(r[4] or "")},
+                                         {"key": "adicional_insalubridade_percentual", "label": "Insalubridade %", "type": "text", "value": str(r[5] or "")}, {"key": "horas_extras_percentual", "label": "Hora extra %", "type": "text", "value": str(r[6] or "")},
+                                         {"key": "horas_extras_noturnas_percentual", "label": "HE noturna %", "type": "text", "value": str(r[9] or "")}, {"key": "jornada_semanal_horas", "label": "Jornada semanal (h)", "type": "text", "value": str(r[7] or "")},
+                                         {"key": "is_active", "label": "Ativo", "type": "select", "value": "true" if r[8] else "false", "options": _SN}]})
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("cct-cargos: %s", exc)
+    try:  # DELETE /people-management/admin/cct/feriados/{id}
+        out["cct-feriados-admin"] = await tbl(
+            "CCT — feriados cadastrados", f"{await _n('SELECT count(*) FROM cct_feriados')} feriados · remover por linha (muda o cálculo de HE em feriado) · fonte: cct_feriados", "—",
+            ["Data", "Feriado", "Tipo", "Ano", "Ativo"], "0.9fr 2fr 0.9fr 0.6fr 0.6fr",
+            "SELECT id::text, data_feriado, coalesce(nome,'—'), coalesce(tipo,'—'), ano, coalesce(is_active,true) FROM cct_feriados ORDER BY data_feriado DESC LIMIT 200",
+            lambda r: [t(_fd(r[1]), 600, "#0F1B3A"), t(r[2][:50]), b(r[3].capitalize(), "info"), t(str(r[4] or "—")), b("Sim" if r[5] else "Não", "ok" if r[5] else "mut")],
+            actionsfn=lambda r: [{"title": f"Remover feriado — {r[2]} ({_fd(r[1])})", "endpoint": f"/api/v1/people-management/admin/cct/feriados/{r[0]}", "method": "DELETE",
+                                  "btnLabel": "Remover", "btnStyle": "danger", "submitLabel": "Remover", "confirm": f"Remover o feriado {r[2]}? Limpe o cache da CCT depois.", "okMsg": "Feriado removido. Recarregue.", "fields": []}])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("cct-feriados-admin: %s", exc)
+    try:  # GET /people-management/human-resources/onboarding/pendencias — por SQL
+        out["onboarding-pendencias"] = await tbl(
+            "Onboarding — pendências", f"{await _n('SELECT count(*) FROM rh_onboarding_checklist WHERE NOT coalesce(concluido,false)')} etapa(s) em aberto · fonte: rh_onboarding_checklist", "—",
+            ["Colaborador", "Etapa", "Item", "Responsável", "Prazo", "Situação"], "1.8fr 0.7fr 2fr 1fr 0.9fr 0.9fr",
+            "SELECT coalesce(e.nome,'—'), c.etapa, coalesce(c.titulo,'—'), coalesce(c.responsavel,'—'), c.prazo_data, (c.prazo_data IS NOT NULL AND c.prazo_data < current_date) "
+            "FROM rh_onboarding_checklist c LEFT JOIN employees e ON e.id=c.employee_id WHERE NOT coalesce(c.concluido,false) ORDER BY c.prazo_data NULLS LAST, e.nome LIMIT 300",
+            lambda r: [t(r[0][:36], 600, "#0F1B3A"), t(str(r[1] or "—")), t(r[2][:60]), t(r[3]), t(_fd(r[4])), b("Atrasada" if r[5] else "No prazo", "bad" if r[5] else "info")])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("onboarding-pendencias: %s", exc)
+    try:  # GET /people-management/human-resources/performance/visao-integrada
+        from modules.people_management.human_resources.controllers import performance_controller as Pf
+        res = await chamar(Pf.visao_integrada, db)
+        out["performance-visao-integrada"] = tabela_de_lista("Desempenho — visão integrada", "Cruza avaliações, 360, avaliação do líder, ponto, ocorrências e treinamentos por colaborador — mesma conta da rota.", res) \
+            if isinstance(res, list) or (isinstance(res, dict) and any(isinstance(v, list) for v in res.values())) else painel_de_dict("Desempenho — visão integrada", "Mesma conta da rota /performance/visao-integrada.", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("performance-visao-integrada: %s", exc)
+    out["esocial-s2200-gerar"] = {  # POST /people-management/hr/esocial/s2200/gerar — gera XML, não transmite
+        "title": "eSocial — gerar S-2200 (admissão)", "sub": "Gera o XML do evento S-2200 para download/conferência. NÃO transmite ao eSocial. Data de nascimento e sexo vêm do cadastro — não invente.",
+        "cta": "Gerar XML", "type": "form", "submit": {"endpoint": "/api/v1/people-management/hr/esocial/s2200/gerar", "okMsg": "XML gerado — veja o resultado.", "showResult": True},
+        "fields": [{"key": "cpf", "label": "CPF*", "type": "text", "span": "span 1"}, {"key": "nome", "label": "Nome completo*", "type": "text", "span": "span 1"},
+                   {"key": "data_nascimento", "label": "Nascimento", "type": "date", "span": "span 1"}, selecionar("sexo", "Sexo", [{"value": "M", "label": "M"}, {"value": "F", "label": "F"}], "span 1"),
+                   {"key": "data_admissao", "label": "Admissão*", "type": "date", "span": "span 1"}, {"key": "cargo", "label": "Cargo", "type": "text", "span": "span 1"},
+                   {"key": "salario", "label": "Salário base (R$)*", "type": "number", "span": "span 1"}, {"key": "matricula", "label": "Matrícula eSocial*", "type": "text", "span": "span 1"},
+                   {"key": "cbo", "label": "CBO", "type": "text", "span": "span 1"}]}

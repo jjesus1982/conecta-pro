@@ -131,30 +131,6 @@ async def get_payroll_summary(
 
 
 @router.get(
-    "/employee/{employee_id}/payslip-pdf",
-    summary="Gerar Contracheque PDF",
-    description="Gera e retorna contracheque em formato PDF para download.",
-)
-async def generate_payslip_pdf(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    month: int = Query(..., ge=1, le=12, description="Mes de referencia"),
-    year: int = Query(..., ge=2020, le=2030, description="Ano de referencia"),
-) -> StreamingResponse:
-    """Gera contracheque em PDF para um funcionario e competencia.
-
-    Redireciona para o holerite OFICIAL (folha/holerite/{id}/{mes}/{ano}/pdf, padrão-ouro,
-    engine CCT 2026). O PDF próprio desta rota nascia da engine legada, com valor errado
-    (ver `calculate_employee_payroll`)."""
-    from fastapi.responses import RedirectResponse
-
-    return RedirectResponse(
-        url=f"/api/v1/people-management/folha/holerite/{employee_id}/{month}/{year}/pdf", status_code=307
-    )
-
-
-@router.get(
     "/benefits",
     summary="Listar Benefícios/Rubricas",
     description="Lista rubricas e benefícios vinculados a funcionários com filtro por status.",

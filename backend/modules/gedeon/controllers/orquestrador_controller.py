@@ -390,17 +390,6 @@ def marcar_entregue_endpoint(req: MarcarEntregueRequest, current_user=Depends(ge
     )
 
 
-@router.get("/entrega/status", summary="Status de entrega do kit (não_preparado/preparado/entregue)")
-def status_entrega_endpoint(
-    condominio: str = Query(...),
-    competencia: str | None = Query(None, regex=COMP_RE),
-    current_user=Depends(get_current_user),
-) -> dict:
-    from modules.gedeon.services.kit_entrega_service import status_entrega
-
-    return status_entrega(competencia or _competencia_anterior(), condominio)
-
-
 @router.get("/assinaturas", summary="Pendências de assinatura (quem não assinou VT/VR no Sólides)")
 def pendencias_assinatura_endpoint(
     condominio: str | None = Query(None),

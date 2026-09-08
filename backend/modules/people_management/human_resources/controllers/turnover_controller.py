@@ -91,27 +91,3 @@ async def registrar_motivo(
     return {"ok": True, "message": f"Motivo {verbo}: {alvo['nome']} → {label}."}
 
 
-@router.get("/dashboard")
-async def turnover_dashboard(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Dashboard de turnover com dados reais."""
-    try:
-        return await TurnoverService(db).dashboard()
-    except Exception as exc:
-        logger.warning("Erro no dashboard turnover: %s", exc)
-        return {"total_colaboradores": 0, "taxa_turnover_trimestral": 0, "erro": str(exc)}
-
-
-@router.get("/motivos")
-async def turnover_motivos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Distribuicao por motivo de desligamento nos ultimos 12 meses."""
-    try:
-        return await TurnoverService(db).motivos()
-    except Exception as exc:
-        logger.warning("Erro ao buscar motivos: %s", exc)
-        return {"motivos": [], "periodo": "12_meses", "erro": str(exc)}

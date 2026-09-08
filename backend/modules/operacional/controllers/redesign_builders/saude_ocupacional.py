@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 SLUG = "saude-ocupacional"
 EXTRA_MENU: list[dict] = [
+    {"id": "sst-calendario-legal", "label": "Calendário legal", "icon": "M3 3v18h18"},
+    {"id": "pcmso-esteira", "label": "PCMSO — esteira de exames", "icon": "M3 3v18h18"},
+    {"id": "prontuario-sst", "label": "Prontuário do colaborador", "icon": "M3 3v18h18"},
+    {"id": "aso-retroativo", "label": "ASO — carga retroativa", "icon": "M3 3v18h18"},
+    {"id": "cat-abrir", "label": "CAT — abrir", "icon": "M3 3v18h18"},
+    {"id": "cat-transmitir", "label": "CAT — transmitir ao eSocial", "icon": "M3 3v18h18"},
+    {"id": "epi-ficha-gerar", "label": "Ficha de EPI — gerar", "icon": "M3 3v18h18"},
+    {"id": "risco-novo", "label": "Riscos — mapear", "icon": "M3 3v18h18"},
     {"id": "ltcat", "label": "LTCAT", "icon": "M3 3v18h18"},
     {"id": "ltcat-atualizar", "label": "LTCAT — atualizar", "icon": "M3 3v18h18"},
     {"id": "fichas-epi", "label": "Fichas de EPI",
@@ -193,6 +201,7 @@ async def build(db) -> dict:
     }
 
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote5_20260908(db, out)
     return out
 
 
@@ -237,3 +246,95 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                        {"key": "observacoes", "label": "Observações", "type": "textarea", "span": "span 2", "value": (row[5] if row else "") or ""}]}
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("ltcat: %s", exc)
+
+
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    from modules.people_management.sst.controllers import sst_controller as Sc
+    emps = await _emps()
+    try:  # GET /people-management/sst/calendario-legal
+        res = await chamar(Sc.get_calendario_legal, db)
+        out["sst-calendario-legal"] = painel_de_dict("Calendário legal de SST", "PCMSO, LTCAT, PGR, treinamentos, ASOs e fichas de EPI com vencimentos — mesma conta da rota.", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("sst-calendario-legal: %s", exc)
+    try:  # GET /people-management/sst/pcmso/esteira
+        res = await chamar(Sc.get_pcmso_esteira, db, horizonte_meses=6)
+        out["pcmso-esteira"] = tabela_de_lista("PCMSO — esteira de exames (6 meses)", "Projeção dos exames por função/mês/posto a partir do PCMSO e dos ASOs. Nada é gravado.", res) \
+            if any(isinstance(v, list) and v for v in (res.values() if isinstance(res, dict) else [res])) else painel_de_dict("PCMSO — esteira de exames (6 meses)", "Projeção a partir do PCMSO e dos ASOs.", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("pcmso-esteira: %s", exc)
+    _consulta("prontuario-sst", "Prontuário SST do colaborador", "ASOs, entregas de EPI, afastamentos e CATs de uma pessoa.", "/api/v1/people-management/sst/prontuario/{employee_id}", [selecionar("employee_id", "Colaborador*", emps)])
+    out["aso-retroativo"] = {  # POST /people-management/sst/aso/retroativo (multipart)
+        "title": "ASO — carga retroativa (PDF)", "sub": "Registra um ASO já realizado fora do sistema, com o PDF. Entra como realizado/retroativo em gp_asos.",
+        "cta": "Registrar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/sst/aso/retroativo", "multipart": True, "okMsg": "ASO registrado. Recarregue.", "showResult": True},
+        "fields": [selecionar("employee_id", "Colaborador*", emps), selecionar("tipo", "Tipo*", [{"value": v, "label": v.replace("_", " ").capitalize()} for v in ("admissional", "periodico", "demissional", "retorno_trabalho", "mudanca_funcao")], "span 1"),
+                   {"key": "data_realizacao", "label": "Data de realização*", "type": "date", "span": "span 1"}, {"key": "clinica", "label": "Clínica", "type": "text", "span": "span 1"},
+                   {"key": "medico", "label": "Médico", "type": "text", "span": "span 1"}, {"key": "crm", "label": "CRM", "type": "text", "span": "span 1"},
+                   selecionar("apto", "Apto?", _SN, "span 1"), {"key": "file", "label": "PDF do ASO", "type": "file", "span": "span 2", "accept": ".pdf"}]}
+    out["cat-abrir"] = {  # POST /people-management/sst/cat
+        "title": "CAT — abrir comunicação de acidente", "sub": "Registra a CAT (gp_cats) e devolve o prazo de transmissão ao eSocial (1º dia útil, Lei 8.213). A transmissão é outro passo, na tabela ao lado.",
+        "cta": "Abrir CAT", "type": "form", "submit": {"endpoint": "/api/v1/people-management/sst/cat", "okMsg": "CAT aberta — veja o prazo no resultado.", "showResult": True},
+        "fields": [selecionar("employee_id", "Colaborador*", emps), selecionar("tipo_acidente", "Tipo*", [{"value": v, "label": l} for v, l in (("tipico", "Típico"), ("trajeto", "Trajeto"), ("doenca", "Doença ocupacional"))], "span 1"),
+                   {"key": "data_acidente", "label": "Data do acidente*", "type": "date", "span": "span 1"}, selecionar("gravidade", "Gravidade", [{"value": v, "label": v.capitalize()} for v in ("leve", "moderada", "grave", "fatal")], "span 1"),
+                   {"key": "local", "label": "Local*", "type": "text", "span": "span 2"}, {"key": "descricao", "label": "Descrição (mín. 10 caracteres)*", "type": "textarea", "span": "span 2"}]}
+    try:  # POST /people-management/sst/cat/{id}/transmitir — governo: gated, só quando ainda não transmitida
+        out["cat-transmitir"] = await tbl(
+            "CAT — transmissão ao eSocial (S-2210)", f"{await _n('SELECT count(*) FROM gp_cats')} CAT(s) · transmitir só as não transmitidas/com erro · fonte: gp_cats", "—",
+            ["CAT", "Colaborador", "Data", "Tipo", "Gravidade", "eSocial"], "0.9fr 1.8fr 0.9fr 0.8fr 0.8fr 1fr",
+            "SELECT c.id::text, coalesce(c.cat_id,'—'), coalesce(e.nome,'—'), c.data_acidente, coalesce(c.tipo_acidente,'—'), coalesce(c.gravidade,'—'), coalesce(c.esocial_status,'nao_transmitida') "
+            "FROM gp_cats c LEFT JOIN employees e ON e.id::text=c.employee_id::text ORDER BY c.data_acidente DESC NULLS LAST LIMIT 100",
+            lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2][:36]), t(_fd(r[3])), t(r[4].capitalize()), t(r[5].capitalize()), b(r[6].replace("_", " ").capitalize(), "ok" if r[6] in ("transmitida", "aceita") else "bad" if r[6] in ("erro", "rejeitada") else "warn")],
+            actionsfn=lambda r: [{"title": f"Transmitir CAT {r[1]} ao eSocial", "sub": "Envia o S-2210 ao governo pela fila do Celery. Ação irreversível.", "endpoint": f"/api/v1/people-management/sst/cat/{r[0]}/transmitir", "method": "POST",
+                                  "btnLabel": "Transmitir", "btnStyle": "danger", "submitLabel": "Transmitir ao eSocial", "confirm": f"Transmitir a CAT {r[1]} ao eSocial agora?", "okMsg": "Transmissão enfileirada.", "fields": []}]
+                                if r[6] in ("nao_transmitida", "erro", "rejeitada") else [])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("cat-transmitir: %s", exc)
+    out["epi-ficha-gerar"] = {  # POST /people-management/sst/epi/fichas/gerar
+        "title": "Ficha de EPI — gerar", "sub": "Monta a ficha de EPI do colaborador a partir das entregas registradas (gp_epi_deliveries → sst_fichas_epi).",
+        "cta": "Gerar ficha", "type": "form", "submit": {"endpoint": "/api/v1/people-management/sst/epi/fichas/gerar", "okMsg": "Ficha gerada. Recarregue.", "showResult": True},
+        "fields": [selecionar("employee_id", "Colaborador*", emps)]}
+    postos = []
+    try:
+        postos = [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, name FROM posts WHERE coalesce(is_active,true) ORDER BY name"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["risco-novo"] = {  # POST /people-management/sst/risco
+        "title": "Riscos — mapear risco do posto", "sub": "Registra um risco ocupacional (gp_risks) para o PGR/LTCAT. Medidas de controle e EPI em lista JSON.",
+        "cta": "Registrar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/sst/risco", "okMsg": "Risco registrado. Recarregue.", "showResult": True},
+        "fields": [selecionar("posto_id", "Posto*", postos), selecionar("categoria", "Categoria*", [{"value": v, "label": v.capitalize()} for v in ("fisico", "quimico", "biologico", "ergonomico", "acidente")], "span 1"),
+                   selecionar("nivel", "Nível", [{"value": v, "label": v.capitalize()} for v in ("baixo", "medio", "alto")], "span 1"), {"key": "fonte_geradora", "label": "Fonte geradora", "type": "text", "span": "span 1"},
+                   {"key": "descricao", "label": "Descrição*", "type": "textarea", "span": "span 2"},
+                   {"key": "medidas_controle", "label": "Medidas de controle (lista JSON)", "type": "json", "span": "span 1", "value": "[]"}, {"key": "epi_recomendado", "label": "EPI recomendado (lista JSON)", "type": "json", "span": "span 1", "value": "[]"}]}

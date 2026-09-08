@@ -55,20 +55,26 @@ export default function RaioXPage() {
   const [advTotal, setAdvTotal] = useState(0);
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null);
+  const [assid, setAssid] = useState<{ resumo: Record<string, number>; funcionarios: RankingItem[] } | null>(null);
+  const [escalas, setEscalas] = useState<{ tem_escala: boolean; turnos: any[]; padrao: any[] | null } | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [r, e, rk, at, tv, ad, oc, vi] = await Promise.all([
+        const [r, e, rk, at, tv, ad, oc, vi, as_, es] = await Promise.all([
           operacao.resumo(), operacao.equipe(), operacao.ranking(),
           operacao.atestados(), operacao.turnover(), operacao.advertencias(),
           operacao.ocorrencias().catch(() => null),
           operacao.visitas(10).catch(() => null),
+          operacao.assiduidade().catch(() => null),
+          operacao.escalas().catch(() => null),
         ]);
         setResumo(r); setEquipe(e.equipe); setRanking(rk.ranking);
         setAsos(at.asos); setMov(tv.movimentacoes); setAdvTotal(ad.total);
         if (oc) setOcorrencias(oc.ocorrencias);
         if (vi) setVisitas(vi.visitas);
+        if (as_) setAssid(as_);
+        if (es) setEscalas(es);
       } catch { /* portalFetch trata 401 */ } finally { setLoading(false); }
     })();
   }, []);
@@ -184,6 +190,42 @@ export default function RaioXPage() {
               </div>
             ))}
             {mov.length === 0 && <p className="text-sm text-gray-400">Sem movimentações no período. Equipe estável. 👍</p>}
+          </div>
+        </section>
+      </div>
+
+      {/* Assiduidade do mês (ponto) + Escalas — rotas /portal/operacao/assiduidade e /escalas */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1"><Clock className="w-5 h-5 text-sky-600" /> Assiduidade do mês</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            {assid ? `${assid.resumo?.funcionarios_com_ponto ?? 0} com ponto · ${assid.resumo?.dias_presenca_total ?? 0} dias de presença · ${assid.resumo?.pct_no_local_medio ?? 0}% no local` : 'Sem dados de ponto neste mês.'}
+          </p>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {(assid?.funcionarios || []).map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="flex-1 min-w-0 truncate text-gray-900">{f.nome}</span>
+                <span className="text-xs text-gray-500 tabular-nums">{f.dias_presentes} dias</span>
+                <span className={`text-xs font-medium tabular-nums ${f.pct_no_local >= 90 ? 'text-emerald-600' : 'text-amber-600'}`}>{f.pct_no_local}% no local</span>
+              </div>
+            ))}
+            {(assid?.funcionarios || []).length === 0 && <p className="text-sm text-gray-400">Nenhuma batida registrada no mês.</p>}
+          </div>
+        </section>
+        <section className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1"><CalendarClock className="w-5 h-5 text-violet-600" /> Escalas do posto</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            {escalas?.tem_escala ? `${escalas.turnos.length} turno(s) planejado(s) no mês` : 'Sem escala publicada para este mês.'}
+            {escalas?.padrao?.length ? ` · padrão: ${escalas.padrao.map((p: any) => `${p.turno || ''} ${p.inicio || ''}–${p.fim || ''}`.trim()).join(', ')}` : ''}
+          </p>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {(escalas?.turnos || []).slice(0, 60).map((t: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="text-xs text-gray-400 tabular-nums w-20">{t.data ? new Date(`${t.data}T12:00:00`).toLocaleDateString('pt-BR') : '—'}</span>
+                <span className="flex-1 min-w-0 truncate text-gray-900">{t.funcionario || '—'}</span>
+                <span className="text-xs text-gray-500 tabular-nums">{(t.inicio || '').slice(0, 5)}–{(t.fim || '').slice(0, 5)}{t.noturno ? ' 🌙' : ''}</span>
+              </div>
+            ))}
           </div>
         </section>
       </div>

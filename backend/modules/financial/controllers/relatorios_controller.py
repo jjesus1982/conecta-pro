@@ -426,20 +426,6 @@ async def fluxo_caixa_mensal(ano: int = Query(2026), _user: dict = Depends(get_c
     return FluxoCaixaService().dfc_mensal(ano)
 
 
-@router.get("/contas-receber")
-async def contas_a_receber_ep(ano: int = Query(2026), _user: dict = Depends(get_current_user)) -> dict:
-    """A Receber REAL = NFS-e emitidas (cStat 100) − recebimentos de cliente no caixa."""
-    from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
-    return FluxoCaixaService().contas_a_receber(ano)
-
-
-@router.get("/contas-pagar")
-async def contas_a_pagar_ep(ano: int = Query(2026), _user: dict = Depends(get_current_user)) -> dict:
-    """A Pagar REAL = NFS-e tomadas (fornecedores) + folha, por competência."""
-    from modules.financial.services.fluxo_caixa_service import FluxoCaixaService
-    return FluxoCaixaService().contas_a_pagar(ano)
-
-
 @router.get("/apuracao-lucro-real")
 async def apuracao_lucro_real(
     ano: int = Query(2026, ge=2020, le=2100),

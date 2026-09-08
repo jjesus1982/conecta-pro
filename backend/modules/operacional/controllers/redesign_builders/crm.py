@@ -362,6 +362,7 @@ _ICO_CHAT = "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
 _ICO_CAL = "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "jose-luis-dashboard", "label": "José Luís — painel do agente", "icon": "M3 3v18h18"},
     {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC},
     # Ficha viva / negociação
     {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT},
@@ -570,7 +571,13 @@ async def build(db) -> dict:
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]),
                    b((r[2] or '—').replace('_', ' ').capitalize(), "mut"), t(brl(r[3]), 600),
                    b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))],
-        actionsfn=lambda r: [{"title": f"Arquivar lead {r[0]}", "sub": "Some da lista; não apaga o histórico.",
+        actionsfn=lambda r: [{"title": f"Mudar status — {r[0]}", "sub": "Registra a nota e recalcula o score do lead.",
+                              "endpoint": f"/api/v1/crm/leads/{r[5]}/status", "method": "PATCH", "btnLabel": "Status",
+                              "submitLabel": "Salvar", "btnStyle": "outline", "okMsg": "Status do lead atualizado. Recarregue.",
+                              "fields": [{"key": "status", "label": "Novo status*", "type": "select", "span": "span 1", "value": (r[4] or "new").lower(),
+                                          "options": [{"value": v, "label": l} for v, l in (("new", "Novo"), ("contacted", "Contatado"), ("qualified", "Qualificado"), ("proposal", "Proposta enviada"), ("negotiation", "Em negociação"), ("won", "Ganho"), ("lost", "Perdido"))]},
+                                         {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "value": ""}]},
+                             {"title": f"Arquivar lead {r[0]}", "sub": "Some da lista; não apaga o histórico.",
                               "endpoint": f"/api/v1/crm/leads/{r[5]}", "method": "DELETE", "btnLabel": "Arquivar",
                               "submitLabel": "Arquivar", "btnStyle": "outline", "confirm": f"Arquivar o lead {r[0]}?",
                               "okMsg": "Lead arquivado. Recarregue.", "fields": []}]))
@@ -644,11 +651,20 @@ async def build(db) -> dict:
         f"{_cl_tot} clientes · Ativos {_cl_ativos} · Condomínios {_cl_cond} · Bloqueados {_cl_bloq}",
         "—", ["Cliente", "CNPJ", "Email", "Segmento", "MRR", "Status"], "1.8fr 1.3fr 1.8fr 1.1fr 1fr 0.8fr",
         "SELECT name, coalesce(document_number,'—'), coalesce(email,'—'), coalesce(segment::text,'—'), coalesce(mrr,0), status::text, "
-        "id::text, coalesce(is_defaulter,false) "
+        "id::text, coalesce(is_defaulter,false), coalesce(phone,''), coalesce(mobile,''), coalesce(whatsapp,''), coalesce(website,''), coalesce(financial_contact_name,''), "
+        "coalesce(address_street,''), coalesce(address_number,''), coalesce(address_city,''), coalesce(address_zipcode,'') "
         "FROM clients ORDER BY mrr DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(_cnpj(r[1])), t(r[2]), t((r[3] or '—').capitalize()),
                    t(brl(r[4]), 600), b("Ativo", "ok") if r[5] == "active" else b((r[5] or '—').capitalize(), "mut")],
-        actionsfn=_cliente_actions))
+        actionsfn=_cliente_actions,
+        # PUT /clients/{id} — editar o cadastro (ClientUpdate: todos opcionais; vazio não altera)
+        editfn=lambda r: {"title": f"Editar cadastro — {r[0]}", "endpoint": f"/api/v1/clients/{r[6]}", "method": "PUT",
+                          "fields": [{"key": "name", "label": "Razão social", "type": "text", "value": r[0]}, {"key": "email", "label": "E-mail", "type": "text", "value": "" if r[2] == "—" else r[2]},
+                                     {"key": "phone", "label": "Telefone", "type": "text", "value": r[8]}, {"key": "mobile", "label": "Celular", "type": "text", "value": r[9]},
+                                     {"key": "whatsapp", "label": "WhatsApp", "type": "text", "value": r[10]}, {"key": "website", "label": "Site", "type": "text", "value": r[11]},
+                                     {"key": "financial_contact_name", "label": "Contato financeiro", "type": "text", "value": r[12]},
+                                     {"key": "address_street", "label": "Logradouro", "type": "text", "value": r[13]}, {"key": "address_number", "label": "Número", "type": "text", "value": r[14]},
+                                     {"key": "address_city", "label": "Cidade", "type": "text", "value": r[15]}, {"key": "address_zipcode", "label": "CEP", "type": "text", "value": r[16]}]}))
 
     # ---- Growth · funil de atividades (crm_activities agregado — real) ----
     await safe("growth", tbl(
@@ -1088,6 +1104,7 @@ async def build(db) -> dict:
     }
 
     await _ligar_20260908(db, out, tbl)
+    await _ligar_lote4_20260908(db, out)
     return out
 
 
@@ -1327,3 +1344,38 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
         "submit": {"endpoint": "/api/v1/redesign/action/contrato-reajuste-calcular", "okMsg": "Reajuste calculado", "showResult": True},
         "fields": [_sel("contract_id", "Contrato*", ctr), {"key": "custom_percent", "label": "Percentual (%)*", "type": "number", "span": "span 1"},
                    {"key": "effective_date", "label": "Vigência", "type": "date", "span": "span 1"}]}
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    _consulta("jose-luis-dashboard", "José Luís — painel do agente (WhatsApp)", "Conversas, respostas, leads, visitas e OS por dia nos últimos N dias (cwi_message_log).",
+              "/api/v1/whatsapp/agent/dashboard", [{"key": "dias", "label": "Dias (1–90)", "type": "number", "span": "span 1", "value": 14}])

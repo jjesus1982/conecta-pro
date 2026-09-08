@@ -374,172 +374,9 @@ async def listar_sem_aso(
 # ================================================================
 
 
-@router.get("/asos/regularizacao")
-async def listar_asos_regularizacao(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Plano de regularização das ASOs vencidas — lista priorizada.
-
-    Mais vencido primeiro, com dias_vencido, posto atual REAL (allocations →
-    posts, para logística das clínicas), flag ja_agendado e resumo por posto.
-    NADA aqui marca ASO como ok — regularizar = agendar + realizar de verdade.
-    """
-    service = SSTService(db)
-    return await service.listar_asos_regularizacao()
-
-
-@router.get("/regularizacao/descalcos")
-async def get_regularizacao_descalcos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Painel de Regularização SST — os "descalços" (onda de admissões 2026).
-
-    Read-computed do dado REAL: coorte estável de ativos admitidos em 2026,
-    barra de progresso ASO/EPI/treinamento e a lista priorizada dos que ainda
-    não têm ASO admissional (mais antigos no topo). Inclui o bloco dos ASOs
-    vencidos (renovação). NADA aqui grava/fabrica cumprimento — cada _ok
-    reflete o fato no banco e a barra sobe sozinha conforme a Márcia executa.
-    """
-    service = SSTService(db)
-    return await service.get_regularizacao_descalcos()
-
-
-@router.post("/asos/agendar-lote", status_code=201)
-async def agendar_asos_lote(
-    itens: list[ASOAgendarLoteItem],
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Agenda ASOs em massa (regularização) — reusa a lógica do POST /sst/aso.
-
-    Cada item vira um gp_asos status='agendado'. HONESTO: agendar NÃO
-    regulariza — o ASO só fica em dia após registrar o resultado (realizado).
-    """
-    from modules.people_management.sst.models.aso import ASOModel
-
-    if not itens:
-        raise HTTPException(status_code=422, detail="Lista de agendamentos vazia")
-
-    hoje = date.today()
-    agendados: list[dict[str, Any]] = []
-    erros: list[dict[str, Any]] = []
-    for item in itens:
-        if item.tipo not in ASO_TIPOS_VALIDOS:
-            erros.append({"employee_id": item.employee_id, "erro": f"tipo inválido '{item.tipo}'"})
-            continue
-        try:
-            dt = date.fromisoformat(item.data_agendamento[:10])
-        except ValueError:
-            erros.append({"employee_id": item.employee_id, "erro": "data_agendamento inválida (YYYY-MM-DD)"})
-            continue
-        if dt < hoje:
-            erros.append({"employee_id": item.employee_id, "erro": "data_agendamento no passado"})
-            continue
-        emp = (
-            await db.execute(
-                text("SELECT nome FROM employees WHERE id::text = :eid"),
-                {"eid": item.employee_id},
-            )
-        ).first()
-        if not emp:
-            erros.append({"employee_id": item.employee_id, "erro": "funcionário não encontrado"})
-            continue
-        aso = ASOModel(
-            aso_id=str(uuid4()),
-            employee_id=item.employee_id,
-            tipo=item.tipo,
-            data_agendamento=dt,
-            clinica=item.clinica,
-            status="agendado",
-        )
-        db.add(aso)
-        agendados.append(
-            {
-                "aso_id": aso.aso_id,
-                "employee_id": item.employee_id,
-                "employee_nome": emp[0],
-                "tipo": item.tipo,
-                "data_agendamento": item.data_agendamento,
-                "clinica": item.clinica,
-                "status": "agendado",
-            }
-        )
-    if agendados:
-        await db.flush()
-        await db.commit()
-
-    return {
-        "total_recebidos": len(itens),
-        "total_agendados": len(agendados),
-        "total_erros": len(erros),
-        "agendados": agendados,
-        "erros": erros,
-        "nota": "Agendamento em lote NÃO regulariza — registre o resultado (realizado) após o exame.",
-    }
-
-
 # ================================================================
 # TREINAMENTOS NR (sst_treinamentos) — 4º pilar do compliance NR-1
 # ================================================================
-
-
-@router.post("/treinamentos", status_code=201)
-async def registrar_treinamento(
-    data: TreinamentoNRCreate,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Registra treinamento NR REALIZADO (NR-1, NR-6, brigada, 1ºs socorros).
-
-    vencimento = data_realizacao + validade_meses (calculado, nunca digitado).
-    Dado real: só registre treinamentos que aconteceram (data futura é barrada).
-    """
-    service = SSTService(db)
-    try:
-        return await service.criar_treinamento(
-            data.model_dump(),
-            created_by=getattr(current_user, "email", None) or getattr(current_user, "username", None),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-@router.get("/treinamentos")
-async def listar_treinamentos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    employee_id: str | None = Query(None),
-    norma: str | None = Query(None, description="NR-1|NR-6|brigada|primeiros_socorros|outro"),
-    vencendo_em_dias: int | None = Query(
-        None, ge=0, le=365,
-        description="Só vencidos + os que vencem nos próximos N dias",
-    ),
-) -> Any:
-    """Lista treinamentos NR (fonte real: sst_treinamentos) com situação calculada."""
-    service = SSTService(db)
-    items = await service.listar_treinamentos(employee_id, norma, vencendo_em_dias)
-    return {
-        "total": len(items),
-        "em_dia": sum(1 for t in items if t["situacao"] == "em_dia"),
-        "vencendo_30d": sum(1 for t in items if t["situacao"] == "vencendo"),
-        "vencidos": sum(1 for t in items if t["situacao"] == "vencido"),
-        "treinamentos": items,
-    }
-
-
-@router.delete("/treinamentos/{treinamento_id}")
-async def excluir_treinamento(
-    treinamento_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Exclui um registro de treinamento (correção de lançamento errado)."""
-    service = SSTService(db)
-    if not await service.excluir_treinamento(treinamento_id):
-        raise HTTPException(status_code=404, detail="Treinamento não encontrado")
-    return {"id": treinamento_id, "excluido": True}
 
 
 # ================================================================
@@ -599,49 +436,6 @@ async def abrir_cat(
     }
 
 
-@router.get("/cat")
-async def listar_cats(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    employee_id: str | None = Query(None),
-) -> Any:
-    """Lista CATs registradas."""
-    from sqlalchemy import text as sql_text
-
-    try:
-        query = (
-            "SELECT cat_id, employee_id, tipo_acidente, data_acidente, local, gravidade, status, "
-            "esocial_status, numero_recibo_esocial, esocial_protocolo, esocial_transmitida_em FROM gp_cats"
-        )
-        params: dict[str, Any] = {}
-        if employee_id:
-            query += " WHERE employee_id::text = :eid"
-            params["eid"] = employee_id
-        query += " ORDER BY data_acidente DESC"
-        result = await db.execute(sql_text(query), params)
-        cats = [
-            {
-                "cat_id": r[0],
-                "employee_id": str(r[1]),
-                "tipo": r[2],
-                "data": str(r[3]),
-                "local": r[4],
-                "gravidade": r[5],
-                "status": r[6],
-                "esocial_status": r[7],
-                "recibo_esocial": r[8],
-                "esocial_protocolo": r[9],
-                "esocial_transmitida_em": str(r[10]) if r[10] else None,
-                "deadline_transmissao": str(_proximo_dia_util(r[3])) if r[3] else None,
-            }
-            for r in result.fetchall()
-        ]
-    except Exception as exc:
-        logger.warning("SST listar CATs: %s", exc)
-        cats = []
-    return {"total": len(cats), "cats": cats}
-
-
 @router.post("/cat/{cat_id}/transmitir")
 async def transmitir_cat(
     cat_id: str,
@@ -679,42 +473,6 @@ async def transmitir_cat(
         "cat_id": cat_id,
         "esocial_status": row[1],
         "esocial": _enfileirar_transmissao(transmit_cat_to_esocial, cat_id, "S-2210"),
-    }
-
-
-@router.get("/cat/taxa-acidente")
-async def calcular_taxa_acidente(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Calcula taxa de acidente de trabalho no periodo."""
-    from sqlalchemy import text as sql_text
-
-    total_colab = 0
-    try:
-        r = await db.execute(sql_text("SELECT count(*) FROM employees WHERE status = 'ativo'"))
-        total_colab = r.scalar() or 0
-    except Exception as exc:
-        logger.warning("SST dashboard: falha ao contar employees: %s", exc)
-
-    total_cats = 0
-    try:
-        r = await db.execute(sql_text("SELECT count(*) FROM gp_cats"))
-        total_cats = r.scalar() or 0
-    except Exception as exc:
-        logger.warning("SST dashboard: falha ao contar CATs: %s", exc)
-
-    service = SSTService(db)
-    dashboard = await service.get_dashboard()
-    afastados = dashboard["afastados_ativos"]
-    taxa = round((total_cats / total_colab * 100) if total_colab > 0 else 0, 2)
-
-    return {
-        "total_colaboradores": total_colab,
-        "total_cats": total_cats,
-        "afastados_ativos": afastados,
-        "taxa_acidente_percentual": taxa,
-        "periodo": "2026",
     }
 
 
@@ -1321,104 +1079,14 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
-@router.get("/riscos")
-async def listar_riscos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    posto_id: str | None = Query(None),
-    nivel: str | None = Query(None, description="baixo|medio|alto|critico"),
-    categoria: str | None = Query(None, description="fisico|quimico|biologico|ergonomico|acidente"),
-) -> Any:
-    """Lista riscos ocupacionais (gp_risks) com nome legível do posto.
-
-    posto_nome vem por LEFT JOIN em posts/condominios; se o posto_id for
-    órfão (não existe em nenhuma das tabelas), posto_nome=None e o frontend
-    exibe o id truncado com aviso honesto — nunca fabricamos o local.
-    """
-    from sqlalchemy import text as sql_text
-
-    try:
-        query = (
-            "SELECT r.risk_id, r.posto_id, COALESCE(p.name, c.nome) AS posto_nome, "
-            "r.categoria, r.descricao, r.nivel, r.status, r.fonte_geradora, "
-            "r.medidas_controle, r.epi_recomendado "
-            "FROM gp_risks r "
-            "LEFT JOIN posts p ON p.id::text = r.posto_id "
-            "LEFT JOIN condominios c ON c.id::text = r.posto_id "
-            "WHERE 1=1"
-        )
-        params: dict[str, Any] = {}
-        if posto_id:
-            query += " AND r.posto_id = :pid"
-            params["pid"] = posto_id
-        if nivel:
-            query += " AND r.nivel = :nivel"
-            params["nivel"] = nivel
-        if categoria:
-            query += " AND r.categoria = :categoria"
-            params["categoria"] = categoria
-        query += (
-            " ORDER BY CASE r.nivel WHEN 'critico' THEN 0 WHEN 'alto' THEN 1 "
-            "WHEN 'medio' THEN 2 ELSE 3 END, r.created_at DESC"
-        )
-        result = await db.execute(sql_text(query), params)
-        riscos = [
-            {
-                "risk_id": r[0],
-                "posto_id": r[1],
-                "posto_nome": r[2],
-                "categoria": r[3],
-                "descricao": r[4],
-                "nivel": r[5],
-                "status": r[6],
-                "fonte_geradora": r[7],
-                "medidas_controle": _as_list(r[8]),
-                "epi_recomendado": _as_list(r[9]),
-            }
-            for r in result.fetchall()
-        ]
-    except Exception as exc:
-        logger.warning("SST listar riscos: %s", exc)
-        riscos = []
-    return {"total": len(riscos), "riscos": riscos}
-
-
 # ================================================================
 # ESTABILIDADE (CCT Clausula 29a)
 # ================================================================
 
 
-@router.get("/estabilidade/ativos")
-async def listar_estabilidade_ativos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Colaboradores em estabilidade pos-acidente (CCT 2026 Clausula 29a)."""
-    service = SSTService(db)
-    items = await service.listar_estabilidade_ativos()
-    return {"total": len(items), "colaboradores": items}
-
-
 # ================================================================
 # AJUDA MEDICAMENTO (CCT Clausula 15a)
 # ================================================================
-
-
-@router.get("/ajuda-medicamento/ativos")
-async def listar_ajuda_medicamento(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Colaboradores recebendo ajuda medicamento R$ 300/mes (CCT 2026)."""
-    service = SSTService(db)
-    items = await service.listar_ajuda_medicamento_ativos()
-    return {
-        "total": len(items),
-        "valor_unitario": 300.00,
-        "custo_mensal_total": round(len(items) * 300.00, 2),
-        "clausula_cct": "15a — Ajuda medicamento ate R$ 300/mes (acidente trabalho)",
-        "colaboradores": items,
-    }
 
 
 # ================================================================

@@ -20,62 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/onboarding", tags=["RH - Onboarding"])
 
 
-@router.get("/dashboard")
-async def onboarding_dashboard(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Dashboard de onboarding com dados reais."""
-    try:
-        em_experiencia = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM employees "
-                    "WHERE data_admissao >= CURRENT_DATE - INTERVAL '90 days' "
-                    "AND status = 'ativo'"
-                )
-            )
-        ).scalar() or 0
-
-        vencendo_30d = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM employees "
-                    "WHERE data_admissao BETWEEN "
-                    "CURRENT_DATE - INTERVAL '90 days' AND "
-                    "CURRENT_DATE - INTERVAL '60 days' "
-                    "AND status = 'ativo'"
-                )
-            )
-        ).scalar() or 0
-
-        lista = (
-            (
-                await db.execute(
-                    text(
-                        "SELECT nome, cargo, data_admissao, "
-                        "CURRENT_DATE - data_admissao as dias_empresa "
-                        "FROM employees "
-                        "WHERE data_admissao >= CURRENT_DATE - INTERVAL '90 days' "
-                        "AND status = 'ativo' "
-                        "ORDER BY data_admissao DESC"
-                    )
-                )
-            )
-            .mappings()
-            .all()
-        )
-
-        return {
-            "em_experiencia": em_experiencia,
-            "vencendo_30_dias": vencendo_30d,
-            "colaboradores": [dict(r) for r in lista],
-        }
-    except Exception as exc:
-        logger.warning("Erro no dashboard onboarding: %s", exc)
-        return {"em_experiencia": 0, "vencendo_30_dias": 0, "colaboradores": []}
-
-
 @router.get("/pendencias")
 async def pendencias(
     current_user: CurrentActiveUser,

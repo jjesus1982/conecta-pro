@@ -130,10 +130,3 @@ async def websocket_notifications(websocket: WebSocket, room: str = "operacional
         manager.disconnect(websocket, room)
 
 
-@websocket_router.get("/ws/status")
-async def websocket_status() -> dict[str, Any]:
-    """Retorna status das conexões WebSocket ativas."""
-    return {
-        "rooms": {room: len(connections) for room, connections in manager.active_connections.items()},
-        "total_connections": sum(len(c) for c in manager.active_connections.values()),
-    }

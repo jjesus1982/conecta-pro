@@ -78,19 +78,3 @@ async def command_center(_user: CurrentActiveUser, db: AsyncSession = Depends(ge
     }
 
 
-@ai_router.get("/performance-overview")
-async def performance_overview(_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
-    """Resumo de performance operacional (dado real + mensagem)."""
-    cov = await _coverage(db)
-    alocacoes = (await db.execute(text("SELECT count(*) FROM allocations WHERE status='active'"))).scalar() or 0
-    msg = (
-        f"Cobertura atual de {cov['cobertura_atual']}% em {cov['total_postos']} postos "
-        f"({cov['postos_cobertos']} cobertos, {alocacoes} alocações ativas). Risco {cov['nivel_risco']}."
-    )
-    return {
-        "message": msg,
-        "cobertura_atual": cov["cobertura_atual"],
-        "total_postos": cov["total_postos"],
-        "alocacoes_ativas": int(alocacoes),
-        "nivel_risco": cov["nivel_risco"],
-    }

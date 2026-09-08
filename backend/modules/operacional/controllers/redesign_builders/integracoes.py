@@ -10,6 +10,30 @@ SLUG = "integracoes"
 _ICO_I = "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "inter-categorizacao", "label": "Inter — categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-stats", "label": "Inter — estatísticas de categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-auto", "label": "Inter — auto-categorizar mês", "icon": "M3 3v18h18"},
+    {"id": "onvio-documentos", "label": "Onvio — documentos", "icon": "M3 3v18h18"},
+    {"id": "onvio-historico", "label": "Onvio — execuções", "icon": "M3 3v18h18"},
+    {"id": "onvio-stats", "label": "Onvio — estatísticas", "icon": "M3 3v18h18"},
+    {"id": "onvio-status", "label": "Onvio — sessão", "icon": "M3 3v18h18"},
+    {"id": "gdrive-desconectar", "label": "Google Drive — desconectar", "icon": "M3 3v18h18"},
+    {"id": "inter-categorizacao", "label": "Inter — categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-stats", "label": "Inter — estatísticas de categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-auto", "label": "Inter — auto-categorizar mês", "icon": "M3 3v18h18"},
+    {"id": "onvio-documentos", "label": "Onvio — documentos", "icon": "M3 3v18h18"},
+    {"id": "onvio-historico", "label": "Onvio — execuções", "icon": "M3 3v18h18"},
+    {"id": "onvio-stats", "label": "Onvio — estatísticas", "icon": "M3 3v18h18"},
+    {"id": "onvio-status", "label": "Onvio — sessão", "icon": "M3 3v18h18"},
+    {"id": "gdrive-desconectar", "label": "Google Drive — desconectar", "icon": "M3 3v18h18"},
+    {"id": "inter-categorizacao", "label": "Inter — categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-stats", "label": "Inter — estatísticas de categorização", "icon": "M3 3v18h18"},
+    {"id": "inter-categorias-auto", "label": "Inter — auto-categorizar mês", "icon": "M3 3v18h18"},
+    {"id": "onvio-documentos", "label": "Onvio — documentos", "icon": "M3 3v18h18"},
+    {"id": "onvio-historico", "label": "Onvio — execuções", "icon": "M3 3v18h18"},
+    {"id": "onvio-stats", "label": "Onvio — estatísticas", "icon": "M3 3v18h18"},
+    {"id": "onvio-status", "label": "Onvio — sessão", "icon": "M3 3v18h18"},
+    {"id": "gdrive-desconectar", "label": "Google Drive — desconectar", "icon": "M3 3v18h18"},
     {"id": "gdrive-status", "label": "Google Drive — status", "icon": "M3 3v18h18"},
     {"id": "solides-sincronizar-escalas", "label": "Sincronizar escalas (Sólides)", "icon": "M3 3v18h18"},
     {"id": "onvio-reclassificar", "label": "Reclassificar (Onvio)", "icon": _ICO_I},
@@ -148,6 +172,7 @@ async def build(db) -> dict:
     }
 
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote4_20260908(db, out)
     return out
 
 
@@ -183,3 +208,81 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
     out["solides-sincronizar-escalas"] = {  # POST /people-management/ponto/sync-escalas
         "title": "Sincronizar escalas (Sólides)", "sub": f"Traz as escalas de trabalho cadastradas no Sólides para solides_work_schedules ({await _n('SELECT count(*) FROM solides_work_schedules')} hoje). Diferente da sincronização de batidas.",
         "cta": "Sincronizar", "type": "form", "submit": {"endpoint": "/api/v1/people-management/ponto/sync-escalas", "okMsg": "Escalas sincronizadas.", "showResult": True}, "fields": []}
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # POST /financeiro/inter/transacoes/{id}/categorizar (ação por linha) — tabela por SQL
+        out["inter-categorizacao"] = await tbl(
+            "Inter — categorização das transações (Hermes)", f"{await _n('SELECT count(*) FROM inter_transaction_categorias')} transações categorizadas · corrigir a categoria por linha sobrescreve a IA · fonte: inter_transaction_categorias", "—",
+            ["Data", "Título", "Valor", "Categoria", "IA", "Confiança", "Observação"], "0.8fr 2fr 0.9fr 1.1fr 0.5fr 0.7fr 1.4fr",
+            "SELECT tx.id::text, tx.data_lancamento, coalesce(tx.titulo, tx.descricao, '—'), tx.valor, coalesce(c.categoria,'—'), coalesce(c.sugerido_por_ia,false), c.confianca_sugestao, coalesce(c.observacao,'') "
+            "FROM inter_transaction_categorias c JOIN inter_transactions tx ON tx.id=c.transaction_id ORDER BY tx.data_lancamento DESC NULLS LAST LIMIT 200",
+            lambda r: [t(_fd(r[1])), t(r[2][:60], 600, "#0F1B3A"), t(brl(r[3]) if r[3] is not None else "—", 600), b(r[4].replace("_", " ").capitalize(), "info"),
+                       t("IA" if r[5] else "humano"), t(f"{int((r[6] or 0) * 100)}%" if r[6] is not None else "—"), t(r[7][:50] or "—")],
+            actionsfn=lambda r: [{"title": f"Corrigir categoria — {r[2][:40]}", "endpoint": f"/api/v1/financeiro/inter/transacoes/{r[0]}/categorizar", "method": "POST",
+                                  "btnLabel": "Corrigir", "btnStyle": "outline", "submitLabel": "Salvar categoria", "okMsg": "Categoria corrigida (a IA não sobrescreve mais). Recarregue.",
+                                  "fields": [{"key": "categoria", "label": "Categoria*", "type": "text", "span": "span 1", "value": r[4]},
+                                             {"key": "observacao", "label": "Observação", "type": "text", "span": "span 1", "value": r[7]}]}])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("inter-categorizacao: %s", exc)
+    _consulta("inter-categorias-stats", "Inter — estatísticas da categorização", "Quantas transações do mês foram categorizadas, por quem (IA/humano) e por categoria. Mês no formato MM.AAAA.",
+              "/api/v1/financeiro/inter/categorias/stats", [{"key": "mes_ref", "label": "Mês (MM.AAAA)*", "type": "text", "span": "span 1", "value": hoje.strftime("%m.%Y")}])
+    out["inter-categorias-auto"] = {  # POST /financeiro/inter/categorias/auto-processar
+        "title": "Inter — auto-categorizar o mês", "sub": "Roda a categorização automática para todos os colaboradores do mês (o beat só faz VT/VR). Não paga nada.",
+        "cta": "Processar", "type": "form", "submit": {"endpoint": "/api/v1/financeiro/inter/categorias/auto-processar", "query": True, "okMsg": "Processado — veja o resultado.", "showResult": True},
+        "fields": [{"key": "mes_ref", "label": "Mês (AAAA-MM, opcional)", "type": "text", "span": "span 1", "value": hoje.strftime("%Y-%m")}]}
+
+    try:  # GET /onvio/documentos, /onvio/historico, /onvio/stats — por SQL
+        out["onvio-documentos"] = await tbl(
+            "Onvio — documentos importados", f"{await _n('SELECT count(*) FROM onvio_documents')} documentos · fonte: onvio_documents", "—",
+            ["Arquivo", "Categoria", "Mês ref.", "Data Onvio", "Extração", "Revisão"], "2.2fr 1fr 0.8fr 0.9fr 0.9fr 0.7fr",
+            "SELECT coalesce(nome_arquivo,'—'), coalesce(categoria,'—'), coalesce(mes_ref,'—'), data_onvio, coalesce(metodo_extracao,'—'), coalesce(revisao_manual,false) "
+            "FROM onvio_documents ORDER BY data_onvio DESC NULLS LAST LIMIT 200",
+            lambda r: [t(r[0][:60], 600, "#0F1B3A"), b(r[1], "info"), t(r[2]), t(_fd(r[3])), t(r[4]), b("Revisar" if r[5] else "OK", "warn" if r[5] else "ok")])
+        out["onvio-historico"] = await tbl(
+            "Onvio — execuções de sincronização", f"{await _n('SELECT count(*) FROM onvio_sync_log')} execuções · cron do host dia 7 às 07:00 · fonte: onvio_sync_log", "—",
+            ["Quando", "Mês ref.", "Status", "Baixados", "Novos", "Erros", "Duração"], "1fr 0.8fr 0.8fr 0.7fr 0.7fr 0.6fr 0.7fr",
+            "SELECT created_at, coalesce(mes_ref,'—'), coalesce(status,'—'), coalesce(docs_baixados,0), coalesce(docs_novos,0), coalesce(docs_erro,0), duracao_s FROM onvio_sync_log ORDER BY created_at DESC LIMIT 200",
+            lambda r: [t(_fd(r[0], "%d/%m/%Y %H:%M")), t(r[1]), b(r[2].capitalize(), "ok" if r[2] in ("ok", "sucesso", "success") else "bad" if r[2] in ("erro", "error") else "info"),
+                       t(str(r[3])), t(str(r[4])), b(str(r[5]), "bad" if r[5] else "mut"), t(f"{r[6]:.0f}s" if r[6] else "—")])
+        st = (await db.execute(_T("SELECT coalesce(categoria,'—'), count(*) FROM onvio_documents GROUP BY 1 ORDER BY 2 DESC"))).fetchall()
+        ult = (await db.execute(_T("SELECT max(data_onvio), max(created_at) FROM onvio_documents"))).first()
+        painel = {"total": sum(r[1] for r in st), "categorias": len(st), "ultimo_documento": _fd(ult[0]) if ult and ult[0] else "—", "ultima_importacao": _fd(ult[1], "%d/%m/%Y %H:%M") if ult and ult[1] else "—",
+                  "por_categoria": [{"categoria": r[0], "qtde": r[1]} for r in st]}
+        out["onvio-stats"] = painel_de_dict("Onvio — estatísticas", "Documentos por categoria e última importação · fonte: onvio_documents", painel, kpis_de=["total", "categorias", "ultimo_documento", "ultima_importacao"])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("onvio: %s", exc)
+    _consulta("onvio-status", "Onvio — sessão do robô", "Diz se a sessão do Onvio (renovada pelo cron das 04:00) está válida. Lê o Redis quando você clica.", "/api/v1/onvio/status", [])
+    out["gdrive-desconectar"] = {  # POST /gdrive/desconectar
+        "title": "Google Drive — desconectar (OAuth)", "sub": "Revoga a conexão OAuth do Drive (gdrive_config.is_connected=false). O botão 'desconectar' do GED só renomeia o arquivo de credencial — este é o que desconecta de verdade.",
+        "cta": "Desconectar", "type": "form", "submit": {"endpoint": "/api/v1/gdrive/desconectar", "confirm": "Desconectar o Google Drive? Os kits deixam de ser montados até reconectar.", "okMsg": "Drive desconectado."}, "fields": []}

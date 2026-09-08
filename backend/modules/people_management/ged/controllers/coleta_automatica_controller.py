@@ -141,61 +141,6 @@ RUNNING_LOCK_KEY_CNDS = "ged:certidoes:running"
 RUNNING_LOCK_TTL_CNDS = 300  # 5 min
 
 
-@router.post("/cnds/run", status_code=202)
-async def run_cnds_now(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    """Dispara atualização manual de certidões (background). Lock Redis 5min."""
-    redis = await get_redis()
-
-    if await redis.get(RUNNING_LOCK_KEY_CNDS):
-        raise HTTPException(status_code=409, detail="Atualização de certidões já em execução.")
-
-    await redis.set(RUNNING_LOCK_KEY_CNDS, "1", ex=RUNNING_LOCK_TTL_CNDS)
-
-    started_at = datetime.now(UTC)
-    triggered_by = getattr(current_user, "email", "system")
-
-    async def _run() -> None:
-        import os
-
-        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-        from core.config.settings import get_settings
-        from modules.people_management.ged.services.certidoes_updater_service import (
-            CertidoesUpdaterService,
-        )
-
-        settings = get_settings()
-        try:
-            engine = create_async_engine(settings.database_url)
-            _factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-            async with _factory() as session:
-                cnpj = os.getenv("EMPRESA_CNPJ", "35710481000103")
-                result = await CertidoesUpdaterService(session).executar(
-                    cnpj,
-                    run_type="cnds_only",
-                    triggered_by=triggered_by,
-                    write_log=True,
-                )
-                logger.info("cnds/run concluído: %s", result)
-        except Exception as e:
-            logger.error("cnds/run background falhou: %s", e)
-        finally:
-            r = await get_redis()
-            await r.delete(RUNNING_LOCK_KEY_CNDS)
-
-    background_tasks.add_task(_run)
-
-    return {
-        "status": "started",
-        "started_at": started_at.isoformat(),
-        "message": "Atualização de certidões iniciada. Acompanhe ged_certidoes.",
-    }
-
-
 @router.get("/history")
 async def get_history(
     limit: int = 20,

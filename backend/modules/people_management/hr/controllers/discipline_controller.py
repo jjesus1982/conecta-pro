@@ -29,20 +29,3 @@ except ImportError:
     logger.info("Router disciplinar operacional não disponível para re-export")
 
 
-@router.get(
-    "/employee/{employee_id}/history",
-    summary="Histórico Disciplinar do Funcionário",
-    description="Retorna histórico completo de medidas disciplinares de um funcionário com paginação.",
-)
-async def get_employee_discipline_history(
-    employee_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-) -> Any:
-    """Retorna histórico disciplinar completo de um funcionário."""
-    service = DisciplineService(db)
-    return await service.get_employee_history(employee_id, page=page, page_size=page_size)
-
-

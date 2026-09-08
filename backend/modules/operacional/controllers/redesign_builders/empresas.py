@@ -143,10 +143,14 @@ async def build(db) -> dict:
     await safe("liminares", tbl(
         "Liminares", f"{await _scalar(db, 'SELECT count(*) FROM fiscal_liminares')} liminares fiscais",
         "—", ["Empresa", "Tributo", "Descrição", "Processo", "Status"], "1.2fr 1fr 2.2fr 1.3fr 0.9fr",
-        "SELECT coalesce(empresa,'—'), coalesce(tributo,'—'), coalesce(descricao, tipo, '—'), coalesce(processo,'—'), coalesce(status,'—') "
+        "SELECT coalesce(empresa,'—'), coalesce(tributo,'—'), coalesce(descricao, tipo, '—'), coalesce(processo,'—'), coalesce(status,'—'), id "
         "FROM fiscal_liminares ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A"), b((r[1] or '—').upper(), "info"), t(r[2]),
-                   t(r[3]), b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("deferida", "ativa", "vigente") else "warn")]))
+                   t(r[3]), b((r[4] or '—').capitalize(), "ok" if (r[4] or '').lower() in ("deferida", "ativa", "vigente") else "warn")],
+        # PUT /financial/relatorios/liminares/{id}/status?status= — um botão por situação possível (a rota lê query)
+        actionsfn=lambda r: [{"title": f"Liminar {r[3]} → {st}", "endpoint": f"/api/v1/financial/relatorios/liminares/{r[5]}/status?status={st}", "method": "PUT",
+                              "btnLabel": st.replace("_", " ").capitalize(), "btnStyle": "outline", "submitLabel": "Confirmar", "okMsg": "Status atualizado. Recarregue.", "fields": []}
+                             for st in ("vigente", "suspensa", "cassada", "a_solicitar") if st != (r[4] or "").lower()]))
 
     # ---- Migrador (segmentação CNPJ1→CNPJ2 por tipo de contrato — visibilidade) ----
     await safe("migrador", tbl(
@@ -601,3 +605,5 @@ async def _rd_gerar_docs_mes(current_user: CurrentActiveUser, payload: dict = Bo
     asyncio.create_task(_bg())
     return {"ok": True, "message": (f"Geração de '{tipo}' para {mes:02d}/{ano} iniciada. Os documentos "
                                     "aparecerão em 'Assinar documentos' e no Meu Espaço em alguns minutos.")}
+
+# _ligar_lote4_20260908

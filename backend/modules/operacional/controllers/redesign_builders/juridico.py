@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 _ICO_J = "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"
 
 EXTRA_MENU: list[dict] = [  # det-comunicacoes já vem do EXTRA_MENU do monólito
+    {"id": "det-comunicacao-arquivo", "label": "Ingerir comunicação do DET (arquivo)", "icon": "M3 3v18h18"},
+    {"id": "processo-analisar-arquivo", "label": "Analisar processo (arquivo)", "icon": "M3 3v18h18"},
     {"id": "prazos", "label": "Prazos", "icon": "M3 3v18h18"},
     {"id": "playbook", "label": "Playbook jurídico", "icon": "M3 3v18h18"},
     {"id": "escritorio-consultas", "label": "Consultas ao escritório", "icon": "M3 3v18h18"},
@@ -290,6 +292,7 @@ async def build(db) -> dict:
     # O caminho real é o robô ('Coletar DET').
 
     await _ligar_jur_20260908(db, out)
+    await _ligar_lote4_20260908(db, out)
     return out
 
 
@@ -455,3 +458,50 @@ async def _ligar_jur_20260908(db, out: dict) -> None:
         "title": "Analisar documento", "sub": "Análise de cláusulas e riscos de um documento colado (usa o provedor de IA).",
         "cta": "Analisar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/analises", "okMsg": "Análise registrada", "showResult": True},
         "fields": [{"key": "nome", "label": "Nome do documento*", "type": "text", "span": "span 2"}, {"key": "conteudo", "label": "Conteúdo*", "type": "textarea", "span": "span 2"}]}
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    emp = []
+    try:
+        emp = [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    out["det-comunicacao-arquivo"] = {  # POST /juridico/det/comunicacao/upload (multipart)
+        "title": "Ingerir comunicação do DET (arquivo)", "sub": "Suba o PDF baixado do DET; o sistema extrai o texto, classifica, acha o prazo e registra — igual à versão texto.",
+        "cta": "Ingerir", "type": "form", "submit": {"endpoint": "/api/v1/juridico/det/comunicacao/upload", "multipart": True, "okMsg": "Comunicação registrada", "showResult": True},
+        "fields": [{"key": "arquivo", "label": "PDF da comunicação*", "type": "file", "span": "span 2", "accept": ".pdf"}]}
+    out["processo-analisar-arquivo"] = {  # POST /juridico/processos/upload (multipart)
+        "title": "Analisar processo (arquivo)", "sub": "Suba a petição/notificação em PDF; a análise extrai pedidos, entidades e monta o dossiê. Não envia nada.",
+        "cta": "Analisar", "type": "form", "submit": {"endpoint": "/api/v1/juridico/processos/upload", "multipart": True, "okMsg": "Processo analisado", "showResult": True},
+        "fields": [{"key": "arquivo", "label": "PDF*", "type": "file", "span": "span 2", "accept": ".pdf"}, {"key": "numero", "label": "Número do processo", "type": "text", "span": "span 1"},
+                   {"key": "tipo", "label": "Tipo", "type": "text", "span": "span 1", "ph": "trabalhista"}, selecionar("employee_id", "Colaborador envolvido", emp)]}

@@ -64,58 +64,6 @@ async def list_time_records(
     )
 
 
-@router.get(
-    "/daily/{record_date}",
-    summary="Registros do Dia",
-    response_model=DailyRecordsResponse,
-    description="Retorna lista paginada de registros de ponto com filtros por funcionário, período e status.",
-)
-async def get_daily_records(
-    record_date: date,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Retorna todos os registros de ponto de um dia específico."""
-    service = TimeRecordService(db)
-    return await service.get_daily(record_date)
-
-
-@router.post(
-    "/clock-out/{record_id}",
-    summary="Batida de Saída",
-    response_model=TimeRecordResponse,
-    status_code=201,
-    description="Retorna lista paginada de registros de ponto com filtros por funcionário, período e status.",
-)
-async def clock_out(
-    record_id: str,
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    data: ClockOutRequest | None = None,
-) -> Any:
-    """Registra batida de saída (clock-out) vinculada a uma entrada."""
-    service = TimeRecordService(db)
-    try:
-        result = await service.clock_out(
-            record_id=record_id,
-            location_lat=data.location_lat if data else None,
-            location_lng=data.location_lng if data else None,
-            notes=data.notes if data else None,
-            created_by=str(current_user.id),
-        )
-        await db.commit()
-        asyncio.create_task(
-            publish_ponto_registrado(
-                employee_id=str(getattr(result, "employee_id", "")),
-                tipo="clock_out",
-                record_id=str(getattr(result, "id", record_id)),
-            )
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
 @router.post(
     "",
     summary="Lançamento Manual de Ponto",

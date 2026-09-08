@@ -16,8 +16,8 @@ export default function FinanceiroPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [n, c, b] = await Promise.all([financeiro.notas(), financeiro.contrato(), financeiro.boletos()]);
-        setNotas(n.notas); setFaturado(n.valor_total); setContrato(c.contrato); setBoletos(b.boletos);
+        const [n, c, b, r] = await Promise.all([financeiro.notas(), financeiro.contrato(), financeiro.boletos(), financeiro.resumo().catch(() => null)]);
+        setNotas(n.notas); setFaturado(r?.faturado_total ?? n.valor_total); setContrato(c.contrato); setBoletos(b.boletos);
       } catch { /* 401 tratado */ } finally { setLoading(false); }
     })();
   }, []);

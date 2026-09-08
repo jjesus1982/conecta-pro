@@ -25,6 +25,9 @@ from modules.operacional.controllers.redesign_data_controller import (
 
 SLUG = "portal-do-funcionario"
 EXTRA_MENU: list[dict] = [
+    {"id": "meus-direitos-cct", "label": "Meus direitos (CCT)", "icon": "M3 3v18h18"},
+    {"id": "calculadora-rescisao", "label": "Simulador de rescisão", "icon": "M3 3v18h18"},
+    {"id": "contracheques-ged", "label": "Contracheques (GED)", "icon": "M3 3v18h18"},
     {"id": "comunicados", "label": "Comunicados", "icon": "M3 3v18h18"},
     {"id": "bater-ponto", "label": "Bater ponto", "icon": "M3 3v18h18"},
     {"id": "assinaturas-pendentes", "label": "Assinaturas pendentes", "icon": "M3 3v18h18"},
@@ -263,6 +266,8 @@ async def build(db, current_user=None) -> dict:
         ]))
 
     await _ligar_lote3_20260908(db, out, me if _vinc else None, current_user)
+    await _ligar_lote4_20260908(db, out, me if _vinc else None)
+    await _ligar_lote5_20260908(db, out, me if _vinc else None)
     return out
 
 
@@ -318,3 +323,70 @@ async def _ligar_lote3_20260908(db, out: dict, me, current_user) -> None:
                                   "fields": [{"key": "request_ids", "label": "Pedido(s)", "type": "json", "span": "span 2", "value": f'["{r[0]}"]'}]}])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("portal assinaturas: %s", exc)
+
+
+async def _ligar_lote4_20260908(db, out: dict, me) -> None:
+    """LIGAR lote 4 (08/09/2026): GET /ged/ged-integration/contracheques/{employee_id} — por SQL, do logado."""
+    import logging as _lg
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    me_lit = f"'{me}'" if me else "'00000000-0000-0000-0000-000000000000'"
+    try:
+        out["contracheques-ged"] = await tbl(
+            "Meus contracheques (GED)", "Contracheques arquivados no GED para você · fonte: ged_contracheques", "—",
+            ["Competência", "Arquivo", "Tamanho", "Arquivado em"], "1fr 2.4fr 0.8fr 1fr",
+            f"SELECT coalesce(competencia, lpad(mes::text,2,'0') || '/' || ano), coalesce(path,'—'), tamanho_bytes, created_at FROM ged_contracheques WHERE employee_id={me_lit} ORDER BY ano DESC, mes DESC LIMIT 100",
+            lambda r: [t(r[0], 600, "#0F1B3A"), t(r[1].rsplit("/", 1)[-1][:60]), t(f"{(r[2] or 0) // 1024} KB"), t(_d(r[3]))])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("contracheques-ged: %s", exc)
+
+
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /people-management/portal/cct/direitos — do logado
+        if me:
+            from modules.people_management.employee_portal.controllers import my_cct_controller as Mc
+            res = await chamar(Mc.get_meus_direitos, db, employee_id=str(me))
+            out["meus-direitos-cct"] = painel_de_dict("Meus direitos pela CCT", "Piso do seu cargo, adicionais e benefícios obrigatórios da convenção SINDECOMPRESTS 2026.", res)
+        else:
+            out["meus-direitos-cct"] = painel_de_dict("Meus direitos pela CCT", "Seu usuário não está vinculado a um colaborador.", {"vinculo": "ausente"})
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("meus-direitos-cct: %s", exc)
+    out["calculadora-rescisao"] = {  # POST /people-management/portal/cct/calculadora?motivo=
+        "title": "Simulador de rescisão (CCT)", "sub": "Estima as verbas rescisórias do seu contrato pelo motivo escolhido. Só simula — nada é registrado.",
+        "cta": "Simular", "type": "form", "submit": {"endpoint": "/api/v1/people-management/portal/cct/calculadora", "query": True, "okMsg": "Simulado — veja o resultado.", "showResult": True},
+        "fields": [selecionar("motivo", "Motivo", [{"value": v, "label": l} for v, l in (("sem_justa_causa", "Dispensa sem justa causa"), ("justa_causa", "Justa causa"), ("pedido_demissao", "Pedido de demissão"), ("acordo", "Acordo"))], "span 1")]}

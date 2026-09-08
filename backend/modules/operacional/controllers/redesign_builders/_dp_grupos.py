@@ -29,13 +29,13 @@ GRUPOS = [
         ("prestadores-pj", "Prestadores PJ"), ("novo-prestador-pj", "Novo prestador PJ"),
         ("documentos", "Documentos"), ("nova-documento", "Enviar documento"),
         ("certificacao", "Certificações"), ("nova-certificacao", "Nova certificação"),
-        ("gerar-certificacoes", "Gerar certificações")]),
+        ("gerar-certificacoes", "Gerar certificações"), ("certificacoes-gerar-folha", "Certificações da folha (competência)"), ("prestadores-pj-links-empresa", "Links PJ por empresa")]),
 
     ("g-ponto", "Ponto & Jornada", "Batidas, justificativas e fechamento do mês", [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
         ("fechar-mes-ponto", "Fechar mês"), ("espelho-fechar", "Espelho: calcular/fechar"),
         ("ponto-lancar", "Lançamento manual"), ("ponto-ajuste", "Ajustar batida"),
-        ("revisar-justificativa", "Revisar justificativas")]),
+        ("revisar-justificativa", "Revisar justificativas"), ("espelho-solicitar-homologacao", "Espelho: solicitar homologação")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
@@ -43,7 +43,7 @@ GRUPOS = [
         ("folha-rubricas", "Rubricas"),
         ("folha-nao-conformidades", "Não conformidades"), ("folha-apontamento", "Apontar"),
         ("contracheques-lote", "Contracheques em lote"),
-        ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX")]),
+        ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),

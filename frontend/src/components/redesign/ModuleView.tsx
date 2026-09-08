@@ -20,6 +20,12 @@ import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
 import { abrirDoc, type DocRef } from '@/lib/docsource';
 import { ExportMenu } from './ExportMenu';
+
+// multiselect guarda a seleção como JSON no estado de texto do form; aqui volta a lista para o <select multiple>.
+function lerLista(v: string | undefined): string[] {
+  if (!v) return [];
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a.map(String) : []; } catch { return []; }
+}
 import ChatScreen from './ChatScreen';
 
 // ── Ícone via path bruto do pacote (lucide, traço 2px) ───────────────────────
@@ -272,6 +278,11 @@ function TableScreen({ scr }: { scr: any }) {
                     ? <div style={{ fontSize: 13.5, color: 'var(--ink, #16277D)', fontWeight: 600, padding: '4px 0', wordBreak: 'break-word' }}>{(f.value ?? editVals[f.key]) || '—'}</div>
                     : f.type === 'select'
                     ? <select className="rd-input" value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))}>
+                        {(f.options || []).map((o: any, k: number) => <option key={k} value={o.value}>{o.label}</option>)}
+                      </select>
+                    : f.type === 'multiselect'
+                    ? <select className="rd-input" multiple style={{ height: 120 }} value={lerLista(editVals[f.key])}
+                        onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: JSON.stringify(Array.from(e.target.selectedOptions).map((o) => o.value)) }))}>
                         {(f.options || []).map((o: any, k: number) => <option key={k} value={o.value}>{o.label}</option>)}
                       </select>
                     : f.type === 'textarea'
@@ -527,7 +538,7 @@ function FormScreen({ scr }: { scr: any }) {
     const campos: any[] = scr.fields || [];
     const out: Record<string, unknown> = { ...vals };
     for (const f of campos) {
-      if (f?.type !== 'json') continue;
+      if (f?.type !== 'json' && f?.type !== 'multiselect') continue;
       const bruto = (vals as Record<string, string>)[f.key];
       if (bruto == null || bruto === '') { delete out[f.key]; continue; }
       try { out[f.key] = JSON.parse(bruto); } catch { /* deixa o texto; o backend diz o que faltou */ }
@@ -545,9 +556,17 @@ function FormScreen({ scr }: { scr: any }) {
     // perguntar-arquivo, currículo, folha Alterdata) recebem o ARQUIVO no corpo e os demais
     // campos como QUERY — as duas coisas ao mesmo tempo.
     let _url = scr.submit.endpoint;
+    // Parâmetro de PATH: endpoint com {chave} (ex.: /prontuario/{employee_id}) recebe o valor do campo
+    // de mesma chave, que sai do corpo/query. Sem isso rota com id no caminho não tinha como virar form.
+    const _noPath = new Set<string>();
+    _url = _url.replace(/\{(\w+)\}/g, (m: string, k: string) => {
+      const v = (vals as Record<string, string>)[k];
+      if (v == null || v === '') return m;
+      _noPath.add(k); return encodeURIComponent(v);
+    });
     if (scr.submit.query) {
       const _qs = new URLSearchParams();
-      for (const [k, v] of Object.entries({ ...vals, ...extra })) if (v != null && v !== '') _qs.append(k, String(v));
+      for (const [k, v] of Object.entries({ ...vals, ...extra })) if (v != null && v !== '' && !_noPath.has(k)) _qs.append(k, String(v));
       const _s = _qs.toString();
       if (_s) _url += (_url.includes('?') ? '&' : '?') + _s;   // preserva query já fixa no endpoint
     }
@@ -570,10 +589,12 @@ function FormScreen({ scr }: { scr: any }) {
     }
     // JSON: o corpo continua indo mesmo com query — rota que declara só query o ignora, e
     // manter um caminho único de fetch evita duas manutenções.
+    // GET/HEAD não podem ter corpo (fetch lança TypeError) — forms de CONSULTA usam method GET + query.
+    const _semCorpo = ['GET', 'HEAD'].includes(String(scr.submit.method || 'POST').toUpperCase());
     const res = await fetch(_url, {
       method: scr.submit.method || 'POST',
       headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
-      body: JSON.stringify({ ...corpoComJson(), ...extra }),
+      ...(_semCorpo ? {} : { body: JSON.stringify(Object.fromEntries(Object.entries({ ...corpoComJson(), ...extra }).filter(([k]) => !_noPath.has(k)))) }),
     });
     const d = await res.json().catch(() => ({}));
     return { res, d };
@@ -765,6 +786,13 @@ function FormScreen({ scr }: { scr: any }) {
             ) : f.type === 'select' ? (
               <select className="rd-input" value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
                 <option value="">{f.ph || 'Selecione…'}</option>
+                {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : f.type === 'multiselect' ? (
+              // Vários valores → guardados como JSON no estado (Record<string,string>) e viram lista em corpoComJson().
+              <select className="rd-input" multiple style={{ height: Math.min(220, 28 * Math.max(4, (f.options || []).length)) }}
+                value={lerLista(vals[f.key])}
+                onChange={(e) => set(f.key, JSON.stringify(Array.from(e.target.selectedOptions).map((o) => o.value)))}>
                 {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             ) : (f.type === 'textarea' || f.type === 'json') ? (

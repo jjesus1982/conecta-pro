@@ -15,6 +15,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
 
 SLUG = "assistente"
 EXTRA_MENU: list[dict] = [
+    {"id": "consultor-placar", "label": "Placar dos consultores", "icon": "M3 3v18h18"},
     {"id": "memorias", "label": "Memórias do consultor", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "anomalias", "label": "Alertas de anomalia", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "consultor-feedback", "label": "Dar feedback ao consultor", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
@@ -124,4 +125,44 @@ async def build(db, current_user=None) -> dict:
         ],
     }
 
+    await _ligar_lote4_20260908(db, out)
     return out
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /ai/consultor/placar — via handler (mesma conta da diretoria)
+        from modules.ai.conversation.controllers import consultor_feedback_controller as Cf
+        res = await chamar(Cf.placar, db)
+        out["consultor-placar"] = painel_de_dict("Placar dos consultores", "Prova de que os consultores aprendem: consultas, feedbacks e acertos por origem (financeiro, operacional, RH, GED, CEO).", res)
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("consultor-placar: %s", exc)

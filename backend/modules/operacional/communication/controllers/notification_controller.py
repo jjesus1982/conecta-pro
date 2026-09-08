@@ -275,42 +275,6 @@ async def delete_notification(
 # =============================================================================
 
 
-@router.get(
-    "/alertas/ativos",
-    response_model=AlertListResponse,
-    summary="Alertas ativos do usuario",
-    description="Lista apenas alertas ativos destinados ao usuario",
-)
-async def list_user_active_alerts(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-) -> AlertListResponse:
-    """
-    Lista alertas ativos do usuario.
-
-    Args:
-        current_user: Usuario autenticado
-        db: Sessao do banco de dados
-
-    Returns:
-        Lista de alertas ativos
-    """
-    service = AlertService(db)
-    tenant_id = _get_tenant_id(current_user)
-    user_roles = _get_user_roles(current_user)
-
-    alerts = await service.get_active_alerts(
-        tenant_id=tenant_id,
-        user_id=str(current_user.id),
-        user_roles=user_roles,
-    )
-
-    return AlertListResponse(
-        items=[AlertResponse.model_validate(a) for a in alerts],
-        total=len(alerts),
-    )
-
-
 @router.post(
     "/alertas/{alert_id}/acknowledge",
     response_model=AlertResponse,

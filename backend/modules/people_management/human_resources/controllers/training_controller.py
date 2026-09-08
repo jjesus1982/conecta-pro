@@ -71,37 +71,6 @@ async def create_course(
         )
 
 
-@router.get(
-    "/courses",
-    response_model=TrainingCourseListResponse,
-    summary="Listar cursos de treinamento",
-)
-async def list_courses(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    category: TrainingCategoryCourse | None = None,
-    is_mandatory: bool | None = None,
-    is_active: bool | None = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-) -> TrainingCourseListResponse:
-    """Lista cursos com filtros e paginacao."""
-    service = TrainingService(db)
-    result = await service.list_courses(
-        page=page,
-        page_size=page_size,
-        category=category.value if category else None,
-        is_mandatory=is_mandatory,
-        is_active=is_active,
-    )
-    return TrainingCourseListResponse(
-        items=[TrainingCourseResponse.model_validate(c) for c in result["items"]],
-        total=result["total"],
-        page=result["page"],
-        page_size=result["page_size"],
-    )
-
-
 # =============================================================================
 # Treinamentos/Turmas
 # =============================================================================

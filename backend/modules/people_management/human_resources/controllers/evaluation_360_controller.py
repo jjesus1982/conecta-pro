@@ -122,13 +122,3 @@ def _evaluator_ids(current_user: Any) -> list[str]:
     return [i for i in ids if i]
 
 
-@router.get("/ciclos")
-async def listar_ciclos(
-    current_user: CurrentActiveUser,
-    db: AsyncSession = Depends(get_db),
-    employee_id: str | None = Query(None, description="Filtrar por funcionario"),
-) -> Any:
-    """Lista ciclos de avaliacao 360."""
-    service = Evaluation360Service(db)
-    cycles = await service.list_cycles(employee_id=employee_id)
-    return {"items": cycles, "total": len(cycles)}

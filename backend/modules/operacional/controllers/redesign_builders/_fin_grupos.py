@@ -7,7 +7,7 @@ GRUPOS = [
     ("g-visao", "Visão Geral", "Resumo executivo do financeiro", [
         ("cockpit", "Cockpit"), ("dashboard", "Resumo"), ("fluxo-caixa", "Fluxo de Caixa"),
         ("projecao", "Projeção & Insights"), ("dre-inline", "DRE"), ("indicadores", "Indicadores DSO/DPO"), ("tendencias", "Tendências"),
-        ("raio-x", "Raio-X"), ("cfo", "CFO IA"), ("cfo-perguntar", "Perguntar ao CFO"), ("cfo-perguntar-arquivo", "Perguntar com anexo"), ("cashflow-sync", "Sincronizar fluxo de caixa"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
+        ("raio-x", "Raio-X"), ("cfo", "CFO IA"), ("cfo-perguntar", "Perguntar ao CFO"), ("cfo-perguntar-arquivo", "Perguntar com anexo"), ("cashflow-sync", "Sincronizar fluxo de caixa"), ("fluxo-resumo", "Resumo do período"), ("fluxo-tendencia", "Tendência mensal"), ("fluxo-categorias", "Saídas por categoria"), ("fluxo-fornecedores", "Saídas por fornecedor"), ("agentes", "Agentes"), ("relatorios", "Relatórios")]),
     ("g-receber", "Receber", "Contas a receber, cobrança e faturamento", [
         ("contas-receber", "Contas a Receber"),
         ("nfse-a-receber", "NFS-e × a receber"), ("gerar-contas-de-nfse", "Gerar das NFS-e"), ("cobrancas", "Cobranças"),
@@ -32,8 +32,9 @@ GRUPOS = [
     ("g-pagar", "Pagar", "O que a empresa deve. Diaristas, VT/VR e folha estão em «Pessoas & Folha» · boleto, PIX e impostos em «Contas & Impostos» · lotes e o que já saiu em «Ordens & Histórico».", [
         ("contas-pagar", "Contas a Pagar"), ("registrar-conta-pagar", "Registrar conta"),
         ("registrar-obrigacoes", "Gerar das NFS-e/folha/guias"), ("payables-auto-criar", "Criar pagáveis das NFS-e"),
-        ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação")]),
+        ("baixar-pagavel", "Dar baixa"), ("fila-aprovacao", "Aprovação"), ("pagaveis-recorrentes-gerar", "Gerar recorrentes"), ("parcelas-pendentes", "Parcelas pendentes")]),
     ("g-pagar-pessoas", "Pessoas & Folha", "Diaristas, VT/VR e folha — quem recebe da empresa. Contas e impostos ficam em «Contas & Impostos»; a lista de dívidas, em «Pagar».", [
+        ("folha-pj-programar", "Programar folha PJ"),
         # ⚠️ Nome de aba tem de dizer O QUE SAI. "Pagar diaristas" foi lido pelo Jordan
         # como "pagar o dia trabalhado do profissional" — e a tela paga VT+VR, diária, ou
         # os dois. Rótulo ambíguo em tela de dinheiro é convite a pagar a coisa errada.
@@ -53,6 +54,7 @@ GRUPOS = [
         ("pagar-boleto", "Pagar boleto"), ("enviar-pix", "PIX / Transferir"),
         ("transferir-ted", "TED"), ("pagar-darf", "DARF"), ("pagar-gps", "GPS / INSS")]),
     ("g-pagar-ordens", "Ordens & Histórico", "Lotes, o que já saiu e correção. Para PAGAR, use «Pessoas & Folha» ou «Contas & Impostos».", [
+        ("pagamentos-auditoria", "Auditoria de pagamentos"),
         ("ordens-pagamento", "Ordens de pagamento"), ("montar-ordem", "Montar ordem"),
         ("aprovar-ordem", "Aprovar ordem (OTP)"), ("executar-no-app", "Executar no app"),
         ("pagamentos-inter", "Pagamentos Inter"), ("marcar-pago-externo", "Pago por fora"),
@@ -71,7 +73,7 @@ GRUPOS = [
         ("plano-contas", "Plano de contas"), ("lancamentos", "Lançamentos"),
         ("balancete", "Balancete"), ("balanco-patrimonial", "Balanço Patrimonial"),
         ("indices-liquidez", "Liquidez & endividamento"), ("dre-caixa", "DRE por caixa"),
-        ("dre-analise-vertical", "DRE — análise vertical"),
+        ("dre-analise-vertical", "DRE — análise vertical"), ("dre-consolidado", "DRE consolidado (grupo)"),
         ("apuracao-resultado", "Apuração IRPJ/CSLL"), ("provisoes-trabalhistas", "Provisões (férias/13º)"),
         ("postar-provisoes", "Postar provisões"), ("postar-inss", "Postar INSS"),
         ("pareamento-portte", "Pareamento Portte"), ("pareamento-tributos", "Pareamento tributos"), ("das-eletronica", "Tributos Eletrônica (LR)"), ("das-patrimonial", "DAS Patrimonial (Simples)"),
@@ -85,7 +87,7 @@ GRUPOS = [
     ("g-cadastros", "Cadastros & Suprimentos", "Fornecedores, contratos, compras e estoque", [
         ("fornecedores", "Fornecedores"), ("fornecedores-categoria", "Fornecedores por categoria"), ("contratos", "Contratos"),
         ("compras-reais", "Compras"), ("compras", "Compras (NF-e)"),
-        ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)"), ("estoque-saida", "Registrar saída de estoque"), ("beneficiarios-seed", "Semear beneficiários")]),
+        ("estoque-real", "Estoque"), ("estoque", "Estoque (NF-e)"), ("estoque-saida", "Registrar saída de estoque"), ("estoque-movimentos", "Movimentos de estoque"), ("estoque-resumo", "Resumo do estoque"), ("beneficiarios-seed", "Semear beneficiários")]),
 ]
 
 

@@ -51,6 +51,14 @@ logger = logging.getLogger(__name__)
 _ICO_D = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6"
 
 EXTRA_MENU: list[dict] = [
+    {"id": "ged-coleta-historico", "label": "GED — histórico da coleta", "icon": "M3 3v18h18"},
+    {"id": "ged-coleta-executar", "label": "GED — executar coleta agora", "icon": "M3 3v18h18"},
+    {"id": "kit-documentos", "label": "Documentos por kit", "icon": "M3 3v18h18"},
+    {"id": "gedeon-panorama", "label": "GEDEON — panorama", "icon": "M3 3v18h18"},
+    {"id": "gedeon-alinhamento-dp", "label": "GEDEON — alinhamento DP", "icon": "M3 3v18h18"},
+    {"id": "gedeon-funcionarios", "label": "GEDEON — funcionários da folha", "icon": "M3 3v18h18"},
+    {"id": "gedeon-funcionario", "label": "GEDEON — visão por funcionário", "icon": "M3 3v18h18"},
+    {"id": "gedeon-assinaturas-pendentes", "label": "GEDEON — VT/VR não assinados", "icon": "M3 3v18h18"},
     {"id": "ged-tipos-documento", "label": "GED — tipos de documento", "icon": "M3 3v18h18"},
     {"id": "ged-coleta-automatica", "label": "GED — coleta automática", "icon": "M3 3v18h18"},
     {"id": "ged-coleta-configurar", "label": "GED — configurar coleta", "icon": "M3 3v18h18"},
@@ -302,6 +310,17 @@ async def build(db) -> dict:
                     "submitLabel": "Gerar agora",
                     "btnStyle": "outline",
                     "okMsg": "Geração dos PDFs disparada. Recarregue.",
+                    "fields": [],
+                },
+                {  # POST /ged/kits/{kit_id}/solicitar-assinaturas — gate do envio depende disto
+                    "title": f"Solicitar assinaturas dos funcionários — kit {r[1]}",
+                    "sub": "Cria os pedidos de assinatura (sig_signature_requests) para os documentos do kit. Não envia e-mail.",
+                    "endpoint": f"/api/v1/ged/kits/{r[0]}/solicitar-assinaturas",
+                    "method": "POST",
+                    "btnLabel": "Solicitar assinaturas",
+                    "submitLabel": "Solicitar",
+                    "btnStyle": "outline",
+                    "okMsg": "Pedidos de assinatura criados. Recarregue.",
                     "fields": [],
                 },
                 {
@@ -742,6 +761,8 @@ async def build(db) -> dict:
 
     await _ligar_kits_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    await _ligar_lote4_20260908(db, out)
+    await _ligar_lote5_20260908(db, out)
     return out
 
 
@@ -906,3 +927,106 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
                                              {"key": "days_remaining", "label": "Dias restantes", "type": "number", "span": "span 1", "value": int(r[3] or 0)}]}])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("certidoes-avisar: %s", exc)
+
+
+async def _ligar_lote4_20260908(db, out: dict) -> None:
+    """LIGAR lote 4 (08/09/2026): rotas que existiam sem tela (vereditos B e C). Blocos independentes (try/except + rollback).
+    Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /ged/kits/{kit_id} — documentos por kit, por SQL (a rota fica redundante)
+        out["kit-documentos"] = await tbl(
+            "Documentos por kit", f"{await _n('SELECT count(*) FROM ged_kit_documents')} documentos em kits · últimos 300 · fonte: ged_kit_documents × ged_document_kits", "—",
+            ["Kit", "Colaborador", "Documento", "Tipo", "Assinado", "Gerado em"], "0.8fr 1.8fr 2fr 1fr 0.8fr 0.9fr",
+            "SELECT to_char(k.reference_month,'MM/YYYY'), coalesce(e.nome, d.employee_id::text, '—'), coalesce(d.document_name,'—'), coalesce(d.document_type,'—'), coalesce(d.is_signed,false), d.created_at "
+            "FROM ged_kit_documents d LEFT JOIN ged_document_kits k ON k.id=d.kit_id LEFT JOIN employees e ON e.id=d.employee_id ORDER BY d.created_at DESC LIMIT 300",
+            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(r[1][:36]), t(r[2][:50]), b(r[3].replace("_", " ").capitalize(), "info"), b("Sim" if r[4] else "Não", "ok" if r[4] else "mut"), t(_fd(r[5]))])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("kit-documentos: %s", exc)
+    _consulta("gedeon-panorama", "GEDEON — panorama dos kits", "Kits por condomínio, pendências e intercorrências da competência (AAAA-MM; vazio = mês anterior).",
+              "/api/v1/gedeon/consultor/panorama", [{"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"}])
+    _consulta("gedeon-alinhamento-dp", "GEDEON — alinhamento DP", "Folha do kit × espelho Sólides + afastamentos de um condomínio. Lê o Drive quando você clica.",
+              "/api/v1/gedeon/kits/dp/alinhamento", [{"key": "condominio", "label": "Condomínio (nome da pasta)*", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
+    _consulta("gedeon-funcionarios", "GEDEON — funcionários da folha do condomínio", "Lista quem está na folha do kit (para a visão por funcionário). Lê o Drive quando você clica.",
+              "/api/v1/gedeon/kits/funcionarios", [{"key": "condominio", "label": "Condomínio*", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
+    _consulta("gedeon-funcionario", "GEDEON — visão por funcionário", "Todos os documentos de uma pessoa no kit. Lê o Drive quando você clica.",
+              "/api/v1/gedeon/kits/funcionario", [{"key": "funcionario", "label": "Funcionário*", "type": "text", "span": "span 2"}, {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
+    _consulta("gedeon-assinaturas-pendentes", "GEDEON — quem não assinou VT/VR (Sólides)", "Pendências de assinatura dos recibos de VT/VR. Lê o Drive quando você clica.",
+              "/api/v1/gedeon/kits/assinaturas", [{"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
+
+
+async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
+    """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
+    import logging as _lg
+    from datetime import date as _dt
+    from sqlalchemy import text as _T
+    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
+    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    _log = _lg.getLogger(__name__)
+    _, _safe, tbl = _helpers(db)
+    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
+    hoje = _dt.today()
+
+    def _fd(v, fmt="%d/%m/%Y"):
+        try:
+            return v.strftime(fmt) if v else "—"
+        except Exception:  # noqa: BLE001
+            return str(v or "—")
+
+    async def _n(sql):
+        try:
+            return (await db.execute(_T(sql))).scalar() or 0
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return 0
+
+    async def _emps():
+        try:
+            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+        except Exception:  # noqa: BLE001
+            await db.rollback(); return []
+
+    def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
+        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
+                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
+                    "fields": fields}
+
+    try:  # GET /ged/coleta-automatica/history — por SQL
+        out["ged-coleta-historico"] = await tbl(
+            "GED — histórico da coleta automática", f"{await _n('SELECT count(*) FROM ged_coleta_logs')} execuções · fonte: ged_coleta_logs", "—",
+            ["Quando", "Tipo", "Status", "Disparo", "Duração", "Novos", "Onvio", "Kits", "Certidões", "Erros"], "1fr 0.7fr 0.7fr 0.8fr 0.6fr 0.5fr 0.5fr 0.5fr 0.6fr 1fr",
+            "SELECT run_at, coalesce(run_type,'—'), coalesce(status,'—'), coalesce(triggered_by,'—'), duration_ms, coalesce(sync_novos,0), coalesce(onvio_matched,0), coalesce(kits_assembled,0), coalesce(certidoes_atualizadas,0), coalesce(erros::text,'') "
+            "FROM ged_coleta_logs ORDER BY run_at DESC LIMIT 100",
+            lambda r: [t(_fd(r[0], "%d/%m/%Y %H:%M")), t(r[1]), b(r[2].capitalize(), "ok" if r[2] in ("ok", "success", "sucesso") else "bad" if r[2] in ("erro", "error", "failed") else "info"), t(r[3]),
+                       t(f"{(r[4] or 0) // 1000}s"), t(str(r[5])), t(str(r[6])), t(str(r[7])), t(str(r[8])), t((r[9] or "")[:40] or "—")])
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); _log.warning("ged-coleta-historico: %s", exc)
+    out["ged-coleta-executar"] = {  # POST /ged/coleta-automatica/run
+        "title": "GED — executar coleta agora", "sub": "Dispara a coleta (Onvio → kits → certidões) fora do cron. Roda no Celery; acompanhe no histórico.",
+        "cta": "Executar", "type": "form", "submit": {"endpoint": "/api/v1/ged/coleta-automatica/run", "okMsg": "Coleta enfileirada — veja o histórico em alguns minutos.", "showResult": True},
+        "fields": [{"key": "mes_ref", "label": "Mês de referência (AAAA-MM, opcional)", "type": "text", "span": "span 1"}, selecionar("force_resync", "Forçar ressincronização?", _SN, "span 1")]}
