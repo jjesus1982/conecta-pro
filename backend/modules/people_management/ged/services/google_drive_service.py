@@ -9,6 +9,7 @@ retornam graciosamente sem erro.
 
 import logging
 import os
+import re
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +67,56 @@ def _get_drive_service():
     except Exception as e:
         logger.warning("Erro ao inicializar Google Drive: %s", e)
         return None
+
+
+#: Onde moram os kits deste Drive: "GEDEON — Kits Documentais (Conecta Mais)". Não é palpite — é a pasta que
+#: já guarda os 24 condomínios e onde a Pyetra procura. Sem isso, cliente sem `google_drive_folder_id` ganhava
+#: uma pasta NOVA solta na raiz do Meu Drive a cada sincronização (medido em 09/09: duas do Michelangelo).
+RAIZ_KITS_DRIVE = os.environ.get("GDRIVE_KITS_ROOT_FOLDER_ID") or "1oigpHoCvFT-M2tm96FDvE0LvowciNLKJ"
+
+
+#: nome de arquivo com carimbo de hash do coletor ("cnd_receita_61e697a58521.pdf", "dctf_recibo_072026_52d6.pdf")
+_RE_NOME_DE_MAQUINA = re.compile(
+    r"(?:_[0-9a-f]{12}"  # carimbo de hash do coletor: cnd_receita_61e697a58521.pdf
+    r"|[_-]?\d{11,}"  # identificador cru, quase sempre o CNPJ: sefaz_am_66014833000110.pdf
+    r")\.[A-Za-z0-9]+$"
+)
+
+
+def _nome_no_drive(document_name: str | None, caminho: str) -> str:
+    """Nome que o CLIENTE vê na pasta.
+
+    09/09/2026 (1º kit REAL): os documentos vindos do coletor subiam com o nome interno do arquivo —
+    `dctf_declaracao_072026_b85caae8195f.pdf` na pasta que o síndico abre. Quando o nome do arquivo carrega o
+    hash do coletor, vale o `document_name` do kit ("DCTFWeb 07/2026"); nos demais, o nome do arquivo já é bom
+    (o gerador escreve "Contracheque_08.2026_FULANO.pdf") e não se mexe, senão cada sync renomeia tudo.
+    """
+    base = os.path.basename(caminho)
+    if not document_name or not _RE_NOME_DE_MAQUINA.search(base):
+        return base
+    ext = os.path.splitext(base)[1] or ".pdf"
+    limpo = re.sub(r"[\\/:*?\"<>|]", "-", document_name).strip()
+    if not limpo:
+        return base
+    return limpo if limpo.lower().endswith(ext.lower()) else f"{limpo}{ext}"
+
+
+def _caminho_real(file_path: str | None) -> str | None:
+    """Resolve o caminho do arquivo do kit, absoluto ou relativo a /app/uploads.
+
+    09/09/2026 (1º kit REAL, Michelangelo): 16 documentos legítimos ficaram fora do Drive porque o coletor
+    gravou caminho RELATIVO ("ged/kits/x.pdf") e a sincronização testava `os.path.exists` a partir do cwd.
+    O arquivo existia em /app/uploads/ged/kits/x.pdf o tempo todo — sumia calado, sem erro nenhum.
+    """
+    if not file_path or file_path.startswith("http"):
+        return None
+    if os.path.isabs(file_path):
+        return file_path if os.path.exists(file_path) else None
+    for base in ("/app/uploads", "/app"):
+        cand = os.path.join(base, file_path)
+        if os.path.exists(cand):
+            return cand
+    return None
 
 
 class GoogleDriveService:
@@ -206,7 +257,7 @@ class GoogleDriveService:
             client_folder = self._create_folder(
                 service,
                 name=client_name,
-                parent_id=parent_folder_id,
+                parent_id=parent_folder_id or RAIZ_KITS_DRIVE,
             )
             folder_ids["client"] = client_folder
 
@@ -219,7 +270,13 @@ class GoogleDriveService:
             folder_ids["month"] = month_folder
 
             # Criar subpastas
-            for subfolder_name in ["Funcionarios", "Certidoes", "Guias", "Beneficios", "Financeiro"]:  # 09/09: "Outros" virou "Financeiro" (NFS-e + boleto); "Beneficios" = VT/VR da empresa
+            for subfolder_name in [
+                "Funcionarios",
+                "Certidoes",
+                "Guias",
+                "Beneficios",
+                "Financeiro",
+            ]:  # 09/09: "Outros" virou "Financeiro" (NFS-e + boleto); "Beneficios" = VT/VR da empresa
                 subfolder_id = self._create_folder(
                     service,
                     name=subfolder_name,
@@ -253,6 +310,7 @@ class GoogleDriveService:
         kit_id: str,
         file_path: str,
         folder_id: str | None = None,
+        nome_no_drive: str | None = None,
     ) -> dict:
         """Faz upload de um arquivo para o Google Drive.
 
@@ -289,7 +347,7 @@ class GoogleDriveService:
             from googleapiclient.http import MediaFileUpload
 
             file_metadata = {
-                "name": os.path.basename(full_path),
+                "name": nome_no_drive or os.path.basename(full_path),
                 "description": f"Kit documental {kit_id}",
             }
             if folder_id:
@@ -397,7 +455,13 @@ class GoogleDriveService:
         def _nomes(fid: str) -> set[str]:
             if fid not in ja_na_pasta:
                 try:
-                    r = service.files().list(q=f"'{fid}' in parents and trashed=false", fields="files(id,name,md5Checksum)", pageSize=500).execute()
+                    r = (
+                        service.files()
+                        .list(
+                            q=f"'{fid}' in parents and trashed=false", fields="files(id,name,md5Checksum)", pageSize=500
+                        )
+                        .execute()
+                    )
                     ja_na_pasta[fid] = {f["name"] for f in r.get("files", [])}
                     ids_por_nome[fid] = {f["name"]: (f["id"], f.get("md5Checksum") or "") for f in r.get("files", [])}
                 except Exception:  # noqa: BLE001
@@ -408,14 +472,15 @@ class GoogleDriveService:
         def _md5(path: str) -> str:
             import hashlib
 
-            h = hashlib.md5()  # noqa: S324 — só comparação com o md5Checksum do Drive
+            h = hashlib.md5(usedforsecurity=False)  # noqa: S324 — só comparação com o md5Checksum do Drive
             with open(path, "rb") as fh:
                 for chunk in iter(lambda: fh.read(1 << 20), b""):
                     h.update(chunk)
             return h.hexdigest()
 
         for doc in documents:
-            if not doc.file_path or not os.path.exists(doc.file_path):
+            caminho = _caminho_real(doc.file_path)
+            if not caminho:
                 continue
 
             # Determinar pasta de destino
@@ -437,27 +502,41 @@ class GoogleDriveService:
                 or doc.document_type.startswith("cndt_")
             ):
                 target_folder = folder_ids.get("certidoes")
-            elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") \
-                    or doc.document_type.startswith("dctfweb"):
+            elif doc.document_type in (
+                "gfip_sefip",
+                "grf_fgts",
+                "gps_inss",
+                "das_simples_nacional",
+                "guia_issqn",
+                "dar_sefaz",
+            ) or doc.document_type.startswith("dctfweb"):
                 target_folder = folder_ids.get("guias")
-            elif doc.document_type in ("boleto_vt_sinetram", "relatorio_vt_sinetram", "relatorio_va_solides",
-                                       "comprovante_pagto_sinetram", "comprovante_pagto_solides"):
+            elif doc.document_type in (
+                "boleto_vt_sinetram",
+                "relatorio_vt_sinetram",
+                "relatorio_va_solides",
+                "comprovante_pagto_sinetram",
+                "comprovante_pagto_solides",
+            ):
                 target_folder = folder_ids.get("beneficios")
             else:
                 target_folder = folder_ids.get("financeiro")
 
-            if target_folder and os.path.basename(doc.file_path) in _nomes(target_folder):
-                fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(os.path.basename(doc.file_path), ("", ""))
+            nome_arquivo = _nome_no_drive(doc.document_name, caminho)
+            if target_folder and nome_arquivo in _nomes(target_folder):
+                fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(nome_arquivo, ("", ""))
                 # documento anexado à mão (comprovante oficial do banco) sobe uma vez e não é substituído depois
                 if str(getattr(doc, "source_module", "")) == "manual" and fid_drive:
                     uploaded += 1
                     continue
-                if fid_drive and md5_drive and md5_drive != _md5(doc.file_path):
+                if fid_drive and md5_drive and md5_drive != _md5(caminho):
                     # 09/09: mesmo nome, conteúdo novo (ex.: PDF assinado) → substitui no lugar, mesmo id/link
                     try:
                         from googleapiclient.http import MediaFileUpload
 
-                        service.files().update(fileId=fid_drive, media_body=MediaFileUpload(doc.file_path, resumable=True)).execute()
+                        service.files().update(
+                            fileId=fid_drive, media_body=MediaFileUpload(caminho, resumable=True)
+                        ).execute()
                         substituidos += 1
                     except Exception as exc:  # noqa: BLE001
                         errors_list.append({"document": doc.document_name, "error": f"substituição falhou: {exc}"})
@@ -465,12 +544,13 @@ class GoogleDriveService:
                 continue
             upload_result = await self.upload_to_drive(
                 kit_id=kit_id,
-                file_path=doc.file_path,
+                file_path=caminho,
                 folder_id=target_folder,
+                nome_no_drive=nome_arquivo,
             )
 
             if upload_result.get("file_id"):
-                _nomes(target_folder).add(os.path.basename(doc.file_path)) if target_folder else None
+                _nomes(target_folder).add(nome_arquivo) if target_folder else None
                 uploaded += 1
             else:
                 errors_list.append(
@@ -513,12 +593,15 @@ class GoogleDriveService:
             return {"configured": False}
         kit = (await self.db.execute(select(GedDocumentKit).where(GedDocumentKit.id == kit_id))).scalar_one_or_none()
         doc = (await self.db.execute(select(KitDocument).where(KitDocument.id == doc_id))).scalar_one_or_none()
-        if not kit or not doc or not doc.file_path or not os.path.exists(doc.file_path):
+        caminho = _caminho_real(doc.file_path) if doc else None
+        if not kit or not doc or not caminho:
             return {"configured": True, "enviado": False, "motivo": "kit/documento/arquivo ausente"}
         client = (await self.db.execute(select(GedClient).where(GedClient.id == kit.client_id))).scalar_one_or_none()
-        folders = await self.create_kit_folder(client_name=client.name if client else "cliente_desconhecido",
-                                               reference_month=kit.reference_month.strftime("%Y-%m"),
-                                               parent_folder_id=client.google_drive_folder_id if client else None)
+        folders = await self.create_kit_folder(
+            client_name=client.name if client else "cliente_desconhecido",
+            reference_month=kit.reference_month.strftime("%Y-%m"),
+            parent_folder_id=client.google_drive_folder_id if client else None,
+        )
         fids = folders.get("folder_ids", {})
         if not fids.get("month"):
             return {"configured": True, "enviado": False, "motivo": folders.get("message")}
@@ -527,33 +610,64 @@ class GoogleDriveService:
             alvo = self._create_folder(service, name=cat, parent_id=fids["funcionarios"])
         elif doc.document_type.startswith(("cnd_", "crf_", "cndt_")):
             alvo = fids.get("certidoes")
-        elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") or doc.document_type.startswith("dctfweb"):
+        elif doc.document_type in (
+            "gfip_sefip",
+            "grf_fgts",
+            "gps_inss",
+            "das_simples_nacional",
+            "guia_issqn",
+            "dar_sefaz",
+        ) or doc.document_type.startswith("dctfweb"):
             alvo = fids.get("guias")
-        elif doc.document_type in ("boleto_vt_sinetram", "relatorio_vt_sinetram", "relatorio_va_solides",
-                                   "comprovante_pagto_sinetram", "comprovante_pagto_solides"):
+        elif doc.document_type in (
+            "boleto_vt_sinetram",
+            "relatorio_vt_sinetram",
+            "relatorio_va_solides",
+            "comprovante_pagto_sinetram",
+            "comprovante_pagto_solides",
+        ):
             alvo = fids.get("beneficios")
         else:
             alvo = fids.get("financeiro")
-        nome_arq = os.path.basename(doc.file_path)
-        r = service.files().list(q=f"'{alvo}' in parents and name='{nome_arq}' and trashed=false", fields="files(id,md5Checksum)").execute()
+        nome_arq = _nome_no_drive(doc.document_name, caminho)
+        _q_nome = nome_arq.replace("\\", "\\\\").replace(
+            "'", "\\'"
+        )  # nome vem de texto livre: escapar para a query do Drive
+        r = (
+            service.files()
+            .list(q=f"'{alvo}' in parents and name='{_q_nome}' and trashed=false", fields="files(id,md5Checksum)")
+            .execute()
+        )
         from googleapiclient.http import MediaFileUpload
 
         existentes = r.get("files", [])
         if existentes:
             import hashlib
 
-            with open(doc.file_path, "rb") as _fh:
-                h = hashlib.md5(_fh.read()).hexdigest()  # noqa: S324 — só compara com o md5Checksum do Drive
+            with open(caminho, "rb") as _fh:
+                h = hashlib.md5(_fh.read(), usedforsecurity=False).hexdigest()  # noqa: S324 — comparação com o md5Checksum do Drive
             if existentes[0].get("md5Checksum") == h:
-                return {"configured": True, "enviado": False, "motivo": "já estava igual", "file_id": existentes[0]["id"]}
-            service.files().update(fileId=existentes[0]["id"], media_body=MediaFileUpload(doc.file_path, resumable=True)).execute()
+                return {
+                    "configured": True,
+                    "enviado": False,
+                    "motivo": "já estava igual",
+                    "file_id": existentes[0]["id"],
+                }
+            service.files().update(
+                fileId=existentes[0]["id"], media_body=MediaFileUpload(caminho, resumable=True)
+            ).execute()
             return {"configured": True, "enviado": True, "substituido": True, "file_id": existentes[0]["id"]}
-        up = self.upload_to_drive(kit_id=kit_id, file_path=doc.file_path, folder_id=alvo)
+        up = self.upload_to_drive(kit_id=kit_id, file_path=caminho, folder_id=alvo, nome_no_drive=nome_arq)
         up = await up
         if not kit.google_drive_link:
             kit.google_drive_link = f"https://drive.google.com/drive/folders/{fids['month']}"
             await self.db.flush()
-        return {"configured": True, "enviado": bool(up.get("file_id")), "file_id": up.get("file_id"), "motivo": up.get("message")}
+        return {
+            "configured": True,
+            "enviado": bool(up.get("file_id")),
+            "file_id": up.get("file_id"),
+            "motivo": up.get("message"),
+        }
 
     async def get_drive_link(self, file_id: str) -> dict:
         """Obtem link compartilhavel de um arquivo no Drive.

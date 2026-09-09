@@ -190,7 +190,7 @@ class KitBuilderService:
             logger.info("Kit criado para %s em %s (id=%s)", client.name, ref.strftime("%m/%Y"), kit.id)
 
         # Buscar funcionarios alocados
-        employee_ids = await self.get_employees_for_client(client_id)
+        employee_ids = await self.get_employees_for_client(client_id, reference_month=ref)
         kit.total_employees = len(employee_ids)
 
         collected = {
@@ -251,8 +251,9 @@ class KitBuilderService:
 
             _f = collected["preenchimento"].get("faltas") or []
             _p, _t = collected["preenchimento"].get("presentes", 0), collected["preenchimento"].get("total", 0)
-            kit.notes = (f"[{_dt.now():%d/%m %H:%M}] {_p}/{_t} vagas com arquivo. "
-                         + (("FALTAS:\n- " + "\n- ".join(_f[:40])) if _f else "Sem faltas."))
+            kit.notes = f"[{_dt.now():%d/%m %H:%M}] {_p}/{_t} vagas com arquivo. " + (
+                ("FALTAS:\n- " + "\n- ".join(_f[:40])) if _f else "Sem faltas."
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("preencher_vagas falhou no kit %s: %s", kit.id, exc)
             collected["errors"].append(f"preenchimento: {exc}")
@@ -367,7 +368,14 @@ class KitBuilderService:
                 )
             )
             existing_doc = existing_result.scalar_one_or_none()
-            if existing_doc is not None and existing_doc.file_path is not None:
+            # 09/09: não basta ter file_path. O kit do Michelangelo trazia um .html de um gerador antigo e o
+            # guard "tem caminho → pula" impedia o espelho em PDF de nascer. Só pula se o PDF existir mesmo.
+            if (
+                existing_doc is not None
+                and existing_doc.file_path
+                and existing_doc.file_path.lower().endswith(".pdf")
+                and Path(existing_doc.file_path).exists()
+            ):
                 continue
 
             # Gerar folha de ponto a partir das batidas reais (§102 D3.1.1)
@@ -587,7 +595,9 @@ class KitBuilderService:
                 mime_type="application/pdf",
                 source_module=SourceModule.FISCAL,
                 auto_generated=True,
-                is_signed=True,  # Certidoes ja vem assinadas pelo orgao emissor
+                # 09/09: `is_signed` só quando HÁ arquivo. A certidão vem assinada pelo órgão, mas marcar o
+                # slot vazio como assinado inflava o kit — 111 documentos "assinados" sem um PDF atrás.
+                is_signed=bool(file_path),
             )
             self.db.add(doc)
             collected += 1
@@ -839,7 +849,7 @@ class KitBuilderService:
             )
         return count
 
-    async def get_employees_for_client(self, client_id: str) -> list[str]:
+    async def get_employees_for_client(self, client_id: str, reference_month: date | None = None) -> list[str]:
         """Busca IDs dos funcionarios alocados nos postos de um cliente GED.
 
         Estratégia em dois passos:
@@ -895,11 +905,15 @@ class KitBuilderService:
                 # (CONECTAMAIS ELETRONICA LTDA) não contém o nome do condomínio (CONECTA VILLAGE)
                 from modules.people_management.ged.services.kit_preenchimento_service import _crm_client_id
 
-                ged_client = (await self.db.execute(select(GedClient).where(GedClient.id == client_id))).scalar_one_or_none()
+                ged_client = (
+                    await self.db.execute(select(GedClient).where(GedClient.id == client_id))
+                ).scalar_one_or_none()
                 crm_id = await _crm_client_id(self.db, ged_client) if ged_client else None
                 if crm_id:
                     r = await self.db.execute(
-                        text("SELECT id::text FROM posts WHERE client_id = CAST(:c AS uuid) AND status = 'active' AND is_active = true"),
+                        text(
+                            "SELECT id::text FROM posts WHERE client_id = CAST(:c AS uuid) AND status = 'active' AND is_active = true"
+                        ),
                         {"c": crm_id},
                     )
                     post_ids = [row[0] for row in r.all()]
@@ -949,13 +963,25 @@ class KitBuilderService:
             # ── Buscar funcionários alocados ─────────────────────────────────
             alloc_result = await self.db.execute(
                 text("""
-                    SELECT DISTINCT employee_id::text
-                    FROM allocations
-                    WHERE post_id = ANY(:post_ids)
-                      AND status = 'active'
-                      AND is_active = true
+                    SELECT DISTINCT a.employee_id::text
+                    FROM allocations a
+                    JOIN employees e ON e.id = a.employee_id
+                    WHERE a.post_id = ANY(:post_ids)
+                      AND a.status = 'active'
+                      AND a.is_active = true
+                      -- 09/09/2026 (achado no 1º kit REAL, Michelangelo): quem foi DEMITIDO antes da competência
+                      -- não entra. A alocação continua 'active' depois do desligamento e o kit de agosto trouxe
+                      -- um artífice demitido em 22/07 — 4 vagas vazias que nunca teriam documento.
+                      -- CAST em TODA aparição de :ref — `:ref IS NULL` sozinho é parâmetro sem tipo e o
+                      -- asyncpg recusa (AmbiguousParameterError), abortando a transação inteira em silêncio.
+                      AND (e.data_demissao IS NULL OR CAST(:ref AS date) IS NULL
+                           OR e.data_demissao >= CAST(:ref AS date))
+                      -- e quem foi admitido DEPOIS do fim da competência também não
+                      AND (e.data_admissao IS NULL OR CAST(:ref AS date) IS NULL
+                           OR e.data_admissao < (CAST(:ref AS date) + INTERVAL '1 month'))
                 """),
-                {"post_ids": post_ids},
+                # date, nunca string: com o CAST o asyncpg passa a exigir o tipo real (§103)
+                {"post_ids": post_ids, "ref": reference_month},
             )
             employee_ids = [row[0] for row in alloc_result.all()]
 
@@ -968,5 +994,8 @@ class KitBuilderService:
             return employee_ids
 
         except Exception as e:
+            # NÃO devolver [] aqui: se a falha foi no banco, a transação fica abortada e o kit
+            # continua montando "sem funcionários" até estourar num SELECT inocente lá na frente
+            # (medido em 09/09 no kit do Michelangelo). Quem chama em lote já trata por cliente.
             logger.error("Erro ao buscar funcionarios do cliente %s: %s", client_id, e)
-            return []
+            raise
