@@ -364,6 +364,10 @@ _ICO_CHAT = "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
 _ICO_CAL = "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
 
 EXTRA_MENU: list[dict] = [
+    # PRIMEIRA da lista de propósito: é a fila do que já foi vendido e ainda não está
+    # assinado. Sem entrada no menu a tela existe em `screens`, responde por HTTP e
+    # NINGUÉM chega nela — o defeito mais comum desta casa.
+    {"id": "contratos-a-emitir", "label": "Central de contratos", "icon": _ICO_DOC},
     {"id": "jose-luis-dashboard", "label": "José Luís — painel do agente", "icon": "M3 3v18h18"},
     {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC},
     # Ficha viva / negociação
@@ -468,6 +472,64 @@ def _proposta_actions(r):
          "btnStyle": "outline", "okMsg": "Proposta marcada como enviada. Recarregue a tela.",
          "fields": []},
     ]
+
+
+def _fila_actions(r):
+    """A ação que DESTRAVA a linha da central — uma só, a do estado atual.
+
+    Reusa os endpoints que já existem (`contrato-da-proposta`, `contrato-abrir-assinatura`,
+    `contrato-enviar-link`); a central não inventa caminho novo, só descobre em que ponto
+    cada negócio parou e oferece o botão certo ali.
+
+    Oportunidade ganha não ganha botão de propósito: sem proposta não há valor, itens nem
+    modalidade, e gerar contrato a partir do nada é exatamente o molde vazio que o render
+    recusa. O passo é humano, e a linha diz qual é.
+    """
+    tipo, ref = r[6], r[1]
+    if tipo == "proposta":
+        return [{"title": "Gerar o contrato desta proposta",
+                 "endpoint": "/api/v1/redesign/action/contrato-da-proposta",
+                 "method": "POST", "btnLabel": "Gerar contrato",
+                 "submitLabel": "Criar contrato", "btnStyle": "primary",
+                 "okMsg": "Contrato criado (rascunho). Recarregue para emitir o instrumento.",
+                 "fields": [{"key": "proposal_id", "type": "hidden", "value": ref}]}]
+    if tipo == "contrato":
+        situacao = r[4]
+        if situacao == "Instrumento pronto":
+            return [{"title": f"Abrir assinatura eletrônica de {ref}",
+                     "endpoint": "/api/v1/redesign/action/contrato-abrir-assinatura",
+                     "method": "POST", "btnLabel": "Abrir assinatura",
+                     "submitLabel": "Abrir assinatura", "btnStyle": "primary",
+                     "okMsg": "Assinatura aberta. A Conecta Mais assina primeiro.",
+                     "fields": [
+                         {"key": "contrato", "type": "hidden", "value": ref},
+                         {"key": "email_cliente", "label": "E-mail do cliente (se não cadastrado)",
+                          "type": "text", "span": "span 2", "value": "",
+                          "ph": "presidencia@cliente.com.br"}]}]
+        if situacao == "Assinado, fora de vigência":
+            # assinado por todos e ainda `draft`: o contrato existe, vale, e NÃO conta no
+            # MRR. É o estado mais fácil de esquecer, porque tudo parece pronto.
+            return [{"title": f"Ativar {ref} — coloca em vigência e no faturamento",
+                     "endpoint": "/api/v1/redesign/action/contract-activate",
+                     "method": "POST", "btnLabel": "Ativar", "submitLabel": "Confirmar ativação",
+                     "btnStyle": "primary", "okMsg": "Contrato ativado.",
+                     "fields": [{"key": "confirmar", "label": "Digite ATIVAR para confirmar",
+                                 "type": "text", "span": "span 2", "value": ""}]}]
+        if situacao == "Em assinatura":
+            return [{"title": f"Mandar o link de assinatura de {ref}",
+                     "endpoint": "/api/v1/redesign/action/contrato-enviar-link",
+                     "method": "POST", "btnLabel": "Enviar link",
+                     "submitLabel": "Enviar", "btnStyle": "outline",
+                     "okMsg": "Convite enviado.",
+                     "fields": [
+                         {"key": "contrato", "type": "hidden", "value": ref},
+                         {"key": "parte", "label": "Para quem", "type": "select", "span": "span 1",
+                          "value": "cliente",
+                          "options": [{"value": "cliente", "label": "Cliente (CONTRATANTE)"},
+                                      {"value": "empresa", "label": "Conecta Mais (CONTRATADA)"}]},
+                         {"key": "email", "label": "E-mail (vazio = o cadastrado)",
+                          "type": "text", "span": "span 2", "value": ""}]}]
+    return []
 
 
 def _contrato_actions(r):
@@ -711,17 +773,22 @@ async def build(db) -> dict:
         # A coluna Assinatura vem de sig_signature_requests — o banco dizendo quem firmou,
         # nunca inferência a partir do status do contrato.
         await safe("contratos", tbl("Contratos", f"{await _scalar(db, 'SELECT count(*) FROM contracts')} contratos · baixe o instrumento e acompanhe a assinatura", "Novo contrato",
-            ["Contrato", "Cliente", "Serviço", "Mensal", "Status", "Assinatura"],
-            "1.1fr 1.5fr 1fr 0.9fr 0.8fr 1.1fr",
+            # A coluna era "Mensal" e mostrava só `monthly_value`. `total_value` já vinha na
+            # consulta e era JOGADO FORA — então todo contrato de serviço único (fornecimento
+            # + instalação) aparecia como "R$ 0,00" numa lista que o dono usa para conferir
+            # quanto vale a carteira. Agora cada linha mostra o valor da SUA natureza e diz
+            # qual é: "/mês" para o recorrente, "único" para o de valor fechado.
+            ["Contrato", "Cliente", "Serviço", "Valor", "Status", "Assinatura"],
+            "1.1fr 1.5fr 1fr 1fr 0.8fr 1.1fr",
             "SELECT ct.id, coalesce(ct.contract_number,'—'), coalesce(cl.name, ct.name, '—'), "
             "coalesce(ct.monthly_value,0), coalesce(ct.total_value,0), ct.status::text, "
             "ct.template_id::text, "
             "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number), "
             "(SELECT count(*) FROM sig_signature_requests s WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL), "
-            "coalesce(ct.tipo_servico::text,'—') "
+            "coalesce(ct.tipo_servico::text,'—'), coalesce(ct.contract_type::text,'recurring') "
             "FROM contracts ct LEFT JOIN clients cl ON cl.id=ct.client_id ORDER BY ct.start_date DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[1], 600, "#0F1B3A"), t((r[2] or '—')[:32]), t((r[9] or '—').replace('_', ' ')),
-                       t(brl(r[3])),
+                       t(f"{brl(r[4])} único" if (r[10] or "") == "one_time" else f"{brl(r[3])}/mês"),
                        b("Ativo", "ok") if (r[5] or "").lower() in ("active", "ativo", "vigente") else b(r[5] or "—", "mut"),
                        (b("Não aberta", "mut") if not r[7]
                         else b(f"{r[8]}/{r[7]} assinada(s)", "ok" if r[8] and r[8] == r[7] else "warn"))],
@@ -730,6 +797,78 @@ async def build(db) -> dict:
                               else [doc("Resumo (sem modelo vinculado)",
                                         f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]),
             actionsfn=_contrato_actions))
+        # ── CENTRAL DE CONTRATOS: a fila do que foi FECHADO e ainda não virou instrumento
+        # assinado. Pedido do Jordan em 09/09/2026, nas palavras dele: "não posso ficar o
+        # tempo no terminal, tenho que fazer pelo sistema".
+        #
+        # O que existia eram telas soltas — gerar-da-proposta, abrir-assinatura,
+        # enviar-link — cada uma com um seletor. Funcionavam, mas exigiam que ele
+        # SOUBESSE em que etapa cada negócio parou. Aqui o sistema é que sabe: cada linha
+        # diz onde travou e oferece só a ação que destrava, na própria linha.
+        #
+        # Quatro estados, na ordem em que o dinheiro anda:
+        #   oportunidade ganha  → falta a proposta (não há o que gerar ainda)
+        #   proposta aceita     → gerar o contrato
+        #   contrato rascunho   → emitir o instrumento pelo modelo
+        #   instrumento pronto  → abrir assinatura / mandar o link
+        await safe("contratos-a-emitir", tbl(
+            "Central de contratos",
+            "O que já foi fechado e ainda não está assinado — e o passo que falta em cada um",
+            "", ["Origem", "Cliente", "Valor", "Situação", "Próximo passo"],
+            "0.9fr 1.6fr 1fr 1.1fr 1.6fr",
+            """
+            SELECT 'Oportunidade' AS origem, o.id::text AS ref,
+                   coalesce(o.company_name, o.title, '—') AS cliente,
+                   coalesce(o.value,0) AS valor, 'Ganha, sem proposta' AS situacao,
+                   'Monte a proposta comercial — o contrato nasce dela' AS passo,
+                   'oportunidade' AS tipo, '' AS extra
+              FROM opportunities o
+             WHERE o.stage::text = 'closed_won'
+               AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.opportunity_id = o.id)
+               AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.opportunity_id = o.id
+                                 AND p.status::text IN ('accepted','aceita','approved'))
+            UNION ALL
+            SELECT 'Proposta', p.id::text, coalesce(p.client_name,'—'),
+                   coalesce(p.total,0), 'Aceita pelo cliente',
+                   'Gerar o contrato a partir da proposta', 'proposta',
+                   coalesce(p.client_email,'')
+              FROM proposals p
+             WHERE p.status::text IN ('accepted','aceita','approved')
+               AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.proposal_id = p.id)
+            UNION ALL
+            SELECT 'Contrato', c.contract_number, coalesce(cl.name,c.name,'—'),
+                   CASE WHEN c.contract_type::text='one_time' THEN coalesce(c.total_value,0)
+                        ELSE coalesce(c.monthly_value,0) END,
+                   CASE WHEN c.template_id IS NULL THEN 'Rascunho, sem modelo'
+                        WHEN sr.abertas = 0 THEN 'Instrumento pronto'
+                        WHEN sr.assinadas < sr.abertas THEN 'Em assinatura'
+                        ELSE 'Assinado, fora de vigência' END,
+                   CASE WHEN c.template_id IS NULL THEN 'Escolha o modelo e emita o instrumento'
+                        WHEN sr.abertas = 0 THEN 'Abrir a assinatura eletrônica'
+                        WHEN sr.assinadas < sr.abertas
+                          THEN 'Faltam ' || (sr.abertas - sr.assinadas) || ' assinatura(s) — mande o link'
+                        ELSE 'Ativar o contrato — sem isso ele não entra no faturamento' END,
+                   'contrato', c.contract_type::text
+              FROM contracts c
+              LEFT JOIN clients cl ON cl.id = c.client_id
+              LEFT JOIN LATERAL (
+                    SELECT count(*) AS abertas,
+                           count(*) FILTER (WHERE s.signed_at IS NOT NULL) AS assinadas
+                      FROM sig_signature_requests s
+                     WHERE s.reference_code = c.contract_number) sr ON true
+             WHERE c.status::text = 'draft' OR (sr.abertas > 0 AND sr.assinadas < sr.abertas)
+             ORDER BY 1, 3
+            """,
+            lambda r: [
+                b(r[0], "info" if r[6] == "contrato" else "mut"),
+                t((r[2] or "—")[:34]),
+                t(brl(r[3]) + (" único" if r[7] == "one_time" else "")),
+                b(r[4], "ok" if r[4] == "Assinado"
+                        else ("warn" if r[4] in ("Em assinatura", "Instrumento pronto") else "mut")),
+                t(r[5]),
+            ],
+            actionsfn=_fila_actions))
+
         # CRIAR contrato (rascunho): tela-form + religa o botão da tabela.
         cli_opts = (await db.execute(text(
             "SELECT id, name FROM clients WHERE coalesce(ativo,true)=true ORDER BY name LIMIT 500"))).fetchall()

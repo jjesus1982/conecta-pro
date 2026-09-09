@@ -186,8 +186,17 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
     feitos: list[str] = []
 
     if dados.get("template_id"):
-        await db.execute(text("UPDATE contracts SET template_id=CAST(:t AS uuid), updated_at=now() "
-                              "WHERE id::text=:c"), {"t": dados["template_id"], "c": r["cid"]})
+        # o `tipo_servico` do contrato herda o do MODELO quando está vazio. Escolher o
+        # modelo já é declarar a natureza do serviço, e sem isto quem resolve a contratada
+        # é só o modelo (funciona, mas a lista de contratos mostra "Serviço —" e um contrato
+        # sem modelo depois vira ambiguidade que o render RECUSA). `coalesce` para nunca
+        # sobrescrever uma declaração que alguém já fez à mão.
+        await db.execute(text(
+            "UPDATE contracts c SET template_id = CAST(:t AS uuid), "
+            "  tipo_servico = coalesce(nullif(c.tipo_servico::text,''), t.service_type), "
+            "  updated_at = now() "
+            "FROM contract_templates t WHERE t.id = CAST(:t AS uuid) AND c.id::text = :c"),
+            {"t": dados["template_id"], "c": r["cid"]})
         feitos.append("modelo vinculado ao contrato")
 
     if dados.get("representante"):

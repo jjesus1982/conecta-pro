@@ -152,6 +152,63 @@ def _html(titulo: str, corpo: str, rodape: str = "") -> str:
         "</div></div>")
 
 
+async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
+    """O QUE está sendo assinado, em quatro linhas, lido do contrato.
+
+    Pedido do Jordan (09/09/2026): o convite era um aviso seco — "há um documento para
+    assinar". Quem recebe é um síndico ou uma presidente de associação que falou com a
+    Conecta há semanas; abrir um e-mail que não diz o objeto nem o valor faz a pessoa
+    hesitar antes de clicar, e hesitar num link é o comportamento certo dela.
+
+    ⚠️ Nada é inventado: cada linha só aparece se o banco tiver o dado. Um resumo com
+    "valor a combinar" num convite de assinatura seria pior que resumo nenhum.
+    """
+    r = (await db.execute(text(
+        "SELECT coalesce(cl.name, c.name) AS cliente, c.description, "
+        "       c.contract_type::text AS tipo, c.monthly_value, c.total_value, "
+        "       c.tipo_servico::text AS tipo_servico, t.service_type "
+        "FROM contracts c "
+        "LEFT JOIN clients cl ON cl.id = c.client_id "
+        "LEFT JOIN contract_templates t ON t.id = c.template_id "
+        "WHERE c.contract_number = :k OR c.id::text = :k"), {"k": contract_id})).mappings().first()
+    if not r:
+        return ""
+
+    def _brl(v) -> str:
+        return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+    linhas = []
+    if r["description"]:
+        linhas.append(("Objeto", str(r["description"]).strip()))
+    if (r["tipo"] or "") == "one_time":
+        if r["total_value"]:
+            linhas.append(("Valor", f"{_brl(r['total_value'])} — serviço único, "
+                                    "parcelado conforme a Cláusula 3ª"))
+    elif r["monthly_value"]:
+        linhas.append(("Valor", f"{_brl(r['monthly_value'])} por mês"))
+    # A CONTRATADA vem da MESMA regra que o instrumento usa (`resolver_contratada`), nunca
+    # de `contracts.empresa_id` nem de `empresas.razao_social`. Dois motivos, os dois já
+    # medidos nesta casa: o `empresa_id` gravado já contradisse a regra (CTR-2026-00019 em
+    # 19/08), e a Receita registra "CONECTAMAIS" tudo junto enquanto o contrato assina
+    # "Conecta Mais". Carta que anuncia uma empresa e contrato que diz outra é o pior
+    # defeito possível num convite de assinatura.
+    try:
+        from modules.crm.services.contract_render import resolver_contratada  # noqa: PLC0415
+        ctda = resolver_contratada(r["tipo_servico"], r["service_type"])
+        linhas.append(("Contratada", f"{ctda.razao_social} · CNPJ {ctda.cnpj}"))
+    except Exception:  # noqa: BLE001 — sem tipo declarado a regra RECUSA; a carta segue sem a linha
+        pass
+
+    if not linhas:
+        return ""
+    itens = "".join(
+        f'<tr><td style="padding:4px 10px 4px 0;color:#6B7280;vertical-align:top;'
+        f'white-space:nowrap">{k}</td><td style="padding:4px 0">{v}</td></tr>'
+        for k, v in linhas)
+    return ('<table style="margin:16px 0;border-left:3px solid #F26522;padding-left:14px;'
+            f'font-size:14px">{itens}</table>')
+
+
 async def convidar_para_assinar(db: AsyncSession, contract_id: str, *, para: str,
                                 link: str, nome: str = "", papel: str = "") -> bool:
     """Avisa um signatário de que há documento esperando a assinatura dele.
@@ -163,12 +220,15 @@ async def convidar_para_assinar(db: AsyncSession, contract_id: str, *, para: str
 
     quem = f"<p>Olá, {nome}.</p>" if nome else ""
     posicao = f"<p>Você consta como <b>{papel}</b> neste instrumento.</p>" if papel else ""
+    carta = await _carta_de_apresentacao(db, contract_id)
     return await send_email(
-        para, f"Documento para assinar — contrato {contract_id}",
-        _html("Você tem um documento para assinar",
+        para, f"Contrato {contract_id} — pronto para sua assinatura",
+        _html("Seu contrato está pronto para assinatura",
               quem
-              + f"<p>O contrato <b>{contract_id}</b> está pronto para sua assinatura "
-                "eletrônica.</p>" + posicao
+              + "<p>Agradecemos a confiança na Conecta Mais. Segue o contrato que "
+                "formaliza o que combinamos, pronto para sua assinatura eletrônica.</p>"
+              + carta
+              + f"<p>O instrumento é o de número <b>{contract_id}</b>.</p>" + posicao
               + '<p style="margin:22px 0"><a href="' + link + '" '
                 'style="background:#F26522;color:#fff;text-decoration:none;padding:14px 26px;'
                 'border-radius:8px;font-weight:bold;display:inline-block">'
