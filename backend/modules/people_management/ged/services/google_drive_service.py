@@ -448,6 +448,10 @@ class GoogleDriveService:
 
             if target_folder and os.path.basename(doc.file_path) in _nomes(target_folder):
                 fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(os.path.basename(doc.file_path), ("", ""))
+                # documento anexado à mão (comprovante oficial do banco) sobe uma vez e não é substituído depois
+                if str(getattr(doc, "source_module", "")) == "manual" and fid_drive:
+                    uploaded += 1
+                    continue
                 if fid_drive and md5_drive and md5_drive != _md5(doc.file_path):
                     # 09/09: mesmo nome, conteúdo novo (ex.: PDF assinado) → substitui no lugar, mesmo id/link
                     try:

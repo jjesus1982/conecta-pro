@@ -5,9 +5,9 @@ Ver o comentário em `_visao()` para os números que motivaram.
 """
 
 import asyncio
+import logging
 from datetime import date, datetime
 
-import logging
 from modules.operacional.controllers.redesign_data_controller import (
     IC,
     S,
@@ -70,6 +70,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-preparar", "label": "Preparar entrega de kit", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-marcar", "label": "Marcar kit como entregue", "icon": "M3 3v18h18"},
+    {"id": "kit-anexar-comprovante", "label": "Anexar comprovante do banco", "icon": "M3 3v18h18"},
     {"id": "assinaturas-empresa-lote", "label": "Assinar em lote (empresa)", "icon": "M3 3v18h18"},
     {"id": "kit-faturar", "label": "Faturar kit (boleto)", "icon": "M3 3v18h18"},
     {"id": "kit-checklist-evento", "label": "Registrar evento no checklist do kit", "icon": "M3 3v18h18"},
@@ -770,7 +771,12 @@ async def build(db) -> dict:
 async def _ligar_kits_20260908(db, out: dict) -> None:
     """LIGAR 08/09/2026: rotas do orquestrador de kits que só existiam por API/MCP."""
     from modules.gedeon.controllers import orquestrador_controller as O
-    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+    from modules.operacional.controllers.redesign_builders._ligar_generico import (
+        chamar,
+        painel_de_dict,
+        selecionar,
+        tabela_de_lista,
+    )
     comp = O._competencia_anterior()
     try:
         conds = await chamar(O.condominios_elegiveis_endpoint, db)
@@ -838,6 +844,39 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
                                                      cols=["condominio", "competencia", "entregue_em", "canal", "para", "no_drive"])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); logger.warning("kits entrega status: %s", exc)
+    # 09/09/2026 (decisão do Jordan, opção 2): o comprovante de pagamento do kit REAL é o PDF oficial do banco,
+    # baixado do internet banking e anexado aqui — a API da Cora não devolve comprovante (6 caminhos, todos 404) e
+    # o do Villa Dei Fiori é o PDF do Cora com autenticação própria. Documento anexado fica intocável: a montagem
+    # automática não regera por cima nem o Drive substitui.
+    try:
+        from sqlalchemy import text as _t
+
+        _k = (await db.execute(_t(
+            "SELECT k.id::text, g.name, to_char(k.reference_month,'MM/YYYY') FROM ged_document_kits k "
+            "JOIN ged_clients g ON g.id = k.client_id ORDER BY k.reference_month DESC NULLS LAST, g.name LIMIT 60"))).fetchall()
+        _e = (await db.execute(_t(
+            "SELECT id::text, nome FROM employees WHERE coalesce(status,'ativo') = 'ativo' ORDER BY nome LIMIT 400"))).fetchall()
+        out["kit-anexar-comprovante"] = {
+            "title": "Anexar comprovante do banco ao kit",
+            "sub": "Baixe o comprovante no internet banking (Cora/Inter) e suba aqui. Ele entra na pasta do kit no lugar do "
+                   "gerado pelo sistema e fica protegido: a montagem automática não sobrescreve documento anexado à mão.",
+            "cta": "Anexar", "type": "form",
+            "submit": {"endpoint": "/api/v1/people-management/ged/documents", "multipart": True,
+                       "okMsg": "Comprovante anexado ao kit. Recarregue.", "showResult": True},
+            "fields": [
+                selecionar("kit_id", "Kit*", [{"value": r[0], "label": f"{r[1]} — {r[2]}"} for r in _k], "span 2"),
+                selecionar("employee_id", "Colaborador*", [{"value": r[0], "label": r[1]} for r in _e], "span 2"),
+                selecionar("document_type", "Tipo*", [{"value": v, "label": l} for v, l in (
+                    ("comprovante_pagamento", "Comprovante de pagamento (salário/adiantamento)"),
+                    ("comprovante_vt", "Comprovante de VT"),
+                    ("comprovante_vr", "Comprovante de VR"))], "span 1"),
+                {"key": "document_name", "label": "Nome do documento", "type": "text", "span": "span 1",
+                 "ph": "Comprovante de Pagamento de Salário — Fulano"},
+                {"key": "notes", "label": "Observação", "type": "text", "span": "span 2", "value": "comprovante oficial do banco (anexado à mão)"},
+                {"key": "file", "label": "PDF do comprovante*", "type": "file", "span": "span 2"}]}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback(); logger.warning("kit-anexar-comprovante: %s", exc)
+
     out["kit-entrega-preparar"] = {
         "title": "Preparar entrega de kit", "sub": "Monta o pacote de entrega (ZIP/links) do kit do condomínio. Não envia nada.",
         "cta": "Preparar", "type": "form",
@@ -876,9 +915,16 @@ def _lista(res) -> bool:
 async def _ligar_lote3_20260908(db, out: dict) -> None:
     """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
     import logging as _lg
+
     from sqlalchemy import text as _T
-    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
-    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+
+    from modules.operacional.controllers.redesign_builders._ligar_generico import (
+        chamar,
+        painel_de_dict,
+        selecionar,
+        tabela_de_lista,
+    )
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
@@ -951,9 +997,16 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
     Regra da casa: a página nunca chama Drive/robô/governo — leituras do Drive viram formulários GET que o usuário dispara."""
     import logging as _lg
     from datetime import date as _dt
+
     from sqlalchemy import text as _T
-    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
-    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+
+    from modules.operacional.controllers.redesign_builders._ligar_generico import (
+        chamar,
+        painel_de_dict,
+        selecionar,
+        tabela_de_lista,
+    )
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
@@ -1002,9 +1055,16 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
     """LIGAR lote 5 (08/09/2026): rotas do people-management/users/SST que só existiam por API. Blocos independentes."""
     import logging as _lg
     from datetime import date as _dt
+
     from sqlalchemy import text as _T
-    from modules.operacional.controllers.redesign_data_controller import _helpers, t, b, brl
-    from modules.operacional.controllers.redesign_builders._ligar_generico import chamar, painel_de_dict, selecionar, tabela_de_lista
+
+    from modules.operacional.controllers.redesign_builders._ligar_generico import (
+        chamar,
+        painel_de_dict,
+        selecionar,
+        tabela_de_lista,
+    )
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
