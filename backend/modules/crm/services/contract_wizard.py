@@ -331,9 +331,19 @@ CATALOGO = {
     "piscina": {"rotulo": "Piscina", "cargos": ["PISCINEIRO"], "modelo_service_type": "piscina"},
     "zeladoria": {"rotulo": "Zeladoria", "cargos": ["ZELADOR RESIDENTE CONDOMINIOS"],
                   "modelo_service_type": "zeladoria"},
+    # A eletrônica tem DUAS naturezas comerciais, e até 09/09/2026 o catálogo só conhecia
+    # uma: todo negócio eletrônico caía no modelo de MANUTENÇÃO, que é mensal. Um
+    # fornecimento com instalação — controle de acesso, CFTV novo — não é mensalidade: é
+    # valor fechado, com entrada, parcelas e parcela retida até o Termo de Entrega.
+    # Emitir um pelo modelo do outro põe no instrumento uma cláusula de reajuste anual
+    # sobre um serviço que acaba em 60 dias.
     "eletronica": {
-        "rotulo": "Segurança eletrônica / CFTV (sem mão de obra fixa)",
+        "rotulo": "Segurança eletrônica — MANUTENÇÃO mensal (CFTV, cancelas, cerca)",
         "cargos": [], "modelo_service_type": "manutencao_cftv",
+    },
+    "eletronica_instalacao": {
+        "rotulo": "Segurança eletrônica — FORNECIMENTO e instalação (valor único)",
+        "cargos": [], "modelo_service_type": "eletronica_servico_unico",
     },
 }
 
@@ -455,6 +465,8 @@ EMPRESA_POR_TIPO = {
     "manutencao_cftv": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
     "portaria_remota": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
     "seguranca_eletronica": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
+    # fornecimento + instalação: eletrônica, como toda segurança eletrônica (09/09/2026)
+    "eletronica_servico_unico": "619a3df1-8bce-49ce-b77a-04f80a0e8491",
 }
 
 
