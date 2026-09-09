@@ -232,7 +232,7 @@ async def preencher_comprovantes_reais(db: AsyncSession, kit_id: str, ref: date,
                                                   "referente": f"adiantamento salarial de 40% da competência {ref:%m/%Y}", "forma_pagamento": "PIX",
                                                   "data": p["data"], "numero": f"AD-{ref:%Y%m}-{info.get('matricula') or ''}",
                                                   "empresa": B.empresa_branding("conecta_patrimonial")})
-                await registrar_comprovante(db, kit_id=kit_id, employee_id=e, document_type="recibo_adiantamento", nome_doc=f"Recibo adiantamento 40% {ref:%m/%Y}",
+                await registrar_comprovante(db, kit_id=kit_id, employee_id=e, document_type="recibo_adiantamento", nome_doc=f"Recibo de Adiantamento Salarial 40% {ref:%m/%Y}",
                                             pdf=rec, ref=ref, rotulo="adiantamento", nome_func=info.get("nome") or e, is_signed=False)
                 rel["recibos_adiantamento"] += 1
     return rel

@@ -806,23 +806,27 @@ def calcular_folha_colaborador(
     if not tem_espelho:
         # 09/09/2026 (Pyetra): R$ 17,00 quando há dependente no plano odontológico; R$ 8,50 sozinho.
         # `plano_odonto_dependentes` vem do relatório Servdonto (importador); sem o relatório, cai no valor base.
-        _odo_dep = 0
+        _odo_dep, _odo_ativo = 0, False
         try:
-            _odo_dep = int(db.execute(
-                text("SELECT coalesce(plano_odonto_dependentes, 0) FROM employees WHERE CAST(id AS TEXT) = :e"),
-                {"e": employee_id}).scalar() or 0)
+            _r = db.execute(
+                text("SELECT coalesce(plano_odonto_dependentes, 0), coalesce(plano_odonto_ativo, false) "
+                     "FROM employees WHERE CAST(id AS TEXT) = :e"),
+                {"e": employee_id}).first()
+            _odo_dep, _odo_ativo = (int(_r[0] or 0), bool(_r[1])) if _r else (0, False)
         except Exception:  # noqa: BLE001,S110 — coluna pode não existir em base antiga
-            _odo_dep = 0
-        _odo_valor = DESC_ODONTO_COM_DEPENDENTE if _odo_dep > 0 else DESC_ODONTO
-        descontos.append(
-            {
-                "codigo": "1020",
-                "descricao": "Plano Odontologico",
-                "tipo": "desconto",
-                "referencia": (f"titular + {_odo_dep} dependente(s)" if _odo_dep else "titular"),
-                "valor": float(_odo_valor),
-            }
-        )
+            _odo_dep, _odo_ativo = 0, False
+        # 09/09/2026: só desconta de quem ESTÁ no plano (relatório Servdonto). Antes descontávamos dos 53 CLT
+        # ativos e o plano tem 37 titulares — 16 pessoas levavam um desconto inexistente.
+        if _odo_ativo:
+            descontos.append(
+                {
+                    "codigo": "1020",
+                    "descricao": "Plano Odontologico",
+                    "tipo": "desconto",
+                    "referencia": (f"titular + {_odo_dep} dependente(s)" if _odo_dep else "titular"),
+                    "valor": float(DESC_ODONTO_COM_DEPENDENTE if _odo_dep > 0 else DESC_ODONTO),
+                }
+            )
 
     # Seguro de Vida REMOVIDO: valor não vinha de dado real e não consta na folha
     # oficial do Domínio. Só re-incluir quando houver apólice/valor confirmado pelo DP.

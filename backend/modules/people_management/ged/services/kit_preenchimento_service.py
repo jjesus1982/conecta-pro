@@ -347,7 +347,7 @@ async def _adiantamento_e_comprovantes(db, kit, docs, emp, homolog, rel) -> None
                                               "forma_pagamento": "PIX", "data": dia20, "numero": f"AD-{ano}{mes:02d}-{info.get('matricula') or ''}",
                                               "empresa": _empresa_branding("conecta_patrimonial")})
             db.add(KitDocument(kit_id=kid, employee_id=e, document_type=DocumentType.RECIBO_ADIANTAMENTO,
-                               document_name=f"Recibo adiantamento 40% {mes:02d}/{ano}", file_path=_gravar(kid, e, f"Recibo_Adiantamento_40_{mes:02d}.{ano}_{nome_s}.pdf", pdf),
+                               document_name=f"Recibo de Adiantamento Salarial 40% {mes:02d}/{ano}", file_path=_gravar(kid, e, f"Recibo_Adiantamento_Salarial_40pct_{mes:02d}.{ano}_{nome_s}.pdf", pdf),
                                file_size_bytes=len(pdf), mime_type="application/pdf", source_module=SourceModule.DP, auto_generated=True, is_signed=False,
                                notes="simulação de homologação"))
             rel["preenchidos"]["recibo_adiantamento"] = rel["preenchidos"].get("recibo_adiantamento", 0) + 1
