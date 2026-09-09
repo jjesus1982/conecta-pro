@@ -150,6 +150,9 @@ TRAVAS_BINARIAS = {
     # alcançável pelo redesign (grafo de imports a partir das raízes do redesign/apps vivos) a rota que não existe.
     # Foi assim que apareceram 14 rotas apagadas por veredito errado (portal do funcionário, sino).
     "checar_chamadas_sem_rota.py": ("host", "chamada do frontend alcançável pelo redesign a rota que o backend não tem", 900),
+    # `docker cp` copia, nunca apaga: handler apagado do repositório ficou no container e as duas travas acima mediram
+    # um fantasma (0 · 0) até o bake de 09/09 reconstruir a imagem e o 404 aparecer no layout raiz.
+    "checar_fantasmas_container.py": ("host", "arquivo .py no container que o repositório não tem (hot-copy não apaga)", 300),
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),
