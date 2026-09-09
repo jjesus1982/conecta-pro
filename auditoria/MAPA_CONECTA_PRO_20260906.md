@@ -1347,6 +1347,19 @@ SIMPLES (o individual calculava o nível, o lote não) → 21 revogadas e refeit
 do OTP (500). Estado final do kit 818ae2ac: 109 documentos, 107 assinados (NFS-e e boleto não têm signatário),
 24/24 co-assinados com PAdES da Patrimonial (`pdfsig`), 0 pendências na central, Drive com os assinados.
 
+**Fechamento 13h30 — kit refeito do zero com tudo (ordem do Jordan: "apaga tudo e cria um novo kit"):** apagados
+o kit `818ae2ac` (102 documentos, 96 pedidos, 60 assinaturas, 21 MB e a pasta do Drive) e montado o
+`f34e9cc5-75f3-4720-84b4-489f1d7a025e` — https://drive.google.com/drive/folders/1zzLG4iyh6hEBe3h3EHKu5gAToqvqrziE.
+Antes de montar, o cadastro dos 12 fictícios foi variado para EXERCITAR cada melhoria: insalubridade 10% (2 ASG +
+artífice), intrajornada (4 AGP fixos), plano odontológico (9 no plano, 2 com dependente → R$ 17,00), VT em duas
+modalidades (8 SINETRAM, 4 Sólides), salário-família (1 e 2 quotas) e consignado em 2 pessoas.
+Resultado: 102 documentos, 0 faltas; holerite com código de rubrica, matrícula, horas/mês, faixa IRRF e as linhas
+novas (insalubridade, salário-família, intrajornada, consignado, adiantamento 40%); recibo de VT/VR com códigos
+218/219, unitário × quantidade, período de uso e a MODALIDADE do crédito; folha de ponto de 26/07 a 25/08 com todos
+os dias; pastas Funcionarios (12), Certidoes (5), Guias (6 = 3 guias + 3 comprovantes), Beneficios (5) e Financeiro (2).
+Os 12 funcionários assinaram os 60 pedidos pelo portal (5 cada); 24 esperam o Jordan na central (espelho + recibo de
+adiantamento, os que levam o campo do diretor).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
