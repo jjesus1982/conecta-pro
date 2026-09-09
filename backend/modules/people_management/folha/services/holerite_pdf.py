@@ -70,6 +70,18 @@ def _norm(s: str) -> str:
     return " ".join(s.upper().split())
 
 
+def _faixa_irrf(base) -> str:
+    """Faixa da tabela do IRRF (a folha real imprime a faixa, não só a base)."""
+    try:
+        b = float(base or 0)
+    except (TypeError, ValueError):
+        return "—"
+    for teto, aliq in ((2259.20, "isento"), (2826.65, "7,5%"), (3751.05, "15%"), (4664.68, "22,5%")):
+        if b <= teto:
+            return aliq
+    return "27,5%"
+
+
 def _cbo(cargo: str, funcionario: dict | None = None) -> str:
     """Retorna o CBO formatado (XXXX-XX). Prioriza o valor do cadastro do funcionário,
     senão mapeia pelo cargo (folha oficial). Vazio → '—' (aguardando dado)."""
@@ -183,8 +195,16 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
         [
             _cell("CPF", st, bold=True),
             _cell(_fmt_cpf(funcionario.get("cpf")), st),
-            _cell("Matrícula / PIS", st, bold=True),
-            _cell(funcionario.get("pis", funcionario.get("matricula", "—")), st),
+            # 09/09/2026: a folha real traz matrícula e PIS SEPARADOS (a matrícula é a chave de conferência
+            # com a folha do contador); antes imprimíamos um campo só, quase sempre "—".
+            _cell("Matrícula", st, bold=True),
+            _cell(funcionario.get("matricula") or "—", st),
+        ],
+        [
+            _cell("PIS / PASEP", st, bold=True),
+            _cell(funcionario.get("pis") or "—", st),
+            _cell("Horas / mês", st, bold=True),
+            _cell(holerite.get("horas_mes") or funcionario.get("horas_mes") or "—", st),
         ],
         [
             _cell("Departamento", st, bold=True),
@@ -226,8 +246,12 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
                 ]
             )
         )
+        # 09/09/2026: coluna CÓD — a folha real (Domínio/Portte) identifica cada rubrica por código
+        # (8781 DIAS NORMAIS, 998 I.N.S.S., 48 VALE TRANSPORTE…). Sem ele o DP não casa nosso holerite
+        # com a folha oficial linha a linha.
         head = [
             [
+                _cell("Cód", st, bold=True, cor=colors.white),
                 tit_cell,
                 _cell("Referência", st, bold=True, cor=colors.white),
                 _cell("Valor (R$)", st, bold=True, right=True, cor=colors.white),
@@ -237,12 +261,13 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
         for it in itens:
             linhas.append(
                 [
+                    _cell(it.get("codigo", "") or "—", st),
                     _cell(it["descricao"], st),
                     _cell(it.get("referencia", "") or "—", st),
                     _cell(B.brl(it["valor"]).replace("R$ ", ""), st, right=True),
                 ]
             )
-        tb = Table(head + linhas, colWidths=[100 * mm, 45 * mm, 33 * mm])
+        tb = Table(head + linhas, colWidths=[12 * mm, 88 * mm, 45 * mm, 33 * mm])
         estilo = [
             ("BACKGROUND", (0, 0), (-1, 0), cor_header),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E1F2")),
@@ -305,19 +330,35 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
     b_fgts = holerite.get("base_fgts", holerite.get("base_inss", 0))
     v_fgts = holerite.get("fgts_empresa", 0)
     b_irrf = holerite.get("base_irrf", 0)
+    # 09/09/2026: a folha real fecha com "Salário Base · Sal. Contr. INSS · Base FGTS · FGTS do mês ·
+    # Base IRRF · Faixa IRRF · ND/NF". Faltavam salário base, faixa do IRRF e o nº de dependentes.
+    _sal_base = holerite.get("salario_base", 0)
+    _dep_irrf = holerite.get("dependentes_irrf", holerite.get("dependentes", 0)) or 0
+    _dep_sf = holerite.get("dependentes_salario_familia", holerite.get("filhos_menor14", 0)) or 0
+    _faixa = _faixa_irrf(b_irrf)
     bases = [
         [
-            _cell("Base INSS", st, bold=True, size=8),
+            _cell("Salário Base", st, bold=True, size=8),
+            _cell(B.brl(_sal_base), st, right=True, size=8),
+            _cell("Sal. Contr. INSS", st, bold=True, size=8),
             _cell(B.brl(b_inss), st, right=True, size=8),
             _cell("Base FGTS", st, bold=True, size=8),
             _cell(B.brl(b_fgts), st, right=True, size=8),
             _cell("FGTS 8% (depósito)", st, bold=True, size=8),
             _cell(B.brl(v_fgts), st, right=True, size=8),
+        ],
+        [
             _cell("Base IRRF", st, bold=True, size=8),
             _cell(B.brl(b_irrf), st, right=True, size=8),
-        ]
+            _cell("Faixa IRRF", st, bold=True, size=8),
+            _cell(_faixa, st, right=True, size=8),
+            _cell("Dependentes IRRF (ND)", st, bold=True, size=8),
+            _cell(str(int(_dep_irrf)), st, right=True, size=8),
+            _cell("Sal.-família (NF)", st, bold=True, size=8),
+            _cell(str(int(_dep_sf)), st, right=True, size=8),
+        ],
     ]
-    t_b = Table(bases, colWidths=[22 * mm, 21 * mm, 22 * mm, 21 * mm, 30 * mm, 21 * mm, 20 * mm, 21 * mm])
+    t_b = Table(bases, colWidths=[23 * mm, 20 * mm, 25 * mm, 20 * mm, 22 * mm, 20 * mm, 26 * mm, 22 * mm])
     t_b.setStyle(
         TableStyle(
             [

@@ -104,6 +104,9 @@ MESES_TAXA_NEGOCIAL = {1, 3, 5, 7, 9, 11}
 FGTS_PCT = Decimal("0.08")
 # Salário-família (benefício federal, NÃO incide INSS/IRRF/FGTS). Valores 2026.
 # ponytail: constantes anuais inline (como as tabelas INSS/IRRF em clt_calculator); trocar 1×/ano.
+#: Adiantamento salarial pago todo dia 20 (decisão do Jordan, vigente desde 08/2026). A folha real
+#: desconta 40% do salário base na rubrica 981; 0 desliga a regra.
+ADIANTAMENTO_PERCENTUAL = Decimal("0.40")
 SALARIO_FAMILIA_QUOTA = Decimal("67.54")   # cota por filho <14 anos
 SALARIO_FAMILIA_TETO = Decimal("1819.26")  # remuneração-teto p/ ter direito
 
@@ -854,6 +857,46 @@ def calcular_folha_colaborador(
     except Exception:  # noqa: BLE001,S110
         pass
 
+    # 1045 — ADIANTAMENTO SALARIAL (40%, pago dia 20). 09/09/2026: a folha real da Portte tem
+    # `981 DESC.ADIANT.SALARIAL` (R$ 668,00 = 40% de 1.670,00; R$ 697,01 = 40% de 1.742,52) e o nosso
+    # holerite não tinha a linha — o líquido saía ~40% MAIOR que o real. Fonte, nesta ordem:
+    #   1) pagamento real de adiantamento na competência (inter_payments/extrato, via kit_eventos)
+    #   2) 40% do salário base, quando a empresa adota o regime e não há pagamento casado
+    if not tem_espelho:
+        _adiant = Decimal("0")
+        _ref_adiant = ""
+        try:
+            _rows_ad = db.execute(
+                text(
+                    "SELECT valor, data_pagamento FROM inter_payments "
+                    "WHERE status IN ('executado','confirmado') AND payment_type = 'pix' "
+                    "AND date_part('month', data_pagamento) = :mes AND date_part('year', data_pagamento) = :ano "
+                    "AND date_part('day', data_pagamento) BETWEEN 14 AND 26 "
+                    "AND regexp_replace(coalesce(destinatario->>'cpf_cnpj', destinatario->>'chave', ''), '[^0-9]', '', 'g') = "
+                    "    regexp_replace(coalesce((SELECT cpf FROM employees WHERE CAST(id AS TEXT) = :e), ''), '[^0-9]', '', 'g') "
+                    "ORDER BY data_pagamento DESC LIMIT 1"
+                ),
+                {"e": employee_id, "mes": mes, "ano": ano},
+            ).first()
+            if _rows_ad and _rows_ad[0]:
+                _adiant = _d(_rows_ad[0])
+                _ref_adiant = f"pago em {_rows_ad[1]:%d/%m/%Y}"
+        except Exception:  # noqa: BLE001,S110
+            pass
+        if _adiant <= 0 and ADIANTAMENTO_PERCENTUAL > 0:
+            _adiant = _d(salario_base * ADIANTAMENTO_PERCENTUAL)
+            _ref_adiant = f"{int(ADIANTAMENTO_PERCENTUAL * 100)}% do salário base"
+        if _adiant > 0:
+            descontos.append(
+                {
+                    "codigo": "1045",
+                    "descricao": "Desc. Adiantamento Salarial",
+                    "tipo": "desconto",
+                    "referencia": _ref_adiant,
+                    "valor": float(_adiant),
+                }
+            )
+
     total_descontos = sum(Decimal(str(d["valor"])) for d in descontos)
     # Líquido NUNCA é negativo: descontos não podem exceder os proventos (o excedente vira
     # saldo devedor do funcionário, NÃO desconto abaixo de zero no holerite). Sem isto, um
@@ -868,6 +911,10 @@ def calcular_folha_colaborador(
         "employee_nome": nome,
         "cargo": cargo,
         "escala": escala,
+        # 09/09/2026: a folha real imprime "Horas Mês" (180,00 no 12x36; 220,00 na jornada 44h) — é o que
+        # o DP usa para conferir hora extra e adicional; o nosso holerite não tinha o campo.
+        "horas_mes": "180,00" if str(escala).strip() in ("12x36", "12X36") else "220,00",
+        "dependentes_irrf": int(dependentes or 0),
         "mes": mes,
         "ano": ano,
         "salario_base": float(salario_base),

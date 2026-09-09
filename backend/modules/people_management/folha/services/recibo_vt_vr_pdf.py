@@ -32,6 +32,18 @@ def _brl_num(v) -> str:
     return B.brl(v).replace("R$ ", "")
 
 
+def _periodo_uso(mes: int, ano: int) -> str:
+    """Janela de uso do crédito: dia 17 da competência ao dia 16 do mês seguinte (padrão do recibo real)."""
+    from datetime import date as _date
+
+    try:
+        ini = _date(int(ano), int(mes), 17)
+    except (TypeError, ValueError):
+        return "—"
+    fim = _date(ini.year + (1 if ini.month == 12 else 0), 1 if ini.month == 12 else ini.month + 1, 16)
+    return f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}"
+
+
 def montar_recibo_vt_vr_pdf(
     holerite: dict,
     funcionario: dict | None = None,
@@ -118,10 +130,13 @@ def montar_recibo_vt_vr_pdf(
     def _c(txt, right=False, bold=False):
         return _cell(txt, st, right=right, bold=bold)
 
+    # 09/09/2026: o recibo REAL usa os códigos da folha (218 VT, 219 VR) e separa valor unitário × quantidade.
     head = [
         [
+            _cell("Cód", st, bold=True, cor=colors.white),
             _cell("Benefício", st, bold=True, cor=colors.white),
-            _cell("Referência", st, bold=True, cor=colors.white),
+            _cell("Valor unit.", st, bold=True, right=True, cor=colors.white),
+            _cell("Qtd", st, bold=True, right=True, cor=colors.white),
             _cell("Concedido", st, bold=True, right=True, cor=colors.white),
             _cell("Co-part.", st, bold=True, right=True, cor=colors.white),
             _cell("Líquido", st, bold=True, right=True, cor=colors.white),
@@ -129,21 +144,25 @@ def montar_recibo_vt_vr_pdf(
     ]
     linhas = [
         [
+            _c("219"),
             _c("Vale-Refeição"),
-            _c(f"{dias_vr} dias × R$ {vr_dia:.2f}".replace(".", ",")),
+            _c(_brl_num(vr_dia), right=True),
+            _c(str(dias_vr), right=True),
             _c(_brl_num(vr_conc), right=True),
             _c(_brl_num(co_vr), right=True),
             _c(_brl_num(vr_liq), right=True, bold=True),
         ],
         [
+            _c("218"),
             _c("Vale-Transporte"),
-            _c(f"{dias_vt} dias × R$ {vt_dia:.2f}".replace(".", ",") if tem_vt else "crédito no cartão-transporte"),
+            _c(_brl_num(vt_dia), right=True),
+            _c(str(dias_vt) if tem_vt else "—", right=True),
             _c(_brl_num(vt_concedido) if tem_vt else "—", right=True),
             _c(_brl_num(co_vt), right=True),
             _c(_brl_num(vt_liq) if tem_vt else "—", right=True, bold=True),
         ],
     ]
-    t_ben = Table(head + linhas, colWidths=[38 * mm, 55 * mm, 29 * mm, 27 * mm, 29 * mm])
+    t_ben = Table(head + linhas, colWidths=[11 * mm, 38 * mm, 22 * mm, 12 * mm, 26 * mm, 24 * mm, 25 * mm])
     t_ben.setStyle(
         TableStyle(
             [
@@ -214,7 +233,10 @@ def montar_recibo_vt_vr_pdf(
     story.append(
         Paragraph(
             f"<b>DECLARAÇÃO.</b> Declaro que recebi da <b>{_empresa_doc['nome']}</b> (CNPJ {_empresa_doc['cnpj']}) "
-            f"os valores de vale-transporte e vale-refeição referentes à competência <b>{comp}</b>, na forma da "
+            f"os valores de vale-transporte e vale-refeição referentes à competência <b>{comp}</b>, "
+            # 09/09/2026: o recibo REAL informa o PERÍODO DE UTILIZAÇÃO do crédito ("para utilização no período
+            # de 17/03 a 16/04"). É o que prova a entrega antecipada exigida pela Lei 7.418/1985.
+            f"para utilização no período de <b>{_periodo_uso(_mes, _ano)}</b>, na forma da "
             f"Lei nº 7.418/1985 e da Convenção Coletiva de Trabalho da categoria, com a co-participação legal "
             f"descontada em folha, nada mais tendo a reclamar quanto a estes benefícios no período.",
             st["corpo"],
