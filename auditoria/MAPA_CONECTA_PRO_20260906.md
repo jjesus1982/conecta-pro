@@ -1284,6 +1284,16 @@ e o kit do banco troca o HTML por batida pelo espelho em PDF. Kit do Village rem
 ZIP da tela (documentos › kits › Baixar ZIP) vinha só com INDICE.txt (caminho absoluto duplicado) → 68 arquivos, 13 MB.
 O robô do Sólides fica como está (avisa que a conta está bloqueada) e sai do caminho crítico do kit.
 
+**Adendo 09h20 — o bake expôs um fantasma:** primeira varredura depois do bake de 00:54: `checar_chamadas_sem_rota`
+0 → 3 (push/subscribe, push/unsubscribe, preferences/me) e `checar_cobertura_rotas` 0 → 6 só-clássico. Causa:
+`docker cp` copia e nunca apaga — o handler `push/subscribe` apagado em 08/09 continuou no container, as travas
+(que enumeram rotas do container) mediram um fantasma, e o bake (imagem do repositório) fez o 404 aparecer no
+`PushNotificationProvider` do layout raiz. Feito: push/subscribe restaurado (é do redesign); unsubscribe/preferences
+eram chamados só por 2 arquivos que ninguém importa → arquivos apagados; os 5 `portal/my-*` restaurados ontem eram
+chamados só por um hook morto → hook e 3 controllers apagados (também DENTRO dos 8 containers); medidor conta
+`features/notifications/**` como redesign. Resultado: 0 · 0 · 1238 rotas (TSV T7). Trava nova
+`checar_fantasmas_container.py` (36ª). tsc do frontend: 29 erros, todos em páginas clássicas pré-existentes.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
