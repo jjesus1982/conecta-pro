@@ -13,7 +13,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from modules.crm.services import pdf_branding as B
+from modules.crm.services import pdf_branding as B  # noqa: N812 — mesmo apelido dos outros geradores
 
 _MESES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro",
           "Outubro", "Novembro", "Dezembro"]

@@ -9,13 +9,12 @@ retornam graciosamente sem erro.
 
 import logging
 import os
-from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.people_management.ged.models.client import GedClient
-from modules.people_management.ged.models.document_kit import GedDocumentKit, KitSendMethod
+from modules.people_management.ged.models.document_kit import GedDocumentKit
 from modules.people_management.ged.models.kit_document import KitDocument
 
 logger = logging.getLogger(__name__)

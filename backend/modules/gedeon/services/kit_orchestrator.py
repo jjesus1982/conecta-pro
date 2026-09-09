@@ -100,7 +100,8 @@ async def montar_kits_mensais(
 
     `blocos`: se informado, monta SÓ os blocos pedidos (montagem incremental — ex.: só
     "folha" assim que sai a folha, só "pagamentos" depois do pagamento). None = tudo.
-    Blocos válidos: folha, guias, pagamentos, vavt, cnds, nfse (ponto é host, no task)."""
+    Blocos válidos: folha, guias, pagamentos, vavt, rescisao, cnds, nfse, ponto (09/09: ponto vem do nosso
+    time_sheets, não mais do robô do Sólides)."""
     from core.database.session import get_sync_db
     from modules.gedeon.services.cnd_kit_service import arquivar_cnds
     from modules.gedeon.services.inter_boleto_service import arquivar_boletos
@@ -279,6 +280,12 @@ async def montar_kits_mensais(
     # ── CNDs REAIS (emitidas pelo Conecta PRO) replicadas em cada kit ──────────
     if quer("cnds"):
         etapa("cnds", lambda: arquivar_cnds(competencia, condominios, dry_run=dry_run))
+
+    # ── Ponto: espelho do NOSSO ponto (time_sheets) — 09/09: substitui o robô do Sólides (conta bloqueada) ──
+    if quer("ponto"):
+        from modules.gedeon.services.ponto_kit_service import arquivar_ponto_proprio
+
+        etapa("ponto", lambda: arquivar_ponto_proprio(competencia, condominios, dry_run=dry_run))
 
     # ── NFS-e: DANFSe das notas emitidas no mês ───────────────────────────────
     if quer("nfse"):

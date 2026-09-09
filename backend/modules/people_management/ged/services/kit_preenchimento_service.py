@@ -115,7 +115,9 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
             from modules.people_management.employee_portal.services.payslip_pdf_service import gerar_pdf_holerite
             pdf = await gerar_pdf_holerite(db, pid)
             d.file_path = _gravar(kit_id, str(d.employee_id), f"Contracheque_{mes:02d}.{ano}_{_safe(emp.get(str(d.employee_id), {}).get('nome') or str(d.employee_id))}.pdf", pdf)
-            d.file_size_bytes = len(pdf); d.mime_type = "application/pdf"; d.source_record_id = pid
+            d.file_size_bytes = len(pdf)
+            d.mime_type = "application/pdf"
+            d.source_record_id = pid
             conta("contracheque")
         except Exception as exc:  # noqa: BLE001
             rel["faltas"].append(f"contracheque {d.employee_id}: erro ao gerar PDF — {exc}")
@@ -125,7 +127,8 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
     recibos: dict[str, tuple[str, int]] = {}
     for d in docs:
         if d.document_type == DocumentType.COMPROVANTE_VA and not d.file_path and d.auto_generated:
-            await db.delete(d); rel["apagados"] += 1
+            await db.delete(d)
+            rel["apagados"] += 1
             continue
         if d.document_type not in (DocumentType.COMPROVANTE_VT, DocumentType.COMPROVANTE_VR) or d.file_path:
             continue
@@ -140,13 +143,15 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
                                            "WHERE a.employee_id = CAST(:e AS uuid) ORDER BY a.created_at DESC LIMIT 1"), {"e": e}).scalar()
                 if "error" in r:
                     rel["faltas"].append(f"VT/VR {emp.get(e, {}).get('nome', e)}: motor da folha — {r['error']}")
-                    recibos[e] = ("", 0); continue
+                    recibos[e] = ("", 0)
+                    continue
                 fd = {k: emp.get(e, {}).get(k) for k in ("cpf", "pis", "matricula")}
                 fd["posto"] = posto or "—"
                 pdf = montar_recibo_vt_vr_pdf(r, fd, vt_concedido=None)
                 recibos[e] = (_gravar(kit_id, e, f"Recibo_VT_VR_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf), len(pdf))
             except Exception as exc:  # noqa: BLE001
-                rel["faltas"].append(f"VT/VR {e}: erro ao gerar recibo — {exc}"); recibos[e] = ("", 0)
+                rel["faltas"].append(f"VT/VR {e}: erro ao gerar recibo — {exc}")
+                recibos[e] = ("", 0)
         fp, n = recibos[e]
         if fp:
             d.file_path, d.file_size_bytes, d.mime_type = fp, n, "application/pdf"
@@ -168,7 +173,8 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
         try:
             from modules.operacional.services.escala_pdf import montar_escala_pdf
             turnos = [{"data": r[0], "inicio": r[1], "fim": r[2], "folga": bool(r[3]), "noturno": bool(r[4]), "horas": r[5]} for r in rows]
-            fdad = dict(emp.get(e, {})); fdad.setdefault("nome", str(e))
+            fdad = dict(emp.get(e, {}))
+            fdad.setdefault("nome", str(e))
             pdf = montar_escala_pdf(fdad, rows[0][6], mes, ano, turnos)
             d.file_path = _gravar(kit_id, e, f"Escala_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf)
             d.file_size_bytes, d.mime_type = len(pdf), "application/pdf"
@@ -190,7 +196,8 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
         if not row or not Path(row[0]).exists():
             rel["faltas"].append(f"{d.document_name}: sem certidão VIGENTE da Patrimonial em ged_certidoes (robô de CND / renovar)")
             continue
-        d.file_path = row[0]; d.mime_type = "application/pdf"
+        d.file_path = row[0]
+        d.mime_type = "application/pdf"
         d.notes = f"validade {row[1]:%d/%m/%Y}" if row[1] else None
         conta("cnd")
 
@@ -278,9 +285,10 @@ def _boleto_simulado_pdf(cli, valor: float, venc: date, discr: str, pat) -> byte
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    from modules.crm.services import pdf_branding as B
+    from modules.crm.services import pdf_branding as B  # noqa: N812
 
-    st = B.styles(); p = st["corpo"]
+    st = B.styles()
+    p = st["corpo"]
     empresa = B.empresa_branding("conecta_patrimonial")
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, bottomMargin=16 * mm, leftMargin=16 * mm, rightMargin=16 * mm)

@@ -9,6 +9,7 @@ import calendar
 import logging
 import unicodedata
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -405,7 +406,25 @@ class KitBuilderService:
             ).fetchall()
 
             file_path = None
-            if batidas_rows:
+            mime = "text/html"
+            # 09/09: primeiro o ESPELHO calculado pelo motor do ponto (mesmo PDF do DP, com assinatura quando houver);
+            # o HTML por batida crua fica como último recurso
+            try:
+                from core.database.session import get_sync_db
+                from modules.gedeon.services.ponto_kit_service import espelho_pdf_do_mes
+
+                with get_sync_db() as _s:
+                    _pdf, _nome, _motivo = espelho_pdf_do_mes(_s, str(emp_id), mes_i, ano_i)
+                if _pdf:
+                    _dir = Path("/app/uploads/kits") / kit_id / str(emp_id)
+                    _dir.mkdir(parents=True, exist_ok=True)
+                    _safe = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in (_nome or str(emp_id)))[:40]
+                    _fp = _dir / f"Espelho_Ponto_{mes_ref}_{_safe}.pdf"
+                    _fp.write_bytes(_pdf)
+                    file_path, mime = str(_fp), "application/pdf"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("espelho do ponto %s %s: %s", emp_id, mes_ref, exc)
+            if batidas_rows and file_path is None:
                 try:
                     from modules.people_management.ponto.services.folha_pdf_service import (
                         PONTO_STORAGE,
@@ -443,7 +462,7 @@ class KitBuilderService:
                 # Slot existente com file_path=NULL — atualizar se temos arquivo gerado (§103)
                 if file_path is not None:
                     existing_doc.file_path = file_path
-                    existing_doc.mime_type = "text/html"
+                    existing_doc.mime_type = mime
                     collected += 1
             else:
                 doc = KitDocument(
@@ -452,7 +471,7 @@ class KitBuilderService:
                     document_type=DocumentType.FOLHA_PONTO,
                     document_name=f"Folha de Ponto {reference_month.strftime('%m/%Y')}",
                     file_path=file_path,
-                    mime_type="text/html",
+                    mime_type=mime,
                     source_module=SourceModule.DP,
                     auto_generated=True,
                     is_signed=False,

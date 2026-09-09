@@ -589,7 +589,7 @@ async def download_kit_zip(
             fp = d["file_path"] or ""
             if not fp:
                 continue
-            full = Path(f"/app/uploads/{fp}")
+            full = Path(fp) if fp.startswith("/") else Path(f"/app/uploads/{fp}")  # 09/09: kit preenchido grava caminho absoluto
             if full.exists():
                 base = (d["document_name"] or d["document_type"] or "doc").replace("/", "_").replace("\\", "_")
 
