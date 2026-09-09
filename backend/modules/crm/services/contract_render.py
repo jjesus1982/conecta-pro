@@ -128,7 +128,7 @@ def cnpj_fmt(v: str | None) -> str:
 _MAO_DE_OBRA = {"maodeobra", "mao_de_obra", "portaria_mao_de_obra", "portaria_presencial",
                 "limpeza", "servicos_gerais"}
 _ELETRONICA = {"manutencao_cftv", "portaria_remota", "seguranca_eletronica", "cftv",
-               "alarme", "controle_acesso"}
+               "alarme", "controle_acesso", "eletronica_servico_unico"}
 
 
 class RenderError(RuntimeError):
@@ -291,6 +291,9 @@ def num_par(n: int) -> str:
 # ── Contexto ─────────────────────────────────────────────────────────────────────────
 _SQL_CONTRATO = """
 SELECT c.id::text, c.contract_number, c.name, c.monthly_value, c.start_date, c.end_date,
+       c.contract_type::text AS contract_type,
+       c.total_value,
+       c.description,
        c.tipo_servico::text  AS tipo_servico,
        c.template_id::text   AS template_id,
        c.payment_day,
@@ -330,7 +333,8 @@ LIMIT 1
 """
 
 _SQL_ITENS = """
-SELECT i.service_name, i.description, i.quantity, i.unit_price, i.total_price
+SELECT i.service_name, i.description, i.quantity, i.unit_price, i.total_price,
+       i.service_type, i.notes
 FROM contract_items i JOIN contracts c ON c.id = i.contract_id
 WHERE (c.id::text = :k OR c.contract_number = :k) AND coalesce(i.is_active, true)
 ORDER BY i.created_at
@@ -426,6 +430,120 @@ def _composicao(itens: list) -> dict:
             "qtd_agentes_extenso": num_par(dia + noite) if (dia + noite) else ""}
 
 
+def _fem(n: int) -> str:
+    """"duas parcelas", não "dois parcelas".
+
+    `num_extenso` é masculino porque nasceu para contar meses e dias. Aqui o substantivo é
+    "parcela" — e o contrato saiu para conferência com "02 (dois) parcelas de R$ 7.720,00".
+    Só 1 e 2 flexionam em português; de três em diante o masculino serve.
+    """
+    return {1: "uma", 2: "duas"}.get(n) or num_extenso(n)
+
+
+def _venc(vencs: list[str]) -> str:
+    """"30 e 60 dias", não "30 dias e 60 dias" — a redação do contrato-base.
+
+    Quando todos os vencimentos terminam na mesma unidade, ela só aparece no último.
+    """
+    if len(vencs) > 1:
+        partes = [v.rsplit(" ", 1) for v in vencs]
+        unid = {p[-1].lower() for p in partes if len(p) == 2}
+        if len(unid) == 1 and all(len(p) == 2 for p in partes):
+            return ", ".join(p[0] for p in partes[:-1]) + f" e {vencs[-1]}" \
+                if len(vencs) > 2 else f"{partes[0][0]} e {vencs[-1]}"
+    return " e ".join(vencs)
+
+
+def _ctx_one_time(row, itens: list, template: dict) -> dict:
+    """Variáveis do contrato de valor ÚNICO (fornecimento + instalação), não recorrente.
+
+    Três fontes, nesta ordem de precedência — do mais específico para o mais geral:
+
+        contracts.sla_config    o que muda por contrato (proposta, prazo, foro)
+        template.variables      os defaults do MODELO (multa, garantia, cortesia)
+        o código                nada. Faltou, o render RECUSA em `variaveis_vazias`.
+
+    `sla_config` já é o saco de parâmetros por contrato nesta casa — é de lá que saem
+    `visita_numero` e `visitas_mes` do modelo de manutenção. Reusar evita uma coluna nova
+    e um `alembic upgrade heads` manual no meio de um bake.
+
+    O cronograma de pagamento vem de `contract_items`, classificado por `service_type`:
+    `entrada`, `parcela` e `retida`. Não é abuso da tabela: para um contrato de valor
+    único, a composição do preço É o cronograma — do mesmo jeito que, no recorrente, é a
+    lista de postos. A soma continua tendo de fechar com o total, e quem cobra isso é o
+    wizard, antes de deixar emitir.
+    """
+    var = template.get("variables") if isinstance(template.get("variables"), dict) else {}
+    sla = row["sla_config"] if isinstance(row["sla_config"], dict) else {}
+
+    def par(nome, default=""):
+        # o valor do CONTRATO ganha do default do MODELO; string vazia não conta como valor
+        v = sla.get(nome)
+        if v in (None, ""):
+            v = var.get(nome)
+        return default if v in (None, "") else v
+
+    total = Decimal(str(row["total_value"] or 0))
+    plus = Decimal(str(par("conecta_plus_valor", 0) or 0))
+
+    def _dos(tipo):
+        return [i for i in itens if (i["service_type"] or "").strip().lower() == tipo]
+
+    entrada = sum((Decimal(str(i["total_price"] or 0)) for i in _dos("entrada")), Decimal(0))
+    retida = sum((Decimal(str(i["total_price"] or 0)) for i in _dos("retida")), Decimal(0))
+    parcelas = _dos("parcela")
+
+    # "02 parcelas de R$ 7.720,00 com vencimento em 30 e 60 dias" — a redação da 3.2 do
+    # contrato-base. Com valores diferentes entre si, cada uma sai nomeada, para o texto
+    # nunca afirmar uma parcela que a tabela não tem.
+    if parcelas:
+        vals = {Decimal(str(i["total_price"] or 0)) for i in parcelas}
+        venc = [str(i["notes"] or "").strip() for i in parcelas]
+        if len(vals) == 1:
+            desc = (f"{len(parcelas):02d} ({_fem(len(parcelas))}) parcela"
+                    f"{'s' if len(parcelas) > 1 else ''} de {brl(next(iter(vals)))}"
+                    + (f" com vencimento em {_venc([v for v in venc if v])}"
+                       if any(venc) else ""))
+        else:
+            desc = "; ".join(
+                f"{brl(Decimal(str(i['total_price'] or 0)))}"
+                + (f" em {str(i['notes']).strip()}" if i["notes"] else "")
+                for i in parcelas)
+    else:
+        desc = ""
+
+    pct = (entrada / total * 100).quantize(Decimal("1")) if total else Decimal(0)
+
+    return {
+        "valor_total_fmt": brl(total),
+        "valor_total_extenso": por_extenso(total),
+        "entrada_fmt": brl(entrada),
+        "entrada_pct": str(pct),
+        "parcelas_descricao": desc,
+        "parcela_retida_fmt": brl(retida),
+        "conecta_plus_fmt": brl(plus),
+        "conecta_plus_extenso": por_extenso(plus),
+        "objeto_resumo": (row["description"] or "").strip(),
+        "proposta_numero": str(par("proposta_numero")),
+        "prazo_exec_dias": str(par("prazo_exec_dias")),
+        "prazo_exec_dias_extenso": (num_extenso(int(par("prazo_exec_dias", 0)))
+                                    if str(par("prazo_exec_dias", "")).isdigit() else ""),
+        "homologacao_dias": str(par("homologacao_dias")),
+        "homologacao_dias_extenso": (num_extenso(int(par("homologacao_dias", 0)))
+                                     if str(par("homologacao_dias", "")).isdigit() else ""),
+        "garantia_meses": str(par("garantia_meses")),
+        "garantia_meses_extenso": (num_extenso(int(par("garantia_meses", 0)))
+                                   if str(par("garantia_meses", "")).isdigit() else ""),
+        "cortesia_meses": str(par("cortesia_meses")),
+        "cortesia_meses_extenso": (num_extenso(int(par("cortesia_meses", 0)))
+                                   if str(par("cortesia_meses", "")).isdigit() else ""),
+        "multa_atraso_dia": str(par("multa_atraso_dia")),
+        "multa_teto_pct": str(par("multa_teto_pct")),
+        "foro": str(par("foro", "Manaus/AM")),
+        "cidade_assinatura": str(par("cidade_assinatura", "Manaus/AM")),
+    }
+
+
 async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) -> tuple[dict, Contratada]:
     """Monta o contexto do render a partir do CONTRATO real. Nada é inventado aqui."""
     row = (await db.execute(text(_SQL_CONTRATO), {"k": contract_id})).mappings().first()
@@ -510,6 +628,23 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "primeiro_pagamento_dias_extenso": (num_par(int(row["grace_period_days"]))
                                             if row["grace_period_days"] else ""),
     }
+
+    # Contrato de valor ÚNICO: as variáveis de recorrência acima continuam no ctx e apenas
+    # não são citadas pelo modelo — `variaveis_vazias` só cobra o que o corpo referencia,
+    # então dia de vencimento vazio não reprova um contrato que não tem mensalidade.
+    if (row["contract_type"] or "").strip().lower() == "one_time":
+        ctx.update(_ctx_one_time(row, list(itens), template))
+        # a data do fecho continua vindo de `start_date`, que é NOT NULL nesta tabela
+        # (conferido 09/09) — no serviço único ela é a data da assinatura, não o início de
+        # uma vigência que não existe. Não há fallback para hoje: seria o render inventando
+        # a data de um instrumento que vai a assinatura.
+
+    # Testemunhas: decisão do MODELO, versionada junto com o texto do fecho. Ver
+    # `_bloco_assinaturas` — modelo que dispensa testemunha não pode desenhar o quadro.
+    var_tpl = template.get("variables") if isinstance(template.get("variables"), dict) else {}
+    if var_tpl.get("testemunhas"):
+        ctx["testemunhas"] = var_tpl["testemunhas"]
+
     return ctx, contratada
 
 
@@ -635,11 +770,18 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
                        envolver: bool = True):
     """Bloco de assinatura no padrão das plataformas de assinatura eletrônica.
 
-    Saíram as testemunhas: elas existiam para o contrato valer como título executivo
-    extrajudicial (CPC 784, III), e o § 4º do mesmo artigo — Lei 14.620/2023 — dispensa
-    testemunha em documento eletrônico cuja integridade seja conferida pelo provedor de
-    assinatura. É o caso: hash, IP, user-agent e carimbo de tempo por assinatura, com o
-    manifesto ao final.
+    Por padrão, saem as testemunhas: elas existiam para o contrato valer como título
+    executivo extrajudicial (CPC 784, III), e o § 4º do mesmo artigo — Lei 14.620/2023 —
+    dispensa testemunha em documento eletrônico cuja integridade seja conferida pelo
+    provedor de assinatura. É o caso: hash, IP, user-agent e carimbo de tempo por
+    assinatura, com o manifesto ao final.
+
+    EXCEÇÃO, por `ctx["testemunhas"]` (decisão do Jordan em 09/09/2026, para o modelo
+    `eletronica_servico_unico`): quando o modelo pedir, saem DOIS quadros de testemunha —
+    assinando eletronicamente na mesma plataforma, não em linha manuscrita. É opt-in
+    justamente para que manutenção e portaria, que se apoiam na dispensa, não ganhem
+    quadro nenhum. ⚠️ O texto de fecho e este bloco andam juntos: um modelo que invoque a
+    dispensa do § 4º e ao mesmo tempo peça testemunha contradiz a si mesmo.
 
     Cada parte ganha um quadro próprio, com nome, cargo e documento — e a linha de
     assinatura vira o registro eletrônico quando assinada. Enquanto pendente, mostra
@@ -690,6 +832,19 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
                      f"CNPJ {ctx.get('contratada_cnpj', '')}",
                      ctx.get("contratada_representante", ""),
                      ctx.get("contratada_cargo") or "Representante legal"))
+
+    # Testemunhas — só quando o modelo pede. `testemunhas` pode vir como True (dois quadros
+    # em branco, a preencher no ato da assinatura) ou como lista de {nome, cpf} já sabidos.
+    tst = ctx.get("testemunhas")
+    if tst:
+        nomes = tst if isinstance(tst, list) else []
+        for i in range(2):
+            t = nomes[i] if i < len(nomes) and isinstance(nomes[i], dict) else {}
+            cpf = (t.get("cpf") or "").strip()
+            el.append(Spacer(1, 20))
+            el.append(quadro(
+                f"testemunha_{i + 1}", f"TESTEMUNHA {i + 1}", "", f"CPF {cpf}" if cpf else "",
+                t.get("nome") or "A identificar no ato da assinatura", "Testemunha"))
     # KeepTogether: os dois quadros vão juntos para a página seguinte em vez de a
     # CONTRATADA ficar órfã no fim da folha, partida ao meio. `envolver=False` quando quem
     # agrupa é o chamador, junto com a última cláusula — dois KeepTogether aninhados fazem
@@ -847,13 +1002,13 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
     """Costura completa: contrato + modelo → texto → PDF. É o que a rota chama."""
     if template_id:
         tpl = (await db.execute(text(
-            "SELECT id::text, name, service_type, content_template, clauses "
+            "SELECT id::text, name, service_type, content_template, clauses, variables "
             "FROM contract_templates WHERE id::text = :t AND coalesce(is_active,true)"),
             {"t": template_id})).mappings().first()
     else:
         # sem modelo explícito: o do próprio contrato; se não houver, o ativo do tipo dele
         tpl = (await db.execute(text("""
-            SELECT t.id::text, t.name, t.service_type, t.content_template, t.clauses
+            SELECT t.id::text, t.name, t.service_type, t.content_template, t.clauses, t.variables
             FROM contracts c JOIN contract_templates t ON t.id = c.template_id
             WHERE (c.id::text = :k OR c.contract_number = :k) AND coalesce(t.is_active,true)
         """), {"k": contract_id})).mappings().first()

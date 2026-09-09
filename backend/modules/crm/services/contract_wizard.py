@@ -18,6 +18,7 @@ por extenso, no meio do instrumento, que vira disputa.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -72,6 +73,7 @@ _SQL = """
 SELECT c.id::text AS cid, c.contract_number, c.monthly_value, c.payment_day,
        c.grace_period_days, c.start_date, c.end_date, c.template_id::text AS template_id,
        c.tipo_servico::text AS tipo_servico,
+       c.contract_type::text AS contract_type, c.total_value, c.description, c.sla_config,
        cl.name AS cliente, cl.id::text AS client_id,
        t.name AS modelo_nome,
        (SELECT count(*) FROM contract_items i
@@ -116,6 +118,13 @@ async def diagnosticar(db: AsyncSession, chave: str) -> Situacao:
         s.pendencias.append(Pendencia(
             "representante_cpf", "Qual o CPF de quem assina?", "crm_contacts",
             "562.043.372-20"))
+    # Contrato de valor ÚNICO (fornecimento + instalação) não tem mensalidade, carência nem
+    # vigência: perguntar dia de vencimento a quem contratou uma obra é perguntar por algo
+    # que o instrumento não vai citar — e a resposta iria para uma coluna que ninguém lê.
+    if (r["contract_type"] or "").strip().lower() == "one_time":
+        s.pendencias.extend(_pendencias_one_time(r))
+        return s
+
     if not r["payment_day"]:
         s.pendencias.append(Pendencia(
             "payment_day", "Em que dia do mês vence a mensalidade?", "contracts.payment_day", "8"))
@@ -135,6 +144,38 @@ async def diagnosticar(db: AsyncSession, chave: str) -> Situacao:
             "vigencia", "Qual o período de vigência (início e término)?",
             "contracts.start_date/end_date", "01/09/2026 a 31/08/2028"))
     return s
+
+
+def _pendencias_one_time(r) -> list[Pendencia]:
+    """O que falta num contrato de valor ÚNICO — e só o que o instrumento realmente cita."""
+    sla = r["sla_config"] if isinstance(r["sla_config"], dict) else {}
+    faltam: list[Pendencia] = []
+
+    if not (r["total_value"] and Decimal(str(r["total_value"])) > 0):
+        faltam.append(Pendencia(
+            "valor_total", "Qual o valor TOTAL do serviço?", "contracts.total_value", "46320"))
+    if not (r["description"] or "").strip():
+        faltam.append(Pendencia(
+            "objeto_resumo",
+            "Descreva em uma frase o que será entregue (vai para a Cláusula 1ª).",
+            "contracts.description",
+            "controle de acesso por biometria facial; automação dos portões; CFTV"))
+    if not str(sla.get("proposta_numero") or "").strip():
+        faltam.append(Pendencia(
+            "proposta_numero",
+            "Qual a proposta comercial que originou este contrato? Ela integra o "
+            "instrumento e é citada na Cláusula 1ª.",
+            "contracts.sla_config->proposta_numero", "PROP-2026-00001"))
+    if not r["n_itens"]:
+        faltam.append(Pendencia(
+            "itens",
+            "Como se parcela o pagamento? Preciso de cada parcela com tipo "
+            "(entrada · parcela · retida), valor e vencimento — a soma tem de fechar em "
+            f"{r['total_value']}.",
+            "contract_items",
+            "entrada 23160 · parcela 7720 em 30 dias · parcela 7720 em 60 dias · "
+            "retida 7720"))
+    return faltam
 
 
 async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
@@ -179,27 +220,71 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
                              {"v": int(dados[col]), "c": r["cid"]})
             feitos.append(f"{rot}: {dados[col]}")
 
+    unico = (r["contract_type"] or "").strip().lower() == "one_time"
+
+    if unico:
+        if dados.get("valor_total") is not None:
+            await db.execute(text("UPDATE contracts SET total_value=:v, updated_at=now() "
+                                  "WHERE id::text=:c"),
+                             {"v": Decimal(str(dados["valor_total"])), "c": r["cid"]})
+            feitos.append(f"valor total: {dados['valor_total']}")
+        if dados.get("objeto_resumo"):
+            await db.execute(text("UPDATE contracts SET description=:d, updated_at=now() "
+                                  "WHERE id::text=:c"),
+                             {"d": str(dados["objeto_resumo"]).strip(), "c": r["cid"]})
+            feitos.append("objeto do contrato gravado")
+        # parâmetros de emissão no saco por contrato — mesma prateleira de `visita_numero`
+        # no modelo de manutenção. `||` preserva o que já estava lá.
+        emis = {k: dados[k] for k in (
+            "proposta_numero", "prazo_exec_dias", "conecta_plus_valor", "foro",
+            "cidade_assinatura", "homologacao_dias", "garantia_meses", "cortesia_meses",
+            "multa_atraso_dia", "multa_teto_pct") if dados.get(k) not in (None, "")}
+        if emis:
+            # `coalesce` NÃO basta: a coluna pode guardar o JSON `null` (que não é SQL NULL),
+            # e `'null'::jsonb || '{...}'::jsonb` devolve um ARRAY `[null, {...}]`, não um
+            # objeto — o parâmetro some sem erro nenhum e a pendência volta na cara do
+            # usuário. Medido no CTR-2026-00022. `jsonb_typeof` é o único teste honesto.
+            await db.execute(text(
+                "UPDATE contracts SET sla_config = "
+                "  CASE WHEN jsonb_typeof(sla_config) = 'object' THEN sla_config "
+                "       ELSE '{}'::jsonb END || CAST(:j AS jsonb), "
+                "  updated_at=now() WHERE id::text=:c"),
+                {"j": json.dumps(emis), "c": r["cid"]})
+            feitos.append("parâmetros de emissão: " + ", ".join(sorted(emis)))
+
     itens = dados.get("itens")
     if itens:
         # TRAVA DE DINHEIRO: a composição tem de fechar com o valor acordado. Um contrato
         # cuja tabela não soma o valor por extenso é convite a disputa.
         soma = sum(Decimal(str(i.get("total") or 0)) for i in itens)
-        mensal = Decimal(str(r["monthly_value"] or 0))
-        if soma != mensal:
+        # no serviço único a régua é o TOTAL (e ele pode ter acabado de ser gravado, duas
+        # linhas acima — por isso lê o dado novo, não o `r` que veio do início da função)
+        if unico:
+            alvo = Decimal(str(dados.get("valor_total") or r["total_value"] or 0))
+            rotulo = "valor total"
+        else:
+            alvo = Decimal(str(r["monthly_value"] or 0))
+            rotulo = "valor mensal"
+        if soma != alvo:
             raise ValueError(
-                f"A composição soma {soma} e o valor mensal do contrato é {mensal}. "
+                f"A composição soma {soma} e o {rotulo} do contrato é {alvo}. "
                 "Ajuste os subtotais — o contrato não pode sair com tabela que não fecha.")
         await db.execute(text("DELETE FROM contract_items WHERE contract_id::text=:c"), {"c": r["cid"]})
         for i in itens:
             qtd = int(i.get("qtd") or 0)
             total = Decimal(str(i.get("total") or 0))
+            # no único, `service_type` carrega o PAPEL da parcela (entrada/parcela/retida),
+            # que é o que o render lê para montar a Cláusula 3.2; no recorrente segue sendo
+            # o tipo de serviço, como sempre foi.
+            st = (i.get("tipo") or "parcela") if unico else (r["tipo_servico"] or "maodeobra")
             await db.execute(text(
                 "INSERT INTO contract_items (id, contract_id, service_type, service_name, description, "
-                "quantity, unit_price, total_price, is_active, created_at) "
-                "VALUES (:i, CAST(:c AS uuid), :st, :n, :d, :q, :u, :t, true, now())"),
-                {"i": str(uuid.uuid4()), "c": r["cid"], "st": r["tipo_servico"] or "maodeobra",
+                "quantity, unit_price, total_price, notes, is_active, created_at) "
+                "VALUES (:i, CAST(:c AS uuid), :st, :n, :d, :q, :u, :t, :ob, true, now())"),
+                {"i": str(uuid.uuid4()), "c": r["cid"], "st": st,
                  "n": i.get("nome") or "—", "d": i.get("descricao") or "",
-                 "q": qtd, "u": (total / qtd) if qtd else total, "t": total})
+                 "q": qtd, "u": (total / qtd) if qtd else total, "t": total,
+                 "ob": i.get("vencimento") or i.get("notes") or None})
         feitos.append(f"composição gravada ({len(itens)} itens, soma {soma})")
 
     await db.commit()
