@@ -1273,6 +1273,17 @@ precisa de revisão) em vez do Drive — fica para depois, como você pediu.
 kit para virar o padrão; (3) `completion_percentage` = assinados/total ou vagas com arquivo/total?; (4) PUT de
 contrato ativo silencioso (item 8); (5) as 52 assinaturas de VT/VR e o cron do Onvio ainda avisam por Telegram.
 
+**Adendo 09h (duas ordens do Jordan durante a montagem):** (a) nomes fictícios nos 12 colaboradores de teste
+(Anderson Luiz Pereira da Costa … Paulo Sergio Almeida Ribeiro, matrículas VLG-01..12, ainda `is_homologacao`);
+(b) "quanto ao Sólides não se preocupa, já temos o nosso sistema de ponto, usado real no dia a dia" → o bloco
+"ponto" do kit passou a sair do NOSSO ponto: `time_sheets` (53 espelhos calculados e 4.063 batidas reais em 08/2026)
+→ o mesmo PDF do DP (`montar_espelho_ponto_pdf`). Novo `gedeon/services/ponto_kit_service.py` (bloco `ponto` do
+orquestrador, dry-run em IDEAL FLORES/MICHELANGELO: 16 espelhos achados, 5 faltas declaradas "espelho não calculado")
+e o kit do banco troca o HTML por batida pelo espelho em PDF. Kit do Village remontado: 67/67, tudo PDF, Drive
+`Funcionarios/<Nome>/` com 4 documentos — https://drive.google.com/drive/folders/1UYKfLp27PbJnwFwIad3fHiJuLIn5LmhS.
+ZIP da tela (documentos › kits › Baixar ZIP) vinha só com INDICE.txt (caminho absoluto duplicado) → 68 arquivos, 13 MB.
+O robô do Sólides fica como está (avisa que a conta está bloqueada) e sai do caminho crítico do kit.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
