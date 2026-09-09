@@ -83,9 +83,9 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
     ref: date = kit.reference_month
     mes, ano = ref.month, ref.year
     docs = (await db.execute(select(KitDocument).where(KitDocument.kit_id == kit_id))).scalars().all()
-    # 09/09/2026 (decisão do Jordan): comprovante de pagamento no kit REAL é o PDF oficial do banco, anexado à mão
-    # (a API da Cora não entrega comprovante: 6 caminhos testados, todos 404). Documento com origem MANUAL é
-    # intocável — a montagem automática não regera nem sobrescreve por cima do que veio do banco.
+    # 09/09/2026 (decisão do Jordan): o comprovante PADRÃO é o gerado pelo Conecta PRO com os dados do extrato —
+    # "melhor, gera mais credibilidade... deixa o botão de anexo para qualquer eventualidade". Quando alguém anexa
+    # o PDF oficial do banco (source_module=manual), esse documento vira INTOCÁVEL: a montagem não regera por cima.
     docs = [d for d in docs if str(getattr(d, "source_module", "")) != "manual" or not d.file_path]
     rel: dict = {"kit_id": kit_id, "preenchidos": {}, "faltas": [], "apagados": 0}
 

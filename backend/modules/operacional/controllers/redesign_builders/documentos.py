@@ -70,7 +70,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-preparar", "label": "Preparar entrega de kit", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-marcar", "label": "Marcar kit como entregue", "icon": "M3 3v18h18"},
-    {"id": "kit-anexar-comprovante", "label": "Anexar comprovante do banco", "icon": "M3 3v18h18"},
+    {"id": "kit-anexar-comprovante", "label": "Anexar comprovante do banco (exceção)", "icon": "M3 3v18h18"},
     {"id": "assinaturas-empresa-lote", "label": "Assinar em lote (empresa)", "icon": "M3 3v18h18"},
     {"id": "kit-faturar", "label": "Faturar kit (boleto)", "icon": "M3 3v18h18"},
     {"id": "kit-checklist-evento", "label": "Registrar evento no checklist do kit", "icon": "M3 3v18h18"},
@@ -857,9 +857,11 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
         _e = (await db.execute(_t(
             "SELECT id::text, nome FROM employees WHERE coalesce(status,'ativo') = 'ativo' ORDER BY nome LIMIT 400"))).fetchall()
         out["kit-anexar-comprovante"] = {
-            "title": "Anexar comprovante do banco ao kit",
-            "sub": "Baixe o comprovante no internet banking (Cora/Inter) e suba aqui. Ele entra na pasta do kit no lugar do "
-                   "gerado pelo sistema e fica protegido: a montagem automática não sobrescreve documento anexado à mão.",
+            "title": "Anexar comprovante do banco ao kit (exceção)",
+            "sub": "O padrão é o comprovante GERADO pelo Conecta PRO, com os dados do extrato — é o que entra no kit "
+                   "sozinho. Use esta tela só quando precisar do PDF oficial do banco num caso específico: o "
+                   "arquivo anexado substitui o gerado naquele documento e fica protegido (a montagem automática "
+                   "não sobrescreve o que foi anexado à mão).",
             "cta": "Anexar", "type": "form",
             "submit": {"endpoint": "/api/v1/people-management/ged/documents", "multipart": True,
                        "okMsg": "Comprovante anexado ao kit. Recarregue.", "showResult": True},
