@@ -213,8 +213,8 @@ class KitBuilderService:
             benefit_receipts = await self.collect_benefit_receipts(str(kit.id), employee_ids, ref)
             collected["benefit_receipts"] = benefit_receipts
 
-            schedules = await self.collect_schedules(str(kit.id), employee_ids, ref)
-            collected["schedules"] = schedules
+            # 09/09/2026 (Jordan): "a escala não vai no kit" — coletor desligado; a escala fica no operacional
+            collected["schedules"] = 0
 
         # Coleta de certidoes da empresa
         certificates = await self.collect_company_certificates(str(kit.id))

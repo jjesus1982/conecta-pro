@@ -9,7 +9,6 @@ Fontes (nunca fabricadas):
   contracheque   hr_payslips (employee, mês/ano) → gerar_pdf_holerite (mesmo PDF do portal/DP)
   VT/VR          motor da folha (calcular_folha_colaborador) → montar_recibo_vt_vr_pdf (um recibo cobre VT+VR;
                  a vaga VA separada não existe no kit real → apagada)
-  escala         shifts do funcionário no mês → montar_escala_pdf
   CND            ged_certidoes da Conecta Patrimonial vigentes (decisão 07/09: certidões só Patrimonial)
   NFS-e          nfse_emitidas_nacional (tomador = cliente, competência do mês) → DANFSe; cliente de
                  HOMOLOGAÇÃO (todos os alocados is_homologacao) → DANFSe SIMULADA, sem valor fiscal
@@ -156,30 +155,7 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
             d.file_path, d.file_size_bytes, d.mime_type = fp, n, "application/pdf"
             conta("vt_vr")
 
-    # ── escala ──
-    for d in docs:
-        if d.document_type != DocumentType.ESCALA_MES or d.file_path:
-            continue
-        e = str(d.employee_id)
-        rows = (await db.execute(text(
-            "SELECT s.shift_date, s.planned_start_time, s.planned_end_time, s.is_off_day, s.is_night_shift, s.planned_hours, p.name "
-            "FROM shifts s JOIN scales sc ON sc.id = s.scale_id JOIN posts p ON p.id = sc.post_id "
-            "WHERE s.employee_id = CAST(:e AS uuid) AND sc.month = :m AND sc.year = :a AND coalesce(s.is_active,true) "
-            "ORDER BY s.shift_date"), {"e": e, "m": mes, "a": ano})).fetchall()
-        if not rows:
-            rel["faltas"].append(f"escala {emp.get(e, {}).get('nome', e)}: sem turnos em {mes:02d}/{ano} (escala não gerada)")
-            continue
-        try:
-            from modules.operacional.services.escala_pdf import montar_escala_pdf
-            turnos = [{"data": r[0], "inicio": r[1], "fim": r[2], "folga": bool(r[3]), "noturno": bool(r[4]), "horas": r[5]} for r in rows]
-            fdad = dict(emp.get(e, {}))
-            fdad.setdefault("nome", str(e))
-            pdf = montar_escala_pdf(fdad, rows[0][6], mes, ano, turnos)
-            d.file_path = _gravar(kit_id, e, f"Escala_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf)
-            d.file_size_bytes, d.mime_type = len(pdf), "application/pdf"
-            conta("escala")
-        except Exception as exc:  # noqa: BLE001
-            rel["faltas"].append(f"escala {e}: erro ao gerar PDF — {exc}")
+    # ── escala: fora do kit (decisão do Jordan, 09/09/2026) ──
 
     # ── CNDs (Patrimonial, vigentes) ──
     cnpj_pat = (await db.execute(text("SELECT cnpj FROM empresas WHERE slug = 'conecta_patrimonial'"))).scalar() or ""

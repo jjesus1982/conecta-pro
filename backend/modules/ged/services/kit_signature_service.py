@@ -47,8 +47,7 @@ EMPLOYEE_SIGNABLE_KIT_TYPES: frozenset[str] = frozenset(
         "comp_salario_individual",
         # folha de ponto
         "folha_ponto",
-        # 09/09: escala do mês e recibo de adiantamento também são do funcionário
-        "escala_mes",
+        # 09/09: recibo de adiantamento também é do funcionário (a escala NÃO vai no kit — decisão do Jordan)
         "recibo_adiantamento",
         "folhas_ponto",
         "ponto",
@@ -95,6 +94,7 @@ def _kit_documento_precisa_assinatura(document_type: str | None, employee_id: An
 
 
 # 09/09: quem leva o campo do DIRETOR no PDF — espelho de ponto e recibo de adiantamento (a escala é da supervisão)
+# 09/09: quem leva o campo do DIRETOR no PDF — espelho de ponto e recibo de adiantamento (escala não vai no kit)
 COASSINADOS: frozenset[str] = frozenset({"folha_ponto", "folhas_ponto", "ponto", "recibo_adiantamento"})
 
 

@@ -190,6 +190,9 @@ _CO_SIGN: frozenset[str] = frozenset(
         "service_contract",
         "aviso_previo",
         "rescisao",
+        # 09/09/2026 (revisão do Jordan): documento do kit com os DOIS campos (espelho de ponto, recibo de
+        # adiantamento). Sem isto a empresa assinava o PDF ORIGINAL — o selo do funcionário sumia do arquivo final.
+        "kit_documento_coassinado",
     }
 )
 
