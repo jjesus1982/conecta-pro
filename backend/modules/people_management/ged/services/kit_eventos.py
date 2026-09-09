@@ -211,14 +211,21 @@ async def preencher_comprovantes_reais(db: AsyncSession, kit_id: str, ref: date,
             continue
         for p in pags:
             tipo, rotulo = classificar_pagamento(p["data"], ref, p["texto"])
-            if p["origem"] == "sistema":
+            # 09/09/2026 (Jordan): "o comprovante de pagamento deve ser puxado via API do extrato do banco, não o
+            # gerado pelo sistema". A linha do EXTRATO (bank_transactions, sincronizada do Inter/Cora) tem o
+            # favorecido, o CPF e o endToEndId como o BANCO registrou — é ela que manda quando existe.
+            if p["origem"] == "sistema" and not any(q["origem"] == "extrato" and q["data"] == p["data"] and abs(q["valor"] - p["valor"]) < 0.01 for q in pags):
                 from modules.integrations.inter.payment_controller import comprovante_pdf_de_pagamento
 
                 pdf = await comprovante_pdf_de_pagamento(db, p["pagamento_id"])
+            elif p["origem"] == "sistema":
+                continue  # a mesma transação vem do extrato logo abaixo, com o dado do banco
             else:
                 pdf = gerar_comprovante_pdf(favorecido=p.get("favorecido") or info.get("nome"), cpf=info.get("cpf"), valor=p["valor"],
-                                            data_pagamento=p["data"], descricao=f"{rotulo} — {p['texto'][:60]}".strip(), id_transacao=p.get("ref_banco"),
-                                            competencia=f"{ref:%m/%Y}", tipo="PIX", empresa_nome=pat[1] if pat else None, empresa_cnpj=pat[0] if pat else None)
+                                            data_pagamento=p["data"],
+                                            descricao=f"{rotulo} — extrato bancário {p.get('ref_banco') or ''}".strip(),
+                                            id_transacao=p.get("ref_banco"), competencia=f"{ref:%m/%Y}", tipo="PIX",
+                                            empresa_nome=pat[1] if pat else None, empresa_cnpj=pat[0] if pat else None)
             if not pdf:
                 continue
             await registrar_comprovante(db, kit_id=kit_id, employee_id=e, document_type=tipo, nome_doc=f"Comprovante PIX {rotulo} {ref:%m/%Y}", pdf=pdf,

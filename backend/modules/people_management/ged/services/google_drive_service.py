@@ -19,6 +19,19 @@ from modules.people_management.ged.models.kit_document import KitDocument
 
 logger = logging.getLogger(__name__)
 
+#: 09/09/2026: subpastas de Funcionarios, no padrão do kit real (Villa Dei Fiori). O kit da contabilidade junta
+#: tudo por categoria — "Contracheques.pdf", "Folhas de Ponto.pdf", "Recibos de Pagamento de Vale Transporte e
+#: Alimentação.pdf" — e é assim que o DP procura.
+CATEGORIA_FUNCIONARIO: dict[str, str] = {
+    "folha_ponto": "Folhas de Ponto",
+    "contracheque": "Contracheques",
+    "comprovante_pagamento": "Comprovantes de Pagamento",
+    "recibo_adiantamento": "Comprovantes de Pagamento",
+    "comprovante_vt": "Recibos e Comprovantes de VA e VT",
+    "comprovante_vr": "Recibos e Comprovantes de VA e VT",
+    "comprovante_va": "Recibos e Comprovantes de VA e VT",
+}
+
 GOOGLE_CREDENTIALS_PATH = os.environ.get(
     "GOOGLE_DRIVE_CREDENTIALS",
     "/opt/conecta-pro/config/google_drive_credentials.json",
@@ -378,13 +391,6 @@ class GoogleDriveService:
         substituidos = 0
         errors_list = []
         ja_na_pasta: dict[str, set[str]] = {}  # 09/09: não duplica arquivo já enviado (re-sync do mesmo kit)
-        emp_ids = sorted({str(d.employee_id) for d in documents if d.employee_id})
-        nomes_emp: dict[str, str] = {}
-        if emp_ids:
-            from sqlalchemy import text as _text
-
-            rows = await self.db.execute(_text("SELECT id::text, nome FROM employees WHERE id::text = ANY(:ids)"), {"ids": emp_ids})
-            nomes_emp = {r[0]: (r[1] or "").strip().title() for r in rows.all()}
 
         ids_por_nome: dict[str, dict[str, tuple[str, str]]] = {}
 
@@ -414,12 +420,14 @@ class GoogleDriveService:
 
             # Determinar pasta de destino
             if doc.employee_id:
-                # 09/09: uma subpasta por funcionário (Funcionarios/<Nome>/) — tudo num balaio não é kit
-                nome = nomes_emp.get(str(doc.employee_id))
-                if nome and folder_ids.get("funcionarios"):
-                    key = f"emp:{doc.employee_id}"
+                # 09/09/2026 (Jordan, olhando o kit real do Villa Dei Fiori): dentro de Funcionarios, subpastas por
+                # CATEGORIA — é assim que a Pyetra procura (todas as folhas de ponto num lugar, todos os
+                # contracheques noutro). O nome da pessoa continua no nome do arquivo.
+                cat = CATEGORIA_FUNCIONARIO.get(doc.document_type)
+                if cat and folder_ids.get("funcionarios"):
+                    key = f"cat:{cat}"
                     if key not in folder_ids:
-                        folder_ids[key] = self._create_folder(service, name=nome, parent_id=folder_ids["funcionarios"])
+                        folder_ids[key] = self._create_folder(service, name=cat, parent_id=folder_ids["funcionarios"])
                     target_folder = folder_ids[key]
                 else:
                     target_folder = folder_ids.get("funcionarios")
@@ -511,10 +519,8 @@ class GoogleDriveService:
         if not fids.get("month"):
             return {"configured": True, "enviado": False, "motivo": folders.get("message")}
         if doc.employee_id:
-            from sqlalchemy import text as _text
-
-            nome = (await self.db.execute(_text("SELECT nome FROM employees WHERE id = :e"), {"e": doc.employee_id})).scalar()
-            alvo = self._create_folder(service, name=(nome or "").strip().title() or str(doc.employee_id), parent_id=fids["funcionarios"])
+            cat = CATEGORIA_FUNCIONARIO.get(doc.document_type, "Outros documentos")
+            alvo = self._create_folder(service, name=cat, parent_id=fids["funcionarios"])
         elif doc.document_type.startswith(("cnd_", "crf_", "cndt_")):
             alvo = fids.get("certidoes")
         elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") or doc.document_type.startswith("dctfweb"):
@@ -532,7 +538,8 @@ class GoogleDriveService:
         if existentes:
             import hashlib
 
-            h = hashlib.md5(open(doc.file_path, "rb").read()).hexdigest()  # noqa: S324
+            with open(doc.file_path, "rb") as _fh:
+                h = hashlib.md5(_fh.read()).hexdigest()  # noqa: S324 — só compara com o md5Checksum do Drive
             if existentes[0].get("md5Checksum") == h:
                 return {"configured": True, "enviado": False, "motivo": "já estava igual", "file_id": existentes[0]["id"]}
             service.files().update(fileId=existentes[0]["id"], media_body=MediaFileUpload(doc.file_path, resumable=True)).execute()
