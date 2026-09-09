@@ -344,6 +344,7 @@ CATALOGO = {
     "eletronica_instalacao": {
         "rotulo": "Segurança eletrônica — FORNECIMENTO e instalação (valor único)",
         "cargos": [], "modelo_service_type": "eletronica_servico_unico",
+        "natureza": "one_time",
     },
 }
 
@@ -489,6 +490,8 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
         return {"status": "modalidade_desconhecida", "informada": modalidade,
                 "disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()]}
     tipo = CATALOGO[modalidade]["modelo_service_type"]
+    natureza = CATALOGO[modalidade].get("natureza") or "recurring"
+    unico = natureza == "one_time"
 
     doc = "".join(c for c in (cliente_documento or "") if c.isdigit())
     cli = (await db.execute(text(
@@ -529,15 +532,22 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
     await db.execute(text("""
         INSERT INTO contracts
             (id, contract_number, client_id, template_id, empresa_id, tipo_servico,
-             contract_type, status, name, monthly_value, payment_day, start_date, end_date,
+             contract_type, status, name, monthly_value, total_value, payment_day,
+             start_date, end_date,
              renewal_notification_days, notice_period_days, grace_period_days,
              proposal_id, is_active, created_at, updated_at)
         VALUES (gen_random_uuid(), :n, CAST(:c AS uuid), CAST(:t AS uuid), CAST(:e AS uuid),
-                :ts, 'recurring', 'draft', :nome, :v, :pd, :ini, :fim, :rn, 30, :car,
+                :ts, :nat, 'draft', :nome, :v, :tot, :pd, :ini, :fim, :rn, 30, :car,
                 CAST(:prop AS uuid), true, now(), now())"""),
         {"n": numero, "c": cli["id"], "t": tpl["id"], "e": EMPRESA_POR_TIPO.get(tipo),
          "ts": tipo, "nome": f"{CATALOGO[modalidade]['rotulo']} — {cli['name']}",
-         "v": valor_mensal, "pd": dia_vencimento, "ini": ini, "fim": fim,
+         # A NATUREZA vem da modalidade. Sem isto, um fornecimento com instalação nascia
+         # `recurring` com o valor da obra em `monthly_value` — o contrato passaria a
+         # anunciar mensalidade de R$ 46 mil e a entrar no MRR como receita recorrente.
+         "nat": natureza,
+         "v": (0 if unico else valor_mensal), "tot": (valor_mensal if unico else 0),
+         "pd": (None if unico else dia_vencimento), "ini": ini,
+         "fim": (None if unico else fim),
          # grace_period_days é NOT NULL COM default: passar None explícito ANULA o default
          # e viola a constraint. Sem carência negociada, o valor é 0, não nulo.
          "rn": renovacao_aviso_dias, "car": carencia_dias or 0,

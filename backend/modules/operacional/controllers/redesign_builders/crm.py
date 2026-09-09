@@ -3,6 +3,8 @@ redesign_builders/crm.py — T4.
 Sobrescreve _build_crm: reusa a base e ADICIONA clientes, growth (funil de
 atividades) e consultor comercial (histórico de interações). Só leitura.
 """
+from datetime import date as _date
+
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import text  # noqa: F401
 
@@ -487,12 +489,28 @@ def _fila_actions(r):
     """
     tipo, ref = r[6], r[1]
     if tipo == "proposta":
+        # A modalidade NÃO é adivinhada: a proposta não declara de forma confiável se é
+        # mão de obra, manutenção mensal ou fornecimento único, e é ela que decide o
+        # modelo, o CNPJ emitente e a NATUREZA (mensalidade × valor fechado). Chutar aqui
+        # põe o valor de uma obra em `monthly_value` e a joga no MRR como recorrente.
+        from modules.crm.services.contract_wizard import CATALOGO  # noqa: PLC0415
+        hoje = _date.today().isoformat()
         return [{"title": "Gerar o contrato desta proposta",
                  "endpoint": "/api/v1/redesign/action/contrato-da-proposta",
                  "method": "POST", "btnLabel": "Gerar contrato",
                  "submitLabel": "Criar contrato", "btnStyle": "primary",
                  "okMsg": "Contrato criado (rascunho). Recarregue para emitir o instrumento.",
-                 "fields": [{"key": "proposal_id", "type": "hidden", "value": ref}]}]
+                 "fields": [
+                     {"key": "proposal_id", "type": "hidden", "value": ref},
+                     {"key": "modalidade", "label": "Modalidade*", "type": "select",
+                      "span": "span 2", "ph": "O que foi vendido",
+                      "options": [{"value": k, "label": v["rotulo"]}
+                                  for k, v in CATALOGO.items()]},
+                     {"key": "vigencia_inicio", "label": "Início da vigência*", "type": "date",
+                      "span": "span 1", "value": hoje},
+                     {"key": "dia_vencimento",
+                      "label": "Dia de vencimento (só mensalidade)", "type": "number",
+                      "span": "span 1", "value": ""}]}]
     if tipo == "contrato":
         situacao = r[4]
         if situacao == "Instrumento pronto":
