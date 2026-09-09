@@ -1179,6 +1179,38 @@ Regra nova no `checar_cobertura_rotas.py`: `frontend/src/contexts/**` é redesig
 `checar_cobertura_rotas.py` (binária, 0 · 0) e aceitou `checar_rotas_frontend` 965→1083 (chamadas do clássico a
 rotas apagadas hoje — clássico fora do escopo por decisão do dono).
 
+### §2c.33 — O fluxo dos kits, medido de ponta a ponta e consertado (08/09/2026, 20h–21h50 Manaus)
+
+**Pergunta do Jordan:** "o sistema já monta os kits sozinho?" **Resposta medida: não montava; agora as peças rodam,
+e o que falta no kit de agosto é calendário, gente e um robô — não código.**
+
+**O que estava quebrado (com prova):**
+1. Cron do dia 1 (`scripts/gerar_kits_mensais.sh`): "Falha ao obter token" em 01/06, 01/07, 01/08 e 01/09 — senha fixa
+   antiga. Agora roda o serviço dentro do container, sem senha. Teste: 7 kits de 09/2026, 365 documentos.
+2. Gerador de kits (`kit_builder_service.py`): `cp.(punch_timestamp)::date` — erro de sintaxe desde 17/07 (a8ae151ca)
+   que derrubava TODO cliente no bloco do espelho de ponto. Corrigido.
+3. Coleta do dia 21 (beat `ged-auto-collect-monthly`): DISPAROU em 21/08 07:00 (o `celerybeat-schedule` tem 2 execuções)
+   e morreu na transação abortada pelo erro 2; o sino do task_falha avisou 4× e ninguém leu. Cada fase agora faz
+   rollback antes de seguir. Rodada para 08/2026: sucesso, 7 kits.
+4. Recibos de folha por colaborador (47 em 08.2026, ligados ao colaborador pelo Hermes do GEDEON) nunca chegavam à
+   subpasta "1. Folha e Pessoal": o arquivador só achava o condomínio pelo NOME do arquivo. Agora vai pelo posto onde
+   a pessoa está alocada — 45 arquivados nos 7 condomínios (3 sem vínculo, agora contados).
+5. `completude_kits` contava as pastas de bloco criadas na raiz do workspace ("1. Folha e Pessoal"…) como kits a 0%.
+6. Oráculo novo `test_oraculo_kits_mensais.py`: acusa no dia seguinte se o dia 1 ou o dia 21 não produzir.
+
+**Montagem do Drive (GEDEON, task 5c75bcbd, 21:14):** 11 etapas ok, 0 falha, Onvio renovado. Kit de 08.2026 hoje:
+certidões e FGTS completos (bloco 3), NFS-e 12/12, contracheques 45. Faltam, e por quê:
+- VT/VR: 52 recibos aguardando assinatura dos colaboradores (gente, não código).
+- Guias/INSS de agosto: vencem 20–25/09 — o cronograma do kit diz que o mês de entrega é 09.2026.
+- Ponto assinado: o robô do Sólides no host (`solides_espelho_robot.py`) falhou num clique (`#idf3` invisível) — o site
+  mudou ou a sessão caiu; precisa de manutenção do robô.
+- Comprovantes de salário (Inter): dependem do pagamento da folha de agosto.
+Por isso **não preparei nem marquei entrega**: entregar um kit a 40–50% em 08/09 seria mentir para o síndico. O botão
+"Preparar entrega" (capa/índice + selo ATLAS) e "Marcar entregue" continuam manuais, como você decidiu.
+
+**Depende do Jordan:** consertar o robô do ponto no Sólides; cobrar as 52 assinaturas de VT/VR; conferir os 3 recibos
+sem vínculo de colaborador; o `onvio-auth-refresh.sh` ainda tenta avisar por Telegram (removido em 11/08) — inofensivo.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
