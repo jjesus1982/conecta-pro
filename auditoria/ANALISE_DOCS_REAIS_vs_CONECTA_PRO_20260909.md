@@ -99,3 +99,29 @@ co-participação explicada com a base legal.
 4. Layout: código de rubrica, referência com unidade, matrícula/depto/filial, horas-mês, faixa IRRF, duas vias.
 5. Recibo VT/VR: código, unitário × quantidade, período de utilização, duas vias.
 6. Kit: boleto do SINETRAM e os dois relatórios de pedido (VT e VA) como documentos do bloco de benefícios.
+
+---
+
+## 6. Dívida aberta: três colunas de `employees` fora do alembic (09/09/2026)
+
+Criadas por SQL direto durante a implementação de hoje, porque `alembic/versions/` é zona proibida para as sessões
+autônomas (CLAUDE.md: "Migrations — nunca editar manualmente"). **Precisam virar migration pela mão do Jordan ou de
+quem tiver essa autorização** — sobreviveram ao bake de hoje, mas não sobrevivem a um banco recriado e não existem
+em nenhum outro ambiente.
+
+| coluna | tipo | quem preenche | o que quebra sem ela |
+|---|---|---|---|
+| `plano_odonto_ativo` | boolean default false | `servdonto_importer` (relatório Servdonto) | volta a descontar o plano de quem não está nele (medido: 16 pessoas a mais) |
+| `plano_odonto_dependentes` | integer default 0 | `servdonto_importer` | todo mundo pagaria R$ 8,50; quem tem dependente paga R$ 17,00 |
+| `vt_modalidade` | varchar(12) — 'sinetram' \| 'solides' | `beneficios_importer` (relatórios do mês) | o recibo deixa de dizer onde o crédito do VT entrou e o kit não fecha o total por portal |
+
+O motor lê as três com `coalesce`/`try-except`: num banco sem elas **nada quebra em voz alta** — o desconto do plano
+simplesmente some e a modalidade fica em branco. É esse silêncio que torna a migration necessária.
+
+DDL aplicado hoje, para quem for escrever a migration:
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS plano_odonto_dependentes integer DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS plano_odonto_ativo boolean DEFAULT false;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS vt_modalidade varchar(12);
+```
