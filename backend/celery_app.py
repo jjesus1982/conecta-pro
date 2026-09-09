@@ -37,6 +37,8 @@ app = Celery(
         "modules.financial.tasks",
         "modules.fiscal_contabil.obrigacoes.tasks",
         "modules.crm.tasks",
+        # 09/09/2026: o lote de assinatura da empresa saiu do processo do backend (morria em qualquer reload)
+        "modules.signatures.tasks",
         "modules.integrations.connectors.whatsapp.tasks",
         "modules.analytics.tasks",
         # Fase 0 (Task 7/8): sino canônico + reconciliação + GED expiry (era órfã).

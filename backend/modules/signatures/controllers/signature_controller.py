@@ -35,7 +35,6 @@ from core.auth.dependencies import get_current_active_user
 from core.database import get_db
 from core.models import User
 from modules.signatures.schemas.signature_schemas import (
-    AssinarLoteEmpresaSchema,
     AssinarLoteSchema,
     CreateSignatureRequestSchema,
     PublicSignSchema,
@@ -306,27 +305,20 @@ async def assinar_lote_empresa(
     if not ids:
         return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa nesta pasta."}
     evidence = _evidence_from(request, None)
-    # 09/09 (medido): 21 assinaturas ICP-Brasil + Drive levaram 100 s; o nginx corta em 60 s → 504 e a tela dizia
-    # "não foi possível salvar" com TUDO assinado por baixo. O lote roda em segundo plano com sessão própria e a
-    # resposta volta na hora; a central mostra o andamento (pendentes caindo) ao recarregar.
-    import asyncio
+    # 09/09 (medido duas vezes): 21 assinaturas ICP-Brasil + Drive levam ~100 s. Primeiro o nginx cortava em 60 s
+    # (504 com tudo assinado por baixo); depois, com asyncio.create_task no backend, um reload no meio do lote
+    # matou a tarefa em 10 de 24 sem erro na tela. Agora o lote vai para o CELERY (fila operacional), que
+    # sobrevive a reload do backend; a resposta volta na hora e a central mostra os pendentes caindo.
+    from modules.signatures.tasks import assinar_lote_empresa_task
 
-    from core.database.session import async_session_factory
-
-    uid, nome = current_user.id, current_user.name
-
-    async def _rodar() -> None:
-        async with async_session_factory() as s:
-            try:
-                r = await UniversalSignatureService(s).assinar_lote_empresa(
-                    company_signer_id=uid, signer_name=nome, request_ids=ids, limite=len(ids), evidence=evidence)
-                logger.info("Lote da empresa (%s) concluído: %s assinados, %s falhas — %s",
-                            pasta or "tudo", r.get("assinados"), r.get("falhas"), str(r.get("detalhes"))[:300])
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Lote da empresa (%s) falhou: %s", pasta or "tudo", exc)
-
-    asyncio.create_task(_rodar())
-    return {"iniciado": True, "quantidade": len(ids), "pasta": pasta or "todas",
+    task = assinar_lote_empresa_task.apply_async(kwargs={
+        "request_ids": [str(i) for i in ids],
+        "company_signer_id": str(current_user.id),
+        "signer_name": current_user.name,
+        "evidence": {"ip_address": evidence.ip_address, "user_agent": evidence.user_agent,
+                     "device": evidence.device, "extra": evidence.extra},
+    })
+    return {"iniciado": True, "quantidade": len(ids), "pasta": pasta or "todas", "task_id": str(getattr(task, "id", "")),
             "message": f"Código confirmado. Assinando {len(ids)} documento(s) com ICP-Brasil em segundo plano "
                        f"(~4 s cada). Recarregue a central para acompanhar; os PDFs assinados vão para o kit e o Drive."}
 
