@@ -69,6 +69,17 @@ def _empresa_assinante(empresa_slug: str | None) -> dict[str, str]:
 POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     "contract": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "service_contract": [SignerType.CUSTOMER, SignerType.COMPANY],
+    # `contrato`, em português, é o que o CRM grava de verdade
+    # (`contract_signature.abrir_assinatura`). Não estava declarado aqui: caía no default,
+    # calado. Achado em 09/09/2026 pelo cruzamento entre o vocabulário DECLARADO e o
+    # GRAVADO — a política afirmava `service_contract` e o banco tinha `contrato`.
+    # Mesmos signatários do `service_contract`, porque é o mesmo documento: contrato de
+    # serviço com cliente.
+    "contrato": [SignerType.CUSTOMER, SignerType.COMPANY],
+    # Mapa de empregados: a empresa emite e assina sozinha. Declarado para sair do default;
+    # o NÍVEL fica como está (simples) — promover a assinatura de um documento é decisão do
+    # dono, não consequência de eu ter descoberto que ele existe.
+    "mapa_empregados": [SignerType.COMPANY],
     "proposal": [SignerType.COMPANY, SignerType.CUSTOMER],
     # ⚠️ MUDANÇA DE DECISÃO — Jordan, 21/08/2026, revoga a de 05/08/2026.
     # Holerite e recibo de VT/VR passam a ser assinados SÓ PELO FUNCIONÁRIO. Antes eram
@@ -114,6 +125,18 @@ DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset(
     {
         "contract",
         "service_contract",
+        # ⚠️ "contrato", em português, é o tipo que o CRM grava de verdade
+        # (`contract_signature.abrir_assinatura`, linha 69). Os dois vocabulários convivem
+        # nesta casa — `contract`/`service_contract` vêm do DP, `contrato` vem do comercial —
+        # e a lista só conhecia o inglês. Resultado medido em 09/09/2026: holerite e espelho
+        # de ponto assinavam com o A1 ICP-Brasil e **o CONTRATO assinava em nível simples**,
+        # justamente o documento com mais consequência jurídica.
+        #   nivel_assinatura("contrato", COMPANY)  → simple      (antes)
+        #   nivel_assinatura("contract", COMPANY)  → qualified
+        # Conferido antes de ligar: os dois certificados A1 abrem —
+        # Eletrônica (35.710.481/0001-03) até 13/01/2027, Patrimonial até 06/07/2027 —
+        # então isto promove a assinatura, não a quebra.
+        "contrato",
         "comunicado",
         "espelho_ponto",
         "prorrogacao_contrato",

@@ -63,6 +63,33 @@ async def main() -> None:
     assert not incoerentes, f"{incoerentes} marcados como qualificados sem ter COMPANY na política — letra morta"
 
     with get_sync_db() as db:
+        # ── O VOCABULÁRIO DECLARADO É O MESMO QUE O BANCO GRAVA? ──────────────────────
+        # Este oráculo passou verde por semanas afirmando `contract`, enquanto o CRM
+        # gravava `contrato` — e `nivel_assinatura("contrato", COMPANY)` devolvia SIMPLE.
+        # O contrato, documento de maior consequência jurídica da casa, era o único que a
+        # empresa assinava SEM o A1 ICP-Brasil, enquanto holerite e espelho de ponto
+        # assinavam com ele. Medido em 09/09/2026.
+        #
+        # A lição que vira trava: afirmar o mapa DECLARADO não prova nada sobre o que o
+        # sistema escreve. Todo `document_type` que existe no banco tem de ser conhecido
+        # pela política — tipo que ninguém declarou cai no default e assina fraco calado.
+        reais = {r[0] for r in db.execute(text(
+            "SELECT DISTINCT document_type FROM sig_signature_requests "
+            " WHERE document_type IS NOT NULL AND document_type <> ''")).fetchall()}
+        desconhecidos = sorted(reais - set(POLITICA_ASSINANTES))
+        assert not desconhecidos, (
+            f"tipos gravados que a política NÃO conhece: {desconhecidos} — caem no default "
+            "e assinam em nível simples sem ninguém perceber")
+        print(f"OK os {len(reais)} tipos gravados no banco são todos declarados na política")
+
+        # E todo tipo que É contrato assina QUALIFIED pela empresa, escrito em que língua for.
+        for dt in sorted(t for t in reais if "contrat" in t or "contract" in t):
+            nivel = nivel_assinatura(dt, SignerType.COMPANY)
+            assert nivel == SignatureLevel.QUALIFIED, (
+                f"'{dt}' é contrato e a empresa o assina em nível {nivel.value} — "
+                "contrato exige A1 ICP-Brasil")
+            print(f"OK {dt}: empresa assina em {nivel.value}")
+
         # Nenhuma exigência VIVA da empresa nos documentos que são só do funcionário.
         vivas = (
             db.execute(
