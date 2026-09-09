@@ -136,17 +136,29 @@ async def build(db) -> dict:
             p_[{"company": "empresa_pendentes", "employee": "funcionarios_pendentes"}.get(r[2], "clientes_pendentes")] += 1
             docs_l.append({"pasta": nome_pasta, "documento": r[4], "quem_assina": _papel.get(r[2], r[2]), "funcionario": r[10] or "—", "status": r[5],
                            "expira_em": r[6].strftime("%d/%m") if r[6] else "—", "_id": r[0], "_papel": r[2]})
+        docs_por_pasta: dict[str, list[dict]] = {}
+        for it in docs_l:
+            docs_por_pasta.setdefault(it["pasta"], []).append(it)
         lp = sorted(pastas.values(), key=lambda x: (-x["empresa_pendentes"], x["pasta"]))
+
+        def _abrir_pasta(it: dict) -> dict:
+            """'Abrir' = conferir ANTES de assinar: um campo por documento, com o PDF ao lado (09/09, Jordan)."""
+            campos = [{"label": f"{d_['funcionario']} — {d_['documento']}" if d_["funcionario"] != "—" else d_["documento"],
+                       "value": f"{d_['quem_assina']} · {d_['status']}", "span": "span 2",
+                       "docs": [{"label": "Ver PDF", "url": f"/api/v1/signatures/{d_['_id']}/documento", "fmt": "pdf", "mode": "blob"}]}
+                      for d_ in docs_por_pasta.get(it["pasta"], [])]
+            return {"title": f"Abrir pasta — {it['pasta']}", "readOnly": True, "btnLabel": "Ver documentos",
+                    "fields": campos or [{"label": "—", "value": "pasta vazia"}]}
         n_emp = sum(x["empresa_pendentes"] for x in lp)
         out["ged-assinaturas"] = tabela_de_lista(
             "GED · Central de assinaturas",
             f"{len(lp)} pasta(s) · {n_emp} documento(s) esperam a SUA assinatura. Abra a pasta em \"documentos\" para ver um a um, ou assine a pasta inteira aqui: o código OTP vai para o seu e-mail e cada documento recebe a assinatura ICP-Brasil da empresa.",
             lp, cols=["pasta", "empresa_pendentes", "funcionarios_pendentes", "clientes_pendentes"],
-            actionsfn=lambda it: [{
+            actionsfn=lambda it: [_abrir_pasta(it)] + ([{
                 "title": f"Assinar todos da pasta — {it['pasta']}",
                 "sub": f"{it['empresa_pendentes']} documento(s) esperam a empresa nesta pasta. 1º clique: código OTP no seu e-mail. 2º: digite o código e todos são assinados com ICP-Brasil; os PDFs assinados voltam para o kit e para o Drive.",
                 "endpoint": "/api/v1/signatures/empresa/assinar-lote", "method": "POST", "btnLabel": "Assinar todos", "submitLabel": "Assinar a pasta",
-                "btnStyle": "primary", "okMsg": "Pasta assinada. Recarregue.", "fixed": {"pasta": it["_chave"], "limite": 200}, "fields": []}] if it["empresa_pendentes"] else [])
+                "btnStyle": "primary", "okMsg": "Pasta assinada. Recarregue.", "fixed": {"pasta": it["_chave"], "limite": 200}, "fields": []}] if it["empresa_pendentes"] else []))
         out["ged-assinaturas"]["cols"] = ["Pasta", "Esperam a empresa", "Esperam funcionários", "Esperam clientes"]
         out["ged-assinaturas-docs"] = tabela_de_lista(
             "GED · Documentos a assinar (por pasta)", "Escolha a pasta no filtro. Cada linha tem o PDF para ler e, nos da empresa, o botão Assinar (OTP → ICP-Brasil).",

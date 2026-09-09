@@ -275,7 +275,11 @@ function TableScreen({ scr }: { scr: any }) {
                 <div key={i} style={{ gridColumn: f.span === 'span 2' ? '1 / -1' : 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, color: 'var(--placeholder)', fontWeight: 600 }}>{f.label}</label>
                   {editRow.readOnly
-                    ? <div style={{ fontSize: 13.5, color: 'var(--ink, #16277D)', fontWeight: 600, padding: '4px 0', wordBreak: 'break-word' }}>{(f.value ?? editVals[f.key]) || '—'}</div>
+                    ? <div style={{ fontSize: 13.5, color: 'var(--ink, #16277D)', fontWeight: 600, padding: '4px 0', wordBreak: 'break-word' }}>
+                        {(f.value ?? editVals[f.key]) || '—'}
+                        {/* 09/09/2026: detalhe pode trazer documentos (f.docs) — "abrir a pasta" mostra o PDF de cada item antes de assinar */}
+                        {Array.isArray(f.docs) && f.docs.length > 0 && <div style={{ marginTop: 4 }}><DocButtons docs={f.docs} compact /></div>}
+                      </div>
                     : f.type === 'select'
                     ? <select className="rd-input" value={editVals[f.key] ?? ''} onChange={(e) => setEditVals((s) => ({ ...s, [f.key]: e.target.value }))}>
                         {(f.options || []).map((o: any, k: number) => <option key={k} value={o.value}>{o.label}</option>)}
