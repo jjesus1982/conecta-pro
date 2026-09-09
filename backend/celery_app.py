@@ -591,6 +591,12 @@ app.conf.beat_schedule = {
     # Coleta mensal D4 — dia 21 às 07:00 SP (= 06:00 Manaus UTC-4, tz global SP UTC-3)
     # INV-12: America/Manaus offset. Celery global tz = America/Sao_Paulo.
     # Manaus 06:00 = Sao Paulo 07:00 (horário padrão, sem DST em Manaus).
+    # 09/09/2026: montagem incremental diária — o kit cresce à medida que cada processo termina (06:30 Manaus)
+    "ged-kit-incremental-diario": {
+        "task": "ged.kit_incremental_diario",
+        "schedule": crontab(hour="7", minute="30"),
+        "options": {"queue": "operacional"},
+    },
     "ged-auto-collect-monthly": {
         "task": "ged.auto_collect_documents",
         "schedule": crontab(day_of_month="21", hour="7", minute="0"),

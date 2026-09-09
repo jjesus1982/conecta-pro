@@ -334,15 +334,19 @@ async def _adiantamento_e_comprovantes(db, kit, docs, emp, homolog, rel) -> None
         d5 += timedelta(days=1)
     pat = (await db.execute(text("SELECT cnpj, razao_social FROM empresas WHERE slug = 'conecta_patrimonial'"))).first()
     emp_nome, emp_cnpj = (pat[1], pat[0]) if pat else ("CONECTAMAIS PATRIMONIAL LTDA", "66.014.833/0001-10")
+    if not homolog:
+        # cliente REAL (regra de 09/09): comprovante do 40% (dia 20/21), do 60% (5º dia útil), VT e VR entram assim
+        # que o pagamento existe — pelo sistema (inter_payments) ou pelo extrato (bank_transactions); recibo do
+        # adiantamento gerado com o valor pago. Quem ficou sem pagamento casado vira falta declarada.
+        from modules.people_management.ged.services.kit_eventos import preencher_comprovantes_reais
+
+        r = await preencher_comprovantes_reais(db, kid, kit.reference_month, emp)
+        rel["preenchidos"]["comprovante_pagamento"] = r["comprovantes"]
+        rel["preenchidos"]["recibo_adiantamento"] = r["recibos_adiantamento"]
+        for nome in r["sem_pagamento"]:
+            rel["faltas"].append(f"comprovantes {nome}: nenhum pagamento (sistema/extrato) casado por CPF/nome em {mes:02d}/{ano} até dia 12 do mês seguinte")
+        return
     for e, info in emp.items():
-        if not homolog:
-            for tipo, nome in ((DocumentType.RECIBO_ADIANTAMENTO, f"Recibo adiantamento 40% {mes:02d}/{ano}"),
-                               (DocumentType.COMPROVANTE_PAGAMENTO, f"Comprovante pagamento {mes:02d}/{ano}")):
-                if (e, tipo) not in tem:
-                    db.add(KitDocument(kit_id=kid, employee_id=e, document_type=tipo, document_name=nome, file_path=None,
-                                       mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=False))
-                    rel["faltas"].append(f"{nome} {info.get('nome')}: comprovante/recibo real vem do banco pelo GEDEON (Inter/Cora)")
-            continue
         salario = float((await db.execute(text("SELECT coalesce(salario_base,0) FROM employees WHERE id = CAST(:e AS uuid)"), {"e": e})).scalar() or 0)
         adiant = round(salario * 0.40, 2)
         liquido = None
@@ -410,6 +414,9 @@ async def _guias(db, kit, emp, homolog, tem, rel) -> None:
             db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=n, file_path=None, mime_type="application/pdf",
                                source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True))
             rel["faltas"].append(f"{n}: vence {venc:%d/%m/%Y} — emitida pelo contador no Onvio, o GEDEON arquiva (bloco guias)")
+            db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=f"Comprovante pagamento {n}", file_path=None,
+                               mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True))
+            rel["faltas"].append(f"Comprovante pagamento {n}: entra quando a guia for paga (inter_payments darf/gps/boleto ou extrato)")
         return
     from modules.gedeon.services.kit_simulados_pdf import guia_simulada_pdf
 
@@ -428,6 +435,8 @@ async def _guias(db, kit, emp, homolog, tem, rel) -> None:
         DocumentType.DAS_SIMPLES_NACIONAL: ("DAS", round(fat * 0.0435 + fat * 0.0275, 2), [("Período de apuração", comp), ("Receita bruta do mês", _brl_(fat)),
                                                                                          ("Anexo IV (ISS 4,35% + IRPJ/CSLL/PIS/COFINS)", "6,10% efetivo")], "8" + "5" * 10 + "0"),
     }
+    from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
+
     for t, n in faltando:
         tipo, valor, linhas, base = dados[t]
         pdf = guia_simulada_pdf(tipo=tipo, empresa=empresa, competencia=comp, vencimento=venc, valor=valor, linhas=linhas, codigo_barras_base=base)
@@ -436,6 +445,16 @@ async def _guias(db, kit, emp, homolog, tem, rel) -> None:
                            mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True,
                            notes="simulação de homologação — valores calculados sobre a folha de teste"))
         rel["preenchidos"]["guias"] = rel["preenchidos"].get("guias", 0) + 1
+        # 09/09 (Jordan): a pasta Guias leva também o COMPROVANTE de pagamento de cada guia
+        cp = gerar_comprovante_pdf(favorecido={"FGTS": "FGTS Digital — Caixa Econômica Federal", "DARF": "Receita Federal do Brasil (DARF)",
+                                               "DAS": "Simples Nacional (DAS)"}[tipo], cpf=None, valor=valor, data_pagamento=venc,
+                                   descricao=f"Pagamento da guia {tipo} {comp} — SIMULADO (homologação)", id_transacao=f"SIM{ano}{mes:02d}{tipo}",
+                                   competencia=comp, tipo={"FGTS": "Boleto", "DARF": "DARF", "DAS": "DAS"}.get(tipo, "Boleto"),
+                                   empresa_nome=empresa["nome"], empresa_cnpj=empresa["cnpj"], banco_origem="Banco Cora SCD (403)")
+        db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=f"Comprovante pagamento {n} (SIMULADO)",
+                           file_path=_gravar(kid, "guias", f"Comprovante_{tipo}_{mes:02d}.{ano}_SIMULADO.pdf", cp), file_size_bytes=len(cp),
+                           mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True,
+                           notes="simulação de homologação — comprovante de pagamento da guia"))
 
 
 def _brl_(v: float) -> str:

@@ -117,6 +117,9 @@ DOCUMENTOS_QUALIFICADOS: frozenset[str] = frozenset(
         "comunicado",
         "espelho_ponto",
         "prorrogacao_contrato",
+        # 09/09/2026: documento do kit com o campo do diretor (espelho, recibo de adiantamento) — a empresa assina
+        # com o A1 ICP-Brasil, como já faz no espelho fora do kit ("já funciona assim hoje", Jordan)
+        "kit_documento_coassinado",
     }
 )
 

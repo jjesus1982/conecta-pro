@@ -490,6 +490,54 @@ class GoogleDriveService:
             "folder_ids": folder_ids,
         }
 
+    async def sync_documento(self, kit_id: str, doc_id: str) -> dict:
+        """09/09/2026: o kit é montado À MEDIDA que cada processo termina — assinou/pagou → o arquivo vai para a
+        pasta do kit na hora, sem esperar o sync do kit inteiro. Reusa a árvore (dedup) e substitui por md5."""
+        service = self._ensure_service()
+        if not service:
+            return {"configured": False}
+        kit = (await self.db.execute(select(GedDocumentKit).where(GedDocumentKit.id == kit_id))).scalar_one_or_none()
+        doc = (await self.db.execute(select(KitDocument).where(KitDocument.id == doc_id))).scalar_one_or_none()
+        if not kit or not doc or not doc.file_path or not os.path.exists(doc.file_path):
+            return {"configured": True, "enviado": False, "motivo": "kit/documento/arquivo ausente"}
+        client = (await self.db.execute(select(GedClient).where(GedClient.id == kit.client_id))).scalar_one_or_none()
+        folders = await self.create_kit_folder(client_name=client.name if client else "cliente_desconhecido",
+                                               reference_month=kit.reference_month.strftime("%Y-%m"),
+                                               parent_folder_id=client.google_drive_folder_id if client else None)
+        fids = folders.get("folder_ids", {})
+        if not fids.get("month"):
+            return {"configured": True, "enviado": False, "motivo": folders.get("message")}
+        if doc.employee_id:
+            from sqlalchemy import text as _text
+
+            nome = (await self.db.execute(_text("SELECT nome FROM employees WHERE id = :e"), {"e": doc.employee_id})).scalar()
+            alvo = self._create_folder(service, name=(nome or "").strip().title() or str(doc.employee_id), parent_id=fids["funcionarios"])
+        elif doc.document_type.startswith(("cnd_", "crf_", "cndt_")):
+            alvo = fids.get("certidoes")
+        elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") or doc.document_type.startswith("dctfweb"):
+            alvo = fids.get("guias")
+        else:
+            alvo = fids.get("financeiro")
+        nome_arq = os.path.basename(doc.file_path)
+        r = service.files().list(q=f"'{alvo}' in parents and name='{nome_arq}' and trashed=false", fields="files(id,md5Checksum)").execute()
+        from googleapiclient.http import MediaFileUpload
+
+        existentes = r.get("files", [])
+        if existentes:
+            import hashlib
+
+            h = hashlib.md5(open(doc.file_path, "rb").read()).hexdigest()  # noqa: S324
+            if existentes[0].get("md5Checksum") == h:
+                return {"configured": True, "enviado": False, "motivo": "já estava igual", "file_id": existentes[0]["id"]}
+            service.files().update(fileId=existentes[0]["id"], media_body=MediaFileUpload(doc.file_path, resumable=True)).execute()
+            return {"configured": True, "enviado": True, "substituido": True, "file_id": existentes[0]["id"]}
+        up = self.upload_to_drive(kit_id=kit_id, file_path=doc.file_path, folder_id=alvo)
+        up = await up
+        if not kit.google_drive_link:
+            kit.google_drive_link = f"https://drive.google.com/drive/folders/{fids['month']}"
+            await self.db.flush()
+        return {"configured": True, "enviado": bool(up.get("file_id")), "file_id": up.get("file_id"), "motivo": up.get("message")}
+
     async def get_drive_link(self, file_id: str) -> dict:
         """Obtem link compartilhavel de um arquivo no Drive.
 

@@ -485,6 +485,14 @@ class InterPaymentService:
             f"Inter aceitou (cod={inter_payment_id}); status Inter={inter_response.get('status')}",
         )
         await self.db.commit()
+        if novo_status in ("executado", "confirmado"):
+            # 09/09: o comprovante vai para o kit do condomínio na hora (regra do dono); best-effort, nunca afeta o pagamento
+            try:
+                from modules.people_management.ged.services.kit_eventos import evento_pagamento_executado
+
+                await evento_pagamento_executado(self.db, payment_id)
+            except Exception as _kexc:  # noqa: BLE001
+                logger.warning("kit ← pagamento %s: %s", payment_id, _kexc)
 
         # AGENDA — auto-salva o beneficiário PIX (como o app do Inter): próxima vez basta o nome.
         # Não-fatal: uma falha aqui NUNCA pode afetar o pagamento já concluído.

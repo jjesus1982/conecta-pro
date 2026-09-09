@@ -100,3 +100,39 @@ def ged_auto_collect_documents(self, reference_month_iso: str | None = None) -> 
         if hasattr(self, "retry"):
             raise self.retry(exc=exc)
         return {"error": str(exc)}
+
+
+@shared_task(name="ged.kit_incremental_diario", bind=True, max_retries=1, queue="operacional")
+def ged_kit_incremental_diario(self) -> dict:
+    """09/09/2026: o kit é montado À MEDIDA que cada processo termina. Os eventos (assinatura, pagamento) empurram
+    na hora; esta task é a rede de segurança diária: remonta o kit do MÊS ANTERIOR (o que está sendo entregue) e o
+    do mês corrente, preenchendo só as vagas que ficaram prontas (espelho fechado, NFS-e emitida, CND renovada…)."""
+    import asyncio
+    from datetime import date as _date
+
+    async def _run() -> dict:
+        from core.database import get_db
+        from modules.people_management.ged.services.kit_builder_service import KitBuilderService
+
+        hoje = _date.today().replace(day=1)
+        anterior = (hoje.replace(month=hoje.month - 1) if hoje.month > 1 else hoje.replace(year=hoje.year - 1, month=12))
+        out: dict = {}
+        for ref in (anterior, hoje):
+            gen = get_db()
+            db = await gen.__anext__()
+            try:
+                out[ref.isoformat()] = await KitBuilderService(db).auto_build_all_kits(ref)
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                await db.rollback()
+                out[ref.isoformat()] = {"erro": str(exc)[:200]}
+            finally:
+                try:
+                    await gen.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+        return out
+
+    res = asyncio.run(_run())
+    logger.info("ged.kit_incremental_diario: %s", {k: (v.get("kits_created", v.get("erro", "?")) if isinstance(v, dict) else v) for k, v in res.items()})
+    return res

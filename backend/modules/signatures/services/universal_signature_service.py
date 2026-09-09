@@ -983,6 +983,8 @@ class UniversalSignatureService:
 
         group_completed = await self._maybe_complete_group(req)
         await self.db.commit()
+        # 09/09/2026: o caminho qualificado retornava sem os efeitos pós-assinatura — o kit não recebia o PDF ICP
+        await self._pos_assinatura_hook(req, signed_at)
 
         logger.info(
             "Contrato assinado QUALIFICADO (ICP-Brasil): request=%s issuer=%s serial=%s group_completed=%s",
@@ -1463,6 +1465,16 @@ class UniversalSignatureService:
             {"fp": destino, "ok": pend == 0, "ts": signed_at, "h": sig_hash, "d": doc_id})
         await self.db.commit()
         logger.info("Documento do kit %s atualizado com assinatura (%s pendente(s))", doc_id, pend)
+        try:  # o assinado vai para a pasta do kit no Drive na hora (best-effort; o sync diário cobre falha)
+            from modules.people_management.ged.services.google_drive_service import GoogleDriveService
+
+            kit_id = (await self.db.execute(_sql("SELECT kit_id::text FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id})).scalar()
+            if kit_id:
+                r = await GoogleDriveService(self.db).sync_documento(kit_id, doc_id)
+                await self.db.commit()
+                logger.info("Drive ← documento assinado %s: %s", doc_id, r)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Drive do kit após assinatura %s: %s", doc_id, exc)
 
     async def _maybe_complete_group(self, req: SignatureRequest) -> bool:
         """Se todos os signatários do documento assinaram, marca o grupo COMPLETED."""

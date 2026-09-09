@@ -212,6 +212,15 @@ async def executar_lote(db: AsyncSession, lote_id: str, otp_code: str, user_id: 
                        "resp": json.dumps(resp), "id": str(i["id"])})
                 pagos.append({"id": str(i["id"]), "nome": nome, "valor": float(i["valor"]),
                               "ref": str(ref)[:60], "status": st})
+                if st in ("executado", "confirmado"):
+                    # 09/09: o comprovante vai para o kit do condomínio na hora (regra do dono); best-effort
+                    try:
+                        await db.commit()
+                        from modules.people_management.ged.services.kit_eventos import evento_pagamento_executado
+
+                        await evento_pagamento_executado(db, str(i["id"]))
+                    except Exception as _kexc:  # noqa: BLE001
+                        logger.warning("kit ← pagamento %s: %s", i["id"], _kexc)
             except Exception as e:  # noqa: BLE001
                 logger.error("folha lote: falha ao pagar %s: %s", nome, e)
                 await db.execute(text(
