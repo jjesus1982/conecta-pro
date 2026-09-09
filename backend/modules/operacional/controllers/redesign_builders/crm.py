@@ -506,6 +506,18 @@ def _fila_actions(r):
                          {"key": "email_cliente", "label": "E-mail do cliente (se não cadastrado)",
                           "type": "text", "span": "span 2", "value": "",
                           "ph": "presidencia@cliente.com.br"}]}]
+        if situacao == "Assinatura cancelada":
+            # reabrir é o MESMO endpoint de abrir: o serviço cria solicitações novas.
+            return [{"title": f"Reabrir a assinatura de {ref}",
+                     "endpoint": "/api/v1/redesign/action/contrato-abrir-assinatura",
+                     "method": "POST", "btnLabel": "Reabrir assinatura",
+                     "submitLabel": "Reabrir", "btnStyle": "primary",
+                     "okMsg": "Assinatura reaberta. A Conecta Mais assina primeiro.",
+                     "fields": [
+                         {"key": "contrato", "type": "hidden", "value": ref},
+                         {"key": "email_cliente", "label": "E-mail do cliente (se não cadastrado)",
+                          "type": "text", "span": "span 2", "value": "",
+                          "ph": "presidencia@cliente.com.br"}]}]
         if situacao == "Assinado, fora de vigência":
             # assinado por todos e ainda `draft`: o contrato existe, vale, e NÃO conta no
             # MRR. É o estado mais fácil de esquecer, porque tudo parece pronto.
@@ -840,10 +852,13 @@ async def build(db) -> dict:
                    CASE WHEN c.contract_type::text='one_time' THEN coalesce(c.total_value,0)
                         ELSE coalesce(c.monthly_value,0) END,
                    CASE WHEN c.template_id IS NULL THEN 'Rascunho, sem modelo'
+                        WHEN sr.abertas = 0 AND sr.total > 0 THEN 'Assinatura cancelada'
                         WHEN sr.abertas = 0 THEN 'Instrumento pronto'
                         WHEN sr.assinadas < sr.abertas THEN 'Em assinatura'
                         ELSE 'Assinado, fora de vigência' END,
                    CASE WHEN c.template_id IS NULL THEN 'Escolha o modelo e emita o instrumento'
+                        WHEN sr.abertas = 0 AND sr.total > 0
+                          THEN 'A assinatura foi cancelada — reabra para colher de novo'
                         WHEN sr.abertas = 0 THEN 'Abrir a assinatura eletrônica'
                         WHEN sr.assinadas < sr.abertas
                           THEN 'Faltam ' || (sr.abertas - sr.assinadas) || ' assinatura(s) — mande o link'
@@ -852,11 +867,22 @@ async def build(db) -> dict:
               FROM contracts c
               LEFT JOIN clients cl ON cl.id = c.client_id
               LEFT JOIN LATERAL (
-                    SELECT count(*) AS abertas,
-                           count(*) FILTER (WHERE s.signed_at IS NOT NULL) AS assinadas
+                    -- CANCELADA/EXPIRADA não é pendência: é assinatura que precisa ser
+                    -- REABERTA. Medido em 09/09/2026 — o CTR-2026-00019 tinha as duas
+                    -- solicitações CANCELLED desde 23/08 e a fila dizia "faltam 2
+                    -- assinaturas, mande o link". O link de uma solicitação cancelada
+                    -- ainda serve o PDF pela rota pública: mandá-lo é convidar o cliente
+                    -- a assinar o que a casa cancelou.
+                    SELECT count(*) FILTER (
+                             WHERE upper(coalesce(s.status::text,'')) NOT IN
+                                   ('CANCELLED','CANCELED','CANCELADA','EXPIRED','EXPIRADA')
+                           ) AS abertas,
+                           count(*) FILTER (WHERE s.signed_at IS NOT NULL) AS assinadas,
+                           count(*) AS total
                       FROM sig_signature_requests s
                      WHERE s.reference_code = c.contract_number) sr ON true
              WHERE c.status::text = 'draft' OR (sr.abertas > 0 AND sr.assinadas < sr.abertas)
+                OR (sr.total > 0 AND sr.abertas = 0)
              ORDER BY 1, 3
             """,
             lambda r: [

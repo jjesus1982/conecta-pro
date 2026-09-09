@@ -647,13 +647,23 @@ async def _enviar_link_assinatura(db, user, scope, *, contrato=None, email=None,
 
     papel = "customer" if str(parte).lower().startswith(("cli", "contratante")) else "company"
     linha = (await db.execute(sa_text(
-        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
-        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"),
+        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou, "
+        "       upper(coalesce(status::text,'')) AS status "
+        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p "
+        "ORDER BY created_at DESC"),
         {"k": contrato, "p": papel})).mappings().first()
     if not linha or not linha["access_token"]:
         return _recusa(f"não há link em aberto para a parte '{parte}' em {contrato}.")
     if linha["assinou"]:
         return _recusa(f"{linha['signer_name']} já assinou.")
+    # Solicitação CANCELADA ainda tem token e ainda serve o documento pela rota pública —
+    # medido em 09/09/2026 no CTR-2026-00019, cujas duas solicitações estavam CANCELLED
+    # desde 23/08 e mesmo assim devolviam o PDF. Mandar esse link é convidar o cliente a
+    # assinar algo que a própria casa cancelou. Reabrir é decisão humana, não do envio.
+    if linha["status"] in ("CANCELLED", "CANCELED", "CANCELADA", "EXPIRED", "EXPIRADA"):
+        return _recusa(
+            f"a solicitação de assinatura de {contrato} para '{parte}' está "
+            f"{linha['status'].lower()} — reabra a assinatura antes de mandar o link.")
     if papel == "customer":
         pend = (await db.execute(sa_text(
             "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "

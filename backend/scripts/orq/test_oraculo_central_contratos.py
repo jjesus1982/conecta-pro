@@ -31,6 +31,10 @@ ESPERADO = {
     "Aceita pelo cliente":        ("Gerar o contrato", "Gerar contrato"),
     "Rascunho, sem modelo":       ("modelo", None),
     "Instrumento pronto":         ("Abrir a assinatura", "Abrir assinatura"),
+    # cancelada NÃO é pendência de assinatura: o link cancelado ainda serve o PDF pela
+    # rota pública, então oferecer "mande o link" convida o cliente a assinar o que a
+    # casa cancelou. Medido no CTR-2026-00019 em 09/09/2026.
+    "Assinatura cancelada":       ("reabra", "Reabrir assinatura"),
     "Em assinatura":              ("assinatura(s)", "Enviar link"),
     "Assinado, fora de vigência": ("Ativar", "Ativar"),
 }
