@@ -1334,6 +1334,12 @@ a saída de folha em lote será pelo **Asaas** (integração a concluir por ele)
 do kit precisa estar pendurado no caminho do Asaas (webhook `asaas_webhook_controller` já atualiza `inter_payments`
 com banco='asaas'; ligar `evento_pagamento_executado` ali quando a integração fechar).
 
+**Adendo 11h — central por pasta e reinício:** o Jordan assinou individualmente (funcionou), o lote em tela de form não
+chegou ao backend, e a central listava 216 pedidos antigos ("sereia"). Feito: central por PASTA ("Kit 08/2026 ·
+CONECTA VILLAGE (TESTE)": 21 esperam a empresa) com "Assinar todos" (ação de linha, OTP → ICP-Brasil), tela de
+documentos com filtro por pasta; 216 pedidos fora do kit cancelados de forma reversível a pedido dele. Ficaram vivos
+fora do kit 16 pedidos de holerite/VT-VR de funcionários reais, nascidos hoje pelo portal (não são lixo).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
