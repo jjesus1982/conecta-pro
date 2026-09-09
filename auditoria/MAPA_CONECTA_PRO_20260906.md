@@ -1340,6 +1340,13 @@ CONECTA VILLAGE (TESTE)": 21 esperam a empresa) com "Assinar todos" (ação de l
 documentos com filtro por pasta; 216 pedidos fora do kit cancelados de forma reversível a pedido dele. Ficaram vivos
 fora do kit 16 pedidos de holerite/VT-VR de funcionários reais, nascidos hoje pelo portal (não são lixo).
 
+**Fechamento 11h20 — kit simulado concluído nas duas pontas:** o Jordan conferiu ("Ver documentos") e assinou os 20
+restantes em lote pela central (OTP no e-mail, ICP-Brasil, segundo plano). Três defeitos achados no caminho do lote:
+o nginx cortava em 60 s (lote de 21 levava 100 s → tela dizia erro com tudo assinado); o lote assinava eletrônica
+SIMPLES (o individual calculava o nível, o lote não) → 21 revogadas e refeitas; a edição do handler cortou o trecho
+do OTP (500). Estado final do kit 818ae2ac: 109 documentos, 107 assinados (NFS-e e boleto não têm signatário),
+24/24 co-assinados com PAdES da Patrimonial (`pdfsig`), 0 pendências na central, Drive com os assinados.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
