@@ -47,6 +47,9 @@ EMPLOYEE_SIGNABLE_KIT_TYPES: frozenset[str] = frozenset(
         "comp_salario_individual",
         # folha de ponto
         "folha_ponto",
+        # 09/09: escala do mês e recibo de adiantamento também são do funcionário
+        "escala_mes",
+        "recibo_adiantamento",
         "folhas_ponto",
         "ponto",
         # benefícios (comprovantes de VT/VA/VR do funcionário)
@@ -89,6 +92,50 @@ def _kit_documento_precisa_assinatura(document_type: str | None, employee_id: An
     if dt in NAO_ASSINAVEIS_PELO_FUNCIONARIO:
         return False
     return dt in EMPLOYEE_SIGNABLE_KIT_TYPES
+
+
+# 09/09: quem leva o campo do DIRETOR no PDF — espelho de ponto e recibo de adiantamento (a escala é da supervisão)
+COASSINADOS: frozenset[str] = frozenset({"folha_ponto", "folhas_ponto", "ponto", "recibo_adiantamento"})
+
+
+async def sincronizar_assinaturas_kit(db: AsyncSession, kit_id: str) -> dict[str, Any]:
+    """Traz para ged_kit_documents o que o motor já sabe: PDF assinado (selos) e is_signed. Idempotente.
+    Cobre assinaturas feitas antes do hook de 09/09 existir e qualquer descompasso."""
+    import os
+    import shutil
+
+    rows = (await db.execute(text(
+        """
+        SELECT gkd.id, gkd.file_path, gkd.is_signed,
+               sum(CASE WHEN sr.status::text IN ('SIGNED','COMPLETED') THEN 1 ELSE 0 END) AS assinadas,
+               count(sr.id) FILTER (WHERE sr.status::text NOT IN ('CANCELLED','REJECTED','EXPIRED')) AS total,
+               (array_agg(sr.signed_document_path ORDER BY coalesce(sr.signed_at, sr.updated_at) DESC NULLS LAST))[1] AS ultimo_pdf,
+               max(sr.signed_at) AS signed_at
+        FROM ged_kit_documents gkd
+        JOIN sig_signature_requests sr ON sr.document_type IN ('kit_documento','kit_documento_coassinado') AND sr.document_id = gkd.id
+        WHERE gkd.kit_id = :kid AND sr.status::text NOT IN ('CANCELLED','REJECTED','EXPIRED')
+        GROUP BY gkd.id, gkd.file_path, gkd.is_signed
+        """), {"kid": kit_id})).mappings().all()
+    rel = {"documentos_com_pedido": len(rows), "atualizados": 0, "assinados": 0, "parciais": 0}
+    for r in rows:
+        if not r["ultimo_pdf"] or not os.path.exists(r["ultimo_pdf"]):
+            continue
+        completo = int(r["assinadas"] or 0) >= int(r["total"] or 0) and int(r["total"] or 0) > 0
+        if int(r["assinadas"] or 0) == 0:
+            continue
+        destino = r["file_path"] or r["ultimo_pdf"]
+        try:
+            if destino != r["ultimo_pdf"]:
+                shutil.copyfile(r["ultimo_pdf"], destino)
+        except OSError as exc:
+            logger.warning("sincronizar_assinaturas_kit: cópia falhou %s: %s", destino, exc)
+            continue
+        await db.execute(text(
+            "UPDATE ged_kit_documents SET file_path = :fp, is_signed = :ok, signed_at = CASE WHEN :ok THEN :ts ELSE signed_at END, "
+            "updated_at = now() WHERE id = :i"), {"fp": destino, "ok": completo, "ts": r["signed_at"], "i": r["id"]})
+        rel["atualizados"] += 1
+        rel["assinados" if completo else "parciais"] += 1
+    return rel
 
 
 async def solicitar_assinaturas_kit(
@@ -142,10 +189,12 @@ async def solicitar_assinaturas_kit(
 
         resumo["assinaveis"] += 1
         titulo = d["document_name"] or f"Documento do kit ({d['document_type']})"
+        # 09/09: espelho de ponto e escala levam o campo do diretor → funcionário E empresa (central de assinaturas)
+        dtype = "kit_documento_coassinado" if (d["document_type"] or "").lower() in COASSINADOS else "kit_documento"
         try:
             res = await garantir_solicitacao_assinatura(
                 db,
-                document_type="kit_documento",
+                document_type=dtype,
                 document_id=str(d["id"]),
                 title=titulo,
                 document_path=d["file_path"],
@@ -196,7 +245,7 @@ async def status_assinaturas_kit(db: AsyncSession, kit_id: str) -> dict[str, Any
                 FROM ged_kit_documents gkd
                 LEFT JOIN employees e ON e.id = gkd.employee_id
                 LEFT JOIN sig_signature_requests sr
-                       ON sr.document_type = 'kit_documento'
+                       ON sr.document_type IN ('kit_documento', 'kit_documento_coassinado')
                       AND sr.document_id = gkd.id
                       AND sr.signer_type = 'employee'
                 WHERE gkd.kit_id = :kid

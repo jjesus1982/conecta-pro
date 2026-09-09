@@ -206,7 +206,7 @@ class GoogleDriveService:
             folder_ids["month"] = month_folder
 
             # Criar subpastas
-            for subfolder_name in ["Funcionarios", "Certidoes", "Guias", "Outros"]:
+            for subfolder_name in ["Funcionarios", "Certidoes", "Guias", "Financeiro"]:  # 09/09: "Outros" virou "Financeiro" (NFS-e + boleto)
                 subfolder_id = self._create_folder(
                     service,
                     name=subfolder_name,
@@ -375,6 +375,7 @@ class GoogleDriveService:
         documents = docs_result.scalars().all()
 
         uploaded = 0
+        substituidos = 0
         errors_list = []
         ja_na_pasta: dict[str, set[str]] = {}  # 09/09: não duplica arquivo já enviado (re-sync do mesmo kit)
         emp_ids = sorted({str(d.employee_id) for d in documents if d.employee_id})
@@ -385,14 +386,27 @@ class GoogleDriveService:
             rows = await self.db.execute(_text("SELECT id::text, nome FROM employees WHERE id::text = ANY(:ids)"), {"ids": emp_ids})
             nomes_emp = {r[0]: (r[1] or "").strip().title() for r in rows.all()}
 
+        ids_por_nome: dict[str, dict[str, tuple[str, str]]] = {}
+
         def _nomes(fid: str) -> set[str]:
             if fid not in ja_na_pasta:
                 try:
-                    r = service.files().list(q=f"'{fid}' in parents and trashed=false", fields="files(name)", pageSize=500).execute()
+                    r = service.files().list(q=f"'{fid}' in parents and trashed=false", fields="files(id,name,md5Checksum)", pageSize=500).execute()
                     ja_na_pasta[fid] = {f["name"] for f in r.get("files", [])}
+                    ids_por_nome[fid] = {f["name"]: (f["id"], f.get("md5Checksum") or "") for f in r.get("files", [])}
                 except Exception:  # noqa: BLE001
                     ja_na_pasta[fid] = set()
+                    ids_por_nome[fid] = {}
             return ja_na_pasta[fid]
+
+        def _md5(path: str) -> str:
+            import hashlib
+
+            h = hashlib.md5()  # noqa: S324 — só comparação com o md5Checksum do Drive
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()
 
         for doc in documents:
             if not doc.file_path or not os.path.exists(doc.file_path):
@@ -415,12 +429,23 @@ class GoogleDriveService:
                 or doc.document_type.startswith("cndt_")
             ):
                 target_folder = folder_ids.get("certidoes")
-            elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss"):
+            elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") \
+                    or doc.document_type.startswith("dctfweb"):
                 target_folder = folder_ids.get("guias")
             else:
-                target_folder = folder_ids.get("outros")
+                target_folder = folder_ids.get("financeiro")
 
             if target_folder and os.path.basename(doc.file_path) in _nomes(target_folder):
+                fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(os.path.basename(doc.file_path), ("", ""))
+                if fid_drive and md5_drive and md5_drive != _md5(doc.file_path):
+                    # 09/09: mesmo nome, conteúdo novo (ex.: PDF assinado) → substitui no lugar, mesmo id/link
+                    try:
+                        from googleapiclient.http import MediaFileUpload
+
+                        service.files().update(fileId=fid_drive, media_body=MediaFileUpload(doc.file_path, resumable=True)).execute()
+                        substituidos += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors_list.append({"document": doc.document_name, "error": f"substituição falhou: {exc}"})
                 uploaded += 1
                 continue
             upload_result = await self.upload_to_drive(
@@ -458,6 +483,7 @@ class GoogleDriveService:
             "configured": True,
             "kit_id": kit_id,
             "uploaded": uploaded,
+            "substituidos": substituidos,
             "errors": len(errors_list),
             "error_details": errors_list[:10],
             "drive_link": kit.google_drive_link,

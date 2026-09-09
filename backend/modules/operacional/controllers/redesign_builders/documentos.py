@@ -66,10 +66,11 @@ EXTRA_MENU: list[dict] = [
     {"id": "cnd-upload", "label": "Certidões — subir PDF", "icon": "M3 3v18h18"},
     {"id": "certidoes-avisar", "label": "Certidões — avisar cliente", "icon": "M3 3v18h18"},
     {"id": "kits-conferencia", "label": "Conferência dos kits (ATLAS)", "icon": "M3 3v18h18"},
-    {"id": "kits-assinaturas-pendentes", "label": "Assinaturas pendentes dos kits", "icon": "M3 3v18h18"},
+    {"id": "kits-assinaturas-pendentes", "label": "Central de assinaturas", "icon": "M3 3v18h18"},
     {"id": "kits-entrega-status", "label": "Entrega dos kits (status)", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-preparar", "label": "Preparar entrega de kit", "icon": "M3 3v18h18"},
     {"id": "kit-entrega-marcar", "label": "Marcar kit como entregue", "icon": "M3 3v18h18"},
+    {"id": "assinaturas-empresa-lote", "label": "Assinar em lote (empresa)", "icon": "M3 3v18h18"},
     {"id": "kit-faturar", "label": "Faturar kit (boleto)", "icon": "M3 3v18h18"},
     {"id": "kit-checklist-evento", "label": "Registrar evento no checklist do kit", "icon": "M3 3v18h18"},
     {"id": "gedeon-perguntar", "label": "Consultor GEDEON", "icon": _ICO_D},
@@ -801,13 +802,29 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
     # Drive numa thread e derrubou o worker (08/09/2026, "free(): corrupted unsorted chunks").
     try:
         from sqlalchemy import text as _t
+        # 09/09: virou a CENTRAL DE ASSINATURAS do gestor — o que espera a EMPRESA vem primeiro, com o botão "Assinar"
+        # (POST /signatures/{id}/sign, papel admin/operator) e o PDF para ler antes. O que espera o funcionário é
+        # assinado por ele no portal (meu-espaço); aqui só aparece para cobrança.
         rows = (await db.execute(_t(
-            "SELECT coalesce(signer_name,'—'), coalesce(signer_type::text,'—'), coalesce(document_type,'—'), coalesce(reference_code,'—'), "
-            "status::text, expires_at FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
-            "AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at DESC LIMIT 200"))).fetchall()
-        linhas = [{"signatario": r[0], "papel": r[1], "documento": r[2], "referencia": r[3], "status": r[4], "expira_em": r[5].strftime("%d/%m") if r[5] else "—"} for r in rows]
-        out["kits-assinaturas-pendentes"] = tabela_de_lista("Assinaturas pendentes", f"{len(linhas)} solicitações de assinatura abertas (holerites, recibos, comunicados, contratos) — assinatura universal.", linhas,
-                                                            cols=["signatario", "papel", "documento", "referencia", "status", "expira_em"])
+            "SELECT coalesce(signer_name,'—'), lower(coalesce(signer_type::text,'—')), coalesce(document_type,'—'), coalesce(title, reference_code, '—'), "
+            "status::text, expires_at, id::text, access_token FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
+            "AND (expires_at IS NULL OR expires_at > now()) ORDER BY (lower(signer_type::text) = 'company') DESC, created_at DESC LIMIT 300"))).fetchall()
+        linhas = [{"signatario": r[0], "papel": {"company": "EMPRESA (você)", "employee": "funcionário (portal)", "customer": "cliente"}.get(r[1], r[1]),
+                   "documento": r[3], "tipo": r[2], "status": r[4], "expira_em": r[5].strftime("%d/%m") if r[5] else "—", "_id": r[6], "_papel": r[1], "_tok": r[7]} for r in rows]
+        n_emp = sum(1 for l in linhas if l["_papel"] == "company")
+        out["kits-assinaturas-pendentes"] = tabela_de_lista(
+            "Central de assinaturas", f"{n_emp} documento(s) esperam a SUA assinatura · {len(linhas) - n_emp} esperam funcionários (portal) ou clientes. Assinatura eletrônica com hash SHA-256; o PDF assinado volta para o kit na hora.",
+            linhas, cols=["signatario", "papel", "documento", "tipo", "status", "expira_em"],
+            docsfn=lambda it: [doc("Ver PDF", f"/api/v1/signatures/{it['_id']}/documento", fmt="pdf", mode="blob")],
+            actionsfn=lambda it: [{
+                "title": f"Assinar como empresa — {it['documento']}", "sub": "Registra a sua assinatura eletrônica (nome, CPF/CNPJ da empresa, data, hash) e carimba o selo no PDF.",
+                "endpoint": f"/api/v1/signatures/{it['_id']}/sign", "method": "POST", "btnLabel": "Assinar", "submitLabel": "Assinar agora",
+                "btnStyle": "primary", "okMsg": "Assinado. O kit já aponta para o PDF assinado. Recarregue.", "fields": []}] if it["_papel"] == "company" else [])
+        out["assinaturas-empresa-lote"] = {
+            "title": "Assinar tudo que espera a empresa", "sub": f"{n_emp} documento(s) pendentes da sua assinatura. Assina em lote, um a um pelo mesmo motor; um documento com problema não derruba os outros.",
+            "cta": "Assinar em lote", "type": "form",
+            "submit": {"endpoint": "/api/v1/signatures/empresa/assinar-lote", "okMsg": "Lote assinado. Recarregue a central.", "showResult": True},
+            "fields": [{"key": "limite", "label": "Máximo de documentos neste lote", "type": "number", "span": "span 1", "value": "60"}]}
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); logger.warning("kits assinaturas: %s", str(exc)[:120])
     try:

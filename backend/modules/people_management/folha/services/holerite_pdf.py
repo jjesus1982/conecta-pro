@@ -142,7 +142,7 @@ def _titulo(txt, st, icone="user"):
     return t
 
 
-def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None) -> bytes:
+def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signatarios: list | None = None) -> bytes:
     """Gera o PDF completo do holerite (uma folha A4) a partir do dict de calcular_folha_colaborador."""
     funcionario = funcionario or {}
     _mes = int(holerite.get("mes") or 0)
@@ -369,6 +369,7 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None) -> byte
         incluir_empresa=False,  # HOLERITE: basta a assinatura do FUNCIONÁRIO (recibo de pagamento)
     )
 
+    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios, empresa=empresa_doc)  # 09/09: holerite carimba as assinaturas coletadas
     doc.build(
         story,
         onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="HOLERITE", empresa=empresa_doc),

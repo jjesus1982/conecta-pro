@@ -94,6 +94,8 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     # aviso/rescisão montados no kit por condomínio) → o FUNCIONÁRIO assina.
     # A empresa NÃO co-assina docs do kit; ficha_epi tem fluxo próprio (fora daqui).
     "kit_documento": [SignerType.EMPLOYEE],
+    # 09/09/2026: espelho de ponto e escala do kit trazem o campo do diretor — funcionário E empresa assinam
+    "kit_documento_coassinado": [SignerType.EMPLOYEE, SignerType.COMPANY],
     # COMUNICADO INTERNO: a EMPRESA emite+assina (qualificada, cert A1 do CNPJ) e
     # cada FUNCIONÁRIO dá CIÊNCIA (eletrônica simples). A publicação em massa (1
     # empresa + N funcionários) usa `publicar_comunicados_patrimonial.py`; esta

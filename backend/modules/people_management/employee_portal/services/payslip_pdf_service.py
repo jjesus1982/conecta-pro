@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
-async def gerar_pdf_holerite(db: AsyncSession, payslip_id: UUID) -> bytes:
+async def gerar_pdf_holerite(db: AsyncSession, payslip_id: UUID, signatarios: list | None = None) -> bytes:
     """Gera o PDF do holerite/contracheque no PADRÃO-OURO Conecta Mais.
 
     Args:
@@ -133,4 +133,4 @@ async def gerar_pdf_holerite(db: AsyncSession, payslip_id: UUID) -> bytes:
     if data_pag:
         holerite["data_pagamento"] = data_pag
 
-    return montar_holerite_pdf(holerite, fdad)
+    return montar_holerite_pdf(holerite, fdad, signatarios=signatarios)

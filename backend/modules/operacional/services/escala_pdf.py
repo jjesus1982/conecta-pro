@@ -20,7 +20,7 @@ _MESES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho
 _DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
 
-def montar_escala_pdf(funcionario: dict, posto: str, mes: int, ano: int, turnos: list[dict]) -> bytes:
+def montar_escala_pdf(funcionario: dict, posto: str, mes: int, ano: int, turnos: list[dict], signatarios: list | None = None) -> bytes:
     """turnos: [{"data": date, "inicio": time|None, "fim": time|None, "folga": bool, "noturno": bool, "horas": float}]"""
     comp = f"{ano:04d}-{mes:02d}"
     empresa = B.empresa_branding_por_cpf(funcionario.get("cpf"), comp)
@@ -63,6 +63,7 @@ def montar_escala_pdf(funcionario: dict, posto: str, mes: int, ano: int, turnos:
     story.append(Spacer(1, 8 * mm))
     story += B.campos_assinatura(st, funcionario_nome=funcionario.get("nome"), funcionario_cpf=funcionario.get("cpf"),
                                  responsavel_cargo="Supervisão operacional", empresa=empresa)
+    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios, empresa=empresa)
     hf = lambda cv, dc: B.header_footer(cv, dc, titulo="ESCALA DE TRABALHO", empresa=empresa)  # noqa: E731
     doc.build(story, onFirstPage=hf, onLaterPages=hf)
     return buf.getvalue()

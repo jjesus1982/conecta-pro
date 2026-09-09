@@ -20,10 +20,11 @@ Auth:
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from fastapi import status as http_status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -222,6 +223,62 @@ async def assinar_lote(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
+@router.get(
+    "/{request_id}/documento",
+    summary="PDF de uma solicitação (o assinado, se já houver; senão o original) — para ler antes de assinar",
+)
+async def documento_da_solicitacao(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """09/09/2026: a central de assinaturas e o portal precisam MOSTRAR o PDF antes do clique. Só o próprio
+    signatário (funcionário) ou admin/operador (empresa) enxergam."""
+    from fastapi.responses import FileResponse
+
+    svc = UniversalSignatureService(db)
+    req = await svc._get_request(request_id)  # noqa: SLF001
+    if not req:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
+    eh_admin = (current_user.role or "") in ("admin", "operator")
+    eh_dono = current_user.employee_id is not None and str(current_user.employee_id) == str(req.signer_id or "")
+    if not (eh_admin or eh_dono):
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Sem acesso a este documento.")
+    caminho = req.signed_document_path if req.signed_document_path and os.path.exists(req.signed_document_path) else req.document_path
+    if not caminho or not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail="PDF da solicitação não está no disco.")
+    nome = f"{(req.title or req.document_type or 'documento')[:60]}.pdf".replace("/", "-")
+    return FileResponse(caminho, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'})
+
+
+@router.post(
+    "/empresa/assinar-lote",
+    summary="Assina em lote tudo que espera a EMPRESA (central de assinaturas do gestor)",
+)
+async def assinar_lote_empresa(
+    request: Request,
+    payload: dict | None = Body(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """09/09/2026: a central de assinaturas (redesign › documentos) assina em lote os pedidos PENDING do lado
+    COMPANY — antes só existia o serviço (assinar_lote_empresa) sem rota, e a tela assinava um por vez."""
+    if (current_user.role or "") not in ("admin", "operator"):
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Só administrador/operador assina pela empresa.")
+    try:
+        limite = int((payload or {}).get("limite") or 60)
+    except (TypeError, ValueError):
+        limite = 60
+    svc = UniversalSignatureService(db)
+    evidence = _evidence_from(request, None)
+    return await svc.assinar_lote_empresa(
+        company_signer_id=current_user.id,
+        signer_name=current_user.name,
+        limite=max(1, min(limite, 200)),
+        evidence=evidence,
+    )
 
 
 # --------------------------------------------------------------------------- #

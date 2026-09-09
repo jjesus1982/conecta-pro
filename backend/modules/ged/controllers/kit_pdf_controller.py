@@ -316,6 +316,20 @@ async def generate_kit_pdfs(
     kit = (await db.execute(text("SELECT * FROM ged_document_kits WHERE id = :id"), {"id": kit_id})).mappings().first()
     if not kit:
         raise HTTPException(404, "Kit nao encontrado")
+    # 09/09/2026: o botão "Gerar PDFs" passa a ser a MESMA montagem do cron (padrão-ouro: holerite do motor da folha,
+    # recibo VT/VR, escala, espelho do ponto, CNDs reais, NFS-e/boleto/guias) + pedido e sincronização de assinaturas.
+    # O gerador simplificado abaixo (_gerar_contracheque por salário base) fica só como fallback se a montagem falhar.
+    try:
+        from modules.people_management.ged.services.kit_builder_service import KitBuilderService
+
+        res = await KitBuilderService(db).build_kit_for_client(str(kit["client_id"]), kit["reference_month"])
+        await db.commit()
+        p = res.get("collected", {}).get("preenchimento", {})
+        return {"kit_id": kit_id, "montagem": "padrao_ouro", "presentes": p.get("presentes"), "total": p.get("total"),
+                "preenchidos": p.get("preenchidos"), "faltas": p.get("faltas"), "assinaturas": p.get("assinaturas")}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("generate-pdfs: montagem padrão-ouro falhou (%s) — fallback simplificado", exc)
 
     comp = kit["reference_month"]
     comp_str = f"{comp.month:02d}/{comp.year}" if comp else "03/2026"

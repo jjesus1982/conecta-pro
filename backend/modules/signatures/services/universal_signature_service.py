@@ -1116,8 +1116,12 @@ class UniversalSignatureService:
             or _competencia_de((r.extra_data or {}).get("competencia") if r.extra_data else None)
         )
         if comp is not None:
-            # Competência anterior ao mês corrente → histórico.
-            return comp < ref_ym
+            # Competência anterior ao mês corrente → histórico. 09/09/2026: o kit do mês M é montado e assinado em
+            # M+1 (salário em arrears) — a competência do mês anterior é CORRENTE, senão todo documento de kit
+            # nascia "histórico/opcional" e o portal nunca cobrava (medido: 6 pendências do portal, 0 "a assinar agora").
+            ano, mes = ref_ym
+            anterior = (ano, mes - 1) if mes > 1 else (ano - 1, 12)
+            return comp < anterior
         # Sem competência legível: histórico se veio do lote retroativo (até o cutoff).
         if r.created_at is not None and r.created_at <= cutoff:
             return True
@@ -1393,6 +1397,11 @@ class UniversalSignatureService:
         registrada e não pode ser desfeita por um efeito colateral.
         """
         try:
+            if str(req.document_type or "").startswith("kit_documento"):
+                # 09/09/2026: o kit do banco passa a refletir a assinatura NA HORA — o PDF com o selo substitui o
+                # arquivo da vaga (mesmo nome, mesmo lugar no Drive) e is_signed fecha quando todos assinaram.
+                await self._atualizar_documento_do_kit(req, signed_at)
+                return
             if (req.document_type or "") != "espelho_ponto":
                 return
             if str(req.signer_type or "").lower() != "employee":
@@ -1426,6 +1435,34 @@ class UniversalSignatureService:
                 await self.db.rollback()
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _atualizar_documento_do_kit(self, req: SignatureRequest, signed_at: Any) -> None:
+        """ged_kit_documents ← PDF assinado (selos empilhados) + is_signed quando não resta signatário pendente."""
+        import shutil
+
+        from sqlalchemy import text as _sql
+
+        doc_id = str(req.document_id or "").strip()
+        if not doc_id or not req.signed_document_path or not os.path.exists(req.signed_document_path):
+            return
+        row = (await self.db.execute(_sql("SELECT file_path FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id})).first()
+        if not row:
+            return
+        destino = row[0] or req.signed_document_path
+        if destino != req.signed_document_path:
+            shutil.copyfile(req.signed_document_path, destino)
+        pend = (await self.db.execute(_sql(
+            "SELECT count(*) FROM sig_signature_requests WHERE document_type = :dt AND CAST(document_id AS text) = :d "
+            "AND status::text NOT IN ('SIGNED','COMPLETED','CANCELLED','REJECTED','EXPIRED')"), {"dt": req.document_type, "d": doc_id})).scalar() or 0
+        sig_hash = None
+        if req.signature_id:
+            sig_hash = (await self.db.execute(_sql("SELECT signature_hash FROM sig_signatures WHERE id = :i"), {"i": req.signature_id})).scalar()
+        await self.db.execute(_sql(
+            "UPDATE ged_kit_documents SET file_path = :fp, is_signed = :ok, signed_at = CASE WHEN :ok THEN :ts ELSE signed_at END, "
+            "signature_hash = coalesce(:h, signature_hash), updated_at = now() WHERE CAST(id AS text) = :d"),
+            {"fp": destino, "ok": pend == 0, "ts": signed_at, "h": sig_hash, "d": doc_id})
+        await self.db.commit()
+        logger.info("Documento do kit %s atualizado com assinatura (%s pendente(s))", doc_id, pend)
 
     async def _maybe_complete_group(self, req: SignatureRequest) -> bool:
         """Se todos os signatários do documento assinaram, marca o grupo COMPLETED."""

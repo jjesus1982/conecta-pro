@@ -58,7 +58,9 @@ class DocumentType(StrEnum):
 
     # Documentos fiscais e operacionais
     NFS_SERVICO = "nfs_servico"
-    BOLETO = "boleto"  # 09/09/2026: boleto da competência entra no kit (simulado em homologação; Inter no real)
+    BOLETO = "boleto"
+    RECIBO_ADIANTAMENTO = "recibo_adiantamento"  # 09/09: adiantamento salarial (40% no dia 20)
+    COMPROVANTE_PAGAMENTO = "comprovante_pagamento"  # 09/09: comprovante PIX/TED do salário (40% e 60%)  # 09/09/2026: boleto da competência entra no kit (simulado em homologação; Inter no real)
     ESCALA_MES = "escala_mes"
 
     # Documentos fiscais — Simples Nacional / ISSQN / SEFAZ

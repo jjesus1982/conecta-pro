@@ -20,7 +20,6 @@ funcionário — no Drive 12 'Contracheque_08.2026.pdf' viravam UM (dedup por no
 """
 from __future__ import annotations
 
-import io
 import logging
 import re
 import unicodedata
@@ -201,11 +200,25 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
         d.notes = f"validade {row[1]:%d/%m/%Y}" if row[1] else None
         conta("cnd")
 
-    # ── NFS-e e boleto (nível do kit) ──
+    # ── adiantamento 40% (dia 20) + comprovantes PIX (40% e 60%) — por funcionário ──
+    await _adiantamento_e_comprovantes(db, kit, docs, emp, homolog, rel)
+
+    # ── NFS-e, boleto e guias (nível do kit) ──
     crm_id = await _crm_client_id(db, client) if client else None
     tem = {d.document_type for d in docs}
     if DocumentType.NFS_SERVICO not in tem or DocumentType.BOLETO not in tem:
         await _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel)
+    await _guias(db, kit, emp, homolog, tem, rel)
+    await db.flush()
+
+    # ── assinaturas: pede (funcionário no portal; espelho/escala também a empresa na central) e sincroniza ──
+    try:
+        from modules.ged.services.kit_signature_service import sincronizar_assinaturas_kit, solicitar_assinaturas_kit
+
+        rel["assinaturas"] = await solicitar_assinaturas_kit(db, kit_id)
+        rel["assinaturas"]["sincronizadas"] = await sincronizar_assinaturas_kit(db, kit_id)
+    except Exception as exc:  # noqa: BLE001
+        rel["faltas"].append(f"assinaturas: {exc}")
 
     await db.flush()
     n_total = (await db.execute(text("SELECT count(*), count(file_path) FROM ged_kit_documents WHERE kit_id = :k"), {"k": kit_id})).first()
@@ -231,6 +244,7 @@ async def _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel) -> None:
 
     if DocumentType.NFS_SERVICO not in tem:
         row = None
+        toma_end = ", ".join(x for x in (cli.get("address_street"), cli.get("address_number"), cli.get("address_neighborhood")) if x)
         if not homolog:
             row = (await db.execute(text(
                 "SELECT n.*, e.cnpj AS emit_cnpj, e.razao_social AS emit_nome, e.inscricao_municipal AS emit_im "
@@ -243,7 +257,7 @@ async def _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel) -> None:
         elif not valor:
             rel["faltas"].append("NFS-e simulada: contrato ativo sem valor mensal")
         else:
-            iss = round(float(valor) * 0.05, 2)
+            iss = round(float(valor) * 0.0435, 2)  # alíquota efetiva da Patrimonial nas notas reais (nfse_emitidas_nacional)
             row = {"numero": "SIMULADA", "chave_acesso": "", "competencia": f"{ano:04d}-{mes:02d}", "data_emissao": date.today(),
                    "emit_cnpj": pat[0] if pat else "", "emit_nome": pat[1] if pat else "", "emit_im": pat[2] if pat else "",
                    "tomador_cnpj": cli["document_number"], "tomador_nome": cli["name"],
@@ -251,8 +265,23 @@ async def _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel) -> None:
                    "inss_retido": 0, "valor_liquido": float(valor)}
         if row:
             try:
-                from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_emitida
-                pdf = gerar_danfse_de_emitida(dict(row))
+                if homolog:
+                    # layout que a PREFEITURA entrega (DANFSe padrão nacional), não o nosso timbrado — pedido de 09/09
+                    from modules.gedeon.services.kit_simulados_pdf import danfse_prefeitura_pdf
+
+                    def _m(v):
+                        return f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    chave = f"1302603226{re.sub(r'\D', '', row['emit_cnpj'] or '')}00000000000{ano:04d}{mes:02d}00009999{int(row['valor_servicos'] * 100) % 100000:05d}"
+                    pdf = danfse_prefeitura_pdf({
+                        "numero": "SIMULADA", "chave": chave[:50], "competencia": f"{mes:02d}/{ano}", "emissao": date.today().strftime("%d/%m/%Y"),
+                        "emit_nome": row["emit_nome"], "emit_cnpj": row["emit_cnpj"], "emit_im": row["emit_im"],
+                        "toma_nome": row["tomador_nome"], "toma_cnpj": row["tomador_cnpj"], "toma_end": toma_end,
+                        "servico": "Serviços de portaria, segurança e serviços gerais", "discr": row["descricao"],
+                        "vserv": _m(row["valor_servicos"]), "vbc": _m(row["valor_servicos"]), "aliq": "4,35%", "viss": _m(row["iss_valor"]),
+                        "vinss": _m(0), "vliq": _m(row["valor_liquido"]), "regime": "Simples Nacional (Anexo IV)"}, simulada=True)
+                else:
+                    from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_emitida
+                    pdf = gerar_danfse_de_emitida(dict(row))
                 nome = f"NFSe_{'SIMULADA' if homolog else row.get('numero')}_{mes:02d}.{ano}.pdf"
                 db.add(KitDocument(kit_id=kid, employee_id=None, document_type=DocumentType.NFS_SERVICO,
                                    document_name=f"NFS-e {'SIMULADA ' if homolog else ''}{mes:02d}/{ano}",
@@ -270,8 +299,13 @@ async def _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel) -> None:
             rel["faltas"].append("boleto simulado: contrato ativo sem valor mensal")
         else:
             from datetime import timedelta
+
+            from modules.gedeon.services.kit_simulados_pdf import boleto_pix_pdf
+
             venc = (kit.reference_month.replace(day=28) + timedelta(days=4)).replace(day=10)  # dia 10 do mês seguinte
-            pdf = _boleto_simulado_pdf(cli, float(valor), venc, discr, pat)
+            pdf = boleto_pix_pdf(beneficiario={"nome": pat[1] if pat else "—", "cnpj": pat[0] if pat else "—"},
+                                 pagador={"nome": cli["name"], "documento": cli["document_number"]}, valor=float(valor), vencimento=venc,
+                                 descricao=discr, nosso_numero=f"{ano:04d}{mes:02d}{int(str(kit.id).replace('-', '')[:8], 16) % 10**8:08d}", simulado=True)
             db.add(KitDocument(kit_id=kid, employee_id=None, document_type=DocumentType.BOLETO,
                                document_name=f"Boleto SIMULADO {mes:02d}/{ano}", file_path=_gravar(kid, "faturamento", f"Boleto_SIMULADO_{mes:02d}.{ano}.pdf", pdf),
                                file_size_bytes=len(pdf), mime_type="application/pdf", source_module=SourceModule.FISCAL,
@@ -279,36 +313,132 @@ async def _nfse_e_boleto(db, kit, client, crm_id, homolog, tem, rel) -> None:
             rel["preenchidos"]["boleto"] = 1
 
 
-def _boleto_simulado_pdf(cli, valor: float, venc: date, discr: str, pat) -> bytes:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+async def _adiantamento_e_comprovantes(db, kit, docs, emp, homolog, rel) -> None:
+    """Por funcionário: recibo do adiantamento de 40% (pago dia 20) e comprovantes PIX do 40% e do saldo de 60%
+    (até o 5º dia útil do mês seguinte). Homologação: simulados. Cliente real: o comprovante vem do banco pelo GEDEON
+    (Inter/Cora) — aqui só fica a vaga com o motivo."""
+    from datetime import timedelta
 
+    mes, ano = kit.reference_month.month, kit.reference_month.year
+    kid = str(kit.id)
+    tem = {(str(d.employee_id), d.document_type) for d in docs}
+    dia20 = kit.reference_month.replace(day=20)
+    prox = (kit.reference_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    uteis = 0
+    d5 = prox
+    while True:  # 5º dia útil (sem feriados nacionais fixos além de 7/9)
+        if d5.weekday() < 5 and not (d5.month == 9 and d5.day == 7):
+            uteis += 1
+            if uteis == 5:
+                break
+        d5 += timedelta(days=1)
+    pat = (await db.execute(text("SELECT cnpj, razao_social FROM empresas WHERE slug = 'conecta_patrimonial'"))).first()
+    emp_nome, emp_cnpj = (pat[1], pat[0]) if pat else ("CONECTAMAIS PATRIMONIAL LTDA", "66.014.833/0001-10")
+    for e, info in emp.items():
+        if not homolog:
+            for tipo, nome in ((DocumentType.RECIBO_ADIANTAMENTO, f"Recibo adiantamento 40% {mes:02d}/{ano}"),
+                               (DocumentType.COMPROVANTE_PAGAMENTO, f"Comprovante pagamento {mes:02d}/{ano}")):
+                if (e, tipo) not in tem:
+                    db.add(KitDocument(kit_id=kid, employee_id=e, document_type=tipo, document_name=nome, file_path=None,
+                                       mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=False))
+                    rel["faltas"].append(f"{nome} {info.get('nome')}: comprovante/recibo real vem do banco pelo GEDEON (Inter/Cora)")
+            continue
+        salario = float((await db.execute(text("SELECT coalesce(salario_base,0) FROM employees WHERE id = CAST(:e AS uuid)"), {"e": e})).scalar() or 0)
+        adiant = round(salario * 0.40, 2)
+        liquido = None
+        try:
+            from core.database.session import get_sync_db
+            from modules.people_management.folha.services.calculo_service import calcular_folha_colaborador
+            with get_sync_db() as s:
+                r = calcular_folha_colaborador(s, e, mes, ano)
+            liquido = float(r.get("liquido") or 0) if "error" not in r else None
+        except Exception:  # noqa: BLE001
+            liquido = None
+        saldo = round((liquido if liquido is not None else salario) - adiant, 2)
+        nome_s = _safe(info.get("nome") or e)
+        if (e, DocumentType.RECIBO_ADIANTAMENTO) not in tem:
+            from modules.crm.services.doc_pdf import build_recibo_pagamento_pdf
+
+            pdf = build_recibo_pagamento_pdf({"valor": adiant, "recebedor": info.get("nome"), "documento": info.get("cpf"),
+                                              "referente": f"adiantamento salarial de 40% da competência {mes:02d}/{ano} (SIMULADO — homologação)",
+                                              "forma_pagamento": "PIX", "data": dia20, "numero": f"AD-{ano}{mes:02d}-{info.get('matricula') or ''}",
+                                              "empresa": _empresa_branding("conecta_patrimonial")})
+            db.add(KitDocument(kit_id=kid, employee_id=e, document_type=DocumentType.RECIBO_ADIANTAMENTO,
+                               document_name=f"Recibo adiantamento 40% {mes:02d}/{ano}", file_path=_gravar(kid, e, f"Recibo_Adiantamento_40_{mes:02d}.{ano}_{nome_s}.pdf", pdf),
+                               file_size_bytes=len(pdf), mime_type="application/pdf", source_module=SourceModule.DP, auto_generated=True, is_signed=False,
+                               notes="simulação de homologação"))
+            rel["preenchidos"]["recibo_adiantamento"] = rel["preenchidos"].get("recibo_adiantamento", 0) + 1
+        if (e, DocumentType.COMPROVANTE_PAGAMENTO) not in tem:
+            from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
+
+            for rot, val, dt, seq in (("Adiantamento 40%", adiant, dia20, "40"), ("Saldo 60% (folha)", saldo, d5, "60")):
+                pdf = gerar_comprovante_pdf(favorecido=info.get("nome"), cpf=info.get("cpf"), valor=val, data_pagamento=dt,
+                                            descricao=f"{rot} — competência {mes:02d}/{ano} — SIMULADO (homologação)",
+                                            id_transacao=f"SIM{ano}{mes:02d}{seq}{(info.get('matricula') or '')[-2:]}", competencia=f"{mes:02d}/{ano}",
+                                            condominio="Conecta Village (TESTE)", tipo="PIX", empresa_nome=emp_nome, empresa_cnpj=emp_cnpj,
+                                            banco_origem="Banco Cora SCD (403)")
+                db.add(KitDocument(kit_id=kid, employee_id=e, document_type=DocumentType.COMPROVANTE_PAGAMENTO,
+                                   document_name=f"Comprovante PIX {rot} {mes:02d}/{ano}",
+                                   file_path=_gravar(kid, e, f"Comprovante_PIX_{seq}pct_{mes:02d}.{ano}_{nome_s}.pdf", pdf), file_size_bytes=len(pdf),
+                                   mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True,
+                                   notes="simulação de homologação — comprovante bancário não é assinado pelo funcionário"))
+                rel["preenchidos"]["comprovante_pagamento"] = rel["preenchidos"].get("comprovante_pagamento", 0) + 1
+
+
+def _empresa_branding(slug: str) -> dict:
     from modules.crm.services import pdf_branding as B  # noqa: N812
 
-    st = B.styles()
-    p = st["corpo"]
-    empresa = B.empresa_branding("conecta_patrimonial")
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, bottomMargin=16 * mm, leftMargin=16 * mm, rightMargin=16 * mm)
-    W = A4[0] - 32 * mm
-    linhas = [
-        ["Beneficiário", f"{pat[1] if pat else '—'} — CNPJ {pat[0] if pat else '—'}"],
-        ["Pagador", f"{cli['name']} — CNPJ {cli['document_number'] or '—'}"],
-        ["Vencimento", venc.strftime("%d/%m/%Y")],
-        ["Valor do documento", B.brl(valor)],
-        ["Instruções", discr],
-        ["Linha digitável", "00000.00000 00000.000000 00000.000000 0 00000000000000 (SIMULADA)"],
-    ]
-    tb = Table(linhas, colWidths=[W * 0.25, W * 0.75])
-    tb.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 9),
-                            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"), ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E8EEF5")),
-                            ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story = [Paragraph("<b>BOLETO SIMULADO — AMBIENTE DE HOMOLOGAÇÃO</b>", p),
-             Paragraph("Este documento NÃO é uma cobrança. Foi gerado pelo Conecta PRO para validar o kit documental de um "
-                       "cliente de teste; não possui código de barras válido nem registro bancário.", p),
-             Spacer(1, 6 * mm), tb]
-    hf = lambda cv, dc: B.header_footer(cv, dc, titulo="BOLETO (SIMULAÇÃO)", empresa=empresa)  # noqa: E731
-    doc.build(story, onFirstPage=hf, onLaterPages=hf)
-    return buf.getvalue()
+    return B.empresa_branding(slug)
+
+
+async def _guias(db, kit, emp, homolog, tem, rel) -> None:
+    """Guias da competência: FGTS Digital, DARF DCTFWeb (INSS/CPP) e DAS (Patrimonial é Simples Nacional).
+    Vencem dia 20 do mês seguinte; o kit real recebe as guias pelo GEDEON (Onvio) quando o contador emite."""
+    from datetime import timedelta
+
+    mes, ano = kit.reference_month.month, kit.reference_month.year
+    kid = str(kit.id)
+    venc = (kit.reference_month.replace(day=28) + timedelta(days=4)).replace(day=20)
+    comp = f"{mes:02d}/{ano}"
+    alvos = ((DocumentType.GRF_FGTS, f"Guia FGTS Digital {comp}"), (DocumentType.GPS_INSS, f"DARF DCTFWeb (INSS/CPP) {comp}"),
+             (DocumentType.DAS_SIMPLES_NACIONAL, f"DAS Simples Nacional {comp}"))
+    faltando = [(t, n) for t, n in alvos if t not in tem]
+    if not faltando:
+        return
+    if not homolog:
+        for t, n in faltando:
+            db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=n, file_path=None, mime_type="application/pdf",
+                               source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True))
+            rel["faltas"].append(f"{n}: vence {venc:%d/%m/%Y} — emitida pelo contador no Onvio, o GEDEON arquiva (bloco guias)")
+        return
+    from modules.gedeon.services.kit_simulados_pdf import guia_simulada_pdf
+
+    pat = (await db.execute(text("SELECT cnpj, razao_social FROM empresas WHERE slug = 'conecta_patrimonial'"))).first()
+    empresa = {"nome": pat[1] if pat else "CONECTAMAIS PATRIMONIAL LTDA", "cnpj": pat[0] if pat else "66.014.833/0001-10"}
+    bruto = float((await db.execute(text(
+        "SELECT coalesce(sum(coalesce(total_earnings, base_salary)),0) FROM hr_payslips WHERE reference_month=:m AND reference_year=:a "
+        "AND employee_id::text = ANY(:ids)"), {"m": mes, "a": ano, "ids": list(emp)})).scalar() or 0)
+    fat = float((await db.execute(text("SELECT coalesce(sum(monthly_value),0) FROM contracts c JOIN clients cl ON cl.id=c.client_id "
+                                       "WHERE c.status='active' AND cl.trading_name ILIKE '%VILLAGE%'"))).scalar() or 0)
+    dados = {
+        DocumentType.GRF_FGTS: ("FGTS", round(bruto * 0.08, 2), [("Competência", comp), ("Trabalhadores", str(len(emp))), ("Base de cálculo (remuneração)", _brl_(bruto)),
+                                                                 ("Alíquota", "8%")], "1" + "8" * 10 + "0"),
+        DocumentType.GPS_INSS: ("DARF", round(bruto * 0.20 + bruto * 0.02, 2), [("Código da receita", "1141-02 — CP patronal (DCTFWeb)"), ("Período de apuração", comp),
+                                                                             ("CPP 20% + RAT 2% sobre", _brl_(bruto))], "8" + "5" * 10 + "0"),
+        DocumentType.DAS_SIMPLES_NACIONAL: ("DAS", round(fat * 0.0435 + fat * 0.0275, 2), [("Período de apuração", comp), ("Receita bruta do mês", _brl_(fat)),
+                                                                                         ("Anexo IV (ISS 4,35% + IRPJ/CSLL/PIS/COFINS)", "6,10% efetivo")], "8" + "5" * 10 + "0"),
+    }
+    for t, n in faltando:
+        tipo, valor, linhas, base = dados[t]
+        pdf = guia_simulada_pdf(tipo=tipo, empresa=empresa, competencia=comp, vencimento=venc, valor=valor, linhas=linhas, codigo_barras_base=base)
+        db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=n + " (SIMULADA)",
+                           file_path=_gravar(kid, "guias", f"{tipo}_{mes:02d}.{ano}_SIMULADA.pdf", pdf), file_size_bytes=len(pdf),
+                           mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True,
+                           notes="simulação de homologação — valores calculados sobre a folha de teste"))
+        rel["preenchidos"]["guias"] = rel["preenchidos"].get("guias", 0) + 1
+
+
+def _brl_(v: float) -> str:
+    from modules.crm.services import pdf_branding as B  # noqa: N812
+
+    return B.brl(v)
