@@ -1211,6 +1211,68 @@ Por isso **não preparei nem marquei entrega**: entregar um kit a 40–50% em 08
 **Depende do Jordan:** consertar o robô do ponto no Sólides; cobrar as 52 assinaturas de VT/VR; conferir os 3 recibos
 sem vínculo de colaborador; o `onvio-auth-refresh.sh` ainda tenta avisar por Telegram (removido em 11/08) — inofensivo.
 
+### §2c.34 — Kit de teste "Conecta Village" montado de ponta a ponta pelo sistema (09/09/2026, 08h–08h50 Manaus)
+
+**Pedido:** simular um condomínio (2 portarias 24h com 8 agentes — 4 fixos "-1" e 4 rondas —, 2 ASG, 1 jardineiro,
+1 artífice), NFS-e e boleto simulados dentro do sistema, CNDs reais, kit da Conecta Patrimonial para a Conecta
+Eletrônica (cliente = Conecta Village), montar juntos e consertar o que aparecesse. Tudo em base de homologação
+(`employees.is_homologacao=true`), cliente `CLI-2026-00014` (razão CONECTAMAIS ELETRONICA LTDA, fantasia
+"CONECTA VILLAGE (TESTE)"), contrato `CTR-2026-00021` R$ 47.681,28/mês (12 postos × R$ 3.973,44 do simulador do CRM),
+condomínio `C00014-001`, 6 postos, 12 colaboradores com cargo da CCT, 12 alocações, 5 escalas (12x36 e 5x2, 248 turnos),
+416 batidas simuladas a partir dos turnos, 12 holerites 08/2026 pela rota do DP.
+
+**Resultado:** kit `818ae2ac` (ged_document_kits) 08/2026 — **67 vagas, 67 com arquivo, 0 faltas**: 12 holerites,
+24 recibos VT/VR, 12 escalas, 12 folhas de ponto, 5 CNDs REAIS vigentes da Patrimonial, NFS-e simulada (DANFSe
+"Nº SIMULADA — SEM VALOR FISCAL", prestador Patrimonial, tomador Eletrônica) e boleto simulado. No Drive:
+`_TESTE (homologação — não é cliente)/CONECTA VILLAGE (TESTE)/2026-08 Kit Documental/` com `Funcionarios/<Nome>/`
+(4 documentos cada), `Certidoes/` (5), `Outros/` (NFS-e + boleto) — https://drive.google.com/drive/folders/1Mg_ljfkBlZvb2HQzV-mVC0eQZVprcGxc.
+Entrega NÃO marcada (decisão de 08/09: ato manual). A tela redesign › documentos › kits mostra a linha
+(08/2026 · 12 · 67 · 5 · 7% · Em montagem — o % ainda é "assinados/total").
+
+**Erros de produto encontrados e consertados no caminho (cada um medido antes → depois):**
+1. Condomínio novo pelo redesign: 400 (address_state não existia no form) → 500 (enum `status="implementing"`
+   e `administration_type="administradora"` não existem no banco) → 500 (`CLI-2026-00014-COND-001` tem 23
+   caracteres, coluna varchar(20)). Nenhum cliente com código CLI-AAAA-NNNNN conseguia ter condomínio. Commit 28263bdff.
+2. Kit do banco era uma lista de vazios: `collect_*` criava a vaga com file_path NULL "até o pipeline DP gerar" —
+   holerite, VT/VA/VR, escala e CND nunca eram preenchidos; só a folha de ponto nascia (e só com batidas).
+   Novo `kit_preenchimento_service.preencher_vagas` enche cada vaga com o que o sistema já tem e devolve o POR QUÊ
+   de cada falta (gravado em `kit.notes`). Novo `operacional/services/escala_pdf.py` (não havia PDF de escala).
+   Vaga "Comprovante VA" apagada (o recibo real é um: "VT e VR"). `DocumentType.BOLETO` novo. Commit 80ae7a9c3.
+3. Kit achou 0 funcionários: 0 dos 14 postos têm `ged_client_id`; o fuzzy por nome falha quando a razão social
+   não contém o condomínio. Novo passo posto → cliente CRM → cliente GED (CNPJ ou nome/fantasia). Mesmo commit.
+4. GEDEON `_client_id_do_condominio` só casava `clients.name`; agora também `trading_name` e `condominiums.name`.
+5. Drive do kit do banco NUNCA subiu: `google_drive_credentials.json` nunca existiu no container. Agora usa a
+   sessão OAuth do GEDEON; pasta com dedup; arquivo já presente não sobe de novo; `Funcionarios/<Nome>/`; e subir
+   NÃO marca entregue. Na 1ª subida 12 "Contracheque_08.2026.pdf" viraram UM (dedup por nome) → nome do
+   funcionário no arquivo. Commit e4d92907c.
+6. DANFSe saía com timbrado da Eletrônica em nota da Patrimonial → timbrado do prestador. Mesmo commit.
+7. Kit ficava "Completo" a 7% (bateu 100% com só 5 CNDs, ganhou 62 vagas depois) → volta a "em montagem". Commit 3 desta seção.
+8. `PUT /crm/contracts/{id}` em contrato ATIVO devolve 200 e ignora `monthly_value` em silêncio (regra: ativo só
+   muda descrição/gestores/SLA) — valor do teste gravado por SQL. **Não mexi:** decidir se deve ser 409 ou aditivo.
+
+**Robô do ponto (Sólides) — "é com você":** o clique `#idf3` era sintoma. Rodei o robô no host com screenshot:
+o Sólides responde **"A sua assinatura está Bloqueada — não identificamos seu pagamento"** (módulo Ponto:
+Inativo, R$ 680,51) e a tela de assinatura eletrônica vira "Funcionalidade Bloqueada". O robô agora sai com essa
+frase em vez de timeout. **Depende do Jordan:** regularizar a assinatura do Sólides; depois o robô roda como antes.
+
+**O que ficou simulado e por quê:** NFS-e e boleto não passam pela prefeitura nem pelo Inter (regra da casa:
+nada que fale com governo/banco); em cliente REAL o mesmo serviço lê `nfse_emitidas_nacional` e deixa o boleto
+para o GEDEON (Inter). Holerites de teste: o PDF recalcula pelo motor da folha (padrão-ouro), por isso mostra
+horas extras/adicional noturno dos turnos gerados, não os valores simplificados gravados em hr_payslips.
+
+**Para tornar o kit inteligente de verdade (proposta, não feito):** hoje há DOIS kits que não se falam — o do
+banco (agora se preenche sozinho a partir do sistema) e o do Drive (GEDEON: Onvio/Inter/Sólides por blocos). A
+fonte de verdade deve ser UMA: o checklist por condomínio × competência no banco, onde cada vaga sabe sua origem
+(sistema, Onvio, Inter, Sólides, Pyetra), a data esperada pelo cronograma (folha dia 5, guias 20–25, VT/VR na
+assinatura…), o responsável e a evidência. O GEDEON passa a PREENCHER vagas desse checklist (não pastas), a
+montagem roda todo dia de forma incremental, cada vaga vazia vira UMA cobrança para UMA pessoa (sino já existe),
+e ao chegar a 100% o kit se prepara sozinho e espera o "marcar entregue". Entrega na área do cliente (já existe,
+precisa de revisão) em vez do Drive — fica para depois, como você pediu.
+
+**Depende do Jordan:** (1) Sólides bloqueado (R$ 680,51); (2) abrir o link do Drive acima e dizer o que falta no
+kit para virar o padrão; (3) `completion_percentage` = assinados/total ou vagas com arquivo/total?; (4) PUT de
+contrato ativo silencioso (item 8); (5) as 52 assinaturas de VT/VR e o cron do Onvio ainda avisam por Telegram.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
