@@ -75,6 +75,15 @@ async def gerar_pdf_holerite(db: AsyncSession, payslip_id: UUID, signatarios: li
                     _text("SELECT cpf, pis, matricula, data_admissao FROM employees WHERE CAST(id AS TEXT) = :e"),
                     {"e": emp_id},
                 ).first()
+                # 09/09 (1º kit REAL): o motor da folha não devolve `posto`, então o holerite saía com "—" no
+                # campo que o síndico usa para saber de qual portaria é a pessoa. Vem da alocação, como no recibo.
+                posto_aloc = sdb.execute(
+                    _text(
+                        "SELECT p.name FROM allocations a JOIN posts p ON p.id = a.post_id "
+                        "WHERE a.employee_id = CAST(:e AS uuid) ORDER BY a.created_at DESC LIMIT 1"
+                    ),
+                    {"e": emp_id},
+                ).scalar()
                 if row:
                     adm = row[3]
                     fdad = {
@@ -82,7 +91,7 @@ async def gerar_pdf_holerite(db: AsyncSession, payslip_id: UUID, signatarios: li
                         "pis": row[1] or "—",
                         "matricula": row[2] or "—",
                         "data_admissao": adm.strftime("%d/%m/%Y") if hasattr(adm, "strftime") else (adm or "—"),
-                        "posto": res.get("posto") or res.get("condominio") or "—",
+                        "posto": res.get("posto") or res.get("condominio") or posto_aloc or "—",
                     }
         finally:
             sdb.close()

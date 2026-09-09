@@ -110,7 +110,7 @@ FGTS_PCT = Decimal("0.08")
 #: Adiantamento salarial pago todo dia 20 (decisão do Jordan, vigente desde 08/2026). A folha real
 #: desconta 40% do salário base na rubrica 981; 0 desliga a regra.
 ADIANTAMENTO_PERCENTUAL = Decimal("0.40")
-SALARIO_FAMILIA_QUOTA = Decimal("67.54")   # cota por filho <14 anos
+SALARIO_FAMILIA_QUOTA = Decimal("67.54")  # cota por filho <14 anos
 SALARIO_FAMILIA_TETO = Decimal("1819.26")  # remuneração-teto p/ ter direito
 
 # Divisores por escala
@@ -225,7 +225,6 @@ def _d(valor: Any) -> Decimal:
 # calcular_inss / calcular_irrf: importados de clt_calculator (FONTE ÚNICA).
 # As constantes FAIXAS_*_2026 / DEDUCAO_* / REDUTOR_* acima ficam como referência
 # documental da CCT; o cálculo efetivo é o do clt_calculator (idêntico ao payroll_service).
-
 
 
 # De-para cargo do CADASTRO → cargo_nome da CCT (cct_cargos). Existe porque os nomes NÃO
@@ -356,9 +355,16 @@ def calcular_folha_colaborador(
     # férias (linha ~432) é pulado inteiro, porque a consulta a `hr_vacation_requests` está
     # sob `if _dias_esp is None`. As três pessoas em férias em julho TÊM o pedido aprovado no
     # banco — o motor só nunca chegava a olhar.
-    _dias_esp = db.execute(text(
-        "SELECT dias_trabalhados FROM folha_dias_espelho WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"),
-        {"e": employee_id, "a": ano, "m": mes}).scalar() if USAR_ESPELHO_PORTTE else None
+    _dias_esp = (
+        db.execute(
+            text(
+                "SELECT dias_trabalhados FROM folha_dias_espelho WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m"
+            ),
+            {"e": employee_id, "a": ano, "m": mes},
+        ).scalar()
+        if USAR_ESPELHO_PORTTE
+        else None
+    )
     if _dias_esp is not None:
         salario_base = _d(salario_base_full * (_d(_dias_esp) / Decimal("30")))
         _dias_pagaveis = int(round(float(_dias_esp)))
@@ -373,11 +379,14 @@ def calcular_folha_colaborador(
     _ferias_dias = 0
     if _dias_esp is None:
         _mes_ini, _mes_fim = date(ano, mes, 1), date(ano, mes, _ndias_mes)
-        for _s, _e in db.execute(text(
-            "SELECT start_date, end_date FROM hr_vacation_requests "
-            "WHERE CAST(employee_id AS TEXT) = :e AND upper(status) = 'APPROVED' "
-            "AND start_date <= :fim AND end_date >= :ini ORDER BY start_date"),
-                {"e": employee_id, "ini": _mes_ini, "fim": _mes_fim}).fetchall():
+        for _s, _e in db.execute(
+            text(
+                "SELECT start_date, end_date FROM hr_vacation_requests "
+                "WHERE CAST(employee_id AS TEXT) = :e AND upper(status) = 'APPROVED' "
+                "AND start_date <= :fim AND end_date >= :ini ORDER BY start_date"
+            ),
+            {"e": employee_id, "ini": _mes_ini, "fim": _mes_fim},
+        ).fetchall():
             _o_ini, _o_fim = max(_s, _mes_ini), min(_e, _mes_fim)  # interseção com a competência
             _ferias_dias += (_o_fim - _o_ini).days + 1
             _fer_ini = _o_ini if _fer_ini is None else min(_fer_ini, _o_ini)
@@ -417,7 +426,7 @@ def calcular_folha_colaborador(
     proventos.append(
         {
             "codigo": "0001",
-            "descricao": "Salario Base",
+            "descricao": "Salário Base",
             "tipo": "provento",
             "referencia": (f"{_dias_pagaveis} dias (admissão/desligamento)" if mes_parcial else "30 dias"),
             "valor": float(salario_base),
@@ -434,7 +443,7 @@ def calcular_folha_colaborador(
     # de histórico e só temos 6 (jan-jun/2026). Fica DECLARADA como ausente, nunca estimada —
     # e como ela entraria dos dois lados (provento e adiantamento), o líquido do mês quase
     # não muda; quem sente é a base de INSS/FGTS.
-    ferias_inss_base = Decimal("0")
+    # (o INSS das férias é calculado no próprio bloco abaixo, com alíquota própria — não entra em base_inss)
     if _ferias_dias:
         _vd = _d(salario_base_full / Decimal("30"))
         _v_ferias = _d(_vd * _ferias_dias)
@@ -445,19 +454,46 @@ def calcular_folha_colaborador(
         _ref = f"{_ferias_dias} dias"
         if _fer_ini and _fer_fim:
             _ref += f" ({_fer_ini.strftime('%d/%m')}–{_fer_fim.strftime('%d/%m')})"
-        proventos.append({"codigo": "0060", "descricao": "Ferias", "tipo": "provento",
-                          "referencia": _ref, "valor": float(_v_ferias)})
+        proventos.append(
+            {"codigo": "0060", "descricao": "Ferias", "tipo": "provento", "referencia": _ref, "valor": float(_v_ferias)}
+        )
         if _v_vant > 0:
-            proventos.append({"codigo": "0062", "descricao": "Vantagens Ferias", "tipo": "provento",
-                              "referencia": "adicionais habituais", "valor": float(_v_vant)})
-        proventos.append({"codigo": "0061", "descricao": "1/3 Ferias", "tipo": "provento",
-                          "referencia": "33,33%", "valor": float(_v_terco)})
-        descontos.append({"codigo": "1002", "descricao": "INSS Ferias", "tipo": "desconto",
-                          "referencia": f"base R$ {_bruto_fer}", "valor": float(_inss_fer)})
-        descontos.append({"codigo": "0937", "descricao": "Adiantamento de Ferias", "tipo": "desconto",
-                          "referencia": "pago antes do gozo (art. 145 CLT)",
-                          "valor": float(_bruto_fer - _inss_fer)})
-        ferias_inss_base = _bruto_fer
+            proventos.append(
+                {
+                    "codigo": "0062",
+                    "descricao": "Vantagens Ferias",
+                    "tipo": "provento",
+                    "referencia": "adicionais habituais",
+                    "valor": float(_v_vant),
+                }
+            )
+        proventos.append(
+            {
+                "codigo": "0061",
+                "descricao": "1/3 Ferias",
+                "tipo": "provento",
+                "referencia": "33,33%",
+                "valor": float(_v_terco),
+            }
+        )
+        descontos.append(
+            {
+                "codigo": "1002",
+                "descricao": "INSS Ferias",
+                "tipo": "desconto",
+                "referencia": f"base R$ {_bruto_fer}",
+                "valor": float(_inss_fer),
+            }
+        )
+        descontos.append(
+            {
+                "codigo": "0937",
+                "descricao": "Adiantamento de Ferias",
+                "tipo": "desconto",
+                "referencia": "pago antes do gozo (art. 145 CLT)",
+                "valor": float(_bruto_fer - _inss_fer),
+            }
+        )
 
     # ===== VERBAS DO ESPELHO (backfill Portte) — grupo variável/reflexo cujo valor-verdade
     # está no espelho jan-jun (intrajornada, hora noturna reduzida, DSR sobre variáveis).
@@ -466,21 +502,27 @@ def calcular_folha_colaborador(
     # TODAS as verbas backfilladas (folha_verba_espelho). Going-forward (sem linha) computa
     # do ponto. ponytail: substitui os N special-cases por-verba por uma leitura só.
     intrajornada_valor = Decimal("0")  # mantido p/ o reflexo DSR no caminho going-forward
-    _esp = db.execute(text(
-        "SELECT codigo, descricao, valor, tipo, incide_inss FROM folha_verba_espelho "
-        "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m ORDER BY codigo"),
-        {"e": employee_id, "a": ano, "m": mes}).fetchall() if USAR_ESPELHO_PORTTE else []
+    _esp = (
+        db.execute(
+            text(
+                "SELECT codigo, descricao, valor, tipo, incide_inss FROM folha_verba_espelho "
+                "WHERE CAST(employee_id AS TEXT)=:e AND ano=:a AND mes=:m ORDER BY codigo"
+            ),
+            {"e": employee_id, "a": ano, "m": mes},
+        ).fetchall()
+        if USAR_ESPELHO_PORTTE
+        else []
+    )
     tem_espelho = bool(_esp)
     esp_inss_base = Decimal("0")
     for _cod, _desc, _val, _tipo, _inc in _esp:
         _v = _d(_val)
         if _v <= 0:
             continue
-        _entry = {"codigo": _cod, "descricao": _desc, "tipo": _tipo,
-                  "referencia": "espelho Portte", "valor": float(_v)}
+        _entry = {"codigo": _cod, "descricao": _desc, "tipo": _tipo, "referencia": "espelho Portte", "valor": float(_v)}
         (descontos if _tipo == "desconto" else proventos).append(_entry)
         if _inc:  # provento incide +; desconto que incide (faltas) reduz o salário-de-contribuição
-            esp_inss_base += (-_v if _tipo == "desconto" else _v)
+            esp_inss_base += -_v if _tipo == "desconto" else _v
 
     # ===== 1051/1053 — FALTAS e DSR sobre faltas, do NOSSO espelho de ponto =====
     #
@@ -503,21 +545,30 @@ def calcular_folha_colaborador(
     # em vez de silencioso. Zero por falta de dado ≠ zero por ausência de falta.
     faltas_valor = Decimal("0")
     aviso_faltas = None
-    _cob = db.execute(text(
-        "SELECT count(*) FILTER (WHERE coalesce(device_type,'') NOT IN ('tangerino','web')) AS nosso, "
-        "       count(*) AS total "
-        "FROM gp_clock_punches WHERE CAST(employee_id AS TEXT)=:e "
-        "  AND punch_timestamp >= :ini AND punch_timestamp < :fim"),
-        {"e": employee_id, "ini": date(ano, mes, 1),
-         "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1))}).first()
+    _cob = db.execute(
+        text(
+            "SELECT count(*) FILTER (WHERE coalesce(device_type,'') NOT IN ('tangerino','web')) AS nosso, "
+            "       count(*) AS total "
+            "FROM gp_clock_punches WHERE CAST(employee_id AS TEXT)=:e "
+            "  AND punch_timestamp >= :ini AND punch_timestamp < :fim"
+        ),
+        {
+            "e": employee_id,
+            "ini": date(ano, mes, 1),
+            "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1)),
+        },
+    ).first()
     _cobertura = (float(_cob[0]) / float(_cob[1])) if _cob and _cob[1] else 0.0
 
-    _ts = db.execute(text(
-        "SELECT coalesce(unjustified_absent_days,0), coalesce(dsr_lost_days,0) "
-        "FROM time_sheets WHERE CAST(employee_id AS TEXT)=:e "
-        "  AND reference_month=:m AND reference_year=:a "
-        "  AND coalesce(is_deleted,false)=false ORDER BY updated_at DESC NULLS LAST LIMIT 1"),
-        {"e": employee_id, "m": mes, "a": ano}).first()
+    _ts = db.execute(
+        text(
+            "SELECT coalesce(unjustified_absent_days,0), coalesce(dsr_lost_days,0) "
+            "FROM time_sheets WHERE CAST(employee_id AS TEXT)=:e "
+            "  AND reference_month=:m AND reference_year=:a "
+            "  AND coalesce(is_deleted,false)=false ORDER BY updated_at DESC NULLS LAST LIMIT 1"
+        ),
+        {"e": employee_id, "m": mes, "a": ano},
+    ).first()
 
     if _ts and (_ts[0] or _ts[1]):
         if _cobertura < COBERTURA_MINIMA_FALTAS:
@@ -530,17 +581,27 @@ def calcular_folha_colaborador(
             _vd_falta = _d(salario_base_full / Decimal("30"))
             if _ts[0]:
                 faltas_valor = _d(_vd_falta * _d(_ts[0]))
-                descontos.append({
-                    "codigo": "1051", "descricao": "Faltas", "tipo": "desconto",
-                    "referencia": f"{_ts[0]} dia(s) sem justificativa · espelho de ponto",
-                    "valor": float(faltas_valor)})
+                descontos.append(
+                    {
+                        "codigo": "1051",
+                        "descricao": "Faltas",
+                        "tipo": "desconto",
+                        "referencia": f"{_ts[0]} dia(s) sem justificativa · espelho de ponto",
+                        "valor": float(faltas_valor),
+                    }
+                )
             if _ts[1]:
                 _dsr_falta = _d(_vd_falta * _d(_ts[1]))
                 faltas_valor += _dsr_falta
-                descontos.append({
-                    "codigo": "1053", "descricao": "DSR sobre Faltas", "tipo": "desconto",
-                    "referencia": f"{_ts[1]} DSR perdido(s) · art. 6º Lei 605/49",
-                    "valor": float(_dsr_falta)})
+                descontos.append(
+                    {
+                        "codigo": "1053",
+                        "descricao": "DSR sobre Faltas",
+                        "tipo": "desconto",
+                        "referencia": f"{_ts[1]} DSR perdido(s) · art. 6º Lei 605/49",
+                        "valor": float(_dsr_falta),
+                    }
+                )
 
     # 0040 — Horas Extras 50% (horas trabalhadas REAIS acima da jornada contratada mensal)
     horas_extras_valor = Decimal("0")
@@ -661,17 +722,26 @@ def calcular_folha_colaborador(
     if recebe_intrajornada and not tem_espelho:
         for _cod, _desc, _pl, _fat in (
             ("0031", "Intrajornada Noturna", _plantoes, Decimal("1") + Decimal("0.20") + ronda_pct),
-            ("0030", "Intrajornada Diurno", plantoes_noturnos(db, employee_id, mes, ano, noturno=False),
-             Decimal("1") + ronda_pct),
+            (
+                "0030",
+                "Intrajornada Diurno",
+                plantoes_noturnos(db, employee_id, mes, ano, noturno=False),
+                Decimal("1") + ronda_pct,
+            ),
         ):
             if not _pl:
                 continue
             _v = _d(Decimal(_pl) * hora_normal * _fat * Decimal("1.5"))
             intrajornada_valor += _v
-            proventos.append({
-                "codigo": _cod, "descricao": _desc, "tipo": "provento",
-                "referencia": f"{_pl}h (1h por plantão, escala)", "valor": float(_v),
-            })
+            proventos.append(
+                {
+                    "codigo": _cod,
+                    "descricao": _desc,
+                    "tipo": "provento",
+                    "referencia": f"{_pl}h (1h por plantão, escala)",
+                    "valor": float(_v),
+                }
+            )
 
     # 0090 — DSR sobre verbas variáveis (repouso semanal remunerado).
     # Reflexo obrigatório (Súmula 60/172 TST + CCT) sobre adicional noturno,
@@ -714,17 +784,19 @@ def calcular_folha_colaborador(
         _n_menor14 = sum(1 for d in _sf if isinstance(d, dict) and d.get("menor_14")) if isinstance(_sf, list) else 0
         if _n_menor14 > 0:
             _sf_valor = _d(SALARIO_FAMILIA_QUOTA * _n_menor14 * fator_prop)
-            proventos.append({
-                # 0095, NÃO 0020: o adicional noturno já usa 0020. codRubr é CHAVE no
-                # eSocial (S-1010/S-1200) e as naturezas são opostas — noturno incide INSS,
-                # salário-família não. Duplicar o código faz o evento ser rejeitado, ou pior,
-                # aceito com a incidência errada. Achado na comparação com a Portte (04/08).
-                "codigo": "0095",
-                "descricao": "Salario Familia",
-                "tipo": "provento",
-                "referencia": f"{_n_menor14} filho(s) <14",
-                "valor": float(_sf_valor),
-            })
+            proventos.append(
+                {
+                    # 0095, NÃO 0020: o adicional noturno já usa 0020. codRubr é CHAVE no
+                    # eSocial (S-1010/S-1200) e as naturezas são opostas — noturno incide INSS,
+                    # salário-família não. Duplicar o código faz o evento ser rejeitado, ou pior,
+                    # aceito com a incidência errada. Achado na comparação com a Portte (04/08).
+                    "codigo": "0095",
+                    "descricao": "Salario Familia",
+                    "tipo": "provento",
+                    "referencia": f"{_n_menor14} filho(s) <14",
+                    "valor": float(_sf_valor),
+                }
+            )
 
     total_proventos = sum(Decimal(str(p["valor"])) for p in proventos)
 
@@ -809,9 +881,12 @@ def calcular_folha_colaborador(
         _odo_dep, _odo_ativo = 0, False
         try:
             _r = db.execute(
-                text("SELECT coalesce(plano_odonto_dependentes, 0), coalesce(plano_odonto_ativo, false) "
-                     "FROM employees WHERE CAST(id AS TEXT) = :e"),
-                {"e": employee_id}).first()
+                text(
+                    "SELECT coalesce(plano_odonto_dependentes, 0), coalesce(plano_odonto_ativo, false) "
+                    "FROM employees WHERE CAST(id AS TEXT) = :e"
+                ),
+                {"e": employee_id},
+            ).first()
             _odo_dep, _odo_ativo = (int(_r[0] or 0), bool(_r[1])) if _r else (0, False)
         except Exception:  # noqa: BLE001,S110 — coluna pode não existir em base antiga
             _odo_dep, _odo_ativo = 0, False
@@ -1205,12 +1280,18 @@ def get_dashboard_folha(db: Session, mes: int, ano: int) -> dict[str, Any]:
                 total_inss += _d(d.get("valor", 0))
             elif "IRRF" in desc or "IR " in desc or desc.startswith("IR"):
                 total_irrf += _d(d.get("valor", 0))
-        func_list.append({
-            "id": h.get("employee_id") or h.get("id"), "nome": h.get("nome") or h.get("employee_nome"),
-            "cargo": cargo, "salario_base": h.get("salario_base"),
-            "total_proventos": h.get("total_proventos"), "total_descontos": h.get("total_descontos"),
-            "salario_liquido": h.get("liquido"), "fgts_value": h.get("fgts_empresa"),
-        })
+        func_list.append(
+            {
+                "id": h.get("employee_id") or h.get("id"),
+                "nome": h.get("nome") or h.get("employee_nome"),
+                "cargo": cargo,
+                "salario_base": h.get("salario_base"),
+                "total_proventos": h.get("total_proventos"),
+                "total_descontos": h.get("total_descontos"),
+                "salario_liquido": h.get("liquido"),
+                "fgts_value": h.get("fgts_empresa"),
+            }
+        )
     return {
         "mes": mes,
         "ano": ano,
