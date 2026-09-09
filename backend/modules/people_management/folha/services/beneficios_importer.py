@@ -21,7 +21,8 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 RE_LINHA_SOLIDES = re.compile(r"^(.+?)\s+(\d{11})\s+(.+?)\s+([\d.,]+)(?:\s+([\d.,]+))?\s*$")
-RE_LINHA_SINETRAM = re.compile(r"^\s*\d+\s+(\d{3}\.\d{3}\.\d{3}-\d{2})\s+(.+?)\s+([\d.\-]+)\s+R\$\s*([\d.,]+)", re.M)
+# o nome quebra em duas linhas ("CELIANE GARCIA DE" / "SOUSA"): casar até o nº do cartão, que tem formato fixo
+RE_LINHA_SINETRAM = re.compile(r"(\d{3}\.\d{3}\.\d{3}-\d{2})\s+(.+?)\s+(\d{2}\.\d{2}\.\d{8}-\d)\s+R\$\s*([\d.,]+)")
 RE_PEDIDO_SOLIDES = re.compile(r"N[úu]mero do Pedido.*?#?(\d+)", re.S)
 RE_TOTAL_SOLIDES = re.compile(r"Valor Total do Pedido\s*R?\$?\s*([\d.,]+)", re.S)
 
@@ -100,7 +101,9 @@ def ler_sinetram(pdf_bytes: bytes) -> Pedido:
     # o layout quebra a linha do colaborador; achatar antes
     flat = re.sub(r"\s*\n\s*", " ", t)
     for cpf, nome, cartao, valor in RE_LINHA_SINETRAM.findall(flat):
-        p.linhas.append(LinhaBeneficio(cpf=_dig(cpf), nome=nome.strip(), mobilidade=_dec(valor), cartao=cartao))
+        # o resto do nome vem depois do valor/produto ("… SOUSA"); recompor pelo trecho seguinte é frágil,
+        # então guardamos o que veio antes do cartão — o CPF é a chave de casamento, não o nome.
+        p.linhas.append(LinhaBeneficio(cpf=_dig(cpf), nome=re.sub(r"\s+", " ", nome).strip(), mobilidade=_dec(valor), cartao=cartao))
     return p
 
 

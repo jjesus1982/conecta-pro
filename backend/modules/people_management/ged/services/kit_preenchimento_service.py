@@ -92,9 +92,11 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
     emp: dict[str, dict] = {}
     if emp_ids:
         rows = (await db.execute(text(
-            "SELECT id::text, nome, cpf, pis, matricula, cargo, coalesce(is_homologacao,false) FROM employees WHERE id::text = ANY(:ids)"),
+            "SELECT id::text, nome, cpf, pis, matricula, cargo, coalesce(is_homologacao,false), vt_modalidade "
+            "FROM employees WHERE id::text = ANY(:ids)"),
             {"ids": emp_ids})).fetchall()
-        emp = {r[0]: {"nome": r[1], "cpf": r[2], "pis": r[3], "matricula": r[4], "cargo": r[5], "homolog": r[6]} for r in rows}
+        emp = {r[0]: {"nome": r[1], "cpf": r[2], "pis": r[3], "matricula": r[4], "cargo": r[5], "homolog": r[6],
+                      "vt_modalidade": r[7]} for r in rows}
     homolog = bool(emp) and all(e["homolog"] for e in emp.values())
     rel["homologacao"] = homolog
 
@@ -143,7 +145,7 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
                     rel["faltas"].append(f"VT/VR {emp.get(e, {}).get('nome', e)}: motor da folha — {r['error']}")
                     recibos[e] = ("", 0)
                     continue
-                fd = {k: emp.get(e, {}).get(k) for k in ("cpf", "pis", "matricula")}
+                fd = {k: emp.get(e, {}).get(k) for k in ("cpf", "pis", "matricula", "vt_modalidade")}
                 fd["posto"] = posto or "—"
                 pdf = montar_recibo_vt_vr_pdf(r, fd, vt_concedido=None)
                 recibos[e] = (_gravar(kit_id, e, f"Recibo_VT_VR_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf), len(pdf))

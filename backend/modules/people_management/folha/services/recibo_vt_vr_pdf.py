@@ -32,6 +32,11 @@ def _brl_num(v) -> str:
     return B.brl(v).replace("R$ ", "")
 
 
+#: 09/09/2026 (Jordan): o VT tem duas modalidades — carteirinha do SINETRAM (ônibus) ou saldo de mobilidade no
+#: cartão Sólides (quem tem condução própria). O VR é sempre no cartão Sólides.
+_MODALIDADE = {"sinetram": "creditado na carteirinha do SINETRAM", "solides": "creditado como mobilidade no cartão Sólides"}
+
+
 def _periodo_uso(mes: int, ano: int) -> str:
     """Janela de uso do crédito: dia 17 da competência ao dia 16 do mês seguinte (padrão do recibo real)."""
     from datetime import date as _date
@@ -233,7 +238,10 @@ def montar_recibo_vt_vr_pdf(
     story.append(
         Paragraph(
             f"<b>DECLARAÇÃO.</b> Declaro que recebi da <b>{_empresa_doc['nome']}</b> (CNPJ {_empresa_doc['cnpj']}) "
-            f"os valores de vale-transporte e vale-refeição referentes à competência <b>{comp}</b>, "
+            f"os valores de vale-transporte e vale-refeição referentes à competência <b>{comp}</b> "
+            # 09/09/2026: o recibo diz ONDE o crédito entrou — carteirinha do SINETRAM (ônibus) ou cartão Sólides
+            # (mobilidade, para quem tem condução própria). O vale-refeição é sempre no cartão Sólides.
+            f"(vale-refeição no cartão Sólides; vale-transporte {_MODALIDADE.get(funcionario.get('vt_modalidade') or '', 'na modalidade contratada')}), "
             # 09/09/2026: o recibo REAL informa o PERÍODO DE UTILIZAÇÃO do crédito ("para utilização no período
             # de 17/03 a 16/04"). É o que prova a entrega antecipada exigida pela Lei 7.418/1985.
             f"para utilização no período de <b>{_periodo_uso(_mes, _ano)}</b>, na forma da "
