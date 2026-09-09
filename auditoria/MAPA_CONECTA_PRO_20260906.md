@@ -1325,6 +1325,15 @@ recebia o PDF ICP) e empurra o assinado ao Drive na hora (`sync_documento`); bea
 Limite honesto: o 40% de agosto foi pago fora do sistema e o extrato sincronizado termina em 08/08 — a regra produz a
 partir de setembro (pagamento pelo sistema ou extrato cobrindo a data). Central de assinaturas: 22 documentos esperam o Jordan.
 
+**Adendo 10h35 — central com OTP + decisões novas do Jordan:** a central de assinaturas foi para onde ele procurou
+(gestão de pessoas › GED assinaturas), com "Assinar" individual e "assinar em lote", gate de OTP por e-mail (mesmo do
+pagamento em lote) e assinatura ICP-Brasil (commit fc102b991). As 71 pendências dos 12 funcionários fictícios foram
+assinadas pelo caminho do portal (login + assinar-lote, selo + Drive em ~4 s cada). Kit do Village: 85/109 assinados;
+24 esperam o Jordan. **Decisões:** todos os pagamentos passarão a sair PELO sistema; o Cora não faz PIX em lote, então
+a saída de folha em lote será pelo **Asaas** (integração a concluir por ele), primeira folha em **20/09/2026** — o evento
+do kit precisa estar pendurado no caminho do Asaas (webhook `asaas_webhook_controller` já atualiza `inter_payments`
+com banco='asaas'; ligar `evento_pagamento_executado` ali quando a integração fechar).
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
