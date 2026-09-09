@@ -204,25 +204,37 @@ def arquivar_onvio_flat(competencia: str, db, onvio_client=None, dry_run: bool =
     cats = tuple(NOME_KIT.keys())
     rows = db.execute(
         text("""
-        SELECT categoria, nome_arquivo, caminho_local, onvio_folder_id, onvio_id
-        FROM onvio_documents
-        WHERE mes_ref = :m AND categoria IN :cats
-        ORDER BY nome_arquivo
+        SELECT o.categoria, o.nome_arquivo, o.caminho_local, o.onvio_folder_id, o.onvio_id,
+               o.referente_a_employee_id::text,
+               (SELECT cl.name FROM allocations a JOIN posts p ON p.id = a.post_id JOIN clients cl ON cl.id = p.client_id
+                 WHERE a.employee_id = o.referente_a_employee_id AND a.is_active
+                 ORDER BY a.start_date DESC NULLS LAST LIMIT 1) AS cliente_do_posto,
+               (SELECT e.nome FROM employees e WHERE e.id = o.referente_a_employee_id) AS colaborador
+        FROM onvio_documents o
+        WHERE o.mes_ref = :m AND o.categoria IN :cats
+        ORDER BY o.nome_arquivo
     """).bindparams(__import__("sqlalchemy").bindparam("cats", expanding=True)),
         {"m": competencia, "cats": list(cats)},
     ).all()
-
-    rel = {"competencia": competencia, "arquivados": 0, "pulados": [], "por_condominio": {}}
-    feitos: set = set()  # (condominio, categoria) — 1 por condomínio/tipo (evita dupes "(1)")
-
-    for categoria, nome, caminho, folder_id, oid in rows:
+    rel = {"competencia": competencia, "arquivados": 0, "pulados": [], "por_condominio": {}, "sem_condominio": 0}
+    feitos: set = set()  # (condominio, categoria[, colaborador]) — 1 por condomínio/tipo (evita dupes "(1)")
+    for categoria, nome, caminho, folder_id, oid, emp_id, cliente_do_posto, colaborador in rows:
         cond = _condominio_do_nome(nome)
+        por_pessoa = False
+        if not cond and emp_id and cliente_do_posto:
+            # 08/09/2026: o Onvio entrega o recibo de folha POR COLABORADOR ("Recibo de Pagamento-08-2026-N-NOME.pdf");
+            # o nome do arquivo não tem condomínio e 47/47 caíam no `continue` em silêncio — a subpasta
+            # "1. Folha e Pessoal" ficava vazia mesmo com os recibos no banco. O Hermes do GEDEON já liga o recibo ao
+            # colaborador (referente_a_employee_id); daqui vai para o condomínio do posto onde ele está alocado.
+            cond = cliente_do_posto
+            por_pessoa = True
         if not cond:
+            rel["sem_condominio"] += 1
             continue  # Laranjeiras/Prime Arena (Innovare) ou Geral — fora
-        chave = (cond, categoria)
+        chave = (cond, categoria, colaborador) if por_pessoa else (cond, categoria)
         if chave in feitos:
             continue
-        fn = NOME_KIT[categoria]
+        fn = f"Contracheque — {colaborador}.pdf" if por_pessoa else NOME_KIT[categoria]
         if dry_run:
             feitos.add(chave)
             rel["arquivados"] += 1
