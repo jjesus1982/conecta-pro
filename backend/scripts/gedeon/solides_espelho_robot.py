@@ -43,12 +43,23 @@ def baixar_assinados(dt_ini="20/04/2026", dt_fim="31/05/2026"):
         pg.wait_for_timeout(8000)
         if "LoginPage" in pg.url:
             raise SystemExit("login falhou")
+        # 09/09/2026: o robô "quebrava" no clique #idf3, mas a causa era outra — o Sólides mostra
+        # "A sua assinatura está Bloqueada … não identificamos seu pagamento" (módulo Ponto: Inativo) e a tela
+        # de assinatura vira "Funcionalidade Bloqueada". Sem isto, o erro parecia de seletor.
+        corpo = pg.inner_text("body")
+        for aviso in ("assinatura está Bloqueada", "conta está bloqueada", "Funcionalidade Bloqueada"):
+            if aviso in corpo:
+                raise SystemExit(f"SÓLIDES BLOQUEADO: '{aviso}' — não é o robô; regularizar a assinatura do Sólides "
+                                 "(CONECTA MAIS PATRIMONIAL LTDA) antes de rodar")
         pg.goto(
             "https://app.tangerino.com.br/Tangerino/pages/assinatura-eletronica?funcionalidade=85",
             wait_until="domcontentloaded",
             timeout=30000,
         )
         pg.wait_for_timeout(4000)
+        if "Funcionalidade Bloqueada" in pg.inner_text("body"):
+            raise SystemExit("SÓLIDES BLOQUEADO: a tela de assinatura eletrônica responde 'Funcionalidade Bloqueada' "
+                             "para este usuário — permissão/assinatura do Sólides, não é o robô")
         pg.get_by_text("Status de Assinaturas Individuais", exact=True).first.click(timeout=5000)
         pg.wait_for_timeout(4000)
         js = """(a)=>{const[n,l]=a;const s=document.querySelector(`select[name='${n}']`);if(!s)return;const o=[...s.options].find(o=>o.text.trim()===l);if(o){s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}));}}"""

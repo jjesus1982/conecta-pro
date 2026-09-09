@@ -183,3 +183,6 @@ class GedDocumentKit(Base):
 
         if self.completion_percentage >= Decimal("100.00") and self.status == KitStatus.EM_MONTAGEM:
             self.status = KitStatus.COMPLETO
+        elif self.completion_percentage < Decimal("100.00") and self.status == KitStatus.COMPLETO:
+            # 09/09: o kit do Village bateu 100% com só 5 CNDs, ganhou 62 vagas na remontagem e ficou "Completo" a 7%
+            self.status = KitStatus.EM_MONTAGEM

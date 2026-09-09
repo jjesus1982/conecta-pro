@@ -246,6 +246,12 @@ class KitBuilderService:
             from modules.people_management.ged.services.kit_preenchimento_service import preencher_vagas
 
             collected["preenchimento"] = await preencher_vagas(self.db, str(kit.id))
+            from datetime import datetime as _dt
+
+            _f = collected["preenchimento"].get("faltas") or []
+            _p, _t = collected["preenchimento"].get("presentes", 0), collected["preenchimento"].get("total", 0)
+            kit.notes = (f"[{_dt.now():%d/%m %H:%M}] {_p}/{_t} vagas com arquivo. "
+                         + (("FALTAS:\n- " + "\n- ".join(_f[:40])) if _f else "Sem faltas."))
         except Exception as exc:  # noqa: BLE001
             logger.warning("preencher_vagas falhou no kit %s: %s", kit.id, exc)
             collected["errors"].append(f"preenchimento: {exc}")
