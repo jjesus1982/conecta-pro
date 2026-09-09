@@ -155,7 +155,7 @@ TRAVAS_BINARIAS = {
     "checar_fantasmas_container.py": ("host", "arquivo .py no container que o repositório não tem (hot-copy não apaga)", 300),
     # Oráculo no git não protege ninguém; oráculo na imagem protege. A varredura da meia-noite roda DENTRO do
     # container: hoje, 3 vezes, um arquivo ficou no disco e fora da imagem porque o bake fechou o contexto antes.
-    "checar_oraculos_no_container.py": ("host", "oráculo que existe no disco e NÃO roda na varredura (fora do container)", 300),
+    "checar_oraculos_no_container.py": ("host", "oráculo ou caçador que existe no disco e NÃO roda (fora do container)", 300),
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),
