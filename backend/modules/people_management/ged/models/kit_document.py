@@ -59,6 +59,13 @@ class DocumentType(StrEnum):
     # Documentos fiscais e operacionais
     NFS_SERVICO = "nfs_servico"
     BOLETO = "boleto"
+    # 09/09/2026 (lista da Pyetra): o bloco de benefícios do kit real tem 5 documentos da EMPRESA além do recibo
+    # do funcionário — a compra dos créditos, o pedido por colaborador e o comprovante de pagamento de cada um.
+    BOLETO_VT_SINETRAM = "boleto_vt_sinetram"
+    RELATORIO_VT_SINETRAM = "relatorio_vt_sinetram"
+    RELATORIO_VA_SOLIDES = "relatorio_va_solides"
+    COMPROVANTE_PAGTO_SINETRAM = "comprovante_pagto_sinetram"
+    COMPROVANTE_PAGTO_SOLIDES = "comprovante_pagto_solides"
     RECIBO_ADIANTAMENTO = "recibo_adiantamento"  # 09/09: adiantamento salarial (40% no dia 20)
     COMPROVANTE_PAGAMENTO = "comprovante_pagamento"  # 09/09: comprovante PIX/TED do salário (40% e 60%)  # 09/09/2026: boleto da competência entra no kit (simulado em homologação; Inter no real)
     ESCALA_MES = "escala_mes"

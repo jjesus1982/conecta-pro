@@ -206,7 +206,7 @@ class GoogleDriveService:
             folder_ids["month"] = month_folder
 
             # Criar subpastas
-            for subfolder_name in ["Funcionarios", "Certidoes", "Guias", "Financeiro"]:  # 09/09: "Outros" virou "Financeiro" (NFS-e + boleto)
+            for subfolder_name in ["Funcionarios", "Certidoes", "Guias", "Beneficios", "Financeiro"]:  # 09/09: "Outros" virou "Financeiro" (NFS-e + boleto); "Beneficios" = VT/VR da empresa
                 subfolder_id = self._create_folder(
                     service,
                     name=subfolder_name,
@@ -432,6 +432,9 @@ class GoogleDriveService:
             elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") \
                     or doc.document_type.startswith("dctfweb"):
                 target_folder = folder_ids.get("guias")
+            elif doc.document_type in ("boleto_vt_sinetram", "relatorio_vt_sinetram", "relatorio_va_solides",
+                                       "comprovante_pagto_sinetram", "comprovante_pagto_solides"):
+                target_folder = folder_ids.get("beneficios")
             else:
                 target_folder = folder_ids.get("financeiro")
 
@@ -516,6 +519,9 @@ class GoogleDriveService:
             alvo = fids.get("certidoes")
         elif doc.document_type in ("gfip_sefip", "grf_fgts", "gps_inss", "das_simples_nacional", "guia_issqn", "dar_sefaz") or doc.document_type.startswith("dctfweb"):
             alvo = fids.get("guias")
+        elif doc.document_type in ("boleto_vt_sinetram", "relatorio_vt_sinetram", "relatorio_va_solides",
+                                   "comprovante_pagto_sinetram", "comprovante_pagto_solides"):
+            alvo = fids.get("beneficios")
         else:
             alvo = fids.get("financeiro")
         nome_arq = os.path.basename(doc.file_path)

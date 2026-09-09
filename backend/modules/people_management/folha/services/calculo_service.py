@@ -97,7 +97,10 @@ VR_DIA = Decimal("22.00")  # vale-refeição por dia trabalhado
 VT_DIA = Decimal("10.00")  # vale-transporte por dia trabalhado
 DESC_VT_PCT = Decimal("0.04")
 DESC_VR_PCT = Decimal("0.01")
-DESC_ODONTO = Decimal("9.00")  # valor descontado do funcionário (co-part.; empresa custeia a outra metade)
+#: Plano odontológico (Servdonto). Regra da Pyetra, 09/09/2026: R$ 8,50 por funcionário e R$ 17,00 quando ele tem
+#: dependente no plano. A folha real desconta na rubrica 204 exatamente R$ 8,50 (era R$ 9,00 aqui, valor sem fonte).
+DESC_ODONTO = Decimal("8.50")
+DESC_ODONTO_COM_DEPENDENTE = Decimal("17.00")
 DESC_SEGURO = Decimal("2.00")
 TAXA_NEGOCIAL = Decimal("22.00")
 MESES_TAXA_NEGOCIAL = {1, 3, 5, 7, 9, 11}
@@ -800,15 +803,26 @@ def calcular_folha_colaborador(
     ) if not tem_espelho else None
 
     # 1020 — Odontologico
-    descontos.append(
-        {
-            "codigo": "1020",
-            "descricao": "Plano Odontologico",
-            "tipo": "desconto",
-            "referencia": "co-part. 50%",
-            "valor": float(DESC_ODONTO),
-        }
-    ) if not tem_espelho else None
+    if not tem_espelho:
+        # 09/09/2026 (Pyetra): R$ 17,00 quando há dependente no plano odontológico; R$ 8,50 sozinho.
+        # `plano_odonto_dependentes` vem do relatório Servdonto (importador); sem o relatório, cai no valor base.
+        _odo_dep = 0
+        try:
+            _odo_dep = int(db.execute(
+                text("SELECT coalesce(plano_odonto_dependentes, 0) FROM employees WHERE CAST(id AS TEXT) = :e"),
+                {"e": employee_id}).scalar() or 0)
+        except Exception:  # noqa: BLE001,S110 — coluna pode não existir em base antiga
+            _odo_dep = 0
+        _odo_valor = DESC_ODONTO_COM_DEPENDENTE if _odo_dep > 0 else DESC_ODONTO
+        descontos.append(
+            {
+                "codigo": "1020",
+                "descricao": "Plano Odontologico",
+                "tipo": "desconto",
+                "referencia": (f"titular + {_odo_dep} dependente(s)" if _odo_dep else "titular"),
+                "valor": float(_odo_valor),
+            }
+        )
 
     # Seguro de Vida REMOVIDO: valor não vinha de dado real e não consta na folha
     # oficial do Domínio. Só re-incluir quando houver apólice/valor confirmado pelo DP.

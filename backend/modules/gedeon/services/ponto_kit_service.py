@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from datetime import date, timedelta
 from pathlib import Path
 
 from sqlalchemy import text
@@ -23,8 +24,49 @@ def _norm(s: str | None) -> str:
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().upper().strip()
 
 
+def _janela_kit(mes: int, ano: int) -> tuple[date, date]:
+    """Período da FOLHA DE PONTO do kit: 26 do mês anterior a 25 da competência (regra da Pyetra, 09/09/2026)."""
+    fim = date(ano, mes, 25)
+    ini = date(ano - 1, 12, 26) if mes == 1 else date(ano, mes - 1, 26)
+    return ini, fim
+
+
+def _dias_corridos(db, employee_id: str, ini: date, fim: date, dias_apurados: list[dict]) -> list[dict]:
+    """TODOS os dias do período, não só os trabalhados (Pyetra: "precisamos dos dias de 26/x a 25/y corridos").
+
+    Usa o que o motor apurou quando existe; nos demais, lê as batidas do dia e marca folga/sem registro.
+    """
+    from sqlalchemy import text as _t
+
+    por_data = {str(d.get("date") or d.get("data"))[:10]: d for d in (dias_apurados or [])}
+    linhas_bd = db.execute(_t(
+        "SELECT punch_timestamp::date AS d, min(punch_timestamp::time) AS ent, max(punch_timestamp::time) AS sai, count(*) AS n "
+        "FROM gp_clock_punches WHERE employee_id = CAST(:e AS uuid) AND punch_timestamp::date BETWEEN :i AND :f "
+        "GROUP BY 1"), {"e": str(employee_id), "i": ini, "f": fim}).fetchall()
+    batidas = {str(r[0]): r for r in linhas_bd}
+    out: list[dict] = []
+    d = ini
+    while d <= fim:
+        chave = d.isoformat()
+        if chave in por_data:
+            out.append(por_data[chave])
+        elif chave in batidas:
+            r = batidas[chave]
+            out.append({"date": chave, "entrada": str(r[1])[:5], "saida": str(r[2])[:5],
+                        "ocorrencia": "Registro de ponto" if r[3] > 1 else "Batida única"})
+        else:
+            out.append({"date": chave, "entrada": "—", "saida": "—",
+                        "ocorrencia": "Folga / sem registro"})
+        d += timedelta(days=1)
+    return out
+
+
 def espelho_pdf_do_mes(db, employee_id: str, mes: int, ano: int) -> tuple[bytes | None, str, str | None]:
-    """(pdf, nome_do_funcionario, motivo_da_falta). Reusa ler_espelho + montar_espelho_ponto_pdf do DP."""
+    """(pdf, nome_do_funcionario, motivo_da_falta). Reusa ler_espelho + montar_espelho_ponto_pdf do DP.
+
+    09/09/2026 (Pyetra): a folha de ponto do KIT cobre 26/x a 25/y com TODOS os dias corridos — a apuração legal
+    (time_sheets) continua mensal civil; aqui só o documento muda de janela.
+    """
     from modules.people_management.hr.services.espelho_ponto_pdf import montar_espelho_ponto_pdf
     from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
 
@@ -43,6 +85,10 @@ def espelho_pdf_do_mes(db, employee_id: str, mes: int, ano: int) -> tuple[bytes 
             signatarios = stt.get("signatarios")
     except Exception:  # noqa: BLE001
         signatarios = None
+    ini, fim = _janela_kit(mes, ano)
+    esp = dict(esp)
+    esp["dias"] = _dias_corridos(db, employee_id, ini, fim, esp.get("dias") or [])
+    esp["periodo_kit"] = f"{ini:%d/%m/%Y} a {fim:%d/%m/%Y}"
     return montar_espelho_ponto_pdf(esp, signatarios=signatarios), nome, None
 
 

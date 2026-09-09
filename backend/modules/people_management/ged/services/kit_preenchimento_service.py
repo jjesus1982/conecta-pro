@@ -179,6 +179,9 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
     # ── adiantamento 40% (dia 20) + comprovantes PIX (40% e 60%) — por funcionário ──
     await _adiantamento_e_comprovantes(db, kit, docs, emp, homolog, rel)
 
+    # ── benefícios da empresa: VT (Sinetram) e VA (Sólides) — lista da Pyetra, 09/09/2026 ──
+    await _beneficios_empresa(db, kit, homolog, {d.document_type for d in docs}, rel)
+
     # ── NFS-e, boleto e guias (nível do kit) ──
     crm_id = await _crm_client_id(db, client) if client else None
     tem = {d.document_type for d in docs}
@@ -369,6 +372,111 @@ def _empresa_branding(slug: str) -> dict:
     from modules.crm.services import pdf_branding as B  # noqa: N812
 
     return B.empresa_branding(slug)
+
+
+async def _beneficios_empresa(db, kit, homolog, tem, rel) -> None:
+    """Os 5 documentos que a Pyetra lista no bloco de benefícios: boleto e relatório do SINETRAM (VT), relatório do
+    Sólides (VA) e o comprovante de pagamento de cada um. Em cliente REAL eles vêm do portal do Sinetram, do Sólides
+    e do banco (GEDEON arquiva) — aqui fica a vaga com o motivo. Em homologação, versões simuladas."""
+    mes, ano = kit.reference_month.month, kit.reference_month.year
+    kid = str(kit.id)
+    comp = f"{mes:02d}/{ano}"
+    alvos = (
+        (DocumentType.BOLETO_VT_SINETRAM, f"Boleto Vale-Transporte SINETRAM {comp}", "portal do SINETRAM (compra dos créditos)"),
+        (DocumentType.COMPROVANTE_PAGTO_SINETRAM, f"Comprovante de pagamento SINETRAM {comp}", "banco (pagamento do boleto do SINETRAM)"),
+        (DocumentType.RELATORIO_VT_SINETRAM, f"Relatório de pedido de VT SINETRAM {comp}", "portal do SINETRAM (pedido por colaborador, nº do cartão)"),
+        (DocumentType.RELATORIO_VA_SOLIDES, f"Relatório de pedido de VA Sólides {comp}", "Sólides (pedido por colaborador, alimentação e mobilidade)"),
+        (DocumentType.COMPROVANTE_PAGTO_SOLIDES, f"Comprovante de pagamento Sólides {comp}", "banco (pagamento do pedido do Sólides)"),
+    )
+    faltando = [(t, n, o) for t, n, o in alvos if t not in tem]
+    if not faltando:
+        return
+    if not homolog:
+        for t, n, origem in faltando:
+            db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=n, file_path=None,
+                               mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True))
+            rel["faltas"].append(f"{n}: origem {origem}")
+        return
+    # homologação: simulados, com os mesmos números do recibo de VT/VR dos colaboradores do kit
+    from datetime import timedelta
+
+    from modules.gedeon.services.comprovante_generator import gerar_comprovante_pdf
+    from modules.gedeon.services.kit_simulados_pdf import boleto_pix_pdf
+
+    pat = (await db.execute(text("SELECT cnpj, razao_social FROM empresas WHERE slug = 'conecta_patrimonial'"))).first()
+    empresa = {"nome": pat[1] if pat else "CONECTAMAIS PATRIMONIAL LTDA", "cnpj": pat[0] if pat else "66.014.833/0001-10"}
+    tot_vt = float((await db.execute(text(
+        "SELECT coalesce(sum(round(coalesce(e.salario_base,0) * 0.06, 2)), 0) FROM ged_kit_documents k "
+        "JOIN employees e ON e.id = k.employee_id WHERE k.kit_id = :k AND k.document_type = 'comprovante_vt'"), {"k": kid})).scalar() or 0)
+    tot_va = float((await db.execute(text(
+        "SELECT coalesce(count(*) * 330.0, 0) FROM ged_kit_documents WHERE kit_id = :k AND document_type = 'comprovante_vr'"), {"k": kid})).scalar() or 0)
+    venc = (kit.reference_month.replace(day=15))
+    pago = venc + timedelta(days=1)
+    for t, n, _origem in faltando:
+        if t == DocumentType.BOLETO_VT_SINETRAM:
+            pdf = boleto_pix_pdf(beneficiario={"nome": "SINETRAM — Sind. das Empresas de Transporte de Passageiros do AM", "cnpj": "04.603.197/0001-04"},
+                                 pagador={"nome": empresa["nome"], "documento": empresa["cnpj"]}, valor=max(tot_vt, 1.0), vencimento=venc,
+                                 descricao=f"Créditos de vale-transporte — competência {comp}", nosso_numero=f"{ano}{mes:02d}0001", banco_nome="Banco Bradesco",
+                                 banco_codigo="237", simulado=True)
+        elif t in (DocumentType.COMPROVANTE_PAGTO_SINETRAM, DocumentType.COMPROVANTE_PAGTO_SOLIDES):
+            sinetram = t == DocumentType.COMPROVANTE_PAGTO_SINETRAM
+            pdf = gerar_comprovante_pdf(
+                favorecido="SINETRAM — Sind. Emp. Transporte de Passageiros do AM" if sinetram else "Sólides Tecnologia S.A. (benefícios)",
+                cpf="04.603.197/0001-04" if sinetram else "10.461.302/0001-10",
+                valor=max(tot_vt if sinetram else tot_va, 1.0), data_pagamento=pago,
+                descricao=("Pagamento do boleto de vale-transporte (SINETRAM)" if sinetram else "Pagamento do pedido de vale-alimentação (Sólides)")
+                          + f" — competência {comp} — SIMULADO (homologação)",
+                id_transacao=f"SIM{ano}{mes:02d}{'VT' if sinetram else 'VA'}", competencia=comp, tipo="Boleto" if sinetram else "PIX",
+                empresa_nome=empresa["nome"], empresa_cnpj=empresa["cnpj"], banco_origem="Banco Cora SCD (403)")
+        else:
+            pdf = await _relatorio_pedido_pdf(db, kid, empresa, comp, sinetram=(t == DocumentType.RELATORIO_VT_SINETRAM))
+        db.add(KitDocument(kit_id=kid, employee_id=None, document_type=t, document_name=n + " (SIMULADO)",
+                           file_path=_gravar(kid, "beneficios", f"{_safe(n)}.pdf", pdf), file_size_bytes=len(pdf),
+                           mime_type="application/pdf", source_module=SourceModule.FISCAL, auto_generated=True, is_signed=True,
+                           notes="simulação de homologação — documento do bloco de benefícios"))
+        rel["preenchidos"]["beneficios_empresa"] = rel["preenchidos"].get("beneficios_empresa", 0) + 1
+
+
+async def _relatorio_pedido_pdf(db, kid: str, empresa: dict, comp: str, sinetram: bool) -> bytes:
+    """Relatório de pedido por colaborador (VT do SINETRAM / VA do Sólides), no formato dos reais."""
+    import io as _io
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    from modules.crm.services import pdf_branding as B  # noqa: N812
+
+    rows = (await db.execute(text(
+        "SELECT e.nome, e.cpf, coalesce(e.salario_base,0) FROM ged_kit_documents k JOIN employees e ON e.id = k.employee_id "
+        "WHERE k.kit_id = :k AND k.document_type = 'comprovante_vt' ORDER BY e.nome"), {"k": kid})).fetchall()
+    st = B.styles()
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, bottomMargin=16 * mm, leftMargin=16 * mm, rightMargin=16 * mm)
+    titulo = "RELATÓRIO DE PEDIDO — VALE-TRANSPORTE (SINETRAM)" if sinetram else "RELATÓRIO DE PEDIDO — VALE-ALIMENTAÇÃO (SÓLIDES)"
+    cab = ["#", "Colaborador", "CPF", "Nº cartão", "Valor"] if sinetram else ["#", "Colaborador", "CPF", "Alimentação", "Mobilidade"]
+    linhas = [cab]
+    total = 0.0
+    for i, (nome, cpf, sal) in enumerate(rows, start=1):
+        vt = round(float(sal) * 0.06, 2)
+        va = 330.00
+        total += vt if sinetram else va
+        linhas.append([str(i), (nome or "")[:34], cpf or "—", f"58.04.{i:08d}-1" if sinetram else B.brl(va), B.brl(vt) if sinetram else B.brl(vt)])
+    linhas.append(["", "TOTAL", "", "", B.brl(total)])
+    tb = Table(linhas, colWidths=[10 * mm, 62 * mm, 30 * mm, 36 * mm, 30 * mm], repeatRows=1)
+    tb.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8),
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF5")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#F7F9FB")])]))
+    story = [Paragraph(f"<b>{titulo}</b>", st["corpo"]),
+             Paragraph(f"Empresa: {empresa['nome']} — CNPJ {empresa['cnpj']} · Competência {comp} · {len(rows)} colaborador(es)", st["corpo"]),
+             Paragraph("<font color='#B00020'><b>SIMULADO — homologação.</b> Em produção este relatório é o arquivo baixado do portal.</font>", st["corpo"]),
+             Spacer(1, 5 * mm), tb]
+    empresa_b = B.empresa_branding("conecta_patrimonial")
+    hf = lambda cv, dc: B.header_footer(cv, dc, titulo="RELATÓRIO DE BENEFÍCIOS", empresa=empresa_b)  # noqa: E731
+    doc.build(story, onFirstPage=hf, onLaterPages=hf)
+    return buf.getvalue()
 
 
 async def _guias(db, kit, emp, homolog, tem, rel) -> None:
