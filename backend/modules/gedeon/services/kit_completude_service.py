@@ -7,6 +7,8 @@ contra um checklist do que o kit DEVE conter e calcula o % de montagem.
 
 from __future__ import annotations
 
+import re
+
 import unicodedata
 
 from sqlalchemy import text
@@ -235,6 +237,9 @@ def condominios_do_workspace(svc=None) -> list[str]:
             and f["name"].strip().lower() not in _meta
             # pasta-lixo com nome de arquivo (incidentes 30/06 e 16/07) não é condomínio
             and not nome_parece_arquivo(f["name"])
+            # 08/09: pastas de BLOCO criadas na raiz por engano ("1. Folha e Pessoal", "2. Vale…") entravam como
+            # condomínio e derrubavam a média (19 "kits", 4 fantasmas a 0%)
+            and not re.match(r"^\d+\.\s", f["name"].strip())
         }
     )
     return nomes or list(CONDOMINIOS_PADRAO)
