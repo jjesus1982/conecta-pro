@@ -1294,6 +1294,25 @@ chamados só por um hook morto → hook e 3 controllers apagados (também DENTRO
 `features/notifications/**` como redesign. Resultado: 0 · 0 · 1238 rotas (TSV T7). Trava nova
 `checar_fantasmas_container.py` (36ª). tsc do frontend: 29 erros, todos em páginas clássicas pré-existentes.
 
+**Adendo 09h50 — o kit assinado nas duas pontas (revisão do Jordan sobre o kit do Village):** ele apontou 6 faltas
+(assinatura no ponto e no contracheque; adiantamento 40% + comprovantes 40%/60%; pasta Guias vazia; "Outros"→"Financeiro";
+boleto feio; nota fiscal com a nossa marca em vez do layout da prefeitura) e duas regras: funcionário assina no
+portal, gestor assina na central de assinaturas do GED; tudo simulado, mas funcionando de verdade nas duas pontas.
+Feito (commit cba3af144): 106 documentos, 108 pedidos de assinatura (84 funcionário, 24 empresa: espelho e recibo de
+adiantamento, os que trazem o campo do diretor); hook pós-assinatura devolve o PDF com selo ao kit na hora; central
+de assinaturas em redesign › documentos (Assinar, Ver PDF, lote); 12 usuários fictícios do portal
+(`vlg-01..12@homologacao.conectamais.pro`, senha `Village@2026`); recibo de adiantamento e comprovantes PIX (Cora);
+FGTS/DARF/DAS simuladas na pasta Guias; boleto híbrido com QR PIX; DANFSe no layout da prefeitura.
+**Por que Guias estava vazia:** o kit do banco nunca teve coletor de guias; no kit do Drive elas vêm do Onvio quando o
+contador emite (agosto vence 20/09) — e as tabelas `fgts_guias`/`inss_guias` pararam em 12.2025/11.2025.
+**Defeitos de produto achados:** (1) regra "histórico/opcional" do portal tratava competência < mês corrente como
+histórico — o kit de agosto assinado em setembro nunca aparecia em "a assinar agora" → mês anterior é corrente;
+(2) `assinar_lote_empresa` existia só como serviço, sem rota nem tela; (3) `generate-pdfs` gerava contracheque
+simplificado por salário base (agora é a montagem padrão-ouro); (4) motor da folha não tem rubrica de adiantamento
+salarial (holerite não mostra o desconto dos 40%); (5) assinatura da empresa em documento de kit é SIMPLES, não
+ICP-Brasil (A1 da Patrimonial válido até 07/2027) — decisão pendente.
+Prova mecânica: vlg-01 assinou o contracheque pela rota do portal → is_signed, selo verde no PDF, Drive substituiu.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
