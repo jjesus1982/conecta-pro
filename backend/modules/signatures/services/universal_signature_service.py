@@ -1233,14 +1233,21 @@ class UniversalSignatureService:
             "falhas": 0,
             "detalhes": [],
         }
+        from modules.signatures.helpers.solicitar_assinatura_documento import nivel_assinatura
+
         for rid in alvos:
             try:
+                _rid = rid if isinstance(rid, uuid.UUID) else uuid.UUID(str(rid))
+                _req = await self._get_request(_rid)
+                # 09/09/2026 (medido no kit do Village): o lote assinava SEMPRE eletrônica simples — o endpoint
+                # individual calcula o nível (QUALIFIED/ICP-Brasil para contrato, espelho, kit co-assinado), o lote não.
                 await self.assinar(
-                    request_id=rid if isinstance(rid, uuid.UUID) else uuid.UUID(str(rid)),
+                    request_id=_rid,
                     signer_type=SignerType.COMPANY,
                     signer_id=company_signer_id,
                     signer_name=signer_name,
                     evidence=evidence,
+                    level=nivel_assinatura(str((_req.document_type if _req else "") or ""), SignerType.COMPANY),
                 )
                 rel["assinados"] += 1
             except Exception as exc:  # noqa: BLE001 — um documento ruim não cala o lote
