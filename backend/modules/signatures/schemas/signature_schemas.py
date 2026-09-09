@@ -50,6 +50,7 @@ class SignRequestSchema(BaseModel):
     signer_name: str | None = None
     signer_document: str | None = None
     evidence: EvidenceSchema | None = None
+    otp_code: str | None = None  # 09/09/2026: assinatura da EMPRESA pede código OTP por e-mail (gate do redesign)
 
 
 class AssinarLoteSchema(BaseModel):

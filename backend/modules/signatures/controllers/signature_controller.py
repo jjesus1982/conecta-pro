@@ -271,12 +271,33 @@ async def assinar_lote_empresa(
         limite = int((payload or {}).get("limite") or 60)
     except (TypeError, ValueError):
         limite = 60
+    from modules.operacional.controllers.redesign_write_gate import _otp_generate, _otp_validate_consume
+
+    _ref = f"sig-lote:{current_user.id}"
+    _otp = ((payload or {}).get("otp_code") or "").strip()
+    if not _otp:
+        n = (await db.execute(sa_text(
+            "SELECT count(*) FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
+            "AND (expires_at IS NULL OR expires_at > now())"))).scalar() or 0
+        enviado = await _otp_generate(db, _ref, label="assinatura em lote da empresa", dest=f"{n} documento(s) pendentes")
+        return {"otp_required": True, "ref": _ref,
+                "message": (f"{n} documento(s) esperam a empresa. Código enviado ao seu e-mail; digite-o para assinar todos com ICP-Brasil."
+                            if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
+    if not await _otp_validate_consume(db, _ref, _otp):
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Código OTP inválido ou expirado.")
+    # só o que está VIVO (65 pedidos expirados de contratos antigos entrariam no lote e virariam "falhas")
+    ids = [r[0] for r in (await db.execute(sa_text(
+        "SELECT id FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
+        "AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at LIMIT :lim"), {"lim": max(1, min(limite, 200))})).fetchall()]
+    if not ids:
+        return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa."}
     svc = UniversalSignatureService(db)
     evidence = _evidence_from(request, None)
     return await svc.assinar_lote_empresa(
         company_signer_id=current_user.id,
         signer_name=current_user.name,
-        limite=max(1, min(limite, 200)),
+        request_ids=ids,
+        limite=len(ids),
         evidence=evidence,
     )
 
@@ -352,6 +373,19 @@ async def assinar(
     # perfis operacionais. Sem isso, qualquer usuário autenticado assinaria contrato
     # em nome da empresa.
     if signer_type == SignerType.COMPANY:
+        # 09/09/2026 (Jordan): "gera o código OTP pro meu e-mail e eu assino" — mesmo gate das ações de dinheiro
+        # do redesign: 1ª chamada sem otp_code → e-mail com o código + {otp_required, ref}; 2ª com otp_code → assina.
+        from modules.operacional.controllers.redesign_write_gate import _otp_generate, _otp_validate_consume
+
+        _ref = f"sig:{request_id}"
+        _otp = (payload.otp_code if payload else None) or ""
+        if not _otp.strip():
+            enviado = await _otp_generate(db, _ref, label="assinatura da empresa", dest=req.title or req.document_type or str(request_id))
+            return {"otp_required": True, "ref": _ref,
+                    "message": ("Código enviado ao seu e-mail. Digite-o para assinar com o certificado ICP-Brasil da empresa."
+                                if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
+        if not await _otp_validate_consume(db, _ref, _otp):
+            raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Código OTP inválido ou expirado.")
         req_user_id = _resolve_requester(credentials)
         admin_user = None
         if req_user_id is not None:

@@ -4,8 +4,12 @@ Sobrescreve _build_gp: reusa a base e ADICIONA GED (kits/envios/assinaturas),
 banco de horas, RH (staff/treinamentos/cargos), saúde ocupacional e consultor IA.
 Só leitura. Nunca fabricar — vazio real = "aguardando dado".
 """
+import logging
+
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: F401
     _build_gp as _base,
+)
+from modules.operacional.controllers.redesign_data_controller import (
     _fmtdate,
     _helpers,
     _scalar,
@@ -16,6 +20,7 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     t,
 )
 
+logger = logging.getLogger(__name__)
 SLUG = "gestao-de-pessoas"
 EXTRA_MENU: list[dict] = [
     {"id": "consultor-gestao", "label": "Consultor de gestão",
@@ -23,6 +28,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "consultor-gestao-arquivo", "label": "Consultor de gestão — com anexo", "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M12 8v4M12 16h.01"},
     {"id": "carreira-planos", "label": "Planos de carreira", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
     {"id": "treinamento-inscricoes", "label": "Inscrições em treinamento", "icon": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"},
+    {"id": "ged-assinaturas-lote", "label": "GED — assinar em lote (empresa)", "icon": "M3 3v18h18"},
 ]
 
 # GED · Envios — ação em PT + ator legível (nome real, ou rótulo do tipo quando é UUID cru no log)
@@ -97,14 +103,40 @@ async def build(db) -> dict:
                    t(_ged_actor(r[1], r[2]), 600, "#0F1B3A"),
                    t(_GED_ACTOR.get((r[2] or '').lower(), (r[2] or '—').capitalize())), t(_fmtdate(r[3]))]))
 
-    # ---- GED · Assinaturas (ged_kit_documents — status de assinatura) ----
-    await safe("ged-assinaturas", tbl(
-        "GED · Assinaturas", f"{await _scalar(db, 'SELECT count(*) FROM ged_kit_documents WHERE is_signed=true')} documentos assinados de {await _scalar(db, 'SELECT count(*) FROM ged_kit_documents')}",
-        "—", ["Documento", "Tipo", "Assinado", "Data assinatura"], "2fr 1.2fr 0.9fr 1.2fr",
-        "SELECT coalesce(document_name,'—'), coalesce(document_type,'—'), is_signed, signed_at "
-        "FROM ged_kit_documents ORDER BY is_signed DESC, signed_at DESC NULLS LAST LIMIT 200",
-        lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ').capitalize()),
-                   b("Assinado", "ok") if r[2] else b("Pendente", "warn"), t(_fmtdate(r[3]))]))
+    # ---- GED · Central de assinaturas (09/09/2026: o Jordan procurou as pendências DELE aqui) ----
+    # Mesma central de redesign › documentos: o que espera a EMPRESA vem primeiro, com "Ver PDF" e "Assinar"
+    # (gate OTP por e-mail → assinatura ICP-Brasil); o que espera funcionário/cliente aparece só para cobrança.
+    try:
+        from sqlalchemy import text as _t
+
+        from modules.operacional.controllers.redesign_builders._ligar_generico import tabela_de_lista
+
+        rows = (await db.execute(_t(
+            "SELECT coalesce(signer_name,'—'), lower(coalesce(signer_type::text,'—')), coalesce(document_type,'—'), coalesce(title, reference_code, '—'), "
+            "status::text, expires_at, id::text FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
+            "AND (expires_at IS NULL OR expires_at > now()) ORDER BY (lower(signer_type::text) = 'company') DESC, created_at DESC LIMIT 300"))).fetchall()
+        linhas = [{"signatario": r[0], "papel": {"company": "EMPRESA (você)", "employee": "funcionário (portal)", "customer": "cliente"}.get(r[1], r[1]),
+                   "documento": r[3], "tipo": r[2], "status": r[4], "expira_em": r[5].strftime("%d/%m") if r[5] else "—", "_id": r[6], "_papel": r[1]} for r in rows]
+        n_emp = sum(1 for l in linhas if l["_papel"] == "company")
+        n_ass = await _scalar(db, "SELECT count(*) FROM sig_signature_requests WHERE status::text IN ('SIGNED','COMPLETED')")
+        out["ged-assinaturas"] = tabela_de_lista(
+            "GED · Central de assinaturas",
+            f"{n_emp} documento(s) esperam a SUA assinatura (ICP-Brasil, código OTP no e-mail) · {len(linhas) - n_emp} esperam funcionários (portal) ou clientes · {n_ass} já assinados.",
+            linhas, cols=["signatario", "papel", "documento", "tipo", "status", "expira_em"],
+            docsfn=lambda it: [doc("Ver PDF", f"/api/v1/signatures/{it['_id']}/documento", fmt="pdf", mode="blob")],
+            actionsfn=lambda it: [{
+                "title": f"Assinar como empresa — {it['documento']}",
+                "sub": "1º clique: o código OTP vai para o seu e-mail. 2º: digite o código e o documento é assinado com o certificado A1 ICP-Brasil da empresa; o PDF assinado volta para o kit e para o Drive na hora.",
+                "endpoint": f"/api/v1/signatures/{it['_id']}/sign", "method": "POST", "btnLabel": "Assinar", "submitLabel": "Assinar agora",
+                "btnStyle": "primary", "okMsg": "Assinado com ICP-Brasil. Recarregue.", "fields": []}] if it["_papel"] == "company" else [])
+        out["ged-assinaturas-lote"] = {
+            "title": "Assinar em lote (empresa)", "sub": f"{n_emp} documento(s) esperam a sua assinatura. Um código OTP no e-mail confirma o lote inteiro; cada documento recebe a assinatura ICP-Brasil individualmente.",
+            "cta": "Assinar em lote", "type": "form",
+            "submit": {"endpoint": "/api/v1/signatures/empresa/assinar-lote", "okMsg": "Lote assinado. Recarregue a central.", "showResult": True},
+            "fields": [{"key": "limite", "label": "Máximo de documentos neste lote", "type": "number", "span": "span 1", "value": "60"}]}
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("ged-assinaturas central: %s", str(exc)[:160])
 
     # ---- Ponto · Banco de horas (time_bank — honesto se vazio) ----
     await safe("ponto-banco", tbl(
