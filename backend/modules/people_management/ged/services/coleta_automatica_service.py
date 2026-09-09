@@ -98,9 +98,11 @@ class ColetaAutomaticaService:
                 except Exception as e:
                     logger.error("Auto-assemble %s falhou: %s", mes, e)
                     erros.append({"fase": f"auto_assemble_{mes.isoformat()}", "erro": str(e)})
+                    await self.db.rollback()  # 08/09: sessão abortada derrubava o registro do log (21/08: 'current transaction is aborted')
         except Exception as e:
             logger.error("Fase auto_assemble falhou: %s", e)
             erros.append({"fase": "auto_assemble", "erro": str(e)})
+            await self.db.rollback()  # 08/09: sessão abortada derrubava o registro do log (21/08: 'current transaction is aborted')
 
         # ── Fase 3: Certidões (D5.4) ─────────────────────────────────────────
         certidoes_atualizadas = 0

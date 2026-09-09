@@ -146,6 +146,10 @@ TRAVAS_BINARIAS = {
     # (MCP/Hermes/tasks/robôs/cron), alias, externo (webhook) ou dono. Fechou em 0 · 0 com 1220 rotas;
     # rota nova sem tela volta a acusar aqui. Leva ~1 min (enumera as rotas dentro do container).
     "checar_cobertura_rotas.py": ("host", "rota montada sem chamador no redesign nem interno (nenhum/classico > 0)", 300),
+    # A inversa (sugestão da auditoria t6, 08/09): "toda chamada tem rota?" — varre frontend/src e reprova chamada
+    # alcançável pelo redesign (grafo de imports a partir das raízes do redesign/apps vivos) a rota que não existe.
+    # Foi assim que apareceram 14 rotas apagadas por veredito errado (portal do funcionário, sino).
+    "checar_chamadas_sem_rota.py": ("host", "chamada do frontend alcançável pelo redesign a rota que o backend não tem", 900),
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),

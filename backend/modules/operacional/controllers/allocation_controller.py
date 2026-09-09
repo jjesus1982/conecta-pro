@@ -179,7 +179,8 @@ async def get_available_employees(
     dependencies=[require_operacional_permission(Permission.ALLOCATIONS_VIEW)],
 )
 async def get_allocation(
-    allocation_id: str,
+    allocation_id: UUID,  # 08/09: 'stats' e outros sufixos caíam aqui e viravam 500 (UUID inválido) — tipado, vira 422
+
     current_user: CurrentActiveUser,
     db: AsyncSession = Depends(get_db),
 ) -> AllocationResponse:

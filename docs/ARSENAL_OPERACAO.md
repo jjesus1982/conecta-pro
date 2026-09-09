@@ -69,6 +69,7 @@ Três estados por oráculo, e nenhum se confunde com o outro:
 | `checar_botao_morto.py` | container | `TOTAL: N botão(ões) morto(s)` | tela do redesign chamando endpoint que o app não tem? (linha de base) |
 | `checar_tabela_fantasma.py` | container | `fantasmas N (U usadas · E entulho)` | modelo declara tabela que não existe? (linha de base, ~90 s) |
 | `checar_cobertura_rotas.py` | host (enumera as rotas dentro do container) | `TOTAL nenhum: N · classico: M · rotas: R` (binária: 0 · 0) | rota montada sem tela no redesign e sem chamador interno? alias/externo/dono contam à parte |
+| `checar_chamadas_sem_rota.py` | host (enumera as rotas dentro do container) | `TOTAL chamadas sem rota: N (alcançável pelo redesign) · M (só clássico)` (binária: N = 0) | o frontend chama rota que o backend não tem? inversa da cobertura; só clássico é dívida contada |
 | `checar_import_orfao.py` | host | `OK checar_import_orfao` / `FAIL checar_import_orfao` | algum import de topo aponta para módulo apagado? (binária) |
 | `checar_bake_pendente.py` | host | `TOTAL: N arquivo(s) no ar fora da imagem` | o que está por docker cp? (`--assar`: assa na madrugada se as 6 guardas passam) |
 

@@ -368,7 +368,7 @@ class KitBuilderService:
                     text("""
                 SELECT
                     e.nome, e.cpf, e.cargo, e.matricula,
-                    cp.(punch_timestamp)::date AS data,
+                    cp.punch_timestamp::date AS data,  -- 08/09: era 'cp.(punch_timestamp)::date' (erro de sintaxe desde 17/07, a8ae151ca): TODO kit falhava aqui
                     cp.punch_timestamp::time AS hora,
                     cp.punch_type
                 FROM gp_clock_punches cp

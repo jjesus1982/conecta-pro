@@ -181,3 +181,16 @@ async def get_push_unread_count(
     return {"unread_count": count}
 
 
+# 08/09/2026 (auditoria t6): restaurada — o centro de notificações (features/notifications, layout raiz) chama POST /push/read-all.
+@router.post("/push/read-all", status_code=status.HTTP_200_OK)
+async def mark_all_push_as_read(
+    current_user: CurrentActiveUser = None,
+    db: Session = Depends(get_sync_db_dependency),
+) -> dict:
+    """Marca todas as notificações como lidas."""
+    tenant_id = get_tenant_id(current_user)
+
+    service = PushNotificationService(db, tenant_id)
+    result = service.mark_all_as_read(user_id=current_user.id)
+
+    return result
