@@ -1313,6 +1313,18 @@ salarial (holerite não mostra o desconto dos 40%); (5) assinatura da empresa em
 ICP-Brasil (A1 da Patrimonial válido até 07/2027) — decisão pendente.
 Prova mecânica: vlg-01 assinou o contracheque pela rota do portal → is_signed, selo verde no PDF, Drive substituiu.
 
+**Adendo 10h15 — kit por EVENTO e ICP-Brasil (regras novas do Jordan):** "o kit é montado à medida que cada processo
+é concluído": pagou → comprovante na pasta; assinou → assinado na pasta; a partir de setembro o kit puxa sozinho os
+comprovantes e recibos dos 40% pagos dia 20/21; Guias leva também os comprovantes de pagamento; empresa assina com
+ICP-Brasil. Feito (commit desta seção): `kit_eventos.py` (evento pendurado no lote da folha PIX e no pagamento avulso;
+montagem de cliente real casa inter_payments + extrato por CPF/nome e classifica 40%/60%/VT/VR pela data e descrição;
+recibo do adiantamento com o valor pago); hook pós-assinatura chamado também no caminho qualificado (antes o kit nunca
+recebia o PDF ICP) e empurra o assinado ao Drive na hora (`sync_documento`); beat diário `ged.kit_incremental_diario`
+06:30 Manaus; Guias com comprovante. Prova: espelhos vlg-01/vlg-02 assinados pela empresa com PAdES
+(`pdfsig`: AssinaturaEmpresaICPBrasil, CN Patrimonial), no Drive 4 s depois. Kit do Village: 109 documentos.
+Limite honesto: o 40% de agosto foi pago fora do sistema e o extrato sincronizado termina em 08/08 — a regra produz a
+partir de setembro (pagamento pelo sistema ou extrato cobrindo a data). Central de assinaturas: 22 documentos esperam o Jordan.
+
 ## 3. O que o Arsenal ganhou hoje por causa deste mapa (Fase 4)
 
 Já commitado: `checar_uso_real` (uso por tabela, rota, pessoa e tela; zero confirmado por `count(*)`),
