@@ -15,7 +15,8 @@ Fontes (nunca fabricadas):
                  HOMOLOGAÇÃO (todos os alocados is_homologacao) → DANFSe SIMULADA, sem valor fiscal
   boleto         cliente de homologação → PDF "BOLETO SIMULADO"; cliente real → arquivado pelo GEDEON (Inter),
                  esta página/serviço não fala com banco (regra da casa)
-Arquivos em /app/uploads/kits/<kit_id>/ (mesmo volume de /app/uploads/ponto).
+Arquivos em /app/uploads/kits/<kit_id>/ (mesmo volume de /app/uploads/ponto); o nome do arquivo carrega o nome do
+funcionário — no Drive 12 'Contracheque_08.2026.pdf' viravam UM (dedup por nome), medido em 09/09.
 """
 from __future__ import annotations
 
@@ -113,7 +114,7 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
         try:
             from modules.people_management.employee_portal.services.payslip_pdf_service import gerar_pdf_holerite
             pdf = await gerar_pdf_holerite(db, pid)
-            d.file_path = _gravar(kit_id, str(d.employee_id), f"Contracheque_{mes:02d}.{ano}.pdf", pdf)
+            d.file_path = _gravar(kit_id, str(d.employee_id), f"Contracheque_{mes:02d}.{ano}_{_safe(emp.get(str(d.employee_id), {}).get('nome') or str(d.employee_id))}.pdf", pdf)
             d.file_size_bytes = len(pdf); d.mime_type = "application/pdf"; d.source_record_id = pid
             conta("contracheque")
         except Exception as exc:  # noqa: BLE001
@@ -143,7 +144,7 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
                 fd = {k: emp.get(e, {}).get(k) for k in ("cpf", "pis", "matricula")}
                 fd["posto"] = posto or "—"
                 pdf = montar_recibo_vt_vr_pdf(r, fd, vt_concedido=None)
-                recibos[e] = (_gravar(kit_id, e, f"Recibo_VT_VR_{mes:02d}.{ano}.pdf", pdf), len(pdf))
+                recibos[e] = (_gravar(kit_id, e, f"Recibo_VT_VR_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf), len(pdf))
             except Exception as exc:  # noqa: BLE001
                 rel["faltas"].append(f"VT/VR {e}: erro ao gerar recibo — {exc}"); recibos[e] = ("", 0)
         fp, n = recibos[e]
@@ -169,7 +170,7 @@ async def preencher_vagas(db: AsyncSession, kit_id: str) -> dict:
             turnos = [{"data": r[0], "inicio": r[1], "fim": r[2], "folga": bool(r[3]), "noturno": bool(r[4]), "horas": r[5]} for r in rows]
             fdad = dict(emp.get(e, {})); fdad.setdefault("nome", str(e))
             pdf = montar_escala_pdf(fdad, rows[0][6], mes, ano, turnos)
-            d.file_path = _gravar(kit_id, e, f"Escala_{mes:02d}.{ano}.pdf", pdf)
+            d.file_path = _gravar(kit_id, e, f"Escala_{mes:02d}.{ano}_{_safe(emp.get(e, {}).get('nome') or e)}.pdf", pdf)
             d.file_size_bytes, d.mime_type = len(pdf), "application/pdf"
             conta("escala")
         except Exception as exc:  # noqa: BLE001

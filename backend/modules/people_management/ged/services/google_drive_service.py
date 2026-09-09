@@ -68,6 +68,18 @@ class GoogleDriveService:
         """Inicializa o servico Drive sob demanda."""
         if not self._initialized:
             self._service = _get_drive_service()
+            if self._service is None:
+                # 09/09: o arquivo google_drive_credentials.json nunca existiu no container → "Drive não
+                # configurado" e o kit do banco NUNCA subiu. O GEDEON já tem sessão OAuth viva (gdrive_service):
+                # é o mesmo Drive v3, então o kit do banco usa a mesma sessão.
+                try:
+                    from modules.gdrive.services.gdrive_service import gdrive_service
+
+                    if not gdrive_service._service:
+                        gdrive_service.check_status()
+                    self._service = gdrive_service._service
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Drive do kit: sessão do GEDEON indisponível: %s", exc)
             self._initialized = True
         return self._service
 
@@ -365,14 +377,39 @@ class GoogleDriveService:
 
         uploaded = 0
         errors_list = []
+        ja_na_pasta: dict[str, set[str]] = {}  # 09/09: não duplica arquivo já enviado (re-sync do mesmo kit)
+        emp_ids = sorted({str(d.employee_id) for d in documents if d.employee_id})
+        nomes_emp: dict[str, str] = {}
+        if emp_ids:
+            from sqlalchemy import text as _text
+
+            rows = await self.db.execute(_text("SELECT id::text, nome FROM employees WHERE id::text = ANY(:ids)"), {"ids": emp_ids})
+            nomes_emp = {r[0]: (r[1] or "").strip().title() for r in rows.all()}
+
+        def _nomes(fid: str) -> set[str]:
+            if fid not in ja_na_pasta:
+                try:
+                    r = service.files().list(q=f"'{fid}' in parents and trashed=false", fields="files(name)", pageSize=500).execute()
+                    ja_na_pasta[fid] = {f["name"] for f in r.get("files", [])}
+                except Exception:  # noqa: BLE001
+                    ja_na_pasta[fid] = set()
+            return ja_na_pasta[fid]
 
         for doc in documents:
-            if not doc.file_path:
+            if not doc.file_path or not os.path.exists(doc.file_path):
                 continue
 
             # Determinar pasta de destino
             if doc.employee_id:
-                target_folder = folder_ids.get("funcionarios")
+                # 09/09: uma subpasta por funcionário (Funcionarios/<Nome>/) — tudo num balaio não é kit
+                nome = nomes_emp.get(str(doc.employee_id))
+                if nome and folder_ids.get("funcionarios"):
+                    key = f"emp:{doc.employee_id}"
+                    if key not in folder_ids:
+                        folder_ids[key] = self._create_folder(service, name=nome, parent_id=folder_ids["funcionarios"])
+                    target_folder = folder_ids[key]
+                else:
+                    target_folder = folder_ids.get("funcionarios")
             elif (
                 doc.document_type.startswith("cnd_")
                 or doc.document_type.startswith("crf_")
@@ -384,6 +421,9 @@ class GoogleDriveService:
             else:
                 target_folder = folder_ids.get("outros")
 
+            if target_folder and os.path.basename(doc.file_path) in _nomes(target_folder):
+                uploaded += 1
+                continue
             upload_result = await self.upload_to_drive(
                 kit_id=kit_id,
                 file_path=doc.file_path,
@@ -391,6 +431,7 @@ class GoogleDriveService:
             )
 
             if upload_result.get("file_id"):
+                _nomes(target_folder).add(os.path.basename(doc.file_path)) if target_folder else None
                 uploaded += 1
             else:
                 errors_list.append(
@@ -404,8 +445,7 @@ class GoogleDriveService:
         month_folder_id = folder_ids.get("month")
         if month_folder_id:
             kit.google_drive_link = f"https://drive.google.com/drive/folders/{month_folder_id}"
-            kit.sent_method = KitSendMethod.GOOGLE_DRIVE
-            kit.sent_at = datetime.utcnow()
+            # 09/09: subir ao Drive NÃO é entregar — a entrega ao cliente é ato manual (mark_kit_sent), decisão de 08/09
             await self.db.flush()
 
         logger.info(
@@ -493,6 +533,17 @@ class GoogleDriveService:
         Returns:
             ID da pasta criada.
         """
+        # 09/09: reusa a criação com dedup do GEDEON (pasta com o mesmo nome no mesmo pai = a mesma) — antes cada
+        # sync criava a árvore inteira de novo
+        try:
+            from modules.gdrive.services.gdrive_service import gdrive_service
+
+            if parent_id and gdrive_service._service is service:
+                fid = gdrive_service._criar_pasta(name, parent_id)
+                if fid:
+                    return fid
+        except Exception:  # noqa: BLE001
+            pass
         folder_metadata = {
             "name": name,
             "mimeType": "application/vnd.google-apps.folder",

@@ -176,7 +176,15 @@ def _render_danfse(d: dict) -> bytes:
     x0, x1 = 18 * mm, W - 18 * mm
 
     # Cabeçalho da marca aprovado (logo completa Conecta Mais + título azul + réguas)
-    y = B.marca_canvas(c, titulo="NOTA FISCAL DE SERVIÇO")
+    # 09/09: o timbrado é o do PRESTADOR (emit_cnpj) — antes saía sempre a Eletrônica, mesmo em nota da Patrimonial
+    _emp = None
+    try:
+        import re as _re
+        _slug = {"66014833000110": "conecta_patrimonial", "35710481000103": "conecta_eletronica"}.get(_re.sub(r"\D", "", d.get("emit_cnpj") or ""))
+        _emp = B.empresa_branding(_slug) if _slug else None
+    except Exception:  # noqa: BLE001
+        _emp = None
+    y = B.marca_canvas(c, titulo="NOTA FISCAL DE SERVIÇO", empresa=_emp)
     # subtítulo/identificação do documento fiscal abaixo do cabeçalho da marca
     c.setFillColor(_AZUL)
     c.setFont("Helvetica-Bold", 10)
