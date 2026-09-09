@@ -35,7 +35,7 @@ async def build_ligar4(db, out: dict) -> None:
         out["pagamentos-auditoria"] = await tbl(
             "Pagamentos Inter — trilha de auditoria", f"{await _n('SELECT count(*) FROM inter_payment_audit')} eventos · quem mudou o status de cada pagamento, quando e de onde · fonte: inter_payment_audit", "—",
             ["Quando", "Usuário", "Destinatário", "Valor", "De → para", "Motivo", "IP"], "1fr 1.2fr 1.6fr 0.9fr 1.1fr 1.4fr 0.8fr",
-            "SELECT a.created_at, coalesce(u.email,'—'), coalesce(p.destinatario,'—'), p.valor, coalesce(a.status_from,'—') || ' → ' || coalesce(a.status_to,'—'), coalesce(a.motivo,''), coalesce(a.ip_address,'—') "
+            "SELECT a.created_at, coalesce(u.email,'—'), coalesce(p.destinatario->>'nome', p.destinatario->>'name', p.destinatario->>'chave', p.destinatario::text, '—'), p.valor, coalesce(a.status_from,'—') || ' → ' || coalesce(a.status_to,'—'), coalesce(a.motivo,''), coalesce(a.ip_address,'—') "
             "FROM inter_payment_audit a LEFT JOIN users u ON u.id=a.user_id LEFT JOIN inter_payments p ON p.id=a.payment_id ORDER BY a.created_at DESC LIMIT 200",
             lambda r: [t(_fd(r[0], "%d/%m/%Y %H:%M")), t(r[1][:30]), t(r[2][:40], 600, "#0F1B3A"), t(brl(r[3]) if r[3] is not None else "—", 600), b(r[4], "info"), t(r[5][:50] or "—"), t(r[6])])
     except Exception as exc:  # noqa: BLE001

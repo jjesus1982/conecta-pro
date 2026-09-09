@@ -12,7 +12,7 @@ GRUPOS = [
         ("consultor", "Consultor IA"), ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
         ("escalas-mes", "Escalas do mês"), ("grade-redesenhar", "Redesenhar grade"),
-        ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template"),
+        ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"),
         ("escalas-visual", "Editor visual"), ("alocacoes", "Alocações"), ("turnos", "Turnos"),
         ("substituicoes", "Substituições"), ("escala-submeter", "Submeter escala"),
         ("escala-aprovar", "Aprovar escala"), ("escala-rejeitar", "Rejeitar escala"),
@@ -20,7 +20,7 @@ GRUPOS = [
         ("substituicao-rejeitar", "Rejeitar substituição"), ("substituicao-concluir", "Concluir substituição"),
         ("registrar-falta", "Registrar falta"),
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
-        ("escalas-rascunho", "Escalas em rascunho")]),
+        ("escalas-rascunho", "Escalas em rascunho"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template")]),
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
         ("gerente-hoje", "Onde está o gerente"), ("gerente-checkin", "Cheguei no posto"), ("gerente-checkout", "Saí do posto"),
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),
@@ -56,21 +56,21 @@ GRUPOS = [
         ("medida-aprovar", "Aprovar medida"), ("medida-rejeitar", "Rejeitar medida"),
         ("medida-documento", "Documento da medida")]),
     ("g-rondas", "Rondas & Ocorrências", "Rondas, mobile e ocorrências", [
-        ("rondas-stats", "Indicadores"), ("rondas-resumo-inspetores", "Prestação de contas"),
+        ("rondas-resumo-inspetores", "Prestação de contas"),
         ("rondas", "Rondas"), ("ronda-checkpoints", "Checkpoints"), ("ronda-mobile", "Ronda mobile"),
         ("ocorrencias", "Ocorrências"),
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),
         ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda"),
-        ("ronda-transicao", "Andamento da ronda")]),
+        ("ronda-transicao", "Andamento da ronda"), ("rondas-stats", "Indicadores")]),
     # Saíram "notificacoes" e "notificacoes-marcar-todas": o menu do operacional oferecia
     # duas entradas que este builder não entrega. "notificacoes" é tela do _build_meu_espaco
     # (outro módulo) e "notificacoes-marcar-todas" não existe em builder nenhum. Clicar em
     # qualquer uma abria tela vazia — o mesmo "Aguardando dado" que já derrubou este módulo.
     ("g-comunicacao", "Comunicação", "Comunicados e alertas", [
-        ("comunicados", "Comunicados"), ("comunicados-leituras", "Leituras"),
+        ("comunicados", "Comunicados"),
         ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
-        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta")]),
+        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"), ("comunicados-leituras", "Leituras")]),
 ]
 
 

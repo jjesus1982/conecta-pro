@@ -67,8 +67,10 @@ def _guardas() -> list[str]:
     if LOCK.exists():
         motivos.append(f"lock de deploy ocupado ({(LOCK / 'owner').read_text().strip() if (LOCK / 'owner').exists() else LOCK})")
     h = datetime.now().hour
-    if "--agora" not in sys.argv and not (1 <= h < 5):
-        motivos.append(f"fora da janela 01:00–05:00 (agora {h:02d}h) — use --agora para forçar")
+    # 08/09/2026: o cron das 00:00 (oraculos_diarios.sh) chama isto ao fim da varredura (~32 min) — ainda na hora 0,
+    # e a janela 01–05 recusava TODA noite: o bake "noturno" nunca rodava sozinho. Janela passa a ser 00:00–05:00.
+    if "--agora" not in sys.argv and not (0 <= h < 5):
+        motivos.append(f"fora da janela 00:00–05:00 (agora {h:02d}h) — use --agora para forçar")
     sujo = _sh(["git", "-C", str(REPO), "status", "--porcelain", "--", "backend/"]).strip()
     # Só é exposição NOVA o que a imagem atual ainda não tem: WIP alheio que um bake anterior
     # já publicou byte a byte não ganha nada em segurar o próximo bake — em 07/09/2026 dois
