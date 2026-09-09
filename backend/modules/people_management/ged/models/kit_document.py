@@ -58,6 +58,7 @@ class DocumentType(StrEnum):
 
     # Documentos fiscais e operacionais
     NFS_SERVICO = "nfs_servico"
+    BOLETO = "boleto"  # 09/09/2026: boleto da competência entra no kit (simulado em homologação; Inter no real)
     ESCALA_MES = "escala_mes"
 
     # Documentos fiscais — Simples Nacional / ISSQN / SEFAZ

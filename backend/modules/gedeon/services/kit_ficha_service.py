@@ -51,7 +51,15 @@ def _mes_kit(competencia: str) -> tuple[int, int]:
 def _client_id_do_condominio(db, condominio: str) -> str | None:
     """Casa o nome GEDEON ('IDEAL FLORES') ao cliente ('CONDOMINIO IDEAL FLORES DA CIDADE')."""
     toks = {t for t in _norm(condominio).split() if len(t) > 2 and t not in ("DOS", "DAS", "DE")}
-    rows = db.execute(text("SELECT id, name FROM clients")).fetchall()
+    # 09/09: o nome do condomínio pode estar em clients.trading_name ou em condominiums.name (cliente = empresa
+    # tomadora, condomínio = local do serviço — caso Conecta Village); antes só clients.name casava
+    rows = db.execute(text(
+        "SELECT id, name FROM clients UNION ALL SELECT id, trading_name FROM clients WHERE trading_name IS NOT NULL "
+        "UNION ALL SELECT client_id, name FROM condominiums"
+    )).fetchall()
+    for cid, nome in rows:
+        if _norm(nome) == _norm(condominio):
+            return str(cid)
     for cid, nome in rows:
         ntoks = set(_norm(nome).split())
         if toks and toks <= ntoks:

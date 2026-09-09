@@ -235,10 +235,26 @@ class KitBuilderService:
         kit.recalculate_completion()
         await self.db.flush()
 
-        total_collected = sum(v for k, v in collected.items() if k != "errors")
+        total_collected = sum(v for k, v in collected.items() if isinstance(v, int))
 
         # Casar placeholders com PDFs reais do Onvio (conservador: só NULL, só empresa)
         onvio_matched = await self._match_onvio_docs(str(kit.id), client.name, ref)
+
+        # 09/09: cada vaga que sobrou tenta se preencher com o que o sistema já tem (holerite, VT/VR, escala, CND,
+        # NFS-e, boleto) e diz por que faltou — antes o kit do banco era só uma lista de vazios
+        try:
+            from modules.people_management.ged.services.kit_preenchimento_service import preencher_vagas
+
+            collected["preenchimento"] = await preencher_vagas(self.db, str(kit.id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("preencher_vagas falhou no kit %s: %s", kit.id, exc)
+            collected["errors"].append(f"preenchimento: {exc}")
+        total_docs_result = await self.db.execute(
+            select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id))
+        )
+        kit.total_documents = total_docs_result.scalar() or 0
+        kit.recalculate_completion()
+        await self.db.flush()
 
         logger.info(
             "Kit montado para %s [%s]: %d docs coletados, %d casados Onvio (%d funcionarios)",
@@ -461,9 +477,8 @@ class KitBuilderService:
             Quantidade de comprovantes coletados.
         """
         collected = 0
-        benefit_types = [
+        benefit_types = [  # 09/09: VA saiu — o recibo real é UM ("VT e VR"); a vaga VA ficava vazia para sempre
             (DocumentType.COMPROVANTE_VT, "VT"),
-            (DocumentType.COMPROVANTE_VA, "VA"),
             (DocumentType.COMPROVANTE_VR, "VR"),
         ]
 
@@ -849,6 +864,20 @@ class KitBuilderService:
                 {"cid": str(client_id)},
             )
             post_ids = [row[0] for row in explicit_result.all()]
+            if not post_ids:
+                # ── Passo 1b (09/09): posto → cliente do CRM → cliente GED por CNPJ ou nome/nome fantasia ──
+                # 0 dos 14 postos têm ged_client_id; o fuzzy do passo 2 falha quando a razão social do cliente
+                # (CONECTAMAIS ELETRONICA LTDA) não contém o nome do condomínio (CONECTA VILLAGE)
+                from modules.people_management.ged.services.kit_preenchimento_service import _crm_client_id
+
+                ged_client = (await self.db.execute(select(GedClient).where(GedClient.id == client_id))).scalar_one_or_none()
+                crm_id = await _crm_client_id(self.db, ged_client) if ged_client else None
+                if crm_id:
+                    r = await self.db.execute(
+                        text("SELECT id::text FROM posts WHERE client_id = CAST(:c AS uuid) AND status = 'active' AND is_active = true"),
+                        {"c": crm_id},
+                    )
+                    post_ids = [row[0] for row in r.all()]
 
             if post_ids:
                 logger.debug(
