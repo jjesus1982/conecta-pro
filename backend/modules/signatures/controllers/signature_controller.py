@@ -273,13 +273,26 @@ async def assinar_lote_empresa(
         limite = 60
     from modules.operacional.controllers.redesign_write_gate import _otp_generate, _otp_validate_consume
 
-    _ref = f"sig-lote:{current_user.id}"
+    # 09/09 (Jordan): "pasta com o nome do mês do kit, eu abro e assino todos por lá" → lote por PASTA:
+    # pasta = "kit:<kit_id>" (documentos daquele kit/condomínio/mês) ou "tipo:<document_type>" (contratos, comunicados…).
+    pasta = ((payload or {}).get("pasta") or "").strip()
+    if pasta.startswith("kit:"):
+        where_pasta = "AND document_type LIKE 'kit_documento%' AND document_id IN (SELECT id FROM ged_kit_documents WHERE kit_id::text = :pk)"
+        pk = pasta[4:]
+    elif pasta.startswith("tipo:"):
+        where_pasta = "AND document_type = :pk"
+        pk = pasta[5:]
+    else:
+        where_pasta, pk = "", ""
+    _ref = f"sig-lote:{current_user.id}:{pasta or 'tudo'}"
     _otp = ((payload or {}).get("otp_code") or "").strip()
     if not _otp:
         n = (await db.execute(sa_text(
             "SELECT count(*) FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
-            "AND (expires_at IS NULL OR expires_at > now())"))).scalar() or 0
-        enviado = await _otp_generate(db, _ref, label="assinatura em lote da empresa", dest=f"{n} documento(s) pendentes")
+            f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta}"), {"pk": pk})).scalar() or 0
+        if not n:
+            return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa nesta pasta."}
+        enviado = await _otp_generate(db, _ref, label="assinatura em lote da empresa", dest=f"{n} documento(s) pendentes · pasta {pasta or 'todas'}")
         return {"otp_required": True, "ref": _ref,
                 "message": (f"{n} documento(s) esperam a empresa. Código enviado ao seu e-mail; digite-o para assinar todos com ICP-Brasil."
                             if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
@@ -288,7 +301,8 @@ async def assinar_lote_empresa(
     # só o que está VIVO (65 pedidos expirados de contratos antigos entrariam no lote e virariam "falhas")
     ids = [r[0] for r in (await db.execute(sa_text(
         "SELECT id FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
-        "AND (expires_at IS NULL OR expires_at > now()) ORDER BY created_at LIMIT :lim"), {"lim": max(1, min(limite, 200))})).fetchall()]
+        f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta} ORDER BY created_at LIMIT :lim"),
+        {"lim": max(1, min(limite, 200)), "pk": pk})).fetchall()]
     if not ids:
         return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa."}
     svc = UniversalSignatureService(db)
