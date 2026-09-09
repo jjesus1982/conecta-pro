@@ -9,7 +9,6 @@ import logging
 from fastapi import APIRouter
 
 from .controllers import (
-    my_benefits_router,
     my_cct_router,
     my_comunicados_router,
     my_data_router,
@@ -19,8 +18,6 @@ from .controllers import (
     my_ponto_router,
     my_profile_router,
     my_schedules_router,
-    my_trainings_router,
-    my_vacations_router,
     portal_auth_router,
     self_service_router,
     homologacao_router,
@@ -53,7 +50,6 @@ router.include_router(my_payslips_router)
 router.include_router(my_ponto_router)
 
 # Beneficios (com CCT)
-router.include_router(my_benefits_router)
 
 # CCT — Direitos do trabalhador
 router.include_router(my_cct_router)
@@ -65,10 +61,8 @@ router.include_router(my_documents_router)
 router.include_router(my_data_router)
 
 # Ferias
-router.include_router(my_vacations_router)
 
 # Treinamentos
-router.include_router(my_trainings_router)
 
 # Notificacoes
 router.include_router(my_notifications_router)

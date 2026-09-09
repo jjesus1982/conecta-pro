@@ -32,7 +32,10 @@ REDESIGN = ["backend/modules/operacional/controllers/redesign_builders/*.py", "b
             "frontend/src/components/gdrive/*.tsx",
             # providers do layout RAIZ (rodam em toda página, inclusive no redesign): CondominioProvider chama
             # /clients e /clients/{id}/condominiums — apagar essa rota derrubou a home do redesign (QA 08/09)
-            "frontend/src/contexts/**/*.tsx", "frontend/src/contexts/**/*.ts"]
+            "frontend/src/contexts/**/*.tsx", "frontend/src/contexts/**/*.ts",
+            # 09/09: features/notifications é montada pelos providers do layout raiz (PushNotificationProvider) — o sino
+            # e o push rodam em toda página do redesign; o medidor a contava como clássico (push/read-all "só clássico")
+            "frontend/src/features/notifications/**/*.tsx", "frontend/src/features/notifications/**/*.ts"]
 INTERNA = ["mcp-server/server.py", "agents/**/*.py", "backend/modules/**/tasks*.py", "backend/modules/**/tasks/*.py",
            "backend/modules/ai/conversation/services/orquestrador/*.py", "backend/modules/**/services/*.py", "backend/core/**/*.py",
            "backend/scripts/**/*.py", "det-robot/*.py", "mcp-server/**/*.py", "scripts/*.sh", "scripts/**/*.py", "rotinas/**/*.sh",

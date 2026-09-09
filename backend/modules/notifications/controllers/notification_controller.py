@@ -111,6 +111,31 @@ async def list_queue(
 # =============================================================================
 
 
+@router.post("/push/subscribe", status_code=status.HTTP_200_OK)
+async def subscribe_push(
+    device_token: str,
+    platform: str,
+    device_info: dict | None = None,
+    current_user: CurrentActiveUser = None,
+    db: Session = Depends(get_sync_db_dependency),
+) -> dict:
+    """Registra dispositivo para receber notificações push.
+
+    09/09/2026: restaurado de ee5383812~1. Apagado como "só clássico" em 08/09, mas é chamado por
+    features/notifications/hooks/useNotifications.ts → usePushNotifications → PushNotificationProvider, montado nos
+    providers do layout RAIZ (toda página do redesign). A medição de 08/09 não viu porque `docker cp` não apaga
+    arquivo: o container guardou o handler apagado até o bake de 09/09 00:54 — aí o 404 apareceu.
+    """
+    tenant_id = get_tenant_id(current_user)
+    service = PushNotificationService(db, tenant_id)
+    return service.subscribe_device(
+        user_id=current_user.id,
+        device_token=device_token,
+        platform=platform,
+        device_info=device_info,
+    )
+
+
 @router.get("/push", status_code=status.HTTP_200_OK)
 async def list_push_notifications(
     unread_only: bool = False,
