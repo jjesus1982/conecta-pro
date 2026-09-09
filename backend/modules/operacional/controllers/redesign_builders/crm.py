@@ -218,7 +218,9 @@ async def rd_action_condominio_novo(current_user: CurrentActiveUser, payload: di
     cid = (payload.get("client_id") or "").strip()
     if len(cid) != 36 or len((payload.get("name") or "").strip()) < 2:
         raise HTTPException(status_code=400, detail="Selecione o cliente e informe o nome.")
-    campos = {k: (str(payload.get(k)).strip() or None) for k in ("cnpj", "address_street", "address_number", "address_neighborhood", "address_city", "syndic_name", "syndic_phone") if payload.get(k)}
+    campos = {k: (str(payload.get(k)).strip() or None) for k in ("cnpj", "address_street", "address_number", "address_neighborhood", "address_city", "address_state", "syndic_name", "syndic_phone") if payload.get(k)}
+    # 09/09 (kit de teste Conecta Village): CondominiumCreate exige address_state e o form não tinha o campo → 400 sempre
+    campos.setdefault("address_state", "AM"); campos.setdefault("address_city", "Manaus"); campos.setdefault("address_street", campos.get("address_street") or "—")
     if payload.get("total_units"):
         campos["total_units"] = int(_num(payload["total_units"]))
     def _run():

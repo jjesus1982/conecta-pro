@@ -26,8 +26,8 @@ DocumentTypeValues = Literal["cpf", "cnpj", "passport", "rg", "other"]
 CondominiumTypeValues = Literal[
     "residential", "commercial", "mixed", "industrial", "horizontal", "vertical", "subdivision"
 ]
-CondominiumStatusValues = Literal["active", "inactive", "implementing", "suspended", "closed"]
-AdministrationTypeValues = Literal["propria", "administradora", "sindico_profissional", "autogestao"]
+CondominiumStatusValues = Literal["prospect", "implantation", "active", "suspended", "cancelled"]  # 09/09: valores do enum do banco
+AdministrationTypeValues = Literal["self_managed", "administrator", "property_manager", "hybrid"]  # 09/09: enum do banco
 
 UnitTypeValues = Literal[
     "apartment",

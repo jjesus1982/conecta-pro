@@ -37,20 +37,34 @@ class CondominiumType(StrEnum):
 class CondominiumStatus(StrEnum):
     """Status do condominio - valores sincronizados com banco."""
 
+    # 09/09/2026: alinhado ao enum REAL do banco (condominium_status_enum: prospect, implantation, active,
+    # suspended, cancelled). O modelo dizia "implementing"/"inactive"/"closed" e TODO INSERT de condomínio caía
+    # com InvalidTextRepresentation — cadastrar condomínio pela tela estava impossível.
+    PROSPECT = "prospect"
+    IMPLANTATION = "implantation"
     ACTIVE = "active"
-    INACTIVE = "inactive"
-    IMPLEMENTING = "implementing"
     SUSPENDED = "suspended"
-    CLOSED = "closed"
+    CANCELLED = "cancelled"
+    # apelidos antigos (código que ainda cita) → valores do banco
+    IMPLEMENTING = "implantation"
+    INACTIVE = "suspended"
+    CLOSED = "cancelled"
 
 
 class AdministrationType(StrEnum):
     """Tipo de administração."""
 
-    PROPRIA = "propria"
-    ADMINISTRADORA = "administradora"
-    SINDICO_PROFISSIONAL = "sindico_profissional"
-    AUTOGESTAO = "autogestao"
+    # 09/09/2026: alinhado ao enum REAL do banco (administration_type_enum: self_managed, administrator,
+    # property_manager, hybrid). O modelo gravava "administradora" e o INSERT caía.
+    SELF_MANAGED = "self_managed"
+    ADMINISTRATOR = "administrator"
+    PROPERTY_MANAGER = "property_manager"
+    HYBRID = "hybrid"
+    # apelidos antigos → valores do banco
+    PROPRIA = "self_managed"
+    ADMINISTRADORA = "administrator"
+    SINDICO_PROFISSIONAL = "property_manager"
+    AUTOGESTAO = "self_managed"
 
 
 class Condominium(Base):
@@ -73,8 +87,8 @@ class Condominium(Base):
     trading_name = Column(String(200), nullable=True)
     cnpj = Column(String(18), nullable=True, index=True)
     condominium_type = Column("condominium_type", String(30), nullable=False)
-    status = Column("status", String(30), nullable=False, default="implementing")
-    administration_type = Column("administration_type", String(40), nullable=True, default="administradora")
+    status = Column("status", String(30), nullable=False, default="implantation")
+    administration_type = Column("administration_type", String(40), nullable=True, default="administrator")
 
     # Endereço
     address_street = Column(String(255), nullable=True)
@@ -314,5 +328,9 @@ class Condominium(Base):
 
     @staticmethod
     def generate_code(client_code: str, sequence: int) -> str:
-        """Gera código do condomínio."""
-        return f"{client_code}-COND-{sequence:03d}"
+        """Gera código do condomínio: C<nº do cliente>-<seq> (ex.: C00014-001).
+
+        09/09/2026: era f"{client_code}-COND-{seq:03d}" = 23 caracteres com o código de cliente
+        CLI-AAAA-NNNNN; a coluna é varchar(20) → nenhum condomínio nascia por este caminho.
+        """
+        return f"C{client_code.split('-')[-1]}-{sequence:03d}"

@@ -361,7 +361,7 @@ class ClientRepository:
 
     def _get_next_condominium_sequence(self, client_code: str) -> int:
         """Get next condominium sequence for client."""
-        pattern = f"{client_code}-COND-%"
+        pattern = f"C{client_code.split('-')[-1]}-%"  # mesmo formato de Condominium.generate_code
         max_code = self.db.query(func.max(Condominium.code)).filter(Condominium.code.like(pattern)).scalar()
         if max_code:
             try:
