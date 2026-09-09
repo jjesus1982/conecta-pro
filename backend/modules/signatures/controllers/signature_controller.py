@@ -292,28 +292,30 @@ async def assinar_lote_empresa(
             f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta}"), {"pk": pk})).scalar() or 0
         if not n:
             return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa nesta pasta."}
-        enviado = await _otp_generate(db, _ref, label="assinatura em lote da empresa", dest=f"{n} documento(s) pendentes · pasta {pasta or 'todas'}")
-        return {"otp_required": True, "ref": _ref,
-                "message": (f"{n} documento(s) esperam a empresa. Código enviado ao seu e-mail; digite-o para assinar todos com ICP-Brasil."
-                            if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
-    if not await _otp_validate_consume(db, _ref, _otp):
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Código OTP inválido ou expirado.")
-    # só o que está VIVO (65 pedidos expirados de contratos antigos entrariam no lote e virariam "falhas")
-    ids = [r[0] for r in (await db.execute(sa_text(
-        "SELECT id FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
-        f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta} ORDER BY created_at LIMIT :lim"),
-        {"lim": max(1, min(limite, 200)), "pk": pk})).fetchall()]
-    if not ids:
-        return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa."}
-    svc = UniversalSignatureService(db)
     evidence = _evidence_from(request, None)
-    return await svc.assinar_lote_empresa(
-        company_signer_id=current_user.id,
-        signer_name=current_user.name,
-        request_ids=ids,
-        limite=len(ids),
-        evidence=evidence,
-    )
+    # 09/09 (medido): 21 assinaturas ICP-Brasil + Drive levaram 100 s; o nginx corta em 60 s → 504 e a tela dizia
+    # "não foi possível salvar" com TUDO assinado por baixo. O lote roda em segundo plano com sessão própria e a
+    # resposta volta na hora; a central mostra o andamento (pendentes caindo) ao recarregar.
+    import asyncio
+
+    from core.database.session import async_session_factory
+
+    uid, nome = current_user.id, current_user.name
+
+    async def _rodar() -> None:
+        async with async_session_factory() as s:
+            try:
+                r = await UniversalSignatureService(s).assinar_lote_empresa(
+                    company_signer_id=uid, signer_name=nome, request_ids=ids, limite=len(ids), evidence=evidence)
+                logger.info("Lote da empresa (%s) concluído: %s assinados, %s falhas",
+                            pasta or "tudo", len(r.get("assinados") or []), len(r.get("falhas") or []))
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Lote da empresa (%s) falhou: %s", pasta or "tudo", exc)
+
+    asyncio.create_task(_rodar())
+    return {"iniciado": True, "quantidade": len(ids), "pasta": pasta or "todas",
+            "message": f"Código confirmado. Assinando {len(ids)} documento(s) com ICP-Brasil em segundo plano "
+                       f"(~4 s cada). Recarregue a central para acompanhar; os PDFs assinados vão para o kit e o Drive."}
 
 
 # --------------------------------------------------------------------------- #
