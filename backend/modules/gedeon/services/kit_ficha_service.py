@@ -10,6 +10,7 @@ O checklist manual é guardado em JSON no volume uploads (sem migration; duráve
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -53,10 +54,12 @@ def _client_id_do_condominio(db, condominio: str) -> str | None:
     toks = {t for t in _norm(condominio).split() if len(t) > 2 and t not in ("DOS", "DAS", "DE")}
     # 09/09: o nome do condomínio pode estar em clients.trading_name ou em condominiums.name (cliente = empresa
     # tomadora, condomínio = local do serviço — caso Conecta Village); antes só clients.name casava
-    rows = db.execute(text(
-        "SELECT id, name FROM clients UNION ALL SELECT id, trading_name FROM clients WHERE trading_name IS NOT NULL "
-        "UNION ALL SELECT client_id, name FROM condominiums"
-    )).fetchall()
+    rows = db.execute(
+        text(
+            "SELECT id, name FROM clients UNION ALL SELECT id, trading_name FROM clients WHERE trading_name IS NOT NULL "
+            "UNION ALL SELECT client_id, name FROM condominiums"
+        )
+    ).fetchall()
     for cid, nome in rows:
         if _norm(nome) == _norm(condominio):
             return str(cid)
@@ -69,7 +72,7 @@ def _client_id_do_condominio(db, condominio: str) -> str | None:
 
 def funcionarios_do_condominio(db, competencia: str, condominio: str, folha_nomes: list[str] | None = None) -> set[str]:
     """Nomes (normalizados) dos funcionários do condomínio = folha do kit ∪ alocações ativas."""
-    nomes: set[str] = set(_norm(n) for n in (folha_nomes or []))
+    nomes: set[str] = {_norm(n) for n in (folha_nomes or [])}
     cid = _client_id_do_condominio(db, condominio)
     if cid:
         rows = db.execute(
@@ -100,7 +103,6 @@ def eventos_auto(db, competencia: str, condominio: str, nomes_cond: set[str]) ->
     ca, cm = _mes_comp(competencia)  # mês trabalhado (competência)
     ka, km = _mes_kit(competencia)  # mês do kit (entrega)
     comp_ini = f"{ca}-{cm:02d}-01"
-    comp_fim = f"{ka}-{km:02d}-01"
     kit_a2, kit_m2 = (ka, km + 1) if km < 12 else (ka + 1, 1)
     kit_fim = f"{kit_a2}-{kit_m2:02d}-01"
     ev: list[dict] = []
@@ -201,7 +203,8 @@ def add_evento(
         "autor": autor,
     }
     evs.append(novo)
-    json.dump(evs, open(_path_checklist(competencia, condominio), "w"), ensure_ascii=False, indent=2)
+    with open(_path_checklist(competencia, condominio), "w") as _fh:
+        json.dump(evs, _fh, ensure_ascii=False, indent=2)
     return novo
 
 
@@ -210,7 +213,8 @@ def remove_evento(competencia: str, condominio: str, evento_id: str) -> bool:
     novos = [e for e in evs if e.get("id") != evento_id]
     if len(novos) == len(evs):
         return False
-    json.dump(novos, open(_path_checklist(competencia, condominio), "w"), ensure_ascii=False, indent=2)
+    with open(_path_checklist(competencia, condominio), "w") as _fh:
+        json.dump(novos, _fh, ensure_ascii=False, indent=2)
     return True
 
 
@@ -248,6 +252,88 @@ def _nomes_da_folha(svc, condominio: str, competencia: str) -> list[str]:
         return []
 
 
+logger = logging.getLogger(__name__)
+
+_SQL_ASSINATURAS = text("""
+    SELECT d.document_name,
+           coalesce(e.nome, '') AS funcionario,
+           bool_or(r.signer_type::text = 'employee' AND r.status::text IN ('SIGNED','COMPLETED')) AS func_ok,
+           bool_or(r.signer_type::text = 'employee' AND r.status::text = 'PENDING')                AS func_pend,
+           bool_or(r.signer_type::text = 'company'  AND r.status::text IN ('SIGNED','COMPLETED')) AS emp_ok,
+           bool_or(r.signer_type::text = 'company'  AND r.status::text = 'PENDING')                AS emp_pend
+      FROM ged_kit_documents d
+      JOIN ged_document_kits k ON k.id = d.kit_id
+      JOIN ged_clients g       ON g.id = k.client_id
+      LEFT JOIN employees e    ON e.id = d.employee_id
+      JOIN sig_signature_requests r ON CAST(r.document_id AS TEXT) = CAST(d.id AS TEXT)
+     WHERE upper(btrim(g.name)) = upper(btrim(:cond))
+       AND k.reference_month = CAST(:ref AS date)
+     GROUP BY d.id, d.document_name, e.nome
+     ORDER BY coalesce(e.nome,''), d.document_name
+""")
+
+
+def assinaturas_do_kit(db, competencia: str, condominio: str) -> dict:
+    """Estado de assinatura de cada documento do kit — a regra 5, que a listagem do Drive não conta.
+
+    10/09/2026 — o Hermes, conferindo o kit do Michelangelo, escreveu no parecer: "Regra 5
+    (assinatura) não é verificável pela listagem — aguardando dado". Estava certo: `consultar_kit`
+    devolvia nome, id e link de cada arquivo, e o estado da assinatura mora no BANCO. Duas das cinco
+    regras que ele confere eram cegas.
+
+    Ele não fingiu que checou — disse que não dava. É por isso que o dado vai até ele, e não o
+    contrário.
+    """
+    mes, ano = competencia.split(".")
+    ref = f"{ano}-{int(mes):02d}-01"
+    # O nome chega em três línguas: o canônico do `ged_clients`, o do posto e o falado
+    # ("MICHELANGELO"). Resolver aqui é o que impede a quarta — e sem isso a consulta devolvia
+    # ZERO com dez assinaturas pendentes no banco, que é pior que devolver erro.
+    from modules.gedeon.services.kit_layout import nome_pasta_condominio
+
+    alvo = nome_pasta_condominio(condominio) or condominio
+    try:
+        linhas = db.execute(_SQL_ASSINATURAS, {"cond": alvo, "ref": ref}).mappings().all()
+        if not linhas and alvo.strip():
+            # nome falado que não resolveu: aceita UM cliente que contenha o termo. Dois ou mais
+            # é ambiguidade, e chutar em assinatura é pior do que dizer que não sei.
+            cands = (
+                db.execute(
+                    text("SELECT name FROM ged_clients WHERE upper(name) LIKE '%' || upper(:t) || '%'"),
+                    {"t": alvo.strip()},
+                )
+                .scalars()
+                .all()
+            )
+            if len(cands) == 1:
+                linhas = db.execute(_SQL_ASSINATURAS, {"cond": cands[0], "ref": ref}).mappings().all()
+    except Exception as exc:  # noqa: BLE001 — a ficha vale sem isto; melhor dizer que não sei
+        logger.warning("assinaturas do kit %s %s: %s", condominio, competencia, exc)
+        return {"disponivel": False, "motivo": str(exc)[:120]}
+
+    def _estado(ok: bool, pend: bool) -> str:
+        return "assinado" if ok else ("pendente" if pend else "—")
+
+    docs = [
+        {
+            "documento": r["document_name"],
+            "funcionario": r["funcionario"] or "—",
+            "assinatura_funcionario": _estado(r["func_ok"], r["func_pend"]),
+            "assinatura_empresa": _estado(r["emp_ok"], r["emp_pend"]),
+        }
+        for r in linhas
+    ]
+    return {
+        "disponivel": True,
+        "documentos_que_pedem_assinatura": len(docs),
+        "funcionario_assinou": sum(1 for d in docs if d["assinatura_funcionario"] == "assinado"),
+        "funcionario_pendente": sum(1 for d in docs if d["assinatura_funcionario"] == "pendente"),
+        "empresa_assinou": sum(1 for d in docs if d["assinatura_empresa"] == "assinado"),
+        "empresa_pendente": sum(1 for d in docs if d["assinatura_empresa"] == "pendente"),
+        "por_documento": docs,
+    }
+
+
 def ficha(competencia: str, condominio: str) -> dict:
     """Ficha completa do kit de um condomínio: completude + arquivos + checklist (auto+manual)."""
     from core.database.session import get_sync_db
@@ -264,6 +350,7 @@ def ficha(competencia: str, condominio: str) -> dict:
     with get_sync_db() as db:
         nomes_cond = funcionarios_do_condominio(db, competencia, condominio, folha_nomes)
         auto = eventos_auto(db, competencia, condominio, nomes_cond)
+        assinaturas = assinaturas_do_kit(db, competencia, condominio)
     manuais = eventos_manuais(competencia, condominio)
 
     return {
@@ -276,5 +363,6 @@ def ficha(competencia: str, condominio: str) -> dict:
         "checklist": kit.get("checklist", []),
         "subpastas": kit.get("subpastas", []),
         "eventos": {"auto": auto, "manuais": manuais},
+        "assinaturas": assinaturas,
         "tipos_evento": TIPOS_EVENTO,
     }

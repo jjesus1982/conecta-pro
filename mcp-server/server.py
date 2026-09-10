@@ -875,9 +875,9 @@ async def listar_leads(limite: int = 20) -> dict:
     """Lista os leads mais recentes (nome, empresa, origem, status, score)."""
     data = await erp.get("/crm/leads", params={"page_size": min(limite, 100)})
     return {"leads": [
-        {"id": l.get("id"), "nome": l.get("name"), "empresa": l.get("company"),
-         "origem": l.get("source"), "status": l.get("status"), "score": l.get("score")}
-        for l in _items(data)[:limite]
+        {"id": x.get("id"), "nome": x.get("name"), "empresa": x.get("company"),
+         "origem": x.get("source"), "status": x.get("status"), "score": x.get("score")}
+        for x in _items(data)[:limite]
     ]}
 
 
@@ -1572,7 +1572,7 @@ async def ver_ficha_cliente(cliente: str) -> dict:
 # =================================================================== GED / Kits
 # Ferramentas do GED (montagem dos kits documentais mensais por condomínio).
 # Tudo chama os mesmos endpoints /gedeon/kits/* do ERP (determinístico, sem inventar).
-import asyncio as _asyncio
+import asyncio as _asyncio  # noqa: E402 — bloco do GED, agrupado por assunto e não pelo topo
 
 _GED_CONDS = ["IDEAL FLORES", "MICHELANGELO", "MIRANTE", "VILLA PÁSSAROS",
               "VILLA DEI FIORI", "LARANJEIRAS", "PRIME ARENA"]
@@ -1624,7 +1624,8 @@ async def consultar_kits(competencia: str | None = None) -> dict:
 @mcp.tool
 async def consultar_kit(condominio: str, competencia: str | None = None) -> dict:
     """Ficha completa do kit de UM condomínio: completude, checklist de documentos (presente/falta),
-    eventos do mês (contratações, demissões, férias) e a lista de arquivos no Drive (com id p/ excluir)."""
+    eventos do mês (contratações, demissões, férias), o ESTADO DE ASSINATURA de cada documento
+    (funcionário e empresa) e a lista de arquivos no Drive (com id p/ excluir)."""
     cond = _ged_cond(condominio)
     params = {"condominio": cond, **({"competencia": competencia} if competencia else {})}
     d = await erp.get("/gedeon/kits/ficha", params=params)
@@ -1632,12 +1633,21 @@ async def consultar_kit(condominio: str, competencia: str | None = None) -> dict
     for sp in d.get("subpastas", []):
         for a in sp.get("arquivos", []):
             arquivos.append({"subpasta": sp["nome"], "nome": a["name"], "id": a.get("id")})
+    # 10/09/2026: o estado de ASSINATURA vem junto. Sem ele, quem confere o kit não consegue checar
+    # a regra 5 — o Hermes escreveu no parecer "Regra 5 (assinatura) não é verificável pela
+    # listagem — aguardando dado", e estava certo: a listagem do Drive traz nome, id e link, e a
+    # assinatura mora no banco. Duas das cinco regras eram cegas.
+    ass = d.get("assinaturas") or {}
     return {
         "condominio": d.get("condominio"), "competencia": d.get("competencia"),
         "completude": f"{d.get('completude')}%", "docs": d.get("total_docs"),
         "falta": [i["label"] for i in d.get("checklist", []) if not i["presente"]],
         "eventos": [{"tipo": e["tipo"], "funcionario": e.get("funcionario"), "descricao": e["descricao"]}
                     for e in (d.get("eventos", {}).get("auto", []) + d.get("eventos", {}).get("manuais", []))],
+        "assinaturas": {k: ass.get(k) for k in (
+            "disponivel", "documentos_que_pedem_assinatura", "funcionario_assinou",
+            "funcionario_pendente", "empresa_assinou", "empresa_pendente")},
+        "assinatura_por_documento": (ass.get("por_documento") or [])[:60],
         "arquivos": arquivos,
     }
 
@@ -1653,16 +1663,38 @@ async def cronograma_kit(competencia: str | None = None) -> dict:
         for e in d.get("etapas", [])]}
 
 
+async def _quantos_no_kit(cond: str, competencia: str | None) -> tuple[int, int]:
+    """(documentos, completude) do kit AGORA, furando o cache de 60 s da ficha.
+
+    10/09/2026 — o Hermes, montando o kit do Michelangelo, rodou sete coletas seguidas e as sete
+    devolveram "coletado" com todas as etapas ok. Nenhum arquivo entrou. Ele percebeu e escreveu no
+    parecer: "onvio_guias voltou ok mas nada entrou no kit". A ferramenta não mentia por engano —
+    ela nunca contou nada, e a própria docstring prometia "diz quantos docs entraram".
+
+    Etapa ok = o robô rodou sem exceção. Não é o mesmo que documento no kit. Quem confere precisa
+    do segundo número, não do primeiro.
+    """
+    try:
+        d = await erp.get("/gedeon/kits/ficha", params={
+            "condominio": cond, "refresh": "true",
+            **({"competencia": competencia} if competencia else {})})
+        return int(d.get("total_docs") or 0), int(d.get("completude") or 0)
+    except Exception:  # noqa: BLE001 — sem o número, a coleta ainda vale; o retorno dirá que não sabe
+        return -1, -1
+
+
 @mcp.tool
 async def buscar_documento(condominio: str, tipo: str, competencia: str | None = None) -> dict:
     """Manda o robô COLETAR um tipo de documento só deste condomínio (folha, salários, VT/VR, guias,
-    rescisões, CNDs, notas fiscais, assinados/ponto). Acompanha até concluir e diz quantos docs entraram.
-    Ex.: buscar_documento('Ideal Flores', 'VT/VR')."""
+    rescisões, CNDs, notas fiscais, assinados/ponto). Acompanha até concluir e CONTA quantos
+    documentos entraram no kit — `entraram: 0` com as etapas ok significa que o robô rodou e a
+    fonte não tinha nada novo; não adianta repetir. Ex.: buscar_documento('Ideal Flores', 'VT/VR')."""
     cond = _ged_cond(condominio)
     bloco = _GED_BLOCOS.get((tipo or "").strip().lower())
     if not bloco:
         return {"erro": f"tipo '{tipo}' não reconhecido",
                 "tipos_validos": sorted(set(_GED_BLOCOS.values()))}
+    antes, _ = await _quantos_no_kit(cond, competencia)
     r = await erp.post("/gedeon/kits/montagem", json={
         "competencia": competencia, "blocos": [bloco], "condominios": [cond]})
     tid = r.get("task_id")
@@ -1673,8 +1705,21 @@ async def buscar_documento(condominio: str, tipo: str, competencia: str | None =
         ponto_ok = (st.get("ponto", {}).get("state") in ("done", "error")) if bloco == "ponto" else True
         if st.get("state") == "SUCCESS" and ponto_ok:
             etapas = st.get("etapas", {})
-            return {"condominio": cond, "tipo": tipo, "status": "coletado",
-                    "etapas": {k: ("ok" if v.get("ok") else "falha") for k, v in etapas.items()}}
+            depois, completude = await _quantos_no_kit(cond, competencia)
+            entraram = (depois - antes) if (antes >= 0 and depois >= 0) else None
+            out = {"condominio": cond, "tipo": tipo,
+                   "etapas": {k: ("ok" if v.get("ok") else "falha") for k, v in etapas.items()},
+                   "documentos_antes": antes, "documentos_depois": depois,
+                   "entraram": entraram, "completude": completude}
+            if entraram is None:
+                out["status"] = "robô rodou; não consegui contar o kit"
+            elif entraram > 0:
+                out["status"] = f"coletado — {entraram} documento(s) entraram"
+            else:
+                # ETAPA OK E ZERO DOCUMENTO é o caso comum, não a exceção: a fonte não publicou
+                # ainda. Dizer "coletado" aqui é o que fez o agente rodar sete coletas inúteis.
+                out["status"] = "nada entrou — o robô rodou, a fonte não tinha documento novo"
+            return out
         if st.get("state") == "FAILURE":
             return {"condominio": cond, "tipo": tipo, "status": "falhou", "erro": st.get("erro")}
     return {"condominio": cond, "tipo": tipo, "status": "ainda coletando",
