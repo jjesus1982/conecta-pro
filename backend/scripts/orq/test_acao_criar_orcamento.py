@@ -27,6 +27,7 @@ Sete invariantes:
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
         /app/scripts/orq/test_acao_criar_orcamento.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +39,15 @@ _MARCA = "ZZteste-oraculo-criar-orcamento"
 
 
 async def _limpar(db) -> None:
-    """Desmonte por MARCA, nunca por id — e nas TRÊS tabelas que a ação toca.
+    """Desmonte por MARCA, nunca por id — e nas QUATRO tabelas que a ação toca.
+
+    ⚠️ Eram TRÊS até 10/09/2026, e o comentário dizia isso com confiança. Faltava
+    `opportunities`: a ação cria a oportunidade junto com a proposta, e a limpeza não a
+    removia. Resultado medido — **69 linhas "ZZteste-oraculo-criar-orcamento" no funil
+    comercial do dono**, 50 delas idênticas, misturadas com negócio real. O Jordan abriu a
+    tela de oportunidades para higienizar o CRM e mais da metade do que viu era resíduo
+    deste oráculo. Enumerar tabelas na mão é frágil; o que salva é apagar pela MARCA em
+    todas elas.
 
     ⚠️ Apagar `agent_drafts` sem apagar `communication_notifications` deixa a chave de
     idempotência viva apontando para um rascunho que não existe, e a tool passa a devolver
@@ -47,29 +56,31 @@ async def _limpar(db) -> None:
     """
     from sqlalchemy import text as _t
 
-    ids = (await db.execute(_t(
-        "SELECT id FROM proposals WHERE title LIKE :m"), {"m": f"%{_MARCA}%"})).scalars().all()
+    ids = (await db.execute(_t("SELECT id FROM proposals WHERE title LIKE :m"), {"m": f"%{_MARCA}%"})).scalars().all()
     if ids:
-        await db.execute(_t("DELETE FROM proposal_items WHERE proposal_id = ANY(:i)"),
-                         {"i": ids})
+        await db.execute(_t("DELETE FROM proposal_items WHERE proposal_id = ANY(:i)"), {"i": ids})
         await db.execute(_t("DELETE FROM proposals WHERE id = ANY(:i)"), {"i": ids})
-    d = (await db.execute(_t(
-        "SELECT id FROM agent_drafts WHERE payload::text LIKE :m"),
-        {"m": f"%{_MARCA}%"})).scalars().all()
+    d = (
+        (await db.execute(_t("SELECT id FROM agent_drafts WHERE payload::text LIKE :m"), {"m": f"%{_MARCA}%"}))
+        .scalars()
+        .all()
+    )
     if d:
-        await db.execute(_t(
-            "DELETE FROM communication_notifications WHERE reference_id::text = ANY(:i)"),
-            {"i": [str(x) for x in d]})
+        await db.execute(
+            _t("DELETE FROM communication_notifications WHERE reference_id::text = ANY(:i)"), {"i": [str(x) for x in d]}
+        )
         await db.execute(_t("DELETE FROM agent_drafts WHERE id = ANY(:i)"), {"i": d})
+    # a oportunidade nasce junto com a proposta e não era removida — ver o aviso acima
+    await db.execute(_t("DELETE FROM opportunities WHERE title LIKE :m"), {"m": f"%{_MARCA}%"})
     await db.commit()
 
 
 async def main() -> int:
     from sqlalchemy import select, text
 
+    import modules.ai.conversation.controllers.consultor_escopado_controller as C
     from core.database import async_session_factory
     from core.models.user import User
-    import modules.ai.conversation.controllers.consultor_escopado_controller as C
     from modules.ai.conversation.controllers.agente_aprovacao_controller import grau_de
     from modules.ai.conversation.models.agent_draft import AgentDraft
     from modules.ai.conversation.services.orquestrador.acoes.rascunho import (
@@ -91,17 +102,23 @@ async def main() -> int:
         if grau not in ("🟡", "🔴"):
             falhas.append(f"grau {grau} — ação que GRAVA valor não pode ser 🔵")
 
-        u = (await db.execute(select(User).where(
-            User.email == "jjesus@conectamais.pro"))).scalar_one()
+        u = (await db.execute(select(User).where(User.email == "jjesus@conectamais.pro"))).scalar_one()
         scope, _ = await C._resolver_tier_e_tools(db, u)
 
         cli = (await db.execute(text("SELECT name FROM clients LIMIT 1"))).scalar()
-        cat = (await db.execute(text(
-            "SELECT sku, unit_price FROM crm_products "
-            "WHERE is_active = true AND unit_price > 0 ORDER BY sku LIMIT 1"))).first()
-        bling = (await db.execute(text(
-            "SELECT code FROM products WHERE coalesce(ativo, true) "
-            "AND code IS NOT NULL ORDER BY code LIMIT 1"))).scalar()
+        cat = (
+            await db.execute(
+                text(
+                    "SELECT sku, unit_price FROM crm_products "
+                    "WHERE is_active = true AND unit_price > 0 ORDER BY sku LIMIT 1"
+                )
+            )
+        ).first()
+        bling = (
+            await db.execute(
+                text("SELECT code FROM products WHERE coalesce(ativo, true) AND code IS NOT NULL ORDER BY code LIMIT 1")
+            )
+        ).scalar()
         if not cli or not cat:
             print("FALHOU (pré-condição): sem cliente ou catálogo vazio")
             return 1
@@ -109,8 +126,7 @@ async def main() -> int:
         titulo = f"{_MARCA} CFTV"
 
         # 1 · cliente inexistente
-        r = await P(db, u, scope, cliente="ZZ_NAO_EXISTE", titulo=titulo,
-                    itens=[{"sku": sku, "qtd": 1}])
+        r = await P(db, u, scope, cliente="ZZ_NAO_EXISTE", titulo=titulo, itens=[{"sku": sku, "qtd": 1}])
         if not r.get("erro"):
             falhas.append("cliente inexistente foi aceito")
 
@@ -121,16 +137,14 @@ async def main() -> int:
 
         # 3 · item do Bling sem valor
         if bling:
-            r = await P(db, u, scope, cliente=cli, titulo=titulo,
-                        itens=[{"sku": bling, "qtd": 1}])
+            r = await P(db, u, scope, cliente=cli, titulo=titulo, itens=[{"sku": bling, "qtd": 1}])
             if not r.get("erro"):
                 falhas.append(f"item do Bling {bling} sem valor foi aceito — sairia a zero")
         else:
             print("  (tabela `products` vazia — bloco do Bling não exercitado)")
 
         # 4 · quantidade zero
-        r = await P(db, u, scope, cliente=cli, titulo=titulo,
-                    itens=[{"sku": sku, "qtd": 0}])
+        r = await P(db, u, scope, cliente=cli, titulo=titulo, itens=[{"sku": sku, "qtd": 0}])
         if not r.get("erro"):
             falhas.append("quantidade ZERO foi aceita — `x or 1` a transformaria em 1")
 
@@ -138,9 +152,14 @@ async def main() -> int:
         #      não sabe por qual CNPJ sai, e escolher um seria FABRICAR fronteira fiscal:
         #      Eletrônica é Lucro Real, Patrimonial é Simples Anexo III com retenção. O
         #      erro só apareceria na nota. Recusa nomeando quais itens e o que informar.
-        r_sem = await P(db, u, scope, cliente=cli, titulo=titulo,
-                        itens=[{"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0,
-                                "tipo": "servico"}])
+        r_sem = await P(
+            db,
+            u,
+            scope,
+            cliente=cli,
+            titulo=titulo,
+            itens=[{"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0, "tipo": "servico"}],
+        )
         if "empresa" not in str(r_sem.get("erro", "")).lower():
             falhas.append(f"item sem empresa NÃO foi recusado: {str(r_sem)[:120]}")
 
@@ -149,10 +168,18 @@ async def main() -> int:
         # sua do catálogo e não precisa. Aqui há os dois, então `empresa` cobre o segundo.
         n0 = (await db.execute(text("SELECT count(*) FROM proposals"))).scalar()
         i0 = (await db.execute(text("SELECT count(*) FROM proposal_items"))).scalar()
-        r = await P(db, u, scope, cliente=cli, titulo=titulo, empresa="eletronica",
-                    itens=[{"sku": sku, "qtd": 2},
-                           {"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0,
-                            "tipo": "servico"}])
+        r = await P(
+            db,
+            u,
+            scope,
+            cliente=cli,
+            titulo=titulo,
+            empresa="eletronica",
+            itens=[
+                {"sku": sku, "qtd": 2},
+                {"descricao": "Instalação", "qtd": 1, "valor_unit": 500.0, "tipo": "servico"},
+            ],
+        )
         draft_id = r.get("draft_id") or r.get("id")
         if not draft_id:
             falhas.append(f"caso válido não virou rascunho: {str(r)[:110]}")
@@ -164,48 +191,56 @@ async def main() -> int:
         esperado = preco * 2 + 500.0
 
         # 7 · preço CONGELADO: mexemos no catálogo ENTRE propor e aprovar.
-        await db.execute(text(
-            "UPDATE crm_products SET unit_price = unit_price + 1000 WHERE sku = :s"),
-            {"s": sku})
+        await db.execute(text("UPDATE crm_products SET unit_price = unit_price + 1000 WHERE sku = :s"), {"s": sku})
         await db.commit()
         try:
             # 6 · aprovar grava
             if draft_id:
-                d = (await db.execute(select(AgentDraft).where(
-                    AgentDraft.id == draft_id))).scalar_one()
+                d = (await db.execute(select(AgentDraft).where(AgentDraft.id == draft_id))).scalar_one()
                 pid = await executar_rascunho(db, u, d)
                 await db.commit()
                 if not pid:
                     falhas.append("aprovar NÃO devolveu id de proposta")
                 else:
-                    row = (await db.execute(text(
-                        "SELECT number, proposal_type, total FROM proposals "
-                        "WHERE id = :i"), {"i": pid})).first()
+                    row = (
+                        await db.execute(
+                            text("SELECT number, proposal_type, total FROM proposals WHERE id = :i"), {"i": pid}
+                        )
+                    ).first()
                     if not row or not row[0]:
                         falhas.append("proposta gravada sem NÚMERO")
                     if row and str(row[1]) != "mixed":
-                        falhas.append(f"tipo {row[1]!r} — material + serviço tem de ser "
-                                      f"'mixed', não o default do schema")
+                        falhas.append(
+                            f"tipo {row[1]!r} — material + serviço tem de ser 'mixed', não o default do schema"
+                        )
                     if row and abs(float(row[2] or 0) - esperado) > 0.01:
-                        falhas.append(f"PREÇO NÃO FICOU CONGELADO: gravou {row[2]} e o "
-                                      f"proposto era {esperado} (o catálogo mudou no meio)")
-                    codes = (await db.execute(text(
-                        "SELECT code FROM proposal_items WHERE proposal_id = :i "
-                        "ORDER BY sort_order"), {"i": pid})).scalars().all()
+                        falhas.append(
+                            f"PREÇO NÃO FICOU CONGELADO: gravou {row[2]} e o "
+                            f"proposto era {esperado} (o catálogo mudou no meio)"
+                        )
+                    codes = (
+                        (
+                            await db.execute(
+                                text("SELECT code FROM proposal_items WHERE proposal_id = :i ORDER BY sort_order"),
+                                {"i": pid},
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
                     if not codes or codes[0] != sku:
-                        falhas.append(f"`code` do item não veio do catálogo: {codes!r} "
-                                      f"— era esse campo que estava 0 de 162")
+                        falhas.append(
+                            f"`code` do item não veio do catálogo: {codes!r} — era esse campo que estava 0 de 162"
+                        )
         finally:
-            await db.execute(text(
-                "UPDATE crm_products SET unit_price = unit_price - 1000 WHERE sku = :s"),
-                {"s": sku})
+            await db.execute(text("UPDATE crm_products SET unit_price = unit_price - 1000 WHERE sku = :s"), {"s": sku})
             await db.commit()
 
         await _limpar(db)
         # Prova de que o desmonte funcionou — contar depois de limpar, não antes.
-        sobrou = (await db.execute(text(
-            "SELECT count(*) FROM proposals WHERE title LIKE :m"),
-            {"m": f"%{_MARCA}%"})).scalar()
+        sobrou = (
+            await db.execute(text("SELECT count(*) FROM proposals WHERE title LIKE :m"), {"m": f"%{_MARCA}%"})
+        ).scalar()
         if sobrou:
             falhas.append(f"desmonte deixou {sobrou} proposta(s) com a marca")
 
@@ -213,10 +248,12 @@ async def main() -> int:
         for f in falhas:
             print(f"FALHOU: {f}")
         return 1
-    print("OK criar_orcamento: 7/7 — recusa cliente inexistente, título vazio, item do "
-          "Bling sem valor e quantidade zero; o válido é INERTE; aprovar grava proposta "
-          "com número, tipo 'mixed' derivado das linhas, `code` do catálogo no item, e o "
-          "preço CONGELADO mesmo com o catálogo alterado entre propor e aprovar.")
+    print(
+        "OK criar_orcamento: 7/7 — recusa cliente inexistente, título vazio, item do "
+        "Bling sem valor e quantidade zero; o válido é INERTE; aprovar grava proposta "
+        "com número, tipo 'mixed' derivado das linhas, `code` do catálogo no item, e o "
+        "preço CONGELADO mesmo com o catálogo alterado entre propor e aprovar."
+    )
     return 0
 
 
