@@ -804,8 +804,15 @@ class GoogleDriveService:
                         )
                         .execute()
                     )
-                    ja_na_pasta[fid] = {f["name"] for f in r.get("files", [])}
-                    ids_por_nome[fid] = {f["name"]: (f["id"], f.get("md5Checksum") or "") for f in r.get("files", [])}
+                    # 10/09/2026 — a comparação é SEM CAIXA. O conferente achou
+                    # "Contracheque — Antonio Carlos Vieira.pdf" ao lado de
+                    # "Contracheque — ANTONIO CARLOS VIEIRA.pdf": o mesmo documento, duas vezes,
+                    # porque a trava por nome diferenciava maiúscula de minúscula. O Drive aceita
+                    # os dois; o síndico vê duplicata.
+                    ja_na_pasta[fid] = {f["name"].casefold() for f in r.get("files", [])}
+                    ids_por_nome[fid] = {
+                        f["name"].casefold(): (f["id"], f.get("md5Checksum") or "") for f in r.get("files", [])
+                    }
                 except Exception:  # noqa: BLE001
                     ja_na_pasta[fid] = set()
                     ids_por_nome[fid] = {}
@@ -863,8 +870,8 @@ class GoogleDriveService:
                     certidoes_ja_na_pasta += 1
                     uploaded += 1
                     continue
-            if target_folder and nome_arquivo in _nomes(target_folder):
-                fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(nome_arquivo, ("", ""))
+            if target_folder and nome_arquivo.casefold() in _nomes(target_folder):
+                fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(nome_arquivo.casefold(), ("", ""))
                 # documento anexado à mão (comprovante oficial do banco) sobe uma vez e não é substituído depois
                 if str(getattr(doc, "source_module", "")) == "manual" and fid_drive:
                     uploaded += 1
@@ -890,7 +897,7 @@ class GoogleDriveService:
             )
 
             if upload_result.get("file_id"):
-                _nomes(target_folder).add(nome_arquivo) if target_folder else None
+                _nomes(target_folder).add(nome_arquivo.casefold()) if target_folder else None
                 uploaded += 1
             else:
                 errors_list.append(
