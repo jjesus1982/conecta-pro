@@ -167,6 +167,27 @@ def nome_pasta_condominio(condominio: str) -> str:
             ).scalar()
         if achado:
             return achado
+
+        # 10/09/2026 — e se não é nome de POSTO, tenta o CLIENTE. Sem isto, um nome curto que veio
+        # da leitura das pastas do Drive ("GREEN HILLS", "PARQUE RESIDENCIAL GELAI") não resolvia e
+        # o robô CRIAVA a pasta com esse nome — que na volta seguinte era lida como se fosse um
+        # condomínio, e recriada. Laço fechado: a pasta fantasma se sustentava sozinha.
+        # Um único cliente contendo o termo resolve; dois ou mais é ambiguidade e não se chuta.
+        with get_sync_db() as _db:
+            cands = (
+                _db.execute(
+                    _sql(
+                        "SELECT name FROM ged_clients "
+                        " WHERE upper(btrim(name)) = upper(btrim(:n)) "
+                        "    OR upper(name) LIKE '%' || upper(btrim(:n)) || '%' LIMIT 3"
+                    ),
+                    {"n": condominio},
+                )
+                .scalars()
+                .all()
+            )
+        if len(cands) == 1:
+            return cands[0]
     except Exception:  # noqa: BLE001 — banco fora, cai na heurística; nunca derruba o arquivamento
         logger.debug("nome_pasta_condominio: banco indisponível para %r, seguindo pela heurística", condominio)
 

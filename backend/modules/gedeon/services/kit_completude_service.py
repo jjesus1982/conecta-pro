@@ -361,6 +361,22 @@ def condominios_do_workspace(svc=None) -> list[str]:
         return list(CONDOMINIOS_PADRAO)
     from modules.gedeon.services.kit_layout import nome_parece_arquivo
 
+    # 10/09/2026 — só entra pasta que corresponde a um CLIENTE de verdade. O Hermes achou no
+    # panorama "GREEN HILLS" ao lado de "CONDOMINIO RESIDENCIAL GREEN HILLS", "PARQUE RESIDENCIAL
+    # GELAI" ao lado de "GELAIN" e "SMART TORQUATO", todos com 0 documento — pastas fantasma
+    # entrando na média como se fossem condomínios e puxando o número para baixo (17 "kits",
+    # 4 fantasmas). Pasta sem cliente é resíduo, não condomínio.
+    _clientes: set[str] = set()
+    try:
+        from core.database.session import get_sync_db
+
+        with get_sync_db() as _db:
+            _clientes = {
+                (n or "").strip().upper() for n in _db.execute(text("SELECT name FROM ged_clients")).scalars().all()
+            }
+    except Exception:  # noqa: BLE001 — banco fora: melhor listar demais que esconder um kit real
+        logger.warning("condominios_do_workspace: banco indisponível, não filtro por cliente")
+
     _meta = {"folhas de ponto", "documentos temporários", "documentos temporarios"}
     nomes = sorted(
         {
@@ -373,6 +389,7 @@ def condominios_do_workspace(svc=None) -> list[str]:
             # 08/09: pastas de BLOCO criadas na raiz por engano ("1. Folha e Pessoal", "2. Vale…") entravam como
             # condomínio e derrubavam a média (19 "kits", 4 fantasmas a 0%)
             and not re.match(r"^\d+\.\s", f["name"].strip())
+            and (not _clientes or f["name"].strip().upper() in _clientes)
         }
     )
     return nomes or list(CONDOMINIOS_PADRAO)
