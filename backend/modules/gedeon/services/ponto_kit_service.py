@@ -155,7 +155,12 @@ def arquivar_ponto_proprio(competencia: str, condominios: list[str], dry_run: bo
                 if not pdf:
                     rel["faltas"].append(f"{cond} / {nome}: {motivo}")
                     continue
-                fn = f"Folha de Ponto_{(nome_esp or nome).title()}.pdf"
+                # MESMO nome que o `sistema` usa (`_legivel`): dois escritores mirando um destino
+                # só. Antes eram "Folha de Ponto_X.pdf" e "Folha de Ponto — X.pdf", em pastas
+                # diferentes, e nenhuma trava por nome os enxergava como o mesmo arquivo.
+                from modules.people_management.ged.services.kit_preenchimento_service import _legivel
+
+                fn = _legivel(f"Folha de Ponto {mes:02d}/{ano}", nome_esp or nome)
                 d = PONTO_KIT_STORAGE / competencia / re.sub(r"[^A-Za-z0-9_-]+", "_", _norm(cond))
                 d.mkdir(parents=True, exist_ok=True)
                 path = d / fn

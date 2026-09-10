@@ -111,8 +111,12 @@ def cnpjs_do_kit(db, condominio: str) -> set[str]:
 #: sistema). Casou uma → a pasta já tem a certidão; não sobe réplica.
 _CHAVES_TIPO: dict[str, list[str]] = {
     "certidao_negativa_fgts": ["FGTS", "CRF"],
-    "certidao_negativa_federal": ["FEDERAL", "RECEITA", "RFB", "PGFN"],
-    "certidao_negativa_inss": ["INSS", "PREVIDENCI"],
+    # 10/09/2026 — a CND Federal É a previdenciária desde 2014 (certidão CONJUNTA RFB/PGFN). Enquanto
+    # foram dois tipos com chaves separadas, o kit levava "CND Federal (RFB-PGFN)" e "CND INSS (RFB)"
+    # lado a lado — mesmo PDF, mesmo md5, dois nomes. Chaves unificadas: a segunda encontra a
+    # primeira em `item_ja_na_pasta` e não sobe.
+    "certidao_negativa_federal": ["FEDERAL", "RECEITA", "RFB", "PGFN", "INSS", "PREVIDENCI"],
+    "certidao_negativa_inss": ["INSS", "PREVIDENCI", "FEDERAL", "RECEITA", "RFB", "PGFN"],
     "certidao_negativa_municipal": ["MUNICIPAL", "PREFEITURA", "ISS"],
     "certidao_negativa_estadual": ["ESTADUAL", "SEFAZ"],
     "certidao_negativa_trabalhista": ["TRABALHISTA", "CNDT", "TST"],
@@ -179,8 +183,11 @@ def arquivar_cnds(competencia: str, condominios: list[str], dry_run: bool = Fals
                 continue
             # Já tem uma certidão deste tipo (e desta empresa) na pasta, com qualquer nome?
             # A que a Pyetra subiu do órgão vale mais que a réplica — não duplicar.
-            ja = item_ja_na_pasta(folder, _CHAVES_TIPO.get(document_type, [fn]),
-                                  empresa=("PATRIMONIAL" if _cnpj != _CNPJ_ELETRONICA else "ELETRONICA"))
+            ja = item_ja_na_pasta(
+                folder,
+                _CHAVES_TIPO.get(document_type, [fn]),
+                empresa=("PATRIMONIAL" if _cnpj != _CNPJ_ELETRONICA else "ELETRONICA"),
+            )
             if ja:
                 rel.setdefault("ja_tinha", []).append(f"{cond}: {ja}")
                 continue

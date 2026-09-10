@@ -240,6 +240,29 @@ SUBPASTAS_LEGADO = [
 ]
 
 
+#: Dentro de Funcionarios há um nível a mais, por categoria — a mesma divisão que o kit real do
+#: Villa Dei Fiori usa e que o `google_drive_service.CATEGORIA_FUNCIONARIO` aplica. Aqui a chave é
+#: o NOME do arquivo (o robô não tem o tipo em mãos); lá é o `document_type`. Mesmo destino.
+_CATEGORIA_POR_NOME: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("folha de ponto", "espelho de ponto", "espelho_ponto", "ponto assinad"), "Folhas de Ponto"),
+    (("contracheque", "holerite", "recibo de pagamento"), "Contracheques"),
+    (("comprovante de pagamento", "comprovante pix", "recibo de adiantamento"), "Comprovantes de Pagamento"),
+    (
+        ("recibo de vt", "recibo_vt", "vale transporte", "vale aliment", "comprovante vt", "comprovante va"),
+        "Recibos e Comprovantes de VA e VT",
+    ),
+)
+
+
+def categoria_do_arquivo(nome: str) -> str | None:
+    """Subpasta de categoria dentro de Funcionarios, ou None quando não é documento de pessoa."""
+    n = (nome or "").lower()
+    for chaves, pasta in _CATEGORIA_POR_NOME:
+        if any(k in n for k in chaves):
+            return pasta
+    return None
+
+
 def subpasta_do_arquivo(nome: str) -> str:
     """Classifica um documento do kit na sua subpasta, PELO NOME do arquivo.
 
@@ -254,6 +277,13 @@ def subpasta_do_arquivo(nome: str) -> str:
       · "CND-FGTS" é certidão, não guia → certidão vem antes de FGTS/INSS/DARF.
     """
     n = (nome or "").lower()
+
+    # 0) DOCUMENTO DE PESSOA vem antes de tudo. "Recibo de Vale Transporte e Vale Alimentacao -
+    #    Kalel.pdf" é do FUNCIONÁRIO e casaria com "vale transporte" lá embaixo, indo parar em
+    #    Beneficios — que é a pasta da EMPRESA comprando crédito. A categoria de pessoa decide
+    #    primeiro; o que não é de pessoa segue a régua normal. (10/09/2026)
+    if categoria_do_arquivo(nome):
+        return SUB_PESSOAL
 
     # 1) benefício (VT/VA) — antes de faturamento, senão o boleto do SINETRAM vira nota fiscal
     if (
@@ -303,12 +333,25 @@ def subpasta_do_arquivo(nome: str) -> str:
 
 
 def pasta_kit_arquivo(condominio: str, competencia: str, nome_arquivo: str, cache: dict | None = None) -> str | None:
-    """Garante [Condomínio]/[Mês]/[Subpasta do documento] e devolve o ID da subpasta."""
+    """Garante [Condomínio]/[Mês]/[Subpasta]/[Categoria] e devolve o ID da pasta de destino.
+
+    10/09/2026 — o Hermes achou o espelho de ponto DUAS VEZES no kit real: "Folha de Ponto — X.pdf"
+    (nosso sync, em Funcionarios/Folhas de Ponto) e "Folha de Ponto_X.pdf" (bloco `ponto` do GEDEON,
+    solto na raiz de Funcionarios). Mesmo PDF, mesmo gerador, dois destinos — então nenhuma trava
+    por nome os via como o mesmo arquivo.
+
+    Descer na categoria aqui é o que faz os dois escritores mirarem o MESMO lugar. Com o mesmo
+    destino e o mesmo nome, quem chega depois é barrado pela trava que já existe.
+    """
     cache = cache if cache is not None else {}
     base = garantir_pasta_kit(condominio, competencia, cache)
     if not base:
         return None
-    return _garantir_pasta(cache, subpasta_do_arquivo(nome_arquivo), base)
+    sub = _garantir_pasta(cache, subpasta_do_arquivo(nome_arquivo), base)
+    if not sub or subpasta_do_arquivo(nome_arquivo) != SUB_PESSOAL:
+        return sub
+    cat = categoria_do_arquivo(nome_arquivo)
+    return _garantir_pasta(cache, cat, sub) if cat else sub
 
 
 _CONECTIVOS = {"da", "de", "do", "das", "dos", "e", "di", "del"}

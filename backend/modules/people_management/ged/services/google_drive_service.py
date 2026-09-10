@@ -13,6 +13,7 @@ import re
 import unicodedata
 
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.people_management.ged.models.client import GedClient
@@ -230,17 +231,27 @@ async def _bloqueado_por_falta_de_assinatura(db, doc) -> bool:
         return False
     if doc.is_signed:
         return False
+    # ⚠️ 10/09/2026, corrigindo a mim mesmo DUAS vezes aqui:
+    #   · a primeira versão consultava `sig_signatures.request_id`, coluna que NÃO EXISTE — aquela
+    #     tabela guarda a IMAGEM da assinatura; a coleta está no STATUS do pedido;
+    #   · e o `try/except` não bastava: no Postgres um erro ABORTA A TRANSAÇÃO INTEIRA, e tudo o
+    #     que vinha depois morria com "current transaction is aborted". Engolir a exceção não
+    #     ressuscita a transação. Por isso roda num SAVEPOINT — a mesma forma que já mordeu hoje no
+    #     `get_employees_for_client` e no bloco `sistema` do orquestrador.
     try:
-        assinado = (
-            await db.execute(
-                _sql(
-                    "SELECT 1 FROM sig_signature_requests r JOIN sig_signatures a ON a.request_id = r.id "
-                    "WHERE CAST(r.document_id AS TEXT) = :d AND r.signer_type = 'employee' LIMIT 1"
-                ),
-                {"d": str(doc.id)},
-            )
-        ).scalar()
+        async with db.begin_nested():
+            assinado = (
+                await db.execute(
+                    _sql(
+                        "SELECT 1 FROM sig_signature_requests "
+                        " WHERE CAST(document_id AS TEXT) = :d AND signer_type::text = 'employee' "
+                        "   AND status::text IN ('SIGNED','COMPLETED') LIMIT 1"
+                    ),
+                    {"d": str(doc.id)},
+                )
+            ).scalar()
     except Exception:  # noqa: BLE001 — na dúvida NÃO bloqueia: kit incompleto é melhor que kit vazio
+        logger.warning("não consegui checar a assinatura do documento %s — deixo subir", doc.id)
         return False
     return not assinado
 
@@ -308,11 +319,25 @@ def _uma_via_por_documento(documentos: list) -> tuple[list, int]:
         t = re.sub(r"\s*—.*$", "", t)  # tira " — Fulano de Tal"
         return re.sub(r"[^a-z0-9]+", "", t.lower())
 
+    #: Documentos de que existe UM por pessoa e por competência — a lei não permite dois
+    #: contracheques do mesmo mês. Aqui o rótulo NÃO entra na chave: o nosso "Contracheque 08/2026"
+    #: e o "Recibo de Pagamento-08-2026-22-KALEL" do contador são o MESMO documento com dois nomes.
+    #: Nos demais tipos o rótulo distingue de verdade — comprovante do adiantamento (dia 20) e da
+    #: folha (5º dia útil) são eventos diferentes.
+    UM_POR_PESSOA = {
+        "contracheque",
+        "folha_ponto",
+        "ficha_registro",
+        "ficha_empregado",
+        "contrato_trabalho",
+        "recibo_folha",
+    }
+
     grupos: dict[tuple, list] = {}
     for d in documentos:
-        grupos.setdefault(
-            (tipo_canonico(d.document_type), str(d.employee_id or ""), _rotulo(d.document_name)), []
-        ).append(d)
+        tipo = tipo_canonico(d.document_type)
+        chave = (tipo, str(d.employee_id or ""), "" if tipo in UM_POR_PESSOA else _rotulo(d.document_name))
+        grupos.setdefault(chave, []).append(d)
     fica, fora = [], 0
     for _chave, grupo in grupos.items():
         if len(grupo) == 1:
@@ -370,7 +395,7 @@ def pasta_do_documento(document_type: str, kit_id: str = "", document_name: str 
     return pasta
 
 
-def _nome_no_drive(document_name: str | None, caminho: str) -> str:
+def _nome_no_drive(document_name: str | None, caminho: str, pessoa: str | None = None) -> str:
     """Nome que o CLIENTE vê na pasta.
 
     09/09/2026 (1º kit REAL): os documentos vindos do coletor subiam com o nome interno do arquivo —
@@ -379,6 +404,18 @@ def _nome_no_drive(document_name: str | None, caminho: str) -> str:
     (o gerador escreve "Contracheque_08.2026_FULANO.pdf") e não se mexe, senão cada sync renomeia tudo.
     """
     base = os.path.basename(caminho)
+    # 10/09/2026 — documento que veio do COLETOR e é de uma pessoa: o nome do arquivo é o do
+    # contador ("Recibo de Pagamento-08-2026-22-KALELSILVADEJESUS.pdf") e o síndico lê isso na
+    # pasta. Quando sabemos de QUEM é, o nome vira "<o que é> — <Nome>", igual ao que o nosso
+    # gerador escreve. O regex de máquina não pegava: "08-2026-22" não é hash nem CNPJ.
+    # "legível" é o nome SEPARADO, não grudado: "KALELSILVADEJESUS" contém "KALEL" e não é legível.
+    _sep = " " + re.sub(r"[^A-Za-zÀ-ÿ]+", " ", base).upper() + " "
+    _pri = (pessoa or "").split()[0].upper() if pessoa else ""
+    if pessoa and document_name and f" {_pri} " not in _sep:
+        limpo = re.sub(r"[\\/:*?\"<>|]", "-", re.sub(r"\s*\d{2}[/.]\d{4}\s*$", "", document_name)).strip()
+        bonito = " ".join(w.capitalize() for w in pessoa.split())
+        if limpo:
+            return f"{limpo} — {bonito}{os.path.splitext(base)[1] or '.pdf'}"
     if not document_name or not _RE_NOME_DE_MAQUINA.search(base):
         return base
     ext = os.path.splitext(base)[1] or ".pdf"
@@ -731,6 +768,20 @@ class GoogleDriveService:
         # Buscar documentos
         docs_result = await self.db.execute(select(KitDocument).where(KitDocument.kit_id == kit_id))
         documents = docs_result.scalars().all()
+        # nome da pessoa por documento — usado para dar nome legível ao que veio do coletor
+        _nomes_emp: dict[str, str] = (
+            {
+                str(r[0]): r[1]
+                for r in (
+                    await self.db.execute(
+                        sa_text("SELECT id::text, nome FROM employees WHERE id = ANY(CAST(:ids AS uuid[]))"),
+                        {"ids": [str(d.employee_id) for d in documents if d.employee_id]},
+                    )
+                ).fetchall()
+            }
+            if any(d.employee_id for d in documents)
+            else {}
+        )
 
         documents, duplicatas_de_tipo = _uma_via_por_documento(list(documents))
         uploaded = 0
@@ -803,7 +854,7 @@ class GoogleDriveService:
             else:
                 target_folder = folder_ids.get(pasta_do_documento(doc.document_type, kit_id, doc.document_name))
 
-            nome_arquivo = _nome_no_drive(doc.document_name, caminho)
+            nome_arquivo = _nome_no_drive(doc.document_name, caminho, _nomes_emp.get(str(doc.employee_id or "")))
             if target_folder and str(doc.document_type) in _CHAVES_CERTIDAO:
                 if ja := _certidao_ja_esta_na_pasta(_nomes(target_folder), doc.document_type):
                     logger.info(
