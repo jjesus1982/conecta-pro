@@ -48,7 +48,15 @@ CHECKLIST = [
         "key": "ponto",
         "label": "Ponto assinado",
         "sub": SUB_PESSOAL,
-        "match": ["ponto assinada", "ponto assinado", "folha de ponto", "folhas de ponto"],
+        # "espelho de ponto" é o nome do documento no DP; o kit chama de folha de ponto. Mesmo papel.
+        "match": [
+            "ponto assinada",
+            "ponto assinado",
+            "folha de ponto",
+            "folhas de ponto",
+            "espelho de ponto",
+            "espelho_ponto",
+        ],
         "esperado": 1,
     },
     {

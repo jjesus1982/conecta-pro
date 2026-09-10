@@ -382,6 +382,28 @@ def _engine_sync_nullpool():
     return eng, async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
 
 
+def _rodar_sync(corotina_factory):
+    """Roda uma corrotina de dentro de código SÍNCRONO, haja ou não um loop rodando.
+
+    10/09/2026 — medido montando o kit do Village: `status_documento_sync` era chamado por
+    `ponto_kit_service.espelho_pdf_do_mes`, que roda dentro de `collect_time_sheets` (async).
+    `asyncio.run()` recusa loop já em execução, o except engolia, e o espelho de ponto saía SEM a
+    informação de assinatura — doze vezes seguidas, com um WARNING que ninguém lê.
+
+    Sem loop: `asyncio.run` normal. Com loop: uma thread própria, que tem o seu. É o mesmo motivo
+    do NullPool aqui do lado — cada loop precisa das suas conexões.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(corotina_factory())
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(corotina_factory())).result(timeout=120)
+
+
 def status_documento_sync(document_type: str, document_id: str) -> dict[str, Any] | None:
     """Versão síncrona de status() para endpoints `def` (ex.: folha/recibo VT-VR)."""
 
@@ -396,7 +418,7 @@ def status_documento_sync(document_type: str, document_id: str) -> dict[str, Any
             await eng.dispose()
 
     try:
-        return asyncio.run(_run())
+        return _rodar_sync(_run)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Falha ao consultar status de assinatura (sync): %s", exc)
         return None
@@ -419,7 +441,7 @@ def garantir_solicitacao_assinatura_sync(**kwargs: Any) -> dict[str, Any] | None
             await eng.dispose()
 
     try:
-        return asyncio.run(_run())
+        return _rodar_sync(_run)
     except RuntimeError:
         # Já existe event loop rodando neste contexto — cai fora sem quebrar o PDF.
         logger.warning("garantir_solicitacao_assinatura_sync chamado dentro de event loop ativo; ignorado.")

@@ -190,7 +190,31 @@ def garantir_pasta_kit(condominio: str, competencia: str, cache: dict | None = N
     if not gdrive_service._service:
         gdrive_service.check_status()
     cache = cache if cache is not None else {}
-    cond_folder = _garantir_pasta(cache, nome_pasta_condominio(condominio), ROOT_WORKSPACE_ID)
+    # 10/09/2026 — UMA autoridade para onde mora a pasta do cliente. O `google_drive_service` usava
+    # `ged_clients.google_drive_folder_id` como pai e esta função usava a RAIZ fixa: o kit de
+    # homologação foi escrito dentro de "_TESTE (homologação — não é cliente)" e a ficha procurava
+    # na raiz, achando ZERO arquivos num kit com 85. Mesma doença das duas estruturas de pasta,
+    # noutro lugar. Onde o cliente declara um pai, ele manda; quem não declara, vai para a raiz.
+    nome_cli = nome_pasta_condominio(condominio)
+    pai = ROOT_WORKSPACE_ID
+    try:
+        from sqlalchemy import text as _sql
+
+        from core.database.session import get_sync_db
+
+        with get_sync_db() as _db:
+            declarado = _db.execute(
+                _sql(
+                    "SELECT google_drive_folder_id FROM ged_clients "
+                    "WHERE upper(btrim(name)) = upper(btrim(:n)) AND coalesce(google_drive_folder_id,'') <> '' LIMIT 1"
+                ),
+                {"n": nome_cli},
+            ).scalar()
+        if declarado:
+            pai = declarado
+    except Exception:  # noqa: BLE001 — banco fora: raiz, que é o comportamento de sempre
+        logger.debug("garantir_pasta_kit: banco indisponível para %r, usando a raiz", nome_cli)
+    cond_folder = _garantir_pasta(cache, nome_cli, pai)
     if not cond_folder:
         return None
     return _garantir_pasta(cache, mes_kit_de_competencia(competencia), cond_folder)

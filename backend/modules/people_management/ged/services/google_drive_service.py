@@ -295,9 +295,23 @@ def _uma_via_por_documento(documentos: list) -> tuple[list, int]:
     """
     from modules.people_management.ged.models.kit_document import tipo_canonico
 
+    def _rotulo(nome: str | None) -> str:
+        """O nome SEM a competência e sem a pessoa — o que o documento É.
+
+        10/09, corrigindo a mim mesmo: agrupar só por (tipo, funcionário) colapsou o "Comprovante
+        PIX Adiantamento 40%" com o "Comprovante PIX Folha" do mesmo funcionário — mesmo tipo, MESMA
+        pessoa, documentos DIFERENTES (um é o dia 20, outro é o quinto dia útil). O kit do Village
+        perdeu 15 comprovantes assim, e o bloco "Comprovantes de salário" não fechava.
+        """
+        t = re.sub(r"\s*\d{2}[/.]\d{4}\s*", " ", (nome or "").strip())
+        t = re.sub(r"\s*—.*$", "", t)  # tira " — Fulano de Tal"
+        return re.sub(r"[^a-z0-9]+", "", t.lower())
+
     grupos: dict[tuple, list] = {}
     for d in documentos:
-        grupos.setdefault((tipo_canonico(d.document_type), str(d.employee_id or "")), []).append(d)
+        grupos.setdefault(
+            (tipo_canonico(d.document_type), str(d.employee_id or ""), _rotulo(d.document_name)), []
+        ).append(d)
     fica, fora = [], 0
     for _chave, grupo in grupos.items():
         if len(grupo) == 1:

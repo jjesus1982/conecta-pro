@@ -459,8 +459,11 @@ class KitBuilderService:
                 if _pdf:
                     _dir = Path("/app/uploads/kits") / kit_id / str(emp_id)
                     _dir.mkdir(parents=True, exist_ok=True)
-                    _safe = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in (_nome or str(emp_id)))[:40]
-                    _fp = _dir / f"Espelho_Ponto_{mes_ref}_{_safe}.pdf"
+                    # 10/09: nome legível na pasta do cliente — e o checklist do Drive casa por NOME,
+                    # então "Espelho_Ponto_08.2026_FULANO.pdf" não fechava o bloco "Ponto assinado".
+                    from modules.people_management.ged.services.kit_preenchimento_service import _legivel
+
+                    _fp = _dir / _legivel(f"Folha de Ponto {reference_month:%m/%Y}", _nome or str(emp_id))
                     _fp.write_bytes(_pdf)
                     file_path, mime = str(_fp), "application/pdf"
             except Exception as exc:  # noqa: BLE001

@@ -64,6 +64,10 @@ _BLOCO_DE_TIPO: dict[str, str] = {
     "contracheques_consolidado": "contracheque",
     "recibo_folha": "contracheque",
     "comp_salario_individual": "salario",
+    # 10/09: o comprovante que o NOSSO sistema gera (PIX da folha e do saldo de 60%) tem tipo
+    # próprio e não contava em bloco nenhum — o kit do Village fechava 33% com os 24 comprovantes
+    # dentro. É o mesmo documento do "comp_salario_individual" que o robô do Inter arquiva.
+    "comprovante_pagamento": "salario",
     "comprovante_salario": "salario",
     "folha_ponto": "ponto",
     "folhas_ponto": "ponto",
@@ -151,7 +155,7 @@ _VALUES_MAPA = ", ".join(f"('{t}','{b}')" for t, b in sorted(_BLOCO_DE_TIPO.item
 _SQL_RECALC = r"""
 WITH mapa(document_type, bloco) AS (VALUES {values}),
 cliente AS (
-  SELECT k.id AS kit_id, c.id AS client_id
+  SELECT k.id AS kit_id, c.id AS client_id, g.id AS ged_client_id
     FROM ged_document_kits k
     JOIN ged_clients g ON g.id = k.client_id
     LEFT JOIN clients c ON (
@@ -164,11 +168,17 @@ regua AS (
   SELECT cl.kit_id,
          CASE WHEN EXISTS (
                 SELECT 1 FROM contracts ct
-                 WHERE ct.client_id = cl.client_id AND ct.status::text = 'active'
-                   AND (coalesce(ct.kit_mensal,false) OR coalesce(ct.tipo_servico,'') = 'maodeobra'))
+                 WHERE ct.status::text = 'active'
+                   AND (coalesce(ct.kit_mensal,false) OR coalesce(ct.tipo_servico,'') = 'maodeobra')
+                   AND (ct.client_id = cl.client_id
+                        OR ct.client_id IN (SELECT p.client_id FROM posts p
+                                             WHERE p.ged_client_id = cl.ged_client_id)))
               AND EXISTS (
                 SELECT 1 FROM posts p JOIN allocations a ON a.post_id = p.id AND a.status = 'active'
-                 WHERE p.client_id = cl.client_id)
+                 -- 10/09: `posts.ged_client_id` passou a existir de fato (estava NULO nos 16 postos
+                 -- até hoje). É a ligação DIRETA; a de cima reconstruía o mesmo fato casando duas
+                 -- tabelas de cliente por nome/CNPJ, e falhava em quem só existe no GED.
+                 WHERE p.client_id = cl.client_id OR p.ged_client_id = cl.ged_client_id)
               THEN ARRAY['folha','contracheque','salario','ponto','vavt','guias','inss','cnd','nfse','boleto']
               ELSE ARRAY['cnd','nfse','boleto']
          END AS blocos

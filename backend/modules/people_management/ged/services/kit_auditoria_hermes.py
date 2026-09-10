@@ -204,3 +204,77 @@ async def auditar_kit(db, kit_id: str) -> dict[str, Any]:
         parecer.get("tokens"),
     )
     return parecer
+
+
+# ── FASE DE TREINAMENTO (10/09/2026, decisão do Jordan) ───────────────────────────────────────
+# "estamos na fase de treinamento e aprendizado do Hermes... vamos montar e ele aprende, depois ele
+# monta os reais."
+#
+# O agente só aprende com o que ELE FAZ: memória e skill são escritas pelas ferramentas dele, no
+# fim de uma passagem pelo processo. Aqui a passagem é o fechamento de um kit — o processo mais
+# repetitivo desta casa, treze vezes por mês.
+#
+# As duas escritas caem em `/data/pending/` e ESPERAM aprovação humana (`write_approval: true` no
+# config). É de propósito: numa casa onde o agente mexe em folha e contrato, procedimento que ele
+# escreve sozinho vira regra sozinho. Quem aprova é o Jordan.
+
+_PEDIDO_DE_APRENDIZADO = """\
+Você acabou de conferir este kit. Agora REGISTRE o que aprendeu, para a próxima vez ser melhor.
+
+1. Use a ferramenta `memory` para gravar os FATOS desta casa que você descobriu ou confirmou agora —
+   coisas que valem para todo kit, não só para este condomínio. Uma entrada por fato, curta.
+2. Use a ferramenta `skill_manage` (action=create ou edit) para escrever/atualizar a skill
+   `conferir-kit-documental`: o PROCEDIMENTO de conferir um kit da Conecta Mais — que ferramenta
+   chamar, em que ordem, o que olhar em cada pasta, e os erros que você já viu acontecer.
+
+Não invente regra que ninguém te disse. Se algo te pareceu errado mas você não tem certeza, escreva
+como DÚVIDA na memória, não como regra. Responda em UMA linha o que gravou.
+"""
+
+
+async def aprender_com_o_kit(db, kit_id: str, parecer: dict | None = None) -> dict:
+    """Depois de conferir, o Hermes registra o que aprendeu. Escrita fica pendente de aprovação."""
+    from sqlalchemy import text as sql
+
+    if not HABILITADO:
+        return {"executou": False, "motivo": "KIT_AUDITORIA_HERMES desligado"}
+    row = (
+        await db.execute(
+            sql(
+                "SELECT c.name, k.reference_month FROM ged_document_kits k JOIN ged_clients c ON c.id = k.client_id "
+                "WHERE k.id = CAST(:k AS uuid)"
+            ),
+            {"k": kit_id},
+        )
+    ).first()
+    if not row:
+        return {"executou": False, "motivo": f"kit {kit_id} não encontrado"}
+
+    from modules.ai.conversation.services import hermes_client
+
+    if not await hermes_client.hermes_disponivel():
+        return {"executou": False, "motivo": "Hermes fora do ar"}
+
+    contexto = (
+        f"Kit conferido: {row[0]}, competência {_competencia(row[1])}.\n"
+        f"Seu parecer foi: {json.dumps(parecer or {}, ensure_ascii=False)[:2500]}\n\n"
+        f"{REGRAS_DO_KIT}\n{_PEDIDO_DE_APRENDIZADO}"
+    )
+    try:
+        resposta, meta = await hermes_client.perguntar_hermes(
+            [{"role": "user", "content": contexto}],
+            "Você é o conferente do kit documental da Conecta Mais, em treinamento. Registre o que "
+            "aprendeu usando suas ferramentas de memória e de skill. Fato é fato; palpite é dúvida.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("aprendizado do Hermes no kit %s falhou: %s", kit_id, exc)
+        return {"executou": False, "motivo": f"{type(exc).__name__}: {exc}"}
+    logger.info("aprendizado do Hermes no kit %s: %s", kit_id, str(resposta)[:200])
+    return {
+        "executou": True,
+        "kit_id": kit_id,
+        "condominio": row[0],
+        "registrou": str(resposta)[:600],
+        "tokens": (meta or {}).get("tokens"),
+        "observacao": "as escritas ficam em /data/pending do Hermes até o Jordan aprovar",
+    }
