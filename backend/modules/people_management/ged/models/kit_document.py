@@ -89,6 +89,30 @@ class DocumentType(StrEnum):
     OUTRO = "outro"
 
 
+# ── Vocabulário canônico ──────────────────────────────────────────────────────────────────────────
+# 10/09/2026: o mesmo documento tinha até TRÊS nomes de tipo, vindos de coletores diferentes —
+# `cnd_receita`, `cnd_rfb` e `cnd_federal` são a MESMA certidão da Receita/PGFN. Enquanto foram
+# tipos distintos, o kit do Michelangelo mostrava sete certidões para cinco documentos, e a união
+# Drive→banco criava um slot novo a cada sincronização porque o classificador por nome devolvia o
+# apelido e o banco tinha o canônico.
+#
+# Um condomínio não tem duas CND Estadual. Aqui está a tradução, num lugar só.
+ALIAS_DE_TIPO: dict[str, str] = {
+    "cnd_receita": "cnd_federal",
+    "cnd_rfb": "cnd_federal",
+    "cnd_sefaz": "cnd_estadual",
+    "cnd_prefeitura": "cnd_municipal",
+    "cnd_trabalhista": "cndt_trabalhista",
+    "cnd_caixa": "crf_fgts",
+}
+
+
+def tipo_canonico(document_type: str | None) -> str:
+    """O nome oficial do tipo. Apelido de coletor vira o canônico; o que não é apelido volta igual."""
+    t = str(document_type or "")
+    return ALIAS_DE_TIPO.get(t, t)
+
+
 class SourceModule(StrEnum):
     """Módulo de origem do documento."""
 

@@ -207,6 +207,68 @@ _RE_NOME_DE_MAQUINA = re.compile(
 )
 
 
+async def _bloqueado_por_falta_de_assinatura(db, doc) -> bool:
+    """Documento do TRABALHADOR só vai para o kit assinado. Regra do Jordan, 21/08/2026.
+
+    "todos os documentos do trabalhador — contracheque, recibo de VT e VA — devem ser assinados
+    pelo funcionário; o sistema gera, disponibiliza no portal, ele assina, e ISSO sobe para o kit."
+
+    A trava existia em `uniao_kit_service` (que tem zero chamadores) e não existia aqui — então a
+    sincronização de hoje subia contracheque não assinado para a pasta do condomínio. Medido lá em
+    21/08, antes da trava: 38 comprovantes de salário, 7 contracheques, 7 folhas de ponto e 7
+    recibos nos kits, ZERO assinados — kit anunciado 100% com papel sem valor probatório.
+
+    Documento da EMPRESA (guia, certidão, nota, boleto) não tem assinatura de funcionário e sobe
+    normalmente: a trava é só para o que é da pessoa.
+    """
+    from sqlalchemy import text as _sql
+
+    from modules.gedeon.services.uniao_kit_service import _DOC_DO_TRABALHADOR
+
+    if not doc.employee_id or str(doc.document_type) not in _DOC_DO_TRABALHADOR:
+        return False
+    if doc.is_signed:
+        return False
+    try:
+        assinado = (
+            await db.execute(
+                _sql(
+                    "SELECT 1 FROM sig_signature_requests r JOIN sig_signatures a ON a.request_id = r.id "
+                    "WHERE CAST(r.document_id AS TEXT) = :d AND r.signer_type = 'employee' LIMIT 1"
+                ),
+                {"d": str(doc.id)},
+            )
+        ).scalar()
+    except Exception:  # noqa: BLE001 — na dúvida NÃO bloqueia: kit incompleto é melhor que kit vazio
+        return False
+    return not assinado
+
+
+#: Ano no caminho ou no nome: "/onvio/decimo_terceiro/2025/13º SALARIO 2025_x.pdf", "NFS-e 13 202601".
+_RE_ANO = re.compile(r"(?:^|[^0-9])(20[12][0-9])(?:[^0-9]|$)")
+
+
+def _competencia_estranha(file_path: str, document_name: str, ref) -> str | None:
+    """Devolve o ano forasteiro quando o documento é claramente de OUTRO ano que não o do kit.
+
+    10/09/2026 — o Hermes, conferindo o primeiro kit real, achou "13º SALARIO 2025" e o recibo dele
+    dentro do kit de 08/2026. Não era exceção do Michelangelo: estava em TODOS os kits de agosto,
+    grudado em 19/08 por uma coleta que casou pela categoria e não pela competência. O 13º tem
+    `mes_ref='2025'` no `onvio_documents` — é documento ANUAL, não cabe em kit mensal.
+
+    A guia é a única que legitimamente atrasa um mês (a de agosto recolhe julho), e isso não muda o
+    ANO na esmagadora maioria dos casos; por isso a regra olha só o ano e aceita o anterior em
+    janeiro. Conservadora de propósito: erra para o lado de deixar passar, nunca de sumir com o
+    arquivo — só relata.
+    """
+    anos = {int(a) for a in _RE_ANO.findall(f"{file_path} {document_name}")}
+    if not anos:
+        return None
+    aceitos = {ref.year, ref.year - 1} if ref.month == 1 else {ref.year}
+    forasteiros = sorted(a for a in anos if a not in aceitos and a < ref.year)
+    return str(forasteiros[0]) if forasteiros else None
+
+
 def pasta_do_documento(document_type: str, kit_id: str = "", document_name: str = "") -> str:
     """Chave da subpasta do kit para um documento de EMPRESA. Desconhecido não some: grita e vai p/ financeiro."""
     pasta = PASTA_DO_TIPO.get(str(document_type))
@@ -585,6 +647,8 @@ class GoogleDriveService:
 
         uploaded = 0
         substituidos = 0
+        bloqueados_sem_assinatura = 0
+        fora_da_competencia = 0
         errors_list = []
         ja_na_pasta: dict[str, set[str]] = {}  # 09/09: não duplica arquivo já enviado (re-sync do mesmo kit)
 
@@ -619,6 +683,19 @@ class GoogleDriveService:
         for doc in documents:
             caminho = _caminho_real(doc.file_path)
             if not caminho:
+                continue
+            if await _bloqueado_por_falta_de_assinatura(self.db, doc):
+                bloqueados_sem_assinatura += 1
+                continue
+            if ano := _competencia_estranha(caminho, doc.document_name or "", kit.reference_month):
+                logger.warning(
+                    "kit %s (%s): '%s' é de %s e não da competência — não sobe",
+                    kit_id,
+                    kit.reference_month,
+                    doc.document_name,
+                    ano,
+                )
+                fora_da_competencia += 1
                 continue
 
             # Determinar pasta de destino
@@ -694,6 +771,8 @@ class GoogleDriveService:
             "kit_id": kit_id,
             "uploaded": uploaded,
             "substituidos": substituidos,
+            "bloqueados_sem_assinatura": bloqueados_sem_assinatura,
+            "fora_da_competencia": fora_da_competencia,
             "errors": len(errors_list),
             "error_details": errors_list[:10],
             "drive_link": kit.google_drive_link,

@@ -28,6 +28,7 @@ from sqlalchemy import text
 from modules.gdrive.services.gdrive_service import gdrive_service
 from modules.gedeon.services.drive_kit_classifier import classify_filename
 from modules.gedeon.services.kit_layout import _arquivo_ja_existe, pasta_kit_arquivo
+from modules.people_management.ged.models.kit_document import tipo_canonico
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +184,16 @@ def _arquivos_do_kit_no_drive(cond: str, competencia: str) -> list[dict]:
     return out
 
 
-def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False) -> dict:
-    """Junta as duas metades do kit, nas duas direções. Não faz commit — é do chamador."""
+def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False, direcoes: str = "ab") -> dict:
+    """Junta as duas metades do kit. Não faz commit — é do chamador.
+
+    `direcoes`:
+      "ab" — as duas (comportamento original)
+      "b"  — SÓ "arquivo na pasta vira slot". É como o montador do GED chama desde 10/09: a
+             direção A (slot → Drive) hoje é feita por `google_drive_service.sync_kit_to_drive`,
+             que roteia por TIPO em vez de adivinhar pelo nome do arquivo e substitui por md5.
+             Rodar as duas seria dois uploaders na mesma pasta.
+    """
     from modules.gedeon.services.completude_slots import recalcular_competencia
 
     if not gdrive_service._service:
@@ -208,7 +217,7 @@ def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False) -> dict:
         subiu = virou = 0
         try:
             # ── A. o que o banco tem e o Drive não ────────────────────────────
-            for s in db.execute(_SQL_SLOTS, {"kid": kid}).mappings().all():
+            for s in db.execute(_SQL_SLOTS, {"kid": kid}).mappings().all() if "a" in direcoes else []:
                 local = _caminho_local(s["file_path"])
                 if not local:
                     continue
@@ -230,10 +239,17 @@ def unir_kit_drive_banco(competencia: str, db, dry_run: bool = False) -> dict:
                         subiu += 1
 
             # ── B. o que o Drive tem e o banco não ────────────────────────────
+            if "b" not in direcoes:
+                rel["subiu_pro_drive"] += subiu
+                continue
             ja_tem = {r["document_type"] for r in db.execute(_SQL_TIPOS_DO_KIT, {"kid": kid}).mappings()}
             nomes_no_kit = {r["nome"] for r in db.execute(_SQL_TIPOS_DO_KIT, {"kid": kid}).mappings()}
             for a in _arquivos_do_kit_no_drive(cond, competencia):
                 slug, _escopo, _ = classify_filename(a["name"])
+                # 10/09: o classificador por NOME devolve o apelido do coletor ("cnd_sefaz") e o
+                # banco guarda o canônico ("cnd_estadual") — sem traduzir, cada sincronização criava
+                # um slot novo para o mesmo documento. Medido: 15 duplicatas numa única execução.
+                slug = tipo_canonico(slug)
                 if not slug:
                     rel["sem_classificacao"].append(a["name"][:60])
                     continue

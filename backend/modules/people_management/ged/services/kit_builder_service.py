@@ -260,6 +260,30 @@ class KitBuilderService:
         total_docs_result = await self.db.execute(
             select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id))
         )
+        # 10/09/2026 — ARQUIVO DO ROBÔ VIRA SLOT. Os robôs do GEDEON (CND nos portais, comprovante do
+        # Inter, NFS-e do ADN, recibo assinado) depositam ARQUIVO na pasta do condomínio e nunca
+        # viravam linha no banco: a completude, a assinatura e o painel não os enxergavam. O
+        # `uniao_kit_service` foi escrito em 19/08 exatamente para isso e ficou com zero chamadores.
+        # A direção A dele (slot → Drive) hoje é do `sync_kit_to_drive`, que roteia por TIPO; aqui só
+        # a direção B, que é a que ninguém fazia.
+        try:
+            from core.database.session import get_sync_db
+            from modules.gedeon.services.uniao_kit_service import unir_kit_drive_banco
+
+            with get_sync_db() as _sdb:
+                _u = unir_kit_drive_banco(f"{ref.month:02d}.{ref.year}", _sdb, direcoes="b")
+                _sdb.commit()
+            collected["virou_slot"] = _u.get("virou_slot", 0)
+            if _u.get("sem_classificacao"):
+                collected["errors"].append(
+                    "arquivos no Drive sem classificação: " + ", ".join(_u["sem_classificacao"][:5])
+                )
+        except Exception as exc:  # noqa: BLE001 — kit montado não cai por causa da união
+            logger.warning("união Drive→banco falhou na competência %s: %s", ref, exc)
+
+        total_docs_result = await self.db.execute(
+            select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id))
+        )
         kit.total_documents = total_docs_result.scalar() or 0
         # a completude é da RÉGUA DO CONTRATO (10 blocos), não deste objeto — ver o docstring de
         # `recalculate_completion`. Aqui só se atualiza o status a partir do que a régua gravou.
