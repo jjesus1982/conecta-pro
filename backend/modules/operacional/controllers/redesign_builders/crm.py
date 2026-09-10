@@ -800,16 +800,24 @@ def _fila_actions(r):
                                 {"value": "empresa", "label": "Conecta Mais (CONTRATADA)"},
                             ],
                         },
-                        # já vem com TODOS os contatos do cliente que têm e-mail, e o
-                        # campo é editável: o Jordan vê quem vai receber antes de mandar e
-                        # tira quem não deve. No Maiápolis são dois — a presidente, que
-                        # assina, e a vice, que acompanha.
+                        # ⚠️ VAZIO de propósito. A primeira versão pré-preenchia com os
+                        # contatos do CLIENTE sem olhar a parte escolhida — e em 10/09/2026
+                        # o Jordan escolheu "Conecta Mais (CONTRATADA)", que é ELE, e o
+                        # convite foi para o endereço do cliente, que já vinha no campo.
+                        # Um campo pré-preenchido que não acompanha o seletor ao lado é
+                        # pior que um campo vazio: ele parece decidido.
+                        # Vazio = o sistema usa o e-mail cadastrado do signatário CERTO
+                        # (`signer_email` da solicitação daquela parte). Os contatos do
+                        # cliente estão logo abaixo, para copiar quando for o caso.
                         {
                             "key": "email",
-                            "label": "E-mail (vírgula separa; vazio = o cadastrado)",
+                            "label": (
+                                "E-mail — deixe VAZIO para usar o cadastrado da parte escolhida. Vírgula separa vários."
+                            ),
                             "type": "text",
                             "span": "span 2",
-                            "value": r[9] or "",
+                            "value": "",
+                            "ph": (f"contatos do cliente: {r[9]}" if r[9] else "e-mail do signatário"),
                         },
                     ],
                 }
@@ -1109,11 +1117,17 @@ async def build(db) -> dict:
     # ---- Fidelidade: oportunidades e propostas mostram KPIs de resumo no clássico.
     #      Tela 'table' não tem KPI-card (não edito ModuleView) → trago no subtítulo. ----
     try:
-        _ot = await _scalar(db, "SELECT count(*) FROM opportunities")
-        _oneg = await _scalar(db, "SELECT count(*) FROM opportunities WHERE stage::text='negotiation'")
-        _oprop = await _scalar(db, "SELECT count(*) FROM opportunities WHERE stage::text='proposal'")
+        _ot = await _scalar(db, "SELECT count(*) FROM opportunities WHERE coalesce(is_active,true)")
+        _oneg = await _scalar(
+            db, "SELECT count(*) FROM opportunities WHERE coalesce(is_active,true) AND stage::text='negotiation'"
+        )
+        _oprop = await _scalar(
+            db, "SELECT count(*) FROM opportunities WHERE coalesce(is_active,true) AND stage::text='proposal'"
+        )
         _opipe = await _scalar(
-            db, "SELECT coalesce(sum(value),0) FROM opportunities WHERE stage::text NOT IN ('closed_won','closed_lost')"
+            db,
+            "SELECT coalesce(sum(value),0) FROM opportunities WHERE coalesce(is_active,true) "
+            "AND stage::text NOT IN ('closed_won','closed_lost')",
         )
         if isinstance(out.get("oportunidades"), dict):
             out["oportunidades"]["sub"] = (
@@ -1352,8 +1366,27 @@ async def build(db) -> dict:
                         else b(f"{r[8]}/{r[7]} assinada(s)", "ok" if r[8] and r[8] == r[7] else "warn")
                     ),
                 ],
+                # Três documentos possíveis, e a linha oferece só os que fazem sentido nela:
+                #   com modelo            → o INSTRUMENTO completo
+                #   com modelo e rascunho → mais a MINUTA, para o cliente levar ao jurídico
+                #   sem modelo            → só o resumo, dizendo que é resumo
+                # A minuta some assim que o contrato sai de `draft`: depois de assinado,
+                # oferecer rascunho ao lado do instrumento é convite a mandar o errado.
                 docsfn=lambda r: (
-                    [doc("Contrato completo (PDF)", f"/api/v1/crm/contracts/{r[1]}/pdf-modelo", fmt="pdf")]
+                    (
+                        [doc("Contrato completo (PDF)", f"/api/v1/crm/contracts/{r[1]}/pdf-modelo", fmt="pdf")]
+                        + (
+                            [
+                                doc(
+                                    "Minuta para análise (PDF)",
+                                    f"/api/v1/crm/contracts/{r[1]}/pdf-modelo?minuta=1",
+                                    fmt="pdf",
+                                )
+                            ]
+                            if (r[5] or "").lower() == "draft"
+                            else []
+                        )
+                    )
                     if r[6]
                     else [doc("Resumo (sem modelo vinculado)", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]
                 ),

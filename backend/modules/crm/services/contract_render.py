@@ -22,6 +22,7 @@ TRÊS DECISÕES QUE VALEM MAIS QUE O CÓDIGO:
     falha com mensagem clara. Chutar a contratada é exatamente o defeito que ele existe
     para impedir.
 """
+
 from __future__ import annotations
 
 import io
@@ -56,8 +57,7 @@ ELETRONICA = ("Conecta Mais Eletrônica LTDA", "35.710.481/0001-03")
 #     Novembro, CEP 69055-600" — endereço COMPLETAMENTE diferente do registrado.
 # Se o cadastro na Receita mudar, isto tem de ser reconferido (não há sincronismo).
 _SEDE = {
-    PATRIMONIAL[1]: "Rua Victor Hughes, 19, Conjunto Castelo Branco, Parque 10 de Novembro, "
-                    "CEP 69055-630, Manaus/AM",
+    PATRIMONIAL[1]: "Rua Victor Hughes, 19, Conjunto Castelo Branco, Parque 10 de Novembro, CEP 69055-630, Manaus/AM",
     ELETRONICA[1]: "Rua Nova Palestina, 51, Crespo, CEP 69073-488, Manaus/AM",
 }
 
@@ -66,9 +66,18 @@ _SEDE = {
 _MINUSC = {"de", "da", "do", "das", "dos", "e", "di", "del", "van", "von", "a"}
 _SIGLAS = {"ltda", "me", "epp", "eireli", "s/a", "sa", "s.a", "cnpj", "cpf", "ii", "iii", "iv"}
 # Acentos que o cadastro perde por ser digitado em caixa alta sem acentuação.
-_ACENTO = {"condominio": "Condomínio", "servicos": "Serviços", "comercio": "Comércio",
-           "seguranca": "Segurança", "tecnologia": "Tecnologia", "eletronica": "Eletrônica",
-           "predial": "Predial", "sao": "São", "jose": "José", "antonio": "Antônio"}
+_ACENTO = {
+    "condominio": "Condomínio",
+    "servicos": "Serviços",
+    "comercio": "Comércio",
+    "seguranca": "Segurança",
+    "tecnologia": "Tecnologia",
+    "eletronica": "Eletrônica",
+    "predial": "Predial",
+    "sao": "São",
+    "jose": "José",
+    "antonio": "Antônio",
+}
 
 
 def nome_proprio(v: str | None) -> str:
@@ -121,14 +130,21 @@ def cnpj_fmt(v: str | None) -> str:
         return v or ""
     return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
 
+
 # Vocabulário REAL de `contracts.tipo_servico`, medido em 19/08:
 #   maodeobra 8 · manutencao_cftv 3 · portaria_remota 2 · NULL 2
 # e de `contract_templates.service_type`: portaria_mao_de_obra, ferias, admissao.
 # Os dois vocabulários NÃO coincidem — por isso o mapa aceita as duas grafias.
-_MAO_DE_OBRA = {"maodeobra", "mao_de_obra", "portaria_mao_de_obra", "portaria_presencial",
-                "limpeza", "servicos_gerais"}
-_ELETRONICA = {"manutencao_cftv", "portaria_remota", "seguranca_eletronica", "cftv",
-               "alarme", "controle_acesso", "eletronica_servico_unico"}
+_MAO_DE_OBRA = {"maodeobra", "mao_de_obra", "portaria_mao_de_obra", "portaria_presencial", "limpeza", "servicos_gerais"}
+_ELETRONICA = {
+    "manutencao_cftv",
+    "portaria_remota",
+    "seguranca_eletronica",
+    "cftv",
+    "alarme",
+    "controle_acesso",
+    "eletronica_servico_unico",
+}
 
 
 class RenderError(RuntimeError):
@@ -139,17 +155,19 @@ class RenderError(RuntimeError):
 class Contratada:
     razao_social: str
     cnpj: str
-    origem: str          # de onde saiu a decisão — vai no relatório, não no contrato
-    divergencia: str | None = None   # empresa_id gravada contradiz a regra
+    origem: str  # de onde saiu a decisão — vai no relatório, não no contrato
+    divergencia: str | None = None  # empresa_id gravada contradiz a regra
 
 
-def resolver_contratada(tipo_servico: str | None, service_type_modelo: str | None,
-                        empresa_gravada_cnpj: str | None = None) -> Contratada:
+def resolver_contratada(
+    tipo_servico: str | None, service_type_modelo: str | None, empresa_gravada_cnpj: str | None = None
+) -> Contratada:
     """Decide QUEM presta, pela regra — e denuncia quando o gravado contradiz.
 
     Ordem: o tipo do CONTRATO manda; se ele for nulo, vale o do MODELO (renderizar com um
     modelo de mão de obra é declarar que é mão de obra). Se os dois forem nulos, recusa.
     """
+
     def classificar(v: str | None) -> str | None:
         if not v:
             return None
@@ -166,14 +184,16 @@ def resolver_contratada(tipo_servico: str | None, service_type_modelo: str | Non
     if do_contrato and do_modelo and do_contrato != do_modelo:
         raise RenderError(
             f"Contradição: o contrato é '{tipo_servico}' e o modelo é '{service_type_modelo}'. "
-            "Um deles está errado — corrija antes de gerar o contrato.")
+            "Um deles está errado — corrija antes de gerar o contrato."
+        )
 
     escolhido = do_contrato or do_modelo
     if not escolhido:
         raise RenderError(
             "Não dá para saber quem presta o serviço: o contrato não tem `tipo_servico` e o "
             "modelo não tem `service_type`. Preencha um dos dois — chutar a contratada "
-            "colocaria o CNPJ errado num contrato assinado.")
+            "colocaria o CNPJ errado num contrato assinado."
+        )
 
     razao, cnpj = PATRIMONIAL if escolhido == "maodeobra" else ELETRONICA
     origem = "contrato.tipo_servico" if do_contrato else "modelo.service_type"
@@ -182,17 +202,49 @@ def resolver_contratada(tipo_servico: str | None, service_type_modelo: str | Non
     if empresa_gravada_cnpj:
         grav = re.sub(r"\D", "", empresa_gravada_cnpj)
         if grav and grav != re.sub(r"\D", "", cnpj):
-            diverg = (f"o contrato aponta empresa_id de CNPJ {empresa_gravada_cnpj}, mas por "
-                      f"'{escolhido}' quem presta é {razao} ({cnpj})")
+            diverg = (
+                f"o contrato aponta empresa_id de CNPJ {empresa_gravada_cnpj}, mas por "
+                f"'{escolhido}' quem presta é {razao} ({cnpj})"
+            )
     return Contratada(razao, cnpj, origem, diverg)
 
 
 # ── Valor por extenso ────────────────────────────────────────────────────────────────
-_UNI = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez",
-        "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"]
+_UNI = [
+    "",
+    "um",
+    "dois",
+    "três",
+    "quatro",
+    "cinco",
+    "seis",
+    "sete",
+    "oito",
+    "nove",
+    "dez",
+    "onze",
+    "doze",
+    "treze",
+    "quatorze",
+    "quinze",
+    "dezesseis",
+    "dezessete",
+    "dezoito",
+    "dezenove",
+]
 _DEZ = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
-_CEM = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos",
-        "setecentos", "oitocentos", "novecentos"]
+_CEM = [
+    "",
+    "cento",
+    "duzentos",
+    "trezentos",
+    "quatrocentos",
+    "quinhentos",
+    "seiscentos",
+    "setecentos",
+    "oitocentos",
+    "novecentos",
+]
 
 
 def _ate_999(n: int) -> str:
@@ -254,8 +306,21 @@ def brl(v: Decimal | float | int) -> str:
     return f"R$ {Decimal(str(v)):,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
-_MES_PT = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
-           "agosto", "setembro", "outubro", "novembro", "dezembro"]
+_MES_PT = [
+    "",
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+]
 
 
 def data_extenso(d) -> str:
@@ -266,10 +331,26 @@ def data_extenso(d) -> str:
     return f"{dia} de {_MES_PT[d.month]} de {d.year}"
 
 
-_NUM_EXT = {1: "um", 2: "dois", 3: "três", 4: "quatro", 5: "cinco", 6: "seis", 7: "sete",
-            8: "oito", 9: "nove", 10: "dez", 12: "doze", 15: "quinze", 20: "vinte",
-            24: "vinte e quatro", 30: "trinta", 36: "trinta e seis", 48: "quarenta e oito",
-            60: "sessenta"}
+_NUM_EXT = {
+    1: "um",
+    2: "dois",
+    3: "três",
+    4: "quatro",
+    5: "cinco",
+    6: "seis",
+    7: "sete",
+    8: "oito",
+    9: "nove",
+    10: "dez",
+    12: "doze",
+    15: "quinze",
+    20: "vinte",
+    24: "vinte e quatro",
+    30: "trinta",
+    36: "trinta e seis",
+    48: "quarenta e oito",
+    60: "sessenta",
+}
 
 
 def num_extenso(n: int) -> str:
@@ -341,8 +422,20 @@ ORDER BY i.created_at
 """
 
 
-_MESES = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto",
-          "setembro", "outubro", "novembro", "dezembro")
+_MESES = (
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
 
 
 def _inventario(itens: list) -> str:
@@ -389,8 +482,9 @@ async def _conta_da_empresa(db: AsyncSession, empresa_id) -> str:
     ag = f"{r['agency']}-{r['agency_digit']}" if r["agency_digit"] else r["agency"]
     partes = [f"{r['bank_name']} ({r['bank_code']})", f"agência {ag}", f"conta corrente {conta}"]
     if r["pix_key"]:
-        rotulo = {"cnpj": "CNPJ", "cpf": "CPF", "email": "e-mail",
-                  "telefone": "telefone"}.get((r["pix_key_type"] or "").lower(), "chave")
+        rotulo = {"cnpj": "CNPJ", "cpf": "CPF", "email": "e-mail", "telefone": "telefone"}.get(
+            (r["pix_key_type"] or "").lower(), "chave"
+        )
         partes.append(f"chave PIX ({rotulo}) {r['pix_key']}")
     return ", ".join(partes)
 
@@ -424,14 +518,17 @@ def _composicao(itens: list) -> dict:
         elif "diurn" in rotulo or "dia" in rotulo:
             dia += qtd
             v_dia += total
-    return {"qtd_diurno": str(dia) if dia else "", "qtd_noturno": str(noite) if noite else "",
-            "valor_diurno_fmt": brl(v_dia) if v_dia else "",
-            "valor_noturno_fmt": brl(v_noite) if v_noite else "",
-            "qtd_agentes_extenso": num_par(dia + noite) if (dia + noite) else ""}
+    return {
+        "qtd_diurno": str(dia) if dia else "",
+        "qtd_noturno": str(noite) if noite else "",
+        "valor_diurno_fmt": brl(v_dia) if v_dia else "",
+        "valor_noturno_fmt": brl(v_noite) if v_noite else "",
+        "qtd_agentes_extenso": num_par(dia + noite) if (dia + noite) else "",
+    }
 
 
 def _fem(n: int) -> str:
-    """"duas parcelas", não "dois parcelas".
+    """ "duas parcelas", não "dois parcelas".
 
     `num_extenso` é masculino porque nasceu para contar meses e dias. Aqui o substantivo é
     "parcela" — e o contrato saiu para conferência com "02 (dois) parcelas de R$ 7.720,00".
@@ -441,7 +538,7 @@ def _fem(n: int) -> str:
 
 
 def _venc(vencs: list[str]) -> str:
-    """"30 e 60 dias", não "30 dias e 60 dias" — a redação do contrato-base.
+    """ "30 e 60 dias", não "30 dias e 60 dias" — a redação do contrato-base.
 
     Quando todos os vencimentos terminam na mesma unidade, ela só aparece no último.
     """
@@ -449,8 +546,11 @@ def _venc(vencs: list[str]) -> str:
         partes = [v.rsplit(" ", 1) for v in vencs]
         unid = {p[-1].lower() for p in partes if len(p) == 2}
         if len(unid) == 1 and all(len(p) == 2 for p in partes):
-            return ", ".join(p[0] for p in partes[:-1]) + f" e {vencs[-1]}" \
-                if len(vencs) > 2 else f"{partes[0][0]} e {vencs[-1]}"
+            return (
+                ", ".join(p[0] for p in partes[:-1]) + f" e {vencs[-1]}"
+                if len(vencs) > 2
+                else f"{partes[0][0]} e {vencs[-1]}"
+            )
     return " e ".join(vencs)
 
 
@@ -500,15 +600,16 @@ def _ctx_one_time(row, itens: list, template: dict) -> dict:
         vals = {Decimal(str(i["total_price"] or 0)) for i in parcelas}
         venc = [str(i["notes"] or "").strip() for i in parcelas]
         if len(vals) == 1:
-            desc = (f"{len(parcelas):02d} ({_fem(len(parcelas))}) parcela"
-                    f"{'s' if len(parcelas) > 1 else ''} de {brl(next(iter(vals)))}"
-                    + (f" com vencimento em {_venc([v for v in venc if v])}"
-                       if any(venc) else ""))
+            desc = (
+                f"{len(parcelas):02d} ({_fem(len(parcelas))}) parcela"
+                f"{'s' if len(parcelas) > 1 else ''} de {brl(next(iter(vals)))}"
+                + (f" com vencimento em {_venc([v for v in venc if v])}" if any(venc) else "")
+            )
         else:
             desc = "; ".join(
-                f"{brl(Decimal(str(i['total_price'] or 0)))}"
-                + (f" em {str(i['notes']).strip()}" if i["notes"] else "")
-                for i in parcelas)
+                f"{brl(Decimal(str(i['total_price'] or 0)))}" + (f" em {str(i['notes']).strip()}" if i["notes"] else "")
+                for i in parcelas
+            )
     else:
         desc = ""
 
@@ -526,17 +627,21 @@ def _ctx_one_time(row, itens: list, template: dict) -> dict:
         "objeto_resumo": (row["description"] or "").strip(),
         "proposta_numero": str(par("proposta_numero")),
         "prazo_exec_dias": str(par("prazo_exec_dias")),
-        "prazo_exec_dias_extenso": (num_extenso(int(par("prazo_exec_dias", 0)))
-                                    if str(par("prazo_exec_dias", "")).isdigit() else ""),
+        "prazo_exec_dias_extenso": (
+            num_extenso(int(par("prazo_exec_dias", 0))) if str(par("prazo_exec_dias", "")).isdigit() else ""
+        ),
         "homologacao_dias": str(par("homologacao_dias")),
-        "homologacao_dias_extenso": (num_extenso(int(par("homologacao_dias", 0)))
-                                     if str(par("homologacao_dias", "")).isdigit() else ""),
+        "homologacao_dias_extenso": (
+            num_extenso(int(par("homologacao_dias", 0))) if str(par("homologacao_dias", "")).isdigit() else ""
+        ),
         "garantia_meses": str(par("garantia_meses")),
-        "garantia_meses_extenso": (num_extenso(int(par("garantia_meses", 0)))
-                                   if str(par("garantia_meses", "")).isdigit() else ""),
+        "garantia_meses_extenso": (
+            num_extenso(int(par("garantia_meses", 0))) if str(par("garantia_meses", "")).isdigit() else ""
+        ),
         "cortesia_meses": str(par("cortesia_meses")),
-        "cortesia_meses_extenso": (num_extenso(int(par("cortesia_meses", 0)))
-                                   if str(par("cortesia_meses", "")).isdigit() else ""),
+        "cortesia_meses_extenso": (
+            num_extenso(int(par("cortesia_meses", 0))) if str(par("cortesia_meses", "")).isdigit() else ""
+        ),
         "multa_atraso_dia": str(par("multa_atraso_dia")),
         "multa_teto_pct": str(par("multa_teto_pct")),
         "foro": str(par("foro", "Manaus/AM")),
@@ -552,8 +657,7 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
     itens = (await db.execute(text(_SQL_ITENS), {"k": contract_id})).mappings().all()
     rep = (await db.execute(text(_SQL_REPRESENTANTE), {"k": contract_id})).mappings().first()
 
-    contratada = resolver_contratada(
-        row["tipo_servico"], template.get("service_type"), row["empresa_gravada_cnpj"])
+    contratada = resolver_contratada(row["tipo_servico"], template.get("service_type"), row["empresa_gravada_cnpj"])
 
     valor = Decimal(str(row["monthly_value"] or 0))
     meses = None
@@ -593,13 +697,19 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "inventario_sistemas": _inventario(list(itens)),
         "visita_numero": _do_sla(row["sla_config"], "visita_numero", "") or "",
         "visita_data": (_do_sla(row["sla_config"], "visita_data", "") or ""),
-        "visitas_mes": (num_par(int(_do_sla(row["sla_config"], "visitas_mes", 0)))
-                        if _do_sla(row["sla_config"], "visitas_mes") else ""),
+        "visitas_mes": (
+            num_par(int(_do_sla(row["sla_config"], "visitas_mes", 0)))
+            if _do_sla(row["sla_config"], "visitas_mes")
+            else ""
+        ),
         "prazo_resposta_extenso": (
             num_par(int(_do_sla(row["sla_config"], "prazo_resposta_horas", 0)))
-            if _do_sla(row["sla_config"], "prazo_resposta_horas") else ""),
-        "mes_base_reajuste": (f"{_MESES[row['start_date'].month - 1]}/{row['start_date'].year}"
-                              if row["start_date"] else ""),
+            if _do_sla(row["sla_config"], "prazo_resposta_horas")
+            else ""
+        ),
+        "mes_base_reajuste": (
+            f"{_MESES[row['start_date'].month - 1]}/{row['start_date'].year}" if row["start_date"] else ""
+        ),
         "dados_bancarios": conta_texto,
         "vigencia_meses_extenso": num_par(meses) if meses else "",
         # Cláusula quarta (redação aprovada pelo Jordan em 21/08): a vigência passou a ter
@@ -611,8 +721,9 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "data_assinatura_extenso": data_extenso(row["start_date"]),
         "vigencia_inicio_extenso": data_extenso(row["start_date"]),
         "vigencia_fim_extenso": data_extenso(row["end_date"]),
-        "renovacao_aviso_dias_extenso": (num_par(int(row["renewal_notification_days"]))
-                                         if row["renewal_notification_days"] else ""),
+        "renovacao_aviso_dias_extenso": (
+            num_par(int(row["renewal_notification_days"])) if row["renewal_notification_days"] else ""
+        ),
         # Dia do vencimento: cláusula negociada, não constante. Vinha como "dia 05 (cinco)"
         # FIXO no corpo do modelo (2x) — o Green Hills negociou dia 8, e o modelo existe
         # para servir vários clientes. Vazio faz o render RECUSAR.
@@ -625,8 +736,7 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         # em silêncio os 90 dias que o .docx registrava como "condição comercial
         # especificamente negociada entre as partes". A carência do primeiro pagamento é
         # `grace_period_days`, que é o que o nome diz e não tinha consumidor de regra.
-        "primeiro_pagamento_dias_extenso": (num_par(int(row["grace_period_days"]))
-                                            if row["grace_period_days"] else ""),
+        "primeiro_pagamento_dias_extenso": (num_par(int(row["grace_period_days"])) if row["grace_period_days"] else ""),
     }
 
     # Contrato de valor ÚNICO: as variáveis de recorrência acima continuam no ctx e apenas
@@ -639,6 +749,11 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         # uma vigência que não existe. Não há fallback para hoje: seria o render inventando
         # a data de um instrumento que vai a assinatura.
 
+    # Cortesias NEGOCIADAS, que variam por cliente no mesmo modelo. Default LIGADO: o
+    # Green Hills tem as três (bodycam, câmeras da guarita, Conecta Plus) e não pode perdê-
+    # las porque um contrato novo dispensou uma. Desligar é ato explícito, por contrato.
+    ctx["conecta_plus_cortesia"] = bool(_do_sla(row["sla_config"], "conecta_plus_cortesia", True))
+
     # Testemunhas: decisão do MODELO, versionada junto com o texto do fecho. Ver
     # `_bloco_assinaturas` — modelo que dispensa testemunha não pode desenhar o quadro.
     var_tpl = template.get("variables") if isinstance(template.get("variables"), dict) else {}
@@ -648,6 +763,9 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
     return ctx, contratada
 
 
+_COND = re.compile(r"\{%\s*if\s+([a-z_0-9]+)\s*%\}(.*?)\{%\s*endif\s*%\}", re.S)
+
+
 def variaveis_vazias(ctx: dict, corpo: str) -> list[str]:
     """Variáveis USADAS no corpo que chegariam vazias.
 
@@ -655,6 +773,13 @@ def variaveis_vazias(ctx: dict, corpo: str) -> list[str]:
     "contratada 	, CNPJ 	" impresso é tão ruim quanto um com `{{ }}` cru. Esta função
     fecha esse buraco, que o Jinja sozinho não fecha.
     """
+    # Cláusula OPCIONAL não exige o dado que ela existe para dispensar. Um
+    # `{% if x %}...{{ y }}...{% endif %}` com `x` falso nunca imprime `y`, e cobrar `y`
+    # faria a cláusula opcional ser obrigatória na prática. Este pré-passe reproduz o que
+    # o Jinja vai fazer, ANTES de cobrar.
+    # Origem (10/09/2026): o Kopenhagen não tem a carência de 90 dias nem o Conecta Plus
+    # de cortesia que o Green Hills negociou — mesmo modelo, condições diferentes.
+    corpo = _COND.sub(lambda m: m.group(2) if ctx.get(m.group(1)) else "", corpo)
     usadas = set(re.findall(r"\{\{\s*([a-z_0-9]+)", corpo))
     return sorted(k for k in usadas if not str(ctx.get(k, "")).strip())
 
@@ -694,26 +819,38 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     linhas.append(["TOTAL MENSAL", str(tot_qtd), total_fmt])
 
     t = Table(linhas, colWidths=[88 * mm, 22 * mm, 44 * mm], hAlign="CENTER")
-    t.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16277D")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EAF0FF")),
-        ("ALIGN", (1, 0), (1, -1), "CENTER"),
-        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16277D")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EAF0FF")),
+                ("ALIGN", (1, 0), (1, -1), "CENTER"),
+                ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
     return t
 
 
-def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
-          numero: str, inicio, razao_contratada: str = "", cnpj_contratada_fmt: str = "",
-          subtitulo: str = "") -> list:
+def _capa(
+    st: dict,
+    marca: dict,
+    contratante: str,
+    cnpj_contratante: str,
+    numero: str,
+    inicio,
+    razao_contratada: str = "",
+    cnpj_contratada_fmt: str = "",
+    subtitulo: str = "",
+) -> list:
     """Capa no padrão-ouro — a mesma de `contract_pdf.build_contract_pdf`.
 
     O render por modelo abria direto no texto: sem logo, sem título, sem o quadro das
@@ -732,8 +869,14 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
         except Exception:  # noqa: BLE001
             pass
     el.append(Spacer(1, 8 * _mm))
-    el.append(Table([[""]], colWidths=[60 * _mm], hAlign="CENTER",
-                    style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)])))
+    el.append(
+        Table(
+            [[""]],
+            colWidths=[60 * _mm],
+            hAlign="CENTER",
+            style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2.5, B.LARANJA)]),
+        )
+    )
     el.append(Spacer(1, 10 * _mm))
     el.append(Paragraph("CONTRATO", st["capa_titulo"]))
     el.append(Spacer(1, 2 * _mm))
@@ -743,19 +886,28 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
     el.append(Paragraph(subtitulo or "Prestação de Serviços", st["capa_sub"]))
     el.append(Spacer(1, 12 * _mm))
     box = Table(
-        [[Paragraph(f"<b>CONTRATANTE:</b> {contratante}", st["capa_meta"])],
-         [Paragraph(f"CNPJ: {cnpj_contratante}", st["capa_meta"])],
-         # razão social pela grafia que o Jordan definiu (Conecta Mais, separado) e não a
-         # do pdf_branding, que traz o "CONECTAMAIS" do registro. A capa dizia um nome e o
-         # corpo do contrato, outro.
-         [Paragraph(f"<b>CONTRATADA:</b> {razao_contratada}", st["capa_meta"])],
-         [Paragraph(f"CNPJ: {cnpj_contratada_fmt}", st["capa_meta"])]],
-        colWidths=[150 * _mm], hAlign="CENTER")
-    box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
-        ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+        [
+            [Paragraph(f"<b>CONTRATANTE:</b> {contratante}", st["capa_meta"])],
+            [Paragraph(f"CNPJ: {cnpj_contratante}", st["capa_meta"])],
+            # razão social pela grafia que o Jordan definiu (Conecta Mais, separado) e não a
+            # do pdf_branding, que traz o "CONECTAMAIS" do registro. A capa dizia um nome e o
+            # corpo do contrato, outro.
+            [Paragraph(f"<b>CONTRATADA:</b> {razao_contratada}", st["capa_meta"])],
+            [Paragraph(f"CNPJ: {cnpj_contratada_fmt}", st["capa_meta"])],
+        ],
+        colWidths=[150 * _mm],
+        hAlign="CENTER",
+    )
+    box.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
+                ("BOX", (0, 0), (-1, -1), 0.8, B.AZUL_MEDIO),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
     el.append(box)
     el.append(Spacer(1, 12 * _mm))
     if numero:
@@ -766,8 +918,7 @@ def _capa(st: dict, marca: dict, contratante: str, cnpj_contratante: str,
     return el
 
 
-def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
-                       envolver: bool = True):
+def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None, envolver: bool = True):
     """Bloco de assinatura no padrão das plataformas de assinatura eletrônica.
 
     Por padrão, saem as testemunhas: elas existiam para o contrato valer como título
@@ -795,43 +946,67 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
     def quadro(papel: str, rotulo: str, entidade: str, doc_: str, pessoa: str, cargo: str):
         a = assinadas.get(papel)
         if a:
-            miolo = (f"<b>Assinado eletronicamente</b> por {a.get('nome') or pessoa}<br/>"
-                     f"{a.get('quando', '')}<br/>"
-                     f"<font size=7>Verificação: {a.get('hash', '')[:32]}</font>")
+            miolo = (
+                f"<b>Assinado eletronicamente</b> por {a.get('nome') or pessoa}<br/>"
+                f"{a.get('quando', '')}<br/>"
+                f"<font size=7>Verificação: {a.get('hash', '')[:32]}</font>"
+            )
         else:
-            miolo = ("<font color='#8A94A6'>_________________________________________<br/>"
-                     "Aguardando assinatura eletrônica</font>")
+            miolo = (
+                "<font color='#8A94A6'>_________________________________________<br/>"
+                "Aguardando assinatura eletrônica</font>"
+            )
         return Table(
-            [[Paragraph(f"<font color='#16277D' size=11><b>{rotulo}</b></font>", st["cellh"])],
-             [Paragraph(miolo, st["assina"] if a else st["small"])],
-             [Paragraph(f"<b>{pessoa}</b><br/>{cargo}", st["cell"])],
-             [Paragraph(f"{entidade}<br/>{doc_}", st["small"])]],
-            colWidths=[160 * mm], hAlign="CENTER",
-            style=TableStyle([
-                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#C9D4EA")),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDE6FA")),
-                # filete laranja da marca sob o rótulo — é o que faz o quadro "chamar"
-                ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#F26522")),
-                ("LINEBELOW", (0, 2), (-1, 2), 0.4, colors.HexColor("#E4EAF5")),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 12)]))
+            [
+                [Paragraph(f"<font color='#16277D' size=11><b>{rotulo}</b></font>", st["cellh"])],
+                [Paragraph(miolo, st["assina"] if a else st["small"])],
+                [Paragraph(f"<b>{pessoa}</b><br/>{cargo}", st["cell"])],
+                [Paragraph(f"{entidade}<br/>{doc_}", st["small"])],
+            ],
+            colWidths=[160 * mm],
+            hAlign="CENTER",
+            style=TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#C9D4EA")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDE6FA")),
+                    # filete laranja da marca sob o rótulo — é o que faz o quadro "chamar"
+                    ("LINEBELOW", (0, 0), (-1, 0), 1.6, colors.HexColor("#F26522")),
+                    ("LINEBELOW", (0, 2), (-1, 2), 0.4, colors.HexColor("#E4EAF5")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ]
+            ),
+        )
 
     from reportlab.platypus import KeepTogether  # noqa: PLC0415
 
     el: list = [Spacer(1, 10)]
-    el.append(quadro("contratante", "CONTRATANTE", ctx.get("contratante_nome", ""),
-                     f"CNPJ {ctx.get('contratante_cnpj', '')}",
-                     ctx.get("contratante_representante", ""),
-                     (ctx.get("contratante_cargo") or "Representante legal")
-                     + (f" · CPF {ctx.get('contratante_representante_cpf')}"
-                        if ctx.get("contratante_representante_cpf") else "")))
+    el.append(
+        quadro(
+            "contratante",
+            "CONTRATANTE",
+            ctx.get("contratante_nome", ""),
+            f"CNPJ {ctx.get('contratante_cnpj', '')}",
+            ctx.get("contratante_representante", ""),
+            (ctx.get("contratante_cargo") or "Representante legal")
+            + (
+                f" · CPF {ctx.get('contratante_representante_cpf')}" if ctx.get("contratante_representante_cpf") else ""
+            ),
+        )
+    )
     el.append(Spacer(1, 30))  # respiro entre as duas assinaturas (pedido do Jordan, 22/08)
-    el.append(quadro("contratada", "CONTRATADA", ctx.get("contratada_razao_social", ""),
-                     f"CNPJ {ctx.get('contratada_cnpj', '')}",
-                     ctx.get("contratada_representante", ""),
-                     ctx.get("contratada_cargo") or "Representante legal"))
+    el.append(
+        quadro(
+            "contratada",
+            "CONTRATADA",
+            ctx.get("contratada_razao_social", ""),
+            f"CNPJ {ctx.get('contratada_cnpj', '')}",
+            ctx.get("contratada_representante", ""),
+            ctx.get("contratada_cargo") or "Representante legal",
+        )
+    )
 
     # Testemunhas — só quando o modelo pede. `testemunhas` pode vir como True (dois quadros
     # em branco, a preencher no ato da assinatura) ou como lista de {nome, cpf} já sabidos.
@@ -842,9 +1017,16 @@ def _bloco_assinaturas(st: dict, ctx: dict, assinaturas: list | None = None,
             t = nomes[i] if i < len(nomes) and isinstance(nomes[i], dict) else {}
             cpf = (t.get("cpf") or "").strip()
             el.append(Spacer(1, 20))
-            el.append(quadro(
-                f"testemunha_{i + 1}", f"TESTEMUNHA {i + 1}", "", f"CPF {cpf}" if cpf else "",
-                t.get("nome") or "A identificar no ato da assinatura", "Testemunha"))
+            el.append(
+                quadro(
+                    f"testemunha_{i + 1}",
+                    f"TESTEMUNHA {i + 1}",
+                    "",
+                    f"CPF {cpf}" if cpf else "",
+                    t.get("nome") or "A identificar no ato da assinatura",
+                    "Testemunha",
+                )
+            )
     # KeepTogether: os dois quadros vão juntos para a página seguinte em vez de a
     # CONTRATADA ficar órfã no fim da folha, partida ao meio. `envolver=False` quando quem
     # agrupa é o chamador, junto com a última cláusula — dois KeepTogether aninhados fazem
@@ -863,18 +1045,28 @@ def _manifesto(st: dict, contrato: str, manifesto: list) -> list:
     from reportlab.lib import colors  # noqa: PLC0415
     from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
 
-    el: list = [PageBreak(), Paragraph("MANIFESTO DE ASSINATURAS ELETRÔNICAS", st["h_sec"]),
-                Spacer(1, 4),
-                Paragraph(f"Documento: contrato nº {contrato}. Este manifesto integra o "
-                          "instrumento e registra a trilha de auditoria de cada assinatura, "
-                          "na forma do art. 10, § 2º, da MP nº 2.200-2/2001.", st["corpo"]),
-                Spacer(1, 8)]
+    el: list = [
+        PageBreak(),
+        Paragraph("MANIFESTO DE ASSINATURAS ELETRÔNICAS", st["h_sec"]),
+        Spacer(1, 4),
+        Paragraph(
+            f"Documento: contrato nº {contrato}. Este manifesto integra o "
+            "instrumento e registra a trilha de auditoria de cada assinatura, "
+            "na forma do art. 10, § 2º, da MP nº 2.200-2/2001.",
+            st["corpo"],
+        ),
+        Spacer(1, 8),
+    ]
 
     if not manifesto:
-        el.append(Paragraph(
-            "<i>A coleta de assinaturas deste instrumento ainda não foi aberta. Quando as "
-            "partes assinarem, esta página passará a registrar nome, documento, data, hora, "
-            "endereço IP e o código de verificação de cada assinatura.</i>", st["corpo"]))
+        el.append(
+            Paragraph(
+                "<i>A coleta de assinaturas deste instrumento ainda não foi aberta. Quando as "
+                "partes assinarem, esta página passará a registrar nome, documento, data, hora, "
+                "endereço IP e o código de verificação de cada assinatura.</i>",
+                st["corpo"],
+            )
+        )
         return el
 
     cab = ["#", "Parte / signatário", "Situação", "Data e hora", "IP"]
@@ -884,41 +1076,65 @@ def _manifesto(st: dict, contrato: str, manifesto: list) -> list:
         if m.get("doc"):
             quem += f"<br/><font size=7>CPF {m['doc']}</font>"
         situacao = "Assinado" if m["assinado"] else "<font color='#8A94A6'>Pendente</font>"
-        linhas.append([Paragraph(str(m["ordem"]), st["cell"]), Paragraph(quem, st["cell"]),
-                       Paragraph(situacao, st["cell"]),
-                       Paragraph(m["quando"] or "—", st["cell"]),
-                       Paragraph(m["ip"] or "—", st["small"])])
-    el.append(Table(linhas, colWidths=[8 * mm, 62 * mm, 24 * mm, 44 * mm, 32 * mm],
-                    hAlign="CENTER",
-                    style=TableStyle([
-                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF0FF")),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5)])))
+        linhas.append(
+            [
+                Paragraph(str(m["ordem"]), st["cell"]),
+                Paragraph(quem, st["cell"]),
+                Paragraph(situacao, st["cell"]),
+                Paragraph(m["quando"] or "—", st["cell"]),
+                Paragraph(m["ip"] or "—", st["small"]),
+            ]
+        )
+    el.append(
+        Table(
+            linhas,
+            colWidths=[8 * mm, 62 * mm, 24 * mm, 44 * mm, 32 * mm],
+            hAlign="CENTER",
+            style=TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9D4EA")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAF0FF")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            ),
+        )
+    )
 
     assinados = [m for m in manifesto if m["assinado"]]
     if assinados:
         el.append(Spacer(1, 10))
         el.append(Paragraph("<b>Códigos de verificação</b>", st["cell"]))
         for m in assinados:
-            el.append(Paragraph(
-                f"{m['nome']} — {m['hash']}<br/>"
-                f"<font size=6.5>solicitação {m['req']}</font>", st["small"]))
+            el.append(
+                Paragraph(f"{m['nome']} — {m['hash']}<br/><font size=6.5>solicitação {m['req']}</font>", st["small"])
+            )
             el.append(Spacer(1, 3))
     el.append(Spacer(1, 8))
-    el.append(Paragraph(
-        "A autenticidade e a integridade deste documento podem ser conferidas junto à "
-        "Conecta Mais mediante o número do contrato e os códigos acima.", st["small"]))
+    el.append(
+        Paragraph(
+            "A autenticidade e a integridade deste documento podem ser conferidas junto à "
+            "Conecta Mais mediante o número do contrato e os códigos acima.",
+            st["small"],
+        )
+    )
     return el
 
 
-def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = None,
-                       itens: list | None = None, total_fmt: str = "",
-                       capa: dict | None = None, ctx_assin: dict | None = None,
-                       assinaturas: list | None = None,
-                       manifesto: list | None = None, numero: str = "",
-                       subtitulo: str = "") -> bytes:
+def build_pdf_do_texto(
+    texto: str,
+    titulo: str,
+    cnpj_contratada: str | None = None,
+    itens: list | None = None,
+    total_fmt: str = "",
+    capa: dict | None = None,
+    ctx_assin: dict | None = None,
+    assinaturas: list | None = None,
+    manifesto: list | None = None,
+    numero: str = "",
+    subtitulo: str = "",
+) -> bytes:
     """Texto renderizado → PDF no padrão visual do CRM (reusa `pdf_branding`).
 
     O corpo do modelo é texto corrido com parágrafos separados por linha em branco; cada
@@ -926,8 +1142,9 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     do texto jurídico — só apresenta.
     """
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
-                            topMargin=38 * mm, bottomMargin=18 * mm, title=titulo)
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=38 * mm, bottomMargin=18 * mm, title=titulo
+    )
     # nomes REAIS de pdf_branding.styles(): capa_titulo, capa_sub, capa_meta, destaque,
     # h_sec, corpo, cell, cellr, cellh, assina, small. Um fallback genérico cairia em
     # `small` e imprimiria o contrato inteiro em corpo 7.
@@ -935,10 +1152,21 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     corpo_st, tit_st = st["corpo"], st["h_sec"]
 
     marca_capa = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
-    el: list = _capa(st, marca_capa, capa.get("contratante", ""), capa.get("cnpj", ""),
-                     capa.get("numero", ""), capa.get("inicio"),
-                     capa.get("razao_contratada", ""), cnpj_contratada or "",
-                     subtitulo) if capa else []
+    el: list = (
+        _capa(
+            st,
+            marca_capa,
+            capa.get("contratante", ""),
+            capa.get("cnpj", ""),
+            capa.get("numero", ""),
+            capa.get("inicio"),
+            capa.get("razao_contratada", ""),
+            cnpj_contratada or "",
+            subtitulo,
+        )
+        if capa
+        else []
+    )
     # onde começou a ÚLTIMA cláusula: o fecho (foro + assinaturas) tem de sair na mesma
     # folha. Sem isso o FORO ficava na 10 e a assinatura na 11, com a página do foro
     # terminando no vazio — pedido do Jordan em 22/08.
@@ -950,8 +1178,7 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
 
             fecho = el[inicio_ultima_clausula:]
             del el[inicio_ultima_clausula:]
-            el.append(KeepTogether(fecho + _bloco_assinaturas(
-                st, ctx_assin or {}, assinaturas, envolver=False)))
+            el.append(KeepTogether(fecho + _bloco_assinaturas(st, ctx_assin or {}, assinaturas, envolver=False)))
             continue
         if linha == "[[TABELA_COMPOSICAO]]":
             el.append(Spacer(1, 6))
@@ -964,8 +1191,7 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
         eh_clausula = bool(re.match(r"^\s*(CL[ÁA]USULA|PAR[ÁA]GRAFO)\b", linha, re.I))
         if re.match(r"^\s*CL[ÁA]USULA\b", linha, re.I):
             inicio_ultima_clausula = len(el)
-        el.append(Paragraph(linha.replace("&", "&amp;").replace("<", "&lt;"),
-                            tit_st if eh_clausula else corpo_st))
+        el.append(Paragraph(linha.replace("&", "&amp;").replace("<", "&lt;"), tit_st if eh_clausula else corpo_st))
         if eh_clausula:
             el.append(Spacer(1, 3))
 
@@ -982,8 +1208,14 @@ def build_pdf_do_texto(texto: str, titulo: str, cnpj_contratada: str | None = No
     # da Eletrônica.
     # pular_primeira=True quando há capa: a capa é a própria identidade da página, e o
     # cabeçalho por cima dela é o que descaracteriza o padrão-ouro.
-    cb = lambda cv, dc: B.header_footer(cv, dc, empresa=marca, titulo="Contrato",  # noqa: E731
-                                        seal_watermark=True, pular_primeira=bool(capa))
+    cb = lambda cv, dc: B.header_footer(
+        cv,
+        dc,
+        empresa=marca,
+        titulo="Contrato",  # noqa: E731
+        seal_watermark=True,
+        pular_primeira=bool(capa),
+    )
     doc.build(el, onFirstPage=cb, onLaterPages=cb)
     return buf.getvalue()
 
@@ -997,25 +1229,58 @@ class Resultado:
     clausulas_faltando: list[str] = field(default_factory=list)
 
 
-async def renderizar_contrato(db: AsyncSession, contract_id: str,
-                              template_id: str | None = None) -> Resultado:
-    """Costura completa: contrato + modelo → texto → PDF. É o que a rota chama."""
+async def renderizar_contrato(
+    db: AsyncSession, contract_id: str, template_id: str | None = None, minuta: bool = False
+) -> Resultado:
+    """Costura completa: contrato + modelo → texto → PDF. É o que a rota chama.
+
+    `minuta=True` gera o RASCUNHO para análise jurídica do cliente: o que ainda não foi
+    negociado sai como **[A DEFINIR]** em vez de fazer o render recusar.
+
+    Existe porque a recusa estava certa para o instrumento e errada para a minuta. Em
+    10/09/2026 o Jordan pediu a minuta do Kopenhagen para o síndico levar ao jurídico dele
+    — e o sistema exigiu o CPF de quem assina, o dia de vencimento e o nome do
+    representante, que são exatamente as coisas que ainda vão ser definidas NA análise.
+    Pedir o fim para começar o começo.
+
+    ⚠️ A recusa continua valendo para `minuta=False`. Contrato que vai a ASSINATURA com
+    campo vazio é pior que erro visível — essa parede não se afrouxa, ganha uma porta.
+    """
     if template_id:
-        tpl = (await db.execute(text(
-            "SELECT id::text, name, service_type, content_template, clauses, variables "
-            "FROM contract_templates WHERE id::text = :t AND coalesce(is_active,true)"),
-            {"t": template_id})).mappings().first()
+        tpl = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id::text, name, service_type, content_template, clauses, variables "
+                        "FROM contract_templates WHERE id::text = :t AND coalesce(is_active,true)"
+                    ),
+                    {"t": template_id},
+                )
+            )
+            .mappings()
+            .first()
+        )
     else:
         # sem modelo explícito: o do próprio contrato; se não houver, o ativo do tipo dele
-        tpl = (await db.execute(text("""
+        tpl = (
+            (
+                await db.execute(
+                    text("""
             SELECT t.id::text, t.name, t.service_type, t.content_template, t.clauses, t.variables
             FROM contracts c JOIN contract_templates t ON t.id = c.template_id
             WHERE (c.id::text = :k OR c.contract_number = :k) AND coalesce(t.is_active,true)
-        """), {"k": contract_id})).mappings().first()
+        """),
+                    {"k": contract_id},
+                )
+            )
+            .mappings()
+            .first()
+        )
     if not tpl:
         raise RenderError(
             "Nenhum modelo indicado e o contrato não tem `template_id`. Escolha o modelo — "
-            "gerar contrato sem modelo é o molde de 3 páginas que ninguém quer.")
+            "gerar contrato sem modelo é o molde de 3 páginas que ninguém quer."
+        )
     if not (tpl["content_template"] or "").strip():
         raise RenderError(f"O modelo '{tpl['name']}' está sem corpo (`content_template` vazio).")
 
@@ -1028,6 +1293,7 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
         assinaturas_do_contrato,
         manifesto_do_contrato,
     )
+
     numero = cab["contract_number"] or contract_id
     assinaturas = await assinaturas_do_contrato(db, numero)
     # o manifesto lista TAMBÉM quem ainda não assinou — é trilha de auditoria, não vitrine
@@ -1036,52 +1302,62 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
         onde = {
-            "contratante_representante":
-                "cadastre em crm_contacts um contato do cliente com role 'Representante legal' "
-                "(ou 'Síndico') — é quem assina pelo condomínio",
+            "contratante_representante": "cadastre em crm_contacts um contato do cliente com role 'Representante legal' "
+            "(ou 'Síndico') — é quem assina pelo condomínio",
             "vigencia_inicio_extenso": "defina contracts.start_date",
             "vigencia_fim_extenso": "defina contracts.end_date",
             "renovacao_aviso_dias_extenso": "defina contracts.renewal_notification_days",
             "dia_vencimento": "defina contracts.payment_day (o dia do mês em que vence)",
             "dia_vencimento_extenso": "idem — contracts.payment_day",
-            "primeiro_pagamento_dias_extenso":
-                "defina contracts.grace_period_days (carência do 1º pagamento; o .docx do "
-                "Green Hills negociou 90 dias)",
-            "inventario_sistemas":
-                "lance os sistemas cobertos em contract_items (um por sistema: cancelas, "
-                "CFTV, cerca elétrica...) — é o inventário que sustenta o preço",
-            "dados_bancarios":
-                "cadastre a conta que RECEBE em bank_accounts da empresa emitente, com "
-                "agência, número e chave PIX (allows_receipts=true)",
+            "primeiro_pagamento_dias_extenso": "defina contracts.grace_period_days (carência do 1º pagamento; o .docx do "
+            "Green Hills negociou 90 dias)",
+            "inventario_sistemas": "lance os sistemas cobertos em contract_items (um por sistema: cancelas, "
+            "CFTV, cerca elétrica...) — é o inventário que sustenta o preço",
+            "dados_bancarios": "cadastre a conta que RECEBE em bank_accounts da empresa emitente, com "
+            "agência, número e chave PIX (allows_receipts=true)",
             "visita_numero": "grave contracts.sla_config->>'visita_numero' (ex.: RV-2026-00001)",
             "visita_data": "grave contracts.sla_config->>'visita_data'",
             "visitas_mes": "grave contracts.sla_config->>'visitas_mes' (visitas preventivas/mês)",
-            "prazo_resposta_extenso":
-                "grave contracts.sla_config->>'prazo_resposta_horas' (SLA de corretiva)",
-            "contratante_representante_rg":
-                "grave o RG em crm_contacts.notes no formato "
-                "'CPF 000.000.000-00 · RG 1234567 SSP/AM'",
+            "prazo_resposta_extenso": "grave contracts.sla_config->>'prazo_resposta_horas' (SLA de corretiva)",
+            "contratante_representante_rg": "grave o RG em crm_contacts.notes no formato "
+            "'CPF 000.000.000-00 · RG 1234567 SSP/AM'",
             "qtd_diurno": "lance os itens do contrato em contract_items (AGP Diurno / AGP Noturno)",
             "qtd_noturno": "idem — contract_items",
             "qtd_agentes_extenso": "idem — contract_items",
             "valor_diurno_fmt": "idem — contract_items",
             "valor_noturno_fmt": "idem — contract_items",
         }
+        if minuta:
+            # Na minuta o buraco fica VISÍVEL no papel, com o nome do que falta ao lado —
+            # é isso que o jurídico do cliente precisa ver para responder.
+            for v in vazias:
+                ctx[v] = "[A DEFINIR]"
+            vazias = []
+    if vazias:
         dicas = sorted({onde[v] for v in vazias if v in onde})
         raise RenderError(
-            "Contrato não gerado — sem valor: " + ", ".join(vazias) + ". "
+            "Contrato não gerado — sem valor: "
+            + ", ".join(vazias)
+            + ". "
             + (" · ".join(dicas) if dicas else "")
-            + " Campo vazio vai para assinatura assim.")
+            + " Campo vazio vai para assinatura assim."
+        )
 
     texto = renderizar(tpl["content_template"], ctx)
 
     # subtítulo da capa = o próprio título do instrumento, que é a 1ª linha do modelo.
     # Sai do modelo e não do código: é o modelo que sabe se é portaria ou manutenção.
     primeira = next((ln.strip() for ln in texto.splitlines() if ln.strip()), "")
+    if minuta:
+        # O papel tem de gritar que é minuta. Um rascunho que circula no jurídico do cliente
+        # sem se identificar volta assinado — e aí o "[A DEFINIR]" vira cláusula.
+        primeira = "MINUTA PARA ANÁLISE — " + primeira
     # nome_proprio, não capitalize(): o modelo é CAIXA ALTA e `capitalize()` devolvia
     # "Prestação de serviços de portaria" — rebaixando a capa de um contrato já assinado.
-    subtitulo = nome_proprio(re.sub(r"^CONTRATO\s+(PARTICULAR\s+)?(DE\s+)?", "", primeira,
-                                    flags=re.I).strip()) or "Prestação de Serviços"
+    subtitulo = (
+        nome_proprio(re.sub(r"^CONTRATO\s+(PARTICULAR\s+)?(DE\s+)?", "", primeira, flags=re.I).strip())
+        or "Prestação de Serviços"
+    )
 
     clausulas = tpl["clauses"] if isinstance(tpl["clauses"], list) else []
     faltando = [c for c in clausulas if isinstance(c, str) and c.strip() and c.strip() not in texto]
@@ -1089,12 +1365,24 @@ async def renderizar_contrato(db: AsyncSession, contract_id: str,
     titulo = f"Contrato {contract_id}"
     return Resultado(
         pdf=build_pdf_do_texto(
-            texto, titulo, contratada.cnpj, list(itens), ctx["valor_mensal_fmt"],
-            capa={"contratante": ctx["contratante_nome"], "cnpj": ctx["contratante_cnpj"],
-                  "numero": cab["contract_number"], "inicio": cab["start_date"],
-                  "razao_contratada": contratada.razao_social},
-            ctx_assin=ctx, assinaturas=assinaturas, manifesto=manifesto, numero=numero,
-            subtitulo=subtitulo),
+            texto,
+            titulo,
+            contratada.cnpj,
+            list(itens),
+            ctx["valor_mensal_fmt"],
+            capa={
+                "contratante": ctx["contratante_nome"],
+                "cnpj": ctx["contratante_cnpj"],
+                "numero": cab["contract_number"],
+                "inicio": cab["start_date"],
+                "razao_contratada": contratada.razao_social,
+            },
+            ctx_assin=ctx,
+            assinaturas=assinaturas,
+            manifesto=manifesto,
+            numero=numero,
+            subtitulo=subtitulo,
+        ),
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),

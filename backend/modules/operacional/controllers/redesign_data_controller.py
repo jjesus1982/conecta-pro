@@ -5560,6 +5560,8 @@ async def rd_action_contrato_da_proposta(
                     "SELECT p.id::text, p.number, coalesce(p.total,0) AS total, "
                     "coalesce(p.client_document,'') AS doc, coalesce(p.client_company,'') AS empresa, "
                     "(SELECT count(*) FROM contracts c WHERE c.proposal_id = p.id) AS ja "
+                    ", (SELECT string_agg(DISTINCT coalesce(c.empresa_id::text,'?'), ',') "
+                    "     FROM contracts c WHERE c.proposal_id = p.id) AS emitentes "
                     "FROM proposals p WHERE p.id::text = :i"
                 ),
                 {"i": pid},
@@ -5570,8 +5572,35 @@ async def rd_action_contrato_da_proposta(
     )
     if not pr:
         raise HTTPException(status_code=404, detail="Proposta não encontrada.")
+    # UMA PROPOSTA = UM CONTRATO **POR EMITENTE**, não um contrato e ponto.
+    #
+    # A trava original supunha que toda proposta vira um único instrumento. O negócio do
+    # Jordan não é assim, e a regra é dele, antiga e explícita: a proposta PODE misturar, o
+    # contrato e a nota fiscal NUNCA. Agente de portaria é CLT no posto e sai pela
+    # Patrimonial; portaria remota é eletrônica e sai pela Eletrônica — duas naturezas
+    # fiscais, dois CNPJs, dois instrumentos, duas notas.
+    #
+    # Caso real que trouxe isto (10/09/2026): Kopenhagen, PROP-2026-00096, R$ 45.312/mês =
+    # R$ 40.612 de agentes (Patrimonial) + R$ 4.700 de portaria remota (Eletrônica). Gerar
+    # o segundo contrato batia em 409, e o dono ficava sem caminho pela tela.
+    #
+    # O que a trava protege continua protegido: clique repetido na MESMA modalidade segue
+    # barrado, porque a comparação passou a ser por empresa emitente.
     if pr["ja"]:
-        raise HTTPException(status_code=409, detail=f"A proposta {pr['number']} já gerou contrato.")
+        # `.get` nos DOIS níveis: modalidade fora do catálogo chega aqui antes de
+        # `criar_contrato` validá-la, e um KeyError viraria 500 em vez da mensagem em
+        # português que o wizard já sabe dar.
+        _cat = W.CATALOGO.get(modalidade) or {}
+        _emit_novo = W.EMPRESA_POR_TIPO.get(_cat.get("modelo_service_type") or "")
+        _ja_emitentes = {e for e in (pr["emitentes"] or "").split(",") if e}
+        if _emit_novo and _emit_novo in _ja_emitentes:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A proposta {pr['number']} já gerou contrato para este emitente. "
+                    "Para a outra parte do serviço, escolha a modalidade do outro CNPJ."
+                ),
+            )
     if not pr["doc"]:
         raise HTTPException(
             status_code=422,
@@ -5635,8 +5664,20 @@ async def rd_action_contrato_abrir_assinatura(
     except W.NaoAutorizado as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
 
+    # "Já tem assinatura aberta" tem de significar ABERTA — cancelada e expirada não são.
+    # A contagem era de TODAS as solicitações, então um contrato com assinatura cancelada
+    # ficava preso: não dava para reabrir ("já tem") e não dava para enviar (o link estava
+    # morto). Foi o caso do CTR-2026-00019, travado desde 23/08, e o botão "Reabrir
+    # assinatura" que a Central oferece batia exatamente nesta linha.
     ja = (
-        await db.execute(text("SELECT count(*) FROM sig_signature_requests WHERE reference_code = :k"), {"k": num})
+        await db.execute(
+            text(
+                "SELECT count(*) FROM sig_signature_requests WHERE reference_code = :k "
+                "  AND upper(coalesce(status::text,'')) NOT IN "
+                "      ('CANCELLED','CANCELED','CANCELADA','EXPIRED','EXPIRADA')"
+            ),
+            {"k": num},
+        )
     ).scalar()
     if ja:
         raise HTTPException(status_code=409, detail=f"{num} já tem assinatura aberta. Use “Enviar link de assinatura”.")
@@ -5744,8 +5785,10 @@ async def rd_action_contrato_enviar_link(
         (
             await db.execute(
                 text(
-                    "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
-                    "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"
+                    "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou, "
+                    "       upper(coalesce(status::text,'')) AS situacao "
+                    "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p "
+                    "ORDER BY created_at DESC"
                 ),
                 {"k": num, "p": papel},
             )
@@ -5753,6 +5796,27 @@ async def rd_action_contrato_enviar_link(
         .mappings()
         .first()
     )
+    # PAREDE contra solicitação CANCELADA. Eu tinha posto esta guarda no caminho do CHAT
+    # (`_enviar_link_assinatura`) e NÃO aqui — e é este o código que o botão da tela usa.
+    # Em 10/09/2026 o Jordan clicou "Enviar link" no CTR-2026-00019, cujas duas solicitações
+    # estavam CANCELLED desde 23/08, e o sistema mandou ao cliente um convite com link
+    # morto. A regra da casa é literal: quando a ação nasce num lugar e é executada em
+    # outro, PROVE OS DOIS. Eu provei um.
+    if linha and str(linha.get("situacao") or "") in (
+        "CANCELLED",
+        "CANCELED",
+        "CANCELADA",
+        "EXPIRED",
+        "EXPIRADA",
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A assinatura de {num} para esta parte está "
+                f"{str(linha['situacao']).lower()} — o link não funcionaria. "
+                "Reabra a assinatura antes de enviar."
+            ),
+        )
     if not linha or not linha["access_token"]:
         raise HTTPException(
             status_code=404, detail=f"{num} não tem link em aberto para esta parte. Abra a assinatura primeiro."
@@ -5797,8 +5861,29 @@ async def rd_action_contrato_enviar_link(
         except Exception as e:  # noqa: BLE001 — um endereço ruim não pode matar os outros
             logger.warning(f"contrato-enviar-link {num}: falhou para {destino}: {e}")
     if enviados:
+        # CÓPIA DE ARQUIVO para quem enviou. Pedido do Jordan em 10/09/2026, com o motivo
+        # dele: a síndica do Maiápolis disse que não recebeu o convite, e não havia como
+        # provar o contrário — log de servidor não é prova que se mostre a um cliente.
+        # Agora cada envio deixa um comprovante impresso na caixa dele, com a lista de
+        # destinatários e a hora. A cópia NÃO leva o link (é pessoal do signatário).
+        # Manaus é UTC-4 e o container roda em UTC: sem o fuso, o comprovante que o dono
+        # vai imprimir carimbaria uma hora que não foi a dele. `ZoneInfo` é stdlib e não
+        # depende de helper interno — a primeira versão importava `core.timezone`, que NÃO
+        # EXISTE, e derrubou o envio com 500 depois de o e-mail já ter saído.
+        from datetime import datetime  # noqa: PLC0415
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+        quando = datetime.now(ZoneInfo("America/Manaus")).strftime("%d/%m/%Y às %H:%M")
+        await CS.copia_de_envio(
+            db, num, destinatarios=enviados, papel="CONTRATANTE" if papel == "customer" else "CONTRATADA", quando=quando
+        )
         await db.commit()
-        return {"ok": True, "message": f"Convite enviado para {', '.join(enviados)}. Link: {link}"}
+        return {
+            "ok": True,
+            "message": (
+                f"Convite enviado para {', '.join(enviados)}. Cópia do comprovante em {CS.COPIA_PARA}. Link: {link}"
+            ),
+        }
     return {"ok": True, "message": f"Sem e-mail informado — mande este link: {link}"}
 
 

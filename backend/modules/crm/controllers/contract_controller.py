@@ -115,6 +115,7 @@ async def gerar_pdf_por_modelo(
     template_id: str | None = None,
     salvar: bool = False,
     teste: bool = False,
+    minuta: bool = False,
 ):
     """Gera o contrato REAL a partir do modelo cadastrado (não o molde de 3 páginas).
 
@@ -132,7 +133,12 @@ async def gerar_pdf_por_modelo(
     from modules.crm.services.contract_render import RenderError, renderizar_contrato
 
     try:
-        res = await renderizar_contrato(db, contract_id, template_id)
+        # `?minuta=1` gera o RASCUNHO para o cliente levar ao jurídico dele: o que ainda
+        # não foi negociado sai como [A DEFINIR] e a capa se identifica como minuta, em vez
+        # de o render recusar. Pedido do Jordan em 10/09/2026 — ele precisava mandar o
+        # Kopenhagen para o síndico analisar, e o sistema exigia o CPF de quem assina, que
+        # é justamente uma das coisas que a análise vai definir.
+        res = await renderizar_contrato(db, contract_id, template_id, minuta=minuta)
     except RenderError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001
@@ -142,17 +148,23 @@ async def gerar_pdf_por_modelo(
     if res.clausulas_faltando:
         raise HTTPException(
             status_code=422,
-            detail=("O texto renderizado não contém todas as cláusulas do modelo — faltam: "
-                    + "; ".join(res.clausulas_faltando[:3])),
+            detail=(
+                "O texto renderizado não contém todas as cláusulas do modelo — faltam: "
+                + "; ".join(res.clausulas_faltando[:3])
+            ),
         )
 
     if salvar:
         from modules.crm.services.docs_registry import salvar_pdf
 
         out = await salvar_pdf(
-            db, "contrato",
+            db,
+            "contrato",
             f"Contrato {contract_id} — {res.contratada.razao_social}",
-            res.pdf, ref_tipo="contract", ref_id=contract_id, teste=teste,
+            res.pdf,
+            ref_tipo="contract",
+            ref_id=contract_id,
+            teste=teste,
         )
         if isinstance(out, dict):
             out["contratada"] = res.contratada.razao_social
@@ -163,9 +175,11 @@ async def gerar_pdf_por_modelo(
         return out
 
     fname = f"contrato_{contract_id.replace('/', '-')}.pdf"
-    headers = {"Content-Disposition": f'inline; filename="{fname}"',
-               "X-Contratada-CNPJ": res.contratada.cnpj,
-               "X-Clausulas": str(res.n_clausulas)}
+    headers = {
+        "Content-Disposition": f'inline; filename="{fname}"',
+        "X-Contratada-CNPJ": res.contratada.cnpj,
+        "X-Clausulas": str(res.n_clausulas),
+    }
     if res.contratada.divergencia:
         # o PDF sai certo pela REGRA; o aviso denuncia o dado gravado que a contradiz
         headers["X-Aviso-Empresa"] = res.contratada.divergencia[:180]
@@ -203,8 +217,9 @@ async def abrir_assinatura_contrato(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
     dados = (
-        await db.execute(
-            text("""
+        (
+            await db.execute(
+                text("""
         SELECT c.contract_number, cl.name AS cliente,
                (SELECT k.name FROM crm_contacts k WHERE k.client_id = c.client_id
                  AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
@@ -218,14 +233,19 @@ async def abrir_assinatura_contrato(
         FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
         WHERE c.id::text = :k OR c.contract_number = :k
     """),
-            {"k": contract_id},
+                {"k": contract_id},
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     if not dados:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
 
     sol = await CS.abrir_assinatura(
-        db, dados["contract_number"], res.pdf,
+        db,
+        dados["contract_number"],
+        res.pdf,
         contratante_nome=dados["cliente"] or "",
         representante=dados["representante"] or "",
         representante_cpf=dados["rep_cpf"] or "",
@@ -241,9 +261,11 @@ async def abrir_assinatura_contrato(
         "assinatura_empresa_id": sol.request_id_empresa,
         "assinatura_cliente_id": sol.request_id_cliente,
         "link_do_cliente": sol.link_cliente,
-        "resumo": (f"Assinatura aberta para {dados['contract_number']}. "
-                   f"1º a CONTRATADA assina pelo painel; depois envie o link ao "
-                   f"{dados['representante'] or 'representante'}."),
+        "resumo": (
+            f"Assinatura aberta para {dados['contract_number']}. "
+            f"1º a CONTRATADA assina pelo painel; depois envie o link ao "
+            f"{dados['representante'] or 'representante'}."
+        ),
     }
 
 
@@ -263,9 +285,12 @@ async def assinar_contrato_pela_empresa(
     from modules.crm.services.contract_render import RenderError, renderizar_contrato
 
     W.exigir_emitente(current_user)
-    num = (await db.execute(text(
-        "SELECT contract_number FROM contracts WHERE id::text = :k OR contract_number = :k"),
-        {"k": contract_id})).scalar()
+    num = (
+        await db.execute(
+            text("SELECT contract_number FROM contracts WHERE id::text = :k OR contract_number = :k"),
+            {"k": contract_id},
+        )
+    ).scalar()
     if not num:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
     try:
@@ -274,15 +299,23 @@ async def assinar_contrato_pela_empresa(
         raise HTTPException(status_code=422, detail=str(e))
     try:
         r = await CS.assinar_pela_empresa(
-            db, num, nome=getattr(current_user, "full_name", None) or "Conecta Mais",
-            pdf=res.pdf, usuario_id=getattr(current_user, "id", None))
+            db,
+            num,
+            nome=getattr(current_user, "full_name", None) or "Conecta Mais",
+            pdf=res.pdf,
+            usuario_id=getattr(current_user, "id", None),
+        )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     await db.commit()
-    return {"contrato": num, "assinado_por": getattr(current_user, "full_name", ""),
-            "quando": str(r.get("signed_at") or ""), "hash": r.get("signature_hash"),
-            "completo": bool(r.get("group_completed")),
-            "resumo": f"{num} assinado pela CONTRATADA. Agora envie o link ao cliente."}
+    return {
+        "contrato": num,
+        "assinado_por": getattr(current_user, "full_name", ""),
+        "quando": str(r.get("signed_at") or ""),
+        "hash": r.get("signature_hash"),
+        "completo": bool(r.get("group_completed")),
+        "resumo": f"{num} assinado pela CONTRATADA. Agora envie o link ao cliente.",
+    }
 
 
 @router.post("/{contract_id}/enviar-link")
@@ -304,46 +337,76 @@ async def enviar_link_assinatura(
 
     W.exigir_emitente(current_user)
     papel = "customer" if parte.lower().startswith(("cli", "cont_ante", "contratante")) else "company"
-    linha = (await db.execute(text(
-        "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
-        "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"),
-        {"k": contract_id, "p": papel})).mappings().first()
+    linha = (
+        (
+            await db.execute(
+                text(
+                    "SELECT access_token, signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+                    "FROM sig_signature_requests WHERE reference_code = :k AND signer_type = :p"
+                ),
+                {"k": contract_id, "p": papel},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not linha or not linha["access_token"]:
-        raise HTTPException(status_code=404,
-                            detail=f"não há link de assinatura em aberto para a parte '{parte}' "
-                                   f"em {contract_id}. Abra a assinatura primeiro.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"não há link de assinatura em aberto para a parte '{parte}' "
+            f"em {contract_id}. Abra a assinatura primeiro.",
+        )
     if linha["assinou"]:
         raise HTTPException(status_code=409, detail=f"{linha['signer_name']} já assinou.")
 
     # a ordem importa: não se manda ao cliente o que a CONTRATADA ainda não firmou
     if papel == "customer":
-        pendente = (await db.execute(text(
-            "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "
-            "AND signer_type = 'company' AND signed_at IS NULL"), {"k": contract_id})).scalar()
+        pendente = (
+            await db.execute(
+                text(
+                    "SELECT signer_name FROM sig_signature_requests WHERE reference_code = :k "
+                    "AND signer_type = 'company' AND signed_at IS NULL"
+                ),
+                {"k": contract_id},
+            )
+        ).scalar()
         if pendente:
             raise HTTPException(
                 status_code=409,
                 detail="a Conecta Mais ainda não assinou este contrato — o link do cliente "
-                       "seria recusado. Assine primeiro.")
+                "seria recusado. Assine primeiro.",
+            )
 
     link = f"{CS.BASE_PUBLICA}/assinar/contrato/{linha['access_token']}"
     destino = email or linha["signer_email"]
     enviado = False
     if destino:
         enviado = await CS.convidar_para_assinar(
-            db, contract_id, para=destino, link=link, nome=linha["signer_name"] or "",
-            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+            db,
+            contract_id,
+            para=destino,
+            link=link,
+            nome=linha["signer_name"] or "",
+            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA",
+        )
         if enviado and not linha["signer_email"]:
-            await db.execute(text(
-                "UPDATE sig_signature_requests SET signer_email = :e "
-                "WHERE reference_code = :k AND signer_type = :p"),
-                {"e": destino, "k": contract_id, "p": papel})
+            await db.execute(
+                text(
+                    "UPDATE sig_signature_requests SET signer_email = :e WHERE reference_code = :k AND signer_type = :p"
+                ),
+                {"e": destino, "k": contract_id, "p": papel},
+            )
             await db.commit()
     return {
-        "contrato": contract_id, "signatario": linha["signer_name"],
-        "link": link, "email_enviado_para": destino if enviado else None,
-        "resumo": (f"Convite enviado para {destino}." if enviado
-                   else "Sem e-mail informado — mande o link abaixo por WhatsApp."),
+        "contrato": contract_id,
+        "signatario": linha["signer_name"],
+        "link": link,
+        "email_enviado_para": destino if enviado else None,
+        "resumo": (
+            f"Convite enviado para {destino}."
+            if enviado
+            else "Sem e-mail informado — mande o link abaixo por WhatsApp."
+        ),
     }
 
 
@@ -356,16 +419,28 @@ async def status_assinaturas_contrato(
     """Quem já assinou este contrato, quando e com que hash."""
     from modules.crm.services.contract_signature import assinaturas_do_contrato
 
-    num = (await db.execute(text(
-        "SELECT contract_number FROM contracts WHERE id::text=:k OR contract_number=:k"),
-        {"k": contract_id})).scalar()
+    num = (
+        await db.execute(
+            text("SELECT contract_number FROM contracts WHERE id::text=:k OR contract_number=:k"), {"k": contract_id}
+        )
+    ).scalar()
     if not num:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
     assinadas = await assinaturas_do_contrato(db, num)
-    pendentes = (await db.execute(text(
-        "SELECT signer_type::text, signer_name, access_token IS NOT NULL AS tem_link "
-        "FROM sig_signature_requests WHERE reference_code=:k AND signed_at IS NULL "
-        "ORDER BY signature_order"), {"k": num})).mappings().all()
+    pendentes = (
+        (
+            await db.execute(
+                text(
+                    "SELECT signer_type::text, signer_name, access_token IS NOT NULL AS tem_link "
+                    "FROM sig_signature_requests WHERE reference_code=:k AND signed_at IS NULL "
+                    "ORDER BY signature_order"
+                ),
+                {"k": num},
+            )
+        )
+        .mappings()
+        .all()
+    )
     return {
         "contrato": num,
         "assinadas": assinadas,
@@ -392,8 +467,11 @@ async def briefing_contrato_novo(
     except W.NaoAutorizado as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
     return await W.briefing(
-        db, servicos=payload.get("servicos"), cliente_cnpj=payload.get("cliente_cnpj"),
-        cliente_nome=payload.get("cliente_nome"))
+        db,
+        servicos=payload.get("servicos"),
+        cliente_cnpj=payload.get("cliente_cnpj"),
+        cliente_nome=payload.get("cliente_nome"),
+    )
 
 
 @router.post("/criar-por-modelo")

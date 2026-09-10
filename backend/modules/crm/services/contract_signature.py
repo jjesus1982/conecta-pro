@@ -12,6 +12,7 @@ ORDEM DOS SIGNATÁRIOS (decisão do Jordan, 21/08): a CONTRATADA assina primeiro
 painel; depois o link vai para o cliente. Faz sentido no fluxo comercial — não se manda
 para o síndico assinar um documento que a própria empresa ainda não firmou.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -47,11 +48,20 @@ def _sha256(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
-                           contratante_nome: str, representante: str, representante_cpf: str,
-                           representante_email: str | None, contratada_nome: str,
-                           assinante_empresa: str, assinante_empresa_id: uuid.UUID | None,
-                           solicitado_por: uuid.UUID | None = None) -> Solicitacao:
+async def abrir_assinatura(
+    db: AsyncSession,
+    contract_id: str,
+    pdf: bytes,
+    *,
+    contratante_nome: str,
+    representante: str,
+    representante_cpf: str,
+    representante_email: str | None,
+    contratada_nome: str,
+    assinante_empresa: str,
+    assinante_empresa_id: uuid.UUID | None,
+    solicitado_por: uuid.UUID | None = None,
+) -> Solicitacao:
     """Abre a solicitação de assinatura das duas partes para este contrato."""
     from modules.signatures.services.universal_signature_service import (
         SignerInput,
@@ -72,12 +82,17 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
         signers=[
             # ordem 1: a empresa. Não se pede ao síndico que assine o que a Conecta Mais
             # ainda não firmou.
-            SignerInput(signer_type=SignerType.COMPANY, signer_name=assinante_empresa,
-                        signer_id=assinante_empresa_id, order=1),
+            SignerInput(
+                signer_type=SignerType.COMPANY, signer_name=assinante_empresa, signer_id=assinante_empresa_id, order=1
+            ),
             # ordem 2: o cliente, por link único
-            SignerInput(signer_type=SignerType.CUSTOMER, signer_name=representante,
-                        signer_document=representante_cpf, signer_email=representante_email,
-                        order=2),
+            SignerInput(
+                signer_type=SignerType.CUSTOMER,
+                signer_name=representante,
+                signer_document=representante_cpf,
+                signer_email=representante_email,
+                order=2,
+            ),
         ],
         document_name=f"Contrato {contract_id} — {contratante_nome}",
         document_path=caminho,
@@ -107,10 +122,16 @@ async def abrir_assinatura(db: AsyncSession, contract_id: str, pdf: bytes, *,
     )
 
 
-async def assinar_pela_empresa(db: AsyncSession, contract_id: str, *, nome: str,
-                               pdf: bytes,
-                               usuario_id: uuid.UUID | None = None, ip: str | None = None,
-                               user_agent: str | None = None) -> dict:
+async def assinar_pela_empresa(
+    db: AsyncSession,
+    contract_id: str,
+    *,
+    nome: str,
+    pdf: bytes,
+    usuario_id: uuid.UUID | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+) -> dict:
     """A Conecta Mais firma o contrato pelo painel (ordem 1).
 
     Só coleta a assinatura; quem faz a prova criptográfica e a trilha é o motor universal.
@@ -121,19 +142,28 @@ async def assinar_pela_empresa(db: AsyncSession, contract_id: str, *, nome: str,
         UniversalSignatureService,
     )
 
-    req = (await db.execute(text(
-        "SELECT id FROM sig_signature_requests WHERE reference_code = :k "
-        "AND signer_type = 'company' AND signed_at IS NULL "
-        "ORDER BY created_at DESC LIMIT 1"), {"k": contract_id})).scalar()
+    req = (
+        await db.execute(
+            text(
+                "SELECT id FROM sig_signature_requests WHERE reference_code = :k "
+                "AND signer_type = 'company' AND signed_at IS NULL "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"k": contract_id},
+        )
+    ).scalar()
     if not req:
         raise ValueError(f"não há solicitação da empresa em aberto para {contract_id}")
 
     svc = UniversalSignatureService(db)
     return await svc.assinar(
-        request_id=req, signer_type=SignerType.COMPANY, signer_id=usuario_id,
+        request_id=req,
+        signer_type=SignerType.COMPANY,
+        signer_id=usuario_id,
         signer_name=nome,
-        evidence=SignatureEvidence(ip_address=ip, user_agent=user_agent,
-                                   extra={"contrato": contract_id, "origem": "painel"}),
+        evidence=SignatureEvidence(
+            ip_address=ip, user_agent=user_agent, extra={"contrato": contract_id, "origem": "painel"}
+        ),
         # o motor RECUSA registrar sem o documento de origem — ele carimba o selo no PDF.
         # Recusa honesta: sem isso ficaria assinatura registrada sem papel assinado.
         pdf_bytes=pdf,
@@ -146,10 +176,11 @@ def _html(titulo: str, corpo: str, rodape: str = "") -> str:
         f'<div style="background:#16277D;padding:18px 22px;border-bottom:4px solid #F26522">'
         f'<span style="color:#fff;font-size:18px;font-weight:bold">Conecta Mais</span></div>'
         f'<div style="padding:22px"><h2 style="color:#16277D;margin:0 0 12px">{titulo}</h2>'
-        f'{corpo}</div>'
+        f"{corpo}</div>"
         f'<div style="padding:14px 22px;background:#F3F4F6;font-size:12px;color:#6B7280">'
-        f'{rodape or "Mensagem automática do Conecta PRO — não responda a este e-mail."}'
-        "</div></div>")
+        f"{rodape or 'Mensagem automática do Conecta PRO — não responda a este e-mail.'}"
+        "</div></div>"
+    )
 
 
 async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
@@ -163,14 +194,24 @@ async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
     ⚠️ Nada é inventado: cada linha só aparece se o banco tiver o dado. Um resumo com
     "valor a combinar" num convite de assinatura seria pior que resumo nenhum.
     """
-    r = (await db.execute(text(
-        "SELECT coalesce(cl.name, c.name) AS cliente, c.description, "
-        "       c.contract_type::text AS tipo, c.monthly_value, c.total_value, "
-        "       c.tipo_servico::text AS tipo_servico, t.service_type "
-        "FROM contracts c "
-        "LEFT JOIN clients cl ON cl.id = c.client_id "
-        "LEFT JOIN contract_templates t ON t.id = c.template_id "
-        "WHERE c.contract_number = :k OR c.id::text = :k"), {"k": contract_id})).mappings().first()
+    r = (
+        (
+            await db.execute(
+                text(
+                    "SELECT coalesce(cl.name, c.name) AS cliente, c.description, "
+                    "       c.contract_type::text AS tipo, c.monthly_value, c.total_value, "
+                    "       c.tipo_servico::text AS tipo_servico, t.service_type "
+                    "FROM contracts c "
+                    "LEFT JOIN clients cl ON cl.id = c.client_id "
+                    "LEFT JOIN contract_templates t ON t.id = c.template_id "
+                    "WHERE c.contract_number = :k OR c.id::text = :k"
+                ),
+                {"k": contract_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not r:
         return ""
 
@@ -182,8 +223,7 @@ async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
         linhas.append(("Objeto", str(r["description"]).strip()))
     if (r["tipo"] or "") == "one_time":
         if r["total_value"]:
-            linhas.append(("Valor", f"{_brl(r['total_value'])} — serviço único, "
-                                    "parcelado conforme a Cláusula 3ª"))
+            linhas.append(("Valor", f"{_brl(r['total_value'])} — serviço único, parcelado conforme a Cláusula 3ª"))
     elif r["monthly_value"]:
         linhas.append(("Valor", f"{_brl(r['monthly_value'])} por mês"))
     # A CONTRATADA vem da MESMA regra que o instrumento usa (`resolver_contratada`), nunca
@@ -194,6 +234,7 @@ async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
     # defeito possível num convite de assinatura.
     try:
         from modules.crm.services.contract_render import resolver_contratada  # noqa: PLC0415
+
         ctda = resolver_contratada(r["tipo_servico"], r["service_type"])
         linhas.append(("Contratada", f"{ctda.razao_social} · CNPJ {ctda.cnpj}"))
     except Exception:  # noqa: BLE001 — sem tipo declarado a regra RECUSA; a carta segue sem a linha
@@ -204,13 +245,16 @@ async def _carta_de_apresentacao(db: AsyncSession, contract_id: str) -> str:
     itens = "".join(
         f'<tr><td style="padding:4px 10px 4px 0;color:#6B7280;vertical-align:top;'
         f'white-space:nowrap">{k}</td><td style="padding:4px 0">{v}</td></tr>'
-        for k, v in linhas)
-    return ('<table style="margin:16px 0;border-left:3px solid #F26522;padding-left:14px;'
-            f'font-size:14px">{itens}</table>')
+        for k, v in linhas
+    )
+    return (
+        f'<table style="margin:16px 0;border-left:3px solid #F26522;padding-left:14px;font-size:14px">{itens}</table>'
+    )
 
 
-async def convidar_para_assinar(db: AsyncSession, contract_id: str, *, para: str,
-                                link: str, nome: str = "", papel: str = "") -> bool:
+async def convidar_para_assinar(
+    db: AsyncSession, contract_id: str, *, para: str, link: str, nome: str = "", papel: str = ""
+) -> bool:
     """Avisa um signatário de que há documento esperando a assinatura dele.
 
     Manda o LINK, nunca o código: o código vai depois, para o e-mail que a pessoa informar
@@ -222,21 +266,27 @@ async def convidar_para_assinar(db: AsyncSession, contract_id: str, *, para: str
     posicao = f"<p>Você consta como <b>{papel}</b> neste instrumento.</p>" if papel else ""
     carta = await _carta_de_apresentacao(db, contract_id)
     return await send_email(
-        para, f"Contrato {contract_id} — pronto para sua assinatura",
-        _html("Seu contrato está pronto para assinatura",
-              quem
-              + "<p>Agradecemos a confiança na Conecta Mais. Segue o contrato que "
-                "formaliza o que combinamos, pronto para sua assinatura eletrônica.</p>"
-              + carta
-              + f"<p>O instrumento é o de número <b>{contract_id}</b>.</p>" + posicao
-              + '<p style="margin:22px 0"><a href="' + link + '" '
-                'style="background:#F26522;color:#fff;text-decoration:none;padding:14px 26px;'
-                'border-radius:8px;font-weight:bold;display:inline-block">'
-                "Ler e assinar o contrato</a></p>"
-              + "<p>Na tela você lê o contrato inteiro, informa nome, CPF e e-mail, e recebe "
-                "um <b>código de validação</b> no seu e-mail para concluir a assinatura.</p>"
-              + f'<p style="font-size:12px;color:#6B7280">Se o botão não abrir, copie este '
-                f'endereço: {link}</p>'))
+        para,
+        f"Contrato {contract_id} — pronto para sua assinatura",
+        _html(
+            "Seu contrato está pronto para assinatura",
+            quem + "<p>Agradecemos a confiança na Conecta Mais. Segue o contrato que "
+            "formaliza o que combinamos, pronto para sua assinatura eletrônica.</p>"
+            + carta
+            + f"<p>O instrumento é o de número <b>{contract_id}</b>.</p>"
+            + posicao
+            + '<p style="margin:22px 0"><a href="'
+            + link
+            + '" '
+            'style="background:#F26522;color:#fff;text-decoration:none;padding:14px 26px;'
+            'border-radius:8px;font-weight:bold;display:inline-block">'
+            "Ler e assinar o contrato</a></p>"
+            + "<p>Na tela você lê o contrato inteiro, informa nome, CPF e e-mail, e recebe "
+            "um <b>código de validação</b> no seu e-mail para concluir a assinatura.</p>"
+            + f'<p style="font-size:12px;color:#6B7280">Se o botão não abrir, copie este '
+            f"endereço: {link}</p>",
+        ),
+    )
 
 
 async def notificar_apos_assinatura(db: AsyncSession, contract_id: str, pdf: bytes) -> dict:
@@ -255,10 +305,20 @@ async def notificar_apos_assinatura(db: AsyncSession, contract_id: str, pdf: byt
     faltam = [m for m in partes if not m["assinado"]]
     completo = bool(partes) and not faltam
 
-    emails = (await db.execute(text(
-        "SELECT signer_name, signer_email, signed_at IS NOT NULL AS assinou "
-        "FROM sig_signature_requests WHERE reference_code = :k AND signer_email IS NOT NULL "
-        "AND signer_email <> '' ORDER BY signature_order"), {"k": contract_id})).mappings().all()
+    emails = (
+        (
+            await db.execute(
+                text(
+                    "SELECT signer_name, signer_email, signed_at IS NOT NULL AS assinou "
+                    "FROM sig_signature_requests WHERE reference_code = :k AND signer_email IS NOT NULL "
+                    "AND signer_email <> '' ORDER BY signature_order"
+                ),
+                {"k": contract_id},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     anexo = [(f"Contrato {contract_id}.pdf", pdf)]
     enviados: list[str] = []
@@ -267,16 +327,23 @@ async def notificar_apos_assinatura(db: AsyncSession, contract_id: str, pdf: byt
     for e in emails:
         if not e["assinou"]:
             continue
-        pendencia = ("<p>Assim que as demais partes assinarem, você receberá a via final "
-                     "com o manifesto completo.</p>" if faltam else "")
+        pendencia = (
+            "<p>Assim que as demais partes assinarem, você receberá a via final com o manifesto completo.</p>"
+            if faltam
+            else ""
+        )
         ok = await send_email(
-            e["signer_email"], f"Contrato {contract_id} — sua via assinada",
-            _html("Sua assinatura foi registrada",
-                  f"<p>Olá, {e['signer_name']}.</p>"
-                  f"<p>Segue em anexo o contrato <b>{contract_id}</b> com sua assinatura "
-                  "eletrônica registrada. O manifesto ao final traz data, hora, endereço IP "
-                  "e o código de verificação de cada assinatura.</p>" + pendencia),
-            anexos=anexo)
+            e["signer_email"],
+            f"Contrato {contract_id} — sua via assinada",
+            _html(
+                "Sua assinatura foi registrada",
+                f"<p>Olá, {e['signer_name']}.</p>"
+                f"<p>Segue em anexo o contrato <b>{contract_id}</b> com sua assinatura "
+                "eletrônica registrada. O manifesto ao final traz data, hora, endereço IP "
+                "e o código de verificação de cada assinatura.</p>" + pendencia,
+            ),
+            anexos=anexo,
+        )
         if ok:
             enviados.append(e["signer_email"])
 
@@ -285,15 +352,18 @@ async def notificar_apos_assinatura(db: AsyncSession, contract_id: str, pdf: byt
         nomes = ", ".join(m["nome"] for m in partes)
         for e in emails:
             await send_email(
-                e["signer_email"], f"Contrato {contract_id} — assinado por todas as partes",
-                _html("Contrato concluído",
-                      f"<p>O contrato <b>{contract_id}</b> foi assinado por todas as partes: "
-                      f"{nomes}.</p><p>A via final, com o manifesto de assinaturas, segue "
-                      "em anexo.</p>"),
-                anexos=anexo)
+                e["signer_email"],
+                f"Contrato {contract_id} — assinado por todas as partes",
+                _html(
+                    "Contrato concluído",
+                    f"<p>O contrato <b>{contract_id}</b> foi assinado por todas as partes: "
+                    f"{nomes}.</p><p>A via final, com o manifesto de assinaturas, segue "
+                    "em anexo.</p>",
+                ),
+                anexos=anexo,
+            )
 
-    return {"completo": completo, "enviados": enviados,
-            "faltam": [m["nome"] for m in faltam]}
+    return {"completo": completo, "enviados": enviados, "faltam": [m["nome"] for m in faltam]}
 
 
 # `sig_signature_requests` (1.749 linhas — o motor está em uso de verdade). O hash da
@@ -320,7 +390,10 @@ async def manifesto_do_contrato(db: AsyncSession, contract_id: str) -> list[dict
     é a trilha de auditoria, e uma trilha que esconde o pendente não é trilha.
     """
     try:
-        linhas = (await db.execute(text("""
+        linhas = (
+            (
+                await db.execute(
+                    text("""
             SELECT r.signer_type::text AS papel, r.signer_name AS nome, r.signer_document AS doc,
                    r.signed_at, r.signing_ip, r.signing_user_agent AS agente,
                    coalesce(s.signature_hash, r.signed_document_hash, r.document_hash, '') AS hash,
@@ -328,18 +401,31 @@ async def manifesto_do_contrato(db: AsyncSession, contract_id: str) -> list[dict
             FROM sig_signature_requests r
             LEFT JOIN sig_signatures s ON s.id = r.signature_id
             WHERE r.reference_code = :k
-            ORDER BY r.signature_order"""), {"k": contract_id})).mappings().all()
+            ORDER BY r.signature_order"""),
+                    {"k": contract_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
     except Exception:  # noqa: BLE001
         await db.rollback()
         return []
-    return [{
-        "papel": "CONTRATADA" if "company" in (r["papel"] or "") else "CONTRATANTE",
-        "nome": r["nome"] or "", "doc": r["doc"] or "",
-        "quando": r["signed_at"].strftime("%d/%m/%Y às %H:%M:%S") if r["signed_at"] else "",
-        "assinado": r["signed_at"] is not None,
-        "ip": r["signing_ip"] or "", "agente": (r["agente"] or "")[:60],
-        "hash": r["hash"] or "", "req": r["req"], "ordem": r["ordem"],
-    } for r in linhas]
+    return [
+        {
+            "papel": "CONTRATADA" if "company" in (r["papel"] or "") else "CONTRATANTE",
+            "nome": r["nome"] or "",
+            "doc": r["doc"] or "",
+            "quando": r["signed_at"].strftime("%d/%m/%Y às %H:%M:%S") if r["signed_at"] else "",
+            "assinado": r["signed_at"] is not None,
+            "ip": r["signing_ip"] or "",
+            "agente": (r["agente"] or "")[:60],
+            "hash": r["hash"] or "",
+            "req": r["req"],
+            "ordem": r["ordem"],
+        }
+        for r in linhas
+    ]
 
 
 async def assinaturas_do_contrato(db: AsyncSession, contract_id: str) -> list[dict]:
@@ -357,11 +443,65 @@ async def assinaturas_do_contrato(db: AsyncSession, contract_id: str) -> list[di
     for r in linhas:
         papel = "contratada" if "company" in (r["papel"] or "") else "contratante"
         quando = r["signed_at"]
-        saida.append({
-            "papel": papel,
-            "nome": r["nome"],
-            "quando": quando.strftime("%d/%m/%Y às %H:%M") if quando else "",
-            "hash": r["hash"] or "",
-            "ip": r["signing_ip"] or "",
-        })
+        saida.append(
+            {
+                "papel": papel,
+                "nome": r["nome"],
+                "quando": quando.strftime("%d/%m/%Y às %H:%M") if quando else "",
+                "hash": r["hash"] or "",
+                "ip": r["signing_ip"] or "",
+            }
+        )
     return saida
+
+
+# Cópia de arquivo para quem enviou. Pedido do Jordan em 10/09/2026, com o motivo dele:
+# "no meu e-mail vai aparecer enviado via Conecta PRO pelo noreply e os e-mails que foram
+# enviados, assim tenho como printar e mandar pros clientes".
+#
+# O problema real: a síndica do Maiápolis disse que não recebeu nada, e não havia como
+# provar o contrário — o log do servidor não serve de prova para um cliente. Agora cada
+# envio deixa um comprovante na caixa de quem mandou, com a lista de destinatários, data e
+# hora, pronto para imprimir.
+#
+# ⚠️ A cópia NÃO leva o botão de assinar. O link de assinatura é pessoal do signatário:
+# quem o tem começa a assinatura, e o código de validação vai para o e-mail que a pessoa
+# digitar na tela — não para o cadastrado. Um comprovante feito para ser impresso e
+# encaminhado no WhatsApp não pode carregar dentro dele a chave de assinar o contrato.
+COPIA_PARA = "jjesus@conectamais.pro"
+
+
+async def copia_de_envio(
+    db: AsyncSession, contract_id: str, *, destinatarios: list[str], papel: str = "", quando: str = ""
+) -> bool:
+    """Comprovante de envio para o arquivo de quem mandou. Nunca derruba o envio real."""
+    from core.mailer import send_email  # noqa: PLC0415
+
+    if not destinatarios:
+        return False
+    carta = await _carta_de_apresentacao(db, contract_id)
+    linhas = "".join(f"<li><b>{d}</b></li>" for d in destinatarios)
+    quem = f" como <b>{papel}</b>" if papel else ""
+    try:
+        return await send_email(
+            COPIA_PARA,
+            f"Cópia — convite de assinatura do contrato {contract_id} enviado",
+            _html(
+                "Comprovante de envio",
+                f"<p>O convite para assinar o contrato <b>{contract_id}</b>{quem} foi "
+                f"enviado pelo Conecta PRO{(' em ' + quando) if quando else ''} para:</p>"
+                f'<ul style="line-height:1.7">{linhas}</ul>'
+                + carta
+                + "<p>Cada destinatário recebeu o convite com o próprio link de "
+                "assinatura. Este é o teor da mensagem que chegou a eles.</p>"
+                + '<p style="font-size:12px;color:#6B7280">O link de assinatura é pessoal '
+                "e não é reproduzido nesta cópia, para que ela possa ser impressa e "
+                "encaminhada com segurança.</p>",
+                rodape="Cópia automática para o arquivo — Conecta PRO",
+            ),
+        )
+    except Exception as e:  # noqa: BLE001 — comprovante que falha não invalida o envio
+        import logging  # noqa: PLC0415
+
+        logging.getLogger(__name__).warning(f"cópia de envio de {contract_id} falhou: {e}")
+        return False

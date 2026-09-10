@@ -16,6 +16,7 @@ REGRA DE DINHEIRO: a soma dos itens tem de bater com `monthly_value`. Sem isso o
 sairia com uma composição que não fecha com o valor que o cliente aceitou — e é o valor
 por extenso, no meio do instrumento, que vira disputa.
 """
+
 from __future__ import annotations
 
 import json
@@ -43,15 +44,15 @@ def pode_emitir(user) -> bool:
 def exigir_emitente(user) -> None:
     if not pode_emitir(user):
         raise NaoAutorizado(
-            "Emitir contrato é restrito ao Jordan e à Pyetra. "
-            "Consultar e listar contratos segue liberado.")
+            "Emitir contrato é restrito ao Jordan e à Pyetra. Consultar e listar contratos segue liberado."
+        )
 
 
 @dataclass
 class Pendencia:
     campo: str
-    pergunta: str      # o que o agente pergunta ao humano, em português
-    onde: str          # onde o dado será gravado — some no relatório, não no contrato
+    pergunta: str  # o que o agente pergunta ao humano, em português
+    onde: str  # onde o dado será gravado — some no relatório, não no contrato
     exemplo: str = ""
 
 
@@ -99,25 +100,36 @@ async def diagnosticar(db: AsyncSession, chave: str) -> Situacao:
     if not r:
         raise LookupError(f"Contrato não encontrado: {chave}")
 
-    s = Situacao(contrato=r["contract_number"], cliente=r["cliente"] or "—",
-                 valor_mensal=Decimal(str(r["monthly_value"] or 0)),
-                 modelo_id=r["template_id"], modelo_nome=r["modelo_nome"])
+    s = Situacao(
+        contrato=r["contract_number"],
+        cliente=r["cliente"] or "—",
+        valor_mensal=Decimal(str(r["monthly_value"] or 0)),
+        modelo_id=r["template_id"],
+        modelo_nome=r["modelo_nome"],
+    )
 
     if not r["template_id"]:
-        s.pendencias.append(Pendencia(
-            "template_id",
-            "Qual modelo de contrato usar? (o contrato ainda não está vinculado a nenhum)",
-            "contracts.template_id"))
+        s.pendencias.append(
+            Pendencia(
+                "template_id",
+                "Qual modelo de contrato usar? (o contrato ainda não está vinculado a nenhum)",
+                "contracts.template_id",
+            )
+        )
     if not r["representante"]:
-        s.pendencias.append(Pendencia(
-            "representante",
-            f"Quem assina pelo {r['cliente'] or 'cliente'}? Preciso do nome completo do "
-            "representante legal (síndico).",
-            "crm_contacts", "Hely Carvalho"))
+        s.pendencias.append(
+            Pendencia(
+                "representante",
+                f"Quem assina pelo {r['cliente'] or 'cliente'}? Preciso do nome completo do "
+                "representante legal (síndico).",
+                "crm_contacts",
+                "Hely Carvalho",
+            )
+        )
     if not (r["representante_cpf"] or "").strip():
-        s.pendencias.append(Pendencia(
-            "representante_cpf", "Qual o CPF de quem assina?", "crm_contacts",
-            "562.043.372-20"))
+        s.pendencias.append(
+            Pendencia("representante_cpf", "Qual o CPF de quem assina?", "crm_contacts", "562.043.372-20")
+        )
     # Contrato de valor ÚNICO (fornecimento + instalação) não tem mensalidade, carência nem
     # vigência: perguntar dia de vencimento a quem contratou uma obra é perguntar por algo
     # que o instrumento não vai citar — e a resposta iria para uma coluna que ninguém lê.
@@ -126,23 +138,37 @@ async def diagnosticar(db: AsyncSession, chave: str) -> Situacao:
         return s
 
     if not r["payment_day"]:
-        s.pendencias.append(Pendencia(
-            "payment_day", "Em que dia do mês vence a mensalidade?", "contracts.payment_day", "8"))
+        s.pendencias.append(
+            Pendencia("payment_day", "Em que dia do mês vence a mensalidade?", "contracts.payment_day", "8")
+        )
     if not r["grace_period_days"]:
-        s.pendencias.append(Pendencia(
-            "grace_period_days",
-            "Em quantos dias vence o PRIMEIRO pagamento, contados da assinatura?",
-            "contracts.grace_period_days", "90"))
+        s.pendencias.append(
+            Pendencia(
+                "grace_period_days",
+                "Em quantos dias vence o PRIMEIRO pagamento, contados da assinatura?",
+                "contracts.grace_period_days",
+                "90",
+            )
+        )
     if not r["n_itens"]:
-        s.pendencias.append(Pendencia(
-            "itens",
-            "Como se compõe o valor mensal? Preciso da quantidade e do subtotal de cada "
-            f"função — a soma tem de fechar em {r['monthly_value']}.",
-            "contract_items", "AGP Diurno 2 = 10605.78 · AGP Noturno 2 = 11494.22"))
+        s.pendencias.append(
+            Pendencia(
+                "itens",
+                "Como se compõe o valor mensal? Preciso da quantidade e do subtotal de cada "
+                f"função — a soma tem de fechar em {r['monthly_value']}.",
+                "contract_items",
+                "AGP Diurno 2 = 10605.78 · AGP Noturno 2 = 11494.22",
+            )
+        )
     if not r["start_date"] or not r["end_date"]:
-        s.pendencias.append(Pendencia(
-            "vigencia", "Qual o período de vigência (início e término)?",
-            "contracts.start_date/end_date", "01/09/2026 a 31/08/2028"))
+        s.pendencias.append(
+            Pendencia(
+                "vigencia",
+                "Qual o período de vigência (início e término)?",
+                "contracts.start_date/end_date",
+                "01/09/2026 a 31/08/2028",
+            )
+        )
     return s
 
 
@@ -152,29 +178,37 @@ def _pendencias_one_time(r) -> list[Pendencia]:
     faltam: list[Pendencia] = []
 
     if not (r["total_value"] and Decimal(str(r["total_value"])) > 0):
-        faltam.append(Pendencia(
-            "valor_total", "Qual o valor TOTAL do serviço?", "contracts.total_value", "46320"))
+        faltam.append(Pendencia("valor_total", "Qual o valor TOTAL do serviço?", "contracts.total_value", "46320"))
     if not (r["description"] or "").strip():
-        faltam.append(Pendencia(
-            "objeto_resumo",
-            "Descreva em uma frase o que será entregue (vai para a Cláusula 1ª).",
-            "contracts.description",
-            "controle de acesso por biometria facial; automação dos portões; CFTV"))
+        faltam.append(
+            Pendencia(
+                "objeto_resumo",
+                "Descreva em uma frase o que será entregue (vai para a Cláusula 1ª).",
+                "contracts.description",
+                "controle de acesso por biometria facial; automação dos portões; CFTV",
+            )
+        )
     if not str(sla.get("proposta_numero") or "").strip():
-        faltam.append(Pendencia(
-            "proposta_numero",
-            "Qual a proposta comercial que originou este contrato? Ela integra o "
-            "instrumento e é citada na Cláusula 1ª.",
-            "contracts.sla_config->proposta_numero", "PROP-2026-00001"))
+        faltam.append(
+            Pendencia(
+                "proposta_numero",
+                "Qual a proposta comercial que originou este contrato? Ela integra o "
+                "instrumento e é citada na Cláusula 1ª.",
+                "contracts.sla_config->proposta_numero",
+                "PROP-2026-00001",
+            )
+        )
     if not r["n_itens"]:
-        faltam.append(Pendencia(
-            "itens",
-            "Como se parcela o pagamento? Preciso de cada parcela com tipo "
-            "(entrada · parcela · retida), valor e vencimento — a soma tem de fechar em "
-            f"{r['total_value']}.",
-            "contract_items",
-            "entrada 23160 · parcela 7720 em 30 dias · parcela 7720 em 60 dias · "
-            "retida 7720"))
+        faltam.append(
+            Pendencia(
+                "itens",
+                "Como se parcela o pagamento? Preciso de cada parcela com tipo "
+                "(entrada · parcela · retida), valor e vencimento — a soma tem de fechar em "
+                f"{r['total_value']}.",
+                "contract_items",
+                "entrada 23160 · parcela 7720 em 30 dias · parcela 7720 em 60 dias · retida 7720",
+            )
+        )
     return faltam
 
 
@@ -191,74 +225,111 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         # é só o modelo (funciona, mas a lista de contratos mostra "Serviço —" e um contrato
         # sem modelo depois vira ambiguidade que o render RECUSA). `coalesce` para nunca
         # sobrescrever uma declaração que alguém já fez à mão.
-        await db.execute(text(
-            "UPDATE contracts c SET template_id = CAST(:t AS uuid), "
-            "  tipo_servico = coalesce(nullif(c.tipo_servico::text,''), t.service_type), "
-            "  updated_at = now() "
-            "FROM contract_templates t WHERE t.id = CAST(:t AS uuid) AND c.id::text = :c"),
-            {"t": dados["template_id"], "c": r["cid"]})
+        await db.execute(
+            text(
+                "UPDATE contracts c SET template_id = CAST(:t AS uuid), "
+                "  tipo_servico = coalesce(nullif(c.tipo_servico::text,''), t.service_type), "
+                "  updated_at = now() "
+                "FROM contract_templates t WHERE t.id = CAST(:t AS uuid) AND c.id::text = :c"
+            ),
+            {"t": dados["template_id"], "c": r["cid"]},
+        )
         feitos.append("modelo vinculado ao contrato")
 
     if dados.get("representante"):
-        existe = (await db.execute(text(
-            "SELECT id::text FROM crm_contacts WHERE client_id::text=:c "
-            "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%') LIMIT 1"),
-            {"c": r["client_id"]})).scalar()
+        existe = (
+            await db.execute(
+                text(
+                    "SELECT id::text FROM crm_contacts WHERE client_id::text=:c "
+                    "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%') LIMIT 1"
+                ),
+                {"c": r["client_id"]},
+            )
+        ).scalar()
         cpf = (dados.get("representante_cpf") or "").strip()
         if existe:
-            await db.execute(text("UPDATE crm_contacts SET name=:n, notes=coalesce(nullif(:cpf,''), notes), "
-                                  "updated_at=now() WHERE id::text=:i"),
-                             {"n": dados["representante"], "cpf": cpf, "i": existe})
+            await db.execute(
+                text(
+                    "UPDATE crm_contacts SET name=:n, notes=coalesce(nullif(:cpf,''), notes), "
+                    "updated_at=now() WHERE id::text=:i"
+                ),
+                {"n": dados["representante"], "cpf": cpf, "i": existe},
+            )
         else:
-            await db.execute(text(
-                "INSERT INTO crm_contacts (id, client_id, name, role, notes, is_primary, created_at, updated_at) "
-                "VALUES (:i, CAST(:c AS uuid), :n, 'Representante legal', :cpf, false, now(), now())"),
-                {"i": str(uuid.uuid4()), "c": r["client_id"], "n": dados["representante"], "cpf": cpf})
+            await db.execute(
+                text(
+                    "INSERT INTO crm_contacts (id, client_id, name, role, notes, is_primary, created_at, updated_at) "
+                    "VALUES (:i, CAST(:c AS uuid), :n, 'Representante legal', :cpf, false, now(), now())"
+                ),
+                {"i": str(uuid.uuid4()), "c": r["client_id"], "n": dados["representante"], "cpf": cpf},
+            )
         feitos.append(f"representante legal: {dados['representante']}")
     elif dados.get("representante_cpf"):
-        await db.execute(text(
-            "UPDATE crm_contacts SET notes=:cpf, updated_at=now() WHERE client_id::text=:c "
-            "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%')"),
-            {"cpf": dados["representante_cpf"], "c": r["client_id"]})
+        await db.execute(
+            text(
+                "UPDATE crm_contacts SET notes=:cpf, updated_at=now() WHERE client_id::text=:c "
+                "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%')"
+            ),
+            {"cpf": dados["representante_cpf"], "c": r["client_id"]},
+        )
         feitos.append("CPF do representante gravado")
 
     campos = {"payment_day": "dia de vencimento", "grace_period_days": "carência do 1º pagamento"}
     for col, rot in campos.items():
         if dados.get(col) is not None:
-            await db.execute(text(f"UPDATE contracts SET {col}=:v, updated_at=now() WHERE id::text=:c"),  # noqa: S608
-                             {"v": int(dados[col]), "c": r["cid"]})
+            await db.execute(
+                text(f"UPDATE contracts SET {col}=:v, updated_at=now() WHERE id::text=:c"),  # noqa: S608
+                {"v": int(dados[col]), "c": r["cid"]},
+            )
             feitos.append(f"{rot}: {dados[col]}")
 
     unico = (r["contract_type"] or "").strip().lower() == "one_time"
 
     if unico:
         if dados.get("valor_total") is not None:
-            await db.execute(text("UPDATE contracts SET total_value=:v, updated_at=now() "
-                                  "WHERE id::text=:c"),
-                             {"v": Decimal(str(dados["valor_total"])), "c": r["cid"]})
+            await db.execute(
+                text("UPDATE contracts SET total_value=:v, updated_at=now() WHERE id::text=:c"),
+                {"v": Decimal(str(dados["valor_total"])), "c": r["cid"]},
+            )
             feitos.append(f"valor total: {dados['valor_total']}")
         if dados.get("objeto_resumo"):
-            await db.execute(text("UPDATE contracts SET description=:d, updated_at=now() "
-                                  "WHERE id::text=:c"),
-                             {"d": str(dados["objeto_resumo"]).strip(), "c": r["cid"]})
+            await db.execute(
+                text("UPDATE contracts SET description=:d, updated_at=now() WHERE id::text=:c"),
+                {"d": str(dados["objeto_resumo"]).strip(), "c": r["cid"]},
+            )
             feitos.append("objeto do contrato gravado")
         # parâmetros de emissão no saco por contrato — mesma prateleira de `visita_numero`
         # no modelo de manutenção. `||` preserva o que já estava lá.
-        emis = {k: dados[k] for k in (
-            "proposta_numero", "prazo_exec_dias", "conecta_plus_valor", "foro",
-            "cidade_assinatura", "homologacao_dias", "garantia_meses", "cortesia_meses",
-            "multa_atraso_dia", "multa_teto_pct") if dados.get(k) not in (None, "")}
+        emis = {
+            k: dados[k]
+            for k in (
+                "proposta_numero",
+                "prazo_exec_dias",
+                "conecta_plus_valor",
+                "foro",
+                "cidade_assinatura",
+                "homologacao_dias",
+                "garantia_meses",
+                "cortesia_meses",
+                "multa_atraso_dia",
+                "multa_teto_pct",
+            )
+            if dados.get(k) not in (None, "")
+        }
         if emis:
             # `coalesce` NÃO basta: a coluna pode guardar o JSON `null` (que não é SQL NULL),
             # e `'null'::jsonb || '{...}'::jsonb` devolve um ARRAY `[null, {...}]`, não um
             # objeto — o parâmetro some sem erro nenhum e a pendência volta na cara do
             # usuário. Medido no CTR-2026-00022. `jsonb_typeof` é o único teste honesto.
-            await db.execute(text(
-                "UPDATE contracts SET sla_config = "
-                "  CASE WHEN jsonb_typeof(sla_config) = 'object' THEN sla_config "
-                "       ELSE '{}'::jsonb END || CAST(:j AS jsonb), "
-                "  updated_at=now() WHERE id::text=:c"),
-                {"j": json.dumps(emis), "c": r["cid"]})
+            await db.execute(
+                text(
+                    "UPDATE contracts SET sla_config = "
+                    "  CASE WHEN jsonb_typeof(sla_config) = 'object' THEN sla_config "
+                    "       ELSE '{}'::jsonb END || CAST(:j AS jsonb), "
+                    "  updated_at=now() WHERE id::text=:c"
+                ),
+                {"j": json.dumps(emis), "c": r["cid"]},
+            )
             feitos.append("parâmetros de emissão: " + ", ".join(sorted(emis)))
 
     itens = dados.get("itens")
@@ -277,7 +348,8 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         if soma != alvo:
             raise ValueError(
                 f"A composição soma {soma} e o {rotulo} do contrato é {alvo}. "
-                "Ajuste os subtotais — o contrato não pode sair com tabela que não fecha.")
+                "Ajuste os subtotais — o contrato não pode sair com tabela que não fecha."
+            )
         await db.execute(text("DELETE FROM contract_items WHERE contract_id::text=:c"), {"c": r["cid"]})
         for i in itens:
             qtd = int(i.get("qtd") or 0)
@@ -286,14 +358,24 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
             # que é o que o render lê para montar a Cláusula 3.2; no recorrente segue sendo
             # o tipo de serviço, como sempre foi.
             st = (i.get("tipo") or "parcela") if unico else (r["tipo_servico"] or "maodeobra")
-            await db.execute(text(
-                "INSERT INTO contract_items (id, contract_id, service_type, service_name, description, "
-                "quantity, unit_price, total_price, notes, is_active, created_at) "
-                "VALUES (:i, CAST(:c AS uuid), :st, :n, :d, :q, :u, :t, :ob, true, now())"),
-                {"i": str(uuid.uuid4()), "c": r["cid"], "st": st,
-                 "n": i.get("nome") or "—", "d": i.get("descricao") or "",
-                 "q": qtd, "u": (total / qtd) if qtd else total, "t": total,
-                 "ob": i.get("vencimento") or i.get("notes") or None})
+            await db.execute(
+                text(
+                    "INSERT INTO contract_items (id, contract_id, service_type, service_name, description, "
+                    "quantity, unit_price, total_price, notes, is_active, created_at) "
+                    "VALUES (:i, CAST(:c AS uuid), :st, :n, :d, :q, :u, :t, :ob, true, now())"
+                ),
+                {
+                    "i": str(uuid.uuid4()),
+                    "c": r["cid"],
+                    "st": st,
+                    "n": i.get("nome") or "—",
+                    "d": i.get("descricao") or "",
+                    "q": qtd,
+                    "u": (total / qtd) if qtd else total,
+                    "t": total,
+                    "ob": i.get("vencimento") or i.get("notes") or None,
+                },
+            )
         feitos.append(f"composição gravada ({len(itens)} itens, soma {soma})")
 
     await db.commit()
@@ -313,14 +395,16 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
 CATALOGO = {
     "portaria": {
         "rotulo": "Portaria / Controle de acesso",
-        "cargos": ["PORTEIROS AGENTE DE PORTARIA GUARDETE", "CONTROLADOR DE ACESSO",
-                   "LIDER DE PORTARIA"],
+        "cargos": ["PORTEIROS AGENTE DE PORTARIA GUARDETE", "CONTROLADOR DE ACESSO", "LIDER DE PORTARIA"],
         "modelo_service_type": "portaria_mao_de_obra",
     },
     "servicos_gerais": {
         "rotulo": "Serviços gerais / Limpeza (ASG)",
-        "cargos": ["SERVICOS GERAIS FAXINEIRO", "LIDER DE SERVICOS GERAIS",
-                   "ENCARREGADO DE SERVICOS GERAIS E SUPERVISOR"],
+        "cargos": [
+            "SERVICOS GERAIS FAXINEIRO",
+            "LIDER DE SERVICOS GERAIS",
+            "ENCARREGADO DE SERVICOS GERAIS E SUPERVISOR",
+        ],
         "modelo_service_type": "servicos_gerais",
     },
     "jardinagem": {
@@ -329,8 +413,11 @@ CATALOGO = {
         "modelo_service_type": "jardinagem",
     },
     "piscina": {"rotulo": "Piscina", "cargos": ["PISCINEIRO"], "modelo_service_type": "piscina"},
-    "zeladoria": {"rotulo": "Zeladoria", "cargos": ["ZELADOR RESIDENTE CONDOMINIOS"],
-                  "modelo_service_type": "zeladoria"},
+    "zeladoria": {
+        "rotulo": "Zeladoria",
+        "cargos": ["ZELADOR RESIDENTE CONDOMINIOS"],
+        "modelo_service_type": "zeladoria",
+    },
     # A eletrônica tem DUAS naturezas comerciais, e até 09/09/2026 o catálogo só conhecia
     # uma: todo negócio eletrônico caía no modelo de MANUTENÇÃO, que é mensal. Um
     # fornecimento com instalação — controle de acesso, CFTV novo — não é mensalidade: é
@@ -339,18 +426,34 @@ CATALOGO = {
     # sobre um serviço que acaba em 60 dias.
     "eletronica": {
         "rotulo": "Segurança eletrônica — MANUTENÇÃO mensal (CFTV, cancelas, cerca)",
-        "cargos": [], "modelo_service_type": "manutencao_cftv",
+        "cargos": [],
+        "modelo_service_type": "manutencao_cftv",
+    },
+    # Portaria remota: mensal, eletrônica, com locação de equipamento. É a TERCEIRA
+    # natureza eletrônica — manutenção mantém o que já existe, instalação fornece e
+    # instala, remota opera à distância e aluga. Sem esta linha o modelo criado em
+    # 10/09/2026 existia e ninguém conseguia escolhê-lo pela tela.
+    "portaria_remota": {
+        "rotulo": "Portaria REMOTA — central 24h + locação de equipamentos (mensal)",
+        "cargos": [],
+        "modelo_service_type": "portaria_remota",
     },
     "eletronica_instalacao": {
         "rotulo": "Segurança eletrônica — FORNECIMENTO e instalação (valor único)",
-        "cargos": [], "modelo_service_type": "eletronica_servico_unico",
+        "cargos": [],
+        "modelo_service_type": "eletronica_servico_unico",
         "natureza": "one_time",
     },
 }
 
 
-async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
-                   cliente_cnpj: str | None = None, cliente_nome: str | None = None) -> dict:
+async def briefing(
+    db: AsyncSession,
+    *,
+    servicos: list[str] | None = None,
+    cliente_cnpj: str | None = None,
+    cliente_nome: str | None = None,
+) -> dict:
     """O questionário de um contrato NOVO, já respondendo o que o banco sabe.
 
     Duas passadas de propósito: na primeira o usuário só diz QUAIS serviços; na segunda,
@@ -361,19 +464,31 @@ async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
     servicos = [s.strip().lower() for s in (servicos or []) if s and s.strip()]
     invalidos = [s for s in servicos if s not in CATALOGO]
     if invalidos:
-        return {"status": "servico_desconhecido", "invalidos": invalidos,
-                "servicos_disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()],
-                "resumo": f"Não conheço o(s) serviço(s) {', '.join(invalidos)}. Escolha entre os disponíveis."}
+        return {
+            "status": "servico_desconhecido",
+            "invalidos": invalidos,
+            "servicos_disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()],
+            "resumo": f"Não conheço o(s) serviço(s) {', '.join(invalidos)}. Escolha entre os disponíveis.",
+        }
 
     # cliente: existe no cadastro?
     cli = None
     if cliente_cnpj or cliente_nome:
         so_num = "".join(ch for ch in (cliente_cnpj or "") if ch.isdigit())
-        cli = (await db.execute(text(
-            "SELECT id::text, name, document_number FROM clients "
-            "WHERE (:d <> '' AND regexp_replace(coalesce(document_number,''), '\\D', '', 'g') = :d) "
-            "   OR (:n <> '' AND name ILIKE '%' || :n || '%') LIMIT 1"),
-            {"d": so_num, "n": (cliente_nome or "").strip()})).mappings().first()
+        cli = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id::text, name, document_number FROM clients "
+                        "WHERE (:d <> '' AND regexp_replace(coalesce(document_number,''), '\\D', '', 'g') = :d) "
+                        "   OR (:n <> '' AND name ILIKE '%' || :n || '%') LIMIT 1"
+                    ),
+                    {"d": so_num, "n": (cliente_nome or "").strip()},
+                )
+            )
+            .mappings()
+            .first()
+        )
 
     if not servicos:
         return {
@@ -381,32 +496,58 @@ async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
             "etapa": "1 de 2 — que serviço será contratado",
             "cliente_encontrado": dict(cli) if cli else None,
             "perguntas": [
-                {"campo": "servicos",
-                 "pergunta": "Que serviço(s) este contrato cobre? Pode ser mais de um "
-                             "(contrato misto) — responda com as chaves.",
-                 "opcoes": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()]},
-                {"campo": "cliente",
-                 "pergunta": ("Qual o cliente? Informe CNPJ (puxo nome e endereço da Receita) "
-                              "ou o nome, se já estiver no cadastro."
-                              if not cli else
-                              f"Confirma que o cliente é {cli['name']} ({cli['document_number']})?")},
+                {
+                    "campo": "servicos",
+                    "pergunta": "Que serviço(s) este contrato cobre? Pode ser mais de um "
+                    "(contrato misto) — responda com as chaves.",
+                    "opcoes": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()],
+                },
+                {
+                    "campo": "cliente",
+                    "pergunta": (
+                        "Qual o cliente? Informe CNPJ (puxo nome e endereço da Receita) "
+                        "ou o nome, se já estiver no cadastro."
+                        if not cli
+                        else f"Confirma que o cliente é {cli['name']} ({cli['document_number']})?"
+                    ),
+                },
             ],
             "resumo": "Para montar o contrato preciso saber o serviço e o cliente. "
-                      "Depois pergunto a composição de cada função.",
+            "Depois pergunto a composição de cada função.",
         }
 
     # etapa 2: funções da CCT para os serviços escolhidos
     nomes = [c for s in servicos for c in CATALOGO[s]["cargos"]]
     pisos = []
     if nomes:
-        pisos = [dict(r) for r in (await db.execute(text(
-            "SELECT cargo_nome, piso_salarial FROM cct_cargos "
-            "WHERE coalesce(is_active,true) AND cargo_nome = ANY(:n) ORDER BY cargo_nome"),
-            {"n": nomes})).mappings().all()]
+        pisos = [
+            dict(r)
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT cargo_nome, piso_salarial FROM cct_cargos "
+                        "WHERE coalesce(is_active,true) AND cargo_nome = ANY(:n) ORDER BY cargo_nome"
+                    ),
+                    {"n": nomes},
+                )
+            )
+            .mappings()
+            .all()
+        ]
 
-    modelos = [dict(r) for r in (await db.execute(text(
-        "SELECT id::text, name, service_type FROM contract_templates "
-        "WHERE coalesce(is_active,true) ORDER BY name"))).mappings().all()]
+    modelos = [
+        dict(r)
+        for r in (
+            await db.execute(
+                text(
+                    "SELECT id::text, name, service_type FROM contract_templates "
+                    "WHERE coalesce(is_active,true) ORDER BY name"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    ]
     tipos = {CATALOGO[s]["modelo_service_type"] for s in servicos}
     sugeridos = [m for m in modelos if m["service_type"] in tipos]
 
@@ -421,30 +562,45 @@ async def briefing(db: AsyncSession, *, servicos: list[str] | None = None,
         "modelos_sugeridos": sugeridos,
         "modelos_todos": modelos,
         "perguntas": [
-            {"campo": "itens",
-             "pergunta": "Quantos profissionais de cada função, em que turno, e qual o "
-                         "subtotal mensal de cada linha? A soma será o valor do contrato.",
-             "exemplo": "AGP Diurno 2 = 10605.78 · AGP Noturno 2 = 11494.22"},
+            {
+                "campo": "itens",
+                "pergunta": "Quantos profissionais de cada função, em que turno, e qual o "
+                "subtotal mensal de cada linha? A soma será o valor do contrato.",
+                "exemplo": "AGP Diurno 2 = 10605.78 · AGP Noturno 2 = 11494.22",
+            },
             {"campo": "valor_mensal", "pergunta": "Qual o valor mensal fechado com o cliente?"},
             {"campo": "vigencia", "pergunta": "Início e prazo (em meses).", "exemplo": "01/09/2026, 24 meses"},
             {"campo": "payment_day", "pergunta": "Dia do mês em que vence a mensalidade.", "exemplo": "8"},
-            {"campo": "grace_period_days",
-             "pergunta": "Em quantos dias vence o primeiro pagamento?", "exemplo": "90"},
-            {"campo": "representante",
-             "pergunta": "Nome e CPF de quem assina pelo cliente (síndico/representante legal)."},
+            {"campo": "grace_period_days", "pergunta": "Em quantos dias vence o primeiro pagamento?", "exemplo": "90"},
+            {
+                "campo": "representante",
+                "pergunta": "Nome e CPF de quem assina pelo cliente (síndico/representante legal).",
+            },
         ]
-        + ([{"campo": "template_id",
-             "pergunta": "Ainda não há modelo cadastrado para este serviço — qual usar?",
-             "opcoes": modelos}] if not sugeridos else []),
-        "aviso": ("Contrato MISTO: hoje o modelo cadastrado é de PORTARIA. Um contrato que "
-                  "some portaria com outro serviço precisa de modelo próprio ou de aditivo — "
-                  "não monte no de portaria sem revisar o objeto."
-                  if misto else None),
-        "resumo": (f"Serviço(s): {', '.join(CATALOGO[s]['rotulo'] for s in servicos)}"
-                   + (" (MISTO)" if misto else "")
-                   + f" · {len(pisos)} função(ões) da CCT disponíveis"
-                   + (f" · modelo sugerido: {sugeridos[0]['name']}" if sugeridos else
-                      " · SEM modelo para este serviço")),
+        + (
+            [
+                {
+                    "campo": "template_id",
+                    "pergunta": "Ainda não há modelo cadastrado para este serviço — qual usar?",
+                    "opcoes": modelos,
+                }
+            ]
+            if not sugeridos
+            else []
+        ),
+        "aviso": (
+            "Contrato MISTO: hoje o modelo cadastrado é de PORTARIA. Um contrato que "
+            "some portaria com outro serviço precisa de modelo próprio ou de aditivo — "
+            "não monte no de portaria sem revisar o objeto."
+            if misto
+            else None
+        ),
+        "resumo": (
+            f"Serviço(s): {', '.join(CATALOGO[s]['rotulo'] for s in servicos)}"
+            + (" (MISTO)" if misto else "")
+            + f" · {len(pisos)} função(ões) da CCT disponíveis"
+            + (f" · modelo sugerido: {sugeridos[0]['name']}" if sugeridos else " · SEM modelo para este serviço")
+        ),
     }
 
 
@@ -471,12 +627,19 @@ EMPRESA_POR_TIPO = {
 }
 
 
-async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade: str,
-                         valor_mensal: float, vigencia_inicio: str,
-                         vigencia_meses: int = 12, dia_vencimento: int | None = None,
-                         renovacao_aviso_dias: int = 30,
-                         carencia_dias: int | None = None,
-                         proposal_id: str | None = None) -> dict:
+async def criar_contrato(
+    db: AsyncSession,
+    *,
+    cliente_documento: str,
+    modalidade: str,
+    valor_mensal: float,
+    vigencia_inicio: str,
+    vigencia_meses: int = 12,
+    dia_vencimento: int | None = None,
+    renovacao_aviso_dias: int = 30,
+    carencia_dias: int | None = None,
+    proposal_id: str | None = None,
+) -> dict:
     """Cria o contrato JÁ ligado ao modelo, ao tipo de serviço e à empresa emitente.
 
     Recusa em vez de inventar:
@@ -487,36 +650,66 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
     from datetime import date, timedelta  # noqa: PLC0415
 
     if modalidade not in CATALOGO:
-        return {"status": "modalidade_desconhecida", "informada": modalidade,
-                "disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()]}
+        return {
+            "status": "modalidade_desconhecida",
+            "informada": modalidade,
+            "disponiveis": [{"chave": k, "rotulo": v["rotulo"]} for k, v in CATALOGO.items()],
+        }
     tipo = CATALOGO[modalidade]["modelo_service_type"]
     natureza = CATALOGO[modalidade].get("natureza") or "recurring"
     unico = natureza == "one_time"
 
     doc = "".join(c for c in (cliente_documento or "") if c.isdigit())
-    cli = (await db.execute(text(
-        "SELECT id::text, name FROM clients "
-        "WHERE regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = :d"),
-        {"d": doc})).mappings().first()
+    cli = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text, name FROM clients "
+                    "WHERE regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = :d"
+                ),
+                {"d": doc},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not cli:
-        return {"status": "cliente_nao_cadastrado", "documento": cliente_documento,
-                "resumo": "Não há cliente com este CNPJ no CRM. Cadastre o cliente antes — "
-                          "não crio contrato para cliente que não existe."}
+        return {
+            "status": "cliente_nao_cadastrado",
+            "documento": cliente_documento,
+            "resumo": "Não há cliente com este CNPJ no CRM. Cadastre o cliente antes — "
+            "não crio contrato para cliente que não existe.",
+        }
 
-    tpl = (await db.execute(text(
-        "SELECT id::text, name FROM contract_templates "
-        "WHERE service_type = :t AND coalesce(is_active, true) "
-        "ORDER BY version DESC LIMIT 1"), {"t": tipo})).mappings().first()
+    tpl = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text, name FROM contract_templates "
+                    "WHERE service_type = :t AND coalesce(is_active, true) "
+                    "ORDER BY version DESC LIMIT 1"
+                ),
+                {"t": tipo},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not tpl:
-        return {"status": "sem_modelo", "tipo_servico": tipo,
-                "resumo": f"Não há modelo cadastrado para '{tipo}'. Sem modelo o contrato "
-                          "nasce impossível de emitir."}
+        return {
+            "status": "sem_modelo",
+            "tipo_servico": tipo,
+            "resumo": f"Não há modelo cadastrado para '{tipo}'. Sem modelo o contrato nasce impossível de emitir.",
+        }
 
     try:
         ini = date.fromisoformat(str(vigencia_inicio)[:10])
     except ValueError:
-        return {"status": "data_invalida", "vigencia_inicio": vigencia_inicio,
-                "resumo": "Informe a vigência no formato AAAA-MM-DD."}
+        return {
+            "status": "data_invalida",
+            "vigencia_inicio": vigencia_inicio,
+            "resumo": "Informe a vigência no formato AAAA-MM-DD.",
+        }
     meses = int(vigencia_meses or 12)
     ano, mes = divmod((ini.month - 1) + meses, 12)
     try:
@@ -524,12 +717,13 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
     except ValueError:  # 31 de mês que o mês-alvo não tem
         fim = ini.replace(year=ini.year + ano, month=mes + 1, day=28) - timedelta(days=1)
 
-    ultimo = (await db.execute(text(
-        "SELECT max(contract_number) FROM contracts WHERE contract_number ~ '^CTR-[0-9]{4}-'"
-    ))).scalar() or f"CTR-{ini.year}-00000"
+    ultimo = (
+        await db.execute(text("SELECT max(contract_number) FROM contracts WHERE contract_number ~ '^CTR-[0-9]{4}-'"))
+    ).scalar() or f"CTR-{ini.year}-00000"
     numero = f"CTR-{ini.year}-{int(ultimo.rsplit('-', 1)[-1]) + 1:05d}"
 
-    await db.execute(text("""
+    await db.execute(
+        text("""
         INSERT INTO contracts
             (id, contract_number, client_id, template_id, empresa_id, tipo_servico,
              contract_type, status, name, monthly_value, total_value, payment_day,
@@ -539,32 +733,45 @@ async def criar_contrato(db: AsyncSession, *, cliente_documento: str, modalidade
         VALUES (gen_random_uuid(), :n, CAST(:c AS uuid), CAST(:t AS uuid), CAST(:e AS uuid),
                 :ts, :nat, 'draft', :nome, :v, :tot, :pd, :ini, :fim, :rn, 30, :car,
                 CAST(:prop AS uuid), true, now(), now())"""),
-        {"n": numero, "c": cli["id"], "t": tpl["id"], "e": EMPRESA_POR_TIPO.get(tipo),
-         "ts": tipo, "nome": f"{CATALOGO[modalidade]['rotulo']} — {cli['name']}",
-         # A NATUREZA vem da modalidade. Sem isto, um fornecimento com instalação nascia
-         # `recurring` com o valor da obra em `monthly_value` — o contrato passaria a
-         # anunciar mensalidade de R$ 46 mil e a entrar no MRR como receita recorrente.
-         "nat": natureza,
-         "v": (0 if unico else valor_mensal), "tot": (valor_mensal if unico else 0),
-         "pd": (None if unico else dia_vencimento), "ini": ini,
-         "fim": (None if unico else fim),
-         # grace_period_days é NOT NULL COM default: passar None explícito ANULA o default
-         # e viola a constraint. Sem carência negociada, o valor é 0, não nulo.
-         "rn": renovacao_aviso_dias, "car": carencia_dias or 0,
-         # a origem fica rastreada: de qual proposta este contrato nasceu
-         "prop": proposal_id})
+        {
+            "n": numero,
+            "c": cli["id"],
+            "t": tpl["id"],
+            "e": EMPRESA_POR_TIPO.get(tipo),
+            "ts": tipo,
+            "nome": f"{CATALOGO[modalidade]['rotulo']} — {cli['name']}",
+            # A NATUREZA vem da modalidade. Sem isto, um fornecimento com instalação nascia
+            # `recurring` com o valor da obra em `monthly_value` — o contrato passaria a
+            # anunciar mensalidade de R$ 46 mil e a entrar no MRR como receita recorrente.
+            "nat": natureza,
+            "v": (0 if unico else valor_mensal),
+            "tot": (valor_mensal if unico else 0),
+            "pd": (None if unico else dia_vencimento),
+            "ini": ini,
+            "fim": (None if unico else fim),
+            # grace_period_days é NOT NULL COM default: passar None explícito ANULA o default
+            # e viola a constraint. Sem carência negociada, o valor é 0, não nulo.
+            "rn": renovacao_aviso_dias,
+            "car": carencia_dias or 0,
+            # a origem fica rastreada: de qual proposta este contrato nasceu
+            "prop": proposal_id,
+        },
+    )
     await db.commit()
 
     sit = await diagnosticar(db, numero)
     return {
-        "status": "criado", "contrato": numero, "cliente": cli["name"],
+        "status": "criado",
+        "contrato": numero,
+        "cliente": cli["name"],
         "proposta_origem": proposal_id,
-        "modelo": tpl["name"], "tipo_servico": tipo,
+        "modelo": tpl["name"],
+        "tipo_servico": tipo,
         "vigencia": f"{ini.isoformat()} a {fim.isoformat()} ({meses} meses)",
         "pronto_para_emitir": sit.pronto,
-        "perguntas": [{"campo": p.campo, "pergunta": p.pergunta, "exemplo": p.exemplo}
-                      for p in sit.pendencias],
-        "resumo": (f"{numero} criado para {cli['name']} pelo modelo '{tpl['name']}'. "
-                   + ("Pronto para emitir." if sit.pronto
-                      else f"Faltam {len(sit.pendencias)} informação(ões).")),
+        "perguntas": [{"campo": p.campo, "pergunta": p.pergunta, "exemplo": p.exemplo} for p in sit.pendencias],
+        "resumo": (
+            f"{numero} criado para {cli['name']} pelo modelo '{tpl['name']}'. "
+            + ("Pronto para emitir." if sit.pronto else f"Faltam {len(sit.pendencias)} informação(ões).")
+        ),
     }
