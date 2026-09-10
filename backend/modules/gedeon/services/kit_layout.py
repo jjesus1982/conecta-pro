@@ -51,12 +51,23 @@ MESES_PT = {
 
 
 def mes_kit_de_competencia(competencia: str) -> str:
-    """'05.2026' (competência) -> 'Junho' (mês do kit; competência+1, pago em arrears)."""
+    """'08.2026' (competência) -> '2026-08 Kit Documental'.
+
+    10/09/2026 — UNIFICAÇÃO. Esta casa tinha DOIS kits na mesma pasta do cliente: o do GEDEON, em
+    "[Condomínio]/Setembro/1. Folha e Pessoal…", e o do módulo GED, em "[Condomínio]/2026-08 Kit
+    Documental/Funcionarios|Certidoes|Guias|Beneficios|Financeiro". Nenhum enxergava o outro:
+    medido no kit do Michelangelo, a ficha dizia 9 documentos e 40% com 45 arquivos no Drive.
+
+    Fica a estrutura do GED, que o Jordan desenhou contra um kit real do Villa Dei Fiori e aprovou,
+    e que classifica por TIPO do documento em vez de adivinhar pelo nome do arquivo. O nome da pasta
+    passa a ser a COMPETÊNCIA, não o mês de entrega: o síndico pede "o kit de agosto", e agosto é a
+    competência do que está lá dentro.
+
+    Os meses antigos (Julho, Agosto, Setembro…) continuam LIDOS — ver `_ler_legado` no
+    kit_completude_service. Nenhum mês entregue desaparece; só não se escreve mais neles.
+    """
     mes, ano = competencia.split(".")
-    m = int(mes) + 1
-    if m > 12:
-        m = 1
-    return MESES_PT[m]
+    return f"{ano}-{int(mes):02d} Kit Documental"
 
 
 def _garantir_pasta(cache: dict, nome: str, parent_id: str) -> str | None:
@@ -70,6 +81,7 @@ def _garantir_pasta(cache: dict, nome: str, parent_id: str) -> str | None:
 
 def _norm_nome(s: str) -> str:
     import unicodedata
+
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().upper()
 
 
@@ -87,8 +99,11 @@ def item_ja_na_pasta(folder_id: str, chaves: list[str], empresa: str | None = No
     if not svc or not folder_id:
         return None
     try:
-        r = svc.files().list(q=f"'{folder_id}' in parents and trashed=false",
-                             fields="files(name)", pageSize=200).execute()
+        r = (
+            svc.files()
+            .list(q=f"'{folder_id}' in parents and trashed=false", fields="files(name)", pageSize=200)
+            .execute()
+        )
     except Exception:  # noqa: BLE001 — sem listagem, não afirmo que existe
         return None
     chaves_n = [_norm_nome(c) for c in chaves if c]
@@ -131,6 +146,30 @@ def nome_pasta_condominio(condominio: str) -> str:
     Sem correspondência, devolve o nome recebido: pasta nova de cliente novo continua
     funcionando sem ninguém editar mapa nenhum.
     """
+    # 10/09/2026 — O BANCO ANTES DA HEURÍSTICA. `posts.client_id` está preenchido e correto nos 16
+    # postos, e `clients.document_number` casa com `ged_clients.cnpj` em 15 deles. A adivinhação por
+    # nome errava justo onde dói: "Condomínio Gelain" (posto) não resolvia para "CONDOMINIO PARQUE
+    # RESIDENCIAL GELAIN" (cliente), e o robô de VT/VR criava uma pasta de cliente NOVA ao lado da
+    # certa. Foi assim que nasceram as pastas curtas apagadas em 17/08 — e que voltaram.
+    # A regra da casa é ler a fonte, não codificar a convenção: aqui a fonte é o join.
+    try:
+        from sqlalchemy import text as _sql
+
+        from core.database.session import get_sync_db
+
+        with get_sync_db() as _db:
+            achado = _db.execute(
+                _sql(
+                    "SELECT g.name FROM posts p JOIN ged_clients g ON g.id = p.ged_client_id "
+                    "WHERE upper(trim(p.name)) = upper(trim(:n)) AND p.ged_client_id IS NOT NULL LIMIT 1"
+                ),
+                {"n": condominio},
+            ).scalar()
+        if achado:
+            return achado
+    except Exception:  # noqa: BLE001 — banco fora, cai na heurística; nunca derruba o arquivamento
+        logger.debug("nome_pasta_condominio: banco indisponível para %r, seguindo pela heurística", condominio)
+
     try:
         from modules.gedeon.services.onvio_kit_service import _condominio_do_nome
 
@@ -157,44 +196,65 @@ def garantir_pasta_kit(condominio: str, competencia: str, cache: dict | None = N
     return _garantir_pasta(cache, mes_kit_de_competencia(competencia), cond_folder)
 
 
-# ── Subpastas do kit (estrutura enxuta — 4 áreas) ──────────────────────────────
-SUB_PESSOAL = "1. Folha e Pessoal"
-SUB_VTVR = "2. Vale Transporte e Alimentação"
-SUB_FISCAL = "3. Impostos e Certidões"
-SUB_FATURAMENTO = "4. Faturamento"
-SUBPASTAS = [SUB_PESSOAL, SUB_VTVR, SUB_FISCAL, SUB_FATURAMENTO]
+# ── Subpastas do kit — as cinco do módulo GED, aprovadas pelo Jordan em 09/09/2026 ────────────
+# Os nomes antigos das constantes ficam como APELIDO porque `kit_atlas_service` e os robôs os
+# importam; o que mudou é para onde apontam.
+SUB_PESSOAL = "Funcionarios"
+SUB_VTVR = "Beneficios"
+SUB_FISCAL = "Certidoes"
+SUB_GUIAS = "Guias"
+SUB_FATURAMENTO = "Financeiro"
+SUBPASTAS = [SUB_PESSOAL, SUB_FISCAL, SUB_GUIAS, SUB_VTVR, SUB_FATURAMENTO]
+
+#: Pastas do layout ANTIGO (4 blocos numerados) — não se escreve mais nelas, mas 391 arquivos de
+#: meses já entregues moram lá e continuam sendo lidos.
+SUBPASTAS_LEGADO = [
+    "1. Folha e Pessoal",
+    "2. Vale Transporte e Alimentação",
+    "3. Impostos e Certidões",
+    "4. Faturamento",
+]
 
 
 def subpasta_do_arquivo(nome: str) -> str:
-    """Classifica um documento do kit na sua subpasta (pela convenção do nome)."""
+    """Classifica um documento do kit na sua subpasta, PELO NOME do arquivo.
+
+    ⚠️ Adivinhar pelo nome é o caminho fraco e esta função é a prova: em 19/08/2026 "DARF IRRF",
+    "ISS Manaus" e "EFD-Reinf" estavam arquivados na pasta de folha, e o conserto foi acrescentar
+    mais palavras à lista. Quem tem o `document_type` no banco deve usar `PASTA_DO_TIPO`
+    (google_drive_service) — mapa explícito, com oráculo cobrando tipo novo. Isto aqui existe só
+    para os robôs que depositam um ARQUIVO e não têm o tipo em mãos (CND, NFS-e, comprovante Inter).
+
+    A ORDEM importa e é o que conserta dois erros do classificador antigo:
+      · "Boleto Vale-Transporte SINETRAM" é benefício, não faturamento → VT/VA vem antes de boleto;
+      · "CND-FGTS" é certidão, não guia → certidão vem antes de FGTS/INSS/DARF.
+    """
     n = (nome or "").lower()
-    # `startswith` sozinho deixava "NFS-e 10.pdf" e "Boleto NFS-e 08/2026.pdf" caírem na
-    # pasta de pessoal — nota fiscal arquivada como documento trabalhista. Medido em
-    # 19/08/2026, depois que a união trouxe os PDFs do montador para o Drive.
-    if n.startswith("nota fiscal") or n.startswith("boleto") or "nfs-e" in n or "nfse" in n or "danfse" in n:
-        return SUB_FATURAMENTO
+
+    # 1) benefício (VT/VA) — antes de faturamento, senão o boleto do SINETRAM vira nota fiscal
     if (
         "vale transporte" in n
         or "vale aliment" in n
         or "_va_vt" in n
-        or n.startswith("vt ")
-        or n.startswith("vr ")
-        or n.startswith("va_")
+        or n.startswith(("vt ", "vr ", "va_"))
         or "sinetran" in n
+        or "sinetram" in n
         or "solides" in n
+        or "sólides" in n
         or "comprovante vt" in n
         or "comprovante va" in n
+        or "vt_vr" in n
+        or "vt/vr" in n
     ):
         return SUB_VTVR
-    # Tributo é tributo, mesmo sem a palavra "guia" no nome. Medido em 19/08/2026 no kit do
-    # Ideal Flores: "DARF IRRF 07/2026.pdf", "ISS Manaus 07/2026.pdf" e "EFD-Reinf
-    # 07/2026.pdf" estavam arquivados em "1. Folha e Pessoal" — documento fiscal na pasta
-    # trabalhista. O condomínio abre a pasta errada e não acha o que procura.
+
+    # 2) certidão negativa — antes das guias, senão "CND-FGTS" e "CND INSS" viram guia
+    if "cnd" in n or "certid" in n or "crf" in n or "cndt" in n:
+        return SUB_FISCAL
+
+    # 3) guia de recolhimento e o comprovante de pagamento dela
     if (
-        "cnd" in n
-        or "certid" in n
-        or "dctfweb" in n
-        or "dctf" in n
+        "dctf" in n
         or "fgts" in n
         or "inss" in n
         or "darf" in n
@@ -203,9 +263,18 @@ def subpasta_do_arquivo(nome: str) -> str:
         or n.startswith("iss ")
         or "efd" in n
         or "reinf" in n
+        or "das " in n
+        or "guia" in n
+        or "gps" in n
+        or "gfd" in n
     ):
-        return SUB_FISCAL
-    # padrão: folha, contracheques, comprovante de salário, ponto assinado
+        return SUB_GUIAS
+
+    # 4) o que a Conecta Mais cobra do condomínio
+    if n.startswith(("nota fiscal", "boleto")) or "nfs-e" in n or "nfse" in n or "danfse" in n:
+        return SUB_FATURAMENTO
+
+    # 5) padrão: folha, contracheque, comprovante de salário, ponto
     return SUB_PESSOAL
 
 

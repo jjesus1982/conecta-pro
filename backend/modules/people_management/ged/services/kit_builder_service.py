@@ -261,6 +261,15 @@ class KitBuilderService:
             select(func.count()).select_from(KitDocument).where(KitDocument.kit_id == str(kit.id))
         )
         kit.total_documents = total_docs_result.scalar() or 0
+        # a completude é da RÉGUA DO CONTRATO (10 blocos), não deste objeto — ver o docstring de
+        # `recalculate_completion`. Aqui só se atualiza o status a partir do que a régua gravou.
+        try:
+            from modules.gedeon.services.completude_slots import recalcular_kit_async
+
+            await recalcular_kit_async(self.db, str(kit.id))
+            await self.db.refresh(kit)
+        except Exception as exc:  # noqa: BLE001 — kit montado não cai por causa do percentual
+            logger.warning("não recalculei a completude do kit %s: %s", kit.id, exc)
         kit.recalculate_completion()
         await self.db.flush()
 

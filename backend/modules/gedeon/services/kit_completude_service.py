@@ -7,19 +7,24 @@ contra um checklist do que o kit DEVE conter e calcula o % de montagem.
 
 from __future__ import annotations
 
+import logging
 import re
-
 import unicodedata
 
 from sqlalchemy import text
 
+logger = logging.getLogger(__name__)
+
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
 # subpastas (mesma convenção do kit_layout.SUBPASTAS)
-SUB_PESSOAL = "1. Folha e Pessoal"
-SUB_VALE = "2. Vale Transporte e Alimentação"
-SUB_IMPOSTOS = "3. Impostos e Certidões"
-SUB_FATURAMENTO = "4. Faturamento"
+# 10/09/2026 — unificado com `kit_layout`: as cinco pastas do módulo GED. Os nomes das constantes
+# ficam como estão porque o CHECKLIST inteiro casa por eles; o que mudou é para onde apontam.
+SUB_PESSOAL = "Funcionarios"
+SUB_VALE = "Beneficios"
+SUB_IMPOSTOS = "Certidoes"
+SUB_GUIAS = "Guias"
+SUB_FATURAMENTO = "Financeiro"
 
 # Checklist do kit: cada bloco vale 1 ponto (CND tem 5 itens → crédito proporcional).
 # match = lista de termos (sem acento, minúsculo); o arquivo conta se contém QUALQUER um.
@@ -147,6 +152,75 @@ def _avaliar(arquivos_por_sub: dict[str, list[dict]], blocos: set | None = None)
     return {"pct": pct, "status": _status_de_pct(pct), "itens": itens}
 
 
+#: Pastas do layout ANTIGO → bloco de hoje. Os 391 arquivos de meses já entregues moram lá; não se
+#: escreve mais neles, mas some da ficha se ninguém ler.
+_EQUIV_LEGADO = {
+    "1. Folha e Pessoal": SUB_PESSOAL,
+    "2. Vale Transporte e Alimentação": SUB_VALE,
+    "3. Impostos e Certidões": SUB_IMPOSTOS,
+    "4. Faturamento": SUB_FATURAMENTO,
+}
+
+#: "Julho", "Agosto"… — o nome que a pasta do kit tinha antes da unificação de 10/09/2026.
+_MESES_PT_LEGADO = {
+    "janeiro",
+    "fevereiro",
+    "março",
+    "marco",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+}
+
+
+def _ler_legado(_list, base_novo: str, cond: str) -> dict[str, list[dict]]:
+    """Arquivos dos meses no layout ANTIGO, irmãos da pasta do kit de hoje.
+
+    Até 10/09/2026 o GEDEON escrevia em "[Condomínio]/Setembro/1. Folha e Pessoal…" e o módulo GED
+    em "[Condomínio]/2026-08 Kit Documental/Funcionarios…". Nenhum dos dois lia o outro: no kit do
+    Michelangelo a ficha dizia 9 documentos e 40% de completude com 45 arquivos no Drive — e o
+    Hermes, que lê por aqui, repetia o número errado com toda a confiança.
+
+    A ESCRITA foi unificada na estrutura nova. Esta função existe para que o que já foi entregue
+    continue aparecendo. Some sozinha quando não houver mais mês em português na pasta do cliente.
+    """
+    from modules.gdrive.services.gdrive_service import gdrive_service
+
+    svc = gdrive_service._service
+    if not svc or not base_novo:
+        return {}
+    try:
+        pai = (
+            svc.files().get(fileId=base_novo, fields="parents", supportsAllDrives=True).execute().get("parents")
+            or [None]
+        )[0]
+    except Exception:  # noqa: BLE001 — sem o pai não há irmão a ler; segue com o que já leu
+        logger.warning("kit legado de %s: não consegui subir para a pasta do condomínio", cond)
+        return {}
+    if not pai:
+        return {}
+    out: dict[str, list[dict]] = {}
+    for mes in _list(pai):
+        if mes["mimeType"] != _FOLDER_MIME or mes["name"].strip().lower() not in _MESES_PT_LEGADO:
+            continue
+        for sub in _list(mes["id"]):
+            bloco = _EQUIV_LEGADO.get(sub["name"])
+            if not bloco or sub["mimeType"] != _FOLDER_MIME:
+                continue
+            out.setdefault(f"{mes['name']} · {sub['name']}", []).extend(
+                {"id": x["id"], "name": x["name"], "link": x.get("webViewLink")}
+                for x in _list(sub["id"])
+                if x["mimeType"] != _FOLDER_MIME
+            )
+    return out
+
+
 def _ler_kit(svc, cond: str, competencia: str, blocos: set | None = None) -> dict:
     from modules.gedeon.services.kit_layout import SUBPASTAS, garantir_pasta_kit
 
@@ -176,13 +250,35 @@ def _ler_kit(svc, cond: str, competencia: str, blocos: set | None = None) -> dic
             pass
         folders = {f["name"]: f["id"] for f in _list(base) if f["mimeType"] == _FOLDER_MIME}
         for sp in SUBPASTAS:
-            files = [
-                {"id": x["id"], "name": x["name"], "link": x.get("webViewLink")}
-                for x in _list(folders.get(sp, ""))
-                if x["mimeType"] != _FOLDER_MIME
-            ]
+            # Funcionarios tem um nível a mais (Folhas de Ponto / Contracheques / Comprovantes de
+            # Pagamento / Recibos e Comprovantes de VA e VT) — sem descer, some metade do bloco.
+            files = []
+            for x in _list(folders.get(sp, "")):
+                if x["mimeType"] == _FOLDER_MIME:
+                    files += [
+                        {"id": y["id"], "name": y["name"], "link": y.get("webViewLink")}
+                        for y in _list(x["id"])
+                        if y["mimeType"] != _FOLDER_MIME
+                    ]
+                else:
+                    files.append({"id": x["id"], "name": x["name"], "link": x.get("webViewLink")})
             arquivos_por_sub[sp] = files
             subpastas.append({"nome": sp, "docs": len(files), "arquivos": files})
+            total += len(files)
+
+        # 10/09/2026 — ESTA CASA TEM DOIS KITS na mesma pasta do cliente, e até hoje esta leitura só
+        # enxergava um. O GEDEON escreve em "[Condomínio]/Setembro/1. Folha e Pessoal…"; o módulo GED
+        # escreve em "[Condomínio]/2026-08 Kit Documental/Funcionarios|Certidoes|Guias|Beneficios|
+        # Financeiro". Medido no kit do Michelangelo: a ficha dizia 9 documentos e 40% de completude
+        # com 45 arquivos no Drive — e o Hermes, que lê por aqui, relatava a mesma coisa errada com
+        # toda a confiança do mundo.
+        #
+        # Enquanto a unificação da ESCRITA não acontece (decisão do dono, mexe em cinco robôs), a
+        # LEITURA passa a somar os dois. Ver menos do que existe é pior do que ver duas convenções.
+        for rotulo, files in _ler_legado(_list, base, cond).items():
+            bloco = _EQUIV_LEGADO[rotulo.split(" · ", 1)[1]]
+            arquivos_por_sub.setdefault(bloco, []).extend(files)
+            subpastas.append({"nome": f"{rotulo} (mês antigo)", "docs": len(files), "arquivos": files})
             total += len(files)
 
     aval = _avaliar(arquivos_por_sub, blocos)

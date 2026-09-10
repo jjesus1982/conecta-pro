@@ -69,7 +69,9 @@ _BLOCO_DE_TIPO: dict[str, str] = {
     "folhas_ponto": "ponto",
     "folhas_ponto_consolidado": "ponto",
     "ponto": "ponto",
-    "escala_mes": "ponto",
+    # 09/09/2026 (Jordan): "a escala não vai no kit, pode excluir inclusive este documento".
+    # Enquanto ela satisfazia o bloco `ponto`, um kit COM escala e SEM folha de ponto lia como
+    # se tivesse o ponto. Hoje não há nenhum kit nessa situação — sai antes de haver.
     "comprovante_vt": "vavt",
     "comprovante_va": "vavt",
     "comprovante_vr": "vavt",
@@ -108,8 +110,31 @@ _BLOCO_DE_TIPO: dict[str, str] = {
     "cnd_receita": "cnd",
     "crf_fgts": "cnd",
     "certidao": "cnd",
+    # 10/09/2026 — GUIAS que o kit tem e a régua não contava. Medido: 22 tipos com pasta no Drive
+    # e bloco NENHUM, ou seja, o documento chega ao cliente e a completude o ignora. É metade da
+    # explicação para "55 kits montados, ZERO aprovados" — o kit não fechava porque a régua não
+    # enxergava o que estava lá.
+    "das_simples_nacional": "guias",
+    "parcelamento_simples": "guias",
+    "grf_fgts": "guias",
+    "gfip_sefip": "guias",
+    "dar_sefaz": "guias",
+    "dctfweb_resumo_creditos": "guias",
+    "dctfweb_resumo_debitos": "guias",
+    "dctfweb_creditos": "guias",
+    "dctfweb_debitos": "guias",
+    "gps_inss": "inss",
+    # 09/09/2026 (lista da Pyetra): o bloco de benefícios do kit real tem CINCO documentos da
+    # empresa além do recibo do funcionário — a compra dos créditos, o pedido por colaborador e o
+    # comprovante de pagamento de cada portal.
+    "boleto_vt_sinetram": "vavt",
+    "relatorio_vt_sinetram": "vavt",
+    "relatorio_va_solides": "vavt",
+    "comprovante_pagto_sinetram": "vavt",
+    "comprovante_pagto_solides": "vavt",
     "nfse": "nfse",
     "nota_fiscal": "nfse",
+    "nfs_servico": "nfse",
     "boleto": "boleto",
     "boleto_nfse": "boleto",
 }

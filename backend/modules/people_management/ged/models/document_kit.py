@@ -173,14 +173,32 @@ class GedDocumentKit(Base):
             f"month={self.reference_month}, status={self.status})>"
         )
 
-    def recalculate_completion(self) -> None:
-        """Recalcula o percentual de completude com base nos documentos."""
-        if self.total_documents and self.total_documents > 0:
-            signed = self.documents_signed or 0
-            self.completion_percentage = Decimal(str(round((signed / self.total_documents) * 100, 2)))
-        else:
-            self.completion_percentage = Decimal("0.00")
+    @property
+    def percentual_assinado(self) -> Decimal:
+        """Quanto do kit já está ASSINADO. É progresso de assinatura, NÃO é completude."""
+        if not self.total_documents:
+            return Decimal("0.00")
+        return Decimal(str(round(((self.documents_signed or 0) / self.total_documents) * 100, 2)))
 
+    def recalculate_completion(self) -> None:
+        """Só o STATUS, derivado do percentual que a régua do contrato gravou.
+
+        🔴 10/09/2026 — até hoje este método fazia `documents_signed / total_documents` e escrevia o
+        resultado em `completion_percentage`. Isso responde "quanto do kit está ASSINADO", que é
+        outra pergunta: um kit COMPLETO e não assinado lia 0%.
+
+        Pior: `build_kit_for_client` chamava isto no FIM da montagem, DEPOIS da régua do contrato
+        (`completude_slots.recalcular_kit_async`, os 10 blocos). A fórmula errada rodava por último e
+        vencia. Medido em 08/2026: 11 kits anunciando 12,5% de média; recalculados pela régua certa,
+        80,9% — e o Michelangelo, 100% com os 10 blocos cobertos por arquivo de verdade.
+
+        Essa é a cadeia que o próprio `completude_slots` descreve e que trava o módulo: completude
+        falsa → o kit nunca chega a 100% → ninguém aprova → nada é enviado → **o cliente continua
+        cobrando na mão.** 55 kits montados, ZERO aprovados, UM enviado em oito meses.
+
+        Quem escreve `completion_percentage` agora é UMA função só. Aqui fica o que sempre foi deste
+        objeto: a transição de status.
+        """
         if self.completion_percentage >= Decimal("100.00") and self.status == KitStatus.EM_MONTAGEM:
             self.status = KitStatus.COMPLETO
         elif self.completion_percentage < Decimal("100.00") and self.status == KitStatus.COMPLETO:

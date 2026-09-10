@@ -31,6 +31,30 @@ CATEGORIA_FUNCIONARIO: dict[str, str] = {
     "comprovante_vt": "Recibos e Comprovantes de VA e VT",
     "comprovante_vr": "Recibos e Comprovantes de VA e VT",
     "comprovante_va": "Recibos e Comprovantes de VA e VT",
+    "comp_vt_individual": "Recibos e Comprovantes de VA e VT",
+    "vale_vt_vr": "Recibos e Comprovantes de VA e VT",
+    "comp_salario_individual": "Comprovantes de Pagamento",
+    "comprovante_salario": "Comprovantes de Pagamento",
+    "folhas_ponto": "Folhas de Ponto",
+    "ponto": "Folhas de Ponto",
+    # 10/09: o kit real do Michelangelo tinha 45 fichas de registro, 56 contratos de trabalho e
+    # 45 contracheques do Onvio jogados na RAIZ de Funcionarios, misturados com os do mês. São
+    # documentos de vínculo — entram uma vez e valem para sempre; o síndico procura pelo mês.
+    "ficha_registro": "Documentos de Admissao",
+    "ficha_empregado": "Documentos de Admissao",
+    "contrato_trabalho": "Documentos de Admissao",
+    "aso": "Documentos de Admissao",
+    "contracheque_onvio": "Contracheques",
+    # rescisão é um pacote próprio: quem confere o kit procura tudo do desligado junto
+    "rescisao": "Rescisoes",
+    "aviso_previo": "Rescisoes",
+    "aviso_previo_ferias": "Rescisoes",
+    "comp_fgts_rescisao": "Rescisoes",
+    "gfd_fgts_rescisao": "Rescisoes",
+    "relatorio_gfd_rescisao": "Rescisoes",
+    "ferias": "Ferias e Afastamentos",
+    "atestado": "Ferias e Afastamentos",
+    "atestado_medico": "Ferias e Afastamentos",
 }
 
 GOOGLE_CREDENTIALS_PATH = os.environ.get(
@@ -158,6 +182,15 @@ PASTA_DO_TIPO: dict[str, str] = {
     # (employee_id IS NULL) — o por-funcionário é roteado antes, por CATEGORIA_FUNCIONARIO
     "contracheque": "funcionarios",
     "comprovante_vt": "beneficios",
+    # 10/09: tipos que a régua do banco (`completude_slots._BLOCO_DE_TIPO`) conhecia e o roteamento
+    # não — contavam na completude e não tinham para onde ir.
+    "ponto": "funcionarios",
+    "comprovante_salario": "funcionarios",
+    "vale_vt_vr": "beneficios",
+    "comp_vt_individual": "beneficios",
+    # a escala saiu do kit por decisão do Jordan (09/09); as que já existem no Drive ficam onde
+    # estão, mas o tipo continua mapeado para não sumir calado numa re-sincronização.
+    "escala_mes": "funcionarios",
     "aviso_previo_ferias": "funcionarios",
     "outros": "funcionarios",
 }
