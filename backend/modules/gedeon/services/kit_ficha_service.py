@@ -145,25 +145,67 @@ def eventos_auto(db, competencia: str, condominio: str, nomes_cond: set[str]) ->
                 }
             )
 
-    # férias: docs de aviso prévio de férias no Onvio (qualquer categoria) p/ funcionários do cond
-    for (nome_arq,) in db.execute(
+    # ── Férias: o BANCO é a fonte, não o nome do arquivo ──────────────────────────────────────
+    # 10/09/2026 — o Hermes, conferindo o kit do Michelangelo, achou "Férias de Antonio Vieira
+    # registradas 4x nos eventos". O banco tem UMA férias aprovada dele (15/06 a 14/07).
+    #
+    # A versão anterior varria TODOS os `onvio_documents` cujo nome contivesse "ferias", de
+    # QUALQUER mês, partia o nome do arquivo em pedaços e chamava o último de "a pessoa". Sem
+    # filtro de competência, sem dedup e sem olhar `referente_a_employee_id`, que existe. Quatro
+    # arquivos de meses diferentes viravam quatro férias no mesmo kit.
+    vistos: set[tuple] = set()
+    for nome, ini, fim, st in db.execute(
         text(
-            "SELECT nome_arquivo FROM onvio_documents "
-            "WHERE nome_arquivo ILIKE '%ferias%' OR nome_arquivo ILIKE '%férias%'"
-        )
+            "SELECT e.nome, v.start_date, v.end_date, v.status "
+            "  FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
+            " WHERE v.status::text NOT IN ('REJECTED','CANCELLED') "
+            "   AND v.start_date <= CAST(:fim AS date) AND v.end_date >= CAST(:ini AS date)"
+        ),
+        {"ini": comp_ini, "fim": kit_fim},
     ).fetchall():
-        m = re.split(r"[-_]", nome_arq)
-        pessoa = m[-1].replace(".pdf", "").strip()
-        if _pertence(pessoa, nomes_cond):
-            ev.append(
-                {
-                    "tipo": "ferias",
-                    "auto": True,
-                    "funcionario": pessoa.title(),
-                    "data": None,
-                    "descricao": f"Férias (Onvio: {nome_arq[:40]})",
-                }
-            )
+        if not _pertence(nome, nomes_cond):
+            continue
+        chave = (_norm(nome), ini, fim)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        ev.append(
+            {
+                "tipo": "ferias",
+                "auto": True,
+                "funcionario": nome.title(),
+                "data": ini.isoformat() if ini else None,
+                "descricao": f"Férias de {ini:%d/%m} a {fim:%d/%m}" + (f" ({st})" if st else ""),
+            }
+        )
+
+    # Complemento: aviso de férias no Onvio DA COMPETÊNCIA, só para quem o banco não tem. O nome
+    # sai de `referente_a_employee_id` quando existe; o nome do arquivo é o último recurso.
+    for nome_arq, emp_nome in db.execute(
+        text(
+            "SELECT o.nome_arquivo, coalesce(e.nome,'') "
+            "  FROM onvio_documents o LEFT JOIN employees e ON e.id = o.referente_a_employee_id "
+            " WHERE (o.nome_arquivo ILIKE '%ferias%' OR o.nome_arquivo ILIKE '%férias%') "
+            "   AND coalesce(o.mes_ref,'') IN (:comp, :kit)"
+        ),
+        {"comp": competencia, "kit": f"{km:02d}.{ka}"},
+    ).fetchall():
+        pessoa = emp_nome or re.split(r"[-_]", nome_arq)[-1].replace(".pdf", "").strip()
+        if not _pertence(pessoa, nomes_cond):
+            continue
+        chave = (_norm(pessoa), None, None)
+        if chave in vistos or any(_norm(pessoa) == v[0] for v in vistos):
+            continue
+        vistos.add(chave)
+        ev.append(
+            {
+                "tipo": "ferias",
+                "auto": True,
+                "funcionario": pessoa.title(),
+                "data": None,
+                "descricao": f"Férias (Onvio: {nome_arq[:40]})",
+            }
+        )
     return ev
 
 

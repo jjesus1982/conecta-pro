@@ -6,6 +6,7 @@ Fonte: `time_sheets` (espelho calculado pelo motor do ponto, 53 colaboradores em
 baixa em /hr/espelho-ponto (montar_espelho_ponto_pdf, com o bloco de autenticidade se já houver assinatura).
 Sem espelho calculado = falta declarada (não inventa folha a partir de batida crua).
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,10 +40,14 @@ def _dias_corridos(db, employee_id: str, ini: date, fim: date, dias_apurados: li
     from sqlalchemy import text as _t
 
     por_data = {str(d.get("date") or d.get("data"))[:10]: d for d in (dias_apurados or [])}
-    linhas_bd = db.execute(_t(
-        "SELECT punch_timestamp::date AS d, min(punch_timestamp::time) AS ent, max(punch_timestamp::time) AS sai, count(*) AS n "
-        "FROM gp_clock_punches WHERE employee_id = CAST(:e AS uuid) AND punch_timestamp::date BETWEEN :i AND :f "
-        "GROUP BY 1"), {"e": str(employee_id), "i": ini, "f": fim}).fetchall()
+    linhas_bd = db.execute(
+        _t(
+            "SELECT punch_timestamp::date AS d, min(punch_timestamp::time) AS ent, max(punch_timestamp::time) AS sai, count(*) AS n "
+            "FROM gp_clock_punches WHERE employee_id = CAST(:e AS uuid) AND punch_timestamp::date BETWEEN :i AND :f "
+            "GROUP BY 1"
+        ),
+        {"e": str(employee_id), "i": ini, "f": fim},
+    ).fetchall()
     batidas = {str(r[0]): r for r in linhas_bd}
     out: list[dict] = []
     d = ini
@@ -52,11 +57,16 @@ def _dias_corridos(db, employee_id: str, ini: date, fim: date, dias_apurados: li
             out.append(por_data[chave])
         elif chave in batidas:
             r = batidas[chave]
-            out.append({"date": chave, "entrada": str(r[1])[:5], "saida": str(r[2])[:5],
-                        "ocorrencia": "Registro de ponto" if r[3] > 1 else "Batida única"})
+            out.append(
+                {
+                    "date": chave,
+                    "entrada": str(r[1])[:5],
+                    "saida": str(r[2])[:5],
+                    "ocorrencia": "Registro de ponto" if r[3] > 1 else "Batida única",
+                }
+            )
         else:
-            out.append({"date": chave, "entrada": "—", "saida": "—",
-                        "ocorrencia": "Folga / sem registro"})
+            out.append({"date": chave, "entrada": "—", "saida": "—", "ocorrencia": "Folga / sem registro"})
         d += timedelta(days=1)
     return out
 
@@ -71,9 +81,11 @@ def espelho_pdf_do_mes(db, employee_id: str, mes: int, ano: int) -> tuple[bytes 
     from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
 
     esp = ler_espelho(db, employee_id, mes, ano)
-    nome = (esp or {}).get("employee_name") or db.execute(
-        text("SELECT nome FROM employees WHERE id = CAST(:e AS uuid)"), {"e": employee_id}
-    ).scalar() or employee_id
+    nome = (
+        (esp or {}).get("employee_name")
+        or db.execute(text("SELECT nome FROM employees WHERE id = CAST(:e AS uuid)"), {"e": employee_id}).scalar()
+        or employee_id
+    )
     if not esp:
         return None, nome, f"espelho de {mes:02d}/{ano} não calculado no ponto (rodar o cálculo do mês)"
     signatarios = None
@@ -120,6 +132,25 @@ def arquivar_ponto_proprio(competencia: str, condominios: list[str], dry_run: bo
             ).fetchall()
             n = 0
             for eid, nome in emps:
+                # 10/09/2026 — DOIS ESCRITORES para o mesmo espelho. O Hermes achou, no kit real:
+                # "Folha de Ponto — X.pdf" (nosso, em Funcionarios/Folhas de Ponto, com linha no
+                # banco) ao lado de "Folha de Ponto_X.pdf" (este bloco, solto em Funcionarios).
+                # Mesmo PDF, mesma pessoa, dois nomes e duas pastas.
+                #
+                # Quem manda é o slot do banco: é o que carrega assinatura, completude e o que o
+                # conferente enxerga. Este bloco passa a preencher só a LACUNA — quem não tem slot
+                # com arquivo. Assim ele continua servindo quando a metade geradora não roda.
+                if db.execute(
+                    text(
+                        "SELECT 1 FROM ged_kit_documents d JOIN ged_document_kits k ON k.id = d.kit_id "
+                        " WHERE d.employee_id = CAST(:e AS uuid) AND d.document_type = 'folha_ponto' "
+                        "   AND coalesce(d.file_path,'') <> '' "
+                        "   AND k.reference_month = CAST(:ref AS date) LIMIT 1"
+                    ),
+                    {"e": eid, "ref": f"{ano}-{mes:02d}-01"},
+                ).scalar():
+                    rel["ja_existiam"] += 1
+                    continue
                 pdf, nome_esp, motivo = espelho_pdf_do_mes(db, eid, mes, ano)
                 if not pdf:
                     rel["faltas"].append(f"{cond} / {nome}: {motivo}")

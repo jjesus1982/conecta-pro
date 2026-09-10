@@ -10,6 +10,7 @@ retornam graciosamente sem erro.
 import logging
 import os
 import re
+import unicodedata
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -321,6 +322,38 @@ def _uma_via_por_documento(documentos: list) -> tuple[list, int]:
         fica.append(grupo[0])
         fora += len(grupo) - 1
     return fica, fora
+
+
+#: Palavras que identificam a MESMA certidão, escrita de qualquer jeito. Espelha
+#: `cnd_kit_service._CHAVES_TIPO` — se um lado mudar, os dois precisam mudar juntos.
+_CHAVES_CERTIDAO: dict[str, tuple[str, ...]] = {
+    "cnd_federal": ("FEDERAL", "RECEITA", "RFB", "PGFN", "INSS", "PREVIDENCI"),
+    "cnd_estadual": ("ESTADUAL", "SEFAZ"),
+    "cnd_municipal": ("MUNICIPAL", "PREFEITURA", "ISS"),
+    "cndt_trabalhista": ("TRABALHISTA", "CNDT", "TST"),
+    "crf_fgts": ("FGTS", "CRF"),
+}
+
+
+def _certidao_ja_esta_na_pasta(nomes_na_pasta: set[str], document_type: str) -> str | None:
+    """Já existe na pasta uma certidão DESTE tipo, com qualquer nome?
+
+    10/09/2026 — o Hermes achou ONZE certidões para CINCO obrigações no kit do Michelangelo. Dois
+    escritores, com um minuto de diferença: o bloco `cnds` do GEDEON às 20:55 ("CND Federal
+    (RFB-PGFN) — Conecta Mais Patrimonial.pdf") e o nosso sync às 20:56 ("CND-RECEITA-17-11-2026.pdf").
+
+    O GEDEON já deduplicava por palavra-chave — mas roda ANTES, e quando ele olhou a pasta estava
+    vazia. Não era falta de trava, era ordem. Nas certidões quem cede é o nosso: o escritor dele
+    sabe o CNPJ, a validade e qual empresa atende aquele condomínio; o nosso só tem o arquivo.
+    """
+    chaves = _CHAVES_CERTIDAO.get(str(document_type))
+    if not chaves:
+        return None
+    for nome in nomes_na_pasta:
+        alvo = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().upper()
+        if any(k in alvo for k in chaves):
+            return nome
+    return None
 
 
 def pasta_do_documento(document_type: str, kit_id: str = "", document_name: str = "") -> str:
@@ -704,6 +737,7 @@ class GoogleDriveService:
         substituidos = 0
         bloqueados_sem_assinatura = 0
         fora_da_competencia = 0
+        certidoes_ja_na_pasta = 0
         errors_list = []
         ja_na_pasta: dict[str, set[str]] = {}  # 09/09: não duplica arquivo já enviado (re-sync do mesmo kit)
 
@@ -770,6 +804,14 @@ class GoogleDriveService:
                 target_folder = folder_ids.get(pasta_do_documento(doc.document_type, kit_id, doc.document_name))
 
             nome_arquivo = _nome_no_drive(doc.document_name, caminho)
+            if target_folder and str(doc.document_type) in _CHAVES_CERTIDAO:
+                if ja := _certidao_ja_esta_na_pasta(_nomes(target_folder), doc.document_type):
+                    logger.info(
+                        "kit %s: certidão '%s' já está na pasta como %r — não duplico", kit_id, doc.document_type, ja
+                    )
+                    certidoes_ja_na_pasta += 1
+                    uploaded += 1
+                    continue
             if target_folder and nome_arquivo in _nomes(target_folder):
                 fid_drive, md5_drive = ids_por_nome.get(target_folder, {}).get(nome_arquivo, ("", ""))
                 # documento anexado à mão (comprovante oficial do banco) sobe uma vez e não é substituído depois
@@ -829,6 +871,7 @@ class GoogleDriveService:
             "bloqueados_sem_assinatura": bloqueados_sem_assinatura,
             "fora_da_competencia": fora_da_competencia,
             "duplicatas_de_tipo": duplicatas_de_tipo,
+            "certidoes_ja_na_pasta": certidoes_ja_na_pasta,
             "errors": len(errors_list),
             "error_details": errors_list[:10],
             "drive_link": kit.google_drive_link,

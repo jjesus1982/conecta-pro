@@ -801,8 +801,34 @@ class KitBuilderService:
             logger.debug("_match_onvio_docs: nenhum condomínio para '%s'", client_name)
             return 0
 
+        # 10/09/2026 — TIPO POR FUNCIONÁRIO não vira documento da EMPRESA. O Hermes achou, no kit
+        # real do Michelangelo, um "Contracheque 08/2026" no nível empresa apontando para o recibo
+        # do KALEL — um documento de UMA pessoa arquivado como se fosse de todas, e duplicando o
+        # contracheque que o motor já gerou para ele.
+        #
+        # A coluna `onvio_documents.referente_a_employee_id` existe e está preenchida em parte
+        # (45 de 148 recibos). Quando ela diz de quem é, o slot nasce daquela pessoa; quando não
+        # diz, o documento NÃO entra — melhor faltar do que entrar no nome errado. A regra da casa
+        # é ler a fonte, e a fonte aqui é a coluna, não o nome do arquivo.
+        POR_FUNCIONARIO = {
+            "contracheque",
+            "recibo_folha",
+            "ficha_registro",
+            "ficha_empregado",
+            "contrato_trabalho",
+            "aso",
+            "atestado_medico",
+            "rescisao_contrato",
+            "aviso_previo_ferias",
+        }
+
         count = 0
         for onvio_cat, kit_doc_type in MAPA_TIPOS_ONVIO.items():
+            if kit_doc_type in POR_FUNCIONARIO:
+                count += await self._match_onvio_por_funcionario(
+                    kit_id, matching_cond_ids, mes_ref, onvio_cat, kit_doc_type
+                )
+                continue
             # Melhor doc Onvio para este condomínio/mês/categoria
             onvio_row = await self.db.execute(
                 text("""
@@ -884,6 +910,67 @@ class KitBuilderService:
                 client_name,
             )
         return count
+
+    async def _match_onvio_por_funcionario(
+        self, kit_id: str, cond_ids: list[str], mes_ref: str, onvio_cat: str, kit_doc_type: str
+    ) -> int:
+        """Casa documento do Onvio que é DE UMA PESSOA com o slot daquela pessoa no kit.
+
+        Só entra o que tem `referente_a_employee_id`. Sem isso o documento fica de fora: um recibo
+        de pagamento arquivado como documento da empresa aparece para o síndico como se fosse de
+        todo mundo, e ainda duplica o contracheque que o motor gerou.
+        """
+        linhas = (
+            await self.db.execute(
+                text("""
+            SELECT caminho_local, referente_a_employee_id::text, nome_arquivo
+              FROM onvio_documents
+             WHERE condominio_id = ANY(CAST(:ids AS uuid[])) AND mes_ref = :mes_ref
+               AND categoria = :cat AND caminho_local IS NOT NULL
+               AND referente_a_employee_id IS NOT NULL
+             ORDER BY created_at DESC
+        """),
+                {"ids": cond_ids, "mes_ref": mes_ref, "cat": onvio_cat},
+            )
+        ).fetchall()
+        n = 0
+        for caminho, emp_id, nome_arq in linhas:
+            ja = (
+                (
+                    await self.db.execute(
+                        select(KitDocument).where(
+                            KitDocument.kit_id == kit_id,
+                            KitDocument.employee_id == emp_id,
+                            KitDocument.document_type == kit_doc_type,
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if ja is not None:
+                if not ja.file_path:  # slot vazio daquela pessoa: preenche
+                    ja.file_path, ja.source_module = caminho, "gedeon"
+                    n += 1
+                continue
+            self.db.add(
+                KitDocument(
+                    kit_id=kit_id,
+                    employee_id=emp_id,
+                    document_type=kit_doc_type,
+                    document_name=_NOMES_DOCS_ONVIO.get(kit_doc_type, nome_arq or kit_doc_type),
+                    file_path=caminho,
+                    mime_type="application/pdf",
+                    source_module=SourceModule.FISCAL,
+                    auto_generated=True,
+                    is_signed=False,
+                )
+            )
+            n += 1
+        if n:
+            await self.db.flush()
+            logger.info("Onvio por funcionário: %d documento(s) de '%s' no kit %s", n, onvio_cat, kit_id)
+        return n
 
     async def get_employees_for_client(self, client_id: str, reference_month: date | None = None) -> list[str]:
         """Busca IDs dos funcionarios alocados nos postos de um cliente GED.

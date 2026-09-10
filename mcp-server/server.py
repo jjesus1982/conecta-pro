@@ -1588,6 +1588,19 @@ _GED_BLOCOS = {
     "cnd": "cnds", "cnds": "cnds", "certidao": "cnds", "certidão": "cnds", "certidoes": "cnds",
     "nfse": "nfse", "nota": "nfse", "notas": "nfse", "nota fiscal": "nfse", "boleto": "nfse",
     "ponto": "ponto", "assinados": "ponto", "assinado": "ponto", "folha de ponto": "ponto",
+    # 10/09/2026 — o agente pediu "VT/VR" e "notas fiscais" e a ferramenta RECUSOU os dois, sendo
+    # que "VT/VR" é o exemplo da própria docstring dela ("buscar_documento('Ideal Flores', 'VT/VR')").
+    # Vocabulário que recusa o que ele mesmo ensina custa uma volta inteira de quem está tentando.
+    "vt/vr": "vavt", "vt-vr": "vavt", "vt e vr": "vavt", "va/vt": "vavt", "vt/va": "vavt",
+    "vale transporte e alimentacao": "vavt", "beneficios": "vavt", "benefícios": "vavt",
+    "notas fiscais": "nfse", "nota fiscal de servico": "nfse", "nfs-e": "nfse", "danfse": "nfse",
+    "boletos": "nfse", "faturamento": "nfse",
+    "espelho": "ponto", "espelho de ponto": "ponto", "folhas de ponto": "ponto",
+    "certidoes negativas": "cnds", "certidões negativas": "cnds", "cnd federal": "cnds",
+    "holerite": "folha", "holerites": "folha", "folha de pagamento": "folha",
+    "comprovantes": "pagamentos", "comprovante de pagamento": "pagamentos",
+    "comprovantes de salario": "pagamentos", "comprovantes de salário": "pagamentos",
+    "darf": "guias", "das": "guias", "iss": "guias", "issqn": "guias", "inss patronal": "guias",
 }
 
 
@@ -1692,8 +1705,10 @@ async def buscar_documento(condominio: str, tipo: str, competencia: str | None =
     cond = _ged_cond(condominio)
     bloco = _GED_BLOCOS.get((tipo or "").strip().lower())
     if not bloco:
+        # dizer só os 8 blocos internos não ajuda quem falou "VT/VR": mostra as palavras aceitas.
         return {"erro": f"tipo '{tipo}' não reconhecido",
-                "tipos_validos": sorted(set(_GED_BLOCOS.values()))}
+                "blocos": sorted(set(_GED_BLOCOS.values())),
+                "palavras_aceitas": sorted(_GED_BLOCOS)}
     antes, _ = await _quantos_no_kit(cond, competencia)
     r = await erp.post("/gedeon/kits/montagem", json={
         "competencia": competencia, "blocos": [bloco], "condominios": [cond]})
