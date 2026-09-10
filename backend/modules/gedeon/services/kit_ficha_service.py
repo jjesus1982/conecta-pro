@@ -302,7 +302,9 @@ _SQL_ASSINATURAS = text("""
            bool_or(r.signer_type::text = 'employee' AND r.status::text IN ('SIGNED','COMPLETED')) AS func_ok,
            bool_or(r.signer_type::text = 'employee' AND r.status::text = 'PENDING')                AS func_pend,
            bool_or(r.signer_type::text = 'company'  AND r.status::text IN ('SIGNED','COMPLETED')) AS emp_ok,
-           bool_or(r.signer_type::text = 'company'  AND r.status::text = 'PENDING')                AS emp_pend
+           bool_or(r.signer_type::text = 'company'  AND r.status::text = 'PENDING')                AS emp_pend,
+           bool_or(r.signer_type::text = 'employee')                                               AS func_pedido,
+           bool_or(r.signer_type::text = 'company')                                                AS emp_pedido
       FROM ged_kit_documents d
       JOIN ged_document_kits k ON k.id = d.kit_id
       JOIN ged_clients g       ON g.id = k.client_id
@@ -353,25 +355,50 @@ def assinaturas_do_kit(db, competencia: str, condominio: str) -> dict:
         logger.warning("assinaturas do kit %s %s: %s", condominio, competencia, exc)
         return {"disponivel": False, "motivo": str(exc)[:120]}
 
-    def _estado(ok: bool, pend: bool) -> str:
-        return "assinado" if ok else ("pendente" if pend else "—")
+    def _estado(ok: bool, pend: bool, teve_pedido: bool) -> str:
+        """Três estados, e o terceiro é o que faltava.
+
+        10/09/2026 — o conferente achou: "106 documentos pedem assinatura, 27 com assinatura do
+        funcionário, mas o contador devolve funcionario_pendente=0, o que DIVERGE". Estava certo.
+        Pedido CANCELADO não é SIGNED nem PENDING, e a versão anterior o classificava como "—",
+        que se lê como "não precisa assinar". No Ideal Flores eram 93 cancelados — 93 documentos
+        SEM assinatura aparecendo como resolvidos.
+
+        Cancelar em massa foi coisa minha, hoje de manhã; o contador não podia esconder isso.
+        """
+        if ok:
+            return "assinado"
+        if pend:
+            return "pendente"
+        return "sem pedido válido" if teve_pedido else "—"
 
     docs = [
         {
             "documento": r["document_name"],
             "funcionario": r["funcionario"] or "—",
-            "assinatura_funcionario": _estado(r["func_ok"], r["func_pend"]),
-            "assinatura_empresa": _estado(r["emp_ok"], r["emp_pend"]),
+            "assinatura_funcionario": _estado(r["func_ok"], r["func_pend"], r["func_pedido"]),
+            "assinatura_empresa": _estado(r["emp_ok"], r["emp_pend"], r["emp_pedido"]),
         }
         for r in linhas
     ]
+
+    def _conta(campo: str, estado: str) -> int:
+        return sum(1 for d in docs if d[campo] == estado)
+
+    sem_func = _conta("assinatura_funcionario", "sem pedido válido")
+    sem_emp = _conta("assinatura_empresa", "sem pedido válido")
     return {
         "disponivel": True,
         "documentos_que_pedem_assinatura": len(docs),
-        "funcionario_assinou": sum(1 for d in docs if d["assinatura_funcionario"] == "assinado"),
-        "funcionario_pendente": sum(1 for d in docs if d["assinatura_funcionario"] == "pendente"),
-        "empresa_assinou": sum(1 for d in docs if d["assinatura_empresa"] == "assinado"),
-        "empresa_pendente": sum(1 for d in docs if d["assinatura_empresa"] == "pendente"),
+        "funcionario_assinou": _conta("assinatura_funcionario", "assinado"),
+        "funcionario_pendente": _conta("assinatura_funcionario", "pendente"),
+        "funcionario_sem_pedido_valido": sem_func,
+        "empresa_assinou": _conta("assinatura_empresa", "assinado"),
+        "empresa_pendente": _conta("assinatura_empresa", "pendente"),
+        "empresa_sem_pedido_valido": sem_emp,
+        # o número que interessa a quem confere: quanto FALTA, somando pendente e cancelado
+        "falta_assinatura_funcionario": _conta("assinatura_funcionario", "pendente") + sem_func,
+        "falta_assinatura_empresa": _conta("assinatura_empresa", "pendente") + sem_emp,
         "por_documento": docs,
     }
 

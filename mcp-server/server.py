@@ -1659,7 +1659,9 @@ async def consultar_kit(condominio: str, competencia: str | None = None) -> dict
                     for e in (d.get("eventos", {}).get("auto", []) + d.get("eventos", {}).get("manuais", []))],
         "assinaturas": {k: ass.get(k) for k in (
             "disponivel", "documentos_que_pedem_assinatura", "funcionario_assinou",
-            "funcionario_pendente", "empresa_assinou", "empresa_pendente")},
+            "funcionario_pendente", "funcionario_sem_pedido_valido", "falta_assinatura_funcionario",
+            "empresa_assinou", "empresa_pendente", "empresa_sem_pedido_valido",
+            "falta_assinatura_empresa")},
         "assinatura_por_documento": (ass.get("por_documento") or [])[:60],
         "arquivos": arquivos,
     }

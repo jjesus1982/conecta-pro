@@ -199,35 +199,15 @@ class DocumentCollectorService:
         ref_str = reference_month.strftime("%Y-%m")
         collected = []
 
-        # Escala mensal
-        existing = await self.db.execute(
-            select(KitDocument).where(
-                KitDocument.kit_id == kit_id,
-                KitDocument.employee_id == employee_id,
-                KitDocument.document_type == DocumentType.ESCALA_MES,
-            )
-        )
-        if not existing.scalar_one_or_none():
-            file_path = f"documents/operacoes/escalas/{ref_str}/{employee_id}.pdf"
-            doc = KitDocument(
-                kit_id=kit_id,
-                employee_id=employee_id,
-                document_type=DocumentType.ESCALA_MES,
-                document_name=f"Escala {reference_month.strftime('%m/%Y')}",
-                file_path=file_path,
-                mime_type="application/pdf",
-                source_module=SourceModule.OPERACOES,
-                auto_generated=True,
-                is_signed=False,
-            )
-            self.db.add(doc)
-            collected.append(
-                {
-                    "document_type": DocumentType.ESCALA_MES,
-                    "document_name": doc.document_name,
-                    "file_path": file_path,
-                }
-            )
+        # ESCALA APOSENTADA — decisão do Jordan, 09/09/2026: "a escala não vai no kit, pode excluir
+        # inclusive este documento. A gente não precisa e nem envia documento referente a escala de
+        # trabalho de funcionários, somente a folha de ponto basta."
+        #
+        # Este bloco criava a vaga com um `file_path` INVENTADO
+        # ("documents/operacoes/escalas/<mês>/<id>.pdf") que nunca existiu em disco — 369 slots de
+        # escala nos kits, e o caminho apontando para lugar nenhum. Nem o documento era pedido, nem
+        # o arquivo existia.
+        _ = ref_str  # mantido: o resto do método usa a competência formatada
 
         if collected:
             await self.db.flush()

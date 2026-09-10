@@ -650,52 +650,20 @@ class KitBuilderService:
         employee_ids: list[str],
         reference_month: date,
     ) -> int:
-        """Coleta escalas operacionais do modulo de operacoes.
+        """APOSENTADO — a escala NÃO vai no kit. Decisão do Jordan, 09/09/2026.
 
-        Cria um documento de escala por funcionario alocado.
+        Palavras dele, revisando o primeiro kit: "a escala não vai no kit, pode excluir inclusive
+        este documento. A gente não precisa e nem envia documento referente a escala de trabalho de
+        funcionários, somente a folha de ponto basta."
 
-        Args:
-            kit_id: UUID do kit.
-            employee_ids: Lista de UUIDs dos funcionarios.
-            reference_month: Mes de referencia.
+        A função continua existindo e devolvendo 0 porque tem chamador; apagá-la seria um diff
+        maior sem ganho. O que ela NÃO faz mais é criar vaga: 369 slots de escala foram criados em
+        kits, 318 deles sem arquivo nenhum — vaga que nunca ia ser preenchida, contada como
+        documento do kit.
 
-        Returns:
-            Quantidade de escalas coletadas.
+        Quem quiser ressuscitar: o motivo acima é uma decisão de negócio, não um detalhe técnico.
         """
-        collected = 0
-        for emp_id in employee_ids:
-            existing = await self.db.execute(
-                select(KitDocument).where(
-                    KitDocument.kit_id == kit_id,
-                    KitDocument.employee_id == emp_id,
-                    KitDocument.document_type == DocumentType.ESCALA_MES,
-                )
-            )
-            if existing.scalar_one_or_none():
-                continue
-
-            # Placeholder honesto: NULL até pipeline Operações exportar a escala real (D3.1.1).
-            file_path = None
-
-            doc = KitDocument(
-                kit_id=kit_id,
-                employee_id=emp_id,
-                document_type=DocumentType.ESCALA_MES,
-                document_name=f"Escala {reference_month.strftime('%m/%Y')}",
-                file_path=file_path,
-                mime_type="application/pdf",
-                source_module=SourceModule.OPERACOES,
-                auto_generated=True,
-                is_signed=False,
-            )
-            self.db.add(doc)
-            collected += 1
-
-        if collected > 0:
-            await self.db.flush()
-            logger.info("Coletadas %d escalas para kit %s", collected, kit_id)
-
-        return collected
+        return 0
 
     async def auto_build_all_kits(self, reference_month: date) -> dict:
         """Monta kits automaticamente para TODOS os clientes ativos.
