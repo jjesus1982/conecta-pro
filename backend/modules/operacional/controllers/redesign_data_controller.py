@@ -9,6 +9,7 @@ NUNCA fabricar. Este controller é somente leitura.
 """
 
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -1203,7 +1204,32 @@ async def _build_crm(db: AsyncSession) -> dict:
         "SELECT id, title, coalesce(company_name, contact_name, '—'), coalesce(value,0), stage::text "
         "FROM opportunities ORDER BY updated_at DESC NULLS LAST LIMIT 200",
         lambda r: [t((r[1] or '—')[:70], 600, "#0F1B3A"), t(r[2]), t(brl(r[3]), 600),
-                   b(*_STG.get(r[4], (r[4] or '—', 'mut')))]))
+                   b(*_STG.get(r[4], (r[4] or '—', 'mut')))],
+        # Mover na PRÓPRIA linha. A tela tinha 104 linhas e só "Ver": para mudar o estágio
+        # era preciso abrir outro formulário e caçar a oportunidade num menu de 104 itens.
+        # Jordan, 10/09/2026, indo higienizar o funil: 70 delas estão em "proposta" SEM
+        # proposta nenhuma, e fechar uma a uma por menu é uma hora de trabalho.
+        actionsfn=lambda r: [{
+            "title": f"Mover “{(r[1] or '—')[:48]}” no funil",
+            "endpoint": "/api/v1/redesign/action/opportunity-stage",
+            "method": "POST", "btnLabel": "Mover", "submitLabel": "Mover",
+            "btnStyle": "outline", "okMsg": "Oportunidade movida. Recarregue.",
+            "fields": [
+                {"key": "opportunity_id", "type": "hidden", "value": str(r[0])},
+                {"key": "stage", "label": "Novo estágio*", "type": "select", "span": "span 1",
+                 "value": r[4] or "",
+                 "options": [{"value": v, "label": lab} for v, (lab, _x) in _STG.items()]},
+                {"key": "notes", "label": "Motivo (fica no histórico)", "type": "text",
+                 "span": "span 2", "value": ""}]},
+            {"title": f"Excluir “{(r[1] or '—')[:44]}” do funil",
+             "endpoint": "/api/v1/redesign/action/oportunidade-excluir",
+             "method": "POST", "btnLabel": "Excluir", "submitLabel": "Excluir",
+             "btnStyle": "outline", "okMsg": "Oportunidade excluída. Recarregue.",
+             "fields": [
+                 {"key": "opportunity_id", "type": "hidden", "value": str(r[0])},
+                 {"key": "confirmar",
+                  "label": "Digite EXCLUIR (some da tela; para 'não fechou' use Mover → Perdida)",
+                  "type": "text", "span": "span 2", "value": ""}]}]))
     out["mover-oportunidade"] = {
         "title": "Mover no funil", "sub": "Atualizar o estágio de uma oportunidade", "cta": "Mover",
         "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/opportunity-stage", "okMsg": "Oportunidade movida"},
@@ -2971,8 +2997,30 @@ async def rd_action_contrato_abrir_assinatura(
         assinante_empresa_id=getattr(current_user, "id", None),
         solicitado_por=getattr(current_user, "id", None))
     await db.commit()
+
+    # Manda o link da CONTRATADA para quem ABRIU, no ato. Pedido do Jordan em 09/09/2026,
+    # depois de clicar "Abrir assinatura" às 23:56 e esperar um e-mail que não vinha: abrir
+    # só criava as solicitações e devolvia os links num texto na tela. Quem abre a
+    # assinatura quer assinar — o segundo botão era cerimônia.
+    #
+    # ⚠️ Só o link da CONTRATADA, e só para o próprio operador. O do CLIENTE continua
+    # exigindo clique separado: mandar contrato ao cliente é ação para fora e irreversível,
+    # e o cliente nem deveria receber antes de a Conecta Mais assinar.
+    aviso = ""
+    destino = (getattr(current_user, "email", "") or "").strip()
+    if destino:
+        try:
+            enviado = await CS.convidar_para_assinar(
+                db, num, para=destino, link=sol.link_empresa,
+                nome=getattr(current_user, "full_name", "") or "", papel="CONTRATADA")
+            await db.commit()
+            aviso = (f" O link para VOCÊ assinar foi enviado para {destino}."
+                     if enviado else "")
+        except Exception as e:      # noqa: BLE001 — e-mail que falha não derruba a abertura
+            logger.warning(f"abrir-assinatura {num}: convite à contratada falhou: {e}")
+
     return {"ok": True, "message": (
-        f"Assinatura de {num} aberta. Link da CONTRATADA: {sol.link_empresa} · "
+        f"Assinatura de {num} aberta.{aviso} Link da CONTRATADA: {sol.link_empresa} · "
         f"link do cliente: {sol.link_cliente} (só funciona depois que a Conecta Mais assinar).")}
 
 
@@ -3017,13 +3065,25 @@ async def rd_action_contrato_enviar_link(
                        "recusado. Assine primeiro.")
 
     link = f"{CS.BASE_PUBLICA}/assinar/contrato/{linha['access_token']}"
-    destino = (payload.get("email") or "").strip() or linha["signer_email"]
-    if destino:
-        await CS.convidar_para_assinar(
-            db, num, para=destino, link=link, nome=linha["signer_name"] or "",
-            papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+    # Mais de um destinatário, separados por vírgula ou ponto-e-vírgula. Pedido do Jordan em
+    # 09/09/2026: no Maiápolis quem assina é a presidente e a VICE também precisa receber.
+    # É lista explícita, digitada e visível na tela — não varredura automática dos contatos
+    # do cliente, que mandaria o contrato para quem ninguém escolheu.
+    bruto = (payload.get("email") or "").strip() or (linha["signer_email"] or "")
+    destinos = [e.strip() for e in re.split(r"[;,]", bruto) if e.strip()]
+    enviados: list[str] = []
+    for destino in destinos:
+        try:
+            await CS.convidar_para_assinar(
+                db, num, para=destino, link=link, nome=linha["signer_name"] or "",
+                papel="CONTRATANTE" if papel == "customer" else "CONTRATADA")
+            enviados.append(destino)
+        except Exception as e:      # noqa: BLE001 — um endereço ruim não pode matar os outros
+            logger.warning(f"contrato-enviar-link {num}: falhou para {destino}: {e}")
+    if enviados:
         await db.commit()
-        return {"ok": True, "message": f"Convite enviado para {destino}. Link: {link}"}
+        return {"ok": True,
+                "message": f"Convite enviado para {', '.join(enviados)}. Link: {link}"}
     return {"ok": True, "message": f"Sem e-mail informado — mande este link: {link}"}
 
 

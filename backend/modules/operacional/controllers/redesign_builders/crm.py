@@ -560,8 +560,13 @@ def _fila_actions(r):
                           "value": "cliente",
                           "options": [{"value": "cliente", "label": "Cliente (CONTRATANTE)"},
                                       {"value": "empresa", "label": "Conecta Mais (CONTRATADA)"}]},
-                         {"key": "email", "label": "E-mail (vazio = o cadastrado)",
-                          "type": "text", "span": "span 2", "value": ""}]}]
+                         # já vem com TODOS os contatos do cliente que têm e-mail, e o
+                         # campo é editável: o Jordan vê quem vai receber antes de mandar e
+                         # tira quem não deve. No Maiápolis são dois — a presidente, que
+                         # assina, e a vice, que acompanha.
+                         {"key": "email",
+                          "label": "E-mail (vírgula separa; vazio = o cadastrado)",
+                          "type": "text", "span": "span 2", "value": r[9] or ""}]}]
     return []
 
 
@@ -661,10 +666,10 @@ async def build(db) -> dict:
 
     # ---- Leads (override: + coluna Origem, que o clássico mostra e a base não) ----
     await safe("leads", tbl(
-        "Leads", f"{await _scalar(db, 'SELECT count(*) FROM leads')} leads", "Novo lead",
+        "Leads", f"{await _scalar(db, 'SELECT count(*) FROM leads WHERE coalesce(is_active,true)')} leads", "Novo lead",
         ["Lead", "Empresa", "Origem", "Valor estimado", "Status"], "2fr 1.5fr 1fr 1fr 0.9fr",
         "SELECT name, coalesce(company,'—'), coalesce(source,'—'), coalesce(expected_value,0), coalesce(status::text,'—'), id::text "
-        "FROM leads ORDER BY created_at DESC NULLS LAST LIMIT 200",
+        "FROM leads WHERE coalesce(is_active,true) ORDER BY created_at DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, "#0F1B3A", initials(r[0])), t(r[1]),
                    b((r[2] or '—').replace('_', ' ').capitalize(), "mut"), t(brl(r[3]), 600),
                    b((r[4] or '—').replace('_', ' ').capitalize(), _LEAD_TONE.get((r[4] or '').lower(), "info"))],
@@ -674,10 +679,15 @@ async def build(db) -> dict:
                               "fields": [{"key": "status", "label": "Novo status*", "type": "select", "span": "span 1", "value": (r[4] or "new").lower(),
                                           "options": [{"value": v, "label": l} for v, l in (("new", "Novo"), ("contacted", "Contatado"), ("qualified", "Qualificado"), ("proposal", "Proposta enviada"), ("negotiation", "Em negociação"), ("won", "Ganho"), ("lost", "Perdido"))]},
                                          {"key": "notes", "label": "Observação", "type": "textarea", "span": "span 2", "value": ""}]},
-                             {"title": f"Arquivar lead {r[0]}", "sub": "Some da lista; não apaga o histórico.",
-                              "endpoint": f"/api/v1/crm/leads/{r[5]}", "method": "DELETE", "btnLabel": "Arquivar",
-                              "submitLabel": "Arquivar", "btnStyle": "outline", "confirm": f"Arquivar o lead {r[0]}?",
-                              "okMsg": "Lead arquivado. Recarregue.", "fields": []}]))
+                             # "Arquivar" sempre chamou DELETE — é soft delete: a linha some da lista e
+                             # continua no banco. O rótulo escondia isso, e em 10/09/2026 o Jordan
+                             # pediu "botão de excluir" numa tela que já tinha um, com outro nome.
+                             {"title": f"Excluir lead {r[0]}",
+                              "sub": "Some da lista. O registro continua no banco (exclusão lógica).",
+                              "endpoint": f"/api/v1/crm/leads/{r[5]}", "method": "DELETE", "btnLabel": "Excluir",
+                              "submitLabel": "Excluir", "btnStyle": "outline",
+                              "confirm": f"Excluir o lead {r[0]} da lista?",
+                              "okMsg": "Lead excluído. Recarregue.", "fields": []}]))
 
     # ---- Fidelidade: oportunidades e propostas mostram KPIs de resumo no clássico.
     #      Tela 'table' não tem KPI-card (não edito ModuleView) → trago no subtítulo. ----
@@ -854,7 +864,7 @@ async def build(db) -> dict:
                    coalesce(o.company_name, o.title, '—') AS cliente,
                    coalesce(o.value,0) AS valor, 'Ganha, sem proposta' AS situacao,
                    'Monte a proposta comercial — o contrato nasce dela' AS passo,
-                   'oportunidade' AS tipo, '' AS extra, o.id::text AS ident
+                   'oportunidade' AS tipo, '' AS extra, o.id::text AS ident, '' AS emails
               FROM opportunities o
              WHERE o.stage::text = 'closed_won'
                AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.opportunity_id = o.id)
@@ -864,7 +874,7 @@ async def build(db) -> dict:
             SELECT 'Proposta', p.id::text, coalesce(p.client_name,'—'),
                    coalesce(p.total,0), 'Aceita pelo cliente',
                    'Gerar o contrato a partir da proposta', 'proposta',
-                   coalesce(p.client_email,''), p.id::text
+                   coalesce(p.client_email,''), p.id::text, coalesce(p.client_email,'')
               FROM proposals p
              WHERE p.status::text IN ('accepted','aceita','approved')
                AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.proposal_id = p.id)
@@ -884,7 +894,14 @@ async def build(db) -> dict:
                         WHEN sr.assinadas < sr.abertas
                           THEN 'Faltam ' || (sr.abertas - sr.assinadas) || ' assinatura(s) — mande o link'
                         ELSE 'Ativar o contrato — sem isso ele não entra no faturamento' END,
-                   'contrato', c.contract_type::text, c.id::text
+                   'contrato', c.contract_type::text, c.id::text,
+                   -- coluna 9: e-mails dos contatos do cliente, para o botão "Enviar link"
+                   -- já vir preenchido. Sem isto o dono redigita o endereço a cada envio, e
+                   -- é aí que nasce o erro de digitação num convite que leva o contrato.
+                   coalesce((SELECT string_agg(DISTINCT k.email, ', ')
+                               FROM crm_contacts k
+                              WHERE k.client_id = c.client_id
+                                AND coalesce(k.email,'') <> ''), '')
               FROM contracts c
               LEFT JOIN clients cl ON cl.id = c.client_id
               LEFT JOIN LATERAL (
@@ -1567,3 +1584,34 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
 
     _consulta("jose-luis-dashboard", "José Luís — painel do agente (WhatsApp)", "Conversas, respostas, leads, visitas e OS por dia nos últimos N dias (cwi_message_log).",
               "/api/v1/whatsapp/agent/dashboard", [{"key": "dias", "label": "Dias (1–90)", "type": "number", "span": "span 1", "value": 14}])
+
+
+# ── EXCLUIR lead / oportunidade ───────────────────────────────────────────────────────
+# Pedido do Jordan em 10/09/2026, higienizando o funil: "leads e oportunidades deveriam
+# ter o botão de excluir". O motivo concreto é bom de registrar — vários leads são
+# FUNCIONÁRIOS que escreveram no WhatsApp porque não conseguiam bater ponto, e o José Luís
+# os cadastrou como oportunidade comercial. Não são lead perdido: nunca foram lead.
+#
+# ⚠️ Os dois `delete_*` do CRM são SOFT DELETE (conferido no controller): a linha some da
+# tela e continua no banco marcada como removida. Ainda assim exige confirmação digitada —
+# do ponto de vista de quem usa, o registro sumiu, e desfazer exige mão no banco.
+# Para o que é só "não vai fechar", o caminho certo continua sendo Arquivar (lead) e
+# Mover → Perdida (oportunidade): visível no funil, reversível por clique, e preserva a
+# leitura de que houve negociação.
+def _exigir_excluir(payload: dict, oquê: str) -> None:
+    if (payload.get("confirmar") or "").strip().upper() != "EXCLUIR":
+        raise HTTPException(status_code=400,
+                            detail=f"Para excluir {oquê} digite EXCLUIR — some da tela e só volta pelo banco.")
+
+
+@router.post("/action/oportunidade-excluir")
+async def rd_action_oportunidade_excluir(current_user: CurrentActiveUser,
+                                         payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Remove a oportunidade da tela (soft delete). Para 'não fechou', use Mover → Perdida."""
+    from modules.crm.controllers.opportunity_controller import delete_opportunity
+    _exigir_excluir(payload, "a oportunidade")
+    oid = (payload.get("opportunity_id") or "").strip()
+    if not oid:
+        raise HTTPException(status_code=400, detail="Oportunidade não identificada.")
+    await delete_opportunity(opportunity_id=oid, current_user=current_user, db=db)
+    return {"ok": True, "message": "Oportunidade excluída."}
