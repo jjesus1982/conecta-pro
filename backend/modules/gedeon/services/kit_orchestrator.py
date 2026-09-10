@@ -294,6 +294,17 @@ async def montar_kits_mensais(
             lambda: arquivar_danfse(competencia, mes_emissao=_mes_emissao_nfse(competencia), dry_run=dry_run),
         )
 
+    # ── Sistema: a NOSSA metade do kit — 10/09/2026 ───────────────────────────
+    # Até hoje este orquestrador montava só a metade COLETORA (Onvio, Inter, SEFAZ, ponto, NFS-e) e
+    # a metade GERADORA vivia solta em `kit_builder_service`, chamada à mão. Quem pedia "monte o
+    # kit" — a tela, a tool `montar_kit_completo`, o Hermes — recebia meio kit e nenhum aviso.
+    #
+    # Este bloco gera o que sai do NOSSO dado (contracheque, espelho, recibo de adiantamento,
+    # comprovante de pagamento, recibos de VT/VR), cria as vagas no banco, pede as assinaturas e
+    # sincroniza com o Drive. Roda por ÚLTIMO: precisa do que os blocos coletores trouxeram.
+    if quer("sistema"):
+        etapa("sistema", lambda: _montar_metade_do_sistema(competencia, condominios, dry_run=dry_run))
+
     # resumo
     rel["resumo"] = {
         "etapas_ok": sum(1 for e in rel["etapas"].values() if e.get("ok")),
@@ -301,6 +312,60 @@ async def montar_kits_mensais(
     }
     prog("_concluido", "ok")
     return rel
+
+
+def _montar_metade_do_sistema(competencia: str, condominios: list[str] | None, dry_run: bool = False) -> dict:
+    """Monta o kit pelo `kit_builder_service` (o que o Conecta PRO GERA) e sincroniza com o Drive.
+
+    Síncrono por fora, async por dentro: o orquestrador roda em task do Celery e o construtor é
+    async. Uma sessão por condomínio — um kit ruim não derruba os outros.
+    """
+    from datetime import date as _date
+
+    mes, ano = competencia.split(".")
+    ref = _date(int(ano), int(mes), 1)
+    out: dict = {"competencia": competencia, "kits": {}, "falhas": []}
+
+    async def _run() -> None:
+        from sqlalchemy import text as _sql
+
+        from core.database import get_db
+        from modules.people_management.ged.services.google_drive_service import GoogleDriveService
+        from modules.people_management.ged.services.kit_builder_service import KitBuilderService
+
+        gen = get_db()
+        db = await gen.__anext__()
+        alvos = (
+            await db.execute(_sql("SELECT id::text, name FROM ged_clients WHERE is_active IS NOT false ORDER BY name"))
+        ).fetchall()
+        for cid, nome in alvos:
+            if condominios and not any(c.strip().lower() in nome.lower() for c in condominios):
+                continue
+            try:
+                if dry_run:
+                    out["kits"][nome] = {"dry_run": True}
+                    continue
+                r = await KitBuilderService(db).build_kit_for_client(cid, ref)
+                await db.commit()
+                s = await GoogleDriveService(db).sync_kit_to_drive(r["kit_id"])
+                await db.commit()
+                out["kits"][nome] = {
+                    "documentos": r.get("total_documents"),
+                    "completude": r.get("completion_percentage"),
+                    "no_drive": s.get("uploaded"),
+                    "link": s.get("drive_link"),
+                }
+            except Exception as exc:  # noqa: BLE001 — um condomínio ruim não cala os outros
+                await db.rollback()
+                out["falhas"].append(f"{nome}: {type(exc).__name__}: {exc}")
+                logger.warning("montagem do sistema falhou em %s: %s", nome, exc)
+
+    # o orquestrador roda dentro de uma task do Celery, que já tem loop — `asyncio.run` recusaria.
+    from core.async_utils import rodar_corotina
+
+    rodar_corotina(_run)
+    out["ok"] = not out["falhas"]
+    return out
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

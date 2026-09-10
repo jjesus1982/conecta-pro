@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from core.auth.dependencies import get_current_user
@@ -20,7 +20,11 @@ COMP_RE = r"^(0[1-9]|1[0-2])\.\d{4}$"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
-BLOCOS_VALIDOS = ["folha", "guias", "pagamentos", "vavt", "rescisao", "cnds", "nfse", "ponto"]
+# 10/09/2026: "sistema" é a metade GERADORA (contracheque, espelho, recibo de adiantamento,
+# comprovante, VT/VR → vagas no banco → assinaturas → Drive). Até hoje o orquestrador montava só a
+# metade COLETORA e quem pedia "monte o kit" recebia meio kit, sem aviso. Vai por último: depende
+# do que os coletores trouxeram.
+BLOCOS_VALIDOS = ["folha", "guias", "pagamentos", "vavt", "rescisao", "cnds", "nfse", "ponto", "sistema"]
 
 
 class MontarKitRequest(BaseModel):
@@ -593,5 +597,3 @@ def cronograma(
         "hoje": hoje.isoformat(),
         "etapas": etapas,
     }
-
-
