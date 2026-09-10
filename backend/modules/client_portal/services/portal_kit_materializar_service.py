@@ -13,12 +13,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import unicodedata
 from datetime import date
 
 from sqlalchemy import text
 
-from modules.client_portal.services.portal_operacao_service import _norm, ALIAS_POSTO  # reusa normalização
+from modules.client_portal.services.portal_operacao_service import ALIAS_POSTO, _norm  # reusa normalização
 
 PONTO_DIR = "/app/uploads/ponto"
 SOLIDES_DIR = "/app/uploads/solides_ged"
@@ -30,15 +29,19 @@ GENERICOS = {"CONDOMINIO", "RESIDENCIAL", "VILLAGE", "VILLA", "EDIFICIO", "DA", 
 def _mapa_funcionarios(db) -> dict:
     """Constrói: emp_id→ged_client_id, nome_norm→emp_id (via escopo-por-nome do Raio-X)."""
     posts = db.execute(text("SELECT id, name, client_id FROM posts")).mappings().all()
-    geds = db.execute(
-        text(
-            """SELECT g.id AS gid, g.name AS gnome, g.cnpj, c.id AS cliente_id, cond.nome AS cond_nome
+    geds = (
+        db.execute(
+            text(
+                """SELECT g.id AS gid, g.name AS gnome, g.cnpj, c.id AS cliente_id, cond.nome AS cond_nome
                FROM ged_clients g
                LEFT JOIN clients c ON regexp_replace(c.document_number,'[^0-9]','','g')
                                     = regexp_replace(COALESCE(g.cnpj,''),'[^0-9]','','g') AND g.cnpj IS NOT NULL
                LEFT JOIN condominios cond ON cond.client_id=c.id"""
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     # post_id → ged_client_id
     post2ged: dict = {}
     for g in geds:
@@ -47,18 +50,25 @@ def _mapa_funcionarios(db) -> dict:
         alias = ALIAS_POSTO.get(_norm(cond_nome))
         for p in posts:
             pn = _norm(p["name"])
-            if (g["cliente_id"] and str(p["client_id"] or "") == str(g["cliente_id"])) \
-               or (alias and alias.upper() in pn) or any(t in pn for t in toks):
+            if (
+                (g["cliente_id"] and str(p["client_id"] or "") == str(g["cliente_id"]))
+                or (alias and alias.upper() in pn)
+                or any(t in pn for t in toks)
+            ):
                 post2ged[str(p["id"])] = str(g["gid"])
     # emp → ged via allocations active
     emp2ged: dict = {}
     nome2emp: dict = {}
-    rows = db.execute(
-        text(
-            """SELECT DISTINCT e.id, e.nome, a.post_id FROM allocations a
+    rows = (
+        db.execute(
+            text(
+                """SELECT DISTINCT e.id, e.nome, a.post_id FROM allocations a
                JOIN employees e ON e.id=a.employee_id WHERE a.status='active'"""
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     for r in rows:
         gid = post2ged.get(str(r["post_id"]))
         if gid:
@@ -124,10 +134,14 @@ def _kit_id(db, client_id: str, ref_month: date, cache: dict) -> str:
 
 
 def _ja_indexado(db, file_path: str) -> bool:
-    return bool(db.execute(text("SELECT 1 FROM ged_kit_documents WHERE file_path=:f LIMIT 1"), {"f": file_path}).scalar())
+    return bool(
+        db.execute(text("SELECT 1 FROM ged_kit_documents WHERE file_path=:f LIMIT 1"), {"f": file_path}).scalar()
+    )
 
 
-def _inserir_doc(db, kit_id: str, emp_id: str | None, tipo: str, nome: str, file_path: str, assinado: bool, origem: str):
+def _inserir_doc(
+    db, kit_id: str, emp_id: str | None, tipo: str, nome: str, file_path: str, assinado: bool, origem: str
+):
     import uuid
 
     size = os.path.getsize(file_path) if os.path.exists(file_path) else None
@@ -138,8 +152,18 @@ def _inserir_doc(db, kit_id: str, emp_id: str | None, tipo: str, nome: str, file
                    file_size_bytes, mime_type, is_signed, source_module, auto_generated, created_at, updated_at)
                VALUES (:id,:kit,:emp,:tipo,:nome,:fp,:sz,:mime,:sig,:org,true,NOW(),NOW())"""
         ),
-        {"id": str(uuid.uuid4()), "kit": kit_id, "emp": emp_id, "tipo": tipo, "nome": nome,
-         "fp": file_path, "sz": size, "mime": mime, "sig": assinado, "org": origem},
+        {
+            "id": str(uuid.uuid4()),
+            "kit": kit_id,
+            "emp": emp_id,
+            "tipo": tipo,
+            "nome": nome,
+            "fp": file_path,
+            "sz": size,
+            "mime": mime,
+            "sig": assinado,
+            "org": origem,
+        },
     )
 
 
@@ -174,6 +198,12 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                         fp = os.path.join(mdir, fn)
                         if not os.path.isfile(fp):
                             continue
+                        # 10/09/2026: só PDF. Esta varredura indexava TUDO que houvesse na pasta do ponto —
+                        # inclusive o .html de um gerador antigo — e criava um segundo slot de folha de ponto no
+                        # kit, com pedido de assinatura próprio. O funcionário abria, assinava e o motor morria
+                        # na hora de estampar o selo ("is no PDF"). O espelho oficial do kit é PDF.
+                        if not fn.lower().endswith(".pdf"):
+                            continue
                         if _ja_indexado(db, fp):
                             stats["ja_indexado"] += 1
                             continue
@@ -184,9 +214,14 @@ def materializar(competencia_default: str = "2026-06") -> dict:
         # 2) SOLIDES — manifesto (assinados)
         mpath = os.path.join(SOLIDES_DIR, "manifesto.json")
         if os.path.exists(mpath):
-            TIPO_LABEL = {"vale_vt_vr": "Recibo VT/VR Assinado", "ferias": "Recibo de Férias Assinado",
-                          "decimo_terceiro": "Recibo 13º Assinado"}
-            for d in json.load(open(mpath)):
+            TIPO_LABEL = {
+                "vale_vt_vr": "Recibo VT/VR Assinado",
+                "ferias": "Recibo de Férias Assinado",
+                "decimo_terceiro": "Recibo 13º Assinado",
+            }
+            with open(mpath) as _mf:
+                _manifesto = json.load(_mf)
+            for d in _manifesto:
                 fp = os.path.join(SOLIDES_DIR, d["arquivo"])
                 if not os.path.exists(fp):
                     continue
@@ -198,7 +233,9 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                     stats["sem_cliente"] += 1
                     continue
                 kit = _kit_id(db, gid, ref_default, cache_kit)
-                _inserir_doc(db, kit, emp_id, d["tipo"], TIPO_LABEL.get(d["tipo"], d.get("label", d["tipo"])), fp, True, "gedeon")
+                _inserir_doc(
+                    db, kit, emp_id, d["tipo"], TIPO_LABEL.get(d["tipo"], d.get("label", d["tipo"])), fp, True, "gedeon"
+                )
                 stats["solides"] += 1
 
         # 3) ONVIO — /onvio/<tipo>/<MM.YYYY>/<arquivo>. Nome do arquivo = condomínio OU funcionário.
@@ -224,7 +261,10 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                         base = re.sub(r"\d{2}[.\-/]\d{2,4}([.\-/]\d{2,4})?", " ", base).replace("_", " ")
                         nb = _norm(base)
                         # docs gerais (escritório) ou digitalizações sem nome → fora do kit do cliente
-                        if any(x in nb for x in ("geral", "conecta mais", "camscanner", "scan", "digitalizado", "img ", "doc ")):
+                        if any(
+                            x in nb
+                            for x in ("geral", "conecta mais", "camscanner", "scan", "digitalizado", "img ", "doc ")
+                        ):
                             stats["sem_cliente"] += 1
                             continue
                         # nome do funcionário = parte após o último ' - ' (ex.: 'Contrato ... - Jonilson de Souza')
@@ -262,19 +302,25 @@ def materializar(competencia_default: str = "2026-06") -> dict:
             import uuid as _uuid
 
             # todos os kits (client, mês) com docs reais — não só os tocados nesta run
-            kits_reais = db.execute(
-                text(
-                    """SELECT k.id, k.client_id, to_char(k.reference_month,'YYYY-MM') AS ym, COUNT(*) AS n
+            kits_reais = (
+                db.execute(
+                    text(
+                        """SELECT k.id, k.client_id, to_char(k.reference_month,'YYYY-MM') AS ym, COUNT(*) AS n
                        FROM ged_document_kits k JOIN ged_kit_documents d ON d.kit_id=k.id
                        WHERE d.file_path LIKE '/app/uploads/%'
                        GROUP BY k.id, k.client_id, k.reference_month"""
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             for row in kits_reais:
                 client_id, ref_iso, n = str(row["client_id"]), row["ym"], row["n"]
                 mes = ".".join(reversed(ref_iso.split("-")))  # YYYY-MM -> MM.YYYY
                 ja = db.execute(
-                    text("SELECT 1 FROM client_portal_notifications WHERE client_id=:c AND tipo='kit' AND titulo LIKE :t LIMIT 1"),
+                    text(
+                        "SELECT 1 FROM client_portal_notifications WHERE client_id=:c AND tipo='kit' AND titulo LIKE :t LIMIT 1"
+                    ),
                     {"c": client_id, "t": f"%{ref_iso}%"},
                 ).scalar()
                 if ja:
@@ -285,10 +331,13 @@ def materializar(competencia_default: str = "2026-06") -> dict:
                              (id, client_id, tipo, titulo, mensagem, link, lida, canal_email, canal_whatsapp, created_at)
                            VALUES (:id,:c,'kit',:tit,:msg,'/area-cliente/kits',false,false,false,NOW())"""
                     ),
-                    {"id": str(_uuid.uuid4()), "c": client_id,
-                     "tit": f"Kit documental {ref_iso[:7]} disponível",
-                     "msg": f"Seu kit de documentos referente a {mes} já está disponível no portal, "
-                            f"com {n} documento(s). Acesse Meus Kits para conferir e baixar."},
+                    {
+                        "id": str(_uuid.uuid4()),
+                        "c": client_id,
+                        "tit": f"Kit documental {ref_iso[:7]} disponível",
+                        "msg": f"Seu kit de documentos referente a {mes} já está disponível no portal, "
+                        f"com {n} documento(s). Acesse Meus Kits para conferir e baixar.",
+                    },
                 )
                 avisos += 1
         except Exception:

@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, String, Text, event, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -219,3 +219,16 @@ class KitDocument(Base):
             f"<KitDocument(id={self.id}, type={self.document_type}, "
             f"name={self.document_name}, signed={self.is_signed})>"
         )
+
+
+# ── Assinado exige arquivo ────────────────────────────────────────────────────────────────────────
+# 10/09/2026: vários coletores criam o SLOT do documento antes do arquivo existir ("a certidão já vem
+# assinada pelo órgão", "a guia o contador emite no Onvio") e marcavam is_signed=True num slot vazio.
+# Resultado medido: 231 linhas em 09/09 e mais 143 no dia seguinte dizendo "assinado" sem um PDF atrás,
+# inflando a completude de todo kit. Corrigir call site por call site não segura: são doze, e o próximo
+# coletor repete. A regra mora aqui, onde toda escrita passa.
+@event.listens_for(KitDocument, "before_insert")
+@event.listens_for(KitDocument, "before_update")
+def _assinado_exige_arquivo(mapper, connection, target) -> None:  # noqa: ANN001, ARG001
+    if target.is_signed and not target.file_path:
+        target.is_signed = False

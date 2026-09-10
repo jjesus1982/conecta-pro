@@ -36,6 +36,7 @@ import logging
 import uuid
 from typing import Any
 
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.signatures.services.universal_signature_service import (
@@ -301,6 +302,20 @@ async def garantir_solicitacao_assinatura(
         # Idempotência: já existe solicitação para este documento?
         atual = await svc.status(document_type=document_type, document_id=str(document_id))
         if atual.get("total_signers", 0) > 0:
+            # 10/09/2026 (kit real do Michelangelo): o pedido guarda o CAMINHO do arquivo, e o arquivo pode ser
+            # regerado depois — o espelho de ponto nasceu .html e virou .pdf. O pedido continuava apontando para
+            # o .html e a assinatura morria na hora de estampar o selo ("is no PDF"), já com o funcionário na tela.
+            # Só os PENDENTES seguem o arquivo novo: em pedido já assinado o caminho é evidência e não se mexe.
+            if document_path:
+                await db.execute(
+                    sa_text(
+                        "UPDATE sig_signature_requests SET document_path = :p, updated_at = now() "
+                        "WHERE document_type = :t AND CAST(document_id AS TEXT) = :d "
+                        "AND status = 'PENDING' AND coalesce(document_path,'') <> :p"
+                    ),
+                    {"p": document_path, "t": document_type, "d": str(document_id)},
+                )
+                await db.commit()
             atual["created"] = False
             atual["public_token"] = _extract_public_token(atual)
             return atual
