@@ -36,6 +36,24 @@ mcp_servers:
     connect_timeout: 60
     enabled: true
 
+  # 10/09/2026 — conector do KIT DOCUMENTAL (escopo ged,fiscal · 42 ferramentas).
+  #   O irmao `conecta` roda MCP_MODO=agente e exige `x-usuario-token` por chamada em tudo
+  #   que toca pessoa ou dinheiro. O Hermes NAO sabe mandar cabecalho por chamada (headers
+  #   estaticos por conexao), entao ali ele fica com 6 ferramentas uteis de 146.
+  #   No fechamento do kit nao ha terceiro sobre quem responder — e a propria empresa
+  #   fechando o proprio mes. Este conector nao exige repasse de identidade; quem o protege
+  #   e o ESCOPO: so ged e fiscal, nada de folha, cadastro de pessoa, PIX ou CRM.
+  ged:
+    url: "http://conecta-pro-mcp-ged:8788/mcp"
+    headers:
+      Authorization: "Bearer ${MCP_BEARER}"
+    tools:
+      include: []
+    supports_parallel_tool_calls: false
+    timeout: 180
+    connect_timeout: 60
+    enabled: true
+
 # ---------------------------------------------------------------------------
 # Aprovacoes — defesa em profundidade.
 #   mode: smart      -> avalia risco por chamada.

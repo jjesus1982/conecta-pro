@@ -72,6 +72,97 @@ def _get_drive_service():
 #: Onde moram os kits deste Drive: "GEDEON — Kits Documentais (Conecta Mais)". Não é palpite — é a pasta que
 #: já guarda os 24 condomínios e onde a Pyetra procura. Sem isso, cliente sem `google_drive_folder_id` ganhava
 #: uma pasta NOVA solta na raiz do Meu Drive a cada sincronização (medido em 09/09: duas do Michelangelo).
+#: Em que pasta do kit cada tipo de documento da EMPRESA (employee_id IS NULL) mora.
+#:
+#: 10/09/2026 — o Jordan abriu a pasta Financeiro do primeiro kit real e achou lá dentro seis GUIAS
+#: (DARF IRRF, DCTFWeb, EFD-Reinf, FGTS, INSS Patronal, ISS Manaus), o 13º de 2025 e NFS-e de janeiro,
+#: com a pasta Guias vazia. A regra anterior nomeava SEIS tipos e mandava TODO O RESTO para Financeiro:
+#:     doc.document_type in ("gfip_sefip","grf_fgts","gps_inss","das_simples_nacional","guia_issqn","dar_sefaz")
+#:     or doc.document_type.startswith("dctfweb")   # <- "dctf_declaracao" não começa com "dctfweb"
+#: São 78 tipos gravados no banco. Setenta e dois caíam no `else`.
+#:
+#: Convenção codificada à mão é a fábrica de defeito desta casa: o mapa agora é EXPLÍCITO e completo
+#: contra o que existe, e tipo desconhecido não some calado — vai para Financeiro e GRITA no log, com
+#: um oráculo cobrando (test_oraculo_pasta_do_documento).
+PASTA_DO_TIPO: dict[str, str] = {
+    # ── Certidões negativas da empresa ──────────────────────────────────────────────────
+    "cnd_federal": "certidoes",
+    "cnd_estadual": "certidoes",
+    "cnd_municipal": "certidoes",
+    "cnd_trabalhista": "certidoes",
+    "cndt_trabalhista": "certidoes",
+    "crf_fgts": "certidoes",
+    "cnd_caixa": "certidoes",
+    "cnd_receita": "certidoes",
+    "cnd_rfb": "certidoes",
+    "cnd_sefaz": "certidoes",
+    "cnd_prefeitura": "certidoes",
+    "certidao": "certidoes",
+    # ── Guias de recolhimento, suas declarações e os comprovantes de pagamento ──────────
+    "das_simples_nacional": "guias",
+    "parcelamento_simples": "guias",
+    "gps_inss": "guias",
+    "grf_fgts": "guias",
+    "gfip_sefip": "guias",
+    "guia_issqn": "guias",
+    "dar_sefaz": "guias",
+    "dctfweb_declaracao": "guias",
+    "dctfweb_recibo": "guias",
+    "dctfweb_extrato": "guias",
+    "dctfweb_resumo_creditos": "guias",
+    "dctfweb_resumo_debitos": "guias",
+    "dctfweb_creditos": "guias",
+    "dctfweb_debitos": "guias",
+    # a família "dctf_" (sem "web") é a mesma coisa com outro vocabulário — era ela que vazava
+    "dctf_declaracao": "guias",
+    "dctf_recibo": "guias",
+    "dctf_extrato": "guias",
+    "fgts_guia": "guias",
+    "fgts_relatorio": "guias",
+    "gfd_fgts": "guias",
+    "gfd_fgts_mensal": "guias",
+    "relatorio_gfd_fgts": "guias",
+    "comprovante_fgts": "guias",
+    "comp_pag_fgts": "guias",
+    "inss_guia": "guias",
+    "inss_mensal": "guias",
+    # ── Benefícios: a EMPRESA comprando e distribuindo VT/VA ────────────────────────────
+    "boleto_vt_sinetram": "beneficios",
+    "relatorio_vt_sinetram": "beneficios",
+    "relatorio_va_solides": "beneficios",
+    "relatorio_pedido_va": "beneficios",
+    "comprovante_pagto_sinetram": "beneficios",
+    "comprovante_pagto_solides": "beneficios",
+    "comp_va_solides": "beneficios",
+    "comp_vt_va_combinado": "beneficios",
+    "recibo_vt_va": "beneficios",
+    "declaracao_vt": "beneficios",
+    # ── Financeiro: o que a Conecta Mais COBRA do condomínio ────────────────────────────
+    "nfse": "financeiro",
+    "nfs_servico": "financeiro",
+    "nota_fiscal": "financeiro",
+    "boleto": "financeiro",
+    "boleto_nfse": "financeiro",
+    # ── Consolidados da folha: são do bloco de PESSOAL, não do financeiro ───────────────
+    "folha_pagamento": "funcionarios",
+    "contracheques_consolidado": "funcionarios",
+    "folhas_ponto_consolidado": "funcionarios",
+    "folhas_ponto": "funcionarios",
+    "recibo_folha": "funcionarios",
+    "decimo_terceiro": "funcionarios",
+    "recibo_decimo_terceiro": "funcionarios",
+    "ficha_empregado": "funcionarios",
+    "comp_salario_individual": "funcionarios",
+    "aso": "funcionarios",
+    # os mesmos tipos existem por funcionário E consolidados; aqui só vale o consolidado
+    # (employee_id IS NULL) — o por-funcionário é roteado antes, por CATEGORIA_FUNCIONARIO
+    "contracheque": "funcionarios",
+    "comprovante_vt": "beneficios",
+    "aviso_previo_ferias": "funcionarios",
+    "outros": "funcionarios",
+}
+
+
 RAIZ_KITS_DRIVE = os.environ.get("GDRIVE_KITS_ROOT_FOLDER_ID") or "1oigpHoCvFT-M2tm96FDvE0LvowciNLKJ"
 
 
@@ -81,6 +172,20 @@ _RE_NOME_DE_MAQUINA = re.compile(
     r"|[_-]?\d{11,}"  # identificador cru, quase sempre o CNPJ: sefaz_am_66014833000110.pdf
     r")\.[A-Za-z0-9]+$"
 )
+
+
+def pasta_do_documento(document_type: str, kit_id: str = "", document_name: str = "") -> str:
+    """Chave da subpasta do kit para um documento de EMPRESA. Desconhecido não some: grita e vai p/ financeiro."""
+    pasta = PASTA_DO_TIPO.get(str(document_type))
+    if pasta is None:
+        logger.warning(
+            "kit %s: tipo '%s' (%s) não está em PASTA_DO_TIPO — Financeiro por omissão",
+            kit_id or "?",
+            document_type,
+            document_name or "?",
+        )
+        return "financeiro"
+    return pasta
 
 
 def _nome_no_drive(document_name: str | None, caminho: str) -> str:
@@ -496,31 +601,8 @@ class GoogleDriveService:
                     target_folder = folder_ids[key]
                 else:
                     target_folder = folder_ids.get("funcionarios")
-            elif (
-                doc.document_type.startswith("cnd_")
-                or doc.document_type.startswith("crf_")
-                or doc.document_type.startswith("cndt_")
-            ):
-                target_folder = folder_ids.get("certidoes")
-            elif doc.document_type in (
-                "gfip_sefip",
-                "grf_fgts",
-                "gps_inss",
-                "das_simples_nacional",
-                "guia_issqn",
-                "dar_sefaz",
-            ) or doc.document_type.startswith("dctfweb"):
-                target_folder = folder_ids.get("guias")
-            elif doc.document_type in (
-                "boleto_vt_sinetram",
-                "relatorio_vt_sinetram",
-                "relatorio_va_solides",
-                "comprovante_pagto_sinetram",
-                "comprovante_pagto_solides",
-            ):
-                target_folder = folder_ids.get("beneficios")
             else:
-                target_folder = folder_ids.get("financeiro")
+                target_folder = folder_ids.get(pasta_do_documento(doc.document_type, kit_id, doc.document_name))
 
             nome_arquivo = _nome_no_drive(doc.document_name, caminho)
             if target_folder and nome_arquivo in _nomes(target_folder):
@@ -608,27 +690,8 @@ class GoogleDriveService:
         if doc.employee_id:
             cat = CATEGORIA_FUNCIONARIO.get(doc.document_type, "Outros documentos")
             alvo = self._create_folder(service, name=cat, parent_id=fids["funcionarios"])
-        elif doc.document_type.startswith(("cnd_", "crf_", "cndt_")):
-            alvo = fids.get("certidoes")
-        elif doc.document_type in (
-            "gfip_sefip",
-            "grf_fgts",
-            "gps_inss",
-            "das_simples_nacional",
-            "guia_issqn",
-            "dar_sefaz",
-        ) or doc.document_type.startswith("dctfweb"):
-            alvo = fids.get("guias")
-        elif doc.document_type in (
-            "boleto_vt_sinetram",
-            "relatorio_vt_sinetram",
-            "relatorio_va_solides",
-            "comprovante_pagto_sinetram",
-            "comprovante_pagto_solides",
-        ):
-            alvo = fids.get("beneficios")
         else:
-            alvo = fids.get("financeiro")
+            alvo = fids.get(pasta_do_documento(doc.document_type, kit_id, doc.document_name))
         nome_arq = _nome_no_drive(doc.document_name, caminho)
         _q_nome = nome_arq.replace("\\", "\\\\").replace(
             "'", "\\'"
