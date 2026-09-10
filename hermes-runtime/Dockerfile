@@ -57,6 +57,9 @@ COPY config.yaml /data/config.yaml
 COPY SOUL.md /data/SOUL.md
 # memoria persistente semeada com o que esta casa ja decidiu
 COPY MEMORY.md /data/MEMORY.md
+# skills que o AGENTE escreveu e o Jordan aprovou — memória procedural, versionada no repositório
+# junto com o resto. Sem isso, um rebuild devolve um agente que sabe os fatos e esqueceu COMO fazer.
+COPY skills/ /data/skills/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

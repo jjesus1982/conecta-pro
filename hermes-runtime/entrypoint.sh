@@ -40,5 +40,13 @@ else
     echo "[entrypoint] memoria ja existe em $_MEM ($(wc -c < "$_MEM" 2>/dev/null || echo 0) bytes) — nao mexo"
 fi
 
+# --- Skills aprovadas: semeadas só se ainda não existirem -------------------
+# Mesma lógica da memória: rebuild não apaga o que o agente aprendeu e o Jordan aprovou depois.
+if [ -d "$HERMES_HOME/skills" ]; then
+    for _s in "$HERMES_HOME"/skills/*/; do
+        [ -f "$_s/SKILL.md" ] && echo "[entrypoint] skill presente: $(basename "$_s")"
+    done
+fi
+
 echo "[entrypoint] HERMES_HOME=$HERMES_HOME  API :$API_SERVER_PORT  gateway=foreground"
 exec hermes gateway
