@@ -61,14 +61,14 @@ CHECKLIST = [
     {
         "key": "guias",
         "label": "Guias (FGTS / DCTFWeb / INSS)",
-        "sub": SUB_IMPOSTOS,
+        "sub": SUB_GUIAS,
         "match": ["guia", "dctfweb", "gfd", "relatorio fgts", "fgts"],
         "esperado": 1,
     },
     {
         "key": "inss",
         "label": "Comprovante INSS",
-        "sub": SUB_IMPOSTOS,
+        "sub": SUB_GUIAS,
         # Este bloco é o COMPROVANTE de recolhimento, não a certidão. "inss" sozinho
         # casaria também "CND INSS (RFB).pdf" e daria crédito de pagamento a quem só tem
         # certidão — cobertura inventada, e das piores, porque é sobre tributo. Os termos
@@ -179,7 +179,31 @@ _MESES_PT_LEGADO = {
 }
 
 
-def _ler_legado(_list, base_novo: str, cond: str) -> dict[str, list[dict]]:
+def _mes_pt_da_entrega(competencia: str) -> str:
+    """'08.2026' -> 'setembro'. O layout antigo nomeava a pasta pelo mês de ENTREGA, competência+1."""
+    meses = [
+        "",
+        "janeiro",
+        "fevereiro",
+        "março",
+        "abril",
+        "maio",
+        "junho",
+        "julho",
+        "agosto",
+        "setembro",
+        "outubro",
+        "novembro",
+        "dezembro",
+    ]
+    try:
+        m = int(competencia.split(".")[0]) + 1
+    except Exception:  # noqa: BLE001
+        return ""
+    return meses[1 if m > 12 else m]
+
+
+def _ler_legado(_list, base_novo: str, cond: str, competencia: str) -> dict[str, list[dict]]:
     """Arquivos dos meses no layout ANTIGO, irmãos da pasta do kit de hoje.
 
     Até 10/09/2026 o GEDEON escrevia em "[Condomínio]/Setembro/1. Folha e Pessoal…" e o módulo GED
@@ -205,9 +229,14 @@ def _ler_legado(_list, base_novo: str, cond: str) -> dict[str, list[dict]]:
         return {}
     if not pai:
         return {}
+    # SÓ o mês que corresponde a ESTA competência. O layout antigo nomeava a pasta pelo mês de
+    # ENTREGA (competência + 1): "Setembro" É o kit de 08/2026. Ler todos os meses juntos foi o que
+    # o Hermes reprovou em 10/09 — os mesmos arquivos apareciam em Funcionarios e em
+    # "Agosto · 1. Folha e Pessoal", com o mesmo id, e o kit contava duas vezes.
+    esperado = _mes_pt_da_entrega(competencia)
     out: dict[str, list[dict]] = {}
     for mes in _list(pai):
-        if mes["mimeType"] != _FOLDER_MIME or mes["name"].strip().lower() not in _MESES_PT_LEGADO:
+        if mes["mimeType"] != _FOLDER_MIME or mes["name"].strip().lower() != esperado:
             continue
         for sub in _list(mes["id"]):
             bloco = _EQUIV_LEGADO.get(sub["name"])
@@ -275,7 +304,7 @@ def _ler_kit(svc, cond: str, competencia: str, blocos: set | None = None) -> dic
         #
         # Enquanto a unificação da ESCRITA não acontece (decisão do dono, mexe em cinco robôs), a
         # LEITURA passa a somar os dois. Ver menos do que existe é pior do que ver duas convenções.
-        for rotulo, files in _ler_legado(_list, base, cond).items():
+        for rotulo, files in _ler_legado(_list, base, cond, competencia).items():
             bloco = _EQUIV_LEGADO[rotulo.split(" · ", 1)[1]]
             arquivos_por_sub.setdefault(bloco, []).extend(files)
             subpastas.append({"nome": f"{rotulo} (mês antigo)", "docs": len(files), "arquivos": files})
