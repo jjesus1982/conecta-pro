@@ -246,6 +246,9 @@ async def _bloqueado_por_falta_de_assinatura(db, doc) -> bool:
 
 #: Ano no caminho ou no nome: "/onvio/decimo_terceiro/2025/13º SALARIO 2025_x.pdf", "NFS-e 13 202601".
 _RE_ANO = re.compile(r"(?:^|[^0-9])(20[12][0-9])(?:[^0-9]|$)")
+#: competência colada, do jeito que o coletor grava no caminho: "nfse_13_202601_abc.pdf".
+#: Sem isso, "NFS-e 13" de JANEIRO passava batido no kit de agosto — achado do Hermes em 10/09.
+_RE_ANOMES = re.compile(r"(?:^|[^0-9])(20[12][0-9])(0[1-9]|1[0-2])(?:[^0-9]|$)")
 
 
 def _competencia_estranha(file_path: str, document_name: str, ref) -> str | None:
@@ -261,12 +264,49 @@ def _competencia_estranha(file_path: str, document_name: str, ref) -> str | None
     janeiro. Conservadora de propósito: erra para o lado de deixar passar, nunca de sumir com o
     arquivo — só relata.
     """
-    anos = {int(a) for a in _RE_ANO.findall(f"{file_path} {document_name}")}
+    alvo = f"{file_path} {document_name}"
+    anos = {int(a) for a in _RE_ANO.findall(alvo)}
+    anos |= {int(a) for a, _m in _RE_ANOMES.findall(alvo)}
     if not anos:
         return None
     aceitos = {ref.year, ref.year - 1} if ref.month == 1 else {ref.year}
     forasteiros = sorted(a for a in anos if a not in aceitos and a < ref.year)
-    return str(forasteiros[0]) if forasteiros else None
+    if forasteiros:
+        return str(forasteiros[0])
+    # mesmo ano, mês bem anterior: a guia atrasa UM mês (a de agosto recolhe julho), nunca sete.
+    for a, m in _RE_ANOMES.findall(alvo):
+        if int(a) == ref.year and ref.month - int(m) >= 2:
+            return f"{int(m):02d}/{a}"
+    return None
+
+
+def _uma_via_por_documento(documentos: list) -> tuple[list, int]:
+    """Uma via por (tipo canônico, funcionário). Devolve (o que sobe, quantos ficaram de fora).
+
+    10/09/2026 — o Hermes, conferindo o kit real, achou o MESMO documento duas vezes na pasta do
+    síndico: "Nota Fiscal NFS-31.pdf" ao lado de "NFSe_31_08.2026.pdf", e "Contracheque — KALEL
+    SILVA DE JESUS.pdf" ao lado de "Contracheque_08.2026_KALEL_SILVA_DE_JESUS.pdf". Conteúdo
+    diferente (renderizações diferentes), então o dedup por md5 não pega; e nota fiscal em dobro na
+    pasta do cliente sugere cobrança em dobro.
+
+    Vem de o kit ter duas fontes para a mesma coisa — o original do contador/robô e o que o nosso
+    motor gera. Qual fica: **o ASSINADO**, porque é o que tem valor probatório; sem assinatura, o
+    mais recente. Perseguir caso a caso seria escrever a mesma convenção à mão pela sétima vez.
+    """
+    from modules.people_management.ged.models.kit_document import tipo_canonico
+
+    grupos: dict[tuple, list] = {}
+    for d in documentos:
+        grupos.setdefault((tipo_canonico(d.document_type), str(d.employee_id or "")), []).append(d)
+    fica, fora = [], 0
+    for _chave, grupo in grupos.items():
+        if len(grupo) == 1:
+            fica.append(grupo[0])
+            continue
+        grupo.sort(key=lambda d: (not bool(d.is_signed), -(d.updated_at or d.created_at).timestamp()))
+        fica.append(grupo[0])
+        fora += len(grupo) - 1
+    return fica, fora
 
 
 def pasta_do_documento(document_type: str, kit_id: str = "", document_name: str = "") -> str:
@@ -645,6 +685,7 @@ class GoogleDriveService:
         docs_result = await self.db.execute(select(KitDocument).where(KitDocument.kit_id == kit_id))
         documents = docs_result.scalars().all()
 
+        documents, duplicatas_de_tipo = _uma_via_por_documento(list(documents))
         uploaded = 0
         substituidos = 0
         bloqueados_sem_assinatura = 0
@@ -773,6 +814,7 @@ class GoogleDriveService:
             "substituidos": substituidos,
             "bloqueados_sem_assinatura": bloqueados_sem_assinatura,
             "fora_da_competencia": fora_da_competencia,
+            "duplicatas_de_tipo": duplicatas_de_tipo,
             "errors": len(errors_list),
             "error_details": errors_list[:10],
             "drive_link": kit.google_drive_link,
