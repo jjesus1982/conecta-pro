@@ -539,8 +539,11 @@ def _fila_actions(r):
         if situacao == "Assinado, fora de vigência":
             # assinado por todos e ainda `draft`: o contrato existe, vale, e NÃO conta no
             # MRR. É o estado mais fácil de esquecer, porque tudo parece pronto.
+            # ⚠️ `cid` é QUERY PARAM na assinatura do handler, e é o UUID — não o
+            # número do contrato. Sem ele a chamada devolve 422 e o botão nunca ativa
+            # nada; foi assim que este nasceu, e só apareceu relendo o handler.
             return [{"title": f"Ativar {ref} — coloca em vigência e no faturamento",
-                     "endpoint": "/api/v1/redesign/action/contract-activate",
+                     "endpoint": f"/api/v1/redesign/action/contract-activate?cid={r[8]}",
                      "method": "POST", "btnLabel": "Ativar", "submitLabel": "Confirmar ativação",
                      "btnStyle": "primary", "okMsg": "Contrato ativado.",
                      "fields": [{"key": "confirmar", "label": "Digite ATIVAR para confirmar",
@@ -851,7 +854,7 @@ async def build(db) -> dict:
                    coalesce(o.company_name, o.title, '—') AS cliente,
                    coalesce(o.value,0) AS valor, 'Ganha, sem proposta' AS situacao,
                    'Monte a proposta comercial — o contrato nasce dela' AS passo,
-                   'oportunidade' AS tipo, '' AS extra
+                   'oportunidade' AS tipo, '' AS extra, o.id::text AS ident
               FROM opportunities o
              WHERE o.stage::text = 'closed_won'
                AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.opportunity_id = o.id)
@@ -861,7 +864,7 @@ async def build(db) -> dict:
             SELECT 'Proposta', p.id::text, coalesce(p.client_name,'—'),
                    coalesce(p.total,0), 'Aceita pelo cliente',
                    'Gerar o contrato a partir da proposta', 'proposta',
-                   coalesce(p.client_email,'')
+                   coalesce(p.client_email,''), p.id::text
               FROM proposals p
              WHERE p.status::text IN ('accepted','aceita','approved')
                AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.proposal_id = p.id)
@@ -881,7 +884,7 @@ async def build(db) -> dict:
                         WHEN sr.assinadas < sr.abertas
                           THEN 'Faltam ' || (sr.abertas - sr.assinadas) || ' assinatura(s) — mande o link'
                         ELSE 'Ativar o contrato — sem isso ele não entra no faturamento' END,
-                   'contrato', c.contract_type::text
+                   'contrato', c.contract_type::text, c.id::text
               FROM contracts c
               LEFT JOIN clients cl ON cl.id = c.client_id
               LEFT JOIN LATERAL (
