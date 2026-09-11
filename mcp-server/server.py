@@ -3790,13 +3790,21 @@ if _ESCOPO:
 
 # ── F1: a etiqueta de risco passa a AGIR ──────────────────────────────────────────────
 # Sem isto, `tool_risk_manifest` é crachá que nenhum porteiro pede: 254 tools classificadas
-# e zero referência em runtime. A parede só liga onde MCP_MODO=agente — no conector do
-# Jordan a pessoa lê e decide na hora, e enfileirar ali seria trocar decisão por espera.
+# A parede enfileira `propose` onde MCP_MODO=agente — no conector do Jordan a pessoa lê e
+# decide na hora, e enfileirar ali seria trocar decisão por espera.
+#
+# ⚠️ MAS ela é instalada nos DOIS modos, desde 11/09/2026. Ações de EFEITO EXTERNO (e-mail
+# ao cliente, WhatsApp, assinatura com o certificado, dinheiro que sai) exigem aprovação
+# em qualquer conector — quem chama o público é um LLM agindo em nome do Jordan, não o
+# Jordan clicando. Antes o instalador devolvia False fora do modo agente e nada entrava no
+# caminho: `enviar_link_assinatura` estava corretamente classificada `propose` e mesmo
+# assim chegava ao ERP, porque o middleware que lê a classificação não estava lá.
 try:
     from gate_propose import instalar as _instalar_gate
 
     if _instalar_gate(mcp):
-        print("[mcp] gate propose ATIVO — ações de classe `propose` exigem aprovação humana",
+        print("[mcp] gate propose ATIVO — efeito externo SEMPRE exige aprovação; "
+              "`propose` também, em modo agente",
               flush=True)
 except Exception as _e:  # noqa: BLE001
     # sem a parede, um conector de AGENTE não sobe: melhor fora do ar que solto.

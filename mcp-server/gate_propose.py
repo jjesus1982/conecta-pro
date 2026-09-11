@@ -99,7 +99,57 @@ def classe_de(nome: str) -> str:
     return TOOL_RISK.get(nome) or "propose"
 
 
+# ⭐ EFEITO EXTERNO — aprovação humana em QUALQUER MODO, não só no de agente.
+#
+# Descoberto na auditoria do Cowork em 11/09/2026. `enviar_link_assinatura` ESTAVA
+# classificada `propose`, e mesmo assim passou: `precisa_aprovacao` era
+# `MODO_AGENTE and classe == "propose"`, e o conector público (o Cowork do Jordan) não é
+# modo agente. Ou seja, a parede não existia nele — nem para a chamada direta.
+#
+# O raciocínio que criou o buraco foi meu, e era quase certo: "parede mais rígida que a
+# porta da frente não protege nada, porque quem quisesse burlar usava o caminho direto".
+# Isso vale para IDENTIDADE, onde a porta da frente é aberta de propósito para o dono.
+# Não vale aqui: nestas ações a porta da frente aberta É o defeito. Quem chama o conector
+# público é um LLM agindo em nome do Jordan, não o Jordan clicando um botão — e a regra
+# "quem aprova não pode ser quem pede" vale para o LLM nos dois modos.
+#
+# O valor é O QUE SAI, e ele vai na recusa: o dono precisa saber o que teria acontecido,
+# não o nome de uma função.
+EFEITO_EXTERNO: dict[str, str] = {
+    "enviar_link_assinatura": "um e-mail com link de assinatura, para o CLIENTE",
+    "enviar_proposta": "a proposta por e-mail, para o cliente",
+    "enviar_proposta_completa": "a proposta com anexos por e-mail, para o cliente",
+    "enviar_proposta_whatsapp": "a proposta por WhatsApp, para o número do cliente",
+    "enviar_whatsapp": "uma mensagem de WhatsApp, para fora da empresa",
+    "enviar_nps": "a pesquisa de satisfação, para os clientes",
+    "followup_whatsapp": "um follow-up por WhatsApp, para o cliente",
+    "followup_em_lote": "follow-ups em LOTE — vários clientes de uma vez",
+    "inscrever_em_sequencia": "inscreve o contato numa régua que dispara mensagens sozinha",
+    "assinar_contrato_empresa": "a assinatura da empresa no instrumento, com o certificado "
+                                "ICP-Brasil — é ato jurídico, não rascunho",
+    "propor_pagamento": "um pagamento para a fila de dinheiro que SAI",
+    "gerar_lote_diarias_mes": "o lote de pagamento das diárias — dinheiro que sai",
+}
+
+# Exceções revisadas à mão: nome parece de efeito externo e o efeito é interno. Cada linha é
+# uma decisão registrada, lida na ROTA — não uma gaveta.
+NAO_SAI_DA_EMPRESA: dict[str, str] = {
+    "cadastrar_whatsapp_cliente": "POST /crm/whatsapp/cadastrar — grava e normaliza o "
+                                  "número no cadastro; não manda mensagem nenhuma",
+    "gerar_apresentacao": "POST /crm/apresentacoes/gerar — produz o arquivo; enviar é outro "
+                          "passo, feito por outra ferramenta",
+}
+
+
+def efeito_externo(nome: str) -> str:
+    """O que sai da empresa se esta ferramenta rodar. Vazio = não sai nada."""
+    return EFEITO_EXTERNO.get(nome, "")
+
+
 def precisa_aprovacao(nome: str) -> bool:
+    # a ordem importa: efeito externo NÃO depende do modo.
+    if nome in EFEITO_EXTERNO:
+        return True
     return MODO_AGENTE and classe_de(nome) == "propose"
 
 
@@ -172,9 +222,17 @@ class GatePropose(_Base):
         # NÃO devolve "como confirmar". A versão anterior imprimia a própria senha
         # (confirmar="ACEITAR") — degrau que ensina a subir. Aqui não há degrau: a
         # aprovação acontece em OUTRA superfície, com OUTRA pessoa.
-        texto = (
+        sai = efeito_externo(nome)
+        cabeca = (
+            f"⛔ `{nome}` não é executada por mim. Se eu rodar isto, SAI DA EMPRESA: "
+            f"{sai}.\n\nIsso não se desfaz — e quem recebe é uma pessoa de verdade, "
+            f"não um registro."
+            if sai else
             f"⛔ `{nome}` não é executada por mim. É uma ação de classe "
-            f"{pedido['classe']} — precisa de aprovação humana.\n\n"
+            f"{pedido['classe']} — precisa de aprovação humana."
+        )
+        texto = (
+            cabeca + "\n\n"
             "O que ela provocaria:\n"
             + "\n".join(f"  • {c}" for c in pedido["vai_acontecer"])
             + "\n\nEu não tenho como aprovar o que eu mesmo pedi."
@@ -186,8 +244,15 @@ class GatePropose(_Base):
 
 
 def instalar(mcp) -> bool:
-    """Instala a parede. Devolve False quando o conector NÃO é de agente."""
-    if not MODO_AGENTE:
-        return False
+    """SEMPRE instala. Quem decide o que barrar é `precisa_aprovacao`, não o instalador.
+
+    ⚠️ Antes isto devolvia False fora do modo agente e não instalava nada — e era aí que o
+    buraco morava: no conector público, `enviar_link_assinatura` chegava ao ERP sem passar
+    por parede nenhuma. Classificar a ferramenta corretamente não adianta se o middleware
+    que lê a classificação não está no caminho.
+
+    Fora do modo agente ela continua deixando passar tudo que NÃO tem efeito externo, então
+    instalar sempre não muda o dia de ninguém — só fecha a porta que não podia estar aberta.
+    """
     mcp.add_middleware(GatePropose())
     return True

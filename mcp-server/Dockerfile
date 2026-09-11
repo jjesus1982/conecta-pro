@@ -20,9 +20,10 @@ COPY carimbo.py .
 COPY changelog.json .
 COPY test_identidade.py .
 COPY test_segundo_plano.py .
+COPY test_efeito_externo.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
-RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py
+RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py && python test_efeito_externo.py
 
 EXPOSE 8788
 
