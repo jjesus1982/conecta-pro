@@ -2,6 +2,16 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "ecb91f555",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): sandbox e request_id — o P2 que faltava para o prompt fechar 100%"
+  },
+  {
+   "commit": "7adc88edd",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado + imagem reassada"
+  },
+  {
    "commit": "3d458491a",
    "data": "2026-09-11",
    "mudanca": "feat(qa): checar_imagem_mcp — concordância entre conectores não é atualidade"
