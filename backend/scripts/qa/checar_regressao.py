@@ -180,6 +180,11 @@ TRAVAS_BINARIAS = {
     "checar_telefone_funcionario.py": ("host", "telefone de funcionário malformado (mensagem da empresa não chega)", 900),
 }
 
+#: ⚠️ `test_oraculo_todos_batem_ponto.py` NÃO entra aqui: oráculo roda na varredura da meia-noite
+#: (`scripts/orq`, glob automático), e repetir a chamada faria o mesmo vermelho tocar duas vezes.
+#: Fica registrado aqui só para quem vier procurar: a pergunta "todo mundo consegue bater?" é
+#: vigiada, e é vigiada lá.
+
 #: Critérios de aceite por módulo. Cada um imprime ✅/❌ por condição; o que entra na base é
 #: a CONTAGEM de ✅ — condição vermelha por decisão humana pendente (destinatário, crédito de
 #: LLM) é estado conhecido, não regressão. Acusa só quando o número CAI. Semanal (domingo)
