@@ -480,11 +480,11 @@ async def _abrir_assinatura_contrato(db, user, scope, *, contrato=None, email_cl
     d = (await db.execute(sa_text(
         "SELECT c.contract_number, cl.name cliente, "
         "(SELECT k.name FROM crm_contacts k WHERE k.client_id=c.client_id "
-        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) rep, "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) rep, "
         "(SELECT k.notes FROM crm_contacts k WHERE k.client_id=c.client_id "
-        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) cpf, "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) cpf, "
         "(SELECT k.email FROM crm_contacts k WHERE k.client_id=c.client_id "
-        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) mail "
+        " AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) mail "
         "FROM contracts c LEFT JOIN clients cl ON cl.id=c.client_id "
         "WHERE c.id::text=:k OR c.contract_number=:k"), {"k": contrato})).mappings().first()
 

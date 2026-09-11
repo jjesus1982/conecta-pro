@@ -268,13 +268,13 @@ async def abrir_assinatura_contrato(
                 text("""
         SELECT c.contract_number, cl.name AS cliente,
                (SELECT k.name FROM crm_contacts k WHERE k.client_id = c.client_id
-                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
                 ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS representante,
                (SELECT k.notes FROM crm_contacts k WHERE k.client_id = c.client_id
-                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
                 ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS rep_cpf,
                (SELECT k.email FROM crm_contacts k WHERE k.client_id = c.client_id
-                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%')
+                 AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
                 ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS rep_email
         FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
         WHERE c.id::text = :k OR c.contract_number = :k
@@ -297,7 +297,9 @@ async def abrir_assinatura_contrato(
         representante_cpf=dados["rep_cpf"] or "",
         representante_email=email_cliente or dados["rep_email"],
         contratada_nome=res.contratada.razao_social,
-        assinante_empresa=getattr(current_user, "full_name", None) or "Jordan Santos de Jesus",
+        # CP-MCP-008: o padrão da casa é "Jordan Jesus". Este fallback tinha o nome antigo
+        # e é ele que vai para o pedido de assinatura quando o usuário não tem `full_name`.
+        assinante_empresa=getattr(current_user, "full_name", None) or "Jordan Jesus",
         assinante_empresa_id=getattr(current_user, "id", None),
         solicitado_por=getattr(current_user, "id", None),
     )
@@ -473,11 +475,21 @@ async def status_assinaturas_contrato(
     if not num:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
     assinadas = await assinaturas_do_contrato(db, num)
-    pendentes = (
+    # ⭐ `signed_at IS NULL` pergunta "NÃO ASSINOU". A pergunta certa é "ESTÁ ESPERANDO
+    # assinatura" — e cancelado não é nenhuma das duas. Medido em 11/09/2026: a síndica do
+    # Maiápolis aparecia como pendente com `tem_link: true` desde 09/09, quando a limpeza do
+    # GEDEON cancelou o pedido dela junto com 735 kits. O link estava morto e o instrumento
+    # que serve para conferir isso dizia que estava vivo.
+    #
+    # São 2.450 pedidos CANCELLED na base; qualquer um deles contaminava esta leitura.
+    # E `completo` nunca fechava: um cancelado segurava o contrato em "falta alguém" para
+    # sempre.
+    linhas = (
         (
             await db.execute(
                 text(
-                    "SELECT signer_type::text, signer_name, access_token IS NOT NULL AS tem_link "
+                    "SELECT signer_type::text AS signer_type, signer_name, status::text AS status, "
+                    "  (access_token IS NOT NULL AND upper(status::text) = 'PENDING') AS tem_link "
                     "FROM sig_signature_requests WHERE reference_code=:k AND signed_at IS NULL "
                     "ORDER BY signature_order"
                 ),
@@ -487,12 +499,48 @@ async def status_assinaturas_contrato(
         .mappings()
         .all()
     )
-    return {
+    MORTAS = {"CANCELLED", "EXPIRED", "REJECTED"}
+    pendentes = [dict(p) for p in linhas if str(p["status"]).upper() not in MORTAS]
+    encerradas = [dict(p) for p in linhas if str(p["status"]).upper() in MORTAS]
+    # ⭐ Assinatura vale para o DOCUMENTO que ela assinou, não para o contrato em abstrato.
+    # Medido em 11/09/2026: a assinatura do Jordan de 09/09 cobre o hash 65e08207…, e depois
+    # das correções de cadastro o documento passou a ser e12a121b… — a assinatura anterior
+    # NÃO cobre o instrumento atual. O status a mostrava em "assinadas" sem ressalva, e
+    # quem lesse concluiria que só faltava o cliente. Faltavam os dois.
+    hash_atual = (
+        await db.execute(
+            text("SELECT document_hash FROM sig_signature_requests WHERE reference_code=:k "
+                 "ORDER BY created_at DESC LIMIT 1"), {"k": num})).scalar()
+    for a_ in assinadas:
+        h = str(a_.get("hash") or "")
+        if hash_atual and h and h != hash_atual:
+            a_["cobre_documento_atual"] = False
+            a_["aviso"] = ("assinou uma VERSÃO ANTERIOR do documento; o instrumento mudou "
+                           "depois disso e precisa ser assinado de novo")
+        elif hash_atual:
+            a_["cobre_documento_atual"] = True
+
+    saida = {
         "contrato": num,
         "assinadas": assinadas,
-        "pendentes": [dict(p) for p in pendentes],
-        "completo": bool(assinadas) and not pendentes,
+        "pendentes": pendentes,
+        # ⚠️ `encerradas` conta aqui. Ao tirar o cancelado de `pendentes` eu quase criei o
+        # erro OPOSTO: `completo: true` num contrato que o CLIENTE nunca assinou, porque o
+        # pedido dele tinha sido cancelado. Ninguém assinou menos por ter sido cancelado —
+        # a assinatura continua faltando, e é disso que "completo" fala.
+        "completo": (bool(assinadas) and not pendentes and not encerradas
+                     and all(a_.get("cobre_documento_atual", True) for a_ in assinadas)),
     }
+    if encerradas:
+        # aparecem SEPARADAS, não somem: "o pedido dela foi cancelado" é a informação que
+        # explica por que o cliente não recebeu nada, e escondê-la recria o mistério.
+        saida["encerradas_sem_assinar"] = encerradas
+        saida["aviso"] = (
+            f"{len(encerradas)} pedido(s) de assinatura foram cancelados ou expiraram sem "
+            f"assinatura. O link que essas pessoas receberam NÃO funciona mais — reabra "
+            f"antes de cobrar."
+        )
+    return saida
 
 
 @router.post("/briefing")

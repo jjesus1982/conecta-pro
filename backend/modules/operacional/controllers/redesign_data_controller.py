@@ -5692,11 +5692,11 @@ async def rd_action_contrato_abrir_assinatura(
                 text("""
         SELECT cl.name AS cliente,
           (SELECT k.name FROM crm_contacts k WHERE k.client_id = c.client_id
-            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS rep,
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) AS rep,
           (SELECT k.notes FROM crm_contacts k WHERE k.client_id = c.client_id
-            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS cpf,
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) AS cpf,
           (SELECT k.email FROM crm_contacts k WHERE k.client_id = c.client_id
-            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%') LIMIT 1) AS mail
+            AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%') LIMIT 1) AS mail
         FROM contracts c LEFT JOIN clients cl ON cl.id = c.client_id
         WHERE c.contract_number = :n"""),
                 {"n": num},
