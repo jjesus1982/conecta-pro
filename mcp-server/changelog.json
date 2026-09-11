@@ -2,6 +2,16 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "018f4f2c4",
+   "data": "2026-09-11",
+   "mudanca": "fix: as 7 pendências da validação do Cowork — e a margem que ia no PDF do cliente"
+  },
+  {
+   "commit": "c6d6677be",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado — rodada das issues CP-MCP-001 a 011"
+  },
+  {
    "commit": "53a086ca7",
    "data": "2026-09-11",
    "mudanca": "feat(mcp): CP-MCP-001, 008 e 011 — código padronizado, dados do instrumento e a suíte R01–R11"
