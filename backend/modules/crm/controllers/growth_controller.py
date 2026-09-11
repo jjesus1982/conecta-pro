@@ -34,7 +34,7 @@ async def _one(db, sql, params) -> dict | None:
 
 
 _PUBLIC_ERP = os.getenv("PUBLIC_ERP_URL", "https://erp.conectamais.pro").rstrip("/")
-_DOCS_DIR = "/app/uploads/docs"
+_DOCS_DIR = os.getenv("UPLOADS_DIR", "/app/uploads") + "/docs"
 
 
 async def _salvar_pdf(db, tipo: str, titulo: str, pdf_bytes: bytes, *, ref_tipo=None, ref_id=None, teste=False, drive=False, filename=None) -> dict:
@@ -440,7 +440,7 @@ async def expurgar_documentos_teste(
 
 
 # ===================================================================== ASSETS (upload sem SSH)
-_ASSETS_DIR = "/app/uploads/assets"
+_ASSETS_DIR = os.getenv("UPLOADS_DIR", "/app/uploads") + "/assets"
 _ASSET_NAMES = {  # tipo -> nome canônico do arquivo lido pelo gerador de PDF
     "logo": "logo-conecta-mais.png",
     "logo_transparente": "logo-transparente.png",

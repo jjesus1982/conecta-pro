@@ -68,6 +68,9 @@ services:
     container_name: conecta-pro-backend-staging
     restart: unless-stopped
     environment:
+      # o sandbox escreve num tmpfs próprio: `/app` vem do disco em modo :ro, e sem isto a
+      # emissão de contrato morria em "Read-only file system: /app/uploads".
+      UPLOADS_DIR: /tmp/uploads
       # App
       APP_NAME: ${APP_NAME:-Conecta PRO Staging}
       DEBUG: ${DEBUG:-true}
@@ -130,6 +133,12 @@ services:
       - ./backend:/app:ro
       # Testes
       - ./backend/tests:/app/tests
+    # `/app` vem do disco em modo :ro, então o container não tem onde gravar o PDF que
+    # emite — a emissão morria com "Read-only file system: /app/uploads". tmpfs resolve sem
+    # escrever na árvore do repositório, que é COMPARTILHADA com outras sessões: um staging
+    # cuspindo PDF em backend/uploads viraria arquivo não rastreado no git de todo mundo.
+    tmpfs:
+      - /tmp/uploads
 
   # ==========================================================================
   # Frontend Next.js Staging

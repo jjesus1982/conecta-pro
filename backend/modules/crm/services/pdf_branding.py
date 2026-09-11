@@ -186,7 +186,7 @@ MESES = [
     "dezembro",
 ]
 
-_ASSETS = "/app/uploads/assets"
+_ASSETS = os.getenv("UPLOADS_DIR", "/app/uploads") + "/assets"
 _CM = f"{_ASSETS}/conecta-mais"
 
 

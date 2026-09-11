@@ -15,7 +15,11 @@ import uuid
 from sqlalchemy import text
 
 PUBLIC_ERP = os.getenv("PUBLIC_ERP_URL", "https://erp.conectamais.pro").rstrip("/")
-DOCS_DIR = "/app/uploads/docs"
+# `UPLOADS_DIR` existe para o SANDBOX: lá `/app` é montado somente-leitura (o container usa
+# o código do disco), e a emissão morria com "Read-only file system: /app/uploads" — o
+# contrato era gerado e não conseguia ser salvo. Em produção nada muda: o default é o
+# caminho de sempre.
+DOCS_DIR = os.getenv("UPLOADS_DIR", "/app/uploads") + "/docs"
 # Pasta padrão no Google Drive do Jordan (documentos gerados pelo Conecta PRO).
 GDRIVE_DOCS_FOLDER = os.getenv("GDRIVE_DOCS_FOLDER", "1wrgjMheUh0uC_LM9yPGb48iQ_TVmvYn7")
 
