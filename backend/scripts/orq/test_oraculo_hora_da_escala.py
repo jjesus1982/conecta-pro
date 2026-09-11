@@ -47,8 +47,11 @@ async def main() -> int:
     limpos, tortos = separar(linhas)
 
     for r in tortos:
+        sete = ("" if r["desvio_7d"] is None
+                else f" · últimos 7 dias: {int(r['desvio_7d']):+d} min")
         print(f"  (torto, não reprova) {r['nome'][:28]:30} {r['posto'][:26]:28} "
-              f"promete {r['promete']} e bate {int(r['desvio']):+d} min — precisa de gente")
+              f"promete {r['promete']} e bate {int(r['desvio']):+d} min em 28 dias{sete}"
+              " — precisa de gente (ou mudou de turno há pouco)")
     for r in limpos:
         print(f"FALHOU: {r['nome'][:30]:32} {r['posto'][:26]:28} a escala promete "
               f"{r['promete']} e ela bate {int(r['desvio']):+d} min em {r['dias']} dias — "
