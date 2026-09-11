@@ -2,6 +2,21 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "53a086ca7",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): CP-MCP-001, 008 e 011 — código padronizado, dados do instrumento e a suíte R01–R11"
+  },
+  {
+   "commit": "419d50b3c",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): P2 fechado — valor numérico e data ISO ao lado do formatado"
+  },
+  {
+   "commit": "8fccc4837",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado após a rodada da auditoria"
+  },
+  {
    "commit": "c379ad6a8",
    "data": "2026-09-11",
    "mudanca": "test(mcp): §5 da auditoria — os achados viram regressão, 21/21"
