@@ -9,8 +9,8 @@ import asyncio
 import logging
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
@@ -904,6 +904,7 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
 
     engine = create_engine(db_url)
     created = updated = emps_com_batida = sem_batida = erros = 0
+    duplicadas_evitadas = 0  # batida que o app já tinha registrado (ver o bloco abaixo)
     try:
         with engine.connect() as conn:
             emps = conn.execute(
@@ -975,6 +976,41 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
                                     {"t": punch_dt, "st": stt, "pid": punch_id},
                                 )
                                 if up.rowcount == 0:
+                                    # 🔴 11/09/2026 — A JORNADA DUPLICADA QUE O TIME RECLAMA
+                                    # NASCE AQUI. A dedup só existia contra o PRÓPRIO punch_id
+                                    # (`tang-…`): quem bate no nosso app E no Tangerino ficava
+                                    # com a MESMA batida duas vezes. Medido em 30 dias: 802
+                                    # duplicatas em janela de 15 min, e **414 das 419 abaixo de
+                                    # 90 segundos vêm de origens DIFERENTES** — app + import.
+                                    # Duas pessoas descreveram isso sem combinar, na pesquisa de
+                                    # ponto do mesmo dia: "estava registrando jornada duplicada"
+                                    # (Edilene) e "às vezes duplica a entrada, duplica a saída"
+                                    # (Walcicley).
+                                    #
+                                    # A janela é de 10 min e IGNORA O TIPO de propósito: o
+                                    # Tangerino só conhece `entrada` e `saida`, enquanto o nosso
+                                    # app distingue saída e retorno de almoço. Na Edilene, a
+                                    # `saida` das 12:00:00 do Tangerino é o mesmo evento que o
+                                    # `saida_almoco` das 12:00:21 do app — comparar por tipo
+                                    # deixaria passar justamente o par mais comum.
+                                    #
+                                    # Quem vence é a batida do APP: ela tem rosto, geofence e o
+                                    # tipo fino. A do Tangerino chega horas depois e só
+                                    # confirmaria o que já está lá.
+                                    ja = conn.execute(
+                                        sa_text(
+                                            "SELECT 1 FROM gp_clock_punches "
+                                            " WHERE employee_id = CAST(:eid AS uuid) "
+                                            "   AND device_type <> 'tangerino' "
+                                            "   AND punch_timestamp BETWEEN :t - interval '10 minutes' "
+                                            "                           AND :t + interval '10 minutes' "
+                                            " LIMIT 1"
+                                        ),
+                                        {"eid": emp_id, "t": punch_dt},
+                                    ).first()
+                                    if ja:
+                                        duplicadas_evitadas += 1
+                                        continue
                                     conn.execute(
                                         sa_text(
                                             "INSERT INTO gp_clock_punches "
@@ -1009,6 +1045,9 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
         "created": created,
         "updated": updated,
         "employees_with_punches": emps_com_batida,
+        # sai no retorno de propósito: é o número que prova que a dedup está trabalhando, e
+        # `task_falha` publica o retorno quando algo vem errado
+        "duplicadas_evitadas": duplicadas_evitadas,
         "employees_without": sem_batida,
         "errors": erros,
         "range": f"{sd}..{ed}",
