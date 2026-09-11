@@ -261,6 +261,54 @@ async def aceite_3_3_rede_de_protecao() -> None:
           f"não gravaria")
 
 
+async def aceite_3_3_intercepta_os_QUATRO_metodos() -> None:
+    """A promessa do `ensaiar` é "não grava". Eu só tinha provado isso para POST.
+
+    ⭐ Havia 6 tools em DELETE, 6 em PUT e 2 em PATCH cuja interceptação eu nunca exercitei.
+    O código diz `method != "GET"`, então "deveria" cobrir — e `deveria` é exatamente a
+    palavra em que esta casa se queimou hoje: o `conecta-pro-d4` argumentou no commit que o
+    hook `on_call_tool` era o ponto do desenho e nunca o executou.
+
+    ⚠️ A sonda é uma rota INEXISTENTE de propósito: se a interceptação falhar, o custo é um
+    404, nunca uma escrita. Trava não pode ser a coisa que quebra o que ela vigia.
+    """
+    import httpx
+
+    saiu: list = []
+    original = httpx.AsyncClient.request
+
+    async def espia(self, method, url, **kw):  # noqa: ANN001
+        saiu.append(f"{method} {url}")
+        return await original(self, method, url, **kw)
+
+    registro: list = []
+    marca = S._ENSAIO.set(registro)
+    httpx.AsyncClient.request = espia
+    try:
+        for metodo in ("POST", "PUT", "PATCH", "DELETE"):
+            r = await S.erp.request(metodo, "/rota-inexistente-sonda", json={"x": 1})
+            assert r.get("ensaio") is True, f"{metodo} NÃO foi interceptado: {r}"
+            assert r.get("id") == "00000000-ensaio", (
+                f"{metodo} devolveu resposta sem a marca de ensaio: {r}")
+        # GET tem de PASSAR: é assim que o ensaio resolve cliente, modelo e valor
+        await S.erp.request("GET", "/crm/contracts", params={"page_size": 1})
+    finally:
+        httpx.AsyncClient.request = original
+        S._ENSAIO.reset(marca)
+
+    # a prova real: NENHUMA escrita chegou à rede. Login é autenticação, não dado de negócio,
+    # e sai por outro caminho (`_login` não passa por `request`) — por isso a auth não quebra
+    # dentro do ensaio.
+    escritas_na_rede = [x for x in saiu
+                        if not x.startswith("GET") and "auth/login" not in x]
+    assert not escritas_na_rede, f"O ENSAIO DEIXOU ESCRITA SAIR: {escritas_na_rede}"
+    assert any(x.startswith("GET") for x in saiu), (
+        "nem o GET saiu — o ensaio bloqueou a leitura e não resolveria nada")
+    assert len(registro) == 4, f"registrou {len(registro)} escritas, esperava 4"
+    print(f"OK 3.3 POST/PUT/PATCH/DELETE interceptados, GET passa, "
+          f"{len(escritas_na_rede)} escritas na rede")
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
     aceite_2_1_todas_as_geradoras,
@@ -270,6 +318,7 @@ ACEITES = [
     aceite_2_5_one_time_sem_recorrencia,
     aceite_3_2_identificador_tolerante,
     aceite_3_3_rede_de_protecao,
+    aceite_3_3_intercepta_os_QUATRO_metodos,
     aceite_3_4_mapa_de_capacidades,
     aceite_3_6_contexto_cliente,
 ]
