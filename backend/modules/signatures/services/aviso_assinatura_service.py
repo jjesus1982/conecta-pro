@@ -65,6 +65,15 @@ _SQL_PENDENTES = text(
        -- também é avisado (231 notificações no portal em 30 dias, 1 lida).
        AND (coalesce(e.email,'') <> '' OR coalesce(e.celular, e.telefone, '') <> '')
        AND lower(coalesce(e.status,'')) IN ('ativo','afastado_inss','suspenso')
+       -- 🔴 11/09/2026 — A COORTE DE HOMOLOGAÇÃO MANDOU MENSAGEM PARA ESTRANHOS. Os 12
+       -- funcionários de teste (criados em 01/08, `is_homologacao = true`) têm telefone
+       -- sequencial de fachada — 92 99999-0001 a 0012 — e esses números EXISTEM: pertencem
+       -- a gente de verdade. Em 10/09 às 13:00 o dono do 92 99999-0003 recebeu "Olá,
+       -- Rafael! ... Você tem 12 documento(s) ... para assinar" e respondeu "Vc se enganou
+       -- de numero". Oito mensagens já saíram assim, e havia 136 pedidos pendentes desses
+       -- 12 contra 3 de gente real: a próxima rodada avisaria doze estranhos.
+       -- O `lembrete_ponto` já filtrava por esta coluna desde que nasceu; este serviço não.
+       AND coalesce(e.is_homologacao, false) = false
        AND NOT EXISTS (
              SELECT 1 FROM portal_notifications n
               WHERE n.employee_id = e.id
