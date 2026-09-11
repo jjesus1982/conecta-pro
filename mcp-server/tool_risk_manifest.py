@@ -46,6 +46,10 @@ TOOL_RISK: dict[str, str] = {
     # Ensaiar NÃO grava — a interceptação é no único ponto por onde o MCP escreve. E, como
     # o despachante de segundo plano, aplica as duas paredes contra a ferramenta interna.
     "changelog_mcp": "read",
+    # `no_sandbox` ESCREVE — só que num banco descartável. `read` seria mentira na
+    # etiqueta; `propose` mataria o recurso. `write_low` diz a verdade: grava, e o que
+    # grava não tem consequência fora do ensaio. As paredes da ferramenta interna valem.
+    "no_sandbox": "write_low",
     "ensaiar": "read",
     "status_job": "read",
     "resultado_job": "read",

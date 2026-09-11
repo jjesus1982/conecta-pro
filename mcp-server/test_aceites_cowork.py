@@ -370,6 +370,112 @@ async def aceite_3_5_teto_real_do_job() -> None:
 
 
 
+async def aceite_4x_request_id_em_toda_resposta() -> None:
+    """`request_id` no caminho feliz E no erro, nas duas representações, e propagado ao ERP.
+
+    Antes ele só existia quando o ERP devolvia `x-request-id` num erro — quase nunca, e
+    nunca no sucesso. O que sobrava para investigar era "deu erro às 14h".
+
+    ⭐ As DUAS representações: o `ToolResult` carrega o mesmo dado em `structured_content`
+    (dict) e em `content` (texto JSON). Carimbar só uma faz os dois leitores discordarem.
+    """
+    import json as _json
+
+    import httpx
+    from fastmcp import Client
+
+    vistos, enviados = [], []
+    original = httpx.AsyncClient.request
+
+    async def espia(self, method, url, **kw):  # noqa: ANN001
+        enviados.append((kw.get("headers") or {}).get("X-Request-ID"))
+        return await original(self, method, url, **kw)
+
+    httpx.AsyncClient.request = espia
+    try:
+        async with Client(S.mcp) as c:
+            feliz = await c.call_tool("listar_contratos", {"limite": 2})
+            d = feliz.structured_content
+            rid = d.get("request_id")
+            assert rid and rid.startswith("req_"), f"sucesso sem request_id: {list(d)}"
+            texto = _json.loads(feliz.content[0].text)
+            assert texto.get("request_id") == rid, (
+                f"dict e texto discordam: {rid} vs {texto.get('request_id')}")
+            vistos.append(rid)
+
+            ruim = await c.call_tool("baixar_contrato_pdf", {"contrato_id": "zzz-nao-existe"})
+            rid2 = ruim.structured_content.get("request_id")
+            assert rid2, "ERRO sem request_id — justamente a resposta que alguém vai rastrear"
+            vistos.append(rid2)
+
+            outra = await c.call_tool("ping_conecta_pro", {})
+            vistos.append(outra.structured_content.get("request_id"))
+    finally:
+        httpx.AsyncClient.request = original
+
+    assert len(set(vistos)) == len(vistos), f"ids repetidos entre chamadas: {vistos}"
+    assert vistos[0] in enviados, (
+        "o id NÃO foi ao ERP — seria um número que só existe deste lado, e "
+        "consultar_auditoria(request_id=...) não teria o que achar")
+    print(f"OK 4.x request_id em sucesso e erro, dict==texto, único por chamada, "
+          f"propagado ao ERP")
+
+
+async def aceite_4x_sandbox_grava_longe_da_producao() -> None:
+    """`no_sandbox` executa DE VERDADE num ERP de mentira — e a produção não sente.
+
+    Item 4: "hoje qualquer teste vira registro real (foi o caso do CTR-2026-00022)".
+    `ensaiar` mostra o que faria; o sandbox faz, num banco descartável — é o que permite
+    ver o que só existe DEPOIS de gravar (numeração, diagnóstico, pendências).
+    """
+    antes = await S.listar_contratos(limite=100)
+    sb = await S.no_sandbox("listar_contratos", {"limite": 100})
+    assert sb.get("ok") and sb.get("sandbox") is True, f"sandbox não respondeu: {str(sb)[:200]}"
+    la = (sb.get("resultado") or {}).get("total")
+    aqui = antes.get("total")
+    assert la is not None and aqui is not None
+    assert la != aqui, (
+        f"sandbox e produção têm o MESMO total ({aqui}) — ou a rota não trocou de ambiente, "
+        f"ou estou lendo o banco de produção achando que é o de ensaio")
+
+    # o contexto não pode vazar: a chamada seguinte tem de voltar a produção
+    assert S._SANDBOX.get() is False, "o contexto de sandbox vazou para fora da chamada"
+    depois = await S.listar_contratos(limite=100)
+    assert depois.get("total") == aqui, "produção mudou de tamanho depois do sandbox"
+
+    # As paredes valem igual lá: sandbox muda ONDE, não O QUÊ.
+    #
+    # ⚠️ A parede de `propose` só existe em MODO_AGENTE — este conector é o PÚBLICO, onde
+    # nem a chamada direta passa por ela. Cobrar recusa aqui seria exigir do sandbox uma
+    # rigidez que a porta da frente não tem, e o teste ficaria vermelho sobre um acerto.
+    # Por isso ligo o modo explicitamente para medir a parede, e restauro depois.
+    import gate_propose
+
+    propose = next((n for n, c in __import__("tool_risk_manifest").TOOL_RISK.items()
+                    if c == "propose" and hasattr(S, n)), None)
+    assert propose, "nenhuma tool propose — não dá para provar esta parede"
+    modo_antes = gate_propose.MODO_AGENTE
+    gate_propose.MODO_AGENTE = True
+    try:
+        r = await S.no_sandbox(propose, {})
+    finally:
+        gate_propose.MODO_AGENTE = modo_antes
+    assert r.get("codigo") == "PRECISA_APROVACAO", (
+        f"`{propose}` executou no sandbox com a parede LIGADA — vira caminho alternativo "
+        f"para aprovação humana: {r}")
+
+    # ensaio e sandbox são promessas opostas; aninhar tem de recusar
+    marca = S._ENSAIO.set([])
+    try:
+        conflito = await S.no_sandbox("listar_contratos", {"limite": 1})
+    finally:
+        S._ENSAIO.reset(marca)
+    assert conflito.get("codigo") == "ENSAIO_E_SANDBOX", (
+        f"um ensaio caiu no sandbox e gravaria: {conflito}")
+    print(f"OK 4.x sandbox com {la} contratos × produção com {aqui}; paredes valem lá; "
+          f"ensaio aninhado recusado")
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
     aceite_2_1_todas_as_geradoras,
@@ -383,6 +489,8 @@ ACEITES = [
     aceite_3_5_teto_real_do_job,
     aceite_3_4_mapa_de_capacidades,
     aceite_3_6_contexto_cliente,
+    aceite_4x_request_id_em_toda_resposta,
+    aceite_4x_sandbox_grava_longe_da_producao,
 ]
 
 

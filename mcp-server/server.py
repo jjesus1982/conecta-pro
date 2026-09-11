@@ -171,8 +171,11 @@ class ErpErro(RuntimeError):
                "mensagem": self.mensagem}
         if self.dica:
             out["dica"] = self.dica
-        if self.request_id:
-            out["request_id"] = self.request_id
+        # o do ERP ganha do meu: se o backend nomeou a requisição, é esse nome que está no
+        # log dele. O meu serve quando ele não nomeou — melhor um id meu que nenhum.
+        rid = self.request_id or _REQ_ID.get()
+        if rid:
+            out["request_id"] = rid
         return out
 
 
@@ -290,8 +293,10 @@ class _Erp:
     """Cliente HTTP para o ERP com login de conta de serviço (JWT cacheado + refresh em 401)."""
 
     def __init__(self) -> None:
-        self._token: str | None = None
-        self._exp: float = 0.0
+        # ⚠️ POR AMBIENTE. Um cache único mandaria o token de produção ao staging (que o
+        # recusaria) e, pior, o token de staging à produção na chamada seguinte. Ambiente
+        # errado com credencial certa é a forma mais silenciosa de escrever no lugar errado.
+        self._tokens: dict[str, tuple[str, float]] = {}
 
     async def _login(self, client: httpx.AsyncClient) -> str:
         # ⚠️ NÃO troque este `client.post` por `self.request("POST", ...)`. Parece limpeza
@@ -303,7 +308,7 @@ class _Erp:
         # É por passar FORA do `request` que o login é o único não-GET que sai durante um
         # ensaio — e é por isso que o ensaio consegue autenticar.
         r = await client.post(
-            f"{API}/auth/login",
+            f"{_api()}/auth/login",
             data={"username": ERP_USER, "password": ERP_PASSWORD},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=20,  # login: 20s é o teto certo mesmo em job — login lento é login quebrado
@@ -312,8 +317,7 @@ class _Erp:
         tok = r.json().get("access_token")
         if not tok:
             raise RuntimeError("login no ERP não retornou access_token")
-        self._token = tok
-        self._exp = time.time() + 50 * 60  # ~50min
+        self._tokens[_api()] = (tok, time.time() + 50 * 60)  # ~50min
         return tok
 
     async def _cabecalho(self, client: httpx.AsyncClient) -> tuple[dict, bool]:
@@ -327,9 +331,11 @@ class _Erp:
             do_usuario = None
         if do_usuario:
             return {"Authorization": f"Bearer {do_usuario}"}, True
-        if not self._token or time.time() > self._exp:
+        tok, exp = self._tokens.get(_api(), (None, 0.0))
+        if not tok or time.time() > exp:
             await self._login(client)
-        return {"Authorization": f"Bearer {self._token}"}, False
+            tok = self._tokens[_api()][0]
+        return {"Authorization": f"Bearer {tok}"}, False
 
     async def request(self, method: str, path: str, *, json: Any = None, params: Any = None) -> Any:
         # ⭐ ENSAIO. Tudo que o MCP escreve no ERP passa por aqui — não há outro caminho, o
@@ -345,9 +351,14 @@ class _Erp:
                     "aviso": "nada foi gravado — isto é um ensaio"}
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
+            # leva o id ao backend: sem isto o `request_id` seria um número que só existe do
+            # lado de cá, e `consultar_auditoria(request_id=...)` não teria o que achar.
+            rid = _REQ_ID.get()
+            if rid:
+                headers = {**headers, "X-Request-ID": rid}
             for attempt in (1, 2):
                 r = await client.request(
-                    method, f"{API}{path}", headers=headers,
+                    method, f"{_api()}{path}", headers=headers,
                     json=json, params=params, timeout=TIMEOUT_JOB if _EM_JOB.get() else 40,
                 )
                 if r.status_code == 401 and attempt == 1:
@@ -359,7 +370,7 @@ class _Erp:
                             f"ERP {method} {path} -> 401 com a identidade do usuário; "
                             f"a sessão dele expirou ou ele não tem esse acesso")
                     await self._login(client)
-                    headers = {"Authorization": f"Bearer {self._token}"}
+                    headers = {"Authorization": f"Bearer {self._tokens[_api()][0]}"}
                     continue
                 if r.status_code >= 400:
                     raise ErpErro.de_resposta(method, path, r)
@@ -384,12 +395,12 @@ class _Erp:
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.get(f"{API}{path}", headers=headers, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
+                r = await client.get(f"{_api()}{path}", headers=headers, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
                 if r.status_code == 401 and attempt == 1:
                     if do_usuario:
                         raise RuntimeError(f"ERP GET {path} -> 401 com a identidade do usuário")
                     await self._login(client)
-                    headers = {"Authorization": f"Bearer {self._token}"}
+                    headers = {"Authorization": f"Bearer {self._tokens[_api()][0]}"}
                     continue
                 r.raise_for_status()
                 return r.content
@@ -400,12 +411,12 @@ class _Erp:
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.post(f"{API}{path}", headers=headers, json=json, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
+                r = await client.post(f"{_api()}{path}", headers=headers, json=json, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
                 if r.status_code == 401 and attempt == 1:
                     if do_usuario:
                         raise RuntimeError(f"ERP POST {path} -> 401 com a identidade do usuário")
                     await self._login(client)
-                    headers = {"Authorization": f"Bearer {self._token}"}
+                    headers = {"Authorization": f"Bearer {self._tokens[_api()][0]}"}
                     continue
                 if r.status_code >= 400:
                     raise RuntimeError(f"ERP POST {path} -> {r.status_code}: {r.text[:200]}")
@@ -3807,6 +3818,21 @@ except Exception as _e:  # noqa: BLE001
         raise RuntimeError(f"MCP_MODO=agente exige o repasse de identidade: {_e}") from _e
     print(f"[mcp] exigência de identidade não instalada ({_e})", flush=True)
 
+# O carimbo entra por ÚLTIMO de propósito: middleware do FastMCP roda em pilha, e o último
+# instalado é o mais externo. Assim ele enxerga a resposta depois de todas as paredes — e
+# uma RECUSA do gate também sai carimbada, que é justamente a resposta que alguém vai querer
+# rastrear depois.
+try:
+    from carimbo import instalar as _instalar_carimbo
+
+    if _instalar_carimbo(mcp):
+        print("[mcp] request_id ATIVO — toda resposta carimbada e propagada ao ERP",
+              flush=True)
+except Exception as _e:  # noqa: BLE001
+    # rastreabilidade é importante e não é parede: não subir por causa dela seria trocar
+    # um conector no ar por um conector fora do ar.
+    print(f"[mcp] request_id NÃO instalado ({_e}) — respostas sem rastro", flush=True)
+
 _mcp_app = mcp.http_app(path="/mcp")
 
 
@@ -4267,6 +4293,25 @@ TIMEOUT_JOB = 600
 # que é informação diferente.
 _ENSAIO: contextvars.ContextVar[list | None] = contextvars.ContextVar("_ENSAIO", default=None)
 
+# Identificador desta chamada, do pedido do agente até o log do backend. Item 4 do relatório
+# de campo. Antes ele só existia quando o ERP mandava `x-request-id` num ERRO — ou seja,
+# quase nunca, e nunca no caminho feliz. Sem isto, "deu errado às 14h" é tudo que se leva
+# para investigar.
+_REQ_ID: contextvars.ContextVar[str] = contextvars.ContextVar("_REQ_ID", default="")
+
+# Ambiente de ENSAIO COM GRAVAÇÃO. Item 4 do relatório de campo: "hoje qualquer teste vira
+# registro real — foi o caso do CTR-2026-00022". `ensaiar` mostra o que FARIA e não grava;
+# o sandbox grava de verdade, num banco descartável, para exercitar o que só aparece depois
+# da escrita (numeração, diagnóstico do wizard, pendências que sobram).
+SANDBOX_BASE = os.getenv("ERP_SANDBOX_URL", "http://conecta-pro-backend-staging:8080").rstrip("/")
+SANDBOX_API = f"{SANDBOX_BASE}/api/v1"
+_SANDBOX: contextvars.ContextVar[bool] = contextvars.ContextVar("_SANDBOX", default=False)
+
+
+def _api() -> str:
+    """A base desta chamada. Produção por padrão; staging só dentro de `no_sandbox`."""
+    return SANDBOX_API if _SANDBOX.get() else API
+
 _JOBS: dict[str, dict] = {}
 _JOBS_TTL = 2 * 3600
 
@@ -4391,6 +4436,71 @@ async def changelog_mcp(limite: int = 15, desde: str = "") -> dict:
             "mostrando": min(limite, len(entradas)),
             "mudancas": entradas[:limite],
             "dica": "Use desde='AAAA-MM-DD' para ver só o que é novo para você."}
+
+
+@mcp.tool
+async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
+    """Executa a ferramenta DE VERDADE, num ERP de mentira. Nada toca a produção.
+
+    Use quando precisar do que só existe DEPOIS de gravar — o número que o contrato
+    recebeu, o que o diagnóstico passa a cobrar, a pendência que sobrou. `ensaiar` mostra o
+    que faria e para aí; aqui a escrita acontece, num banco descartável.
+
+    Item 4 do relatório de campo: "hoje qualquer teste vira registro real". O CTR-2026-00024
+    do Kopenhagen nasceu assim, de um teste meu.
+
+    ⚠️ O sandbox é uma CÓPIA ANTIGA: 20 clientes, 12 contratos, 72 funcionários. Os ids e
+    números NÃO valem em produção, e o que você criar lá não existe aqui. Serve para provar
+    o CAMINHO, nunca para consultar dado — para consultar, chame a ferramenta direto.
+
+    ⚠️ As duas paredes valem igual: ação de aprovação humana continua recusada, e ferramenta
+    que toca dado pessoal continua exigindo identidade. Sandbox muda ONDE, não O QUÊ — não é
+    caminho alternativo para o que você não pode fazer.
+    """
+    alvo = globals().get(ferramenta)
+    if alvo is None or not callable(alvo):
+        return {"ok": False, "codigo": "FERRAMENTA_DESCONHECIDA", "http": 404,
+                "mensagem": f"Não existe ferramenta chamada {ferramenta!r}.",
+                "dica": "Use conecta_pro_capabilities() para achar o nome certo."}
+    try:
+        from gate_propose import precisa_aprovacao  # noqa: PLC0415
+        if precisa_aprovacao(ferramenta):
+            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+                    "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
+                    "dica": "Sandbox não é caminho alternativo. Chame direto — o pedido vai "
+                            "ao dono por lá."}
+    except ImportError:
+        pass
+    try:
+        from identidade import MODO_AGENTE, _TOKEN, sensivel  # noqa: PLC0415
+        if MODO_AGENTE and _TOKEN.get() is None and sensivel(ferramenta):
+            return {"ok": False, "codigo": "SEM_IDENTIDADE", "http": 401,
+                    "mensagem": f"`{ferramenta}` toca dado pessoal ou dinheiro.",
+                    "dica": "Envie o cabeçalho de identidade — vale igual no sandbox."}
+    except ImportError:
+        pass
+
+    # ⚠️ Uma chamada de ensaio NÃO pode ir para o sandbox e voltar dizendo que gravou: são
+    # duas promessas opostas. Se alguém aninhar os dois, o ensaio ganha — ele é o mais
+    # restritivo, e no caso duvidoso a escrita não acontece.
+    if _ENSAIO.get() is not None:
+        return {"ok": False, "codigo": "ENSAIO_E_SANDBOX", "http": 409,
+                "mensagem": "Isto já está dentro de um ensaio, que não grava em lugar nenhum.",
+                "dica": "Escolha um: `ensaiar` para ver o que faria, `no_sandbox` para fazer."}
+
+    marca = _SANDBOX.set(True)
+    try:
+        r = alvo(**(argumentos or {}))
+        retorno = await r if inspect.isawaitable(r) else r
+    except Exception as exc:  # noqa: BLE001
+        return {**erro_envelope(exc), "sandbox": True,
+                "dica": "Falhou NO SANDBOX. A produção não foi tocada."}
+    finally:
+        _SANDBOX.reset(marca)
+
+    return {"ok": True, "sandbox": True, "ferramenta": ferramenta, "resultado": retorno,
+            "aviso": "Executado no ERP de ensaio. Nada disto existe em produção — os "
+                     "identificadores e números NÃO valem lá."}
 
 
 @mcp.tool

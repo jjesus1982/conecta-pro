@@ -19,6 +19,10 @@ services:
       - "127.0.0.1:8788:8788"   # só localhost; nginx faz o TLS público
     networks:
       - conecta-pro_conecta-pro-network
+      # rede do staging: é assim que a ferramenta `no_sandbox` alcança o ERP de ensaio.
+      # Sem isto ela só teria a porta do host, que é 127.0.0.1 e não existe de dentro do
+      # container — daria "connection refused" e pareceria staging fora do ar.
+      - conecta-staging-network
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8788/healthz').status==200 else 1)"]
       interval: 30s
@@ -28,4 +32,6 @@ services:
 
 networks:
   conecta-pro_conecta-pro-network:
+    external: true
+  conecta-staging-network:
     external: true
