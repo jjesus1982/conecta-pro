@@ -2490,6 +2490,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "meu_ponto_hoje": {"kind": "action"},
     "registrar_batida_contingencia": {"kind": "action"},
     "justificar_ponto": {"kind": "action"},
+    "registrar_resposta_pesquisa_ponto": {"kind": "action"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2710,7 +2711,7 @@ _PAPEIS: dict[str, dict] = {
     # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
     "funcionario": {
         "tools": ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
-                  "transferir_conversa"),
+                  "registrar_resposta_pesquisa_ponto", "transferir_conversa"),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
         # vez de somar a ele. A razão foi medida em 11/09, no primeiro turno real: o papel
         # resolveu o ponto do Rene e ainda assim pediu o CNPJ dele. O prompt base tem 39.680
@@ -2718,10 +2719,14 @@ _PAPEIS: dict[str, dict] = {
         # maiúsculas — e uma instrução aditiva de 1.200 não vence isso: o modelo gastou os 500
         # tokens de saída no conflito e devolveu texto VAZIO (`finish=length`, content='').
         # Para quem é da casa o prompt de vendas não é calibragem a preservar, é ruído.
-        "prompt": ("Você é José Luís, do atendimento da Conecta Mais (Manaus/AM). Fala por "
-                 "WhatsApp, em mensagens CURTAS e naturais, como uma pessoa de verdade — "
-                 "nunca se descreva como robô, IA ou atendimento automático. Uma pergunta "
-                 "por vez, sem textão, sem bajulação, emoji raríssimo.\n"
+        "prompt": ("Você é José Luís, da Conecta Mais (Manaus/AM). Fala por WhatsApp, em "
+                 "mensagens CURTAS e naturais, como uma pessoa de verdade — nunca se descreva "
+                 "como robô, IA ou atendimento automático. Uma pergunta por vez, sem textão, "
+                 "sem bajulação, emoji raríssimo.\n"
+                 "QUEM VOCÊ É PARA ELE (decisão do Jordan, 11/09/2026): você é o responsável "
+                 "por ORGANIZAR A QUESTÃO DO PONTO e trabalha junto com a PYETRA JESUS. É "
+                 "assim que você se apresenta a funcionário, e só a funcionário — para "
+                 "cliente e lead você segue sendo do atendimento.\n"
                  "PAPEL NESTA CONVERSA — FUNCIONÁRIO DA CASA. Quem fala é COLEGA, "
                  "identificado pelo telefone no cadastro: o contexto abaixo traz o nome, o "
                  "cargo, o posto e o ponto dele de hoje.\n"
@@ -2738,7 +2743,12 @@ _PAPEIS: dict[str, dict] = {
                  "5. Ele manda PRINT quando o app falha: leia o que está escrito na imagem e "
                  "use como motivo. Não peça para ele digitar de novo o que já mandou.\n"
                  "6. Um assunto de cada vez, pelo nome dele. Nada de mensagem-padrão.\n"
-                 "7. O que não for ponto, escala, holerite ou documento dele — e o que "
+                 "7. PESQUISA DO PONTO: se ele responder se está ou não conseguindo bater, "
+                 "chame `registrar_resposta_pesquisa_ponto` na hora — inclusive quando a "
+                 "resposta for só 'sim'. Se disse que NÃO consegue, pergunte O QUE ACONTECE "
+                 "(rosto não reconhece? app não abre? outra coisa?) antes de registrar, e "
+                 "registre com as palavras dele. Agradeça e diga que você leva para resolver.\n"
+                 "8. O que não for ponto, escala, holerite ou documento dele — e o que "
                  "depender de decisão de gente (troca de escala, pagamento, demissão) — vai "
                  "para `transferir_conversa`. Prometer o que não pode cumprir é pior que "
                  "encaminhar."),
@@ -3826,6 +3836,34 @@ _SCHEMA_JUSTIFICAR = {
 }
 
 
+_SCHEMA_PESQUISA = {
+    "type": "function",
+    "function": {
+        "name": "registrar_resposta_pesquisa_ponto",
+        "description": (
+            "Registra a resposta do funcionário à pesquisa 'você está conseguindo bater seu "
+            "ponto?'. Chame SEMPRE que ele responder, mesmo que a resposta seja só 'sim'. "
+            "Sem isso a resposta vira conversa e some — e uma pesquisa que ninguém consegue "
+            "somar não é pesquisa."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "consegue": {
+                    "type": "boolean",
+                    "description": "true se ele disse que está conseguindo bater normalmente; "
+                                   "false se disse que NÃO está. Omita se não deu para concluir."},
+                "detalhe": {
+                    "type": "string",
+                    "description": "O que ele contou, nas palavras dele — o que acontece quando "
+                                   "tenta, o que aparece na tela, desde quando. Se mandou print, "
+                                   "escreva o que estava escrito nele."},
+            },
+            "required": ["detalhe"],
+        },
+    },
+}
+
+
 async def _funcionario_da_conversa(conversation_id: int):
     """O funcionário desta conversa, pelo telefone dela. None se não for da casa."""
     from .identidade import quem_e  # noqa: PLC0415
@@ -3843,6 +3881,13 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
     async with async_session_factory() as db:
         if name == "meu_ponto_hoje":
             return await _pf.situacao_hoje(db, ident.employee_id)
+        if name == "registrar_resposta_pesquisa_ponto":
+            from modules.people_management.ponto import pesquisa_ponto as _pp  # noqa: PLC0415
+
+            return await _pp.registrar_resposta(
+                db, ident.employee_id, ident.nome or "(sem nome)",
+                args.get("consegue") if isinstance(args.get("consegue"), bool) else None,
+                str(args.get("detalhe") or ""), ident.posto)
         if name == "registrar_batida_contingencia":
             return await _pf.registrar_contingencia(db, ident.employee_id,
                                                     str(args.get("motivo") or "").strip())
@@ -4294,7 +4339,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     if papel == "funcionario":
         # Fora do registro público de propósito: o conjunto do cliente não pode conter
         # ferramenta de ponto de pessoa. Mesma razão do par do fornecedor logo abaixo.
-        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR]
+        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR, _SCHEMA_PESQUISA]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
         # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
@@ -4598,7 +4643,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         # ── papel FUNCIONÁRIO ──
         # 🔒 QUEM é o funcionário sai do TELEFONE da conversa. Se viesse por argumento,
         # "sou o Rene" bastaria para lançar ponto na jornada de outra pessoa.
-        if name in ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto"):
+        if name in ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
+                    "registrar_resposta_pesquisa_ponto"):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
                 return {"erro": "não identifiquei este número no cadastro de funcionários."}
