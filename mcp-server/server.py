@@ -700,7 +700,8 @@ async def listar_deals(estagio: str | None = None, limite: int = 50) -> dict:
             "id": d.get("id"),
         })
     out.sort(key=lambda x: float(str(x["valor"]).replace("R$", "").replace(".", "").replace(",", ".") or 0), reverse=True)
-    return {"filtro": estagio or "todos", "total": len(out), "deals": out[:limite]}
+    return {"ok": True, "filtro": estagio or "todos", "total": len(out),
+            "nesta_pagina": len(out[:limite]), "deals": out[:limite]}
 
 
 @mcp.tool
@@ -1399,7 +1400,8 @@ async def _legivel(r: dict, formato: str, forcar_base64: bool = False) -> dict:
                           params={"formato": formato, "forcar_base64": forcar_base64})
     except Exception as exc:  # noqa: BLE001
         r["aviso_leitura"] = (f"Gerado e registrado, mas não consegui trazer o conteúdo "
-                              f"para leitura ({str(exc)[:90]}). Use o download_url.")
+                              f"para leitura ({str(exc)[:90]}). O documento existe; use o "
+                              f"link do registro ou chame baixar_documento pelo id.")
         return r
     if not c.get("ok"):
         r["aviso_leitura"] = c.get("mensagem") or "conteúdo indisponível para leitura"
@@ -1488,7 +1490,16 @@ async def listar_documentos(tipo: str | None = None, limite: int = 30) -> dict:
     """Lista os documentos gerados/registrados no Conecta PRO (com link de download).
     tipo (opcional): proposta|contrato|relatorio|recibo|ordem_servico|aditivo|atestado."""
     p = f"?tipo={tipo}&limite={limite}" if tipo else f"?limite={limite}"
-    return await erp.get(f"/crm/docs{p}")
+    try:
+        r = await erp.get(f"/crm/docs{p}")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = _items(r) or (r.get("documentos") if isinstance(r, dict) else None) or []
+    # `ok` explícito: sem ele o agente não distingue "nenhum documento" de "a chamada
+    # falhou e devolveu lista vazia" — e as duas levam a decisões opostas.
+    return {"ok": True, "total": (r or {}).get("total", len(itens)) if isinstance(r, dict) else len(itens),
+            "nesta_pagina": len(itens),
+            "documentos": itens if itens else (r if not isinstance(r, dict) else [])}
 
 
 @mcp.tool
@@ -1806,6 +1817,7 @@ async def resumo_comercial() -> dict:
     pipe = await _compute_pipeline()
     props = _items(await erp.get("/crm/proposals/", params={"page_size": 5}))
     return {
+        "ok": True,
         "clientes": len(clientes),
         "mrr_total": _num(mrr), "mrr_total_formatado": _brl(mrr),
         "pipeline_aberto": pipe.get("pipeline_aberto"),
@@ -4655,10 +4667,24 @@ async def _idade_do_sandbox() -> dict:
     """Quão velha é a cópia. Auditoria pediu: 'documentar a data do snapshot no retorno'."""
     marca = _SANDBOX.set(True)
     try:
-        d = await erp.get("/crm/contracts", params={"page_size": 1})
-        return {"contratos": (d or {}).get("total"),
-                "dica": "Se este total estiver muito longe do de produção, a cópia está "
-                        "velha — rode scripts/refrescar_sandbox.sh."}
+        d = await erp.get("/crm/contracts", params={"page_size": 1, "page": 1})
+        total = (d or {}).get("total")
+        # ⭐ A DATA, não só a contagem. Pedido do Cowork na validação: ele emitiu no sandbox
+        # e o contrato saiu com "Jordan Santos de Jesus" e "Representante legal" — dados
+        # ANTERIORES à correção CP-MCP-008, já certos em produção. A contagem não denuncia
+        # isso: o sandbox tinha MAIS contratos que produção e ainda assim era velho. O que
+        # denuncia é o registro mais recente da cópia.
+        recente = await erp.get("/crm/contracts",
+                                params={"page_size": 1, "sort": "-created_at"})
+        itens = _items(recente)
+        criado = (itens[0].get("created_at") if itens else None)
+        return {
+            "contratos": total,
+            "registro_mais_recente": criado,
+            "dica": "A cópia reproduz o cadastro do dia em que foi feita — se o documento "
+                    "sair com dado velho, não é defeito do código: rode "
+                    "scripts/refrescar_sandbox.sh. O sandbox prova o CAMINHO, não o DADO.",
+        }
     except Exception:  # noqa: BLE001
         # não conseguir medir a idade não invalida a execução que já aconteceu
         return {"contratos": None, "dica": "não consegui medir a idade da cópia"}

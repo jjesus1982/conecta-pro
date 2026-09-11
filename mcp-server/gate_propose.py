@@ -40,6 +40,60 @@ MODO_AGENTE = (os.getenv("MCP_MODO") or "").strip().lower() == "agente"
 # Ausente = a parede ainda barra, e a tela diz que a consequência não foi declarada — o que
 # é pior de ler e melhor de errar do que uma aprovação às cegas.
 CONSEQUENCIAS: dict[str, list[str]] = {
+    # ⭐ As de EFEITO EXTERNO vêm primeiro porque são as que o aprovador mais precisa
+    # entender — e eram justamente as que estavam mudas. Validação do Cowork (11/09/2026):
+    # a parede segurava `enviar_link_assinatura` e `assinar_contrato_empresa`, mas quem
+    # abrisse o pedido lia "consequência NÃO declarada — aprove só se souber o que ela faz".
+    # Pedir aprovação sem dizer o que se aprova é pedir assinatura em branco.
+    "enviar_link_assinatura": [
+        "MANDA UM E-MAIL, agora, para o endereço do CLIENTE",
+        "o e-mail leva um link que abre a plataforma de assinatura",
+        "a partir daí o cliente pode ASSINAR — e um contrato assinado não se desfaz",
+        "se o contrato estiver com dado errado, o erro vai junto e com a sua marca",
+        "não há 'cancelar envio': e-mail entregue foi lido ou não, e isso você não controla",
+    ],
+    "assinar_contrato_empresa": [
+        "APLICA a assinatura da empresa no instrumento, com o certificado ICP-Brasil",
+        "é ATO JURÍDICO: vincula a Conecta Mais ao que está escrito no contrato",
+        "carimba hash, IP e horário no manifesto — a trilha fica, inclusive do erro",
+        "assinar antes de conferir a cláusula é assinar a cláusula errada",
+    ],
+    "enviar_proposta": [
+        "MANDA a proposta por e-mail ao cliente, com o preço que está lá dentro",
+        "preço enviado é âncora de negociação: revisar depois custa desconto",
+    ],
+    "enviar_proposta_completa": [
+        "MANDA a proposta COM OS ANEXOS por e-mail ao cliente",
+        "anexo errado é informação que sai da empresa e não volta",
+    ],
+    "enviar_proposta_whatsapp": [
+        "MANDA a proposta por WhatsApp, para o número cadastrado do cliente",
+        "WhatsApp é lido em minutos — não há janela para corrigir",
+    ],
+    "enviar_nps": [
+        "DISPARA a pesquisa de satisfação para os clientes da lista",
+        "é envio em massa: um destinatário errado é um constrangimento por cliente",
+    ],
+    "followup_whatsapp": [
+        "MANDA um follow-up por WhatsApp, agora, para o número do cliente",
+        "WhatsApp é lido em minutos — não existe janela para corrigir o texto",
+    ],
+    "followup_em_lote": [
+        "MANDA follow-ups para VÁRIOS clientes de uma vez",
+        "erro em lote não é um erro: é um por destinatário",
+    ],
+    "inscrever_em_sequencia": [
+        "INSCREVE o contato numa régua que dispara mensagens SOZINHA, nos próximos dias",
+        "depois de inscrito, o envio não depende mais de ninguém apertar nada",
+    ],
+    "propor_pagamento": [
+        "coloca um pagamento na fila do DINHEIRO QUE SAI",
+        "a saída ainda exige OTP humano — mas a fila é onde o erro entra",
+    ],
+    "gerar_lote_diarias_mes": [
+        "PROGRAMA o lote de pagamento das diárias do mês",
+        "é dinheiro que sai: valor errado aqui vira pagamento errado lá",
+    ],
     "aceitar_proposta": [
         "marca a proposta como ACEITA",
         "GERA COMISSÃO para o vendedor (nasce pendente, mas é obrigação registrada)",
@@ -53,16 +107,12 @@ CONSEQUENCIAS: dict[str, list[str]] = {
     "calcular_verbas_rescisorias": ["calcula rescisão — base do TRCT e do pagamento final"],
     "concluir_admissao": ["conclui a admissão e dispara os eventos de admissão"],
     "lancar_diaria": ["LANÇA DIÁRIA — vira valor a pagar ao diarista"],
-    "gerar_lote_diarias_mes": ["programa as diárias do mês inteiro — dinheiro a pagar"],
     "registrar_custo_recorrente": ["cria custo recorrente que passa a entrar no fluxo"],
-    "enviar_whatsapp": ["ENVIA MENSAGEM REAL ao cliente, em nome da empresa"],
-    "enviar_nps": ["dispara pesquisa de NPS ao cliente"],
-    "enviar_proposta": ["ENVIA a proposta ao cliente"],
-    "enviar_proposta_completa": ["ENVIA a proposta completa ao cliente"],
-    "enviar_proposta_whatsapp": ["ENVIA a proposta por WhatsApp ao cliente"],
-    "followup_whatsapp": ["envia follow-up ao cliente"],
-    "followup_em_lote": ["envia follow-up EM LOTE — várias pessoas de uma vez"],
-    "inscrever_em_sequencia": ["inscreve numa régua que passa a ENVIAR sozinha"],
+    "enviar_whatsapp": [
+        "ENVIA MENSAGEM REAL, agora, para um número fora da empresa",
+        "sai em nome da Conecta Mais — quem recebe lê como palavra da empresa",
+        "mensagem entregue não se apaga do outro lado",
+    ],
     "inscrever_lead_em_sequencia": ["inscreve o lead numa régua que passa a ENVIAR sozinha"],
     "expurgar_documentos_teste": ["APAGA documentos — irreversível"],
     "ativar_contrato": ["submete o contrato, tirando-o de rascunho"],

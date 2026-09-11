@@ -347,6 +347,30 @@ async def extra_request_id_em_toda_falha() -> str:
     return f"{len(alvos)} leituras com input inválido, 100% com request_id"
 
 
+async def extra_parametro_obrigatorio() -> str:
+    """CP-MCP-002 · argumento faltando = 422, sem vazar a assinatura da função.
+
+    ⭐ A tool de sonda é `criar_cliente`, NÃO `enviar_link_assinatura`. O Cowork achou isto
+    validando: em `enviar_link_assinatura` o portão de aprovação dispara ANTES da validação
+    de parâmetro — o que é a ordem CERTA (fail-closed no mais perigoso primeiro), mas faz o
+    403 encobrir o 422 e o caso não medir nada. Testar o 422 exige uma tool de escrita que
+    NÃO esteja bloqueada.
+    """
+    r = await S.ensaiar("criar_cliente", {})
+    assert r.get("codigo") == "PARAMETRO_OBRIGATORIO" and r.get("http") == 422, r
+    assert r.get("campos_faltantes"), "422 sem dizer QUAIS campos faltam"
+    msg = r.get("mensagem") or ""
+    for vazamento in ("positional", "argument", "()"):
+        assert vazamento not in msg, f"a assinatura da função vazou: {msg!r}"
+    assert not (r.get("escritas_que_teria_feito") or []), "faltou argumento E tentou escrever"
+
+    # e a ORDEM das guardas: no que é bloqueado, a aprovação vem antes — e tem de vir
+    bloqueada = await S.ensaiar("enviar_link_assinatura", {})
+    assert bloqueada.get("codigo") == "REQUER_APROVACAO_HUMANA", (
+        f"a validação de parâmetro passou na frente da parede: {bloqueada}")
+    return f"422 com {r['campos_faltantes']}; na bloqueada a aprovação vem primeiro"
+
+
 CASOS = [
     ("R01 documento legível", r01_documento_legivel),
     ("R02 identificador tolerante", r02_identificador_tolerante),
@@ -359,6 +383,7 @@ CASOS = [
     ("R09 operação longa vira job", r09_operacao_longa_vira_job),
     ("R10 parede do modelo em uso", r10_parede_do_modelo_em_uso),
     ("R11 parede de aprovação humana", r11_parede_de_aprovacao_humana),
+    ("CP-MCP-002 parâmetro = 422", extra_parametro_obrigatorio),
     ("CP-MCP-003 request_id sempre", extra_request_id_em_toda_falha),
 ]
 

@@ -102,6 +102,65 @@ def test_efeito_externo_tambem_e_propose() -> None:
     print("OK manifesto e gate contam a mesma história")
 
 
+def test_toda_acao_externa_declara_a_consequencia() -> None:
+    """Pedir aprovação sem dizer o que se aprova é pedir assinatura em branco.
+
+    Sugestão do Cowork na validação de 11/09: a parede segurava `enviar_link_assinatura` e
+    `assinar_contrato_empresa`, e quem abrisse o pedido lia "consequência NÃO declarada em
+    gate_propose.CONSEQUENCIAS — aprove só se souber o que ela faz". A parede funcionava e o
+    aprovador ficava no escuro, justamente nas duas mais graves.
+
+    Fail-closed: ação de efeito externo sem consequência REPROVA o build.
+    """
+    mudas = [n for n in G.EFEITO_EXTERNO if n not in G.CONSEQUENCIAS]
+    assert not mudas, (
+        f"efeito externo sem consequência declarada: {mudas}. "
+        f"Acrescente a gate_propose.CONSEQUENCIAS — uma linha por consequência REAL, em "
+        f"português de gente, do ponto de vista de quem vai aprovar.")
+
+    fracas = {n: c for n, c in G.CONSEQUENCIAS.items()
+              if n in G.EFEITO_EXTERNO and (len(c) < 2 or any(len(x) < 20 for x in c))}
+    assert not fracas, (
+        f"consequência curta demais para decidir: {list(fracas)}. "
+        f"'envia e-mail' não ajuda ninguém — diga PARA QUEM e o que não se desfaz.")
+
+    # e o texto que o aprovador lê tem de sair mesmo, não só existir no dicionário
+    for nome in G.EFEITO_EXTERNO:
+        linhas = G.consequencias(nome)
+        assert linhas and "NÃO declarada" not in " ".join(linhas), (
+            f"{nome} continua caindo no texto genérico: {linhas}")
+    print(f"OK as {len(G.EFEITO_EXTERNO)} ações externas dizem o que provocam")
+
+
+def test_consequencias_sem_chave_duplicada() -> None:
+    """Chave repetida no dicionário é APAGAMENTO SILENCIOSO — a última vence.
+
+    Aconteceu comigo em 11/09: escrevi as consequências completas no topo de
+    `CONSEQUENCIAS` sem perceber que oito daquelas chaves já existiam mais abaixo, com uma
+    linha cada. Python guardou as de baixo e descartou as minhas sem avisar. Só apareceu
+    porque o teste de qualidade acima reprovou nove entradas de uma vez — se ele não
+    existisse, eu teria commitado texto que nunca chegaria ao aprovador.
+
+    Mede o ARQUIVO (AST), não o dicionário já carregado: depois do `import` a duplicata não
+    existe mais para ser encontrada.
+    """
+    import ast
+    import collections
+    import pathlib as _pl
+
+    arv = ast.parse((_pl.Path(__file__).parent / "gate_propose.py").read_text())
+    for no in ast.walk(arv):
+        if isinstance(no, ast.AnnAssign) and getattr(no.target, "id", "") == "CONSEQUENCIAS":
+            chaves = [k.value for k in no.value.keys]
+            dup = [k for k, n in collections.Counter(chaves).items() if n > 1]
+            assert not dup, (
+                f"chave repetida em CONSEQUENCIAS: {dup}. A última vence e a primeira some "
+                f"em silêncio — junte as duas numa entrada só.")
+            print(f"OK CONSEQUENCIAS com {len(chaves)} chaves, nenhuma repetida")
+            return
+    raise AssertionError("não achei CONSEQUENCIAS no arquivo")
+
+
 def test_middleware_instala_no_modo_publico() -> None:
     """Classificar não adianta se o middleware não estiver no caminho.
 
@@ -125,6 +184,8 @@ if __name__ == "__main__":
     for fn in (test_modo_publico, test_verbo_que_sai_esta_decidido,
                test_efeito_externo_barra_em_modo_publico, test_cada_uma_diz_o_que_sai,
                test_exececao_nao_vira_gaveta, test_efeito_externo_tambem_e_propose,
+               test_toda_acao_externa_declara_a_consequencia,
+               test_consequencias_sem_chave_duplicada,
                test_middleware_instala_no_modo_publico):
         fn()
         print(f"PASS {fn.__name__}")

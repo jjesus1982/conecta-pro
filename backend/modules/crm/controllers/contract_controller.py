@@ -759,7 +759,18 @@ async def get_contract(
             detail="Contrato não encontrado",
         )
 
-    return ContractDetailResponse.model_validate(contract)
+    # ⭐ O DETALHE tinha menos informação que a LISTAGEM: `client_name`/`client_document`
+    # vinham nulos aqui e resolvidos lá. Quem abre o detalhe de um contrato quer justamente
+    # saber de quem ele é — e voltar à listagem para descobrir é o N+1 ao contrário.
+    # Apontado pelo Cowork em 11/09/2026 como ressalva do B1.
+    item = ContractDetailResponse.model_validate(contract)
+    if getattr(contract, "client_id", None) and not item.client_name:
+        cli = (await db.execute(
+            text("SELECT name, document_number FROM clients WHERE id = :i"),
+            {"i": contract.client_id})).first()
+        if cli:
+            item.client_name, item.client_document = cli[0], cli[1]
+    return item
 
 
 @router.put("/{contract_id}", response_model=ContractDetailResponse)
