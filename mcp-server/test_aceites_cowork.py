@@ -207,6 +207,39 @@ async def aceite_2_1_todas_as_geradoras() -> None:
     print(f"OK 2.1 {len(com)}/{len(todas)} baixar_/gerar_ com formato; nenhuma geradora muda")
 
 
+async def aceite_3_3_rede_de_protecao() -> None:
+    """`dry_run` em TODA ferramenta de escrita — via `ensaiar`, que serve às 82 de uma vez.
+
+    O aceite escrito cita idempotência ("duas chamadas com a mesma chave criam UM
+    contrato"), e isso já existe em `criar_contrato_por_modelo`. O que faltava era a outra
+    metade: ver o que a chamada FARIA antes de deixá-la gravar. Dar `dry_run` a 82
+    assinaturas seria esquecer algumas — e a esquecida é justamente a que grava sem avisar.
+    Por isso a interceptação fica no único ponto por onde o conector escreve.
+    """
+    r = await S.ensaiar("criar_cliente",
+                        {"nome": "TESTE ENSAIO LTDA", "cnpj": "11222333000181"})
+    assert r.get("ok"), f"o ensaio falhou: {str(r)[:200]}"
+    assert r.get("gravou") is False
+    escritas = r.get("escritas") or []
+    assert escritas, "criar_cliente não registrou nenhuma escrita — a interceptação furou"
+    assert any(e["metodo"] in ("POST", "PUT", "PATCH") for e in escritas), escritas
+    assert all(e.get("rota") and "corpo" in e for e in escritas), (
+        "escrita registrada sem rota ou sem corpo não deixa ninguém decidir nada")
+
+    # ⭐ A prova que importa: o banco NÃO recebeu. Código de saída não é evidência de nada.
+    todos = await S.erp.get("/crm/clients", params={"page_size": 200})
+    achou = [c for c in (todos.get("items") or [])
+             if "11222333000181" in str(c.get("cnpj") or c.get("document_number") or "")]
+    assert not achou, f"O ENSAIO GRAVOU: {achou}"
+
+    # irmã: ferramenta que só lê tem de dizer "nenhuma escrita", não ficar muda
+    so_leitura = await S.ensaiar("listar_contratos", {"limite": 3})
+    assert not (so_leitura.get("escritas") or []), so_leitura
+    assert "Nenhuma escrita" in (so_leitura.get("resumo") or "")
+    print(f"OK 3.3 ensaio mostra {len(escritas)} escrita(s) sem gravar; leitura pura diz que "
+          f"não gravaria")
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
     aceite_2_1_todas_as_geradoras,
@@ -215,6 +248,7 @@ ACEITES = [
     aceite_2_3_crud_de_modelos,
     aceite_2_5_one_time_sem_recorrencia,
     aceite_3_2_identificador_tolerante,
+    aceite_3_3_rede_de_protecao,
     aceite_3_4_mapa_de_capacidades,
     aceite_3_6_contexto_cliente,
 ]

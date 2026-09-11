@@ -314,6 +314,17 @@ class _Erp:
         return {"Authorization": f"Bearer {self._token}"}, False
 
     async def request(self, method: str, path: str, *, json: Any = None, params: Any = None) -> Any:
+        # ⭐ ENSAIO. Tudo que o MCP escreve no ERP passa por aqui — não há outro caminho, o
+        # conector só fala HTTP. Interceptar neste ponto dá `dry_run` às 82 ferramentas de
+        # escrita de uma vez; dar o parâmetro a cada uma seria editar 82 assinaturas e
+        # esquecer algumas, e a esquecida é justamente a que grava sem avisar.
+        if _ENSAIO.get() is not None and method.upper() != "GET":
+            _ENSAIO.get().append({"metodo": method.upper(), "rota": path,
+                                  "corpo": json, "query": params})
+            # devolve uma casca plausível: a tool costuma ler `id`/`ok` do retorno e seguir.
+            # Marcada, para nunca ser confundida com resposta real.
+            return {"ok": True, "ensaio": True, "id": "00000000-ensaio",
+                    "aviso": "nada foi gravado — isto é um ensaio"}
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
@@ -4216,6 +4227,11 @@ async def contexto_cliente(chave: str) -> dict:
 _EM_JOB: contextvars.ContextVar[bool] = contextvars.ContextVar("_EM_JOB", default=False)
 TIMEOUT_JOB = 600
 
+# O ensaio em curso: uma lista onde `request` deposita o que TERIA enviado. `None` = fora de
+# ensaio, e o `None` é de propósito — uma lista vazia significaria "ensaio sem escritas",
+# que é informação diferente.
+_ENSAIO: contextvars.ContextVar[list | None] = contextvars.ContextVar("_ENSAIO", default=None)
+
 _JOBS: dict[str, dict] = {}
 _JOBS_TTL = 2 * 3600
 
@@ -4271,9 +4287,12 @@ async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = N
     # acabou, então eu faço com os meus poderes". É a escalada que a F2 existe para impedir.
     token_do_chamador = None
     try:
-        from identidade import _TOKEN, sensivel  # noqa: PLC0415
+        from identidade import MODO_AGENTE, _TOKEN, sensivel  # noqa: PLC0415
+
         token_do_chamador = _TOKEN.get()
-        if token_do_chamador is None and sensivel(ferramenta):
+        # mesma razão do `ensaiar`: o middleware só existe em MODO_AGENTE, e uma parede
+        # mais rígida que a da frente só quebra a ferramenta para quem tem direito a ela.
+        if MODO_AGENTE and token_do_chamador is None and sensivel(ferramenta):
             return {"ok": False, "codigo": "SEM_IDENTIDADE", "http": 401,
                     "mensagem": f"`{ferramenta}` toca dado pessoal ou dinheiro e a chamada "
                                 f"chegou sem identidade.",
@@ -4304,6 +4323,77 @@ async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = N
     asyncio.create_task(_rodar())
     return {"ok": True, "job_id": jid, "status": "processando", "ferramenta": ferramenta,
             "proximo_passo": f"status_job('{jid}') — e resultado_job quando concluir."}
+
+
+@mcp.tool
+async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
+    """Mostra o que uma ferramenta FARIA — rota, corpo, tudo — sem gravar nada.
+
+    Vale para QUALQUER ferramenta de escrita. Use antes de criar cliente, contrato,
+    proposta, lançamento: você vê o payload já resolvido e decide se é isso mesmo.
+
+    O que volta: `escritas`, uma por chamada que teria ido ao ERP, com método, rota e corpo.
+    Lista vazia significa que a ferramenta não escreveria nada — informação útil por si só.
+
+    ⚠️ As LEITURAS acontecem de verdade (é como o ensaio resolve o cliente, o modelo, o
+    valor). Só as escritas são interceptadas.
+
+    ⚠️ Não é caminho alternativo para ação de aprovação humana: ferramenta `propose` é
+    recusada aqui do mesmo jeito. E ferramenta que toca dado pessoal continua exigindo
+    identidade — ensaiar não é desculpa para ler o holerite de alguém sem dizer quem
+    pergunta.
+    """
+    alvo = globals().get(ferramenta)
+    if alvo is None or not callable(alvo):
+        return {"ok": False, "codigo": "FERRAMENTA_DESCONHECIDA", "http": 404,
+                "mensagem": f"Não existe ferramenta chamada {ferramenta!r}.",
+                "dica": "Use conecta_pro_capabilities() para achar o nome certo."}
+    # as duas paredes, contra a ferramenta INTERNA — mesma razão do executar_em_segundo_plano
+    try:
+        from gate_propose import precisa_aprovacao  # noqa: PLC0415
+        if precisa_aprovacao(ferramenta):
+            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+                    "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
+                    "dica": "Chame direto — o pedido vai ao dono por lá."}
+    except ImportError:
+        pass
+    try:
+        from identidade import MODO_AGENTE, _TOKEN, sensivel  # noqa: PLC0415
+
+        # ⚠️ `MODO_AGENTE` NÃO é detalhe: o middleware de identidade só é instalado nesse
+        # modo. Checar sem ele aqui deixaria esta porta MAIS rígida que a porta da frente —
+        # no conector público (o Cowork do Jordan) a chamada direta funcionaria e o ensaio
+        # recusaria tudo. Parede mais rígida que a real quebra a ferramenta e não protege
+        # nada: quem quisesse burlar usava o caminho direto, que continua aberto.
+        if MODO_AGENTE and _TOKEN.get() is None and sensivel(ferramenta):
+            return {"ok": False, "codigo": "SEM_IDENTIDADE", "http": 401,
+                    "mensagem": f"`{ferramenta}` toca dado pessoal ou dinheiro.",
+                    "dica": "Envie o cabeçalho de identidade — vale igual no ensaio."}
+    except ImportError:
+        pass
+
+    registro: list = []
+    marca = _ENSAIO.set(registro)
+    try:
+        r = alvo(**(argumentos or {}))
+        retorno = await r if inspect.isawaitable(r) else r
+    except Exception as exc:  # noqa: BLE001
+        return {**erro_envelope(exc), "ensaio": True, "gravou": False,
+                "escritas_que_teria_feito": registro,
+                "dica": "O ensaio falhou ANTES de gravar. Nada foi escrito."}
+    finally:
+        _ENSAIO.reset(marca)
+
+    return {
+        "ok": True, "ensaio": True, "gravou": False, "ferramenta": ferramenta,
+        "escritas": registro,
+        "resumo": (f"{len(registro)} escrita(s) no ERP." if registro
+                   else "Nenhuma escrita — esta chamada não gravaria nada."),
+        "retorno_simulado": retorno,
+        "aviso": ("O retorno acima foi montado sobre respostas de ensaio (id "
+                  "'00000000-ensaio'), então campos derivados dele não valem."),
+        "proximo_passo": f"Se estiver certo, chame {ferramenta} direto.",
+    }
 
 
 @mcp.tool

@@ -43,6 +43,9 @@ TOOL_RISK: dict[str, str] = {
     # duas paredes do middleware (gate propose + identidade). `propose` aqui bloquearia o
     # recurso inteiro para sempre; a classe que governa é a da ferramenta despachada.
     "executar_em_segundo_plano": "read",
+    # Ensaiar NÃO grava — a interceptação é no único ponto por onde o MCP escreve. E, como
+    # o despachante de segundo plano, aplica as duas paredes contra a ferramenta interna.
+    "ensaiar": "read",
     "status_job": "read",
     "resultado_job": "read",
 

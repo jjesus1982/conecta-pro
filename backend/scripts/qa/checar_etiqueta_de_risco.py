@@ -30,12 +30,25 @@ import sys
 from pathlib import Path
 
 MCP = Path("/opt/conecta-pro/mcp-server")
-TRAVAS = ("test_read_nao_escreve.py", "test_tool_risk_manifest.py", "test_identidade.py")
+# DESCOBERTA, não lista fixa: a lista fixa conhecia três, e o quarto arquivo
+# (`test_segundo_plano.py`, 11/09/2026) rodava no build da imagem e ficava invisível aqui.
+# Trava que depende de alguém lembrar de acrescentar o nome não é trava — é convenção.
+# Exclui `test_aceites_cowork.py`: ele exige o ERP de pé e mede a superfície, não a etiqueta.
+_FORA = {"test_aceites_cowork.py"}
+
+
+def _travas(raiz) -> list[str]:
+    return sorted(f.name for f in raiz.glob("test_*.py") if f.name not in _FORA)
 
 
 def main() -> int:
     falhando: list[str] = []
-    for arquivo in TRAVAS:
+    travas = _travas(MCP)
+    if len(travas) < 3:
+        # some trava = alguém apagou arquivo. Descoberta sem piso vira "zero travas, tudo ok".
+        print(f"  SÓ {len(travas)} trava(s) em {MCP} — havia pelo menos 3. Alguém apagou?")
+        return 1
+    for arquivo in travas:
         alvo = MCP / arquivo
         if not alvo.exists():
             print(f"  SUMIU: {arquivo} — a trava não existe mais no repositório")
