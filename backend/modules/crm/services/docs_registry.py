@@ -6,6 +6,7 @@ PERSISTIR o PDF e devolver uma URL clicável (Cowork/navegador).
 
 from __future__ import annotations
 
+import base64
 import os
 import secrets
 import uuid
@@ -131,7 +132,6 @@ async def anexar_documento(db, *, entidade: str, entidade_id: str, nome: str,
     A versão NÃO é coluna nova: é a posição do arquivo entre os seus homônimos, por data.
     Contar em vez de guardar evita migration e não pode dessincronizar do que está lá.
     """
-    import base64
 
 
     ent = (entidade or "").strip().lower()
@@ -182,6 +182,82 @@ async def anexar_documento(db, *, entidade: str, entidade_id: str, nome: str,
             "mime": EXT_ACEITAS[ext], "tamanho_kb": round(len(conteudo) / 1024, 1),
             "entidade": ent, "entidade_id": str(entidade_id), "categoria": cat,
             "download_url": f"{PUBLIC_ERP}/api/v1/crm/docs/download/{did}?t={token}"}
+
+
+# Extensões cujo conteúdo vira TEXTO legível. Fora daqui o agente recebe o base64 e a
+# informação honesta de que não dá para ler — melhor que um `texto_extraido` vazio, que ele
+# interpretaria como "documento em branco".
+_TEXTO_DE = {"pdf", "docx", "txt", "md", "csv"}
+
+
+def _extrair_texto(caminho: str, ext: str) -> tuple[str, int | None, str | None]:
+    """Texto, páginas e o motivo quando não deu. Nunca levanta: falhar em ler não é falhar."""
+    ext = (ext or "").lower()
+    if ext not in _TEXTO_DE:
+        return "", None, f"formato .{ext} não vira texto — use o base64 ou o link."
+    try:
+        if ext == "pdf":
+            from PyPDF2 import PdfReader  # noqa: PLC0415
+
+            r = PdfReader(caminho)
+            return "\n".join((pg.extract_text() or "") for pg in r.pages), len(r.pages), None
+        if ext == "docx":
+            import docx  # noqa: PLC0415
+
+            return "\n".join(p.text for p in docx.Document(caminho).paragraphs), None, None
+        with open(caminho, encoding="utf-8", errors="replace") as fh:
+            return fh.read(), None, None
+    except Exception as e:  # noqa: BLE001
+        return "", None, f"não consegui extrair o texto ({type(e).__name__}: {e})"
+
+
+async def baixar(db, *, documento_id: str, formato: str = "base64") -> dict:
+    """O documento em base64 E em texto — o agente confere sem abrir binário.
+
+    Item 2.2 do relatório de campo: `anexar` e `listar` existiam, e faltava o terceiro. Sem
+    ele, o anexo entrava no ERP e virava um link que o agente não consegue abrir — o mesmo
+    defeito da 2.1, só que na volta.
+
+    Guarda de tamanho: acima de 8 MB o base64 sai de cena e ficam texto + link. Um anexo de
+    20 MB em base64 são ~27 MB de resposta, que estouram a conversa e não entregam nada.
+    """
+    import os as _os  # noqa: PLC0415
+
+    row = (await db.execute(text(
+        "SELECT id::text, tipo, titulo, arquivo, token, coalesce(tamanho_kb,0) AS kb "
+        "  FROM crm_documents WHERE id::text = :i AND coalesce(arquivado,false) = false"),
+        {"i": str(documento_id)})).mappings().first()
+    if not row:
+        raise LookupError(f"Documento não encontrado: {documento_id}")
+    caminho = row["arquivo"] or ""
+    if not _os.path.exists(caminho):
+        # o registro existe e o arquivo não: dizer isso é diferente de "não encontrado",
+        # porque a ação do dono é outra (reanexar, não procurar o id de novo).
+        raise FileNotFoundError(
+            f"O registro {documento_id} existe, mas o arquivo sumiu do disco ({caminho}). "
+            "Anexe de novo.")
+    ext = caminho.rsplit(".", 1)[-1].lower()
+    texto, paginas, motivo = _extrair_texto(caminho, ext)
+    with open(caminho, "rb") as fh:
+        bruto = fh.read()
+    kb = round(len(bruto) / 1024, 1)
+    out: dict = {
+        "ok": True, "id": row["id"], "nome": row["titulo"], "categoria": row["tipo"],
+        "arquivo": {"nome": row["titulo"], "mime": EXT_ACEITAS.get(ext, "application/octet-stream"),
+                    "tamanho_kb": kb},
+        "texto_extraido": texto, "paginas": paginas,
+        "url_alternativa": f"{PUBLIC_ERP}/api/v1/crm/docs/download/{row['id']}?t={row['token']}",
+    }
+    if motivo:
+        out["aviso"] = motivo
+    if str(formato).lower() == "texto":
+        return out
+    if len(bruto) > 8 * 1024 * 1024:
+        out["aviso"] = (f"Arquivo de {kb / 1024:.1f} MB — base64 omitido para não estourar a "
+                        f"conversa. Use o texto ou `url_alternativa`.")
+        return out
+    out["arquivo"]["base64"] = base64.b64encode(bruto).decode("ascii")
+    return out
 
 
 async def listar_da_entidade(db, *, entidade: str, entidade_id: str) -> dict:

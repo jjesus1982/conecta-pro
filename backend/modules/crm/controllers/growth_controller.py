@@ -6,6 +6,7 @@ Um único router montado sob /crm. Endpoints públicos: /public/forms/* e /publi
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -213,6 +214,122 @@ async def excluir_documento(doc_id: str, _=Depends(get_current_active_user), db:
     await db.commit()
 
 
+@router.get("/contexto-cliente")
+async def contexto_cliente(
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    chave: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """DOSSIÊ do cliente numa chamada só: cadastro, contratos, propostas, oportunidades,
+    documentos, recebíveis em aberto e últimas interações.
+
+    Item 3.6 do relatório de campo do Jordan sobre o Cowork (11/09/2026): responder "como
+    está o Kopenhagen?" custava ~6 chamadas, e o agente montava a resposta com pedaços que
+    chegavam em ordens diferentes. Aqui é uma viagem, com o mesmo retrato para todo mundo.
+
+    `chave` aceita CNPJ (com ou sem máscara), código (CLI-…), id ou nome aproximado.
+    Só LÊ.
+    """
+    digitos = re.sub(r"\D", "", chave or "")
+    cli = (await db.execute(text("""
+        SELECT id::text, code, name, coalesce(document_number,'') AS doc,
+               coalesce(email,'') AS email, coalesce(phone,'') AS fone,
+               coalesce(address_city,'') AS cidade, coalesce(ativo,true) AS ativo
+          FROM clients
+         WHERE (:d <> '' AND regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = :d)
+            OR upper(coalesce(code,'')) = upper(:k)
+            OR id::text = :k
+            OR unaccent(lower(name)) LIKE '%' || unaccent(lower(:k)) || '%'
+         ORDER BY ativo DESC, name
+         LIMIT 5"""), {"d": digitos, "k": (chave or "").strip()})).mappings().all()
+    if not cli:
+        raise HTTPException(status_code=404, detail=f"Nenhum cliente corresponde a {chave!r}.")
+    if len(cli) > 1:
+        # AMBÍGUO não é erro: devolve a escolha. Montar o dossiê do cliente errado é pior
+        # que não montar — o agente age sobre ele achando que é o certo.
+        raise HTTPException(status_code=409, detail={
+            "codigo": "AMBIGUO",
+            "mensagem": f"{len(cli)} clientes correspondem a {chave!r}.",
+            "candidatos": [{"codigo": c["code"], "nome": c["name"], "cnpj": c["doc"]}
+                           for c in cli]})
+    c = cli[0]
+    cid = c["id"]
+
+    contratos = (await db.execute(text("""
+        SELECT ct.contract_number, ct.contract_type::text AS tipo, ct.status::text AS status,
+               coalesce(ct.monthly_value,0) AS mensal, coalesce(ct.total_value,0) AS total,
+               coalesce(ct.tipo_servico::text,'') AS servico,
+               coalesce(e.razao_social,'') AS emitente,
+               (SELECT count(*) FROM sig_signature_requests s
+                 WHERE s.reference_code = ct.contract_number
+                   AND upper(coalesce(s.status::text,'')) NOT IN ('CANCELLED','CANCELED','EXPIRED')) AS assin_abertas,
+               (SELECT count(*) FROM sig_signature_requests s
+                 WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL) AS assin_feitas
+          FROM contracts ct LEFT JOIN empresas e ON e.id = ct.empresa_id
+         WHERE ct.client_id::text = :c ORDER BY ct.created_at DESC"""), {"c": cid})).mappings().all()
+
+    props = (await db.execute(text("""
+        SELECT number, coalesce(title,'') AS titulo, coalesce(total,0) AS valor, status::text AS status
+          FROM proposals WHERE client_name ILIKE :n AND coalesce(is_active,true)
+         ORDER BY created_at DESC LIMIT 10"""), {"n": f"%{c['name'][:24]}%"})).mappings().all()
+
+    opps = (await db.execute(text("""
+        SELECT coalesce(title,'') AS titulo, stage::text AS estagio, coalesce(value,0) AS valor
+          FROM opportunities
+         WHERE coalesce(is_active,true) AND unaccent(lower(coalesce(company_name,''))) LIKE
+               '%' || unaccent(lower(:n)) || '%'
+         ORDER BY updated_at DESC LIMIT 10"""), {"n": c["name"][:24]})).mappings().all()
+
+    docs = (await db.execute(text("""
+        SELECT tipo, titulo, coalesce(tamanho_kb,0) AS kb, created_at
+          FROM crm_documents
+         WHERE coalesce(arquivado,false) = false
+           AND ((ref_tipo = 'cliente' AND ref_id = :c)
+             OR (ref_tipo = 'contract' AND ref_id IN (
+                   SELECT contract_number FROM contracts WHERE client_id::text = :c))
+             OR (ref_tipo = 'contrato' AND ref_id IN (
+                   SELECT contract_number FROM contracts WHERE client_id::text = :c)))
+         ORDER BY created_at DESC LIMIT 15"""), {"c": cid})).mappings().all()
+
+    receb = (await db.execute(text("""
+        SELECT coalesce(sum(net_value),0) AS aberto, count(*) AS n,
+               count(*) FILTER (WHERE due_date < current_date) AS vencidos
+          FROM receivable_accounts
+         WHERE customer_id::text = :c AND lower(coalesce(status::text,'')) NOT IN ('paga','pago','cancelada')"""),
+        {"c": cid})).mappings().first()
+
+    ativos = [x for x in contratos if x["status"] in ("active", "ativo", "vigente")]
+    return {
+        "ok": True,
+        "cliente": {"codigo": c["code"], "nome": c["name"], "cnpj": c["doc"],
+                    "email": c["email"], "telefone": c["fone"], "cidade": c["cidade"],
+                    "ativo": c["ativo"]},
+        "resumo": {
+            "contratos": len(contratos), "contratos_ativos": len(ativos),
+            "mrr": float(sum(float(x["mensal"] or 0) for x in ativos)),
+            "propostas_abertas": len([p for p in props if p["status"] in ("sent", "draft")]),
+            "oportunidades_abertas": len([o for o in opps
+                                          if o["estagio"] not in ("closed_won", "closed_lost")]),
+            "documentos": len(docs),
+            "recebiveis_em_aberto": float(receb["aberto"] or 0) if receb else 0.0,
+            "recebiveis_vencidos": int(receb["vencidos"] or 0) if receb else 0,
+        },
+        "contratos": [{"numero": x["contract_number"], "tipo": x["tipo"], "status": x["status"],
+                       "servico": x["servico"], "emitente": x["emitente"],
+                       "mensal": float(x["mensal"] or 0), "total": float(x["total"] or 0),
+                       "assinaturas": f"{x['assin_feitas']}/{x['assin_abertas']}"
+                       if x["assin_abertas"] else "não aberta"} for x in contratos],
+        "propostas": [{"numero": p["number"], "titulo": p["titulo"][:60],
+                       "valor": float(p["valor"] or 0), "status": p["status"]} for p in props],
+        "oportunidades": [{"titulo": o["titulo"][:60], "estagio": o["estagio"],
+                           "valor": float(o["valor"] or 0)} for o in opps],
+        "documentos": [{"categoria": d["tipo"], "nome": d["titulo"][:60],
+                        "tamanho_kb": float(d["kb"] or 0),
+                        "criado_em": d["created_at"].isoformat() if d["created_at"] else None}
+                       for d in docs],
+    }
+
+
 @router.post("/docs/anexar")
 async def docs_anexar(
     current_user: CurrentActiveUser,
@@ -238,6 +355,28 @@ async def docs_anexar(
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.get("/docs/conteudo/{documento_id}")
+async def baixar_documento_conteudo(
+    documento_id: str,
+    current_user: CurrentActiveUser,  # noqa: ARG001 — autenticada, ao contrário do /download público
+    formato: str = "base64",
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """O documento em base64 E em texto. Item 2.2 — o terceiro irmão de anexar/listar.
+
+    Diferente de `/docs/download/{id}`, que é público por token e devolve o binário para o
+    NAVEGADOR: aqui a chamada é autenticada e o retorno é legível por um agente.
+    """
+    from modules.crm.services.docs_registry import baixar
+
+    try:
+        return await baixar(db, documento_id=documento_id, formato=formato)
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(410, str(e)) from e
 
 
 @router.get("/docs/da-entidade")

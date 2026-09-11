@@ -187,6 +187,10 @@ class ContractResponse(BaseModel):
     # vinculado, e nesse caso a linha diz isso em vez de inventar.
     client_name: str | None = None
     client_document: str | None = None
+    # De qual MODELO este contrato depende. Sem este campo, quem quer saber "alterar este
+    # modelo afeta quem?" não tinha como perguntar pela listagem — e uma guarda construída
+    # sobre a ausência dele responde "ninguém" e libera a escrita. Aconteceu em 11/09/2026.
+    template_id: str | None = None
     monthly_value: Decimal
     total_value: Decimal
     start_date: date
@@ -210,6 +214,13 @@ class ContractResponse(BaseModel):
     def stringify_uuid(cls, v: Any) -> str:
         return str(v) if v is not None else ""
 
+    @field_validator("template_id", mode="before")
+    @classmethod
+    def stringify_template_uuid(cls, v: Any) -> str | None:
+        # `None` de verdade, não "": contrato SEM modelo é um estado real, e "" faria a
+        # comparação `template_id == alvo` dar falso-negativo silencioso do mesmo jeito.
+        return str(v) if v is not None else None
+
 
 class ContractDetailResponse(ContractResponse):
     """Resposta detalhada do contrato."""
@@ -217,9 +228,8 @@ class ContractDetailResponse(ContractResponse):
     description: str | None = None
     opportunity_id: str | None = None
     proposal_id: str | None = None
-    template_id: str | None = None
 
-    @field_validator("opportunity_id", "proposal_id", "template_id", mode="before")
+    @field_validator("opportunity_id", "proposal_id", mode="before")
     @classmethod
     def stringify_optional_uuid(cls, v: Any) -> str | None:
         return str(v) if v is not None else None

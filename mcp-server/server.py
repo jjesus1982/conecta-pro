@@ -1448,6 +1448,7 @@ async def listar_contratos(
             "valor_mensal": mensal, "valor_mensal_formatado": _brl(c.get("monthly_value")),
             "valor_total": total, "valor_total_formatado": _brl(c.get("total_value")),
             "vigencia_inicio": c.get("start_date"), "vigencia_fim": c.get("end_date"),
+            "template_id": c.get("template_id"),
             "atualizado_em": c.get("updated_at"), "id": c.get("id"),
         }
 
@@ -3875,13 +3876,31 @@ async def atualizar_modelo_contrato(template_id: str, nome: str = "",
                 "mensagem": "Informe pelo menos um campo para alterar.",
                 "dica": "nome · corpo_template · descricao · tipo · clausulas"}
 
-    # quem já depende deste modelo — medido ANTES de escrever, não depois
+    # Quem já depende deste modelo — medido ANTES de escrever.
+    #
+    # ⭐ FALHA FECHADA, e por um motivo medido em 11/09/2026: a primeira versão desta guarda
+    # lia `template_id` da listagem de contratos, campo que a resposta NÃO tinha. Ela achou
+    # zero afetados, concluiu "não está em uso" e deixou a escrita passar — gravando numa
+    # descrição de modelo de produção. Uma parede que mede um campo inexistente não avisa
+    # que está cega: ela diz "tudo limpo". Por isso, aqui, não conseguir medir vale como
+    # motivo para RECUSAR, nunca para liberar.
+    em_uso: list = []
     try:
         atuais = await erp.get("/crm/contracts", params={"page_size": 100})
-        em_uso = [c for c in _items(atuais)
-                  if str(c.get("template_id") or "") == str(template_id)]
-    except Exception:  # noqa: BLE001
-        em_uso = []
+        itens = _items(atuais)
+        if itens and "template_id" not in itens[0]:
+            return {"ok": False, "codigo": "NAO_CONSIGO_MEDIR_O_USO", "http": 409,
+                    "mensagem": "A listagem de contratos não informa o modelo de cada um, "
+                                "então não sei quantos seriam afetados — e não altero uma "
+                                "fôrma no escuro.",
+                    "dica": "Peça a quem cuida do ERP para expor `template_id` em "
+                            "/crm/contracts. Até lá, edite o modelo pela tela."}
+        em_uso = [c for c in itens if str(c.get("template_id") or "") == str(template_id)]
+    except Exception as exc:  # noqa: BLE001
+        env = erro_envelope(exc)
+        env["dica"] = ("Não consegui verificar quantos contratos usam este modelo, então "
+                       "não alterei nada. Tente de novo.")
+        return env
     if em_uso and not confirmar_modelo_em_uso:
         return {
             "ok": False, "codigo": "MODELO_EM_USO", "http": 409,

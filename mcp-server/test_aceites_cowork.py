@@ -124,9 +124,62 @@ async def aceite_3_6_contexto_cliente() -> None:
     print(f"OK 3.6 dossiê de {(r['cliente'])['nome'][:34]} numa chamada")
 
 
+async def aceite_2_2_trio_de_documentos() -> None:
+    """Anexar -> listar -> BAIXAR, com versão. O terceiro irmão faltava."""
+    l = await S.listar_documentos_da_entidade("contrato", MAIAPOLIS_CTR)
+    docs = l.get("documentos") or []
+    assert docs, f"o contrato do aceite não tem documento anexado: {str(l)[:200]}"
+    assert all(d.get("versao") for d in docs), "documento sem versão — o aceite cita versão"
+    r = await S.baixar_documento(docs[0]["id"], formato="texto")
+    assert r.get("ok"), f"baixar_documento falhou: {str(r)[:200]}"
+    assert r.get("texto_extraido"), (
+        "baixou sem texto — o anexo continua ilegível para o agente, que é o defeito 2.1 "
+        "acontecendo de novo na volta")
+    ruim = await S.baixar_documento("00000000-0000-0000-0000-000000000000")
+    assert ruim.get("http") == 404, f"id inexistente não deu 404: {ruim}"
+    print(f"OK 2.2 {len(docs)} documentos com versão; baixar traz "
+          f"{len(r['texto_extraido'])} chars de texto")
+
+
+async def aceite_2_3_crud_de_modelos() -> None:
+    """As cinco ferramentas — e a guarda de modelo em uso, que falha FECHADA.
+
+    ⚠️ Esta guarda já falhou aberta uma vez (11/09/2026): lia `template_id` de uma listagem
+    que não tinha o campo, concluiu "zero afetados" e gravou numa descrição de produção. Por
+    isso o teste não se contenta com o código de recusa: confere que NADA foi escrito.
+    """
+    for nome in ("listar_modelos_contrato", "criar_modelo_contrato",
+                 "atualizar_modelo_contrato", "validar_modelo_contrato",
+                 "vincular_modelo_ao_contrato"):
+        assert hasattr(S, nome), f"falta a ferramenta {nome}"
+
+    ms = await S.listar_modelos_contrato()
+    modelos = ms.get("modelos") or ms.get("items") or []
+    assert modelos, "nenhum modelo cadastrado — não dá para exercitar a guarda"
+    # o modelo do contrato do aceite está EM USO por construção
+    contratos = await S.listar_contratos(cliente=MAIAPOLIS_CNPJ)
+    tid = (contratos.get("contratos") or [{}])[0].get("template_id")
+    assert tid, ("a listagem não diz de qual modelo o contrato depende — foi exatamente "
+                 "esta ausência que fez a guarda liberar a escrita")
+
+    antes = await S.listar_modelos_contrato()
+    r = await S.atualizar_modelo_contrato(tid, descricao="ESTE TESTE NAO PODE GRAVAR")
+    assert r.get("codigo") == "MODELO_EM_USO", (
+        f"a guarda liberou a alteração de um modelo em uso: {str(r)[:200]}")
+    assert r.get("contratos_afetados"), "recusou sem dizer QUAIS contratos seriam afetados"
+
+    # a prova que importa: escrita se prova por leitura posterior, nunca pelo código de saída
+    depois = await S.listar_modelos_contrato()
+    assert antes == depois, "a guarda devolveu recusa E MESMO ASSIM alterou algo"
+    print(f"OK 2.3 as 5 ferramentas; guarda recusou citando "
+          f"{len(r['contratos_afetados'])} contrato(s) e não gravou nada")
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
     aceite_3_1_listagem_diz_o_cliente,
+    aceite_2_2_trio_de_documentos,
+    aceite_2_3_crud_de_modelos,
     aceite_2_5_one_time_sem_recorrencia,
     aceite_3_2_identificador_tolerante,
     aceite_3_4_mapa_de_capacidades,
