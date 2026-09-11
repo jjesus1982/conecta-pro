@@ -45,7 +45,7 @@ async def main() -> int:
         _system_prompt,
         _tools_ativas,
     )
-    from modules.integrations.connectors.whatsapp.identidade import quem_e
+    from modules.integrations.connectors.whatsapp.identidade import SEM_VINCULO, quem_e
 
     falhas: list[str] = []
     gen = get_db()
@@ -59,7 +59,7 @@ async def main() -> int:
     fones = [r[0] for r in (await db.execute(text(
         "SELECT coalesce(nullif(celular,''), telefone) FROM employees "
         " WHERE coalesce(status,'ativo') = 'ativo' "
-        "   AND length(regexp_replace(coalesce(celular,telefone,''),'[^0-9]','','g')) >= 10 "))).fetchall()]
+        "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 10 "))).fetchall()]
     sem_identidade = 0
     for f in fones:
         ident = await quem_e(db, f)
@@ -75,11 +75,11 @@ async def main() -> int:
     # o MESMO filtro de `_SQL_FUNCIONARIO` (`<> 'inativo'`, não `= 'ativo'`): trava que mede
     # um conjunto diferente do código que ela vigia é a versão silenciosa de não medir nada.
     ambiguos = (await db.execute(text(
-        "SELECT count(*) FROM (SELECT right(regexp_replace(coalesce(celular,telefone,''),"
+        "SELECT count(*) FROM (SELECT right(regexp_replace(coalesce(nullif(celular,''),telefone,''),"
         "  '[^0-9]','','g'),8) k FROM employees "
-        " WHERE coalesce(status,'ativo') <> 'inativo' "
-        "   AND length(regexp_replace(coalesce(celular,telefone,''),'[^0-9]','','g')) >= 8 "
-        " GROUP BY 1 HAVING count(*) > 1) x"))).scalar() or 0
+        " WHERE lower(coalesce(status,'ativo')) <> ALL(:sem_vinculo) "
+        "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 8 "
+        " GROUP BY 1 HAVING count(*) > 1) x"), {"sem_vinculo": list(SEM_VINCULO)})).scalar() or 0
     if ambiguos:
         falhas.append(f"{ambiguos} chave(s) de telefone casam com MAIS DE UM funcionário ativo — "
                       "essas pessoas ficam sem ferramenta de ponto (identidade ambígua, e o "
@@ -109,9 +109,9 @@ async def main() -> int:
     novos = (await db.execute(text(
         "SELECT l.name, l.phone FROM leads l JOIN employees e "
         "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
-        "   = right(regexp_replace(coalesce(e.celular,e.telefone,''),'[^0-9]','','g'),8) "
+        "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
         " WHERE l.created_at >= CAST(:corte AS date) "
-        "   AND length(regexp_replace(coalesce(e.celular,e.telefone,''),'[^0-9]','','g')) >= 10 "
+        "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10 "
         "   AND coalesce(e.status,'ativo') = 'ativo'"), {"corte": date.fromisoformat(CORTE)})).fetchall()
     for nome, fone in novos:
         falhas.append(f"lead novo criado com telefone de funcionário: {nome} ({fone})")
@@ -119,9 +119,9 @@ async def main() -> int:
     antigos = (await db.execute(text(
         "SELECT count(*) FROM leads l JOIN employees e "
         "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
-        "   = right(regexp_replace(coalesce(e.celular,e.telefone,''),'[^0-9]','','g'),8) "
+        "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
         " WHERE l.created_at < CAST(:corte AS date) "
-        "   AND length(regexp_replace(coalesce(e.celular,e.telefone,''),'[^0-9]','','g')) >= 10"),
+        "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10"),
         {"corte": date.fromisoformat(CORTE)})).scalar()
     print(f"funcionários conferidos: {len(fones)} (TODOS os ativos com telefone) · "
           f"identidade ambígua: {sem_identidade} · "

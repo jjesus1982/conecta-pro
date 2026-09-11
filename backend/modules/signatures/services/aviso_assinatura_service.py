@@ -48,7 +48,13 @@ _TITULO_LEMBRETE = "Lembrete de assinatura enviado por e-mail"
 
 _SQL_PENDENTES = text(
     """
-    SELECT e.id::text AS eid, e.nome, e.email, coalesce(e.celular, e.telefone, '') AS fone,
+    -- ⚠️ `nullif` obrigatório (11/09/2026): `coalesce(celular, telefone)` NÃO cai para o
+    -- telefone quando `celular` é string VAZIA, só quando é NULL. Quem tem o número no campo
+    -- `telefone` e o `celular` em branco é julgado "sem telefone" aqui — e, se também não tiver
+    -- e-mail, a linha `(email <> '' OR fone <> '')` abaixo o EXCLUI do aviso por inteiro.
+    -- Achado no mesmo dia no `identidade.py`, e a vítima foi a mesma: o NAILSON, ativo, com 19
+    -- documentos no kit.
+    SELECT e.id::text AS eid, e.nome, e.email, coalesce(nullif(e.celular, ''), e.telefone, '') AS fone,
            count(*) AS qtd,
            string_agg(DISTINCT r.document_type, ',') AS tipos,
            max(r.created_at) AS mais_recente
@@ -63,7 +69,7 @@ _SQL_PENDENTES = text(
        AND coalesce(r.document_path,'') <> ''
        -- Dono, 07/09/2026: "podem receber pelo app ou pelo WhatsApp" — quem tem celular
        -- também é avisado (231 notificações no portal em 30 dias, 1 lida).
-       AND (coalesce(e.email,'') <> '' OR coalesce(e.celular, e.telefone, '') <> '')
+       AND (coalesce(e.email,'') <> '' OR coalesce(nullif(e.celular, ''), e.telefone, '') <> '')
        AND lower(coalesce(e.status,'')) IN ('ativo','afastado_inss','suspenso')
        -- 🔴 11/09/2026 — A COORTE DE HOMOLOGAÇÃO MANDOU MENSAGEM PARA ESTRANHOS. Os 12
        -- funcionários de teste (criados em 01/08, `is_homologacao = true`) têm telefone
@@ -79,7 +85,7 @@ _SQL_PENDENTES = text(
               WHERE n.employee_id = e.id
                 AND n.title = :titulo_lembrete
                 AND n.created_at > now() - make_interval(days => :janela))
-     GROUP BY e.id, e.nome, e.email, coalesce(e.celular, e.telefone, '')
+     GROUP BY e.id, e.nome, e.email, coalesce(nullif(e.celular, ''), e.telefone, '')
      ORDER BY count(*) DESC
     """
 )

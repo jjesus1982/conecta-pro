@@ -35,6 +35,15 @@ logger = logging.getLogger(__name__)
 
 Tipo = Literal["dono", "funcionario", "cliente", "lead", "desconhecido"]
 
+#: Status de `employees` que NÃO representam vínculo — quem está aqui não é "gente da casa".
+#: Exportado de propósito: o oráculo que vigia esta regra IMPORTA daqui em vez de repetir a
+#: lista. Duas cópias da mesma régua divergem, e a que diverge cala — aconteceu duas vezes em
+#: 11/09, nas duas direções (o oráculo media `= 'ativo'`, depois `<> 'inativo'`, e o código
+#: media outra coisa das duas vezes).
+#: DEMITIDO fica FORA desta lista de propósito: ele ainda pergunta de rescisão e de espelho, e
+#: virar lead nessa hora seria pior que não saber quem é.
+SEM_VINCULO = ("inativo", "candidato", "pj_pendente")
+
 
 @dataclass
 class Identidade:
@@ -86,7 +95,7 @@ _SQL_FUNCIONARIO = """
        -- dele sobreviveu à contratação (mesmo CPF) e era o único que o telefone alcançava.
        -- Quem já foi DEMITIDO continua sendo gente da casa aqui de propósito: ele ainda
        -- pergunta de rescisão e de espelho, e virar lead nessa hora seria pior.
-       AND lower(coalesce(e.status, 'ativo')) NOT IN ('inativo', 'candidato', 'pj_pendente')
+       AND lower(coalesce(e.status, 'ativo')) <> ALL(:sem_vinculo)
          ORDER BY e.id, (a.id IS NOT NULL) DESC, a.start_date DESC NULLS LAST
       ) q
      ORDER BY q.tem_alocacao DESC, q.updated_at DESC NULLS LAST
@@ -125,7 +134,8 @@ async def quem_e(db, telefone: str | None, *, e_dono: bool = False) -> Identidad
         # pessoa. Medir o conjunto custa uma linha; supor que ele é único custa a jornada de
         # alguém. (O `find_duplicate` do CRM já tinha essa lição: "dedup ambíguo, não escolho".)
         # uma linha por PESSOA (o DISTINCT ON acima garante), então duas linhas = duas pessoas
-        linhas = (await db.execute(sql(_SQL_FUNCIONARIO), {"k": k})).fetchall()
+        linhas = (await db.execute(sql(_SQL_FUNCIONARIO),
+                                   {"k": k, "sem_vinculo": list(SEM_VINCULO)})).fetchall()
         if len({r[0] for r in linhas}) > 1:
             # Da casa, sim — mas não sei QUEM. Os dois estados importam e são diferentes:
             # `e_da_casa` continua verdadeiro (ninguém vira lead nem ouve "me confirma o
