@@ -6,6 +6,8 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+import re
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -524,6 +526,57 @@ async def criar_contrato_por_modelo(
     if res.get("status") == "recusado":
         raise HTTPException(status_code=403, detail=res.get("motivo", "recusado"))
     return res
+
+
+@router.post("/validar-modelo")
+async def validar_modelo(
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Diz quais `{{variaveis}}` de um corpo o ERP sabe preencher — ANTES de cadastrar.
+
+    Item 2.3 do relatório de campo (11/09/2026): dava para cadastrar um modelo bonito que
+    só falhava na hora de emitir, com o cliente esperando. Aqui o corpo é confrontado com o
+    CONTEXTO REAL de um contrato existente: o que tem valor, o que viria vazio, e o que o
+    ERP não conhece de jeito nenhum.
+
+    Não grava nada e não gera PDF — é o ensaio antes do palco.
+    """
+    from modules.crm.services.contract_render import montar_contexto, variaveis_vazias
+
+    corpo = (payload.get("corpo") or "").strip()
+    chave = (payload.get("contrato") or "").strip()
+    if not corpo or not chave:
+        raise HTTPException(status_code=422, detail="Informe `corpo` e `contrato`.")
+
+    tpl = (await db.execute(text(
+        "SELECT t.id::text, t.name, t.service_type FROM contracts c "
+        "LEFT JOIN contract_templates t ON t.id = c.template_id "
+        "WHERE c.contract_number = :k OR c.id::text = :k"), {"k": chave})).mappings().first()
+    if tpl is None:
+        raise HTTPException(status_code=404, detail=f"Contrato não encontrado: {chave}")
+
+    try:
+        ctx, contratada = await montar_contexto(db, chave, dict(tpl or {}))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    usadas = sorted(set(re.findall(r"\{\{\s*([a-z_0-9]+)", corpo)))
+    vazias = set(variaveis_vazias(ctx, corpo))
+    desconhecidas = [v for v in usadas if v not in ctx]
+    return {
+        "ok": not vazias and not desconhecidas,
+        "contrato_exemplo": chave,
+        "contratada": contratada.razao_social,
+        "variaveis": usadas,
+        "com_valor": [v for v in usadas if v in ctx and v not in vazias],
+        "viriam_vazias": sorted(vazias),
+        "desconhecidas_do_erp": desconhecidas,
+        "dica": ("O ERP não conhece estas variáveis — ou você as escreveu com outro nome, "
+                 "ou elas precisam virar dado do contrato: " + ", ".join(desconhecidas))
+        if desconhecidas else "Todas as variáveis do corpo têm origem no ERP.",
+    }
 
 
 @router.post("/emitir-por-modelo")

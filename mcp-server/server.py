@@ -3300,3 +3300,114 @@ async def conecta_pro_capabilities(dominio: str = "") -> dict:
             "regra_de_ouro": "Toda ferramenta diz se LÊ ou ESCREVE. As de escrita de "
                              "contrato são restritas a Jordan e Pyetra; dinheiro que sai "
                              "exige OTP humano e não passa por aqui."}
+
+
+# ── Modelos de contrato (CRUD pelo MCP) ───────────────────────────────────────────────
+# Item 2.3 do relatório de campo. Existiam 4 modelos e NENHUMA ferramenta para cadastrar
+# um quinto: todo tipo de negócio novo — locação de CFTV, serviço único, portaria remota —
+# ficava travado esperando alguém rodar um seed no backend. O ERP já tinha o CRUD completo
+# em /crm/contracts/templates; faltava a ponte.
+
+@mcp.tool
+async def listar_modelos_contrato() -> dict:
+    """Modelos de contrato cadastrados: tipo, nome, nº de cláusulas e tamanho do corpo.
+
+    Use ANTES de criar contrato — é o `tipo` daqui que decide o CNPJ emitente (mão de obra
+    sai pela Patrimonial, eletrônica pela Eletrônica). Só lê.
+    """
+    try:
+        r = await erp.get("/crm/contracts/templates")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = []
+    for t in (r or {}).get("items") or []:
+        corpo = t.get("content_template") or ""
+        itens.append({
+            "id": t.get("id"), "tipo": t.get("service_type"), "nome": t.get("name"),
+            "clausulas": len(t.get("clauses") or []),
+            "tamanho_corpo": len(corpo),
+            "ativo": t.get("is_active"),
+            "variaveis_no_corpo": sorted(set(re.findall(r"\{\{\s*([a-z_0-9]+)", corpo))),
+            "descricao": (t.get("description") or "")[:160],
+        })
+    return {"ok": True, "total": len(itens), "modelos": itens}
+
+
+@mcp.tool
+async def validar_modelo_contrato(corpo_template: str, contrato_exemplo: str = "") -> dict:
+    """Confere se TODAS as `{{variaveis}}` do corpo têm origem — antes de cadastrar.
+
+    Sem isto, o modelo entra bonito e só falha na hora de emitir, com o cliente esperando.
+    Passe `contrato_exemplo` (um CTR-… real) para validar contra dados de verdade: a
+    ferramenta diz quais variáveis o ERP sabe preencher e quais ficariam vazias.
+
+    Só lê; não cadastra nada.
+    """
+    usadas = sorted(set(re.findall(r"\{\{\s*([a-z_0-9]+)", corpo_template or "")))
+    if not usadas:
+        return {"ok": False, "codigo": "SEM_VARIAVEIS", "http": 422,
+                "mensagem": "O corpo não tem nenhuma {{variavel}}.",
+                "dica": "Um modelo sem variável serve a um cliente só. Troque os dados das "
+                        "partes por {{contratante_nome}}, {{valor_mensal_fmt}} etc."}
+    if not contrato_exemplo:
+        return {"ok": True, "variaveis": usadas, "total": len(usadas),
+                "aviso": "Passe contrato_exemplo=CTR-… para validar contra dados reais."}
+    alvo = await _resolver_contrato(contrato_exemplo)
+    if isinstance(alvo, dict):
+        return alvo
+    try:
+        r = await erp.post("/crm/contracts/validar-modelo",
+                           json={"contrato": alvo, "corpo": corpo_template})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    return r
+
+
+@mcp.tool
+async def criar_modelo_contrato(tipo: str, nome: str, corpo_template: str,
+                                descricao: str = "", clausulas: list[str] | None = None) -> dict:
+    """Cadastra um MODELO novo de contrato. ESCREVE. Restrito a Jordan e Pyetra.
+
+    `tipo` decide o CNPJ emitente e não é livre — use um que o render saiba classificar:
+    mão de obra (portaria_mao_de_obra, servicos_gerais, jardinagem, piscina, zeladoria) ou
+    eletrônica (manutencao_cftv, portaria_remota, eletronica_servico_unico,
+    seguranca_eletronica, cftv, alarme, controle_acesso).
+
+    O corpo usa `{{variavel}}` (Jinja) e pode conter `[[TABELA_COMPOSICAO]]` e
+    `[[BLOCO_ASSINATURAS]]`. Valide com `validar_modelo_contrato` ANTES — modelo que falha
+    só na emissão falha com o cliente esperando.
+    """
+    if len(corpo_template or "") < 100:
+        return {"ok": False, "codigo": "CORPO_CURTO", "http": 422,
+                "mensagem": "O corpo do modelo tem menos de 100 caracteres.",
+                "dica": "Cole o texto completo do instrumento, com as cláusulas."}
+    payload = {"name": nome, "service_type": tipo, "content_template": corpo_template,
+               "description": descricao or None,
+               "clauses": clausulas or sorted(set(
+                   re.findall(r"^\s*(CL[ÁA]USULA[^\n]{0,80})", corpo_template, re.M)))}
+    try:
+        r = await erp.post("/crm/contracts/templates", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    return {"ok": True, "id": r.get("id"), "tipo": r.get("service_type"),
+            "nome": r.get("name"), "clausulas": len(r.get("clauses") or []),
+            "proximo_passo": "vincular_modelo_ao_contrato(contrato, template_id) e depois "
+                             "gerar_contrato_por_modelo."}
+
+
+@mcp.tool
+async def vincular_modelo_ao_contrato(contrato: str, template_id: str) -> dict:
+    """Liga um contrato ao MODELO que vai gerar o instrumento. ESCREVE.
+
+    O contrato herda o `tipo_servico` do modelo quando ainda não tem — e é ele que resolve
+    qual CNPJ emite. Depois disto, `gerar_contrato_por_modelo` produz o padrão ouro.
+    """
+    alvo = await _resolver_contrato(contrato)
+    if isinstance(alvo, dict):
+        return alvo
+    try:
+        r = await erp.post("/crm/contracts/emitir-por-modelo",
+                           json={"contrato": alvo, "template_id": template_id})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    return r
