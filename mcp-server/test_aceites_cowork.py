@@ -171,6 +171,27 @@ async def aceite_2_3_crud_de_modelos() -> None:
     # a prova que importa: escrita se prova por leitura posterior, nunca pelo código de saída
     depois = await S.listar_modelos_contrato()
     assert antes == depois, "a guarda devolveu recusa E MESMO ASSIM alterou algo"
+
+    # ⭐ O RAMO DA JANELA. Com 19 contratos de 19 ele nunca executa, então ficaria aqui sem
+    # nunca ter rodado — e um ramo que gateia escrita e nunca rodou é promessa, não parede.
+    # Simula o dia em que a coleção passar de 100: a guarda tem de recusar por não enxergar
+    # o conjunto, em vez de concluir "ninguém usa" a partir da amostra.
+    original = S.erp.get
+
+    async def com_total_maior(path, params=None):
+        d = await original(path, params=params)
+        if path == "/crm/contracts" and isinstance(d, dict):
+            d = {**d, "total": 340}
+        return d
+
+    S.erp.get = com_total_maior
+    try:
+        janela = await S.atualizar_modelo_contrato(tid, descricao="ESTE TESTE NAO PODE GRAVAR")
+        assert janela.get("codigo") == "NAO_CONSIGO_MEDIR_O_USO", (
+            f"a janela não alcançava o conjunto e ela decidiu assim mesmo: {str(janela)[:200]}")
+    finally:
+        S.erp.get = original
+    assert await S.listar_modelos_contrato() == antes, "o ramo da janela gravou"
     print(f"OK 2.3 as 5 ferramentas; guarda recusou citando "
           f"{len(r['contratos_afetados'])} contrato(s) e não gravou nada")
 
