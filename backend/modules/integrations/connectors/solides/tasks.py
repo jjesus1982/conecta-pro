@@ -903,6 +903,9 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
     sd, ed = start.strftime("%d/%m/%Y"), end.strftime("%d/%m/%Y")
 
     engine = create_engine(db_url)
+    import json as _json
+    from datetime import datetime as _dt
+
     created = updated = emps_com_batida = sem_batida = erros = 0
     duplicadas_evitadas = 0  # batida que o app já tinha registrado (ver o bloco abaixo)
     try:
@@ -925,6 +928,26 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
                     "  AND coalesce(is_homologacao, false) = false"
                 )
             ).fetchall()
+
+            # ⭐ 11/09/2026 — AFASTADO NÃO RECEBE BATIDA GRAVADA; RECEBE UM AVISO.
+            # O comentário acima explica por que afastado continua sendo CONSULTADO, e a razão
+            # segue válida: a batida é o que revela o retorno. O que mudou é o que se faz com
+            # ela. A CINTIA está afastada por acidente de trajeto desde 21/05 (CAT no INSS) e o
+            # Tangerino devolvia `06:00–18:00` cravado TODO DIA — 132 batidas que entraram no
+            # nosso ponto como trabalho feito, alimentando espelho e folha de quem o INSS está
+            # pagando. O ARYELTON, suspenso desde 02/02, tinha 124.
+            # Gravar era o erro: a jornada PREVISTA do outro sistema virava fato aqui. Revelar
+            # é o certo — o nome vai para o aviso e um humano fecha o afastamento; fechado, a
+            # próxima rodada importa normalmente.
+            afastados = {
+                str(r[0]): r[1]
+                for r in conn.execute(sa_text(
+                    "SELECT employee_id::text, data_inicio FROM sst_afastamentos "
+                    " WHERE lower(coalesce(status,'')) = 'ativo' AND data_retorno IS NULL"
+                )).fetchall()
+            }
+            afastado_com_batida: dict[str, int] = {}
+
             with httpx.Client(timeout=25) as client:
                 for emp_id, sid in emps:
                     try:
@@ -975,6 +998,11 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
                                     ),
                                     {"t": punch_dt, "st": stt, "pid": punch_id},
                                 )
+                                _ini = afastados.get(str(emp_id))
+                                if _ini is not None and punch_dt.date() > _ini:
+                                    afastado_com_batida[str(emp_id)] = (
+                                        afastado_com_batida.get(str(emp_id), 0) + 1)
+                                    continue
                                 if up.rowcount == 0:
                                     # 🔴 11/09/2026 — A JORNADA DUPLICADA QUE O TIME RECLAMA
                                     # NASCE AQUI. A dedup só existia contra o PRÓPRIO punch_id
@@ -1036,6 +1064,39 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
     finally:
         engine.dispose()
 
+    # AVISO: afastado que apareceu batendo é decisão humana (voltou? o registro está velho?),
+    # e o sino é o canal da casa. Best-effort: a importação não pode cair por causa do aviso.
+    if afastado_com_batida:
+        try:
+            from sqlalchemy import text as _t2
+
+            from core.database.session import SyncSessionLocal
+            from modules.notifications.task_falha import _SQL_DESTINATARIOS, _SQL_SINO
+
+            with SyncSessionLocal() as _db:
+                nomes = [r[0] for r in _db.execute(_t2(
+                    "SELECT nome FROM employees WHERE id::text = ANY(:ids)"),
+                    {"ids": list(afastado_com_batida)}).fetchall()]
+                corpo = (
+                    "Estas pessoas estão com AFASTAMENTO ATIVO e apareceram com batida no "
+                    "Tangerino:\n\n  " + "\n  ".join(nomes) + "\n\n"
+                    "A batida NÃO foi gravada no ponto — de propósito. Ou a pessoa voltou e "
+                    "ninguém fechou o afastamento, ou o outro sistema está preenchendo a "
+                    "jornada prevista de quem não está trabalhando (foi o caso da CINTIA, "
+                    "132 batidas 06:00–18:00 cravadas durante o afastamento pelo INSS).\n"
+                    "Fechando o afastamento, a próxima importação traz as batidas normalmente."
+                )
+                extra = _json.dumps({"idempotency_key": f"afastado_batendo:{_dt.now().date()}",
+                                     "origem": "solides.sync_punches", "familia": "ponto",
+                                     "severidade": "aviso"})
+                for (uid,) in _db.execute(_t2(_SQL_DESTINATARIOS)).all():
+                    _db.execute(_t2(_SQL_SINO), {"uid": uid, "body": corpo[:8000],
+                                                 "title": f"{len(nomes)} afastado(s) com batida no Tangerino",
+                                                 "extra": extra})
+                _db.commit()
+        except Exception as _e_sino:  # noqa: BLE001
+            logger.warning("[Tangerino punches] não consegui avisar no sino: %s", _e_sino)
+
     logger.info(
         "[Tangerino punches] %d criadas, %d atualizadas, %d emp c/ batida, %d sem batida, %d erros (%s a %s)",
         created,
@@ -1054,6 +1115,8 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
         # sai no retorno de propósito: é o número que prova que a dedup está trabalhando, e
         # `task_falha` publica o retorno quando algo vem errado
         "duplicadas_evitadas": duplicadas_evitadas,
+        # quem está afastado e apareceu com batida: NÃO foi gravada, e o nome vai para o sino
+        "afastado_com_batida": len(afastado_com_batida),
         "employees_without": sem_batida,
         "errors": erros,
         "range": f"{sd}..{ed}",
