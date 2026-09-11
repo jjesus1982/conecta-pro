@@ -2,6 +2,26 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "fac2c764d",
+   "data": "2026-09-11",
+   "mudanca": "fix(mcp): o teste do teto derrubava o BUILD — parede de build não pode depender de produção"
+  },
+  {
+   "commit": "9a08bba62",
+   "data": "2026-09-11",
+   "mudanca": "test(mcp): duas promessas minhas viram parede — o teto real e os quatro métodos"
+  },
+  {
+   "commit": "273dddf4d",
+   "data": "2026-09-11",
+   "mudanca": "test(mcp): o ramo da janela nunca tinha executado — promessa não é parede"
+  },
+  {
+   "commit": "8ab0728b5",
+   "data": "2026-09-11",
+   "mudanca": "fix(mcp): a JANELA também é observar a coisa errada — 100 contratos não são \"todos\""
+  },
+  {
    "commit": "ca8f839d6",
    "data": "2026-09-11",
    "mudanca": "feat(mcp): `changelog_mcp` — a sessão do Cowork não vê o deploy acontecer (4.x)"
