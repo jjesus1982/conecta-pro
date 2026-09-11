@@ -22,6 +22,10 @@ export interface FacialCaptureResult {
   timestamp: string;
   /** Descriptor de 128 floats do rosto capturado (para cadastro de referência). */
   descriptor: number[];
+  /** Por que terminou sem reconhecer: 'nao_bateu' (viu o rosto e não casou) ou
+   *  'nao_detectou' (nunca viu rosto nenhum). São causas diferentes e a pessoa precisa
+   *  saber qual é — uma se resolve com luz, a outra com recadastro. */
+  motivo?: 'nao_bateu' | 'nao_detectou';
 }
 
 interface FacialCaptureProps {
@@ -31,6 +35,8 @@ interface FacialCaptureProps {
   threshold?: number;
   maxAttempts?: number;
 }
+
+const SEM_ROSTO_MAX = 40;
 
 type Status = 'idle' | 'loading' | 'starting' | 'scanning' | 'success' | 'failed' | 'error';
 
@@ -53,6 +59,9 @@ export function FacialCapture({
   const [faceIn, setFaceIn] = useState(false);
 
   const loopRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Ticks seguidos SEM rosto detectado. 40 × 550ms ≈ 22 segundos — tempo de sobra para
+   *  quem está se posicionando, e curto o bastante para não deixar ninguém esperando à toa. */
+  const semRostoRef = useRef(0);
   const doneRef = useRef(false);
   const missRef = useRef(0); // frames com rosto detectado mas sem match (batida)
   const hitRef = useRef(0); // frames bons consecutivos (cadastro)
@@ -93,8 +102,30 @@ export function FacialCapture({
     if (!v || !v.videoWidth) return; // câmera ainda inicializando
     const det = await captureAndDetect();
     if (!det || !det.detected) {
-      hitRef.current = 0; setFaceIn(false); setMessage('Centralize o rosto no círculo'); return;
+      // 🔴 11/09/2026 — AQUI ESTAVA O "FICA CARREGANDO E NÃO REGISTRA". Sem rosto detectado
+      // o tick voltava SEM CONTAR NADA: o laço rodava para sempre mostrando "Centralize o
+      // rosto no círculo", e como nunca terminava, nenhuma falha era registrada. Quem
+      // travava assim ficava invisível para a auditoria e voltava para o Tangerino sem
+      // reclamar. A ERIKA descreveu exatamente isso na pesquisa de ponto: "ele liga a
+      // câmera pra reconhecimento e simplesmente fica carregando ali, não carrega e não
+      // registra" — e ela não tinha UMA falha registrada em 32.
+      // `missRef` só conta quando o rosto É detectado e não casa; esta é a outra metade.
+      hitRef.current = 0; setFaceIn(false);
+      semRostoRef.current += 1;
+      const seg = Math.round((semRostoRef.current * 550) / 1000);
+      setMessage(semRostoRef.current > 10
+        ? `Não estou achando seu rosto (${seg}s). Tente de frente, num lugar mais claro.`
+        : 'Centralize o rosto no círculo');
+      if (semRostoRef.current >= SEM_ROSTO_MAX) {
+        setStatus('failed');
+        setMessage('Não consegui ver seu rosto. Use o botão abaixo para registrar.');
+        finish({ success: true, matched: false, confidence: 0, distance: 1,
+          imageData: grabFrame(), timestamp: new Date().toISOString(), descriptor: [],
+          motivo: 'nao_detectou' });
+      }
+      return;
     }
+    semRostoRef.current = 0;
     setFaceIn(true);
 
     if (employeeDescriptor && det.descriptor) {
@@ -110,7 +141,8 @@ export function FacialCapture({
         if (missRef.current >= maxAttempts) {
           setStatus('failed'); setMessage('Não reconheci. Tente com boa luz, de frente.');
           finish({ success: true, matched: false, confidence: det.confidence, distance,
-            imageData: grabFrame(), timestamp: new Date().toISOString(), descriptor: Array.from(det.descriptor) });
+            imageData: grabFrame(), timestamp: new Date().toISOString(),
+            descriptor: Array.from(det.descriptor), motivo: 'nao_bateu' });
         }
       }
     } else {
@@ -126,7 +158,7 @@ export function FacialCapture({
   }, [employeeDescriptor, threshold, maxAttempts, captureAndDetect, compareFaces, finish]); // eslint-disable-line
 
   const begin = useCallback(async () => {
-    doneRef.current = false; missRef.current = 0; hitRef.current = 0;
+    doneRef.current = false; missRef.current = 0; hitRef.current = 0; semRostoRef.current = 0;
     setStatus('starting'); setMessage('Abrindo câmera...');
     try {
       await startCamera();

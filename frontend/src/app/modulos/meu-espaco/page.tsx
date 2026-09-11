@@ -1053,8 +1053,18 @@ function PontoTab() {
       // acabou de falhar. A LIVIA tentou às 06:08 do dia 13/08, leu isso, desistiu e bateu
       // no Sólides. A saída estava na tela, em cinza, embaixo do botão laranja.
       setRostoFalhou(true);
-      void registrarFalha('rosto_nao_reconhecido', { distance: r.distance ?? null, confidence: r.confidence ?? null });
-      setBaterErro('Não reconheci seu rosto. Pode ser a luz — tente de frente, num lugar claro. '
+      // 11/09/2026: DUAS causas, duas mensagens. "não detectou" é câmera/luz/enquadramento e
+      // se resolve mudando de lugar; "não bateu" é a referência, e insistir não resolve —
+      // quem cai nela precisa do recadastro, não de tentar de novo. Antes as duas diziam a
+      // mesma coisa, e a de referência ruim mandava a pessoa repetir para sempre.
+      const semRosto = r.motivo === 'nao_detectou';
+      void registrarFalha(semRosto ? 'rosto_nao_detectado' : 'rosto_nao_reconhecido',
+        { distance: r.distance ?? null, confidence: r.confidence ?? null, motivo: r.motivo ?? null });
+      setBaterErro(semRosto
+        ? 'Não consegui ver seu rosto na câmera. Tente de frente, num lugar mais claro, sem '
+          + 'luz forte atrás de você. Se continuar assim, use o botão abaixo: sua batida fica '
+          + 'registrada e o DP valida.'
+        : 'Não reconheci seu rosto. Pode ser a luz — tente de frente, num lugar claro. '
         + 'Se não der, use o botão abaixo: sua batida fica registrada e o DP valida.');
       setFase('idle');
       setGeo(null);

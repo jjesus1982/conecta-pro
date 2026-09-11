@@ -1002,8 +1002,14 @@ def _sync_punches_from_tangerino(condominio_id: str | None = None, days_back: in
                                             "SELECT 1 FROM gp_clock_punches "
                                             " WHERE employee_id = CAST(:eid AS uuid) "
                                             "   AND device_type <> 'tangerino' "
-                                            "   AND punch_timestamp BETWEEN :t - interval '10 minutes' "
-                                            "                           AND :t + interval '10 minutes' "
+                                            # 20 min, a MESMA janela do `limpar_duplicatas_ponto`:
+                                            # o Tangerino grava na hora cheia (18:00:00) e o app
+                                            # na real (18:14), e o maior intervalo medido entre o
+                                            # mesmo evento nos dois sistemas é de 20 minutos.
+                                            # Não colapsa evento distinto — a menor jornada da
+                                            # casa é o meio período de 4h.
+                                            "   AND punch_timestamp BETWEEN :t - interval '20 minutes' "
+                                            "                           AND :t + interval '20 minutes' "
                                             " LIMIT 1"
                                         ),
                                         {"eid": emp_id, "t": punch_dt},

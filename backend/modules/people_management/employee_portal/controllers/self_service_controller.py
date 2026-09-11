@@ -911,6 +911,27 @@ async def facial_batida(
             detail="Rosto não reconhecido. A batida só é confirmada com reconhecimento facial.",
         )
 
+    # 🔴 11/09/2026 — A JANELA DE 90s NÃO SEGURAVA, e o dado prova: GERNANES tem TRÊS batidas
+    # de saída em 08/09 às 18:13:21, NAILSON três entradas em 08/09 às 08:01:36, JAQUELINE duas
+    # em 11/09 às 13:00:43 — todas no MESMO SEGUNDO, todas `mobile`, cada uma com seu punch_id.
+    # A lógica abaixo está certa e mesmo assim duplica: é CORRIDA. O retry do app dispara as
+    # requisições em paralelo; as três executam o SELECT antes de qualquer uma gravar, as três
+    # não veem nada nos 90s e as três inserem. Verificar-e-depois-inserir sem serializar é uma
+    # promessa, não uma trava.
+    #
+    # O remédio já existe nesta casa: lock consultivo por chave, o mesmo que o
+    # `_match_or_create_lead` usa para não criar lead duplicado em webhooks simultâneos. Ele é
+    # TRANSACIONAL (solta sozinho no commit/rollback) e serializa só as batidas DESTA pessoa —
+    # ninguém mais espera. Falhar aqui não pode derrubar a batida: quem está na guarita precisa
+    # registrar o ponto, então a falha do lock segue em frente (volta a ser o comportamento de
+    # hoje, que é o que já havia).
+    try:
+        await db.execute(_sqltext("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+                         {"k": f"batida:{emp}"})
+    except Exception as _e_lock:  # noqa: BLE001
+        logger.warning("batida: lock consultivo indisponível para %s (%s) — sigo sem serializar",
+                       emp, _e_lock)
+
     # IDEMPOTÊNCIA (retry-safe + anti double-tap): se já houve batida nos últimos 90s,
     # devolve a MESMA (não cria outra). Assim o retry automático do app e o toque duplo
     # em rede lenta NÃO duplicam ponto. Janela de 90s: ninguém bate 2x de verdade tão rápido.
