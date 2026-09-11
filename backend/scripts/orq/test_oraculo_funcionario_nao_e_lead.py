@@ -40,7 +40,10 @@ async def main() -> int:
 
     from core.database import get_db
     from modules.integrations.connectors.whatsapp.agent_service import (
-        SYSTEM_PROMPT, _PAPEIS, _system_prompt, _tools_ativas,
+        _PAPEIS,
+        SYSTEM_PROMPT,
+        _system_prompt,
+        _tools_ativas,
     )
     from modules.integrations.connectors.whatsapp.identidade import quem_e
 
@@ -49,15 +52,38 @@ async def main() -> int:
     db = await gen.__anext__()
 
     # 1) o telefone de quem é da casa resolve a funcionário
+    # ⚠️ era `LIMIT 20` — amostra decidindo veredito. Com 65 ativos ela acerta quase sempre e
+    # cala exatamente sobre os que ficaram de fora do corte: o funcionário 21 poderia voltar a
+    # ser lead sem este oráculo dizer nada. Medir o conjunto inteiro custa 45 linhas a mais de
+    # consulta; supor que a amostra representa custa o oráculo inteiro (11/09/2026).
     fones = [r[0] for r in (await db.execute(text(
         "SELECT coalesce(nullif(celular,''), telefone) FROM employees "
         " WHERE coalesce(status,'ativo') = 'ativo' "
-        "   AND length(regexp_replace(coalesce(celular,telefone,''),'[^0-9]','','g')) >= 10 "
-        " LIMIT 20"))).fetchall()]
+        "   AND length(regexp_replace(coalesce(celular,telefone,''),'[^0-9]','','g')) >= 10 "))).fetchall()]
+    sem_identidade = 0
     for f in fones:
         ident = await quem_e(db, f)
         if ident.tipo != "funcionario" or not ident.e_da_casa:
             falhas.append(f"telefone de funcionário ativo resolveu como '{ident.tipo}' — viraria lead")
+        elif not ident.employee_id:
+            # da casa mas sem QUEM: é o estado de ambiguidade, e ele é correto — só não pode
+            # passar despercebido, porque essa pessoa perde as ferramentas de ponto.
+            sem_identidade += 1
+
+    # 5) chave de telefone que casa com mais de uma pessoa. Não é falha do código: é cadastro
+    # que precisa de mão, e enquanto durar há gente sem acesso ao próprio ponto pelo WhatsApp.
+    # o MESMO filtro de `_SQL_FUNCIONARIO` (`<> 'inativo'`, não `= 'ativo'`): trava que mede
+    # um conjunto diferente do código que ela vigia é a versão silenciosa de não medir nada.
+    ambiguos = (await db.execute(text(
+        "SELECT count(*) FROM (SELECT right(regexp_replace(coalesce(celular,telefone,''),"
+        "  '[^0-9]','','g'),8) k FROM employees "
+        " WHERE coalesce(status,'ativo') <> 'inativo' "
+        "   AND length(regexp_replace(coalesce(celular,telefone,''),'[^0-9]','','g')) >= 8 "
+        " GROUP BY 1 HAVING count(*) > 1) x"))).scalar() or 0
+    if ambiguos:
+        falhas.append(f"{ambiguos} chave(s) de telefone casam com MAIS DE UM funcionário ativo — "
+                      "essas pessoas ficam sem ferramenta de ponto (identidade ambígua, e o "
+                      "sistema se recusa a escolher). Corrigir o cadastro.")
 
     # 2) o papel é uma parede
     cfg = _PAPEIS.get("funcionario")
@@ -97,7 +123,9 @@ async def main() -> int:
         " WHERE l.created_at < CAST(:corte AS date) "
         "   AND length(regexp_replace(coalesce(e.celular,e.telefone,''),'[^0-9]','','g')) >= 10"),
         {"corte": date.fromisoformat(CORTE)})).scalar()
-    print(f"funcionários conferidos: {len(fones)} · leads-funcionário ANTES do corte (dívida conhecida): {antigos}")
+    print(f"funcionários conferidos: {len(fones)} (TODOS os ativos com telefone) · "
+          f"identidade ambígua: {sem_identidade} · "
+          f"leads-funcionário ANTES do corte (dívida conhecida): {antigos}")
     for f in falhas:
         print("FALHOU:", f)
     if falhas:

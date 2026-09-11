@@ -57,19 +57,30 @@ def chave(telefone: str | None) -> str:
     return so_digitos(telefone)[-8:]
 
 
+#: ⚠️ `DISTINCT ON (e.id)`, e essa linha é a diferença entre contar PESSOAS e contar LINHAS.
+#: A primeira versão do teste de ambiguidade lia `len(linhas) > 1` sobre este SELECT e acusou
+#: o EULER FELIPE como "dois funcionários" — é um só, com DUAS alocações ativas, e o LEFT JOIN
+#: multiplica a pessoa por posto. Ele teria perdido as ferramentas de ponto por causa da
+#: própria trava que eu tinha acabado de escrever contra esse mesmo tipo de erro.
+#: A subconsulta colapsa em uma linha por pessoa; só então o LIMIT 2 significa "duas PESSOAS".
 _SQL_FUNCIONARIO = """
-    SELECT e.id::text, e.nome, e.cpf, e.cargo,
-           p.name  AS posto,
-           g.name  AS condominio
-      FROM employees e
-      LEFT JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' AND a.is_active
-      LEFT JOIN posts p       ON p.id = a.post_id
-      LEFT JOIN ged_clients g ON g.id = p.ged_client_id
-     WHERE right(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
-       AND length(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g')) >= 8
-       AND coalesce(e.status, 'ativo') <> 'inativo'
-     ORDER BY (a.id IS NOT NULL) DESC, e.updated_at DESC NULLS LAST
-     LIMIT 1
+    SELECT q.id, q.nome, q.cpf, q.cargo, q.posto, q.condominio
+      FROM (
+        SELECT DISTINCT ON (e.id)
+               e.id::text AS id, e.nome, e.cpf, e.cargo,
+               p.name AS posto, g.name AS condominio,
+               (a.id IS NOT NULL) AS tem_alocacao, e.updated_at
+          FROM employees e
+          LEFT JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' AND a.is_active
+          LEFT JOIN posts p       ON p.id = a.post_id
+          LEFT JOIN ged_clients g ON g.id = p.ged_client_id
+         WHERE right(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
+           AND length(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g')) >= 8
+           AND coalesce(e.status, 'ativo') <> 'inativo'
+         ORDER BY e.id, (a.id IS NOT NULL) DESC, a.start_date DESC NULLS LAST
+      ) q
+     ORDER BY q.tem_alocacao DESC, q.updated_at DESC NULLS LAST
+     LIMIT 2
 """
 
 _SQL_CLIENTE = """
@@ -77,7 +88,7 @@ _SQL_CLIENTE = """
       FROM clients c
      WHERE right(regexp_replace(coalesce(c.phone, ''), '[^0-9]', '', 'g'), 8) = :k
        AND length(regexp_replace(coalesce(c.phone, ''), '[^0-9]', '', 'g')) >= 8
-     LIMIT 1
+     LIMIT 2
 """
 
 
@@ -96,13 +107,34 @@ async def quem_e(db, telefone: str | None, *, e_dono: bool = False) -> Identidad
     if len(k) < 8:
         return Identidade(tipo="desconhecido")
     try:
-        row = (await db.execute(sql(_SQL_FUNCIONARIO), {"k": k})).first()
-        if row:
+        # ⚠️ LIMIT 2, e o motivo é a razão de existir deste bloco (11/09/2026). `LIMIT 1` sobre
+        # uma chave que PODE repetir é amostra respondendo como se fosse o conjunto: hoje
+        # nenhum par de funcionários compartilha os 8 últimos dígitos, então ele acerta — e no
+        # dia em que compartilhar, escolhe um em silêncio pelo `ORDER BY`. A consequência aqui
+        # não é uma resposta errada: é registrar batida de contingência no ponto de OUTRA
+        # pessoa. Medir o conjunto custa uma linha; supor que ele é único custa a jornada de
+        # alguém. (O `find_duplicate` do CRM já tinha essa lição: "dedup ambíguo, não escolho".)
+        # uma linha por PESSOA (o DISTINCT ON acima garante), então duas linhas = duas pessoas
+        linhas = (await db.execute(sql(_SQL_FUNCIONARIO), {"k": k})).fetchall()
+        if len({r[0] for r in linhas}) > 1:
+            # Da casa, sim — mas não sei QUEM. Os dois estados importam e são diferentes:
+            # `e_da_casa` continua verdadeiro (ninguém vira lead nem ouve "me confirma o
+            # CNPJ") e `employee_id` fica vazio, então as ferramentas de ponto recusam e a
+            # conversa vai para gente. Silenciar isso seria o pior dos três caminhos.
+            logger.warning("identidade AMBÍGUA: %s casa com %s funcionários (%s) — trato como "
+                           "da casa sem identidade; ninguém mexe em ponto assim",
+                           k, len(linhas), ", ".join(str(r[1]) for r in linhas))
+            return Identidade(tipo="funcionario", nome=None)
+        if linhas:
+            row = linhas[0]
             return Identidade(tipo="funcionario", employee_id=row[0], nome=row[1], cpf=row[2],
                               cargo=row[3], posto=row[4], condominio=row[5])
-        row = (await db.execute(sql(_SQL_CLIENTE), {"k": k})).first()
-        if row:
-            return Identidade(tipo="cliente", client_id=row[0], nome=row[1])
+        linhas = (await db.execute(sql(_SQL_CLIENTE), {"k": k})).fetchall()
+        if len(linhas) > 1:
+            logger.warning("identidade AMBÍGUA: %s casa com %s clientes — não escolho", k, len(linhas))
+            return Identidade(tipo="desconhecido")
+        if linhas:
+            return Identidade(tipo="cliente", client_id=linhas[0][0], nome=linhas[0][1])
     except Exception as exc:  # noqa: BLE001 — identidade é acessório; a mensagem não pode se perder
         logger.warning("identidade: falhei ao resolver %s — sigo como desconhecido (%s)", k, exc)
         return Identidade(tipo="desconhecido")
