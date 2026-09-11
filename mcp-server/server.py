@@ -230,6 +230,39 @@ def _norm(v: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", v).strip()
 
 
+# ── Rede de proteção da ESCRITA (item 3.3) ────────────────────────────────────────────
+# Não havia `dry_run` nem chave de idempotência, e o medo era real e justificado: um
+# retry, um clique duplo ou um agente confuso criam o SEGUNDO contrato do mesmo cliente, e
+# ninguém percebe até a cobrança sair dobrada. Em 10/09/2026 eu mesmo criei um contrato no
+# sistema do Jordan testando uma trava — exatamente o acidente que isto previne.
+_IDEMPOTENCIA: dict[str, tuple[float, dict]] = {}
+_IDEMPOTENCIA_TTL = 24 * 3600
+
+
+def _idem_busca(chave: str) -> dict | None:
+    """Mesma chave em 24h devolve o MESMO recurso, em vez de criar outro."""
+    if not chave:
+        return None
+    achado = _IDEMPOTENCIA.get(chave)
+    if not achado:
+        return None
+    quando, valor = achado
+    if time.time() - quando > _IDEMPOTENCIA_TTL:
+        _IDEMPOTENCIA.pop(chave, None)
+        return None
+    return {**valor, "idempotente": True,
+            "obs": "Já criado antes com esta mesma idempotency_key — nada foi duplicado."}
+
+
+def _idem_guarda(chave: str, valor: dict) -> dict:
+    if chave and isinstance(valor, dict) and valor.get("ok") is not False:
+        _IDEMPOTENCIA[chave] = (time.time(), valor)
+        # a memória é do PROCESSO: reiniciar o MCP esquece. É proteção contra retry e
+        # clique duplo na mesma sessão, não contra duplicata de ontem — e a tool diz isso,
+        # em vez de prometer uma garantia que não tem.
+    return valor
+
+
 def erro_envelope(exc: Exception) -> dict:
     """Converte QUALQUER exceção em envelope legível. É o que as tools retornam."""
     if isinstance(exc, ErpErro):
@@ -745,14 +778,69 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                                     valor_mensal: float, vigencia_inicio: str,
                                     vigencia_meses: int = 12, dia_vencimento: int = 0,
                                     renovacao_aviso_dias: int = 30,
-                                    carencia_dias: int = 0) -> dict:
-    """CRIA um contrato novo já ligado ao modelo e ao CNPJ emitente correto.
+                                    carencia_dias: int = 0,
+                                    dry_run: bool = False,
+                                    idempotency_key: str = "") -> dict:
+    """CRIA um contrato novo já ligado ao modelo e ao CNPJ emitente correto. ESCREVE.
 
-    modalidade: portaria | servicos_gerais | jardinagem | piscina | zeladoria | eletronica.
+    modalidade: portaria · servicos_gerais · jardinagem · piscina · zeladoria (Patrimonial)
+                eletronica · portaria_remota · eletronica_instalacao (Eletrônica)
     Mão de obra sai pela Patrimonial; segurança eletrônica, pela Eletrônica. Use depois de
     briefing_contrato_novo e antes de gerar_contrato_por_modelo. Recusa cliente fora do CRM.
     Restrito a Jordan e Pyetra.
+
+    ⭐ REDE DE PROTEÇÃO, porque contrato duplicado vira cobrança dobrada:
+      · `dry_run=True` mostra O QUE SERIA FEITO — cliente resolvido, modelo, CNPJ emitente,
+        valores — e **não grava nada**. Use sempre na primeira vez.
+      · `idempotency_key` (qualquer texto seu, ex. "kopenhagen-remota-2026-09") faz a mesma
+        chamada repetida em 24h devolver o MESMO contrato, em vez de criar outro.
+        A memória é do processo: reiniciar o MCP esquece. Protege de retry e clique duplo
+        na sessão, não de duplicata de semana passada.
     """
+    if idempotency_key:
+        ja = _idem_busca(idempotency_key)
+        if ja:
+            return ja
+    if dry_run:
+        # o ensaio resolve o que der para resolver e mostra; o que não der, diz por quê.
+        cat = {"portaria": ("portaria_mao_de_obra", "Patrimonial"),
+               "servicos_gerais": ("servicos_gerais", "Patrimonial"),
+               "jardinagem": ("jardinagem", "Patrimonial"),
+               "piscina": ("piscina", "Patrimonial"),
+               "zeladoria": ("zeladoria", "Patrimonial"),
+               "eletronica": ("manutencao_cftv", "Eletrônica"),
+               "portaria_remota": ("portaria_remota", "Eletrônica"),
+               "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica")}
+        tipo_emp = cat.get((modalidade or "").strip().lower())
+        if not tipo_emp:
+            return {"ok": False, "codigo": "MODALIDADE_DESCONHECIDA", "http": 422,
+                    "mensagem": f"Modalidade {modalidade!r} não existe.",
+                    "dica": "Use uma de: " + ", ".join(sorted(cat))}
+        cliente = None
+        alvo_doc = re.sub(r"\D", "", cliente_documento or "")
+        try:
+            # ⚠️ o cadastro guarda o CNPJ em `cnpj`, não em `document_number` — a primeira
+            # versão comparava o campo errado e dizia "não achei" de um cliente que EXISTE.
+            # Num ensaio, errar para o lado do "seria recusado" é pior que não checar: faz
+            # o dono cadastrar de novo um cliente que já está lá.
+            busca = await erp.get("/crm/clients", params={"page_size": 200})
+            for c in (busca or {}).get("items") or []:
+                doc = re.sub(r"\D", "", str(c.get("cnpj") or c.get("document_number") or ""))
+                if doc and doc == alvo_doc:
+                    cliente = c.get("name")
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "dry_run": True, "gravou": False,
+                "resumo": f"Criaria um contrato {tipo_emp[0]} de {_brl(valor_mensal)}/mês "
+                          f"pela {tipo_emp[1]}, com vigência de {vigencia_meses} meses.",
+                "cliente_encontrado": cliente or f"NÃO ACHEI o CNPJ {cliente_documento}",
+                "modelo": tipo_emp[0], "emitente": tipo_emp[1],
+                "valor_mensal": valor_mensal, "vigencia_inicio": vigencia_inicio,
+                "aviso": ("Cliente não está no CRM — a criação seria RECUSADA. Cadastre antes."
+                          if not cliente else
+                          "Nada foi gravado. Chame de novo sem dry_run para criar."),
+                "proximo_passo": "criar_contrato_por_modelo(..., idempotency_key='algo-unico')"}
     corpo: dict[str, Any] = {
         "cliente_documento": cliente_documento, "modalidade": modalidade,
         "valor_mensal": valor_mensal, "vigencia_inicio": vigencia_inicio,
@@ -763,7 +851,8 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
     if carencia_dias:
         corpo["carencia_dias"] = carencia_dias
     try:
-        return await erp.post("/crm/contracts/criar-por-modelo", json=corpo)
+        return _idem_guarda(idempotency_key,
+                            await erp.post("/crm/contracts/criar-por-modelo", json=corpo))
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "erro": str(exc)[:220]}
 
@@ -3411,3 +3500,57 @@ async def vincular_modelo_ao_contrato(contrato: str, template_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         return erro_envelope(exc)
     return r
+
+
+# ── Entrada de documentos (item 2.2) ──────────────────────────────────────────────────
+# O ERP tinha o REGISTRO e o artefato morava fora: contrato final .docx, planilha aberta de
+# custo, deck, parecer jurídico do cliente. Versões soltas em pasta local e risco real de
+# assinar a errada — havia dois decks do The Sun na mesma pasta.
+
+@mcp.tool
+async def anexar_documento(entidade: str, entidade_id: str, nome: str, conteudo_b64: str,
+                           categoria: str = "anexo", descricao: str = "") -> dict:
+    """Anexa um arquivo ao registro de uma entidade no ERP. ESCREVE.
+
+    `entidade`: contrato · cliente · proposta · oportunidade · os · visita · lead
+    `categoria`: contrato_assinado · minuta · proposta · planilha · parecer ·
+                 apresentacao · anexo
+    `nome` PRECISA terminar na extensão (contrato.docx) — é dela que sai o mime.
+    Aceita pdf, docx, xlsx, pptx, png, jpg, txt, csv, xml. Limite de 25 MB.
+
+    ⚠️ NUNCA sobrescreve: mesmo nome e categoria na mesma entidade vira **v2**, e o retorno
+    diz qual versão ficou. Perder qual arquivo o cliente assinou é pior que ter duas cópias.
+
+    `entidade_id` de contrato aceita CTR-…, id, CNPJ ou nome aproximado.
+    """
+    alvo = entidade_id
+    if (entidade or "").strip().lower() == "contrato":
+        alvo = await _resolver_contrato(entidade_id)
+        if isinstance(alvo, dict):
+            return alvo
+    try:
+        return await erp.post("/crm/docs/anexar", json={
+            "entidade": entidade, "entidade_id": alvo, "nome": nome,
+            "conteudo_b64": conteudo_b64, "categoria": categoria, "descricao": descricao})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
+async def listar_documentos_da_entidade(entidade: str, entidade_id: str) -> dict:
+    """Todos os documentos de uma entidade — os que o sistema gerou E os anexados de fora.
+
+    Traz categoria, nome, VERSÃO, tamanho e link. Use para saber se um contrato já tem
+    instrumento assinado anexado, ou qual é a versão mais recente de um deck.
+    Só lê.
+    """
+    alvo = entidade_id
+    if (entidade or "").strip().lower() == "contrato":
+        alvo = await _resolver_contrato(entidade_id)
+        if isinstance(alvo, dict):
+            return alvo
+    try:
+        return await erp.get("/crm/docs/da-entidade",
+                             params={"entidade": entidade, "entidade_id": alvo})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)

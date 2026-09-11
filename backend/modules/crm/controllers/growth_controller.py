@@ -9,10 +9,12 @@ import os
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.auth.dependencies import CurrentActiveUser
 
 from core.auth.dependencies import get_current_active_user
 from core.database import get_db
@@ -209,6 +211,46 @@ async def excluir_documento(doc_id: str, _=Depends(get_current_active_user), db:
     """Exclui (soft-delete) um documento registrado."""
     await db.execute(text("UPDATE crm_documents SET arquivado=true WHERE id=:id"), {"id": doc_id})
     await db.commit()
+
+
+@router.post("/docs/anexar")
+async def docs_anexar(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Anexa um arquivo VINDO DE FORA ao registro de uma entidade (item 2.2).
+
+    O ERP tinha o registro e o artefato morava fora — contrato final, planilha de custo,
+    deck, parecer do cliente. Nunca sobrescreve: mesmo nome e categoria vira v2.
+    """
+    from modules.crm.services.docs_registry import anexar_documento
+
+    try:
+        return await anexar_documento(
+            db,
+            entidade=payload.get("entidade") or "",
+            entidade_id=payload.get("entidade_id") or "",
+            nome=payload.get("nome") or "",
+            conteudo_b64=payload.get("conteudo_b64") or "",
+            categoria=payload.get("categoria") or "anexo",
+            descricao=payload.get("descricao") or "",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.get("/docs/da-entidade")
+async def docs_da_entidade(
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    entidade: str,
+    entidade_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Tudo que está pendurado numa entidade — o que o sistema gerou e o que foi anexado."""
+    from modules.crm.services.docs_registry import listar_da_entidade
+
+    return await listar_da_entidade(db, entidade=entidade, entidade_id=entidade_id)
 
 
 @router.post("/docs/expurgar-teste")
