@@ -2484,6 +2484,12 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     # nasce RASCUNHO — o Jordan passou o dia corrigindo número lido de imagem.
     "perguntar_ao_jordan": {"kind": "write"},
     "registrar_resposta_cotacao": {"kind": "write"},
+    # ── papel FUNCIONÁRIO (11/09/2026) ──
+    # `action` nas três: mexem com o ponto de uma PESSOA identificada. O gate não é de
+    # juízo do LLM — é o telefone resolver a um funcionário ativo, conferido no dispatcher.
+    "meu_ponto_hoje": {"kind": "action"},
+    "registrar_batida_contingencia": {"kind": "action"},
+    "justificar_ponto": {"kind": "action"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2694,6 +2700,48 @@ _PAPEIS: dict[str, dict] = {
                  "confirmado: quem confere é o Jordan.\n"
                  "6. NÃO fale de cliente, obra nominal, valor de venda nem margem. Ele cota "
                  "material; o negócio do outro lado não é assunto dele."),
+    },
+    # ⭐ FUNCIONÁRIO (11/09/2026). Nasce quando o telefone casa com `employees` — antes de
+    # cliente, antes de lead. Existe porque 64 dos 98 números que falaram com o José Luís
+    # são de gente da casa e 25 deles viraram LEAD: o único caminho de identidade na entrada
+    # era `_match_or_create_lead`. Decisão do Jordan no mesmo dia: "que ele resolva sozinho".
+    #
+    # ⚠️ O que ele NÃO tem importa tanto quanto o que tem: nada de proposta, preço, funil ou
+    # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
+    "funcionario": {
+        "tools": ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
+                  "transferir_conversa"),
+        # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
+        # vez de somar a ele. A razão foi medida em 11/09, no primeiro turno real: o papel
+        # resolveu o ponto do Rene e ainda assim pediu o CNPJ dele. O prompt base tem 39.680
+        # caracteres de venda — "CNPJ É OBRIGATÓRIO E VEM PRIMEIRO (REGRA RÍGIDA)" está lá em
+        # maiúsculas — e uma instrução aditiva de 1.200 não vence isso: o modelo gastou os 500
+        # tokens de saída no conflito e devolveu texto VAZIO (`finish=length`, content='').
+        # Para quem é da casa o prompt de vendas não é calibragem a preservar, é ruído.
+        "prompt": ("Você é José Luís, do atendimento da Conecta Mais (Manaus/AM). Fala por "
+                 "WhatsApp, em mensagens CURTAS e naturais, como uma pessoa de verdade — "
+                 "nunca se descreva como robô, IA ou atendimento automático. Uma pergunta "
+                 "por vez, sem textão, sem bajulação, emoji raríssimo.\n"
+                 "PAPEL NESTA CONVERSA — FUNCIONÁRIO DA CASA. Quem fala é COLEGA, "
+                 "identificado pelo telefone no cadastro: o contexto abaixo traz o nome, o "
+                 "cargo, o posto e o ponto dele de hoje.\n"
+                 "REGRAS INEGOCIÁVEIS AQUI:\n"
+                 "1. NUNCA peça CNPJ, nunca trate como lead, nunca ofereça proposta, preço "
+                 "ou visita comercial. Ele já trabalha aqui.\n"
+                 "2. Ponto: chame `meu_ponto_hoje` ANTES de responder qualquer coisa — "
+                 "inclusive quando ele disser que já bateu. Responda com o que o sistema "
+                 "mostra (hora e tipo), não com conselho genérico de bater o ponto.\n"
+                 "3. Se ele está no posto e o app não deixa bater, RESOLVA: "
+                 "`registrar_batida_contingencia` com o motivo nas palavras dele. A batida "
+                 "fica pendente para o DP validar e ele NÃO perde o ponto — diga isso.\n"
+                 "4. Se é atraso ou falta que já passou, `justificar_ponto`. O DP revisa.\n"
+                 "5. Ele manda PRINT quando o app falha: leia o que está escrito na imagem e "
+                 "use como motivo. Não peça para ele digitar de novo o que já mandou.\n"
+                 "6. Um assunto de cada vez, pelo nome dele. Nada de mensagem-padrão.\n"
+                 "7. O que não for ponto, escala, holerite ou documento dele — e o que "
+                 "depender de decisão de gente (troca de escala, pagamento, demissão) — vai "
+                 "para `transferir_conversa`. Prometer o que não pode cumprir é pior que "
+                 "encaminhar."),
     },
     # Cliente da base com assunto de dinheiro/documento: acolhe e encaminha, não decide.
     "administrativo": {
@@ -3712,6 +3760,124 @@ _SCHEMA_REG_RESPOSTA = {
 }
 
 
+# ── papel FUNCIONÁRIO (11/09/2026) ───────────────────────────────────────────
+# Estas três NÃO vivem no registro público: são do pessoal da casa. Pôr ponto de
+# funcionário no conjunto do cliente ofereceria a um número anônimo a chance de
+# tentar mexer em jornada alheia — a identidade aqui sai do TELEFONE, sempre.
+_SCHEMA_MEU_PONTO = {
+    "type": "function",
+    "function": {
+        "name": "meu_ponto_hoje",
+        "description": (
+            "O que o SISTEMA enxerga do ponto DESTE funcionário agora: turno de hoje, "
+            "batidas já registradas na janela do turno, qual é a próxima batida e "
+            "justificativas pendentes. Use SEMPRE antes de responder qualquer coisa sobre "
+            "ponto — inclusive quando ele disser que já bateu: pode ter batido no Tangerino "
+            "e a batida ainda não ter chegado aqui."),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+_SCHEMA_CONTINGENCIA = {
+    "type": "function",
+    "function": {
+        "name": "registrar_batida_contingencia",
+        "description": (
+            "Registra a batida que o APP não conseguiu registrar — câmera que não abre, "
+            "rosto não reconhecido, GPS negado, app travado. Entra PENDENTE para o DP "
+            "validar: ninguém perde o ponto. Use quando ele estiver NO POSTO e não "
+            "conseguir bater agora. NÃO use para batida de outro dia (isso é justificativa) "
+            "nem se `meu_ponto_hoje` já mostrar a batida registrada."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "motivo": {
+                    "type": "string",
+                    "description": "O que impediu a batida, nas palavras dele. É a trilha "
+                                   "que o DP lê para validar — 'não deu' não serve."},
+            },
+            "required": ["motivo"],
+        },
+    },
+}
+
+_SCHEMA_JUSTIFICAR = {
+    "type": "function",
+    "function": {
+        "name": "justificar_ponto",
+        "description": (
+            "Registra a justificativa de um ATRASO ou FALTA com o motivo dito pelo "
+            "funcionário. Nasce pendente e o DP revisa. Use para o que já passou "
+            "(atestado, trânsito, problema em casa) — para o agora no posto use "
+            "`registrar_batida_contingencia`."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tipo": {"type": "string", "enum": ["atraso", "falta"]},
+                "motivo": {"type": "string",
+                           "description": "O que aconteceu, nas palavras dele."},
+                "categoria": {"type": "string",
+                              "enum": ["transito", "saude", "familiar", "transporte_publico",
+                                       "acidente", "outro"]},
+            },
+            "required": ["tipo", "motivo"],
+        },
+    },
+}
+
+
+async def _funcionario_da_conversa(conversation_id: int):
+    """O funcionário desta conversa, pelo telefone dela. None se não for da casa."""
+    from .identidade import quem_e  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        fone = await _phone_da_conversa(db, conversation_id)
+        ident = await quem_e(db, fone)
+        return ident if ident.tipo == "funcionario" and ident.employee_id else None
+
+
+async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
+    """As três tools de ponto do funcionário. O `employee_id` vem do TELEFONE, nunca de argumento."""
+    from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
+
+    async with async_session_factory() as db:
+        if name == "meu_ponto_hoje":
+            return await _pf.situacao_hoje(db, ident.employee_id)
+        if name == "registrar_batida_contingencia":
+            return await _pf.registrar_contingencia(db, ident.employee_id,
+                                                    str(args.get("motivo") or "").strip())
+        return await _pf.registrar_justificativa(
+            db, ident.employee_id, str(args.get("tipo") or "atraso"),
+            str(args.get("motivo") or ""), str(args.get("categoria") or "outro"))
+
+
+async def _contexto_funcionario(ident) -> str:
+    """Quem ele é e como está o ponto dele HOJE, já no prompt.
+
+    O lembrete de saída ("seu turno no Villa Dei Fiori começa às 18:00") sempre soube disso;
+    quem não sabia era a entrada, que pedia CNPJ a porteiro. Este bloco é o fim daquela
+    assimetria — e é também o que evita a primeira pergunta boba ("qual seu nome?").
+    """
+    from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
+
+    linhas = [f"FUNCIONÁRIO: {ident.nome}"
+              + (f" — {ident.cargo}" if ident.cargo else "")
+              + (f" — {ident.posto}" if ident.posto else "")
+              + (f" ({ident.condominio})" if ident.condominio else "")]
+    try:
+        async with async_session_factory() as db:
+            s = await _pf.situacao_hoje(db, ident.employee_id)
+        linhas.append(f"TURNO HOJE: {s['turno_hoje']}")
+        linhas.append("BATIDAS DA JANELA DO TURNO: "
+                      + (", ".join(s["batidas_do_turno"]) if s["batidas_do_turno"] else "NENHUMA"))
+        linhas.append(f"PRÓXIMA BATIDA ESPERADA: {s['proxima_batida']}")
+        if s["justificativas_pendentes"]:
+            linhas.append("JUSTIFICATIVAS PENDENTES: " + " | ".join(s["justificativas_pendentes"]))
+    except Exception as exc:  # noqa: BLE001 — contexto é ajuda, não dependência
+        logger.warning("contexto funcionário: %s", exc)
+    return "\n".join(linhas)
+
+
 async def _tool_perguntar_ao_jordan(args: dict, conversation_id: int, forn: dict | None) -> dict:
     """Encaminha a dúvida do fornecedor ao dono. NÃO é rascunho: fala com o DONO.
 
@@ -4125,6 +4291,10 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         return base
     permitidas = set(cfg["tools"])
     ativas = [t for t in base if t["function"]["name"] in permitidas]
+    if papel == "funcionario":
+        # Fora do registro público de propósito: o conjunto do cliente não pode conter
+        # ferramenta de ponto de pessoa. Mesma razão do par do fornecedor logo abaixo.
+        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
         # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
@@ -4171,8 +4341,11 @@ def _system_prompt(owner: bool, papel: str | None = None) -> str:
         # comercial). `_ROTEIRO_TECNICO` está no fim do módulo; a referência resolve em
         # tempo de CHAMADA, não de definição.
         return MANAGER_PROMPT + _ROTEIRO_TECNICO
-    base = SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
     cfg = _PAPEIS.get(papel or "")
+    # Papel com prompt PRÓPRIO troca a base inteira (hoje só `funcionario` — ver o porquê lá).
+    if cfg and cfg.get("prompt"):
+        return cfg["prompt"]
+    base = SYSTEM_PROMPT + _PROMPT_COTACAO if _cota_em_chat() else SYSTEM_PROMPT
     return base + cfg["foco"] if cfg else base
 
 
@@ -4422,6 +4595,15 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         # 🔒 QUEM é o fornecedor sai do TELEFONE da conversa, nunca de argumento do modelo.
         # Se viesse por argumento, uma frase do próprio fornecedor ("sou da Futura") poderia
         # mover preço para a cotação de outro. Identidade pelo número, como no resto da casa.
+        # ── papel FUNCIONÁRIO ──
+        # 🔒 QUEM é o funcionário sai do TELEFONE da conversa. Se viesse por argumento,
+        # "sou o Rene" bastaria para lançar ponto na jornada de outra pessoa.
+        if name in ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto"):
+            _f = await _funcionario_da_conversa(conversation_id)
+            if not _f:
+                return {"erro": "não identifiquei este número no cadastro de funcionários."}
+            return await _tool_ponto_funcionario(name, args, _f)
+
         if name in ("perguntar_ao_jordan", "registrar_resposta_cotacao"):
             _forn = await _fornecedor_da_conversa(conversation_id)
             if not _forn:
@@ -5778,22 +5960,34 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # "minha câmera quebrou". Best-effort: falha aqui cai no comportamento de hoje.
         papel = None
         forn = None
+        # ⚠️ inicializado AQUI, fora do `if`: quando quem fala é o dono nada abaixo roda, e
+        # um `ident` só nascido lá dentro daria UnboundLocalError no prompt — o mesmo tipo de
+        # crash que já deixou o Jordan sem NENHUMA resposta (ver o bloco logo abaixo).
+        ident = None
         if not owner:
             try:
                 _fone = phone_row[0] if phone_row else None
                 async with async_session_factory() as _db:
-                    # ⭐ FORNECEDOR vem ANTES de cliente. Um número pode estar nas duas
+                    # ⭐ FUNCIONÁRIO vem ANTES de todo mundo (11/09/2026). Gente da casa não
+                    # pode cair em `_match_or_create_lead` nem ouvir "me confirma o CNPJ" —
+                    # foi o que aconteceu com 25 dos 64 funcionários que escreveram para cá.
+                    # ⭐ E FORNECEDOR vem antes de CLIENTE: um número pode estar nas duas
                     # tabelas, e quem nos manda preço de material é fornecedor naquele
                     # momento — tratá-lo como cliente foi exatamente o erro das 15:13.
-                    forn = await _fornecedor_do_telefone(_db, _fone)
-                    _cli = None if forn else await _cliente_do_telefone(_db, _fone)
-                if forn:
+                    from .identidade import quem_e as _quem_e  # noqa: PLC0415
+
+                    ident = await _quem_e(_db, _fone)
+                    forn = None if ident.tipo == "funcionario" else await _fornecedor_do_telefone(_db, _fone)
+                    _cli = None if (forn or ident.tipo == "funcionario") else await _cliente_do_telefone(_db, _fone)
+                if ident.tipo == "funcionario":
+                    papel = "funcionario"
+                elif forn:
                     papel = "fornecedor"
                 else:
                     _ult_in = next((c for d, c in rows if d == "in"), None)
                     papel = _papel_por_texto(_ult_in, e_cliente=_cli is not None)
             except Exception:  # noqa: BLE001
-                papel, forn = None, None
+                papel, forn, ident = None, None, None
 
         # ⚠️ AQUI, e não lá em cima: `owner` só existe DEPOIS de resolver o telefone.
         # Eu tinha posto este cálculo antes da atribuição e derrubei o agente com
@@ -5813,6 +6007,10 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         active_tools = _tools_ativas(owner, papel)
 
         messages = [{"role": "system", "content": _system_prompt(owner, papel)}]
+        if papel == "funcionario" and ident:
+            # Sem este bloco o agente pergunta o nome de quem ele já conhece — e ignora que
+            # a batida que o funcionário jura ter feito está ali, vinda do Tangerino.
+            messages.append({"role": "system", "content": await _contexto_funcionario(ident)})
         if forn:
             # O contexto NÃO é decoração: sem a cotação e os itens, "Qual cabo?" é um
             # enigma e o agente escala para humano — que foi o que aconteceu às 15:13.
@@ -6262,9 +6460,14 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     "[jose-luis] conv=%s DONO falou de projeto e o turno não chamou tool "
                     "nenhuma — levantamento_projeto não foi usado. Pedido: %r",
                     conversation_id, _ult[:120])
-        # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, NEM em situação
-        # sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ nessas horas é péssimo.
-        if not owner and not em_acompanhamento and not situacao_sensivel:
+        # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, com FUNCIONÁRIO,
+        # NEM em situação sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ
+        # nessas horas é péssimo.
+        # ⭐ O funcionário entrou nesta lista com o defeito medido ao vivo em 11/09: o papel
+        # novo resolveu o ponto do Rene certinho e, no fim, o apêndice colou "me confirma o
+        # CNPJ do condomínio/empresa" na mesma mensagem. A regra do prompt não alcança este
+        # trecho — ele é concatenação de string DEPOIS do modelo.
+        if not owner and papel != "funcionario" and not em_acompanhamento and not situacao_sensivel:
             texto = await _reforcar_cnpj(conversation_id, texto, rows)
         if not texto:
             # ⭐ 28/08/2026 — NINGUÉM FICA MUDO. Turno sem texto acontece por motivos

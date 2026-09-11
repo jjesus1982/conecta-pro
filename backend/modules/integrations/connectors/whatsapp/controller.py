@@ -2,7 +2,6 @@
 WhatsApp Controller — Endpoints REST para envio de mensagens.
 """
 
-from core.llm_client import novo_cliente
 import asyncio
 import hmac
 import json
@@ -17,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, CurrentUserId
 from core.database import get_db
+from core.llm_client import novo_cliente
 from modules.integrations.connectors.whatsapp import agent_service
 from modules.integrations.connectors.whatsapp.service import (
     _read_secret_file,
@@ -430,6 +430,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
         if not attachments:
             return None
         _visita_ctx = await _visita_ctx_da_conversa(conv_id)
+        _e_func = await _e_funcionario_da_conversa(conv_id) if not _visita_ctx else False
 
         if not _audio_payload_logged:
             _audio_payload_logged = True
@@ -532,7 +533,6 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
         if not audio_bytes:
             return None
 
-        from openai import AsyncOpenAI  # noqa: PLC0415 — lazy, mesma chave do agente
 
         # timeout explícito: STT/visão roda no caminho síncrono do webhook; sem teto, um
         # anexo problemático seguraria o handler (default SDK 600s) e o Chatwoot reentregaria.
@@ -583,7 +583,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
                             {
                                 "type": "text",
                                 "text": (
-                                    _prompt_visao(_visita_ctx)
+                                    _prompt_visao(_visita_ctx, funcionario=_e_func)
                                 ),
                             },
                             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
@@ -690,8 +690,8 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
         # que nunca falou, num documento que ele assina. Melhor vídeo só com imagem do
         # que vídeo com fala inventada.
         if texto:
-            _pal_vies = {w for w in re.findall(r"\w{4,}", _vies.lower())}
-            _pal_txt = [w for w in re.findall(r"\w{4,}", texto.lower())]
+            _pal_vies = set(re.findall(r"\w{4,}", _vies.lower()))
+            _pal_txt = re.findall(r"\w{4,}", texto.lower())
             if _pal_txt:
                 _sobrep = sum(1 for w in _pal_txt if w in _pal_vies) / len(_pal_txt)
                 if _sobrep > 0.8:
@@ -1091,9 +1091,23 @@ async def chatwoot_webhook(
             # Perder o vínculo de lead custa um campo; perder a mensagem custa a conversa.
             # ponytail: teto aqui resolve hoje — o certo é mover para a fila, como já foi
             # feito com a análise de mídia.
-            lead_id = await asyncio.wait_for(
-                _match_or_create_lead(db, phone_canonical, name, content), timeout=1.5)
-        except asyncio.TimeoutError:
+            # 11/09/2026 — QUEM É DA CASA NÃO VIRA LEAD. Medido nas 2.074 mensagens: dos 98
+            # números que falaram com o José Luís, 64 são de FUNCIONÁRIOS e 25 já tinham virado
+            # lead. O caminho de identidade era só este, e ele ou casa um lead ou CRIA um.
+            #
+            # Um porteiro perguntando do ponto não pode virar oportunidade no funil — e foi assim
+            # que o Rene, agente de portaria do Villa Dei Fiori, ouviu "me confirma o CNPJ do
+            # condomínio" depois de dizer que não conseguia assinar os documentos dele.
+            from .identidade import quem_e
+
+            _ident = await asyncio.wait_for(quem_e(db, phone_canonical), timeout=1.0)
+            if _ident.e_da_casa:
+                logger.info("Webhook: %s é %s (%s) — não crio lead", phone_canonical,
+                            _ident.tipo, _ident.nome)
+            else:
+                lead_id = await asyncio.wait_for(
+                    _match_or_create_lead(db, phone_canonical, name, content), timeout=1.5)
+        except TimeoutError:
             logger.error("Webhook Chatwoot: casamento de lead passou de 1,5s — SEGUINDO SEM "
                          "ele para não estourar o timeout do Chatwoot (fone=%s)",
                          phone_canonical)
@@ -1147,7 +1161,6 @@ async def chatwoot_webhook(
     if _midia_enfileirada and conv_id:
         try:
             from core.cache.redis import get_redis  # noqa: PLC0415
-
             from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
                 analisar_midia,
             )
@@ -1259,7 +1272,38 @@ async def _midia_para_visita_aberta(conversation_id: int | None, midia: str) -> 
                          "a mensagem segue normalmente")
 
 
-def _prompt_visao(visita_ctx: dict | None) -> str:
+async def _e_funcionario_da_conversa(conv_id: int | None) -> bool:
+    """Quem mandou a foto é da casa? Decide o OLHO da visão, não o conteúdo da resposta.
+
+    O print que o porteiro manda é uma TELA com mensagem de erro; descrevê-lo como
+    "equipamento/defeito, local, fachada" devolve "captura de tela de um aplicativo" e
+    perde justamente a frase que resolve o caso.
+    """
+    if not conv_id:
+        return False
+    try:
+        from core.database import async_session_factory  # noqa: PLC0415
+
+        from .identidade import quem_e  # noqa: PLC0415
+
+        async with async_session_factory() as db:
+            fone = (await db.execute(text(
+                "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
+                {"c": conv_id})).scalar()
+            try:
+                from modules.crm.services.orchestration import is_owner  # noqa: PLC0415
+
+                if is_owner(fone):
+                    return False  # o dono tem employee_id; o olho dele é o da visita
+            except Exception:  # noqa: BLE001
+                pass
+            return (await quem_e(db, fone)).tipo == "funcionario"
+    except Exception:  # noqa: BLE001 — visão não pode cair por causa da identidade
+        return False
+
+
+def _prompt_visao(visita_ctx: dict | None, funcionario: bool = False) -> str:
     """O que perguntar à VISÃO. Legenda quando é atendimento; DIAGNÓSTICO quando é visita.
 
     ⭐ Este é o ponto em que a foto deixa de ser enfeite. O prompt anterior era "Descreva
@@ -1275,6 +1319,16 @@ def _prompt_visao(visita_ctx: dict | None) -> str:
     A última regra é a que impede fabricação: o que não dá para ver, ele DIZ que não dá.
     Foto tremida não vira laudo.
     """
+    if funcionario and not visita_ctx:
+        # 11/09/2026 — o print do ponto. A ERIKA: "Não consigo registrar meu ponto pelo app
+        # conecta pro. Desde o início". O que resolve o caso está ESCRITO na tela dela.
+        return ("Esta imagem foi enviada por um FUNCIONÁRIO da Conecta Mais (porteiro, "
+                "vigilante, ASG) — quase sempre é o PRINT de uma tela do celular. "
+                "TRANSCREVA LITERALMENTE toda mensagem de erro, aviso, botão e horário "
+                "que aparecerem, entre aspas. Depois, em uma frase, diga o que a tela "
+                "mostra (ex.: 'app do ponto recusou o reconhecimento facial'). Se houver "
+                "documento (atestado, receita, comprovante), diga o tipo, a data e o "
+                "período. Não invente o que não estiver legível: diga 'não dá para ler'.")
     if not visita_ctx:
         return ("Descreva esta imagem enviada por um cliente num atendimento de "
                 "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ o "
