@@ -389,6 +389,7 @@ async def baixar_documento_conteudo(
     documento_id: str,
     current_user: CurrentActiveUser,  # noqa: ARG001 — autenticada, ao contrário do /download público
     formato: str = "base64",
+    forcar_base64: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """O documento em base64 E em texto. Item 2.2 — o terceiro irmão de anexar/listar.
@@ -399,7 +400,8 @@ async def baixar_documento_conteudo(
     from modules.crm.services.docs_registry import baixar
 
     try:
-        return await baixar(db, documento_id=documento_id, formato=formato)
+        return await baixar(db, documento_id=documento_id, formato=formato,
+                            forcar_base64=forcar_base64)
     except LookupError as e:
         raise HTTPException(404, str(e)) from e
     except FileNotFoundError as e:

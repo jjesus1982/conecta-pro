@@ -235,7 +235,8 @@ def extrair_de_bytes(conteudo: bytes, ext: str = "pdf") -> tuple[str, int | None
                 os.unlink(caminho)
 
 
-async def baixar(db, *, documento_id: str, formato: str = "base64") -> dict:
+async def baixar(db, *, documento_id: str, formato: str = "base64",
+                 forcar_base64: bool = False) -> dict:
     """O documento em base64 E em texto — o agente confere sem abrir binário.
 
     Item 2.2 do relatório de campo: `anexar` e `listar` existiam, e faltava o terceiro. Sem
@@ -276,9 +277,12 @@ async def baixar(db, *, documento_id: str, formato: str = "base64") -> dict:
         out["aviso"] = motivo
     if str(formato).lower() == "texto":
         return out
-    if len(bruto) > 8 * 1024 * 1024:
-        out["aviso"] = (f"Arquivo de {kb / 1024:.1f} MB — base64 omitido para não estourar a "
-                        f"conversa. Use o texto ou `url_alternativa`.")
+    # mesmo teto do MCP, mesma razão: o consumidor é uma conversa, não um disco.
+    # Ver a nota em mcp-server/server.py — 469 KB já estouraram o limite de tokens.
+    if len(bruto) > 256 * 1024 and not forcar_base64:
+        out["aviso"] = (f"Arquivo de {kb:.0f} KB — base64 OMITIDO para não estourar a "
+                        f"conversa. Use `texto_extraido` ou `url_alternativa`; "
+                        f"`forcar_base64=true` traz o arquivo assim mesmo.")
         return out
     out["arquivo"]["base64"] = base64.b64encode(bruto).decode("ascii")
     return out

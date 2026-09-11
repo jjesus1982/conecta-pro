@@ -800,6 +800,46 @@ def renderizar(corpo: str, ctx: dict) -> str:
 _SLUG = {PATRIMONIAL[1]: "conecta_patrimonial", ELETRONICA[1]: "conecta_eletronica"}
 
 
+def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
+                     assinaturas: list | None = None) -> str:
+    """Resolve `[[...]]` na versão TEXTO, espelhando o que o PDF vai mostrar.
+
+    Não é cosmético: é o texto que o agente lê para conferir o instrumento sem abrir
+    binário. Token à mostra ali significa que a conferência se faz sobre um documento
+    diferente do que vai ao cliente.
+    """
+    if "[[TABELA_COMPOSICAO]]" in texto:
+        linhas = ["COMPOSIÇÃO DO VALOR", ""]
+        tot_qtd = 0
+        for it in itens:
+            q = int(it["quantity"] or 0)
+            tot_qtd += q
+            linhas.append(f"  {it['service_name'] or '—'} · qtd {q} · {brl(it['total_price'] or 0)}")
+        linhas.append(f"  TOTAL · qtd {tot_qtd} · {total_fmt}")
+        texto = texto.replace("[[TABELA_COMPOSICAO]]", "\n".join(linhas))
+
+    if "[[BLOCO_ASSINATURAS]]" in texto:
+        assina = list(assinaturas or [])
+        linhas = ["ASSINATURAS", ""]
+        for papel, ent, pessoa, cargo in (
+            ("CONTRATADA", ctx.get("contratada_razao_social") or ctx.get("contratada_nome"),
+             ctx.get("contratada_representante"), ctx.get("contratada_cargo")),
+            ("CONTRATANTE", ctx.get("contratante_nome"),
+             ctx.get("contratante_representante"), ctx.get("contratante_cargo")),
+        ):
+            linhas.append(f"  {papel}: {ent or '—'}")
+            linhas.append(f"    por {pessoa or '—'}" + (f" · {cargo}" if cargo else ""))
+        if ctx.get("testemunhas"):
+            linhas += ["", "  TESTEMUNHA 1: ____________________",
+                       "  TESTEMUNHA 2: ____________________"]
+        for a_ in assina:
+            if a_.get("nome"):
+                linhas.append(f"  ✔ assinado eletronicamente por {a_['nome']}"
+                              + (f" em {a_['data']}" if a_.get("data") else ""))
+        texto = texto.replace("[[BLOCO_ASSINATURAS]]", "\n".join(linhas))
+    return texto
+
+
 def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     """A composição do valor vira TABELA de verdade, centralizada e alinhada.
 
@@ -1344,6 +1384,17 @@ async def renderizar_contrato(
         )
 
     texto = renderizar(tpl["content_template"], ctx)
+    # ⭐ O `texto_extraido` tem de ser 1:1 com o PAPEL. Auditoria do Cowork (11/09/2026):
+    # `[[TABELA_COMPOSICAO]]` e `[[BLOCO_ASSINATURAS]]` sobreviviam literalmente no texto,
+    # porque eles só viram elemento lá embaixo, na montagem do PDF. E é NO TEXTO que o
+    # agente roda os asserts de cláusula — ele estava auditando um documento que não existe.
+    # Pior: a composição do valor e quem assina são justamente o que se confere antes de
+    # mandar para o cliente, e os dois eram exatamente o que faltava.
+    # no contrato de valor ÚNICO a régua é o TOTAL: `valor_mensal_fmt` é R$ 0,00 ali, e a
+    # tabela sairia somando parcelas para um total zerado — que é pior que não ter tabela.
+    _total_da_tabela = ctx.get("valor_total_fmt") if ctx.get("valor_total_fmt") and str(
+        ctx.get("valor_mensal_fmt", "")).endswith("0,00") else ctx["valor_mensal_fmt"]
+    texto = _blocos_em_texto(texto, list(itens), _total_da_tabela, ctx, assinaturas)
 
     # subtítulo da capa = o próprio título do instrumento, que é a 1ª linha do modelo.
     # Sai do modelo e não do código: é o modelo que sabe se é portaria ou manutenção.

@@ -119,6 +119,8 @@ async def gerar_pdf_por_modelo(
     teste: bool = False,
     minuta: bool = False,
     formato: str = "pdf",
+    # escape consciente do teto de conversa: quem PRECISA do arquivo pede por ele
+    forcar_base64: bool = False,
 ):
     """Gera o contrato REAL a partir do modelo cadastrado (não o molde de 3 páginas).
 
@@ -191,15 +193,19 @@ async def gerar_pdf_por_modelo(
         import base64 as _b64
 
         pdf_b64 = _b64.b64encode(res.pdf).decode("ascii")
-        grande = len(res.pdf) > 8 * 1024 * 1024
+        # ⭐ 256 KB, não 8 MB. O teto era de DISCO e o consumidor é uma CONVERSA: auditoria
+        # do Cowork (11/09/2026) pediu este contrato — 469 KB — e recebeu 651.022 caracteres,
+        # estourando o limite de tokens da sessão. A guarda de 8 MB existia e protegia de um
+        # cenário que não acontece, enquanto o que acontece passava direto.
+        grande = len(res.pdf) > 256 * 1024 and not forcar_base64
         return {
             "ok": True,
             "arquivo": {
                 "nome": f"contrato_{contract_id.replace('/', '-')}.pdf",
                 "mime": "application/pdf",
                 "tamanho_kb": round(len(res.pdf) / 1024, 1),
-                # acima de 8 MB o base64 sai e o texto fica: o agente ainda consegue VALIDAR
-                # o conteúdo, que é o que ele precisa; baixar é problema de quem tem browser.
+                # o base64 sai e o TEXTO fica: o agente ainda consegue VALIDAR o conteúdo,
+                # que é o que ele precisa. Baixar é problema de quem tem navegador.
                 **({} if grande else {"base64": pdf_b64}),
             },
             "texto_extraido": res.texto,
@@ -207,7 +213,9 @@ async def gerar_pdf_por_modelo(
             "contratada": res.contratada.razao_social,
             "contratada_cnpj": res.contratada.cnpj,
             "minuta": bool(minuta),
-            **({"aviso": "PDF acima de 8 MB — base64 omitido; use texto_extraido ou a URL."}
+            **({"aviso": f"PDF de {round(len(res.pdf) / 1024)} KB — base64 OMITIDO para não "
+                         f"estourar a conversa. Confira pelo `texto_extraido`; "
+                         f"`forcar_base64=1` traz o arquivo assim mesmo."}
                if grande else {}),
         }
 

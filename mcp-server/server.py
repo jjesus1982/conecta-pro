@@ -865,7 +865,19 @@ async def baixar_proposta_pdf(proposta_id: str, salvar_no_drive: bool = False,
         return erro_envelope(exc)
 
 
-async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pdf") -> dict:
+# ⭐ TETO DE CONVERSA, não de disco. A guarda nasceu em 8 MB — dimensionada para "cabe num
+# upload". O consumidor é um LLM: a auditoria do Cowork (11/09/2026) pediu um contrato de
+# 469 KB, recebeu 651.022 caracteres e ESTOUROU o limite de tokens da conversa. O harness
+# precisou salvar em disco para o agente conseguir olhar. 8 MB nunca seria alcançado — a
+# guarda existia e protegia de um cenário que não acontece, enquanto o que acontece passava.
+#
+# 256 KB de arquivo ≈ 350 KB de base64 ≈ o que ainda cabe numa resposta sem sufocar o resto
+# da conversa. Acima disso: texto + link, que é o que o agente realmente usa para conferir.
+LIMITE_BASE64 = 256 * 1024
+
+
+async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pdf",
+                   forcar_base64: bool = False) -> dict:
     """Busca um PDF que o ERP gera na hora e devolve no envelope padrão, COM texto.
 
     Estes documentos (holerite, espelho, comprovante, recibo) não passam pelo
@@ -887,8 +899,10 @@ async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pd
                  # antiga junto com a mudança seria trocar um defeito por outro.
                  "tamanho_kb": kb, "mime": "application/pdf"}
     if str(formato).lower() != "texto":
-        if len(raw) > 8 * 1024 * 1024:
-            out["aviso"] = f"PDF de {kb / 1024:.1f} MB — base64 omitido para não estourar a conversa."
+        if len(raw) > LIMITE_BASE64 and not forcar_base64:
+            out["aviso"] = (f"PDF de {kb:.0f} KB — base64 OMITIDO para não estourar a "
+                            f"conversa. Use `texto_extraido` para conferir o conteúdo, ou "
+                            f"`forcar_base64=True` se precisar mesmo do arquivo.")
         else:
             out["arquivo"]["base64"] = b64
             out["pdf_base64"] = b64
@@ -907,7 +921,8 @@ async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pd
 
 @mcp.tool
 async def baixar_contrato_pdf(contrato_id: str, formato: str = "base64",
-                              minuta: bool = False, salvar_no_drive: bool = False) -> dict:
+                              minuta: bool = False, salvar_no_drive: bool = False,
+                              forcar_base64: bool = False) -> dict:
     """Gera o CONTRATO e devolve o PDF **e o TEXTO** — dá para conferir sem abrir binário.
 
     `formato`:
@@ -917,6 +932,10 @@ async def baixar_contrato_pdf(contrato_id: str, formato: str = "base64",
 
     `minuta=True` gera o RASCUNHO para análise do cliente: o que ainda não foi negociado
     sai como [A DEFINIR] em vez de o ERP recusar, e a capa se identifica como minuta.
+
+    ⚠️ Acima de 256 KB o base64 é OMITIDO e ficam o texto e o link — um contrato de 469 KB
+    vira 651 mil caracteres e sufoca a conversa (medido na auditoria de 11/09/2026). Para
+    CONFERIR o documento você quer o texto; se precisar mesmo do arquivo, `forcar_base64=True`.
 
     ⭐ O `texto_extraido` NÃO é extração: é o texto que o próprio render produziu antes de
     virar papel. Serve para rodar asserts — "limitada ao teto de 10%" está lá? a cláusula
@@ -938,7 +957,8 @@ async def baixar_contrato_pdf(contrato_id: str, formato: str = "base64",
                                "dado. Use gerar_contrato_por_modelo para ver o que falta.")
         return resumo
 
-    q = "formato=json" + ("&minuta=1" if minuta else "")
+    q = ("formato=json" + ("&minuta=1" if minuta else "")
+         + ("&forcar_base64=1" if forcar_base64 else ""))
     try:
         r = await erp.get(f"/crm/contracts/{alvo}/pdf-modelo?{q}")
     except Exception as exc:  # noqa: BLE001
@@ -1330,7 +1350,7 @@ async def _pdf_post_b64(path: str, payload: dict) -> dict:
             "pdf_base64": base64.b64encode(raw).decode("ascii")}
 
 
-async def _legivel(r: dict, formato: str) -> dict:
+async def _legivel(r: dict, formato: str, forcar_base64: bool = False) -> dict:
     """Acrescenta base64 e `texto_extraido` a um documento que o ERP acabou de registrar.
 
     ⭐ Reusa `/crm/docs/conteudo/{id}`, criado para o item 2.2. A extração acontece no
@@ -1345,7 +1365,8 @@ async def _legivel(r: dict, formato: str) -> dict:
     if str(formato).lower() == "url" or not r.get("gerado") or not r.get("id"):
         return r
     try:
-        c = await erp.get(f"/crm/docs/conteudo/{r['id']}", params={"formato": formato})
+        c = await erp.get(f"/crm/docs/conteudo/{r['id']}",
+                          params={"formato": formato, "forcar_base64": forcar_base64})
     except Exception as exc:  # noqa: BLE001
         r["aviso_leitura"] = (f"Gerado e registrado, mas não consegui trazer o conteúdo "
                               f"para leitura ({str(exc)[:90]}). Use o download_url.")
@@ -4332,14 +4353,15 @@ async def anexar_documento(entidade: str, entidade_id: str, nome: str, conteudo_
 
 
 @mcp.tool
-async def baixar_documento(documento_id: str, formato: str = "base64") -> dict:
+async def baixar_documento(documento_id: str, formato: str = "base64",
+                           forcar_base64: bool = False) -> dict:
     """Traz um documento anexado — em base64 E em TEXTO, para conferir sem abrir binário.
 
     `formato`: "base64" (padrão, traz os dois) · "texto" (só o texto, mais barato).
     Pegue o `documento_id` em `listar_documentos_da_entidade`.
 
-    Acima de 8 MB o base64 é omitido e ficam o texto e o link — um anexo de 20 MB viraria
-    ~27 MB de resposta e estouraria a conversa sem entregar nada.
+    Acima de 256 KB o base64 é OMITIDO e ficam o texto e o link: o teto é da CONVERSA, não
+    do disco — 469 KB já viram 651 mil caracteres. `forcar_base64=True` traz assim mesmo.
     Formatos que não viram texto (.xlsx, .pptx, imagens) vêm em base64 com o aviso de que
     não dá para ler — melhor que um `texto_extraido` vazio, que você leria como
     "documento em branco".
@@ -4348,7 +4370,7 @@ async def baixar_documento(documento_id: str, formato: str = "base64") -> dict:
     """
     try:
         return await erp.get(f"/crm/docs/conteudo/{documento_id}",
-                             params={"formato": formato})
+                             params={"formato": formato, "forcar_base64": forcar_base64})
     except Exception as exc:  # noqa: BLE001
         return erro_envelope(exc)
 
