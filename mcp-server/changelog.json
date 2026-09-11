@@ -2,6 +2,16 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "3d458491a",
+   "data": "2026-09-11",
+   "mudanca": "feat(qa): checar_imagem_mcp — concordância entre conectores não é atualidade"
+  },
+  {
+   "commit": "94b3630ef",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado — a trava pegou 3 commits de atraso"
+  },
+  {
    "commit": "fac2c764d",
    "data": "2026-09-11",
    "mudanca": "fix(mcp): o teste do teto derrubava o BUILD — parede de build não pode depender de produção"
