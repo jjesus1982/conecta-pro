@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import re
 import sys
+from datetime import date
 
 #: O que o dono falou, em código. Nome parcial basta — o oráculo casa por `in`.
 COMPETENCIA = {
@@ -69,7 +70,11 @@ async def main() -> int:
 
     from core.database import get_db
     from modules.integrations.connectors.whatsapp import agent_service as ag
-    from modules.integrations.connectors.whatsapp.transferencia import RESPONSAVEIS, responsaveis
+    from modules.integrations.connectors.whatsapp.transferencia import (
+        RESPONSAVEIS,
+        _de_ferias,
+        responsaveis,
+    )
 
     falhas: list[str] = []
 
@@ -86,18 +91,31 @@ async def main() -> int:
             falhas.append(f"a ferramenta oferece setor '{setor}' e o mapa de competência não conhece — "
                           f"a conversa cairia no padrão sem ninguém perceber")
 
-    # 2) a competência é a que o dono falou
+    # 2) a competência é a que o dono falou — afirmada com TODO MUNDO presente (data futura),
+    #    senão umas férias mudariam o mapa e o oráculo acharia que a regra mudou.
+    todos_presentes = date(2030, 1, 1)
     for setor, esperados in COMPETENCIA.items():
-        nomes = [p["nome"] for p in responsaveis(setor)[1]]
+        nomes = [p["nome"] for p in responsaveis(setor, todos_presentes)[1]]
         for quem in esperados:
             if not any(quem in n for n in nomes):
                 falhas.append(f"setor '{setor}' deveria ir para {quem} e vai para {nomes}")
         if len(nomes) != len(esperados):
             falhas.append(f"setor '{setor}': esperava {len(esperados)} responsável(is) {esperados}, achei {nomes}")
     for setor in NAO_PREVISTOS:
-        nomes = [p["nome"] for p in responsaveis(setor)[1]]
+        nomes = [p["nome"] for p in responsaveis(setor, todos_presentes)[1]]
         if not any("Jordan" in n for n in nomes):
             falhas.append(f"setor não previsto ('{setor}') não cai no Jordan — vai para {nomes}")
+
+    # 2b) HOJE, com férias aplicadas, nenhum setor fica sem ninguém — e quem está de férias
+    #     não recebe. Órfão é o defeito que esta ferramenta inteira existe para não ter.
+    for setor in RESPONSAVEIS:
+        hoje_nomes = [p["nome"] for p in responsaveis(setor)[1]]
+        if not hoje_nomes:
+            falhas.append(f"setor '{setor}' está sem ninguém HOJE — a conversa ficaria órfã")
+        for p in responsaveis(setor)[1]:
+            if _de_ferias(p):
+                falhas.append(f"{p['nome']} está de férias (volta {p['volta_em']}) e continua "
+                              f"recebendo transferência de '{setor}'")
 
     gen = get_db()
     db = await gen.__anext__()

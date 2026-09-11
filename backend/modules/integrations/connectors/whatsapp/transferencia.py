@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,13 @@ TZ = ZoneInfo("America/Manaus")
 #: Cada pessoa uma vez só. `whatsapp` é o número do CADASTRO — quem traduz para o LID é o envio.
 JORDAN = {"nome": "Jordan Jesus", "whatsapp": os.getenv("AGENT_HANDOFF_COMERCIAL_WHATSAPP", "+5592986465328")}
 PYETRA = {"nome": "Pyetra Jesus", "whatsapp": os.getenv("AGENT_HANDOFF_DP_WHATSAPP", "+5592999822705")}
-GONZAGA = {"nome": "Eliziel Gonzaga", "whatsapp": os.getenv("AGENT_HANDOFF_OPERACIONAL_WHATSAPP", "+5592984997784")}
+GONZAGA = {"nome": "Eliziel Gonzaga", "whatsapp": os.getenv("AGENT_HANDOFF_OPERACIONAL_WHATSAPP", "+5592984997784"),
+           # Férias: o Jordan avisou em 11/09 que ele volta no dia 15. NÃO está registrado em
+           # `hr_vacation_requests` (conferido: zero linhas para os quatro), então a régua da casa
+           # (`coorte_ponto.SQL_NAO_AUSENTE_HOJE`) não o enxerga. Data explícita que EXPIRA SOZINHA:
+           # no dia 15 ele volta a receber sem ninguém precisar lembrar de apagar nada. Quando as
+           # férias destas quatro pessoas passarem a ser registradas, o certo é trocar isto pela régua.
+           "volta_em": os.getenv("AGENT_HANDOFF_GONZAGA_VOLTA", "2026-09-15")}
 PAIVA = {"nome": "Orlailson Paiva", "whatsapp": os.getenv("AGENT_HANDOFF_OPERACIONAL2_WHATSAPP", "+5592981386006")}
 PEDRO = {"nome": "Pedro Rafael", "whatsapp": os.getenv("AGENT_HANDOFF_SUPORTE_WHATSAPP", "+5592992839530")}
 
@@ -59,10 +66,31 @@ PEDACO = 3400
 MAX_PARTES = 6
 
 
-def responsaveis(setor: str | None) -> tuple[str, list[dict]]:
-    """(label do setor, pessoas que assumem). Nunca devolve lista vazia."""
+def _de_ferias(pessoa: dict, hoje: date | None = None) -> bool:
+    """Quem tem `volta_em` no futuro está fora — a data expira sozinha."""
+    volta = pessoa.get("volta_em")
+    if not volta:
+        return False
+    try:
+        return (hoje or datetime.now(TZ).date()) < date.fromisoformat(str(volta))
+    except ValueError:  # data escrita errada não pode calar um responsável
+        logger.warning("transferencia: volta_em inválido em %s: %r", pessoa.get("nome"), volta)
+        return False
+
+
+def responsaveis(setor: str | None, hoje: date | None = None) -> tuple[str, list[dict]]:
+    """(label do setor, pessoas que assumem HOJE). Nunca devolve lista vazia.
+
+    Quem está de férias sai da rota. Se o setor inteiro estiver fora, a conversa NÃO fica
+    órfã: cai no PADRÃO (Jordan) — melhor o dono receber algo que não é dele do que uma
+    pessoa esperar por quem está na praia.
+    """
     cfg = RESPONSAVEIS.get((setor or "").strip().lower()) or RESPONSAVEIS[PADRAO]
-    return cfg["label"], list(cfg["pessoas"])
+    presentes = [p for p in cfg["pessoas"] if not _de_ferias(p, hoje)]
+    if presentes:
+        return cfg["label"], presentes
+    logger.warning("transferencia: todo o setor '%s' está de férias — cai no padrão", setor)
+    return cfg["label"], list(RESPONSAVEIS[PADRAO]["pessoas"])
 
 
 def _quebrar(linhas: list[str]) -> list[str]:
@@ -129,7 +157,11 @@ def cabecalho(label: str, quem_e_nome: str, telefone: str | None, contexto: list
 
 def demo() -> None:
     """Checagem mínima: competência, fallback e o teto da íntegra."""
-    assert [p["nome"] for p in responsaveis("operacional")[1]] == ["Eliziel Gonzaga", "Orlailson Paiva"]
+    # antes da volta do Gonzaga, operacional é só o Paiva; a partir do dia 15, os dois
+    assert [p["nome"] for p in responsaveis("operacional", date(2026, 9, 11))[1]] == ["Orlailson Paiva"]
+    assert [p["nome"] for p in responsaveis("operacional", date(2026, 9, 15))[1]] == ["Eliziel Gonzaga", "Orlailson Paiva"]
+    # setor inteiro de férias não deixa a conversa órfã
+    assert responsaveis("suporte_tecnico", date(2026, 9, 11))[1] == [PEDRO]
     assert responsaveis("dp")[1] == responsaveis("rh")[1] == [PYETRA]
     assert responsaveis("comercial")[1] == [JORDAN]
     # setor que ninguém previu não pode ficar sem dono — "demais demandas é comigo"
