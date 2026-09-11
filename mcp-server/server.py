@@ -4561,7 +4561,9 @@ async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = N
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+
+            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
                     "mensagem": f"`{ferramenta}` é ação de aprovação humana. Segundo plano "
                                 f"não é caminho alternativo para ela.",
                     "dica": "Chame a ferramenta direto — o pedido vai ao dono por lá."}
@@ -4692,7 +4694,9 @@ async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+
+            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
                     "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
                     "dica": "Sandbox não é caminho alternativo. Chame direto — o pedido vai "
                             "ao dono por lá."}
@@ -4780,7 +4784,9 @@ async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+
+            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
                     "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
                     "dica": "Chame direto — o pedido vai ao dono por lá."}
     except ImportError:

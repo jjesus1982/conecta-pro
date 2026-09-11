@@ -470,7 +470,7 @@ async def aceite_4x_sandbox_grava_longe_da_producao() -> None:
         r = await S.no_sandbox(propose, {})
     finally:
         gate_propose.MODO_AGENTE = modo_antes
-    assert r.get("codigo") == "PRECISA_APROVACAO", (
+    assert r.get("codigo") == "REQUER_APROVACAO_HUMANA", (
         f"`{propose}` executou no sandbox com a parede LIGADA — vira caminho alternativo "
         f"para aprovação humana: {r}")
 
@@ -502,7 +502,7 @@ async def aceite_auditoria_efeito_externo() -> None:
                         ("no_sandbox", S.no_sandbox),
                         ("segundo_plano", S.executar_em_segundo_plano)):
         r = await fn(alvo, {"contrato": "CTR-2026-00022"})
-        assert r.get("codigo") == "PRECISA_APROVACAO", f"{caminho} deixou passar: {r}"
+        assert r.get("codigo") == "REQUER_APROVACAO_HUMANA", f"{caminho} deixou passar: {r}"
     assert G.efeito_externo(alvo), "a recusa não diz o que sairia da empresa"
     print(f"OK §1.1 {len(G.EFEITO_EXTERNO)} ações externas barradas nos 3 despachantes "
           f"(+ middleware na chamada direta)")

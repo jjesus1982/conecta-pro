@@ -49,7 +49,7 @@ def test_propose_nao_passa_por_segundo_plano() -> None:
         if not hasattr(S, nome):
             continue
         r = asyncio.run(S.executar_em_segundo_plano(nome, {}))
-        assert r.get("codigo") == "PRECISA_APROVACAO", (
+        assert r.get("codigo") == "REQUER_APROVACAO_HUMANA", (
             f"`{nome}` é propose e ENTROU em segundo plano: {r}")
     identidade._TOKEN.set(None)
     print(f"OK propose barrado em segundo plano ({len(propostas)} tools)")

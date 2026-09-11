@@ -141,6 +141,12 @@ NAO_SAI_DA_EMPRESA: dict[str, str] = {
 }
 
 
+# Nome do código de recusa, fixado pela issue CP-MCP-001 e afirmado pelo caso R11 da suíte.
+# Uma constante e não uma string solta nos três despachantes: a auditoria vai conferir o
+# nome exato, e três literais divergem na primeira vez que alguém reescrever um deles.
+CODIGO_APROVACAO = "REQUER_APROVACAO_HUMANA"
+
+
 def efeito_externo(nome: str) -> str:
     """O que sai da empresa se esta ferramenta rodar. Vazio = não sai nada."""
     return EFEITO_EXTERNO.get(nome, "")
@@ -238,9 +244,29 @@ class GatePropose(_Base):
             + "\n\nEu não tenho como aprovar o que eu mesmo pedi."
             + registro
         )
+        # ⭐ ENVELOPE + PROSA na mesma recusa. O agente precisa de `codigo`/`http` para
+        # DECIDIR (e a suíte R11 afirma os dois); a pessoa precisa da frase para ENTENDER o
+        # que quase aconteceu. Mandar só a prosa obriga o agente a interpretar texto — que é
+        # como uma recusa vira "acho que deu erro, tento de novo". Mandar só o código
+        # esconde do dono o que a ação faria.
+        import json as _json  # noqa: PLC0415
+
         from fastmcp.exceptions import ToolError  # noqa: PLC0415
 
-        raise ToolError(texto)
+        envelope = {
+            "ok": False,
+            "codigo": CODIGO_APROVACAO,
+            "http": 403,
+            "mensagem": texto,
+            "acao": nome,
+            "classe": pedido["classe"],
+            "sai_da_empresa": sai or None,
+            "vai_acontecer": pedido["vai_acontecer"],
+            "dica": "Esta ação não é executada por mim em nenhum caminho — nem por "
+                    "`ensaiar`, `no_sandbox` ou segundo plano. Quem aprova não pode ser "
+                    "quem pede.",
+        }
+        raise ToolError(_json.dumps(envelope, ensure_ascii=False))
 
 
 def instalar(mcp) -> bool:

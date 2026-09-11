@@ -689,7 +689,12 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
         "contratada_razao_social": contratada.razao_social,
         "contratada_cnpj": contratada.cnpj,
         "contratada_endereco": _SEDE.get(contratada.cnpj, ""),
-        "contratada_representante": "Jordan Santos de Jesus",
+        # ⚠️ "Jordan Jesus", não "Jordan Santos de Jesus". Eu tinha deixado esta troca
+        # PENDENTE por ser o nome que assina instrumento — e o Jordan decidiu na issue
+        # CP-MCP-008: o padrão documentado é sem "Santos", como no documento aprovado e
+        # anexado ao CTR-2026-00022 (v2). O que identifica juridicamente é o CPF logo
+        # abaixo, que não muda; o nome segue o padrão da casa.
+        "contratada_representante": "Jordan Jesus",
         "contratada_representante_cpf": "730.681.522-91",
         "contratada_representante_rg": "15398811 SSP/AM",
         # cargo de quem assina: o bloco de assinatura identifica a QUALIDADE em que a

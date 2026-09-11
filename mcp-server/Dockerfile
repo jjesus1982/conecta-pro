@@ -21,6 +21,9 @@ COPY changelog.json .
 COPY test_identidade.py .
 COPY test_segundo_plano.py .
 COPY test_efeito_externo.py .
+# ⚠️ a suíte de regressão vai na imagem mas NÃO roda no build: ela exige o ERP de pé.
+# Parede de build não pode depender de produção — aprendido derrubando o build hoje.
+COPY test_regressao_mcp.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
 RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py && python test_efeito_externo.py
