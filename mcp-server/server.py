@@ -4128,36 +4128,57 @@ async def ping_conecta_pro() -> dict:
 # Mapa de domínios. Não é a lista das 254 — é o CAMINHO: o que usar, em que ordem, e o que
 # vem depois. Uma lista alfabética de 254 nomes não ajuda quem não sabe o nome.
 _MAPA = {
+    # ⚠️ TODA tool citada aqui EXISTE no registry — `test_capabilities_sem_fantasma.py`
+    # reprova o build se não existir. Validação do Cowork (11/09/2026): o mapa citava
+    # `listar_contas_pagar` e `listar_recebiveis`, que nunca existiram. Auditando os seis
+    # domínios pelo mesmo critério apareceram DEZ nomes fantasma, não dois.
+    #
+    # ⭐ Por que isso é grave e não cosmético: `capabilities` é a tool de DESCOBERTA. É por
+    # ela que o agente decide o que fazer em seguida. Mapa apontando para rua que não existe
+    # faz o agente tentar, falhar, e o dono concluir que "o MCP não funciona".
     "contratos": {
         "resumo": "Do fechamento ao instrumento assinado.",
         "fluxo": ["briefing_contrato_novo", "criar_contrato_por_modelo",
-                  "gerar_contrato_por_modelo", "baixar_contrato_pdf(formato='texto')",
+                  "gerar_contrato_por_modelo", "baixar_contrato_pdf",
                   "abrir_assinatura_contrato", "enviar_link_assinatura"],
         "atencao": "gerar_ devolve `faltam_dados` com as PERGUNTAS quando falta algo — "
-                   "responda e chame de novo. Emitir é restrito a Jordan e Pyetra.",
+                   "responda e chame de novo. Use baixar_contrato_pdf(formato='texto') "
+                   "para conferir o conteúdo. Emitir é restrito a Jordan e Pyetra, e "
+                   "enviar_link_assinatura exige aprovação humana.",
     },
     "comercial": {
         "resumo": "Lead → oportunidade → proposta → contrato.",
-        "fluxo": ["buscar_clientes", "listar_oportunidades", "proposta_da_oportunidade",
-                  "criar_contrato_por_modelo"],
+        "fluxo": ["listar_clientes", "contexto_cliente", "listar_deals",
+                  "proposta_da_oportunidade", "criar_contrato_por_modelo"],
         "atencao": "A proposta PODE misturar serviços; o contrato e a nota fiscal NUNCA. "
                    "Mão de obra sai pela Patrimonial, eletrônica pela Eletrônica.",
     },
     "financeiro": {
         "resumo": "Contas, extrato, conciliação e cobrança.",
-        "fluxo": ["resumo_financeiro", "listar_contas_pagar", "listar_recebiveis"],
-        "atencao": "Dinheiro que SAI exige OTP humano e não é exposto aqui.",
+        "fluxo": ["resumo_financeiro", "inter_saldo", "inter_extrato_resumo",
+                  "listar_cobrancas_inter", "pix_recebidos"],
+        "atencao": "Dinheiro que SAI exige aprovação humana com OTP — `propor_pagamento` "
+                   "não executa, registra o pedido.",
     },
-    "folha_dp": {"resumo": "Folha, ponto, CCT e colaboradores.",
-                 "fluxo": ["resumo_folha", "consultar_ponto", "consultar_cct"],
-                 "atencao": "Governo (eSocial/FGTS) é só leitura."},
-    "operacional": {"resumo": "Postos, escalas, plantões e diaristas.",
-                    "fluxo": ["listar_postos", "consultar_escala"],
-                    "atencao": "Curado à mão pelo dono: divergência vira relatório, "
-                               "nunca correção automática."},
-    "documentos": {"resumo": "Gerar, ler e anexar documentos.",
-                   "fluxo": ["baixar_contrato_pdf(formato='texto')", "gerar_proposta_doc"],
-                   "atencao": "Use formato='texto' para VALIDAR conteúdo sem abrir binário."},
+    "folha_dp": {
+        "resumo": "Folha, ponto, CCT e colaboradores.",
+        "fluxo": ["resumo_folha", "folha_dashboard", "espelho_ponto", "beneficios_cct"],
+        "atencao": "Governo (eSocial/FGTS) é só leitura. `fechar_folha` não tem desfazer — "
+                   "ensaie antes com ensaiar('fechar_folha', {...}).",
+    },
+    "operacional": {
+        "resumo": "Postos, escalas, plantões e diaristas.",
+        "fluxo": ["listar_postos", "listar_escalas", "listar_alocacoes", "grade_do_posto"],
+        "atencao": "Curado à mão pelo dono: divergência vira RELATÓRIO, nunca correção "
+                   "automática. Não altere escala nem alocação por conta própria.",
+    },
+    "documentos": {
+        "resumo": "Gerar, ler e anexar documentos.",
+        "fluxo": ["baixar_contrato_pdf", "baixar_proposta_pdf", "anexar_documento",
+                  "listar_documentos_da_entidade", "baixar_documento"],
+        "atencao": "Use formato='texto' para VALIDAR conteúdo sem abrir binário. Acima de "
+                   "256 KB o base64 é omitido — o texto continua vindo.",
+    },
 }
 TOOLS_POR_DOMINIO_PLANO = [t for d in _MAPA.values() for t in d["fluxo"]]
 

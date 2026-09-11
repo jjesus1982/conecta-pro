@@ -87,7 +87,55 @@ def _secao(titulo: str, st) -> list:
 
 
 # ---------------------------------------------------------------- documento
+# ⭐ FRONTEIRA DE DADO, não regra de conduta. Auditoria do Cowork, 11/09/2026 (Bloco 4):
+# `build_proposal_pdf` recebia o objeto INTEIRO da proposta e puxava campo por `getattr` —
+# qualquer coluna nova ficava a um `getattr` de distância do PDF do cliente. E não foi
+# hipótese: eu mesmo movi uma observação interna de `payment_terms` para `notes` achando que
+# `notes` era interno, e `notes` é impresso como "Observações" NO PDF DO CLIENTE. A margem
+# de 34,3% saiu de um campo e entrou em outro, ambos visíveis.
+#
+# Guard por lista de palavras é rede de segurança, não defesa: ele falha em silêncio quando
+# o texto muda de lugar — e falhou, porque eu o escrevi varrendo as colunas que EU ACHAVA
+# que iam ao cliente. A defesa é o renderizador não RECEBER o que é interno.
+#
+# Classificação decidida MEDINDO o conteúdo real, não por convenção:
+#   · `notes` é do CLIENTE — nas 8 propostas que o usam ele carrega "JUSTIFICATIVA
+#     TÉCNICA", "COMPOSIÇÃO DO SISTEMA", "Arquitetura: backbone óptico…";
+#   · `observacoes_internas` (coluna nova, aditiva) é INTERNA e não existe para esta função.
+CAMPOS_DO_CLIENTE = frozenset({
+    "number", "title", "description", "notes",
+    "client_name", "client_document", "client_address",
+    "items", "total", "installments", "payment_terms",
+    "issue_date", "created_at", "valid_until",
+})
+
+
+class VistaCliente:
+    """Só o que pode ser impresso. Pedir outra coisa ESTOURA, não devolve vazio.
+
+    `AttributeError` de propósito: devolver `None` para um campo interno faria o
+    renderizador silenciosamente imprimir nada e ninguém descobriria que a fronteira foi
+    testada. Erro alto acorda quem está escrevendo; `None` adormece.
+    """
+
+    __slots__ = ("_p",)
+
+    def __init__(self, proposta) -> None:  # noqa: ANN001
+        object.__setattr__(self, "_p", proposta)
+
+    def __getattr__(self, nome: str):
+        if nome not in CAMPOS_DO_CLIENTE:
+            raise AttributeError(
+                f"`{nome}` NÃO é campo de cliente — o PDF da proposta não pode lê-lo. "
+                f"Se for para o cliente, acrescente a CAMPOS_DO_CLIENTE de propósito; "
+                f"se for interno, use `observacoes_internas`."
+            )
+        return getattr(object.__getattribute__(self, "_p"), nome, None)
+
+
 def build_proposal_pdf(p, signatarios: list | None = None) -> bytes:
+    # a fronteira é aplicada AQUI, na entrada: daqui para baixo não existe dado interno
+    p = p if isinstance(p, VistaCliente) else VistaCliente(p)
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,

@@ -12,9 +12,17 @@ A PROP-2026-00114 (Ração Confiança), marcada "— CONFIDENCIAL —", carregav
 
 Se a proposta tivesse sido enviada, o cliente leria a margem antes de negociar o preço.
 
-⭐ MEDE O TEXTO DO DOCUMENTO, não a coluna. Uma varredura por coluna acerta o caso que já
-conheço e perde o próximo, que vai estar em `terms_conditions`, num item, ou numa variável
-do modelo. A pergunta certa é "isto aparece no papel?", e o papel é o que o render produz.
+⭐ MEDE O TEXTO DO DOCUMENTO — e a primeira versão desta trava NÃO fazia isso.
+
+Eu escrevi exatamente esta frase no cabeçalho e, logo abaixo, varri COLUNAS: title,
+description, payment_terms, payment_conditions, terms_conditions. Deixei `notes` de fora
+porque ACHEI que `notes` era interno. Horas depois movi a observação de margem de
+`payment_terms` para `notes` — e `notes` é impresso como "Observações" no PDF do cliente.
+A trava disse "0 propostas com texto interno" enquanto o texto estava no papel. O Cowork
+pegou; eu não, porque a trava media o que eu acreditava e não o que sai.
+
+Agora ela RENDERIZA a proposta e lê o texto que o cliente receberia. Mais lenta e sem
+opinião: se está no papel, ela vê, venha de que coluna vier.
 
 ⚠️ SEM FALSO POSITIVO BARATO: "margem" aparece legitimamente em texto técnico ("margem de
 segurança", "margem da via"). Por isso os padrões exigem CONTEXTO — "margem atual", "margem
@@ -56,17 +64,24 @@ async def main() -> int:
         if not props:
             print("NÃO VERIFICADO: nenhuma proposta ativa.")
             return 0
+        from modules.crm.repositories.proposal_repository import ProposalRepository
+        from modules.crm.services.proposal_pdf import build_proposal_pdf
+
         for numero in props:
-            # o texto do CLIENTE: junta o que o render manda para o papel
-            linha = (await db.execute(text(
-                "SELECT concat_ws(' | ', title, description, payment_terms, "
-                "payment_conditions, terms_conditions) FROM proposals WHERE number = :n"),
-                {"n": numero})).scalar() or ""
-            itens = (await db.execute(text(
-                "SELECT coalesce(string_agg(concat_ws(' ', name, description), ' | '), '') "
-                "FROM proposal_items WHERE proposal_id = "
-                "(SELECT id FROM proposals WHERE number = :n)"), {"n": numero})).scalar() or ""
-            texto = f"{linha} | {itens}"
+            # ⭐ O PAPEL, não as colunas. Renderiza e extrai o texto que o cliente leria.
+            pid = (await db.execute(text(
+                "SELECT id FROM proposals WHERE number = :n"), {"n": numero})).scalar()
+            try:
+                prop = await ProposalRepository(db).get_by_id(str(pid))
+                from modules.crm.services.docs_registry import extrair_de_bytes
+
+                texto, _, _ = extrair_de_bytes(build_proposal_pdf(prop), "pdf")
+            except Exception as e:  # noqa: BLE001
+                # não conseguir renderizar é achado, não silêncio: uma proposta que o
+                # cliente não recebe é outro problema, mas alguém precisa saber.
+                achados.append(f"{numero} · NÃO CONSEGUI RENDERIZAR para conferir: "
+                               f"{type(e).__name__}: {str(e)[:80]}")
+                continue
             verificadas += 1
             for padrao, rotulo in PROIBIDO:
                 if (m := re.search(padrao, texto, re.I)):
