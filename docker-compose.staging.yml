@@ -98,14 +98,22 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.7}
       LLM_FALLBACK_ENABLED: ${LLM_FALLBACK_ENABLED:-true}
     ports:
-      - "8081:8081"
+      # 8081 no host -> 8080 no container. O CMD da imagem fixa `--port 8080` e IGNORA a
+      # variável PORT declarada acima; o mapeamento 8081:8081 apontava para uma porta onde
+      # ninguém escuta, e o container subia "saudável" sem responder a nada.
+      # 🔒 127.0.0.1 OBRIGATÓRIO. Sem o prefixo, o Docker publica em 0.0.0.0 e fura o
+      # firewall (ele escreve a própria regra no iptables) — medido em 11/09/2026:
+      # http://82.25.75.74:8081/docs respondeu 200 PELA INTERNET, com o banco de staging
+      # carregando 20 clientes, 12 contratos e 72 funcionários de nomes reais.
+      # Staging não é público. Quem precisa dele alcança pela rede Docker ou por túnel SSH.
+      - "127.0.0.1:8081:8080"
     depends_on:
       postgres-staging:
         condition: service_healthy
       redis-staging:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -113,8 +121,11 @@ services:
     networks:
       - conecta-staging-network
     volumes:
-      - ./logs/staging:/app/logs
-      - ./uploads/staging:/app/uploads
+      # ⚠️ NÃO remonte nada DENTRO de /app: a linha `./backend:/app:ro` abaixo monta o
+      # diretório inteiro como somente leitura, e o Docker não consegue criar o ponto de
+      # montagem ali (`read-only file system`). Era por isso que o backend-staging não
+      # subia — medido em 11/09/2026, primeira vez que alguém tentou levantá-lo desde março.
+      # Log de staging sai por `docker logs`; upload de staging é descartável por definição.
       - ./reports:/opt/conecta-pro/reports
       - ./backend:/app:ro
       # Testes
@@ -136,7 +147,10 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8081
       NEXT_PUBLIC_ENVIRONMENT: staging
     ports:
-      - "3002:3000"
+      # 🔒 mesmo motivo do backend acima: sem 127.0.0.1 o Docker publica na internet.
+      # Este serviço não está no ar hoje; a linha fica corrigida para não ser uma armadilha
+      # armada para quem o levantar um dia.
+      - "127.0.0.1:3002:3000"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s
