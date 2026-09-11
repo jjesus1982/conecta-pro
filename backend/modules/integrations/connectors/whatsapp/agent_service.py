@@ -637,7 +637,8 @@ TOOLS = [
         "function": {
             "name": "transferir_conversa",
             "description": (
-                "Encaminha a conversa para o time HUMANO do setor certo no Chatwoot. "
+                "Transfere a conversa INTEIRA para o WhatsApp da pessoa responsável pelo setor — ela recebe "
+                "todo o histórico e assume daqui. "
                 "Use quando NÃO conseguir resolver a demanda OU o cliente pedir explicitamente falar com uma pessoa. "
                 "Tente resolver primeiro — transferir é o último recurso. SEMPRE avise o cliente antes."
             ),
@@ -646,12 +647,14 @@ TOOLS = [
                 "properties": {
                     "setor": {
                         "type": "string",
-                        "enum": ["comercial", "suporte_tecnico", "operacional", "administrativo"],
+                        "enum": ["comercial", "suporte_tecnico", "operacional", "administrativo", "dp", "rh"],
                         "description": (
-                            "comercial: orçamento, proposta, visita comercial, cotação, contratar serviço. "
-                            "suporte_tecnico: equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso. "
-                            "operacional: portaria, escala, ronda, troca de porteiro/vigilante, posto. "
-                            "administrativo: boleto, nota fiscal, financeiro, contrato, RH, cobrança."
+                            "comercial: orçamento, proposta, visita comercial, cotação, contratar serviço (vai para o Jordan). "
+                            "suporte_tecnico: equipamento com problema, manutenção de CFTV/câmera/alarme/controle de acesso (Pedro Rafael). "
+                            "operacional: portaria, escala, ronda, troca de porteiro/vigilante, posto (Gonzaga e Paiva). "
+                            "dp: ponto, holerite, folha, férias, benefícios, atestado, admissão/rescisão (Pyetra). "
+                            "rh: gente — conflito, comportamento, treinamento, desligamento (Pyetra). "
+                            "administrativo: boleto, nota fiscal, financeiro, contrato, cobrança (Jordan)."
                         ),
                     },
                     "motivo": {"type": "string", "description": "Motivo curto do encaminhamento"},
@@ -1936,32 +1939,20 @@ async def _enviar_briefing_comercial(
 # HANDOFF — passagem de bastão para o responsável humano (briefing no WhatsApp dele).
 # Vendas/Projetos -> Jordan Jesus | Suporte Técnico -> Pedro Rafael. Configurável por env.
 # ============================================================================
-HANDOFF_RESPONSAVEIS = {
-    "comercial": {
-        "nome": os.getenv("AGENT_HANDOFF_COMERCIAL_NOME", "Jordan Jesus"),
-        "whatsapp": os.getenv("AGENT_HANDOFF_COMERCIAL_WHATSAPP", "+5592986465328"),
-        "setor_label": "Vendas e Projetos",
-    },
-    "suporte_tecnico": {
-        "nome": os.getenv("AGENT_HANDOFF_SUPORTE_NOME", "Pedro Rafael"),
-        "whatsapp": os.getenv("AGENT_HANDOFF_SUPORTE_WHATSAPP", "+5592992839530"),
-        "setor_label": "Suporte Técnico",
-    },
-}
-
-
 def _numeros_internos() -> set:
     """Números (só dígitos) que o agente NÃO atende automaticamente — vêm da env
     AGENT_INTERNAL_NUMBERS (vírgula-separado). Por PADRÃO VAZIO: assim o Jordan pode
     testar/auto-testar do PRÓPRIO número (que também é o número de handoff comercial) e
     o agente responde normalmente. Ative no .env (ex.: AGENT_INTERNAL_NUMBERS=5592992839530)
     quando quiser que o agente IGNORE respostas de Jordan/Pedro a um briefing de handoff."""
+    from modules.integrations.connectors.whatsapp.transferencia import PEDRO  # noqa: PLC0415
+
     raw = (os.getenv("AGENT_INTERNAL_NUMBERS", "") or "").strip()
     if not raw:
         # default: guarda só o SUPORTE (Pedro) — número puramente interno. NÃO guarda o
         # comercial (Jordan), que é também o número de teste/trabalho dele (assim ele testa
         # do próprio número e o agente responde). Override total via AGENT_INTERNAL_NUMBERS.
-        raw = HANDOFF_RESPONSAVEIS.get("suporte_tecnico", {}).get("whatsapp", "")
+        raw = PEDRO["whatsapp"]
     nums = set()
     for x in raw.split(","):
         d = re.sub(r"\D", "", x or "")
@@ -2069,97 +2060,100 @@ async def _enviar_whatsapp_direto(numero: str, mensagem: str) -> bool:
         return False
 
 
-async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str) -> str | None:
-    """Envia ao responsável do setor (comercial=Jordan, suporte_tecnico=Pedro) um briefing
-    do lead no WhatsApp DELE. Retorna o NOME do responsável (p/ o agente avisar o lead).
-    Best-effort: a conversa também é atribuída ao time no Chatwoot (backup)."""
-    resp = HANDOFF_RESPONSAVEIS.get(setor)
-    if not resp:
-        return None
+async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str,
+                                   motivo: str = "") -> str | None:
+    """Transfere DE VERDADE: manda a conversa INTEIRA para o WhatsApp de quem tem competência.
+
+    Decisão do Jordan, 11/09/2026 — *"não apenas diga a quem está na conversa que vai transferir,
+    mas que transfira de fato, e cada um de acordo com sua competência"*. O mapa de competência e
+    a montagem da íntegra vivem em `transferencia.py`; aqui é só quem busca os dados e entrega.
+
+    Muda três coisas em relação ao que existia:
+      • TODO setor tem dono (antes só comercial e suporte_tecnico avisavam alguém — operacional,
+        administrativo, DP e RH iam para um time do Chatwoot que ninguém abre);
+      • vai a conversa TODA, não as 3 últimas falas;
+      • quem está do outro lado pode ser FUNCIONÁRIO (desde 11/09 ele também tem esta ferramenta),
+        e aí o briefing diz cargo/posto — não "Lead: —".
+
+    Devolve o NOME de quem recebeu (para o agente dizer à pessoa quem assume), ou None se não
+    chegou a ninguém. ⚠️ None de propósito: devolver o nome sem entrega foi o que fez NOVE leads
+    ouvirem "já passei pro Jordan" entre 16/06 e 11/08 e esperarem um retorno que não vinha.
+    """
+    from modules.integrations.connectors.whatsapp.transferencia import (  # noqa: PLC0415
+        cabecalho,
+        responsaveis,
+        transcricao,
+    )
+
+    label, pessoas = responsaveis(setor)
     try:
+        # ── quem está do outro lado ──
         name = phone = None
         q, notes = {}, ""
         if lead_id:
-            row = (
-                await db.execute(
-                    text("SELECT name, phone, notes, qualificacao FROM leads WHERE id = :id"),
-                    {"id": lead_id},
-                )
-            ).first()
+            row = (await db.execute(
+                text("SELECT name, phone, notes, qualificacao FROM leads WHERE id = :id"),
+                {"id": lead_id})).first()
             if row:
                 name, phone, notes, qualificacao = row
-                q = (
-                    qualificacao
-                    if isinstance(qualificacao, dict)
-                    else (json.loads(qualificacao) if qualificacao else {})
-                )
+                q = qualificacao if isinstance(qualificacao, dict) else (json.loads(qualificacao) if qualificacao else {})
         if not phone:
-            tel = (
-                await db.execute(
-                    text(
-                        "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
-                        "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"
-                    ),
-                    {"c": conversation_id},
-                )
-            ).first()
+            tel = (await db.execute(
+                text("SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                     "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
+                {"c": conversation_id})).first()
             phone = tel[0] if tel else None
-        falas = (
-            await db.execute(
-                text(
-                    "SELECT content FROM cwi_message_log WHERE chatwoot_conversation_id=:c AND direction='in' "
-                    "AND content IS NOT NULL ORDER BY created_at DESC LIMIT 3"
-                ),
-                {"c": conversation_id},
-            )
-        ).fetchall()
-        ult = [str(f[0]).strip()[:200] for f in reversed(falas) if f and f[0]]
 
-        # Briefing no WhatsApp PESSOAL do responsável (Jordan/Pedro), enviado DIRETO pelo
-        # baileys-api (resolve o JID do número — o send_custom do Chatwoot falhava com contato
-        # sem identifier). O telefone do LEAD vai no briefing pro responsável falar com ele.
-        L = [
-            f"🤝 *NOVO ATENDIMENTO — {resp['setor_label']}*",
-            "_Encaminhado pelo José Luís._",
-            "",
-            f"👤 Lead: *{name or '—'}*",
-            f"📱 WhatsApp do lead: *{phone or '—'}*",
-        ]
-        for ln in str(notes or "").split("\n"):
-            low = ln.strip().lower()
-            if low.startswith("cnpj") or low.startswith("interesse"):
-                L.append(f"📝 {ln.strip()}")
-        ql = _fmt_qualificacao(q)
-        if ql:
-            L += ["", "📋 *Qualificação:*"] + ql
-        if ult:
-            L += ["", "💬 *O que o cliente disse:*"] + [f"— {u}" for u in ult]
-        L += ["", "➡️ Fale com ele no WhatsApp acima pra dar continuidade."]
+        contexto: list[str] = []
+        try:
+            from modules.integrations.connectors.whatsapp.identidade import quem_e  # noqa: PLC0415
 
-        ok = await _enviar_whatsapp_direto(resp["whatsapp"], "\n".join(L))
-        if ok:
-            logger.info(
-                "Handoff %s -> %s (WhatsApp direto) lead=%s conv=%s: ENTREGUE",
-                setor,
-                resp["nome"],
-                lead_id,
-                conversation_id,
-            )
-            return resp.get("nome")
-        logger.warning(
-            "Handoff %s -> %s lead=%s conv=%s: WhatsApp NÃO entregue",
-            setor,
-            resp["nome"],
-            lead_id,
-            conversation_id,
-        )
-        await _sino_handoff_perdido(db, resp, name, phone, conversation_id)
+            ident = await quem_e(db, phone)
+            if ident.tipo == "funcionario":
+                # FUNCIONÁRIO da casa: o nome do cadastro vence o do lead, e o que interessa a
+                # quem vai assumir é cargo e posto — não "qualificação de lead".
+                name = ident.nome or name
+                contexto = [x for x in (
+                    f"Funcionário da casa — {ident.cargo or 'sem cargo no cadastro'}",
+                    f"Posto: {ident.posto}" if ident.posto else "",
+                    f"Condomínio: {ident.condominio}" if ident.condominio else "",
+                ) if x]
+            elif ident.tipo == "cliente":
+                name = ident.nome or name
+                contexto = ["Cliente da base"]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("handoff conv=%s: identidade falhou (%s) — segue como lead", conversation_id, exc)
+
+        if not contexto:
+            for ln in str(notes or "").split("\n"):
+                low = ln.strip().lower()
+                if low.startswith("cnpj") or low.startswith("interesse"):
+                    contexto.append(ln.strip())
+            contexto += _fmt_qualificacao(q) or []
+
+        partes = [cabecalho(label, name or "Contato sem nome no cadastro", phone, contexto, motivo)]
+        partes += await transcricao(db, conversation_id, quem=(name or "Ele/Ela"))
+
+        # ── entrega, pessoa a pessoa ──
+        entregues: list[str] = []
+        for pessoa in pessoas:
+            ok_pessoa = True
+            for parte in partes:
+                if not await _enviar_whatsapp_direto(pessoa["whatsapp"], parte):
+                    ok_pessoa = False
+                    break
+            if ok_pessoa:
+                entregues.append(pessoa["nome"])
+            else:
+                logger.warning("Transferência %s -> %s conv=%s: NÃO entregue", setor, pessoa["nome"], conversation_id)
+                await _sino_handoff_perdido(db, pessoa, name, phone, conversation_id)
+
+        logger.info("Transferência %s (%s) conv=%s: %s de %s partes -> %s",
+                    setor, label, conversation_id, len(entregues), len(partes), entregues or "ninguém")
+        if entregues:
+            return " e ".join(entregues)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Handoff %s conv=%s falhou: %s", setor, conversation_id, exc)
-    # ⚠️ Sem entrega, NÃO devolve o nome. Devolver fazia o agente dizer ao cliente
-    # "já passei pro Jordan" quando ninguém tinha sido avisado: entre 16/06 e 11/08
-    # foram NOVE leads que ouviram isso e ficaram esperando um retorno que não vinha.
-    # O time do Chatwoot não é backup de verdade — o Jordan atende pelo WhatsApp.
+        logger.warning("Transferência %s conv=%s falhou: %s", setor, conversation_id, exc)
     return None
 
 
@@ -2360,90 +2354,81 @@ SETOR_TEAM_ID = {
 
 
 async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
-    """Atribui a conversa ao time do setor no Chatwoot. BEST-EFFORT: nunca derruba o webhook."""
+    """Transfere de VERDADE: a conversa inteira no WhatsApp de quem tem competência.
+
+    ⚠️ A entrega REAL é o WhatsApp, não o Chatwoot. Até 11/09/2026 esta função gateava tudo em
+    `assign_team(...) == "assigned"`: se a atribuição ao time falhasse, ninguém era avisado — e,
+    mesmo quando dava certo, só comercial e suporte_tecnico recebiam algo. Operacional,
+    administrativo, DP e RH caíam numa caixa do Chatwoot que ninguém abre. Agora o time continua
+    sendo atribuído (rastro), mas é BEST-EFFORT: quem manda é o WhatsApp de gente.
+
+    BEST-EFFORT no todo: nunca derruba o webhook.
+    """
+    from modules.integrations.connectors.whatsapp.transferencia import responsaveis  # noqa: PLC0415
+
     setor = str(args.get("setor") or "").strip().lower()
     motivo = str(args.get("motivo") or "").strip()
-    team_id = SETOR_TEAM_ID.get(setor)
-    if not team_id:
-        return {"erro": f"setor desconhecido: {setor}"}
+    # Setor que ninguém previu NÃO é erro: "comercial e demais demandas é comigo" (Jordan, 11/09).
+    label, _ = responsaveis(setor)
     # IDEMPOTÊNCIA: se já transferiu esta conversa há pouco (duplicata do modelo na mesma
-    # rodada), NÃO reatribui nem reenvia o briefing — evita 2 mensagens ao Jordan/Pedro.
+    # rodada), NÃO reatribui nem reenvia a íntegra — evita mandar a conversa duas vezes.
     try:
         async with async_session_factory() as _dbi:
-            ja = (
-                await _dbi.execute(
-                    text(
-                        "SELECT 1 FROM cwi_message_log WHERE chatwoot_conversation_id=:c AND direction='trf' "
-                        "AND created_at > now() - interval '2 minutes' LIMIT 1"
-                    ),
-                    {"c": conversation_id},
-                )
-            ).first()
+            ja = (await _dbi.execute(
+                text("SELECT 1 FROM cwi_message_log WHERE chatwoot_conversation_id=:c AND direction='trf' "
+                     "AND created_at > now() - interval '2 minutes' LIMIT 1"),
+                {"c": conversation_id})).first()
         if ja:
-            return {
-                "ok": True,
-                "setor": setor,
-                "mensagem": "conversa já encaminhada agora (briefing duplicado evitado)",
-            }
+            return {"ok": True, "setor": setor, "mensagem": "conversa já encaminhada agora (envio duplicado evitado)"}
     except Exception:  # noqa: BLE001
         pass
-    try:
-        from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
 
-        res = await whatsapp_service.assign_team(conversation_id, team_id)
-        logger.info(
-            "Tool transferir_conversa conv=%s setor=%s team=%s motivo=%s -> %s",
-            conversation_id,
-            setor,
-            team_id,
-            motivo,
-            res.get("status"),
-        )
-        if res.get("status") == "assigned":
-            # ⚠️ ORDEM: avisa o humano PRIMEIRO, silencia o agente DEPOIS — e só se o aviso
-            # chegou. Era o contrário: gravava 'trf' (agente calado 12h) e o aviso ia como
-            # best-effort. Quando o aviso não chegava, o cliente ficava com ninguém dos dois
-            # lados no minuto mais quente da negociação. Foi o que houve com o lead do dia
-            # 11/08: qualificado inteiro, "já passei pro Jordan", e ali morreu.
-            precisa_aviso = setor in HANDOFF_RESPONSAVEIS
-            responsavel = None
-            try:
-                async with async_session_factory() as db:
-                    if precisa_aviso:
-                        lead_id = await _resolve_lead_id(db, conversation_id)
-                        responsavel = await _enviar_handoff_whatsapp(db, lead_id, conversation_id, setor)
-                    if responsavel or not precisa_aviso:
-                        await db.execute(
-                            text(
-                                "INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
-                                "VALUES ('trf', :c, :setor, 'transfer')"
-                            ),
-                            {"c": conversation_id, "setor": setor[:200]},
-                        )
-                        await db.commit()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("transferir_conversa: falha ao marcar trf/handoff conv=%s: %s", conversation_id, exc)
+    # Rastro no Chatwoot (best-effort — nem todo setor tem time, DP e RH não têm).
+    team_id = SETOR_TEAM_ID.get(setor)
+    if team_id:
+        try:
+            from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
+
+            res = await whatsapp_service.assign_team(conversation_id, team_id)
+            logger.info("transferir_conversa conv=%s setor=%s team=%s -> %s",
+                        conversation_id, setor, team_id, res.get("status"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("transferir_conversa conv=%s: assign_team falhou: %s", conversation_id, exc)
+
+    # ⚠️ ORDEM: entrega a conversa ao humano PRIMEIRO, silencia o agente DEPOIS — e só se
+    # chegou. Era o contrário: gravava 'trf' (agente calado 12h) e o aviso ia como
+    # best-effort; quando não chegava, o cliente ficava sem ninguém dos dois lados no minuto
+    # mais quente. Foi o que houve com o lead de 11/08: qualificado inteiro, "já passei pro
+    # Jordan", e ali morreu.
+    responsavel = None
+    try:
+        async with async_session_factory() as db:
+            lead_id = await _resolve_lead_id(db, conversation_id)
+            responsavel = await _enviar_handoff_whatsapp(db, lead_id, conversation_id, setor, motivo)
             if responsavel:
-                return {
-                    "ok": True,
-                    "setor": setor,
-                    "responsavel": responsavel,
-                    "mensagem": f"encaminhado para {responsavel} — avise o cliente que essa pessoa assume daqui",
-                }
-            if not precisa_aviso:
-                return {"ok": True, "setor": setor, "mensagem": "conversa encaminhada ao time"}
-            return {
-                "ok": False,
-                "setor": setor,
-                "mensagem": (
-                    "NÃO consegui avisar o responsável agora. NÃO diga ao cliente que passou "
-                    "para alguém — continue você mesmo o atendimento normalmente."
-                ),
-            }
-        return {"erro": "não foi possível encaminhar agora"}
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Tool transferir_conversa falhou conv=%s: %s", conversation_id, e)
-        return {"erro": "não foi possível encaminhar agora"}
+                await db.execute(
+                    text("INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
+                         "VALUES ('trf', :c, :setor, 'transfer')"),
+                    {"c": conversation_id, "setor": setor[:200]},
+                )
+                await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("transferir_conversa: falha ao transferir conv=%s: %s", conversation_id, exc)
+
+    if responsavel:
+        return {
+            "ok": True,
+            "setor": setor,
+            "responsavel": responsavel,
+            "mensagem": f"conversa inteira enviada para {responsavel} ({label}) — "
+                        f"avise a pessoa que {responsavel} assume daqui",
+        }
+    return {
+        "ok": False,
+        "setor": setor,
+        "mensagem": ("NÃO consegui entregar a conversa ao responsável agora. NÃO diga que passou "
+                     "para alguém — continue você mesmo o atendimento normalmente."),
+    }
 
 
 async def _foi_transferida(conversation_id: int) -> bool:
@@ -2765,9 +2750,13 @@ _PAPEIS: dict[str, dict] = {
                  "e que ela será avisada. Prometer sem registrar é o que faz a pessoa repetir "
                  "a história toda semana.\n"
                  "11. O que não for ponto, escala, holerite ou documento dele — e o que "
-                 "depender de decisão de gente (troca de escala, pagamento, demissão) — vai "
-                 "para `transferir_conversa`. Prometer o que não pode cumprir é pior que "
-                 "encaminhar."),
+                 "depender de decisão de gente — vai para `transferir_conversa`, E A PESSOA "
+                 "RECEBE A CONVERSA INTEIRA no WhatsApp dela: use setor=\"operacional\" para "
+                 "posto, escala, ronda e troca de turno (Gonzaga e Paiva); setor=\"dp\" para "
+                 "ponto, folha, férias, benefício, atestado, admissão e rescisão (Pyetra); "
+                 "setor=\"rh\" para conflito, comportamento e desligamento (Pyetra); "
+                 "setor=\"comercial\" para o resto (Jordan). Diga o NOME de quem vai assumir — "
+                 "a ferramenta devolve. Prometer o que não pode cumprir é pior que encaminhar."),
     },
     # Cliente da base com assunto de dinheiro/documento: acolhe e encaminha, não decide.
     "administrativo": {
