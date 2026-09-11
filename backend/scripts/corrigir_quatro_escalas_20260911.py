@@ -35,11 +35,12 @@ CLIENTE_GREEN = "c0750f70-7e60-4898-9ed2-d303e361c41e"
 GED_GREEN = "b4a13504-cffc-4505-8e91-e1bebed493ed"
 ENDERECO_GREEN = "Rua Marques de Suassuna, SN - Parque das Laranjeiras"
 
-#: Paridade ÍMPAR para o Daniel: das quatro entradas noturnas dele em setembro, três caem em
-#: dia ímpar (03, 05, 09) — e é a paridade que o Adeilson e o Jonhata já cobrem no mesmo posto.
-#: É inferência, não fato do dono: se estiver errada, são dois comandos para trocar, e o
-#: oráculo da hora acusa em uma semana.
-DIAS_DANIEL = "impar"
+#: Paridade ÍMPAR para o Daniel. Nasceu como INFERÊNCIA — das quatro entradas noturnas dele em
+#: setembro, três caem em dia ímpar (03, 05, 09), e é a paridade que o Adeilson e o Jonhata já
+#: cobrem no mesmo posto. **CONFIRMADA PELO JORDAN em 11/09/2026**: "a paridade do Daniel está
+#: certa, dias ímpares mesmo". Fica escrito porque inferência confirmada é fato com dono e data;
+#: sem isso, daqui a um mês alguém reabre a mesma dúvida e mede tudo de novo.
+DIAS_DANIEL = "impar"  # confirmado pelo dono, 11/09/2026
 
 
 async def _rodar(aplicar: bool) -> dict:
