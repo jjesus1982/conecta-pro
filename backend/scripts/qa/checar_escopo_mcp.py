@@ -70,7 +70,20 @@ call({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"
 urllib.request.urlopen(urllib.request.Request(URL, data=json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"}).encode(),
     headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream","Authorization":"Bearer "+B,"Mcp-Session-Id":sid}), timeout=30)
 r = call({"jsonrpc":"2.0","id":2,"method":"tools/list"})
-print(json.dumps(sorted(t["name"] for t in r["result"]["tools"])))
+servidas = sorted(t["name"] for t in r["result"]["tools"])
+# ⭐ BATER NA PORTA, não só olhar a lista. `remove_tool`, mesmo quando funcionava, só sumia
+# com a ferramenta da LISTAGEM — quem soubesse o nome ainda chamava. O middleware promete
+# recusar a CHAMADA, e esse ramo nunca tinha rodado: promessa, não parede.
+# A batida é de LEITURA e fora do escopo de propósito: se um dia a parede falhar, o pior que
+# acontece é uma consulta a mais — nunca uma escrita.
+alvo = os.environ.get("BATIDA", "")
+recusou = None
+if alvo:
+    rr = call({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":alvo,"arguments":{}}})
+    res = rr.get("result") or {}
+    txt = "".join(str(c.get("text") or "") for c in (res.get("content") or []))
+    recusou = bool(res.get("isError")) and "fora do escopo" in txt
+print(json.dumps({"servidas": servidas, "batida": alvo, "recusou": recusou}))
 '''
 
 
@@ -90,6 +103,16 @@ def _env_do_conector(container: str) -> dict[str, str]:
     return env
 
 
+#: A ferramenta de LEITURA que vamos tentar chamar em cada conector, escolhida por estar
+#: FORA do escopo dele. Leitura de propósito: a trava não pode ser a coisa que quebra o que
+#: ela vigia. Se a parede cair, o custo é uma consulta; nunca uma escrita.
+BATIDA_FORA_DO_ESCOPO = {
+    "conecta-pro-mcp-pessoas": "listar_clientes",     # comercial
+    "conecta-pro-mcp-ged": "ponto_dashboard",         # pessoas/dp
+    "conecta-pro-mcp-internal": "espelho_ponto",      # dp
+}
+
+
 def _tools_do_conector(container: str) -> list[str] | None:
     bearer = subprocess.run(  # noqa: S603
         ["/usr/bin/docker", "exec", container, "sh", "-c", "echo $MCP_AUTH_TOKEN"],
@@ -97,9 +120,10 @@ def _tools_do_conector(container: str) -> list[str] | None:
     if not bearer:
         return None
     r = subprocess.run(  # noqa: S603
-        ["/usr/bin/docker", "exec", "-e", f"MCP_AUTH_TOKEN={bearer}", "-i", container, "python3", "-"],
+        ["/usr/bin/docker", "exec", "-e", f"MCP_AUTH_TOKEN={bearer}",
+         "-e", f"BATIDA={BATIDA_FORA_DO_ESCOPO.get(container, '')}", "-i", container, "python3", "-"],
         input=_PROVA, capture_output=True, text=True, timeout=120)
-    linha = next((l for l in r.stdout.splitlines() if l.startswith("[")), "")
+    linha = next((l for l in r.stdout.splitlines() if l.startswith("{")), "")
     if not linha:
         print(f"  {container}: não consegui perguntar tools/list — {(r.stderr or '').strip()[:160]}")
         return None
@@ -124,10 +148,14 @@ def main() -> int:
         if propria and env.get("MCP_MODO", "").lower() != "agente":
             print(f"  {container}: 🔴 identidade PRÓPRIA e MCP_MODO != agente — agiria sem humano")
             falhas += 1
-        servidas = _tools_do_conector(container)
-        if servidas is None:
+        medida = _tools_do_conector(container)
+        if medida is None:
             falhas += 1
             continue
+        servidas, batida, recusou = medida["servidas"], medida["batida"], medida["recusou"]
+        if batida and recusou is not True:
+            print(f"      🔴 chamei `{batida}` pelo NOME (fora do escopo) e a parede NÃO recusou")
+            falhas += 1
         permitidas = tools_do_escopo(escopo) or set()
         fora = sorted(set(servidas) - set(permitidas))
         proibidas = [t for t in PROIBIDAS_EM_IDENTIDADE_PROPRIA if t in servidas] if propria else []
@@ -140,7 +168,8 @@ def main() -> int:
                   else "identidade repassada + gate" if agente
                   else "⚠️ SEM PAREDE (sem exigência de identidade e sem gate de aprovação)")
         print(f"  {container}: {len(servidas)} servidas · escopo `{escopo}` "
-              f"({len(permitidas)} previstas) · {parede}")
+              f"({len(permitidas)} previstas) · {parede}"
+              + (f" · chamada de `{batida}` recusada" if recusou else ""))
         for t in fora[:12]:
             print(f"      FORA DO ESCOPO: {t}")
         if len(fora) > 12:
