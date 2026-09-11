@@ -309,6 +309,67 @@ async def aceite_3_3_intercepta_os_QUATRO_metodos() -> None:
           f"{len(escritas_na_rede)} escritas na rede")
 
 
+import identidade  # noqa: E402
+
+TIMEOUT_ESPERADO = S.TIMEOUT_JOB
+
+
+async def aceite_3_5_teto_real_do_job() -> None:
+    """Dentro do job o httpx recebe 600s de verdade — não só `_EM_JOB is True`.
+
+    ⭐ A versão anterior deste teste conferia a FLAG. Flag ligada é um proxy: ela prova que o
+    contexto foi marcado, não que alguém leu a marca. Se o `timeout=` de alguma chamada
+    tivesse ficado literal, a flag continuaria verde e a operação longa morreria aos 40s do
+    mesmo jeito — com o agente achando que o job protegia.
+
+    E o login fica em 20s nos dois: login lento é login quebrado, não operação longa.
+    """
+    import httpx
+
+    visto: list = []
+    original = httpx.AsyncClient.request
+
+    async def espia(self, method, url, **kw):  # noqa: ANN001
+        visto.append((method, str(url), kw.get("timeout")))
+        return await original(self, method, url, **kw)
+
+    async def roda() -> None:
+        httpx.AsyncClient.request = espia
+        # Este teste mede o TETO, não as paredes — e elas têm teste próprio acima. Sem
+        # identidade o despacho é recusado antes de qualquer HTTP, e o teste mediria o
+        # silêncio de uma recusa em vez do timeout. Desligar a parede aqui é explícito e
+        # restaurado no `finally`; o que NÃO pode é o teste passar sem medir nada.
+        modo_antes = identidade.MODO_AGENTE
+        identidade.MODO_AGENTE = False
+        identidade._TOKEN.set(None)
+        try:
+            await S.erp.get("/crm/contracts", params={"page_size": 1})
+            fora = [t for m, u, t in visto if "contracts" in u]
+            assert fora and fora[-1] == 40, f"fora do job o teto mudou: {fora}"
+            logins = [t for m, u, t in visto if "login" in u]
+            assert all(t == 20 for t in logins), f"o login saiu do teto de 20s: {logins}"
+
+            visto.clear()
+            j = await S.executar_em_segundo_plano("listar_contratos", {"limite": 1})
+            for _ in range(40):
+                if (await S.status_job(j["job_id"])).get("pronto"):
+                    break
+                await asyncio.sleep(0.2)
+            dentro = [t for m, u, t in visto if "contracts" in u]
+            assert dentro and dentro[-1] == TIMEOUT_ESPERADO, (
+                f"dentro do job o teto continuou {dentro} — o job só mudaria a espera de "
+                f"lugar e morreria no mesmo ponto")
+            logins = [t for m, u, t in visto if "login" in u]
+            assert all(t == 20 for t in logins), f"o login herdou o teto do job: {logins}"
+        finally:
+            httpx.AsyncClient.request = original
+            identidade.MODO_AGENTE = modo_antes
+
+    await roda()
+    print(f"OK teto real: 40s fora, {TIMEOUT_ESPERADO}s dentro, login em 20s nos dois")
+
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
     aceite_2_1_todas_as_geradoras,
@@ -319,6 +380,7 @@ ACEITES = [
     aceite_3_2_identificador_tolerante,
     aceite_3_3_rede_de_protecao,
     aceite_3_3_intercepta_os_QUATRO_metodos,
+    aceite_3_5_teto_real_do_job,
     aceite_3_4_mapa_de_capacidades,
     aceite_3_6_contexto_cliente,
 ]
