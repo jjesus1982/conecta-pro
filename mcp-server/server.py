@@ -294,6 +294,14 @@ class _Erp:
         self._exp: float = 0.0
 
     async def _login(self, client: httpx.AsyncClient) -> str:
+        # ⚠️ NÃO troque este `client.post` por `self.request("POST", ...)`. Parece limpeza
+        # óbvia e quebra o `ensaiar`: a interceptação de ensaio vive em `request` e engole
+        # TODO não-GET, então o login passaria a devolver a casca `00000000-ensaio` em vez de
+        # um token — e todo ensaio falharia por falta de credencial. Quem for procurar o
+        # defeito vai olhar ERP_USER, .env e sessão expirada, e vai levar horas, porque o
+        # sintoma aponta para autenticação e a causa está no interceptador.
+        # É por passar FORA do `request` que o login é o único não-GET que sai durante um
+        # ensaio — e é por isso que o ensaio consegue autenticar.
         r = await client.post(
             f"{API}/auth/login",
             data={"username": ERP_USER, "password": ERP_PASSWORD},
