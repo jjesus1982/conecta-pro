@@ -116,6 +116,7 @@ async def gerar_pdf_por_modelo(
     salvar: bool = False,
     teste: bool = False,
     minuta: bool = False,
+    formato: str = "pdf",
 ):
     """Gera o contrato REAL a partir do modelo cadastrado (não o molde de 3 páginas).
 
@@ -173,6 +174,40 @@ async def gerar_pdf_por_modelo(
             if res.contratada.divergencia:
                 out["aviso"] = res.contratada.divergencia
         return out
+
+    # `formato=json`: o mesmo documento em ENVELOPE LEGÍVEL, para quem não tem navegador.
+    #
+    # Nasceu do relatório de campo do Jordan sobre o Cowork (11/09/2026): o agente que usa o
+    # MCP recebe uma `download_url` de um binário que ele não consegue abrir — `web_fetch`
+    # devolve vazio e `curl` é proibido por política. Resultado: gera o contrato e não pode
+    # conferir se saiu certo. Já aconteceu de sair a casca de 3 páginas e ninguém perceber.
+    #
+    # ⭐ O `texto` aqui NÃO é extração do PDF: é o texto que o próprio render produziu, antes
+    # de virar papel (`Resultado.texto`). É mais fiel que qualquer extrator e não custa
+    # dependência nenhuma — só parar de jogar fora o que já estava na mão.
+    if str(formato).lower() == "json":
+        import base64 as _b64
+
+        pdf_b64 = _b64.b64encode(res.pdf).decode("ascii")
+        grande = len(res.pdf) > 8 * 1024 * 1024
+        return {
+            "ok": True,
+            "arquivo": {
+                "nome": f"contrato_{contract_id.replace('/', '-')}.pdf",
+                "mime": "application/pdf",
+                "tamanho_kb": round(len(res.pdf) / 1024, 1),
+                # acima de 8 MB o base64 sai e o texto fica: o agente ainda consegue VALIDAR
+                # o conteúdo, que é o que ele precisa; baixar é problema de quem tem browser.
+                **({} if grande else {"base64": pdf_b64}),
+            },
+            "texto_extraido": res.texto,
+            "clausulas": res.n_clausulas,
+            "contratada": res.contratada.razao_social,
+            "contratada_cnpj": res.contratada.cnpj,
+            "minuta": bool(minuta),
+            **({"aviso": "PDF acima de 8 MB — base64 omitido; use texto_extraido ou a URL."}
+               if grande else {}),
+        }
 
     fname = f"contrato_{contract_id.replace('/', '-')}.pdf"
     headers = {
@@ -572,8 +607,25 @@ async def list_contracts(  # pylint: disable=too-many-locals
     contracts, total = await repo.list(filters=filters, page=page, page_size=page_size)
     total_pages = (total + page_size - 1) // page_size
 
+    # Nome e CNPJ do cliente em UMA consulta para a página inteira — não uma por linha.
+    # Sem isto, descobrir "quais contratos são do Maiápolis" custava 19 chamadas.
+    _ids = {str(c.client_id) for c in contracts if getattr(c, "client_id", None)}
+    _cli: dict[str, tuple[str | None, str | None]] = {}
+    if _ids:
+        _rs = await db.execute(
+            text("SELECT id::text, name, document_number FROM clients WHERE id::text = ANY(:i)"),
+            {"i": sorted(_ids)},
+        )
+        _cli = {r[0]: (r[1], r[2]) for r in _rs}
+
+    def _com_cliente(c) -> ContractResponse:
+        item = ContractResponse.model_validate(c)
+        nome, doc = _cli.get(str(getattr(c, "client_id", "") or ""), (None, None))
+        item.client_name, item.client_document = nome, doc
+        return item
+
     return ContractListResponse(
-        items=[ContractResponse.model_validate(c) for c in contracts],
+        items=[_com_cliente(c) for c in contracts],
         total=total,
         page=page,
         page_size=page_size,

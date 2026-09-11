@@ -16,6 +16,8 @@ from datetime import date, timedelta
 from typing import Any
 
 import httpx
+import re
+import unicodedata
 from fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -98,6 +100,145 @@ mcp = FastMCP(
 
 
 # ------------------------------------------------------------------ ERP client
+class ErpErro(RuntimeError):
+    """Erro do ERP traduzido para quem vai LER — nunca o endpoint interno cru.
+
+    Relatório de campo do Jordan sobre o Cowork (11/09/2026): o conector devolvia
+    `ERP POST /crm/contracts/emitir-por-modelo -> 403: {"detail":"Contrato não
+    encontrado: ..."}`. Três defeitos numa linha só — vaza o caminho interno, usa 403 para
+    dizer "não achei", e não ensina o que fazer. O agente não sabe se errou o
+    identificador, se falta permissão ou se o sistema quebrou, e tenta de novo errado.
+
+    O envelope diz O QUE houve, em que código, e QUAL é o próximo passo.
+    """
+
+    # (trecho da mensagem do ERP) → (codigo, http, dica)
+    _PISTAS = (
+        ("não encontrado", "NAO_ENCONTRADO", 404,
+         "Confira o identificador. Em contrato aceita CTR-AAAA-NNNNN, o id, o CNPJ do "
+         "cliente ou o nome — use listar_contratos(busca=...) para achar."),
+        ("nao encontrado", "NAO_ENCONTRADO", 404, "Confira o identificador."),
+        ("já existe", "DUPLICADO", 409, "O registro já existe. Busque antes de criar."),
+        ("ja gerou contrato", "DUPLICADO", 409,
+         "Esta proposta já gerou contrato para este emitente. Para a outra parte do "
+         "serviço, escolha a modalidade do outro CNPJ."),
+        ("restrito", "SEM_PERMISSAO", 403,
+         "Ação restrita ao Jordan e à Pyetra. Peça a um deles ou use uma tool de leitura."),
+        ("cancelad", "CONFLITO_DE_ESTADO", 409,
+         "O registro está cancelado ou expirado. Reabra antes de prosseguir."),
+    )
+
+    def __init__(self, codigo: str, http: int, mensagem: str, dica: str = "",
+                 request_id: str = "") -> None:
+        super().__init__(mensagem)
+        self.codigo, self.http, self.mensagem = codigo, http, mensagem
+        self.dica, self.request_id = dica, request_id
+
+    @classmethod
+    def de_resposta(cls, method: str, path: str, r) -> "ErpErro":
+        try:
+            detalhe = (r.json() or {}).get("detail")
+        except Exception:  # noqa: BLE001
+            detalhe = None
+        msg = str(detalhe or r.text or "")[:400].strip() or f"O ERP respondeu {r.status_code}."
+        baixo = msg.lower()
+        codigo, http, dica = "ERRO_NO_ERP", r.status_code, ""
+        for trecho, cod, cod_http, cod_dica in cls._PISTAS:
+            if trecho in baixo:
+                codigo, http, dica = cod, cod_http, cod_dica
+                break
+        else:
+            if r.status_code == 404:
+                codigo, dica = "NAO_ENCONTRADO", "Confira o identificador."
+            elif r.status_code == 422:
+                codigo, dica = "VALIDACAO", "Corrija os campos apontados na mensagem."
+            elif r.status_code == 409:
+                codigo, dica = "CONFLITO", "O estado atual não permite esta operação."
+            elif r.status_code == 403:
+                codigo, dica = "SEM_PERMISSAO", "Esta ação é restrita."
+            elif r.status_code >= 500:
+                codigo, dica = "ERRO_INTERNO", "Falha do servidor — informe o request_id."
+        return cls(codigo, http, msg, dica,
+                   r.headers.get("x-request-id") or r.headers.get("X-Request-ID") or "")
+
+    def envelope(self) -> dict:
+        """O que a tool devolve ao agente. NUNCA inclui método nem caminho interno."""
+        out = {"ok": False, "codigo": self.codigo, "http": self.http,
+               "mensagem": self.mensagem}
+        if self.dica:
+            out["dica"] = self.dica
+        if self.request_id:
+            out["request_id"] = self.request_id
+        return out
+
+
+async def _resolver_contrato(chave: str) -> str | dict:
+    """Aceita CTR-…, id, CNPJ do cliente ou nome aproximado. Devolve o número — ou envelope.
+
+    Relatório de campo (11/09/2026): `gerar_contrato_por_modelo("Chácaras Maiápolis —
+    Controle de Acesso...")` falhou com 403 dizendo "não encontrado". O agente havia
+    passado o NOME, que é o identificador que um humano tem na cabeça. Exigir o ID
+    canônico transfere ao agente um trabalho que o servidor faz melhor — ele tem o índice.
+
+    ⚠️ AMBÍGUO NÃO É ERRO. Quando mais de um candidato casa, devolve a lista para o agente
+    ESCOLHER. Adivinhar qual dos dois contratos do mesmo cliente é o certo seria, no limite,
+    emitir o instrumento errado.
+    """
+    chave = (chave or "").strip()
+    if not chave:
+        return {"ok": False, "codigo": "IDENTIFICADOR_VAZIO", "http": 422,
+                "mensagem": "Informe o contrato.",
+                "dica": "Aceita CTR-AAAA-NNNNN, o id, o CNPJ do cliente ou o nome."}
+    # já é o identificador canônico: não gasta chamada
+    if re.match(r"^CTR-", chave, re.I) or re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-", chave, re.I):
+        return chave
+    try:
+        lista = await erp.get("/crm/contracts", params={"page_size": 100})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = (lista or {}).get("items") or []
+    so_digitos = re.sub(r"\D", "", chave)
+    alvo = _norm(chave)
+    achados = []
+    for c in itens:
+        nome = _norm(str(c.get("client_name") or c.get("name") or ""))
+        doc = re.sub(r"\D", "", str(c.get("client_document") or ""))
+        if (so_digitos and len(so_digitos) >= 11 and doc == so_digitos) or (
+                alvo and (alvo in nome or nome.startswith(alvo[:18]))):
+            achados.append(c)
+    if not achados:
+        return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Nenhum contrato corresponde a {chave!r}.",
+                "dica": "Use o número (CTR-AAAA-NNNNN) ou o CNPJ do cliente. "
+                        "listar_contratos(busca=...) ajuda a achar."}
+    if len(achados) > 1:
+        return {"ok": False, "codigo": "AMBIGUO", "http": 409,
+                "mensagem": f"{len(achados)} contratos correspondem a {chave!r}.",
+                "dica": "Escolha um pelo número e chame de novo.",
+                "candidatos": [{"numero": c.get("contract_number"),
+                                "cliente": c.get("client_name"),
+                                "status": c.get("status"),
+                                "mensal": c.get("monthly_value")} for c in achados[:10]]}
+    return achados[0].get("contract_number") or achados[0].get("id")
+
+
+def _norm(v: str) -> str:
+    """Minúscula, sem acento e sem pontuação — para casar nome digitado com nome cadastrado."""
+    v = unicodedata.normalize("NFKD", (v or "").lower())
+    v = "".join(c for c in v if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]+", " ", v).strip()
+
+
+def erro_envelope(exc: Exception) -> dict:
+    """Converte QUALQUER exceção em envelope legível. É o que as tools retornam."""
+    if isinstance(exc, ErpErro):
+        return exc.envelope()
+    return {"ok": False, "codigo": "FALHA_INESPERADA", "http": 500,
+            "mensagem": str(exc)[:300],
+            "dica": "Tente de novo; se repetir, informe esta mensagem ao suporte."}
+
+
 class _Erp:
     """Cliente HTTP para o ERP com login de conta de serviço (JWT cacheado + refresh em 401)."""
 
@@ -155,7 +296,7 @@ class _Erp:
                     headers = {"Authorization": f"Bearer {self._token}"}
                     continue
                 if r.status_code >= 400:
-                    raise RuntimeError(f"ERP {method} {path} -> {r.status_code}: {r.text[:300]}")
+                    raise ErpErro.de_resposta(method, path, r)
                 # 204/empty (ex.: DELETE) -> não tentar json-parse de corpo vazio
                 if r.status_code == 204 or not r.content:
                     return {"ok": True, "status": r.status_code}
@@ -467,22 +608,52 @@ async def _pdf_b64(path: str) -> dict:
 
 
 @mcp.tool
-async def baixar_contrato_pdf(contrato_id: str, salvar_no_drive: bool = False) -> dict:
-    """Gera o PDF do CONTRATO no padrão Conecta Mais (com selo), em base64. contrato_id = número (CTR-...) ou id.
+async def baixar_contrato_pdf(contrato_id: str, formato: str = "base64",
+                              minuta: bool = False, salvar_no_drive: bool = False) -> dict:
+    """Gera o CONTRATO e devolve o PDF **e o TEXTO** — dá para conferir sem abrir binário.
 
-    Tenta primeiro o INSTRUMENTO COMPLETO renderizado pelo modelo cadastrado (capa, 12
-    cláusulas, CNPJ resolvido pelo tipo de serviço). Se o contrato ainda não tiver modelo
-    ou faltar dado, cai no resumo — que é o que existia antes — em vez de devolver erro.
+    `formato`:
+      · "base64" (padrão) → arquivo em base64 + `texto_extraido` completo
+      · "texto"           → só o `texto_extraido` (barato; use para VALIDAR cláusulas)
+      · "url"             → registra no ERP e devolve link, como antes
+
+    `minuta=True` gera o RASCUNHO para análise do cliente: o que ainda não foi negociado
+    sai como [A DEFINIR] em vez de o ERP recusar, e a capa se identifica como minuta.
+
+    ⭐ O `texto_extraido` NÃO é extração: é o texto que o próprio render produziu antes de
+    virar papel. Serve para rodar asserts — "limitada ao teto de 10%" está lá? a cláusula
+    de LGPD sobreviveu? — que era impossível quando isto devolvia só uma URL.
+
+    contrato_id aceita número (CTR-...), id, CNPJ do cliente ou nome aproximado.
+    Só LÊ e gera; não envia nada a ninguém.
     """
-    r = await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf-modelo", drive=salvar_no_drive)
-    if isinstance(r, dict) and r.get("gerado") is not False and not r.get("erro"):
-        return r
-    resumo = await _gerar_doc_get(f"/crm/contracts/{contrato_id}/pdf", drive=salvar_no_drive)
-    if isinstance(resumo, dict):
-        resumo["aviso"] = ("Saiu o RESUMO, não o instrumento completo: o contrato ainda não tem "
-                           "modelo vinculado ou falta dado. Use gerar_contrato_por_modelo para "
-                           "ver o que falta.")
-    return resumo
+    alvo = await _resolver_contrato(contrato_id)
+    if isinstance(alvo, dict):
+        return alvo
+    if str(formato).lower() == "url":
+        r = await _gerar_doc_get(f"/crm/contracts/{alvo}/pdf-modelo", drive=salvar_no_drive)
+        if isinstance(r, dict) and r.get("gerado") is not False and not r.get("erro"):
+            return r
+        resumo = await _gerar_doc_get(f"/crm/contracts/{alvo}/pdf", drive=salvar_no_drive)
+        if isinstance(resumo, dict):
+            resumo["aviso"] = ("Saiu o RESUMO, não o instrumento completo: falta modelo ou "
+                               "dado. Use gerar_contrato_por_modelo para ver o que falta.")
+        return resumo
+
+    q = "formato=json" + ("&minuta=1" if minuta else "")
+    try:
+        r = await erp.get(f"/crm/contracts/{alvo}/pdf-modelo?{q}")
+    except Exception as exc:  # noqa: BLE001
+        env = erro_envelope(exc)
+        # 422 aqui é "falta dado", não falha: o caminho útil é a minuta.
+        if env.get("http") == 422 and not minuta:
+            env["dica"] = ("Faltam dados para o instrumento final. Chame de novo com "
+                           "minuta=True para ver o rascunho, ou gerar_contrato_por_modelo "
+                           "para a lista do que falta.")
+        return env
+    if str(formato).lower() == "texto":
+        r.pop("arquivo", None)
+    return r
 
 
 @mcp.tool
@@ -3032,3 +3203,100 @@ if AUTH_MODE == "google":
     app = _base
 else:
     app = _BearerASGI(_base, MCP_AUTH_TOKEN)
+
+
+# ── Descoberta e saúde ────────────────────────────────────────────────────────────────
+# Os dois pedidos do relatório de campo que custam menos e resolvem mais: em parte de uma
+# sessão o conector SUMIU (nenhuma ferramenta encontrada) e voltou depois, sem ninguém
+# saber se era a conexão, o ERP ou o banco. E achar a ferramenta certa entre 254 consumia
+# chamadas de tentativa e erro, porque os nomes variam (consultar_/listar_/obter_/painel_).
+
+VERSAO_MCP = "2026.09.11"
+
+
+@mcp.tool
+async def ping_conecta_pro() -> dict:
+    """Saúde da ponte: o MCP está de pé? o ERP responde? com que identidade? Sempre primeiro.
+
+    Use quando uma ferramenta falhar de forma estranha ou quando o conector parecer ausente
+    — distingue "a ponte caiu" de "o ERP recusou" de "eu chamei errado", que é a dúvida que
+    faz o agente repetir a chamada errada.
+    """
+    import time as _t
+
+    ini = _t.perf_counter()
+    fora: dict = {"ok": True, "versao_mcp": VERSAO_MCP, "tools": len(TOOLS_POR_DOMINIO_PLANO)}
+    try:
+        r = await erp.get("/health")
+        fora["erp"] = {"ok": True, "resposta": r if isinstance(r, dict) else str(r)[:80]}
+    except Exception as exc:  # noqa: BLE001
+        fora["ok"] = False
+        fora["erp"] = erro_envelope(exc)
+    try:
+        eu = await erp.get("/auth/me")
+        fora["identidade"] = {"email": (eu or {}).get("email"),
+                              "nome": (eu or {}).get("full_name") or (eu or {}).get("name")}
+    except Exception:  # noqa: BLE001
+        fora["identidade"] = {"erro": "não foi possível identificar o usuário desta sessão"}
+    fora["latencia_ms"] = round((_t.perf_counter() - ini) * 1000)
+    return fora
+
+
+# Mapa de domínios. Não é a lista das 254 — é o CAMINHO: o que usar, em que ordem, e o que
+# vem depois. Uma lista alfabética de 254 nomes não ajuda quem não sabe o nome.
+_MAPA = {
+    "contratos": {
+        "resumo": "Do fechamento ao instrumento assinado.",
+        "fluxo": ["briefing_contrato_novo", "criar_contrato_por_modelo",
+                  "gerar_contrato_por_modelo", "baixar_contrato_pdf(formato='texto')",
+                  "abrir_assinatura_contrato", "enviar_link_assinatura"],
+        "atencao": "gerar_ devolve `faltam_dados` com as PERGUNTAS quando falta algo — "
+                   "responda e chame de novo. Emitir é restrito a Jordan e Pyetra.",
+    },
+    "comercial": {
+        "resumo": "Lead → oportunidade → proposta → contrato.",
+        "fluxo": ["buscar_clientes", "listar_oportunidades", "proposta_da_oportunidade",
+                  "criar_contrato_por_modelo"],
+        "atencao": "A proposta PODE misturar serviços; o contrato e a nota fiscal NUNCA. "
+                   "Mão de obra sai pela Patrimonial, eletrônica pela Eletrônica.",
+    },
+    "financeiro": {
+        "resumo": "Contas, extrato, conciliação e cobrança.",
+        "fluxo": ["resumo_financeiro", "listar_contas_pagar", "listar_recebiveis"],
+        "atencao": "Dinheiro que SAI exige OTP humano e não é exposto aqui.",
+    },
+    "folha_dp": {"resumo": "Folha, ponto, CCT e colaboradores.",
+                 "fluxo": ["resumo_folha", "consultar_ponto", "consultar_cct"],
+                 "atencao": "Governo (eSocial/FGTS) é só leitura."},
+    "operacional": {"resumo": "Postos, escalas, plantões e diaristas.",
+                    "fluxo": ["listar_postos", "consultar_escala"],
+                    "atencao": "Curado à mão pelo dono: divergência vira relatório, "
+                               "nunca correção automática."},
+    "documentos": {"resumo": "Gerar, ler e anexar documentos.",
+                   "fluxo": ["baixar_contrato_pdf(formato='texto')", "gerar_proposta_doc"],
+                   "atencao": "Use formato='texto' para VALIDAR conteúdo sem abrir binário."},
+}
+TOOLS_POR_DOMINIO_PLANO = [t for d in _MAPA.values() for t in d["fluxo"]]
+
+
+@mcp.tool
+async def conecta_pro_capabilities(dominio: str = "") -> dict:
+    """Mapa das capacidades: que domínios existem, o FLUXO de cada um e as armadilhas.
+
+    Use ANTES de procurar ferramenta por tentativa e erro. Sem argumento devolve os
+    domínios; com `dominio` devolve o caminho completo daquele.
+    """
+    if dominio:
+        d = _MAPA.get(dominio.strip().lower())
+        if not d:
+            return {"ok": False, "codigo": "DOMINIO_DESCONHECIDO", "http": 404,
+                    "mensagem": f"Não conheço o domínio {dominio!r}.",
+                    "dica": "Chame sem argumento para ver os domínios.",
+                    "dominios": sorted(_MAPA)}
+        return {"ok": True, "dominio": dominio, **d}
+    return {"ok": True, "versao_mcp": VERSAO_MCP,
+            "dominios": {k: v["resumo"] for k, v in _MAPA.items()},
+            "como_usar": "conecta_pro_capabilities(dominio='contratos') abre o fluxo.",
+            "regra_de_ouro": "Toda ferramenta diz se LÊ ou ESCREVE. As de escrita de "
+                             "contrato são restritas a Jordan e Pyetra; dinheiro que sai "
+                             "exige OTP humano e não passa por aqui."}

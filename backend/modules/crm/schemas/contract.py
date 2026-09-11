@@ -180,6 +180,13 @@ class ContractResponse(BaseModel):
     contract_type: ContractType
     status: ContractStatus
     client_id: str
+    # Quem é o cliente, NA PRÓPRIA LINHA. Relatório de campo do Jordan (11/09/2026): a
+    # listagem devolvia número, tipo, valor e status — e não dizia de quem era o contrato.
+    # Para saber, o agente chamava `obter_contrato` em cada um: 19 chamadas para responder
+    # "quais contratos são do Maiápolis". Opcionais porque o contrato pode não ter cliente
+    # vinculado, e nesse caso a linha diz isso em vez de inventar.
+    client_name: str | None = None
+    client_document: str | None = None
     monthly_value: Decimal
     total_value: Decimal
     start_date: date
