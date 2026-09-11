@@ -15,6 +15,11 @@ O retrato do defeito, na conversa do Rene em 10/09:
 
 A automação de SAÍDA sabia o turno e o condomínio dele. A de ENTRADA pediu o CNPJ de um porteiro.
 
+⚠️ `coalesce(nullif(celular,''), telefone)` e não `coalesce(celular, telefone)`: o segundo NÃO
+cai para o telefone quando `celular` é string VAZIA — só quando é NULL. Medido em 11/09: o
+NAILSON, ativo, com o número no campo `telefone` e `celular` em branco, era invisível para esta
+função e teria sido tratado como LEAD. Um registro hoje; o defeito, permanente.
+
 Casamento por telefone: os 8 últimos dígitos, mesma régua do `find_duplicate` do CRM — o mesmo
 número chega com e sem o nono dígito, com e sem DDI, e exigir igualdade exata já fez o CRM criar
 lead duplicado (lição de 09/08).
@@ -74,9 +79,14 @@ _SQL_FUNCIONARIO = """
           LEFT JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' AND a.is_active
           LEFT JOIN posts p       ON p.id = a.post_id
           LEFT JOIN ged_clients g ON g.id = p.ged_client_id
-         WHERE right(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
-           AND length(regexp_replace(coalesce(e.celular, e.telefone, ''), '[^0-9]', '', 'g')) >= 8
-           AND coalesce(e.status, 'ativo') <> 'inativo'
+         WHERE right(regexp_replace(coalesce(nullif(e.celular, ''), e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
+           AND length(regexp_replace(coalesce(nullif(e.celular, ''), e.telefone, ''), '[^0-9]', '', 'g')) >= 8
+           -- 11/09/2026: `<> 'inativo'` deixava entrar CANDIDATO e PJ_PENDENTE, que não têm
+       -- vínculo — e foi assim que o NAILSON virou "outra pessoa": o registro de candidato
+       -- dele sobreviveu à contratação (mesmo CPF) e era o único que o telefone alcançava.
+       -- Quem já foi DEMITIDO continua sendo gente da casa aqui de propósito: ele ainda
+       -- pergunta de rescisão e de espelho, e virar lead nessa hora seria pior.
+       AND lower(coalesce(e.status, 'ativo')) NOT IN ('inativo', 'candidato', 'pj_pendente')
          ORDER BY e.id, (a.id IS NOT NULL) DESC, a.start_date DESC NULLS LAST
       ) q
      ORDER BY q.tem_alocacao DESC, q.updated_at DESC NULLS LAST
