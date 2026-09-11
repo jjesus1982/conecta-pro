@@ -39,7 +39,15 @@ async def _alvos(db):
     from sqlalchemy import text
 
     from modules.integrations.connectors.whatsapp.identidade import SEM_VINCULO
+    from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
 
+    # ⭐ 11/09/2026, decisão do Jordan: quem está AFASTADO não é cobrado por ponto **de forma
+    # alguma**. A CINTIA — afastada pelo INSS desde 21/05, fratura de fêmur e tíbia — recebeu
+    # esta pesquisa no primeiro disparo e teve que responder explicando que está de licença.
+    # Perguntar "você está conseguindo bater seu ponto?" a quem está em recuperação de cirurgia
+    # não é só inútil: é falta de cuidado com a pessoa.
+    # A régua é a da casa (`coorte_ponto.SQL_NAO_AUSENTE_HOJE`), importada e não copiada — ela
+    # já sabe de férias aprovadas, afastamento em curso e reta final de desligamento.
     return (await db.execute(text(
         "SELECT e.id::text AS eid, e.nome, "
         "       coalesce(nullif(e.celular,''), e.telefone,'') AS fone "
@@ -58,6 +66,7 @@ async def _alvos(db):
         "                 AND p.punch_timestamp > current_date - 30)) "
         "   AND NOT EXISTS (SELECT 1 FROM gp_audit_logs a "
         "                    WHERE a.action = :acao AND a.related_funcionario_id = e.id::text) "
+        + SQL_NAO_AUSENTE_HOJE +
         " ORDER BY e.nome"), {"sv": list(SEM_VINCULO), "acao": ACAO_ENVIO})).mappings().all()
 
 

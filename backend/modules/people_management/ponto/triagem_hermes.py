@@ -36,6 +36,20 @@ PEDIDO = (
     "PRECISAM_DE_GENTE: <número> | <nomes separados por vírgula, ou '—'>"
 )
 
+#: ⭐ 11/09/2026, decisão do Jordan: quem está AFASTADO não é cobrado por ponto "de forma
+#: alguma". O lembrete e a pesquisa já respeitam isso pela régua da casa
+#: (`coorte_ponto.SQL_NAO_AUSENTE_HOJE`); a triagem é escrita por um modelo e por isso a regra
+#: precisa estar no PEDIDO, não só no dado — senão ele lê "sem batida hoje" e cobra alguém em
+#: recuperação de cirurgia. A CINTIA está afastada pelo INSS desde 21/05 e apareceu no primeiro
+#: relatório como "não bateu".
+_REGRA_AUSENTES = (
+    "\n\nREGRA INEGOCIÁVEL: quem está de FÉRIAS, AFASTADO (INSS, doença, acidente) ou em "
+    "SUSPENSÃO CONTRATUAL não é cobrado por ponto de forma alguma — nem na lista de quem não "
+    "bateu, nem como pendência, nem como observação. Se alguém assim aparecer sem batida, isso "
+    "é o ESPERADO e não se relata. Cobrar ponto de quem está em licença médica é falta de "
+    "cuidado com a pessoa, e o dono já disse isso com estas palavras."
+)
+
 #: Teto do que vai para o WhatsApp do Jordan. O relato inteiro fica no sino.
 _LIMITE_WHATSAPP = 700
 
@@ -56,12 +70,12 @@ def _linha_resumo(texto: str) -> tuple[int, str]:
 
 
 def _publicar_no_sino(titulo: str, corpo: str, chave: str) -> int:
+    import json
+
     from sqlalchemy import text as sql
 
     from core.database.session import SyncSessionLocal
     from modules.notifications.task_falha import _SQL_DESTINATARIOS, _SQL_SINO
-
-    import json
 
     extra = json.dumps({"idempotency_key": chave, "origem": "triagem_ponto_hermes",
                         "familia": "operacional", "severidade": "aviso"})
@@ -85,7 +99,7 @@ async def rodar(hoje: str | None = None) -> dict:
     data = hoje or datetime.now(_TZ).strftime("%d/%m/%Y")
     try:
         texto, meta = await perguntar_hermes(
-            [{"role": "user", "content": PEDIDO.format(data=data)}],
+            [{"role": "user", "content": PEDIDO.format(data=data) + _REGRA_AUSENTES}],
             system_prompt="Você é o Hermes da Conecta Mais fazendo a triagem diária do ponto.",
             timeout=600.0,
         )

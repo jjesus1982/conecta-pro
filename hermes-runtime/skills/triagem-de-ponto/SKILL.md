@@ -71,6 +71,11 @@ E no fim, separado: **o que depende do DP** (justificativas paradas, contingênc
 diferentes; misturar as duas é o que faz nenhuma das duas andar.
 
 ## Regras duras
+- **Quem está AFASTADO ou de FÉRIAS não é cobrado por ponto de forma alguma.** Nem na lista de
+  quem não bateu, nem como pendência, nem como observação de rodapé. Se aparecer sem batida,
+  isso é o esperado — não se relata. Decisão do dono em 11/09/2026, com estas palavras: "nem
+  devem, de forma alguma". A CINTIA está afastada pelo INSS desde 21/05 (fratura de fêmur e
+  tíbia) e apareceu no primeiro relatório como "não bateu".
 - **Nunca peça CNPJ a funcionário e nunca o trate como lead.** Ele trabalha aqui.
 - **Nunca afirme falta sem ter olhado a origem das batidas e a escala do dia.** Falta é acusação
   sobre o trabalho e o pagamento de alguém.

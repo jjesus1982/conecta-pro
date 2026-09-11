@@ -45,6 +45,13 @@ SELECT e.nome,
  WHERE coalesce(e.status,'ativo') = 'ativo'
    AND coalesce(e.is_homologacao,false) = false
    AND (e.tipo_contrato = 'clt' OR e.tipo_contrato IS NULL)
+   -- QUEM NÃO ESTÁ TRABALHANDO HOJE NÃO É COBRADO. Régua da casa, importada e não copiada:
+   -- `coorte_ponto.SQL_NAO_AUSENTE_HOJE` já sabe de férias aprovadas, afastamento em curso e
+   -- reta final de desligamento. Sem ela esta trava acusaria a CINTIA — afastada pelo INSS
+   -- desde 21/05, confirmado pelo Jordan em 11/09 — como "não consegue bater o ponto", que
+   -- é falso e injusto. Trava que acusa quem está de licença médica é trava que se aprende
+   -- a ignorar.
+-- AUSENTE_HOJE
  ORDER BY e.nome
 """
 
@@ -53,10 +60,12 @@ async def main() -> int:
     from sqlalchemy import text
 
     from core.database import get_db
+    from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
 
     gen = get_db()
     db = await gen.__anext__()
-    linhas = (await db.execute(text(_SQL), {"dias": DIAS, "carencia": CARENCIA})).mappings().all()
+    sql = _SQL.replace("-- AUSENTE_HOJE", SQL_NAO_AUSENTE_HOJE)
+    linhas = (await db.execute(text(sql), {"dias": DIAS, "carencia": CARENCIA})).mappings().all()
 
     falhas, aguardando, ok = [], [], 0
     for r in linhas:
