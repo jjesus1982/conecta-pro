@@ -173,6 +173,11 @@ TRAVAS_BINARIAS = {
     # nunca funcionou (rota devolve lista, anotação diz dict) e ninguém viu, porque nada a chamava.
     # Só chama leitura sem argumento obrigatório; recusa de parede não conta como defeito.
     "checar_tool_quebrada.py": ("host", "tool de leitura do MCP que estoura ao ser chamada", 900),
+    # O telefone do funcionário existe no WhatsApp? Perguntado AO WhatsApp, um número por vez.
+    # A casa nunca soube se a mensagem chegava: o envio para um JID inexistente registra
+    # sucesso. Medido em 11/09 — 5 cadastros sem o nono dígito (a MEIRE entre eles) e 6 cujo
+    # número não existe, dois deles com 13 lembretes de ponto cada, todos no vazio.
+    "checar_telefone_funcionario.py": ("host", "telefone de funcionário malformado (mensagem da empresa não chega)", 900),
 }
 
 #: Critérios de aceite por módulo. Cada um imprime ✅/❌ por condição; o que entra na base é
