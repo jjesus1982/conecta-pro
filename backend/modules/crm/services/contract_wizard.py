@@ -81,11 +81,11 @@ SELECT c.id::text AS cid, c.contract_number, c.monthly_value, c.payment_day,
          WHERE i.contract_id = c.id AND coalesce(i.is_active, true)) AS n_itens,
        (SELECT k.name FROM crm_contacts k
          WHERE k.client_id = c.client_id
-           AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%')
+           AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
          ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS representante,
        (SELECT k.notes FROM crm_contacts k
          WHERE k.client_id = c.client_id
-           AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%')
+           AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
          ORDER BY k.is_primary DESC NULLS LAST LIMIT 1) AS representante_cpf
 FROM contracts c
 LEFT JOIN clients cl ON cl.id = c.client_id
@@ -241,7 +241,7 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
             await db.execute(
                 text(
                     "SELECT id::text FROM crm_contacts WHERE client_id::text=:c "
-                    "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%') LIMIT 1"
+                    "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%') LIMIT 1"
                 ),
                 {"c": r["client_id"]},
             )
@@ -268,7 +268,7 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         await db.execute(
             text(
                 "UPDATE crm_contacts SET notes=:cpf, updated_at=now() WHERE client_id::text=:c "
-                "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%')"
+                "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%')"
             ),
             {"cpf": dados["representante_cpf"], "c": r["client_id"]},
         )

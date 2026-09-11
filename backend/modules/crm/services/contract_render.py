@@ -408,7 +408,14 @@ _SQL_REPRESENTANTE = """
 SELECT k.name, k.notes, k.role
 FROM crm_contacts k JOIN contracts c ON c.client_id = k.client_id
 WHERE (c.id::text = :k OR c.contract_number = :k)
-  AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%')
+  -- ⚠️ VOCABULÁRIO, não lista de cargos conhecidos. Em 11/09/2026 corrigi o cadastro da
+  -- síndica do Maiápolis de 'Representante legal' para 'Presidente' — que é o cargo real
+  -- dela numa Associação — e o contrato PAROU de emitir: o filtro não conhecia a palavra e
+  -- concluiu "não há representante cadastrado". Filtro literal que não conhece o cargo real
+  -- recusa um signatário legítimo, e recusar é pior que não filtrar: parece falta de
+  -- cadastro quando o cadastro está mais correto do que antes.
+  -- Os cinco lugares que faziam esta mesma pergunta foram corrigidos juntos.
+  AND (k.role ILIKE '%representante%' OR k.role ILIKE '%s%ndic%' OR k.role ILIKE '%legal%' OR k.role ILIKE '%presidente%' OR k.role ILIKE '%diretor%' OR k.role ILIKE '%s%cio%' OR k.role ILIKE '%administrador%' OR k.role ILIKE '%procurador%' OR k.role ILIKE '%titular%')
 ORDER BY k.is_primary DESC NULLS LAST, k.created_at
 LIMIT 1
 """
@@ -782,6 +789,37 @@ def variaveis_vazias(ctx: dict, corpo: str) -> list[str]:
     corpo = _COND.sub(lambda m: m.group(2) if ctx.get(m.group(1)) else "", corpo)
     usadas = set(re.findall(r"\{\{\s*([a-z_0-9]+)", corpo))
     return sorted(k for k in usadas if not str(ctx.get(k, "")).strip())
+
+
+def enderecos_incompletos(ctx: dict) -> list[str]:
+    """Endereço que EXISTE e não serve para um instrumento. Aviso, nunca recusa.
+
+    `variaveis_vazias` pega o campo ausente; este pega o campo pela metade, que o outro
+    deixa passar. Auditoria do Cowork (11/09/2026): o CTR-2026-00022 saiu com
+    `contratante_endereco = "Iranduba/AM"` enquanto o documento aprovado dizia "Rodovia
+    Manoel Urbano, Km 12 — Área de Expansão Urbana, Iranduba/AM, CEP 69415-000". O campo
+    não estava vazio, estava truncado — e endereço truncado num contrato é problema de
+    citação e de foro, não de estética.
+
+    AVISO e não recusa de propósito: há contratante legítimo sem CEP (endereço rural, por
+    exemplo), e transformar isto em parede bloquearia emissão correta. Quem decide é quem
+    lê — mas agora ele lê ANTES de o papel sair, não depois de o cliente receber.
+    """
+    ruins = []
+    for campo in ("contratante_endereco", "contratada_endereco"):
+        valor = str(ctx.get(campo) or "").strip()
+        if not valor:
+            continue  # ausente é problema de `variaveis_vazias`, não deste
+        faltas = []
+        if not re.search(r"\d", valor):
+            faltas.append("sem número")
+        if not re.search(r"\d{5}-?\d{3}", valor):
+            faltas.append("sem CEP")
+        if len(valor) < 25:
+            faltas.append("curto demais para um logradouro")
+        if faltas:
+            ruins.append(f"{campo}: {valor!r} — {', '.join(faltas)}")
+    return ruins
 
 
 def renderizar(corpo: str, ctx: dict) -> str:
@@ -1267,6 +1305,9 @@ class Resultado:
     contratada: Contratada
     n_clausulas: int
     clausulas_faltando: list[str] = field(default_factory=list)
+    # dado que EXISTE e não serve — endereço truncado, por exemplo. Não impede a emissão;
+    # chega a quem está emitindo antes do papel sair.
+    avisos: list[str] = field(default_factory=list)
 
 
 async def renderizar_contrato(
@@ -1338,6 +1379,9 @@ async def renderizar_contrato(
     assinaturas = await assinaturas_do_contrato(db, numero)
     # o manifesto lista TAMBÉM quem ainda não assinou — é trilha de auditoria, não vitrine
     manifesto = await manifesto_do_contrato(db, numero)
+
+    # qualidade do endereço: existe e não serve. Avisa antes do papel sair.
+    ctx["_avisos_endereco"] = enderecos_incompletos(ctx)
 
     vazias = variaveis_vazias(ctx, tpl["content_template"])
     if vazias:
@@ -1415,6 +1459,7 @@ async def renderizar_contrato(
 
     titulo = f"Contrato {contract_id}"
     return Resultado(
+        avisos=list(ctx.get("_avisos_endereco") or []),
         pdf=build_pdf_do_texto(
             texto,
             titulo,

@@ -210,6 +210,7 @@ async def gerar_pdf_por_modelo(
             },
             "texto_extraido": res.texto,
             "clausulas": res.n_clausulas,
+            **({"avisos_de_cadastro": res.avisos} if res.avisos else {}),
             "contratada": res.contratada.razao_social,
             "contratada_cnpj": res.contratada.cnpj,
             "minuta": bool(minuta),

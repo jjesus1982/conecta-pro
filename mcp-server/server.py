@@ -1588,18 +1588,48 @@ async def listar_leads(limite: int = 20) -> dict:
 
 
 @mcp.tool
-async def listar_clientes(busca: str | None = None) -> dict:
-    """Lista clientes cadastrados (código, nome, CNPJ, MRR). 'busca' filtra por nome (opcional)."""
-    data = await erp.get("/crm/clients/")
+async def listar_clientes(busca: str | None = None, limite: int = 50,
+                          pagina: int = 1, ativos: bool | None = None) -> dict:
+    """Lista clientes com total e paginação. `busca` casa nome, CNPJ ou código. Só lê.
+
+    Auditoria do Cowork (11/09/2026): era a ÚNICA listagem fora do envelope — devolvia
+    `{"clientes": [...]}` sem `ok`, sem `total`, sem página. Um agente que recebe uma lista
+    curta sem total não sabe se viu tudo ou se parou no corte, e decide sobre metade.
+    """
+    try:
+        data = await erp.get("/crm/clients/", params={"page_size": 200})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
     rows = _items(data)
     if busca:
-        b = busca.lower()
-        rows = [c for c in rows if b in (c.get("name", "") or "").lower()]
-    return {"clientes": [
-        {"codigo": c.get("code"), "nome": c.get("name"), "cnpj": c.get("cnpj") or c.get("document_number"),
-         "mrr": _brl(c.get("mrr"))}
-        for c in rows[:50]
-    ]}
+        # casa nome, CNPJ ou código — buscar cliente pelo CNPJ era o caso mais comum e o
+        # filtro só olhava o nome, devolvendo vazio para um cliente que existe.
+        alvo, digitos = _norm(busca), re.sub(r"\D", "", busca)
+        rows = [c for c in rows
+                if alvo in _norm(str(c.get("name") or ""))
+                or (digitos and len(digitos) >= 6
+                    and digitos in re.sub(r"\D", "", str(c.get("cnpj") or c.get("document_number") or "")))
+                or str(c.get("code") or "").upper() == busca.upper()]
+    if ativos is not None:
+        rows = [c for c in rows if bool(c.get("is_active", True)) == ativos]
+    total = len(rows)
+    ini = max(pagina - 1, 0) * max(limite, 1)
+    pagina_rows = rows[ini:ini + max(limite, 1)]
+    paginas = max((total + max(limite, 1) - 1) // max(limite, 1), 1)
+    out: dict = {
+        "ok": True, "total": total, "pagina": max(pagina, 1), "paginas": paginas,
+        "nesta_pagina": len(pagina_rows),
+        "clientes": [{
+            "id": c.get("id"), "codigo": c.get("code"), "nome": c.get("name"),
+            "cnpj": c.get("cnpj") or c.get("document_number"),
+            "cidade": c.get("city"), "ativo": c.get("is_active"),
+            "mrr": _num(c.get("mrr")), "mrr_formatado": _brl(c.get("mrr")),
+        } for c in pagina_rows],
+    }
+    if pagina < paginas:
+        out["proxima_pagina"] = pagina + 1
+        out["dica"] = f"Há {paginas} páginas. Chame de novo com pagina={pagina + 1}."
+    return out
 
 
 async def _buscar_cliente(cnpj: str) -> dict | None:
@@ -4646,6 +4676,28 @@ async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
                      "identificadores e números NÃO valem lá."}
 
 
+# Campos que só têm sentido DEPOIS da gravação: num ensaio eles seriam derivados da casca
+# `00000000-ensaio` e mentiriam com cara de verdade. Auditoria do Cowork (11/09/2026): o
+# `retorno_simulado` de `gerar_recibo_pdf` ainda trazia `download_url` e "Abra o
+# download_url para ver/baixar" — um link que não existe, no formato ANTERIOR ao item 2.1.
+# Remover é mais honesto que zerar: campo ausente o agente nota, campo vazio ele usa.
+_SO_APOS_GRAVAR = ("download_url", "drive_url", "url_alternativa", "obs", "token",
+                   "arquivo", "base64", "pdf_base64", "id", "documento_id")
+
+
+def _limpar_simulado(valor):
+    """Tira do retorno de ensaio o que só existiria se a escrita tivesse acontecido."""
+    if isinstance(valor, dict):
+        limpo = {k: _limpar_simulado(v) for k, v in valor.items() if k not in _SO_APOS_GRAVAR}
+        removidos = sorted(set(valor) & set(_SO_APOS_GRAVAR))
+        if removidos:
+            limpo["_removidos_do_ensaio"] = removidos
+        return limpo
+    if isinstance(valor, list):
+        return [_limpar_simulado(v) for v in valor]
+    return valor
+
+
 @mcp.tool
 async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
     """Mostra o que uma ferramenta FARIA — rota, corpo, tudo — sem gravar nada.
@@ -4710,9 +4762,10 @@ async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
         "escritas": registro,
         "resumo": (f"{len(registro)} escrita(s) no ERP." if registro
                    else "Nenhuma escrita — esta chamada não gravaria nada."),
-        "retorno_simulado": retorno,
+        "retorno_simulado": _limpar_simulado(retorno),
         "aviso": ("O retorno acima foi montado sobre respostas de ensaio (id "
-                  "'00000000-ensaio'), então campos derivados dele não valem."),
+                  "'00000000-ensaio'), então campos derivados dele não valem. Campos que só "
+                  "existiriam DEPOIS de gravar foram removidos, não zerados."),
         "proximo_passo": f"Se estiver certo, chame {ferramenta} direto.",
     }
 
