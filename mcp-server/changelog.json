@@ -2,6 +2,36 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "c379ad6a8",
+   "data": "2026-09-11",
+   "mudanca": "test(mcp): §5 da auditoria — os achados viram regressão, 21/21"
+  },
+  {
+   "commit": "312f523f8",
+   "data": "2026-09-11",
+   "mudanca": "fix: §3.4, §3.5 e §4 da auditoria — e o filtro de cargo que EU quebrei consertando o cadastro"
+  },
+  {
+   "commit": "4dda48231",
+   "data": "2026-09-11",
+   "mudanca": "fix: §3.1 e §3.3 da auditoria — teto de CONVERSA e texto fiel ao papel"
+  },
+  {
+   "commit": "adf5a12ec",
+   "data": "2026-09-11",
+   "mudanca": "fix: §1.2, §2.1 e §2.2 da auditoria — e `obter_contrato` estava quebrada desde sempre"
+  },
+  {
+   "commit": "e2a0cf4da",
+   "data": "2026-09-11",
+   "mudanca": "fix(mcp): P0 da auditoria — efeito externo exigia aprovação só em modo agente"
+  },
+  {
+   "commit": "3ea3a34d1",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado + imagem reassada com sandbox e request_id"
+  },
+  {
    "commit": "ecb91f555",
    "data": "2026-09-11",
    "mudanca": "feat(mcp): sandbox e request_id — o P2 que faltava para o prompt fechar 100%"
