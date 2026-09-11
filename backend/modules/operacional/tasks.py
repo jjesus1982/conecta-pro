@@ -1165,3 +1165,32 @@ def fechar_turnos_por_ponto_task(self):
     except Exception as exc:
         logger.error(f"[Operacional Task] Erro no fechamento de turno: {exc}")
         raise self.retry(exc=exc)
+
+
+@app.task(
+    name="ponto.triagem_hermes",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=900,
+)
+def triagem_ponto_hermes(self, data: str | None = None):
+    """Triagem diária do ponto feita pelo HERMES (08:30 Manaus, todo dia).
+
+    O agente lê o ponto pelas ferramentas do conector `pessoas`, aplica a skill
+    `triagem-de-ponto` e escreve o relato; aqui só se decide quando ele olha e para quem vai.
+    Ver `modules/people_management/ponto/triagem_hermes.py` para as decisões de entrega.
+
+    08:30 é escolha medida: o turno da manhã entra 07:00 e os três lembretes automáticos vão
+    até 07:10. Olhar antes disso seria cobrar quem o próprio sistema ainda está cobrando.
+    """
+    import asyncio
+
+    from modules.people_management.ponto import triagem_hermes as T
+
+    try:
+        return asyncio.run(T.rodar(data))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[triagem ponto] falhou: %s", exc)
+        # devolve ok=False de propósito: `task_falha.registrar_sucesso_vazio_no_sino` publica
+        # no sino sozinho, e falha silenciosa de tarefa agendada é a doença desta casa.
+        return {"ok": False, "erro": str(exc)[:300]}

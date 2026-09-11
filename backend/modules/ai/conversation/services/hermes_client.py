@@ -56,7 +56,7 @@ async def hermes_disponivel() -> bool:
 
 
 async def perguntar_hermes(
-    messages: list[dict], system_prompt: str, model: str = "",
+    messages: list[dict], system_prompt: str, model: str = "", timeout: float = 120.0,
 ) -> tuple[str, dict[str, Any]]:
     """POST /v1/chat/completions (formato OpenAI) no Hermes local.
 
@@ -70,7 +70,11 @@ async def perguntar_hermes(
         "messages": [{"role": "system", "content": system_prompt}] + messages,
     }
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        # ⏱️ 11/09/2026 — `timeout` virou parâmetro. Os consultores perguntam e recebem em
+        # segundos; a TRIAGEM DE PONTO faz dezenas de chamadas de ferramenta antes de
+        # escrever (medido: vários minutos e 416 mil tokens de entrada). Com o teto fixo de
+        # 120s, o trabalho terminava do lado do Hermes e o backend já tinha desistido.
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(
                 f"{HERMES_URL}/v1/chat/completions", headers=_headers(), json=payload,
             )

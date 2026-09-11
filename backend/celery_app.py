@@ -216,6 +216,15 @@ app.conf.beat_schedule = {
     #    todo worker tem limite de 2 GB com 1,39 GB em uso — a varredura derrubaria por OOM
     #    o worker de gov/financeiro/integrações. Roda por cron do host no container do
     #    backend (6 GB), via modules/notifications/tasks_oraculos.py --varrer.
+    # ── 11/09/2026 · TRIAGEM DE PONTO PELO HERMES. 08:30 Manaus, todo dia. O turno da manhã
+    #    entra 07:00 e os três lembretes automáticos vão até 07:10 — olhar antes seria cobrar
+    #    quem o próprio sistema ainda está cobrando. Roteada para `gov.batch` como as outras
+    #    tarefas longas; o agente leva minutos (dezenas de chamadas de ferramenta por turno).
+    "ponto-triagem-hermes": {
+        "task": "ponto.triagem_hermes",
+        "schedule": crontab(hour=8, minute=30),
+        "options": {"queue": "gov.batch"},
+    },
     "proativo-digest-diario": {
         "task": "proativo.digest_diario",
         "schedule": crontab(hour=7, minute=0),
