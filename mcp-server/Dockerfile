@@ -16,9 +16,10 @@ COPY test_tool_risk_manifest.py .
 # trava: quem se diz `read` prova que nao escreve (SQL/verbo HTTP no corpo)
 COPY test_read_nao_escreve.py .
 COPY test_identidade.py .
+COPY test_segundo_plano.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
-RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py
+RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py
 
 EXPOSE 8788
 

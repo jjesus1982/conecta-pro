@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import os
 import time
+import contextvars
+import secrets
+import inspect
+import asyncio
 from datetime import date, timedelta
 from typing import Any
 
@@ -284,7 +288,7 @@ class _Erp:
             f"{API}/auth/login",
             data={"username": ERP_USER, "password": ERP_PASSWORD},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=20,
+            timeout=20,  # login: 20s é o teto certo mesmo em job — login lento é login quebrado
         )
         r.raise_for_status()
         tok = r.json().get("access_token")
@@ -315,7 +319,7 @@ class _Erp:
             for attempt in (1, 2):
                 r = await client.request(
                     method, f"{API}{path}", headers=headers,
-                    json=json, params=params, timeout=40,
+                    json=json, params=params, timeout=TIMEOUT_JOB if _EM_JOB.get() else 40,
                 )
                 if r.status_code == 401 and attempt == 1:
                     if do_usuario:
@@ -348,7 +352,7 @@ class _Erp:
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.get(f"{API}{path}", headers=headers, timeout=60)
+                r = await client.get(f"{API}{path}", headers=headers, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
                 if r.status_code == 401 and attempt == 1:
                     if do_usuario:
                         raise RuntimeError(f"ERP GET {path} -> 401 com a identidade do usuário")
@@ -364,7 +368,7 @@ class _Erp:
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
-                r = await client.post(f"{API}{path}", headers=headers, json=json, timeout=60)
+                r = await client.post(f"{API}{path}", headers=headers, json=json, timeout=TIMEOUT_JOB if _EM_JOB.get() else 60)
                 if r.status_code == 401 and attempt == 1:
                     if do_usuario:
                         raise RuntimeError(f"ERP POST {path} -> 401 com a identidade do usuário")
@@ -3682,3 +3686,163 @@ async def listar_documentos_da_entidade(entidade: str, entidade_id: str) -> dict
                              params={"entidade": entidade, "entidade_id": alvo})
     except Exception as exc:  # noqa: BLE001
         return erro_envelope(exc)
+
+
+@mcp.tool
+async def contexto_cliente(chave: str) -> dict:
+    """DOSSIÊ do cliente numa chamada só — cadastro, contratos, propostas, oportunidades,
+    documentos e recebíveis em aberto.
+
+    Item 3.6 do relatório de campo: responder "como está o Kopenhagen?" custava ~6 chamadas,
+    e o agente montava a resposta com pedaços que chegavam em ordens diferentes. Aqui é uma
+    viagem, e o retrato é o mesmo para todo mundo que perguntar.
+
+    `chave` aceita CNPJ (com ou sem máscara), código (CLI-…), id ou nome aproximado. Se
+    mais de um cliente casar, devolve os candidatos em vez de escolher por você — montar o
+    dossiê do cliente errado é pior que não montar.
+
+    Use ANTES de qualquer trabalho comercial com um cliente. Só lê.
+    """
+    try:
+        return await erp.get("/crm/contexto-cliente", params={"chave": chave})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+# ── Operações longas (item 3.5) ───────────────────────────────────────────────────────
+# Folha, relatórios e emissões pesadas rodavam síncronas e travavam a conversa: o agente
+# ficava parado esperando, e acima de 40s a chamada estourava o timeout — perdendo o
+# trabalho que o ERP já tinha feito.
+#
+# ⭐ Genérico de propósito. Dar `assincrono=True` a cada tool pesada seria editar 20
+# assinaturas e errar em algumas; aqui UMA implementação serve às 262, e quem decide o que
+# é pesado é quem chama, que é quem sabe.
+
+# Em segundo plano o teto é outro. Sem isto o job só MUDARIA DE LUGAR a espera: a tool
+# continuaria morrendo nos 40s do httpx contra o backend, e o agente teria trocado um timeout
+# visível por um job que falha em silêncio — pior que o problema original.
+_EM_JOB: contextvars.ContextVar[bool] = contextvars.ContextVar("_EM_JOB", default=False)
+TIMEOUT_JOB = 600
+
+_JOBS: dict[str, dict] = {}
+_JOBS_TTL = 2 * 3600
+
+
+def _limpa_jobs() -> None:
+    # nunca despeja quem ainda está rodando: um job longo que estourasse o TTL sumiria do
+    # dicionário e a própria task morreria de KeyError ao tentar gravar o resultado.
+    agora = time.time()
+    for jid in [k for k, v in _JOBS.items()
+                if v.get("status") != "processando"
+                and agora - v.get("criado_em", 0) > _JOBS_TTL]:
+        _JOBS.pop(jid, None)
+
+
+@mcp.tool
+async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = None) -> dict:
+    """Dispara QUALQUER ferramenta em segundo plano e devolve um `job_id` na hora.
+
+    Use quando a operação for demorada — folha, relatório do mês, emissão em lote — para
+    não travar a conversa e não perder o trabalho num timeout. Depois consulte com
+    `status_job(job_id)` e pegue o retorno com `resultado_job(job_id)`.
+
+    ⚠️ Segundo plano muda QUANDO, não O QUÊ. As duas paredes valem aqui exatamente como
+    valeriam na chamada direta, e são checadas contra a ferramenta INTERNA.
+
+    Os jobs vivem 2 horas na memória do processo; reiniciar o MCP os esquece.
+    """
+    _limpa_jobs()
+    alvo = globals().get(ferramenta)
+    if alvo is None or not callable(alvo):
+        return {"ok": False, "codigo": "FERRAMENTA_DESCONHECIDA", "http": 404,
+                "mensagem": f"Não existe ferramenta chamada {ferramenta!r}.",
+                "dica": "Use conecta_pro_capabilities() para achar o nome certo."}
+
+    # ⭐ As duas paredes moram no middleware `on_call_tool`, e ele julga o nome da chamada
+    # EXTERNA. Aqui a chamada externa é sempre `executar_em_segundo_plano` — então, sem o
+    # que vem abaixo, despachar seria um túnel: `enviar_link_assinatura` entraria por uma
+    # porta que o middleware lê como inofensiva. Reuso as MESMAS funções das paredes de
+    # propósito; uma cópia da regra divergiria na primeira mudança e o túnel reabriria.
+    try:
+        from gate_propose import precisa_aprovacao  # noqa: PLC0415
+        if precisa_aprovacao(ferramenta):
+            return {"ok": False, "codigo": "PRECISA_APROVACAO", "http": 403,
+                    "mensagem": f"`{ferramenta}` é ação de aprovação humana. Segundo plano "
+                                f"não é caminho alternativo para ela.",
+                    "dica": "Chame a ferramenta direto — o pedido vai ao dono por lá."}
+    except ImportError:
+        pass
+
+    # A identidade vive num ContextVar que o middleware SOLTA quando a chamada externa
+    # retorna — e o job continua vivo depois disso. Sem carregar o token para dentro da
+    # task, o job perderia o usuário no meio e cairia na conta de serviço: "a sessão dele
+    # acabou, então eu faço com os meus poderes". É a escalada que a F2 existe para impedir.
+    token_do_chamador = None
+    try:
+        from identidade import _TOKEN, sensivel  # noqa: PLC0415
+        token_do_chamador = _TOKEN.get()
+        if token_do_chamador is None and sensivel(ferramenta):
+            return {"ok": False, "codigo": "SEM_IDENTIDADE", "http": 401,
+                    "mensagem": f"`{ferramenta}` toca dado pessoal ou dinheiro e a chamada "
+                                f"chegou sem identidade.",
+                    "dica": "Envie o cabeçalho de identidade — vale igual em segundo plano."}
+    except ImportError:
+        _TOKEN = None
+
+    jid = f"job_{secrets.token_hex(6)}"
+    _JOBS[jid] = {"status": "processando", "ferramenta": ferramenta,
+                  "criado_em": time.time(), "resultado": None, "erro": None}
+
+    async def _rodar() -> None:
+        _EM_JOB.set(True)
+        if _TOKEN is not None:
+            _TOKEN.set(token_do_chamador)
+        try:
+            r = alvo(**(argumentos or {}))
+            resultado, erro = (await r if inspect.isawaitable(r) else r), None
+        except Exception as exc:  # noqa: BLE001
+            # o job guarda o ENVELOPE, não o traceback: quem consulta depois merece a mesma
+            # mensagem legível que teria recebido na chamada direta.
+            resultado, erro = None, erro_envelope(exc)
+        j = _JOBS.get(jid)
+        if j is not None:  # o registro pode ter sido varrido; a task não morre por isso
+            j.update(resultado=resultado, erro=erro,
+                     status="falhou" if erro else "concluido", terminou_em=time.time())
+
+    asyncio.create_task(_rodar())
+    return {"ok": True, "job_id": jid, "status": "processando", "ferramenta": ferramenta,
+            "proximo_passo": f"status_job('{jid}') — e resultado_job quando concluir."}
+
+
+@mcp.tool
+async def status_job(job_id: str) -> dict:
+    """Em que pé está um job disparado por `executar_em_segundo_plano`. Só lê."""
+    j = _JOBS.get(job_id)
+    if not j:
+        return {"ok": False, "codigo": "JOB_DESCONHECIDO", "http": 404,
+                "mensagem": f"Não conheço o job {job_id!r}.",
+                "dica": "Jobs vivem 2 horas e são esquecidos se o MCP reiniciar. "
+                        "Dispare de novo."}
+    decorrido = round((j.get("terminou_em") or time.time()) - j["criado_em"], 1)
+    return {"ok": True, "job_id": job_id, "status": j["status"],
+            "ferramenta": j["ferramenta"], "decorrido_s": decorrido,
+            "pronto": j["status"] in ("concluido", "falhou")}
+
+
+@mcp.tool
+async def resultado_job(job_id: str) -> dict:
+    """O retorno de um job concluído — o MESMO que a ferramenta devolveria direto. Só lê."""
+    j = _JOBS.get(job_id)
+    if not j:
+        return {"ok": False, "codigo": "JOB_DESCONHECIDO", "http": 404,
+                "mensagem": f"Não conheço o job {job_id!r}.",
+                "dica": "Jobs vivem 2 horas e somem se o MCP reiniciar."}
+    if j["status"] == "processando":
+        return {"ok": True, "status": "processando", "job_id": job_id,
+                "decorrido_s": round(time.time() - j["criado_em"], 1),
+                "dica": "Ainda rodando. Consulte de novo em alguns segundos."}
+    if j["status"] == "falhou":
+        return {**(j["erro"] or {}), "job_id": job_id, "ferramenta": j["ferramenta"]}
+    return {"ok": True, "job_id": job_id, "ferramenta": j["ferramenta"],
+            "decorrido_s": round((j.get("terminou_em") or 0) - j["criado_em"], 1),
+            "resultado": j["resultado"]}

@@ -30,6 +30,17 @@ TOOL_RISK: dict[str, str] = {
     # anexo entra no registro do cliente e vira a versão que alguém pode assinar.
     "anexar_documento": "write_low",
     "listar_documentos_da_entidade": "read",
+    "contexto_cliente": "read",
+    # jobs: consultar status e resultado é leitura. DISPARAR não é — o job executa a
+    # ferramenta alvo com as permissões dela, e o disparo é `propose` porque o que roda ali
+    # pode ser escrita. Classificar o disparo como `read` seria uma porta dos fundos:
+    # "não escrevo, só mando outro escrever".
+    # O disparador em si não faz nada: ele aplica, contra a ferramenta INTERNA, as mesmas
+    # duas paredes do middleware (gate propose + identidade). `propose` aqui bloquearia o
+    # recurso inteiro para sempre; a classe que governa é a da ferramenta despachada.
+    "executar_em_segundo_plano": "read",
+    "status_job": "read",
+    "resultado_job": "read",
 
     # --- tools existentes (conector read-only) — todas "read" ---
     "adicionar_achados_visita": "write_low",
