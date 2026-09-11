@@ -212,10 +212,20 @@ async def _resolver_contrato(chave: str) -> str | dict:
                 alvo and (alvo in nome or nome.startswith(alvo[:18]))):
             achados.append(c)
     if not achados:
+        # "não existe" e "não achei nos que olhei" são afirmações diferentes, e só a segunda
+        # é verdade quando a janela não alcança o conjunto. Hoje são 19 contratos e 100
+        # cabem; no dia em que não couberem, esta mensagem para de mentir por omissão em vez
+        # de mandar o dono procurar um contrato que está lá.
+        total = (lista or {}).get("total")
+        parcial = total is not None and total > len(itens)
         return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
-                "mensagem": f"Nenhum contrato corresponde a {chave!r}.",
-                "dica": "Use o número (CTR-AAAA-NNNNN) ou o CNPJ do cliente. "
-                        "listar_contratos(busca=...) ajuda a achar."}
+                "mensagem": (f"Nenhum contrato corresponde a {chave!r}"
+                             + (f" entre os {len(itens)} que consigo ver de {total}."
+                                if parcial else ".")),
+                "dica": ("Use o número (CTR-AAAA-NNNNN) ou o CNPJ do cliente. "
+                         "listar_contratos(busca=...) ajuda a achar.")
+                        + (" ⚠️ Minha busca é parcial — prefira o número exato."
+                           if parcial else "")}
     if len(achados) > 1:
         return {"ok": False, "codigo": "AMBIGUO", "http": 409,
                 "mensagem": f"{len(achados)} contratos correspondem a {chave!r}.",
@@ -472,9 +482,15 @@ async def _resolver_cliente_id(chave: str) -> str | dict:
     if not achados and len(itens) == 1:
         achados = itens  # o próprio backend já filtrou por `search`
     if not achados:
+        total = (data or {}).get("total")
+        parcial = total is not None and total > len(itens)
         return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
-                "mensagem": f"Nenhum cliente corresponde a {chave!r}.",
-                "dica": "Tente o CNPJ só com dígitos, ou listar_clientes(busca=...)."}
+                "mensagem": (f"Nenhum cliente corresponde a {chave!r}"
+                             + (f" entre os {len(itens)} que consigo ver de {total}."
+                                if parcial else ".")),
+                "dica": ("Tente o CNPJ só com dígitos, ou listar_clientes(busca=...).")
+                        + (" ⚠️ Minha busca é parcial — prefira o CNPJ exato."
+                           if parcial else "")}
     if len(achados) > 1:
         return {"ok": False, "codigo": "AMBIGUO", "http": 409,
                 "mensagem": f"{len(achados)} clientes correspondem a {chave!r}.",
@@ -4021,6 +4037,17 @@ async def atualizar_modelo_contrato(template_id: str, nome: str = "",
     try:
         atuais = await erp.get("/crm/contracts", params={"page_size": 100})
         itens = _items(atuais)
+        # A JANELA também é uma forma de observar a coisa errada: 100 contratos hoje são
+        # todos, e no dia em que forem 101 esta guarda passaria a dizer "ninguém usa" sobre
+        # um modelo em uso na página 2. O backend não filtra por template_id, então a saída
+        # honesta é recusar quando não enxergo o conjunto inteiro — não estimar por amostra.
+        total = (atuais or {}).get("total")
+        if total is not None and total > len(itens):
+            return {"ok": False, "codigo": "NAO_CONSIGO_MEDIR_O_USO", "http": 409,
+                    "mensagem": f"Há {total} contratos e eu só consigo olhar {len(itens)} "
+                                f"por vez, então não sei quantos usam este modelo.",
+                    "dica": "Peça a quem cuida do ERP um filtro por template_id em "
+                            "/crm/contracts. Até lá, edite o modelo pela tela."}
         if itens and "template_id" not in itens[0]:
             return {"ok": False, "codigo": "NAO_CONSIGO_MEDIR_O_USO", "http": 409,
                     "mensagem": "A listagem de contratos não informa o modelo de cada um, "

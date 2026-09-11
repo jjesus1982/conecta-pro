@@ -2,6 +2,11 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "ca8f839d6",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): `changelog_mcp` — a sessão do Cowork não vê o deploy acontecer (4.x)"
+  },
+  {
    "commit": "a72e1d8c3",
    "data": "2026-09-11",
    "mudanca": "feat(mcp): `ensaiar` dá dry_run às 82 ferramentas de escrita de uma vez — 3.3"
