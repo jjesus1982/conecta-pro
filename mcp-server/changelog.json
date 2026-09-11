@@ -1,0 +1,195 @@
+{
+ "gerado_de": "git log -- mcp-server/",
+ "entradas": [
+  {
+   "commit": "a72e1d8c3",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): `ensaiar` dá dry_run às 82 ferramentas de escrita de uma vez — 3.3"
+  },
+  {
+   "commit": "745e5e047",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): 2.1 vale para TODAS as geradoras — 3/19 viraram 15/20"
+  },
+  {
+   "commit": "c70c4499e",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): fecha 2.2 e 2.3 — e conserta uma guarda que falhava ABERTA"
+  },
+  {
+   "commit": "76690e682",
+   "data": "2026-09-11",
+   "mudanca": "feat(hermes): o escopo vira parede de verdade — e o Hermes ganha o conector de PESSOAS"
+  },
+  {
+   "commit": "bd20254b4",
+   "data": "2026-09-11",
+   "mudanca": "fix(mcp): 3.1 e 2.5 chegam à FERRAMENTA — estavam prontos no backend e não alcançavam ninguém"
+  },
+  {
+   "commit": "81df4c3f9",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): operação longa vira job — e segundo plano não abre porta dos fundos (3.5)"
+  },
+  {
+   "commit": "f0d5f2a9e",
+   "data": "2026-09-11",
+   "mudanca": "build(mcp): as 8 tools novas passam pelas 3 paredes do build — imagem reconstruída"
+  },
+  {
+   "commit": "1cf190e83",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): as 44 ferramentas que escreviam sem avisar passam a declarar — e uma trava"
+  },
+  {
+   "commit": "1d20e9bd4",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): anexar documento com versão, dry_run e idempotência — 2.2 e 3.3 do Cowork"
+  },
+  {
+   "commit": "d6b637e46",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): CRUD de modelos de contrato — novo tipo de negócio deixa de esperar dev"
+  },
+  {
+   "commit": "c32fc8499",
+   "data": "2026-09-11",
+   "mudanca": "feat(mcp): documento LEGÍVEL, erro que ensina e identificador tolerante — P0 do Cowork"
+  },
+  {
+   "commit": "2592cf13c",
+   "data": "2026-09-10",
+   "mudanca": "fix(ged): o contador de assinatura escondia o cancelado, e a escala saiu do kit"
+  },
+  {
+   "commit": "fe95c7ef8",
+   "data": "2026-09-10",
+   "mudanca": "fix(gedeon+ged): os cinco achados do conferente — todos reais, três eram DOIS ESCRITORES"
+  },
+  {
+   "commit": "929b622e4",
+   "data": "2026-09-10",
+   "mudanca": "fix(mcp+gedeon): as duas ferramentas do conferente — uma mentia, a outra era cega"
+  },
+  {
+   "commit": "ed7b1df34",
+   "data": "2026-09-08",
+   "mudanca": "fix(crm,mcp): cadência WhatsApp grava o toque antes de disparar; tool pendencias_simples honesta"
+  },
+  {
+   "commit": "7e44976c5",
+   "data": "2026-09-08",
+   "mudanca": "fix(recruitment): pacote aposentado — 79 rotas (166 montadas em dobro) sobre 7 tabelas com 0 linhas desde sempre; MCP aponta para a esteira de candidatos por posto"
+  },
+  {
+   "commit": "e08874170",
+   "data": "2026-09-08",
+   "mudanca": "fix(modulos): revisão 100% — 11 módulos menores: 329 rotas mortas apagadas, health_occupational aposentado, 6 defeitos graves"
+  },
+  {
+   "commit": "fa74d9536",
+   "data": "2026-09-08",
+   "mudanca": "fix(government): revisão 100% — 189 rotas mortas apagadas, eSocial sem auth fechado, eventos pelo espelho, beat sem as sondas nocivas"
+  },
+  {
+   "commit": "a20a84d73",
+   "data": "2026-09-08",
+   "mudanca": "fix(modulos): revisão 100% — retention (70), document_kits (54), scheduler (26) e services (63) sem rotas"
+  },
+  {
+   "commit": "9a0fc7042",
+   "data": "2026-09-08",
+   "mudanca": "fix(people-management): revisão de código lote 1 — 40 defeitos com prova, 30 rotas mortas apagadas"
+  },
+  {
+   "commit": "9506c64c0",
+   "data": "2026-08-23",
+   "mudanca": "feat(F2): o conector para de CUNHAR identidade e passa a ENCAMINHAR a de quem perguntou"
+  },
+  {
+   "commit": "c4486f6e4",
+   "data": "2026-08-23",
+   "mudanca": "feat(F1): a etiqueta de risco vira PORTEIRO — propose não executa pelo agente"
+  },
+  {
+   "commit": "3ee909990",
+   "data": "2026-08-23",
+   "mudanca": "fix(mcp): o filtro de escopo era FAIL-OPEN para tool nova — a de dinheiro escapou"
+  },
+  {
+   "commit": "8796a32b0",
+   "data": "2026-08-23",
+   "mudanca": "feat(mcp): 4 tools de proposta + a trava que prova que `read` não escreve"
+  },
+  {
+   "commit": "2baa50df4",
+   "data": "2026-08-23",
+   "mudanca": "mcp: conector publico age como o Jordan + versiona o deploy do conector"
+  },
+  {
+   "commit": "56ca305e5",
+   "data": "2026-08-23",
+   "mudanca": "feat(mcp): catálogo escopado por assunto — 250 → 21 ferramentas, 42.602 → 17.984 tokens"
+  },
+  {
+   "commit": "5c36493d1",
+   "data": "2026-08-23",
+   "mudanca": "feat(contrato): criar contrato novo pelo modelo — chat, jurídico e Cowork"
+  },
+  {
+   "commit": "cd32cbac0",
+   "data": "2026-08-21",
+   "mudanca": "feat(contrato): assinatura eletrônica ponta a ponta + manifesto ao final"
+  },
+  {
+   "commit": "cdb706708",
+   "data": "2026-08-21",
+   "mudanca": "feat(crm): assinatura eletronica do contrato — empresa assina, cliente assina por link"
+  },
+  {
+   "commit": "458d423c0",
+   "data": "2026-08-21",
+   "mudanca": "feat(crm): briefing de contrato novo — juridico, chat e Cowork perguntam antes de montar"
+  },
+  {
+   "commit": "906121bd0",
+   "data": "2026-08-21",
+   "mudanca": "feat(crm): solicitar contrato pelo juridico, pelo chat e pelo Cowork"
+  },
+  {
+   "commit": "eceaf329c",
+   "data": "2026-07-23",
+   "mudanca": "feat(executivo): Fase 5.2a.4 — quick-wins executivos cross-domínio (groundedness + audit)"
+  },
+  {
+   "commit": "6c853bf02",
+   "data": "2026-07-22",
+   "mudanca": "feat(fase5.1): 8 consultores (🟢) + 3 ações (🔵🟡) como tools MCP + classificação"
+  },
+  {
+   "commit": "495053622",
+   "data": "2026-07-22",
+   "mudanca": "ci(fase5.0): lint de risco das tools no build do conector (fail-closed)"
+  },
+  {
+   "commit": "8e821051a",
+   "data": "2026-07-22",
+   "mudanca": "feat(fase5.0): manifesto de risco das tools MCP + lint fail-closed"
+  },
+  {
+   "commit": "20bb494f6",
+   "data": "2026-07-16",
+   "mudanca": "feat(mcp): regra rígida de timbrado nas instructions do conector"
+  },
+  {
+   "commit": "d63a99bf8",
+   "data": "2026-07-16",
+   "mudanca": "feat(mcp): conector 205→228 tools — recupera fonte perdido + recursos de julho"
+  },
+  {
+   "commit": "66a50a032",
+   "data": "2026-06-30",
+   "mudanca": "feat(gedeon+geral): kits documentais por condomínio + GED + CND + NFS-e + conector MCP"
+  }
+ ]
+}

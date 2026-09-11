@@ -45,6 +45,7 @@ TOOL_RISK: dict[str, str] = {
     "executar_em_segundo_plano": "read",
     # Ensaiar NÃO grava — a interceptação é no único ponto por onde o MCP escreve. E, como
     # o despachante de segundo plano, aplica as duas paredes contra a ferramenta interna.
+    "changelog_mcp": "read",
     "ensaiar": "read",
     "status_job": "read",
     "resultado_job": "read",

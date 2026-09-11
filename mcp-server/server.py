@@ -4326,6 +4326,39 @@ async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = N
 
 
 @mcp.tool
+async def changelog_mcp(limite: int = 15, desde: str = "") -> dict:
+    """O que mudou nestas ferramentas, e quando. Só lê.
+
+    Consulte quando uma ferramenta se comportar diferente do que você esperava: o item 4 do
+    relatório de campo nasceu de `baixar_contrato_pdf` passar a tentar o instrumento
+    completo sem que ninguém soubesse. Uma sessão do Cowork não vê o deploy acontecer.
+
+    `desde`: AAAA-MM-DD, para ver só o que é mais novo que a sua última conexão.
+
+    ⚠️ Não é lista escrita à mão — sai do histórico de commits de `mcp-server/`, gerado no
+    build. Changelog mantido à mão envelhece em silêncio, que é o defeito que ele existiria
+    para resolver.
+    """
+    import json as _json  # noqa: PLC0415
+    import pathlib as _pl  # noqa: PLC0415
+
+    arq = _pl.Path(__file__).parent / "changelog.json"
+    if not arq.exists():
+        return {"ok": False, "codigo": "CHANGELOG_AUSENTE", "http": 404,
+                "mensagem": "A imagem foi construída sem o changelog.",
+                "dica": "Reconstrua o conector."}
+    dados = _json.loads(arq.read_text(encoding="utf-8"))
+    entradas = dados.get("entradas") or []
+    if desde:
+        entradas = [e for e in entradas if str(e.get("data", "")) >= desde[:10]]
+    return {"ok": True, "versao_mcp": VERSAO_MCP,
+            "total_registrado": len(dados.get("entradas") or []),
+            "mostrando": min(limite, len(entradas)),
+            "mudancas": entradas[:limite],
+            "dica": "Use desde='AAAA-MM-DD' para ver só o que é novo para você."}
+
+
+@mcp.tool
 async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
     """Mostra o que uma ferramenta FARIA — rota, corpo, tudo — sem gravar nada.
 
