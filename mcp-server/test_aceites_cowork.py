@@ -175,8 +175,41 @@ async def aceite_2_3_crud_de_modelos() -> None:
           f"{len(r['contratos_afetados'])} contrato(s) e não gravou nada")
 
 
+async def aceite_2_1_todas_as_geradoras() -> None:
+    """O aceite cita `baixar_contrato_pdf`, mas o item 2.1 diz **todas** as baixar_/gerar_.
+
+    Eu tinha convertido 3 de 19 e declarado o item feito. Este teste mede a família inteira,
+    não o caso que apareceu: ferramenta que devolve DOCUMENTO precisa aceitar `formato` e
+    trazer texto; ferramenta que devolve JSON não precisa de nada disso.
+    """
+    import inspect
+    import re
+
+    todas = [n for n in dir(S)
+             if (n.startswith("baixar_") or n.startswith("gerar_")) and callable(getattr(S, n))]
+    mudas = []
+    for n in todas:
+        if "formato" in inspect.signature(getattr(S, n)).parameters:
+            continue
+        try:
+            src = inspect.getsource(getattr(S, n))
+        except Exception:  # noqa: BLE001
+            continue
+        if re.search(r"download_url|pdf_base64|_pdf_b64|_gerar_doc", src):
+            mudas.append(n)
+    assert not mudas, f"devolvem documento e não aceitam formato=: {mudas}"
+
+    # e funciona de verdade, não só na assinatura
+    r = await S._pdf_b64("/crm/reports/comercial/pdf", formato="base64", nome="rel.pdf")
+    assert (r.get("arquivo") or {}).get("base64"), f"envelope sem base64: {list(r)}"
+    assert r.get("texto_extraido"), "envelope sem texto — assinatura nova, comportamento velho"
+    com = [n for n in todas if "formato" in inspect.signature(getattr(S, n)).parameters]
+    print(f"OK 2.1 {len(com)}/{len(todas)} baixar_/gerar_ com formato; nenhuma geradora muda")
+
+
 ACEITES = [
     aceite_2_1_documento_legivel,
+    aceite_2_1_todas_as_geradoras,
     aceite_3_1_listagem_diz_o_cliente,
     aceite_2_2_trio_de_documentos,
     aceite_2_3_crud_de_modelos,

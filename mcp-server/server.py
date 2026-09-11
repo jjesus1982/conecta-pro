@@ -721,22 +721,56 @@ async def atualizar_proposta(proposta_id: str, titulo: str | None = None, condic
 
 
 @mcp.tool
-async def baixar_proposta_pdf(proposta_id: str, salvar_no_drive: bool = False) -> dict:
+async def baixar_proposta_pdf(proposta_id: str, salvar_no_drive: bool = False,
+                              formato: str = "base64") -> dict:
     """Gera o PDF da proposta (SEM enviar ao cliente), REGISTRA no Conecta PRO e devolve o LINK de
-    download (clicável). Use para conferir o layout/auditar antes de qualquer envio real."""
-    return await _gerar_doc_get(f"/crm/proposals/{proposta_id}/pdf", drive=salvar_no_drive)
+    download (clicável). Use para conferir o layout/auditar antes de qualquer envio real.    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
+    """
+    return await _gerar_doc_get(f"/crm/proposals/{proposta_id}/pdf", drive=salvar_no_drive,
+                                formato=formato)
 
 
-async def _pdf_b64(path: str) -> dict:
-    import base64
+async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pdf") -> dict:
+    """Busca um PDF que o ERP gera na hora e devolve no envelope padrão, COM texto.
+
+    Estes documentos (holerite, espelho, comprovante, recibo) não passam pelo
+    `crm_documents` — vêm em bytes direto do endpoint que os produz. Por isso a extração vai
+    por `/crm/docs/extrair-texto` em vez de `/crm/docs/conteudo/{id}`: destino diferente,
+    mesma função de extração no backend.
+    """
+    import base64  # noqa: PLC0415
+
     try:
         raw = await erp.get_bytes(path)
     except Exception as exc:  # noqa: BLE001
-        return {"gerado": False, "erro": str(exc)[:200]}
+        return erro_envelope(exc)
     kb = round(len(raw) / 1024, 1)
-    if len(raw) > 1_500_000:
-        return {"gerado": True, "tamanho_kb": kb, "aviso": "PDF grande — não embutido."}
-    return {"gerado": True, "tamanho_kb": kb, "mime": "application/pdf", "pdf_base64": base64.b64encode(raw).decode("ascii")}
+    b64 = base64.b64encode(raw).decode("ascii")
+    out: dict = {"ok": True, "gerado": True,
+                 "arquivo": {"nome": nome, "mime": "application/pdf", "tamanho_kb": kb},
+                 # compatibilidade: havia consumidor lendo `pdf_base64`. Tirar a chave
+                 # antiga junto com a mudança seria trocar um defeito por outro.
+                 "tamanho_kb": kb, "mime": "application/pdf"}
+    if str(formato).lower() != "texto":
+        if len(raw) > 8 * 1024 * 1024:
+            out["aviso"] = f"PDF de {kb / 1024:.1f} MB — base64 omitido para não estourar a conversa."
+        else:
+            out["arquivo"]["base64"] = b64
+            out["pdf_base64"] = b64
+    if str(formato).lower() != "url":
+        try:
+            c = await erp.post("/crm/docs/extrair-texto", json={"base64": b64, "ext": "pdf"})
+            out["texto_extraido"] = c.get("texto_extraido")
+            out["paginas"] = c.get("paginas")
+            if c.get("aviso"):
+                out["aviso_leitura"] = c["aviso"]
+        except Exception as exc:  # noqa: BLE001
+            # o PDF saiu; só não deu para ler. Dizer que falhou seria mentir.
+            out["aviso_leitura"] = f"não consegui extrair o texto ({str(exc)[:80]})"
+    return out
 
 
 @mcp.tool
@@ -1142,9 +1176,16 @@ async def gerar_contrato_por_modelo(
 
 
 @mcp.tool
-async def baixar_relatorio_comercial_pdf(salvar_no_drive: bool = False) -> dict:
-    """Gera o RELATÓRIO COMERCIAL em PDF (MRR, clientes, pipeline, top deals) no padrão Conecta Mais, em base64."""
-    return await _gerar_doc_get("/crm/reports/comercial/pdf", drive=salvar_no_drive)
+async def baixar_relatorio_comercial_pdf(salvar_no_drive: bool = False,
+                                         formato: str = "base64") -> dict:
+    """Gera o RELATÓRIO COMERCIAL em PDF (MRR, clientes, pipeline, top deals) no padrão Conecta Mais, em base64.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+    """
+    return await _gerar_doc_get("/crm/reports/comercial/pdf", drive=salvar_no_drive,
+                                formato=formato)
 
 
 async def _pdf_post_b64(path: str, payload: dict) -> dict:
@@ -1157,27 +1198,62 @@ async def _pdf_post_b64(path: str, payload: dict) -> dict:
             "pdf_base64": base64.b64encode(raw).decode("ascii")}
 
 
-async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool = False) -> dict:
+async def _legivel(r: dict, formato: str) -> dict:
+    """Acrescenta base64 e `texto_extraido` a um documento que o ERP acabou de registrar.
+
+    ⭐ Reusa `/crm/docs/conteudo/{id}`, criado para o item 2.2. A extração acontece no
+    BACKEND, que já tem PyPDF2 — o MCP não ganha dependência de PDF por causa disto, e as
+    duas portas (anexo que entra, documento que o ERP gera) passam a ler pelo mesmo lugar.
+    Duas implementações de extração divergiriam na primeira mudança.
+
+    Falhar em enriquecer NÃO derruba a geração: o documento existe e o link funciona. O que
+    volta é o envelope de antes com um aviso honesto, nunca um erro que sugira que o PDF
+    não saiu.
+    """
+    if str(formato).lower() == "url" or not r.get("gerado") or not r.get("id"):
+        return r
+    try:
+        c = await erp.get(f"/crm/docs/conteudo/{r['id']}", params={"formato": formato})
+    except Exception as exc:  # noqa: BLE001
+        r["aviso_leitura"] = (f"Gerado e registrado, mas não consegui trazer o conteúdo "
+                              f"para leitura ({str(exc)[:90]}). Use o download_url.")
+        return r
+    if not c.get("ok"):
+        r["aviso_leitura"] = c.get("mensagem") or "conteúdo indisponível para leitura"
+        return r
+    r["arquivo"] = c.get("arquivo")
+    r["texto_extraido"] = c.get("texto_extraido")
+    r["paginas"] = c.get("paginas")
+    if c.get("aviso"):
+        r["aviso_leitura"] = c["aviso"]
+    return r
+
+
+async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool = False,
+                     formato: str = "base64") -> dict:
     """Gera o documento (POST), REGISTRA no Conecta PRO e devolve o LINK público. drive=True: sobe pro Google Drive."""
     try:
         r = await erp.post(f"{path}?salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}", json=payload)
     except Exception as exc:  # noqa: BLE001
         return {"gerado": False, "erro": str(exc)[:200]}
-    return {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
-            "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
-            "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
+    saida = {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
+             "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
+             "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
+    return await _legivel(saida, formato)
 
 
-async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False) -> dict:
+async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False,
+                         formato: str = "base64") -> dict:
     """Idem (GET): gera doc de uma entidade existente (proposta/contrato/relatório), registra + link. drive=True: sobe pro Drive."""
     sep = "&" if "?" in path else "?"
     try:
         r = await erp.get(f"{path}{sep}salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}")
     except Exception as exc:  # noqa: BLE001
         return {"gerado": False, "erro": str(exc)[:200]}
-    return {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
-            "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
-            "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
+    saida = {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
+             "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
+             "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
+    return await _legivel(saida, formato)
 
 
 @mcp.tool
@@ -1234,31 +1310,43 @@ async def listar_documentos(tipo: str | None = None, limite: int = 30) -> dict:
 
 @mcp.tool
 async def gerar_recibo_pdf(pagador: str, valor: float, referente: str, documento: str | None = None,
-                           forma_pagamento: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
+                           forma_pagamento: str | None = None, numero: str | None = None, salvar_no_drive: bool = False,
+                           formato: str = "base64") -> dict:
     """Gera um RECIBO de pagamento em PDF (padrão Conecta Mais, com selo), em base64.
     Ex.: pagador='CONDOMINIO X', valor=6000, referente='portaria remota — junho/2026'.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+        `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
     """
     return await _gerar_doc("/crm/docs/recibo/pdf", {
         "pagador": pagador, "valor": valor, "referente": referente,
-        "documento": documento, "forma_pagamento": forma_pagamento, "numero": numero}, drive=salvar_no_drive)
+        "documento": documento, "forma_pagamento": forma_pagamento, "numero": numero},
+        drive=salvar_no_drive, formato=formato)
 
 
 @mcp.tool
 async def gerar_aditivo_pdf(contrato_numero: str, tipo: str = "outro", objeto: str | None = None,
                             cliente: str | None = None, documento: str | None = None,
                             novo_valor: float | None = None, nova_vigencia_fim: str | None = None,
-                            justificativa: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
+                            justificativa: str | None = None, numero: str | None = None, salvar_no_drive: bool = False,
+                            formato: str = "base64") -> dict:
     """Gera um TERMO ADITIVO de contrato em PDF (padrão Conecta Mais, com selo), em base64.
     tipo: reajuste | prorrogacao | escopo | valor | outro. Enriquece cliente pelo contrato se omitido.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+        `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
     """
     return await _gerar_doc("/crm/docs/aditivo/pdf", {
         "contrato_numero": contrato_numero, "tipo": tipo, "objeto": objeto, "cliente": cliente,
         "documento": documento, "novo_valor": novo_valor, "nova_vigencia_fim": nova_vigencia_fim,
-        "justificativa": justificativa, "numero": numero}, drive=salvar_no_drive)
+        "justificativa": justificativa, "numero": numero},
+        drive=salvar_no_drive, formato=formato)
 
 
 @mcp.tool
@@ -1266,16 +1354,22 @@ async def gerar_atestado_pdf(emitente: str, servico: str, periodo: str | None = 
                              emitente_documento: str | None = None, emitente_responsavel: str | None = None,
                              emitente_cargo: str | None = None, valor: float | None = None,
                              cidade: str | None = None, observacoes: str | None = None,
-                             numero: str | None = None, salvar_no_drive: bool = False) -> dict:
+                             numero: str | None = None, salvar_no_drive: bool = False,
+                             formato: str = "base64") -> dict:
     """Gera um ATESTADO DE CAPACIDADE TÉCNICA em PDF (padrão Conecta Mais, com selo), em base64.
     emitente = cliente que atesta os serviços da Conecta Mais (usado em licitações).
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+        `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
     """
     return await _gerar_doc("/crm/docs/atestado/pdf", {
         "emitente": emitente, "servico": servico, "periodo": periodo, "emitente_documento": emitente_documento,
         "emitente_responsavel": emitente_responsavel, "emitente_cargo": emitente_cargo, "valor": valor,
-        "cidade": cidade, "observacoes": observacoes, "numero": numero}, drive=salvar_no_drive)
+        "cidade": cidade, "observacoes": observacoes, "numero": numero},
+        drive=salvar_no_drive, formato=formato)
 
 
 @mcp.tool
@@ -1283,15 +1377,21 @@ async def gerar_ordem_servico_pdf(cliente: str, servico: str, descricao: str | N
                                   documento: str | None = None, endereco: str | None = None,
                                   responsavel: str | None = None, valor: float | None = None,
                                   prazo: str | None = None, observacoes: str | None = None,
-                                  numero: str | None = None, salvar_no_drive: bool = False) -> dict:
+                                  numero: str | None = None, salvar_no_drive: bool = False,
+                                  formato: str = "base64") -> dict:
     """Gera uma ORDEM DE SERVIÇO (OS) em PDF (padrão Conecta Mais, com selo), em base64.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+        `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
     """
     return await _gerar_doc("/crm/docs/ordem-servico/pdf", {
         "cliente": cliente, "servico": servico, "descricao": descricao, "documento": documento,
         "endereco": endereco, "responsavel": responsavel, "valor": valor, "prazo": prazo,
-        "observacoes": observacoes, "numero": numero}, drive=salvar_no_drive)
+        "observacoes": observacoes, "numero": numero},
+        drive=salvar_no_drive, formato=formato)
 
 
 @mcp.tool
@@ -2534,6 +2634,7 @@ async def gerar_orcamento(
     observacao: str | None = None,
     numero: str | None = None,
     salvar_no_drive: bool = False,
+    formato: str = "base64",
 ) -> dict:
     """Gera um ORÇAMENTO / proposta de PAGAMENTO ÚNICO no padrão-ouro Conecta PRO — para MATERIAL,
     SERVIÇO ou ambos (misto), SEM recorrência mensal. É a opção certa para venda de material,
@@ -2549,6 +2650,10 @@ async def gerar_orcamento(
     Retorna download_url (link clicável para enviar/imprimir). Assinatura: cliente + CEO.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
+        `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
+    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+
     """
     condicoes = {}
     if validade_dias is not None:
@@ -2563,7 +2668,8 @@ async def gerar_orcamento(
         "entrada": entrada, "observacao": observacao, "numero": numero,
         "condicoes": condicoes or None,
     }
-    return await _gerar_doc("/crm/docs/orcamento/pdf", payload, drive=salvar_no_drive)
+    return await _gerar_doc("/crm/docs/orcamento/pdf", payload, drive=salvar_no_drive,
+                            formato=formato)
 
 
 # =================================================================== JURÍDICO
@@ -2710,15 +2816,23 @@ async def calcular_holerite(employee_id: str, mes: int, ano: int) -> dict:
 
 
 @mcp.tool
-async def baixar_holerite_pdf(employee_id: str, mes: int, ano: int) -> dict:
-    """Gera o HOLERITE em PDF (padrão-ouro, só assinatura do funcionário) — retorna base64."""
-    return await _pdf_b64(f"/people-management/folha/holerite/{employee_id}/{mes}/{ano}/pdf")
+async def baixar_holerite_pdf(employee_id: str, mes: int, ano: int, formato: str = "base64") -> dict:
+    """Gera o HOLERITE em PDF (padrão-ouro, só assinatura do funcionário) — retorna base64.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    que saiu sem abrir binário; "texto" só o texto. Item 2.1 do relatório de campo.
+    """
+    return await _pdf_b64(f"/people-management/folha/holerite/{employee_id}/{mes}/{ano}/pdf", formato=formato, nome="holerite.pdf")
 
 
 @mcp.tool
-async def baixar_recibo_vt_vr_pdf(employee_id: str, mes: int, ano: int) -> dict:
-    """Gera o recibo de VT/VR em PDF (só assinatura do funcionário) — retorna base64."""
-    return await _pdf_b64(f"/people-management/folha/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf")
+async def baixar_recibo_vt_vr_pdf(employee_id: str, mes: int, ano: int, formato: str = "base64") -> dict:
+    """Gera o recibo de VT/VR em PDF (só assinatura do funcionário) — retorna base64.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    que saiu sem abrir binário; "texto" só o texto. Item 2.1 do relatório de campo.
+    """
+    return await _pdf_b64(f"/people-management/folha/recibo-vt-vr/{employee_id}/{mes}/{ano}/pdf", formato=formato, nome="recibo_vt_vr.pdf")
 
 
 @mcp.tool
@@ -3325,9 +3439,13 @@ async def listar_pagamentos_inter(page_size: int = 20) -> dict:
 
 
 @mcp.tool
-async def baixar_comprovante_pagamento_pdf(payment_id: str) -> dict:
-    """Comprovante em PDF (padrão-ouro) de um pagamento Inter CONCLUÍDO — retorna base64."""
-    return await _pdf_b64(f"/financeiro/inter/payments/{payment_id}/comprovante")
+async def baixar_comprovante_pagamento_pdf(payment_id: str, formato: str = "base64") -> dict:
+    """Comprovante em PDF (padrão-ouro) de um pagamento Inter CONCLUÍDO — retorna base64.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    que saiu sem abrir binário; "texto" só o texto. Item 2.1 do relatório de campo.
+    """
+    return await _pdf_b64(f"/financeiro/inter/payments/{payment_id}/comprovante", formato=formato, nome="comprovante.pdf")
 
 
 @mcp.tool
@@ -3454,9 +3572,13 @@ async def painel_espelho_ponto(mes: int, ano: int) -> dict:
 
 
 @mcp.tool
-async def baixar_espelho_ponto_pdf(employee_id: str, mes: int, ano: int) -> dict:
-    """Espelho de ponto mensal de um funcionário em PDF (padrão-ouro) — retorna base64."""
-    return await _pdf_b64(f"/people-management/hr/ponto/espelho/{employee_id}/{mes}/{ano}/pdf")
+async def baixar_espelho_ponto_pdf(employee_id: str, mes: int, ano: int, formato: str = "base64") -> dict:
+    """Espelho de ponto mensal de um funcionário em PDF (padrão-ouro) — retorna base64.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    que saiu sem abrir binário; "texto" só o texto. Item 2.1 do relatório de campo.
+    """
+    return await _pdf_b64(f"/people-management/hr/ponto/espelho/{employee_id}/{mes}/{ano}/pdf", formato=formato, nome="espelho_ponto.pdf")
 
 
 _ORIGENS = ("ceo", "cfo", "fiscal", "rh", "juridico", "comercial", "operacional", "ged")

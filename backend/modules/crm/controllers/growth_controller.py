@@ -357,6 +357,33 @@ async def docs_anexar(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
+@router.post("/docs/extrair-texto")
+async def extrair_texto_de_arquivo(
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    payload: dict = Body(...),
+) -> dict:
+    """Texto de um arquivo que o chamador já tem em mãos — sem passar pelo registro.
+
+    As ferramentas de DP (holerite, espelho, comprovante, recibo VT/VR) buscam os bytes
+    direto do endpoint que os gera. Sem esta rota elas devolveriam base64 e nenhum texto, e
+    o agente continuaria sem poder conferir o que saiu.
+
+    Não grava nada e não guarda o arquivo — o temporário morre no `finally`.
+    """
+    import base64 as _b64
+
+    from modules.crm.services.docs_registry import extrair_de_bytes
+
+    try:
+        bruto = _b64.b64decode(payload.get("base64") or "", validate=True)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, "base64 inválido.") from e
+    if not bruto:
+        raise HTTPException(422, "arquivo vazio.")
+    texto, paginas, motivo = extrair_de_bytes(bruto, (payload.get("ext") or "pdf").lower())
+    return {"ok": True, "texto_extraido": texto, "paginas": paginas, "aviso": motivo}
+
+
 @router.get("/docs/conteudo/{documento_id}")
 async def baixar_documento_conteudo(
     documento_id: str,

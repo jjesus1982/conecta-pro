@@ -39,6 +39,14 @@ POST_DE_CONSULTA: dict[str, str] = {
     "simular_fechamento": "POST /crm/simular-fechamento — simulação",
     "briefing_contrato_novo": "POST /crm/contracts/briefing — diagnóstico do que falta",
     "baixar_espelho_ponto_pdf": "POST /consultores/mcp/{origem}/consultar — consulta que devolve PDF",
+    # 11/09/2026 · item 2.1. As ferramentas de documento passaram a extrair o TEXTO do que
+    # geraram, para o agente conferir sem abrir binário. O corpo leva o arquivo em base64,
+    # que não cabe em query string. `POST /crm/docs/extrair-texto` grava num temporário e o
+    # apaga no `finally` — não toca banco nem deixa arquivo. Revisado lendo a rota.
+    "baixar_proposta_pdf": "POST /crm/docs/extrair-texto — extrai texto, não persiste",
+    "baixar_holerite_pdf": "POST /crm/docs/extrair-texto — idem",
+    "baixar_recibo_vt_vr_pdf": "POST /crm/docs/extrair-texto — idem",
+    "baixar_comprovante_pagamento_pdf": "POST /crm/docs/extrair-texto — idem",
     # 11/09/2026: o corpo leva o TEXTO do modelo, que não cabe em query string. A rota
     # monta o contexto de um contrato e compara com as {{vars}} do corpo — é o ENSAIO antes
     # de cadastrar, e não grava linha nenhuma. Conferido na rota: só SELECT e montar_contexto.

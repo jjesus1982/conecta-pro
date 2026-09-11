@@ -7,6 +7,7 @@ PERSISTIR o PDF e devolver uma URL clicável (Cowork/navegador).
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import secrets
 import uuid
@@ -209,6 +210,29 @@ def _extrair_texto(caminho: str, ext: str) -> tuple[str, int | None, str | None]
             return fh.read(), None, None
     except Exception as e:  # noqa: BLE001
         return "", None, f"não consegui extrair o texto ({type(e).__name__}: {e})"
+
+
+def extrair_de_bytes(conteudo: bytes, ext: str = "pdf") -> tuple[str, int | None, str | None]:
+    """Texto de um arquivo que NÃO está registrado — holerite, espelho, comprovante.
+
+    Existe porque quatro ferramentas de DP buscam os bytes direto do endpoint que os gera e
+    nunca passam pelo `crm_documents`. Sem isto elas devolveriam base64 sem texto, e o
+    agente continuaria cego ao conteúdo — o item 2.1 resolvido pela metade.
+
+    Grava num temporário porque PyPDF2 quer um caminho; some no `finally`.
+    """
+    import tempfile  # noqa: PLC0415
+
+    caminho = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as fh:
+            fh.write(conteudo)
+            caminho = fh.name
+        return _extrair_texto(caminho, ext)
+    finally:
+        if caminho:
+            with contextlib.suppress(OSError):
+                os.unlink(caminho)
 
 
 async def baixar(db, *, documento_id: str, formato: str = "base64") -> dict:
