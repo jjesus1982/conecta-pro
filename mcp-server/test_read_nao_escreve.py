@@ -39,6 +39,11 @@ POST_DE_CONSULTA: dict[str, str] = {
     "simular_fechamento": "POST /crm/simular-fechamento — simulação",
     "briefing_contrato_novo": "POST /crm/contracts/briefing — diagnóstico do que falta",
     "baixar_espelho_ponto_pdf": "POST /consultores/mcp/{origem}/consultar — consulta que devolve PDF",
+    # 11/09/2026: o corpo leva o TEXTO do modelo, que não cabe em query string. A rota
+    # monta o contexto de um contrato e compara com as {{vars}} do corpo — é o ENSAIO antes
+    # de cadastrar, e não grava linha nenhuma. Conferido na rota: só SELECT e montar_contexto.
+    "validar_modelo_contrato": "POST /crm/contracts/validar-modelo — confere as variáveis "
+                               "do corpo contra o contexto real; não persiste",
 }
 
 ESCRITA_HTTP = re.compile(r"erp\.(post|put|patch|delete)\s*\(", re.I)

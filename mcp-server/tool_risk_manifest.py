@@ -12,6 +12,25 @@ Regra: toda @mcp.tool de server.py DEVE ter entrada aqui, senão o lint quebra o
 VALID_CLASSES = {"read", "write_low", "propose"}
 
 TOOL_RISK: dict[str, str] = {
+    # --- 11/09/2026: evolução da camada MCP (relatório de campo do Cowork) ---
+    # ping e mapa: não tocam em dado do negócio, só em saúde e catálogo.
+    "ping_conecta_pro": "read",
+    "conecta_pro_capabilities": "read",
+    # modelos de contrato: ler e VALIDAR são inócuos; validar não grava — é ensaio.
+    "listar_modelos_contrato": "read",
+    "validar_modelo_contrato": "read",
+    # ⚠️ criar modelo é `propose`, não `write_low`: o modelo define o TEXTO JURÍDICO de
+    # todos os contratos futuros daquele tipo e o CNPJ que emite. Errar aqui não estraga um
+    # registro — estraga todo instrumento que nascer dele, inclusive os já assinados sob
+    # aquela redação. É a definição de decisão que precisa de humano.
+    "criar_modelo_contrato": "propose",
+    # vincular liga um contrato a um modelo e faz o contrato herdar o tipo de serviço, que
+    # decide o CNPJ emitente. Muda qual empresa assina — não é escrita de rotina.
+    "vincular_modelo_ao_contrato": "propose",
+    # anexo entra no registro do cliente e vira a versão que alguém pode assinar.
+    "anexar_documento": "write_low",
+    "listar_documentos_da_entidade": "read",
+
     # --- tools existentes (conector read-only) — todas "read" ---
     "adicionar_achados_visita": "write_low",
     "alertas_certificados": "read",
