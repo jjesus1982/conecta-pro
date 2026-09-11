@@ -27,6 +27,20 @@ ETAPAS: dict[int, str] = {
     -15: "Seu turno no {posto} começa às {hora}. Bata o ponto pelo app do Conecta PRO.",
     0: "Seu turno no {posto} começou agora ({hora}). Bata o ponto pelo app.",
     10: "Você ainda não bateu o ponto do turno das {hora} no {posto}. Bata agora, por favor.",
+    # ⭐ 11/09/2026 — A QUARTA NÃO COBRA: PERGUNTA. Jordan: *"ele não puxa conversa. Só
+    # responde. Quem não bateu às 07:10 recebe um lembrete automático genérico — ele podia
+    # perguntar 'tá tudo bem?' e resolver ali"*. E resolveu: a pesquisa de hoje, que é
+    # exatamente isso, trouxe três defeitos reais que ninguém tinha reportado em semanas.
+    #
+    # Depois de três avisos sem batida, repetir o quarto aviso não informa nada que a pessoa
+    # já não saiba — ela sabe que não bateu. O que falta é alguém perguntar POR QUÊ. A
+    # resposta cai no José Luís, que hoje reconhece funcionário pelo telefone e tem oito
+    # ferramentas para resolver ali mesmo: ver o ponto, registrar contingência, justificar,
+    # abrir pendência para o DP.
+    25: ("Oi! Aqui é o José Luís — eu cuido do ponto junto com a Pyetra. Vi que seu turno das "
+         "{hora} no {posto} começou e ainda não entrou batida sua aqui. Está tudo bem? Se o "
+         "app não estiver deixando bater, me conta o que aparece na tela que eu resolvo "
+         "agora."),
 }
 
 # Dono, 07/09/2026 ("destrava tudo, deixa tudo funcionando"): o lembrete rodou meses em modo

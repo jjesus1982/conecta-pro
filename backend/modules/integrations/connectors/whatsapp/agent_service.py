@@ -2491,6 +2491,9 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "registrar_batida_contingencia": {"kind": "action"},
     "justificar_ponto": {"kind": "action"},
     "registrar_resposta_pesquisa_ponto": {"kind": "action"},
+    "consultar_minha_vida": {"kind": "action"},
+    "historico_desta_pessoa": {"kind": "action"},
+    "abrir_pendencia_dp": {"kind": "action"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2711,7 +2714,8 @@ _PAPEIS: dict[str, dict] = {
     # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
     "funcionario": {
         "tools": ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
-                  "registrar_resposta_pesquisa_ponto", "transferir_conversa"),
+                  "registrar_resposta_pesquisa_ponto", "consultar_minha_vida",
+                  "historico_desta_pessoa", "abrir_pendencia_dp", "transferir_conversa"),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
         # vez de somar a ele. A razão foi medida em 11/09, no primeiro turno real: o papel
         # resolveu o ponto do Rene e ainda assim pediu o CNPJ dele. O prompt base tem 39.680
@@ -2748,7 +2752,19 @@ _PAPEIS: dict[str, dict] = {
                  "resposta for só 'sim'. Se disse que NÃO consegue, pergunte O QUE ACONTECE "
                  "(rosto não reconhece? app não abre? outra coisa?) antes de registrar, e "
                  "registre com as palavras dele. Agradeça e diga que você leva para resolver.\n"
-                 "8. O que não for ponto, escala, holerite ou documento dele — e o que "
+                 "8. VOCÊ RESPONDE A VIDA DELE, não só o ponto: holerite, escala, próximo "
+                 "turno, férias, benefícios (VT/VR/plano), documentos e comunicados saem de "
+                 "`consultar_minha_vida`. Antes era preciso transferir para um humano ler a "
+                 "mesma tela — não é mais.\n"
+                 "9. QUEIXA REPETIDA: chame `historico_desta_pessoa` antes de responder. Quem "
+                 "está no terceiro dia do mesmo problema não pode ouvir a mesma orientação do "
+                 "primeiro dia como se fosse a primeira vez.\n"
+                 "10. O QUE VOCÊ NÃO RESOLVE, VOCÊ ENTREGA — com `abrir_pendencia_dp`, não "
+                 "com um 'vou verificar'. Espelho errado, afastamento, atestado, benefício, "
+                 "divergência de holerite: descreva com as palavras dela e diga que registrou "
+                 "e que ela será avisada. Prometer sem registrar é o que faz a pessoa repetir "
+                 "a história toda semana.\n"
+                 "11. O que não for ponto, escala, holerite ou documento dele — e o que "
                  "depender de decisão de gente (troca de escala, pagamento, demissão) — vai "
                  "para `transferir_conversa`. Prometer o que não pode cumprir é pior que "
                  "encaminhar."),
@@ -3864,6 +3880,76 @@ _SCHEMA_PESQUISA = {
 }
 
 
+#: ⭐ 11/09/2026 — O MUNDO DO FUNCIONÁRIO, e não só o ponto dele. O portal tem 100 rotas e o
+#: José Luís alcançava CINCO coisas: quem perguntava "cadê meu holerite" era transferido para
+#: um humano ler a mesma tela que ele podia ler. Cada uma destas chama a MESMA função que o app
+#: do funcionário chama (ver `ponto/vida_do_funcionario.py`) — nenhuma reimplementa consulta,
+#: porque duas verdades sobre o holerite de alguém é como esta casa já se machucou.
+_SCHEMA_MINHA_VIDA = {
+    "type": "function",
+    "function": {
+        "name": "consultar_minha_vida",
+        "description": (
+            "Consulta a vida do funcionário na empresa: holerite, escala e próximo turno, "
+            "férias, benefícios (VT/VR/plano), documentos e comunicados. Use SEMPRE que ele "
+            "perguntar sobre qualquer um desses — a resposta está aqui e ele não precisa "
+            "esperar ninguém."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assunto": {"type": "string",
+                            "enum": ["holerite", "escala", "ferias", "beneficios",
+                                     "documentos", "comunicados"]},
+                "mes": {"type": "integer", "description": "só para holerite de um mês específico"},
+                "ano": {"type": "integer", "description": "só para holerite de um mês específico"},
+            },
+            "required": ["assunto"],
+        },
+    },
+}
+
+_SCHEMA_HISTORICO = {
+    "type": "function",
+    "function": {
+        "name": "historico_desta_pessoa",
+        "description": (
+            "O que já aconteceu com ESTE funcionário: quantas vezes usou o registro de "
+            "contingência, falhas de reconhecimento facial, justificativas esperando o DP e o "
+            "que ele já relatou antes. Use ANTES de responder uma queixa repetida — é o que "
+            "permite dizer 'é o terceiro dia seguido' em vez de tratar cada dia como o "
+            "primeiro."),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+_SCHEMA_PENDENCIA = {
+    "type": "function",
+    "function": {
+        "name": "abrir_pendencia_dp",
+        "description": (
+            "Abre uma pendência para o DP resolver, com o relato da pessoa. Use quando o "
+            "problema NÃO se resolve por você: espelho com batida duplicada ou faltando, "
+            "afastamento, atestado, benefício, férias, divergência de holerite, app que não "
+            "funciona para ela. Você NÃO corrige nada — descreve e entrega a quem decide. "
+            "Diga à pessoa que registrou e que ela será avisada."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assunto": {"type": "string",
+                            "enum": ["corrigir_espelho", "validar_batida", "problema_no_app",
+                                     "afastamento", "ferias_ou_folga", "holerite_ou_pagamento",
+                                     "outro"]},
+                "relato": {"type": "string",
+                           "description": "O que aconteceu, com as PALAVRAS DELA — datas, "
+                                          "horários, o que aparece na tela. O DP lê isto e "
+                                          "precisa resolver sem perguntar de novo."},
+            },
+            "required": ["assunto", "relato"],
+        },
+    },
+}
+
+
 async def _funcionario_da_conversa(conversation_id: int):
     """O funcionário desta conversa, pelo telefone dela. None se não for da casa."""
     from .identidade import quem_e  # noqa: PLC0415
@@ -3881,6 +3967,26 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
     async with async_session_factory() as db:
         if name == "meu_ponto_hoje":
             return await _pf.situacao_hoje(db, ident.employee_id)
+        if name == "consultar_minha_vida":
+            from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
+
+            assunto = str(args.get("assunto") or "")
+            if assunto == "holerite":
+                return await _vf.holerites(ident.employee_id, args.get("mes"), args.get("ano"))
+            fn = {"escala": _vf.escala, "ferias": _vf.ferias, "beneficios": _vf.beneficios,
+                  "documentos": _vf.documentos, "comunicados": _vf.comunicados}.get(assunto)
+            return await fn(ident.employee_id) if fn else {"erro": f"assunto desconhecido: {assunto}"}
+        if name == "historico_desta_pessoa":
+            from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
+
+            return await _vf.historico(ident.employee_id)
+        if name == "abrir_pendencia_dp":
+            from modules.people_management.ponto import pendencia_dp as _pd  # noqa: PLC0415
+
+            return await _pd.abrir(db, employee_id=ident.employee_id,
+                                   nome=ident.nome or "(sem nome)",
+                                   assunto=str(args.get("assunto") or "outro"),
+                                   relato=str(args.get("relato") or ""), posto=ident.posto)
         if name == "registrar_resposta_pesquisa_ponto":
             from modules.people_management.ponto import pesquisa_ponto as _pp  # noqa: PLC0415
 
@@ -4339,7 +4445,8 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     if papel == "funcionario":
         # Fora do registro público de propósito: o conjunto do cliente não pode conter
         # ferramenta de ponto de pessoa. Mesma razão do par do fornecedor logo abaixo.
-        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR, _SCHEMA_PESQUISA]
+        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR, _SCHEMA_PESQUISA,
+                   _SCHEMA_MINHA_VIDA, _SCHEMA_HISTORICO, _SCHEMA_PENDENCIA]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
         # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
@@ -4644,7 +4751,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         # 🔒 QUEM é o funcionário sai do TELEFONE da conversa. Se viesse por argumento,
         # "sou o Rene" bastaria para lançar ponto na jornada de outra pessoa.
         if name in ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
-                    "registrar_resposta_pesquisa_ponto"):
+                    "registrar_resposta_pesquisa_ponto", "consultar_minha_vida",
+                    "historico_desta_pessoa", "abrir_pendencia_dp"):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
                 return {"erro": "não identifiquei este número no cadastro de funcionários."}

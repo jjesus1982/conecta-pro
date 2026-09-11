@@ -89,6 +89,51 @@ def _publicar_no_sino(titulo: str, corpo: str, chave: str) -> int:
     return enviados
 
 
+_SQL_O_QUE_O_TIME_DISSE = """
+SELECT to_char(a.timestamp,'DD/MM HH24:MI') AS quando,
+       coalesce(a.actor_user_name,'—') AS nome,
+       CASE a.action
+         WHEN 'ponto.pesquisa_resposta' THEN 'respondeu à pesquisa'
+         WHEN 'ponto.tentativa_falhou'  THEN 'tentou bater e falhou'
+         ELSE a.action END AS o_que,
+       left(coalesce(a.extra_data->>'detalhe', a.extra_data->>'motivo', a.description,''), 220) AS detalhe
+  FROM gp_audit_logs a
+ WHERE a.action IN ('ponto.pesquisa_resposta','ponto.tentativa_falhou')
+   AND a.timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '36 hours'
+ ORDER BY a.timestamp DESC LIMIT 40
+"""
+
+
+async def _o_que_o_time_disse() -> str:
+    """O que as PESSOAS relataram nas últimas 36h — para a triagem não olhar só o banco.
+
+    Jordan: *"os dois agentes não se falam. O José Luís ouviu o Nailson às 15h; a triagem do
+    Hermes roda às 08:30 sem saber disso."* É a diferença entre um relatório que diz "fulano
+    não bateu" e um que diz "fulano não bateu E avisou ontem que o app trava nele há três
+    dias". O segundo é acionável; o primeiro é uma lista.
+    """
+    from sqlalchemy import text as sql
+
+    from core.database import async_session_factory
+
+    try:
+        async with async_session_factory() as db:
+            linhas = (await db.execute(sql(_SQL_O_QUE_O_TIME_DISSE))).mappings().all()
+    except Exception as exc:  # noqa: BLE001 — a triagem não cai por falta do extra
+        logger.warning("triagem: não consegui ler o que o time disse (%s)", exc)
+        return ""
+    if not linhas:
+        return ""
+    corpo = "\n".join(f"  · {r['quando']} — {r['nome']}: {r['o_que']}. {r['detalhe']}"
+                       for r in linhas)
+    return (
+        "\n\nO QUE O TIME RELATOU AO JOSÉ LUÍS NAS ÚLTIMAS 36 HORAS (use isto: é a voz das "
+        "pessoas, e explica boa parte do que o banco mostra como ausência):\n" + corpo +
+        "\n\nCruze com o que você encontrar. Quem relatou problema e aparece sem batida NÃO é "
+        "caso de cobrança — é caso de conserto, e o conserto já foi pedido."
+    )
+
+
 async def rodar(hoje: str | None = None) -> dict:
     """Pede a triagem ao Hermes, grava no sino e avisa o Jordan se houver gente a checar."""
     from modules.ai.conversation.services.hermes_client import (
@@ -99,7 +144,8 @@ async def rodar(hoje: str | None = None) -> dict:
     data = hoje or datetime.now(_TZ).strftime("%d/%m/%Y")
     try:
         texto, meta = await perguntar_hermes(
-            [{"role": "user", "content": PEDIDO.format(data=data) + _REGRA_AUSENTES}],
+            [{"role": "user",
+              "content": PEDIDO.format(data=data) + _REGRA_AUSENTES + await _o_que_o_time_disse()}],
             system_prompt="Você é o Hermes da Conecta Mais fazendo a triagem diária do ponto.",
             timeout=600.0,
         )
