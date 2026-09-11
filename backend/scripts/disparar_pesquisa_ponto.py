@@ -47,6 +47,15 @@ async def _alvos(db):
         " WHERE lower(coalesce(e.status,'ativo')) <> ALL(:sv) "
         "   AND coalesce(e.is_homologacao,false) = false "
         "   AND coalesce(nullif(e.celular,''), e.telefone,'') <> '' "
+        # ⚠️ SÓ QUEM BATE PONTO. A pergunta é "você está conseguindo bater seu ponto?" e ela
+        # não faz sentido para quem não bate. No primeiro disparo (11/09) a PYETRA — que é
+        # justamente quem CUIDA do ponto e é citada no texto — recebeu a pesquisa e respondeu
+        # "eu sou a Pyetra Jesus, eu que cuido dos pontos, não bato ponto". Constrangimento
+        # evitável: o alvo é quem tem turno na escala ou batida recente, não todo o cadastro.
+        "   AND (EXISTS (SELECT 1 FROM shifts sh WHERE sh.employee_id = e.id "
+        "                 AND sh.shift_date >= current_date - 30 AND sh.is_active) "
+        "     OR EXISTS (SELECT 1 FROM gp_clock_punches p WHERE p.employee_id = e.id "
+        "                 AND p.punch_timestamp > current_date - 30)) "
         "   AND NOT EXISTS (SELECT 1 FROM gp_audit_logs a "
         "                    WHERE a.action = :acao AND a.related_funcionario_id = e.id::text) "
         " ORDER BY e.nome"), {"sv": list(SEM_VINCULO), "acao": ACAO_ENVIO})).mappings().all()

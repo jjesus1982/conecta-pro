@@ -696,8 +696,35 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
                 _sobrep = sum(1 for w in _pal_txt if w in _pal_vies) / len(_pal_txt)
                 if _sobrep > 0.8:
                     logger.warning("Webhook Chatwoot: transcrição é ECO do prompt de viés "
-                                   "(%.0f%% de sobreposição) — descartada", _sobrep * 100)
+                                   "(%.0f%% de sobreposição) — refazendo SEM viés", _sobrep * 100)
+                    # ⭐ 11/09/2026 — DESCARTAR NÃO ERA SUFICIENTE. Descartar protege contra
+                    # fabricação, e isso continua valendo; mas quem falou ficou sem resposta.
+                    # Medido no primeiro dia da pesquisa de ponto: o ELIZIEL respondeu por
+                    # ÁUDIO de 10 KB (2 segundos, provavelmente "sim, estou conseguindo"), o
+                    # eco disparou, o texto virou vazio e ele recebeu "não consegui abrir o
+                    # conteúdo". A resposta dele à pesquisa se perdeu.
+                    # O viés existe para acertar vocabulário (bairro, AGP, nome de cliente) —
+                    # num áudio curto ele é justamente o que faz o Whisper ecoar. Então a
+                    # segunda tentativa vai SEM viés: perde o vocabulário, ganha o que a
+                    # pessoa disse. E se ecoar de novo, aí sim descarta.
                     texto = ""
+                    try:
+                        _tr2 = await client.audio.transcriptions.create(
+                            model="whisper-1", file=(f"audio.{ext}", audio_bytes),
+                            language="pt", temperature=0,
+                        )
+                        _t2 = (getattr(_tr2, "text", "") or "").strip()
+                        _p2 = re.findall(r"\w{4,}", _t2.lower())
+                        _s2 = (sum(1 for w in _p2 if w in _pal_vies) / len(_p2)) if _p2 else 1.0
+                        if _t2 and _s2 <= 0.8:
+                            texto = _t2
+                            logger.info("Webhook Chatwoot: 2ª tentativa SEM viés recuperou "
+                                        "%s caracteres", len(_t2))
+                        else:
+                            logger.warning("Webhook Chatwoot: 2ª tentativa também ecoou ou veio "
+                                           "vazia — aí é áudio mudo mesmo, descartado")
+                    except Exception as _e2:  # noqa: BLE001 — a 2ª tentativa é bônus
+                        logger.warning("Webhook Chatwoot: 2ª tentativa sem viés falhou: %s", _e2)
 
         # O Whisper REPETE trechos em áudio curto. Mesmo vídeo trouxe "Vídeo, garagem 2…"
         # duas vezes na mesma transcrição. Sentença repetida vira uma só, na ordem.
