@@ -124,7 +124,11 @@ services:
     container_name: erp-alertmanager
     restart: unless-stopped
     ports:
-      - "9093:9093"
+      # 🔒 127.0.0.1: sem o prefixo o Docker publica em 0.0.0.0 e escreve a própria
+      # regra no iptables, furando o firewall do host. Medido em 11/09/2026 pelo IP
+      # público: respondia 200 SEM AUTENTICAÇÃO NENHUMA.
+      # Quem consome de verdade fala pela rede Docker, onde nada muda.
+      - "127.0.0.1:9093:9093"
     volumes:
       - ./alertmanager/entrypoint.sh:/entrypoint.sh:ro
       - alertmanager_data:/alertmanager

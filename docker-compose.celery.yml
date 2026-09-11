@@ -415,7 +415,11 @@ services:
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?Defina REDIS_PASSWORD no .env}@redis:6379/0
     ports:
-      - "5555:5555"
+      # 🔒 127.0.0.1: sem o prefixo o Docker publica em 0.0.0.0 e escreve a própria
+      # regra no iptables, furando o firewall do host. Medido em 11/09/2026 pelo IP
+      # público: respondia 401 — a UI do Celery mostra nome e ARGUMENTO de tarefa.
+      # Quem consome de verdade fala pela rede Docker, onde nada muda.
+      - "127.0.0.1:5555:5555"
     depends_on:
       redis:
         condition: service_healthy
