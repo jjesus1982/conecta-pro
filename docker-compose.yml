@@ -453,6 +453,37 @@ services:
     networks:
       - conecta-pro-network
 
+  # ⭐ 11/09/2026 — conector de PESSOAS (escopo `pessoas` · 41 ferramentas).
+  #   Decisão do Jordan: "quero o Hermes realmente inteligente... tudo funcione para coleta e
+  #   resolução de problemas". O assunto é o TRABALHO da pessoa: ponto, escala, posto,
+  #   ocorrência, comunicado. Fora do escopo, por construção: fechar folha, calcular holerite,
+  #   rescisão, fechar o mês do ponto, férias, CRM, PIX, nota.
+  #
+  #   Duas paredes, e as duas precisam estar aqui juntas:
+  #     MCP_IDENTIDADE=propria  → a pergunta tem dono declarado (`MCP_AGENTE_NOME`) e o
+  #                               repasse de JWT humano não é exigido. O Hermes só manda
+  #                               header estático por conexão; sem isto ele fica com 6 de 146.
+  #     MCP_MODO=agente         → gate_propose ATIVO. `revisar_justificativa_ponto`,
+  #                               `propor_comunicado` e `enviar_whatsapp` viram PEDIDO na
+  #                               Central de Aprovações e não executam. O `identidade.py`
+  #                               RECUSA subir com identidade própria e este modo desligado.
+  mcp-pessoas:
+    image: conecta-pro-mcp:latest
+    container_name: conecta-pro-mcp-pessoas
+    restart: unless-stopped
+    mem_limit: 400m
+    env_file:
+      - ./mcp-server/.env
+    environment:
+      MCP_ESCOPO: ${MCP_ESCOPO_PESSOAS:-pessoas}
+      MCP_MODO: agente
+      MCP_IDENTIDADE: propria
+      MCP_AGENTE_NOME: hermes
+      AUTH_MODE: bearer
+      ERP_BASE_URL: "http://conecta-pro-backend:8080"
+    networks:
+      - conecta-pro-network
+
   # Fase 5.2a.1 — Hermes Agent (NousResearch), gateway OpenAI-compat :8642.
   # Cérebro=OpenAI; fala MCP com o irmão bearer; approvals.deny (money-out fora).
   hermes:
@@ -473,6 +504,7 @@ services:
     depends_on:
       - mcp-internal
       - mcp-ged
+      - mcp-pessoas
     networks:
       - conecta-pro-network
 

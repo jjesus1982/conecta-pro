@@ -12,6 +12,74 @@ continua sendo servida (nunca some por esquecimento) — `escopos_da_tool` devol
 """
 
 ESCOPOS: dict[str, list[str]] = {
+    # ⭐ PESSOAS (11/09/2026) — o escopo do HERMES para o problema do funcionário.
+    #
+    # Nasce da decisão do Jordan: *"quero o Hermes realmente inteligente... tudo funcione
+    # para coleta e resolução de problemas"*. O que ele precisa enxergar é o TRABALHO de uma
+    # pessoa — ponto, escala, posto, ocorrência, comunicado — e nada além disso.
+    #
+    # O que está DE FORA é a definição do escopo, e cada ausência é deliberada:
+    #   · `fechar_folha`, `calcular_folha_todos`, `calcular_holerite`, `exportar_folha_dominio`,
+    #     `calcular_verbas_rescisorias` — fechar o mês e calcular pagamento não é triagem.
+    #   · `fechar_mes_ponto` — fecha a apuração; batida nova deixa de entrar.
+    #   · `aprovar_ferias`, `solicitar_ferias`, `concluir_admissao` — decisão sobre a vida
+    #     contratual de alguém.
+    #   · nada de CRM, PIX, proposta, contrato ou nota: o assunto aqui é gente trabalhando.
+    #
+    # `revisar_justificativa_ponto` ENTRA de propósito, e entra como `propose` (subiu de
+    # `read` em 11/09, ver tool_risk_manifest): o Hermes monta o caso — quem, que dia, o que a
+    # pessoa disse, o que o espelho mostra — e o DP aprova na Central. É o desenho da casa:
+    # quem aprova não é quem pede. `propor_comunicado` e `enviar_whatsapp` entram pela mesma
+    # porta: viram pedido, nunca ação.
+    "pessoas": [
+        # ponto — o núcleo
+        "ponto_dashboard",
+        "justificativas_ponto_pendentes",
+        "revisar_justificativa_ponto",
+        "espelho_ponto",
+        "painel_espelho_ponto",
+        "baixar_espelho_ponto_pdf",
+        "status_fechamento_ponto",
+        "banco_horas",
+        "presenca_ao_vivo",
+        # quem é a pessoa e onde ela trabalha
+        "buscar_funcionario",
+        "buscar_funcionario_por_cpf",
+        "obter_funcionario",
+        "ficha_funcionario",
+        "listar_funcionarios",
+        "estatisticas_funcionarios",
+        "listar_beneficios_funcionario",
+        # escala, posto e cobertura
+        "listar_escalas",
+        "colaboradores_sem_escala",
+        "grade_do_posto",
+        "grade_postos",
+        "listar_postos",
+        "estatisticas_postos",
+        "listar_alocacoes",
+        "alocacoes_vigentes",
+        "funcionarios_disponiveis_posto",
+        "substituicoes_pendentes",
+        "listar_substituicoes",
+        "substitutos_disponiveis",
+        "dashboard_operacional",
+        "listar_ocorrencias",
+        # saúde ocupacional e férias — leitura, para não pedir batida de quem está afastado
+        "asos_vencendo",
+        "funcionarios_sem_aso",
+        "listar_ferias",
+        "ferias_funcionario",
+        "saldo_ferias",
+        # falar com a pessoa: os dois viram PEDIDO na Central, nunca envio direto
+        "comunicados_nao_lidos",
+        "listar_comunicados",
+        "propor_comunicado",
+        "enviar_whatsapp",
+        # como o próprio José Luís está indo
+        "metricas_jose_luis",
+        "status_whatsapp",
+    ],
     "comercial": [
         # aceitar_proposta NÃO entra aqui: gera COMISSÃO e CONTRATO. Fica sem grupo, e
         # com o filtro fail-closed abaixo isso significa "não servida em conector

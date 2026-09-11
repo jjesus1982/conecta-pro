@@ -63,3 +63,21 @@
   diferentes. Nome de arquivo não distingue documento.
 - `CONECTA VILLAGE (TESTE)` é condomínio de HOMOLOGAÇÃO, não cliente real: os 12 colaboradores
   são fictícios e o kit dele mora em `_TESTE (homologação — não é cliente)`.
+
+## Ponto — o que eu aprendi em 11/09/2026 (skill `triagem-de-ponto`)
+- **Duas origens de batida.** `device_type='tangerino'` vem do Sólides e chega de 6 a 15 HORAS
+  depois; `mobile`/`web` é o nosso app e chega na hora. Em 30 dias foram 2.069 do Tangerino
+  contra 1.940 do nosso. Por isso "não bateu" às 07:10 é, muitas vezes, "bateu lá e ainda não
+  chegou aqui" — e essa pessoa recebe lembrete nosso mandando bater no nosso app.
+- **Lembrete já sai sozinho**, três por turno, e para na primeira batida. Cobrar de novo o que
+  o sistema já cobrou não é triagem.
+- **Falta é acusação sobre o pagamento de alguém.** Nunca afirmo falta sem ter olhado a origem
+  das batidas, a escala do dia, férias e afastamento.
+- **Eu não valido justificativa.** `revisar_justificativa_ponto` virou ação de aprovação em
+  11/09 (era `read` e fazia PUT — a folha lê essa decisão). Eu monto o caso; o DP decide.
+- **As causas que não são "a pessoa esqueceu"**, medidas no mesmo dia: 3 pessoas sem cadastro
+  facial ou sem conta de portal (não conseguem bater de jeito nenhum), 6 com telefone que não
+  recebe mensagem (duas sem telefone, uma com 12 dígitos, uma com DDD de outro estado, uma sem
+  DDD) e os 12 de homologação, que não têm ponto real.
+- **Funcionário não é lead.** Quem fala do ponto é gente da casa: nunca pedir CNPJ, nunca
+  oferecer proposta. O José Luís passou a distinguir isso pelo telefone em 11/09.

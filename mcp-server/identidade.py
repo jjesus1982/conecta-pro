@@ -40,6 +40,25 @@ except Exception:  # noqa: BLE001
 #: o Jordan, autenticado por Google na entrada: lá não há terceiro sobre quem responder.
 MODO_AGENTE = (os.getenv("MCP_MODO") or "").strip().lower() == "agente"
 
+#: ⭐ 11/09/2026 — IDENTIDADE PRÓPRIA DO AGENTE. O conector declara que quem chama é um
+#: agente NOMEADO da casa, não um intermediário respondendo no lugar de um humano anônimo.
+#:
+#: Por que isto não é um furo na parede. A F2 existe contra uma frase: *"eu não respondo
+#: sobre o dado de alguém sem saber de quem é a pergunta"*. Com identidade própria a pergunta
+#: TEM dono — `MCP_AGENTE_NOME` — e o log diz o nome dele em toda chamada. O que se perde é o
+#: RBAC por humano; e esse RBAC, medido em 11/09, já não existia neste caminho: as rotas de
+#: ponto do ERP (`/people-management/ponto/...`) não têm dependência de autenticação nenhuma,
+#: e a conta de serviço do conector é `admin`. Fingir que a parede dava RBAC seria pior que
+#: declarar o que ela dá.
+#:
+#: O que SEGURA o conector de identidade própria, e que precisa estar ligado junto:
+#:   1. `MCP_ESCOPO` curto e revisado à mão — o agente só enxerga o assunto dele.
+#:   2. `MCP_MODO=agente`, que mantém o `gate_propose`: toda ação de classe `propose` vira
+#:      pedido na Central de Aprovações e NÃO executa. Nunca ligue identidade própria sem ele.
+#: Por isso o `instalar()` abaixo RECUSA a combinação identidade própria + gate desligado.
+IDENTIDADE_PROPRIA = (os.getenv("MCP_IDENTIDADE") or "").strip().lower() == "propria"
+AGENTE_NOME = (os.getenv("MCP_AGENTE_NOME") or "").strip() or "agente-sem-nome"
+
 #: Cabeçalho onde o chamador põe o JWT do USUÁRIO (não o bearer do conector).
 CABECALHO = "x-usuario-token"
 
@@ -120,7 +139,23 @@ class ExigeIdentidade(_Base):
 
 
 def instalar(mcp) -> bool:
-    """Instala a exigência. Devolve False quando o conector NÃO é de agente."""
+    """Instala a exigência. Devolve False quando o conector NÃO é de agente.
+
+    Recusa (levanta) a combinação perigosa: identidade própria SEM o gate de aprovação. Um
+    conector assim responderia e AGIRIA sem humano nenhum no caminho — e é justamente o
+    contrário do que a identidade própria propõe, que é trocar o repasse de RBAC por escopo
+    curto mais aprovação humana nas ações.
+    """
+    if IDENTIDADE_PROPRIA:
+        if not MODO_AGENTE:
+            raise RuntimeError(
+                "MCP_IDENTIDADE=propria exige MCP_MODO=agente: sem o gate de aprovação, um "
+                "conector de identidade própria executaria ação sensível sem humano nenhum.")
+        print(f"[mcp] identidade PRÓPRIA declarada: `{AGENTE_NOME}` — a exigência de repasse "
+              f"está DESLIGADA de propósito neste conector; quem segura é o escopo "
+              f"(`{os.getenv('MCP_ESCOPO') or 'TODO O CATÁLOGO ⚠️'}`) + o gate de aprovação.",
+              flush=True)
+        return False
     if not MODO_AGENTE:
         return False
     mcp.add_middleware(ExigeIdentidade())

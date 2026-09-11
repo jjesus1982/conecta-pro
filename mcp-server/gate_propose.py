@@ -71,6 +71,22 @@ CONSEQUENCIAS: dict[str, list[str]] = {
     "montar_kit_completo": ["dispara a montagem COMPLETA do kit (vários documentos)"],
     "buscar_documento": ["dispara montagem de kit para localizar o documento"],
     "solicitar_ferias": ["cria solicitação de férias em nome do colaborador"],
+    # 11/09/2026 — as cinco que subiram de `read` para `propose` quando a etiqueta passou a
+    # ser derivada do VERBO HTTP (ver tool_risk_manifest e checar_etiqueta_de_risco).
+    "revisar_justificativa_ponto": [
+        "APROVA ou REJEITA a justificativa de falta/atraso de uma pessoa",
+        "a folha lê essa decisão no fechamento do mês — mexe no pagamento dela",
+    ],
+    "definir_parametros_precificacao": [
+        "muda o parâmetro de onde sai TODO preço cotado a partir de agora",
+        "os seis valores foram confirmados um a um contra o holerite em 10/08",
+    ],
+    "atualizar_contrato": ["altera um CONTRATO — título executivo, não campo de tela"],
+    "excluir_campanha": ["APAGA a campanha de verdade (DELETE, sem soft delete)"],
+    "excluir_documento": [
+        "manda um arquivo do kit para a LIXEIRA do Drive",
+        "confira o file_id: três notas fiscais seguidas parecem cópia uma da outra e não são",
+    ],
 }
 
 
@@ -94,13 +110,21 @@ def consequencias(nome: str) -> list[str]:
     ]
 
 
+def _quem_pede() -> str:
+    """Nome do agente que pediu, declarado pelo conector (`MCP_AGENTE_NOME`)."""
+    return (os.getenv("MCP_AGENTE_NOME") or "").strip() or "agente (não declarou o nome)"
+
+
 def payload_de_aprovacao(nome: str, argumentos: dict[str, Any]) -> dict[str, Any]:
     """O que a Central mostra. Consequência primeiro, nome da função depois."""
     return {
         "acao": nome,
         "vai_acontecer": consequencias(nome),
         "argumentos": argumentos,
-        "pedido_por": "agente (Bartolo)",
+        # 11/09/2026: era a string fixa "agente (Bartolo)" — e quem pede pode ser o Hermes,
+        # o Bartolo ou o José Luís. Quem aprova precisa saber QUEM pediu; nome errado na tela
+        # de aprovação é pior que nome nenhum.
+        "pedido_por": _quem_pede(),
         "classe": classe_de(nome),
     }
 

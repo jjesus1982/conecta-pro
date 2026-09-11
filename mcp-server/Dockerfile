@@ -11,6 +11,7 @@ COPY tool_risk_manifest.py .
 COPY tool_scopes.py .
 # F1: a parede que faz a etiqueta de risco AGIR (sem ela, conector de agente NAO sobe)
 COPY gate_propose.py .
+COPY gate_escopo.py .
 COPY identidade.py .
 COPY test_tool_risk_manifest.py .
 # trava: quem se diz `read` prova que nao escreve (SQL/verbo HTTP no corpo)

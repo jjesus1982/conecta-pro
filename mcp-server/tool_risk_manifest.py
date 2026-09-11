@@ -30,6 +30,10 @@ TOOL_RISK: dict[str, str] = {
     # anexo entra no registro do cliente e vira a versão que alguém pode assinar.
     "anexar_documento": "write_low",
     "listar_documentos_da_entidade": "read",
+    "baixar_documento": "read",
+    # Editar a fôrma muda o que sairá em TODOS os contratos pendurados nela — e trocar
+    # `tipo` troca o CNPJ que assina. Mesma classe de `criar_modelo_contrato`.
+    "atualizar_modelo_contrato": "propose",
     "contexto_cliente": "read",
     # jobs: consultar status e resultado é leitura. DISPARAR não é — o job executa a
     # ferramenta alvo com as permissões dela, e o disparo é `propose` porque o que roda ali
@@ -50,15 +54,15 @@ TOOL_RISK: dict[str, str] = {
     "analisar_processo_juridico": "propose",
     "anotar_cliente": "write_low",
     "aprovar_ferias": "propose",
-    "arquivar_contrato": "read",
-    "arquivar_deal": "read",
+    "arquivar_contrato": "write_low",
+    "arquivar_deal": "write_low",
     "asos_vencendo": "read",
     "assumir_negociacao": "write_low",
     "ativar_contrato": "propose",
-    "atualizar_cliente": "read",
-    "atualizar_contrato": "read",
-    "atualizar_estagio_deal": "read",
-    "atualizar_proposta": "read",
+    "atualizar_cliente": "write_low",
+    "atualizar_contrato": "propose",
+    "atualizar_estagio_deal": "write_low",
+    "atualizar_proposta": "write_low",
     "baixar_comprovante_pagamento_pdf": "read",
     "baixar_contrato_pdf": "read",
     # emite documento e REGISTRA link público; não ativa contrato nem move dinheiro
@@ -123,7 +127,7 @@ TOOL_RISK: dict[str, str] = {
     "debitos_ecac": "read",
     "definir_meta_contratos_mes": "write_low",
     "definir_meta_mensal": "write_low",
-    "definir_parametros_precificacao": "read",
+    "definir_parametros_precificacao": "propose",
     "det_comunicacoes": "read",
     "devolver_negociacao": "write_low",
     "diagnostico_ciclo": "read",
@@ -142,10 +146,10 @@ TOOL_RISK: dict[str, str] = {
     "estatisticas_funcionarios": "read",
     "estatisticas_postos": "read",
     "estoque_epi": "read",
-    "excluir_campanha": "read",
-    "excluir_documento": "read",
-    "excluir_documento_crm": "read",
-    "excluir_proposta": "read",
+    "excluir_campanha": "propose",
+    "excluir_documento": "propose",
+    "excluir_documento_crm": "write_low",
+    "excluir_proposta": "write_low",
     "exportar_folha_dominio": "read",
     "expurgar_documentos_teste": "propose",
     "fechar_folha": "propose",
@@ -219,7 +223,7 @@ TOOL_RISK: dict[str, str] = {
     "listar_vagas": "read",
     "listar_visitas_campo": "read",
     "lote_diaristas": "read",
-    "marcar_deal_perdido": "read",
+    "marcar_deal_perdido": "write_low",
     "marcar_proposta_enviada": "write_low",
     "metricas_jose_luis": "read",
     "monitor_integracoes_gov": "read",
@@ -258,7 +262,7 @@ TOOL_RISK: dict[str, str] = {
     "resumo_folha": "read",
     "resumo_nfse_entrada": "read",
     "resumo_nps": "read",
-    "revisar_justificativa_ponto": "read",
+    "revisar_justificativa_ponto": "propose",
     "saldo_ferias": "read",
     "simular_fechamento": "read",
     "simular_preco": "read",
@@ -297,6 +301,30 @@ TOOL_RISK: dict[str, str] = {
     "briefing_executivo": "read",
     "runway_ao_vivo": "read",
     "margem_por_condominio": "read",
+    # ── 11/09/2026 · A ETIQUETA PASSA A SER DERIVADA DO VERBO, NÃO AFIRMADA ──────────────
+    # `backend/scripts/qa/checar_etiqueta_de_risco.py` comparou cada @mcp.tool com o método
+    # HTTP que ela usa no ERP e achou 13 etiquetadas `read` que faziam PUT, PATCH ou DELETE.
+    # `read` é justamente a classe que o `gate_propose` deixa passar SEM humano: era a parede
+    # aberta exatamente onde deveria fechar. Reclassificadas, cada uma conferida no controller:
+    #
+    #   write_low (interno e REVERSÍVEL — conferido: os três DELETEs do CRM são SOFT):
+    #     atualizar_estagio_deal · marcar_deal_perdido (PATCH de estágio, volta atrás)
+    #     atualizar_proposta · atualizar_cliente (PUT de cadastro)
+    #     excluir_proposta · arquivar_deal · arquivar_contrato (soft delete no repositório;
+    #       contrato só sai se estiver em RASCUNHO)
+    #     excluir_documento_crm (`UPDATE crm_documents SET arquivado=true`)
+    #
+    #   propose (dinheiro, instrumento legal, folha, ou apaga de verdade):
+    #     definir_parametros_precificacao — muda o parâmetro de onde sai TODO preço cotado;
+    #       os seis valores foram confirmados pelo Jordan um a um em 10/08, contra o holerite.
+    #     atualizar_contrato — contrato é título executivo (CPC 784 §4º), não campo de tela.
+    #     excluir_campanha — `DELETE FROM marketing_campaigns`, sem soft nenhum.
+    #     excluir_documento — manda arquivo do kit para a lixeira do Drive. Em 10/09 eu mesmo
+    #       quase apaguei NFS-27 e NFS-28 achando que eram cópia da NFS-26: eram três notas
+    #       diferentes. Um `file_id` alucinado apaga documento fiscal de cliente.
+    #     revisar_justificativa_ponto — decide se a falta de alguém é justificada, e
+    #       `payroll_service._absences` lê essa tabela: é decisão sobre o pagamento de uma
+    #       pessoa. Foi esta que apareceu primeiro, ao abrir o conector de pessoas ao Hermes.
 }
 
 

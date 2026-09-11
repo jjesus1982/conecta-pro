@@ -159,6 +159,20 @@ TRAVAS_BINARIAS = {
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),
+    # As travas do conector MCP existiam desde 23/08 e NINGUÉM as rodava (medido em 11/09, ao
+    # abrir o escopo `pessoas` para o Hermes). `test_read_nao_escreve` estava verde com 13
+    # ferramentas etiquetadas `read` fazendo PUT/PATCH/DELETE — `read` é a classe que o
+    # gate_propose deixa passar sem humano. Este caçador só as EXECUTA; a régua fica junto do
+    # código que ela vigia.
+    "checar_etiqueta_de_risco.py": ("host", "trava do conector MCP falhando (etiqueta de risco, manifesto, identidade)", 300),
+    # O conector serve o que DIZ que serve? Medido pela rota (`tools/list`), não pelo log —
+    # que anunciou "42 de 254" por 19 dias enquanto servia 266, porque `remove_tool` não
+    # existe no fastmcp 4.0.3 e o `except: pass` engolia (11/09/2026).
+    "checar_escopo_mcp.py": ("host", "conector MCP servindo ferramenta fora do escopo declarado", 300),
+    # Ferramenta que existe no catálogo e ESTOURA ao ser chamada. `justificativas_ponto_pendentes`
+    # nunca funcionou (rota devolve lista, anotação diz dict) e ninguém viu, porque nada a chamava.
+    # Só chama leitura sem argumento obrigatório; recusa de parede não conta como defeito.
+    "checar_tool_quebrada.py": ("host", "tool de leitura do MCP que estoura ao ser chamada", 900),
 }
 
 #: Critérios de aceite por módulo. Cada um imprime ✅/❌ por condição; o que entra na base é

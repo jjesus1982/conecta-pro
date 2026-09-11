@@ -347,6 +347,9 @@ class _Erp:
     async def post(self, path, json=None):
         return await self.request("POST", path, json=json)
 
+    async def put(self, path, json=None):
+        return await self.request("PUT", path, json=json)
+
     async def get_bytes(self, path: str) -> bytes:
         """GET que retorna bytes crus (ex.: PDF) — com refresh de token em 401."""
         async with httpx.AsyncClient() as client:
@@ -2974,14 +2977,35 @@ async def contabil_grupo() -> dict:
 
 @mcp.tool
 async def monitor_integracoes_gov() -> dict:
-    """Monitoramento das integrações gov (SEFAZ/eSocial/e-CAC/etc.): online/degraded."""
-    return await erp.get("/government/dashboard/")
+    """Monitoramento das integrações gov: junta o `status` de cada serviço que expõe um.
+
+    ⚠️ 11/09/2026: apontava para `/government/dashboard/`, que NÃO EXISTE — a única rota
+    montada sob esse prefixo é `/certificados/alertas`. A ferramenta respondia "Not Found"
+    desde que nasceu e ninguém viu, porque nada a chamava. Em vez de inventar um dashboard no
+    backend, ela pergunta a cada integração o `status` que ela já publica; serviço que não
+    responde entra como indisponível, com o motivo, em vez de derrubar a resposta inteira.
+    """
+    import asyncio as _aio  # noqa: PLC0415
+
+    servicos = ("efd-reinf", "dctfweb", "simples-nacional", "fgts-digital",
+                "sped-fiscal", "sped-contabil", "ecac", "nfse-nacional")
+
+    async def _um(nome: str) -> tuple[str, object]:
+        try:
+            return nome, await erp.get(f"/government/{nome}/status")
+        except Exception as e:  # noqa: BLE001
+            return nome, {"indisponivel": str(e)[:160]}
+
+    pares = await _aio.gather(*(_um(n) for n in servicos))
+    resultado = dict(pares)
+    fora = [n for n, v in resultado.items() if isinstance(v, dict) and "indisponivel" in v]
+    return {"servicos": resultado, "total": len(servicos), "indisponiveis": fora}
 
 
 @mcp.tool
 async def alertas_certificados() -> dict:
     """Alertas de vencimento de certificados digitais A1/A3."""
-    return await erp.get("/government/dashboard/certificados/alertas")
+    return _envelope(await erp.get("/government/dashboard/certificados/alertas"), "alertas")
 
 
 # ---- DAS / Simples ----
@@ -3070,7 +3094,7 @@ async def guias_fgts() -> dict:
 @mcp.tool
 async def listar_empresas() -> dict:
     """Lista as empresas/CNPJs do grupo econômico."""
-    return await erp.get("/empresas/")
+    return _envelope(await erp.get("/empresas/"), "empresas")
 
 
 
@@ -3821,6 +3845,75 @@ async def validar_modelo_contrato(corpo_template: str, contrato_exemplo: str = "
 
 
 @mcp.tool
+async def atualizar_modelo_contrato(template_id: str, nome: str = "",
+                                    corpo_template: str = "", descricao: str = "",
+                                    tipo: str = "", clausulas: list[str] | None = None,
+                                    confirmar_modelo_em_uso: bool = False) -> dict:
+    """Altera um MODELO de contrato já cadastrado. ESCREVE. Restrito a Jordan e Pyetra.
+
+    Passe só o que muda; o resto fica como está. Item 2.3 do relatório de campo — corrigir
+    uma cláusula era voltar a ser tarefa de seed no backend.
+
+    ⚠️ MODELO EM USO. Um modelo não é um documento: é a fôrma de todos os contratos
+    pendurados nele. Trocar o corpo muda o que sairá na PRÓXIMA emissão de cada um —
+    inclusive de contratos já assinados, se alguém reemitir a via. Por isso, se houver
+    contrato vinculado, esta tool RECUSA e mostra quais são; passe
+    `confirmar_modelo_em_uso=True` depois de olhar a lista.
+
+    ⚠️ Trocar `tipo` troca o CNPJ EMITENTE — mão de obra sai pela Patrimonial, eletrônica
+    pela Eletrônica. Não é ajuste de catálogo, é mudar quem assina.
+
+    Valide o corpo novo com `validar_modelo_contrato` ANTES: modelo que falha só na emissão
+    falha com o cliente esperando.
+    """
+    if corpo_template and len(corpo_template) < 100:
+        return {"ok": False, "codigo": "CORPO_CURTO", "http": 422,
+                "mensagem": "O corpo do modelo tem menos de 100 caracteres.",
+                "dica": "Cole o texto completo do instrumento, com as cláusulas."}
+    if not any([nome, corpo_template, descricao, tipo, clausulas]):
+        return {"ok": False, "codigo": "NADA_A_MUDAR", "http": 422,
+                "mensagem": "Informe pelo menos um campo para alterar.",
+                "dica": "nome · corpo_template · descricao · tipo · clausulas"}
+
+    # quem já depende deste modelo — medido ANTES de escrever, não depois
+    try:
+        atuais = await erp.get("/crm/contracts", params={"page_size": 100})
+        em_uso = [c for c in _items(atuais)
+                  if str(c.get("template_id") or "") == str(template_id)]
+    except Exception:  # noqa: BLE001
+        em_uso = []
+    if em_uso and not confirmar_modelo_em_uso:
+        return {
+            "ok": False, "codigo": "MODELO_EM_USO", "http": 409,
+            "mensagem": f"{len(em_uso)} contrato(s) usam este modelo. Alterar o corpo muda "
+                        f"o que sairá na próxima emissão de cada um.",
+            "dica": "Confira a lista e, se for isso mesmo, chame de novo com "
+                    "confirmar_modelo_em_uso=True.",
+            "contratos_afetados": [
+                {"numero": c.get("contract_number"), "cliente": c.get("client_name"),
+                 "status": c.get("status")} for c in em_uso[:20]],
+        }
+
+    payload: dict[str, Any] = {}
+    for chave, valor in (("name", nome), ("content_template", corpo_template),
+                         ("description", descricao), ("service_type", tipo),
+                         ("clauses", clausulas)):
+        if valor:
+            payload[chave] = valor
+    if corpo_template and not clausulas:
+        payload["clauses"] = sorted(set(
+            re.findall(r"^\s*(CL[ÁA]USULA[^\n]{0,80})", corpo_template, re.M)))
+    try:
+        r = await erp.put(f"/crm/contracts/templates/{template_id}", json=payload)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    return {"ok": True, "id": r.get("id"), "nome": r.get("name"),
+            "tipo": r.get("service_type"), "clausulas": len(r.get("clauses") or []),
+            "alterados": sorted(payload), "contratos_que_usam": len(em_uso),
+            "proximo_passo": "validar_modelo_contrato para conferir as variáveis do corpo novo."}
+
+
+@mcp.tool
 async def criar_modelo_contrato(tipo: str, nome: str, corpo_template: str,
                                 descricao: str = "", clausulas: list[str] | None = None) -> dict:
     """Cadastra um MODELO novo de contrato. ESCREVE. Restrito a Jordan e Pyetra.
@@ -3900,6 +3993,28 @@ async def anexar_documento(entidade: str, entidade_id: str, nome: str, conteudo_
         return await erp.post("/crm/docs/anexar", json={
             "entidade": entidade, "entidade_id": alvo, "nome": nome,
             "conteudo_b64": conteudo_b64, "categoria": categoria, "descricao": descricao})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
+async def baixar_documento(documento_id: str, formato: str = "base64") -> dict:
+    """Traz um documento anexado — em base64 E em TEXTO, para conferir sem abrir binário.
+
+    `formato`: "base64" (padrão, traz os dois) · "texto" (só o texto, mais barato).
+    Pegue o `documento_id` em `listar_documentos_da_entidade`.
+
+    Acima de 8 MB o base64 é omitido e ficam o texto e o link — um anexo de 20 MB viraria
+    ~27 MB de resposta e estouraria a conversa sem entregar nada.
+    Formatos que não viram texto (.xlsx, .pptx, imagens) vêm em base64 com o aviso de que
+    não dá para ler — melhor que um `texto_extraido` vazio, que você leria como
+    "documento em branco".
+
+    Fecha o trio da entrada de documentos: anexar → listar → baixar. Só lê.
+    """
+    try:
+        return await erp.get(f"/crm/docs/conteudo/{documento_id}",
+                             params={"formato": formato})
     except Exception as exc:  # noqa: BLE001
         return erro_envelope(exc)
 

@@ -54,6 +54,26 @@ mcp_servers:
     connect_timeout: 60
     enabled: true
 
+  # ⭐ 11/09/2026 — conector de PESSOAS (escopo `pessoas` · 41 ferramentas).
+  #   Decisao do Jordan: "quero o Hermes realmente inteligente ... tudo funcione para coleta
+  #   e resolucao de problemas". Aqui ele enxerga o TRABALHO da pessoa: ponto, escala, posto,
+  #   ocorrencia, comunicado. Fora do escopo: fechar folha, holerite, rescisao, ferias, CRM.
+  #
+  #   Este conector sobe com MCP_IDENTIDADE=propria + MCP_MODO=agente. Em portugues claro:
+  #   a pergunta tem dono declarado (`hermes`, e e esse nome que aparece na Central de
+  #   Aprovacoes), e as tres acoes de risco do escopo — revisar_justificativa_ponto,
+  #   propor_comunicado, enviar_whatsapp — NAO executam: viram pedido para um humano aprovar.
+  pessoas:
+    url: "http://conecta-pro-mcp-pessoas:8788/mcp"
+    headers:
+      Authorization: "Bearer ${MCP_BEARER}"
+    tools:
+      include: []
+    supports_parallel_tool_calls: false
+    timeout: 120
+    connect_timeout: 60
+    enabled: true
+
 # ---------------------------------------------------------------------------
 # Aprovacoes — defesa em profundidade.
 #   mode: smart      -> avalia risco por chamada.

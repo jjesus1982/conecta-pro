@@ -46,7 +46,22 @@ POST_DE_CONSULTA: dict[str, str] = {
                                "do corpo contra o contexto real; não persiste",
 }
 
-ESCRITA_HTTP = re.compile(r"erp\.(post|put|patch|delete)\s*\(", re.I)
+# ⚠️ 11/09/2026 — A REGEX TINHA UMA PORTA DOS FUNDOS, e ela custou 13 etiquetas.
+# Só casava `erp.post(...)`. O conector tem DUAS portas para o ERP: os atalhos
+# (`erp.post`, `erp.delete`) e o genérico `erp.request("PUT", rota, ...)` — e é pelo
+# genérico que passam TODAS as 13 tools que estavam etiquetadas `read` fazendo PUT, PATCH
+# ou DELETE, entre elas `revisar_justificativa_ponto` (decide falta de gente, entra na
+# folha), `definir_parametros_precificacao` (muda o parâmetro de todo preço cotado) e
+# `excluir_campanha` (`DELETE FROM` sem soft).
+#
+# A lição, que vale além daqui: este teste nasceu em 23/08 dizendo *"a régua aqui é FATO,
+# não texto"* — e a régua media UM jeito de escrever, não o fato. Verde por 19 dias com 13
+# etiquetas mentindo, pelo mesmo motivo que o teste anterior a ele: conferia a forma que o
+# autor tinha na cabeça, não todas as formas que o código usa.
+ESCRITA_HTTP = re.compile(
+    r"""erp\.(post|put|patch|delete)\s*\(|erp\.request\(\s*\n?\s*["'](POST|PUT|PATCH|DELETE)["']""",
+    re.I,
+)
 ESCRITA_SQL = re.compile(r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", re.I)
 
 
@@ -70,10 +85,15 @@ def test_read_nao_escreve() -> None:
         http = ESCRITA_HTTP.search(c)
         sql = ESCRITA_SQL.search(c)
         if http or sql:
-            rota = re.search(r'erp\.\w+\(\s*f?["\']([^"\']+)', c)
+            # pula o primeiro argumento do `erp.request("PUT", ...)` — senão a "rota"
+            # exibida vira o próprio verbo ("usa DELETE em DELETE"), que não ajuda ninguém
+            rota = re.search(r'erp\.request\(\s*\n?\s*["\']\w+["\'],\s*\n?\s*f?["\']([^"\']+)'
+                             r'|erp\.\w+\(\s*f?["\']([^"\']+)', c)
+            # o verbo pode vir do atalho (grupo 1) ou do `erp.request("PUT", ...)` (grupo 2)
+            verbo = (http.group(1) or http.group(2)) if http else sql.group(1)
             culpadas.append(
-                f"{nome} usa {(http.group(1) if http else sql.group(1)).upper()}"
-                + (f" em {rota.group(1)[:44]}" if rota else ""))
+                f"{nome} usa {verbo.upper()}"
+                + (f" em {(rota.group(1) or rota.group(2))[:44]}" if rota else ""))
     assert not culpadas, (
         f"{len(culpadas)} tool(s) classificadas 'read' que ESCREVEM. Reclassifique "
         f"(write_low/propose) ou, se a rota apenas consulta, registre em POST_DE_CONSULTA "
