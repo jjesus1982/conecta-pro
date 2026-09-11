@@ -391,6 +391,86 @@ def _brl(v: Any) -> str:
         return "R$ 0,00"
 
 
+def _num(v: Any) -> float | None:
+    """O mesmo valor como NÚMERO, ao lado do formatado.
+
+    P2 do relatório de campo: a camada devolvia só `"R$ 47.681,28"`. String obriga o agente
+    a fazer parsing e errar na vírgula/ponto — e somar dois contratos virava exercício de
+    regex. `None` quando não há valor: zero é uma afirmação, ausência é outra coisa.
+    """
+    if v is None or v == "":
+        return None
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+# Natureza por modalidade. Vivia dentro do `dry_run` de criar_contrato_por_modelo — ou
+# seja, o ENSAIO conhecia a natureza e a execução real não. Espelha CATALOGO do
+# contract_wizard; divergir aqui faz o agente perguntar mensalidade de obra.
+MODALIDADES: dict[str, tuple[str, str, str]] = {
+    "portaria": ("portaria_mao_de_obra", "Patrimonial", "recurring"),
+    "servicos_gerais": ("servicos_gerais", "Patrimonial", "recurring"),
+    "jardinagem": ("jardinagem", "Patrimonial", "recurring"),
+    "piscina": ("piscina", "Patrimonial", "recurring"),
+    "zeladoria": ("zeladoria", "Patrimonial", "recurring"),
+    "eletronica": ("manutencao_cftv", "Eletrônica", "recurring"),
+    "portaria_remota": ("portaria_remota", "Eletrônica", "recurring"),
+    "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica", "one_time"),
+}
+
+
+async def _resolver_cliente_id(chave: str) -> str | dict:
+    """CNPJ, CLI-…, id ou nome aproximado -> client_id. Ou envelope AMBIGUO/NAO_ENCONTRADO.
+
+    Irmão de `_resolver_contrato`, mesma postura: ambíguo devolve a lista para o agente
+    ESCOLHER, nunca chuta. Filtrar contrato pelo cliente errado é pior que não filtrar.
+    """
+    chave = (chave or "").strip()
+    if not chave:
+        return {"ok": False, "codigo": "IDENTIFICADOR_VAZIO", "http": 422,
+                "mensagem": "Informe o cliente.",
+                "dica": "Aceita CNPJ, CLI-AAAA-NNNNN, o id ou o nome."}
+    if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", chave, re.I):
+        return chave
+    so_digitos = re.sub(r"\D", "", chave)
+    params: dict = {"page_size": 100}
+    if so_digitos and len(so_digitos) >= 11:
+        params["search"] = so_digitos
+    else:
+        params["search"] = chave
+    try:
+        data = await erp.get("/crm/clients", params=params)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = _items(data)
+    alvo = _norm(chave)
+    achados = []
+    for c in itens:
+        doc = re.sub(r"\D", "", str(c.get("document_number") or c.get("cnpj") or ""))
+        nome = _norm(str(c.get("name") or c.get("company_name") or ""))
+        codigo = str(c.get("client_code") or "").upper()
+        if (so_digitos and len(so_digitos) >= 11 and doc == so_digitos) \
+                or (codigo and codigo == chave.upper()) \
+                or (alvo and (alvo in nome or nome.startswith(alvo[:18]))):
+            achados.append(c)
+    if not achados and len(itens) == 1:
+        achados = itens  # o próprio backend já filtrou por `search`
+    if not achados:
+        return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Nenhum cliente corresponde a {chave!r}.",
+                "dica": "Tente o CNPJ só com dígitos, ou listar_clientes(busca=...)."}
+    if len(achados) > 1:
+        return {"ok": False, "codigo": "AMBIGUO", "http": 409,
+                "mensagem": f"{len(achados)} clientes correspondem a {chave!r}.",
+                "dica": "Escolha um e chame de novo com o id ou o CNPJ.",
+                "candidatos": [{"id": c.get("id"), "nome": c.get("name"),
+                                "cnpj": c.get("document_number"),
+                                "codigo": c.get("client_code")} for c in achados[:10]]}
+    return str(achados[0].get("id"))
+
+
 def _items(data: Any) -> list:
     if isinstance(data, list):
         return data
@@ -721,7 +801,7 @@ async def proposta_da_oportunidade(opportunity_id: str, titulo: str,
     try:
         return await erp.post("/crm/proposals/from-opportunity", json=corpo)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -791,7 +871,9 @@ async def nova_versao_proposta(proposal_id: str) -> dict:
 
 @mcp.tool
 async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
-                                    valor_mensal: float, vigencia_inicio: str,
+                                    valor_mensal: float | None = None,
+                                    vigencia_inicio: str = "",
+                                    valor_total: float | None = None,
                                     vigencia_meses: int = 12, dia_vencimento: int = 0,
                                     renovacao_aviso_dias: int = 30,
                                     carencia_dias: int = 0,
@@ -817,21 +899,57 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
         ja = _idem_busca(idempotency_key)
         if ja:
             return ja
+
+    # ⭐ A NATUREZA decide qual valor faz sentido, e recusar é melhor que aceitar o errado:
+    # o backend grava `valor_mensal` em `total_value` quando a modalidade é one_time. Ou
+    # seja, mandar o total no campo "mensal" FUNCIONA — e é justamente por funcionar que
+    # precisa de guarda. Sem ela, um fornecimento de R$ 46 mil entra silenciosamente como
+    # mensalidade se a modalidade estiver errada, e vira MRR recorrente no painel.
+    info = MODALIDADES.get((modalidade or "").strip().lower())
+    if not info:
+        return {"ok": False, "codigo": "MODALIDADE_DESCONHECIDA", "http": 422,
+                "mensagem": f"Modalidade {modalidade!r} não existe.",
+                "dica": "Use uma de: " + ", ".join(sorted(MODALIDADES))}
+    unico = info[2] == "one_time"
+    if unico:
+        if valor_total is None and valor_mensal is None:
+            return {"ok": False, "codigo": "VALOR_FALTANDO", "http": 422,
+                    "mensagem": f"{modalidade} é contrato de valor ÚNICO — informe `valor_total`.",
+                    "campos_faltantes": ["valor_total"],
+                    "dica": "Ex.: valor_total=46320. Não há mensalidade nem dia de vencimento."}
+        if valor_mensal is not None and valor_total is not None:
+            return {"ok": False, "codigo": "VALOR_CONFLITANTE", "http": 422,
+                    "mensagem": "Informou mensal e total num contrato de valor único.",
+                    "dica": "Deixe só `valor_total`."}
+        valor = float(valor_total if valor_total is not None else valor_mensal)
+        dia_vencimento = 0          # não existe mensalidade para vencer
+    else:
+        if valor_mensal is None and valor_total is None:
+            return {"ok": False, "codigo": "VALOR_FALTANDO", "http": 422,
+                    "mensagem": f"{modalidade} é contrato recorrente — informe `valor_mensal`.",
+                    "campos_faltantes": ["valor_mensal"],
+                    "dica": "Ex.: valor_mensal=40612. Para serviço único use "
+                            "modalidade='eletronica_instalacao'."}
+        if valor_total is not None and valor_mensal is None:
+            return {"ok": False, "codigo": "VALOR_CONFLITANTE", "http": 422,
+                    "mensagem": f"Passou `valor_total` numa modalidade recorrente "
+                                f"({modalidade}). Eu não decido se são 12 mensalidades ou "
+                                f"uma obra — isso muda o MRR e o instrumento.",
+                    "dica": "Use `valor_mensal`, ou troque para uma modalidade de valor único."}
+        valor = float(valor_mensal)
+    if not vigencia_inicio:
+        return {"ok": False, "codigo": "VIGENCIA_FALTANDO", "http": 422,
+                "mensagem": "Informe `vigencia_inicio` (AAAA-MM-DD).",
+                "campos_faltantes": ["vigencia_inicio"],
+                "dica": "No valor único é a data de início da execução."}
+
     if dry_run:
         # o ensaio resolve o que der para resolver e mostra; o que não der, diz por quê.
-        cat = {"portaria": ("portaria_mao_de_obra", "Patrimonial"),
-               "servicos_gerais": ("servicos_gerais", "Patrimonial"),
-               "jardinagem": ("jardinagem", "Patrimonial"),
-               "piscina": ("piscina", "Patrimonial"),
-               "zeladoria": ("zeladoria", "Patrimonial"),
-               "eletronica": ("manutencao_cftv", "Eletrônica"),
-               "portaria_remota": ("portaria_remota", "Eletrônica"),
-               "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica")}
-        tipo_emp = cat.get((modalidade or "").strip().lower())
+        tipo_emp = MODALIDADES.get((modalidade or "").strip().lower())
         if not tipo_emp:
             return {"ok": False, "codigo": "MODALIDADE_DESCONHECIDA", "http": 422,
                     "mensagem": f"Modalidade {modalidade!r} não existe.",
-                    "dica": "Use uma de: " + ", ".join(sorted(cat))}
+                    "dica": "Use uma de: " + ", ".join(sorted(MODALIDADES))}
         cliente = None
         alvo_doc = re.sub(r"\D", "", cliente_documento or "")
         try:
@@ -848,18 +966,24 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
         except Exception:  # noqa: BLE001
             pass
         return {"ok": True, "dry_run": True, "gravou": False,
-                "resumo": f"Criaria um contrato {tipo_emp[0]} de {_brl(valor_mensal)}/mês "
-                          f"pela {tipo_emp[1]}, com vigência de {vigencia_meses} meses.",
+                "natureza": info[2],
+                "resumo": (f"Criaria um contrato {tipo_emp[0]} de {_brl(valor)} "
+                           f"em VALOR ÚNICO pela {tipo_emp[1]}."
+                           if unico else
+                           f"Criaria um contrato {tipo_emp[0]} de {_brl(valor)}/mês "
+                           f"pela {tipo_emp[1]}, com vigência de {vigencia_meses} meses."),
                 "cliente_encontrado": cliente or f"NÃO ACHEI o CNPJ {cliente_documento}",
                 "modelo": tipo_emp[0], "emitente": tipo_emp[1],
-                "valor_mensal": valor_mensal, "vigencia_inicio": vigencia_inicio,
+                ("valor_total" if unico else "valor_mensal"): valor,
+                "vigencia_inicio": vigencia_inicio,
                 "aviso": ("Cliente não está no CRM — a criação seria RECUSADA. Cadastre antes."
                           if not cliente else
                           "Nada foi gravado. Chame de novo sem dry_run para criar."),
                 "proximo_passo": "criar_contrato_por_modelo(..., idempotency_key='algo-unico')"}
     corpo: dict[str, Any] = {
         "cliente_documento": cliente_documento, "modalidade": modalidade,
-        "valor_mensal": valor_mensal, "vigencia_inicio": vigencia_inicio,
+        # o backend roteia para total_value quando a modalidade é one_time
+        "valor_mensal": valor, "vigencia_inicio": vigencia_inicio,
         "vigencia_meses": vigencia_meses, "renovacao_aviso_dias": renovacao_aviso_dias,
     }
     if dia_vencimento:
@@ -961,30 +1085,57 @@ async def gerar_contrato_por_modelo(
     representante_cpf: str = "",
     dia_vencimento: int = 0,
     dias_primeiro_pagamento: int = 0,
+    valor_total: float | None = None,
+    objeto_resumo: str = "",
+    proposta_numero: str = "",
+    prazo_exec_dias: int = 0,
+    itens: list | None = None,
+    minuta: bool = False,
 ) -> dict:
     """Emite o CONTRATO COMPLETO pelo modelo cadastrado e devolve o LINK para enviar ao cliente.
 
-    Busca no banco o que já existe. Se faltar dado (modelo, quem assina, dia de vencimento,
-    composição do valor), NÃO falha: devolve as perguntas do que falta — pergunte ao usuário
-    e chame de novo com as respostas. Restrito ao Jordan e à Pyetra.
+    `contrato` aceita CTR-…, id, CNPJ do cliente ou nome aproximado.
+
+    Busca no banco o que já existe. Se faltar dado, NÃO falha: devolve as perguntas do que
+    falta — responda passando os campos abaixo e chame de novo. Restrito ao Jordan e à Pyetra.
+
+    ── RECORRENTE (portaria, manutenção, portaria remota) ──
+      `dia_vencimento`, `dias_primeiro_pagamento`, e `itens` compondo o valor MENSAL.
+
+    ── VALOR ÚNICO (fornecimento/instalação da Eletrônica) ──
+      `valor_total`, `objeto_resumo` (vai para a Cláusula 1ª), `proposta_numero`,
+      `prazo_exec_dias`, e `itens` como as PARCELAS — cada uma com
+      `{"tipo": "entrada|parcela|retida", "nome", "total", "vencimento"}`, somando o total.
+
+      ⚠️ Não passe `dia_vencimento` num contrato de valor único: não há mensalidade.
+      Item 2.5 do relatório de campo (11/09/2026) — o CTR-2026-00022 é de R$ 46.320 em
+      parcela única e mesmo assim o gerador perguntava "em que dia do mês vence a
+      mensalidade?". A ramificação existia no backend desde então; era ESTA tool que só
+      sabia repassar os dois campos de recorrência, e por isso todo contrato da Eletrônica
+      continuava fora do padrão ouro quando emitido pelo Cowork.
+
+    `minuta=True` produz a versão para análise jurídica, com os campos ainda indefinidos
+    em branco em vez de recusar a emissão por falta deles.
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
-    payload = {"contrato": contrato}
-    if template_id:
-        payload["template_id"] = template_id
-    if representante:
-        payload["representante"] = representante
-    if representante_cpf:
-        payload["representante_cpf"] = representante_cpf
-    if dia_vencimento:
-        payload["payment_day"] = dia_vencimento
-    if dias_primeiro_pagamento:
-        payload["grace_period_days"] = dias_primeiro_pagamento
+    alvo = await _resolver_contrato(contrato)
+    if isinstance(alvo, dict):
+        return alvo
+    payload: dict[str, Any] = {"contrato": alvo}
+    for chave, valor in (
+        ("template_id", template_id), ("representante", representante),
+        ("representante_cpf", representante_cpf), ("payment_day", dia_vencimento),
+        ("grace_period_days", dias_primeiro_pagamento), ("valor_total", valor_total),
+        ("objeto_resumo", objeto_resumo), ("proposta_numero", proposta_numero),
+        ("prazo_exec_dias", prazo_exec_dias), ("itens", itens), ("minuta", minuta),
+    ):
+        if valor not in (None, "", 0, [], False):
+            payload[chave] = valor
     try:
         return await erp.post("/crm/contracts/emitir-por-modelo", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"emitido": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1251,14 +1402,64 @@ async def criar_cliente(nome: str, cnpj: str, email: str | None = None, telefone
 
 
 @mcp.tool
-async def listar_contratos(limite: int = 20) -> dict:
-    """Lista contratos (número, tipo, valor mensal, status)."""
-    data = await erp.get("/crm/contracts", params={"page_size": min(limite, 100)})
-    return {"contratos": [
-        {"numero": c.get("contract_number"), "tipo": c.get("contract_type"),
-         "mensal": _brl(c.get("monthly_value")), "status": c.get("status")}
-        for c in _items(data)[:limite]
-    ]}
+async def listar_contratos(
+    cliente: str | None = None, status: str | None = None, tipo: str | None = None,
+    busca: str | None = None, valor_min: float | None = None, valor_max: float | None = None,
+    limite: int = 20, pagina: int = 1,
+) -> dict:
+    """Lista contratos com o CLIENTE na resposta, filtros e total. Só lê.
+
+    `cliente` aceita CNPJ, código (CLI-…), id ou nome aproximado — resolvido aqui.
+    Use antes de `obter_contrato`: se a listagem já responde, não gaste a chamada.
+
+    Relatório de campo (11/09/2026): a versão anterior devolvia só número, tipo, mensal e
+    status — **não dizia de qual cliente era**. Descobrir "quais são do Maiápolis" custava
+    um `obter_contrato` por linha. O backend já mandava `client_name` e `client_document`;
+    era a tool que os jogava fora.
+    """
+    params: dict = {"page_size": min(max(limite, 1), 100), "page": max(pagina, 1)}
+    resolvido = None
+    if cliente:
+        resolvido = await _resolver_cliente_id(cliente)
+        if isinstance(resolvido, dict):
+            return resolvido  # AMBIGUO ou NAO_ENCONTRADO — o agente escolhe
+        params["client_id"] = resolvido
+    for chave, valor in (("status", status), ("contract_type", tipo), ("search", busca),
+                         ("min_value", valor_min), ("max_value", valor_max)):
+        if valor is not None:
+            params[chave] = valor
+    try:
+        data = await erp.get("/crm/contracts", params=params)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+    def linha(c: dict) -> dict:
+        # `valor` numérico ao lado do formatado: string obriga o agente a fazer parsing e
+        # erra na vírgula. O formatado fica para ele MOSTRAR, não para ele contar.
+        mensal, total = _num(c.get("monthly_value")), _num(c.get("total_value"))
+        return {
+            "numero": c.get("contract_number"), "nome": c.get("name"),
+            "cliente_nome": c.get("client_name"), "cliente_cnpj": c.get("client_document"),
+            "cliente_id": c.get("client_id"),
+            "tipo": c.get("contract_type"), "status": c.get("status"),
+            "valor_mensal": mensal, "valor_mensal_formatado": _brl(c.get("monthly_value")),
+            "valor_total": total, "valor_total_formatado": _brl(c.get("total_value")),
+            "vigencia_inicio": c.get("start_date"), "vigencia_fim": c.get("end_date"),
+            "atualizado_em": c.get("updated_at"), "id": c.get("id"),
+        }
+
+    itens = [linha(c) for c in _items(data)]
+    total = (data or {}).get("total")
+    pag = (data or {}).get("page") or 1
+    tot_pag = (data or {}).get("total_pages") or 1
+    out: dict = {"ok": True, "contratos": itens, "total": total,
+                 "pagina": pag, "paginas": tot_pag, "nesta_pagina": len(itens)}
+    if tot_pag and pag < tot_pag:
+        out["proxima_pagina"] = pag + 1
+        out["dica"] = f"Há {tot_pag} páginas. Chame de novo com pagina={pag + 1}."
+    if resolvido:
+        out["filtro_cliente_resolvido"] = resolvido
+    return out
 
 
 @mcp.tool
@@ -2564,13 +2765,37 @@ async def banco_horas(employee_id: str, mes: int | None = None, ano: int | None 
 @mcp.tool
 async def colaboradores_sem_escala() -> dict:
     """Lista funcionários ativos SEM escala cadastrada (precisam de definição no DP)."""
-    return await erp.get("/people-management/ponto/colaboradores-sem-escala")
+    return _envelope(await erp.get("/people-management/ponto/colaboradores-sem-escala"),
+                     "colaboradores")
+
+
+def _envelope(r, chave: str) -> dict:
+    """Rota do ERP que devolve LISTA, envelopada em dict — com o total junto.
+
+    ⚠️ 11/09/2026, medido chamando as ferramentas uma a uma (`checar_tool_quebrada`): CINCO
+    tools do escopo de pessoas estouravam para qualquer cliente MCP com
+
+        structured_content must be a dict or None. Got list: [...]
+
+    O FastMCP confere a anotação de retorno em tempo de execução; `-> dict` sobre uma rota que
+    devolve lista quebra SEMPRE. Estavam no catálogo, com docstring e etiqueta de risco, e
+    nunca funcionaram — ninguém as chamava. Envelopar (em vez de anotar `-> list`) mantém o
+    TOTAL na resposta: o agente conta o que vê, e "3 justificativas" é a frase que interessa.
+    """
+    return {chave: r, "total": len(r)} if isinstance(r, list) else r
 
 
 @mcp.tool
 async def justificativas_ponto_pendentes() -> dict:
     """Lista as justificativas de ponto aguardando revisão do DP."""
-    return await erp.get("/people-management/ponto/justificativas/pendentes")
+    # ⚠️ 11/09/2026 — a rota devolve LISTA e a anotação dizia `dict`. O FastMCP confere a
+    # anotação em tempo de execução e recusa: "structured_content must be a dict or None. Got
+    # list". Ou seja: a ferramenta estava quebrada para QUALQUER cliente MCP desde que nasceu,
+    # e ninguém viu porque nada a chamava. Apareceu no primeiro uso real, quando o Hermes foi
+    # olhar a fila do DP. Envelopar é a correção certa — mudar a anotação para `list` faria a
+    # resposta perder o total, e o agente conta o que vê.
+    return _envelope(await erp.get("/people-management/ponto/justificativas/pendentes"),
+                     "justificativas")
 
 
 @mcp.tool
@@ -2901,7 +3126,8 @@ async def listar_alocacoes(post_id: str | None = None, employee_id: str | None =
 @mcp.tool
 async def alocacoes_vigentes(post_id: str | None = None) -> dict:
     """Alocações ativas no momento (opcional: de um posto específico)."""
-    return await erp.get("/operacional/allocations/current", params={"post_id": post_id} if post_id else None)
+    return _envelope(await erp.get("/operacional/allocations/current",
+                                   params={"post_id": post_id} if post_id else None), "alocacoes")
 
 
 @mcp.tool
@@ -3158,15 +3384,18 @@ async def substitutos_disponiveis(posto_id: str) -> dict:
 @mcp.tool
 async def substituicoes_pendentes() -> dict:
     """Faltas com substituição ainda pendente de resolução."""
-    return await erp.get("/operacional/substitutions/pending")
+    return _envelope(await erp.get("/operacional/substitutions/pending"), "substituicoes")
 
 
 @mcp.tool
 async def listar_substituicoes(data: str | None = None) -> dict:
     """Substituições registradas (falta → substituto). data opcional 'YYYY-MM-DD'."""
     if data:
-        return await erp.get(f"/operacional/substitutions/by-date/{data}")
-    return await erp.get("/operacional/substitutions")
+        return _envelope(await erp.get(f"/operacional/substitutions/by-date/{data}"), "substituicoes")
+    # a BARRA FINAL importa: `/operacional/substitutions` devolve 404 e
+    # `/operacional/substitutions/` devolve 200 (o router monta a rota como "/"). Medido em
+    # 11/09 — a ferramenta respondia "Not Found" desde sempre por um caractere.
+    return _envelope(await erp.get("/operacional/substitutions/"), "substituicoes")
 
 
 @mcp.tool
@@ -3339,13 +3568,20 @@ if _ESCOPO:
             # Separar as DUAS causas, porque só uma é acidente: ficar fora do escopo é
             # decisão; ficar SEM GRUPO é esquecimento de quem criou a tool.
             _sem_grupo = sorted(n for n in _fora if not escopos_da_tool(n))
-            for _n in _fora:
-                try:
-                    mcp.remove_tool(_n)
-                except Exception:  # noqa: BLE001
-                    pass
-            print(f"[mcp] escopo={_ESCOPO} · servindo {len(_todas) - len(_fora)} de "
-                  f"{len(_todas)} ferramentas", flush=True)
+            # 🔴 11/09/2026 — AQUI ERA `mcp.remove_tool(_n)` DENTRO DE `except: pass`, e
+            # `remove_tool` NÃO EXISTE no fastmcp 4.0.3 (é API da 3.4). Todas as chamadas
+            # levantavam AttributeError, o except engolia, e a linha abaixo anunciava "42 de
+            # 254" por ARITMÉTICA enquanto o `tools/list` devolvia os 266. Os três conectores
+            # serviam o catálogo inteiro — inclusive `fechar_folha` e `criar_lead` no conector
+            # do kit, cuja proteção declarada era justamente "o ESCOPO".
+            # Agora é middleware (`gate_escopo`), que não depende de mutar o registro e que
+            # recusa também a CHAMADA — sumir da lista nunca impediu quem sabe o nome.
+            from gate_escopo import instalar as _instalar_escopo
+
+            _servidas = _instalar_escopo(mcp, {n for n in _todas if n in _permitidas})
+            print(f"[mcp] escopo={_ESCOPO} · servindo {_servidas} de "
+                  f"{len(_todas)} ferramentas (parede de escopo ATIVA: filtra a lista "
+                  f"E recusa a chamada)", flush=True)
             # NOMEAR, não contar. "146 de 254" só significa algo para quem lembra do
             # número de ontem — é a mesma família do container que ficou 2 semanas com
             # imagem velha sem ninguém notar. Nome é fato; contagem é sinal que depende
