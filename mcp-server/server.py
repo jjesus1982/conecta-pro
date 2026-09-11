@@ -461,6 +461,36 @@ def _brl(v: Any) -> str:
         return "R$ 0,00"
 
 
+# Data em DD/MM/AAAA é legível para gente e inútil para máquina: ordenar, comparar e somar
+# prazo sobre ela exige parsing, e parsing de data BR é onde se troca dia por mês em
+# silêncio. P2 do relatório de campo pede ISO-8601.
+#
+# ⭐ ACRESCENTA o irmão `_iso`, não substitui. Trocar o valor quebraria quem lê hoje — e o
+# formato BR é o que uma PESSOA entende quando o agente cola a resposta numa conversa. Os
+# dois públicos são reais; o campo cabe duas vezes.
+_DATA_BR = re.compile(r"^(\d{2})/(\d{2})/(\d{4})(?:[ T](\d{2}):(\d{2}))?$")
+
+
+def _iso_irmaos(obj: Any) -> Any:
+    """Percorre a resposta e acrescenta `<campo>_iso` onde houver data BR.
+
+    ⚠️ Só casa a data SOZINHA no campo. Intervalo ("01/01/2026 a 31/12/2026") e data no
+    meio de um texto ficam intocados de propósito: adivinhar qual das duas pontas vira o
+    `_iso` seria escolher por quem lê.
+    """
+    if isinstance(obj, dict):
+        fora = {}
+        for k, v in obj.items():
+            fora[k] = _iso_irmaos(v)
+            if isinstance(v, str) and (m := _DATA_BR.match(v.strip())):
+                d, mes, ano, hh, mm = m.groups()
+                fora[f"{k}_iso"] = f"{ano}-{mes}-{d}" + (f"T{hh}:{mm}:00" if hh else "")
+        return fora
+    if isinstance(obj, list):
+        return [_iso_irmaos(x) for x in obj]
+    return obj
+
+
 def _num(v: Any) -> float | None:
     """O mesmo valor como NÚMERO, ao lado do formatado.
 
@@ -631,7 +661,7 @@ async def _compute_pipeline() -> dict:
         g["valor_fmt"] = _brl(g["valor"])
     return {
         "total_deals": len(deals),
-        "pipeline_aberto": _brl(total_open),
+        "pipeline_aberto": _num(total_open), "pipeline_aberto_formatado": _brl(total_open),
         "por_estagio": list(by_stage.values()),
     }
 
@@ -663,7 +693,7 @@ async def listar_deals(estagio: str | None = None, limite: int = 50) -> dict:
         out.append({
             "cliente": d.get("company_name") or d.get("title") or "—",
             "titulo": d.get("title"),
-            "valor": _brl(d.get("value")),
+            "valor": _num(d.get("value")), "valor_formatado": _brl(d.get("value")),
             "estagio": STAGE_LABEL.get(d.get("stage"), d.get("stage")),
             "probabilidade": f"{int((d.get('probability') or 0))}%",
             "dono_id": d.get("owner_id"),
@@ -1553,7 +1583,8 @@ async def listar_propostas(limite: int = 20) -> dict:
     data = await erp.get("/crm/proposals/", params={"page_size": min(limite, 100)})
     return {"propostas": [
         {"numero": p.get("number"), "titulo": p.get("title"), "cliente": p.get("client_name"),
-         "total": _brl(p.get("total")), "status": p.get("status")}
+         "total": _num(p.get("total")), "total_formatado": _brl(p.get("total")),
+         "status": p.get("status")}
         for p in _items(data)[:limite]
     ]}
 
@@ -1776,11 +1807,14 @@ async def resumo_comercial() -> dict:
     props = _items(await erp.get("/crm/proposals/", params={"page_size": 5}))
     return {
         "clientes": len(clientes),
-        "mrr_total": _brl(mrr),
+        "mrr_total": _num(mrr), "mrr_total_formatado": _brl(mrr),
         "pipeline_aberto": pipe.get("pipeline_aberto"),
+        "pipeline_aberto_formatado": pipe.get("pipeline_aberto_formatado"),
         "total_deals": pipe.get("total_deals"),
         "propostas_recentes": [{"numero": p.get("number"), "cliente": p.get("client_name"),
-                                "total": _brl(p.get("total")), "status": p.get("status")} for p in props],
+                                "total": _num(p.get("total")),
+                                "total_formatado": _brl(p.get("total")),
+                                "status": p.get("status")} for p in props],
     }
 
 
@@ -4611,6 +4645,25 @@ async def changelog_mcp(limite: int = 15, desde: str = "") -> dict:
             "dica": "Use desde='AAAA-MM-DD' para ver só o que é novo para você."}
 
 
+# ⭐ MEDIDO, nunca escrito. A primeira versão desta docstring dizia "20 clientes, 12
+# contratos, 72 funcionários" — verdade no dia em que escrevi e mentira no dia seguinte, em
+# que o `refrescar_sandbox.sh` trouxe 26/20/105. Número em texto de ferramenta é fotografia:
+# envelhece em silêncio e o agente acredita, porque veio na descrição oficial.
+async def _idade_do_sandbox() -> dict:
+    """Quão velha é a cópia. Auditoria pediu: 'documentar a data do snapshot no retorno'."""
+    marca = _SANDBOX.set(True)
+    try:
+        d = await erp.get("/crm/contracts", params={"page_size": 1})
+        return {"contratos": (d or {}).get("total"),
+                "dica": "Se este total estiver muito longe do de produção, a cópia está "
+                        "velha — rode scripts/refrescar_sandbox.sh."}
+    except Exception:  # noqa: BLE001
+        # não conseguir medir a idade não invalida a execução que já aconteceu
+        return {"contratos": None, "dica": "não consegui medir a idade da cópia"}
+    finally:
+        _SANDBOX.reset(marca)
+
+
 @mcp.tool
 async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
     """Executa a ferramenta DE VERDADE, num ERP de mentira. Nada toca a produção.
@@ -4622,9 +4675,10 @@ async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
     Item 4 do relatório de campo: "hoje qualquer teste vira registro real". O CTR-2026-00024
     do Kopenhagen nasceu assim, de um teste meu.
 
-    ⚠️ O sandbox é uma CÓPIA ANTIGA: 20 clientes, 12 contratos, 72 funcionários. Os ids e
-    números NÃO valem em produção, e o que você criar lá não existe aqui. Serve para provar
-    o CAMINHO, nunca para consultar dado — para consultar, chame a ferramenta direto.
+    ⚠️ O sandbox é uma CÓPIA. Os ids e números NÃO valem em produção, e o que você criar
+    lá não existe aqui. Serve para provar o CAMINHO, nunca para consultar dado — para
+    consultar, chame a ferramenta direto. O retorno traz `snapshot` com a idade da cópia:
+    quanto mais velha, mais o comportamento de lá diverge do de cá.
 
     ⚠️ As duas paredes valem igual: ação de aprovação humana continua recusada, e ferramenta
     que toca dado pessoal continua exigindo identidade. Sandbox muda ONDE, não O QUÊ — não é
@@ -4672,6 +4726,7 @@ async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
         _SANDBOX.reset(marca)
 
     return {"ok": True, "sandbox": True, "ferramenta": ferramenta, "resultado": retorno,
+            "snapshot": await _idade_do_sandbox(),
             "aviso": "Executado no ERP de ensaio. Nada disto existe em produção — os "
                      "identificadores e números NÃO valem lá."}
 

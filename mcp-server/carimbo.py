@@ -76,8 +76,23 @@ class CarimboRequestId(_Base):
 
         dado = getattr(resultado, "structured_content", None)
         if isinstance(dado, dict):
+            # ISO ao lado do BR (P2). Aqui e não em cada tool: são 271 e as próximas
+            # nasceriam sem. O helper só casa data SOZINHA num campo — intervalo e data no
+            # meio de texto ficam intocados, então `texto_extraido` não é tocado.
+            try:
+                from server import _iso_irmaos  # noqa: PLC0415
+
+                enriquecido = _iso_irmaos(dado)
+            except Exception:  # noqa: BLE001 — enriquecer não pode derrubar a resposta
+                enriquecido = dado
+            mudou = enriquecido is not dado and enriquecido != dado
+            if mudou:
+                dado.clear()
+                dado.update(enriquecido)
             if "request_id" not in dado:
                 dado["request_id"] = rid
+                mudou = True
+            if mudou:
                 self._refazer_texto(resultado, dado)
         else:
             # lista, texto puro, ou nada: o id vai no metadado do protocolo

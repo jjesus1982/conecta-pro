@@ -304,7 +304,11 @@ class SimplesNacionalService:
             "anexo_principal": self.anexo_principal.value,
             "anexo_descricao": self._get_anexo_descricao(self.anexo_principal),
             "portal_simples": self.manager.URL_PORTAL,
-            "limite_receita_anual": "R$ 4.800.000,00",
+            # número ao lado do formatado: o teto do Simples é usado em CONTA (quanto
+            # falta para estourar), e string obriga quem consome a fazer parsing de
+            # milhar e vírgula — onde se erra por um fator de mil sem perceber.
+            "limite_receita_anual": 4800000.0,
+            "limite_receita_anual_formatado": "R$ 4.800.000,00",
             "operacoes_disponiveis": [
                 "Consultar opção",
                 "Simular cálculo",

@@ -274,5 +274,6 @@ class StatusSimplesResponse(BaseModel):
     anexo_principal: str
     anexo_descricao: str
     portal_simples: str
-    limite_receita_anual: str
+    limite_receita_anual: float
+    limite_receita_anual_formatado: str | None = None
     operacoes_disponiveis: list[str]
