@@ -7050,9 +7050,27 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
     com humano atribuido (nesses casos cai para nota privada). Draft SEMPRE logado.
     """
     # Se já foi transferida a um humano, o agente fica em SILÊNCIO (não compete com a equipe).
+    #
+    # ⚠️ EXCEÇÃO: FUNCIONÁRIO da casa (11/09/2026). Silenciar um porteiro por 12h porque a
+    # conversa foi transferida é tirar dele a ÚNICA forma de registrar contingência na hora —
+    # o `registrar_batida_contingencia` mora neste agente, não com a pessoa que assumiu.
+    # Concreto: a Kelly foi transferida ao Paiva às 19:06 por causa da escala; se às 19:30 ela
+    # não conseguir bater, ela perde o ponto e ouve silêncio. O risco do agente "competir com
+    # a equipe" é menor que o de alguém perder a jornada. Cliente e lead seguem em silêncio.
     if await _foi_transferida(conversation_id):
-        logger.info("processar_incoming: conv=%s já transferida — agente em silêncio", conversation_id)
-        return
+        _da_casa = False
+        try:
+            async with async_session_factory() as _dbq:
+                from modules.integrations.connectors.whatsapp.identidade import quem_e  # noqa: PLC0415
+
+                _da_casa = (await quem_e(_dbq, phone)).tipo == "funcionario"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("processar_incoming: conv=%s não consegui identificar (%s) — silêncio", conversation_id, exc)
+        if not _da_casa:
+            logger.info("processar_incoming: conv=%s já transferida — agente em silêncio", conversation_id)
+            return
+        logger.info("processar_incoming: conv=%s transferida, mas é FUNCIONÁRIO — segue atendendo "
+                    "(ponto não pode ficar mudo)", conversation_id)
     # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
     await _toggle_typing(conversation_id, True)
     try:

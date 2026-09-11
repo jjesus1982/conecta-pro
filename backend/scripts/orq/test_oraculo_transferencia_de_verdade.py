@@ -44,6 +44,33 @@ COMPETENCIA = {
 #: setor que ninguém previu NÃO fica órfão — "comercial e demais demandas é comigo".
 NAO_PREVISTOS = ("juridico", "financeiro", "", "qualquer_coisa")
 
+#: Funcionário que escreveu DEPOIS da transferência e não ouviu nada de volta. Silenciar um
+#: porteiro por 12h porque a conversa foi transferida tira dele a única forma de registrar
+#: contingência na hora — o `registrar_batida_contingencia` mora no agente, não com quem assumiu.
+#: Medido em 11/09, antes do conserto: 2 casos. O pior foi o da Cintia, afastada pelo INSS, que
+#: escreveu "quebrei o fêmur, tíbia e tornozelo, ainda não estou nem andando" e ficou 4h no vazio.
+#: ⚠️ A janela conta a partir da ÚLTIMA transferência da conversa: transferir de novo zera o alarme,
+#: de propósito (outra pessoa acabou de assumir). Cliente e lead NÃO entram — o JOIN é com
+#: `employees`, e para eles o silêncio de 12h é a regra, não o defeito. Os 15 minutos de folga
+#: existem para não acusar uma resposta que ainda está sendo gerada.
+SQL_FUNCIONARIO_MUDO = """
+WITH trf AS (
+  SELECT chatwoot_conversation_id c, max(created_at) q FROM cwi_message_log
+  WHERE direction='trf' AND created_at > now() - interval '7 days' GROUP BY 1),
+depois AS (
+  SELECT t.c, m.created_at, m.phone_canonical FROM trf t
+  JOIN cwi_message_log m ON m.chatwoot_conversation_id = t.c
+  WHERE m.direction='in' AND m.created_at > t.q
+    AND m.created_at < now() - interval '15 minutes')
+SELECT d.c, to_char(d.created_at AT TIME ZONE 'America/Manaus','DD/MM HH24:MI'), e.nome
+FROM depois d JOIN employees e
+  ON right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8)
+   = right(regexp_replace(d.phone_canonical,'[^0-9]','','g'),8)
+WHERE NOT EXISTS (SELECT 1 FROM cwi_message_log r WHERE r.chatwoot_conversation_id = d.c
+                  AND r.direction='out' AND r.created_at > d.created_at)
+ORDER BY d.created_at DESC
+"""
+
 #: A mesma régua do relatório acima. `\y` é a fronteira de palavra do POSIX (o `\b` não casa).
 SQL_PROMETEU = """
 WITH p AS (
@@ -151,6 +178,13 @@ async def main() -> int:
         falhas.append(f"conversa {c} ({quando}, {fone or 'sem telefone'}): o agente disse que ia "
                       f"encaminhar e NINGUÉM foi avisado — a pessoa está esperando")
 
+    # 5) funcionário transferido não fica mudo
+    mudos = (await db.execute(text(SQL_FUNCIONARIO_MUDO))).fetchall()
+    for c, quando, nome in mudos:
+        falhas.append(f"conversa {c} ({quando}): {nome} escreveu depois da transferência e o agente "
+                      f"não respondeu — funcionário calado perde o ponto, não só a resposta")
+
+    print(f"funcionário sem resposta após transferência (7d): {len(mudos)}")
     print(f"setores na ferramenta: {len(enum_da_tool)} · com dono: {len(RESPONSAVEIS)} · "
           f"pessoas: {len(vistos)} · promessas sem transferência (7d): {len(orfas)}")
     for f in falhas:
