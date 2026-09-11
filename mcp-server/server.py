@@ -467,7 +467,10 @@ async def listar_deals(estagio: str | None = None, limite: int = 50) -> dict:
 async def atualizar_estagio_deal(deal_id: str, estagio: str, nota: str | None = None) -> dict:
     """Move um deal (oportunidade) entre estágios do pipeline.
     estagio: 'Qualificação', 'Análise', 'Proposta', 'Negociação', 'Ganho', 'Perdido'
-    (ou técnico: qualification/needs_analysis/proposal/negotiation/closed_won/closed_lost)."""
+    (ou técnico: qualification/needs_analysis/proposal/negotiation/closed_won/closed_lost).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     alvo = _STAGE_FROM_LABEL.get((estagio or "").strip().lower())
     if not alvo:
         return {"erro": f"estágio inválido: {estagio}", "validos": list(STAGE_LABEL.values())}
@@ -512,7 +515,10 @@ async def criar_proposta(
 
     itens: lista de {"nome": str, "quantidade": number, "preco_unitario": number}.
     Ex.: itens=[{"nome":"Cerca elétrica instalada","quantidade":1,"preco_unitario":11966.70}].
-    O total é calculado pelo sistema. Retorna número e id da proposta."""
+    O total é calculado pelo sistema. Retorna número e id da proposta.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     payload = {
         "title": titulo,
         "client_name": cliente_nome,
@@ -584,7 +590,10 @@ async def criar_propostas_lote(propostas: list[dict]) -> dict:
 
     propostas: lista, cada item = {"titulo", "cliente_nome", "itens": [{"nome","quantidade","preco_unitario"}],
     "cliente_documento"?, "cliente_email"?, "condicoes_pagamento"?}.
-    Retorna o resultado de cada uma (número/total) + erros, sem parar no primeiro problema."""
+    Retorna o resultado de cada uma (número/total) + erros, sem parar no primeiro problema.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     criadas, erros = [], []
     for idx, p in enumerate(propostas or []):
         try:
@@ -605,7 +614,10 @@ async def criar_propostas_lote(propostas: list[dict]) -> dict:
 @mcp.tool
 async def atualizar_proposta(proposta_id: str, titulo: str | None = None, condicoes_pagamento: str | None = None,
                              observacoes: str | None = None, cliente_email: str | None = None) -> dict:
-    """Atualiza campos de uma proposta SEM recriar (passe só o que quer mudar)."""
+    """Atualiza campos de uma proposta SEM recriar (passe só o que quer mudar).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     payload: dict[str, Any] = {}
     if titulo is not None:
         payload["title"] = titulo
@@ -863,6 +875,8 @@ async def abrir_assinatura_contrato(contrato: str, email_cliente: str = "") -> d
 
     A Conecta Mais assina primeiro pelo painel; depois o link vai para o síndico assinar.
     Recusa contrato incompleto. Restrito a Jordan e Pyetra.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     q = f"?email_cliente={email_cliente}" if email_cliente else ""
     try:
@@ -877,6 +891,8 @@ async def assinar_contrato_empresa(contrato: str) -> dict:
 
     Só depois disto o link do cliente deve ser enviado — não se pede ao síndico que assine
     o que a própria empresa ainda não firmou. Restrito a Jordan e Pyetra.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     try:
         return await erp.post(f"/crm/contracts/{contrato}/assinar-empresa", json={})
@@ -889,6 +905,8 @@ async def enviar_link_assinatura(contrato: str, email: str = "", parte: str = "c
     """Manda ao signatário o LINK para assinar, ou devolve o link para envio manual.
 
     Recusa mandar ao cliente se a Conecta Mais ainda não assinou. Restrito a Jordan e Pyetra.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     q = f"?parte={parte}" + (f"&email={email}" if email else "")
     try:
@@ -945,6 +963,8 @@ async def gerar_contrato_por_modelo(
     Busca no banco o que já existe. Se faltar dado (modelo, quem assina, dia de vencimento,
     composição do valor), NÃO falha: devolve as perguntas do que falta — pergunte ao usuário
     e chame de novo com as respostas. Restrito ao Jordan e à Pyetra.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     payload = {"contrato": contrato}
     if template_id:
@@ -1058,7 +1078,10 @@ async def listar_documentos(tipo: str | None = None, limite: int = 30) -> dict:
 async def gerar_recibo_pdf(pagador: str, valor: float, referente: str, documento: str | None = None,
                            forma_pagamento: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um RECIBO de pagamento em PDF (padrão Conecta Mais, com selo), em base64.
-    Ex.: pagador='CONDOMINIO X', valor=6000, referente='portaria remota — junho/2026'."""
+    Ex.: pagador='CONDOMINIO X', valor=6000, referente='portaria remota — junho/2026'.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await _gerar_doc("/crm/docs/recibo/pdf", {
         "pagador": pagador, "valor": valor, "referente": referente,
         "documento": documento, "forma_pagamento": forma_pagamento, "numero": numero}, drive=salvar_no_drive)
@@ -1070,7 +1093,10 @@ async def gerar_aditivo_pdf(contrato_numero: str, tipo: str = "outro", objeto: s
                             novo_valor: float | None = None, nova_vigencia_fim: str | None = None,
                             justificativa: str | None = None, numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um TERMO ADITIVO de contrato em PDF (padrão Conecta Mais, com selo), em base64.
-    tipo: reajuste | prorrogacao | escopo | valor | outro. Enriquece cliente pelo contrato se omitido."""
+    tipo: reajuste | prorrogacao | escopo | valor | outro. Enriquece cliente pelo contrato se omitido.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await _gerar_doc("/crm/docs/aditivo/pdf", {
         "contrato_numero": contrato_numero, "tipo": tipo, "objeto": objeto, "cliente": cliente,
         "documento": documento, "novo_valor": novo_valor, "nova_vigencia_fim": nova_vigencia_fim,
@@ -1084,7 +1110,10 @@ async def gerar_atestado_pdf(emitente: str, servico: str, periodo: str | None = 
                              cidade: str | None = None, observacoes: str | None = None,
                              numero: str | None = None, salvar_no_drive: bool = False) -> dict:
     """Gera um ATESTADO DE CAPACIDADE TÉCNICA em PDF (padrão Conecta Mais, com selo), em base64.
-    emitente = cliente que atesta os serviços da Conecta Mais (usado em licitações)."""
+    emitente = cliente que atesta os serviços da Conecta Mais (usado em licitações).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await _gerar_doc("/crm/docs/atestado/pdf", {
         "emitente": emitente, "servico": servico, "periodo": periodo, "emitente_documento": emitente_documento,
         "emitente_responsavel": emitente_responsavel, "emitente_cargo": emitente_cargo, "valor": valor,
@@ -1097,7 +1126,10 @@ async def gerar_ordem_servico_pdf(cliente: str, servico: str, descricao: str | N
                                   responsavel: str | None = None, valor: float | None = None,
                                   prazo: str | None = None, observacoes: str | None = None,
                                   numero: str | None = None, salvar_no_drive: bool = False) -> dict:
-    """Gera uma ORDEM DE SERVIÇO (OS) em PDF (padrão Conecta Mais, com selo), em base64."""
+    """Gera uma ORDEM DE SERVIÇO (OS) em PDF (padrão Conecta Mais, com selo), em base64.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await _gerar_doc("/crm/docs/ordem-servico/pdf", {
         "cliente": cliente, "servico": servico, "descricao": descricao, "documento": documento,
         "endereco": endereco, "responsavel": responsavel, "valor": valor, "prazo": prazo,
@@ -1118,7 +1150,10 @@ async def listar_propostas(limite: int = 20) -> dict:
 @mcp.tool
 async def criar_lead(nome: str, email: str | None = None, telefone: str | None = None,
                      empresa: str | None = None, origem: str = "website") -> dict:
-    """Cria um lead no CRM (dispara automações/scoring configurados). Retorna id do lead."""
+    """Cria um lead no CRM (dispara automações/scoring configurados). Retorna id do lead.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     payload = {"name": nome, "source": origem, "status": "new"}
     if email:
         payload["email"] = email
@@ -1182,7 +1217,10 @@ async def buscar_cliente_por_cnpj(cnpj: str) -> dict:
 async def criar_cliente(nome: str, cnpj: str, email: str | None = None, telefone: str | None = None,
                         cidade: str | None = None) -> dict:
     """Cadastra um cliente com CNPJ. IDEMPOTENTE: se o CNPJ já existir, retorna o cliente existente
-    (NUNCA duplica). Valida o CNPJ. Use ao alimentar o CRM com clientes reais."""
+    (NUNCA duplica). Valida o CNPJ. Use ao alimentar o CRM com clientes reais.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     existing = await _buscar_cliente(cnpj)
     if existing:
         return {"ja_existia": True, "codigo": existing.get("code"), "nome": existing.get("name"),
@@ -1272,7 +1310,10 @@ async def definir_meta_mensal(valor: float, mes: int | None = None, ano: int | N
 async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str | None = None,
                             telefone: str | None = None, cidade: str | None = None) -> dict:
     """Atualiza dados de um cliente (padronizar nome p/ CAIXA ALTA, corrigir contato).
-    cnpj_ou_id: CNPJ (procura) ou o id do cliente. Passe só o que quer mudar."""
+    cnpj_ou_id: CNPJ (procura) ou o id do cliente. Passe só o que quer mudar.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     cid = cnpj_ou_id
     if "-" not in cnpj_ou_id or len(cnpj_ou_id) < 30:  # parece CNPJ -> busca
         c = await _buscar_cliente(cnpj_ou_id)
@@ -1296,7 +1337,10 @@ async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str
 
 @mcp.tool
 async def excluir_proposta(proposta_id: str, confirmar: bool = False) -> dict:
-    """Exclui (soft-delete) uma proposta — para rascunhos errados. Exige confirmar=true."""
+    """Exclui (soft-delete) uma proposta — para rascunhos errados. Exige confirmar=true.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     if not confirmar:
         return {"preview": True, "proposta_id": proposta_id,
                 "aviso": "Isto exclui a proposta. Reenvie com confirmar=true."}
@@ -1327,7 +1371,10 @@ async def arquivar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
 
 @mcp.tool
 async def excluir_campanha(campanha_id: str, confirmar: bool = False) -> dict:
-    """Exclui uma campanha de marketing (ex.: campanhas de teste). Exige confirmar=true."""
+    """Exclui uma campanha de marketing (ex.: campanhas de teste). Exige confirmar=true.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     if not confirmar:
         return {"preview": True, "campanha_id": campanha_id,
                 "aviso": "Isto exclui a campanha. Reenvie com confirmar=true."}
@@ -1345,7 +1392,10 @@ async def upload_asset(arquivo_base64: str, tipo: str = "logo", nome: str | None
 
 @mcp.tool
 async def excluir_documento_crm(documento_id: str, confirmar: bool = False) -> dict:
-    """Exclui (soft-delete) um documento gerado/registrado no CRM. Exige confirmar=true."""
+    """Exclui (soft-delete) um documento gerado/registrado no CRM. Exige confirmar=true.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     if not confirmar:
         return {"preview": True, "documento_id": documento_id,
                 "aviso": "Isto exclui o documento. Reenvie com confirmar=true."}
@@ -1377,7 +1427,10 @@ async def criar_contrato(cliente_documento: str, tipo: str = "recurring", valor_
                          valor_total: float | None = None, nome: str | None = None,
                          deal_id: str | None = None) -> dict:
     """Cria um CONTRATO no CRM a partir do CNPJ do cliente (fecha deal→contrato). tipo: recurring | one_time.
-    Depois use ativar_contrato para lançar no MRR (se recurring)."""
+    Depois use ativar_contrato para lançar no MRR (se recurring).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     c = await _buscar_cliente(cliente_documento)
     if not c:
         return {"erro": "cliente não encontrado pelo CNPJ", "cnpj": cliente_documento}
@@ -1401,7 +1454,10 @@ async def criar_contrato(cliente_documento: str, tipo: str = "recurring", valor_
 @mcp.tool
 async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None, valor_total: float | None = None,
                              vigencia_fim: str | None = None, nome: str | None = None) -> dict:
-    """Atualiza um contrato (valor/vigência/nome) sem recriar. Passe só o que muda."""
+    """Atualiza um contrato (valor/vigência/nome) sem recriar. Passe só o que muda.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     payload: dict[str, Any] = {}
     if valor_mensal is not None:
         payload["monthly_value"] = valor_mensal
@@ -1426,7 +1482,10 @@ async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None
 @mcp.tool
 async def enviar_whatsapp(numero: str, mensagem: str, confirmar: bool = False) -> dict:
     """Envia mensagem de WhatsApp para um número. ENVIO REAL ao cliente.
-    Chame primeiro com confirmar=false para ver o preview; depois confirmar=true para enviar."""
+    Chame primeiro com confirmar=false para ver o preview; depois confirmar=true para enviar.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     if not confirmar:
         return {"preview": True, "para": numero, "mensagem": mensagem,
                 "aviso": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar."}
@@ -1444,7 +1503,10 @@ async def status_whatsapp() -> dict:
 async def gerar_copy(formato: str, briefing: str, objetivo: str | None = None,
                      publico: str | None = None, n_variacoes: int = 3) -> dict:
     """Gera RASCUNHOS de conteúdo de marketing na voz da marca (copywriter IA). Não publica.
-    formato: ex. 'post_instagram', 'anuncio', 'email', 'whatsapp'. briefing: o que comunicar."""
+    formato: ex. 'post_instagram', 'anuncio', 'email', 'whatsapp'. briefing: o que comunicar.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/marketing/copywriter/generate", json={
         "formato": formato, "briefing": briefing, "objetivo": objetivo,
         "publico": publico, "n_variacoes": n_variacoes})
@@ -1453,7 +1515,10 @@ async def gerar_copy(formato: str, briefing: str, objetivo: str | None = None,
 @mcp.tool
 async def gerar_plano_estrategico(objetivo: str, periodo_dias: int = 30,
                                   orcamento: str | None = None, canais: str | None = None) -> dict:
-    """Gera um plano de campanha + calendário editorial a partir de um objetivo (estrategista IA, rascunho)."""
+    """Gera um plano de campanha + calendário editorial a partir de um objetivo (estrategista IA, rascunho).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/marketing/estrategista/plan", json={
         "objetivo": objetivo, "periodo_dias": periodo_dias,
         "orcamento": orcamento, "canais_preferidos": canais})
@@ -1485,7 +1550,10 @@ async def marcar_proposta_enviada(proposta: str) -> dict:
 @mcp.tool
 async def enviar_proposta(proposta_id: str, confirmar: bool = False) -> dict:
     """Envia a proposta por e-mail ao cliente (com rastreio de abertura + link de assinatura).
-    ENVIO REAL. Chame com confirmar=false para ver o preview; confirmar=true para enviar."""
+    ENVIO REAL. Chame com confirmar=false para ver o preview; confirmar=true para enviar.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     if not confirmar:
         p = await _one_proposal(proposta_id)
         return {"preview": True, "proposta": p,
@@ -1510,7 +1578,10 @@ async def ativar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
 @mcp.tool
 async def criar_tarefa(titulo: str, descricao: str | None = None, vencimento_dias: int | None = None,
                        prioridade: str = "medium", lead_id: str | None = None) -> dict:
-    """Cria uma tarefa/follow-up no CRM. vencimento_dias: vence em N dias a partir de hoje (opcional)."""
+    """Cria uma tarefa/follow-up no CRM. vencimento_dias: vence em N dias a partir de hoje (opcional).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     payload: dict[str, Any] = {"title": titulo, "description": descricao, "priority": prioridade}
     if vencimento_dias is not None:
         payload["due_date"] = (date.today() + timedelta(days=vencimento_dias)).isoformat()
@@ -1535,7 +1606,10 @@ async def _one_proposal(pid: str) -> dict:
 @mcp.tool
 async def cadastrar_whatsapp_cliente(cnpj_ou_id: str, numero: str) -> dict:
     """Grava/normaliza (E.164 +55…) o WhatsApp de um cliente (por CNPJ ou id) ou lead (id).
-    Pré-requisito para o José Luís enviar follow-up/proposta por WhatsApp."""
+    Pré-requisito para o José Luís enviar follow-up/proposta por WhatsApp.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/whatsapp/cadastrar", json={"cnpj_ou_id": cnpj_ou_id, "numero": numero})  # drive=salvar_no_drive era nome indefinido → NameError (08/09/2026)
 
 
@@ -1555,7 +1629,10 @@ async def followup_whatsapp(mensagem: str, deal_id: str | None = None, cliente: 
 async def enviar_proposta_whatsapp(proposta_id: str, confirmar: bool = False) -> dict:
     """Envia a PROPOSTA pelo WhatsApp do José Luís: PDF + link de assinatura, com rastreio.
     ENVIO REAL ao cliente. confirmar=false mostra o preview (número + mensagem + link);
-    confirmar=true envia de verdade e marca a proposta como enviada (move o deal)."""
+    confirmar=true envia de verdade e marca a proposta como enviada (move o deal).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post(f"/crm/proposals/{proposta_id}/send-whatsapp?confirmar={'true' if confirmar else 'false'}",
                           json={})
 
@@ -1576,7 +1653,10 @@ async def historico_followup(deal_id: str) -> dict:
 async def registrar_resposta_followup(deal_id: str, status: str = "respondido",
                                       classificacao: str | None = None, nota: str | None = None) -> dict:
     """Registra o retorno do cliente no follow-up mais recente do deal.
-    classificacao: interessado | duvida | recusou. status: respondido | recusou | cancelado."""
+    classificacao: interessado | duvida | recusou. status: respondido | recusou | cancelado.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/followups/resposta", json={
         "deal_id": deal_id, "status": status, "classificacao": classificacao, "nota": nota})
 
@@ -1592,7 +1672,10 @@ async def inscrever_em_sequencia(sequencia_id: str, lead_id: str) -> dict:
 
 @mcp.tool
 async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> dict:
-    """Marca um número como opt-out (não receber mais follow-ups). Compliance/anti-spam."""
+    """Marca um número como opt-out (não receber mais follow-ups). Compliance/anti-spam.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/followups/optout", json={"numero": numero, "motivo": motivo})
 
 
@@ -1600,7 +1683,10 @@ async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> d
 async def enviar_proposta_completa(proposta_id: str, confirmar: bool = False) -> dict:
     """Envia a proposta por E-MAIL **e** WhatsApp de uma vez (o WhatsApp cita o e-mail), e o José Luís
     JÁ ASSUME o acompanhamento (follow-up D+2/D+5/D+10) te avisando no seu WhatsApp.
-    ENVIO REAL. confirmar=false mostra o preview; confirmar=true envia."""
+    ENVIO REAL. confirmar=false mostra o preview; confirmar=true envia.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post(
         f"/crm/proposals/{proposta_id}/send-completo?confirmar={'true' if confirmar else 'false'}", json={})
 
@@ -1695,7 +1781,10 @@ async def obter_cliente(cnpj_ou_id: str) -> dict:
 async def criar_relatorio_visita(cliente_nome: str, panorama: str | None = None,
                                  data_visita: str | None = None) -> dict:
     """Inicia um relatório de visita técnica/comercial. panorama = contexto (porte, o que querem, etc.).
-    Depois use adicionar_achados_visita (descrevendo o que você viu nas fotos/áudios) e montar_relatorio_visita."""
+    Depois use adicionar_achados_visita (descrevendo o que você viu nas fotos/áudios) e montar_relatorio_visita.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/visitas", json={"cliente_nome": cliente_nome, "panorama": panorama,
                                                 "data_visita": data_visita})
 
@@ -1734,14 +1823,20 @@ async def obter_relatorio_visita(ref: str) -> dict:
 
 @mcp.tool
 async def gerar_pdf_visita(ref: str) -> dict:
-    """Gera o PDF do relatório de visita (com selo Conecta Mais), registra e devolve link de download."""
+    """Gera o PDF do relatório de visita (com selo Conecta Mais), registra e devolve link de download.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/visitas/pdf", json={"ref": ref, "salvar": True})
 
 
 @mcp.tool
 async def registrar_lead_da_visita(ref: str, telefone: str | None = None, cnpj: str | None = None,
                                    valor_estimado: float | None = None) -> dict:
-    """Cria/atualiza lead + oportunidade no CRM a partir do relatório de visita."""
+    """Cria/atualiza lead + oportunidade no CRM a partir do relatório de visita.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/visitas/registrar-lead", json={
         "ref": ref, "telefone": telefone, "cnpj": cnpj, "valor_estimado": valor_estimado})
 
@@ -1792,7 +1887,10 @@ async def reativar_lead(ref: str, mensagem: str | None = None, confirmar: bool =
 @mcp.tool
 async def enviar_nps(ref: str, confirmar: bool = False) -> dict:
     """Envia uma pesquisa NPS (0–10) a um cliente por WhatsApp. A resposta é capturada automaticamente.
-    ref = CNPJ, nome ou id. confirmar=false mostra o preview; confirmar=true envia."""
+    ref = CNPJ, nome ou id. confirmar=false mostra o preview; confirmar=true envia.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/crm/nps/enviar", json={"ref": ref, "confirmar": confirmar})
 
 
@@ -2029,7 +2127,10 @@ async def montar_kit_completo(condominio: str | None = None, competencia: str | 
 async def excluir_documento(condominio: str, file_id: str, nome: str | None = None,
                             competencia: str | None = None) -> dict:
     """Exclui um documento do kit (vai pra LIXEIRA do Drive, recuperável). Pegue o `file_id` em
-    consultar_kit. Use quando o robô coletou errado ou alguém anexou o arquivo trocado."""
+    consultar_kit. Use quando o robô coletou errado ou alguém anexou o arquivo trocado.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     cond = _ged_cond(condominio)
     params = {"condominio": cond, "file_id": file_id,
               **({"nome": nome} if nome else {}), **({"competencia": competencia} if competencia else {})}
@@ -2041,7 +2142,10 @@ async def excluir_documento(condominio: str, file_id: str, nome: str | None = No
 async def registrar_evento_kit(condominio: str, tipo: str, descricao: str,
                                funcionario: str | None = None, competencia: str | None = None) -> dict:
     """Registra um evento no checklist do kit (contratacao, demissao, ferias, migracao_posto,
-    atestado, afastamento, observacao) — pra conferência ponto a ponto."""
+    atestado, afastamento, observacao) — pra conferência ponto a ponto.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     cond = _ged_cond(condominio)
     r = await erp.post("/gedeon/kits/checklist", json={
         "condominio": cond, "competencia": competencia, "tipo": tipo,
@@ -2091,7 +2195,10 @@ async def registrar_custo_recorrente(categoria: str, descricao: str, valor: floa
                                      parcelas_total: int | None = None,
                                      parcelas_pagas: int = 0) -> dict:
     """Registra um custo recorrente para entrar na previsão. categoria: tributo | parcelamento | acordo | fixo | fornecedor.
-    Ex.: parcelamento (valor da parcela + parcelas_total + parcelas_pagas); aluguel/contador (fixo)."""
+    Ex.: parcelamento (valor da parcela + parcelas_total + parcelas_pagas); aluguel/contador (fixo).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/financial/cfo/custos-recorrentes", json={
         "categoria": categoria, "descricao": descricao, "valor": valor,
         "dia_vencimento": dia_vencimento, "parcelas_total": parcelas_total, "parcelas_pagas": parcelas_pagas})
@@ -2106,7 +2213,10 @@ async def diarias_cadastros() -> dict:
 @mcp.tool
 async def lancar_diaria(diarista_id: int, funcao: str, posto: str, data: str, turno: str | None = None) -> dict:
     """Lança uma diária trabalhada — o valor sai AUTOMÁTICO pela função/turno. data = AAAA-MM-DD.
-    turno (só p/ Agente de Portaria): DIURNO | NOTURNO | MEIO PERÍODO. Use diarias_cadastros() para os ids/opções."""
+    turno (só p/ Agente de Portaria): DIURNO | NOTURNO | MEIO PERÍODO. Use diarias_cadastros() para os ids/opções.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/operacional/diarias/lancar", json={
         "diarista_id": diarista_id, "funcao": funcao, "posto": posto, "data": data, "turno": turno})
 
@@ -2119,7 +2229,10 @@ async def resumo_diarias(mes: int, ano: int) -> dict:
 
 @mcp.tool
 async def gerar_lote_diarias_mes(ano: int, mes: int) -> dict:
-    """Gera o lote de pagamento do dia 15 a partir das diárias trabalhadas do mês (fila para o Financeiro pagar)."""
+    """Gera o lote de pagamento do dia 15 a partir das diárias trabalhadas do mês (fila para o Financeiro pagar).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post(f"/financial/pagamentos-diaristas/programar-diarias-mensais/{ano}/{mes}")
 
 
@@ -2171,7 +2284,10 @@ async def gerar_apresentacao(
     - {"tipo":"imagem","titulo":"...","legenda":"...","imagem_path":"/caminho.png"}
     - {"tipo":"secao","titulo":"...","subtitulo":"..."}  (divisória de seção)
     - {"tipo":"contato","cta":"Vamos proteger seu pátio?"}
-    formato: "pdf" (retorna download_url clicável para enviar ao cliente) ou "pptx" (arquivo editável em base64)."""
+    formato: "pdf" (retorna download_url clicável para enviar ao cliente) ou "pptx" (arquivo editável em base64).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     import base64
 
     payload = {"titulo": titulo, "subtitulo": subtitulo, "cliente": cliente,
@@ -2221,7 +2337,10 @@ async def gerar_orcamento(
       - parcelas (+ entrada opcional): ex. parcelas=3 → "3x de R$ X (sem juros)".
     documento = CNPJ/CPF do cliente. objeto = 1 linha resumindo o fornecimento (opcional).
     validade_dias (15), garantia (material), prazo — vão no bloco Condições.
-    Retorna download_url (link clicável para enviar/imprimir). Assinatura: cliente + CEO."""
+    Retorna download_url (link clicável para enviar/imprimir). Assinatura: cliente + CEO.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     condicoes = {}
     if validade_dias is not None:
         condicoes["validade_dias"] = validade_dias
@@ -2269,7 +2388,10 @@ async def analisar_processo_juridico(
 @mcp.tool
 async def gerar_parecer_juridico(area: str, titulo: str, contexto: str) -> dict:
     """Gera um PARECER JURÍDICO (rascunho IA) sobre um tema. area: trabalhista|civel|tributaria.
-    contexto = situação/fatos a analisar. Retorna o parecer estruturado (registrado no ERP)."""
+    contexto = situação/fatos a analisar. Retorna o parecer estruturado (registrado no ERP).
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     try:
         return await erp.post("/juridico/pareceres", json={"area": area, "titulo": titulo, "contexto": contexto})
     except Exception as exc:  # noqa: BLE001
@@ -2498,7 +2620,10 @@ async def solicitar_ferias(employee_id: str, data_inicio: str, dias: int = 30, o
 
 @mcp.tool
 async def aprovar_ferias(vacation_id: str, observacao: str | None = None) -> dict:
-    """Aprova uma solicitação de férias."""
+    """Aprova uma solicitação de férias.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post(f"/people-management/hr/vacations/{vacation_id}/approve",
                           json={"observacao": observacao})
 
@@ -3133,7 +3258,10 @@ async def consultor_ged(pergunta: str) -> dict:
 
 @mcp.tool
 async def registrar_feedback(origem: str, correcao: str, consulta_id: int | None = None) -> dict:
-    """🔵 Registra uma correção do gestor como memória permanente do consultor (realimenta o ERP). origem ∈ ceo/cfo/fiscal/rh/juridico/comercial/operacional/ged."""
+    """🔵 Registra uma correção do gestor como memória permanente do consultor (realimenta o ERP). origem ∈ ceo/cfo/fiscal/rh/juridico/comercial/operacional/ged.
+
+    ⚠️ ESCREVE no Conecta PRO — não é consulta.
+    """
     return await erp.post("/consultores/mcp/feedback", json={"origem": origem, "correcao": correcao, "consulta_id": consulta_id})
 
 
