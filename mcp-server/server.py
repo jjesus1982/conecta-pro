@@ -280,13 +280,40 @@ def _idem_guarda(chave: str, valor: dict) -> dict:
     return valor
 
 
+# Erro de ARGUMENTO é do chamador (422), não falha do servidor (500) — e a mensagem crua do
+# Python expõe a assinatura da função. Auditoria do Cowork, 11/09/2026:
+#   {"codigo":"FALHA_INESPERADA","http":500,
+#    "mensagem":"enviar_link_assinatura() missing 1 required positional argument: 'contrato'"}
+# O agente lê 500 e conclui "o sistema quebrou, tento de novo igual" — quando o certo era
+# "faltou um campo, mando o campo".
+_FALTANDO = re.compile(r"missing \d+ required (?:positional|keyword-only) argument")
+_SOBRANDO = re.compile(r"unexpected keyword argument '([^']+)'")
+_NOME_ARG = re.compile(r"'([^']+)'")
+
+
 def erro_envelope(exc: Exception) -> dict:
     """Converte QUALQUER exceção em envelope legível. É o que as tools retornam."""
     if isinstance(exc, ErpErro):
         return exc.envelope()
+    texto = str(exc)
+    if isinstance(exc, TypeError) and _FALTANDO.search(texto):
+        # só os nomes dos campos; o resto da mensagem é a assinatura interna da função
+        campos = _NOME_ARG.findall(texto.split(":", 1)[-1]) if ":" in texto else []
+        return {"ok": False, "codigo": "PARAMETRO_OBRIGATORIO", "http": 422,
+                "mensagem": ("Faltou informar: " + ", ".join(campos) + ".") if campos
+                            else "Faltou um campo obrigatório.",
+                "campos_faltantes": campos,
+                "dica": "Chame de novo incluindo " + (
+                    ", ".join(f"`{c}`" for c in campos) if campos else "os campos obrigatórios")
+                    + ". `conecta_pro_capabilities()` mostra o que cada ferramenta espera."}
+    if isinstance(exc, TypeError) and (m := _SOBRANDO.search(texto)):
+        return {"ok": False, "codigo": "PARAMETRO_DESCONHECIDO", "http": 422,
+                "mensagem": f"Esta ferramenta não aceita o campo `{m.group(1)}`.",
+                "campo": m.group(1),
+                "dica": "Confira o nome do campo em `conecta_pro_capabilities()`."}
     return {"ok": False, "codigo": "FALHA_INESPERADA", "http": 500,
-            "mensagem": str(exc)[:300],
-            "dica": "Tente de novo; se repetir, informe esta mensagem ao suporte."}
+            "mensagem": texto[:300],
+            "dica": "Tente de novo; se repetir, informe o `request_id` ao suporte."}
 
 
 class _Erp:
@@ -462,6 +489,56 @@ MODALIDADES: dict[str, tuple[str, str, str]] = {
     "portaria_remota": ("portaria_remota", "Eletrônica", "recurring"),
     "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica", "one_time"),
 }
+
+
+async def _resolver_proposta(chave: str) -> str | dict:
+    """PROP-…, id, CNPJ ou nome do cliente -> id da proposta. Ou envelope.
+
+    Terceiro irmão de `_resolver_contrato` e `_resolver_cliente_id`, mesma postura: ambíguo
+    devolve candidatos, nunca escolhe. Nasceu da auditoria do Cowork (11/09/2026), onde
+    `baixar_proposta_pdf("PROP-2026-00001")` devolvia 500 cru — o id ia direto ao ERP.
+    """
+    chave = (chave or "").strip()
+    if not chave:
+        return {"ok": False, "codigo": "IDENTIFICADOR_VAZIO", "http": 422,
+                "mensagem": "Informe a proposta.",
+                "dica": "Aceita PROP-AAAA-NNNNN, o id, o CNPJ ou o nome do cliente."}
+    if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", chave, re.I):
+        return chave
+    try:
+        lista = await erp.get("/crm/proposals/", params={"page_size": 100})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = _items(lista)
+    so_digitos = re.sub(r"\D", "", chave)
+    alvo = _norm(chave)
+    achados = []
+    for c in itens:
+        numero = str(c.get("number") or c.get("proposal_number") or "").upper()
+        doc = re.sub(r"\D", "", str(c.get("client_document") or ""))
+        nome = _norm(str(c.get("client_name") or c.get("client_company") or ""))
+        if (numero and numero == chave.upper()) \
+                or (so_digitos and len(so_digitos) >= 11 and doc == so_digitos) \
+                or (alvo and (alvo in nome or nome.startswith(alvo[:18]))):
+            achados.append(c)
+    if not achados:
+        total = (lista or {}).get("total")
+        parcial = total is not None and total > len(itens)
+        return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                "mensagem": (f"Nenhuma proposta corresponde a {chave!r}"
+                             + (f" entre as {len(itens)} que consigo ver de {total}."
+                                if parcial else ".")),
+                "dica": "Use o número (PROP-AAAA-NNNNN) ou o CNPJ. "
+                        "listar_propostas() ajuda a achar."}
+    if len(achados) > 1:
+        return {"ok": False, "codigo": "AMBIGUO", "http": 409,
+                "mensagem": f"{len(achados)} propostas correspondem a {chave!r}.",
+                "dica": "Escolha uma pelo número e chame de novo.",
+                "candidatos": [{"numero": c.get("proposal_number"),
+                                "cliente": c.get("client_name"),
+                                "status": c.get("status"),
+                                "total": _num(c.get("total_value"))} for c in achados[:10]]}
+    return str(achados[0].get("id"))
 
 
 async def _resolver_cliente_id(chave: str) -> str | dict:
@@ -769,14 +846,23 @@ async def atualizar_proposta(proposta_id: str, titulo: str | None = None, condic
 @mcp.tool
 async def baixar_proposta_pdf(proposta_id: str, salvar_no_drive: bool = False,
                               formato: str = "base64") -> dict:
-    """Gera o PDF da proposta (SEM enviar ao cliente), REGISTRA no Conecta PRO e devolve o LINK de
-    download (clicável). Use para conferir o layout/auditar antes de qualquer envio real.    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
-    documento sem abrir binário; "texto" só o texto; "url" só o link, como antes.
-    Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
+    """Gera o PDF da proposta (SEM enviar ao cliente) e devolve o arquivo E o texto.
 
+    `proposta_id` aceita PROP-…, o id, o CNPJ ou o nome do cliente.
+
+    `formato`: "base64" (padrão) traz o arquivo E o `texto_extraido`, para CONFERIR o
+    documento sem abrir binário; "texto" só o texto; "url" só o link.
+
+    Use para auditar o layout antes de qualquer envio real. Não envia nada a ninguém.
     """
-    return await _gerar_doc_get(f"/crm/proposals/{proposta_id}/pdf", drive=salvar_no_drive,
-                                formato=formato)
+    alvo = await _resolver_proposta(proposta_id)
+    if isinstance(alvo, dict):
+        return alvo
+    try:
+        return await _gerar_doc_get(f"/crm/proposals/{alvo}/pdf", drive=salvar_no_drive,
+                                    formato=formato)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
 
 
 async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pdf") -> dict:
@@ -2113,8 +2199,35 @@ async def obter_deal(deal_id: str) -> dict:
 
 @mcp.tool
 async def obter_contrato(contrato_id: str) -> dict:
-    """Detalhe completo de um contrato pelo id."""
-    return await erp.get(f"/crm/contracts/{contrato_id}")
+    """Detalhe completo de um contrato. Aceita CTR-…, id, CNPJ ou nome do cliente. Só lê.
+
+    Auditoria do Cowork (11/09/2026): id inválido devolvia 500 cru, sem envelope e sem
+    `request_id` — o identificador ia direto ao ERP e o banco reclamava do UUID. "Não
+    encontrei" é 404 e é informação; 500 manda o agente tentar de novo igual.
+    """
+    alvo = await _resolver_contrato(contrato_id)
+    if isinstance(alvo, dict):
+        return alvo
+    # ⚠️ `_resolver_contrato` devolve o NÚMERO (CTR-…), que é o identificador que as rotas
+    # de emissão aceitam. Esta rota quer o UUID — passar o número dá 500. Identificador
+    # certo para a rota errada falha tão bem quanto identificador errado.
+    uuid_alvo = alvo
+    if not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", str(alvo), re.I):
+        try:
+            lista = await erp.get("/crm/contracts", params={"page_size": 100})
+        except Exception as exc:  # noqa: BLE001
+            return erro_envelope(exc)
+        achado = next((c for c in _items(lista)
+                       if str(c.get("contract_number") or "").upper() == str(alvo).upper()), None)
+        if not achado:
+            return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Não achei o contrato {alvo}.",
+                    "dica": "listar_contratos(busca=...) ajuda a achar."}
+        uuid_alvo = achado.get("id")
+    try:
+        return await erp.get(f"/crm/contracts/{uuid_alvo}")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
 
 
 @mcp.tool

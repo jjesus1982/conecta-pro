@@ -159,7 +159,18 @@ class ContractItemResponse(BaseModel):
     """Resposta de item do contrato."""
 
     id: str
-    service_type: ServiceType
+    # ⭐ `str`, NÃO o enum ServiceType. Medido em 11/09/2026: o enum declara `security`,
+    # `remote_gatehouse`, `electronic_security`… e a tabela guarda `manutencao_cftv`,
+    # `maodeobra`, `portaria_remota`, `portaria_mao_de_obra` — INTERSEÇÃO ZERO. O enum
+    # nunca bateu com a realidade, e por causa dele `GET /crm/contracts/{id}` respondia 500
+    # em TODO contrato que tem item: 5 de 19, e os 14 que passavam só passavam por estarem
+    # vazios. `obter_contrato` estava quebrada desde sempre, e o relatório de campo de
+    # agosto já dizia "historicamente também: obter_contrato -> 500".
+    #
+    # Além disso a coluna carrega, no contrato de valor ÚNICO, o PAPEL da parcela
+    # (entrada · parcela · retida) — que o render lê para montar a Cláusula 3.2. Um enum
+    # aqui transforma cada novo tipo de serviço em contrato ilegível.
+    service_type: str
     service_name: str
     description: str | None = None
     quantity: int
@@ -169,6 +180,19 @@ class ContractItemResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def stringify_item_uuid(cls, v: Any) -> str:
+        # o ORM devolve UUID; `id: str` recusava com string_type. Mesmo validador que o
+        # contrato-pai já tinha e que o item nunca ganhou.
+        return str(v) if v is not None else ""
+
+    @field_validator("service_type", mode="before")
+    @classmethod
+    def stringify_service_type(cls, v: Any) -> str:
+        # aceita tanto o Enum (se algum dia voltar a ser) quanto a string crua da coluna
+        return getattr(v, "value", None) or str(v or "")
 
 
 class ContractResponse(BaseModel):

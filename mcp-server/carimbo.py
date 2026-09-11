@@ -22,7 +22,7 @@ lugar do protocolo para metadado.
 """
 from __future__ import annotations
 
-import json
+import json as _json
 import secrets
 
 try:
@@ -45,6 +45,32 @@ class CarimboRequestId(_Base):
         marca = _REQ_ID.set(rid)
         try:
             resultado = await call_next(context)
+        except Exception as exc:  # noqa: BLE001
+            # ⭐ REDE POR BAIXO DE TUDO. Auditoria do Cowork (11/09/2026):
+            # `obter_contrato("ID-INVALIDO")` devolvia o texto cru
+            # "Error calling tool 'obter_contrato': Internal Server Error" — sem envelope,
+            # sem código, e a ÚNICA resposta do lote inteiro sem `request_id`. Sem o id não
+            # dá para cruzar com o log do servidor, e erro sem rastro é o erro que ninguém
+            # conserta. Uma tool que esqueça o try/except passa a cair aqui.
+            #
+            # ⭐ `__cause__` separa as duas coisas que chegam aqui como ToolError:
+            #   · recusa DELIBERADA (gate, identidade) -> `raise ToolError(texto)`, sem
+            #     causa. Passa intacta: convertê-la em 500 apagaria a explicação que a
+            #     parede escreveu para o dono;
+            #   · erro INTERNO que o FastMCP embrulhou -> `ToolError(...) from ErpErro`,
+            #     com causa. É este que chegava ao agente como "Error calling tool
+            #     'obter_contrato': Internal Server Error", sem código e sem request_id.
+            # Distinguir pelo TEXTO ("começa com ⛔") seria frágil: a primeira recusa
+            # escrita sem o emoji viraria 500 silenciosamente.
+            from fastmcp.exceptions import ToolError  # noqa: PLC0415
+
+            from server import erro_envelope  # noqa: PLC0415
+
+            if isinstance(exc, ToolError) and exc.__cause__ is None:
+                raise
+            real = exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
+            envelope = {**erro_envelope(real), "request_id": rid}
+            raise ToolError(_json.dumps(envelope, ensure_ascii=False)) from exc
         finally:
             _REQ_ID.reset(marca)
 
@@ -71,7 +97,7 @@ class CarimboRequestId(_Base):
         if not conteudo:
             return
         try:
-            texto = json.dumps(dado, ensure_ascii=False, default=str)
+            texto = _json.dumps(dado, ensure_ascii=False, default=str)
         except (TypeError, ValueError):
             dado.pop("request_id", None)
             return
