@@ -4012,6 +4012,9 @@ async def _contexto_funcionario(ident) -> str:
     from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
 
     linhas = [f"FUNCIONÁRIO: {ident.nome}"
+              + (f" — CHAME-O DE **{ident.tratamento}** (é assim que ele é chamado aqui, "
+                 f"não pelo primeiro nome do cadastro)" if ident.tratamento
+                 and ident.tratamento.lower() != (ident.nome or "").split(" ")[0].lower() else "")
               + (f" — {ident.cargo}" if ident.cargo else "")
               + (f" — {ident.posto}" if ident.posto else "")
               + (f" ({ident.condominio})" if ident.condominio else "")]

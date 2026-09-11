@@ -49,6 +49,12 @@ SEM_VINCULO = ("inativo", "candidato", "pj_pendente")
 class Identidade:
     tipo: Tipo
     nome: str | None = None
+    #: Como CHAMAR a pessoa. Sai de `employees.nome_social` quando preenchido; senão, o
+    #: primeiro nome do cadastro. 11/09/2026: a ANDRYA PYETRA é chamada de Pyetra por todo
+    #: mundo na empresa, e o agente a chamou de "Andrya" numa conversa — o nome legal e o nome
+    #: de tratamento não são a mesma coisa, e usar o primeiro como se fosse o segundo é a
+    #: forma mais barata de soar como um robô lendo uma planilha.
+    tratamento: str | None = None
     employee_id: str | None = None
     cpf: str | None = None
     cargo: str | None = None
@@ -78,10 +84,11 @@ def chave(telefone: str | None) -> str:
 #: própria trava que eu tinha acabado de escrever contra esse mesmo tipo de erro.
 #: A subconsulta colapsa em uma linha por pessoa; só então o LIMIT 2 significa "duas PESSOAS".
 _SQL_FUNCIONARIO = """
-    SELECT q.id, q.nome, q.cpf, q.cargo, q.posto, q.condominio
+    SELECT q.id, q.nome, q.cpf, q.cargo, q.posto, q.condominio, q.tratamento
       FROM (
         SELECT DISTINCT ON (e.id)
                e.id::text AS id, e.nome, e.cpf, e.cargo,
+               coalesce(nullif(trim(e.nome_social),''), split_part(e.nome,' ',1)) AS tratamento,
                p.name AS posto, g.name AS condominio,
                (a.id IS NOT NULL) AS tem_alocacao, e.updated_at
           FROM employees e
@@ -148,7 +155,7 @@ async def quem_e(db, telefone: str | None, *, e_dono: bool = False) -> Identidad
         if linhas:
             row = linhas[0]
             return Identidade(tipo="funcionario", employee_id=row[0], nome=row[1], cpf=row[2],
-                              cargo=row[3], posto=row[4], condominio=row[5])
+                              cargo=row[3], posto=row[4], condominio=row[5], tratamento=row[6])
         linhas = (await db.execute(sql(_SQL_CLIENTE), {"k": k})).fetchall()
         if len(linhas) > 1:
             logger.warning("identidade AMBÍGUA: %s casa com %s clientes — não escolho", k, len(linhas))
