@@ -87,6 +87,24 @@ print(json.dumps({"servidas": servidas, "batida": alvo, "recusou": recusou}))
 '''
 
 
+def _imagem_do_conector(container: str) -> str:
+    """Data de criação da IMAGEM que este container roda — o terceiro dado.
+
+    Ideia da sessão t6, depois de um drift check dar 4/4 ✅ com os quatro containers na imagem
+    ANTERIOR (a build tinha falhado e a tag não se moveu): eles concordavam entre si e nenhum
+    tinha o código novo. Igualdade responde "todos iguais?"; só a data responde "todos atuais?".
+    """
+    img = subprocess.run(  # noqa: S603
+        ["/usr/bin/docker", "inspect", container, "--format", "{{.Image}}"],
+        capture_output=True, text=True, timeout=60).stdout.strip()
+    if not img:
+        return "?"
+    criada = subprocess.run(  # noqa: S603
+        ["/usr/bin/docker", "inspect", img, "--format", "{{.Created}}"],
+        capture_output=True, text=True, timeout=60).stdout.strip()
+    return (criada[:16].replace("T", " ") or "?")
+
+
 def _env_do_conector(container: str) -> dict[str, str]:
     """MCP_ESCOPO/MCP_MODO/MCP_IDENTIDADE do container que está NO AR — medido, não suposto.
 
@@ -158,6 +176,16 @@ def main() -> int:
             falhas += 1
         permitidas = tools_do_escopo(escopo) or set()
         fora = sorted(set(servidas) - set(permitidas))
+        # ⭐ A OUTRA DIREÇÃO, que esta trava não olhava (11/09/2026, apontado pela sessão t6).
+        # Eu só media "serve algo que NÃO devia" — o buraco de segurança. Mas "serve MENOS do
+        # que declara" tem a mesma família e passava calado: o `tools/list` é lido do processo
+        # VIVO e o escopo vem do repositório, então uma imagem parada faz o conector servir a
+        # lista velha enquanto a declaração já mudou, e a minha conta dava fora=0.
+        # É o caso que pegou a t6 hoje: uma build falhou, os quatro containers seguiram na
+        # imagem anterior e o drift check deu 4/4 ✅ — **concordância não é atualidade**.
+        # Nome que está no escopo e não é servido é uma das duas coisas, e as duas importam:
+        # imagem atrasada, ou ferramenta declarada que não existe em server.py.
+        faltando = sorted(set(permitidas) - set(servidas))
         proibidas = [t for t in PROIBIDAS_EM_IDENTIDADE_PROPRIA if t in servidas] if propria else []
         # TRÊS estados, não dois — e o terceiro é o que precisa aparecer escrito. Um conector
         # sem `MCP_MODO=agente` não tem parede NENHUMA: nem exigência de identidade, nem gate
@@ -168,15 +196,20 @@ def main() -> int:
                   else "identidade repassada + gate" if agente
                   else "⚠️ SEM PAREDE (sem exigência de identidade e sem gate de aprovação)")
         print(f"  {container}: {len(servidas)} servidas · escopo `{escopo}` "
-              f"({len(permitidas)} previstas) · {parede}"
+              f"({len(permitidas)} previstas) · imagem de {_imagem_do_conector(container)} · {parede}"
               + (f" · chamada de `{batida}` recusada" if recusou else ""))
         for t in fora[:12]:
             print(f"      FORA DO ESCOPO: {t}")
         if len(fora) > 12:
             print(f"      (+{len(fora) - 12} não listadas)")
+        for t in faltando[:12]:
+            print(f"      DECLARADA E NÃO SERVIDA: {t}  — imagem atrasada, ou nome que não "
+                  f"existe em server.py")
+        if len(faltando) > 12:
+            print(f"      (+{len(faltando) - 12} não listadas)")
         for t in proibidas:
             print(f"      🔴 PROIBIDA e servida: {t}")
-        if fora or proibidas:
+        if fora or proibidas or faltando:
             falhas += 1
 
     print(f"TOTAL conectores servindo fora do escopo: {falhas}")
