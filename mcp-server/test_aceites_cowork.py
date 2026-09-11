@@ -38,7 +38,15 @@ async def aceite_2_1_documento_legivel() -> None:
     r = await S.baixar_contrato_pdf(MAIAPOLIS_CTR, formato="base64")
     arq = r.get("arquivo") or {}
     texto = r.get("texto_extraido") or ""
-    assert arq.get("base64"), f"sem base64: {str(r)[:200]}"
+    # ⚠️ O contrato MUDOU em 11/09/2026 (§3.1): acima de 256 KB o base64 é omitido de
+    # propósito, porque 469 KB estouravam a conversa. A regra que vale agora é "ou vem o
+    # arquivo, ou vem o motivo de não ter vindo" — nunca sumir em silêncio.
+    if not arq.get("base64"):
+        assert r.get("aviso"), f"omitiu o arquivo sem dizer por quê: {str(r)[:200]}"
+        forcado = await S.baixar_contrato_pdf(MAIAPOLIS_CTR, formato="base64",
+                                              forcar_base64=True)
+        assert (forcado.get("arquivo") or {}).get("base64"), (
+            "acima do teto E o escape não traz o arquivo — ficou impossível baixar")
     assert texto, "sem texto_extraido — o agente continua cego ao conteúdo"
     for frase in ("limitada ao teto de 10%", "integral e regressivamente"):
         assert frase in texto, f"o aceite cita {frase!r} e o texto extraído não tem"
@@ -222,7 +230,9 @@ async def aceite_2_1_todas_as_geradoras() -> None:
 
     # e funciona de verdade, não só na assinatura
     r = await S._pdf_b64("/crm/reports/comercial/pdf", formato="base64", nome="rel.pdf")
-    assert (r.get("arquivo") or {}).get("base64"), f"envelope sem base64: {list(r)}"
+    arq_r = r.get("arquivo") or {}
+    assert arq_r.get("base64") or r.get("aviso"), (
+        f"sem base64 e sem aviso — sumiu em silêncio: {list(r)}")
     assert r.get("texto_extraido"), "envelope sem texto — assinatura nova, comportamento velho"
     com = [n for n in todas if "formato" in inspect.signature(getattr(S, n)).parameters]
     print(f"OK 2.1 {len(com)}/{len(todas)} baixar_/gerar_ com formato; nenhuma geradora muda")
@@ -476,7 +486,131 @@ async def aceite_4x_sandbox_grava_longe_da_producao() -> None:
           f"ensaio aninhado recusado")
 
 
+async def aceite_auditoria_efeito_externo() -> None:
+    """§1.1 — o P0. Aprovação humana em QUALQUER modo, nos QUATRO caminhos.
+
+    `enviar_link_assinatura` ESTAVA classificada `propose` e mesmo assim chegava ao ERP no
+    conector público, porque a parede só era instalada em modo agente. Teria mandado o
+    e-mail para a síndica do Maiápolis.
+    """
+    import gate_propose as G
+
+    assert G.EFEITO_EXTERNO, "a lista de efeito externo sumiu"
+    alvo = "enviar_link_assinatura"
+    assert G.precisa_aprovacao(alvo), f"`{alvo}` passaria em modo {G.MODO_AGENTE=}"
+    for caminho, fn in (("ensaiar", S.ensaiar),
+                        ("no_sandbox", S.no_sandbox),
+                        ("segundo_plano", S.executar_em_segundo_plano)):
+        r = await fn(alvo, {"contrato": "CTR-2026-00022"})
+        assert r.get("codigo") == "PRECISA_APROVACAO", f"{caminho} deixou passar: {r}"
+    assert G.efeito_externo(alvo), "a recusa não diz o que sairia da empresa"
+    print(f"OK §1.1 {len(G.EFEITO_EXTERNO)} ações externas barradas nos 3 despachantes "
+          f"(+ middleware na chamada direta)")
+
+
+async def aceite_auditoria_erro_util() -> None:
+    """§1.2 e §2.2 — argumento faltando é 422, e nada sai sem envelope nem `request_id`."""
+    def falta(contrato):  # noqa: ANN001, ARG001
+        pass
+
+    try:
+        falta()
+    except TypeError as e:
+        env = S.erro_envelope(e)
+    assert env["codigo"] == "PARAMETRO_OBRIGATORIO" and env["http"] == 422, env
+    assert env["campos_faltantes"] == ["contrato"], env
+    assert "positional" not in env["mensagem"], f"a assinatura da função vazou: {env}"
+
+    r = await S.obter_contrato("ID-QUE-NAO-EXISTE-ZZZ")
+    assert r.get("http") == 404, f"id inválido devia ser 404: {r}"
+    print("OK §1.2/§2.2 argumento faltando = 422 sem vazar assinatura; id inválido = 404")
+
+
+async def aceite_auditoria_contrato_com_itens() -> None:
+    """§2.2 — `obter_contrato` quebrava em TODO contrato com item (5 de 19).
+
+    O enum `ServiceType` declarava `security`/`remote_gatehouse` e a tabela guardava
+    `manutencao_cftv`/`maodeobra`/`entrada`/`parcela` — interseção ZERO. Os 14 que
+    "passavam" passavam por estarem vazios.
+    """
+    r = await S.obter_contrato(MAIAPOLIS_CTR)
+    assert r.get("contract_number") == MAIAPOLIS_CTR, f"não abriu: {str(r)[:160]}"
+    itens = r.get("items") or []
+    assert itens, "o contrato do aceite tem 4 itens e vieram 0 — a leitura regrediu"
+    tipos = {str(i.get("service_type")) for i in itens}
+    assert tipos & {"entrada", "parcela", "retida"}, (
+        f"o papel da parcela sumiu de service_type: {tipos}")
+    print(f"OK §2.2 contrato com {len(itens)} itens abre; papéis {sorted(tipos)}")
+
+
+async def aceite_auditoria_teto_de_conversa() -> None:
+    """§3.1 — 469 KB viravam 651 mil chars e estouravam a sessão."""
+    import json as _json
+
+    r = await S.baixar_contrato_pdf(MAIAPOLIS_CTR, formato="base64")
+    tamanho = len(_json.dumps(r, ensure_ascii=False))
+    assert tamanho < 60_000, f"a resposta voltou a inchar: {tamanho} chars"
+    assert not (r.get("arquivo") or {}).get("base64"), "base64 embutido acima do teto"
+    assert r.get("texto_extraido"), "cortou o base64 E o texto — sobrou nada para conferir"
+    assert r.get("aviso"), "omitiu o arquivo sem dizer por quê"
+
+    forcado = await S.baixar_contrato_pdf(MAIAPOLIS_CTR, formato="base64", forcar_base64=True)
+    assert (forcado.get("arquivo") or {}).get("base64"), "o escape consciente sumiu"
+    print(f"OK §3.1 resposta em {tamanho} chars com texto íntegro; forcar_base64 ainda traz")
+
+
+async def aceite_auditoria_texto_fiel() -> None:
+    """§3.3 — `[[...]]` sobrevivia no texto e o agente auditava documento que não existe."""
+    import re
+
+    t = (await S.baixar_contrato_pdf(MAIAPOLIS_CTR, formato="texto")).get("texto_extraido") or ""
+    sobrou = re.findall(r"\[\[[A-Z_]+\]\]", t)
+    assert not sobrou, f"token não resolvido no texto: {sobrou}"
+    assert "COMPOSIÇÃO DO VALOR" in t, "a tabela de composição não virou texto"
+    assert "ASSINATURAS" in t, "o bloco de assinaturas não virou texto"
+    # o que se confere antes de mandar ao cliente: a soma e o endereço
+    assert "46.320,00" in t, "o total da composição sumiu do texto"
+    assert "Rodovia Manoel Urbano" in t, "o endereço do contratante voltou a sair truncado"
+    print("OK §3.3 texto fiel: composição, assinaturas, total e endereço completo")
+
+
+async def aceite_auditoria_listagem_de_clientes() -> None:
+    """§3.5 — era a única listagem fora do envelope, e buscava só por nome."""
+    por_nome = await S.listar_clientes(busca="Maiapolis")
+    assert por_nome.get("ok") and por_nome.get("total") is not None, por_nome
+    por_cnpj = await S.listar_clientes(busca=MAIAPOLIS_CNPJ)
+    assert por_cnpj.get("total") == por_nome.get("total"), (
+        f"buscar por CNPJ não acha o que buscar por nome acha: "
+        f"{por_cnpj.get('total')} vs {por_nome.get('total')}")
+    todos = await S.listar_clientes()
+    assert todos.get("total", 0) > por_nome.get("total", 0), "o filtro não filtra"
+    linha = (por_nome.get("clientes") or [{}])[0]
+    assert isinstance(linha.get("mrr"), (int, float, type(None))), "mrr voltou a ser string"
+    print(f"OK §3.5 envelope com total; CNPJ e nome acham o mesmo ({por_nome['total']} de "
+          f"{todos['total']})")
+
+
+async def aceite_auditoria_sandbox_emite() -> None:
+    """§3.2 — o fluxo comercial não rodava no sandbox por falta de modelo."""
+    r = await S.no_sandbox("listar_modelos_contrato", {})
+    modelos = (r.get("resultado") or {}).get("modelos") or (r.get("resultado") or {}).get("items") or []
+    tipos = {str(m.get("tipo") or m.get("service_type")) for m in modelos}
+    faltam = {"eletronica_servico_unico", "portaria_mao_de_obra", "manutencao_cftv"} - tipos
+    assert not faltam, (
+        f"o sandbox não tem os modelos comerciais: {faltam}. "
+        f"Rode scripts/refrescar_sandbox.sh — sem eles o passo que justifica o sandbox "
+        f"(criar → emitir → conferir) não roda lá.")
+    print(f"OK §3.2 sandbox com {len(tipos)} tipos de modelo, comerciais inclusos")
+
+
 ACEITES = [
+    aceite_auditoria_efeito_externo,
+    aceite_auditoria_erro_util,
+    aceite_auditoria_contrato_com_itens,
+    aceite_auditoria_teto_de_conversa,
+    aceite_auditoria_texto_fiel,
+    aceite_auditoria_listagem_de_clientes,
+    aceite_auditoria_sandbox_emite,
     aceite_2_1_documento_legivel,
     aceite_2_1_todas_as_geradoras,
     aceite_3_1_listagem_diz_o_cliente,
