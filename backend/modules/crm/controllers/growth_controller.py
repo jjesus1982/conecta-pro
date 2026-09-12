@@ -143,11 +143,18 @@ async def pricing_parametros(
     rows = [r for r in rows if r["grupo"] != "margem"]
     margens = await MG.listar(db, empresa=empresa, linha_negocio=linha_negocio,
                               natureza_item=natureza_item)
+    from modules.crm.services import regime_tributario as RT
+
+    empresas = await RT.listar(db)
     saida = {
         "ok": True,
         "regime": "Grupo Conecta Mais · CCT 2026 SINDECOMPRESTS · encargos por regime da empresa do contrato (revisão multi-CNPJ)",
         "parametros": rows,
         "margens": margens,
+        # Bloco 2: o gross-up usa a carga DESTE CNPJ, não um conjunto global. A Eletrônica é
+        # Lucro Real (PIS/COFINS/ISS não-cumulativos) e a Patrimonial é Simples Anexo III —
+        # precificar as duas com a mesma carga erra as duas.
+        "empresas": empresas,
         "naturezas_validas": list(MG.NATUREZAS),
         "linhas_validas": list(MG.LINHAS),
     }
@@ -189,6 +196,14 @@ async def pricing_orcamento_por_natureza(
     if faltando:
         raise HTTPException(422, f"Informe: {', '.join(faltando)}.")
 
+    from modules.crm.services import regime_tributario as RT
+
+    try:
+        reg = await RT.resolver(db, empresa)
+        carga = reg.carga_total()
+    except RT.RegimeNaoCadastrado as e:
+        raise HTTPException(422, RT.envelope_recusa(e)) from e
+
     linhas, total_custo, total_preco = [], 0.0, 0.0
     for i, it in enumerate(itens):
         natureza = str(it.get("natureza_item") or "").strip()
@@ -206,6 +221,15 @@ async def pricing_orcamento_por_natureza(
             raise HTTPException(422, MG.envelope_recusa(e)) from e
         custo_linha = round(custo * qtd, 2)
         mem = m.memoria(custo_linha)
+        # ⭐ GROSS-UP por CNPJ, DEPOIS da margem. A ordem importa: imposto sobre o preço
+        # (que é o caso de ISS/PIS/COFINS e do DAS) entra dividindo, senão a margem é comida
+        # pelo tributo e o número que aparece como "margem 35%" não é a margem que sobra.
+        preco_com_tributo = round(mem["preco"] / (1 - carga), 2) if carga < 1 else mem["preco"]
+        mem["tributo"] = round(preco_com_tributo - mem["preco"], 2)
+        mem["preco_com_tributo"] = preco_com_tributo
+        mem["carga_tributaria"] = carga
+        mem["carga_tributaria_pct"] = f"{carga * 100:.2f}%"
+        mem["preco"] = preco_com_tributo
         mem["descricao"] = it.get("descricao")
         mem["quantidade"] = qtd
         mem["custo_unitario"] = round(custo, 2)
@@ -217,6 +241,7 @@ async def pricing_orcamento_por_natureza(
         "ok": True,
         "empresa_cnpj": empresa,
         "linha_negocio": linha,
+        "regime_tributario": reg.para_dict(),
         # ⭐ a memória é POR LINHA. O total é consequência, não a régua.
         "memoria_de_calculo": linhas,
         "total_custo": round(total_custo, 2),
