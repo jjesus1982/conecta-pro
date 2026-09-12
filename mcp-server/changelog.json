@@ -2,6 +2,41 @@
  "gerado_de": "git log -- mcp-server/",
  "entradas": [
   {
+   "commit": "f0f0037ad",
+   "data": "2026-09-12",
+   "mudanca": "feat: Blocos 7 e 10 — escopo LGPD declarado, e 8 ações irreversíveis que executariam"
+  },
+  {
+   "commit": "c44bcc0b5",
+   "data": "2026-09-12",
+   "mudanca": "feat(mcp): Bloco 8 — pendencias_acionaveis, e ela já achou 43 críticas reais"
+  },
+  {
+   "commit": "32a84a75f",
+   "data": "2026-09-12",
+   "mudanca": "fix(aprovacoes): Bloco 9 — higiene da fila, e a origem propaga até ela"
+  },
+  {
+   "commit": "616a8c4dc",
+   "data": "2026-09-12",
+   "mudanca": "feat(propostas): Bloco 3 — procedência da cotação, não catálogo de preço"
+  },
+  {
+   "commit": "a94bf3246",
+   "data": "2026-09-12",
+   "mudanca": "feat(precificacao): Bloco 1 — margem deixa de ser escalar e vira (empresa, linha, natureza)"
+  },
+  {
+   "commit": "bd1b64684",
+   "data": "2026-09-11",
+   "mudanca": "fix: Blocos 4 e 5 do Cowork — o vazamento continuava, e o guard que eu escrevi não pegava"
+  },
+  {
+   "commit": "45f82eba6",
+   "data": "2026-09-11",
+   "mudanca": "chore(mcp): changelog regenerado"
+  },
+  {
    "commit": "018f4f2c4",
    "data": "2026-09-11",
    "mudanca": "fix: as 7 pendências da validação do Cowork — e a margem que ia no PDF do cliente"
