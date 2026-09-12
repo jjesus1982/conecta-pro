@@ -35,6 +35,20 @@ def novo_id() -> str:
     return f"req_{secrets.token_hex(8)}"
 
 
+def _origem_do_conector() -> str:
+    """Como este conector se chama na trilha. Lê o ambiente, não adivinha."""
+    import os
+
+    nome = (os.getenv("MCP_AGENTE_NOME") or "").strip()
+    escopo = (os.getenv("MCP_ESCOPO") or "").strip()
+    if nome and escopo:
+        return f"MCP {nome}/{escopo}"
+    if nome:
+        return f"MCP {nome}"
+    # conector público: sem nome nem escopo declarados, serve o catálogo inteiro
+    return "MCP publico sem escopo declarado"  # sem parênteses: o `quem` já abre um par
+
+
 class CarimboRequestId(_Base):
     """Gera o id da chamada, propaga ao ERP e carimba a resposta."""
 
@@ -63,6 +77,10 @@ class CarimboRequestId(_Base):
                     "argumentos": str(getattr(getattr(context, "message", None),
                                               "arguments", None) or {})[:400],
                     "autorizado_por_concessao": _L.concessao_vale_para(nome_tool),
+                    # ⭐ quem PEDIU, não só sob qual credencial correu. O conector público
+                    # usa a identidade do Jordan; sem isto a trilha de LGPD credita a ele
+                    # um acesso que foi do assistente.
+                    "origem": _origem_do_conector(),
                 })
         except Exception:  # noqa: BLE001
             # log que derruba a chamada seria pior que log ausente: o dono perde a

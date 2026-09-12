@@ -150,6 +150,18 @@ async def log_acesso_sensivel(
     """
     quem = (getattr(current_user, "full_name", None)
             or getattr(current_user, "email", None) or "?")
+    # ⭐ 12/09/2026 — A TRILHA DIZIA A PESSOA E OMITIA O AGENTE. O conector público carrega
+    # a identidade do Jordan, então todo acesso do assistente ficava gravado como se ele
+    # tivesse aberto o holerite com as próprias mãos. Para uma trilha de LGPD isso é pior
+    # que registro ausente: ela responde "quem olhou" com um nome errado, e com a chancela
+    # de uma tabela de auditoria.
+    #
+    # O conector SABE quem é (MCP_AGENTE_NOME, MCP_ESCOPO) e agora declara em `origem`. Sem
+    # coluna nova e sem migração: `quem` é texto e passa a carregar as duas informações —
+    # a pessoa sob cuja credencial o acesso correu E o agente que pediu.
+    origem = str(payload.get("origem") or "").strip()[:60]
+    if origem:
+        quem = f"{quem} (via {origem})"
     await db.execute(text(
         "INSERT INTO agente_acesso_sensivel "
         "  (tool, request_id, argumentos, quem, autorizado_por_concessao) "

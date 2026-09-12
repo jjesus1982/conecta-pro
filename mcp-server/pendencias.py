@@ -163,9 +163,12 @@ def de_aso(asos: list[dict], sem_aso: list[dict]) -> list[dict]:
             titulo=(f"{len(nomes)} colaboradores SEM ASO no cadastro"
                     if len(nomes) > 1 else f"{nomes[0]} SEM ASO no cadastro"),
             severidade="critica", prazo=None, dias=None,
-            impacto=("admissão sem ASO é infração; o risco de NÃO olhar é maior que o de "
-                     "olhar. Quantidade alta costuma ser campo nunca populado, não 35 "
-                     "infrações distintas — confirme antes de tratar um a um"),
+            # ⚠️ o número vem do `len`, não de um retrato. A 1ª versão dizia "não 35
+            # infrações distintas" porque 35 era o que eu tinha visto no dia — e quando
+            # virou 33 o texto passou a contradizer o próprio `quantidade` ao lado dele.
+            impacto=(f"admissão sem ASO é infração; o risco de NÃO olhar é maior que o de "
+                     f"olhar. Quantidade alta costuma ser campo nunca populado, não "
+                     f"{len(nomes)} infrações distintas — confirme antes de tratar um a um"),
             acao=("providenciar ASO admissional — em LOTE se o campo nunca foi preenchido"
                   if len(nomes) > 1 else "providenciar ASO admissional"),
             tool="funcionarios_sem_aso", ident="sst:sem_aso")
