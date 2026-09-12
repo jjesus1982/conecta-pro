@@ -427,18 +427,44 @@ services:
       - conecta-pro-network
 
   # 10/09/2026 — conector do KIT. Por que um SEGUNDO conector em vez de ampliar o MCP_ESCOPO
-  # do irmão: o `mcp-internal` roda `MCP_MODO=agente`, que exige `x-usuario-token` (o JWT de
+  # do irmão: o `mcp-internal` roda identidade REPASSADA, que exige `x-usuario-token` (o JWT de
   # QUEM perguntou) em toda tool que toca pessoa ou dinheiro — e o Hermes não sabe mandar
   # cabeçalho por chamada (headers dele são estáticos por conexão). Com isso ele fica com 6
   # ferramentas úteis de 146.
   #
-  # No fechamento do kit NÃO HÁ TERCEIRO sobre quem responder: é o sistema agindo pela própria
-  # empresa, a mesma situação do conector público do Cowork, onde "a conta de serviço É o
-  # Jordan". Por isso este NÃO leva MCP_MODO=agente. O que o protege é o ESCOPO: só `ged` e
-  # `fiscal` (13 ferramentas), nada de folha, cadastro de pessoa, PIX ou CRM.
-  #
   # Escopo pequeno também é dinheiro: o catálogo inteiro custou 35 mil tokens para responder
-  # "OK" (medido em 10/09). 13 ferramentas cabem no prompt e melhoram a escolha.
+  # "OK" (medido em 10/09).
+  #
+  # ⭐ 12/09/2026 — GANHOU PAREDE. Decisão do Jordan: "põe MCP_MODO=agente no mcp-ged".
+  #
+  # Este conector nasceu SEM parede, e a justificativa era honesta: no fechamento do kit não há
+  # terceiro sobre quem responder — é o sistema agindo pela própria empresa, mesma situação do
+  # Cowork. A premissa era escopo pequeno e de leitura: o comentário anterior aqui dizia
+  # "13 ferramentas". MEDIDO em 12/09: o conector servia **42**, e cinco delas não eram leitura —
+  # `excluir_documento`, `montar_kit_completo` e `buscar_documento` (as três `propose`, que sem
+  # gate EXECUTAM: apagar documento, montar kit e MANDAR O ROBÔ COLETAR em portal externo, sem
+  # aprovação e sem requerente nomeado), mais `cadastrar_whatsapp_cliente` e
+  # `registrar_evento_kit` (`write_low`). O escopo `ged,fiscal` cresceu do outro lado e a decisão
+  # de não ter parede continuou valendo sozinha.
+  #
+  # As DUAS linhas andam juntas, e a segunda não é enfeite: `MCP_MODO=agente` sozinho faria
+  # `identidade.sensivel()` exigir `x-usuario-token` em TODAS as 42 (sensível é o default,
+  # inclusive leitura fora de `SEM_DADO_DE_TERCEIRO`) — e o Hermes só manda header estático por
+  # conexão, então o conector morreria inteiro e a auditoria do kit pararia calada.
+  #   MCP_MODO=agente        → gate_propose ATIVO. As três `propose` viram PEDIDO na Central de
+  #                            Aprovações e não executam. `write_low` segue executando (interno
+  #                            e reversível), mesmo regime do mcp-pessoas e do mcp-internal.
+  #   MCP_IDENTIDADE=propria → a pergunta tem dono declarado (`MCP_AGENTE_NOME`) e o repasse de
+  #                            JWT humano não é exigido; as 37 leituras continuam servindo, com
+  #                            o nome do agente no log de toda chamada.
+  #
+  # Custo medido para o que já roda: ZERO. A auditoria do kit (`kit_auditoria_hermes`) usa só
+  # `consultar_kit`, que é leitura, e o prompt dela diz "você não move, não apaga e não renomeia
+  # nada — só relata". A montagem agendada do kit roda no backend/celery, não passa por MCP, e
+  # o gate é middleware de MCP: não é afetada.
+  #
+  # A trava `checar_mcp_tools.py` (checagem 7) mede a premissa em vez de confiar neste
+  # comentário: conector sem MCP_MODO só pode servir `read`. Foi ela que achou os 42.
   mcp-ged:
     image: conecta-pro-mcp:latest
     container_name: conecta-pro-mcp-ged
@@ -448,6 +474,9 @@ services:
       - ./mcp-server/.env
     environment:
       MCP_ESCOPO: ${MCP_ESCOPO_GED:-ged,fiscal}
+      MCP_MODO: agente
+      MCP_IDENTIDADE: propria
+      MCP_AGENTE_NOME: hermes-ged
       AUTH_MODE: bearer
       ERP_BASE_URL: "http://conecta-pro-backend:8080"
     networks:

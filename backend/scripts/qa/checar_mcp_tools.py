@@ -65,15 +65,18 @@ DECLARACAO: dict[str, dict] = {
     "conecta-pro-mcp-ged": {
         "compose": "docker-compose.yml",
         "MCP_ESCOPO": "ged,fiscal",
-        "MCP_MODO": None,
-        "MCP_IDENTIDADE": None,
-        "MCP_AGENTE_NOME": None,
-        "porque": "Fechamento de kit: não há TERCEIRO sobre quem responder — é o sistema agindo "
-                  "pela própria empresa, mesma situação do Cowork. MCP_MODO ausente é DECISÃO, "
-                  "não esquecimento; quem protegeria é o ESCOPO — nada de folha, cadastro de "
-                  "pessoa, PIX ou CRM. ⚠️ E é só isso que protege: o comentário do compose fala "
-                  "em 13 ferramentas e o conector serve 42 (medido 12/09/2026), das quais 5 não "
-                  "são leitura. A condição escrita aqui já foi atingida — ver a checagem 7.",
+        "MCP_MODO": "agente",
+        "MCP_IDENTIDADE": "propria",
+        "MCP_AGENTE_NOME": "hermes-ged",
+        "porque": "GANHOU PAREDE em 12/09/2026, por decisão do Jordan. Nasceu sem, com "
+                  "justificativa honesta (no fechamento do kit não há terceiro sobre quem "
+                  "responder) e uma premissa que envelheceu: o compose dizia 13 ferramentas de "
+                  "leitura e o conector servia 42, cinco fora de leitura — `excluir_documento`, "
+                  "`montar_kit_completo` e `buscar_documento` executavam sem aprovação. As duas "
+                  "linhas andam juntas: MCP_MODO sozinho exigiria `x-usuario-token` nas 42 (o "
+                  "default de `sensivel()` cobre leitura também) e o Hermes só manda header "
+                  "estático — o conector morreria inteiro. Com identidade própria, as 37 leituras "
+                  "seguem e as 3 `propose` viram pedido na Central.",
     },
     # ⭐ 11/09/2026 — conector de PESSOAS, o do Hermes (triagem diária do ponto).
     "conecta-pro-mcp-pessoas": {
