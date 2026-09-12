@@ -385,3 +385,229 @@ local já preenchido pelo QR**.
 - apkcombo / apkpure — versões, datas, instalações, notas e changelog dos apps
 - https://www.gov.br/trabalho-e-emprego/.../rep e Portaria MTP 671/2021 — exigências do REP-P
 - https://www.gesoper.com.br/site/ — concorrente (Sollução Informática, desde 1986, 13 módulos)
+
+---
+
+# PARTE II — Escavação profunda e paridade completa (12/09/2026)
+
+Pedido do Jordan: *"todos os módulos deles, todos os nossos módulos, quero uma paridade completa"*.
+Fontes novas desta parte: texto integral de `dgxbrasil.com.br` (extraído do HTML, não do resumo),
+`digiexpressapp.com.br` (é o MESMO site), lojas de aplicativos, e as 73 páginas já lidas.
+
+## 8. O que a escavação achou além da Parte I
+
+### 8.1 Módulos e fatos novos
+- **`Preservação`** — item do menu DGX-Facilities **sem descrição em lugar nenhum** do site.
+  Anunciado e vazio. (Eles também têm vitrine à frente do produto.)
+- **`Área do Cliente`** — existe no menu e aponta para `~/construcao`. **Em obras.**
+- **`/blog`** — link no menu, **HTTP 404**.
+- **`HelpDeskDigiexpress.exe`** — distribuem um executável de suporte remoto (`/assets/exe/`).
+- **App de Manutenção** e **App de Supervisão** são apps SEPARADOS do Q-Watcher (que nasceu da
+  fusão de "QR Code Supervisão" + "QR Code Manutenção"). Os QR são **comercializados
+  separadamente**.
+- **Escolta Online é GRATUITO** para quem já tem o DGX Escolta. Land-and-expand clássico: dão o
+  portal do lado do cliente para travar o fornecedor.
+
+### 8.2 Dois modelos de preço, e eles convivem
+- **ERP**: "valores fixos, que incluem suporte técnico e atualizações, **não importa o número de
+  estações de trabalho e colaboradores**". (A nossa proposta: R$ 1.700 + R$ 300 cloud.)
+- **Apps de ponto/acesso**: "por **valores fixos mensais por colaborador**".
+Vendem a plataforma por assinatura plana e o app por cabeça. O app é o que escala com o cliente.
+
+### 8.3 Q-Watcher — a lista completa de funcionalidades (do site, não do deck)
+1. Criação de **rotinas para equipes**
+2. Checklists para registrar a **evolução** das atividades
+3. **Abertura de chamados para contingência**
+4. Monitoramento por **indicadores de qualidade**
+5. **Controle de eliminação de resíduos**
+6. **Contabilização de trocas e reposições de itens**
+7. **Análise de qualidade da produção (amostragem)**
+
+### 8.4 Detalhes de engenharia que valem copiar literalmente
+- **App de Manutenção: "fazer download dos locais para utilização offline"** — sincroniza o
+  cadastro de locais para o aparelho antes de perder sinal.
+- **"a foto deve ser registrada no momento em que as informações estiverem sendo lançadas"** —
+  foto obrigatória tirada NA HORA, não escolhida da galeria. É a trava anti-fraude que a nossa
+  ronda não tem.
+- **Rondas: vistoria salva no aparelho e enviada quando houver sinal.** Offline-first.
+- **Cronos 3.61.9: "reconhecimento facial offline automático em caso de instabilidade na conexão
+  online"** + "otimização do número de chamadas à API".
+- **Controle de Acesso Residencial: "definir uma cerca para calcular a DISTÂNCIA dos acessos"** —
+  não é dentro/fora, é a distância medida.
+- **"impressão de uma folha de registro, que deverá ser assinada pelo funcionário para evitar
+  eventuais casos de processos trabalhistas"** — o papel como defesa trabalhista, assumido no
+  material de venda.
+- **RBAC por rotina**: "os acessos e bloqueios aos módulos e rotinas são determinados pelo
+  administrador".
+- **Cronograma de Visita dispara lembrete de agenda automaticamente quando usado com o Q-Watcher.**
+- **Controle de Acesso e Monitoramento de Presença**: objetivo da visita, tempo de permanência de
+  pessoas **e transportadoras**, média de acessos por período, **horários de pico** e **tempo de
+  carga e descarga**.
+- **Pronta Resposta**: ocorrência com posição do veículo, horários de entrada e saída do local,
+  fotos, prestador designado; dashboards por tipo de sinistro, **veículos localizados ou não**,
+  atendimentos por período, segmentados por prestador e por cliente.
+- **Gestão de Demanda**: "mantém a interação entre todos os envolvidos, **eliminando a troca de
+  e-mails**" + arquivo virtual com pastas on-line por empresa contratada.
+
+### 8.5 Os quatro CASES deles, com o número que prometem
+1. Comercial não conseguia manter dados de contratados, escalas e equipamentos — só controlava por
+   valor. Depois: **renegociação de contratos** e operacional reestruturado com dado em tempo real.
+2. Software anterior gerava retrabalho e várias pessoas faziam a mesma tarefa. Depois: rotinas
+   otimizadas, **processos automatizados com integrações API**, filiais centralizadas na matriz.
+3. **"A folha não possuía integração nacional e o processo para fechá-la levava praticamente um
+   mês. Consequentemente, as reclamações trabalhistas eram frequentes. Atualmente a folha é
+   fechada em TRÊS DIAS e não há mais reclamações trabalhistas."**
+4. Varejo não controlava serviço de fornecedor e equipe técnica. Depois: checklist distribuído por
+   painel de controle **entre equipe própria e terceirizada**, com **eliminação de cobranças
+   indevidas**. Começou só em SP, hoje é nacional.
+
+O case 3 é o argumento de venda deles contra nós — e é justo: **fechar folha em 3 dias sem
+reclamação trabalhista** é o resultado que o dono de uma empresa de vigilância compra.
+
+---
+
+## 9. PARIDADE COMPLETA — módulo a módulo
+
+Estado do Conecta PRO medido em 12/09/2026 por contagem de arquivos e de rotas declaradas
+(`@router.<verbo>`) em `backend/modules/`. Legenda: **✅ temos** · **🟡 parcial** · **❌ não temos**
+· **➖ não se aplica ao nosso negócio hoje**.
+
+### 9.1 Inventário medido do Conecta PRO (para referência da coluna)
+
+| Módulo | .py | rotas | Módulo | .py | rotas |
+|---|---|---|---|---|---|
+| people_management | 344 | 347 | ged | 55 | 37 |
+| operacional | 232 | 305 | juridico | 25 | 35 |
+| financial | 207 | 193 | reimbursement | 19 | 26 |
+| crm | 79 | 180 | government_integrations | 178 | 20 |
+| hr | 172 | 166 | cct | 33 | 15 |
+| ai | 127 | 108 | signatures | 13 | 12 |
+| campo | 39 | 64 | recruitment | 33 | **5** |
+| integrations | 113 | 53 | health_occupational | 33 | **0** |
+| client_portal | 42 | 43 | retention | 47 | **0** |
+| notifications | 74 | 41 | document_kits | 16 | **0** |
+| gedeon | 80 | 41 | bidding | **101** | **0** |
+
+⚠️ Cinco módulos nossos têm código e **zero rotas**: `bidding` (101 arquivos!),
+`health_occupational`, `retention`, `document_kits`, `services`/`scheduler`/`pessoas`. Além do
+`hr/rep_integration`, que não está montado. É o nosso "Preservação".
+
+### 9.2 DGX — ERP (linhas de produto)
+
+| Deles | Nosso equivalente | Estado |
+|---|---|---|
+| **Patrimonial** (contrato + SLA de vigilância/limpeza) | `operacional` + `crm` + `clients` | ✅ temos, e com mais rota |
+| **Escolta** (solicitação → boletim de medição) | 3 arquivos citam "escolta" | ❌ não temos |
+| **Gerenciadora de Escolta** (lado de quem CONTRATA; Frete, Embarque, Obsoletos) | — | ➖ outro mercado |
+| **Pronta Resposta** (furto/roubo com rastreador) | — | ❌ não temos |
+
+### 9.3 DGX — Facilities
+
+| Deles | Nosso equivalente | Estado |
+|---|---|---|
+| Controle de Acesso e **Monitoramento de Presença** (picos, carga/descarga, visitante) | `presence_controller`, 5 arquivos de visitante | 🟡 presença sim; **objetivo da visita, tempo de permanência, horário de pico e tempo de carga/descarga: não** |
+| **Escolta Online** (portal do cliente pedir escolta) | `client_portal` (43 rotas) existe, mas não para escolta | ❌ |
+| **Gestão de Demanda** (responsável + prazo + arquivo virtual por contratada) | `campo` (64 rotas), OS em 26 arquivos, SLA em 41 | 🟡 temos OS e SLA; **sem tempo gasto, sem materiais em falta, sem arquivo virtual por contratada** |
+| **Gestão de Limpeza Pública com IA** | — | ➖ mercado público |
+| **Gestão de Multa** (leitura automática DETRAN + recurso judicial) | **zero** ocorrências com contexto de trânsito/placa | ❌ não temos |
+| **Mapa de Ponto** (cinco estados por cor + gráfico de assiduidade + imprimir cartão) | `posto_descoberto` existe como **tipo de alerta** (`alert_service`) | 🟡 **temos o dado como ALERTA, não como grade pintada** |
+| **Preservação** | — | ➖ vazio também neles |
+
+### 9.4 DGX — Aplicativos
+
+| Deles | Nosso equivalente | Estado |
+|---|---|---|
+| **Cronos** (ponto facial, online **e offline**, 671) | ponto próprio com facial (`FacialCapture`) + geofence | 🟡 **temos facial e geofence; NÃO temos offline, nem REP-P constituído** |
+| Controle de Acesso **Empresarial** | idem acima | 🟡 |
+| Controle de Acesso **Residencial** (cerca com DISTÂNCIA) | geofence por dentro/fora | 🟡 sem medida de distância |
+| Controle de Acesso **Eventos** (QR + colete) | — | ➖ |
+| **Q-Watcher** (rotinas, checklist, resíduos, amostragem) | `inspection_rounds` (62 arquivos), checklist em 72 | 🟡 temos ronda e checklist; **sem resíduos, sem reposição de itens, sem amostragem de qualidade** |
+| **Rondas** (QR + foto + offline) | `inspection_rounds` | 🟡 **sem offline e sem foto obrigatória no momento** |
+| **App Manutenção** (download de locais p/ offline) | — | ❌ |
+| **App Supervisão** (timeline da equipe por contrato) | — | ❌ |
+| **Gestão de Frota** (QR, preventiva, abastecimento, multa) | 13 arquivos citam frota/veículo; `equipment_management` | 🟡 raso |
+| **Cronograma de Visita** (grid + CRM + lembrete) | `crm` visitas + `agendar_visita` | ✅ temos |
+| **Avaliação Totem/Tablet** (+ link compartilhável, avalia proposta) | NPS em 13 arquivos (`enviar_nps`, `resumo_nps`) | 🟡 temos NPS; **sem totem, sem carinha por item de ambiente, sem avaliar proposta** |
+| **Gestão de Leiturista** (concessionárias) | — | ➖ outro mercado |
+
+### 9.5 Dentro do ERP — processo por processo (o que mais importa)
+
+| Processo deles | Nosso | Estado |
+|---|---|---|
+| **Grid de Planejamento `real/contratual` por dia × cliente** | dados existem (escala + presença) | ❌ **a tela não existe** |
+| Mapa de Ponto com 5 estados por cor | alerta `posto_descoberto` | 🟡 |
+| **Diário de Ocorrência** (mesa de correção de batida) | justificativas + contingência | 🟡 temos o registro, **não a mesa** |
+| **Movimentações** (função/turno origem→destino + reserva técnica) | alocação e substituição | 🟡 **sem reserva técnica (0 ocorrências)** |
+| Dashboard de ausências por supervisor/dia da semana/coberto | `ponto_dashboard` | 🟡 |
+| **Nove modos de cálculo de contrato** | precificação + `simular_preco` + CCT | 🟡 |
+| **Reserva Técnica** no contrato | **0 ocorrências** | ❌ |
+| **PLR Sindicato %** no contrato | PLR só como tipo de evento | ❌ |
+| **Total Calculado vs Total Faturado** | margem por condomínio | 🟡 |
+| **Benefício ligado ao ponto** (Planejado/Trabalhado/Recebido/Direito ant.) | VT/VR por competência | ❌ **o motor não tem as colunas anteriores nem ±Ponto** |
+| **Arquivo do operador (Alelo/Sodexo)** | `beneficios_importer` LÊ Sólides/SINETRAM | 🟡 **importamos; não geramos** |
+| **Linha de ônibus por operadora/cidade** | `vt_modalidade` (solides/sinetram) | 🟡 sem linha |
+| **Reajuste de benefício com REPASSE ao contrato** | — | ❌ |
+| **Cesta básica** | 3 arquivos | 🟡 |
+| **Mapa de férias por idade do período aquisitivo** | férias sim, faixas não | ❌ |
+| **Sindicato com mês de dissídio + pagamento** | `cct` (15 rotas) | 🟡 |
+| **Reciclagem de vigilante com validade 2 anos** | — | ❌ |
+| **CNV / Nome de Guerra** | — | ❌ |
+| **Alocação de armamento e colete (4/4)** | armamento como **flag** em post/employee/allocation | 🟡 flag, não controle |
+| **Crachás / em lote** | campo no cadastro | ❌ |
+| **Pensionistas** (cadastro de beneficiário) | pensão **calculada** | 🟡 |
+| **Carta de retorno de afastamento** | 1 arquivo | ❌ |
+| Medidas disciplinares | 49 arquivos | ✅ |
+| **Uniforme/EPI com grade de tamanho e mín/máx** | uniforme 24, EPI 61 arquivos | 🟡 **sem grade de tamanho** |
+| **Compras: cotação → NF entrada → gera conta a pagar** | `financial` purchase + inventory (65 arq.) | ✅ |
+| **Unidade de medida → `Unidade NFe`** | — | 🟡 |
+| **Contas fixas com vencimento como REGRA + `Gerado Até`** | recorrência existe | 🟡 |
+| **Centros de custo hierárquicos** | centro de custo | 🟡 |
+| **Contas a receber `Protestado`** | — | ❌ |
+| **Faturamento por fechamento de missão → NF emitida/parcial** | — | ➖ (escolta) |
+| **Top 10 clientes por faturamento** | dashboards comerciais | ✅ |
+| **Banco de horas dia/acumulado no espelho** | 43 arquivos | ✅ |
+| **Fechamento de folha: leiaute p/ 8 sistemas** | `exportar_folha_dominio` | 🟡 só Domínio — **e nós CALCULAMOS, eles não** |
+
+### 9.6 O que NÓS temos e eles não (a coluna que não pode ser perdida na troca)
+
+| Nosso | Deles |
+|---|---|
+| **eSocial** (178 arq. em `government_integrations`) | ❌ nada |
+| **FGTS Digital · EFD-Reinf · DCTFWeb · SPED · eCAC · SEFAZ** | ❌ nada |
+| **NFS-e ABRASF 2.04 (Manaus)** | 🟡 transmitem, mas o exemplo é **NFS-e de São Paulo** |
+| **Cálculo de folha próprio** | ❌ exportam para Domínio/TOTVS/Sage/Protheus |
+| **Certidões negativas + monitor gov** | ❌ nada |
+| **GED com kit documental** (`ged` 37 rotas + `gedeon` 41) | ❌ só "arquivo virtual" de pastas |
+| **Assinatura ICP-Brasil A1 qualificada de contrato** (`signatures`) | 🟡 só assinatura de espelho com facial |
+| **Agente WhatsApp + orquestrador + MCP + Hermes** | 🟡 IA em UM módulo (limpeza pública) |
+| **Portal do colaborador** (`client_portal` 43 rotas) | ❌ "Área do Cliente" em construção |
+| **Jurídico** (35 rotas) | ❌ só recurso de multa |
+| **Reembolso** (26 rotas) | ❌ |
+| **CCT do Amazonas** | ❌ sindicatos SP/DF |
+| **Arsenal de QA: 152 oráculos + 47 caçadores** | ❌ sem evidência pública |
+
+---
+
+## 10. Ordem de ataque revisada com a Parte II
+
+A régua não muda — jurídico, depois o número, depois a tela — mas a escavação mexeu na ordem.
+
+| # | O que | Por que agora |
+|---|---|---|
+| 1 | **REP-P: AEJ + AFD montado e populado + INPI + atestado técnico** | 52 pessoas batem num programa sem instrumento legal. Único item de risco jurídico |
+| 2 | **Facial offline com fallback automático** | Eles publicaram (Cronos 3.61.9). É o defeito que custou a nossa semana |
+| 3 | **Benefício ligado ao ponto + geração do arquivo do operador + repasse ao contrato** | A nossa auditoria já diz que o VT/VR não fecha. Case 3 deles é "folha em 3 dias sem reclamação" |
+| 4 | **Grid `real/contratual` + Mapa de Ponto com os 5 estados** | O dado já existe e a triagem do Hermes já o separa — em prosa. Falta a tela que Paiva e Gonzaga abrem todo dia |
+| 5 | **Conformidade de vigilante**: reciclagem com validade, CNV, nome de guerra, armamento/colete como controle | Exigência de Polícia Federal. Custo baixo, risco alto |
+| 6 | **Foto obrigatória tirada no momento** + **offline-first** na ronda e no checklist | Trava anti-fraude que não temos; e campo sem sinal é a regra, não a exceção |
+| 7 | **Reserva técnica + PLR sindicato % + calculado vs faturado** no contrato | Precificação de mão de obra sem isso subestima custo |
+| 8 | **Mapa de férias por idade do período aquisitivo** (faixa >22 meses = alarme de dobra) | Risco de dobra de férias é dinheiro |
+| 9 | **Ligar os módulos mortos**: `bidding` (101 arquivos, 0 rotas), `health_occupational`, `retention`, `document_kits` | Código pago e não servido. É o nosso "Preservação" |
+| 10 | Uniforme com grade de tamanho · frota com `Restam` negativo · vistoria chegada×saída · condutor na multa · totem de avaliação | Fluidez operacional |
+
+### O que NÃO copiar (reafirmado)
+- **A interface**: grade densa de 2005 que funciona porque o operador decorou.
+- **O recorte regional**: sindicatos SP/DF, linhas de ônibus da Grande SP, NFS-e paulistana.
+- **Exportar folha em vez de calcular** — é a nossa vantagem, não a nossa dívida.
+- **Anunciar módulo vazio** (`Preservação`, `Área do Cliente`, blog 404). Nós já temos cinco
+  módulos sem rota; copiar isso seria copiar o defeito.
