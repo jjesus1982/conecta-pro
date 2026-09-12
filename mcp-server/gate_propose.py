@@ -256,6 +256,49 @@ def por_que_exige_aprovacao(nome: str) -> str:
     return EFEITO_EXTERNO.get(nome) or IRREVERSIVEL.get(nome, "")
 
 
+def envelope_recusa(nome: str, *, caminho: str = "") -> dict:
+    """A recusa COMPLETA, igual nos quatro caminhos. Uma implementação, não quatro.
+
+    ⭐ Validação do Cowork (12/09/2026): as quatro recusas vinham "byte a byte idênticas",
+    só mudando o nome da tool — sem `vai_acontecer`, sem dizer que `fechar_folha` não tem
+    desfazer, que `expurgar_documentos_teste` APAGA ou que `aceitar_proposta` gera COMISSÃO.
+    Os três despachantes montavam a própria mensagem genérica e ignoravam o que o gate já
+    sabia.
+
+    "A parede sobe. Ela só não conta por que subiu" — e contar era o ponto do Bloco 10.
+    """
+    sai = EFEITO_EXTERNO.get(nome, "")
+    irrev = IRREVERSIVEL.get(nome, "")
+    if sai:
+        cabeca = (f"`{nome}` não é executada por mim. Se eu rodar isto, SAI DA EMPRESA: "
+                  f"{sai}. Isso não se desfaz — e quem recebe é uma pessoa de verdade.")
+    elif irrev:
+        cabeca = (f"`{nome}` não é executada por mim. O que ela faz NÃO TEM DESFAZER: "
+                  f"{irrev}.")
+    else:
+        cabeca = (f"`{nome}` é ação de classe {classe_de(nome)} e precisa de aprovação "
+                  f"humana.")
+    fora = {
+        "ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
+        "acao": nome, "classe": classe_de(nome),
+        "mensagem": cabeca,
+        "vai_acontecer": consequencias(nome),
+        "sai_da_empresa": sai or None,
+        "irreversivel": irrev or None,
+        "dica": ("Eu não tenho como aprovar o que eu mesmo pedi. Leve à pessoa que decide — "
+                 "a aprovação acontece em outra superfície, com OTP quando é dinheiro ou "
+                 "assinatura."),
+    }
+    if caminho:
+        # a dica adaptada ao caminho tentado, que o Cowork elogiou e vale manter
+        fora["por_que_aqui_tambem"] = {
+            "ensaiar": "Ensaio mostra o que faria; esta ação não é ensaiada nem executada.",
+            "no_sandbox": "Sandbox não é caminho alternativo para aprovação humana.",
+            "segundo_plano": "Segundo plano muda QUANDO, não O QUÊ.",
+        }.get(caminho, "")
+    return fora
+
+
 def precisa_aprovacao(nome: str) -> bool:
     # a ordem importa: efeito externo e irreversível NÃO dependem do modo.
     if nome in EFEITO_EXTERNO or nome in IRREVERSIVEL:
@@ -386,20 +429,11 @@ class GatePropose(_Base):
 
         from fastmcp.exceptions import ToolError  # noqa: PLC0415
 
-        envelope = {
-            "ok": False,
-            "codigo": CODIGO_APROVACAO,
-            "http": 403,
-            "mensagem": texto,
-            "acao": nome,
-            "classe": pedido["classe"],
-            "sai_da_empresa": sai or None,
-            "irreversivel": irrev or None,
-            "vai_acontecer": pedido["vai_acontecer"],
-            "dica": "Esta ação não é executada por mim em nenhum caminho — nem por "
-                    "`ensaiar`, `no_sandbox` ou segundo plano. Quem aprova não pode ser "
-                    "quem pede.",
-        }
+        # a MESMA função dos três despachantes: quatro caminhos, uma implementação. Quatro
+        # textos separados foi exatamente como eles divergiram — os despachantes contavam
+        # menos do que o gate já sabia.
+        envelope = {**envelope_recusa(nome), "mensagem": texto}
+        envelope["registro_na_central"] = registro.strip() or None
         raise ToolError(_json.dumps(envelope, ensure_ascii=False))
 
 

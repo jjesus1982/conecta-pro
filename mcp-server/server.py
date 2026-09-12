@@ -1087,7 +1087,7 @@ async def aceitar_proposta(proposal_id: str, confirmar: str = "") -> dict:
     try:
         return await erp.post(f"/crm/proposals/{proposal_id}/accept", json={})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1102,7 +1102,7 @@ async def recusar_proposta(proposal_id: str, motivo: str) -> dict:
         return await erp.post(f"/crm/proposals/{proposal_id}/reject",
                               params={"reason": motivo.strip()})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1116,7 +1116,7 @@ async def nova_versao_proposta(proposal_id: str) -> dict:
     try:
         return await erp.post(f"/crm/proposals/{proposal_id}/new-version", json={})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1244,7 +1244,7 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
         return _idem_guarda(idempotency_key,
                             await erp.post("/crm/contracts/criar-por-modelo", json=corpo))
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1260,7 +1260,7 @@ async def abrir_assinatura_contrato(contrato: str, email_cliente: str = "") -> d
     try:
         return await erp.post(f"/crm/contracts/{contrato}/abrir-assinatura{q}", json={})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1275,7 +1275,7 @@ async def assinar_contrato_empresa(contrato: str) -> dict:
     try:
         return await erp.post(f"/crm/contracts/{contrato}/assinar-empresa", json={})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1290,7 +1290,7 @@ async def enviar_link_assinatura(contrato: str, email: str = "", parte: str = "c
     try:
         return await erp.post(f"/crm/contracts/{contrato}/enviar-link{q}", json={})
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1299,7 +1299,7 @@ async def status_assinatura_contrato(contrato: str) -> dict:
     try:
         return await erp.get(f"/crm/contracts/{contrato}/assinaturas")
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1324,7 +1324,7 @@ async def briefing_contrato_novo(
     try:
         return await erp.post("/crm/contracts/briefing", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "erro": str(exc)[:220]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -1406,7 +1406,7 @@ async def _pdf_post_b64(path: str, payload: dict) -> dict:
     try:
         raw = await erp.post_bytes(path, payload)
     except Exception as exc:  # noqa: BLE001
-        return {"gerado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "gerado": False}
     return {"gerado": True, "tamanho_kb": round(len(raw) / 1024, 1), "mime": "application/pdf",
             "pdf_base64": base64.b64encode(raw).decode("ascii")}
 
@@ -1450,7 +1450,7 @@ async def _gerar_doc(path: str, payload: dict, teste: bool = True, drive: bool =
     try:
         r = await erp.post(f"{path}?salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"gerado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "gerado": False}
     saida = {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
              "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
              "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
@@ -1464,7 +1464,7 @@ async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False,
     try:
         r = await erp.get(f"{path}{sep}salvar=true&teste={'true' if teste else 'false'}&drive={'true' if drive else 'false'}")
     except Exception as exc:  # noqa: BLE001
-        return {"gerado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "gerado": False}
     saida = {"gerado": True, "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
              "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
              "obs": "Registrado no Conecta PRO." + (f" Salvo no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/baixar.")}
@@ -1472,14 +1472,32 @@ async def _gerar_doc_get(path: str, teste: bool = True, drive: bool = False,
 
 
 @mcp.tool
-async def consultar_auditoria(limite: int = 30, metodo: str | None = None, busca: str | None = None) -> dict:
-    """Log de auditoria das escritas no Conecta PRO (quem/quando/o quê/resultado).
-    metodo: POST|PUT|PATCH|DELETE (opcional). busca: trecho do caminho (ex.: 'contracts')."""
+async def consultar_auditoria(limite: int = 30, metodo: str | None = None,
+                              busca: str | None = None,
+                              request_id: str | None = None) -> dict:
+    """Auditoria das escritas E a trilha de acesso a dado pessoal sensível. Só lê.
+
+    `eventos` = escritas de negócio (quem, quando, rota, resultado).
+    `acessos_a_dado_sensivel` = trilha LGPD, em seção PRÓPRIA: qual FERRAMENTA, sobre o quê,
+    quem, quando, e se estava coberta pela concessão de escopo.
+
+    `request_id` filtra a trilha por uma chamada específica — é assim que se liga "deu erro
+    às 14h" a "quem olhou o quê".
+
+    ⚠️ Até 12/09/2026 esta consulta devolvia as chamadas do PRÓPRIO log de acesso como se
+    fossem escritas de negócio: quinze linhas iguais de `POST /log-acesso-sensivel`,
+    afogando a auditoria real e sem dizer qual tool tinha rodado. Agora o ruído sai e a
+    trilha vem separada.
+
+    metodo: POST|PUT|PATCH|DELETE (opcional). busca: trecho do caminho (ex.: 'contracts').
+    """
     q = [f"limite={limite}"]
     if metodo:
         q.append(f"metodo={metodo}")
     if busca:
         q.append(f"busca={busca}")
+    if request_id:
+        q.append(f"request_id={request_id}")
     return await erp.get(f"/crm/audit?{'&'.join(q)}")
 
 
@@ -1500,6 +1518,27 @@ async def simular_preco(funcao: str | None = None, salario_base: float | None = 
         "funcao": funcao, "salario_base": salario_base, "jornada_dias": jornada_dias, "postos": postos,
         "noturno": noturno, "hora_reduzida": hora_reduzida, "ronda": ronda,
         "periculosidade": periculosidade, "insalubridade": insalubridade, "margem": margem})
+
+
+@mcp.tool
+async def listar_aprovacoes_pendentes(limite: int = 30) -> dict:
+    """O que está esperando a decisão de um humano na Central de Aprovações. Só lê.
+
+    Lacuna apontada pelo Cowork em 12/09/2026: a fila é o ponto onde a pessoa decide, e o
+    assistente não conseguia nem contar quantos itens havia nela — o que também impedia
+    verificar se um teste tinha poluído a fila.
+
+    Traz o que está `rascunho`, com a ação, quem pediu, quando e a `origem` (producao ·
+    ensaio · sandbox · teste). ⚠️ Ler não aprova: aprovar acontece em outra superfície, com
+    OTP quando é dinheiro ou assinatura.
+    """
+    try:
+        r = await erp.get("/agente/aprovacoes", params={"limite": min(limite, 100)})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    itens = _items(r) or (r.get("aprovacoes") if isinstance(r, dict) else None) or []
+    return {"ok": True, "total": len(itens), "pendentes": itens,
+            "aviso": "Ler não aprova. A decisão acontece na Central, com a pessoa."}
 
 
 @mcp.tool
@@ -1924,7 +1963,7 @@ async def criar_cliente(nome: str, cnpj: str, email: str | None = None, telefone
     try:
         r = await erp.post("/clients", json=payload)
     except Exception as exc:  # noqa: BLE001 — CNPJ inválido ou duplicado (backstop)
-        return {"criado": False, "erro": str(exc)[:200],
+        return {**erro_envelope(exc), "criado": False,
                 "dica": "CNPJ pode estar inválido (dígitos verificadores) ou já cadastrado."}
     return {"criado": True, "codigo": r.get("code"),
             "nome": r.get("legal_name") or r.get("name"), "id": r.get("id")}
@@ -2186,7 +2225,7 @@ async def criar_contrato(cliente_documento: str, tipo: str = "recurring", valor_
     try:
         r = await erp.post("/crm/contracts", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"criado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "criado": False}
     return {"criado": True, "numero": r.get("contract_number"), "id": r.get("id"), "status": r.get("status")}
 
 
@@ -2211,7 +2250,7 @@ async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None
     try:
         r = await erp.request("PUT", f"/crm/contracts/{contrato_id}", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"atualizado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "atualizado": False}
     return {"atualizado": True, "numero": r.get("contract_number"), "status": r.get("status")}
 
 
@@ -3062,14 +3101,14 @@ async def gerar_apresentacao(
         try:
             raw = await erp.post_bytes("/crm/apresentacoes/gerar?formato=pptx", payload)
         except Exception as exc:  # noqa: BLE001
-            return {"gerado": False, "erro": str(exc)[:200]}
+            return {**erro_envelope(exc), "gerado": False}
         return {"gerado": True, "formato": "pptx", "tamanho_kb": round(len(raw) / 1024, 1),
                 "pptx_base64": base64.b64encode(raw).decode("ascii"),
                 "obs": "Apresentação editável (PowerPoint) no padrão Conecta PRO."}
     try:
         r = await erp.post(f"/crm/apresentacoes/gerar?formato=pdf&salvar=true&teste=false&drive={'true' if salvar_no_drive else 'false'}", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"gerado": False, "erro": str(exc)[:200]}
+        return {**erro_envelope(exc), "gerado": False}
     return {"gerado": True, "formato": "pdf", "titulo": r.get("titulo"), "tamanho_kb": r.get("tamanho_kb"),
             "download_url": r.get("download_url"), "drive_url": r.get("drive_url"), "id": r.get("id"),
             "obs": "Apresentação no padrão Conecta PRO." + (f" Salva no Drive: {r.get('drive_url')}" if r.get("drive_url") else " Abra o download_url para ver/enviar.")}
@@ -3140,7 +3179,7 @@ async def consultar_juridico(area: str, pergunta: str) -> dict:
     try:
         return await erp.post("/juridico/consultor/perguntar", json={"area": area, "pergunta": pergunta})
     except Exception as exc:  # noqa: BLE001
-        return {"erro": str(exc)[:200]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -3154,7 +3193,7 @@ async def analisar_processo_juridico(
     try:
         return await erp.post("/juridico/processos", json=payload)
     except Exception as exc:  # noqa: BLE001
-        return {"erro": str(exc)[:200]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -3167,7 +3206,7 @@ async def gerar_parecer_juridico(area: str, titulo: str, contexto: str) -> dict:
     try:
         return await erp.post("/juridico/pareceres", json={"area": area, "titulo": titulo, "contexto": contexto})
     except Exception as exc:  # noqa: BLE001
-        return {"erro": str(exc)[:200]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -3190,7 +3229,7 @@ async def dossie_juridico(tipo: str, identificador: str | None = None) -> dict:
             return await erp.get(f"/juridico/contexto/cliente/{identificador}")
         return {"erro": f"tipo inválido '{tipo}'. Use: panorama | funcionario | contrato | cliente."}
     except Exception as exc:  # noqa: BLE001
-        return {"erro": str(exc)[:200]}
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -3965,8 +4004,14 @@ async def esocial_timeline_funcionario(employee_id: str) -> dict:
         except Exception:  # noqa: BLE001
             chave = ""
         if len(chave) != 11:
-            return {"ok": False, "mensagem": "Não achei o CPF desse funcionário — informe o CPF diretamente."}
-    return await erp.get(f"/government/esocial/espelho/timeline/{chave}")
+            return {"ok": False, "codigo": "CPF_NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Não achei o CPF do funcionário {employee_id!r}.",
+                    "dica": "Informe o CPF diretamente (11 dígitos), ou use "
+                            "buscar_funcionario para achar o id certo."}
+    try:
+        return await erp.get(f"/government/esocial/espelho/timeline/{chave}")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
 
 
 @mcp.tool
@@ -4309,7 +4354,17 @@ async def ping_conecta_pro() -> dict:
     import time as _t
 
     ini = _t.perf_counter()
-    fora: dict = {"ok": True, "versao_mcp": VERSAO_MCP, "tools": len(TOOLS_POR_DOMINIO_PLANO)}
+    # ⚠️ `tools` contava as citadas no MAPA (29), não as SERVIDAS (276). O Cowork viu 29 no
+    # ping e 276 no relatório e perguntou qual dos dois mede outra coisa — pergunta certa: o
+    # ping é o que um operador olha para saber se o conector está inteiro, e ele dizia que
+    # faltavam 247. Agora os dois números aparecem, cada um com o nome do que é.
+    try:
+        _servidas = len(await mcp.list_tools())
+    except Exception:  # noqa: BLE001
+        _servidas = None
+    fora: dict = {"ok": True, "versao_mcp": VERSAO_MCP,
+                  "tools_servidas": _servidas,
+                  "tools_no_mapa_de_descoberta": len(TOOLS_POR_DOMINIO_PLANO)}
     try:
         r = await erp.get("/health")
         fora["erp"] = {"ok": True, "resposta": r if isinstance(r, dict) else str(r)[:80]}
@@ -4384,6 +4439,24 @@ _MAPA = {
 TOOLS_POR_DOMINIO_PLANO = [t for d in _MAPA.values() for t in d["fluxo"]]
 
 
+def _lgpd_sensiveis() -> dict:
+    """Toda ferramenta `sensivel`, com e sem concessão. Visível sem precisar do domínio."""
+    try:
+        import lgpd_escopo as _L  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return {}
+    sens = sorted(n for n, v in _L.NIVEL.items() if v == _L.SENSIVEL)
+    return {
+        "total": len(sens),
+        "significa": _L.O_QUE_SIGNIFICA[_L.SENSIVEL],
+        "autorizadas_em_operacao_normal": [n for n in sens if _L.concessao_vale_para(n)],
+        "exigem_pedido_especifico": [n for n in sens if not _L.concessao_vale_para(n)],
+        "concessao": {k: v for k, v in _L.CONCESSAO.items() if k != "tools"},
+        "aviso": ("Todo acesso a estas fica registrado em `agente_acesso_sensivel` — "
+                  "inclusive a tentativa recusada."),
+    }
+
+
 @mcp.tool
 async def conecta_pro_capabilities(dominio: str = "") -> dict:
     """Mapa das capacidades: que domínios existem, o FLUXO de cada um e as armadilhas.
@@ -4417,6 +4490,12 @@ async def conecta_pro_capabilities(dominio: str = "") -> dict:
             return {"ok": True, "dominio": dominio, **d}
     return {"ok": True, "versao_mcp": VERSAO_MCP,
             "dominios": {k: v["resumo"] for k, v in _MAPA.items()},
+            # ⭐ As SENSÍVEIS na raiz, não só no `fluxo`. Validação do Cowork (12/09/2026):
+            # `lgpd_por_tool` só classificava o que estava no fluxo do domínio, e
+            # `baixar_holerite_pdf` não está em nenhum — logo o agente não conseguia
+            # confirmar que ele é sensível. O `capabilities` é a tool de DESCOBERTA: o que
+            # não aparece aqui, para quem só olha aqui, não existe.
+            "lgpd_sensiveis": _lgpd_sensiveis(),
             "como_usar": "conecta_pro_capabilities(dominio='contratos') abre o fluxo.",
             "regra_de_ouro": "Toda ferramenta diz se LÊ ou ESCREVE. As de escrita de "
                              "contrato são restritas a Jordan e Pyetra; dinheiro que sai "
@@ -4811,12 +4890,9 @@ async def executar_em_segundo_plano(ferramenta: str, argumentos: dict | None = N
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+            from gate_propose import envelope_recusa  # noqa: PLC0415
 
-            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
-                    "mensagem": f"`{ferramenta}` é ação de aprovação humana. Segundo plano "
-                                f"não é caminho alternativo para ela.",
-                    "dica": "Chame a ferramenta direto — o pedido vai ao dono por lá."}
+            return envelope_recusa(ferramenta, caminho="segundo_plano")
     except ImportError:
         pass
 
@@ -4958,12 +5034,9 @@ async def no_sandbox(ferramenta: str, argumentos: dict | None = None) -> dict:
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+            from gate_propose import envelope_recusa  # noqa: PLC0415
 
-            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
-                    "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
-                    "dica": "Sandbox não é caminho alternativo. Chame direto — o pedido vai "
-                            "ao dono por lá."}
+            return envelope_recusa(ferramenta, caminho="no_sandbox")
     except ImportError:
         pass
     try:
@@ -5048,11 +5121,9 @@ async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
     try:
         from gate_propose import precisa_aprovacao  # noqa: PLC0415
         if precisa_aprovacao(ferramenta):
-            from gate_propose import CODIGO_APROVACAO  # noqa: PLC0415
+            from gate_propose import envelope_recusa  # noqa: PLC0415
 
-            return {"ok": False, "codigo": CODIGO_APROVACAO, "http": 403,
-                    "mensagem": f"`{ferramenta}` é ação de aprovação humana.",
-                    "dica": "Chame direto — o pedido vai ao dono por lá."}
+            return envelope_recusa(ferramenta, caminho="ensaiar")
     except ImportError:
         pass
     try:

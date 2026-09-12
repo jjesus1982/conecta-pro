@@ -26,11 +26,32 @@ lista curta e tranquila — e a lista curta é lida como "está tudo bem".
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 
 SEVERIDADES = ("critica", "alta", "media", "baixa")
 _PESO = {s: i for i, s in enumerate(SEVERIDADES)}
+
+
+# ⚠️ "R$ 255.400.06" — dois pontos decimais, num alerta CRÍTICO. Achado pelo Cowork em
+# 12/09/2026. Procurei a origem da string em `backend/` e NÃO ACHEI: ela não está no código
+# fonte, então nasce em rota externa ou é montada em runtime. Normalizo AQUI, que é a camada
+# que o agente lê, e registro que a causa continua não localizada — consertar o sintoma sem
+# dizer que é sintoma seria esconder o defeito.
+_MOEDA_TORTA = re.compile(r"R\$\s*([\d.]+)\.(\d{2})\b")
+
+
+def _moeda_legivel(texto: str) -> str:
+    """Arruma milhar/decimal em valor com dois pontos decimais. Não inventa número."""
+    def _fix(m: "re.Match") -> str:
+        inteiro = m.group(1).replace(".", "")
+        try:
+            n = float(f"{inteiro}.{m.group(2)}")
+        except ValueError:
+            return m.group(0)
+        return "R$ " + f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return _MOEDA_TORTA.sub(_fix, texto or "")
 
 
 def _dias_ate(valor: Any) -> int | None:
@@ -62,8 +83,16 @@ def _sev_por_prazo(dias: int | None, *, legal: bool) -> str:
 def item(*, dominio: str, titulo: str, severidade: str, prazo: str | None,
          dias: int | None, impacto: str, acao: str, tool: str,
          entidade_id: str | None = None, ident: str | None = None) -> dict:
+    # ⚠️ O id inclui o TÍTULO, não só a entidade. O Cowork achou
+    # `fiscal:conecta_eletronica` ONZE vezes — ISS, IRRF, FGTS, INSS de duas competências,
+    # todos com o mesmo id porque a entidade era a empresa. Sem id único não dá para marcar
+    # uma pendência como resolvida sem ambiguidade, e sem isso a lista nunca encolhe.
+    import hashlib
+
+    semente = f"{dominio}|{entidade_id or ''}|{titulo}"
     return {
-        "id": ident or f"{dominio}:{(entidade_id or titulo)[:60]}",
+        "id": ident or (f"{dominio}:{(entidade_id or 'x')[:28]}:"
+                        + hashlib.sha1(semente.encode()).hexdigest()[:8]),
         "dominio": dominio, "titulo": titulo, "severidade": severidade,
         "prazo": prazo, "dias_restantes": dias,
         "impacto": impacto, "acao_sugerida": acao,
@@ -77,7 +106,8 @@ def de_obrigacoes(alertas: list[dict]) -> list[dict]:
         dias = _dias_ate(a.get("dias_restantes"))
         fora.append(item(
             dominio="fiscal",
-            titulo=f"{a.get('tipo') or 'Obrigação'} — {a.get('descricao') or ''}".strip(" —"),
+            titulo=_moeda_legivel(
+                f"{a.get('tipo') or 'Obrigação'} — {a.get('descricao') or ''}".strip(" —")),
             severidade=_sev_por_prazo(dias, legal=True),
             prazo=a.get("vencimento") or a.get("prazo"), dias=dias,
             impacto="obrigação com prazo legal; atraso gera multa e pode travar CND",
@@ -118,14 +148,30 @@ def de_aso(asos: list[dict], sem_aso: list[dict]) -> list[dict]:
             impacto="funcionário em campo sem ASO válido é exposição trabalhista e de SST",
             acao="agendar exame periódico", tool="asos_vencendo",
             entidade_id=a.get("employee_id") or a.get("id")))
-    for c in sem_aso or []:
-        fora.append(item(
+    # ⭐ UM achado sistêmico não são 35 achados. Validação do Cowork (12/09/2026): 35 das
+    # 43 críticas eram "FULANO SEM ASO no cadastro", uma linha por colaborador — incluindo
+    # `COLABORADOR TESTE HOMOLOGACAO`. Isso não é 35 problemas: é UM (o campo nunca foi
+    # populado) fatiado por pessoa.
+    #
+    # "Lista onde 81% das críticas são o mesmo item treina o leitor a rolar a página" — e é
+    # o mesmo raciocínio que eu escrevi para não inflar a categoria IRREVERSIVEL. Agrupa, e
+    # os nomes vão no DETALHE, que é onde servem para agir.
+    if sem_aso:
+        nomes = [str(c.get("nome") or c.get("colaborador") or "?") for c in sem_aso]
+        i = item(
             dominio="sst",
-            titulo=f"{c.get('nome') or '?'} SEM ASO no cadastro",
+            titulo=(f"{len(nomes)} colaboradores SEM ASO no cadastro"
+                    if len(nomes) > 1 else f"{nomes[0]} SEM ASO no cadastro"),
             severidade="critica", prazo=None, dias=None,
-            impacto="admissão sem ASO é infração; o risco de NÃO olhar é maior que o de olhar",
-            acao="providenciar ASO admissional", tool="funcionarios_sem_aso",
-            entidade_id=c.get("employee_id") or c.get("id")))
+            impacto=("admissão sem ASO é infração; o risco de NÃO olhar é maior que o de "
+                     "olhar. Quantidade alta costuma ser campo nunca populado, não 35 "
+                     "infrações distintas — confirme antes de tratar um a um"),
+            acao=("providenciar ASO admissional — em LOTE se o campo nunca foi preenchido"
+                  if len(nomes) > 1 else "providenciar ASO admissional"),
+            tool="funcionarios_sem_aso", ident="sst:sem_aso")
+        i["quantidade"] = len(nomes)
+        i["colaboradores"] = nomes[:60]
+        fora.append(i)
     return fora
 
 
@@ -192,14 +238,17 @@ def ordenar(itens: list[dict], severidade_minima: str = "media",
             horizonte_dias: int = 30) -> list[dict]:
     """Mais grave primeiro; dentro da mesma severidade, o prazo mais curto na frente.
 
-    ⚠️ Item SEM prazo não vai para o fim da fila por isso: ASO ausente não tem data e é
-    crítico. Ausência de prazo ordena como prazo ZERO dentro da severidade dele — quem não
-    tem data é porque já estourou, não porque pode esperar.
+    ⚠️ Item SEM prazo fica DEPOIS dos com prazo, dentro da mesma severidade. A versão
+    anterior ordenava ausência como prazo ZERO e o Cowork mostrou o resultado: o item de
+    eSocial vencendo em 3 DIAS aparecia depois de 35 linhas de ASO sem data. Crítico sem
+    data continua crítico — mas quem tem relógio correndo vai na frente, porque é sobre ele
+    que se decide hoje.
     """
     piso = _PESO.get(severidade_minima, 2)
     fora = [i for i in itens if _PESO.get(i["severidade"], 3) <= piso]
     fora = [i for i in fora
             if i["dias_restantes"] is None or i["dias_restantes"] <= horizonte_dias]
     return sorted(fora, key=lambda i: (_PESO.get(i["severidade"], 3),
+                                       0 if i["dias_restantes"] is not None else 1,
                                        i["dias_restantes"] if i["dias_restantes"] is not None
                                        else 0))

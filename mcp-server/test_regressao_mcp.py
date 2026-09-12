@@ -389,11 +389,29 @@ async def r12_orcamento_misto() -> str:
     for l in linhas:
         assert l.get("origem_do_parametro"), "linha sem procedência do parâmetro"
         assert l.get("convencao") == "margem_sobre_preco", l.get("convencao")
-    assert r.get("margem_media_resultante") not in (0.35, 0.40), (
-        "a média está sendo confundida com parâmetro")
+    # ⭐ As DUAS médias, nomeadas — o Cowork calculou 31,23% e eu 36,42%, e os dois estavam
+    # certos com denominadores diferentes. "Margem média" sem dizer sobre o quê é meio dado.
+    sem_trib = r.get("margem_media_sobre_preco_sem_tributo")
+    final = r.get("margem_media_sobre_preco_final")
+    assert sem_trib and final, f"faltou uma das médias: {sorted(r)}"
+    assert sem_trib > final, (
+        "a média sobre o preço final tem de ser MENOR — tributo não é lucro")
+    assert sem_trib not in (0.35, 0.40), "a média virou parâmetro"
+
+    # ⭐ A ARITMÉTICA FECHA. O Cowork achou o total somando o tributo ao lucro: R$ 27.390 de
+    # lucro que não existe num orçamento de R$ 192 mil, e é o rodapé que se olha para dar
+    # desconto. Cada linha estava certa; o total é que fazia preço − custo.
+    soma_lucro = round(sum(l["lucro"] for l in linhas), 2)
+    assert abs(soma_lucro - r["total_lucro"]) < 0.02, (
+        f"total_lucro {r['total_lucro']} != soma das linhas {soma_lucro}")
+    fechamento = round(r["total_custo"] + r["total_lucro"] + r["total_tributo"], 2)
+    assert abs(fechamento - r["total_preco"]) < 0.02, (
+        f"custo+lucro+tributo = {fechamento} != preço {r['total_preco']}")
+    for l in linhas:
+        assert l.get("preco_sem_tributo"), "o preço ex-tributo (base da margem) não aparece"
     return (f"produto {por_nat['produto']['margem_pct']}, mão de obra "
-            f"{por_nat['mao_de_obra_tecnica']['margem_pct']}, média resultante "
-            f"{r['margem_media_resultante']}")
+            f"{por_nat['mao_de_obra_tecnica']['margem_pct']}; lucro {r['total_lucro']:,.2f} "
+            f"= soma das linhas; médias {sem_trib} (s/trib) e {final} (final)")
 
 
 async def r13_margem_nao_cadastrada() -> str:

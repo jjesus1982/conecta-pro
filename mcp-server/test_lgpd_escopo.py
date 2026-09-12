@@ -68,9 +68,16 @@ def test_nivel_desconhecido_e_sensivel() -> None:
 
 def test_niveis_sao_os_tres() -> None:
     validos = {L.AGREGADO, L.OPERACIONAL, L.SENSIVEL}
+    # NAO_SE_APLICA não entra em NIVEL: ele é a ausência de dado pessoal, declarada em
+    # SEM_DADO_PESSOAL. Misturar os dois conjuntos faria "não se aplica" parecer um nível
+    # de acesso, e ele é o contrário disso.
+    assert not (set(L.NIVEL.values()) & {L.NAO_SE_APLICA}), (
+        "NAO_SE_APLICA foi usado como nível em NIVEL — declare em SEM_DADO_PESSOAL")
+    assert not (set(L.NIVEL) & L.SEM_DADO_PESSOAL), (
+        f"nas duas listas: {set(L.NIVEL) & L.SEM_DADO_PESSOAL}")
     errados = {n: v for n, v in L.NIVEL.items() if v not in validos}
     assert not errados, f"nível fora dos três: {errados}"
-    assert set(L.O_QUE_SIGNIFICA) == validos, "falta a tradução de algum nível"
+    assert validos <= set(L.O_QUE_SIGNIFICA), "falta a tradução de algum nível"
     print(f"OK {len(L.NIVEL)} classificações, todas nos três níveis")
 
 
@@ -110,6 +117,12 @@ def test_declaracao_chega_ao_agente() -> None:
     assert d2["lgpd_autorizado"] is True and "concessão" in d2["lgpd_aviso"].lower()
     d3 = L.declarar("folha_dashboard")
     assert d3["lgpd_nivel"] == L.AGREGADO and "lgpd_autorizado" not in d3
+    # ⭐ o que NÃO toca pessoa não pode sair rotulado como dado sensível
+    d4 = L.declarar("inter_saldo")
+    assert d4["lgpd_nivel"] == L.NAO_SE_APLICA, d4
+    assert "lgpd_autorizado" not in d4, "saldo da empresa não precisa de autorização LGPD"
+    for t in ("baixar_proposta_pdf", "baixar_contrato_pdf", "listar_clientes"):
+        assert L.nivel(t) == L.NAO_SE_APLICA, f"{t} voltou a ser tratado como sensível"
     print("OK a declaração diz o nível E se está autorizado, antes do acesso")
 
 

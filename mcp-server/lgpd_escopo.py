@@ -27,11 +27,13 @@ from __future__ import annotations
 
 from datetime import date
 
+NAO_SE_APLICA = "nao_se_aplica"
 AGREGADO = "agregado"
 OPERACIONAL = "identificado_operacional"
 SENSIVEL = "sensivel"
 
 O_QUE_SIGNIFICA = {
+    NAO_SE_APLICA: "não toca dado de pessoa (contrato, proposta, saldo da empresa)",
     AGREGADO: "totais e contagens; nenhuma pessoa identificável",
     OPERACIONAL: "nome, função, posto, escala — o necessário para operar",
     SENSIVEL: "CPF, holerite, salário individual, ASO ou dado de saúde",
@@ -44,7 +46,6 @@ NIVEL: dict[str, str] = {
     "estatisticas_funcionarios": AGREGADO,
     "resumo_folha": AGREGADO,
     "dashboard_operacional": AGREGADO,
-    "estatisticas_postos": AGREGADO,
     "banco_horas": AGREGADO,
     "listar_rubricas_folha": AGREGADO,
     "divergencias_folha_pagamentos": AGREGADO,
@@ -68,9 +69,6 @@ NIVEL: dict[str, str] = {
     "colaboradores_sem_escala": OPERACIONAL,
     "substitutos_disponiveis": OPERACIONAL,
     "listar_escalas": OPERACIONAL,
-    "grade_do_posto": OPERACIONAL,
-    "grade_postos": OPERACIONAL,
-    "listar_postos": OPERACIONAL,
     "listar_admissoes": OPERACIONAL,
     "listar_vagas": OPERACIONAL,
     "listar_candidatos": OPERACIONAL,
@@ -135,9 +133,50 @@ CONCESSAO = {
 }
 
 
+# Ferramentas que NÃO tocam pessoa. Declaradas de propósito e não por omissão: o fail-closed
+# continua valendo para o desconhecido, e estas saem da suspeita por decisão registrada.
+#
+# ⭐ Validação do Cowork (12/09/2026): `documentos` e `financeiro` vinham 100% `sensivel`,
+# incluindo `inter_saldo` — saldo bancário DA EMPRESA — com a legenda "CPF, holerite, ASO ou
+# dado de saúde". O erro de desenho foi meu: apliquei "desconhecida = sensível" ao universo
+# INTEIRO, quando o fail-closed deve valer onde há pessoa. Marcar tudo como sensível é o
+# oposto do critério que eu mesmo escrevi para a categoria IRREVERSIVEL — "parede que barra
+# trabalho normal vira parede que alguém desliga".
+SEM_DADO_PESSOAL: frozenset = frozenset({
+    # contratos e propostas: dado de empresa cliente, não de pessoa física
+    "baixar_contrato_pdf", "baixar_proposta_pdf", "obter_contrato", "listar_contratos",
+    "listar_propostas", "listar_modelos_contrato", "criar_modelo_contrato",
+    "atualizar_modelo_contrato", "validar_modelo_contrato", "vincular_modelo_ao_contrato",
+    "gerar_contrato_por_modelo", "criar_contrato_por_modelo", "briefing_contrato_novo",
+    "status_assinatura_contrato", "abrir_assinatura_contrato", "procedencia_da_proposta",
+    "aceitar_estimativa_da_proposta", "orcamento_por_natureza",
+    "consultar_parametros_precificacao",
+    # documentos: o conteúdo pode ser qualquer coisa, mas a tool é genérica de arquivo
+    "anexar_documento", "listar_documentos_da_entidade", "baixar_documento",
+    "listar_documentos",
+    # financeiro da EMPRESA: saldo, extrato, cobrança emitida — pessoa jurídica
+    "resumo_financeiro", "inter_saldo", "inter_extrato_resumo", "listar_cobrancas_inter",
+    "pix_recebidos", "contabil_grupo",
+    # comercial
+    "listar_clientes", "contexto_cliente", "listar_deals", "criar_cliente",
+    "atualizar_cliente", "buscar_cliente_por_cnpj", "proposta_da_oportunidade",
+    # POSTO é lugar, não pessoa. `listar_alocacoes` e `funcionarios_disponiveis_posto`
+    # continuam em NIVEL porque nomeiam gente; a grade do posto, não.
+    "listar_postos", "estatisticas_postos", "grade_postos", "grade_do_posto",
+})
+
+
 def nivel(tool: str) -> str:
-    """O nível desta ferramenta. Desconhecida que toca pessoa = `sensivel` (fail-closed)."""
-    return NIVEL.get(tool, SENSIVEL)
+    """O nível desta ferramenta.
+
+    Ordem: classificação explícita → declarada sem dado pessoal → fail-closed em `sensivel`.
+    O fail-closed continua no fim, e é ele que faz tool NOVA de pessoa nascer protegida.
+    """
+    if tool in NIVEL:
+        return NIVEL[tool]
+    if tool in SEM_DADO_PESSOAL:
+        return NAO_SE_APLICA
+    return SENSIVEL
 
 
 def concessao_vale_para(tool: str, *, hoje: date | None = None) -> bool:
@@ -154,6 +193,8 @@ def declarar(tool: str) -> dict:
     """O que vai no `capabilities` por tool, para o agente saber ANTES de acessar."""
     n = nivel(tool)
     d = {"lgpd_nivel": n, "lgpd_significa": O_QUE_SIGNIFICA[n]}
+    if n == NAO_SE_APLICA:
+        return d
     if n == SENSIVEL:
         coberta = concessao_vale_para(tool)
         d["lgpd_autorizado"] = coberta

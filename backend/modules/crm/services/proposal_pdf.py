@@ -105,7 +105,7 @@ def _secao(titulo: str, st) -> list:
 CAMPOS_DO_CLIENTE = frozenset({
     "number", "title", "description", "notes",
     "client_name", "client_document", "client_address",
-    "items", "total", "installments", "payment_terms",
+    "items", "total", "installments", "payment_terms", "billing_type",
     "issue_date", "created_at", "valid_until",
 })
 
@@ -288,16 +288,36 @@ def build_proposal_pdf(p, signatarios: list | None = None) -> bytes:
     el.append(tbl)
     el.append(Spacer(1, 6 * mm))
 
-    # Resumo financeiro: bruto -> retenções 2,5% -> líquido -> anual (x12)
+    # ⭐ O QUADRO SEGUE A NATUREZA DO FATURAMENTO, não o contrário.
+    #
+    # Achado pelo Cowork em 12/09/2026 e é o pior defeito do lote: a PROP-2026-00114 é uma
+    # IMPLANTAÇÃO de pagamento único (as Condições Gerais dizem isso por escrito), e este
+    # quadro chamava os R$ 147.619,95 de "Valor mensal (bruto)" e projetava "Estimativa
+    # anual (12x) R$ 1.771.439,40". O cliente lê a página 3 antes da 4.
+    #
+    # Um preço errado por um FATOR DE 12 no documento que vai ao cliente é pior que o
+    # vazamento da margem que consertamos ontem: aquele expunha informação nossa, este
+    # promete um preço que não é o nosso.
+    #
+    # Mesma raiz do vazamento, aliás: template recorrente aplicado a proposta de pagamento
+    # único. A correção é o layout LER `billing_type` em vez de assumir.
+    recorrente = str(getattr(p, "billing_type", "") or "").lower() in ("recurring", "mensal")
     retencoes = round(total * 0.025, 2)
     liquido = round(total - retencoes, 2)
-    anual = round(total * 12, 2)
-    fin_rows = [
-        ["Valor mensal (bruto)", _brl(total)],
-        ["(-) Retenções (2,5% — IRRF 1,5% + PIS/COFINS/CSLL 1%)", "- " + _brl(retencoes)],
-        ["(=) Valor líquido mensal", _brl(liquido)],
-        ["Estimativa anual (12x)", _brl(anual)],
-    ]
+    if recorrente:
+        fin_rows = [
+            ["Valor mensal (bruto)", _brl(total)],
+            ["(-) Retenções (2,5% — IRRF 1,5% + PIS/COFINS/CSLL 1%)", "- " + _brl(retencoes)],
+            ["(=) Valor líquido mensal", _brl(liquido)],
+            ["Estimativa anual (12x)", _brl(round(total * 12, 2))],
+        ]
+    else:
+        # pagamento único: nenhuma palavra "mensal", nenhuma linha "×12"
+        fin_rows = [
+            ["Valor total do investimento (pagamento único)", _brl(total)],
+            ["(-) Retenções (2,5% — IRRF 1,5% + PIS/COFINS/CSLL 1%)", "- " + _brl(retencoes)],
+            ["(=) Valor líquido a receber", _brl(liquido)],
+        ]
     fin = Table([[a, b] for a, b in fin_rows], colWidths=[130 * mm, 48 * mm])
     fin.setStyle(
         TableStyle(

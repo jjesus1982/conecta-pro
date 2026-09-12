@@ -86,7 +86,8 @@ async def listar_documentos(db: AsyncSession = Depends(get_db), tipo: str | None
 
 @router.get("/audit")
 async def consultar_auditoria(
-    db: AsyncSession = Depends(get_db), limite: int = 50, metodo: str | None = None, busca: str | None = None
+    db: AsyncSession = Depends(get_db), limite: int = 50, metodo: str | None = None,
+    busca: str | None = None, request_id: str | None = None,
 ):
     """Log de auditoria das escritas (quem/quando/o quê/resultado). Filtra por método (POST/PUT/DELETE)
     ou trecho do caminho (busca)."""
@@ -108,7 +109,34 @@ async def consultar_auditoria(
             p,
         )
     )
-    return {"total": len(rows), "eventos": rows}
+    # ⭐ A trilha LGPD é OUTRA pergunta, e o Cowork mostrou por quê (12/09/2026): as 15
+    # entradas mais recentes do audit eram todas `POST /agente/log-acesso-sensivel` — o log
+    # registrava A CHAMADA DE LOG, não qual ferramenta rodou nem sobre qual pessoa. Como
+    # trilha, provava que houve acesso e não provava a quê. E afogou a auditoria de negócio:
+    # nenhuma escrita real aparecia mais na primeira página.
+    #
+    # Duas correções: o `path` do log sai do audit genérico (é ruído, não escrita de
+    # negócio), e os acessos sensíveis vêm em seção PRÓPRIA, com a tool e o argumento.
+    rows = [r for r in rows if "/log-acesso-sensivel" not in str(r.get("caminho") or "")]
+    sensiveis = _rows(await db.execute(text("""
+        SELECT to_char(created_at,'DD/MM/YYYY HH24:MI:SS') quando, quem, tool,
+               left(coalesce(argumentos,''), 200) AS sobre_o_que,
+               autorizado_por_concessao, request_id
+          FROM agente_acesso_sensivel
+         -- ⚠️ CAST explícito: `:r IS NULL` sozinho deixa o Postgres sem tipo para inferir
+         -- e ele devolve AmbiguousParameterError. O cast resolve e diz o que o parâmetro é.
+         WHERE (cast(:r AS text) IS NULL OR request_id = cast(:r AS text))
+         ORDER BY created_at DESC LIMIT :lim"""), {"lim": limite, "r": request_id}))
+    return {
+        "total": len(rows), "eventos": rows,
+        # a trilha de dado pessoal, separada e com O QUÊ — não só o quem e o quando
+        "acessos_a_dado_sensivel": sensiveis,
+        "total_acessos_sensiveis": len(sensiveis),
+        "aviso_lgpd": (
+            "`acessos_a_dado_sensivel` diz QUAL ferramenta e SOBRE O QUÊ, além de quem e "
+            "quando. Registra a intenção: tentativa recusada também aparece."
+            if sensiveis else None),
+    }
 
 
 # ===================================================================== PRECIFICAÇÃO (CCT 2026)
@@ -205,6 +233,7 @@ async def pricing_orcamento_por_natureza(
         raise HTTPException(422, RT.envelope_recusa(e)) from e
 
     linhas, total_custo, total_preco = [], 0.0, 0.0
+    total_lucro = total_tributo = 0.0
     for i, it in enumerate(itens):
         natureza = str(it.get("natureza_item") or "").strip()
         custo = float(it.get("custo") or 0)
@@ -229,6 +258,9 @@ async def pricing_orcamento_por_natureza(
         mem["preco_com_tributo"] = preco_com_tributo
         mem["carga_tributaria"] = carga
         mem["carga_tributaria_pct"] = f"{carga * 100:.2f}%"
+        # ⚠️ o preço ex-tributo é a BASE da margem e não aparecia em campo nenhum — a
+        # memória só fechava fazendo a conta por fora. Apontado pelo Cowork.
+        mem["preco_sem_tributo"] = mem["preco"]
         mem["preco"] = preco_com_tributo
         mem["descricao"] = it.get("descricao")
         mem["quantidade"] = qtd
@@ -236,6 +268,13 @@ async def pricing_orcamento_por_natureza(
         linhas.append(mem)
         total_custo += custo_linha
         total_preco += mem["preco"]
+        # ⭐ O LUCRO É SOMA DE LINHAS, não diferença de totais. Achado pelo Cowork em
+        # 12/09/2026: cada linha calculava `lucro = preço_ex_tributo − custo` (certo) e o
+        # total fazia `total_preco − total_custo` (errado), somando o TRIBUTO ao lucro.
+        # Num orçamento de R$ 192 mil o rodapé mostrava R$ 27.390 de lucro que não existe —
+        # 45,6% mais que o real. E o rodapé é o que se olha para decidir desconto.
+        total_lucro += mem["lucro"]
+        total_tributo += mem["tributo"]
 
     return {
         "ok": True,
@@ -246,11 +285,26 @@ async def pricing_orcamento_por_natureza(
         "memoria_de_calculo": linhas,
         "total_custo": round(total_custo, 2),
         "total_preco": round(total_preco, 2),
-        "total_lucro": round(total_preco - total_custo, 2),
-        "margem_media_resultante": (round(1 - total_custo / total_preco, 4)
-                                    if total_preco else None),
-        "aviso": ("`margem_media_resultante` é RESULTADO, não parâmetro — ninguém a "
-                  "definiu. Cada linha tem a margem da natureza dela."),
+        "total_tributo": round(total_tributo, 2),
+        "total_lucro": round(total_lucro, 2),
+        # ⭐ DUAS médias, ambas corretas, denominadores diferentes — e por isso NOMEADAS.
+        # O Cowork calculou 31,23% (lucro / preço FINAL) e eu 36,42% (lucro / preço SEM
+        # tributo). Nenhum está errado: são perguntas diferentes. "Margem média" sem dizer
+        # sobre o quê é meio dado, do mesmo tipo que guardar valor sem a convenção.
+        #
+        # A primeira é a comparável com as margens das LINHAS (35% e 40% também são sobre o
+        # preço sem tributo); a segunda é quanto sobra do que o cliente paga.
+        "margem_media_sobre_preco_sem_tributo": (
+            round(total_lucro / (total_custo + total_lucro), 4)
+            if (total_custo + total_lucro) else None),
+        "margem_media_sobre_preco_final": (round(total_lucro / total_preco, 4)
+                                           if total_preco else None),
+        "aviso": ("As duas médias são RESULTADO, não parâmetro — ninguém as definiu. "
+                  "Cada linha tem a margem da natureza dela. Use "
+                  "`margem_media_sobre_preco_sem_tributo` para comparar com as margens das "
+                  "linhas (35%/40% também são sobre o preço sem tributo); use "
+                  "`margem_media_sobre_preco_final` para saber quanto sobra do que o "
+                  "cliente paga. Tributo não é lucro em nenhuma das duas."),
     }
 
 

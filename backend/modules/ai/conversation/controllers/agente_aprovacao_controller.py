@@ -106,6 +106,34 @@ def grau_de(acao: str) -> tuple[str, bool]:
     return "🟡", False
 
 
+@router.get("/aprovacoes")
+async def listar_aprovacoes_pendentes(
+    current_user: CurrentActiveUser,  # noqa: ARG001
+    limite: int = 30,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """O que aguarda decisão humana na Central. Só lê — ler não aprova.
+
+    Lacuna apontada pelo Cowork (12/09/2026): a fila é onde a pessoa decide, e o assistente
+    não conseguia nem contar quantos itens havia. Sem contador não dá para verificar se um
+    teste poluiu a fila, que era justamente o Bloco 9.
+    """
+    rs = (await db.execute(text(
+        "SELECT id::text, tipo, modulo, titulo, left(coalesce(resumo,''), 300) AS resumo, "
+        "       gate, requires_otp, coalesce(origem,'producao') AS origem, "
+        "       solicitado_por_nome AS pedido_por, "
+        "       to_char(created_at,'DD/MM/YYYY HH24:MI') AS quando "
+        "  FROM agent_drafts WHERE status = 'rascunho' "
+        " ORDER BY created_at DESC LIMIT :lim"), {"lim": min(limite, 100)})).mappings().all()
+    itens = [dict(r) for r in rs]
+    return {
+        "ok": True, "total": len(itens), "aprovacoes": itens,
+        "exigem_otp": sum(1 for i in itens if i.get("requires_otp")),
+        # ⚠️ se aparecer origem != producao, é teste que vazou para a fila de quem decide
+        "de_teste_ou_ensaio": [i["id"] for i in itens if i["origem"] != "producao"],
+    }
+
+
 @router.post("/log-acesso-sensivel")
 async def log_acesso_sensivel(
     current_user: CurrentActiveUser,
