@@ -35,6 +35,10 @@ TOOL_RISK: dict[str, str] = {
     # `tipo` troca o CNPJ que assina. Mesma classe de `criar_modelo_contrato`.
     "atualizar_modelo_contrato": "propose",
     # cálculo puro: não grava, não envia. É o que substitui a planilha fora do ERP.
+    "procedencia_da_proposta": "read",
+    # grava um ACEITE de risco comercial — não sai da empresa, mas é decisão registrada
+    # com nome. `write_low` diz a verdade: escreve, e o que escreve é trilha interna.
+    "aceitar_estimativa_da_proposta": "write_low",
     "orcamento_por_natureza": "read",
     "contexto_cliente": "read",
     # jobs: consultar status e resultado é leitura. DISPARAR não é — o job executa a

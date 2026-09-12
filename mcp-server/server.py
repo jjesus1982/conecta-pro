@@ -1487,6 +1487,54 @@ async def simular_preco(funcao: str | None = None, salario_base: float | None = 
 
 
 @mcp.tool
+async def procedencia_da_proposta(proposta: str) -> dict:
+    """Esta proposta pode ser enviada? Custo firme, cotação válida, estimativa aceita. Só lê.
+
+    Responde em DADO a pergunta "esse preço é firme ou é chute?" — que antes morava numa
+    observação em texto livre e, na PROP-2026-00114, vazou para o PDF do cliente junto com
+    a margem.
+
+    Bloqueia (e diz qual item trava):
+      · `CUSTO_SEM_PROCEDENCIA` — item com custo e sem `origem_custo` declarada;
+      · `COTACAO_VENCIDA` — validade passou; preço vencido é preço que já não existe;
+      · `ESTIMATIVA_NAO_ACEITA` — há custo de estimativa e ninguém assumiu o risco.
+
+    Aceita PROP-…, id, CNPJ ou nome do cliente.
+    """
+    alvo = await _resolver_proposta(proposta)
+    if isinstance(alvo, dict):
+        return alvo
+    try:
+        return await erp.get(f"/crm/propostas/{alvo}/procedencia")
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
+async def aceitar_estimativa_da_proposta(proposta: str, quem: str) -> dict:
+    """Registra que uma pessoa ASSUME o risco de enviar com custo estimado. ESCREVE.
+
+    Grava quem aceitou e quando. Decisão sem autor não é decisão — e este registro é o que
+    permite, meses depois, saber quem topou o risco de o preço mudar.
+
+    ⚠️ NÃO vai ao cliente. É trilha interna; o aviso existe para quem decide, e foi
+    exatamente por não existir que a observação virou texto no PDF.
+    """
+    if not (quem or "").strip():
+        return {"ok": False, "codigo": "ACEITE_SEM_AUTOR", "http": 422,
+                "mensagem": "Diga QUEM está assumindo o risco.",
+                "dica": "aceitar_estimativa_da_proposta(proposta, quem='Jordan Jesus')"}
+    alvo = await _resolver_proposta(proposta)
+    if isinstance(alvo, dict):
+        return alvo
+    try:
+        return await erp.post(f"/crm/propostas/{alvo}/aceitar-estimativa",
+                              json={"quem": quem})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
 async def orcamento_por_natureza(empresa_cnpj: str, linha_negocio: str,
                                  itens: list) -> dict:
     """Preço item a item, cada linha com a SUA margem. Não grava nada.

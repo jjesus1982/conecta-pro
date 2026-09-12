@@ -254,6 +254,41 @@ async def pricing_orcamento_por_natureza(
     }
 
 
+@router.get("/propostas/{numero}/procedencia")
+async def proposta_procedencia(
+    numero: str, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Pode enviar esta proposta? Bloco 3 — procedência do custo, cotação e aceite.
+
+    Diz SIM com o diagnóstico, ou NÃO com o código e os itens que travam. Não envia nada.
+    """
+    from modules.crm.services import procedencia_custo as PC
+
+    try:
+        return await PC.pode_enviar(db, numero)
+    except PC.BloqueioDeEnvio as e:
+        # 409 e não 422: o pedido está bem formado, o ESTADO é que não permite
+        raise HTTPException(409, e.envelope()) from e
+
+
+@router.post("/propostas/{numero}/aceitar-estimativa")
+async def proposta_aceitar_estimativa(
+    numero: str,
+    payload: dict = Body(default={}),
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Registra que alguém ASSUME o risco de enviar com custo estimado."""
+    from modules.crm.services import procedencia_custo as PC
+
+    quem = (payload.get("quem") or getattr(current_user, "full_name", None)
+            or getattr(current_user, "email", None) or "")
+    try:
+        return await PC.aceitar_estimativa(db, numero, quem)
+    except PC.BloqueioDeEnvio as e:
+        raise HTTPException(409, e.envelope()) from e
+
+
 class ParamsIn(BaseModel):
     valores: dict
 
