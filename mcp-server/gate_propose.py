@@ -249,6 +249,10 @@ try:
 except Exception:  # noqa: BLE001
     _Base = object
 
+class _SemRegistro(Exception):
+    """Controle de fluxo: a recusa vale, e não há pedido a registrar (ensaio/sandbox)."""
+
+
 class GatePropose(_Base):
     """Barra `propose` e devolve o pedido de aprovação, sem executar nada."""
 
@@ -266,11 +270,32 @@ class GatePropose(_Base):
         try:
             import server as _srv  # noqa: PLC0415
 
+            # ⭐ SÓ PRODUÇÃO cria pedido. Bloco 9 da validação: fila poluída por teste treina
+            # humano a aprovar sem ler, e o dia em que um pedido legítimo chegar no meio de
+            # cinco testes é o dia em que alguém assina o contrato errado clicando rápido.
+            #
+            # ⚠️ Medido em 12/09: `ensaiar`, `no_sandbox` e `executar_em_segundo_plano` JÁ
+            # não chegavam aqui — eles recusam antes, sem registrar. A poluição da auditoria
+            # veio de chamadas DIRETAS, que são produção legítima. Esta guarda existe para o
+            # caso de alguém ligar um desses caminhos ao middleware depois; sem ela, a
+            # regressão voltaria em silêncio.
+            origem = "producao"
+            if getattr(_srv, "_ENSAIO", None) is not None and _srv._ENSAIO.get() is not None:
+                origem = "ensaio"
+            elif getattr(_srv, "_SANDBOX", None) is not None and _srv._SANDBOX.get():
+                origem = "sandbox"
+            if origem != "producao":
+                registro = (f"\n\n🧪 Origem `{origem}`: o muro disparou e NENHUM pedido foi "
+                            f"criado na Central. Teste não entra na fila de quem decide.")
+                raise _SemRegistro
+            pedido["origem"] = origem
             r = await _srv.erp.post("/agente/pedir-aprovacao", json=pedido)
             if isinstance(r, dict) and r.get("ok"):
                 registro = f"\n\n📋 {r.get('message', 'Pedido registrado.')}"
             else:
                 registro = f"\n\n⚠️ NÃO consegui registrar o pedido: {str(r)[:120]}"
+        except _SemRegistro:
+            pass  # a mensagem já foi montada acima; a recusa continua valendo
         except Exception as _e:  # noqa: BLE001
             # A recusa vale MESMO sem registro — a parede não depende da Central estar de
             # pé. Mas dizer que registrou sem ter registrado seria a pior das saídas.
