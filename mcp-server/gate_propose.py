@@ -94,19 +94,44 @@ CONSEQUENCIAS: dict[str, list[str]] = {
         "PROGRAMA o lote de pagamento das diárias do mês",
         "é dinheiro que sai: valor errado aqui vira pagamento errado lá",
     ],
+    "fechar_folha": [
+        "FECHA a folha do mês: os valores passam a ser os definitivos",
+        "não existe reabrir — o que estiver errado vira holerite errado na mão de gente",
+        "depois disso a correção é rescisão complementar ou acordo, não um clique",
+    ],
+    "fechar_mes_ponto": [
+        "FECHA o mês do ponto: batida corrigida depois disso não entra mais",
+        "a folha do mês passa a ser calculada sobre o que está fechado aqui",
+    ],
+    "calcular_verbas_rescisorias": [
+        "calcula a RESCISÃO de uma pessoa específica",
+        "valor errado aqui é passivo trabalhista, não linha de planilha",
+    ],
+    "lancar_diaria": [
+        "lança uma diária A PAGAR, entrando na fila do dinheiro que sai",
+        "diarista lançado tem direito a VT+VR programados automaticamente",
+    ],
+    "expurgar_documentos_teste": [
+        "APAGA documentos do sistema — não há lixeira",
+        "se o filtro pegar um documento real, ele não volta",
+    ],
+    "excluir_documento": [
+        "APAGA o documento — não há lixeira",
+        "documento anexado a contrato assinado é prova; apagado, não é mais",
+    ],
+    "excluir_campanha": [
+        "APAGA a campanha e o histórico de disparos dela",
+        "o que foi enviado continua enviado; só o registro desaparece",
+    ],
     "aceitar_proposta": [
         "marca a proposta como ACEITA",
         "GERA COMISSÃO para o vendedor (nasce pendente, mas é obrigação registrada)",
         "move a oportunidade para closed_won",
         "cria um CONTRATO em rascunho",
     ],
-    "fechar_folha": ["FECHA a folha do mês — depois disso o cálculo não se refaz sozinho"],
     "calcular_folha_todos": ["recalcula a folha de TODOS os colaboradores do mês"],
-    "fechar_mes_ponto": ["FECHA o mês do ponto; batida nova deixa de entrar na apuração"],
     "aprovar_ferias": ["APROVA as férias — vira evento de eSocial e afeta a folha"],
-    "calcular_verbas_rescisorias": ["calcula rescisão — base do TRCT e do pagamento final"],
     "concluir_admissao": ["conclui a admissão e dispara os eventos de admissão"],
-    "lancar_diaria": ["LANÇA DIÁRIA — vira valor a pagar ao diarista"],
     "registrar_custo_recorrente": ["cria custo recorrente que passa a entrar no fluxo"],
     "enviar_whatsapp": [
         "ENVIA MENSAGEM REAL, agora, para um número fora da empresa",
@@ -114,7 +139,6 @@ CONSEQUENCIAS: dict[str, list[str]] = {
         "mensagem entregue não se apaga do outro lado",
     ],
     "inscrever_lead_em_sequencia": ["inscreve o lead numa régua que passa a ENVIAR sozinha"],
-    "expurgar_documentos_teste": ["APAGA documentos — irreversível"],
     "ativar_contrato": ["submete o contrato, tirando-o de rascunho"],
     "gerar_parecer_juridico": ["cria PARECER JURÍDICO no nome do escritório"],
     "analisar_processo_juridico": ["cria registro de processo jurídico"],
@@ -132,11 +156,6 @@ CONSEQUENCIAS: dict[str, list[str]] = {
         "os seis valores foram confirmados um a um contra o holerite em 10/08",
     ],
     "atualizar_contrato": ["altera um CONTRATO — título executivo, não campo de tela"],
-    "excluir_campanha": ["APAGA a campanha de verdade (DELETE, sem soft delete)"],
-    "excluir_documento": [
-        "manda um arquivo do kit para a LIXEIRA do Drive",
-        "confira o file_id: três notas fiscais seguidas parecem cópia uma da outra e não são",
-    ],
 }
 
 
@@ -181,6 +200,36 @@ EFEITO_EXTERNO: dict[str, str] = {
     "gerar_lote_diarias_mes": "o lote de pagamento das diárias — dinheiro que sai",
 }
 
+# ⭐ IRREVERSÍVEL INTERNO — aprovação humana em QUALQUER MODO, como o efeito externo.
+#
+# Achado em 12/09/2026 medindo o R20: `fechar_folha` está classificado `propose` e mesmo
+# assim EXECUTARIA no conector público, porque `precisa_aprovacao` dependia de MODO_AGENTE.
+# Eram ONZE ações nessa situação, entre elas `expurgar_documentos_teste` (APAGA documentos)
+# e `aceitar_proposta` (GERA COMISSÃO).
+#
+# É exatamente o defeito do CP-MCP-001 pela outra porta. O princípio que o Jordan aprovou
+# lá vale aqui: quem chama o conector público é um LLM agindo em nome dele, não ele clicando
+# — e ação sem desfazer pedida por um LLM precisa de decisão humana.
+#
+# CRITÉRIO da lista, para não inflar: entra o que DESTRÓI, o que cria obrigação de DINHEIRO,
+# ou o que fecha período contábil/trabalhista. NÃO entra o que é recalculável
+# (`calcular_folha_todos` roda de novo), nem o que só lê (`exportar_folha_dominio`), nem o
+# que se desfaz administrativamente (`aprovar_ferias`). Parede que barra o trabalho normal
+# vira parede que alguém desliga.
+IRREVERSIVEL: dict[str, str] = {
+    "fechar_folha": "FECHA a folha do mês — não existe reabrir, e o que estiver errado vira "
+                    "holerite errado na mão de gente",
+    "fechar_mes_ponto": "FECHA o mês do ponto; batida corrigida depois não entra mais",
+    "calcular_verbas_rescisorias": "calcula a RESCISÃO de uma pessoa — valor errado aqui é "
+                                   "passivo trabalhista, não linha de planilha",
+    "aceitar_proposta": "GERA COMISSÃO a pagar e cria contrato: obrigação de dinheiro que "
+                        "nasce registrada",
+    "lancar_diaria": "lança uma diária a PAGAR — entra na fila do dinheiro que sai",
+    "expurgar_documentos_teste": "APAGA documentos do sistema; não há lixeira",
+    "excluir_documento": "APAGA o documento; não há lixeira",
+    "excluir_campanha": "APAGA a campanha e o histórico dela",
+}
+
 # Exceções revisadas à mão: nome parece de efeito externo e o efeito é interno. Cada linha é
 # uma decisão registrada, lida na ROTA — não uma gaveta.
 NAO_SAI_DA_EMPRESA: dict[str, str] = {
@@ -202,9 +251,14 @@ def efeito_externo(nome: str) -> str:
     return EFEITO_EXTERNO.get(nome, "")
 
 
+def por_que_exige_aprovacao(nome: str) -> str:
+    """O que torna esta ação inegociável — vai na recusa, para o dono saber o que evitou."""
+    return EFEITO_EXTERNO.get(nome) or IRREVERSIVEL.get(nome, "")
+
+
 def precisa_aprovacao(nome: str) -> bool:
-    # a ordem importa: efeito externo NÃO depende do modo.
-    if nome in EFEITO_EXTERNO:
+    # a ordem importa: efeito externo e irreversível NÃO dependem do modo.
+    if nome in EFEITO_EXTERNO or nome in IRREVERSIVEL:
         return True
     return MODO_AGENTE and classe_de(nome) == "propose"
 
@@ -304,11 +358,15 @@ class GatePropose(_Base):
         # (confirmar="ACEITAR") — degrau que ensina a subir. Aqui não há degrau: a
         # aprovação acontece em OUTRA superfície, com OUTRA pessoa.
         sai = efeito_externo(nome)
+        irrev = IRREVERSIVEL.get(nome, "")
         cabeca = (
             f"⛔ `{nome}` não é executada por mim. Se eu rodar isto, SAI DA EMPRESA: "
             f"{sai}.\n\nIsso não se desfaz — e quem recebe é uma pessoa de verdade, "
             f"não um registro."
             if sai else
+            f"⛔ `{nome}` não é executada por mim. O que ela faz NÃO TEM DESFAZER: "
+            f"{irrev}."
+            if irrev else
             f"⛔ `{nome}` não é executada por mim. É uma ação de classe "
             f"{pedido['classe']} — precisa de aprovação humana."
         )
@@ -336,6 +394,7 @@ class GatePropose(_Base):
             "acao": nome,
             "classe": pedido["classe"],
             "sai_da_empresa": sai or None,
+            "irreversivel": irrev or None,
             "vai_acontecer": pedido["vai_acontecer"],
             "dica": "Esta ação não é executada por mim em nenhum caminho — nem por "
                     "`ensaiar`, `no_sandbox` ou segundo plano. Quem aprova não pode ser "

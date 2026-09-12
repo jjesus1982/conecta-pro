@@ -43,6 +43,31 @@ class CarimboRequestId(_Base):
 
         rid = novo_id()
         marca = _REQ_ID.set(rid)
+
+        # ⭐ LOG DE ACESSO A DADO SENSÍVEL — item 3 do Bloco 7. Quem, quando, qual tool e
+        # qual `request_id`, consultável depois. Aqui e não em cada tool: são 15 sensíveis
+        # hoje e as próximas nasceriam sem log, que é como uma trilha de auditoria fica
+        # incompleta justamente no acesso que interessa.
+        #
+        # ⚠️ Registra a INTENÇÃO (antes de executar), não o sucesso. Tentativa recusada
+        # também é acesso tentado, e é o que se procura quando algo dá errado.
+        nome_tool = getattr(getattr(context, "message", None), "name", "") or ""
+        try:
+            import lgpd_escopo as _L  # noqa: PLC0415
+
+            if _L.nivel(nome_tool) == _L.SENSIVEL:
+                import server as _srv  # noqa: PLC0415
+
+                await _srv.erp.post("/agente/log-acesso-sensivel", json={
+                    "tool": nome_tool, "request_id": rid,
+                    "argumentos": str(getattr(getattr(context, "message", None),
+                                              "arguments", None) or {})[:400],
+                    "autorizado_por_concessao": _L.concessao_vale_para(nome_tool),
+                })
+        except Exception:  # noqa: BLE001
+            # log que derruba a chamada seria pior que log ausente: o dono perde a
+            # capacidade por causa da trilha. Falha aqui é silenciosa de propósito.
+            pass
         try:
             resultado = await call_next(context)
         except Exception as exc:  # noqa: BLE001

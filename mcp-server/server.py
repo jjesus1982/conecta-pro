@@ -301,6 +301,12 @@ def _idem_guarda(chave: str, valor: dict) -> dict:
 # O agente lê 500 e conclui "o sistema quebrou, tento de novo igual" — quando o certo era
 # "faltou um campo, mando o campo".
 _FALTANDO = re.compile(r"missing \d+ required (?:positional|keyword-only) argument")
+# ⚠️ O FastMCP valida ANTES de chamar a função e produz outra mensagem: "Missing required
+# argument" por campo, em bloco, com o traceback do pydantic. Achado em 12/09 ao ver
+# `folha_dashboard({})` cair em FALHA_INESPERADA/500 — o mesmo defeito do CP-MCP-002 pela
+# outra porta. Duas formas de dizer a mesma coisa, e eu só conhecia uma.
+_FALTANDO_FASTMCP = re.compile(r"Missing required argument", re.I)
+_CAMPO_FASTMCP = re.compile(r"^([a-z_][a-z_0-9]*)\n\s+Missing required argument", re.M | re.I)
 _SOBRANDO = re.compile(r"unexpected keyword argument '([^']+)'")
 _NOME_ARG = re.compile(r"'([^']+)'")
 
@@ -310,6 +316,16 @@ def erro_envelope(exc: Exception) -> dict:
     if isinstance(exc, ErpErro):
         return exc.envelope()
     texto = str(exc)
+    if _FALTANDO_FASTMCP.search(texto):
+        campos = _CAMPO_FASTMCP.findall(texto)
+        return {"ok": False, "codigo": "PARAMETRO_OBRIGATORIO", "http": 422,
+                "mensagem": ("Faltou informar: " + ", ".join(campos) + ".") if campos
+                            else "Faltou um campo obrigatório.",
+                "campos_faltantes": campos,
+                "dica": "Chame de novo incluindo " + (
+                    ", ".join(f"`{c}`" for c in campos) if campos
+                    else "os campos obrigatórios")
+                    + ". `conecta_pro_capabilities()` mostra o que cada ferramenta espera."}
     if isinstance(exc, TypeError) and _FALTANDO.search(texto):
         # só os nomes dos campos; o resto da mensagem é a assinatura interna da função
         campos = _NOME_ARG.findall(texto.split(":", 1)[-1]) if ":" in texto else []
@@ -4382,7 +4398,23 @@ async def conecta_pro_capabilities(dominio: str = "") -> dict:
                     "mensagem": f"Não conheço o domínio {dominio!r}.",
                     "dica": "Chame sem argumento para ver os domínios.",
                     "dominios": sorted(_MAPA)}
-        return {"ok": True, "dominio": dominio, **d}
+        # ⭐ O NÍVEL LGPD vai POR TOOL, não por domínio (Bloco 7.2): `folha_dashboard` e
+        # `baixar_holerite_pdf` vivem no mesmo domínio e mostram coisas opostas. O agente
+        # precisa saber o que vai acessar ANTES de acessar.
+        try:
+            import lgpd_escopo as _L  # noqa: PLC0415
+
+            escopo = {t: _L.declarar(t) for t in d["fluxo"]}
+            sensiveis = [t for t, v in escopo.items() if v["lgpd_nivel"] == _L.SENSIVEL]
+            saida = {"ok": True, "dominio": dominio, **d, "lgpd_por_tool": escopo}
+            if sensiveis:
+                saida["lgpd_atencao"] = (
+                    f"{len(sensiveis)} ferramenta(s) deste fluxo tocam dado pessoal "
+                    f"SENSÍVEL: {', '.join(sensiveis)}. Cada acesso fica registrado."
+                )
+            return saida
+        except Exception:  # noqa: BLE001
+            return {"ok": True, "dominio": dominio, **d}
     return {"ok": True, "versao_mcp": VERSAO_MCP,
             "dominios": {k: v["resumo"] for k, v in _MAPA.items()},
             "como_usar": "conecta_pro_capabilities(dominio='contratos') abre o fluxo.",

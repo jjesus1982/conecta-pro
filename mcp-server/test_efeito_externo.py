@@ -59,10 +59,11 @@ def test_verbo_que_sai_esta_decidido() -> None:
 
 def test_efeito_externo_barra_em_modo_publico() -> None:
     """⭐ O teste que teria pego o defeito: barrar SEM depender do modo."""
-    passam = [n for n in G.EFEITO_EXTERNO if not G.precisa_aprovacao(n)]
+    passam = [n for n in {**G.EFEITO_EXTERNO, **G.IRREVERSIVEL}
+              if not G.precisa_aprovacao(n)]
     assert not passam, (
         f"em modo público estas passariam: {passam} — é exatamente o defeito de 11/09")
-    print(f"OK as {len(G.EFEITO_EXTERNO)} barram em modo público")
+    print(f"OK as {len(G.EFEITO_EXTERNO)} externas + {len(G.IRREVERSIVEL)} irreversíveis barram em modo público")
 
 
 def test_cada_uma_diz_o_que_sai() -> None:
@@ -112,20 +113,22 @@ def test_toda_acao_externa_declara_a_consequencia() -> None:
 
     Fail-closed: ação de efeito externo sem consequência REPROVA o build.
     """
-    mudas = [n for n in G.EFEITO_EXTERNO if n not in G.CONSEQUENCIAS]
+    # ⭐ as DUAS categorias inegociáveis: sai da empresa, e não tem desfazer
+    inegociaveis = {**G.EFEITO_EXTERNO, **G.IRREVERSIVEL}
+    mudas = [n for n in inegociaveis if n not in G.CONSEQUENCIAS]
     assert not mudas, (
         f"efeito externo sem consequência declarada: {mudas}. "
         f"Acrescente a gate_propose.CONSEQUENCIAS — uma linha por consequência REAL, em "
         f"português de gente, do ponto de vista de quem vai aprovar.")
 
     fracas = {n: c for n, c in G.CONSEQUENCIAS.items()
-              if n in G.EFEITO_EXTERNO and (len(c) < 2 or any(len(x) < 20 for x in c))}
+              if n in inegociaveis and (len(c) < 2 or any(len(x) < 20 for x in c))}
     assert not fracas, (
         f"consequência curta demais para decidir: {list(fracas)}. "
         f"'envia e-mail' não ajuda ninguém — diga PARA QUEM e o que não se desfaz.")
 
     # e o texto que o aprovador lê tem de sair mesmo, não só existir no dicionário
-    for nome in G.EFEITO_EXTERNO:
+    for nome in inegociaveis:
         linhas = G.consequencias(nome)
         assert linhas and "NÃO declarada" not in " ".join(linhas), (
             f"{nome} continua caindo no texto genérico: {linhas}")

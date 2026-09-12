@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
@@ -103,6 +104,35 @@ def grau_de(acao: str) -> tuple[str, bool]:
     if acao in _VERMELHAS or acao not in _AMARELAS:
         return "🔴", True
     return "🟡", False
+
+
+@router.post("/log-acesso-sensivel")
+async def log_acesso_sensivel(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Registra acesso do assistente a dado pessoal SENSÍVEL — item 3 do Bloco 7 (LGPD).
+
+    Quem, quando, qual ferramenta, qual `request_id`. Consultável depois por quem precisar
+    responder "quem olhou o holerite de quem, e por quê".
+
+    ⚠️ Registra a INTENÇÃO, antes de a chamada executar. Tentativa recusada também é acesso
+    tentado — e é exatamente o que se procura quando algo dá errado.
+    """
+    quem = (getattr(current_user, "full_name", None)
+            or getattr(current_user, "email", None) or "?")
+    await db.execute(text(
+        "INSERT INTO agente_acesso_sensivel "
+        "  (tool, request_id, argumentos, quem, autorizado_por_concessao) "
+        "VALUES (:t, :r, :a, :q, :c)"),
+        {"t": str(payload.get("tool") or "")[:80],
+         "r": str(payload.get("request_id") or "")[:40],
+         "a": str(payload.get("argumentos") or "")[:400],
+         "q": quem[:160],
+         "c": bool(payload.get("autorizado_por_concessao"))})
+    await db.commit()
+    return {"ok": True, "registrado": True}
 
 
 @router.post("/pedir-aprovacao")

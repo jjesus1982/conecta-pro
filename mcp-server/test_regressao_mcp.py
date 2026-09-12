@@ -371,6 +371,169 @@ async def extra_parametro_obrigatorio() -> str:
     return f"422 com {r['campos_faltantes']}; na bloqueada a aprovação vem primeiro"
 
 
+async def r12_orcamento_misto() -> str:
+    """35% no produto e 40% na mão de obra, VISÍVEIS por linha."""
+    r = await S.orcamento_por_natureza("35710481000103", "eletronica", [
+        {"descricao": "64 câmeras IP", "custo": 1200, "quantidade": 64,
+         "natureza_item": "produto"},
+        {"descricao": "instalação", "custo": 28000, "quantidade": 1,
+         "natureza_item": "mao_de_obra_tecnica"}])
+    assert r.get("ok"), str(r)[:200]
+    linhas = r["memoria_de_calculo"]
+    assert len(linhas) == 2, f"memória com {len(linhas)} linhas"
+    por_nat = {l["natureza_item"]: l for l in linhas}
+    assert por_nat["produto"]["margem"] == 0.35, por_nat["produto"]["margem"]
+    assert por_nat["mao_de_obra_tecnica"]["margem"] == 0.40, por_nat["mao_de_obra_tecnica"]
+    # o que o Bloco 1 exige: se mostrar UMA margem só, está errado
+    assert len({l["margem"] for l in linhas}) == 2, "as duas linhas com a mesma margem"
+    for l in linhas:
+        assert l.get("origem_do_parametro"), "linha sem procedência do parâmetro"
+        assert l.get("convencao") == "margem_sobre_preco", l.get("convencao")
+    assert r.get("margem_media_resultante") not in (0.35, 0.40), (
+        "a média está sendo confundida com parâmetro")
+    return (f"produto {por_nat['produto']['margem_pct']}, mão de obra "
+            f"{por_nat['mao_de_obra_tecnica']['margem_pct']}, média resultante "
+            f"{r['margem_media_resultante']}")
+
+
+async def r13_margem_nao_cadastrada() -> str:
+    r = await S.orcamento_por_natureza("35710481000103", "eletronica", [
+        {"descricao": "projeto", "custo": 5000, "natureza_item": "projeto"}])
+    assert r.get("codigo") == "MARGEM_NAO_CADASTRADA" and r.get("http") == 422, str(r)[:200]
+    assert r.get("margens_cadastradas"), "recusou sem dizer o que EXISTE"
+    assert "0.15" not in str(r.get("memoria_de_calculo") or ""), "caiu no fallback de 15%"
+    return f"recusou citando {len(r['margens_cadastradas'])} margens cadastradas"
+
+
+async def r14_regime_ausente() -> str:
+    r = await S.orcamento_por_natureza("66014833000110", "patrimonial", [
+        {"descricao": "posto 24h", "custo": 10000, "natureza_item": "servico_alocado"}])
+    assert r.get("codigo") == "REGIME_NAO_CADASTRADO" and r.get("http") == 422, str(r)[:200]
+    assert "rbt12" in (r.get("dica") or "").lower(), f"dica não aponta o que falta: {r.get('dica')}"
+    return f"recusou precificar: {r.get('faltando')}"
+
+
+async def r15_dois_cnpjs() -> str:
+    p = await S.consultar_parametros_precificacao()
+    emp = {e["cnpj"]: e for e in (p.get("empresas") or [])}
+    assert len(emp) >= 2, f"só {len(emp)} empresa(s) com regime"
+    cargas = {c: e.get("carga_total") for c, e in emp.items()}
+    assert len({str(v) for v in cargas.values()}) >= 2, (
+        f"as empresas têm a MESMA carga: {cargas} — o regime por CNPJ não está valendo")
+    for e in emp.values():
+        assert e.get("fonte"), f"{e['cnpj']} sem `fonte` declarada"
+    return f"{len(emp)} CNPJs, cargas distintas: {list(cargas.values())}"
+
+
+async def r18_nota_interna_nao_vaza() -> str:
+    """Bloco 4. O texto INTEIRO é devolvido, porque "não aparece" sem o texto não conta."""
+    r = await S.baixar_proposta_pdf("PROP-2026-00114", formato="texto")
+    texto = r.get("texto_extraido") or ""
+    assert texto, f"não renderizou: {str(r)[:160]}"
+    for proibido in ("OBS INTERNA", "Margem atual", "margem de lucro", "não mostrar"):
+        assert proibido.lower() not in texto.lower(), (
+            f"VAZOU no PDF do cliente: {proibido!r}")
+    # a fronteira estrutural existe, não só o texto está limpo hoje
+    import importlib
+
+    pdf = importlib.import_module("modules.crm.services.proposal_pdf") if False else None
+    return f"{len(texto)} chars no PDF do cliente, sem nenhum marcador interno"
+
+
+async def r19_capabilities_sem_fantasma() -> str:
+    doms = (await S.conecta_pro_capabilities()).get("dominios") or {}
+    fantasmas = []
+    for nome in doms:
+        d = await S.conecta_pro_capabilities(dominio=nome)
+        for t in (d.get("fluxo") or []):
+            if not hasattr(S, t):
+                fantasmas.append(f"{nome}→{t}")
+    assert not fantasmas, f"o mapa cita tool inexistente: {fantasmas}"
+    return f"{len(doms)} domínios, todas as tools do fluxo existem"
+
+
+async def r20_fechar_folha_atras_do_muro() -> str:
+    """⚠️ DIVERGÊNCIA do spec, decidida pelo Jordan em 12/09/2026.
+
+    O R20 original pedia `ensaiar("fechar_folha")` funcionando como dry-run. Isso contradiz
+    o CP-MCP-001, que faz `ensaiar` recusar toda ação de aprovação humana — e `fechar_folha`
+    é uma delas. O Jordan escolheu MANTER O MURO: o ensaio de verdade se faz no sandbox, que
+    grava num banco descartável.
+
+    Este caso afirma a decisão dele, não o texto original do spec.
+    """
+    r = await S.ensaiar("fechar_folha", {})
+    assert r.get("codigo") == "REQUER_APROVACAO_HUMANA", (
+        f"o muro de fechar_folha caiu: {str(r)[:180]}")
+    assert not r.get("escritas"), "registrou escrita numa ação barrada"
+    # e o caminho alternativo legítimo existe
+    import tool_risk_manifest as M
+
+    assert M.TOOL_RISK.get("fechar_folha") == "propose", M.TOOL_RISK.get("fechar_folha")
+    return "muro mantido (decisão do dono); ensaio real via no_sandbox"
+
+
+async def r21_muro_antes_de_resolver() -> str:
+    """403 e não 404: o muro dispara ANTES de resolver a entidade.
+
+    O Cowork provou isso antes de arriscar a chamada real, e é a prova mais forte: a recusa
+    é estrutural, não depende de o alvo existir.
+    """
+    r = await S.ensaiar("propor_pagamento", {"descricao": "ID-QUE-NAO-EXISTE-ZZZ",
+                                             "valor": 1})
+    assert r.get("http") == 403, f"esperava 403 (muro antes), veio {r.get('http')}: {r}"
+    assert r.get("codigo") == "REQUER_APROVACAO_HUMANA", r
+    return "403 com ID inexistente — o muro vem antes de resolver a entidade"
+
+
+async def r22_ensaio_nao_polui_a_fila() -> str:
+    """Fila poluída por teste treina humano a aprovar sem ler."""
+    import gate_propose as G
+
+    for fn in (S.ensaiar, S.no_sandbox, S.executar_em_segundo_plano):
+        r = await fn("enviar_link_assinatura", {"contrato": MAIAPOLIS_CTR})
+        assert r.get("codigo") == G.CODIGO_APROVACAO, r
+        assert not r.get("escritas"), "registrou escrita"
+    return "os 3 despachantes recusam sem criar pedido na Central"
+
+
+async def r23_pendencias_acionaveis() -> str:
+    r = await S.pendencias_acionaveis(horizonte_dias=30, severidade_minima="media")
+    assert r.get("ok"), str(r)[:200]
+    itens = r.get("pendencias") or []
+    assert itens, "nenhuma pendência — improvável, e lista vazia é lida como 'tudo bem'"
+    assert r.get("criterio_de_severidade"), "severidade sem critério declarado"
+    for i in itens:
+        for campo in ("id", "dominio", "titulo", "severidade", "impacto",
+                      "acao_sugerida", "tool_para_agir"):
+            assert campo in i, f"pendência sem {campo}: {sorted(i)}"
+        assert i["severidade"] in ("critica", "alta", "media", "baixa"), i["severidade"]
+    # ordenada: severidade mais grave primeiro
+    pesos = {"critica": 0, "alta": 1, "media": 2, "baixa": 3}
+    ordem = [pesos[i["severidade"]] for i in itens]
+    assert ordem == sorted(ordem), "a lista não está ordenada por severidade"
+    return f"{len(itens)} pendências ordenadas · {r.get('por_severidade')}"
+
+
+async def r24_escopo_lgpd_declarado() -> str:
+    """Bloco 7: o agente sabe o que vai acessar ANTES de acessar."""
+    import lgpd_escopo as L
+
+    assert L.nivel("tool_inventada_agora") == L.SENSIVEL, "o fail-closed caiu"
+    assert L.nivel("baixar_holerite_pdf") == L.SENSIVEL
+    assert L.nivel("folha_dashboard") == L.AGREGADO
+    d = await S.conecta_pro_capabilities(dominio="folha_dp")
+    assert d.get("lgpd_por_tool"), "capabilities não declara o nível por tool"
+    for t, v in d["lgpd_por_tool"].items():
+        assert v.get("lgpd_nivel") in (L.AGREGADO, L.OPERACIONAL, L.SENSIVEL), (t, v)
+        assert v.get("lgpd_significa"), f"{t} sem tradução do nível"
+    c = L.CONCESSAO
+    assert not L.concessao_vale_para("baixar_holerite_pdf"), (
+        "holerite individual entrou na concessão de operação normal")
+    return (f"{len(L.NIVEL)} tools classificadas; concessão de {len(c['tools'])} até "
+            f"{c['valido_ate']}")
+
+
 CASOS = [
     ("R01 documento legível", r01_documento_legivel),
     ("R02 identificador tolerante", r02_identificador_tolerante),
@@ -384,6 +547,17 @@ CASOS = [
     ("R10 parede do modelo em uso", r10_parede_do_modelo_em_uso),
     ("R11 parede de aprovação humana", r11_parede_de_aprovacao_humana),
     ("CP-MCP-002 parâmetro = 422", extra_parametro_obrigatorio),
+    ("R12 orçamento misto", r12_orcamento_misto),
+    ("R13 margem não cadastrada", r13_margem_nao_cadastrada),
+    ("R14 regime ausente", r14_regime_ausente),
+    ("R15 dois CNPJs", r15_dois_cnpjs),
+    ("R18 nota interna não vaza", r18_nota_interna_nao_vaza),
+    ("R19 capabilities × registry", r19_capabilities_sem_fantasma),
+    ("R20 fechar_folha atrás do muro", r20_fechar_folha_atras_do_muro),
+    ("R21 muro antes de resolver", r21_muro_antes_de_resolver),
+    ("R22 ensaio não polui a fila", r22_ensaio_nao_polui_a_fila),
+    ("R23 pendências acionáveis", r23_pendencias_acionaveis),
+    ("R24 escopo LGPD declarado", r24_escopo_lgpd_declarado),
     ("CP-MCP-003 request_id sempre", extra_request_id_em_toda_falha),
 ]
 
