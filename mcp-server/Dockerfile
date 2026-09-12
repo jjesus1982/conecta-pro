@@ -17,6 +17,7 @@ COPY test_tool_risk_manifest.py .
 # trava: quem se diz `read` prova que nao escreve (SQL/verbo HTTP no corpo)
 COPY test_read_nao_escreve.py .
 COPY carimbo.py .
+COPY pendencias.py .
 COPY changelog.json .
 COPY test_identidade.py .
 COPY test_segundo_plano.py .

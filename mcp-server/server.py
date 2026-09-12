@@ -1487,6 +1487,87 @@ async def simular_preco(funcao: str | None = None, salario_base: float | None = 
 
 
 @mcp.tool
+async def pendencias_acionaveis(horizonte_dias: int = 30,
+                                severidade_minima: str = "media") -> dict:
+    """TUDO que precisa de decisão, numa lista ordenada por gravidade. Só lê.
+
+    Bloco 8 do relatório: certidão vencendo, ASO estourando, obrigação fiscal a vencer,
+    proposta esfriando, cotação expirando — as peças existiam soltas e nada chamava ninguém.
+
+    Cada item traz `severidade`, `prazo`, `dias_restantes`, `impacto` (o que acontece se
+    ninguém agir), `acao_sugerida` e `tool_para_agir`.
+
+    Severidade, com critério ESCRITO: `critica` = prazo legal vencido/vencendo ou trava
+    faturamento · `alta` = legal em até 7 dias, ou dinheiro parado · `media` = até 30 dias
+    · `baixa` = informativo.
+
+    ⚠️ NÃO corrige nada. Operacional em especial é curado à mão pelo dono — divergência ali
+    vira linha de RELATÓRIO, e a `acao_sugerida` diz isso.
+
+    ⚠️ Fonte que falha aparece como item `alta` ("FONTE INDISPONÍVEL"), não desaparece:
+    lista curta e tranquila é lida como "está tudo bem".
+    """
+    import pendencias as P  # noqa: PLC0415
+
+    itens: list = []
+
+    async def colher(nome: str, chave: str, dominio: str, adaptador) -> None:
+        try:
+            r = await asyncio.wait_for(globals()[nome](), timeout=20)
+            dados = (r or {}).get(chave) or []
+            itens.extend(adaptador(dados))
+        except Exception as exc:  # noqa: BLE001
+            itens.append(P.fonte_falhou(dominio, nome, f"{type(exc).__name__}: {exc}"))
+
+    await colher("alertas_obrigacoes", "alertas", "fiscal", P.de_obrigacoes)
+    await colher("status_certidoes", "certidoes", "fiscal", P.de_certidoes)
+    await colher("substituicoes_pendentes", "substituicoes", "operacional",
+                 P.de_substituicoes)
+
+    # ASO precisa das duas pontas: quem vence e quem nunca teve
+    try:
+        venc = (await asyncio.wait_for(asos_vencendo(), timeout=20) or {}).get("asos_vencendo") or []
+        sem = (await asyncio.wait_for(funcionarios_sem_aso(), timeout=20) or {}).get("colaboradores") or []
+        itens.extend(P.de_aso(venc, sem))
+    except Exception as exc:  # noqa: BLE001
+        itens.append(P.fonte_falhou("sst", "asos_vencendo", f"{type(exc).__name__}: {exc}"))
+
+    try:
+        neg = (await asyncio.wait_for(negociacoes_pendentes(), timeout=20) or {}).get("pendentes") or []
+        frios = (await asyncio.wait_for(leads_frios(), timeout=20) or {}).get("frios") or []
+        itens.extend(P.de_comercial(neg, frios))
+    except Exception as exc:  # noqa: BLE001
+        itens.append(P.fonte_falhou("comercial", "negociacoes_pendentes",
+                                    f"{type(exc).__name__}: {exc}"))
+
+    # cotações a vencer — a peça nova do Bloco 3
+    try:
+        cot = await erp.get("/crm/propostas/cotacoes-a-vencer",
+                            params={"dias": horizonte_dias})
+        itens.extend(P.de_cotacoes((cot or {}).get("propostas") or []))
+    except Exception:  # noqa: BLE001
+        pass  # rota opcional: ausência não é pendência
+
+    ordenados = P.ordenar(itens, severidade_minima, horizonte_dias)
+    por_sev: dict = {}
+    for i in ordenados:
+        por_sev[i["severidade"]] = por_sev.get(i["severidade"], 0) + 1
+    return {
+        "ok": True, "total": len(ordenados), "por_severidade": por_sev,
+        "horizonte_dias": horizonte_dias, "severidade_minima": severidade_minima,
+        "pendencias": ordenados,
+        "criterio_de_severidade": {
+            "critica": "prazo legal vencido/vencendo ou trava faturamento",
+            "alta": "prazo legal em até 7 dias, ou dinheiro parado",
+            "media": "prazo em até 30 dias, ou trabalho comercial esfriando",
+            "baixa": "informativo — serve para planejar a semana",
+        },
+        "aviso": ("Nada aqui foi corrigido. Operacional é curado à mão pelo dono: "
+                  "divergência vira relatório, nunca correção automática."),
+    }
+
+
+@mcp.tool
 async def procedencia_da_proposta(proposta: str) -> dict:
     """Esta proposta pode ser enviada? Custo firme, cotação válida, estimativa aceita. Só lê.
 
