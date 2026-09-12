@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "3eabc59cd",
+      "data": "2026-09-12",
+      "mudanca": "fix(lgpd): a trilha dizia a PESSOA e omitia o agente"
+    },
+    {
+      "commit": "ac9f20d2e",
+      "data": "2026-09-12",
+      "mudanca": "chore(mcp): changelog regenerado — topo b4437c5f6"
+    },
+    {
       "commit": "b4437c5f6",
       "data": "2026-09-12",
       "mudanca": "fix(mcp): a varredura paramétrica achou o que a minha varredura à mão não via"
@@ -190,16 +200,6 @@
       "commit": "1cf190e83",
       "data": "2026-09-11",
       "mudanca": "feat(mcp): as 44 ferramentas que escreviam sem avisar passam a declarar — e uma trava"
-    },
-    {
-      "commit": "1d20e9bd4",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): anexar documento com versão, dry_run e idempotência — 2.2 e 3.3 do Cowork"
-    },
-    {
-      "commit": "d6b637e46",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): CRUD de modelos de contrato — novo tipo de negócio deixa de esperar dev"
     }
   ]
 }
