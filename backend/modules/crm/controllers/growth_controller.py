@@ -113,14 +113,120 @@ async def consultar_auditoria(
 
 # ===================================================================== PRECIFICAÇÃO (CCT 2026)
 @router.get("/pricing/parametros")
-async def pricing_parametros(db: AsyncSession = Depends(get_db)):
-    """Parâmetros editáveis de precificação (Lucro Real, CCT 2026) — encargos, tributos, margem, benefícios."""
+async def pricing_parametros(
+    db: AsyncSession = Depends(get_db),
+    empresa: str | None = None,
+    linha_negocio: str | None = None,
+    natureza_item: str | None = None,
+):
+    """Parâmetros de precificação — encargos, tributos, benefícios e as MARGENS por dimensão.
+
+    ⭐ `margens` é lista, nunca escalar. Até 11/09/2026 havia um único
+    `{"chave":"margem","valor":0.15}` para o grupo inteiro, e isso é falso desde que existe
+    a operação de eletrônica: serviço alocado (15%), venda de equipamento (35%) e mão de
+    obra de instalação (40%) têm estruturas de custo diferentes. A consequência era toda
+    proposta de eletrônica ser precificada numa planilha fora do ERP.
+
+    A `convencao` vai junto de cada margem: 35% sobre o PREÇO e 35% de markup sobre o CUSTO
+    são R$ 18.846 de diferença num item de R$ 100 mil.
+    """
+    from modules.crm.services import margem as MG
+
     rows = _rows(
         await db.execute(text("SELECT chave, valor, label, grupo FROM crm_pricing_params ORDER BY grupo, chave"))
     )
     for r in rows:
         r["valor"] = float(r["valor"])
-    return {"regime": "Grupo Conecta Mais · CCT 2026 SINDECOMPRESTS · encargos por regime da empresa do contrato (revisão multi-CNPJ)", "parametros": rows}
+    # o escalar antigo sai da lista de parâmetros: mantê-lo ao lado das margens por dimensão
+    # é oferecer duas respostas para a mesma pergunta, e quem ler primeiro acredita.
+    escalar = [r for r in rows if r["grupo"] == "margem"]
+    rows = [r for r in rows if r["grupo"] != "margem"]
+    margens = await MG.listar(db, empresa=empresa, linha_negocio=linha_negocio,
+                              natureza_item=natureza_item)
+    saida = {
+        "ok": True,
+        "regime": "Grupo Conecta Mais · CCT 2026 SINDECOMPRESTS · encargos por regime da empresa do contrato (revisão multi-CNPJ)",
+        "parametros": rows,
+        "margens": margens,
+        "naturezas_validas": list(MG.NATUREZAS),
+        "linhas_validas": list(MG.LINHAS),
+    }
+    if escalar and not (empresa or linha_negocio or natureza_item):
+        saida["aviso_margem_escalar"] = (
+            f"O parâmetro único `margem={escalar[0]['valor']}` continua na tabela por "
+            f"compatibilidade, mas NÃO é mais usado no cálculo — a margem vem de `margens`, "
+            f"por (empresa, linha, natureza)."
+        )
+    return saida
+
+
+@router.post("/pricing/orcamento-por-natureza")
+async def pricing_orcamento_por_natureza(
+    payload: dict = Body(...),
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Preço item a item, cada linha com a SUA margem — aceite do Bloco 1.
+
+    O prompt é explícito: "se a memória de cálculo mostrar uma margem só, está errado".
+    Um orçamento de eletrônica mistura equipamento (35%) e instalação (40%); o documento
+    inteiro com uma margem média é o que fazia a planilha existir fora do ERP.
+
+    Corpo: `{"empresa_cnpj": "...", "linha_negocio": "eletronica", "itens": [
+              {"descricao": "...", "custo": 0.00, "natureza_item": "produto"}]}`
+
+    Não grava nada — é cálculo. E RECUSA a combinação sem margem cadastrada, com a lista do
+    que existe: chutar 15% onde a margem é 40% é errar o preço para menos e descobrir no
+    fechamento.
+    """
+    from modules.crm.services import margem as MG
+
+    empresa = str(payload.get("empresa_cnpj") or "").strip()
+    linha = str(payload.get("linha_negocio") or "").strip()
+    itens = payload.get("itens") or []
+    faltando = [k for k, v in (("empresa_cnpj", empresa), ("linha_negocio", linha),
+                               ("itens", itens)) if not v]
+    if faltando:
+        raise HTTPException(422, f"Informe: {', '.join(faltando)}.")
+
+    linhas, total_custo, total_preco = [], 0.0, 0.0
+    for i, it in enumerate(itens):
+        natureza = str(it.get("natureza_item") or "").strip()
+        custo = float(it.get("custo") or 0)
+        qtd = float(it.get("quantidade") or 1)
+        if not natureza:
+            raise HTTPException(422, f"Item {i + 1} ({it.get('descricao')}) sem "
+                                     f"`natureza_item`. Use uma de: "
+                                     f"{' | '.join(MG.NATUREZAS)}.")
+        try:
+            m = await MG.resolver(db, empresa_cnpj=empresa, linha_negocio=linha,
+                                  natureza_item=natureza)
+        except MG.MargemNaoCadastrada as e:
+            # 422 com o envelope do Bloco 1 — inclui o que EXISTE, para o agente escolher
+            raise HTTPException(422, MG.envelope_recusa(e)) from e
+        custo_linha = round(custo * qtd, 2)
+        mem = m.memoria(custo_linha)
+        mem["descricao"] = it.get("descricao")
+        mem["quantidade"] = qtd
+        mem["custo_unitario"] = round(custo, 2)
+        linhas.append(mem)
+        total_custo += custo_linha
+        total_preco += mem["preco"]
+
+    return {
+        "ok": True,
+        "empresa_cnpj": empresa,
+        "linha_negocio": linha,
+        # ⭐ a memória é POR LINHA. O total é consequência, não a régua.
+        "memoria_de_calculo": linhas,
+        "total_custo": round(total_custo, 2),
+        "total_preco": round(total_preco, 2),
+        "total_lucro": round(total_preco - total_custo, 2),
+        "margem_media_resultante": (round(1 - total_custo / total_preco, 4)
+                                    if total_preco else None),
+        "aviso": ("`margem_media_resultante` é RESULTADO, não parâmetro — ninguém a "
+                  "definiu. Cada linha tem a margem da natureza dela."),
+    }
 
 
 class ParamsIn(BaseModel):

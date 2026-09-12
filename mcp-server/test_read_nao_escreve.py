@@ -36,6 +36,10 @@ POST_DE_CONSULTA: dict[str, str] = {
     "consultar_juridico": "POST /juridico/consultor/perguntar — idem",
     "consultar_viabilidade_contratacao": "POST /consultores/mcp/executivo/viabilidade — cálculo",
     "simular_preco": "POST /crm/pricing/simular — simulação, não persiste",
+    # 11/09/2026 · Bloco 1. O corpo leva a LISTA de itens com custo e natureza, que não
+    # cabe em query string. A rota resolve a margem de cada linha e devolve a memória de
+    # cálculo — não há INSERT nem UPDATE em nenhum caminho dela. Revisado lendo a função.
+    "orcamento_por_natureza": "POST /crm/pricing/orcamento-por-natureza — calcula, não grava",
     "simular_fechamento": "POST /crm/simular-fechamento — simulação",
     "briefing_contrato_novo": "POST /crm/contracts/briefing — diagnóstico do que falta",
     "baixar_espelho_ponto_pdf": "POST /consultores/mcp/{origem}/consultar — consulta que devolve PDF",

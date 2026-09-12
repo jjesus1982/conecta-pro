@@ -137,6 +137,9 @@ class ErpErro(RuntimeError):
         super().__init__(mensagem)
         self.codigo, self.http, self.mensagem = codigo, http, mensagem
         self.dica, self.request_id = dica, request_id
+        # campos que o backend mandou além do básico (candidatos, campos_faltantes,
+        # margens_cadastradas…). São eles que dizem ao agente o que fazer em seguida.
+        self.extra: dict = {}
 
     @classmethod
     def de_resposta(cls, method: str, path: str, r) -> "ErpErro":
@@ -144,6 +147,16 @@ class ErpErro(RuntimeError):
             detalhe = (r.json() or {}).get("detail")
         except Exception:  # noqa: BLE001
             detalhe = None
+        # ⭐ Se o backend JÁ devolveu um envelope, ele passa inteiro. Sem isto o código
+        # específico virava texto dentro de `mensagem` e o de fora era o genérico:
+        #   {"codigo":"VALIDACAO","mensagem":"{'codigo': 'MARGEM_NAO_CADASTRADA', ...}"}
+        # O agente decide pelo `codigo` do topo — e o do topo estava contando outra coisa.
+        if isinstance(detalhe, dict) and detalhe.get("codigo"):
+            e = cls(str(detalhe["codigo"]), int(detalhe.get("http") or r.status_code),
+                    str(detalhe.get("mensagem") or ""), str(detalhe.get("dica") or ""))
+            e.extra = {k: v for k, v in detalhe.items()
+                       if k not in ("ok", "codigo", "http", "mensagem", "dica")}
+            return e
         msg = str(detalhe or r.text or "")[:400].strip() or f"O ERP respondeu {r.status_code}."
         baixo = msg.lower()
         codigo, http, dica = "ERRO_NO_ERP", r.status_code, ""
@@ -176,6 +189,7 @@ class ErpErro(RuntimeError):
         rid = self.request_id or _REQ_ID.get()
         if rid:
             out["request_id"] = rid
+        out.update(getattr(self, "extra", {}) or {})
         return out
 
 
@@ -1473,9 +1487,51 @@ async def simular_preco(funcao: str | None = None, salario_base: float | None = 
 
 
 @mcp.tool
-async def consultar_parametros_precificacao() -> dict:
-    """Lê os parâmetros de precificação (encargos, tributos, margem, benefícios, adicionais)."""
-    return await erp.get("/crm/pricing/parametros")
+async def orcamento_por_natureza(empresa_cnpj: str, linha_negocio: str,
+                                 itens: list) -> dict:
+    """Preço item a item, cada linha com a SUA margem. Não grava nada.
+
+    Um orçamento de eletrônica mistura equipamento e instalação, e as margens são
+    diferentes — 35% e 40%. Este cálculo mostra a memória POR LINHA: custo, margem
+    aplicada, percentual e de onde o parâmetro veio.
+
+    `itens`: `[{"descricao": "64 câmeras IP", "custo": 1200, "quantidade": 64,
+                "natureza_item": "produto"}]`
+    `natureza_item`: `produto` · `mao_de_obra_tecnica` · `servico_alocado`
+
+    ⚠️ Item sem `natureza_item` é RECUSADO, e combinação sem margem cadastrada também —
+    com a lista do que existe. Chutar 15% onde a margem é 40% erra o preço para MENOS e só
+    aparece no fechamento.
+
+    A `convencao` vem em cada linha: por decisão do Jordan (11/09/2026) é margem sobre o
+    PREÇO, não markup sobre o custo — num item de R$ 100 mil a diferença é R$ 18.846.
+    """
+    try:
+        return await erp.post("/crm/pricing/orcamento-por-natureza", json={
+            "empresa_cnpj": empresa_cnpj, "linha_negocio": linha_negocio, "itens": itens})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+
+
+@mcp.tool
+async def consultar_parametros_precificacao(empresa: str = "", linha_negocio: str = "",
+                                            natureza_item: str = "") -> dict:
+    """Parâmetros de precificação — encargos, tributos, benefícios e as MARGENS por dimensão.
+
+    ⭐ `margens` é LISTA, nunca um número só. Até 11/09/2026 havia um escalar `margem=0.15`
+    para o grupo inteiro, e isso era falso desde que existe a eletrônica: serviço alocado
+    15%, equipamento 35%, mão de obra de instalação 40%.
+
+    Cada margem traz a `convencao` (margem sobre o preço) e a procedência — quem confirmou
+    e quando. Parâmetro de dinheiro sem procedência é parâmetro que ninguém confia daqui a
+    seis meses. Só lê.
+    """
+    params = {k: v for k, v in (("empresa", empresa), ("linha_negocio", linha_negocio),
+                                ("natureza_item", natureza_item)) if v}
+    try:
+        return await erp.get("/crm/pricing/parametros", params=params or None)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
 
 
 @mcp.tool
