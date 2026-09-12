@@ -167,6 +167,14 @@ class ErpErro(RuntimeError):
         else:
             if r.status_code == 404:
                 codigo, dica = "NAO_ENCONTRADO", "Confira o identificador."
+            elif r.status_code == 400:
+                # ⭐ 12/09/2026: 400 não estava na cadeia e caía com `dica` vazia. Achado
+                # pela varredura paramétrica no `exportar_folha_dominio`, cujo 400 traz a
+                # mensagem boa ("Use YYYY-MM") e nenhuma dica — o agente lia o que estava
+                # errado e não o que fazer.
+                codigo, dica = "REQUISICAO_INVALIDA", (
+                    "Corrija o que a mensagem aponta e chame de novo. Formato de campo "
+                    "costuma estar descrito em `conecta_pro_capabilities()`.")
             elif r.status_code == 422:
                 codigo, dica = "VALIDACAO", "Corrija os campos apontados na mensagem."
             elif r.status_code == 409:
@@ -182,8 +190,13 @@ class ErpErro(RuntimeError):
         """O que a tool devolve ao agente. NUNCA inclui método nem caminho interno."""
         out = {"ok": False, "codigo": self.codigo, "http": self.http,
                "mensagem": self.mensagem}
-        if self.dica:
-            out["dica"] = self.dica
+        # ⚠️ e a dica NUNCA sai vazia. O caso do 400 mostrou que basta um status fora da
+        # cadeia para o envelope perder o campo que diz o que fazer — e um envelope que
+        # informa o defeito sem informar a saída ensina metade. Genérica é pior que
+        # específica e melhor que ausente.
+        out["dica"] = self.dica or (
+            f"O ERP recusou com HTTP {self.http}. Leia a `mensagem`, corrija e chame de "
+            f"novo; se não der para agir por ela, informe o `request_id` ao suporte.")
         # o do ERP ganha do meu: se o backend nomeou a requisição, é esse nome que está no
         # log dele. O meu serve quando ele não nomeou — melhor um id meu que nenhum.
         rid = self.request_id or _REQ_ID.get()
@@ -306,6 +319,18 @@ _FALTANDO = re.compile(r"missing \d+ required (?:positional|keyword-only) argume
 # `folha_dashboard({})` cair em FALHA_INESPERADA/500 — o mesmo defeito do CP-MCP-002 pela
 # outra porta. Duas formas de dizer a mesma coisa, e eu só conhecia uma.
 _FALTANDO_FASTMCP = re.compile(r"Missing required argument", re.I)
+# ⚠️ TERCEIRA variante do mesmo defeito, achada pela varredura paramétrica que o Cowork
+# sugeriu (12/09/2026). O FastMCP recusa por TIPO antes de chamar a função — "Input should
+# be a valid integer" quando `mes` recebe texto — e isso caía em FALHA_INESPERADA/500 em
+# VINTE tools. Erro de tipo é do chamador (422), não falha do servidor.
+#
+# São três formas de dizer a mesma coisa e eu conhecia uma: TypeError do Python, "Missing
+# required argument" do FastMCP, e agora a validação de tipo do pydantic.
+_TIPO_INVALIDO = re.compile(r"Input should be a valid (\w+)", re.I)
+# ⚠️ o pydantic põe o nome do campo em LINHA PRÓPRIA antes da mensagem, não em `loc`.
+# Medi o formato real em vez de deduzir — a primeira regex olhava `loc` e devolvia
+# lista vazia: 422 certo, campo mudo. Erro que ensina metade não ensina.
+_CAMPO_TIPO = re.compile(r"^([a-z_][a-z_0-9]*)\n\s+Input should be a valid", re.M | re.I)
 _CAMPO_FASTMCP = re.compile(r"^([a-z_][a-z_0-9]*)\n\s+Missing required argument", re.M | re.I)
 _SOBRANDO = re.compile(r"unexpected keyword argument '([^']+)'")
 _NOME_ARG = re.compile(r"'([^']+)'")
@@ -326,6 +351,15 @@ def erro_envelope(exc: Exception) -> dict:
                     ", ".join(f"`{c}`" for c in campos) if campos
                     else "os campos obrigatórios")
                     + ". `conecta_pro_capabilities()` mostra o que cada ferramenta espera."}
+    if (m := _TIPO_INVALIDO.search(texto)):
+        campos = _CAMPO_TIPO.findall(texto)
+        esperado = m.group(1)
+        return {"ok": False, "codigo": "PARAMETRO_INVALIDO", "http": 422,
+                "mensagem": ((", ".join(campos) + f": esperava {esperado}.") if campos
+                             else f"Um dos campos esperava {esperado}."),
+                "campos_invalidos": campos, "tipo_esperado": esperado,
+                "dica": "Corrija o tipo e chame de novo. "
+                        "`conecta_pro_capabilities()` mostra o que cada campo espera."}
     if isinstance(exc, TypeError) and _FALTANDO.search(texto):
         # só os nomes dos campos; o resto da mensagem é a assinatura interna da função
         campos = _NOME_ARG.findall(texto.split(":", 1)[-1]) if ":" in texto else []
@@ -549,6 +583,26 @@ MODALIDADES: dict[str, tuple[str, str, str]] = {
     "portaria_remota": ("portaria_remota", "Eletrônica", "recurring"),
     "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica", "one_time"),
 }
+
+
+async def _get_ou_404(rota: str, *, o_que: str, chave: str, dica: str) -> dict:
+    """GET que transforma "o banco não entendeu esse id" em 404 com dica.
+
+    ⭐ Validação do Cowork (12/09/2026): `obter_deal` e `obter_funcionario` devolviam
+    ERRO_INTERNO/500 para identificador inválido — o envelope estava certo e o CÓDIGO
+    errado. A descrição do `obter_contrato` já dizia, com todas as letras: "não encontrei é
+    404 e é informação; 500 manda o agente tentar de novo igual". Valia para eles também.
+    """
+    try:
+        return await erp.get(rota)
+    except Exception as exc:  # noqa: BLE001
+        env = erro_envelope(exc)
+        # 500 por UUID mal formado é o banco reclamando do formato, não falha do servidor
+        if env.get("http", 500) >= 500:
+            return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Nenhum {o_que} corresponde a {chave!r}.",
+                    "dica": dica}
+        return env
 
 
 async def _resolver_proposta(chave: str) -> str | dict:
@@ -951,7 +1005,15 @@ async def _pdf_b64(path: str, formato: str = "base64", nome: str = "documento.pd
     try:
         raw = await erp.get_bytes(path)
     except Exception as exc:  # noqa: BLE001
-        return erro_envelope(exc)
+        env = erro_envelope(exc)
+        # id que o banco não entende vira 404 aqui também: "não achei" é informação, 500
+        # manda o agente tentar de novo igual.
+        if env.get("http", 500) >= 500:
+            return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                    "mensagem": "Não achei o registro para gerar este documento.",
+                    "dica": "Confira o identificador — a rota é " + path.split("/")[1]
+                            + "; use a tool de listagem do módulo para achar o id certo."}
+        return env
     kb = round(len(raw) / 1024, 1)
     b64 = base64.b64encode(raw).decode("ascii")
     out: dict = {"ok": True, "gerado": True,
@@ -1776,6 +1838,19 @@ async def gerar_aditivo_pdf(contrato_numero: str, tipo: str = "outro", objeto: s
     Item 2.1 do relatório de campo: gerar um PDF e não poder olhar o que saiu.
 
     """
+    # ⭐ 12/09/2026: com `contrato_numero` inexistente isto gerava um PDF de 262 KB
+    # intitulado "Aditivo - LIXO-ZZZ-999", devolvia `gerado: true` e um `download_url`.
+    # Aditivo, por definição, altera contrato que existe — documento para contrato que não
+    # existe é fabricação, e o agente lê `gerado: true` como serviço feito.
+    # ⚠️ e a checagem usa `_resolver_contrato`, que JÁ EXISTE e já devolve envelope para o
+    # que não acha. A primeira versão desta guarda chamava uma rota `/crm/contracts/
+    # by-number/{n}` que eu inventei — o 404 dela teria vindo da rota inexistente, não do
+    # contrato inexistente, e a guarda reprovaria contrato válido. Reusar o resolvedor da
+    # casa é mais curto e mede a coisa certa.
+    alvo = await _resolver_contrato(contrato_numero)
+    if isinstance(alvo, dict):
+        return {**alvo, "gerado": False}
+    contrato_numero = alvo
     return await _gerar_doc("/crm/docs/aditivo/pdf", {
         "contrato_numero": contrato_numero, "tipo": tipo, "objeto": objeto, "cliente": cliente,
         "documento": documento, "novo_valor": novo_valor, "nova_vigencia_fim": nova_vigencia_fim,
@@ -2424,7 +2499,15 @@ async def listar_followups_pendentes() -> dict:
 @mcp.tool
 async def historico_followup(deal_id: str) -> dict:
     """Histórico de toques (enviados/agendados/cancelados) + respostas do cliente de um deal."""
-    return await erp.get("/crm/followups/historico", params={"deal_id": deal_id})
+    try:
+        return await erp.get("/crm/followups/historico", params={"deal_id": deal_id})
+    except Exception as exc:  # noqa: BLE001
+        env = erro_envelope(exc)
+        if env.get("http", 500) >= 500:
+            return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Nenhum deal corresponde a {deal_id!r}.",
+                    "dica": "Use o id da oportunidade — listar_deals() mostra os ids."}
+        return env
 
 
 @mcp.tool
@@ -2530,8 +2613,10 @@ async def followup_em_lote(mensagem: str | None = None, confirmar: bool = False)
 
 @mcp.tool
 async def obter_deal(deal_id: str) -> dict:
-    """Detalhe completo de uma oportunidade/deal pelo id."""
-    return await erp.get(f"/crm/opportunities/{deal_id}")
+    """Detalhe completo de uma oportunidade/deal pelo id. Só lê."""
+    return await _get_ou_404(f"/crm/opportunities/{deal_id}", o_que="deal",
+                             chave=deal_id,
+                             dica="Use o id da oportunidade — listar_deals() mostra os ids.")
 
 
 @mcp.tool
@@ -2574,9 +2659,14 @@ async def obter_cliente(cnpj_ou_id: str) -> dict:
     if "-" not in cnpj_ou_id or len(cnpj_ou_id) < 30:
         c = await _buscar_cliente(cnpj_ou_id)
         if not c:
-            return {"erro": "cliente não encontrado", "busca": cnpj_ou_id}
+            return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Nenhum cliente corresponde a {cnpj_ou_id!r}.",
+                    "dica": "Aceita CNPJ só com dígitos ou o id. "
+                            "listar_clientes(busca=...) ajuda a achar.",
+                    "procurei_por": cnpj_ou_id}
         cid = c.get("id")
-    return await erp.get(f"/clients/{cid}")
+    return await _get_ou_404(f"/clients/{cid}", o_que="cliente", chave=cnpj_ou_id,
+                             dica="Aceita CNPJ só com dígitos ou o id.")
 
 
 # =================================================================== VISITA TÉCNICA & COMERCIAL
@@ -2622,8 +2712,18 @@ async def listar_relatorios_visita() -> dict:
 
 @mcp.tool
 async def obter_relatorio_visita(ref: str) -> dict:
-    """Detalhe de um relatório de visita (por id ou nome do cliente)."""
-    return await erp.get("/crm/visitas/detalhe", params={"ref": ref})
+    """Detalhe de um relatório de visita (por id ou nome do cliente). Só lê."""
+    try:
+        return await erp.get("/crm/visitas/detalhe", params={"ref": ref})
+    except Exception as exc:  # noqa: BLE001
+        env = erro_envelope(exc)
+        if env.get("codigo") == "NAO_ENCONTRADO":
+            # ⚠️ a dica genérica mandava usar `listar_contratos` para achar um RELATÓRIO
+            # DE VISITA. Dica que aponta a ferramenta errada é pior que dica ausente:
+            # manda o agente procurar no lugar onde não está.
+            env["dica"] = ("Use o id do relatório ou o nome do cliente — "
+                           "listar_relatorios_visita() mostra os dois.")
+        return env
 
 
 @mcp.tool
@@ -2728,8 +2828,29 @@ async def anotar_cliente(cliente: str, nota: str) -> dict:
 
 @mcp.tool
 async def ver_ficha_cliente(cliente: str) -> dict:
-    """Ficha viva do cliente: dados + anotações (suas e do José Luís) + último status de negociação."""
-    return await erp.get("/crm/clientes/ficha", params={"ref": cliente})
+    """Ficha viva do cliente: dados + anotações + último status de negociação. Só lê.
+
+    Aceita CNPJ, código (CLI-…), id ou nome aproximado.
+
+    ⭐ SUCESSO FALSO CORRIGIDO em 12/09/2026. Para um cliente inexistente isto devolvia
+    `{"cliente":"LIXO-ZZZ","cliente_id":null,"negociacao":null,"anotacoes":[]}` — HTTP 200,
+    ficha vazia, sem `ok`. O Cowork nomeou por que é o pior tipo de defeito: um agente lê
+    isso como "o cliente existe e não tem anotações" e atende achando que é cliente novo.
+    É resposta ERRADA com cara de certa, e é a única categoria de erro que quem consome não
+    tem como detectar.
+    """
+    try:
+        r = await erp.get("/crm/clientes/ficha", params={"ref": cliente})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    # ficha sem id NÃO é ficha: é a ausência do cliente, e tem de dizer isso
+    if isinstance(r, dict) and not r.get("cliente_id"):
+        return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Nenhum cliente corresponde a {cliente!r}.",
+                "dica": "Tente o CNPJ só com dígitos, o código CLI-AAAA-NNNNN, ou "
+                        "listar_clientes(busca=...) para achar o nome certo.",
+                "procurei_por": cliente}
+    return {"ok": True, **(r if isinstance(r, dict) else {"ficha": r})}
 
 
 # =================================================================== GED / Kits
@@ -2803,6 +2924,17 @@ async def consultar_kit(condominio: str, competencia: str | None = None) -> dict
     eventos do mês (contratações, demissões, férias), o ESTADO DE ASSINATURA de cada documento
     (funcionário e empresa) e a lista de arquivos no Drive (com id p/ excluir)."""
     cond = _ged_cond(condominio)
+    # ⭐ 12/09/2026: `_ged_cond` devolve o nome CRU quando não casa com nenhum condomínio, e
+    # a rota ecoa o que recebe — o retorno virava `completude: "0%"`, que um agente lê como
+    # "o condomínio existe e está sem documento". Mesmo formato do sucesso falso que o Cowork
+    # pegou no `ver_ficha_cliente`: HTTP 200, corpo vazio, nenhum `ok`.
+    if cond not in _GED_CONDS:
+        return {"ok": False, "codigo": "CONDOMINIO_NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Não existe condomínio {condominio!r} no GEDEON.",
+                "dica": "Os condomínios do GEDEON são: " + ", ".join(sorted(_GED_CONDS))
+                        + ". ⚠️ Esta lista é ESTÁTICA no conector: se o condomínio é novo, "
+                          "ele precisa entrar em `_GED_CONDS` — a ausência aqui não prova "
+                          "que ele não existe no GEDEON, só que este conector não o conhece."}
     params = {"condominio": cond, **({"competencia": competencia} if competencia else {})}
     d = await erp.get("/gedeon/kits/ficha", params=params)
     arquivos = []
@@ -2910,6 +3042,14 @@ async def buscar_documento(condominio: str, tipo: str, competencia: str | None =
 async def status_coleta(task_id: str) -> dict:
     """Acompanha uma coleta/montagem em andamento pelo task_id."""
     st = await erp.get(f"/gedeon/kits/montagem/{task_id}")
+    # ⭐ 12/09/2026: task inexistente devolvia `estado: PENDING`, que se lê como "em
+    # andamento, aguarde" — o agente espera para sempre por uma coleta que nunca começou.
+    if not st.get("state") or (st.get("state") == "PENDING" and not st.get("etapas")
+                               and st.get("resumo") is None):
+        return {"ok": False, "codigo": "COLETA_NAO_ENCONTRADA", "http": 404,
+                "mensagem": f"Nenhuma coleta com task_id {task_id!r}.",
+                "dica": "O task_id vem do retorno de `montar_kit`. PENDING sem etapa "
+                        "nenhuma não é 'aguarde' — é coleta que não existe."}
     return {"estado": st.get("state"), "resumo": st.get("resumo"),
             "etapas": {k: ("ok" if v.get("ok") else "falha") for k, v in (st.get("etapas") or {}).items()},
             "ponto": st.get("ponto", {}).get("state")}
@@ -3227,7 +3367,10 @@ async def dossie_juridico(tipo: str, identificador: str | None = None) -> dict:
             return await erp.get(f"/juridico/contexto/contrato/{identificador}")
         if t == "cliente":
             return await erp.get(f"/juridico/contexto/cliente/{identificador}")
-        return {"erro": f"tipo inválido '{tipo}'. Use: panorama | funcionario | contrato | cliente."}
+        return {"ok": False, "codigo": "TIPO_INVALIDO", "http": 422,
+                "mensagem": f"tipo inválido {tipo!r}.",
+                "dica": "Use: panorama | funcionario | contrato | cliente.",
+                "campos_invalidos": ["tipo"]}
     except Exception as exc:  # noqa: BLE001
         return erro_envelope(exc)
 
@@ -3270,8 +3413,11 @@ async def buscar_funcionario(busca: str) -> dict:
 
 @mcp.tool
 async def obter_funcionario(employee_id: str) -> dict:
-    """Dados cadastrais de um funcionário pelo id."""
-    return await erp.get(f"/people-management/hr/employees/{employee_id}")
+    """Dados cadastrais de um funcionário pelo id. Só lê."""
+    return await _get_ou_404(f"/people-management/hr/employees/{employee_id}",
+                             o_que="funcionário", chave=employee_id,
+                             dica="Use o id do funcionário ou o CPF — "
+                                  "buscar_funcionario(nome) devolve o id.")
 
 
 @mcp.tool
@@ -3283,7 +3429,9 @@ async def buscar_funcionario_por_cpf(cpf: str) -> dict:
 @mcp.tool
 async def ficha_funcionario(employee_id: str) -> dict:
     """Ficha/perfil completo do funcionário (dados + vínculos)."""
-    return await erp.get(f"/people-management/hr/employees/{employee_id}/profile")
+    return await _get_ou_404(f"/people-management/hr/employees/{employee_id}/profile",
+                             o_que="funcionário", chave=employee_id,
+                             dica="Use o id do funcionário — buscar_funcionario(nome) devolve.")
 
 
 @mcp.tool
@@ -3450,7 +3598,9 @@ async def ferias_funcionario(employee_id: str) -> dict:
 @mcp.tool
 async def saldo_ferias(employee_id: str) -> dict:
     """Saldo e período aquisitivo de férias de um funcionário (alerta de vencidas)."""
-    return await erp.get(f"/people-management/hr/vacations/employee/{employee_id}/balance")
+    return await _get_ou_404(f"/people-management/hr/vacations/employee/{employee_id}/balance",
+                             o_que="funcionário", chave=employee_id,
+                             dica="Use o id do funcionário — buscar_funcionario(nome) devolve.")
 
 
 @mcp.tool
@@ -3501,7 +3651,9 @@ async def calcular_verbas_rescisorias(termination_id: str) -> dict:
 @mcp.tool
 async def listar_beneficios_funcionario(employee_id: str) -> dict:
     """Benefícios (VT/VR/plano) de um funcionário."""
-    return await erp.get(f"/people-management/hr/benefits/employee/{employee_id}")
+    return await _get_ou_404(f"/people-management/hr/benefits/employee/{employee_id}",
+                             o_que="funcionário", chave=employee_id,
+                             dica="Use o id do funcionário — buscar_funcionario(nome) devolve.")
 
 
 # ---- SST (saúde ocupacional) ----

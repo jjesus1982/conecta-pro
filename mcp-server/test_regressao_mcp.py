@@ -552,6 +552,92 @@ async def r24_escopo_lgpd_declarado() -> str:
             f"{c['valido_ate']}")
 
 
+async def extra_envelope_em_toda_leitura() -> str:
+    """TODA leitura com identificador inválido: envelope completo e http ∈ {404, 422}.
+
+    ⭐ Sugestão do Cowork, e a razão dela importa. Na 1ª rodada eu varri à mão e disse "65
+    leituras, 65 no envelope". Ele escolheu SEIS tools por conta própria e achou QUATRO
+    problemas: `obter_cliente` fora do envelope, `obter_deal` e `obter_funcionario` com 500
+    para id inválido, e `ver_ficha_cliente` devolvendo SUCESSO FALSO — ficha vazia com HTTP
+    200, que um agente lê como "cliente existe e não tem nada".
+
+    "Seis tentativas minhas acharam quatro problemas — isso não é amostra azarada, é
+    cobertura incompleta." Estava certo: minha varredura mediu o conjunto que eu tinha
+    acabado de mexer. Este teste itera o REGISTRY, não a minha memória.
+
+    ⚠️ Exige também que `ok` exista. O sucesso falso não tinha `ok` nenhum, e foi por aí
+    que passou.
+    """
+    import inspect
+
+    from fastmcp import Client
+
+    import tool_risk_manifest as M
+
+    alvos = []
+    for nome, classe in M.TOOL_RISK.items():
+        if classe != "read" or not hasattr(S, nome):
+            continue
+        obrig = [p.name for p in inspect.signature(getattr(S, nome)).parameters.values()
+                 if p.default is inspect.Parameter.empty]
+        if obrig:
+            alvos.append((nome, obrig))
+    assert len(alvos) >= 50, f"só {len(alvos)} leituras com argumento — varredura encolheu?"
+
+    # ⭐ TRÊS jeitos LEGÍTIMOS de dizer "não achei", medidos em 12/09/2026 rodando as 60.
+    # A 1ª versão deste teste exigia `ok is False` de todas e reprovava 15 — entre elas
+    # `buscar_cliente_por_cnpj`, que devolve `{"existe": false}`. Isso não é sucesso falso:
+    # o agente LÊ a negativa. Exigir um único formato teria me feito "consertar" 14 tools
+    # corretas para satisfazer o teste, que é o caminho mais curto para quebrar coisa boa.
+    #
+    # ⚠️ O que NÃO é legítimo, e é o que este teste realmente guarda:
+    #   · http >= 500 para identificador inválido (manda o agente tentar de novo igual);
+    #   · recusa fora do envelope (`{"erro": ...}` sem `ok`/`codigo`/`http`);
+    #   · corpo com DADO e nenhuma negativa — o sucesso falso do `ver_ficha_cliente`.
+    NEGATIVA_PROPRIA = ("existe", "encontrado", "achou")
+    problemas = []
+    async with Client(S.mcp) as c:
+        for nome, args in alvos:
+            payload = {a: "LIXO-INVALIDO-ZZZ-999" for a in args}
+            try:
+                d = (await asyncio.wait_for(c.call_tool(nome, payload), timeout=22)
+                     ).structured_content or {}
+            except Exception as e:  # noqa: BLE001
+                d = _env_do_erro(str(e))
+
+            if (d.get("http") or 0) >= 500:
+                problemas.append(f"{nome}: http={d['http']} para id inválido — 500 não "
+                                 f"informa nada, manda tentar de novo igual")
+                continue
+            if d.get("ok") is False:                       # 1 · envelope de recusa
+                faltam = [k for k in ("codigo", "http", "mensagem", "dica", "request_id")
+                          if not d.get(k)]
+                if faltam:
+                    problemas.append(f"{nome}: envelope de recusa sem {faltam}")
+                elif d.get("http") not in (400, 403, 404, 409, 422):
+                    problemas.append(f"{nome}: http={d.get('http')} não é erro de cliente")
+                continue
+            if any(k in d and d[k] is False for k in NEGATIVA_PROPRIA):
+                continue                                   # 2 · `existe: false`
+            if d.get("total") == 0 or (isinstance(d.get("items"), list) and not d["items"]):
+                continue                                   # 3 · busca sem resultado
+            resposta = str(d.get("resposta") or "")
+            if resposta and ("inválid" in resposta.lower()
+                             or "sem pergunta" in resposta.lower()):
+                continue                                   # 4 · LLM recusa em prosa
+            if "erro" in d and "ok" not in d:
+                problemas.append(f"{nome}: recusa FORA do envelope — {{'erro': …}} sem "
+                                 f"`ok`/`codigo`/`http`, o agente não tem o que ler")
+                continue
+            problemas.append(
+                f"{nome}: SUCESSO FALSO — devolveu corpo com dado para id inválido e "
+                f"nenhuma negativa. Campos: {sorted(k for k in d if k != 'request_id')[:6]}")
+    assert not problemas, (
+        f"{len(problemas)} de {len(alvos)} leituras com problema:\n    "
+        + "\n    ".join(problemas[:14]))
+    return f"{len(alvos)} leituras: todas com envelope completo e http de cliente"
+
+
 CASOS = [
     ("R01 documento legível", r01_documento_legivel),
     ("R02 identificador tolerante", r02_identificador_tolerante),
@@ -577,6 +663,7 @@ CASOS = [
     ("R23 pendências acionáveis", r23_pendencias_acionaveis),
     ("R24 escopo LGPD declarado", r24_escopo_lgpd_declarado),
     ("CP-MCP-003 request_id sempre", extra_request_id_em_toda_falha),
+    ("envelope em TODA leitura", extra_envelope_em_toda_leitura),
 ]
 
 

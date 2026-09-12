@@ -42,7 +42,7 @@ POST_DE_CONSULTA: dict[str, str] = {
     "orcamento_por_natureza": "POST /crm/pricing/orcamento-por-natureza — calcula, não grava",
     "simular_fechamento": "POST /crm/simular-fechamento — simulação",
     "briefing_contrato_novo": "POST /crm/contracts/briefing — diagnóstico do que falta",
-    "baixar_espelho_ponto_pdf": "POST /consultores/mcp/{origem}/consultar — consulta que devolve PDF",
+
     # 11/09/2026 · item 2.1. As ferramentas de documento passaram a extrair o TEXTO do que
     # geraram, para o agente conferir sem abrir binário. O corpo leva o arquivo em base64,
     # que não cabe em query string. `POST /crm/docs/extrair-texto` grava num temporário e o
@@ -77,6 +77,72 @@ ESCRITA_HTTP = re.compile(
 ESCRITA_SQL = re.compile(r"\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", re.I)
 
 
+# ⭐ 12/09/2026 — TERCEIRA CATEGORIA, medida em vez de assumida.
+# Ao seguir a delegação, as 8 `consultor_*` apareceram: chamam `_consultar`, que faz
+# POST /consultores/mcp/{origem}/consultar. A tentação era jogá-las em POST_DE_CONSULTA por
+# semelhança com `cfo_perguntar`. Fui ler a rota: ela faz
+# `INSERT INTO {tabela} (area, pergunta, resposta, ...)` e `commit()` — `_persistir_consulta`.
+# Ela PERSISTE.
+#
+# E isso revelou um entry ERRADO que já estava na lista: `baixar_espelho_ponto_pdf` declarava
+# esta mesma rota como "consulta que devolve PDF", afirmando o que o contrato de
+# POST_DE_CONSULTA exige — "NÃO persiste". Era falso desde que foi escrito. Movido para cá.
+#
+# A distinção que importa para o agente: estas gravam a TRILHA da própria pergunta, não dado
+# de negócio. Nenhuma proposta, folha, contrato ou pagamento muda. Manter `read` é correto —
+# mas com o fato registrado, não com um motivo que diz o contrário do que a rota faz.
+POST_QUE_REGISTRA_A_PROPRIA_CONSULTA: dict[str, str] = {
+    n: ("POST /consultores/mcp/{origem}/consultar — INSERT da própria pergunta/resposta na "
+        "tabela de consultas (trilha). Não muda dado de negócio.")
+    for n in ("consultor_ceo", "consultor_cfo", "consultor_comercial", "consultor_dp",
+              "consultor_fiscal", "consultor_ged", "consultor_juridico",
+              "consultor_operacional", "baixar_espelho_ponto_pdf")
+}
+
+# ⚠️ 12/09/2026 — A MESMA PORTA, TERCEIRA VEZ: agora é DELEGAÇÃO.
+# A varredura paramétrica achou `gerar_aditivo_pdf`, `gerar_atestado_pdf` e
+# `gerar_ordem_servico_pdf` etiquetadas `read` — e o docstring de cada uma diz, com estas
+# palavras, "⚠️ ESCREVE no Conecta PRO — não é consulta". O corpo delas não tem verbo
+# nenhum: tem `_gerar_doc(...)`, e é o HELPER que faz `erp.post(...?salvar=true)`.
+#
+# Duas vezes esta trava mediu "o jeito de escrever que o autor tinha na cabeça" (primeiro só
+# `erp.post`, depois sem o `erp.request` genérico) e as duas vezes o comentário acima anotou
+# a lição sem consertar a causa: ela olhava o TEXTO DO CORPO da tool. Tool que delega escapa
+# de qualquer regex de corpo, por mais completa que a lista de verbos fique.
+#
+# Agora a régua fecha a porta em vez de tapá-la: monta o conjunto dos HELPERS que escrevem e
+# propaga TRANSITIVAMENTE. Helper novo que escreva contamina quem o chamar, sem ninguém
+# precisar lembrar de atualizar lista.
+_DEF_HELPER = re.compile(r"^(?:async\s+)?def\s+(_\w+)\s*\(", re.M)
+
+
+def _helpers_que_escrevem(fonte: str) -> dict[str, str]:
+    """Helpers `_x` cujo corpo escreve — direto ou chamando outro helper que escreve."""
+    corpos: dict[str, str] = {}
+    # um helper vai do seu `def` até o próximo `def` de coluna zero
+    pedacos = re.split(r"\n(?=(?:async )?def )", fonte)
+    for pedaco in pedacos:
+        m = _DEF_HELPER.match(pedaco)
+        if m:
+            corpos[m.group(1)] = pedaco
+
+    escrevem = {n: "escreve direto" for n, c in corpos.items()
+                if ESCRITA_HTTP.search(c) or ESCRITA_SQL.search(c)}
+    # ponto fixo: propaga até não mudar mais
+    mudou = True
+    while mudou:
+        mudou = False
+        for nome, corpo in corpos.items():
+            if nome in escrevem:
+                continue
+            for alvo in escrevem:
+                if re.search(rf"\b{re.escape(alvo)}\s*\(", corpo):
+                    escrevem[nome] = f"chama {alvo} ({escrevem[alvo]})"
+                    mudou = True
+                    break
+    return escrevem
+
+
 def _corpos() -> dict[str, str]:
     s = SERVER.read_text()
     out: dict[str, str] = {}
@@ -89,13 +155,23 @@ def _corpos() -> dict[str, str]:
 
 def test_read_nao_escreve() -> None:
     corpos = _corpos()
+    delegam = _helpers_que_escrevem(SERVER.read_text())
     culpadas: list[str] = []
     for nome, classe in sorted(TOOL_RISK.items()):
         if classe != "read" or nome in POST_DE_CONSULTA:
             continue
+        if nome in POST_QUE_REGISTRA_A_PROPRIA_CONSULTA:
+            continue
         c = corpos.get(nome, "")
         http = ESCRITA_HTTP.search(c)
         sql = ESCRITA_SQL.search(c)
+        # ⭐ delegação: o corpo pode não ter verbo e ainda assim escrever, chamando helper
+        if not (http or sql):
+            for helper, por_que in delegam.items():
+                if re.search(rf"\b{re.escape(helper)}\s*\(", c):
+                    culpadas.append(f"{nome} ESCREVE via {helper} — {por_que}")
+                    break
+            continue
         if http or sql:
             # pula o primeiro argumento do `erp.request("PUT", ...)` — senão a "rota"
             # exibida vira o próprio verbo ("usa DELETE em DELETE"), que não ajuda ninguém
@@ -115,16 +191,27 @@ def test_read_nao_escreve() -> None:
 def test_excecao_nao_vira_gaveta() -> None:
     """Exceção sem tool correspondente é lixo que esconde o próximo erro."""
     corpos = _corpos()
-    fantasmas = sorted(n for n in POST_DE_CONSULTA if n not in corpos)
-    assert not fantasmas, f"POST_DE_CONSULTA lista tool inexistente: {fantasmas}"
+    # ⭐ as DUAS listas de dispensa, não só a que eu lembrei de criar primeiro. Guarda que
+    # cobre uma gaveta e ignora a outra é a própria falha que este arquivo documenta.
+    for rotulo, lista in (("POST_DE_CONSULTA", POST_DE_CONSULTA),
+                          ("POST_QUE_REGISTRA_A_PROPRIA_CONSULTA",
+                           POST_QUE_REGISTRA_A_PROPRIA_CONSULTA)):
+        fantasmas = sorted(n for n in lista if n not in corpos)
+        assert not fantasmas, f"{rotulo} lista tool inexistente: {fantasmas}"
+        sem_motivo = sorted(n for n, m in lista.items() if len((m or "").strip()) < 20)
+        assert not sem_motivo, (
+            f"{rotulo}: dispensa sem motivo escrito é gaveta — {sem_motivo}")
+    sobrepostas = sorted(set(POST_DE_CONSULTA) & set(POST_QUE_REGISTRA_A_PROPRIA_CONSULTA))
+    assert not sobrepostas, (
+        f"nas duas listas, com contratos OPOSTOS (persiste × não persiste): {sobrepostas}")
 
 
 def test_excecao_so_para_read() -> None:
     """Só faz sentido dispensar quem se diz leitura."""
-    erradas = sorted(n for n in POST_DE_CONSULTA
+    erradas = sorted(n for n in (*POST_DE_CONSULTA, *POST_QUE_REGISTRA_A_PROPRIA_CONSULTA)
                      if TOOL_RISK.get(n) not in (None, "read"))
     assert not erradas, (
-        f"estas estão em POST_DE_CONSULTA mas NÃO são 'read' — tire da lista: {erradas}")
+        f"estas estão numa lista de dispensa mas NÃO são 'read' — tire: {erradas}")
 
 
 if __name__ == "__main__":

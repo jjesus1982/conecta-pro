@@ -22,6 +22,7 @@ arquivo que EXISTE na imagem e sumiu do disco — que é o que uma imagem parada
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -33,8 +34,24 @@ CONECTORES = ("conecta-pro-mcp", "conecta-pro-mcp-internal",
               "conecta-pro-mcp-ged", "conecta-pro-mcp-pessoas")
 # o que a imagem carrega e muda comportamento. `changelog.json` entra: `changelog_mcp()` lê
 # dele, e um changelog velho dentro da imagem mente com a chancela de uma ferramenta.
-ALVOS = ("server.py", "tool_risk_manifest.py", "identidade.py", "gate_propose.py",
-         "gate_escopo.py", "changelog.json")
+# ⭐ 12/09/2026 — DERIVADO do Dockerfile, não escolhido de memória. A lista à mão tinha 6
+# nomes e deixava fora `carimbo.py` — o middleware que carimba o `request_id` em TODA
+# resposta e escreve o log de acesso LGPD. Um `carimbo.py` velho dentro da imagem passaria
+# invisível por esta própria trava, que existe justamente para não deixar código velho
+# rodando com a chancela de "imagem em dia".
+#
+# Mesma falha de desenho das outras deste dia: a régua media o subconjunto que eu lembrava,
+# e o Dockerfile é a lista de verdade — quem decide o que entra na imagem é ele.
+def _alvos_do_dockerfile() -> tuple[str, ...]:
+    dockerfile = (FONTE / "Dockerfile").read_text()
+    nomes = re.findall(r"^COPY\s+([\w.\-]+\.(?:py|json))\s", dockerfile, re.M)
+    # os testes acompanham a imagem mas não mudam o comportamento servido; o que importa
+    # aqui é código e dado que a execução lê.
+    return tuple(n for n in dict.fromkeys(nomes)
+                 if not n.startswith("test_") and n != "requirements.txt")
+
+
+ALVOS = _alvos_do_dockerfile()
 
 
 def _sh(cmd: list[str], timeout: int = 120) -> str:

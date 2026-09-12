@@ -28,6 +28,10 @@ COPY test_lgpd_escopo.py .
 # ⚠️ a suíte de regressão vai na imagem mas NÃO roda no build: ela exige o ERP de pé.
 # Parede de build não pode depender de produção — aprendido derrubando o build hoje.
 COPY test_regressao_mcp.py .
+# 12/09/2026: os 21 aceites rodavam SÓ do disco — nunca estiveram na imagem, então
+# `docker exec … test_aceites_cowork.py` falhava com "No such file". Suíte que não
+# acompanha o artefato mede o computador de quem a rodou, não o que subiu.
+COPY test_aceites_cowork.py .
 
 # Parede 1: lint fail-closed — build quebra se tool MCP nascer sem classe de risco
 RUN python test_tool_risk_manifest.py && python test_read_nao_escreve.py && python test_identidade.py && python test_segundo_plano.py && python test_efeito_externo.py && python test_capabilities_sem_fantasma.py && python test_lgpd_escopo.py
