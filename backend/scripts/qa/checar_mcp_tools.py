@@ -70,9 +70,10 @@ DECLARACAO: dict[str, dict] = {
         "MCP_AGENTE_NOME": None,
         "porque": "Fechamento de kit: não há TERCEIRO sobre quem responder — é o sistema agindo "
                   "pela própria empresa, mesma situação do Cowork. MCP_MODO ausente é DECISÃO, "
-                  "não esquecimento; quem protege é o ESCOPO (13 ferramentas de `ged`/`fiscal`, "
-                  "nada de folha, cadastro de pessoa, PIX ou CRM). Se alguém ampliar este "
-                  "escopo, a ausência de parede deixa de ser aceitável e esta linha tem de cair.",
+                  "não esquecimento; quem protegeria é o ESCOPO — nada de folha, cadastro de "
+                  "pessoa, PIX ou CRM. ⚠️ E é só isso que protege: o comentário do compose fala "
+                  "em 13 ferramentas e o conector serve 42 (medido 12/09/2026), das quais 5 não "
+                  "são leitura. A condição escrita aqui já foi atingida — ver a checagem 7.",
     },
     # ⭐ 11/09/2026 — conector de PESSOAS, o do Hermes (triagem diária do ponto).
     "conecta-pro-mcp-pessoas": {
@@ -244,6 +245,54 @@ def ambiente_confere() -> list[str]:
     return erros
 
 
+# ── 7. conector SEM PAREDE só pode servir LEITURA ─────────────────────────────────────
+def sem_parede_so_le() -> list[str]:
+    """`MCP_MODO` ausente = sem `gate_propose`: o que é `propose` EXECUTA em vez de virar pedido.
+
+    Por que esta checagem existe (12/09/2026). O `mcp-ged` nasceu sem parede com uma justificativa
+    honesta — no fechamento do kit não há terceiro sobre quem responder — e uma premissa: escopo
+    pequeno, só leitura de `ged`/`fiscal`. O comentário no compose diz "13 ferramentas". Medido
+    hoje: **42**, e entre elas `excluir_documento` e `montar_kit_completo`, ambas classificadas
+    `propose` no manifesto. Num conector COM parede, `propose` para na Central de Aprovações;
+    aqui ela roda direto, sem aprovação e sem requerente nomeado.
+
+    Ninguém errou de propósito: o escopo `ged,fiscal` cresceu do outro lado, e a decisão de não
+    ter parede continuou valendo sozinha. É essa a forma do defeito desta casa — a premissa
+    envelhece e a decisão que dependia dela não sabe. Então a premissa passa a ser MEDIDA:
+    sem parede, só `read`. Se o dono aceitar a escrita sem aprovação, a saída é declarar aqui
+    em EXCECOES_SEM_PAREDE com o nome da ferramenta e o motivo — não apagar a checagem.
+    """
+    sys.path.insert(0, str(REPO / "mcp-server"))
+    try:
+        import tool_risk_manifest as manifesto
+        import tool_scopes as escopos
+    except ImportError as e:
+        return [f"não consegui ler escopo/manifesto do mcp-server ({e}) — checagem NÃO feita"]
+
+    #: Ferramenta que o dono aceitou rodar sem aprovação em conector sem parede. Vazio de
+    #: propósito: a primeira entrada aqui tem de vir com decisão escrita no commit.
+    EXCECOES_SEM_PAREDE: dict[str, str] = {}
+
+    erros: list[str] = []
+    for nome, d in DECLARACAO.items():
+        if d.get("MCP_MODO") is not None or not d.get("MCP_ESCOPO"):
+            continue  # tem parede, ou é o público (que é decisão informada de pessoa)
+        servidas: set[str] = set()
+        for assunto in str(d["MCP_ESCOPO"]).split(","):
+            servidas |= set(escopos.ESCOPOS.get(assunto.strip(), []))
+        fora = sorted(t for t in servidas
+                      if manifesto.TOOL_RISK.get(t, "read") != "read" and t not in EXCECOES_SEM_PAREDE)
+        if fora:
+            erros.append(
+                f"{nome}: SEM PAREDE (MCP_MODO ausente) e serve {len(servidas)} ferramentas, "
+                f"{len(fora)} delas fora de leitura — "
+                + ", ".join(f"{t} ({manifesto.TOOL_RISK.get(t)})" for t in fora)
+                + ". Sem gate, `propose` EXECUTA em vez de virar pedido na Central. Decida: pôr "
+                  "MCP_MODO=agente, estreitar o escopo, ou declarar cada uma em "
+                  "EXCECOES_SEM_PAREDE com o motivo.")
+    return erros
+
+
 # ── 6. toda tool aponta para rota que existe ──────────────────────────────────────────
 def _segmentos(p: str) -> list[str]:
     """Query string fora, e QUALQUER segmento com `{` vira coringa: no server.py o caminho é
@@ -288,6 +337,7 @@ CHECAGENS = [
     ("módulo importado está no COPY", imports_no_dockerfile),
     ("imagem no ar == imagem construída", imagem_no_ar_e_a_construida),
     ("ambiente == declaração", ambiente_confere),
+    ("conector sem parede serve só leitura", sem_parede_so_le),
     ("tool aponta para rota existente", tools_apontam_para_rota),
 ]
 
