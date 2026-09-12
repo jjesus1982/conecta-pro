@@ -45,6 +45,8 @@ DECLARACAO: dict[str, dict] = {
         "compose": "mcp-server/docker-compose.mcp.yml",
         "MCP_ESCOPO": None,
         "MCP_MODO": None,
+        "MCP_IDENTIDADE": None,
+        "MCP_AGENTE_NOME": None,
         "porque": "Cowork do Jordan: pessoa lê e decide na hora. Sem escopo (vê tudo) e sem "
                   "parede (pôr gate aqui viraria decisão informada em fila).",
     },
@@ -52,7 +54,43 @@ DECLARACAO: dict[str, dict] = {
         "compose": "docker-compose.yml",
         "MCP_ESCOPO": "comercial,juridico,financeiro",
         "MCP_MODO": "agente",
-        "porque": "Conector do AGENTE: escopo corta por assunto e a parede F1 barra `propose`.",
+        "MCP_IDENTIDADE": None,
+        "MCP_AGENTE_NOME": None,
+        "porque": "Conector do AGENTE: escopo corta por assunto e a parede F1 barra `propose`. "
+                  "Sem identidade própria: exige o `x-usuario-token` de QUEM perguntou.",
+    },
+    # 10/09/2026 — conector do KIT. Existe separado do irmão porque o `mcp-internal` roda
+    # MCP_MODO=agente, que exige `x-usuario-token` por chamada, e o Hermes só manda header
+    # ESTÁTICO por conexão: sob aquele modo ele fica com 6 ferramentas de 146.
+    "conecta-pro-mcp-ged": {
+        "compose": "docker-compose.yml",
+        "MCP_ESCOPO": "ged,fiscal",
+        "MCP_MODO": None,
+        "MCP_IDENTIDADE": None,
+        "MCP_AGENTE_NOME": None,
+        "porque": "Fechamento de kit: não há TERCEIRO sobre quem responder — é o sistema agindo "
+                  "pela própria empresa, mesma situação do Cowork. MCP_MODO ausente é DECISÃO, "
+                  "não esquecimento; quem protege é o ESCOPO (13 ferramentas de `ged`/`fiscal`, "
+                  "nada de folha, cadastro de pessoa, PIX ou CRM). Se alguém ampliar este "
+                  "escopo, a ausência de parede deixa de ser aceitável e esta linha tem de cair.",
+    },
+    # ⭐ 11/09/2026 — conector de PESSOAS, o do Hermes (triagem diária do ponto).
+    "conecta-pro-mcp-pessoas": {
+        "compose": "docker-compose.yml",
+        "MCP_ESCOPO": "pessoas",
+        "MCP_MODO": "agente",
+        "MCP_IDENTIDADE": "propria",
+        "MCP_AGENTE_NOME": "hermes",
+        "porque": "O assunto é o TRABALHO da pessoa (ponto, escala, posto, ocorrência, "
+                  "comunicado) — 41 ferramentas. Fora do escopo por construção: fechar folha, "
+                  "holerite, rescisão, fechar o mês, férias, CRM, PIX, nota. As DUAS paredes "
+                  "andam juntas: identidade própria dá dono à pergunta sem exigir JWT humano, e "
+                  "MCP_MODO=agente mantém o gate_propose ativo (revisar_justificativa_ponto, "
+                  "propor_comunicado e enviar_whatsapp viram PEDIDO na Central e não executam). "
+                  "O `identidade.py` recusa subir com identidade própria e modo desligado — mas "
+                  "identidade própria virar ausente NÃO dá erro: cai para 6 ferramentas e o "
+                  "Hermes emudece sem ninguém saber por quê. É por isso que as quatro chaves "
+                  "são medidas aqui, e não só ESCOPO e MODO.",
     },
 }
 
@@ -132,8 +170,20 @@ def pecas_no_git_e_na_imagem() -> list[str]:
             continue
         # Contra a IMAGEM, nunca contra o container: `docker cp` vive na camada do container
         # e some no próximo recreate. Foi assim que a F1 pareceu existir.
-        na_imagem = _sh("docker", "run", "--rm", "--entrypoint", "sh", img,
-                        "-c", f"sha256sum {dentro} 2>/dev/null || echo AUSENTE").split()[0]
+        #
+        # ⚠️ `.split()[0]` sem guarda estourava IndexError e a trava INTEIRA morria aqui
+        # (medido 12/09/2026): quando o container roda uma imagem que já não existe mais no
+        # daemon — outra sessão reconstruiu a tag e a camada antiga foi recolhida — o
+        # `docker run` falha, a saída vem vazia, e a checagem que deveria denunciar o pior
+        # estado possível não denunciava NADA. Estado sem nome é estado que não se mede.
+        bruto = _sh("docker", "run", "--rm", "--entrypoint", "sh", img,
+                    "-c", f"sha256sum {dentro} 2>/dev/null || echo AUSENTE").split()
+        if not bruto:
+            erros.append(f"{rel}: a imagem que {container} está RODANDO não existe mais no "
+                         f"daemon ({img[:19]}…) — a tag foi reconstruída e o container não foi "
+                         f"recriado. Não dá para saber o que está servindo; recrie o container.")
+            continue
+        na_imagem = bruto[0]
         if na_imagem == "AUSENTE":
             erros.append(f"{rel}: AUSENTE na imagem de {container}. Está no ar só por "
                          f"`docker cp` (volátil) ou faltou COPY no Dockerfile.")
@@ -183,11 +233,13 @@ def ambiente_confere() -> list[str]:
         if not bruto:
             continue
         env = dict(e.split("=", 1) for e in json.loads(bruto) if "=" in e)
-        for chave in ("MCP_ESCOPO", "MCP_MODO"):
+        # As quatro, não duas: IDENTIDADE e AGENTE_NOME também são parede — sem elas o
+        # Hermes perde 135 das 146 ferramentas em silêncio, ou age sem dono declarado.
+        for chave in ("MCP_ESCOPO", "MCP_MODO", "MCP_IDENTIDADE", "MCP_AGENTE_NOME"):
             real = env.get(chave) or None
-            if real != d[chave]:
+            if real != d.get(chave):
                 erros.append(
-                    f"{nome}: {chave} é {real!r}, declarado {d[chave]!r}. "
+                    f"{nome}: {chave} é {real!r}, declarado {d.get(chave)!r}. "
                     + (f"Se a mudança é intencional, mude a DECLARAÇÃO junto. ({d['porque']})"))
     return erros
 
