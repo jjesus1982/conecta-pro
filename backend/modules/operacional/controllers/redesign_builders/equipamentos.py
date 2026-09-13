@@ -78,4 +78,12 @@ async def build(db) -> dict:
         "ORDER BY scheduled_date DESC NULLS LAST LIMIT 200",
         lambda r: [t(r[0], 600, _ND), t(r[1]), t((r[2] or "—").replace("_", " ")), t(r[3]), t(_d(r[4])), _bs(r[5])]))
 
+    from ._frente_10 import telas as _telas_10  # frente 10 — frota + avaliação por ambiente
+    out.update(await _telas_10(db, SLUG))
     return out
+
+
+# frente 10 — menu e ações (router incluído UMA vez, aqui; gestao_de_pessoas só anexa telas)
+from ._frente_10 import MENU_EQUIPAMENTOS as _menu_10, router  # noqa: E402,F401
+
+EXTRA_MENU.extend(_menu_10)

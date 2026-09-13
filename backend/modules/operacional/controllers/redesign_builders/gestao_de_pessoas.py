@@ -653,4 +653,12 @@ async def build(db) -> dict:
         ),
     )
 
+    from ._frente_10 import telas as _telas_10  # frente 10 — uniforme/EPI (grade + entregas)
+    out.update(await _telas_10(db, SLUG))
     return out
+
+
+# frente 10 — menu do uniforme/EPI (as ações vivem no router incluído por equipamentos.py)
+from ._frente_10 import MENU_GESTAO as _menu_10  # noqa: E402
+
+EXTRA_MENU.extend(_menu_10)
