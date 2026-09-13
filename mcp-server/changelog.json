@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "c8fe76066",
+      "data": "2026-09-13",
+      "mudanca": "fix(mcp): a validação do Cowork derrubou duas afirmações minhas — e o método era o culpado"
+    },
+    {
+      "commit": "30be528a3",
+      "data": "2026-09-12",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "3eabc59cd",
       "data": "2026-09-12",
       "mudanca": "fix(lgpd): a trilha dizia a PESSOA e omitia o agente"
@@ -190,16 +200,6 @@
       "commit": "81df4c3f9",
       "data": "2026-09-11",
       "mudanca": "feat(mcp): operação longa vira job — e segundo plano não abre porta dos fundos (3.5)"
-    },
-    {
-      "commit": "f0d5f2a9e",
-      "data": "2026-09-11",
-      "mudanca": "build(mcp): as 8 tools novas passam pelas 3 paredes do build — imagem reconstruída"
-    },
-    {
-      "commit": "1cf190e83",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): as 44 ferramentas que escreviam sem avisar passam a declarar — e uma trava"
     }
   ]
 }
