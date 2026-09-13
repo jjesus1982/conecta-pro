@@ -323,41 +323,20 @@ class AFDRecordRepository:
         if condominio_id:
             base_where.append(AFDRecord.condominio_id == condominio_id)
 
-        # Total
-        total_result = await self.db.execute(
-            select(func.count()).where(*base_where) if base_where else select(func.count())
-        )
-        total = total_result.scalar() or 0
+        # frente 01: os `select(func.count())` sem FROM contavam 1 (o SELECT sozinho) e o
+        # group_by só existia no ramo sem filtro — a rota dizia "1 registro" havendo 1.116.
+        base = select(func.count(AFDRecord.id))
+        for w in base_where:
+            base = base.where(w)
+        total = (await self.db.execute(base)).scalar() or 0
 
-        # Por tipo
-        type_result = await self.db.execute(
-            select(AFDRecord.record_type, func.count(AFDRecord.id)).where(*base_where)
-            if base_where
-            else select(AFDRecord.record_type, func.count(AFDRecord.id)).group_by(AFDRecord.record_type)
-        )
-        by_type = {row[0]: row[1] for row in type_result.all()}
+        por_tipo_q = select(AFDRecord.record_type, func.count(AFDRecord.id))
+        for w in base_where:
+            por_tipo_q = por_tipo_q.where(w)
+        by_type = dict((await self.db.execute(por_tipo_q.group_by(AFDRecord.record_type))).all())
 
-        # Exportados
-        exported_result = await self.db.execute(
-            select(func.count()).where(
-                *base_where,
-                AFDRecord.is_exported.is_(True),
-            )
-            if base_where
-            else select(func.count()).where(AFDRecord.is_exported.is_(True))
-        )
-        exported = exported_result.scalar() or 0
-
-        # Inválidos
-        invalid_result = await self.db.execute(
-            select(func.count()).where(
-                *base_where,
-                AFDRecord.is_valid.is_(False),
-            )
-            if base_where
-            else select(func.count()).where(AFDRecord.is_valid.is_(False))
-        )
-        invalid = invalid_result.scalar() or 0
+        exported = (await self.db.execute(base.where(AFDRecord.is_exported.is_(True)))).scalar() or 0
+        invalid = (await self.db.execute(base.where(AFDRecord.is_valid.is_(False)))).scalar() or 0
 
         return {
             "total_records": total,
@@ -365,5 +344,6 @@ class AFDRecordRepository:
             "exported_count": exported,
             "pending_export": total - exported,
             "invalid_count": invalid,
-            "time_records": by_type.get("3", 0),
+            # tipo 3 é marcação de REP-C/REP-A; tipo 7 é a nossa, de REP-P
+            "time_records": by_type.get("3", 0) + by_type.get("7", 0),
         }
