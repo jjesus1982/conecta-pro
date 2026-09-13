@@ -70,6 +70,12 @@ SELECT min(punch_timestamp) FROM gp_clock_punches
 """
 
 
+_SQL_ULTIMO_DIA_COM_BATIDA = """
+SELECT max(punch_timestamp::date) FROM gp_clock_punches
+ WHERE punch_timestamp::date < CAST(:dia AS date) AND coalesce(status,'') <> 'facial_reprovado'
+"""
+
+
 def _dist_m(lat1, lon1, lat2, lon2) -> float:
     p = math.pi / 180
     a = 0.5 - math.cos((lat2 - lat1) * p) / 2 + math.cos(lat1 * p) * math.cos(lat2 * p) * (1 - math.cos((lon2 - lon1) * p)) / 2
@@ -93,6 +99,33 @@ def _janela(dia: date, ini: time, fim: time) -> tuple[datetime, datetime, dateti
         dt_fim += timedelta(days=1)
     fim_pres = datetime.combine(dia + timedelta(days=1), time(7, 0)) if ini >= time(15, 0) else dt_fim
     return dt_ini, dt_ini - timedelta(hours=2), fim_pres
+
+
+async def _reproduzir(db, item, postos, tol_padrao, agora):
+    """Estado que as FONTES dizem para este item, e o limite de tolerância usado.
+
+    SQL próprio de propósito: o oráculo não chama `mapa_de_ponto.classificar` — afirmar uma
+    função com ela mesma é o oráculo que nasce verde medindo a coisa errada.
+    """
+    from sqlalchemy import text
+
+    sh = (await db.execute(text(_SQL_TURNO), {"sid": item["shift_id"]})).mappings().first()
+    if not sh:
+        return "_sem_shift", None
+    dt_ini, j_ini, j_fim = _janela(sh["shift_date"], sh["planned_start_time"], sh["planned_end_time"])
+    tol = (await db.execute(text(_SQL_TOLERANCIA), {"pid": sh["post_id"]})).scalar()
+    limite = dt_ini + timedelta(minutes=int(tol) if tol is not None else tol_padrao)
+    bats = (await db.execute(text(_SQL_BATIDAS),
+                             {"eid": sh["employee_id"], "ini": j_ini, "fim": j_fim})).mappings().all()
+    b = bats[0] if bats else None
+    if b is None and sh["actual_start_time"] is not None:
+        return ("atendido_com_atraso" if sh["actual_start_time"] > limite else "ok"), limite
+    if b is None:
+        return ("descoberto" if (agora >= limite or sh["status"] == "missed") else None), limite
+    pg = _posto_do_geofence(b, postos)
+    if pg and pg != sh["post_id"]:
+        return "atendido_posto_incorreto", limite
+    return ("atendido_com_atraso" if b["punch_timestamp"] > limite else "ok"), limite
 
 
 async def main() -> int:
@@ -119,44 +152,32 @@ async def main() -> int:
     postos = (await db.execute(text(_SQL_POSTOS_GEO))).all()
     tol_padrao = int(TOLERANCIA_ATRASO.total_seconds() // 60)
 
-    # 1) nenhum estado fora dos cinco nas LINHAS da tela (o que o supervisor vê)
+    # 1) nenhum estado fora dos cinco nas LINHAS da tela (o que o supervisor vê). A linha
+    #    única de "nenhum turno" não tem badge e é legítima — só quando NÃO há nada a listar.
     rotulos = {e.replace("_", " ") for e in ESTADOS}
-    for row in mapa.get("rows", []):
-        badge = next((c for c in row["cells"] if c.get("isBadge")), None)
-        if not badge or badge["v"] not in rotulos:
-            falhas.append(f"linha da tela sem um dos 5 estados: {badge and badge['v']!r}")
+    listados = [i for i in meta["itens"] if i.get("estado") is not None] + meta.get("fora_de_escala", [])
+    if listados:
+        for row in mapa.get("rows", []):
+            badge = next((c for c in row["cells"] if c.get("isBadge")), None)
+            if not badge or badge["v"] not in rotulos:
+                falhas.append(f"linha da tela sem um dos 5 estados: {badge and badge['v']!r}")
+    elif len(mapa.get("rows", [])) != 1:
+        falhas.append(f"sem itens a listar e a tela tem {len(mapa.get('rows', []))} linha(s)")
 
     # 2) turnos esperados: reproduzir o estado a partir de shifts × gp_clock_punches × posts
-    listados = [i for i in meta["itens"] if i.get("estado") is not None]
-    for i in listados:
+    for i in [x for x in listados if x.get("shift_id")]:
         if i["estado"] not in ESTADOS:
             falhas.append(f"{i['nome']}: estado '{i['estado']}' não é um dos cinco")
             continue
-        sh = (await db.execute(text(_SQL_TURNO), {"sid": i["shift_id"]})).mappings().first()
-        if not sh:
+        esperado, limite = await _reproduzir(db, i, postos, tol_padrao, agora)
+        if esperado == "_sem_shift":
             falhas.append(f"{i['nome']}: shift {i['shift_id'][:8]} não existe em `shifts`")
-            continue
-        dt_ini, j_ini, j_fim = _janela(sh["shift_date"], sh["planned_start_time"], sh["planned_end_time"])
-        tol = (await db.execute(text(_SQL_TOLERANCIA), {"pid": sh["post_id"]})).scalar()
-        limite = dt_ini + timedelta(minutes=int(tol) if tol is not None else tol_padrao)
-        bats = (await db.execute(text(_SQL_BATIDAS), {"eid": sh["employee_id"], "ini": j_ini, "fim": j_fim})).mappings().all()
-        b = bats[0] if bats else None
-        if b is None and sh["actual_start_time"] is not None:
-            esperado = "atendido_com_atraso" if sh["actual_start_time"] > limite else "ok"
-        elif b is None:
-            esperado = "descoberto" if (agora >= limite or sh["status"] == "missed") else None
-        else:
-            pg = _posto_do_geofence(b, postos)
-            if pg and pg != sh["post_id"]:
-                esperado = "atendido_posto_incorreto"
-            else:
-                esperado = "atendido_com_atraso" if b["punch_timestamp"] > limite else "ok"
-        if esperado is None:
+        elif esperado is None:
             falhas.append(f"{i['nome']} ({i['posto']} {i['turno']}): a tolerância ainda não venceu às "
                           f"{agora:%H:%M} e a tela já lista '{i['estado']}'")
         elif esperado != i["estado"]:
             falhas.append(f"{i['nome']} ({i['posto']} {i['turno']}): tela diz '{i['estado']}', as fontes dizem "
-                          f"'{esperado}' (1ª batida {b['punch_timestamp'] if b else '—'}, limite {limite:%H:%M})")
+                          f"'{esperado}' (limite {limite:%H:%M})")
 
     # 3) fora de escala: sem turno hoje em posto nenhum, e bateu hoje
     ini_dia, fim_dia = datetime.combine(dia, time.min), datetime.combine(dia + timedelta(days=1), time(7, 0))
@@ -174,9 +195,34 @@ async def main() -> int:
         falhas.append(f"contador nao_vencidos={meta.get('nao_vencidos')} e há {len(nao_vencidos)} turno(s) sem estado")
 
     contagem = {e: sum(1 for i in listados if i["estado"] == e) for e in ESTADOS}
-    contagem["atendido_fora_de_escala"] = len(meta.get("fora_de_escala", []))
+
+    # 5) UM DIA FECHADO, sempre. Rodando de madrugada, o dia de hoje ainda não venceu nenhum
+    #    turno e os quatro passos acima passariam sobre uma lista VAZIA — verde por ausência de
+    #    medição é a doença que esta casa já pagou. Então o oráculo também reproduz o dia
+    #    anterior, já fechado, e confere cada estado contra as fontes.
+    from modules.people_management.ponto import mapa_de_ponto as regua
+
+    # O dia fechado é o último com BATIDA, não simplesmente ontem: num ambiente cujo acervo
+    # parou há dois dias, "ontem" só produz descoberto e os outros quatro estados nunca são
+    # exercitados — o oráculo passaria sem nunca ter comparado uma batida com a escala.
+    fechado = (await db.execute(text(_SQL_ULTIMO_DIA_COM_BATIDA), {"dia": dia})).scalar() or (dia - timedelta(days=1))
+    depois = datetime.combine(fechado + timedelta(days=1), time(12, 0))
+    m_ontem = await regua.mapa_do_dia(db, dia=fechado, agora=depois)
+    itens_ontem = [i for i in m_ontem["itens"] if i.get("estado")]
+    for i in itens_ontem:
+        esperado, _lim = await _reproduzir(db, i, postos, tol_padrao, depois)
+        if esperado != i["estado"]:
+            falhas.append(f"[{fechado:%d/%m}] {i['nome']} ({i['posto']} {i['turno']}): a régua diz "
+                          f"'{i['estado']}', as fontes dizem '{esperado}'")
+    if not itens_ontem and not listados:
+        falhas.append(f"nada medido: nem hoje ({dia:%d/%m}) nem o dia fechado ({fechado:%d/%m}) têm "
+                      f"turno com estado — o oráculo não afirmou nada")
+    cont_ontem = {e: sum(1 for i in itens_ontem if i["estado"] == e) for e in ESTADOS}
+    cont_ontem["atendido_fora_de_escala"] = len(m_ontem.get("fora_de_escala", []))
+
     print(f"mapa {dia:%d/%m} às {agora:%H:%M} · " + " · ".join(f"{k}={v}" for k, v in contagem.items())
           + f" · ainda não venceram={len(nao_vencidos)}")
+    print(f"dia fechado {fechado:%d/%m} · " + " · ".join(f"{k}={v}" for k, v in cont_ontem.items()))
     for f in falhas:
         print("FALHOU:", f)
     if falhas:
