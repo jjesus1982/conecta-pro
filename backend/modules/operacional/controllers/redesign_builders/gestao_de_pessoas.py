@@ -653,4 +653,10 @@ async def build(db) -> dict:
         ),
     )
 
+    from ._frente_05 import telas as _telas_05  # frente 05
+    out.update(await _telas_05(db))
     return out
+
+
+from ._frente_05 import MENU as _menu_05, router as router  # noqa: E402,F401 — frente 05 (menu + /action/vigilante-*)
+EXTRA_MENU.extend(_menu_05)  # frente 05

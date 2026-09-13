@@ -230,6 +230,14 @@ try:
 except ImportError as e:
     logger.warning("DP: falha ao incluir reports_router: %s", e)
 
+# frente 05 — conformidade de vigilante (/hr/vigilante/*)
+try:
+    from modules.people_management.hr.controllers.vigilante_controller import router as vigilante_router
+
+    router.include_router(vigilante_router)
+except ImportError as e:
+    logger.warning("DP: falha ao incluir vigilante_router: %s", e)
+
 try:
     from modules.cct.controllers.benefits_controller import router as cct_benefits_router
 
