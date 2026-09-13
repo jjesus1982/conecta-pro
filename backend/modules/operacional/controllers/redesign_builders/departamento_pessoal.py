@@ -31,6 +31,8 @@ SLUG = "departamento-pessoal"
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+from ._frente_03 import router as _r03  # noqa: E402 — frente 03
+router.include_router(_r03)  # frente 03
 
 
 @router.post("/action/ponto-ajuste")
@@ -2749,5 +2751,7 @@ async def build(db, current_user=None) -> dict:
         lambda r: [b(r[0], "info"), t(r[1], 600, _ND), t(r[2] or "—"), b((r[3] or "—").replace("_", " "), "ok" if (r[3] or "") in ("recibo_casado", "aceita", "transmitida") else ("bad" if "rejeit" in (r[3] or "") or "erro" in (r[3] or "") else "warn")), t((r[4] or "—")[:34])]))
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)
+    from ._frente_03 import telas as _telas_03  # frente 03
+    out.update(await _telas_03(db, out))  # frente 03 — abas em g-beneficios
 
     return out

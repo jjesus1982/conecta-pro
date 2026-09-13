@@ -450,7 +450,11 @@ async def gerar_arquivo_operador(db, ano: int, mes: int, origem: str, gerado_por
 
     ini = date(ano, mes, 1)
     rows = (await db.execute(text(
-        "SELECT e.nome, regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g'), c.beneficio, c.estado, c.total, coalesce(c.portal_cartao,'') "
+        # o cartão é da PESSOA, não da competência: cai para o último conhecido em qualquer mês
+        "SELECT e.nome, regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g'), c.beneficio, c.estado, c.total, "
+        " coalesce(nullif(c.portal_cartao,''), (SELECT x.portal_cartao FROM folha_beneficio_conferencia x "
+        "   WHERE x.employee_id = c.employee_id AND nullif(x.portal_cartao,'') IS NOT NULL "
+        "   ORDER BY x.competencia DESC LIMIT 1), '') "
         "FROM folha_beneficio_conferencia c JOIN employees e ON e.id = c.employee_id "
         "WHERE c.competencia = CAST(:c AS date) AND upper(coalesce(c.operadora,'')) = :op ORDER BY e.nome, c.beneficio"),
         {"c": ini, "op": origem.upper()})).fetchall()
