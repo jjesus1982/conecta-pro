@@ -179,10 +179,13 @@ AEJ  01|1|66014833000110|||CONECTAMAIS PATRIMONIAL LTDA|2026-09-01|2026-09-30|20
 ### Hook da batida (prova com rollback, nada persistiu)
 
 ```
-afd_records antes=1116 depois=1117 (na transação)
-linha da batida de prova: (4, 'web', '00000000472026-09-12T23:30:00-0400…8a71ab', 'REP-P-…-WEB')
-após rollback: afd_records=1116 · batida de prova no banco=0
+afd_records antes=1113 depois=1114 (na transação)
+linha da batida de prova: (1114, 'web', '00000111472026-09-12T23:30:00-0400…35ff51', 'REP-P-66014833000110')
+após rollback: afd_records=1113 · batida de prova no banco=0 (tem de ser 0)
 ```
+
+O NSR da batida nova é o seguinte da sequência do estabelecimento (1113 → 1114), a origem é
+`web` e o dispositivo é o do CNPJ — não um por origem.
 
 ---
 
