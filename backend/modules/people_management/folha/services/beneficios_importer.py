@@ -159,7 +159,35 @@ def ler_pedidos_em(caminhos: list[str]) -> list[Pedido]:
                       and os.path.dirname(q.arquivo) == os.path.dirname(p.arquivo)}
             if len(irmaos) == 1:
                 p.competencia = irmaos.pop()
-    return out
+
+    # ⚠️ 13/09/2026 — UM PEDIDO CONTA UMA VEZ, esteja em quantos arquivos estiver.
+    # O MESMO pedido vive em mais de um caminho aqui: o 332373 do Sólides está em
+    # `referencia_kits/kit/Relatório de Pedido de Vale Alimentação_Sólides.pdf` E em
+    # `kits/_rel_solides.pdf` (arquivos diferentes, bytes diferentes, mesmo pedido). Quem chama
+    # somava os dois e via o DOBRO: o oráculo do benefício acusou 23 desvios em produção,
+    # todos exatamente 2x (CELIANE VR 1012 onde o portal pagou 506).
+    #
+    # A dedução mora AQUI, e não em cada chamador, porque são dois — o motor
+    # (`beneficio_ponto.importar_portal`) e o oráculo (`test_oraculo_beneficio_fecha`). Duas
+    # cópias da mesma régua divergem, e a que diverge cala.
+    #
+    # Chave = (origem, número do pedido, competência). Pedido SEM número não é deduplicado:
+    # não dá para afirmar que dois relatórios sem identificação são o mesmo, e somar um pedido
+    # legítimo a menos é melhor que inventar um a mais.
+    vistos: set[tuple[str, str, str]] = set()
+    unicos: list[Pedido] = []
+    for p in out:
+        if not p.numero:
+            unicos.append(p)
+            continue
+        k = (p.origem, p.numero, p.competencia or "")
+        if k in vistos:
+            logger.info("benefício: pedido %s/%s já lido — ignorando cópia em %s",
+                        p.origem, p.numero, p.arquivo)
+            continue
+        vistos.add(k)
+        unicos.append(p)
+    return unicos
 
 
 async def importar_modalidade(db, solides: bytes | None = None, sinetram: bytes | None = None, aplicar: bool = False) -> dict:

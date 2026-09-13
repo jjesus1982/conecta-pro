@@ -358,6 +358,21 @@ async def importar_portal(db, caminhos: list[str]) -> dict:
 
     await _garantir_tabela(db)
     out = {"pedidos": [], "gravados": 0, "sem_cadastro": [], "sem_competencia": []}
+
+    # ⚠️ 13/09/2026 — ACUMULAR ANTES DE GRAVAR, por (pessoa, competência, benefício).
+    # A versão anterior gravava dentro do laço com `DO UPDATE SET portal_valor = EXCLUDED...`:
+    # com DOIS pedidos DISTINTOS do mesmo mês (o portal parte o mês quando há complementar),
+    # o segundo apagava o primeiro em vez de somar.
+    #
+    # ⚠️ E o que NÃO é isto: a duplicata que o oráculo acusou em produção era de ARQUIVO, não de
+    # pedido — o MESMO pedido 332373 em dois caminhos. Somar ali daria o DOBRO, que é erro de
+    # dinheiro na direção contrária. A dedução por número de pedido mora em
+    # `beneficios_importer.ler_pedidos_em`, régua única para este motor e para o oráculo.
+    #
+    # Somar no INSERT (`portal_valor = tabela + EXCLUDED`) seria pior de todo jeito: reimportar
+    # dobraria em silêncio. Aqui a soma é em memória e a gravação continua sobrescrita
+    # idempotente — reimportar os mesmos arquivos dá exatamente o mesmo número.
+    acc: dict[tuple, dict] = {}
     for p in ler_pedidos_em(caminhos):
         if not p.competencia:
             out["sem_competencia"].append(p.arquivo)
@@ -374,13 +389,24 @@ async def importar_portal(db, caminhos: list[str]) -> dict:
             for ben, valor in (("VR", ln.alimentacao), ("VT", ln.mobilidade)):
                 if not valor:
                     continue
-                await db.execute(text(
-                    "INSERT INTO folha_beneficio_conferencia (employee_id, competencia, beneficio, operadora, estado, portal_valor, portal_pedido, portal_cartao) "
-                    "VALUES (CAST(:e AS uuid), CAST(:c AS date), :b, :op, 'so_portal', :v, :n, :k) "
-                    "ON CONFLICT (employee_id, competencia, beneficio) DO UPDATE SET portal_valor = EXCLUDED.portal_valor, "
-                    " portal_pedido = EXCLUDED.portal_pedido, portal_cartao = coalesce(nullif(EXCLUDED.portal_cartao,''), folha_beneficio_conferencia.portal_cartao)"),
-                    {"e": eid, "c": comp, "b": ben, "op": p.origem.upper(), "v": valor, "n": p.numero[:40], "k": (ln.cartao or "")[:40]})
-                out["gravados"] += 1
+                a = acc.setdefault((eid, comp, ben), {"op": p.origem.upper(), "v": Decimal("0"),
+                                                      "pedidos": [], "cartao": ""})
+                a["v"] += Decimal(str(valor))
+                if p.numero and p.numero not in a["pedidos"]:
+                    a["pedidos"].append(p.numero)
+                a["cartao"] = a["cartao"] or (ln.cartao or "")
+
+    for (eid, comp, ben), a in acc.items():
+        # `portal_pedido` guarda TODOS os pedidos que compõem o valor: sem isso, conferir de onde
+        # veio o número depois vira arqueologia.
+        await db.execute(text(
+            "INSERT INTO folha_beneficio_conferencia (employee_id, competencia, beneficio, operadora, estado, portal_valor, portal_pedido, portal_cartao) "
+            "VALUES (CAST(:e AS uuid), CAST(:c AS date), :b, :op, 'so_portal', :v, :n, :k) "
+            "ON CONFLICT (employee_id, competencia, beneficio) DO UPDATE SET portal_valor = EXCLUDED.portal_valor, "
+            " portal_pedido = EXCLUDED.portal_pedido, portal_cartao = coalesce(nullif(EXCLUDED.portal_cartao,''), folha_beneficio_conferencia.portal_cartao)"),
+            {"e": eid, "c": comp, "b": ben, "op": a["op"], "v": a["v"],
+             "n": "+".join(a["pedidos"])[:40], "k": a["cartao"][:40]})
+        out["gravados"] += 1
     await db.commit()
     return out
 
