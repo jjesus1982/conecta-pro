@@ -24,7 +24,12 @@ RE_LINHA_SOLIDES = re.compile(r"^(.+?)\s+(\d{11})\s+(.+?)\s+([\d.,]+)(?:\s+([\d.
 # o nome quebra em duas linhas ("CELIANE GARCIA DE" / "SOUSA"): casar até o nº do cartão, que tem formato fixo
 RE_LINHA_SINETRAM = re.compile(r"(\d{3}\.\d{3}\.\d{3}-\d{2})\s+(.+?)\s+(\d{2}\.\d{2}\.\d{8}-\d)\s+R\$\s*([\d.,]+)")
 RE_PEDIDO_SOLIDES = re.compile(r"N[úu]mero do Pedido.*?#?(\d+)", re.S)
-RE_TOTAL_SOLIDES = re.compile(r"Valor Total do Pedido\s*R?\$?\s*([\d.,]+)", re.S)
+# o "#332373" do nº do pedido vem ENTRE o rótulo e o valor no texto extraído — casar até o R$
+RE_TOTAL_SOLIDES = re.compile(r"Valor Total do Pedido.*?R\$\s*([\d.,]+)", re.S)
+# "Relatório de 12 colaboradores (Agosto/2026)" — a competência do pedido, no rodapé
+RE_COMP_SOLIDES = re.compile(r"\((\w+)/(\d{4})\)")
+MESES = {"janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4, "maio": 5, "junho": 6, "julho": 7,
+         "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12}
 
 
 def _dec(s: str | None) -> Decimal:
@@ -70,11 +75,19 @@ class Pedido:
     numero: str = ""
     total: Decimal = Decimal("0")
     linhas: list[LinhaBeneficio] = field(default_factory=list)
+    competencia: str = ""  # 'YYYY-MM' — só o Sólides imprime; o SINETRAM vem do nome do arquivo ou do par
+    arquivo: str = ""
 
 
 def ler_solides(pdf_bytes: bytes) -> Pedido:
-    t = _texto(pdf_bytes)
+    return parse_solides_texto(_texto(pdf_bytes))
+
+
+def parse_solides_texto(t: str) -> Pedido:
+    """Lê o TEXTO do relatório (ou do arquivo que nós geramos — frente 03, ida e volta)."""
     p = Pedido(origem="solides")
+    if (m := RE_COMP_SOLIDES.search(t)) and m.group(1).lower() in MESES:
+        p.competencia = f"{m.group(2)}-{MESES[m.group(1).lower()]:02d}"
     if (m := RE_PEDIDO_SOLIDES.search(t)):
         p.numero = m.group(1)
     if (m := RE_TOTAL_SOLIDES.search(t)):
@@ -92,8 +105,13 @@ def ler_solides(pdf_bytes: bytes) -> Pedido:
 
 
 def ler_sinetram(pdf_bytes: bytes) -> Pedido:
-    t = _texto(pdf_bytes)
+    return parse_sinetram_texto(_texto(pdf_bytes))
+
+
+def parse_sinetram_texto(t: str) -> Pedido:
     p = Pedido(origem="sinetram")
+    if (m := re.search(r"Compet[êe]ncia\s*(\d{4})-(\d{2})", t)):
+        p.competencia = f"{m.group(1)}-{m.group(2)}"
     if (m := re.search(r"N[ºo°]?\s*DO PEDIDO\s*(\d+)", t, re.I)):
         p.numero = m.group(1)
     if (m := re.search(r"VALOR DO PEDIDO[^\n]*?R\$\s*([\d.,]+)", t, re.I)):
@@ -105,6 +123,43 @@ def ler_sinetram(pdf_bytes: bytes) -> Pedido:
         # então guardamos o que veio antes do cartão — o CPF é a chave de casamento, não o nome.
         p.linhas.append(LinhaBeneficio(cpf=_dig(cpf), nome=re.sub(r"\s+", " ", nome).strip(), mobilidade=_dec(valor), cartao=cartao))
     return p
+
+
+def ler_pedidos_em(caminhos: list[str]) -> list[Pedido]:
+    """Classifica cada PDF pelo conteúdo (o nome do arquivo mente) e devolve os pedidos lidos.
+
+    SINETRAM não imprime competência: sai de `MM.YYYY`/`MM-YYYY` no nome do arquivo ou, na falta,
+    do relatório do Sólides da MESMA pasta — ambíguo (dois Sólides na pasta) fica em branco, e
+    quem chama decide. Nunca assume o mês corrente."""
+    import os
+
+    out: list[Pedido] = []
+    for c in caminhos:
+        try:
+            with open(c, "rb") as f:
+                t = _texto(f.read())
+        except Exception as e:  # noqa: BLE001 — pdf estranho não derruba a leitura dos outros
+            logger.warning("benefício: não li %s: %s", c, e)
+            continue
+        if "SINETRAM" in t.upper() or ("DO PEDIDO" in t.upper() and "CART" in t.upper()):
+            p = parse_sinetram_texto(t)
+        elif "Relatório de Benefícios" in t or "Sólides" in t or "Solides" in t:
+            p = parse_solides_texto(t)
+        else:
+            continue
+        if not p.linhas:
+            continue
+        p.arquivo = c
+        if p.origem == "sinetram" and not p.competencia and (m := re.search(r"(\d{2})[._-](\d{4})", os.path.basename(c))):
+            p.competencia = f"{m.group(2)}-{m.group(1)}"
+        out.append(p)
+    for p in out:
+        if p.origem == "sinetram" and not p.competencia:
+            irmaos = {q.competencia for q in out if q.origem == "solides" and q.competencia
+                      and os.path.dirname(q.arquivo) == os.path.dirname(p.arquivo)}
+            if len(irmaos) == 1:
+                p.competencia = irmaos.pop()
+    return out
 
 
 async def importar_modalidade(db, solides: bytes | None = None, sinetram: bytes | None = None, aplicar: bool = False) -> dict:

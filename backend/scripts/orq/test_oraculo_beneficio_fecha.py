@@ -30,6 +30,7 @@ import glob
 import os
 import re
 import sys
+from datetime import date
 from decimal import Decimal
 
 #: Onde os relatórios dos portais moram. Em produção `/app/uploads` é o volume `uploads/`;
@@ -97,7 +98,7 @@ async def main() -> int:
             "SELECT regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g'), c.beneficio, c.estado, c.previsao, "
             "c.credito_debito, c.quantidade, c.unitario, c.total, c.portal_valor, e.nome "
             "FROM folha_beneficio_conferencia c JOIN employees e ON e.id = c.employee_id "
-            "WHERE c.competencia = CAST(:c AS date)"), {"c": comp + "-01"})).fetchall()
+            "WHERE c.competencia = CAST(:c AS date)"), {"c": date.fromisoformat(comp + "-01")})).fetchall()
         for r in rows:
             linhas[(comp, r[0], r[1])] = r
 
