@@ -107,6 +107,9 @@ def _cnpj(v) -> str:
 # REUSA os MESMOS services dos endpoints clássicos /crm/proposals|contracts/*. Nunca
 # reimplementa lógica; ativar contrato é HEAVY → gate reforçado (confirmação digitada).
 router = APIRouter()
+from ._frente_07 import router as _r07  # frente 07
+
+router.include_router(_r07)  # frente 07
 
 
 async def _crm_gate(db, rec_id, coro_factory, ok_msg, noun="registro", idem=None):
@@ -557,6 +560,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT},
     {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC},
 ]
+from ._frente_07 import MENU as _menu07  # frente 07
+
+EXTRA_MENU.extend(_menu07)  # frente 07
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
 # O select nasce vazio e campo intocado nao e enviado -> o default do backend (False) vale,
@@ -2080,6 +2086,8 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out, tbl)
     await _ligar_lote4_20260908(db, out)
+    from ._frente_07 import telas as _telas_07  # frente 07
+    out.update(await _telas_07(db))
     return out
 
 
