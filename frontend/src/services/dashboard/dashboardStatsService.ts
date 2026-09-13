@@ -180,15 +180,6 @@ interface GedCertidao {
   alerta_ativo: boolean;
 }
 
-// Tipo interno para resposta bruta de bidding/certificates (Cert Digital A1)
-interface BiddingCertificate {
-  id: string;
-  tipo: string;
-  nome: string;
-  data_validade: string | null;
-  situacao: string;
-}
-
 export interface KitStats {
   total_kits: number;
   kits_ativos: number;
@@ -232,25 +223,25 @@ export async function fetchCertificateAlerts(): Promise<CertificateAlert[]> {
   // Fonte 2: bidding/certificates — apenas CERTIFICADO_DIGITAL (Decisão A2)
   // Cert digital A1 é cert de máquina (assina NFes), não entra em ged_certidoes,
   // mas deve aparecer no dashboard como alerta separado.
+  // 13/09/2026: `/api/v1/bidding/certificates` responde 404 desde 08/09 (módulo bidding
+  // aposentado) e o `catch` silencioso fez o alerta do certificado A1 SUMIR da tela sem aviso —
+  // justamente o alerta que avisa que a empresa vai parar de emitir nota. A rota viva é a do
+  // dashboard de governo, que já calcula os dias restantes e a severidade.
   let certDigitalAlerts: CertificateAlert[] = [];
   try {
-    const { data } = await api.get('/api/v1/bidding/certificates');
-    const items: BiddingCertificate[] = data.items ?? (Array.isArray(data) ? data : []);
-    certDigitalAlerts = items
-      .filter((c) => c.tipo === 'CERTIFICADO_DIGITAL')
-      .map((c) => {
-        const dias = calcDias(c.data_validade);
-        return {
-          id: c.id,
-          tipo: c.tipo,
-          nome: c.nome,
-          dias_para_vencer: dias,
-          situacao: dias <= 0 ? 'vencida' : c.situacao.toLowerCase(),
-          esta_valida: dias > 0,
-          data_validade: c.data_validade ?? '',
-        };
-      })
-      .filter((c) => !c.esta_valida || c.dias_para_vencer <= 30);
+    const { data } = await api.get('/api/v1/government/dashboard/certificados/alertas');
+    const items: Array<{
+      tipo_certificado: string; dias_restantes: number; validade_fim: string; severidade: string;
+    }> = Array.isArray(data) ? data : (data.items ?? []);
+    certDigitalAlerts = items.map((c, i) => ({
+      id: `gov-cert-${i}`,
+      tipo: 'CERTIFICADO_DIGITAL',
+      nome: c.tipo_certificado,
+      dias_para_vencer: c.dias_restantes,
+      situacao: c.dias_restantes <= 0 ? 'vencida' : c.severidade.toLowerCase(),
+      esta_valida: c.dias_restantes > 0,
+      data_validade: c.validade_fim ?? '',
+    }));
   } catch { /* silencioso */ }
 
   return [...gedAlerts, ...certDigitalAlerts]
@@ -258,13 +249,19 @@ export async function fetchCertificateAlerts(): Promise<CertificateAlert[]> {
 }
 
 export async function fetchKitStats(): Promise<KitStats> {
+  // 13/09/2026: `/api/v1/document-kits/stats` responde 404 desde 08/09 — o módulo document_kits
+  // foi aposentado e o `catch` silencioso abaixo transformava isso em "0 kits" na tela, todo dia,
+  // sem ninguém ver. A rota VIVA é a do GEDEON, que devolve o mesmo por competência.
   try {
-    const { data } = await api.get('/api/v1/document-kits/stats');
+    const { data } = await api.get('/api/v1/gedeon/kits/status');
+    const kits: Array<{ status?: string; pendencias?: number }> = data.kits ?? [];
+    const prontos = data.prontos ?? 0;
+    const total = data.total_clientes ?? kits.length;
     return {
-      total_kits: data.total_kits ?? 0,
-      kits_ativos: data.kits_ativos ?? 0,
-      assignments_pendentes: data.assignments_pendentes ?? 0,
-      taxa_conclusao: data.taxa_conclusao ?? 0,
+      total_kits: total,
+      kits_ativos: total,
+      assignments_pendentes: kits.reduce((a, k) => a + (k.pendencias ?? 0), 0),
+      taxa_conclusao: total > 0 ? Math.round((prontos / total) * 100) : 0,
     };
   } catch {
     return { total_kits: 0, kits_ativos: 0, assignments_pendentes: 0, taxa_conclusao: 0 };
