@@ -66,9 +66,11 @@ VALUES
  (gen_random_uuid(),'ponto.facial.limiar_distancia','Limiar de distancia do reconhecimento facial','0.68','float','global','normal',true,now(),now()),
  (gen_random_uuid(),'ponto.offline.divergencia_relogio_max_seg','Divergencia maxima entre relogio do aparelho e do servidor (s)','300','int','global','normal',true,now(),now()),
  (gen_random_uuid(),'ponto.offline.validade_cache_horas','Validade do cache do descriptor no aparelho (h)','24','int','global','normal',true,now(),now()),
- (gen_random_uuid(),'ponto.offline.janela_idempotencia_min','Janela de idempotencia da batida offline (min)','20','int','global','normal',true,now(),now());
-        WHERE p.punch_timestamp >= :corte AND a.id IS NULL
-          AND p.status <> 'pendente_de_conferencia'   -- frente 02
+ (gen_random_uuid(),'ponto.offline.janela_idempotencia_min','Janela de idempotencia da batida offline (min)','20','int','global','normal',true,now(),now())
+ON CONFLICT (chave) DO NOTHING;   -- integrador: reexecutável; o valor vigente manda, não o do script.
+-- (a linha acima, no relatório da frente 02, era um TRECHO ILUSTRATIVO da consulta que o
+--  rep_p.py usa para decidir o que entra no AFD — não é DDL. Removida daqui: o código já está
+--  no repositório; o que ela documenta é que batida `pendente_de_conferencia` não vira linha AFD.)
 
 -- ══════════════════════════ FRENTE 03 ══════════════════════════
 CREATE TABLE IF NOT EXISTS folha_beneficio_conferencia (
@@ -89,11 +91,27 @@ CREATE TABLE IF NOT EXISTS folha_beneficio_conferencia (
   calculado_em timestamptz DEFAULT now(),
   UNIQUE (employee_id, competencia, beneficio)
 );
-INSERT INTO cct_benefit_configs (id, empresa_id, tipo_beneficio, valor_empresa, desconto_empregado, operadora, vigencia_inicio, ativo, observacoes) VALUES
- (gen_random_uuid(), NULL, 'vale_refeicao', 22.00, 0, 'SOLIDES', '2026-01-01', true, 'frente 03: R$/dia — pedido Sólides Agosto/2026 (330 = 15 × 22) e piso CCT'),
- (gen_random_uuid(), NULL, 'vale_transporte', 10.00, 0, 'SOLIDES', '2026-01-01', true, 'frente 03: R$/dia — mobilidade Sólides Agosto/2026 (150 = 15 × 10)'),
- (gen_random_uuid(), NULL, 'vale_transporte', 10.00, 0, 'SINETRAM', '2026-01-01', true, 'frente 03: R$/dia — SINETRAM (270 = 27 × 10) — confirmar com a Pyetra'),
- (gen_random_uuid(), NULL, 'beneficio_horas_minimas_dia', 4.00, 0, NULL, '2026-01-01', true, 'frente 03: horas mínimas no dia para contar como trabalhado — DECISÃO PENDENTE');
+-- ⚠️ DUAS correções do integrador neste bloco:
+-- 1) `cct_benefit_configs` não tem chave única nestes campos: rodar o script duas vezes
+--    DUPLICARIA o parâmetro de benefício em silêncio (cada linha tem gen_random_uuid()), e o
+--    motor passaria a ler dois valores para o mesmo benefício. Guardado com NOT EXISTS.
+-- 2) `beneficio_horas_minimas_dia = 4h` foi REMOVIDO: o próprio relatório da frente 03 marca
+--    como "DECISÃO PENDENTE" — é chute do agente, não medição. Sem ele o motor trata como
+--    "parâmetro ausente" (que é o desenho: ausente nunca vira default). O Jordan decide o
+--    número e aí a linha entra. Os três abaixo são MEDIDOS nos pedidos dos portais de agosto.
+INSERT INTO cct_benefit_configs (id, empresa_id, tipo_beneficio, valor_empresa, desconto_empregado, operadora, vigencia_inicio, ativo, observacoes)
+SELECT gen_random_uuid(), NULL, v.tipo, v.valor, 0, v.operadora, v.vig::date, true, v.obs
+FROM (VALUES
+  ('vale_refeicao',   22.00, 'SOLIDES',  '2026-01-01', 'frente 03: R$/dia — pedido Sólides Agosto/2026 (330 = 15 x 22) e piso CCT'),
+  ('vale_transporte', 10.00, 'SOLIDES',  '2026-01-01', 'frente 03: R$/dia — mobilidade Sólides Agosto/2026 (150 = 15 x 10)'),
+  ('vale_transporte', 10.00, 'SINETRAM', '2026-01-01', 'frente 03: R$/dia — SINETRAM (270 = 27 x 10) — confirmar com a Pyetra')
+) AS v(tipo, valor, operadora, vig, obs)
+WHERE NOT EXISTS (
+  SELECT 1 FROM cct_benefit_configs c
+   WHERE c.tipo_beneficio = v.tipo
+     AND c.operadora IS NOT DISTINCT FROM v.operadora
+     AND c.vigencia_inicio = v.vig::date
+);
 
 -- ══════════════════════════ FRENTE 05 ══════════════════════════
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS nome_de_guerra varchar(60);
