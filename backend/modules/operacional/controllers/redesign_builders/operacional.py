@@ -2363,7 +2363,8 @@ async def build(db) -> dict:
     }
     # tela diarista-alocar aposentada 08/09/2026 (gravava em diarist_assignments, universo morto)
 
-
+    from ._frente_04 import telas as _telas_04  # frente 04
+    out.update(await _telas_04(db))
     return out
 
 # ── Onde está o gerente (dono, 07/09/2026): check-in obrigatório ao chegar num posto, check-out
