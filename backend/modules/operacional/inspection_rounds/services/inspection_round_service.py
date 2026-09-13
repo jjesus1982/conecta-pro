@@ -7,11 +7,14 @@ Date: 2026-01-23
 
 import builtins
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
+    CheckpointStatus,
+    CheckpointType,
     InspectionCheckpoint,
     InspectionRound,
     InspectionRoundStatus,
@@ -42,6 +45,26 @@ class InspectionRoundValidationError(Exception):
     """Erro de validacao."""
 
     pass
+
+
+#: ponytail: relógio de celular drifta. Online, a hora do aparelho tem de bater com a do servidor
+#: dentro desta folga para a foto contar como "da hora"; offline não dá para exigir (pode ser horas).
+TOLERANCIA_RELOGIO = timedelta(minutes=10)
+
+
+def foto_e_obrigatoria(checkpoint_type: str, flag: bool) -> bool:
+    """Régua única (frente 6): o tipo FOTO exige foto; o app pode exigir para qualquer outro
+    (ex.: marca `foto_obrigatoria` quando a situação é não conforme)."""
+    return bool(flag) or checkpoint_type == CheckpointType.FOTO_EVIDENCIA.value
+
+
+def _tem_foto_na_hora(photos: builtins.list | None) -> bool:
+    """Prova válida = imagem marcada `capturada_na_hora` (câmera, não galeria)."""
+    return any(bool(f.get("capturada_na_hora")) for f in (photos or []) if isinstance(f, dict))
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 class InspectionRoundService:
@@ -222,9 +245,17 @@ class InspectionRoundService:
         latitude = data.latitude if data else None
         longitude = data.longitude if data else None
 
-        inspection_round.complete(summary, latitude, longitude)
-
         checkpoints = await self.repository.get_checkpoints_by_round(round_id)
+        # frente 6: checkpoint de foto obrigatória sem imagem capturada na hora NÃO fecha a ronda
+        sem_foto = [c for c in checkpoints if c.status == CheckpointStatus.PENDENTE_FOTO.value
+                    or (c.foto_obrigatoria and not _tem_foto_na_hora(c.photos))]
+        if sem_foto:
+            nomes = ", ".join((c.title or c.post_name or c.checkpoint_type) for c in sem_foto[:3])
+            raise InspectionRoundValidationError(
+                f"{len(sem_foto)} checkpoint(s) aguardando foto obrigatória tirada na hora: {nomes}"
+            )
+
+        inspection_round.complete(summary, latitude, longitude)
         inspection_round.total_checkpoints = len(checkpoints)
 
         await self.repository.update(inspection_round)
@@ -254,42 +285,100 @@ class InspectionRoundService:
         round_id: str,
         data: CheckpointCreate,
     ) -> InspectionCheckpoint:
-        """Cria um checkpoint durante a ronda."""
-        inspection_round = await self.get_by_id(round_id)
+        """Rota antiga (JSON, sem arquivo). Foto obrigatória → nasce `pendente_foto`."""
+        checkpoint, _repetida = await self.create_checkpoint_completo(round_id, data, fotos=None)
+        return checkpoint
 
+    async def create_checkpoint_completo(
+        self,
+        round_id: str,
+        data: CheckpointCreate,
+        fotos: builtins.list[dict] | None,
+        checkpoint_id: str | None = None,
+    ) -> tuple[InspectionCheckpoint, bool]:
+        """Checkpoint + fotos na MESMA transação (frente 6). Devolve (checkpoint, repetida).
+
+        `fotos=None` é a rota antiga: sem arquivo, um checkpoint obrigatório nasce `pendente_foto`
+        e só vira válido quando a foto chegar. `fotos=[]`/lista é a rota completa: obrigatório
+        sem imagem capturada na hora é recusado — nunca nasce "concluído sem foto".
+        """
+        if data.chave_idempotente:
+            existente = await self.repository.get_checkpoint_by_chave(data.chave_idempotente)
+            if existente:
+                return existente, True
+
+        inspection_round = await self.get_by_id(round_id)
         if inspection_round.status != InspectionRoundStatus.EM_ANDAMENTO.value:
             raise InspectionRoundValidationError("Ronda nao esta em andamento")
 
-        sequence = await self.repository.get_next_checkpoint_sequence(round_id)
+        agora = datetime.now(UTC)
+        hora_aparelho = _aware(data.hora_aparelho)
+        obrigatoria = foto_e_obrigatoria(data.checkpoint_type, data.foto_obrigatoria)
+        lista_fotos = list(fotos or []) + list(data.photos or [])
+        status = data.status
+        extra: dict = {}
 
+        if obrigatoria and not _tem_foto_na_hora(lista_fotos):
+            if fotos is not None:
+                raise InspectionRoundValidationError(
+                    "Foto obrigatória: envie ao menos uma imagem capturada pela câmera na hora"
+                )
+            status = CheckpointStatus.PENDENTE_FOTO.value
+            extra["status_pretendido"] = data.status
+        if _tem_foto_na_hora(lista_fotos):
+            if hora_aparelho is None:
+                raise InspectionRoundValidationError("Foto capturada na hora exige hora_aparelho")
+            if not data.origem_offline and abs(agora - hora_aparelho) > TOLERANCIA_RELOGIO:
+                raise InspectionRoundValidationError(
+                    f"Hora do aparelho difere do servidor em {abs(agora - hora_aparelho)} — "
+                    f"acima da folga de {TOLERANCIA_RELOGIO}; a foto não conta como da hora"
+                )
+
+        sequence = await self.repository.get_next_checkpoint_sequence(round_id)
         checkpoint_data = {
             "inspection_round_id": round_id,
             "post_id": str(data.post_id) if data.post_id else None,
             "post_name": data.post_name,
             "checkpoint_type": data.checkpoint_type,
-            "status": data.status,
+            "status": status,
             "employee_id": str(data.employee_id) if data.employee_id else None,
             "employee_name": data.employee_name,
             "title": data.title,
             "description": data.description,
             "observations": data.observations,
-            "photos": data.photos or [],
+            "photos": lista_fotos,
             "latitude": data.latitude,
             "longitude": data.longitude,
             "sequence": sequence,
             "created_by": inspection_round.inspector_id,
+            "foto_obrigatoria": obrigatoria,
+            "hora_aparelho": hora_aparelho,
+            "hora_servidor": agora,
+            "device_id": data.device_id,
+            "chave_idempotente": data.chave_idempotente,
+            "origem_offline": data.origem_offline,
+            "extra_data": extra,
         }
+        if checkpoint_id:
+            checkpoint_data["id"] = checkpoint_id
 
-        checkpoint = await self.repository.create_checkpoint(checkpoint_data)
+        try:
+            checkpoint = await self.repository.create_checkpoint(checkpoint_data)
+        except IntegrityError:
+            # duas retentativas da mesma chave cruzaram: a primeira venceu, devolve ela
+            await self.db.rollback()
+            existente = await self.repository.get_checkpoint_by_chave(data.chave_idempotente or "")
+            if existente:
+                return existente, True
+            raise
 
         inspection_round.total_checkpoints += 1
         if data.post_id:
             inspection_round.add_visited_post(str(data.post_id))
-
         await self.repository.update(inspection_round)
 
-        logger.info(f"Checkpoint criado na ronda {inspection_round.code}")
-        return checkpoint
+        logger.info(f"Checkpoint criado na ronda {inspection_round.code} ({status}, {len(lista_fotos)} foto(s))")
+        return checkpoint, False
 
     async def get_checkpoints(self, round_id: str) -> builtins.list[InspectionCheckpoint]:
         """Lista checkpoints de uma ronda."""

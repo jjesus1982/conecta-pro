@@ -83,6 +83,12 @@ class CheckpointCreate(BaseModel):
     photos: list[dict] | None = None
     latitude: float | None = None
     longitude: float | None = None
+    # frente 6 — foto na hora + offline-first
+    foto_obrigatoria: bool = False
+    hora_aparelho: datetime | None = None
+    device_id: str | None = Field(default=None, max_length=80)
+    chave_idempotente: str | None = Field(default=None, max_length=120)
+    origem_offline: bool = False
 
 
 class CheckpointUpdate(BaseModel):
@@ -128,6 +134,13 @@ class CheckpointResponse(BaseModel):
     longitude: float | None = None
     sequence: int
     created_at: datetime
+    # frente 6
+    foto_obrigatoria: bool = False
+    hora_aparelho: datetime | None = None
+    hora_servidor: datetime | None = None
+    device_id: str | None = None
+    chave_idempotente: str | None = None
+    origem_offline: bool = False
 
 
 class CheckpointWithOccurrence(CheckpointResponse):

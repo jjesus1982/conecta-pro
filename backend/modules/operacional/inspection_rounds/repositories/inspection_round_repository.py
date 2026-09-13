@@ -252,6 +252,13 @@ class InspectionRoundRepository:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
+    async def get_checkpoint_by_chave(self, chave: str) -> InspectionCheckpoint | None:
+        """Checkpoint já gravado com esta chave idempotente (retentativa offline) — frente 6."""
+        result = await self.db.execute(
+            select(InspectionCheckpoint).where(InspectionCheckpoint.chave_idempotente == chave)
+        )
+        return result.scalar_one_or_none()
+
     async def get_checkpoints_by_round(self, round_id: str) -> builtins.list[InspectionCheckpoint]:
         """Lista checkpoints de uma ronda."""
         query = (

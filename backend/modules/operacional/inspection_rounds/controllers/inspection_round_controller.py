@@ -6,17 +6,21 @@ Date: 2026-01-23
 """
 
 import asyncio
+import hashlib
 import json
 import logging
+import os
 import re
+import shutil
 import unicodedata
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -155,6 +159,23 @@ async def get_stats(
     """Retorna estatísticas de rondas."""
     tenant_str = str(tenant_id) if tenant_id else None
     return await service.get_dashboard_stats(tenant_str)
+
+
+@router.get(
+    "/minhas-rondas",
+    response_model=list[InspectionRoundSummary],
+    summary="Rondas do inspetor (mais recentes primeiro)",
+)
+async def minhas_rondas(
+    current_user: CurrentActiveUser,
+    inspector_id: UUID = Query(..., description="ID do inspetor"),
+    tenant_id: UUID | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    service: InspectionRoundService = Depends(get_inspection_service),
+) -> list[InspectionRoundSummary]:
+    """A ronda-mobile chamava esta rota e caía em /{round_id} (422) — frente 6 (12/09/2026)."""
+    rounds = await service.get_rounds_by_inspector(str(inspector_id), str(tenant_id) if tenant_id else None, limit)
+    return [InspectionRoundSummary.model_validate(r) for r in rounds]
 
 
 @router.get(
@@ -480,10 +501,122 @@ async def update_checkpoint(
 # FOTOS DE CHECKPOINT — evidências REAIS no sistema (nada em grupo de WhatsApp)
 # =============================================================================
 
-FOTOS_DIR = Path("/app/uploads/rondas")
+# produção monta /opt/conecta-pro/uploads em /app/uploads; staging tem /app somente-leitura e UPLOADS_DIR=/tmp/uploads
+FOTOS_DIR = Path(os.environ.get("UPLOADS_DIR", "/app/uploads")) / "rondas"
 _MIME_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 _MAX_FOTO_BYTES = 10 * 1024 * 1024  # 10 MB
 _TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+def _parse_hora(v: str | None) -> datetime | None:
+    if not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"hora_aparelho inválida: {v!r}")
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+async def _gravar_foto(
+    round_id: UUID, checkpoint_id: str, file: UploadFile, current_user,
+    capturada_na_hora: bool, hora_aparelho: datetime | None,
+) -> dict:
+    """Valida, grava em disco e devolve o registro da foto com os carimbos (frente 6).
+
+    hora_servidor é a oficial; hora_aparelho vai ao lado; hash identifica a imagem (retentativa
+    não duplica). capturada_na_hora=True só quando veio da câmera do app — a galeria é False.
+    """
+    ext = _MIME_EXT.get((file.content_type or "").lower())
+    if not ext:
+        raise HTTPException(status_code=422, detail="Formato inválido — envie JPEG, PNG ou WebP.")
+    conteudo = await file.read()
+    if len(conteudo) > _MAX_FOTO_BYTES:
+        raise HTTPException(status_code=422, detail="Foto acima de 10MB.")
+    if not conteudo:
+        raise HTTPException(status_code=422, detail="Arquivo vazio.")
+
+    base = unicodedata.normalize("NFKD", Path(file.filename or "foto").stem)
+    base = re.sub(r"[^A-Za-z0-9_-]+", "_", base.encode("ascii", "ignore").decode())[:40] or "foto"
+    nome = f"{uuid4().hex[:8]}_{base}{ext}"
+    destino = FOTOS_DIR / str(round_id) / str(checkpoint_id)
+    destino.mkdir(parents=True, exist_ok=True)
+    (destino / nome).write_bytes(conteudo)
+    agora = datetime.now(UTC)
+    return {
+        "arquivo": nome,
+        "tamanho_bytes": len(conteudo),
+        "content_type": file.content_type,
+        "hash_imagem": hashlib.sha256(conteudo).hexdigest(),
+        "capturada_na_hora": bool(capturada_na_hora),
+        "hora_aparelho": hora_aparelho.isoformat(timespec="seconds") if hora_aparelho else None,
+        "hora_servidor": agora.isoformat(timespec="seconds"),
+        "enviada_em": agora.astimezone(_TZ_MANAUS).replace(tzinfo=None).isoformat(timespec="seconds"),
+        "enviada_por": getattr(current_user, "email", None) or str(getattr(current_user, "id", "")),
+        "url": f"/api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}/fotos/{nome}",
+    }
+
+
+@router.post(
+    "/{round_id}/checkpoints/completo",
+    status_code=status.HTTP_201_CREATED,
+    summary="Checkpoint + fotos numa única requisição (frente 6)",
+    description=(
+        "multipart: `dados` = JSON de CheckpointCreate; `fotos` = imagens da CÂMERA (capturada_na_hora); "
+        "`anexos` = imagens da galeria (não valem como prova). Repetição da mesma `chave_idempotente` "
+        "devolve 200 com o checkpoint já gravado, sem duplicar."
+    ),
+)
+async def create_checkpoint_completo(
+    round_id: UUID,
+    current_user: CurrentActiveUser,
+    response: Response,
+    dados: str = Form(...),
+    fotos: list[UploadFile] = File(default=[]),
+    anexos: list[UploadFile] = File(default=[]),
+    service: InspectionRoundService = Depends(get_inspection_service),
+) -> dict:
+    try:
+        data = CheckpointCreate.model_validate_json(dados)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+
+    if data.chave_idempotente:
+        existente = await service.repository.get_checkpoint_by_chave(data.chave_idempotente)
+        if existente:
+            response.status_code = status.HTTP_200_OK
+            return {"repetida": True, "checkpoint": CheckpointResponse.model_validate(existente)}
+
+    hora_aparelho = data.hora_aparelho
+    if hora_aparelho and not hora_aparelho.tzinfo:
+        hora_aparelho = hora_aparelho.replace(tzinfo=UTC)
+    checkpoint_id = str(uuid4())
+    registros: list[dict] = []
+    try:
+        for f in fotos:
+            registros.append(await _gravar_foto(round_id, checkpoint_id, f, current_user, True, hora_aparelho))
+        for f in anexos:
+            registros.append(await _gravar_foto(round_id, checkpoint_id, f, current_user, False, hora_aparelho))
+        checkpoint, repetida = await service.create_checkpoint_completo(
+            str(round_id), data, fotos=registros, checkpoint_id=checkpoint_id
+        )
+        await service.db.commit()
+    except Exception as e:
+        # transação única: sem checkpoint, sem arquivo em disco (nada de foto órfã)
+        shutil.rmtree(FOTOS_DIR / str(round_id) / checkpoint_id, ignore_errors=True)
+        if isinstance(e, InspectionRoundNotFoundError):
+            raise HTTPException(status_code=404, detail=str(e))
+        if isinstance(e, InspectionRoundValidationError):
+            raise HTTPException(status_code=422, detail=str(e))
+        if isinstance(e, HTTPException):
+            raise
+        logger.exception(f"[rondas] falha no checkpoint completo da ronda {round_id}")
+        raise HTTPException(status_code=500, detail="Erro interno ao gravar checkpoint com fotos")
+    if repetida:
+        # a chave já existia (corrida entre retentativas): os arquivos desta chamada são descartados
+        shutil.rmtree(FOTOS_DIR / str(round_id) / checkpoint_id, ignore_errors=True)
+        response.status_code = status.HTTP_200_OK
+    return {"repetida": repetida, "checkpoint": CheckpointResponse.model_validate(checkpoint)}
 
 
 async def _checkpoint_da_ronda(db: AsyncSession, round_id: UUID, checkpoint_id: UUID):
@@ -511,48 +644,58 @@ async def anexar_foto_checkpoint(
     checkpoint_id: UUID,
     current_user: CurrentActiveUser,
     file: UploadFile = File(...),
+    capturada_na_hora: bool = Form(False),
+    hora_aparelho: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Rota antiga (duas requisições). Um checkpoint `pendente_foto` só vira válido quando chega
+    foto capturada na hora; a mesma imagem (hash) reenviada não duplica — frente 6."""
     await _checkpoint_da_ronda(db, round_id, checkpoint_id)
-    ext = _MIME_EXT.get((file.content_type or "").lower())
-    if not ext:
-        raise HTTPException(status_code=422, detail="Formato inválido — envie JPEG, PNG ou WebP.")
-    conteudo = await file.read()
-    if len(conteudo) > _MAX_FOTO_BYTES:
-        raise HTTPException(status_code=422, detail="Foto acima de 10MB.")
-    if not conteudo:
-        raise HTTPException(status_code=422, detail="Arquivo vazio.")
+    h_ap = _parse_hora(hora_aparelho)
+    if capturada_na_hora and h_ap is None:
+        raise HTTPException(status_code=422, detail="Foto capturada na hora exige hora_aparelho.")
+    foto = await _gravar_foto(round_id, str(checkpoint_id), file, current_user, capturada_na_hora, h_ap)
+    caminho = FOTOS_DIR / str(round_id) / str(checkpoint_id) / foto["arquivo"]
 
-    base = unicodedata.normalize("NFKD", Path(file.filename or "foto").stem)
-    base = re.sub(r"[^A-Za-z0-9_-]+", "_", base.encode("ascii", "ignore").decode())[:40] or "foto"
-    nome = f"{uuid4().hex[:8]}_{base}{ext}"
-    destino = FOTOS_DIR / str(round_id) / str(checkpoint_id)
-    destino.mkdir(parents=True, exist_ok=True)
-    (destino / nome).write_bytes(conteudo)
+    try:
+        ja_tem = (
+            await db.execute(
+                text(
+                    """SELECT f->>'arquivo' FROM inspection_checkpoints c,
+                       jsonb_array_elements(COALESCE(c.photos,'[]'::jsonb)) f
+                       WHERE c.id = CAST(:c AS uuid) AND f->>'hash_imagem' = :h LIMIT 1"""
+                ),
+                {"c": str(checkpoint_id), "h": foto["hash_imagem"]},
+            )
+        ).scalar()
+        if ja_tem:
+            caminho.unlink(missing_ok=True)
+            return {"ok": True, "repetida": True, "foto": {"arquivo": ja_tem}, "total_fotos": None}
 
-    foto = {
-        "arquivo": nome,
-        "tamanho_bytes": len(conteudo),
-        "content_type": file.content_type,
-        "enviada_em": datetime.now(_TZ_MANAUS).replace(tzinfo=None).isoformat(timespec="seconds"),
-        "enviada_por": getattr(current_user, "email", None) or str(getattr(current_user, "id", "")),
-        "url": f"/api/v1/operacional/rondas/{round_id}/checkpoints/{checkpoint_id}/fotos/{nome}",
-    }
-    total = (
-        await db.execute(
-            text(
-                """UPDATE inspection_checkpoints
-                   SET photos = COALESCE(photos, '[]'::jsonb) || CAST(:foto AS jsonb),
-                       updated_at = now()
-                   WHERE id = CAST(:c AS uuid)
-                   RETURNING jsonb_array_length(photos)"""
-            ),
-            {"foto": json.dumps([foto]), "c": str(checkpoint_id)},
-        )
-    ).scalar()
-    await db.commit()
-    logger.info(f"[rondas] foto anexada ao checkpoint {checkpoint_id} ({nome}, {len(conteudo)}b)")
-    return {"ok": True, "foto": foto, "total_fotos": int(total or 1)}
+        row = (
+            await db.execute(
+                text(
+                    """UPDATE inspection_checkpoints
+                       SET photos = COALESCE(photos, '[]'::jsonb) || CAST(:foto AS jsonb),
+                           hora_aparelho = COALESCE(hora_aparelho, CAST(:h_ap AS timestamptz)),
+                           status = CASE WHEN status = 'pendente_foto' AND CAST(:na_hora AS boolean)
+                                         THEN COALESCE(extra_data->>'status_pretendido', 'conforme')
+                                         ELSE status END,
+                           updated_at = now()
+                       WHERE id = CAST(:c AS uuid)
+                       RETURNING jsonb_array_length(photos), status"""
+                ),
+                {"foto": json.dumps([foto]), "c": str(checkpoint_id), "na_hora": bool(capturada_na_hora),
+                 "h_ap": h_ap},
+            )
+        ).first()
+        await db.commit()
+    except Exception:
+        # banco não aceitou: o arquivo não pode ficar sozinho em disco (órfã medida em 12/09)
+        caminho.unlink(missing_ok=True)
+        raise
+    logger.info(f"[rondas] foto anexada ao checkpoint {checkpoint_id} ({foto['arquivo']}, {foto['tamanho_bytes']}b)")
+    return {"ok": True, "repetida": False, "foto": foto, "total_fotos": int(row[0] or 1), "status": row[1]}
 
 
 @router.get(
