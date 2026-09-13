@@ -116,11 +116,53 @@ def de_obrigacoes(alertas: list[dict]) -> list[dict]:
     return fora
 
 
+# ⭐ 13/09/2026 — situações em que a CERTIDÃO NÃO FOI LIDA. Achado do Cowork, e ele
+# reconstruiu por que eu não tinha visto: nas rodadas anteriores anotei "nenhum item veio
+# como FONTE INDISPONÍVEL" e tratei como "não houve caso". Havia caso desde então — federal
+# e FGTS com `situacao: indeterminado_portal_indisponivel` — e a lista mostrava só
+# "fgts vence em 4 dias", como rotina.
+#
+# A frase dele é o critério: *"'FGTS vence em 4 dias' você agenda; 'FGTS vence em 4 dias e
+# eu não consigo saber se ela está regular' você trata hoje."* O agregador lia `validade` e
+# ignorava `situacao`, então a promessa escrita na descrição desta tool ("fonte que falha
+# aparece como item, não desaparece") valia para fonte que EXPLODE e não para fonte que
+# responde "não sei".
+_NAO_LIDA = ("indeterminado", "indisponivel", "indisponível", "requer_manual", "erro")
+
+
+def _situacao_incerta(c: dict) -> str | None:
+    sit = str(c.get("situacao") or "").strip().lower()
+    return sit if sit and any(t in sit for t in _NAO_LIDA) else None
+
+
 def de_certidoes(certidoes: list[dict]) -> list[dict]:
     fora = []
     for c in certidoes or []:
         dias = _dias_ate(c.get("validade"))
         vencida = dias is not None and dias < 0
+        incerta = _situacao_incerta(c)
+        if incerta:
+            # ⚠️ severidade por NÃO SABER, não pela data: uma certidão que pode estar
+            # irregular hoje bloqueia NFS-e hoje, independente de quando ela vence.
+            fora.append(item(
+                dominio="fiscal",
+                titulo=f"{c.get('nome') or c.get('tipo') or 'Certidão'}: SITUAÇÃO DESCONHECIDA "
+                       f"({incerta})" + (f" — validade em {dias} dias" if dias is not None
+                                         else ""),
+                severidade="critica" if (dias is None or dias <= 15) else "alta",
+                prazo=c.get("validade"), dias=dias,
+                impacto="não consegui LER esta certidão — o portal do órgão não respondeu "
+                        "ou exige acesso manual. Ela pode estar irregular AGORA, e certidão "
+                        "irregular bloqueia NFS-e e licitação",
+                acao="conferir À MÃO no portal do órgão hoje; não confie na data de "
+                     "validade enquanto a situação for desconhecida",
+                tool="status_certidoes", entidade_id=c.get("tipo"),
+                # ⚠️ o `nome` entra no id porque há DUAS certidões de cada tipo (uma por
+                # CNPJ) e a fonte não diz a empresa. Sem ele as duas colidem no mesmo id e
+                # uma desaparece da lista — foi assim que 35 achados de ASO viraram 1.
+                ident=f"fiscal:certidao_incerta:{c.get('tipo')}:"
+                      f"{str(c.get('nome') or c.get('orgao') or '')[:24]}"))
+            continue
         fora.append(item(
             dominio="fiscal",
             titulo=f"{c.get('tipo') or 'Certidão'} "
@@ -210,6 +252,72 @@ def de_substituicoes(subs: list[dict]) -> list[dict]:
         impacto="posto pode ficar descoberto — e escala é curada à mão pelo dono",
         acao="RELATÓRIO: leve ao Jordan; não altere escala por conta própria",
         tool="substituicoes_pendentes", entidade_id=s.get("id")) for s in subs or []]
+
+
+def de_postos(postos: list[dict]) -> list[dict]:
+    """Divergência de quadro nos postos — ⚠️ RELATÓRIO, nunca correção.
+
+    ⭐ 13/09/2026, achado do Cowork. Nas três rodadas eu registrei "nenhum item operacional
+    aparece" como lacuna de verificação — o aceite *"operacional vira relatório, nunca
+    correção"* estava escrito no `aviso` de uma lista que nunca teve um item operacional para
+    curar. Ele foi buscar se havia divergência REAL e havia:
+
+        GREENHILLS      required 4 · current 1  → 3 vagas · contrato de R$22.100/mês
+        POST-0011       required 4 · current 2  → 2 vagas
+        CONECTA-BASE    required 1 · current 0  → 1 vaga
+        POST-0001       required 12 · current 11 → 1 vaga
+        POST-0006       required 6 · current 8  → DOIS A MAIS
+
+    E a nota do Green Hills, escrita à mão pelo Jordan em 11/09: *"o cliente existia e o
+    posto não, então o Mauricio trabalhava aqui sem estar alocado em lugar nenhum."*
+
+    ⚠️ O QUE ESTA FUNÇÃO NÃO FAZ, e é a razão de ela existir assim: `tool_para_agir` aponta
+    LEITURA (`grade_do_posto`), e `acao_sugerida` manda levar ao dono. Escala é curada à mão;
+    sugerir a tool de alocação aqui seria transformar relatório em convite a corrigir.
+
+    ⚠️ `required_headcount == 0` NÃO é posto descoberto — é posto sem quadro presencial por
+    projeto (portaria remota). Confundir os dois é o defeito que o Cowork achou no
+    `briefing_executivo`, que chamou o Gelain de descoberto e não viu o Green Hills.
+    """
+    fora = []
+    for p in postos or []:
+        req = p.get("required_headcount")
+        cur = p.get("current_headcount")
+        if req is None or cur is None:
+            continue
+        req, cur = int(req), int(cur)
+        if req == 0:
+            continue                      # remoto/sem quadro presencial: não é divergência
+        nome = str(p.get("name") or p.get("codigo") or p.get("code") or "?")
+        if cur < req:
+            faltam = req - cur
+            fora.append(item(
+                dominio="operacional",
+                titulo=f"Posto {nome}: {faltam} vaga(s) aberta(s) ({cur} de {req})",
+                # descoberto por completo é exposição hoje; parcial é risco de cobertura
+                severidade="critica" if cur == 0 else ("alta" if faltam >= 2 else "media"),
+                prazo=None, dias=None,
+                impacto=(f"posto opera com {cur} de {req} agentes"
+                         + (" — NINGUÉM alocado" if cur == 0 else "")
+                         + "; falta gera hora extra, substituição de última hora ou "
+                           "descumprimento de contrato"),
+                acao="RELATÓRIO: leve ao Jordan. NÃO altere alocação nem escala — "
+                     "operacional é curado à mão",
+                tool="grade_do_posto", entidade_id=str(p.get("id") or nome),
+                ident=f"operacional:vaga:{p.get('code') or p.get('id') or nome}"))
+        elif cur > req:
+            fora.append(item(
+                dominio="operacional",
+                titulo=f"Posto {nome}: {cur - req} alocação(ões) ACIMA do quadro "
+                       f"({cur} de {req})",
+                severidade="media", prazo=None, dias=None,
+                impacto="custo de folha acima do contratado, ou quadro exigido "
+                        "desatualizado no cadastro — os dois casos custam dinheiro",
+                acao="RELATÓRIO: leve ao Jordan para decidir qual dos dois números está "
+                     "certo. NÃO remova alocação",
+                tool="grade_do_posto", entidade_id=str(p.get("id") or nome),
+                ident=f"operacional:excedente:{p.get('code') or p.get('id') or nome}"))
+    return fora
 
 
 def de_cotacoes(propostas: list[dict]) -> list[dict]:

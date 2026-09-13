@@ -118,9 +118,16 @@ class ErpErro(RuntimeError):
 
     # (trecho da mensagem do ERP) → (codigo, http, dica)
     _PISTAS = (
+        # ⚠️ 13/09/2026 — ESTA LINHA era a causa de uma família, não de um caso. A dica
+        # falava de CONTRATO e a pista é a mensagem genérica "não encontrado", que o ERP
+        # devolve para posto, visita, funcionário, tudo. `grade_do_posto("LIXO")` mandava o
+        # agente usar `listar_contratos()` numa tool de escala. Na rodada 2 eu "consertei"
+        # o caso do `obter_relatorio_visita` e deixei a origem viva — o Cowork reachou a
+        # mesma coisa em outra tool. Dica de domínio pertence à TOOL, que sabe o domínio;
+        # a pista pela mensagem só pode dizer o que vale para todas.
         ("não encontrado", "NAO_ENCONTRADO", 404,
-         "Confira o identificador. Em contrato aceita CTR-AAAA-NNNNN, o id, o CNPJ do "
-         "cliente ou o nome — use listar_contratos(busca=...) para achar."),
+         "Confira o identificador. Cada tool aceita formatos próprios — veja a descrição "
+         "dela em `conecta_pro_capabilities(tool=...)`."),
         ("nao encontrado", "NAO_ENCONTRADO", 404, "Confira o identificador."),
         ("já existe", "DUPLICADO", 409, "O registro já existe. Busque antes de criar."),
         ("ja gerou contrato", "DUPLICADO", 409,
@@ -189,7 +196,7 @@ class ErpErro(RuntimeError):
     def envelope(self) -> dict:
         """O que a tool devolve ao agente. NUNCA inclui método nem caminho interno."""
         out = {"ok": False, "codigo": self.codigo, "http": self.http,
-               "mensagem": self.mensagem}
+               "mensagem": self.mensagem, "dica": ""}   # `dica` preenchida logo abaixo
         # ⚠️ e a dica NUNCA sai vazia. O caso do 400 mostrou que basta um status fora da
         # cadeia para o envelope perder o campo que diz o que fazer — e um envelope que
         # informa o defeito sem informar a saída ensina metade. Genérica é pior que
@@ -206,7 +213,7 @@ class ErpErro(RuntimeError):
         return out
 
 
-async def _resolver_contrato(chave: str) -> str | dict:
+async def _resolver_contrato(chave: str, *, exigir_existencia: bool = False) -> str | dict:
     """Aceita CTR-…, id, CNPJ do cliente ou nome aproximado. Devolve o número — ou envelope.
 
     Relatório de campo (11/09/2026): `gerar_contrato_por_modelo("Chácaras Maiápolis —
@@ -226,7 +233,26 @@ async def _resolver_contrato(chave: str) -> str | dict:
     # já é o identificador canônico: não gasta chamada
     if re.match(r"^CTR-", chave, re.I) or re.match(
             r"^[0-9a-f]{8}-[0-9a-f]{4}-", chave, re.I):
-        return chave
+        # ⭐ 13/09/2026 — `exigir_existencia` existe porque eu reusei este resolvedor como
+        # se ele fosse uma VERIFICAÇÃO, e ele é uma NORMALIZAÇÃO. `CTR-INEXISTENTE-ZZZ` casa
+        # o padrão e voltava intacto: a minha guarda do aditivo passava e o ERP devolvia 500.
+        # O Cowork mediu isso — o sucesso falso fechou virando 500, não 404, que é o
+        # CP-MCP-001 renascendo do outro lado da fronteira.
+        if not exigir_existencia:
+            return chave
+        try:
+            lista = await erp.get("/crm/contracts", params={"page_size": 200})
+        except Exception as exc:  # noqa: BLE001
+            return erro_envelope(exc)
+        nums = {str(c.get("contract_number") or "").upper() for c in _items(lista)}
+        ids = {str(c.get("id") or "") for c in _items(lista)}
+        if chave.upper() in nums or chave in ids:
+            return chave
+        return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Nenhum contrato corresponde a {chave!r}.",
+                "dica": "O formato está certo, o contrato não existe. "
+                        "`listar_contratos(busca=...)` mostra os que existem.",
+                "procurei_por": chave}
     try:
         lista = await erp.get("/crm/contracts", params={"page_size": 100})
     except Exception as exc:  # noqa: BLE001
@@ -585,6 +611,39 @@ MODALIDADES: dict[str, tuple[str, str, str]] = {
 }
 
 
+def _id_valido(valor: str) -> bool:
+    """O identificador TEM a forma de um id existente? UUID ou código canônico da casa."""
+    v = (valor or "").strip()
+    return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                         v, re.I)
+                or re.match(r"^(CTR|PROP|CLI|OS|LEAD|VIS|REU)-", v, re.I))
+
+
+def _id_ou_422(valor: str, *, o_que: str, dica: str) -> dict | None:
+    """Recusa ANTES de chamar o ERP quando o identificador não tem forma de id.
+
+    ⭐ 13/09/2026 — nasceu do B2 da validação do Cowork: as tools de ESCRITA devolviam
+    `ERRO_INTERNO/500` para id inválido. Ele foi exato: *"é o CP-MCP-001 renascido do outro
+    lado da fronteira — corrigido nas leituras, vivo nas escritas."*
+
+    ⚠️ E o conserto tem de ser LOCAL, não por reconhecimento de mensagem. O log do backend
+    diz `invalid UUID 'LIXO…': length must be between 32..36` — mas o CORPO que o ERP devolve
+    é só "Internal Server Error". Casar pela mensagem seria observar o que não chega até aqui.
+    A forma do identificador, ao contrário, eu tenho em mão antes de gastar a chamada.
+
+    ⚠️ Não substitui a checagem de EXISTÊNCIA: UUID bem formado e inexistente continua
+    dependendo do 404 do ERP. Isto fecha só o caso em que nem a forma serve — que era o que
+    produzia 500.
+    """
+    if _id_valido(valor):
+        return None
+    return {"ok": False, "codigo": "IDENTIFICADOR_MAL_FORMADO", "http": 422,
+            "mensagem": f"{valor!r} não tem forma de id de {o_que}.",
+            "dica": dica + " (espero um UUID ou um código como CTR-AAAA-NNNNN — "
+                           "identificador malformado nem chega ao banco.)",
+            "campos_invalidos": [o_que], "recebi": valor}
+
+
 async def _get_ou_404(rota: str, *, o_que: str, chave: str, dica: str) -> dict:
     """GET que transforma "o banco não entendeu esse id" em 404 com dica.
 
@@ -798,7 +857,10 @@ async def atualizar_estagio_deal(deal_id: str, estagio: str, nota: str | None = 
     """
     alvo = _STAGE_FROM_LABEL.get((estagio or "").strip().lower())
     if not alvo:
-        return {"erro": f"estágio inválido: {estagio}", "validos": list(STAGE_LABEL.values())}
+        return {"ok": False, "codigo": "PARAMETRO_INVALIDO", "http": 422,
+                "mensagem": f"estágio inválido: {estagio!r}.",
+                "dica": "Use um destes: " + " | ".join(STAGE_LABEL.values()),
+                "campos_invalidos": ["estagio"], "validos": list(STAGE_LABEL.values())}
     r = await erp.request("PATCH", f"/crm/opportunities/{deal_id}/stage", json={"stage": alvo, "notes": nota})
     return {"movido": True, "deal_id": deal_id, "estagio": STAGE_LABEL.get(r.get("stage"), r.get("stage"))}
 
@@ -806,6 +868,8 @@ async def atualizar_estagio_deal(deal_id: str, estagio: str, nota: str | None = 
 @mcp.tool
 async def marcar_deal_perdido(deal_id: str, motivo: str) -> dict:
     """Marca um deal como Perdido (closed_lost) com o motivo — entra na taxa de conversão/forecast."""
+    if (recusa := _id_ou_422(deal_id, o_que="deal_id", dica="`listar_deals()` mostra os ids.")):
+        return recusa
     await erp.request("PATCH", f"/crm/opportunities/{deal_id}/stage",
                       json={"stage": "closed_lost", "notes": motivo})
     return {"perdido": True, "deal_id": deal_id, "motivo": motivo}
@@ -953,7 +1017,10 @@ async def atualizar_proposta(proposta_id: str, titulo: str | None = None, condic
     if cliente_email is not None:
         payload["client_email"] = cliente_email
     if not payload:
-        return {"erro": "nada para atualizar — informe ao menos um campo"}
+        return {"ok": False, "codigo": "NADA_PARA_ATUALIZAR", "http": 422,
+                "mensagem": "Nenhum campo foi informado.",
+                "dica": "Informe ao menos um campo a mudar. Chamada sem mudança não é "
+                        "sucesso: eu não teria o que gravar."}
     r = await erp.request("PUT", f"/crm/proposals/{proposta_id}", json=payload)
     return {"atualizada": True, "numero": r.get("number"), "titulo": r.get("title"), "total": _brl(r.get("total"))}
 
@@ -1104,7 +1171,14 @@ async def proposta_da_oportunidade(opportunity_id: str, titulo: str,
 
     Cliente e dados vêm da oportunidade — não redigitados. Primeiro passo do caminho
     oportunidade → proposta → contrato sem sair do ERP.
+
+    ⚠️ ESCREVE no Conecta PRO — CRIA uma proposta. O nome não segue a convenção da casa
+    (`obter_`/`listar_` leem; `criar_`/`gerar_` escrevem) e por isso engana: em 13/09/2026 o
+    Cowork a chamou dentro de um lote de "leituras" e só descobriu pelo retorno. Se você
+    chegou aqui procurando o que a oportunidade JÁ tem, é `listar_propostas(deal_id=...)`.
     """
+    if (recusa := _id_ou_422(opportunity_id, o_que="opportunity_id", dica="`listar_deals()` mostra os ids.")):
+        return recusa
     corpo: dict[str, Any] = {"opportunity_id": opportunity_id, "title": titulo}
     if descricao:
         corpo["description"] = descricao
@@ -1135,7 +1209,11 @@ async def aceitar_proposta(proposal_id: str, confirmar: str = "") -> dict:
     """
     if confirmar.strip().upper() != "ACEITAR":
         return {
-            "ok": False, "status": "confirmacao_necessaria",
+            "ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+            "mensagem": "Aceitar proposta tem quatro efeitos e nenhum é reversível por "
+                        "aqui — confirme explicitamente.",
+            "dica": 'chame de novo com confirmar="ACEITAR"',
+            "status": "confirmacao_necessaria",
             "vai_acontecer": [
                 "proposta marcada como ACEITA",
                 "COMISSÃO gerada para o vendedor (status pending)",
@@ -1159,7 +1237,10 @@ async def recusar_proposta(proposal_id: str, motivo: str) -> dict:
     Motivo é obrigatório: recusa sem porquê não ensina nada a quem revisar o funil depois.
     """
     if not (motivo or "").strip():
-        return {"ok": False, "erro": "informe o motivo da recusa"}
+        return {"ok": False, "codigo": "MOTIVO_OBRIGATORIO", "http": 422,
+                "mensagem": "Recusar proposta exige o motivo.",
+                "dica": "Informe `motivo` — recusa sem porquê não ensina nada a quem "
+                        "revisar o funil depois.", "campos_invalidos": ["motivo"]}
     try:
         return await erp.post(f"/crm/proposals/{proposal_id}/reject",
                               params={"reason": motivo.strip()})
@@ -1175,6 +1256,8 @@ async def nova_versao_proposta(proposal_id: str) -> dict:
 
     ⚠️ Mesma ressalva de autoria do aceite: o registro fica com quem chamou o ERP.
     """
+    if (recusa := _id_ou_422(proposal_id, o_que="proposal_id", dica="`listar_propostas()` mostra os ids.")):
+        return recusa
     try:
         return await erp.post(f"/crm/proposals/{proposal_id}/new-version", json={})
     except Exception as exc:  # noqa: BLE001
@@ -1640,6 +1723,12 @@ async def pendencias_acionaveis(horizonte_dias: int = 30,
     await colher("status_certidoes", "certidoes", "fiscal", P.de_certidoes)
     await colher("substituicoes_pendentes", "substituicoes", "operacional",
                  P.de_substituicoes)
+    # ⭐ 13/09/2026: divergência de QUADRO nos postos, como RELATÓRIO. Até hoje nenhum item
+    # operacional entrava nesta lista — o `aviso` declarava a política "vira relatório, nunca
+    # correção" sobre uma lista que nunca teve um item operacional para curar. Havia 5
+    # divergências reais, entre elas um posto com 3 de 4 vagas abertas num contrato de
+    # R$22.100/mês. `listar_postos` devolve em `items`, não em `postos`.
+    await colher("listar_postos", "items", "operacional", P.de_postos)
 
     # ASO precisa das duas pontas: quem vence e quem nunca teve
     try:
@@ -1847,7 +1936,7 @@ async def gerar_aditivo_pdf(contrato_numero: str, tipo: str = "outro", objeto: s
     # by-number/{n}` que eu inventei — o 404 dela teria vindo da rota inexistente, não do
     # contrato inexistente, e a guarda reprovaria contrato válido. Reusar o resolvedor da
     # casa é mais curto e mede a coisa certa.
-    alvo = await _resolver_contrato(contrato_numero)
+    alvo = await _resolver_contrato(contrato_numero, exigir_existencia=True)
     if isinstance(alvo, dict):
         return {**alvo, "gerado": False}
     contrato_numero = alvo
@@ -2008,7 +2097,14 @@ async def buscar_cliente_por_cnpj(cnpj: str) -> dict:
     if c:
         return {"existe": True, "codigo": c.get("code"), "nome": c.get("name"),
                 "cnpj": c.get("cnpj") or c.get("document_number"), "id": c.get("id"), "mrr": _brl(c.get("mrr"))}
-    return {"existe": False, "cnpj": cnpj}
+    # ⭐ 13/09/2026, critério do Cowork: TODA resposta carrega `ok`. Isto NÃO é recusa — é
+    # busca bem-sucedida com resposta negativa, e por isso `ok: true` com `existe: false`.
+    # O que ele derrubou não foi a negativa, foi a resposta sem `ok` nenhum: o agente não
+    # tem como distinguir "consultei e não existe" de "a chamada nem chegou".
+    return {"ok": True, "existe": False, "cnpj": cnpj,
+            "mensagem": f"Nenhum cliente cadastrado com {cnpj!r}.",
+            "dica": "Se for cliente novo, `criar_cliente(...)`. Confira o CNPJ só com "
+                    "dígitos antes — a busca normaliza, mas o dígito errado não existe."}
 
 
 @mcp.tool
@@ -2171,7 +2267,10 @@ async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str
     if "-" not in cnpj_ou_id or len(cnpj_ou_id) < 30:  # parece CNPJ -> busca
         c = await _buscar_cliente(cnpj_ou_id)
         if not c:
-            return {"erro": "cliente não encontrado pelo CNPJ", "cnpj": cnpj_ou_id}
+            return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
+                    "mensagem": f"Nenhum cliente corresponde a {cnpj_ou_id!r}.",
+                    "dica": "CNPJ só com dígitos, o id, ou `listar_clientes(busca=...)`.",
+                    "procurei_por": cnpj_ou_id}
         cid = c.get("id")
     payload: dict[str, Any] = {}
     if nome is not None:
@@ -2183,7 +2282,9 @@ async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str
     if cidade is not None:
         payload["address_city"] = cidade
     if not payload:
-        return {"erro": "nada para atualizar"}
+        return {"ok": False, "codigo": "NADA_PARA_ATUALIZAR", "http": 422,
+                "mensagem": "Nenhum campo foi informado.",
+                "dica": "Informe ao menos um campo a mudar."}
     r = await erp.request("PUT", f"/clients/{cid}", json=payload)
     return {"atualizado": True, "id": cid, "nome": r.get("legal_name") or r.get("name")}
 
@@ -2195,7 +2296,10 @@ async def excluir_proposta(proposta_id: str, confirmar: bool = False) -> dict:
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     if not confirmar:
-        return {"preview": True, "proposta_id": proposta_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "proposta_id": proposta_id,
+                "mensagem": "Isto exclui a proposta. Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto exclui a proposta. Reenvie com confirmar=true."}
     await erp.request("DELETE", f"/crm/proposals/{proposta_id}")
     return {"excluida": True, "proposta_id": proposta_id}
@@ -2206,7 +2310,10 @@ async def arquivar_deal(deal_id: str, confirmar: bool = False) -> dict:
     """Arquiva (soft-delete) um deal/oportunidade — para remover deals de teste do funil.
     Exige confirmar=true."""
     if not confirmar:
-        return {"preview": True, "deal_id": deal_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "deal_id": deal_id,
+                "mensagem": "Isto arquiva o deal (sai do funil). Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto arquiva o deal (sai do funil). Reenvie com confirmar=true."}
     await erp.request("DELETE", f"/crm/opportunities/{deal_id}")
     return {"arquivado": True, "deal_id": deal_id}
@@ -2216,7 +2323,10 @@ async def arquivar_deal(deal_id: str, confirmar: bool = False) -> dict:
 async def arquivar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
     """Arquiva (soft-delete) um contrato — para limpar contratos de teste. Exige confirmar=true."""
     if not confirmar:
-        return {"preview": True, "contrato_id": contrato_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "contrato_id": contrato_id,
+                "mensagem": "Isto arquiva o contrato. Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto arquiva o contrato. Reenvie com confirmar=true."}
     await erp.request("DELETE", f"/crm/contracts/{contrato_id}")
     return {"arquivado": True, "contrato_id": contrato_id}
@@ -2229,7 +2339,10 @@ async def excluir_campanha(campanha_id: str, confirmar: bool = False) -> dict:
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     if not confirmar:
-        return {"preview": True, "campanha_id": campanha_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "campanha_id": campanha_id,
+                "mensagem": "Isto exclui a campanha. Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto exclui a campanha. Reenvie com confirmar=true."}
     await erp.request("DELETE", f"/marketing/campaigns/{campanha_id}")
     return {"excluida": True, "campanha_id": campanha_id}
@@ -2250,7 +2363,10 @@ async def excluir_documento_crm(documento_id: str, confirmar: bool = False) -> d
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     if not confirmar:
-        return {"preview": True, "documento_id": documento_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "documento_id": documento_id,
+                "mensagem": "Isto exclui o documento. Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto exclui o documento. Reenvie com confirmar=true."}
     await erp.request("DELETE", f"/crm/docs/{documento_id}")
     return {"excluido": True, "documento_id": documento_id}
@@ -2286,7 +2402,11 @@ async def criar_contrato(cliente_documento: str, tipo: str = "recurring", valor_
     """
     c = await _buscar_cliente(cliente_documento)
     if not c:
-        return {"erro": "cliente não encontrado pelo CNPJ", "cnpj": cliente_documento}
+        return {"ok": False, "codigo": "CLIENTE_NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Nenhum cliente corresponde a {cliente_documento!r}.",
+                "dica": "Cadastre com `criar_cliente(...)` ou confira em "
+                        "`listar_clientes(busca=...)`. Contrato exige cliente existente.",
+                "procurei_por": cliente_documento}
     payload: dict[str, Any] = {
         "client_id": c.get("id"), "contract_type": tipo, "monthly_value": valor_mensal,
         "name": nome or f"Contrato - {c.get('name')}", "start_date": vigencia_inicio or date.today().isoformat(),
@@ -2321,7 +2441,9 @@ async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None
     if nome:
         payload["name"] = nome
     if not payload:
-        return {"erro": "nada para atualizar"}
+        return {"ok": False, "codigo": "NADA_PARA_ATUALIZAR", "http": 422,
+                "mensagem": "Nenhum campo foi informado.",
+                "dica": "Informe ao menos um campo a mudar."}
     try:
         r = await erp.request("PUT", f"/crm/contracts/{contrato_id}", json=payload)
     except Exception as exc:  # noqa: BLE001
@@ -2340,7 +2462,10 @@ async def enviar_whatsapp(numero: str, mensagem: str, confirmar: bool = False) -
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
     if not confirmar:
-        return {"preview": True, "para": numero, "mensagem": mensagem,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "para": numero, "mensagem": mensagem,
+                "mensagem": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar."}
     r = await erp.post("/whatsapp/send/custom", json={"phone": numero, "message": mensagem})
     return {"enviado": bool(r.get("success")), "status": r.get("status"), "para": r.get("phone")}
@@ -2409,7 +2534,10 @@ async def enviar_proposta(proposta_id: str, confirmar: bool = False) -> dict:
     """
     if not confirmar:
         p = await _one_proposal(proposta_id)
-        return {"preview": True, "proposta": p,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "proposta": p,
+                "mensagem": "Isto enviará a proposta por e-mail ao cliente. Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto enviará a proposta por e-mail ao cliente. Reenvie com confirmar=true."}
     r = await erp.post(f"/crm/proposals/{proposta_id}/send", json={})
     return {"enviada": True, "numero": r.get("number"), "status": r.get("status")}
@@ -2420,7 +2548,10 @@ async def ativar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
     """Ativa um contrato (draft -> pending_signature -> active). Se for recorrente, LANÇA NO MRR.
     Ação financeira: chame com confirmar=false para ver o preview; confirmar=true para ativar."""
     if not confirmar:
-        return {"preview": True, "contrato_id": contrato_id,
+        return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
+                "preview": True, "contrato_id": contrato_id,
+                "mensagem": "Isto ativa o contrato (e lança MRR se recorrente). Reenvie com confirmar=true.",
+                "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto ativa o contrato (e lança MRR se recorrente). Reenvie com confirmar=true."}
     await erp.post(f"/crm/contracts/{contrato_id}/submit", json={})
     r = await erp.post(f"/crm/contracts/{contrato_id}/activate", json={})
@@ -2518,6 +2649,8 @@ async def registrar_resposta_followup(deal_id: str, status: str = "respondido",
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    if (recusa := _id_ou_422(deal_id, o_que="deal_id", dica="`listar_deals()` mostra os ids.")):
+        return recusa
     return await erp.post("/crm/followups/resposta", json={
         "deal_id": deal_id, "status": status, "classificacao": classificacao, "nota": nota})
 
@@ -2537,7 +2670,18 @@ async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> d
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
-    return await erp.post("/crm/followups/optout", json={"numero": numero, "motivo": motivo})
+    # ⭐ 13/09/2026: aceitava qualquer texto como número e gravava o opt-out. Registro de
+    # compliance apontando para um número inexistente é pior que ausência: ele PARECE
+    # proteger alguém. Telefone BR tem 10 ou 11 dígitos (com DDD), 12–13 com o 55.
+    so_digitos = re.sub(r"\D", "", numero or "")
+    if not (10 <= len(so_digitos) <= 13):
+        return {"ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+                "mensagem": f"{numero!r} não é um telefone.",
+                "dica": "Informe com DDD: 92991234567, ou com o 55 na frente. "
+                        "Opt-out registrado no número errado não protege ninguém.",
+                "campos_invalidos": ["numero"], "digitos_lidos": len(so_digitos)}
+    return await erp.post("/crm/followups/optout",
+                          json={"numero": numero, "motivo": motivo})
 
 
 @mcp.tool
@@ -2688,6 +2832,8 @@ async def criar_relatorio_visita(cliente_nome: str, panorama: str | None = None,
 async def adicionar_achados_visita(ref: str, achados: list[dict]) -> dict:
     """Anexa achados ao relatório de visita. ref = id ou nome do cliente. achados = lista de
     {tipo, descricao} — ex.: {"tipo":"foto","descricao":"câmera da entrada embaçada"}."""
+    if (recusa := _id_ou_422(ref, o_que="ref", dica="`listar_relatorios_visita()` mostra as refs.")):
+        return recusa
     return await erp.post("/crm/visitas/achados", json={"ref": ref, "achados": achados})
 
 
@@ -2732,6 +2878,8 @@ async def gerar_pdf_visita(ref: str) -> dict:
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    if (recusa := _id_ou_422(ref, o_que="ref", dica="`listar_relatorios_visita()` mostra as refs.")):
+        return recusa
     return await erp.post("/crm/visitas/pdf", json={"ref": ref, "salvar": True})
 
 
@@ -2760,6 +2908,8 @@ async def sugerir_reuniao(titulo: str, quando_iso: str, cliente_nome: str | None
 @mcp.tool
 async def confirmar_reuniao(meeting_id: str) -> dict:
     """Confirma uma reunião sugerida."""
+    if (recusa := _id_ou_422(meeting_id, o_que="meeting_id", dica="`agenda_reunioes()` mostra os ids.")):
+        return recusa
     return await erp.post("/crm/reunioes/confirmar", json={"meeting_id": meeting_id})
 
 
@@ -2773,7 +2923,13 @@ async def listar_reunioes(futuras: bool = True) -> dict:
 async def sugerir_cross_sell(cliente: str) -> dict:
     """A partir dos contratos REAIS de um cliente, sugere o serviço complementar que falta
     (ex.: tem portaria mas não tem CFTV). cliente = CNPJ, nome ou id."""
-    return await erp.get("/crm/cross-sell", params={"cliente": cliente})
+    d = await erp.get("/crm/cross-sell", params={"cliente": cliente})
+    # mesma regra do `buscar_cliente_por_cnpj`: busca com resposta negativa carrega `ok`
+    if isinstance(d, dict) and d.get("encontrado") is False:
+        return {"ok": True, **d,
+                "mensagem": f"Não achei cliente por {cliente!r} — sem base para sugerir.",
+                "dica": "Use CNPJ só com dígitos, o id, ou `listar_clientes(busca=...)`."}
+    return d
 
 
 @mcp.tool
@@ -2786,7 +2942,17 @@ async def leads_frios(dias: int = 14) -> dict:
 async def reativar_lead(ref: str, mensagem: str | None = None, confirmar: bool = False) -> dict:
     """Reengaja um lead frio por WhatsApp (José Luís manda um toque). ref = id ou nome.
     confirmar=false mostra o preview; confirmar=true envia de verdade."""
-    return await erp.post("/crm/reativar-lead", json={"ref": ref, "mensagem": mensagem, "confirmar": confirmar})
+    d = await erp.post("/crm/reativar-lead",
+                       json={"ref": ref, "mensagem": mensagem, "confirmar": confirmar})
+    # o ERP recusa com `ok: false` e uma mensagem, sem `codigo`/`http`/`dica` — completo aqui
+    # em vez de deixar o agente adivinhar o que fazer com uma recusa muda.
+    if isinstance(d, dict) and d.get("ok") is False and not d.get("codigo"):
+        return {**d, "codigo": "LEAD_NAO_REATIVAVEL", "http": 409,
+                "mensagem": str(d.get("mensagem") or d.get("detail")
+                                or f"Não consegui reativar {ref!r}."),
+                "dica": "Confira a ref em `leads_frios()`. Lead sem telefone válido ou com "
+                        "opt-out não recebe toque — e isso é proteção, não falha."}
+    return d
 
 
 @mcp.tool
@@ -3003,7 +3169,10 @@ async def buscar_documento(condominio: str, tipo: str, competencia: str | None =
     bloco = _GED_BLOCOS.get((tipo or "").strip().lower())
     if not bloco:
         # dizer só os 8 blocos internos não ajuda quem falou "VT/VR": mostra as palavras aceitas.
-        return {"erro": f"tipo '{tipo}' não reconhecido",
+        return {"ok": False, "codigo": "PARAMETRO_INVALIDO", "http": 422,
+                "mensagem": f"tipo {tipo!r} não reconhecido.",
+                "dica": "Use um destes blocos: " + " | ".join(sorted(set(_GED_BLOCOS.values()))),
+                "campos_invalidos": ["tipo"],
                 "blocos": sorted(set(_GED_BLOCOS.values())),
                 "palavras_aceitas": sorted(_GED_BLOCOS)}
     antes, _ = await _quantos_no_kit(cond, competencia)
@@ -3103,11 +3272,33 @@ async def status_certidoes() -> dict:
     """Status das certidões da empresa (CNDs): Federal, FGTS, Estadual, Municipal, Trabalhista —
     situação e validade. Use para saber quais estão OK/vencendo."""
     d = await erp.get("/gedeon/cnd/status")
-    return {"certidoes": [{
+    # ⚠️ 13/09/2026 — SÃO DUAS DE CADA TIPO, uma por CNPJ, e a rota do GEDEON NÃO devolve a
+    # empresa (só `document_type`, `name`, `orgao`, `situacao`, `validade`). A tabela tem a
+    # coluna `cnpj`; a rota a descarta.
+    #
+    # Não invento qual é qual, e não mexo na rota — o GEDEON é de outro terminal. Duas
+    # consequências, as duas declaradas em vez de escondidas: `nome` e `orgao` vêm no retorno
+    # para as duas linhas não parecerem duplicata, e `empresa` vem como null com o aviso.
+    # Isto importa de verdade: pela política da casa, CND é exigida da Patrimonial — saber
+    # que "a FGTS está indeterminada" sem saber de QUAL empresa não fecha a decisão.
+    certidoes = [{
         "tipo": c["document_type"].replace("certidao_negativa_", ""),
+        "nome": c.get("name"), "orgao": c.get("orgao"),
         "situacao": c.get("situacao"), "validade": c.get("validade"),
         "alerta": c.get("alerta"),
-    } for c in d.get("certidoes", [])]}
+        "empresa": None,
+    } for c in d.get("certidoes", [])]
+    tipos_repetidos = sorted({c["tipo"] for c in certidoes
+                              if sum(1 for o in certidoes if o["tipo"] == c["tipo"]) > 1})
+    saida = {"certidoes": certidoes}
+    if tipos_repetidos:
+        saida["aviso"] = (
+            f"{len(certidoes)} certidões, e {len(tipos_repetidos)} tipo(s) aparecem duas "
+            f"vezes ({', '.join(tipos_repetidos)}) — uma por CNPJ. A rota do GEDEON não "
+            f"devolve a empresa, então NÃO sei dizer qual linha é da Eletrônica e qual é da "
+            f"Patrimonial. Use `nome`/`orgao` para diferenciá-las e confirme a empresa no "
+            f"portal antes de decidir: a exigência de CND não é igual para as duas.")
+    return saida
 
 
 # ============================ CFO / Financeiro / Diárias / DET (recursos novos 2026-07) ========
@@ -3361,12 +3552,28 @@ async def dossie_juridico(tipo: str, identificador: str | None = None) -> dict:
     try:
         if t == "panorama":
             return await erp.get("/juridico/contexto/panorama")
-        if t in ("funcionario", "funcionário", "pessoa"):
-            return await erp.get(f"/juridico/contexto/funcionario/{identificador}")
-        if t == "contrato":
-            return await erp.get(f"/juridico/contexto/contrato/{identificador}")
-        if t == "cliente":
-            return await erp.get(f"/juridico/contexto/cliente/{identificador}")
+        # ⭐ 13/09/2026, achado do Cowork: com `tipo` VÁLIDO e `identificador` inválido isto
+        # devolvia `{"encontrado": false, ...}` sem `ok`, sem `codigo`, sem `http`. Ele foi
+        # preciso: não é sucesso falso, é o envelope quebrado — e numa das 15 tools de dado
+        # pessoal SENSÍVEL, onde o contrato de erro é o que mais precisa ser previsível.
+        # Minha varredura não chegou aqui porque `identificador` é OPCIONAL: eu só preenchia
+        # obrigatórios, então media sempre o ramo do `tipo`.
+        if t in ("funcionario", "funcionário", "pessoa", "contrato", "cliente"):
+            rota = {"contrato": "contrato", "cliente": "cliente"}.get(t, "funcionario")
+            if not (identificador or "").strip():
+                return {"ok": False, "codigo": "IDENTIFICADOR_VAZIO", "http": 422,
+                        "mensagem": f"tipo {t!r} exige `identificador`.",
+                        "dica": "Informe nome, CPF, matrícula ou id."}
+            d = await erp.get(f"/juridico/contexto/{rota}/{identificador}")
+            if isinstance(d, dict) and d.get("encontrado") is False:
+                return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                        "mensagem": str(d.get("mensagem")
+                                        or f"Nada encontrado para {identificador!r}."),
+                        "dica": f"Confira o identificador do {rota}. "
+                                f"`buscar_funcionario(nome)`, `listar_contratos(busca=...)` "
+                                f"e `listar_clientes(busca=...)` devolvem os válidos.",
+                        "procurei_por": identificador}
+            return d
         return {"ok": False, "codigo": "TIPO_INVALIDO", "http": 422,
                 "mensagem": f"tipo inválido {tipo!r}.",
                 "dica": "Use: panorama | funcionario | contrato | cliente.",
@@ -3496,8 +3703,15 @@ async def fechar_folha(mes: int, ano: int) -> dict:
     """FECHA a folha de uma competência (mes/ano). Ação de gestão — confirme antes."""
     # A rota /folha/fechar foi apagada em 08/09/2026: devolvia "fechada" sem gravar nada. A folha
     # oficial vem da Portte (hr_payslips); o ERP calcula, confere e exporta, não "fecha".
-    return {"ok": False, "detail": "Fechamento de folha não existe no ERP: a folha oficial é importada da Portte; "
-                                   "use calcular_folha_todos para conferir e exportar_folha_dominio para exportar."}
+    # ⭐ 13/09/2026: capacidade aposentada precisa de CÓDIGO próprio. "Falhou" e "não existe
+    # aqui" levam o agente a caminhos opostos — o primeiro ele tenta de novo, o segundo ele
+    # abandona e procura a alternativa. `detail` solto não dizia nem um nem outro.
+    return {"ok": False, "codigo": "CAPACIDADE_APOSENTADA", "http": 410,
+            "mensagem": "Fechamento de folha não existe no ERP: a folha oficial é importada "
+                        "da Portte. A rota devolvia 'fechada' sem gravar nada e foi apagada "
+                        "em 08/09/2026.",
+            "dica": "Use `calcular_folha_todos` para conferir e `exportar_folha_dominio` "
+                    "para exportar. Não insista nesta — ela não vai voltar."}
 
 
 # ---- Ponto eletrônico ----
@@ -3510,7 +3724,14 @@ async def ponto_dashboard(mes: int, ano: int) -> dict:
 @mcp.tool
 async def espelho_ponto(employee_id: str, mes: int, ano: int) -> dict:
     """Espelho de ponto mensal de um funcionário (escala, horas esperadas/trabalhadas, saldo)."""
-    return await erp.get(f"/people-management/ponto/espelho/{employee_id}", params={"month": mes, "year": ano})
+    # ⭐ 13/09/2026: devolvia 500 para employee_id inválido. Minha varredura não pegou
+    # porque passava lixo TAMBÉM em `mes`/`ano` — a validação de tipo disparava primeiro e o
+    # caminho do identificador nunca era exercitado. O `banco_horas`, vizinho de módulo e com
+    # o mesmo parâmetro, já devolvia 404: não era o backend, era esta rota.
+    return await _get_ou_404(
+        f"/people-management/ponto/espelho/{employee_id}?month={mes}&year={ano}",
+        o_que="funcionário", chave=employee_id,
+        dica="Use o id do funcionário — `buscar_funcionario(nome)` devolve.")
 
 
 @mcp.tool
@@ -3781,7 +4002,11 @@ async def status_simples_nacional() -> dict:
 @mcp.tool
 async def pendencias_simples() -> dict:
     """Pendências no Simples Nacional."""
-    return {"ok": False, "mensagem": "Pendências do Simples não são consultadas: a rota devolvia lista vazia com 'Implementar' e foi aposentada em 08/09/2026. A Eletrônica é Lucro Real; para obrigações use calendario_obrigacoes/alertas_obrigacoes."}
+    return {"ok": False, "codigo": "CAPACIDADE_APOSENTADA", "http": 410,
+            "mensagem": "Pendências do Simples não são consultadas: a rota devolvia lista "
+                        "vazia com 'Implementar' e foi aposentada em 08/09/2026.",
+            "dica": "A Eletrônica é Lucro Real. Para obrigações use "
+                    "`calendario_obrigacoes` ou `alertas_obrigacoes`."}
 
 
 # ---- Obrigações ----
@@ -3907,14 +4132,21 @@ async def listar_alocacoes(post_id: str | None = None, employee_id: str | None =
         params["post_id"] = post_id
     if employee_id:
         params["employee_id"] = employee_id
-    return await erp.get("/operacional/allocations/", params=params)
+    # ⚠️ operacional é READ-ONLY para o agente: aqui muda só a FORMA DO ERRO.
+    return await _get_ou_404("/operacional/allocations/?" + "&".join(
+        f"{k}={v}" for k, v in params.items()),
+        o_que="posto ou funcionário", chave=str(post_id or employee_id or ""),
+        dica="`listar_postos()` e `buscar_funcionario(nome)` devolvem os ids válidos.")
 
 
 @mcp.tool
 async def alocacoes_vigentes(post_id: str | None = None) -> dict:
     """Alocações ativas no momento (opcional: de um posto específico)."""
-    return _envelope(await erp.get("/operacional/allocations/current",
-                                   params={"post_id": post_id} if post_id else None), "alocacoes")
+    d = await _get_ou_404(
+        "/operacional/allocations/current" + (f"?post_id={post_id}" if post_id else ""),
+        o_que="posto", chave=str(post_id or ""),
+        dica="`listar_postos()` devolve os ids válidos.")
+    return d if d.get("ok") is False else _envelope(d, "alocacoes")
 
 
 @mcp.tool
@@ -4002,7 +4234,10 @@ async def listar_candidatos(busca: str | None = None, page: int = 1) -> dict:
 @mcp.tool
 async def listar_entrevistas() -> dict:
     """Lista ENTREVISTAS agendadas do recrutamento."""
-    return {"ok": False, "mensagem": "Entrevistas não são registradas no ERP (o pacote recruitment foi aposentado em 08/09/2026: 0 registros desde sempre). A esteira de candidatos é por posto: use listar_candidatos."}
+    return {"ok": False, "codigo": "CAPACIDADE_APOSENTADA", "http": 410,
+            "mensagem": "Entrevistas não são registradas no ERP — o pacote recruitment foi "
+                        "aposentado em 08/09/2026 com 0 registros desde sempre.",
+            "dica": "A esteira de candidatos é por posto: use `listar_candidatos`."}
 
 
 @mcp.tool
@@ -4057,8 +4292,10 @@ async def beneficios_cct(cargo: str | None = None) -> dict:
 async def dashboard_clima() -> dict:
     """Indicadores da pesquisa de clima organizacional."""
     # 08/09/2026: o módulo retention foi aposentado (tabela climate_scores nunca existiu; 0 respostas).
-    return {"ok": False, "mensagem": "Pesquisa de clima não está implantada: não há respostas nem tabela. "
-                                    "Nenhum indicador para mostrar."}
+    return {"ok": False, "codigo": "CAPACIDADE_APOSENTADA", "http": 410,
+            "mensagem": "Pesquisa de clima não está implantada: o módulo retention foi "
+                        "aposentado, a tabela climate_scores nunca existiu, 0 respostas.",
+            "dica": "Não há indicador para mostrar e não há o que consertar do seu lado."}
 
 
 
@@ -4244,49 +4481,49 @@ async def _consultar(origem: str, pergunta: str) -> dict:
 
 @mcp.tool
 async def consultor_ceo(pergunta: str) -> dict:
-    """Consultor executivo (CEO): visão estratégica, runway, decisão. Único que cruza dinheiro+legal+gente por cliente (gated). READ."""
+    """Consultor executivo (CEO): visão estratégica, runway, decisão. Único que cruza dinheiro+legal+gente por cliente (gated). Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("ceo", pergunta)
 
 
 @mcp.tool
 async def consultor_cfo(pergunta: str) -> dict:
-    """Consultor financeiro (CFO): caixa, aging, o que vence, saúde financeira. READ."""
+    """Consultor financeiro (CFO): caixa, aging, o que vence, saúde financeira. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("cfo", pergunta)
 
 
 @mcp.tool
 async def consultor_fiscal(pergunta: str) -> dict:
-    """Consultor fiscal/contábil: notas, guias, regime, obrigações. READ."""
+    """Consultor fiscal/contábil: notas, guias, regime, obrigações. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("fiscal", pergunta)
 
 
 @mcp.tool
 async def consultor_dp(pergunta: str) -> dict:
-    """Consultor de DP/RH: folha, ponto, colaboradores, CCT. READ."""
+    """Consultor de DP/RH: folha, ponto, colaboradores, CCT. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("rh", pergunta)
 
 
 @mcp.tool
 async def consultor_juridico(pergunta: str) -> dict:
-    """Consultor jurídico (READ-ONLY): processos, dossiê. Aconselha, nunca protocola. READ."""
+    """Consultor jurídico (READ-ONLY): processos, dossiê. Aconselha, nunca protocola. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("juridico", pergunta)
 
 
 @mcp.tool
 async def consultor_comercial(pergunta: str) -> dict:
-    """Consultor comercial/CRM: funil, propostas, clientes. READ."""
+    """Consultor comercial/CRM: funil, propostas, clientes. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("comercial", pergunta)
 
 
 @mcp.tool
 async def consultor_operacional(pergunta: str) -> dict:
-    """Consultor operacional (READ-ONLY): postos, escalas, presença. Nunca altera escala. READ."""
+    """Consultor operacional (READ-ONLY): postos, escalas, presença. Nunca altera escala. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("operacional", pergunta)
 
 
 @mcp.tool
 async def consultor_ged(pergunta: str) -> dict:
-    """Consultor de GED/documentos: kits, panorama documental. READ."""
+    """Consultor de GED/documentos: kits, panorama documental. Não muda dado de negócio; GRAVA a própria pergunta/resposta na trilha de consultas (por isso `ensaiar` diz "1 escrita")."""
     return await _consultar("ged", pergunta)
 
 
@@ -4609,13 +4846,86 @@ def _lgpd_sensiveis() -> dict:
     }
 
 
+
+def _contrato_da_tool(nome: str) -> dict:
+    """O contrato de UMA ferramenta, para qualquer uma das 276. Fail-closed no desconhecido."""
+    import inspect as _insp
+
+    nome = (nome or "").strip()
+    from tool_risk_manifest import TOOL_RISK as _TR  # noqa: PLC0415
+
+    fn = globals().get(nome)
+    if nome not in _TR and not callable(fn):
+        candidatos = sorted(n for n in _TR if nome.lower() in n.lower())[:8]
+        return {"ok": False, "codigo": "TOOL_DESCONHECIDA", "http": 404,
+                "mensagem": f"Não existe ferramenta {nome!r}.",
+                "dica": ("Confira o nome. `conecta_pro_capabilities()` lista os domínios."
+                         + (f" Parecidas: {candidatos}" if candidatos else "")),
+                "parecidas": candidatos}
+    classe = _TR.get(nome, "NAO_CLASSIFICADA")
+    try:
+        import gate_propose as _G  # noqa: PLC0415
+
+        sai = _G.EFEITO_EXTERNO.get(nome)
+        irrev = _G.IRREVERSIVEL.get(nome)
+        atras_do_muro = _G.precisa_aprovacao(nome)
+    except Exception:  # noqa: BLE001
+        sai = irrev = None
+        atras_do_muro = None
+    try:
+        import lgpd_escopo as _L  # noqa: PLC0415
+
+        lgpd = _L.declarar(nome)
+    except Exception:  # noqa: BLE001
+        lgpd = {}
+    params = {}
+    if callable(fn):
+        for par in _insp.signature(fn).parameters.values():
+            params[par.name] = {
+                "obrigatorio": par.default is _insp.Parameter.empty,
+                "tipo": str(par.annotation).replace("<class '", "").replace("'>", ""),
+            }
+    return {
+        "ok": True, "tool": nome, "classe_de_risco": classe,
+        # ⭐ a pergunta que o Cowork errou por não ter resposta: ESCREVE?
+        "escreve": classe in ("write_low", "propose"),
+        "so_leitura": classe == "read",
+        "atras_do_muro_de_aprovacao": atras_do_muro,
+        "sai_da_empresa": sai, "irreversivel": irrev,
+        "parametros": params,
+        "descricao": (_insp.getdoc(fn) or "").strip()[:600] if callable(fn) else None,
+        "no_mapa_curado": nome in TOOLS_POR_DOMINIO_PLANO,
+        **lgpd,
+    }
+
+
 @mcp.tool
-async def conecta_pro_capabilities(dominio: str = "") -> dict:
+async def conecta_pro_capabilities(dominio: str = "", tool: str = "") -> dict:
     """Mapa das capacidades: que domínios existem, o FLUXO de cada um e as armadilhas.
 
     Use ANTES de procurar ferramenta por tentativa e erro. Sem argumento devolve os
-    domínios; com `dominio` devolve o caminho completo daquele.
+    domínios; com `dominio`, o caminho completo daquele; com `tool`, o CONTRATO daquela
+    ferramenta — vale para qualquer uma das 276, esteja ela curada num domínio ou não.
+
+    ⭐ `tool=` nasceu da validação do Cowork de 13/09/2026, e do jeito mais convincente: ele
+    chamou `proposta_da_oportunidade` achando que era leitura e descobriu que ela escreve
+    EXECUTANDO-A, em produção. Palavras dele: *"enquanto 247 tools não disserem de antemão se
+    leem ou escrevem, todo agente novo vai aprender a classificação de cada uma por tentativa
+    — e algumas dessas tentativas gravam."*
+
+    ⚠️ Conferi a causa que ele atribuiu e ela estava errada: a ferramenta **está** no mapa
+    curado, no domínio `comercial`. O que falhou não foi a ausência dela — foi o mapa dizer
+    apenas o NOME dela dentro de um `fluxo`, sem dizer a classe. Constar de uma lista de
+    fluxo não informa se escreve, e `proposta_da_oportunidade` quebra a convenção de nome da
+    casa (`obter_`/`listar_`/`consultar_` leem; `criar_`/`gerar_`/`enviar_` escrevem). O
+    achado dele estava certo pelo motivo de baixo, não pelo de cima.
+
+    Curar 276 fluxos à mão levaria semanas e envelheceria. O CONTRATO, não: classe de risco,
+    nível LGPD, se escreve, se é irreversível e se sai da empresa já existem em dado — só
+    não estavam expostos por ferramenta. Mapa curado segue com 29; contrato, com 276.
     """
+    if tool:
+        return _contrato_da_tool(tool)
     if dominio:
         d = _MAPA.get(dominio.strip().lower())
         if not d:

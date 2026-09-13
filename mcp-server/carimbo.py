@@ -135,6 +135,28 @@ class CarimboRequestId(_Base):
             if "request_id" not in dado:
                 dado["request_id"] = rid
                 mudou = True
+            # ⭐ 13/09/2026 — TODA resposta carrega `ok`, e o lugar é aqui pelo mesmo motivo
+            # que o `request_id`: são 276 tools e as próximas nasceriam sem.
+            #
+            # O achado do Cowork nas 3 rodadas nunca foi a negativa — `{"existe": false}` é
+            # honesto e o agente lê. Foi a resposta SEM `ok` NENHUM: aí ele não consegue
+            # distinguir "consultei e não existe" de "a chamada nem chegou". Era o
+            # `ver_ficha_cliente` na rodada 2, o `dossie_juridico` na 3, e ainda restavam
+            # `briefing_contrato_novo` e `consultar_auditoria`.
+            #
+            # ⚠️ Só PREENCHE a ausência. `ok: false` que a tool decidiu passa intacto — quem
+            # chegou até aqui sem `ok` teve sucesso, porque falha vira exceção e sai pela
+            # rede de erro acima, nunca por este caminho.
+            #
+            # ⚠️⚠️ E NÃO estampa sobre `{"erro": ...}`. Se uma tool devolve erro em campo
+            # solto, `ok: true` ao lado seria uma contradição assinada por mim — pior que a
+            # ausência que eu estava consertando. Hoje não existe nenhuma (as 7 que havia
+            # viraram envelope, e `test_envelope_de_erro.py` reprova o build se voltarem),
+            # mas a rede fica: fail-closed é o que faz a próxima nascer protegida.
+            if "ok" not in dado and not (dado.keys() & {"erro", "error"}):
+                dado = {"ok": True, **dado}
+                resultado.structured_content = dado
+                mudou = True
             if mudou:
                 self._refazer_texto(resultado, dado)
         else:

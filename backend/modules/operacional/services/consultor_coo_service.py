@@ -166,7 +166,19 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
             "status": r.status,
             "efetivo_requerido": r.efetivo_requerido,
             "alocados": r.alocados,
-            "coberto": bool(r.alocados and r.alocados > 0),
+            # ⭐ 13/09/2026 — achado do Cowork, e o defeito apontava para os DOIS lados.
+            # A régua era `alocados > 0`, que ignora o quadro exigido:
+            #   · Gelain: required 0, alocados 0, `is_filled: true` no cadastro, com a nota
+            #     do Jordan "contrato de PORTARIA REMOTA — quadro presencial 0". Aparecia
+            #     como DESCOBERTO. Falso positivo.
+            #   · Green Hills: required 4, alocados 1, contrato de R$22.100/mês. NÃO
+            #     aparecia. Falso negativo — e é o que precisa de atenção hoje.
+            # Palavras dele: *"o painel aponta um falso positivo e perde o verdadeiro; se
+            # você olhar esse card de manhã, vai ligar para o condomínio errado."*
+            # Quadro exigido 0 = posto sem efetivo presencial por projeto, não descoberto.
+            "coberto": (int(r.efetivo_requerido or 0) == 0
+                        or int(r.alocados or 0) >= int(r.efetivo_requerido or 0)),
+            "vagas_abertas": max(0, int(r.efetivo_requerido or 0) - int(r.alocados or 0)),
         }
         for r in (
             await db.execute(
@@ -185,7 +197,16 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
     ]
 
     postos_cobertos = sum(1 for p in postos_alocados if p["coberto"])
-    postos_descobertos = [p["posto"] for p in postos_alocados if not p["coberto"]]
+    # "descoberto" passa a significar NINGUÉM alocado num posto que exige gente — o sentido
+    # que a palavra tem para quem lê o painel de manhã.
+    postos_descobertos = [p["posto"] for p in postos_alocados
+                          if not p["coberto"] and int(p["alocados"] or 0) == 0]
+    # e o que faltava existir: posto com gente, mas menos do que o contrato pede.
+    postos_incompletos = [
+        {"posto": p["posto"], "alocados": p["alocados"],
+         "requerido": p["efetivo_requerido"], "vagas_abertas": p["vagas_abertas"]}
+        for p in postos_alocados if not p["coberto"] and int(p["alocados"] or 0) > 0
+    ]
     cobertura_pct = (
         round(100.0 * postos_cobertos / len(postos_alocados), 1) if postos_alocados else None
     )
@@ -206,7 +227,11 @@ async def panorama(db: AsyncSession) -> dict[str, Any]:
             "postos_ativos": len(postos_alocados),
             "postos_cobertos": postos_cobertos,
             "postos_descobertos": postos_descobertos,
+            "postos_incompletos": postos_incompletos,
+            "vagas_abertas_total": sum(p["vagas_abertas"] for p in postos_alocados),
             "percentual": cobertura_pct,
+            "criterio": ("coberto = alocados >= efetivo_requerido; quadro requerido 0 "
+                         "(portaria remota) conta como coberto, não como descoberto"),
         },
         "postos_alocados": postos_alocados,
         "fonte": (
@@ -289,7 +314,23 @@ async def consultar(
     if pano["cobertura"]["postos_descobertos"]:
         contexto.append("")
         contexto.append(
-            "POSTOS DESCOBERTOS (risco): " + ", ".join(pano["cobertura"]["postos_descobertos"])
+            "POSTOS SEM NINGUÉM ALOCADO (risco): "
+            + ", ".join(pano["cobertura"]["postos_descobertos"])
+        )
+    # ⭐ o posto com gente a MENOS do que o contrato pede não chegava ao consultor: ele só
+    # recebia "descobertos", e Green Hills (1 de 4) não estava lá. O risco que dá hora extra
+    # e descumprimento de contrato é justamente este.
+    if pano["cobertura"].get("postos_incompletos"):
+        contexto.append("")
+        contexto.append(
+            "POSTOS COM QUADRO INCOMPLETO (vagas abertas): "
+            + "; ".join(f"{p['posto']} — {p['alocados']} de {p['requerido']} "
+                        f"({p['vagas_abertas']} vaga(s))"
+                        for p in pano["cobertura"]["postos_incompletos"])
+        )
+        contexto.append(
+            "⚠️ Escala e alocação são curadas à mão pelo dono: aponte a divergência, "
+            "não proponha remanejar gente."
         )
 
     system_prompt = f"{_REGRAS_COMUNS}\n\n{_LENTES[area_n]}\n\n{chr(10).join(contexto)}"

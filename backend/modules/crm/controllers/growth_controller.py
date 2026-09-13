@@ -118,6 +118,16 @@ async def consultar_auditoria(
     # Duas correções: o `path` do log sai do audit genérico (é ruído, não escrita de
     # negócio), e os acessos sensíveis vêm em seção PRÓPRIA, com a tool e o argumento.
     rows = [r for r in rows if "/log-acesso-sensivel" not in str(r.get("caminho") or "")]
+    # ⭐ 13/09/2026 — A MESMA POLUIÇÃO POR OUTRA PORTA, e foi o Cowork que viu de novo:
+    # `POST /consultores/mcp/{origem}/consultar` aparecia na auditoria de ESCRITA. A rota
+    # de fato grava (`_persistir_consulta` faz INSERT da pergunta/resposta), então não é
+    # etiqueta errada — é a mesma confusão de categoria que o log-do-log: trilha de LEITURA
+    # ocupando a lista onde se procura mudança de dado de negócio.
+    #
+    # Quatro consultas em poucas horas já empurravam escrita real para fora da 1ª página.
+    # Vão para seção própria: quem pergunta ao consultor não mudou proposta, folha nem posto.
+    consultas = [r for r in rows if "/consultores/mcp/" in str(r.get("caminho") or "")]
+    rows = [r for r in rows if "/consultores/mcp/" not in str(r.get("caminho") or "")]
     sensiveis = _rows(await db.execute(text("""
         SELECT to_char(created_at,'DD/MM/YYYY HH24:MI:SS') quando, quem, tool,
                left(coalesce(argumentos,''), 200) AS sobre_o_que,
@@ -129,6 +139,9 @@ async def consultar_auditoria(
          ORDER BY created_at DESC LIMIT :lim"""), {"lim": limite, "r": request_id}))
     return {
         "total": len(rows), "eventos": rows,
+        # ⚠️ NÃO é escrita de negócio: é a trilha da própria pergunta ao consultor.
+        "consultas_a_consultor": consultas,
+        "total_consultas": len(consultas),
         # a trilha de dado pessoal, separada e com O QUÊ — não só o quem e o quando
         "acessos_a_dado_sensivel": sensiveis,
         "total_acessos_sensiveis": len(sensiveis),

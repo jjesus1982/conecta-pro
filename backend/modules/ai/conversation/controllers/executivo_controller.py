@@ -184,11 +184,39 @@ async def _sintetizar(
                 "acima está a versão determinística, montada só com dados reais.]"
             )
             g_ok = False
-        gnd = {"ok": g_ok, "suspeitos": g["suspeitos"], "verificado": True}
+        # ⭐ 13/09/2026 — `modo` nasceu de uma leitura RAZOÁVEL e errada que o Cowork fez do
+        # campo: ele viu `groundedness.ok: false` com um disclaimer e concluiu *"um painel que
+        # entrega número reprovado pelo próprio verificador é pior que um painel que não
+        # entrega nada"*. Fui ler o fluxo: quando o verificador reprova, a síntese da IA é
+        # DESCARTADA e o que sai é a determinística, montada só com números da fonte. Nada
+        # fabricado foi entregue.
+        #
+        # Mas ele estava certo sobre o campo. `ok: false` sozinho não diz se (a) a IA
+        # fabricou e foi barrada — proteção funcionando — ou (b) o número entregue é suspeito.
+        # São conclusões opostas lidas do mesmo booleano. `modo` responde qual dos dois é.
+        gnd = {"ok": g_ok, "suspeitos": g["suspeitos"], "verificado": True,
+               "modo": "ia_aprovada" if g_ok else "ia_descartada_usando_deterministico",
+               "significa": ("a síntese da IA passou pelo verificador"
+                             if g_ok else
+                             "a síntese da IA foi DESCARTADA por conter número sem lastro; o "
+                             "texto acima é o determinístico, montado só com dados reais. "
+                             "A proteção funcionou — não há número fabricado na resposta")}
     else:
         # Sem IA: o template é grounded por construção (só números reais da fonte).
         gcheck = groundedness.verificar(sintese, fonte)
-        gnd = {"ok": gcheck["ok"], "suspeitos": gcheck["suspeitos"], "verificado": True}
+        # ⚠️ e aqui `ok: false` seria MENTIRA ao contrário. Este texto é montado a partir de
+        # `fonte`, número por número — não há como ele fabricar. Quando o verificador aponta
+        # suspeito é FORMATAÇÃO, como o comentário do topo deste arquivo já registrava:
+        # "um valor real como runway=0.4 é achatado pela garantia como '0,40'". Chamar isso de
+        # `ok: false` ensina o leitor a desconfiar do único texto que não pode estar errado.
+        gnd = {"ok": True, "verificado": True, "modo": "deterministico",
+               "significa": ("montado número por número a partir da fonte: não há síntese de "
+                             "IA nesta resposta, logo não há o que fabricar"),
+               "formatacao_divergente": gcheck["suspeitos"],
+               "observacao": ("`formatacao_divergente` lista números que o verificador não "
+                              "casou com a fonte por FORMA (0.4 vs '0,40'), não por origem. "
+                              "Se algum deles não existir na fonte, isso é bug do template."
+                              if gcheck["suspeitos"] else None)}
 
     # Auditoria append-only (best-effort — nunca derruba o endpoint de leitura)
     try:
@@ -239,6 +267,12 @@ async def viabilidade_contratacao(
     n_ativos = alvo["funcionarios_ativos"]
 
     postos_desc = list((coo.get("cobertura") or {}).get("postos_descobertos") or [])
+    # ⭐ 13/09/2026: o card mostrava só "descobertos" e PERDIA o posto com quadro incompleto.
+    # O Cowork: *"Green Hills com 3 vagas abertas de 4 não está na lista de descobertos"* —
+    # 3 de 4 vagas num contrato de R$22.100/mês é o que precisa de atenção hoje, e era
+    # justamente o que não chegava.
+    postos_incomp = list((coo.get("cobertura") or {}).get("postos_incompletos") or [])
+    vagas_abertas = int((coo.get("cobertura") or {}).get("vagas_abertas_total") or 0)
     qtd_postos_desc = len(postos_desc)
 
     saldo_num = float(saldo) if saldo is not None else None
@@ -273,6 +307,10 @@ async def viabilidade_contratacao(
         "meses_que_o_saldo_cobre_so_o_novo_custo": _src(meses_cobertos_pelo_saldo, "saldo ÷ custo novo"),
         "postos_descobertos_qtd": _src(qtd_postos_desc, "consultor_coo_service.panorama.cobertura"),
         "postos_descobertos": _src(postos_desc, "consultor_coo_service.panorama.cobertura"),
+        "postos_com_quadro_incompleto": _src(
+            postos_incomp, "consultor_coo_service.panorama.cobertura (alocados < requerido)"),
+        "vagas_abertas_total": _src(
+            vagas_abertas, "soma de (requerido − alocados) nos postos com quadro exigido"),
     }
 
     # Fonte p/ groundedness: só os números reais (achatados). Omite os None (aguardando dado).
@@ -348,6 +386,8 @@ async def briefing(
     saldo_total = caixa["consolidado"]["saldo_total"]["valor"]
     cobertura = coo.get("cobertura") or {}
     postos_desc = list(cobertura.get("postos_descobertos") or [])
+    postos_incomp = list(cobertura.get("postos_incompletos") or [])
+    vagas_abertas = int(cobertura.get("vagas_abertas_total") or 0)
 
     # Certidões vencendo/vencidas — best-effort (ged_certidoes). Ausente → "aguardando dado".
     certidoes: dict[str, Any]
@@ -355,15 +395,39 @@ async def briefing(
         rows = (
             await db.execute(
                 text(
+                    # ⭐ 13/09/2026 — ESCOPADO ÀS NOSSAS EMPRESAS. O Cowork reportou como
+                    # "número impossível": o card dizia 25 certidões vencendo e
+                    # `status_certidoes` mostra 10 no total. Fui medir e o 25 estava
+                    # aritmeticamente certo — o erro era de POPULAÇÃO.
+                    #
+                    # `ged_certidoes` tem 58 linhas e **24 CNPJs distintos**: são certidões
+                    # de CLIENTES e FORNECEDORES (24 trabalhistas, 22 FGTS, coletadas para
+                    # licitação e cadastro de vendor), misturadas com as nossas. Num card
+                    # executivo chamado "certidões vencendo", o dono lê "as minhas".
+                    #
+                    # Só das nossas duas: 16 no total, 1 vencida, 5 vencendo em 30 dias — que
+                    # é exatamente o que `pendencias_acionaveis` já mostrava. Os dois números
+                    # nunca se contradisseram; um deles só não dizia de quem estava falando.
+                    "WITH nossas AS ("
+                    "  SELECT regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') AS c "
+                    "    FROM empresas) "
                     "SELECT count(*) FILTER (WHERE expiry_date < CURRENT_DATE) AS vencidas, "
-                    "count(*) FILTER (WHERE expiry_date >= CURRENT_DATE AND expiry_date <= CURRENT_DATE + 30) AS vencendo_30d "
-                    "FROM ged_certidoes"
+                    "count(*) FILTER (WHERE expiry_date >= CURRENT_DATE "
+                    "                 AND expiry_date <= CURRENT_DATE + 30) AS vencendo_30d, "
+                    "count(*) AS total "
+                    "FROM ged_certidoes g "
+                    "WHERE regexp_replace(coalesce(g.cnpj,''),'[^0-9]','','g') "
+                    "      IN (SELECT c FROM nossas)"
                 )
             )
         ).first()
         certidoes = _src(
-            {"vencidas": int(rows.vencidas or 0), "vencendo_30d": int(rows.vencendo_30d or 0)},
-            "ged_certidoes (validade real)",
+            {"vencidas": int(rows.vencidas or 0),
+             "vencendo_30d": int(rows.vencendo_30d or 0),
+             "total_nossas": int(rows.total or 0),
+             "escopo": "apenas os CNPJs das NOSSAS empresas (tabela `empresas`); "
+                       "certidão de cliente/fornecedor NÃO entra"},
+            "ged_certidoes escopado às nossas empresas (validade real)",
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("briefing certidoes: %s", e)
@@ -400,12 +464,21 @@ async def briefing(
         "caixa_consolidado": _src(saldo_total, caixa["consolidado"]["saldo_total"]["source"]),
         "postos_descobertos_qtd": _src(len(postos_desc), "consultor_coo_service.panorama.cobertura"),
         "postos_descobertos": _src(postos_desc, "consultor_coo_service.panorama.cobertura"),
+        # ⭐ 13/09/2026 — o card mostrava só "descoberto" (ninguém alocado) e PERDIA o posto
+        # com quadro incompleto. Green Hills: 1 de 4, contrato de R$22.100/mês, e não aparecia
+        # em lugar nenhum. É o falso NEGATIVO que o Cowork apontou junto com o falso positivo
+        # do Gelain — e dos dois, este é o que custa dinheiro hoje.
+        "postos_com_quadro_incompleto": _src(
+            postos_incomp, "consultor_coo_service.panorama.cobertura (alocados < requerido)"),
+        "vagas_abertas_total": _src(
+            vagas_abertas, "soma de (requerido − alocados) nos postos com quadro exigido"),
         "certidoes": certidoes,
         "deals_quentes": deals,
     }
 
     # Fonte p/ groundedness — só números com lastro real (omite os "aguardando dado")
-    fonte: dict[str, Any] = {"postos_descobertos_qtd": len(postos_desc)}
+    fonte: dict[str, Any] = {"postos_descobertos_qtd": len(postos_desc),
+                             "vagas_abertas_total": vagas_abertas}
     if saldo_ele is not None:
         fonte["saldo_eletronica"] = float(saldo_ele)
     if saldo_patr is not None:

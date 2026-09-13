@@ -202,7 +202,18 @@ def declarar(tool: str) -> dict:
             f"Autorizado em operação normal por concessão de escopo de "
             f"{CONCESSAO['concedido_por']} até {CONCESSAO['valido_ate']} — {CONCESSAO['motivo']}"
             if coberta else
-            "Dado pessoal SENSÍVEL sem concessão de escopo: acesse apenas com pedido "
-            "específico do dono, e o acesso fica registrado."
+            # ⭐ 13/09/2026, e o Cowork foi cirúrgico: ele leu "acesse apenas com pedido
+            # específico", chamou `dossie_juridico` sem pedido, foi ATENDIDO, e o sistema
+            # anotou `autorizado_por_concessao: false`. Ele não chamou de bug — chamou de
+            # texto errado, e é isso mesmo: *"a distância entre 'isto é bloqueado' e 'isto é
+            # anotado' é a diferença entre um controle e um relatório; quem lê o capabilities
+            # para decidir o que pode fazer precisa saber qual dos dois está olhando."*
+            #
+            # É TRILHA, não parede. Escrito como parede, ensinava a confiar numa proteção
+            # que não existe — pior que não ter texto nenhum.
+            "⚠️ NÃO BLOQUEADO, REGISTRADO. Dado pessoal SENSÍVEL sem concessão de escopo: "
+            "a chamada é atendida e o acesso fica na trilha com seu nome, a ferramenta e o "
+            "argumento. Quem responde por ele depois é você — acesse só com pedido "
+            "específico do dono. A parede aqui é de auditoria, não de permissão."
         )
     return d
