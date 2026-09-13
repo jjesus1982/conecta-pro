@@ -164,7 +164,20 @@ class ErpErro(RuntimeError):
             e.extra = {k: v for k, v in detalhe.items()
                        if k not in ("ok", "codigo", "http", "mensagem", "dica")}
             return e
-        msg = str(detalhe or r.text or "")[:400].strip() or f"O ERP respondeu {r.status_code}."
+        # ⭐ 13/09/2026 — Bloco 3, item 2. O FastAPI devolve a lista de erros do pydantic em
+        # `detail`, e `str(lista)` a serializava inteira na `mensagem`:
+        #   "[{'type': 'float_parsing', 'loc': ['body','target_value'], 'msg': '...'}]"
+        # Estrutura interna do framework no campo que o humano e o agente leem. O padrão
+        # certo já existia em PARAMETRO_OBRIGATORIO/PARAMETRO_DESCONHECIDO — é só aplicar.
+        if isinstance(detalhe, list) and detalhe and isinstance(detalhe[0], dict):
+            partes = []
+            for d in detalhe[:6]:
+                campo = ".".join(str(x) for x in (d.get("loc") or [])
+                                 if x not in ("body", "query", "path"))
+                partes.append(f"{campo or 'campo'}: {d.get('msg') or 'inválido'}")
+            msg = "; ".join(partes)
+        else:
+            msg = str(detalhe or r.text or "")[:400].strip() or f"O ERP respondeu {r.status_code}."
         baixo = msg.lower()
         codigo, http, dica = "ERRO_NO_ERP", r.status_code, ""
         for trecho, cod, cod_http, cod_dica in cls._PISTAS:
@@ -524,7 +537,22 @@ class _Erp:
         return b""
 
     async def post_bytes(self, path: str, json) -> bytes:
-        """POST que retorna bytes crus (ex.: PDF gerado a partir de dados enviados)."""
+        """POST que retorna bytes crus (ex.: PDF gerado a partir de dados enviados).
+
+        ⚠️ 13/09/2026 — ESTE MÉTODO ESCAPAVA DO ENSAIO. A interceptação de `_ENSAIO` mora em
+        `request`, e `post_bytes` abre o próprio `httpx.AsyncClient`. Resultado medido:
+        `ensaiar("gerar_apresentacao", ...)` devolvia `escritas: 0, gravou: false` E FAZIA O
+        POST. O ensaio mentia para toda tool que passa por aqui.
+
+        Achado pelo grep do Bloco 5, que o Jordan classificou como risco teórico ("se algum
+        handler chamar um serviço externo diretamente") — não era teórico, e não era outro
+        cliente HTTP: era um método da MESMA classe que pula o caminho instrumentado. Uma
+        trava que cobre `request` e não cobre os irmãos dele vigia a porta e deixa a janela.
+        """
+        if (registro := _ENSAIO.get()) is not None:
+            registro.append({"metodo": "POST", "rota": path, "corpo": json,
+                             "devolve": "bytes (PDF/PPTX)"})
+            return b""
         async with httpx.AsyncClient() as client:
             headers, do_usuario = await self._cabecalho(client)
             for attempt in (1, 2):
@@ -609,6 +637,51 @@ MODALIDADES: dict[str, tuple[str, str, str]] = {
     "portaria_remota": ("portaria_remota", "Eletrônica", "recurring"),
     "eletronica_instalacao": ("eletronica_servico_unico", "Eletrônica", "one_time"),
 }
+
+
+async def _exigir_entidade(tipo: str, valor: str) -> dict | None:
+    """`None` se a entidade EXISTE; envelope de recusa se não. Use ANTES do preview.
+
+    ⭐ 13/09/2026 — Bloco 2 do prompt de fechamento. O padrão "preview → confirmar" tinha dois
+    defeitos e o Jordan mediu os dois:
+
+      1. a etapa de preview NÃO validava existência. `excluir_proposta(proposta_id=None)`
+         devolvia `CONFIRMACAO_NECESSARIA/409` com um preview — oferecendo "confirme para
+         excluir" sobre uma proposta que não existe. Preview é a etapa em que o humano LÊ o
+         que vai acontecer; se o alvo não existe, não há o que ler, e confirmar um preview
+         falso é pior que um erro, porque parece que o sistema conferiu.
+      2. a etapa de confirmação quebrava com 500, 4 de 4 testadas.
+
+    Um conserto nas duas: validar na etapa 1 faz a etapa 2 nunca receber id inexistente.
+
+    ⚠️ Reusa `_resolver_proposta`/`_resolver_contrato`, que JÁ devolvem envelope — e o contrato
+    com `exigir_existencia=True`, porque sem isso ele apenas NORMALIZA `CTR-*` e devolve a
+    chave intacta. Essa distinção me custou um 500 na rodada 3.
+    """
+    valor = (valor or "").strip()
+    if not valor:
+        return {"ok": False, "codigo": "IDENTIFICADOR_VAZIO", "http": 422,
+                "mensagem": f"Informe o {tipo}.",
+                "dica": f"Sem identificador não há o que confirmar. "
+                        f"Use a tool de listagem do {tipo} para achar o id."}
+    if tipo == "proposta":
+        alvo = await _resolver_proposta(valor)
+        return alvo if isinstance(alvo, dict) else None
+    if tipo == "contrato":
+        alvo = await _resolver_contrato(valor, exigir_existencia=True)
+        return alvo if isinstance(alvo, dict) else None
+    # ⚠️ `/crm/docs/{id}` só aceita DELETE — GET nela devolve 405, não 404. A 1ª versão desta
+    # guarda usava essa rota e transformava "documento inexistente" em ERRO_NO_ERP/405, que
+    # não diz nada ao agente. A rota de CONTEÚDO existe e serve de prova de existência.
+    ROTA = {"deal": ("/crm/opportunities/{}", "`listar_deals()` mostra os ids."),
+            "documento": ("/crm/docs/conteudo/{}", "`listar_documentos()` mostra os ids.")}
+    if tipo not in ROTA:
+        return None
+    rota, dica = ROTA[tipo]
+    if (recusa := _id_ou_422(valor, o_que=tipo, dica=dica)):
+        return recusa
+    d = await _get_ou_404(rota.format(valor), o_que=tipo, chave=valor, dica=dica)
+    return d if isinstance(d, dict) and d.get("ok") is False else None
 
 
 def _id_valido(valor: str) -> bool:
@@ -2295,6 +2368,10 @@ async def excluir_proposta(proposta_id: str, confirmar: bool = False) -> dict:
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    # ⚠️ existência ANTES do preview: confirmar um preview de algo inexistente
+    # parece que o sistema conferiu, e ele não conferiu.
+    if (recusa := await _exigir_entidade("proposta", proposta_id)):
+        return recusa
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "proposta_id": proposta_id,
@@ -2309,6 +2386,10 @@ async def excluir_proposta(proposta_id: str, confirmar: bool = False) -> dict:
 async def arquivar_deal(deal_id: str, confirmar: bool = False) -> dict:
     """Arquiva (soft-delete) um deal/oportunidade — para remover deals de teste do funil.
     Exige confirmar=true."""
+    # ⚠️ existência ANTES do preview: confirmar um preview de algo inexistente
+    # parece que o sistema conferiu, e ele não conferiu.
+    if (recusa := await _exigir_entidade("deal", deal_id)):
+        return recusa
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "deal_id": deal_id,
@@ -2322,6 +2403,10 @@ async def arquivar_deal(deal_id: str, confirmar: bool = False) -> dict:
 @mcp.tool
 async def arquivar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
     """Arquiva (soft-delete) um contrato — para limpar contratos de teste. Exige confirmar=true."""
+    # ⚠️ existência ANTES do preview: confirmar um preview de algo inexistente
+    # parece que o sistema conferiu, e ele não conferiu.
+    if (recusa := await _exigir_entidade("contrato", contrato_id)):
+        return recusa
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "contrato_id": contrato_id,
@@ -2362,6 +2447,10 @@ async def excluir_documento_crm(documento_id: str, confirmar: bool = False) -> d
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    # ⚠️ existência ANTES do preview: confirmar um preview de algo inexistente
+    # parece que o sistema conferiu, e ele não conferiu.
+    if (recusa := await _exigir_entidade("documento", documento_id)):
+        return recusa
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "documento_id": documento_id,
@@ -5611,6 +5700,21 @@ async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
                     "dica": "Envie o cabeçalho de identidade — vale igual no ensaio."}
     except ImportError:
         pass
+
+    # ⭐ 13/09/2026 — Bloco 3. `ensaiar` chamava `alvo(**argumentos)`, que é a função PYTHON
+    # crua: o pydantic do FastMCP fica na porta da tool e nunca era exercido aqui. Resultado
+    # medido pelo Jordan: `ensaiar("definir_meta_mensal", {valor: "abc"})` dizia
+    # `retorno_simulado: {"meta_definida": true}` — ensaio aprovando o que a execução real
+    # recusa com 422.
+    #
+    # Ensaio que valida MENOS que a execução é pior que não ter ensaio: ele existe para o
+    # agente decidir se chama de verdade, e estava dizendo "pode".
+    try:
+        from pydantic import ValidationError, validate_call  # noqa: PLC0415
+
+        alvo = validate_call(alvo)
+    except ImportError:  # pragma: no cover
+        ValidationError = ()  # type: ignore[assignment]
 
     registro: list = []
     marca = _ENSAIO.set(registro)

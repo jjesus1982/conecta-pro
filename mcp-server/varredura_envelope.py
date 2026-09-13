@@ -215,9 +215,74 @@ async def segunda_passada(classe="read"):
         print("   sem problema")
 
 
+
+
+# ── 4ª passada: padrão PREVIEW → CONFIRMAR ────────────────────────────────────────────
+# ⭐ Bloco 2 do prompt de fechamento (13/09/2026). O Jordan perguntou se a régua cobria
+# esta classe e a resposta honesta é NÃO: as passadas 1–3 chamam a tool UMA vez, e este
+# padrão só falha na SEGUNDA — sem `confirmar` a tool devolve o preview e nunca toca o ERP,
+# então a primeira chamada passava limpa e escondia o 500 da confirmação.
+#
+# São 15 tools com `confirmar`, e 10 estão atrás do muro de aprovação (recusam com 403 antes
+# de qualquer validação, o que é o certo). Esta passada exercita as 5 alcançáveis, nas duas
+# etapas: preview com id vazio, e confirmação com id inválido.
+async def quarta_passada():
+    fonte = open("/app/server.py").read()
+    alvos = []
+    for bloco in _re.split(r"\n@mcp\.tool\b", fonte)[1:]:
+        m = _re.search(r"(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)", bloco, _re.S)
+        if not m or "confirmar" not in m.group(2):
+            continue
+        if "preview" not in bloco and "CONFIRMACAO_NECESSARIA" not in bloco:
+            continue
+        nome = m.group(1)
+        ids = [p.split(":")[0].strip() for p in m.group(2).split(",")
+               if _ident(p.split(":")[0].strip())]
+        if ids:
+            alvos.append((nome, ids[0]))
+
+    import gate_propose as G
+    problemas, atras = [], []
+    async with Client(S.mcp) as c:
+        for nome, campo in alvos:
+            if G.precisa_aprovacao(nome):
+                atras.append(nome)
+                continue
+            # etapa 1: preview com identificador vazio
+            try:
+                d = (await asyncio.wait_for(
+                    c.call_tool("ensaiar", {"ferramenta": nome, "argumentos": {campo: ""}}),
+                    timeout=25)).structured_content or {}
+            except Exception as e:
+                d = env(str(e))
+            r1 = d.get("retorno_simulado") if isinstance(d.get("retorno_simulado"), dict) else d
+            if r1.get("codigo") == "CONFIRMACAO_NECESSARIA":
+                problemas.append(f"{nome}: preview OFERECE confirmar sobre id vazio")
+            # etapa 2: confirmação com identificador inválido, no sandbox
+            try:
+                d2 = (await asyncio.wait_for(
+                    c.call_tool("no_sandbox", {"ferramenta": nome,
+                                               "argumentos": {campo: LIXO, "confirmar": True}}),
+                    timeout=30)).structured_content or {}
+            except Exception as e:
+                d2 = env(str(e))
+            r2 = d2.get("resultado") if isinstance(d2.get("resultado"), dict) else d2
+            if (r2.get("http") or 0) >= 500:
+                problemas.append(f"{nome}: confirmar com id inválido → {r2.get('http')}")
+            elif r2.get("ok") is not False:
+                problemas.append(f"{nome}: confirmar com id inválido NÃO recusou")
+    print(f"4ª PASSADA · {len(alvos)} tools preview/confirmar · "
+          f"{len(atras)} atrás do muro (não testáveis, e é o certo)")
+    for x in problemas:
+        print("   🔴", x)
+    if not problemas:
+        print("   sem problema nas alcançáveis")
+
 if __name__ == "__main__":
     modo = sys.argv[1] if len(sys.argv) > 1 else "read"
-    if modo == "2a":
+    if modo == "4a":
+        asyncio.run(quarta_passada())
+    elif modo == "2a":
         asyncio.run(segunda_passada(sys.argv[2] if len(sys.argv) > 2 else "read"))
     else:
         asyncio.run(main(modo, len(sys.argv) > 2 and sys.argv[2] == "ensaio"))

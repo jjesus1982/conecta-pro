@@ -25,6 +25,7 @@ trabalho; concessão auditável não.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 
 NAO_SE_APLICA = "nao_se_aplica"
@@ -166,17 +167,121 @@ SEM_DADO_PESSOAL: frozenset = frozenset({
 })
 
 
+# ── Inferência para o que NÃO está nas duas listas ────────────────────────────────────
+# ⭐ 13/09/2026 — Bloco 1 do prompt de fechamento do Jordan. O defeito que ele mediu:
+# `capabilities(tool=...)` devolvia `sensivel` com a legenda "CPF, holerite, salário
+# individual, ASO ou dado de saúde" para `excluir_proposta`, `arquivar_contrato`,
+# `definir_meta_mensal` (meta de vendas EM REAIS), `margem_por_condominio`, `gerar_recibo_pdf`.
+#
+# ⚠️ A hipótese dele era "se escreve, então sensível" — e ela NÃO se confirma. O critério era
+# fail-closed puro sobre duas listas enumeradas à mão: 69 em NIVEL + 40 em SEM_DADO_PESSOAL,
+# e as 171 restantes caíam em `sensivel` sem ninguém decidir nada. O achado está certo; a
+# causa era outra.
+#
+# ⚠️ E é a MESMA falha de 12/09, quando o Cowork mostrou `inter_saldo` rotulado "CPF,
+# holerite, ASO". Eu "consertei" acrescentando 40 nomes ao SEM_DADO_PESSOAL — tratei as
+# instâncias e deixei o mecanismo. Enumeração à mão com fail-closed sobre o universo não
+# escala: cada tool nova nasce mentindo até alguém lembrar de listá-la.
+#
+# O fail-closed CONTINUA, mas passa a valer onde há pessoa. O que decide é a assinatura e a
+# descrição da própria ferramenta — o que ela toca, não o que eu lembrei de escrever.
+
+# parâmetro que identifica uma PESSOA e dá acesso ao que ela tem de mais sensível
+_PARAM_PESSOA_SENSIVEL = re.compile(
+    r"employee_id|funcionario_id|colaborador_id|^cpf$|_cpf$|holerite|matricula", re.I)
+# descrição que declara, com estas palavras, o que está sendo exposto.
+#
+# ⚠️ AJUSTADA depois de medir: a 1ª versão marcou 7 como sensível e QUATRO eram falso
+# positivo, todos pelo mesmo motivo — a régua lia a PALAVRA, não o que ela nomeia:
+#   · `ensaiar` diz "holerite" como EXEMPLO no docstring (é despachante: o nível é o da tool
+#     ensaiada, nunca o dele);
+#   · `simular_preco` e `cronograma_kit` dizem "salário" como BASE DE CUSTO — preço de posto,
+#     não remuneração de uma pessoa;
+#   · `gerar_orcamento` diz "CPF" como CAMPO DE DOCUMENTO do cliente ("CNPJ/CPF").
+#
+# Por isso: "salári"/"remunera" saem (ambíguos com custo) e "CPF" desce para sinal
+# OPERACIONAL. CPF como PARÂMETRO continua sensível — aí a tool está buscando uma pessoa.
+# Ficam só termos que não têm leitura de custo: holerite, ASO, saúde, rescisão.
+_DOC_SENSIVEL = re.compile(
+    r"holerite|contracheque|sal[áa]rio individual|\bASO\b|atestado de sa[úu]de|"
+    r"sa[úu]de ocupacional|exame (?:m[ée]dico|peri[óo]dico|admissional)|verbas rescis|"
+    r"dado (?:pessoal )?sens[íi]vel|PIS/PASEP|carteira de trabalho", re.I)
+# pessoa identificável, sem o núcleo sensível: nome, posto, escala, telefone, contato
+_PESSOA_OPERACIONAL = re.compile(
+    r"funcion[áa]ri|colaborador|candidat|di[áa]rista|escala|aloca[çc]|ponto\b|batida|"
+    r"substitut|tel[eé]fone|whatsapp|celular|contato\b|benefici[áa]ri|f[ée]rias|"
+    r"\bCPF\b|remunera|sal[áa]ri", re.I)
+
+# ⚠️ DESPACHANTES: o nível é o da ferramenta DESPACHADA, nunca o do despachante. Sem isto,
+# `ensaiar` herda "sensível" de um holerite citado como exemplo no próprio docstring dele —
+# e passa a exigir concessão para ensaiar qualquer coisa.
+_DESPACHANTES = frozenset({
+    "ensaiar", "no_sandbox", "executar_em_segundo_plano", "status_job", "resultado_job",
+    "conecta_pro_capabilities", "changelog_mcp",
+})
+
+
+def _texto_da_tool(tool: str) -> tuple[str, str]:
+    """(nomes dos parâmetros, docstring) da ferramenta. Vazio quando não dá para olhar.
+
+    ⚠️ import LOCAL: `server` importa este módulo, então import no topo seria circular.
+    """
+    try:
+        import inspect  # noqa: PLC0415
+
+        import server as _srv  # noqa: PLC0415
+
+        fn = getattr(_srv, tool, None)
+        if not callable(fn):
+            return "", ""
+        params = " ".join(inspect.signature(fn).parameters)
+        return params, (inspect.getdoc(fn) or "")
+    except Exception:  # noqa: BLE001
+        return "", ""
+
+
+def inferir(tool: str) -> str | None:
+    """Nível por INSPEÇÃO da ferramenta. `None` = não consegui olhar (cai no fail-closed).
+
+    ⚠️ Devolver `None` quando não há assinatura nem docstring é deliberado: é o que mantém
+    tool desconhecida caindo em `sensivel`. Inferência que responde para tudo destrói o
+    fail-closed em vez de estreitá-lo.
+    """
+    if tool in _DESPACHANTES:
+        return NAO_SE_APLICA
+    params, doc = _texto_da_tool(tool)
+    if not params and not doc:
+        return None
+    if _PARAM_PESSOA_SENSIVEL.search(params) or _DOC_SENSIVEL.search(doc):
+        return SENSIVEL
+    # ⚠️ ASSIMETRIA DELIBERADA: o NOME da ferramenta entra no sinal operacional e NUNCA no
+    # sensível. `registrar_optout_whatsapp` documenta "número", não "telefone", e caía em
+    # `nao_se_aplica` — mas telefone é dado pessoal. Já decidir SENSÍVEL por nome é o erro que
+    # `test_lgpd_escopo` documenta: `folha_dashboard` e `baixar_holerite_pdf` compartilham a
+    # palavra e têm níveis opostos. Nome só pode APERTAR de "não se aplica" para "operacional",
+    # onde errar custa uma etiqueta a mais; nunca soltar nem marcar o núcleo sensível.
+    if (_PESSOA_OPERACIONAL.search(params) or _PESSOA_OPERACIONAL.search(doc)
+            or _PESSOA_OPERACIONAL.search(tool)):
+        return OPERACIONAL
+    return NAO_SE_APLICA
+
+
 def nivel(tool: str) -> str:
     """O nível desta ferramenta.
 
-    Ordem: classificação explícita → declarada sem dado pessoal → fail-closed em `sensivel`.
-    O fail-closed continua no fim, e é ele que faz tool NOVA de pessoa nascer protegida.
+    Ordem: classificação explícita → declarada sem dado pessoal → INFERIDA da assinatura e
+    da descrição → fail-closed em `sensivel`.
+
+    O fail-closed continua no fim, e é ele que faz tool que eu não consigo INSPECIONAR nascer
+    protegida. O que ele deixou de fazer é responder pelo sistema inteiro: marcar tudo como
+    sensível é a mesma coisa que não classificar, com a aparência de rigor.
     """
     if tool in NIVEL:
         return NIVEL[tool]
     if tool in SEM_DADO_PESSOAL:
         return NAO_SE_APLICA
-    return SENSIVEL
+    inferido = inferir(tool)
+    return inferido if inferido is not None else SENSIVEL
 
 
 def concessao_vale_para(tool: str, *, hoje: date | None = None) -> bool:
