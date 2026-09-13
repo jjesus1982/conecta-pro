@@ -32,6 +32,7 @@ import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
+import * as off from '@/components/ponto/offlineBatida';
 
 interface PendingDoc {
   request_id: string;
@@ -913,6 +914,8 @@ interface BaterResultado {
   dentro_geofence?: boolean | null;
   posto_sem_localizacao?: boolean | null;
   mensagem?: string | null;
+  /** frente 02: a batida ficou guardada no aparelho e sobe quando o sinal voltar. */
+  offline?: boolean;
 }
 
 /** Captura a posição GPS com alta precisão. Rejeita com mensagem amigável. */
@@ -1010,6 +1013,87 @@ function PontoTab() {
   }, []);
   useEffect(() => { carregarFace(); }, [carregarFace]);
 
+  // ---- frente 02: batida OFFLINE ------------------------------------------------------- //
+  // O limiar do reconhecimento NÃO fica chumbado aqui: ele vem do servidor junto com a validade
+  // do cache biométrico. Se o servidor apertar a régua, o aparelho aperta junto no próximo
+  // carregamento — duas réguas divergentes é o defeito, não a redundância.
+  const [cfgOffline, setCfgOffline] = useState<off.ConfigOffline | null>(null);
+  const [naFila, setNaFila] = useState(0);
+  const empId = String(user?.employee_id || '');
+
+  useEffect(() => { void off.registrarSW(); }, []);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const res = await api.get('/api/v1/people-management/ponto/offline/config');
+        if (vivo) setCfgOffline(res.data as off.ConfigOffline);
+      } catch { /* offline no primeiro carregamento: usa o padrão do componente */ }
+    })();
+    return () => { vivo = false; };
+  }, []);
+
+  // 🔒 O descriptor de referência é dado biométrico. Fica no IndexedDB (nunca no localStorage),
+  // com a validade que o servidor manda, e some quando vence ou quando o aparelho troca de dono.
+  useEffect(() => {
+    if (!faceRef || !empId || !cfgOffline) return;
+    void off.guardarDescriptor(empId, Array.from(faceRef), cfgOffline.validade_cache_horas);
+  }, [faceRef, empId, cfgOffline]);
+
+  // Sem sinal, `GET /facial/referencia` falha e `faceRef` fica nulo — sem rosto de referência não
+  // há como comparar, e a tela viraria de novo o "fica carregando e não registra". O cache resolve.
+  useEffect(() => {
+    if (faceRef || !empId) return;
+    (async () => {
+      const d = await off.lerDescriptorCache(empId);
+      if (d) setFaceRef(new Float32Array(d));
+    })();
+  }, [faceRef, empId]);
+
+  /** Sobe a fila guardada no aparelho pela rota que RECONFERE o rosto no servidor. */
+  const sincronizarFila = useCallback(async () => {
+    const fila = await off.pendentes();
+    setNaFila(fila.length);
+    if (!fila.length || typeof navigator === 'undefined' || !navigator.onLine) return;
+    try {
+      const res = await api.post('/api/v1/people-management/ponto/offline/sync', {
+        batidas: fila.slice(0, 50).map((b) => ({
+          punch_type: b.punch_type,
+          hora_aparelho: b.hora_aparelho,
+          device_id: b.device_id,
+          descriptor: b.descriptor || [],
+          foto_base64: b.foto_base64,
+          latitude: b.latitude ?? null,
+          longitude: b.longitude ?? null,
+          accuracy: b.accuracy ?? null,
+          distancia_aparelho: b.distancia_aparelho ?? null,
+          tentativas_offline: b.tentativas_offline || [],
+        })),
+      });
+      // Só marca como enviada a que o servidor ACEITOU (definitiva, pendente ou duplicada). A que
+      // deu erro continua na fila — perder a batida de quem trabalhou é o desfecho proibido.
+      const itens = (res.data?.itens || []) as { resultado?: string }[];
+      const aceitos = fila.slice(0, 50)
+        .filter((_, i) => ['definitiva', 'pendente_de_conferencia', 'duplicada'].includes(itens[i]?.resultado || ''))
+        .map((b) => b.punch_id);
+      await off.marcarSincronizadas(aceitos);
+      setNaFila((await off.pendentes()).length);
+    } catch { /* segue offline: a fila fica onde está e tenta de novo na próxima volta do sinal */ }
+  }, []);
+
+  useEffect(() => {
+    void sincronizarFila();
+    const aoVoltar = () => { void sincronizarFila(); };
+    window.addEventListener('online', aoVoltar);
+    const doSW = (e: MessageEvent) => { if (e.data?.type === 'SYNC_NECESSARIO') void sincronizarFila(); };
+    navigator.serviceWorker?.addEventListener('message', doSW);
+    return () => {
+      window.removeEventListener('online', aoVoltar);
+      navigator.serviceWorker?.removeEventListener('message', doSW);
+    };
+  }, [sincronizarFila]);
+
   // Cadastro do rosto de referência (enrollment) — captura o descriptor e envia.
   const onEnrollCapture = async (r: FacialCaptureResult) => {
     if (!r.descriptor?.length) {
@@ -1047,6 +1131,37 @@ function PontoTab() {
     } catch { /* silencioso de proposito */ }
   };
 
+  /**
+   * frente 02 — guarda a batida no aparelho quando não há sinal. Ela NÃO é uma batida válida: sobe
+   * depois por /ponto/offline/sync, o servidor recompara o rosto e só então ela vira definitiva.
+   * As tentativas que falharam no aparelho sobem junto, senão a estatística de falha de
+   * reconhecimento some justamente quando mais importa.
+   */
+  const guardarNoAparelho = async (
+    r: FacialCaptureResult, tipo: string, tentativas: { motivo: string; quando?: string }[],
+  ): Promise<boolean> => {
+    if (!empId) return false;
+    const dev = off.deviceId();
+    const hora = off.horaLocalISO();
+    const ok = await off.salvarOffline({
+      punch_id: crypto.randomUUID(),
+      employee_id: empId,
+      punch_type: tipo,
+      hora_aparelho: hora,
+      device_id: dev,
+      chave_idempotente: off.chaveIdempotente(empId, hora, dev),
+      descriptor: r.descriptor?.length ? r.descriptor : undefined,
+      foto_base64: r.imageData || undefined,
+      latitude: geo?.latitude ?? null,
+      longitude: geo?.longitude ?? null,
+      accuracy: geo?.accuracy ?? null,
+      distancia_aparelho: r.distance ?? null,
+      tentativas_offline: tentativas,
+    });
+    if (ok) setNaFila((n) => n + 1);
+    return ok;
+  };
+
   const onFacialCapture = async (r: FacialCaptureResult) => {
     if (!r.matched) {
       // Antes dizia só "Tente novamente" — e mandava a pessoa repetir exatamente o que
@@ -1058,6 +1173,15 @@ function PontoTab() {
       // quem cai nela precisa do recadastro, não de tentar de novo. Antes as duas diziam a
       // mesma coisa, e a de referência ruim mandava a pessoa repetir para sempre.
       const semRosto = r.motivo === 'nao_detectou';
+      // frente 02: sem sinal, `registrarFalha` não chega ao servidor. A tentativa fica na fila
+      // local e sobe junto com a próxima batida, em `tentativas_offline`.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        try {
+          const fila = JSON.parse(sessionStorage.getItem('ponto_tentativas_offline') || '[]');
+          fila.push({ motivo: r.motivo || 'nao_bateu', quando: off.horaLocalISO() });
+          sessionStorage.setItem('ponto_tentativas_offline', JSON.stringify(fila.slice(-50)));
+        } catch { /* storage bloqueado: perder a estatística não pode custar a batida */ }
+      }
       void registrarFalha(semRosto ? 'rosto_nao_detectado' : 'rosto_nao_reconhecido',
         { distance: r.distance ?? null, confidence: r.confidence ?? null, motivo: r.motivo ?? null });
       setBaterErro(semRosto
@@ -1076,6 +1200,25 @@ function PontoTab() {
     }
     setFase('sending');
     setBaterErro('');
+
+    // frente 02 — SEM SINAL: nem tenta o servidor, guarda no aparelho. O rosto já foi comparado
+    // aqui (é o que torna a batida possível offline), mas essa comparação NÃO vale como prova: a
+    // batida sobe como pendente e o SERVIDOR recompara antes de aceitar.
+    let tentativasOff: { motivo: string; quando?: string }[] = [];
+    try {
+      tentativasOff = JSON.parse(sessionStorage.getItem('ponto_tentativas_offline') || '[]');
+    } catch { /* storage bloqueado */ }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const ok = await guardarNoAparelho(r, proximoTipo, tentativasOff);
+      try { sessionStorage.removeItem('ponto_tentativas_offline'); } catch { /* idem */ }
+      setRostoFalhou(false);
+      setFase('idle');
+      setGeo(null);
+      if (ok) setResultado({ ok: true, offline: true, tipo: proximoTipo, hora: off.horaLocalISO().slice(11, 16) });
+      else setBaterErro('Sem sinal e não consegui guardar a batida no aparelho. Use o botão abaixo para registrar para o DP validar.');
+      return;
+    }
+
     try {
       // Retry resiliente: a batida é IDEMPOTENTE no backend (janela de 90s não duplica),
       // então repetir em soluço (rede/backend reiniciando) é seguro e evita "falha ao salvar".
@@ -1098,9 +1241,21 @@ function PontoTab() {
       }
       setRostoFalhou(false);
       setResultado({ ok: true, ...(res?.data || {}) });
+      try { sessionStorage.removeItem('ponto_tentativas_offline'); } catch { /* storage bloqueado */ }
       await carregarHoje();
       if (mes === now.getMonth() + 1 && ano === now.getFullYear()) await carregarMes();
     } catch (e: unknown) {
+      // frente 02 — o sinal caiu NO MEIO do envio (4G de guarita às 06:00). Isso é diferente de o
+      // servidor recusar: se ele respondeu 4xx/5xx, guardar offline seria contornar a recusa.
+      if (off.ehFalhaDeRede(e)) {
+        const ok = await guardarNoAparelho(r, proximoTipo, tentativasOff);
+        try { sessionStorage.removeItem('ponto_tentativas_offline'); } catch { /* idem */ }
+        if (ok) {
+          setRostoFalhou(false);
+          setResultado({ ok: true, offline: true, tipo: proximoTipo, hora: off.horaLocalISO().slice(11, 16) });
+          return;
+        }
+      }
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setBaterErro(typeof msg === 'string' ? msg : 'Não foi possível registrar o ponto. Tente novamente.');
     } finally {
@@ -1236,7 +1391,40 @@ function PontoTab() {
         </div>
 
         {/* Resultado da última batida */}
-        {resultado?.ok && (
+        {/* frente 02 — quantas batidas ainda estão no aparelho. Fila invisível é fila esquecida. */}
+        {naFila > 0 && (
+          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-amber-800">
+              {naFila === 1 ? '1 batida guardada no aparelho' : `${naFila} batidas guardadas no aparelho`}, aguardando sinal
+            </span>
+            <button
+              onClick={() => { void sincronizarFila(); }}
+              className="text-xs font-semibold text-amber-900 underline underline-offset-2"
+            >
+              Enviar agora
+            </button>
+          </div>
+        )}
+
+        {/* frente 02 — a batida offline NÃO é anunciada como registrada: ela está guardada e vai
+            ser conferida. Dizer "registrada" aqui seria prometer o que o servidor ainda não
+            confirmou, e é isso que faz a pessoa ir embora achando que o ponto está batido. */}
+        {resultado?.ok && resultado.offline && (
+          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-800 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Batida registrada OFFLINE
+              {resultado.hora ? ` às ${String(resultado.hora).slice(0, 5)}` : ''} — pendente de conferência
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              Você está sem sinal. Guardamos sua batida no aparelho com a hora de agora; quando a
+              internet voltar ela sobe sozinha e o DP confere o rosto. Não bata de novo — repetir
+              não cria batida duplicada, mas também não adianta.
+            </p>
+          </div>
+        )}
+
+        {resultado?.ok && !resultado.offline && (
           <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
             <p className="text-sm font-medium text-emerald-700 flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4" />
@@ -1392,6 +1580,9 @@ function PontoTab() {
             </div>
             <FacialCapture
               employeeDescriptor={fase === 'facial' ? (faceRef ?? undefined) : undefined}
+              // frente 02: o limiar vem do servidor (system_configs). Sem resposta, o componente
+              // fica com o próprio padrão — nunca com um valor mais frouxo inventado aqui.
+              {...(cfgOffline ? { threshold: cfgOffline.limiar_distancia } : {})}
               onCapture={fase === 'enroll' ? onEnrollCapture : onFacialCapture}
               onError={(m) => {
                 // A CAMERA QUE NAO ABRE chega aqui — e era o caso que o Jordan citou
