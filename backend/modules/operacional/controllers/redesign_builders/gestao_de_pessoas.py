@@ -655,8 +655,15 @@ async def build(db) -> dict:
 
     from ._frente_05 import telas as _telas_05  # frente 05
     out.update(await _telas_05(db))
+    from ._frente_10 import telas as _telas_10  # frente 10 — uniforme/EPI (grade + entregas)
+    out.update(await _telas_10(db, SLUG))
     return out
 
 
-from ._frente_05 import MENU as _menu_05, router as router  # noqa: E402,F401 — frente 05 (menu + /action/vigilante-*)
+# frente 05 (menu + /action/vigilante-*) e frente 10 (menu do uniforme/EPI; as ações do 10 vivem
+# no router incluído por equipamentos.py). O registry lê `router` deste módulo — é o da frente 05.
+from ._frente_05 import MENU as _menu_05, router as router  # noqa: E402,F401 — frente 05
+from ._frente_10 import MENU_GESTAO as _menu_10  # noqa: E402 — frente 10
+
 EXTRA_MENU.extend(_menu_05)  # frente 05
+EXTRA_MENU.extend(_menu_10)  # frente 10
