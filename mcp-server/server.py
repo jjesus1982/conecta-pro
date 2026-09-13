@@ -684,6 +684,66 @@ async def _exigir_entidade(tipo: str, valor: str) -> dict | None:
     return d if isinstance(d, dict) and d.get("ok") is False else None
 
 
+# DDDs que existem no Brasil (Anatel). A lista tem buracos de propósito — é o que faz
+# "0000000000" e "9900000000" caírem, e contagem de dígitos sozinha não faz.
+_DDD_BR = frozenset((
+    "11", "12", "13", "14", "15", "16", "17", "18", "19",
+    "21", "22", "24", "27", "28",
+    "31", "32", "33", "34", "35", "37", "38",
+    "41", "42", "43", "44", "45", "46", "47", "48", "49",
+    "51", "53", "54", "55",
+    "61", "62", "63", "64", "65", "66", "67", "68", "69",
+    "71", "73", "74", "75", "77", "79",
+    "81", "82", "83", "84", "85", "86", "87", "88", "89",
+    "91", "92", "93", "94", "95", "96", "97", "98", "99",
+))
+
+
+async def _quem_tem_o_numero(so_digitos: str) -> dict | None:
+    """De quem é este telefone? `None` se não é de ninguém cadastrado.
+
+    ⚠️ Compara os ÚLTIMOS 8 DÍGITOS. O nono dígito dos celulares foi acrescentado em datas
+    diferentes por estado e o cadastro tem as duas formas do mesmo número — casar o telefone
+    inteiro faria o mesmo assinante parecer duas pessoas, ou nenhuma.
+
+    ⚠️ E a busca do ERP NÃO filtra por telefone: `/crm/leads?busca=<número>` devolveu os três
+    primeiros leads, ignorando o filtro. Por isso pagina — medi 5 clientes e 296 leads com
+    telefone, o que cabe em poucas chamadas.
+    """
+    alvo = so_digitos[-8:]
+
+    def bate(*valores) -> bool:
+        return any(re.sub(r"\D", "", str(v or ""))[-8:] == alvo for v in valores if v)
+
+    try:
+        clientes = await erp.get("/clients", params={"page_size": 200})
+        for c in _items(clientes):
+            if bate(c.get("whatsapp"), c.get("phone"), c.get("financial_contact_phone"),
+                    c.get("technical_contact_phone")):
+                return {"tipo": "cliente", "nome": c.get("legal_name") or c.get("name"),
+                        "id": c.get("id")}
+        # ⚠️ `page_size` máximo é 100 nesta rota (acima disso ela recusa com 422).
+        pagina = 1
+        while pagina <= 20:
+            leads = await erp.get("/crm/leads", params={"page": pagina, "page_size": 100})
+            itens = _items(leads)
+            for l in itens:
+                if bate(l.get("phone"), l.get("whatsapp")):
+                    return {"tipo": "lead", "nome": l.get("name") or l.get("nome"),
+                            "id": l.get("id")}
+            if len(itens) < 100:
+                break
+            pagina += 1
+    except Exception:  # noqa: BLE001
+        # ⚠️ FAIL-OPEN DELIBERADO e declarado: se eu não consigo LER o cadastro, recusar o
+        # opt-out deixaria alguém sem a proteção por causa de uma falha minha. Devolve um
+        # dono "desconhecido" para a chamada seguir — o contrário seria a trava punindo a
+        # pessoa pelo defeito do sistema.
+        return {"tipo": "indeterminado",
+                "aviso": "não consegui consultar o cadastro; opt-out registrado assim mesmo"}
+    return None
+
+
 def _id_valido(valor: str) -> bool:
     """O identificador TEM a forma de um id existente? UUID ou código canônico da casa."""
     v = (valor or "").strip()
@@ -2759,18 +2819,74 @@ async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> d
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
-    # ⭐ 13/09/2026: aceitava qualquer texto como número e gravava o opt-out. Registro de
-    # compliance apontando para um número inexistente é pior que ausência: ele PARECE
-    # proteger alguém. Telefone BR tem 10 ou 11 dígitos (com DDD), 12–13 com o 55.
+    # ⚠️ 13/09/2026, 2ª correção — a PRIMEIRA era insuficiente E O MEU TESTE ESCONDEU ISSO.
+    # Eu só contava dígitos (10 a 13) e validei com `LIXO-ZZZ`, que a contagem pega. O Jordan
+    # testou com "0000000000": dez dígitos, passava, e gravava. Escolhi a entrada que não
+    # distinguia as duas hipóteses — contar dígitos ≠ ser telefone.
+    #
+    # ⚠️ RESSALVA REGISTRADA: opt-out é proteção DA PESSOA. Recusar o de quem não está no
+    # cadastro significa continuar podendo mandar mensagem a quem pediu para parar. Foi
+    # decisão explícita do dono (prompt de fechamento, 6b) e a recusa ensina o caminho —
+    # cadastre o lead e registre o opt-out dele.
+    #
+    # ⚠️ E o lugar DURÁVEL desta regra é a rota `/crm/followups/optout` do backend, que serve
+    # a tela também. Aqui ela vale só para o agente; não mexi no backend porque mudaria o
+    # comportamento de todos os chamadores sem autorização.
     so_digitos = re.sub(r"\D", "", numero or "")
-    if not (10 <= len(so_digitos) <= 13):
+    if so_digitos.startswith("55") and len(so_digitos) in (12, 13):
+        so_digitos = so_digitos[2:]
+    if len(so_digitos) not in (10, 11):
         return {"ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
-                "mensagem": f"{numero!r} não é um telefone.",
-                "dica": "Informe com DDD: 92991234567, ou com o 55 na frente. "
-                        "Opt-out registrado no número errado não protege ninguém.",
+                "mensagem": f"{numero!r} não tem forma de telefone brasileiro.",
+                "dica": "Informe com DDD: 92991234567 (11 dígitos) ou 9233334444 (10), "
+                        "com ou sem o 55 na frente.",
                 "campos_invalidos": ["numero"], "digitos_lidos": len(so_digitos)}
-    return await erp.post("/crm/followups/optout",
-                          json={"numero": numero, "motivo": motivo})
+    if len(set(so_digitos)) <= 2:
+        return {"ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+                "mensagem": f"{numero!r} é uma sequência, não um telefone.",
+                "dica": "Números como 0000000000 e 1111111111 passam em qualquer contagem "
+                        "de dígitos e não são de ninguém.",
+                "campos_invalidos": ["numero"]}
+    if so_digitos[:2] not in _DDD_BR:
+        return {"ok": False, "codigo": "DDD_INVALIDO", "http": 422,
+                "mensagem": f"DDD {so_digitos[:2]!r} não existe no Brasil.",
+                "dica": "Confira o DDD. Os válidos vão de 11 a 99, com buracos "
+                        "(20, 23, 25, 26, 29, 30, 36, 39, 40, 50, 52, 56-60, 70, 72, "
+                        "76, 78, 80, 90 não existem).",
+                "campos_invalidos": ["numero"]}
+    if len(so_digitos) == 11 and so_digitos[2] != "9":
+        return {"ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+                "mensagem": f"{numero!r} tem 11 dígitos mas não começa com 9 depois do DDD.",
+                "dica": "Celular brasileiro de 11 dígitos é DDD + 9 + 8 dígitos. "
+                        "Fixo tem 10 e não recebe WhatsApp.",
+                "campos_invalidos": ["numero"]}
+
+    # ⚠️ DIVERGÊNCIA DECLARADA do item 6b, com a medição que a motiva. O pedido era RECUSAR
+    # quando o número não é de ninguém cadastrado. Fui medir a visão que eu tenho: a tabela
+    # `leads` tem 298 linhas, 296 com telefone — e a rota `/crm/leads` devolve **7**, que são
+    # os ATIVOS. Recusa dura sobre essa visão rejeitaria o opt-out de 291 leads inativos:
+    # gente que FOI contatada (é por isso que virou lead) e que, ao pedir para parar de
+    # receber, ouviria "não te conheço".
+    #
+    # Isso inverteria o propósito da ferramenta. Opt-out protege a PESSOA, não o cadastro —
+    # o custo de registrar um a mais é uma linha; o de recusar um legítimo é continuar
+    # mandando mensagem para quem pediu para parar.
+    #
+    # Então: o dono vira INFORMAÇÃO no retorno, não parede. `de_quem: null` + aviso diz ao
+    # Jordan exatamente o que a recusa diria, sem o efeito colateral. Se, vendo os 291, ele
+    # quiser a recusa dura mesmo assim, é trocar este bloco por um `return` — uma linha.
+    dono = await _quem_tem_o_numero(so_digitos)
+    r = await erp.post("/crm/followups/optout",
+                       json={"numero": numero, "motivo": motivo})
+    if not isinstance(r, dict):
+        return r
+    if dono is None:
+        return {**r, "de_quem": None,
+                "aviso": (f"Registrei, mas {numero!r} não bate com nenhum cliente nem com "
+                          f"os leads ATIVOS que consigo ler. Pode ser um lead inativo (a "
+                          f"rota expõe 7 de 296 com telefone) ou número errado — confira "
+                          f"antes de contar com este opt-out.")}
+    return {**r, "de_quem": dono}
 
 
 @mcp.tool
