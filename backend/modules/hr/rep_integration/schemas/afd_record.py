@@ -24,7 +24,7 @@ class AFDRecordBase(BaseModel):
     afd_line: str = Field(
         ...,
         min_length=10,
-        max_length=200,
+        max_length=400,  # frente 01: tipo 2 tem 331 posições; 200 fazia /afd/records dar 500
         description="Linha AFD formatada",
     )
 

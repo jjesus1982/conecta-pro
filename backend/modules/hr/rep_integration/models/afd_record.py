@@ -82,7 +82,9 @@ class AFDRecord(Base):
 
     # Linha AFD completa
     afd_line: Mapped[str] = mapped_column(
-        String(100),
+        # frente 01: 400. O leiaute do Anexo I tem linha de 331 (tipo 2) e 302 (tipo 1) —
+        # 100 truncava o empregador e o cabeçalho, e o banco já estava em 200.
+        String(400),
         nullable=False,
         comment="Linha AFD formatada conforme Portaria 671",
     )
