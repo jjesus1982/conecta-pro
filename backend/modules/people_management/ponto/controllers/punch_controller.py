@@ -529,3 +529,13 @@ _ONBOARDING_CAMPOS = {
 }
 
 
+# frente 01 — REP-P: AFD/AEJ (hr/rep_integration) como sub-rota de /ponto/afd. Import guardado:
+# se rep_integration quebrar no boot, o ponto continua de pé e o oráculo test_oraculo_rep_p acusa.
+try:
+    from modules.hr.rep_integration.controllers.afd_controller import router as afd_router
+
+    router.include_router(afd_router)
+except Exception as _exc:  # noqa: BLE001
+    import logging
+
+    logging.getLogger(__name__).error("frente 01: AFD não montado em /ponto: %s", _exc)

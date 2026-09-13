@@ -199,3 +199,63 @@ async def get_afd_statistics(
     """Retorna estatísticas de registros AFD."""
     afd_service = AFDService(db)
     return await afd_service.get_afd_statistics(device_id, condominio_id)
+
+
+# ── frente 01 — REP-P (Portaria 671): gerar AFD desde o corte, baixar AFD e AEJ ──────────────
+from fastapi.responses import Response  # noqa: E402
+
+from modules.hr.rep_integration.services import rep_p  # noqa: E402
+
+
+@router.post("/rep-p/gerar", summary="Gera linhas AFD (tipo 7) para toda batida >= corte sem linha")
+async def rep_p_gerar(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
+) -> dict:
+    """Idempotente. Devolve quantas gerou e quem ficou de fora (sem CPF / sem empregador)."""
+    return await rep_p.gerar_afd_desde_corte(db)
+
+
+@router.get("/rep-p/arquivo", summary="AFD de um dispositivo (empregador + origem) no período")
+async def rep_p_arquivo(
+    cnpj: str = Query(..., description="CNPJ do empregador (só dígitos ou formatado)"),
+    origem: str = Query(..., description="origem da batida: mobile, web, facial, tangerino, contingencia…"),
+    inicio: date = Query(...),
+    fim: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
+):
+    try:
+        nome, txt = await rep_p.montar_afd(db, cnpj, origem, inicio, fim)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return Response(txt.encode("latin-1", "replace"), media_type="text/plain; charset=iso-8859-1",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+@router.get("/rep-p/aej", summary="AEJ (Anexo VI) do empregador na competência")
+async def rep_p_aej(
+    cnpj: str = Query(...),
+    ano: int = Query(..., ge=2020),
+    mes: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
+):
+    try:
+        nome, txt, qt = await rep_p.montar_aej(db, cnpj, ano, mes)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return Response(txt.encode("latin-1", "replace"), media_type="text/plain; charset=iso-8859-1",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"',
+                             "X-AEJ-Contagem": ",".join(f"{k}={v}" for k, v in qt.items())})
+
+
+@router.get("/rep-p/instrumento", summary="Instrumento legal do REP-P (INPI, atestado, termo)")
+async def rep_p_instrumento(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
+) -> dict:
+    """Vazio é a resposta honesta enquanto o dono não registrar — nunca um default."""
+    inst = await rep_p.instrumento(db)
+    return {"corte": rep_p.CORTE.isoformat(), "instrumentos": inst,
+            "faltam": [t for t in ("INPI", "ATESTADO_TECNICO", "TERMO_RESPONSABILIDADE") if t not in inst]}

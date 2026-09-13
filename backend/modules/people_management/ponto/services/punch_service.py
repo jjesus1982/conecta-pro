@@ -172,6 +172,16 @@ class PunchService:
         self.db.add(punch)
         await self.db.flush()
 
+        # frente 01 — REP-P: a batida ganha linha AFD (NSR + hash) na mesma transação. Savepoint:
+        # falha aqui NUNCA derruba a batida — vira dívida contada por checar_ponto_sem_instrumento.py.
+        try:
+            from modules.hr.rep_integration.services.rep_p import gerar_afd_desde_corte
+
+            async with self.db.begin_nested():
+                await gerar_afd_desde_corte(self.db, commit=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("REP-P: batida %s sem linha AFD: %s", punch_id, exc)
+
         # Push bidirecional para Sólides (não bloqueia se falhar)
         await self._push_punch_to_solides(
             data.employee_id, data.punch_type, str(timestamp), status, data.device_type or "web"
