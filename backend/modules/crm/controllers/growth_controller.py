@@ -347,6 +347,9 @@ class ParamsIn(BaseModel):
     valores: dict
 
 
+_CHAVES_CONTRATO = ("reserva_tecnica_pct", "plr_sindicato_pct", "taxa_admin_pct")  # frente 07
+
+
 @router.put("/pricing/parametros")
 async def pricing_atualizar_parametros(
     data: ParamsIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
@@ -358,6 +361,13 @@ async def pricing_atualizar_parametros(
             text("UPDATE crm_pricing_params SET valor=:v, updated_at=now() WHERE chave=:k"), {"v": float(v), "k": k}
         )
         n += res.rowcount or 0
+        # frente 07: quem grava reserva/PLR/taxa admin CONFIRMA o parâmetro — sem confirmado_em
+        # ele é "parâmetro ausente" e não entra no custo (nunca 0). Só nessas chaves, que só
+        # existem depois do DDL de vigência/origem (ver FRENTE_07_precificacao.md).
+        if k in _CHAVES_CONTRATO:
+            await db.execute(
+                text("UPDATE crm_pricing_params SET confirmado_por=:q, confirmado_em=now() WHERE chave=:k"),
+                {"k": k, "q": str(getattr(_, "email", None) or getattr(_, "id", "api"))[:120]})
     await db.commit()
     return {"atualizados": n}
 
@@ -1865,3 +1875,9 @@ async def gerar_orcamento_pdf(
         content=pdf, media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="orcamento_{payload["numero"]}.pdf"'},
     )
+
+
+# frente 07 — simulação de custo por contrato e calculado × faturado (sub-router, só lê)
+from modules.crm.controllers.precificacao_controller import router as _precificacao_router  # noqa: E402
+
+router.include_router(_precificacao_router)
