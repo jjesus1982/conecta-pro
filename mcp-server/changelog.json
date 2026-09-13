@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "4ff5dae55",
+      "data": "2026-09-13",
+      "mudanca": "fix(mcp): as escritas fecham em 26/26 — e a varredura estava medindo o próprio lixo"
+    },
+    {
+      "commit": "cff99b05c",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "c8fe76066",
       "data": "2026-09-13",
       "mudanca": "fix(mcp): a validação do Cowork derrubou duas afirmações minhas — e o método era o culpado"
@@ -190,16 +200,6 @@
       "commit": "76690e682",
       "data": "2026-09-11",
       "mudanca": "feat(hermes): o escopo vira parede de verdade — e o Hermes ganha o conector de PESSOAS"
-    },
-    {
-      "commit": "bd20254b4",
-      "data": "2026-09-11",
-      "mudanca": "fix(mcp): 3.1 e 2.5 chegam à FERRAMENTA — estavam prontos no backend e não alcançavam ninguém"
-    },
-    {
-      "commit": "81df4c3f9",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): operação longa vira job — e segundo plano não abre porta dos fundos (3.5)"
     }
   ]
 }
