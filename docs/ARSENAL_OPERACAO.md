@@ -85,6 +85,27 @@ produz), `checar_periodo_do_servidor.py` (data vinda do modelo), `checar_desmont
 memória em `system_configs`, `--aceitar` para encolhimento deliberado), `checar_arsenal.py` (este documento mentindo), `checar_mcp_tools.py` (peça de
 parede fora do git ou da imagem).
 
+**Paridade com a DGX (13/09/2026)** — nove caçadores nascidos com as 10 frentes do benchmark
+(`auditoria/BENCHMARK_DIGIEXPRESS_DGX_2026-09-12.md` + `PREMORTEM_10_FRENTES_2026-09-12.md`):
+
+| Caçador | Onde roda | Linha canônica | Pergunta |
+|---|---|---|---|
+| `checar_modulo_morto.py` | container | `TOTAL módulos mortos: N` | módulo com código e 0 rotas montadas, 0 imports, 0 task? Nasce em 4 e só cai por DECISÃO do dono (ligar ou aposentar) |
+| `checar_ponto_sem_instrumento.py` | container | `TOTAL pessoas sem instrumento: N` | gente batendo ponto sem linha AFD desde o corte de 13/09? |
+| `checar_batida_offline_suspeita.py` | container | `TOTAL batidas offline suspeitas: N` | relógio do aparelho fora do limite, duplicata por chave, ou dia com taxa facial 100% (taxa perfeita = não comparou) |
+| `checar_repasse_sem_aditivo.py` | container | `TOTAL repasses sem aditivo: N` | preço de contrato alterado por rotina sem aditivo assinado? Alvo permanente: 0 |
+| `checar_arma_sem_serie.py` | container | `TOTAL armas sem série/responsável: N` | arma/colete alocado sem série ou sem responsável — contador não responde "onde está a arma 3" |
+| `checar_fila_offline_estourando.py` | container | `TOTAL itens offline atrasados: N` | item da ronda parado há mais de 24h no aparelho (o servidor não vê o que não subiu) |
+| `checar_frota_sem_km.py` | container | `TOTAL veículos sem KM no período: N` | sem leitura de KM o painel marca todo veículo como vencido e é ignorado em uma semana |
+| `checar_tela_lenta.py` | host (`QA_BASE`, `QA_TETO_S`) | `TOTAL telas lentas: N` | tela do redesign acima do teto de 3s — tela que demora é tela que o supervisor abandona |
+| `checar_at_time_zone_sem_fuso.py` | host (varre o repo + `information_schema`) | `TOTAL conversões erradas: N` | `AT TIME ZONE 'America/Manaus'` direto em coluna sem fuso: SOMA 4h em vez de subtrair |
+
+**MCP e agente** (nascidos em 11–12/09, estavam fora deste documento): `checar_escopo_mcp.py`,
+`checar_etiqueta_de_risco.py`, `checar_tool_quebrada.py`, `checar_telefone_funcionario.py`,
+`checar_mcp_tools.py`, `checar_changelog_mcp.py`, `checar_imagem_mcp.py`,
+`checar_mcp_declara_escrita.py`, `checar_regressao_mcp.py`, `checar_vazamento_interno.py`,
+`checar_contrato_sem_cobranca.py`.
+
 **Gates semanais** (condições ✅ entram na base; acusa quando o número cai): `fechado_bartolo.py`,
 `fechado_contratos.py`, `fechado_fiscal.py`, `fechado_gedeon.py`, `fechado_operacional.py`,
 `varredura_op_acoes.py`.

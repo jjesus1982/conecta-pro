@@ -75,6 +75,32 @@ CACADORES = {
     # Endpoint que uma tela do redesign chama e o app não tem (ou não tem com aquele método).
     # 3 na estreia (07/09/2026): {ano}/{mes} e {client_id} literais + rota que nunca existiu.
     "checar_botao_morto.py": lambda s: _n(r"^TOTAL:\s*(\d+) botão", s),
+    # ── 13/09/2026: os nove caçadores das 10 frentes de paridade com a DGX. Cada um nasceu
+    # junto com a frente que o mediu; a linha canônica foi lida do CÓDIGO de cada script, não
+    # do relatório (relatório envelhece, `print` não).
+    #
+    # Módulo com código e ZERO rotas montadas. Nasce em 4 e só cai por DECISÃO do dono
+    # (ligar ou aposentar) — a frente 9 provou que os 4 foram podados de propósito em 08/09
+    # e que "ligar" o bidding significa restaurar 97 handlers e 14 defeitos revisados.
+    "checar_modulo_morto.py": lambda s: _n(r"^TOTAL módulos mortos:\s*(\d+)", s, "TOTAL módulos mortos: 0"),
+    # Pessoa com batida no mês e SEM linha AFD desde o corte (13/09). É a medida de que o
+    # ponto tem instrumento legal — não de que o instrumento foi constituído (isso é o INPI).
+    "checar_ponto_sem_instrumento.py": lambda s: _n(r"^TOTAL pessoas sem instrumento: (\d+)", s),
+    # Batida offline com relógio do aparelho fora do limite, duplicata por chave, ou dia com
+    # taxa facial 100% (taxa perfeita = a comparação não ocorreu).
+    "checar_batida_offline_suspeita.py": lambda s: _n(r"^TOTAL batidas offline suspeitas: (\d+)", s),
+    # Contrato com preço alterado por rotina e sem aditivo assinado. Alvo permanente: 0 —
+    # reajuste de benefício vira PEDIDO na Central, nunca preço.
+    "checar_repasse_sem_aditivo.py": lambda s: _n(r"^TOTAL repasses sem aditivo:\s*(\d+)", s),
+    # Arma/colete alocado sem número de série ou sem responsável. Contador sem série não é
+    # controle: não responde "onde está a arma 3".
+    "checar_arma_sem_serie.py": lambda s: _n(r"^TOTAL armas sem série/responsável: (\d+)", s),
+    # Item da fila offline da ronda parado há mais de 24h no aparelho. Mede o RASTRO da fila
+    # (o servidor não enxerga o que não subiu).
+    "checar_fila_offline_estourando.py": lambda s: _n(r"^TOTAL itens offline atrasados: (\d+)", s),
+    # Veículo sem leitura de KM no período: sem isso o painel de manutenção marca TODOS como
+    # vencidos e é ignorado em uma semana.
+    "checar_frota_sem_km.py": lambda s: _n(r"^TOTAL veículos sem KM no período: (\d+)", s, "TOTAL veículos sem KM no período: 0"),
 }
 
 #: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o
@@ -108,6 +134,17 @@ CACADORES_HOST = {
     "checar_dominio.py": lambda s: _n(r"^TOTAL:\s*(\d+) diverg", s),
     # O que está no ar por docker cp (docker diff). Cai a zero sozinho depois do bake.
     "checar_bake_pendente.py": lambda s: _n(r"^TOTAL:\s*(\d+) arquivo", s),
+    # ── 13/09/2026, frente 4. HOST os dois: o primeiro bate por HTTP na porta do backend
+    # (QA_BASE, default 8081) e o segundo varre o REPOSITÓRIO cruzando com o information_schema
+    # — dentro do container a raiz é /app e a varredura voltaria 0, que é o pior tipo de verde.
+    #
+    # Tela do redesign acima do teto de tempo (QA_TETO_S, default 3s). Tela que demora é tela
+    # que o supervisor abandona.
+    "checar_tela_lenta.py": lambda s: _n(r"^TOTAL telas lentas: (\d+)", s, "TOTAL telas lentas: 0"),
+    # `AT TIME ZONE 'America/Manaus'` aplicado direto a coluna `timestamp without time zone`
+    # que guarda UTC: SOMA 4h em vez de subtrair. Nasce em 3 dívidas reais fora do ponto
+    # (financial_pagamentos_pj.updated_at e opportunities.updated_at).
+    "checar_at_time_zone_sem_fuso.py": lambda s: _n(r"^TOTAL conversões erradas: (\d+)", s, "TOTAL conversões erradas: 0"),
 }
 
 
