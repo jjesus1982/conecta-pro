@@ -69,7 +69,7 @@ faixa > 22, vencida**; com o retorno de 20/08/2025 como âncora fica **12 meses,
 limite 19/08/2027**. O oráculo recalcula por SQL e compara — se a âncora voltar para a admissão,
 acusa `âncora do serviço 2023-10-06 ≠ recalculada 2025-08-20`.
 
-Prova por HTTP (uvicorn efêmero em 127.0.0.1:8082 com o código da worktree, banco de staging):
+Prova por HTTP (modo efêmero — uvicorn em 127.0.0.1:8082 com o código da worktree, banco de staging; comando canônico em §5):
 ```
 GET /api/v1/redesign/data/departamento-pessoal  → screens["mapa-ferias"]
 type: table | rows: 55 | cols: [Colaborador, Cargo, Âncora, Meses, Faixa, Gozados / direito, Restantes, Limite, Vence em]
@@ -117,13 +117,20 @@ mexer no cálculo. É exatamente o alarme que a tela existe para dar.
 
 ## 5. O que NÃO foi feito e por quê
 
-- **Não hot-copiei para `conecta-pro-backend-staging`**: o container monta
-  `/opt/conecta-pro/backend` (checkout principal) como **read-only** em `/app` — `docker cp`
-  falha com "mounted volume is marked read-only" e o checkout principal não é a minha worktree.
-  Testei num **container efêmero** (`docker run --rm`, imagem `conecta-pro-backend-staging`,
-  mesmo env e rede do staging, worktree montada RO em `/app`) — banco de staging, código da
-  branch. Script em `scratchpad/stg.sh` desta sessão; o integrador reproduz com
-  `docker run --rm --network conecta-staging-network --env-file <env do staging> -v <worktree>/backend:/app:ro -e PYTHONPATH=/app --user erp conecta-pro-backend-staging python3 /app/scripts/orq/test_oraculo_mapa_ferias.py`.
+- **Teste em MODO EFÊMERO, não hot-copy** (correção do contrato §2 pelo coordenador): o
+  `conecta-pro-backend-staging` monta `/opt/conecta-pro/backend` (árvore principal) como bind
+  **só-leitura** em `/app` — `docker cp` falha com "Read-only file system" e a árvore principal
+  não é a worktree. Não escrevi na árvore principal. Oráculo e prova HTTP rodaram num container
+  efêmero (`docker run --rm`, rede e banco do staging, worktree montada RO em `/app`). Reprodução
+  canônica:
+  ```bash
+  WT=$(git rev-parse --show-toplevel)
+  ENVS=$(docker inspect conecta-pro-backend-staging --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(DATABASE_URL|REDIS_URL)=' | sed 's/^/-e /' | tr '\n' ' ')
+  docker run --rm --network conecta-staging-network -v "$WT/backend:/app:ro" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env $ENVS conecta-pro-backend:latest python3 /app/scripts/orq/test_oraculo_mapa_ferias.py
+  # HTTP (porta 8208 = frente 08), só enquanto testa; ao fim: docker stop teste-frente-08
+  docker run --rm -d --name teste-frente-08 --network conecta-staging-network -p 127.0.0.1:8208:8080 -v "$WT/backend:/app:ro" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env $ENVS -e PORT=8080 conecta-pro-backend:latest
+  ```
+  Nesta sessão usei a imagem `conecta-pro-backend-staging` e a porta 8082; container já parado.
 - **Sub-router em `vacation_controller.py`**: não criado (YAGNI; a tela do redesign é genérica).
 - **Afastamentos descontínuos** não são somados (art. 133 IV fala em total no período): o
   `ancora_periodo` olha cada afastamento isolado. Registrado na docstring. Sobe quando houver caso.
@@ -159,7 +166,7 @@ mexer no cálculo. É exatamente o alarme que a tela existe para dar.
 
 ## 7. Riscos residuais (do pré-mortem)
 
-- **0.3 / 0.4** — só existe depois do bake; `docker cp` não publica e o staging monta RO. O oráculo
+- **0.3 / 0.4** — só existe depois do bake; `docker cp` não publica e o staging monta RO (modo efêmero é teste, não publicação). O oráculo
   verde desta noite foi contra a worktree, não contra o container `conecta-pro-backend-staging`.
 - **"Gozadas = 0" pode ser falta de registro**, não falta de férias (§3). O mapa é tão bom quanto
   `hr_vacation_requests`. `sync-ferias-solides` existe e está na aba Férias.
