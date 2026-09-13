@@ -2750,4 +2750,6 @@ async def build(db, current_user=None) -> dict:
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)
 
+    from ._frente_08 import telas as _telas_08  # frente 08
+    out.update(await _telas_08(db))  # frente 08
     return out
