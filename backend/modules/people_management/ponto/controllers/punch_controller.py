@@ -539,3 +539,17 @@ except Exception as _exc:  # noqa: BLE001
     import logging
 
     logging.getLogger(__name__).error("frente 01: AFD não montado em /ponto: %s", _exc)
+
+
+# frente 02 — batida OFFLINE: a fila do aparelho sobe por /ponto/offline/sync, que RECONFERE o
+# rosto no servidor antes de aceitar. Import guardado pelo mesmo motivo da frente 01: se este
+# sub-router quebrar no boot, o ponto continua de pé e o oráculo test_oraculo_batida_offline
+# acusa em (a) que a rota não está montada.
+try:
+    from .offline_controller import router as offline_router
+
+    router.include_router(offline_router)
+except Exception as _exc_off:  # noqa: BLE001
+    import logging
+
+    logging.getLogger(__name__).error("frente 02: offline não montado em /ponto: %s", _exc_off)

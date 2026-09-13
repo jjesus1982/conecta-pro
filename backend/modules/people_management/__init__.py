@@ -134,6 +134,11 @@ def _gatear_rotas_por_modulo() -> None:
         path = route.path
         if path.startswith("/people-management/portal"):
             continue  # Portal do Funcionário: auth própria, não gatear
+        # frente 02 — a fila de batidas offline sobe do celular do PORTEIRO, que não tem
+        # `module:dp`. Mesma audiência de /portal/self-service/facial/batida: quem chama é o dono
+        # da própria batida, e a rota resolve o employee_id pelo JWT (nunca pelo corpo do pedido).
+        if path.startswith("/people-management/ponto/offline"):
+            continue
         if path.startswith("/people-management/sst"):
             route.dependencies.append(dep_sst)
         elif path.startswith("/people-management/ged"):
