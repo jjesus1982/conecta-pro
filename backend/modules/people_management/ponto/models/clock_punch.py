@@ -14,7 +14,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 try:
     from core.database import Base
@@ -50,6 +50,7 @@ class ClockPunchStatus(enum.StrEnum):
     APPROVED = "approved"        # conferida (hoje o sync do Tangerino traz assim)
     # marcadores de exceção
     FACIAL_REPROVADO = "facial_reprovado"  # selfie não bateu — NÃO é prova de presença
+    PENDENTE_DE_CONFERENCIA = "pendente_de_conferencia"  # frente 02: batida offline não reconferida
     NORMAL = "normal"
     ATRASO = "atraso"
     ANTECIPADO = "antecipado"
@@ -79,7 +80,9 @@ class ClockPunchModel(Base):
     # 'pending' (batida nova, aguardando conferência) -> 'approved' (conferida).
     # Marcadores de exceção: 'offline', 'fora_local'. (O antigo default 'normal'/'regular'
     # era seed legado e não coincidia com as 4409 batidas reais em pending/approved.)
-    status = Column(String(20), nullable=False, default=ClockPunchStatus.PENDING.value)
+    # frente 02: 30 porque `pendente_de_conferencia` tem 23 caracteres — a batida offline que
+    # ainda não passou na reconferência do rosto no servidor. Não cabia em 20.
+    status = Column(String(30), nullable=False, default=ClockPunchStatus.PENDING.value)
 
     # Reconhecimento facial
     facial_match = Column(Boolean, nullable=True)
@@ -103,6 +106,17 @@ class ClockPunchModel(Base):
     is_offline = Column(Boolean, nullable=False, default=False)
     synced_at = Column(DateTime, nullable=True)
     sync_attempts = Column(Integer, nullable=False, default=0)
+    # frente 02 — (pessoa, minuto da hora do APARELHO, aparelho). UNIQUE no banco: a
+    # retentativa do service worker nunca duplica. É a trava que faltou ao importador do
+    # Tangerino (1.375 jornadas duplicadas em 11/09/2026).
+    chave_idempotente = Column(String(120), nullable=True, unique=True)
+    device_id = Column(String(64), nullable=True)
+    # server_timestamp - punch_timestamp, em segundos. Relógio de celular é editável: a
+    # defesa não é recusar a batida, é ter o número gravado.
+    divergencia_relogio_seg = Column(Integer, nullable=True)
+    # o que falhou NO APARELHO enquanto não havia sinal (nao_detectou/nao_bateu) — sem isto
+    # a estatística de falha some justamente quando mais importa.
+    tentativas_offline = Column(JSONB, nullable=True)
 
     # Posto
     posto_id = Column(String(36), nullable=True)

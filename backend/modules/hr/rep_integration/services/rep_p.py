@@ -152,6 +152,13 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
     Chamada pelo hook de registrar_batida (commit=False: a transação é da batida) e pela rota
     POST /ponto/afd/rep-p/gerar. Retorna o que gerou e o que NÃO pôde gerar (sem CPF / sem
     empregador) — isso é dívida, não silêncio.
+
+    ⚠️ frente 02 (13/09/2026): batida `pendente_de_conferencia` NÃO entra. É a batida offline que
+    ainda não passou na reconferência do rosto no servidor e que o DP ainda pode recusar. O AFD é
+    memória INALTERÁVEL de marcação: escrever nele um fato que pode ser desfeito é afirmar
+    integridade sobre o que não está confirmado, e o NSR não tem como voltar atrás. Quando a
+    conferência aprova, a batida deixa de ser pendente e a varredura seguinte a pega — sem lacuna
+    de NSR, porque a linha só é numerada no momento em que é escrita.
     """
     pend = (await db.execute(text("""
         SELECT p.punch_id, p.device_type, p.is_offline, p.punch_timestamp, e.empresa_id::text emp,
@@ -160,6 +167,7 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
         JOIN employees e ON e.id = p.employee_id
         LEFT JOIN afd_records a ON a.punch_id = p.punch_id
         WHERE p.punch_timestamp >= :corte AND a.id IS NULL
+          AND p.status <> 'pendente_de_conferencia'   -- frente 02
         ORDER BY p.punch_timestamp, p.id"""), {"corte": CORTE})).mappings().all()
     geradas, sem_cpf, sem_empresa = 0, set(), set()
     grupos: dict[str, list] = defaultdict(list)
