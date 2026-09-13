@@ -2844,6 +2844,8 @@ async def montar_relatorio_visita(ref: str, situacao_atual: str | None = None,
                                   proximos_passos: str | None = None,
                                   conteudo_md: str | None = None) -> dict:
     """Grava o relatório de visita sintetizado (você redige com base nos achados; aqui persiste)."""
+    if (recusa := _id_ou_422(ref, o_que="ref", dica="`listar_relatorios_visita()` mostra as refs.")):
+        return recusa
     return await erp.post("/crm/visitas/montar", json={
         "ref": ref, "situacao_atual": situacao_atual, "diagnostico_tecnico": diagnostico_tecnico,
         "oportunidade_comercial": oportunidade_comercial, "proximos_passos": proximos_passos,
@@ -2890,6 +2892,8 @@ async def registrar_lead_da_visita(ref: str, telefone: str | None = None, cnpj: 
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    if (recusa := _id_ou_422(ref, o_que="ref", dica="`listar_relatorios_visita()` mostra as refs.")):
+        return recusa
     return await erp.post("/crm/visitas/registrar-lead", json={
         "ref": ref, "telefone": telefone, "cnpj": cnpj, "valor_estimado": valor_estimado})
 
@@ -4146,7 +4150,12 @@ async def alocacoes_vigentes(post_id: str | None = None) -> dict:
         "/operacional/allocations/current" + (f"?post_id={post_id}" if post_id else ""),
         o_que="posto", chave=str(post_id or ""),
         dica="`listar_postos()` devolve os ids válidos.")
-    return d if d.get("ok") is False else _envelope(d, "alocacoes")
+    # ⚠️ esta rota devolve LISTA quando não há filtro e DICT quando há. `d.get(...)` sem
+    # checar o tipo estourou com "'list' object has no attribute 'get'" — pego pela
+    # `checar_tool_quebrada` antes de sair daqui, que é o trabalho dela.
+    if isinstance(d, dict) and d.get("ok") is False:
+        return d
+    return _envelope(d, "alocacoes")
 
 
 @mcp.tool

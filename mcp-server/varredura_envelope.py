@@ -19,6 +19,20 @@ Três passadas, porque há três lugares onde o contrato de erro quebra:
   · `write_low ensaio`— pelo `no_sandbox`. ⚠️ NÃO pelo `ensaiar`: ele intercepta a escrita
                         ANTES do ERP, então prova que não grava e não mede o erro.
 
+⚠️⚠️ A PASSADA DE ESCRITA DEIXA LIXO NO SANDBOX, e na 1ª execução ela MEDIU O PRÓPRIO
+LIXO. `aceitar_estimativa_da_proposta` apareceu como "sucesso falso": o resolvedor havia
+casado `LIXO-INVALIDO-ZZZ-999` com uma proposta cujo `client_name` era literalmente
+"LIXO-INVALIDO-ZZZ-999" — criada por uma passada anterior desta mesma varredura. O
+resolvedor estava CERTO; o defeito era o teste acreditando no resíduo que ele mesmo plantou.
+
+Depois de rodar `write_low`, limpe:
+
+    docker exec conecta-pro-postgres-staging psql -U postgres -d conecta_pro_staging -c \
+      "DELETE FROM proposals WHERE cast(proposals AS text) ILIKE '%LIXO%';"
+
+⚠️ NÃO rode `refrescar_sandbox.sh` para isso: o staging carrega DDL de trabalho de outros
+terminais que produção não tem (frente 07), e refrescar apagaria o trabalho deles.
+
 ⚠️ E distingue IDENTIFICADOR de TEXTO LIVRE. `nome`, `titulo`, `servico` são dado: criar lead
 com nome esquisito é legítimo, e marcar isso como defeito me faria consertar tool correta.
 """

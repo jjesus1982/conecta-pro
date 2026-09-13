@@ -26,6 +26,8 @@ COPY test_efeito_externo.py .
 COPY test_capabilities_sem_fantasma.py .
 COPY test_lgpd_escopo.py .
 COPY test_envelope_de_erro.py .
+# a varredura paramétrica roda DENTRO da imagem: fora dela mede outro código
+COPY varredura_envelope.py .
 # ⚠️ a suíte de regressão vai na imagem mas NÃO roda no build: ela exige o ERP de pé.
 # Parede de build não pode depender de produção — aprendido derrubando o build hoje.
 COPY test_regressao_mcp.py .
