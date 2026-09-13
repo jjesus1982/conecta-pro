@@ -13,10 +13,10 @@ import {
   AlertTriangle,
   ArrowLeft,
   Building2,
-  Camera,
   CheckCircle2,
   ClipboardList,
   Clock,
+  CloudUpload,
   Eye,
   Flag,
   Loader2,
@@ -30,8 +30,8 @@ import {
   Route,
   Shield,
   Users,
+  WifiOff,
   Wrench,
-  X,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -56,6 +56,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CheckpointFoto } from '@/components/operacional/checkpoint-photo';
+import { CameraCaptura } from '@/features/rondas/CameraCaptura';
+import {
+  cacheLer,
+  cacheSalvar,
+  chaveIdempotente,
+  deviceId,
+  enfileirar,
+  enviarFila,
+  montarFormData,
+  postarCompleto,
+  recusaDefinitiva,
+  resumoFila,
+  type FotoLocal,
+} from '@/features/rondas/filaOffline';
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 const RONDAS_URL = '/api/v1/operacional/rondas';
@@ -104,7 +118,6 @@ const TIPO_CHECKPOINT_ICONE: Record<string, LucideIcon> = {
 };
 
 const MAX_FOTOS = 5;
-const MAX_TAM_FOTO = 10 * 1024 * 1024; // 10MB (limite do backend)
 
 // ── Tipos (espelham os schemas Pydantic do backend) ─────────────────────────
 interface PostoAtivo {
@@ -119,6 +132,7 @@ interface FotoCheckpoint {
   url?: string;
   tamanho_bytes?: number;
   enviada_em?: string;
+  capturada_na_hora?: boolean;
 }
 
 interface Checkpoint {
@@ -135,6 +149,8 @@ interface Checkpoint {
   longitude: number | null;
   sequence: number;
   created_at: string;
+  foto_obrigatoria?: boolean;
+  origem_offline?: boolean;
 }
 
 interface Ronda {
@@ -311,11 +327,14 @@ export default function RondaMobilePage() {
   const [atvTipo, setAtvTipo] = useState('reuniao');
   const [atvStatus, setAtvStatus] = useState('conforme');
   const [atvRelato, setAtvRelato] = useState('');
-  const [atvFotos, setAtvFotos] = useState<File[]>([]);
-  const [atvPreviews, setAtvPreviews] = useState<string[]>([]);
+  const [atvFotos, setAtvFotos] = useState<FotoLocal[]>([]);
   const [salvandoAtividade, setSalvandoAtividade] = useState(false);
-  const [progressoFoto, setProgressoFoto] = useState<string | null>(null);
-  const fotoInputRef = useRef<HTMLInputElement | null>(null);
+  // Checkpoint: foto pela câmera (obrigatória quando não conforme) — frente 6
+  const [cpFotos, setCpFotos] = useState<FotoLocal[]>([]);
+  // Offline-first (frente 6): sinal + fila no aparelho
+  const [online, setOnline] = useState(true);
+  const [pendentes, setPendentes] = useState(0);
+  const [enviandoFila, setEnviandoFila] = useState(false);
 
   const postoNome = useCallback(
     (id: string) => postos.find((p) => p.id === id)?.name || `Posto ${id.slice(0, 8)}…`,
@@ -329,8 +348,15 @@ export default function RondaMobilePage() {
       const res = await api.get(`${POSTS_URL}/?status=active&page=1&page_size=100`);
       const items: PostoAtivo[] = res.data?.items ?? (Array.isArray(res.data) ? res.data : []);
       setPostos(items);
+      cacheSalvar('postos', items);
     } catch (error) {
-      toast.error(`Erro ao carregar postos: ${detalheErro(error)}`);
+      const cache = cacheLer<PostoAtivo[]>('postos');
+      if (cache) {
+        setPostos(cache.valor);
+        toast.warning('Sem sinal — postos da última sincronização');
+      } else {
+        toast.error(`Erro ao carregar postos: ${detalheErro(error)}`);
+      }
     } finally {
       setPostosCarregados(true);
     }
@@ -339,8 +365,14 @@ export default function RondaMobilePage() {
   const carregarDetalheRonda = useCallback(async (id: string): Promise<Ronda | null> => {
     try {
       const res = await api.get(`${RONDAS_URL}/${id}`);
+      cacheSalvar(`ronda:${id}`, res.data);
       return res.data as Ronda;
     } catch (error) {
+      const cache = cacheLer<Ronda>(`ronda:${id}`);
+      if (cache) {
+        toast.warning('Sem sinal — ronda como estava na última sincronização');
+        return cache.valor;
+      }
       toast.error(`Erro ao carregar ronda: ${detalheErro(error)}`);
       return null;
     }
@@ -353,6 +385,7 @@ export default function RondaMobilePage() {
         `${RONDAS_URL}/minhas-rondas?inspector_id=${user.id}&tenant_id=${TENANT_ID}&limit=50`
       );
       const lista: RondaResumo[] = Array.isArray(res.data) ? res.data : [];
+      cacheSalvar('rondas', lista);
       setRondas(lista);
       // Se há ronda em andamento/pausada, abrir direto o modo execução
       const ativa = lista.find((r) => r.status === 'em_andamento' || r.status === 'pausada');
@@ -361,11 +394,113 @@ export default function RondaMobilePage() {
         if (detalhe) setRondaAtiva(detalhe);
       }
     } catch (error) {
-      toast.error(`Erro ao carregar rondas: ${detalheErro(error)}`);
+      const cache = cacheLer<RondaResumo[]>('rondas');
+      if (cache) {
+        setRondas(cache.valor);
+        const ativa = cache.valor.find((r) => r.status === 'em_andamento' || r.status === 'pausada');
+        if (ativa) {
+          const detalhe = await carregarDetalheRonda(ativa.id);
+          if (detalhe) setRondaAtiva(detalhe);
+        }
+      } else {
+        toast.error(`Erro ao carregar rondas: ${detalheErro(error)}`);
+      }
     } finally {
       setRondasCarregadas(true);
     }
   }, [user?.id, carregarDetalheRonda]);
+
+  // ── Offline-first (frente 6): fila no aparelho, sinal e casca em cache ────
+  const atualizarPendentes = useCallback(async () => {
+    try {
+      setPendentes((await resumoFila()).itens);
+    } catch {
+      /* IndexedDB indisponível (modo privado): segue sem fila */
+    }
+  }, []);
+
+  const rondaAtivaRef = useRef<Ronda | null>(null);
+  rondaAtivaRef.current = rondaAtiva;
+  const despachando = useRef(false);
+  const despacharFila = useCallback(async () => {
+    if (despachando.current || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    despachando.current = true;
+    setEnviandoFila(true);
+    try {
+      const r = await enviarFila();
+      if (r.enviados > 0) {
+        toast.success(`${r.enviados} registro${r.enviados === 1 ? '' : 's'} pendente${r.enviados === 1 ? '' : 's'} enviado${r.enviados === 1 ? '' : 's'}`);
+      }
+      for (const rec of r.recusados) {
+        toast.error(`Recusado pelo servidor — ${rec.titulo}: ${rec.motivo}`, { duration: 10000 });
+      }
+      const ativa = rondaAtivaRef.current;
+      if (r.enviados > 0 && ativa) {
+        const detalhe = await carregarDetalheRonda(ativa.id);
+        if (detalhe) setRondaAtiva(detalhe);
+      }
+    } catch {
+      /* fila inacessível: o contador abaixo mostra o estado real */
+    } finally {
+      despachando.current = false;
+      setEnviandoFila(false);
+      await atualizarPendentes();
+    }
+  }, [carregarDetalheRonda, atualizarPendentes]);
+
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    atualizarPendentes();
+    const ligou = () => {
+      setOnline(true);
+      despacharFila();
+    };
+    const caiu = () => setOnline(false);
+    window.addEventListener('online', ligou);
+    window.addEventListener('offline', caiu);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw-rondas.js', { scope: '/modulos/operacional/ronda-mobile' })
+        .catch(() => undefined);
+    }
+    return () => {
+      window.removeEventListener('online', ligou);
+      window.removeEventListener('offline', caiu);
+    };
+  }, [atualizarPendentes, despacharFila]);
+
+  /**
+   * Checkpoint + fotos numa ÚNICA requisição. Sem sinal (ou rede caindo no meio) o item vai
+   * para a fila do aparelho e sobe sozinho depois; se o SERVIDOR recusar (4xx) o erro é
+   * mostrado e nada é guardado — guardar não resolveria.
+   */
+  const enviarOuEnfileirar = useCallback(
+    async (roundId: string, dados: Record<string, unknown>, fotos: FotoLocal[]): Promise<'enviado' | 'fila'> => {
+      const camera = fotos.filter((f) => f.capturada_na_hora).map((f) => f.blob);
+      const galeria = fotos.filter((f) => !f.capturada_na_hora).map((f) => f.blob);
+      const guardar = async (): Promise<'fila'> => {
+        const r = await enfileirar({
+          chave: String(dados.chave_idempotente),
+          round_id: roundId,
+          dados: { ...dados, origem_offline: true },
+          fotos: camera,
+          anexos: galeria,
+        });
+        if (!r.ok) throw new Error(r.motivo);
+        setPendentes(r.itens);
+        return 'fila';
+      };
+      if (!navigator.onLine) return guardar();
+      try {
+        await postarCompleto(roundId, montarFormData(dados, camera, galeria));
+        return 'enviado';
+      } catch (error) {
+        if (recusaDefinitiva(error)) throw error;
+        return guardar();
+      }
+    },
+    []
+  );
 
   const jaCarregou = useRef(false);
   useEffect(() => {
@@ -373,7 +508,8 @@ export default function RondaMobilePage() {
     jaCarregou.current = true;
     carregarMinhasRondas();
     carregarPostos();
-  }, [authLoading, user?.id, carregarMinhasRondas, carregarPostos]);
+    despacharFila();
+  }, [authLoading, user?.id, carregarMinhasRondas, carregarPostos, despacharFila]);
 
   const rondasHoje = useMemo(
     () =>
@@ -434,6 +570,7 @@ export default function RondaMobilePage() {
     setCpTipo('verificacao_posto');
     setCpStatus('conforme');
     setCpObs('');
+    setCpFotos([]);
     setCheckpointAberto(true);
     setBuscandoGps(true);
     const fix = await pedirLocalizacao();
@@ -452,11 +589,15 @@ export default function RondaMobilePage() {
       toast.error('Selecione o posto do checkpoint');
       return;
     }
+    const obrigatoria = cpStatus === 'nao_conforme';
+    if (obrigatoria && !cpFotos.some((f) => f.capturada_na_hora)) {
+      toast.error('Não conforme exige foto tirada pela câmera agora');
+      return;
+    }
     setSalvandoCheckpoint(true);
     try {
-      // CheckpointCreate: post_id, post_name, checkpoint_type, status,
-      // observations, latitude, longitude (sem campo accuracy no backend)
-      await api.post(`${RONDAS_URL}/${rondaAtiva.id}/checkpoints`, {
+      const hora = cpFotos.find((f) => f.capturada_na_hora)?.hora_aparelho ?? new Date().toISOString();
+      const dados = {
         post_id: cpPostoId,
         post_name: postoNome(cpPostoId),
         checkpoint_type: cpTipo,
@@ -464,21 +605,34 @@ export default function RondaMobilePage() {
         observations: cpObs.trim() || null,
         latitude: gpsFix?.latitude ?? null,
         longitude: gpsFix?.longitude ?? null,
-      });
-      toast.success(
-        gpsFix
-          ? `Checkpoint registrado (GPS ±${Math.round(gpsFix.accuracy)}m)`
-          : 'Checkpoint registrado SEM localização'
-      );
+        foto_obrigatoria: obrigatoria,
+        hora_aparelho: hora,
+        device_id: deviceId(),
+        chave_idempotente: chaveIdempotente(rondaAtiva.id, cpPostoId, cpTipo, hora),
+        origem_offline: false,
+      };
+      const modo = await enviarOuEnfileirar(rondaAtiva.id, dados, cpFotos);
+      if (modo === 'fila') {
+        toast.warning('Sem sinal — checkpoint guardado no aparelho; sobe sozinho quando o sinal voltar');
+      } else {
+        toast.success(
+          gpsFix
+            ? `Checkpoint registrado (GPS ±${Math.round(gpsFix.accuracy)}m)`
+            : 'Checkpoint registrado SEM localização'
+        );
+      }
       setCheckpointAberto(false);
-      const detalhe = await carregarDetalheRonda(rondaAtiva.id);
-      if (detalhe) setRondaAtiva(detalhe);
+      setCpFotos([]);
+      if (modo === 'enviado') {
+        const detalhe = await carregarDetalheRonda(rondaAtiva.id);
+        if (detalhe) setRondaAtiva(detalhe);
+      }
     } catch (error) {
       toast.error(detalheErro(error));
     } finally {
       setSalvandoCheckpoint(false);
     }
-  }, [rondaAtiva, cpPostoId, cpTipo, cpStatus, cpObs, gpsFix, postoNome, carregarDetalheRonda]);
+  }, [rondaAtiva, cpPostoId, cpTipo, cpStatus, cpObs, cpFotos, gpsFix, postoNome, carregarDetalheRonda, enviarOuEnfileirar]);
 
   // ── Visita ao condomínio: check-in / check-out ─────────────────────────────
   /**
@@ -515,15 +669,29 @@ export default function RondaMobilePage() {
       if (!fix) {
         toast.warning('Sem localização — o registro seguirá sem coordenadas');
       }
-      await api.post(`${RONDAS_URL}/${rondaAtiva.id}/checkpoints`, {
-        post_id: visitaPostoId,
-        post_name: nome,
-        checkpoint_type: entrando ? 'checkin_condominio' : 'checkout_condominio',
-        status: 'conforme',
-        title: `${entrando ? 'Check-in' : 'Check-out'} — ${nome}`,
-        latitude: fix?.latitude ?? null,
-        longitude: fix?.longitude ?? null,
-      });
+      const tipo = entrando ? 'checkin_condominio' : 'checkout_condominio';
+      const hora = new Date().toISOString();
+      const modo = await enviarOuEnfileirar(
+        rondaAtiva.id,
+        {
+          post_id: visitaPostoId,
+          post_name: nome,
+          checkpoint_type: tipo,
+          status: 'conforme',
+          title: `${entrando ? 'Check-in' : 'Check-out'} — ${nome}`,
+          latitude: fix?.latitude ?? null,
+          longitude: fix?.longitude ?? null,
+          hora_aparelho: hora,
+          device_id: deviceId(),
+          chave_idempotente: chaveIdempotente(rondaAtiva.id, visitaPostoId, tipo, hora),
+          origem_offline: false,
+        },
+        []
+      );
+      if (modo === 'fila') {
+        toast.warning(`Sem sinal — ${entrando ? 'check-in' : 'check-out'} guardado no aparelho`);
+        return;
+      }
       toast.success(
         entrando ? `Check-in registrado em ${nome}` : `Check-out registrado de ${nome}`
       );
@@ -534,7 +702,7 @@ export default function RondaMobilePage() {
     } finally {
       setSalvandoVisita(false);
     }
-  }, [rondaAtiva, visitaPostoId, dentroDoPosto, postoNome, carregarDetalheRonda]);
+  }, [rondaAtiva, visitaPostoId, dentroDoPosto, postoNome, carregarDetalheRonda, enviarOuEnfileirar]);
 
   // ── Registrar atividade (com fotos) ────────────────────────────────────────
   const abrirAtividade = useCallback(() => {
@@ -542,55 +710,12 @@ export default function RondaMobilePage() {
     setAtvStatus('conforme');
     setAtvRelato('');
     setAtvFotos([]);
-    setAtvPreviews((prev) => {
-      prev.forEach((u) => URL.revokeObjectURL(u));
-      return [];
-    });
-    setProgressoFoto(null);
     setAtividadeAberta(true);
   }, []);
 
   const fecharAtividade = useCallback(() => {
-    setAtvPreviews((prev) => {
-      prev.forEach((u) => URL.revokeObjectURL(u));
-      return [];
-    });
     setAtvFotos([]);
-    setProgressoFoto(null);
     setAtividadeAberta(false);
-  }, []);
-
-  const aoEscolherFotos = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const escolhidas = Array.from(e.target.files ?? []);
-      e.target.value = ''; // permite escolher o mesmo arquivo de novo
-      if (escolhidas.length === 0) return;
-      const aceitas: File[] = [];
-      for (const f of escolhidas) {
-        if (atvFotos.length + aceitas.length >= MAX_FOTOS) {
-          toast.warning(`Máximo de ${MAX_FOTOS} fotos por atividade`);
-          break;
-        }
-        if (f.size > MAX_TAM_FOTO) {
-          toast.error(`"${f.name}" excede 10MB e foi ignorada`);
-          continue;
-        }
-        aceitas.push(f);
-      }
-      if (aceitas.length === 0) return;
-      setAtvFotos((prev) => [...prev, ...aceitas]);
-      setAtvPreviews((prev) => [...prev, ...aceitas.map((f) => URL.createObjectURL(f))]);
-    },
-    [atvFotos.length]
-  );
-
-  const removerFoto = useCallback((idx: number) => {
-    setAtvPreviews((prev) => {
-      const url = prev[idx];
-      if (url) URL.revokeObjectURL(url);
-      return prev.filter((_, i) => i !== idx);
-    });
-    setAtvFotos((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
   const salvarAtividade = useCallback(async () => {
@@ -600,52 +725,48 @@ export default function RondaMobilePage() {
       toast.error('Descreva o que foi feito (mínimo 10 caracteres)');
       return;
     }
+    const obrigatoria = atvStatus === 'nao_conforme';
+    if (obrigatoria && !atvFotos.some((f) => f.capturada_na_hora)) {
+      toast.error('Não conforme exige foto tirada pela câmera agora');
+      return;
+    }
     setSalvandoAtividade(true);
     try {
       const nome = postoNome(visitaPostoId);
       const tipoLabel = ATIVIDADE_TIPOS.find((t) => t.value === atvTipo)?.label ?? atvTipo;
-      // 1) Cria o checkpoint da atividade
-      const res = await api.post(`${RONDAS_URL}/${rondaAtiva.id}/checkpoints`, {
-        post_id: visitaPostoId,
-        post_name: nome,
-        checkpoint_type: atvTipo,
-        status: atvStatus,
-        title: `${tipoLabel} — ${nome}`,
-        description: relato,
-      });
-      const cp = res.data as Checkpoint;
-
-      // 2) Sobe as fotos UMA A UMA (multipart, campo "file")
-      let enviadas = 0;
-      for (let i = 0; i < atvFotos.length; i++) {
-        const foto = atvFotos[i];
-        if (!foto) continue;
-        setProgressoFoto(`Enviando foto ${i + 1}/${atvFotos.length}…`);
-        const fd = new FormData();
-        fd.append('file', foto);
-        try {
-          await api.post(`${RONDAS_URL}/${rondaAtiva.id}/checkpoints/${cp.id}/fotos`, fd, {
-            // o axios global força Content-Type: application/json — sem este override
-            // o multipart sai sem boundary e o backend rejeita (bug provado 10/07)
-            headers: { 'Content-Type': 'multipart/form-data' },
-          });
-          enviadas++;
-        } catch (error) {
-          toast.error(`Foto ${i + 1}: ${detalheErro(error)}`);
-        }
-      }
-      setProgressoFoto(null);
-      toast.success(
-        `Atividade registrada com ${enviadas} foto${enviadas === 1 ? '' : 's'}`
+      const hora = atvFotos.find((f) => f.capturada_na_hora)?.hora_aparelho ?? new Date().toISOString();
+      // checkpoint + fotos na MESMA requisição (antes: 1 POST do checkpoint + 1 POST por foto)
+      const modo = await enviarOuEnfileirar(
+        rondaAtiva.id,
+        {
+          post_id: visitaPostoId,
+          post_name: nome,
+          checkpoint_type: atvTipo,
+          status: atvStatus,
+          title: `${tipoLabel} — ${nome}`,
+          description: relato,
+          foto_obrigatoria: obrigatoria,
+          hora_aparelho: hora,
+          device_id: deviceId(),
+          chave_idempotente: chaveIdempotente(rondaAtiva.id, visitaPostoId, atvTipo, hora),
+          origem_offline: false,
+        },
+        atvFotos
       );
+      if (modo === 'fila') {
+        toast.warning('Sem sinal — atividade guardada no aparelho; sobe sozinha quando o sinal voltar');
+      } else {
+        toast.success(`Atividade registrada com ${atvFotos.length} foto${atvFotos.length === 1 ? '' : 's'}`);
+      }
       fecharAtividade();
-      const detalhe = await carregarDetalheRonda(rondaAtiva.id);
-      if (detalhe) setRondaAtiva(detalhe);
+      if (modo === 'enviado') {
+        const detalhe = await carregarDetalheRonda(rondaAtiva.id);
+        if (detalhe) setRondaAtiva(detalhe);
+      }
     } catch (error) {
       toast.error(detalheErro(error));
     } finally {
       setSalvandoAtividade(false);
-      setProgressoFoto(null);
     }
   }, [
     rondaAtiva,
@@ -657,6 +778,7 @@ export default function RondaMobilePage() {
     postoNome,
     fecharAtividade,
     carregarDetalheRonda,
+    enviarOuEnfileirar,
   ]);
 
   // ── Pausar / Retomar / Concluir ────────────────────────────────────────────
@@ -797,6 +919,19 @@ export default function RondaMobilePage() {
                 <div className="mt-1 text-xs text-muted-foreground">
                   {r.total_checkpoints} checkpoint{r.total_checkpoints === 1 ? '' : 's'} registrado{r.total_checkpoints === 1 ? '' : 's'}
                 </div>
+                {(!online || pendentes > 0) && (
+                  <div className={`mt-1 flex items-center gap-1 text-xs ${online ? 'text-amber-700' : 'text-red-700'}`}>
+                    {online ? <CloudUpload className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+                    {online
+                      ? `${pendentes} pendente${pendentes === 1 ? '' : 's'} de envio`
+                      : `Sem sinal${pendentes > 0 ? ` — ${pendentes} no aparelho` : ' — registros ficam no aparelho'}`}
+                    {online && pendentes > 0 && (
+                      <button type="button" onClick={despacharFila} disabled={enviandoFila} className="ml-1 underline">
+                        {enviandoFila ? 'enviando…' : 'enviar agora'}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 {r.started_at ? (
@@ -1018,6 +1153,14 @@ export default function RondaMobilePage() {
                 />
               </div>
 
+              <CameraCaptura
+                fotos={cpFotos}
+                onChange={setCpFotos}
+                max={MAX_FOTOS}
+                obrigatoria={cpStatus === 'nao_conforme'}
+                disabled={salvandoCheckpoint}
+              />
+
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -1077,10 +1220,16 @@ export default function RondaMobilePage() {
                         className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           cp.status === 'nao_conforme'
                             ? 'bg-red-100 text-red-700'
-                            : 'bg-green-100 text-green-700'
+                            : cp.status === 'pendente_foto'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-green-100 text-green-700'
                         }`}
                       >
-                        {cp.status === 'nao_conforme' ? 'Não conforme' : 'Conforme'}
+                        {cp.status === 'nao_conforme'
+                          ? 'Não conforme'
+                          : cp.status === 'pendente_foto'
+                            ? 'Aguardando foto'
+                            : 'Conforme'}
                       </span>
                       {(cp.description || cp.observations) && (
                         <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
@@ -1290,61 +1439,14 @@ export default function RondaMobilePage() {
                 </div>
               </div>
 
-              {/* Fotos */}
-              <div>
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Fotos (até {MAX_FOTOS}, máx. 10MB cada)
-                </span>
-                <input
-                  ref={fotoInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  className="hidden"
-                  onChange={aoEscolherFotos}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-12 w-full"
-                  onClick={() => fotoInputRef.current?.click()}
-                  disabled={atvFotos.length >= MAX_FOTOS || salvandoAtividade}
-                >
-                  <Camera className="mr-2 h-5 w-5" />
-                  Adicionar fotos ({atvFotos.length}/{MAX_FOTOS})
-                </Button>
-                {atvPreviews.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {atvPreviews.map((url, idx) => (
-                      <div key={url} className="relative">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- preview local (blob) */}
-                        <img
-                          src={url}
-                          alt={`Foto ${idx + 1}`}
-                          className="h-16 w-16 rounded-md object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removerFoto(idx)}
-                          disabled={salvandoAtividade}
-                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white"
-                          aria-label={`Remover foto ${idx + 1}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Progresso do upload */}
-              {progressoFoto && (
-                <div className="flex items-center gap-2 rounded-md bg-blue-50 p-2 text-sm text-blue-700">
-                  <Loader2 className="h-4 w-4 animate-spin" /> {progressoFoto}
-                </div>
-              )}
+              <CameraCaptura
+                fotos={atvFotos}
+                onChange={setAtvFotos}
+                max={MAX_FOTOS}
+                obrigatoria={atvStatus === 'nao_conforme'}
+                permitirGaleria
+                disabled={salvandoAtividade}
+              />
 
               <div className="flex gap-2">
                 <Button
