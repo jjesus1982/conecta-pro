@@ -125,17 +125,23 @@ async def _empresa(db: AsyncSession, cnpj: str) -> dict[str, Any] | None:
     return dict(r) if r else None
 
 
-async def _dispositivo(db: AsyncSession, empresa: dict[str, Any], origem: str) -> str:
-    """Um rep_devices por (empregador, origem). Cria na primeira batida; serial é a chave."""
-    serial = f"REP-P-{empresa['cnpj']}-{origem.upper()}"
+async def _dispositivo(db: AsyncSession, empresa: dict[str, Any]) -> str:
+    """Um rep_devices por ESTABELECIMENTO (CNPJ). Cria na primeira batida; serial é a chave.
+
+    Anexo IX: "cada estabelecimento terá a sua própria sequência de NSR, iniciando em 1 na
+    primeira operação do REP em relação ao estabelecimento". Uma sequência por origem daria
+    quatro NSR=1 no mesmo CNPJ, e o nome do arquivo AFD (AFD+INPI+CNPJ+REP_P) nem tem campo
+    para origem. A origem vive no campo 6 do registro tipo 7 (coletor) e na coluna `origem`.
+    """
+    serial = f"REP-P-{empresa['cnpj']}"
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:s))"), {"s": serial})
     await db.execute(text(
         "INSERT INTO rep_devices (id, condominio_id, manufacturer, model, serial_number, "
         " device_name, description, status, is_active) "
         "VALUES (gen_random_uuid(), :emp, 'conecta_pro', 'rep_p', :s, :nome, :desc, 'online', true) "
         "ON CONFLICT (serial_number) DO NOTHING"),
-        {"emp": empresa["id"], "s": serial, "nome": f"REP-P {origem} — {empresa['razao_social']}"[:100],
-         "desc": f"coletor virtual do REP-P: batidas de origem '{origem}' de {empresa['razao_social']}"})
+        {"emp": empresa["id"], "s": serial, "nome": f"REP-P — {empresa['razao_social']}"[:100],
+         "desc": f"REP-P (programa) do estabelecimento {empresa['cnpj']} — {empresa['razao_social']}"})
     return (await db.execute(text("SELECT id::text FROM rep_devices WHERE serial_number=:s"),
                              {"s": serial})).scalar_one()
 
@@ -156,27 +162,27 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
         WHERE p.punch_timestamp >= :corte AND a.id IS NULL
         ORDER BY p.punch_timestamp, p.id"""), {"corte": CORTE})).mappings().all()
     geradas, sem_cpf, sem_empresa = 0, set(), set()
-    grupos: dict[tuple[str, str], list] = defaultdict(list)
+    grupos: dict[str, list] = defaultdict(list)
     for p in pend:
         if len(p["cpf"]) != 11:
             sem_cpf.add(p["nome"])
         elif not p["emp"]:
             sem_empresa.add(p["nome"])
         else:
-            grupos[(p["emp"], p["device_type"] or "web")].append(p)
+            grupos[p["emp"]].append(p)
 
     cpf_resp = (await db.execute(text(
         "SELECT regexp_replace(coalesce(cpf,''),'\\D','','g') FROM employees "
         "WHERE nome = 'Jordan Santos de Jesus' LIMIT 1"))).scalar() or ""
     agora = datetime.now(MANAUS).replace(tzinfo=None)
-    for (emp_id, origem), lote in grupos.items():
+    for emp_id, lote in grupos.items():
         emp = (await db.execute(text(
             "SELECT id, razao_social, regexp_replace(cnpj,'\\D','','g') cnpj FROM empresas "
             "WHERE id::text = :i"), {"i": emp_id})).mappings().first()
         if not emp:
             sem_empresa.update(p["nome"] for p in lote)
             continue
-        dev = await _dispositivo(db, dict(emp), origem)
+        dev = await _dispositivo(db, dict(emp))
         ult = (await db.execute(text(
             "SELECT nsr, line_hash, record_type FROM afd_records WHERE device_id = CAST(:d AS uuid) "
             "ORDER BY nsr DESC LIMIT 1"), {"d": dev})).first()
@@ -193,6 +199,7 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
                  "cnpj": emp["cnpj"], "rz": emp["razao_social"][:150]})
         for p in lote:
             nsr += 1
+            origem = p["device_type"] or "web"
             linha, h = linha_tipo7(nsr, p["punch_timestamp"], p["cpf"], agora,
                                    COLETOR.get(origem, "05"), bool(p["is_offline"]), hash_ant)
             await db.execute(text(
@@ -211,9 +218,11 @@ async def gerar_afd_desde_corte(db: AsyncSession, commit: bool = True) -> dict[s
             "sem_cpf": sorted(sem_cpf), "sem_empresa": sorted(sem_empresa)}
 
 
-async def montar_afd(db: AsyncSession, cnpj: str, origem: str, ini: date, fim: date) -> tuple[str, str]:
-    """Arquivo AFD de um dispositivo (empregador+origem) no período. Devolve (nome, conteúdo).
+async def montar_afd(db: AsyncSession, cnpj: str, ini: date, fim: date) -> tuple[str, str]:
+    """Arquivo AFD do estabelecimento no período. Devolve (nome, conteúdo).
 
+    Um arquivo por CNPJ, com todas as origens na mesma sequência de NSR (Anexo IX) — o nome que
+    a portaria manda ("AFD" + nº do INPI + CNPJ + "REP_P") não tem campo para origem.
     NSR do tipo 2 e do tipo 7 são os gravados; cabeçalho e trailer são montados na hora, como o
     Anexo I manda ("000000000" e "999999999"). Linhas CRLF, ISO-8859-1 fica por conta de quem grava.
     """
@@ -221,7 +230,7 @@ async def montar_afd(db: AsyncSession, cnpj: str, origem: str, ini: date, fim: d
     if not emp:
         raise ValueError(f"empregador {cnpj} não está em empresas")
     inpi = ((await instrumento(db)).get("INPI") or {}).get("numero") or ""
-    serial = f"REP-P-{emp['cnpj']}-{origem.upper()}"
+    serial = f"REP-P-{emp['cnpj']}"
     rows = (await db.execute(text("""
         SELECT a.record_type, a.afd_line FROM afd_records a
         JOIN rep_devices d ON d.id = a.device_id
@@ -235,7 +244,7 @@ async def montar_afd(db: AsyncSession, cnpj: str, origem: str, ini: date, fim: d
     linhas += [l for _, l in rows]
     linhas.append(linha_tipo9(qt))
     linhas.append(ASSINATURA)
-    nome = f"AFD{inpi or 'SEM_INPI'}{emp['cnpj']}REP_P_{origem}.txt"
+    nome = f"AFD{inpi or 'SEM_INPI'}{emp['cnpj']}REP_P.txt"
     return nome, "\r\n".join(linhas) + "\r\n"
 
 

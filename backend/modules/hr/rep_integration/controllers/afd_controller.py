@@ -216,17 +216,16 @@ async def rep_p_gerar(
     return await rep_p.gerar_afd_desde_corte(db)
 
 
-@router.get("/rep-p/arquivo", summary="AFD de um dispositivo (empregador + origem) no período")
+@router.get("/rep-p/arquivo", summary="AFD do estabelecimento (CNPJ) no período")
 async def rep_p_arquivo(
     cnpj: str = Query(..., description="CNPJ do empregador (só dígitos ou formatado)"),
-    origem: str = Query(..., description="origem da batida: mobile, web, facial, tangerino, contingencia…"),
     inicio: date = Query(...),
     fim: date = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
 ):
     try:
-        nome, txt = await rep_p.montar_afd(db, cnpj, origem, inicio, fim)
+        nome, txt = await rep_p.montar_afd(db, cnpj, inicio, fim)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return Response(txt.encode("latin-1", "replace"), media_type="text/plain; charset=iso-8859-1",
