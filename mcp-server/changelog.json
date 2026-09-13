@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "d8130b9cb",
+      "data": "2026-09-13",
+      "mudanca": "fix(mcp): opt-out — a 1ª correção era insuficiente e o MEU teste escondeu isso"
+    },
+    {
+      "commit": "43fca41b8",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "bfb3972fb",
       "data": "2026-09-13",
       "mudanca": "fix(mcp): blocos 1-5 do fechamento — LGPD por inspeção, preview valida existência, ensaio valida tipo"
@@ -190,16 +200,6 @@
       "commit": "ca8f839d6",
       "data": "2026-09-11",
       "mudanca": "feat(mcp): `changelog_mcp` — a sessão do Cowork não vê o deploy acontecer (4.x)"
-    },
-    {
-      "commit": "a72e1d8c3",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): `ensaiar` dá dry_run às 82 ferramentas de escrita de uma vez — 3.3"
-    },
-    {
-      "commit": "745e5e047",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): 2.1 vale para TODAS as geradoras — 3/19 viraram 15/20"
     }
   ]
 }
