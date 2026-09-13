@@ -21,7 +21,7 @@ import logging
 import re
 import secrets
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -453,7 +453,13 @@ async def uniforme_entrega_lote(current_user: CurrentActiveUser, payload: dict =
         raise HTTPException(status_code=400, detail="SKU e quantidade são obrigatórios.")
     if motivo not in dict(_MOTIVOS):
         raise HTTPException(status_code=400, detail="Motivo inválido.")
-    prazo = (payload.get("prazo") or "").strip() or None
+    # asyncpg infere o tipo pelo CAST: com `CAST(:p AS date)` ele EXIGE um date, não a string
+    # do <input type=date> ("invalid input for query argument ... 'str' object has no attribute").
+    prazo = (payload.get("prazo") or "").strip()
+    try:
+        prazo = date.fromisoformat(prazo) if prazo else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Prazo: use uma data válida.") from None
     ids: dict[str, str] = {}
     post_id = (payload.get("post_id") or "").strip()
     if post_id:
