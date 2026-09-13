@@ -28,6 +28,7 @@ from .contract import ContractType, EmploymentContract
 from .employee import Employee as EmployeeRef
 from .employee_dp import EmployeeDP, GrauInsalubridade, JornadaType
 from .termination import TerminationProcess, TerminationStatus, TerminationType
+from .vigilante import EquipamentoControlado, EquipamentoControladoAlocacao, VigilanteCurso  # frente 05
 
 __all__ = [
     # Re-exported
@@ -41,6 +42,9 @@ __all__ = [
     "AdmissionStatus",
     "TerminationProcess",
     "TerminationType",
+    "VigilanteCurso",
+    "EquipamentoControlado",
+    "EquipamentoControladoAlocacao",
     "TerminationStatus",
     "EmployeeBenefit",
     "BenefitType",
