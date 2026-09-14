@@ -85,21 +85,28 @@ async def main() -> int:
     from core.database import async_session_factory  # noqa: PLC0415
     from modules.operacional.controllers import redesign_data_controller as RD  # noqa: PLC0415
 
-    # 1. Tudo que o app sabe FAZER.
-    rotas: list[tuple[str, str]] = []
+    # 1. Tudo que o app sabe FAZER — guardando a FUNÇÃO de cada rota.
+    #    O mesmo router é montado em mais de um prefixo: o disciplinar existe em
+    #    `/operacional/medidas-administrativas` E em
+    #    `/people-management/hr/discipline/medidas-administrativas`. A tela chama um dos
+    #    dois, e o outro pareceria 15 capacidades órfãs. Não são: é a MESMA função. Por
+    #    isso a chave de identidade é a função, não o caminho.
+    rotas: list[tuple[str, str, object]] = []
 
     def walk(routes, prefix=""):
         for r in routes:
             p, ms = getattr(r, "path", None), getattr(r, "methods", None)
             if p and ms:
+                fn = getattr(r, "endpoint", None)
                 for m in ms:
                     if m.upper() in ESCREVE:
-                        rotas.append((prefix + p, m.upper()))
+                        rotas.append((prefix + p, m.upper(), fn))
             if getattr(r, "routes", None):
                 walk(r.routes, prefix + (p or ""))
 
     walk(main_production.app.routes)
-    rotas = sorted(set(rotas))
+    rotas = sorted({(c, m, id(f) if f else None) for c, m, f in rotas}, key=lambda x: x[0])
+    _fn_por_caminho = {(c, m): f for c, m, f in rotas}
 
     # 2. Tudo que ALGUMA tela chama. Compara com `{param}` normalizado: a tela monta
     #    `/contratos/abc-123` e a rota é `/contratos/{id}` — é a mesma porta.
@@ -178,15 +185,20 @@ async def main() -> int:
             return True
         return _no_codigo(caminho) or _tem_acao_equivalente(caminho)
 
-    # 3. O que sobra.
+    # 3. O que sobra. Uma função coberta em QUALQUER prefixo está coberta em todos —
+    #    o botão existe, só entra pelo outro caminho.
+    funcoes_cobertas = {
+        fn for (caminho, metodo, fn) in rotas if fn is not None and coberta(caminho, metodo)
+    }
     achados: list[tuple[str, str, str]] = []
     ignoradas = 0
-    for caminho, metodo in rotas:
+    for caminho, metodo, fn in rotas:
         if _fora(caminho):
             ignoradas += 1
             continue
-        if not coberta(caminho, metodo):
-            achados.append((_familia(caminho), metodo, caminho))
+        if coberta(caminho, metodo) or (fn is not None and fn in funcoes_cobertas):
+            continue
+        achados.append((_familia(caminho), metodo, caminho))
 
     por_familia: dict[str, list[tuple[str, str]]] = {}
     for fam, metodo, caminho in achados:

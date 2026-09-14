@@ -70,6 +70,59 @@ def _ged_actor(name, tipo):
     return name
 
 
+
+def _corrigir_batida(r):
+    """Corrigir o TIPO de uma batida — r[4]=punch_id, r[2]=tipo atual.
+
+    LIGAR 14/09/2026 (pedido do Jordan: "tive que recorrer ao terminal"). O endpoint
+    `PATCH /people-management/hr/time-records/{id}` existe desde a auditoria de 23/08 e
+    NUNCA teve botão: o DP via a batida errada na tela e ia ao banco consertar.
+
+    Não muda HORÁRIO — de propósito. Horário é registro de fato da Portaria 671; o que se
+    conserta aqui é o RÓTULO que o app atribuiu errado (a entrada das 08:00 que virou
+    "saída para o almoço"). O motivo é obrigatório e vai para a auditoria: quem ler daqui
+    a um ano precisa saber por quê, e "corrigido" sozinho não explica nada.
+    """
+    #: Rótulos aqui dentro DE PROPÓSITO: o `_PUNCH_TP` da tela mora dentro de `build()` e
+    #: esta função é de módulo. Referenciá-lo dava NameError — que o `safe()` engole,
+    #: deixando a tela ANTIGA no ar como se nada tivesse acontecido. Erro silencioso é o
+    #: pior: a mudança "não aparece" e não há nada no log.
+    rotulos = {
+        "entrada": "Entrada", "saida": "Saída", "saída": "Saída",
+        "saida_almoco": "Saída para o almoço", "retorno_almoco": "Retorno do almoço",
+        "volta_almoco": "Retorno do almoço", "intervalo": "Intervalo", "extra": "Extra",
+    }
+    pid, atual = r[4], (r[2] or "").lower()
+    if not pid:
+        return None
+    opcoes = [
+        {"value": "entrada", "label": "Entrada"},
+        {"value": "saida_almoco", "label": "Saída para o almoço"},
+        {"value": "retorno_almoco", "label": "Retorno do almoço"},
+        {"value": "saida", "label": "Saída"},
+    ]
+    return [
+        {
+            "title": f"Corrigir a batida de {r[0]} — {r[1]}",
+            "sub": f"Hoje está como «{rotulos.get(atual, atual or '—')}». "
+                   "O horário não muda; só o tipo, e com motivo auditado.",
+            "endpoint": f"/api/v1/people-management/hr/time-records/{pid}",
+            "method": "PATCH",
+            "btnLabel": "Corrigir",
+            "submitLabel": "Corrigir batida",
+            "btnStyle": "outline",
+            "okMsg": "Batida corrigida. Recarregue.",
+            "fields": [
+                {"key": "punch_type", "label": "Tipo correto*", "type": "select", "span": "span 2",
+                 "ph": "Selecione", "options": [o for o in opcoes if o["value"] != atual]},
+                {"key": "motivo", "label": "Por que está corrigindo?* (vai para a auditoria)",
+                 "type": "textarea", "span": "span 2",
+                 "ph": "Ex.: o app rotulou a entrada das 08:00 como saída para o almoço"},
+            ],
+        }
+    ]
+
+
 async def build(db) -> dict:
     out, safe, tbl = _helpers(db)
     out.update(await _base(db))
@@ -477,25 +530,34 @@ async def build(db) -> dict:
         "saída": "Saída",
         "intervalo": "Intervalo",
         "retorno": "Retorno",
+        # Os quatro tipos que o app grava de verdade faltavam aqui: a coluna mostrava
+        # "Saida_almoco" cru, com underscore e sem acento, na tela que o DP usa todo dia.
+        "saida_almoco": "Saída p/ almoço",
+        "retorno_almoco": "Volta do almoço",
+        "volta_almoco": "Volta do almoço",
+        "extra": "Extra (fora da sequência)",
     }
     await safe(
         "ponto",
         tbl(
             "Ponto eletrônico",
-            "Últimas batidas",
+            "Últimas batidas — a linha errada se corrige aqui, com motivo",
             "—",
-            ["Colaborador", "Data/hora", "Tipo", "Status"],
-            "1.8fr 1.1fr 1fr 1fr",
+            ["Colaborador", "Data/hora", "Tipo", "Origem", "Status"],
+            "1.6fr 1fr 1fr 0.8fr 0.9fr",
             "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp,'DD/MM HH24:MI'), "
-            "coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—') "
+            "coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—'), "
+            "p.punch_id, coalesce(p.device_type,'—') "
             "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id "
             "ORDER BY p.punch_timestamp DESC NULLS LAST LIMIT 200",
             lambda r: [
                 t(r[0] or "—", 600, "#0F1B3A", initials(r[0] or "")),
                 t(r[1]),
                 t(_PUNCH_TP.get((r[2] or "").lower(), (r[2] or "—").capitalize())),
+                t((r[5] or "—").capitalize()),
                 b(*_PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))),
             ],
+            actionsfn=_corrigir_batida,
         ),
     )
 

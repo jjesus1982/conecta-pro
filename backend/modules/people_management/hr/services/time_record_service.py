@@ -825,6 +825,22 @@ class TimeRecordService:
                     "Correção de tipo de batida exige identificar quem está alterando — "
                     "é documento trabalhista e a alteração fica registrada."
                 )
+            # `updated_by` truthy não basta: em 14/09/2026 um teste passou a string "0" e a
+            # correção foi aceita, gravando em `gp_audit_logs` uma alteração de ponto com
+            # autor "0" — um usuário que não existe. Trilha com autor inexistente não é
+            # trilha; numa reclamatória ela vale menos que nenhuma. O autor tem que SER
+            # alguém.
+            _existe = (
+                await self.db.execute(
+                    text("SELECT 1 FROM users WHERE id::text = :u LIMIT 1"),
+                    {"u": str(updated_by)},
+                )
+            ).scalar()
+            if not _existe:
+                raise ValueError(
+                    f"Quem está corrigindo ({updated_by!r}) não é um usuário do sistema — "
+                    "a correção de ponto precisa de autor real na auditoria."
+                )
             tipo_antes = str(row["punch_type"] or "").lower()
             if novo_tipo != tipo_antes:
                 sets.append("punch_type = :novo_tipo")
