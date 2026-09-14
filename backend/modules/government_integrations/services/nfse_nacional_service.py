@@ -11,12 +11,14 @@ Documentacao: https://www.gov.br/nfse/pt-br/acesso-a-informacao/manuais
 
 import logging
 import os
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from modules.government_integrations.core import CertificateManager
 from modules.government_integrations.core.nfse_nacional import (
+    CTRIBNAC_PADRAO,
     MAPEAMENTO_SERVICOS_VIGILANCIA,
     AmbienteNacional,
     DPSNacional,
@@ -29,6 +31,14 @@ from modules.government_integrations.core.nfse_nacional import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CertificadoDeOutraEmpresaError(RuntimeError):
+    """O certificado carregado não pertence ao CNPJ que vai emitir a nota.
+
+    Emitir assinado pela empresa errada é pior do que não emitir: a nota nasce
+    com o CNPJ de um prestador e a assinatura de outro. Aqui a emissão PARA.
+    """
 
 
 class NFSeNacionalService:
@@ -71,9 +81,7 @@ class NFSeNacionalService:
             refresh_empresas_config()
             cfg = EMPRESAS_CONFIG.get(empresa_slug)
             if not cfg or not cfg.get("cnpj"):
-                raise LookupError(
-                    f"NFSe Nacional: empresa '{empresa_slug}' sem configuração/CNPJ ativo"
-                )
+                raise LookupError(f"NFSe Nacional: empresa '{empresa_slug}' sem configuração/CNPJ ativo")
             self.cnpj = cfg["cnpj"]
             self.ambiente = cfg.get("ambiente") or "homologacao"
             self.inscricao_municipal = cfg.get("inscricao_municipal") or ""
@@ -98,6 +106,25 @@ class NFSeNacionalService:
             + (f" (empresa={empresa_slug})" if empresa_slug else "")
         )
 
+    def _exigir_certificado_da_empresa(self) -> None:
+        """O CNPJ do certificado tem que ser o CNPJ que assina a nota.
+
+        Sem esta trava, `empresa_slug` trocava o CNPJ do XML mas o certificado
+        continuava sendo o do singleton — nota da Patrimonial assinada pela
+        Eletrônica. O fisco recusa, e se não recusasse seria pior.
+        """
+        import re as _re
+
+        do_cert = _re.sub(r"\D", "", (self._cert_manager.info.subject_cpf_cnpj or ""))
+        da_empresa = _re.sub(r"\D", "", self.cnpj or "")
+        if do_cert and da_empresa and do_cert != da_empresa:
+            raise CertificadoDeOutraEmpresaError(
+                f"o certificado em {self.cert_path} é do CNPJ {do_cert} "
+                f"({self._cert_manager.info.subject_cn}), mas a emissão é do CNPJ {da_empresa}"
+                + (f" (empresa '{self.empresa_slug}')" if self.empresa_slug else "")
+                + " — nota assinada pela empresa errada não sai daqui"
+            )
+
     def _get_manager(self) -> NFSeNacionalManager:
         """Obtem instancia do manager, inicializando se necessario."""
         if self._manager is None:
@@ -107,6 +134,9 @@ class NFSeNacionalService:
                     self._cert_manager = CertificateManager(pfx_path=self.cert_path, password=self.cert_password)
                     self._cert_manager.load()
                     logger.info(f"Certificado carregado: {self._cert_manager.info.subject_cn}")
+                    self._exigir_certificado_da_empresa()
+                except CertificadoDeOutraEmpresaError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Erro ao carregar certificado: {e}")
                     self._cert_manager = None
@@ -153,6 +183,17 @@ class NFSeNacionalService:
 
         # Criar prestador
         if prestador_data:
+            # A segunda porta para o mesmo erro: o slug escolhe o certificado, mas
+            # `prestador.cnpj` escrevia por cima do CNPJ no XML. Quem quer emitir por
+            # outro CNPJ troca de EMPRESA, não de campo.
+            pedido = re.sub(r"\D", "", str(prestador_data.get("cnpj") or ""))
+            meu = re.sub(r"\D", "", self.cnpj or "")
+            if pedido and meu and pedido != meu:
+                raise CertificadoDeOutraEmpresaError(
+                    f"prestador.cnpj={pedido} não é o CNPJ desta emissão ({meu})"
+                    + (f", empresa '{self.empresa_slug}'" if self.empresa_slug else "")
+                    + " — escolha a empresa em `empresa`, não reescreva o CNPJ do prestador"
+                )
             prestador = PrestadorNacional(
                 cnpj=prestador_data.get("cnpj", self.cnpj),
                 inscricao_municipal=prestador_data.get("inscricao_municipal", self.inscricao_municipal),
@@ -195,7 +236,7 @@ class NFSeNacionalService:
         aliquota_iss = Decimal(str(servico_data.get("aliquota_iss", "0.05")))
 
         servico = ServicoNacional(
-            codigo_tributacao_nacional=servico_data.get("codigo_tributacao_nacional", "1.1701.10.00"),
+            codigo_tributacao_nacional=servico_data.get("codigo_tributacao_nacional") or CTRIBNAC_PADRAO,
             descricao=servico_data.get("descricao", ""),
             valor_servico=valor_servico,
             valor_deducao=Decimal(str(servico_data.get("valor_deducao", 0))),
@@ -490,13 +531,33 @@ class NFSeNacionalService:
         return codigos
 
 
-# Singleton para uso global
-_nfse_nacional_service: NFSeNacionalService | None = None
+# Um service POR EMPRESA. Era um singleton só, sem slug: qualquer emissão saía com o
+# CNPJ e o certificado da Eletrônica, e a Patrimonial — que é quem faz vigilância,
+# portaria e limpeza — não tinha como emitir nota nenhuma pelo ERP.
+_services_por_empresa: dict[str | None, NFSeNacionalService] = {}
+
+#: Apelidos aceitos na API para não obrigar ninguém a decorar o slug.
+_APELIDOS: dict[str, str] = {
+    "eletronica": "conecta_eletronica",
+    "conectamais_eletronica": "conecta_eletronica",
+    "35710481000103": "conecta_eletronica",
+    "patrimonial": "conecta_patrimonial",
+    "conectamais_patrimonial": "conecta_patrimonial",
+    "66014833000110": "conecta_patrimonial",
+}
 
 
-def get_nfse_nacional_service() -> NFSeNacionalService:
-    """Obtem instancia singleton do service."""
-    global _nfse_nacional_service
-    if _nfse_nacional_service is None:
-        _nfse_nacional_service = NFSeNacionalService()
-    return _nfse_nacional_service
+def resolver_empresa_slug(valor: str | None) -> str | None:
+    """Slug canônico a partir de slug, apelido ou CNPJ (com ou sem pontuação)."""
+    if not valor:
+        return None
+    bruto = str(valor).strip().lower()
+    return _APELIDOS.get(bruto) or _APELIDOS.get(re.sub(r"\D", "", bruto)) or bruto
+
+
+def get_nfse_nacional_service(empresa: str | None = None) -> NFSeNacionalService:
+    """Service da empresa pedida. `None` = comportamento histórico (CNPJ1, via env)."""
+    slug = resolver_empresa_slug(empresa)
+    if slug not in _services_por_empresa:
+        _services_por_empresa[slug] = NFSeNacionalService(empresa_slug=slug)
+    return _services_por_empresa[slug]

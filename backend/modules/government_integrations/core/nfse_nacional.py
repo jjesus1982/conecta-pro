@@ -244,7 +244,12 @@ class NFSeNacionalManager:
         tp_amb = "1" if getattr(self, "ambiente", None) == AmbienteNacional.PRODUCAO else "2"
         cnpj_clean = _re.sub(r"\D", "", self.cnpj)
         tomador_doc = _re.sub(r"\D", "", dps.tomador.cpf_cnpj) if dps.tomador else ""
-        im = dps.prestador.inscricao_municipal if dps.prestador and dps.prestador.inscricao_municipal else "45177801"
+        # IM do prestador. SEM fallback: o valor fixo que estava aqui era a inscrição
+        # municipal da Eletrônica — qualquer outra empresa sem IM emitia com a IM dela.
+        # Vazio => a tag <IM> não vai no XML (o CNC do município pode não ter cadastro
+        # complementar; nesse caso o fisco devolve E0120 exigindo a ausência da tag).
+        im = (dps.prestador.inscricao_municipal or "").strip() if dps.prestador else ""
+        tag_im = f"\n      <IM>{im}</IM>" if im else ""
         # cTribNac: 6 dígitos (2 Item + 2 Subitem + 2 Desdobro LC 116/2003)
         raw_trib = _re.sub(r"\D", "", dps.servico.codigo_tributacao_nacional) if dps.servico else "140601"
         cod_trib = raw_trib[:6] if len(raw_trib) >= 6 else raw_trib.ljust(6, "0")
@@ -265,6 +270,10 @@ class NFSeNacionalManager:
         # opSimpNac: 1=Não optante (Lucro Real/Presumido), 2=MEI, 3=ME/EPP Simples
         _optante = bool(dps.prestador and dps.prestador.optante_simples)
         op_simp = "3" if _optante else "1"
+        # regApTribSN é OBRIGATÓRIO para ME/EPP do Simples (E0166) e PROIBIDO fora dele.
+        # 1 = tributos federais E o ISSQN apurados pelo próprio Simples — que é o caso da
+        # Patrimonial. (2 = ISS fixo por fora; 3 = ISS por fora pela LC 116.)
+        tag_reg_ap = "\n        <regApTribSN>1</regApTribSN>" if op_simp == "3" else ""
         # totTrib: optante usa pTotTribSN (% Simples); não optante usa vTotTrib (valores R$,
         # Lei 12.741 transparência fiscal) — indTotTrib/pTotTribSN proibidos p/ não optante (E0713)
         tot_trib = (
@@ -289,10 +298,9 @@ class NFSeNacionalManager:
     <tpEmit>1</tpEmit>
     <cLocEmi>1302603</cLocEmi>
     <prest>
-      <CNPJ>{cnpj_clean}</CNPJ>
-      <IM>{im}</IM>
+      <CNPJ>{cnpj_clean}</CNPJ>{tag_im}
       <regTrib>
-        <opSimpNac>{op_simp}</opSimpNac>
+        <opSimpNac>{op_simp}</opSimpNac>{tag_reg_ap}
         <regEspTrib>0</regEspTrib>
       </regTrib>
     </prest>
@@ -329,7 +337,7 @@ class NFSeNacionalManager:
 </DPS>"""
         return xml
 
-    def emitir_dps(self, dps: DPSNacional, dry_run: bool = False) -> dict[str, Any]:
+    def emitir_dps(self, dps: DPSNacional, dry_run: bool = False, _sem_im: bool = False) -> dict[str, Any]:
         """
         Emite DPS (Declaração de Prestação de Serviços) via API Nacional.
 
@@ -348,6 +356,8 @@ class NFSeNacionalManager:
         import requests
 
         # 1. Construir XML
+        if _sem_im and dps.prestador:
+            dps.prestador.inscricao_municipal = ""
         xml_dps = self._build_dps_xml(dps)
 
         result = {
@@ -440,6 +450,24 @@ class NFSeNacionalManager:
                     except Exception:
                         pass
 
+        # E0120: "IM do prestador não deve ser informado, pois não existem informações
+        # complementares registradas no CNC NFS-e do município emissor". É o caso da
+        # Patrimonial em Manaus hoje — a Eletrônica está no CNC e a Patrimonial não.
+        # Nada foi emitido (HTTP 400), então repetir é seguro; repete UMA vez sem a <IM>.
+        # No dia em que a prefeitura cadastrar a empresa no CNC, a 1ª tentativa passa e
+        # esta não roda mais — por isso é retentativa e não uma flag para alguém manter.
+        if (
+            not _sem_im
+            and result.get("status") == "rejeitada"
+            and "E0120" in str(result.get("response", ""))
+            and dps.prestador
+            and (dps.prestador.inscricao_municipal or "").strip()
+        ):
+            logger.info("NFS-e Nacional: E0120 — reenviando sem a IM do prestador (ordem do fisco)")
+            segunda = self.emitir_dps(dps, dry_run=False, _sem_im=True)
+            segunda["im_omitida_por_E0120"] = True
+            return segunda
+
         return result
 
     def consultar_status_migracao(self) -> dict[str, Any]:
@@ -523,6 +551,23 @@ class NFSeNacionalManager:
 
 # Mapeamento de códigos de serviço ABRASF para NBS (Nomenclatura Brasileira de Serviços)
 # Este mapeamento será necessário na migração
+def ctribnac_de_lc116(item: str) -> str:
+    """Código de tributação nacional (6 dígitos) a partir do item da LC 116/2003.
+
+    Regra do layout: Item(2) + Subitem(2) + Desdobro(2). "11.02" → "110201".
+
+    Isto existe porque o sistema mandava o código NBS ("1.1701.10.00") no campo
+    `cTribNac` e o fisco devolvia E0310 — «o código de tributação nacional informado
+    não existe» — em TODA emissão. NBS e cTribNac são listas diferentes.
+    """
+    import re as _re
+
+    partes = [x for x in _re.split(r"\D+", item or "") if x]
+    if len(partes) < 2:
+        raise ValueError(f"item LC 116 inválido: {item!r} (esperado como '11.02')")
+    return f"{int(partes[0]):02d}{int(partes[1]):02d}{partes[2] if len(partes) > 2 else '01'}"
+
+
 MAPEAMENTO_SERVICOS_VIGILANCIA = {
     # Código ABRASF -> Código NBS + descrição
     "11.02": {
@@ -541,7 +586,18 @@ MAPEAMENTO_SERVICOS_VIGILANCIA = {
         "nbs": "1.1701.30.00",
         "descricao": "Serviços de transporte de valores",
     },
+    "7.10": {
+        "nbs": "1.1601.10.00",
+        "descricao": "Limpeza, conservação, zeladoria e portaria",
+    },
 }
+
+# O que vai no XML é o cTribNac, derivado do próprio item — nunca o NBS.
+for _item, _d in MAPEAMENTO_SERVICOS_VIGILANCIA.items():
+    _d["ctribnac"] = ctribnac_de_lc116(_item)
+
+#: Vigilância/segurança privada (LC 116 item 11.02) — o serviço da Patrimonial.
+CTRIBNAC_PADRAO = MAPEAMENTO_SERVICOS_VIGILANCIA["11.02"]["ctribnac"]
 
 
 @dataclass

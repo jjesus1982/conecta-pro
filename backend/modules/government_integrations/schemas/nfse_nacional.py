@@ -142,7 +142,9 @@ class ServicoNacionalRequest(BaseModel):
     """Dados do servico no Padrao Nacional."""
 
     codigo_tributacao_nacional: str = Field(
-        default="1.1701.10.00", description="Codigo NBS (Nomenclatura Brasileira de Servicos) ou LC 116"
+        default="110201",
+        description="Código de tributação nacional (cTribNac), 6 dígitos: Item+Subitem+Desdobro "
+        "da LC 116/2003. 110201=vigilância, 071001=limpeza/portaria. NÃO é o código NBS.",
     )
     descricao: str = Field(..., min_length=10, max_length=2000, description="Descricao detalhada do servico prestado")
     valor_servico: Decimal = Field(..., gt=0, description="Valor total do servico")
@@ -161,6 +163,12 @@ class ServicoNacionalRequest(BaseModel):
 class EmitirDPSRequest(BaseModel):
     """Request para emissao de DPS (Declaracao de Prestacao de Servicos)."""
 
+    empresa: str | None = Field(
+        None,
+        description="Qual CNPJ do grupo emite: 'conecta_eletronica' | 'conecta_patrimonial' "
+        "(aceita 'eletronica'/'patrimonial' ou o CNPJ). Vazio = Eletrônica (legado). "
+        "Define o certificado que assina — não só o CNPJ do XML.",
+    )
     prestador: PrestadorNacionalRequest | None = Field(
         None, description="Dados do prestador (opcional, usa config padrao se nao informado)"
     )
@@ -189,7 +197,7 @@ class EmitirDPSRequest(BaseModel):
                     "email": "contato@empresa.com.br",
                 },
                 "servico": {
-                    "codigo_tributacao_nacional": "1.1701.10.00",
+                    "codigo_tributacao_nacional": "110201",
                     "descricao": "Servicos de vigilancia patrimonial armada conforme contrato 001/2026",
                     "valor_servico": "15000.00",
                     "aliquota_iss": "0.05",
@@ -254,7 +262,7 @@ class SubstituirNFSeNacionalRequest(BaseModel):
                     "cep": "69010001",
                 },
                 "servico": {
-                    "codigo_tributacao_nacional": "1.1701.10.00",
+                    "codigo_tributacao_nacional": "110201",
                     "descricao": "Servicos de vigilancia patrimonial - CORRECAO",
                     "valor_servico": "16000.00",
                     "aliquota_iss": "0.05",

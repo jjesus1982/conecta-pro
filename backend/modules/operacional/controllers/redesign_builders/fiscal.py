@@ -845,12 +845,15 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
             await db.rollback(); return 0
 
     out["nfse-emitir-dps"] = {  # POST /government/nfse-nacional/emitir — dry_run por padrão
-        "title": "NFS-e nacional — emitir DPS", "sub": "Emite uma nota pelo padrão nacional (ADN). Fica em SIMULAÇÃO (dry_run) até você trocar para 'não' — aí transmite de verdade. Tomador e serviço em JSON.",
+        "title": "NFS-e nacional — emitir DPS", "sub": "Emite uma nota pelo padrão nacional (ADN). A empresa escolhida define o CNPJ E o certificado que assina. Fica em SIMULAÇÃO (dry_run) até você trocar para 'não' — aí transmite de verdade. Tomador e serviço em JSON.",
         "cta": "Emitir", "type": "form", "submit": {"endpoint": "/api/v1/government/nfse-nacional/emitir", "okMsg": "Processado — veja o resultado.", "showResult": True},
-        "fields": [{"key": "tomador", "label": "Tomador (JSON)*", "type": "json", "span": "span 2",
+        "fields": [selecionar("empresa", "Empresa que emite*",
+                    [{"value": "conecta_patrimonial", "label": "ConectaMais Patrimonial — vigilância, portaria, limpeza"},
+                     {"value": "conecta_eletronica", "label": "ConectaMais Eletrônica — CFTV, monitoramento, automação"}], "span 2"),
+                   {"key": "tomador", "label": "Tomador (JSON)*", "type": "json", "span": "span 2",
                     "value": '{"cpf_cnpj": "", "razao_social": "", "logradouro": "", "numero": "S/N", "bairro": "", "codigo_municipio": "1302603", "uf": "AM", "cep": "", "email": ""}'},
                    {"key": "servico", "label": "Serviço (JSON)*", "type": "json", "span": "span 2",
-                    "value": '{"codigo_tributacao_nacional": "1.1701.10.00", "descricao": "", "valor_servico": 0}'},
+                    "value": '{"codigo_tributacao_nacional": "110201", "descricao": "", "valor_servico": 0}'},
                    {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"},
                    selecionar("tipo_tributacao", "Tributação", [{"value": "1", "label": "1 — no município"}, {"value": "2", "label": "2 — fora do município"}, {"value": "3", "label": "3 — isenção"}, {"value": "4", "label": "4 — imune"}], "span 1"),
                    selecionar("dry_run", "Simulação (dry run)?", _SN, "span 1")]}

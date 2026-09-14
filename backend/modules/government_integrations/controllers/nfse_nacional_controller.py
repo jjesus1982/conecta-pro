@@ -22,7 +22,10 @@ from ..schemas.nfse_nacional import (
     EmitirDPSResponse,
     StatusConexaoNacionalResponse,
 )
-from ..services.nfse_nacional_service import get_nfse_nacional_service
+from ..services.nfse_nacional_service import (
+    CertificadoDeOutraEmpresaError,
+    get_nfse_nacional_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,7 @@ async def emitir_dps(current_user: CurrentActiveUser, request: EmitirDPSRequest)
         StandardResponse com payload preparado.
     """
     try:
-        service = get_nfse_nacional_service()
+        service = get_nfse_nacional_service(request.empresa)
 
         prestador_data = request.prestador.model_dump() if request.prestador else None
 
@@ -76,7 +79,7 @@ async def emitir_dps(current_user: CurrentActiveUser, request: EmitirDPSRequest)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"NFS-e Nacional {status_dps}: {resultado.get('erro') or resultado.get('mensagem') or resultado.get('response') or 'sem detalhe'}"
-                       + (f" (HTTP {resultado.get('http_status')})" if resultado.get("http_status") else ""),
+                + (f" (HTTP {resultado.get('http_status')})" if resultado.get("http_status") else ""),
             )
 
         response_data = EmitirDPSResponse(
@@ -117,6 +120,14 @@ async def emitir_dps(current_user: CurrentActiveUser, request: EmitirDPSRequest)
         # informado não existe conforme a lista de serviços nacional» e o usuário leu
         # "erro interno". A causa estava escrita no log e não chegava a quem podia corrigir.
         raise
+    except CertificadoDeOutraEmpresaError as e:
+        # Trava de identidade: nota de uma empresa assinada pelo certificado de outra.
+        # É 422 e a mensagem é o motivo — 500 "erro interno" manda tentar de novo igual.
+        logger.error(f"Emissao BARRADA por identidade fiscal: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except LookupError as e:
+        logger.warning(f"Empresa emissora desconhecida: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except ValueError as e:
         logger.warning(f"Dados invalidos para emissao DPS: {e}")
         raise HTTPException(
@@ -178,5 +189,3 @@ async def validar_conexao(current_user: CurrentActiveUser) -> StandardResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao validar conexao",
         )
-
-
