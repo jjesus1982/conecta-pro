@@ -842,6 +842,66 @@ def _fech_status(status, anomalias, approved, sig_status, sig_signed):
     return b("Calculado", "mut")
 
 
+
+def _fech_actions(r):
+    """Aprovar e recalcular o espelho DE UMA PESSOA — LIGAR 14/09/2026.
+
+    Pedido do Jordan: *"a Pyetra precisa ver, ajustar e aprovar os pontos"*. Ela usava o
+    Sólides, onde se aprova colaborador por colaborador; aqui só existia «Fechar mês», que
+    fecha os 51 de uma vez, e por isso ela concluiu que a ferramenta não existia.
+
+    Existia — no BACKEND. `POST /ponto/fechar-mes` aceita `employee_id` desde sempre e
+    fecha só aquela pessoa; a tela é que nunca ofereceu. Aqui a rota é a MESMA, com a
+    pessoa da linha.
+
+    Duas ações, e a diferença entre elas importa:
+      • RECALCULAR (`fechar=false`) recalcula o espelho e NÃO fecha nada. É o que se usa
+        depois de corrigir uma batida, para ver a anomalia sumir.
+      • APROVAR (`fechar=true`) fecha o espelho daquela pessoa. O serviço RECUSA fechar
+        quem tem anomalia aberta — então só ofereço o botão quando não há nenhuma. Botão
+        que existe e dá erro é pior do que botão ausente.
+
+    r: 0=nome 2=ano 3=status 7=anomalias_abertas 11=employee_id 12=mes
+    """
+    emp, mes, ano = r[11], r[12], r[2]
+    if not emp or not mes or not ano:
+        return None
+    ja_fechado = (r[3] or "").lower() in _STATUS_FECHADO
+    abertas = int(r[7] or 0)
+
+    recalcular = {
+        "title": f"Recalcular o espelho de {r[0] or '—'}",
+        "sub": "Refaz o cálculo do mês desta pessoa com as batidas de AGORA. Não fecha nada — "
+               "é o que se usa depois de corrigir uma batida, para a anomalia sumir da lista.",
+        "endpoint": "/api/v1/people-management/hr/ponto/fechar-mes",
+        "method": "POST", "btnLabel": "Recalcular", "submitLabel": "Recalcular",
+        "btnStyle": "outline", "showResult": True,
+        "okMsg": "Espelho recalculado. Recarregue a tela.",
+        "fixed": {"mes": int(mes), "ano": int(ano), "employee_id": str(emp), "fechar": False},
+        "fields": [],
+    }
+    if ja_fechado:
+        return [recalcular]
+    if abertas:
+        # Nada de botão de aprovar aqui: o serviço recusaria. A linha já mostra
+        # "N anomalia(s)" no status; o caminho é a aba Ponto, corrigir, e recalcular.
+        return [recalcular]
+    return [
+        {
+            "title": f"Aprovar o ponto de {r[0] or '—'} — {int(mes):02d}/{int(ano)}",
+            "sub": "Fecha o espelho DESTA pessoa na competência. Sem anomalia aberta, é o "
+                   "aceite do mês dela — vira documento da Portaria 671 e base para a folha.",
+            "endpoint": "/api/v1/people-management/hr/ponto/fechar-mes",
+            "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar e fechar",
+            "btnStyle": "primary", "showResult": True,
+            "okMsg": "Ponto aprovado e espelho fechado. Recarregue a tela.",
+            "fixed": {"mes": int(mes), "ano": int(ano), "employee_id": str(emp), "fechar": True},
+            "fields": [],
+        },
+        recalcular,
+    ]
+
+
 def _completude_cell(faltantes):
     """faltantes = array (do SQL) com os rótulos dos campos vazios."""
     fal = [x for x in (faltantes or []) if x]
@@ -2215,7 +2275,8 @@ async def build(db, current_user=None) -> dict:
         lambda r: [t(r[0] or "—", 600, _ND, initials(r[0] or "")),
                    t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
-        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")]))
+        docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")],
+        actionsfn=_fech_actions))
     # O subtítulo diz QUAL competência está na tela — sem isso "última competência" com 53
     # linhas de agosto e 2 de setembro era adivinhação.
     try:
@@ -2993,10 +3054,15 @@ async def build(db, current_user=None) -> dict:
             ],
         }
         out["revisar-justificativa"] = await _tela_revisar_justificativa(db, current_user)
-    except Exception:
+    except Exception as _e:  # noqa: BLE001
+        # LOGA. Este `except` mudo escondeu a aba «Revisar justificativas» — a ÚNICA
+        # ferramenta de deferir ponto que o sistema tem — e a Pyetra concluiu, com razão,
+        # que a função não existia. A tela monta em processo e some pela HTTP; sem o
+        # traceback não há como saber por quê. Silêncio aqui custou dias de trabalho dela.
+        logger.exception("DP: bloco de portas manuais falhou — telas do ponto podem sumir: %s", _e)
         try:
             await db.rollback()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # F0 — agrupa as 49 telas em 8 grupos com abas (mesma fundação do financeiro).
