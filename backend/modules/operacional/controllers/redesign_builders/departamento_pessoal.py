@@ -1292,7 +1292,33 @@ async def _tela_revisar_justificativa(db, current_user=None) -> dict:
     # A rota é **PUT** (não POST) e o schema `JustificationReview` exige `reviewer_id`:
     # com POST dá 405 e sem reviewer_id dá 422. Quem revisa é quem está na tela, então o
     # id sai do current_user injetado pelo dispatcher — não é campo que a Pyetra digita.
-    _rev = str(getattr(current_user, "id", "") or "")
+    # Ler `current_user.id` DIRETO derrubava esta tela — e só em produção.
+    #
+    # `current_user` é um objeto do ORM da MESMA sessão do request. Qualquer `commit()`
+    # anterior dentro do build() EXPIRA o objeto; a partir daí, tocar num atributo dispara
+    # um recarregamento do banco, e o SQLAlchemy async responde com
+    # «greenlet_spawn has not been called; can't call await_only() here».
+    #
+    # O except mudo em volta do bloco engolia isso: a aba «Revisar justificativas» — a
+    # única ferramenta de deferir ponto do sistema — simplesmente não nascia, e quem
+    # olhava a tela concluía que a função não existia (foi o caso da Pyetra, 14/09/2026).
+    # Em processo nunca reproduzia, porque ali o current_user é um objeto simples.
+    #
+    # `inspect(obj).identity` lê a chave primária do ESTADO em memória, sem IO.
+    _rev = ""
+    try:
+        from sqlalchemy import inspect as _sa_inspect  # noqa: PLC0415
+
+        _ident = _sa_inspect(current_user).identity if current_user is not None else None
+        if _ident:
+            _rev = str(_ident[0])
+    except Exception:  # noqa: BLE001 — objeto simples (testes) não tem estado do ORM
+        pass
+    if not _rev:
+        try:
+            _rev = str(getattr(current_user, "id", "") or "")
+        except Exception:  # noqa: BLE001
+            _rev = ""
 
     def _linha(r):
         jid = r[0]
@@ -2355,7 +2381,14 @@ async def build(db, current_user=None) -> dict:
                  "method": "POST", "btnLabel": "Rejeitar", "btnStyle": "outline",
                  "submitLabel": "Rejeitar", "okMsg": "Reembolso rejeitado. Recarregue a tela.",
                  "fields": [{"key": "reason", "label": "Motivo (obrigatório)", "type": "textarea", "span": "span 2", "value": ""}]},
-            ] if (r[4] or "").lower() == "pendente" else None)))
+            ] if (r[4] or "").lower() == "pendente" else [])
+            # `else []`, NUNCA `else None`: a expressão é `lista + lista`, e um `None` do
+            # lado direito estoura com «can only concatenate list (not NoneType) to list».
+            # Bastava UMA linha com status fora de rascunho/pendente — e das 22 a maioria é
+            # 'aprovado' — para o TypeError derrubar a tela INTEIRA, engolida pelo `safe()`.
+            # A aba «Reembolsos» estava declarada no grupo e não nascia (achado do oráculo
+            # test_aba_declarada_nasce, 14/09/2026).
+            or None))
 
     # 7) Contratos — employment_contracts
     # AÇÕES por-linha "Gerar contrato" + "Gerar aviso-prévio de férias": geradores de documento
