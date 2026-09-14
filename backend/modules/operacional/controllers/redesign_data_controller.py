@@ -1701,7 +1701,15 @@ def _helpers(db: AsyncSession):
             # coluna repetindo o mesmo valor em todas as linhas — medido: 1 valor distinto em
             # 102 linhas, espremendo as colunas que de fato variam.
             if filtrofn:
-                row["filtro"] = filtrofn(r)
+                _f = filtrofn(r)
+                # DICT = vários filtros na mesma tela (14/09/2026): cada chave vira um
+                # dropdown próprio e eles combinam com E — "setembro E Ideal Flores", que é
+                # como se trabalha ponto. Valor simples segue no seletor único de sempre;
+                # telas antigas não mudam.
+                if isinstance(_f, dict):
+                    row["filtros"] = _f
+                else:
+                    row["filtro"] = _f
             if docsfn:
                 ds = docsfn(r)
                 if ds:

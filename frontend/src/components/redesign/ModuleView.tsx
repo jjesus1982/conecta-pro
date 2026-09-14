@@ -143,9 +143,41 @@ function TableScreen({ scr }: { scr: any }) {
     : [];
   const [sel, setSel] = useState<string>('');
   const active = temFiltro ? (sel || filterVals[0] || '') : '';
-  const byCol = (temFiltro && active)
+
+  // ── VÁRIOS filtros na mesma tela (14/09/2026) ────────────────────────────────────────
+  // O seletor acima é UM só, e nasceu para a Competência da Folha. O Jordan pediu o filtro
+  // por CONDOMÍNIO no ponto — e quem trabalha ponto precisa dos dois ao mesmo tempo
+  // ("setembro, Ideal Flores"), como a Pyetra já fazia no Sólides.
+  //
+  // Contrato: scr.filtros = [{key, label, todos?}] e row.filtros = {key: valor}.
+  // Cada um vira um dropdown; combinam com E. "Todos" (default) não filtra nada — ao
+  // contrário do seletor antigo, que abre no 1º valor porque lá o padrão é a competência
+  // mais recente. Telas sem `filtros` não mudam em nada.
+  const filtrosDecl: Array<{ key: string; label?: string; todos?: string; padrao?: string }> =
+    Array.isArray(scr.filtros) ? scr.filtros : [];
+  const TODOS = '__todos__';
+  // `padrao` existe para NÃO piorar telas que já abriam filtradas: o Ponto abria no mês
+  // corrente (o seletor antigo escolhia o 1º valor). Sem isto, trocar para multi-filtro
+  // faria a tela abrir com três competências misturadas — pior do que antes da mudança.
+  const [selMulti, setSelMulti] = useState<Record<string, string>>(
+    () => Object.fromEntries(filtrosDecl.filter((f) => f.padrao).map((f) => [f.key, f.padrao as string])),
+  );
+  const opcoesDe = (key: string): string[] =>
+    Array.from(new Set<string>(allRows
+      .map((r: any) => r?.filtros?.[key])
+      .filter((v: any) => v != null && v !== '')
+      .map((v: any) => String(v))))
+      .sort((a: string, b: string) => a.localeCompare(b, 'pt-BR'));
+
+  const byCol0 = (temFiltro && active)
     ? allRows.filter((r: any) => String(valFiltro(r)) === active)
     : allRows;
+  const byCol = filtrosDecl.length
+    ? byCol0.filter((r: any) => filtrosDecl.every((f) => {
+        const escolhido = selMulti[f.key] ?? TODOS;
+        return escolhido === TODOS || String(r?.filtros?.[f.key] ?? '') === escolhido;
+      }))
+    : byCol0;
   // Busca do cabeçalho: substring sobre o texto das células (ex.: favorecido no extrato).
   // q vazio = comportamento anterior, intacto.
   const rows = q
@@ -186,6 +218,33 @@ function TableScreen({ scr }: { scr: any }) {
                   para toda tabela filtrável. Na de diaristas dizia "16 folha(s)" para 16 diárias.
                   `filterUnit` deixa a tela dizer o que ela conta; "linha(s)" é o padrão honesto. */}
               <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} {scr.filterUnit || 'linha(s)'}</span>
+        </div>
+      )}
+      {filtrosDecl.length > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {filtrosDecl.map((f) => {
+            const ops = opcoesDe(f.key);
+            if (!ops.length) return null;
+            return (
+              <span key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label style={{ fontSize: 12.5, color: 'var(--placeholder)', fontWeight: 600 }}>{f.label || f.key}:</label>
+                <select value={selMulti[f.key] ?? TODOS}
+                  onChange={(e) => setSelMulti((m) => ({ ...m, [f.key]: e.target.value }))}
+                  style={{ padding: '6px 12px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border, #d8dee9)', background: 'var(--surface, #fff)', color: 'var(--ink, #16277D)', fontWeight: 600, cursor: 'pointer' }}>
+                  <option value={TODOS}>{f.todos || 'Todos'}</option>
+                  {ops.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                </select>
+              </span>
+            );
+          })}
+          <span style={{ fontSize: 12, color: 'var(--placeholder)' }}>{rows.length} {scr.filterUnit || 'linha(s)'}</span>
+          {Object.values(selMulti).some((v) => v && v !== TODOS) && (
+            <button type="button" onClick={() => setSelMulti(
+              Object.fromEntries(filtrosDecl.filter((f) => f.padrao).map((f) => [f.key, f.padrao as string])))}
+              style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, border: '1px solid var(--border, #d8dee9)', background: 'transparent', color: 'var(--placeholder)', cursor: 'pointer' }}>
+              Limpar filtros
+            </button>
+          )}
         </div>
       )}
       <div className="rd-tbl-scroll">

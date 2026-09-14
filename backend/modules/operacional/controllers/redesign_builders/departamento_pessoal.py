@@ -1185,7 +1185,13 @@ WITH intra AS (
   FROM j
 )
 SELECT e.nome, d.dia, d.marcas, d.n, d.esperado, d.sem_almoco,
-       to_char(d.dia, 'MM/YYYY') AS competencia, CAST(d.employee_id AS TEXT)
+       to_char(d.dia, 'MM/YYYY') AS competencia, CAST(d.employee_id AS TEXT),
+       -- Posto da pessoa, para o filtro por condomínio (14/09/2026). Vem da alocação
+       -- VIGENTE; quem não tem alocação aparece como "(sem posto)" em vez de sumir.
+       coalesce((SELECT c.nome FROM employee_alocacoes a
+                   JOIN condominios c ON c.id = a.condominio_id
+                  WHERE a.employee_id = d.employee_id AND a.ativo = true
+                  ORDER BY a.data_inicio DESC LIMIT 1), '(sem posto)') AS posto
 FROM d LEFT JOIN employees e ON e.id = d.employee_id
 ORDER BY d.dia DESC, e.nome LIMIT 2000
 """
@@ -2259,12 +2265,24 @@ async def build(db, current_user=None) -> dict:
                 {"key": "motivo", "label": "Motivo (mín. 5 caracteres)*", "type": "textarea",
                  "span": "span 2", "value": ""},
             ],
-        }))
-    # Seletor de competência: dropdown client-side sobre a coluna 7. As linhas vêm em ordem
-    # decrescente, então o 1º valor — o mês corrente — já abre selecionado, e os anteriores
-    # ficam na lista. É a chave `filterCol` da TELA, não parâmetro do tbl().
+        },
+        # Competência E condomínio, combinando (14/09/2026). Antes só dava para escolher o
+        # mês; quem fecha ponto trabalha posto a posto. r[6]=competência, r[8]=posto.
+        filtrofn=lambda r: {"competencia": r[6], "condominio": r[8] or "(sem posto)"}))
     if out.get("ponto"):
-        out["ponto"]["filterCol"] = 7
+        # `padrao` = a competência CORRENTE. A tela abria assim antes (o seletor único
+        # escolhia o 1º valor da lista, que vinha em ordem decrescente); sem declarar o
+        # padrão, o multi-filtro abriria com os três meses misturados — regressão.
+        from datetime import date as _hoje_d  # noqa: PLC0415
+
+        _comp_hoje = _hoje_d.today().strftime("%m/%Y")
+        _comps = {(l.get("filtros") or {}).get("competencia") for l in (out["ponto"].get("rows") or [])}
+        out["ponto"]["filtros"] = [
+            {"key": "competencia", "label": "Competência", "todos": "Todas",
+             **({"padrao": _comp_hoje} if _comp_hoje in _comps else {})},
+            {"key": "condominio", "label": "Condomínio", "todos": "Todos os postos"},
+        ]
+        out["ponto"]["filterUnit"] = "jornada(s)"
 
     # 4) Fechamento de ponto — MESMA fonte do clássico (time_sheets via painel_fechamento), NÃO
     #    gp_monthly_closings. Última competência com dado; status derivado (Homologado/Aguardando
@@ -2302,7 +2320,16 @@ async def build(db, current_user=None) -> dict:
                    t(r[1] or "—"), t(_hm(r[4])), t(_hm(r[5])),
                    t(str(r[6] or 0)), _fech_status(r[3], r[7], r[8], r[9], r[10])],
         docsfn=lambda r: [doc("Espelho de ponto (671)", f"/api/v1/people-management/hr/ponto/espelho/{r[11]}/{r[12]}/{r[2]}/pdf", fmt="pdf", gate="dp")],
-        actionsfn=_fech_actions))
+        actionsfn=_fech_actions,
+        # Filtros da tela (14/09/2026, pedido do Jordan: "se o Sólides tem filtro por
+        # condomínio, o Conecta PRO deveria ter também"). Quem fecha ponto trabalha posto a
+        # posto, não os 51 de uma vez. O de SITUAÇÃO é o que a Pyetra mais usa sem saber:
+        # "só os que dá para aprovar" são os sem anomalia.
+        filtrofn=lambda r: {
+            "condominio": r[1] or "(sem posto)",
+            "situacao": ("Fechado" if (r[3] or "").lower() in _STATUS_FECHADO
+                         else (f"Com anomalia" if int(r[7] or 0) > 0 else "Pronto para aprovar")),
+        }))
     # O subtítulo diz QUAL competência está na tela — sem isso "última competência" com 53
     # linhas de agosto e 2 de setembro era adivinhação.
     try:
@@ -2315,6 +2342,11 @@ async def build(db, current_user=None) -> dict:
             _n = len(out["fechamento-ponto"].get("rows", []))
             out["fechamento-ponto"]["sub"] = (f"Espelhos mensais — competência {int(_comp[1]):02d}/{int(_comp[0])} "
                                               f"({_n} espelho(s); a mais nova com ao menos 10)")
+            out["fechamento-ponto"]["filtros"] = [
+                {"key": "condominio", "label": "Condomínio", "todos": "Todos os postos"},
+                {"key": "situacao", "label": "Situação", "todos": "Todas"},
+            ]
+            out["fechamento-ponto"]["filterUnit"] = "espelho(s)"
     except Exception:  # noqa: BLE001
         pass
 
