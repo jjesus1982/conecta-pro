@@ -84,6 +84,10 @@ CACADORES = {
     # ASO que não prova exame: 96 dos 97 assinados pelo mesmo médico, 3 datas, zero
     # documento anexado, todos carregados em 16/03/2026. Os "25 vencidos" da tela saem daí.
     "checar_aso_sem_lastro.py": lambda s: _n(r"^TOTAL:\s*(\d+) ASO\(s\) sem lastro", s),
+    # O INVERSO do botão morto: rota que ESCREVE e nenhuma tela chama — o mapa do que
+    # obriga o dono a ir ao terminal (pedido do Jordan, 13/09/2026). Estreia em 338.
+    # Pesado (constrói os 32 módulos + varre os builders): ~3 min.
+    "checar_capacidade_sem_botao.py": lambda s: _n(r"^TOTAL:\s*(\d+) capacidade\(s\) sem botão", s),
     # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
     "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
     # Rotina que martela o provedor de LLM falhando: 30.800 chamadas/dia com 0 ok (07/09).
