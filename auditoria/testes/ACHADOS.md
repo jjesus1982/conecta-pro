@@ -671,3 +671,20 @@ Escrevi as primeiras notas do manual deduzindo pelo NOME da aba. «Mapa» não �
 de quais postos têm coordenada. «Editor visual» não arrasta nada — é a lista de preenchimento.
 «Escalas do mês» não é grade dia a dia — é lista de escalas por posto. Manual escrito por
 dedução ensina o sistema errado. Refiz olhando print por print.
+
+### A4-03 · GRAVE · Proposta RECUSADA podia virar contrato; proposta nova, não
+O seletor de «Gerar contrato a partir da proposta» oferecia **PROP-2026-00114** e
+**PROP-2026-00093** — as duas com status **`rejected`**. Proposta recusada é proposta que o
+cliente disse não. Não havia **nenhum** filtro de status.
+**Corrigido:** exclui `rejected`, `recusada`, `lost`, `perdida`, `cancelled`, `cancelada`.
+
+### A4-04 · GRAVE · Proposta criada pela tela nunca vira contrato
+O filtro do seletor é `coalesce(client_document,'') <> ''`. A ação `/action/proposal` buscava
+o **nome** do cliente pelo `client_id` e **não o documento** — então toda proposta criada pela
+tela nascia com `client_document` vazio e ficava invisível no passo seguinte do funil.
+**Medido:** das 5 propostas mais recentes, **3 estão sem documento** — exatamente as criadas
+pela tela (incluindo a minha, PROP-2026-00123). As que têm documento vieram por outro caminho.
+**Corrigido:** a ação agora busca `name` **e** `document_number` do cliente e grava os dois.
+**Somado ao A4-01 (não há tela para criar cliente) e ao A4-02 (empresa_id faltando), o funil
+comercial tinha três bloqueios em sequência.** Dois estão corrigidos; o terceiro (cadastro de
+cliente) é decisão sua.

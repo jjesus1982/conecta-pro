@@ -2363,6 +2363,10 @@ async def _build_crm(db: AsyncSession) -> dict:
                 "coalesce(p.total,0) AS total "
                 "FROM proposals p "
                 "WHERE coalesce(p.is_active, true) AND coalesce(p.client_document,'') <> '' "
+                # Proposta RECUSADA não vira contrato. Não havia filtro de status: o seletor
+                # oferecia PROP-2026-00114 e PROP-2026-00093, as duas `rejected` — propostas que
+                # o cliente já disse não. Medido em 14/09/2026.
+                "  AND coalesce(p.status::text,'') NOT IN ('rejected','recusada','lost','perdida','cancelled','cancelada') "
                 "  AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.proposal_id = p.id) "
                 "ORDER BY p.created_at DESC LIMIT 120"
             )
@@ -5524,11 +5528,23 @@ async def rd_action_proposal(
     if len(title) < 2:
         raise HTTPException(status_code=400, detail="Informe o título da proposta.")
     client_name = (payload.get("client_name") or "").strip()
+    client_document = (payload.get("client_document") or "").strip()
     client_id = payload.get("client_id")
-    if client_id and not client_name:
-        row = (await db.execute(text("SELECT name FROM clients WHERE id=:i"), {"i": client_id})).first()
+    if client_id:
+        # Busca nome E documento. Antes só o nome era buscado, e a proposta nascia com
+        # `client_document` vazio — o que a tornava INVISÍVEL em «Gerar contrato a partir da
+        # proposta», cujo filtro é `coalesce(client_document,'') <> ''`. Ou seja: proposta
+        # criada por esta tela nunca virava contrato. Medido em 14/09/2026: das 5 propostas
+        # mais recentes, 3 (todas as criadas pela tela) estavam sem documento.
+        row = (
+            await db.execute(
+                text("SELECT name, coalesce(document_number,'') FROM clients WHERE id=:i"),
+                {"i": client_id},
+            )
+        ).first()
         if row:
-            client_name = row[0]
+            client_name = client_name or row[0]
+            client_document = client_document or row[1]
     if not client_name:
         raise HTTPException(status_code=400, detail="Selecione o cliente da proposta.")
     try:
@@ -5553,6 +5569,7 @@ async def rd_action_proposal(
         data = ProposalCreate(
             title=title[:255],
             client_name=client_name[:255],
+            client_document=(client_document or None),
             description=(payload.get("description") or "").strip() or None,
             items=items,
         )
