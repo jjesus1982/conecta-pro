@@ -46,7 +46,10 @@ GRUPOS = [
         ("folha-rubricas", "Rubricas"),
         ("folha-nao-conformidades", "Não conformidades"), ("folha-apontamento", "Apontar"),
         ("contracheques-lote", "Contracheques em lote"),
-        ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status")]),
+        ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status"),
+        # Descontos recorrentes: 97 ativos no banco descontando da folha todo mês, e nenhuma
+        # tela (medido em 14/09/2026). Criar/editar/encerrar só existia pelo `psql`.
+        ("descontos", "Descontos (consignado, pensão)"), ("desconto-novo", "Novo desconto")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),

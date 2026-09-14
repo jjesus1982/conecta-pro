@@ -19,6 +19,7 @@ from core.database import get_db
 from core.database.session import get_sync_db_dependency
 from modules.operacional.controllers.redesign_data_controller import (
     _build_dp,
+    _fmtdate,
     _helpers,
     b,
     brl,
@@ -1322,6 +1323,132 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
     _consulta("pagar-folha-status", "Folha CLT via PIX — status do lote", "Situação do lote de pagamento da folha (OTP, enviados, confirmados, erros). Só leitura.",
               "/api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/status", [{"key": "mes", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month}, {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year}])
 
+
+
+
+async def _descontos(db, out: dict) -> None:
+    """Descontos recorrentes do colaborador — consignado, pensão, empréstimo. LIGAR 14/09/2026.
+
+    97 descontos ATIVOS no banco, batendo na folha todo mês, e nenhuma tela: criar, corrigir
+    o valor ou encerrar um consignado exigia `psql`. As rotas existiam desde sempre.
+
+    Encerrar é `ativo=false` com data de fim — nunca apagar. Desconto de pensão alimentícia
+    tem consequência judicial: a linha fica, com a data em que parou.
+    """
+    from sqlalchemy import text as _sql
+
+    _local, safe, tbl = _helpers(db)
+
+    _TIPOS = [
+        {"value": "consignado", "label": "Consignado"},
+        {"value": "pensao_alimenticia", "label": "Pensão alimentícia"},
+        {"value": "emprestimo", "label": "Empréstimo"},
+        {"value": "outros", "label": "Outros"},
+    ]
+    _BASES = [
+        {"value": "fixo", "label": "Valor fixo (R$)"},
+        {"value": "bruto", "label": "% do salário bruto"},
+        {"value": "liquido", "label": "% do líquido"},
+    ]
+    _rot = {x["value"]: x["label"] for x in _TIPOS}
+
+    def _acts(r):
+        """r: 0=id 1=nome 2=tipo 3=descricao 4=valor 5=percentual 6=base 7=parc 8=tot 9=ini 10=fim 11=ativo"""
+        if not r[11]:
+            return None
+        return [{
+            "title": f"Encerrar o desconto de {r[1]}",
+            "sub": "Marca como encerrado a partir de hoje. A linha FICA — desconto de pensão "
+                   "tem consequência judicial e o histórico precisa existir.",
+            "endpoint": f"/api/v1/people-management/hr/employees/{r[12]}/deductions/{r[0]}",
+            "method": "DELETE", "btnLabel": "Encerrar", "submitLabel": "Encerrar desconto",
+            "btnStyle": "outline", "okMsg": "Desconto encerrado. Recarregue.", "fields": [],
+        }]
+
+    await safe("descontos", tbl(
+        "Descontos recorrentes",
+        f"{(await db.execute(_sql('SELECT count(*) FROM employee_deductions WHERE ativo'))).scalar() or 0} "
+        "ativo(s) — consignado, pensão alimentícia e empréstimo entram no cálculo da folha. "
+        "Encerrar não apaga: marca a data em que parou.",
+        "Novo desconto",
+        ["Colaborador", "Tipo", "Descrição", "Valor", "Parcelas", "Início", "Situação"],
+        "1.5fr 1fr 1.6fr 0.9fr 0.7fr 0.8fr 0.8fr",
+        "SELECT d.id, coalesce(e.nome,'—'), d.tipo, d.descricao, d.valor, d.percentual, "
+        "       coalesce(d.base_calculo,'fixo'), coalesce(d.parcela_atual,1), d.total_parcelas, "
+        "       d.data_inicio, d.data_fim, coalesce(d.ativo,false), d.employee_id::text "
+        "FROM employee_deductions d LEFT JOIN employees e ON e.id = d.employee_id "
+        "ORDER BY coalesce(d.ativo,false) DESC, e.nome LIMIT 300",
+        lambda r: [
+            t(r[1], 600, _ND, initials(r[1] or "")),
+            b(_rot.get((r[2] or "").lower(), (r[2] or "—")), "info"),
+            t((r[3] or "—")[:40]),
+            t(brl(r[4]) if r[4] else (f"{r[5]}% do {r[6]}" if r[5] else "—"), 600),
+            t(f"{r[7] or 1}/{r[8]}" if r[8] else "—"),
+            t(_fmtdate(r[9])),
+            b("Ativo", "ok") if r[11] else b("Encerrado", "mut"),
+        ],
+        actionsfn=_acts,
+        # PATCH parcial: campo em branco não altera. É como se corrige o valor de um
+        # consignado que mudou de parcela ou a data de fim que chegou.
+        editfn=lambda r: {
+            "title": f"Editar o desconto de {r[1]}",
+            "sub": "Campo em branco não altera.",
+            "endpoint": f"/api/v1/people-management/hr/employees/{r[12]}/deductions/{r[0]}",
+            "method": "PATCH",
+            "fields": [
+                {"key": "descricao", "label": "Descrição", "type": "text", "value": r[3] or ""},
+                {"key": "valor", "label": "Valor fixo (R$)", "type": "number",
+                 "value": str(r[4]) if r[4] else ""},
+                {"key": "percentual", "label": "Percentual (%)", "type": "number",
+                 "value": str(r[5]) if r[5] else ""},
+                {"key": "base_calculo", "label": "Base de cálculo", "type": "select",
+                 "options": _BASES, "value": r[6] or "fixo"},
+                {"key": "parcela_atual", "label": "Parcela atual", "type": "number",
+                 "value": str(r[7] or 1)},
+                {"key": "total_parcelas", "label": "Total de parcelas", "type": "number",
+                 "value": str(r[8]) if r[8] else ""},
+                {"key": "data_fim", "label": "Fim (AAAA-MM-DD)", "type": "date",
+                 "value": str(r[10]) if r[10] else ""},
+            ],
+        }))
+    out.update(_local)
+    if out.get("descontos"):
+        out["descontos"]["ctaTo"] = "desconto-novo"
+
+    try:
+        pessoas = [
+            {"value": str(i), "label": f"{n} — {c or 'sem CPF'}"}
+            for i, n, c in (await db.execute(_sql(
+                "SELECT id, nome, cpf FROM employees WHERE status='ativo' "
+                "AND coalesce(is_homologacao,false)=false ORDER BY nome LIMIT 400"))).fetchall()
+        ]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        pessoas = []
+
+    out["desconto-novo"] = {
+        "title": "Novo desconto recorrente",
+        "sub": "Consignado, pensão alimentícia ou empréstimo. Informe VALOR FIXO ou PERCENTUAL "
+               "— não os dois. O desconto passa a entrar no cálculo da folha a partir do início.",
+        "cta": "Criar desconto", "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/desconto-criar",
+                   "okMsg": "Desconto criado.", "showResult": True},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": pessoas},
+            {"key": "tipo", "label": "Tipo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": _TIPOS},
+            {"key": "base_calculo", "label": "Base de cálculo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": _BASES},
+            {"key": "descricao", "label": "Descrição* (mín. 3)", "type": "text", "span": "span 2",
+             "ph": "Ex.: Consignado Banco X — contrato 12345"},
+            {"key": "valor", "label": "Valor fixo (R$)", "type": "number", "span": "span 1"},
+            {"key": "percentual", "label": "Percentual (%)", "type": "number", "span": "span 1"},
+            {"key": "data_inicio", "label": "Início*", "type": "date", "span": "span 1"},
+            {"key": "total_parcelas", "label": "Total de parcelas", "type": "number", "span": "span 1"},
+            {"key": "data_fim", "label": "Fim (opcional)", "type": "date", "span": "span 2"},
+        ],
+    }
 
 
 async def _afd_e_justificativa(db, out: dict) -> None:
@@ -2927,6 +3054,7 @@ async def build(db, current_user=None) -> dict:
         "FROM sst_afastamentos f JOIN employees e ON e.id=f.employee_id WHERE f.esocial_status IS NOT NULL AND f.esocial_status <> 'nao_transmitida') x "
         "ORDER BY quando DESC NULLS LAST LIMIT 200",
         lambda r: [b(r[0], "info"), t(r[1], 600, _ND), t(r[2] or "—"), b((r[3] or "—").replace("_", " "), "ok" if (r[3] or "") in ("recibo_casado", "aceita", "transmitida") else ("bad" if "rejeit" in (r[3] or "") or "erro" in (r[3] or "") else "warn")), t((r[4] or "—")[:34])]))
+    await _descontos(db, out)  # descontos recorrentes (14/09) — antes de montar_grupos
     await _afd_e_justificativa(db, out)  # AFD/AEJ e justificar ponto (14/09) — antes de montar_grupos
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)

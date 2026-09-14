@@ -385,8 +385,16 @@ async def delete_deduction(
     else:
         result = await db.execute(
             text(
-                "UPDATE employee_deductions SET ativo = false, updated_at = now() "
-                "WHERE id = :did AND employee_id = :eid RETURNING id"
+                # `data_fim` é QUANDO o desconto parou. Sem ela, um consignado encerrado
+                # ficava com ativo=false e data de fim vazia — e daqui a um ano ninguém
+                # sabe se parou em setembro ou em março. Em pensão alimentícia essa data
+                # tem consequência judicial. Só preenche se estiver vazia: data de fim já
+                # programada (o contrato acaba em novembro) não é sobrescrita por hoje.
+                "UPDATE employee_deductions "
+                "   SET ativo = false, "
+                "       data_fim = coalesce(data_fim, current_date), "
+                "       updated_at = now() "
+                " WHERE id = :did AND employee_id = :eid RETURNING id"
             ),
             {"did": deduction_id, "eid": employee_id},
         )

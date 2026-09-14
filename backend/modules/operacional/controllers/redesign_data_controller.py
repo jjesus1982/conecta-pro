@@ -5313,6 +5313,50 @@ async def rd_action_kpis_recalcular(current_user: CurrentActiveUser) -> dict:
     return {"ok": True, "message": "Recálculo dos KPIs enfileirado.", "task_id": str(r.id)}
 
 
+@router.post("/action/desconto-criar")
+async def rd_action_desconto_criar(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Cria um desconto recorrente (consignado, pensão, empréstimo) para um colaborador.
+
+    LIGAR 14/09/2026. `POST /hr/employees/{employee_id}/deductions` existe e leva o
+    colaborador no CAMINHO da URL — e o formulário do redesign manda os campos no corpo,
+    nunca no path. Sem esta ponte, os 97 descontos ativos que a folha desconta todo mês
+    só podiam ser criados pelo banco.
+
+    Chama o MESMO service do endpoint real: a regra de negócio não é duplicada aqui.
+    """
+    from modules.people_management.hr.controllers.employee_controller import (  # noqa: PLC0415
+        DeductionCreate,
+        create_deduction,
+    )
+
+    eid = str(payload.get("employee_id") or "").strip()
+    if not eid:
+        return {"ok": False, "message": "Escolha o colaborador."}
+    dados = {k: v for k, v in payload.items() if k != "employee_id" and v not in ("", None)}
+    # O form manda tudo como texto; os numéricos precisam chegar como número.
+    for campo in ("valor", "percentual"):
+        if campo in dados:
+            try:
+                dados[campo] = float(str(dados[campo]).replace(".", "").replace(",", ".")) \
+                    if "," in str(dados[campo]) else float(dados[campo])
+            except (TypeError, ValueError):
+                return {"ok": False, "message": f"{campo}: informe um número."}
+    if "total_parcelas" in dados:
+        try:
+            dados["total_parcelas"] = int(dados["total_parcelas"])
+        except (TypeError, ValueError):
+            return {"ok": False, "message": "Parcelas: informe um número inteiro."}
+    try:
+        r = await create_deduction(eid, DeductionCreate(**dados), current_user, db)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "message": f"Não criei o desconto: {e}"}
+    return {"ok": True, "message": "Desconto criado.", "detalhe": r if isinstance(r, dict) else None}
+
+
 @router.post("/action/cert-gerar-folha")
 async def rd_action_cert_gerar_folha(
     current_user: CurrentActiveUser,
