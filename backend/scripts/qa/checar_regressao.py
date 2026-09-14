@@ -272,6 +272,16 @@ ORFAS_DECLARADAS: dict[str, str] = {
                           "de UM oráculo recém-escrito. Invocado à mão pela skill "
                           "oraculo-conecta/entregue-de-verdade. Dono: quem escreve oráculo "
                           "que escreve.",
+    # Ferramenta de MÃO da esteira de botões (14/09/2026). Fica de fora da varredura diária
+    # DE PROPÓSITO: ela pergunta "lista sem forma de criar/mexer?" e é ruidosa por
+    # construção — o Portal do Funcionário é leitura por natureza e ela acusa 11 lá. Sino
+    # que toca todo dia é sino que ninguém lê. Quem mede a esteira na varredura é
+    # `checar_capacidade_sem_botao.py`, que pergunta o inverso e tem alvo acionável.
+    # Dono: quem estiver trabalhando a esteira do Jordan (ver o relatório de 14/09).
+    "checar_acao_faltando.py": "ferramenta de mão da esteira de botões: lista sem forma de "
+                               "criar/mexer. Ruidosa por construção (tela de leitura "
+                               "aparece como achado) — por isso não entra na diária. "
+                               "Dono: quem trabalha a esteira.",
 }
 
 #: Prefixos que contam como TRAVA neste diretório. `fechado_*` e `varredura_*` ficaram fora

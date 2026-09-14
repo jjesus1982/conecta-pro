@@ -111,6 +111,7 @@ async def main() -> int:
     # 2. Tudo que ALGUMA tela chama. Compara com `{param}` normalizado: a tela monta
     #    `/contratos/abc-123` e a rota é `/contratos/{id}` — é a mesma porta.
     chamadas: set[tuple[str, str]] = set()
+    telas_cruas: list = []
     async with async_session_factory() as db:
         for mod, build in sorted(RD.BUILDERS.items()):
             try:
@@ -118,8 +119,10 @@ async def main() -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"   ! {mod}: não construiu ({str(exc)[:70]}) — as rotas dele contam como sem botão")
                 continue
+            cru = json.loads(json.dumps(out, default=str))
+            telas_cruas.append(cru)
             acc: list[tuple[str, str]] = []
-            _endpoints(json.loads(json.dumps(out, default=str)), acc)
+            _endpoints(cru, acc)
             chamadas |= set(acc)
 
     # 2b. Endpoint que aparece só EM CONDIÇÃO (ação de linha que existe quando o status
@@ -164,6 +167,27 @@ async def main() -> int:
     }
     acoes_redesign |= {a.replace("_", "-") for a in acoes_redesign}
 
+    # UMA tela pode cobrir VÁRIAS rotas por um select de verbos: «Andamento da ronda» tem
+    # um campo `acao` com iniciar/pausar/retomar/concluir/cancelar e atende as cinco rotas
+    # `/rondas/{id}/<verbo>`. O nome da ação (`ronda-transicao`) não casa com nenhuma
+    # delas — mas os VALORES do select casam. Sem isto, 12 rotas de ronda que têm botão
+    # apareciam como órfãs (medido em 14/09/2026).
+    verbos_em_select: set[str] = set()
+
+    def _colher_opcoes(o) -> None:
+        if isinstance(o, dict):
+            for op in o.get("options") or []:
+                v = (op or {}).get("value") if isinstance(op, dict) else None
+                if isinstance(v, str) and v and "/" not in v and len(v) > 3:
+                    verbos_em_select.add(v.lower())
+            for v in o.values():
+                _colher_opcoes(v)
+        elif isinstance(o, list):
+            for v in o:
+                _colher_opcoes(v)
+
+    _colher_opcoes(telas_cruas)
+
     def _tem_acao_equivalente(caminho: str) -> bool:
         segs = [x for x in caminho.split("/") if x and not x.startswith("{") and x not in ("api", "v1")]
         if not segs:
@@ -176,6 +200,11 @@ async def main() -> int:
         caudas.add(segs[-1].lower().rstrip("s"))
         if caudas & acoes_redesign:
             return True
+        # o verbo da rota é uma OPÇÃO num select de alguma tela da mesma família
+        if caudas & verbos_em_select and len(segs) >= 2:
+            familia = segs[-2].lower().rstrip("s")
+            if any(familia in a for a in acoes_redesign):
+                return True
         if len(segs) >= 2:
             bases = {segs[-2].lower(), segs[-2].lower().rstrip("s")}
             for base in bases:
