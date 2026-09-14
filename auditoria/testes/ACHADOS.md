@@ -9,6 +9,11 @@ Navegador: Playwright MCP · usuário jjesus@conectamais.pro (admin)
 | 2 | 14/09 01:05 | Operacional | Diária ABIDIAS 14/09 Michelangelo R$ 90 lançada **e excluída** | Sim | Já desfeito. VT/VR gerado ficou `cancelado`. |
 | 3 | 14/09 01:09 | Operacional | Ocorrência OCO-2026-00005 (Prime Arena, leve) criada **e resolvida** | Sim | Fica no histórico como resolvida. Para sumir: `is_active=false` em `occurrences`. |
 | 4 | 14/09 01:13 | Operacional | Comunicado «QA 14/09» criado e PUBLICADO (destinatários: todos) | Sim | Hoje não chega a ninguém (A1-16). Depois do bake, chega. Para tirar: `is_active=false` em `communication_announcements` id `9b001c42-9c92-4a1d-8829-840e27791cbe`. |
+| 5 | 14/09 01:2x | CRM | Lead «QA Bateria E2E 14/09» criado | Sim | Descartar em CRM › Definir lead (destino: lost, motivo: teste). |
+| 6 | 14/09 01:40 | DP | **Folha 09/2026 MICHELANGELO gerada** — 2 holerites em rascunho, líquido R$ 1.800,22 | Sim | É folha real e faltante de setembro. Rascunho, não paga. Regerar substitui. |
+| 7 | 14/09 01:47 | Fiscal | **NFS-e AUTORIZADA** Eletrônica→Patrimonial R$ 9,50 (DPS-2026-1789350431) | — | Ambiente de **homologação** do nacional: não é documento fiscal válido, não precisa cancelar. |
+| 8 | 14/09 01:44–47 | Fiscal | 3 DPS rejeitadas pelo governo (E0310 código inválido, E0202 prestador=tomador) | — | Rejeitadas: nada foi gerado. |
+| 9 | 14/09 01:5x | Financeiro | PIX de R$ 0,01 tentado | — | **Recusado no gate** (falta conta de origem). Nenhum dinheiro saiu. |
 
 ## Achados
 
@@ -269,3 +274,273 @@ ponto não funcionava para ninguém. É a função mais exigida legalmente do m�
 mesmo filtro — todos rodam sobre `gp_clock_punches` (uuid). Só este estava quebrado.
 **Corrigido** com `CAST(id AS TEXT)`. Validado no banco: a consulta agora roda e devolve
 **51 colaboradores** na competência 09/2026.
+
+---
+## MÓDULO 4 — COMERCIAL (CRM)
+
+### T4-a · LEAD — PASSOU
+`POST /redesign/action/lead → 200`. Lead «QA Bateria E2E 14/09» criado com origem, valor
+estimado e observação.
+
+### A4-01 · GRAVE · O funil tem um degrau que não existe: não há como criar CLIENTE pela tela
+**O teste:** criei o lead pela tela. Abri «Nova proposta». O campo Cliente* é um select de 27
+clientes existentes — e o lead recém-criado **não está lá**. Lead não é cliente.
+**Procurei a porta:** varri os 6 módulos onde faria sentido (CRM, Financeiro, Área do Cliente,
+Configurações, Empresas, Operacional) atrás de um formulário que faça POST em `/clients`.
+**Não existe nenhum.**
+O CRM tem CTA para criar lead, proposta, contrato, comissão, atividade, produto, aditivo,
+modelo de contrato, item de proposta e até **condomínio** — a tela «Clientes» é a única
+lista relevante **sem** botão de criar.
+**O que «Definir lead» faz:** qualifica e, opcionalmente, abre OPORTUNIDADE (`INSERT INTO
+opportunities`). Não cria cliente. Existe `converter_lead_para_crm` no marketing_controller e
+`_link_lead_client` no pipeline_sync, mas nenhuma tela os chama.
+**Consequência prática:** um lead novo nunca vira proposta sem alguém criar o cliente por fora
+(API, banco ou tool do conector). O funil «lead → proposta → contrato» que o manual descreve
+está interrompido no primeiro salto para todo cliente novo.
+**NÃO corrigi:** criar tela de cadastro de cliente é feature, não conserto — e cliente tem
+CNPJ, endereço, contato e vínculo com condomínio. É decisão sua como deve ser o formulário.
+
+### A4-02 · CRÍTICO · Criar proposta pela tela estava impossível (HTTP 500)
+```
+POST /redesign/action/proposal → 500
+asyncpg.exceptions.NotNullViolationError:
+  null value in column "empresa_id" of relation "proposal_items" violates not-null constraint
+```
+**Causa raiz e a ironia dela:** o repositório `proposal_repository.py:226` já tinha o comentário
+> «NOT NULL no banco: quem chega aqui sem empresa já foi recusado antes, com mensagem.
+>  Repassar `None` daria erro de integridade sem explicação.»
+
+A suposição estava errada. A ação `/action/proposal` do redesign **não recusava nada**: montava
+`ProposalItemCreate(name=…, quantity=1, unit_price=…)` sem empresa, mandava `None` para o banco,
+e o erro de integridade virava exatamente o 500 sem explicação que o comentário temia.
+**Detalhe que explica o desenho:** a tabela `proposals` **não tem** `empresa_id`. Quem carrega a
+empresa é o ITEM. O pai não sabe de qual CNPJ sai a proposta; o filho exige saber.
+E `users` não tem vínculo com empresa — então não dava para inferir. Os 175 itens existentes se
+dividem entre `conecta_eletronica` (160) e `conecta_patrimonial` (15): as duas emitem de verdade.
+**Corrigido em três pontos** (sem chutar um padrão, porque a escolha é de negócio):
+1. campo **«Empresa emissora*»** no formulário, carregado de `empresas` (ordenado por principal);
+2. guarda na ação: sem empresa, **400 com mensagem** em vez de 500 mudo;
+3. a empresa escolhida é repassada ao `ProposalItemCreate` (o schema já aceitava o campo).
+**Alcance:** enquanto isso durou, nenhuma proposta podia ser criada pela tela. As 10 propostas
+existentes são anteriores à restrição NOT NULL.
+
+### T2-b · ESPELHO DA PORTARIA 671 — PASSOU depois do bake
+```
+POST /people-management/hr/ponto/fechar-mes {"mes":9,"ano":2026,"fechar":false}
+→ HTTP 200 em 1,22 s   (antes: 500 em 0,08 s)
+```
+Resposta: 51 processados · **0 fechados · 43 bloqueados · 0 erros** · `pode_fechar_todos: false`
+com o aviso «Existem espelhos com anomalia ABERTA — corrija/justifique antes do fechamento».
+**O motor está certo e é bom:** recusa fechar mês com anomalia, e a anomalia vem nomeada, datada
+e descrita em português, com o id da batida. Exemplo real:
+> «Entrada às 18:00 sem saída correspondente (próxima batida é outra entrada às 18:26).»
+
+### A2-05 · OPERAÇÃO (não é software) · 182 anomalias de ponto abertas em 09/2026
+Medido na resposta do próprio motor: **43 dos 51 colaboradores** têm anomalia aberta.
+| Tipo | Qtd |
+|---|---|
+| `par_incompleto` (entrada sem saída) | 68 |
+| `saida_sem_entrada` | 68 |
+| `dia_sem_batida` | 46 |
+| **total** | **182** |
+
+Dias piores: 09/09 (21) · 11/09 (17) · 02/09 (17) · 08/09 (16) · 05/09 (16).
+Pessoas com mais: ANTONIO CARLOS VIEIRA (16) · ANILSON JOSE SEIXAS NEVES (10) ·
+NAILSON GARCIA GOMES (10) · CELIANE GARCIA DE SOUSA (10) · ADAILSON SERRA ALVES (9).
+**Leitura:** o mês de setembro NÃO pode ser fechado hoje, e portanto a folha de 09/2026 não tem
+base. O padrão «entrada às 18:00 e outra entrada às 18:26» aparece muito — é a marca da
+tentativa repetida no reconhecimento facial, o mesmo sintoma das falhas medidas em 11/09.
+Isto é fila de trabalho do DP, não defeito de código — mas é o que separa o sistema de fechar
+o mês.
+
+---
+## VERIFICAÇÃO PÓS-BAKE (a prova de que as correções pegaram)
+Bake blue/green concluído às 21:33. Reabri cada tela pelo navegador:
+
+| Achado | Antes | Depois (medido na tela) |
+|---|---|---|
+| A1-01 Alocações sem posto | `—` nas 73 linhas | `LARANJEIRAS`, `IDEAL FLORES`, … |
+| A1-06 Contador de turnos | escala nova com `0` turnos | `62` e `62/62`; a de 09/2026, `97/97` |
+| A1-16 Comunicado invisível | portal mostrava 10, sem o novo | portal mostra **11**, com o novo |
+| A2-04 Espelho morto | `HTTP 500` em 0,08 s | `HTTP 200` em 1,22 s, 51 processados |
+
+*(A2-02 e A2-03, texto de confirmação e padrão seguro do fechar-mês, também entraram no bake.
+A1-11 fuso da ocorrência idem — só aparece na próxima ocorrência criada.)*
+
+---
+## MÓDULO 3 — DEPARTAMENTO PESSOAL
+
+### T3-a · GERAR FOLHA — PASSOU, e é a melhor tela que vi até agora
+```
+POST /redesign/action/folha-gerar → 200
+"Folha 09/2026 — MICHELANGELO GERADA no Conecta PRO: 2 holerite(s), líquido R$ 1.800,22,
+ FGTS R$ 306,68. Status rascunho — gerar não paga; o pagamento segue no Financeiro com OTP."
+```
+A confirmação é **específica**: «Isto calcula e GRAVA a folha de todos os CLT ativos da
+competência (rascunho). Regerar substitui a geração anterior. Confirmar?» — diz o que faz e
+avisa que regerar substitui. É o oposto do A2-02. E a resposta diz o que NÃO faz: gerar não paga.
+Abriu o PDF da folha em nova aba. Banco confirma 2 holerites `draft`.
+
+### A3-02 · MÉDIO · Folha gera sobre mês de ponto ABERTO, sem aviso
+O espelho de 09/2026 está `calculado` (51), **não `fechado`** — são 182 anomalias abertas.
+A folha gerou assim mesmo. Pior: **ANTONIO CARLOS VIEIRA**, que tem **16 anomalias**, saiu com
+holerite de R$ 953,94 como se o mês dele estivesse limpo.
+**Ressalva honesta:** gerar RASCUNHO sobre mês aberto é defensável — o sistema diz «rascunho» e
+diz que não paga. O que não pode é FECHAR ou PAGAR assim. A trava certa é no pagamento, e isso
+será testado no módulo 5.
+**Sugestão (não implementei, é regra de negócio):** a tela avisar «este mês tem N anomalias
+abertas» antes de gerar. O dado já existe e sai do mesmo motor.
+
+### A3-01 · MÉDIO · 94 holerites de meses FUTUROS poluindo o pareamento
+`hr_payslips` tem 47 holerites de **11/2026** e 47 de **12/2026** — criados em **03/08/2026**.
+Hoje é 13/09. Os meses reais que faltam (09 e 10) não existiam até este teste.
+**Não são 13º:** conferi as rubricas — não têm nenhuma.
+**Efeito:** a tela «Conecta × Portte» abre na competência mais recente, que é **12/2026**, e
+mostra divergências «só Conecta» para 47 pessoas de um mês que não aconteceu. A tela de
+divergência mais importante do DP abre cheia de ruído.
+**Sugestão:** desativar/apagar os 94 holerites de 11 e 12/2026. É decisão sua — não mexi.
+
+### A3-03 · MÉDIO · Holerite sem rubrica em todos os meses, menos março
+`hr_payslip_items` tem 560 linhas, **todas de 03/2026** (51 holerites). Julho (102 holerites) e
+agosto (66) têm valor líquido e **zero rubricas**.
+O `folha_pdf_parser.py` popula essa tabela a partir do PDF da Domínio — rodou uma vez, em março.
+**Efeito:** o detalhamento do contracheque no Portal do Colaborador (`PayslipItem[]`) fica vazio
+para todo mês que não seja março. A pessoa vê o líquido e não vê de onde ele vem.
+*(A folha em si não depende disso: base, INSS, FGTS, descontos e líquido estão em colunas de
+`hr_payslips`. É o detalhamento que falta.)*
+
+### A3-04 · MENOR · Dois seletores de mês, dois formatos
+«Espelho: calcular/fechar» usa `01`…`12`. «Gerar folha» usa `Janeiro`…`Dezembro`.
+Mesma competência, mesmo módulo, duas linguagens.
+
+---
+## MÓDULO 6 — FISCAL (NFS-e)
+
+### T6-a · EMISSÃO DE NFS-e — PASSOU, e é real
+Conforme você pediu, notas cruzadas entre os dois CNPJs, abaixo de R$ 10,00.
+```
+POST /government/nfse-nacional/emitir  (dry_run=false)
+  Eletrônica → Patrimonial · R$ 9,50 · código 110201
+→ 201  {"status":"autorizada","id_dps":"DPS-2026-1789350431"}
+```
+**É emissão de verdade, não simulação.** O log mostra o caminho inteiro:
+certificado A1 carregado (`JORDAN SANTOS DE JESUS LTDA:35710481000103`, válido até 13/01/2027)
+→ XML assinado (1.443 bytes) → transmitido ao **SEFIN Nacional** → resposta do governo.
+ISS calculado certo: R$ 0,475 sobre R$ 9,50 (5%).
+**Ambiente:** `homologacao` (`sefin.producaorestrita.nfse.gov.br`) nas duas empresas — então a
+nota **não é documento fiscal válido**, é o ambiente de testes oficial. Isso torna o seu pedido
+seguro, e é bom saber: **o sistema nunca emitiu nota em produção.**
+
+### A6-01 · MÉDIO · A tela pede JSON cru
+«Tomador (JSON)» e «Serviço (JSON)» são textareas de JSON. Vêm com modelo pré-preenchido, o que
+ajuda, mas ninguém do fiscal vai editar JSON à mão. É tela de desenvolvedor.
+
+### A6-02 · GRAVE · O valor PADRÃO do formulário é um código que o governo rejeita
+O campo Serviço vem com `"codigo_tributacao_nacional": "1.1701.10.00"`. Usei como veio:
+```
+E0310 — O código de tributação nacional informado não existe conforme a lista de serviços
+        nacional do Sistema Nacional NFS-e
+```
+O formato aceito tem **6 dígitos** (`110201`, que é o que as 112 notas reais usam).
+Quem confiar no modelo da tela toma rejeição na primeira tentativa.
+**Agrava:** a tabela `codigos_servico` existe e está **VAZIA** — não há catálogo para escolher.
+O usuário precisa saber o código de cabeça.
+
+### A6-03 · GRAVE · O erro do governo era jogado fora e virava «Erro interno»
+O controller tem um caminho que levanta **422 com a rejeição exata do governo** — e logo abaixo
+um `except Exception` que capturava a própria HTTPException e devolvia
+`500 {"detail":"Erro interno ao preparar DPS"}`.
+A causa (`E0310`, com descrição) ficava só no log. Quem podia corrigir lia «erro interno».
+**Corrigido:** `except HTTPException: raise` antes do genérico.
+
+### A6-04 · GRAVE · A Patrimonial NÃO consegue emitir nota
+Testei o sentido inverso (Patrimonial → Eletrônica, R$ 8,75) passando `prestador` na requisição.
+Rejeitado:
+```
+E0202 — Na emissão da NFS-e não é permitido que o prestador seja igual ao tomador
+```
+E o `idDPS` devolvido pelo governo contém **35710481000103** — o CNPJ da **Eletrônica** — mesmo
+eu tendo informado o da Patrimonial.
+**Causa raiz** (`nfse_nacional_service.py:_get_manager`): o manager é construído com
+`self.cert_path` e `self.cnpj` — configuração fixa da instância, **cacheada** — e não com o
+prestador recebido em `emitir_dps`. O serviço monta o objeto `PrestadorNacional` com o CNPJ
+informado, mas **assina com o certificado da outra empresa**, e o nacional rejeita a divergência.
+**E o certificado existe:** `empresas.certificado_a1_path` tem `patrimonial.pfx`, válido até
+06/07/2027. O certificado está lá; o código não o escolhe.
+**Consequência:** num grupo de dois CNPJs, só a Eletrônica emite. E a **Patrimonial é justamente
+a que faz vigilância, portaria e limpeza** — os serviços que mais faturam.
+**NÃO corrigi de propósito:** escolher certificado por prestador é caminho fiscal. Emitir nota
+assinada pela empresa errada é pior que não emitir. O conserto é claro (selecionar cert e CNPJ
+pelo prestador, e não cachear um manager único), mas quero seu aval antes de mexer nisso.
+
+---
+## MÓDULO 5 — FINANCEIRO
+
+### T5-a · O GATE DO DINHEIRO — PASSOU, e é o melhor desenho do sistema
+Tentei um PIX de R$ 0,01. A tela pediu confirmação específica:
+> «Isto vai ENVIAR um PIX via Inter. Gerar o código OTP para o Jordan confirmar?»
+
+e o rodapé avisa: «Ação protegida por OTP humano — ao enviar, um código vai ao e-mail do Jordan».
+O boleto vai além e nomeia o risco de CNPJ:
+> «Isto vai PAGAR um boleto. Confira a conta escolhida — **Cora é a Patrimonial, Inter é a
+> Eletrônica, são CNPJs diferentes**»
+
+**E o backend recusou o pagamento:**
+```
+400 "Escolha de qual conta sai o pagamento: Cora (Patrimonial) ou Inter (Eletrônica).
+     São CNPJs diferentes e o sistema não escolhe por você."
+```
+Uma recusa a adivinhar sobre dinheiro entre duas pessoas jurídicas. É exatamente o que se quer.
+Contraste com o A2-02 (confirmação estática do espelho): aqui o texto é específico da ação.
+**Nenhum centavo saiu neste teste.**
+
+### A5-01 · GRAVE · A tela de PIX é impossível de usar
+O backend exige a conta de origem; **o formulário do PIX não tem esse campo**. Toda tentativa
+morre no mesmo 400, e não há onde escolher a conta.
+**Causa raiz:** o contrato da tela usa a flag `"originField": true` para o renderizador desenhar
+o seletor «Conta de origem». Conferi as cinco telas de saída de dinheiro:
+| Tela | originField |
+|---|---|
+| pagar-boleto | **True** |
+| pagar-darf | **True** |
+| pagar-gps | **True** |
+| transferir-ted | **True** |
+| **enviar-pix** | **ausente** |
+O PIX é o único fora do padrão — e é o meio mais usado.
+**Corrigido:** `"originField": True` em `enviar-pix`. Aguardando bake.
+
+---
+## MÓDULOS 7 a 13 — VARREDURA
+
+### T7 · GED / KITS — PASSOU
+Visão geral coerente com o banco: 4.641 arquivos, 926 assinados, 3.715 pendentes.
+«Entrega dos kits» lista um condomínio por linha, com canal e destinatário, fonte declarada
+(`ged_document_kits`). «Kits de documentos» mostra completude, status e os quatro botões do
+caminho (Gerar PDFs · Solicitar assinaturas · Anexar NFS-e · Enviar).
+
+### A7-01 · MÉDIO · Dá para enviar kit incompleto ao cliente, de dentro da Área do Cliente
+Na Área do Cliente › Documentos, um kit em **40% «Em montagem»** exibe os botões
+**«Montar no Drive»** e **«Enviar»**, sem nenhum aviso de que falta peça.
+Enviar kit incompleto é o erro que o síndico percebe antes de nós. A completude já está na
+mesma linha — bastaria a tela impedir, ou ao menos perguntar.
+
+### T9 · PORTAL DO COLABORADOR — PASSOU, e é honesto
+«Bater ponto» responde: «Seu usuário não está vinculado a um colaborador — nada a registrar.»
+Em vez de mostrar zero e parecer defeito, nomeia o motivo. É o comportamento certo.
+**Achado operacional:** «Assinaturas pendentes» mostra o contrato **CTR-2026-00022**
+(Associação de Proprietários) esperando a **sua** assinatura desde **11/09**, com validade até
+**11/10**. Passou despercebido até esta varredura.
+
+### A12-01 · GRAVE · Medida disciplinar pedia o UUID do colaborador digitado à mão
+**Tela:** RH › Nova medida disciplinar.
+Campos: «Colaborador (id)*» (texto), «Nome do colaborador*» (texto), «CPF*» (texto), «Cargo».
+O usuário digitava o **UUID**, o nome e o CPF — dados que o sistema já tem. Todo o resto do
+sistema usa seletor.
+**Por que importa:** é o documento que vai para a pasta funcional e pode virar justa causa.
+Id ou CPF digitado errado é medida aplicada à pessoa errada.
+**Corrigido:** «Colaborador*» virou **select** dos ativos, rotulado «NOME — CPF», para o id
+nunca mais ser digitado. *(Nome e CPF continuam campos separados; preenchê-los sozinho exigiria
+mexer no renderizador — fica registrado como pendência menor.)*
+
+### T13 · EQUIPAMENTOS — confirmado vazio, como o manual 12 já dizia
+Nenhuma tela de cadastro; «Patrimônio» segue em «Nenhum registro ainda». Sem novidade.

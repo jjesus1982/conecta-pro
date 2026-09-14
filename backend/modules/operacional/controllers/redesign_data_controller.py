@@ -2571,6 +2571,17 @@ async def _build_crm(db: AsyncSession) -> dict:
         ],
     }
     # Nova proposta (FORM com ESCRITA real → POST /redesign/action/proposal)
+    try:
+        _emp_rows = (await db.execute(text(
+            # `empresas` não tem coluna `ativo` — tem `status`. Conferido no banco em 14/09.
+            "SELECT id::text, coalesce(razao_social, slug) FROM empresas "
+            "WHERE coalesce(status::text,'ativo') NOT IN ('inativo','inativa') "
+            "ORDER BY is_principal DESC NULLS LAST, razao_social"
+        ))).fetchall()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        _emp_rows = []
+    _emp_opts = [{"value": i, "label": n} for i, n in _emp_rows]
     out["nova-proposta"] = {
         "title": "Nova proposta",
         "sub": "Criar uma proposta comercial",
@@ -2592,6 +2603,18 @@ async def _build_crm(db: AsyncSession) -> dict:
                 "type": "text",
                 "span": "span 2",
                 "ph": "Ex.: Proposta de portaria — Cond. X",
+            },
+            # Empresa emissora: `proposal_items.empresa_id` é NOT NULL e não havia campo nenhum
+            # para informá-la. Resultado medido em 14/09/2026: criar proposta pela tela devolvia
+            # HTTP 500 (NotNullViolationError) — o CRM não conseguia emitir proposta.
+            # A tabela `proposals` não tem empresa_id; quem carrega a empresa é o ITEM.
+            {
+                "key": "empresa_id",
+                "label": "Empresa emissora*",
+                "type": "select",
+                "span": "span 2",
+                "ph": "De qual CNPJ sai a proposta",
+                "options": _emp_opts,
             },
             {"key": "item_name", "label": "Serviço/Item", "type": "text", "span": "span 1", "ph": "Ex.: Portaria 24h"},
             {"key": "valor", "label": "Valor (R$)", "type": "text", "span": "span 1", "ph": "0,00"},
@@ -5513,9 +5536,17 @@ async def rd_action_proposal(
     except (ValueError, TypeError):
         valor = 0.0
     item_name = (payload.get("item_name") or title).strip()[:255]
+    # `proposal_items.empresa_id` é NOT NULL. O repositório já avisava no comentário que
+    # "quem chega aqui sem empresa já foi recusado antes" — só que esta ação não recusava:
+    # mandava None e o banco devolvia NotNullViolationError, que virava 500 sem explicação.
+    # Agora a empresa é exigida aqui, com mensagem, antes de chegar no banco.
+    empresa_id = (payload.get("empresa_id") or "").strip()
+    tem_item = valor > 0 or payload.get("item_name")
+    if tem_item and not empresa_id:
+        raise HTTPException(status_code=400, detail="Selecione a empresa emissora da proposta.")
     items = (
-        [ProposalItemCreate(name=item_name, quantity=1, unit_price=valor)]
-        if (valor > 0 or payload.get("item_name"))
+        [ProposalItemCreate(name=item_name, quantity=1, unit_price=valor, empresa_id=empresa_id)]
+        if tem_item
         else []
     )
     try:

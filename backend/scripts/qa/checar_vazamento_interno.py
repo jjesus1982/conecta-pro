@@ -43,10 +43,24 @@ PROIBIDO = (
     (r"OBS\.?\s*INTERNA", "observação marcada como interna"),
     (r"\buso interno\b", "texto declarado de uso interno"),
     (r"n[ãa]o\s+enviar", "anotação de 'não enviar'"),
-    (r"margem\s+(atual|de\s+lucro|bruta|l[íi]quida)", "MARGEM — o cliente negocia sabendo o quanto cabe"),
+    # ⭐ MARGEM SEGUIDA DE NÚMERO. A versão anterior exigia contexto — "margem atual",
+    # "margem de lucro" — justamente para não acusar "margem de segurança". Essa escolha
+    # criou o FALSO NEGATIVO no caso real: o Cowork achou "Margem 12,5% na portaria e 15%
+    # nos demais" na PROP-2026-00097, status `sent`, JÁ ENTREGUE ao cliente. Meu padrão não
+    # casou com nada ali.
+    #
+    # O que separa é o NÚMERO: "margem de segurança" não tem percentual atrás; "Margem
+    # 12,5%" tem. Distingue sem inflar — e evitar falso positivo ao preço de perder o caso
+    # real é o pior negócio possível numa trava.
+    (r"margem\s*(?:de\s+lucro\s*)?(?:é|de|:)?\s*\d{1,3}[.,]?\d*\s*%",
+     "MARGEM COM PERCENTUAL — o cliente negocia sabendo o quanto cabe"),
+    (r"margem\s+(atual|de\s+lucro|bruta|l[íi]quida)", "margem declarada"),
     (r"\bmark[- ]?up\b", "markup"),
     (r"custo\s+real\b", "custo real"),
     (r"\bcotaç[ãa]o\s+real\b", "referência a cotação interna"),
+    # e-mail de TERCEIRO no documento do cliente: o da nossa contabilidade não é da conta
+    # dele, e sai junto quando alguém escreve "e-mail de cópia" num campo que vai ao papel.
+    (r"porttecontabil|e-?mail\s+de\s+c[óo]pia", "e-mail de terceiro/contabilidade"),
 )
 
 
@@ -58,9 +72,12 @@ async def main() -> int:
     achados: list[str] = []
     verificadas = 0
     async with async_session_factory() as db:
+        # ⚠️ A BASE INTEIRA, não as 60 mais recentes — e TODOS os status. O caso real
+        # (PROP-2026-00097) já estava `sent`, e limitar a 60 recentes é como decidir que o
+        # que já saiu não importa mais. Importa mais: aquele o cliente já leu.
         props = (await db.execute(text(
             "SELECT number FROM proposals WHERE coalesce(is_active, true) "
-            "ORDER BY created_at DESC LIMIT 60"))).scalars().all()
+            "ORDER BY created_at DESC"))).scalars().all()
         if not props:
             print("NÃO VERIFICADO: nenhuma proposta ativa.")
             return 0

@@ -109,6 +109,14 @@ async def emitir_dps(current_user: CurrentActiveUser, request: EmitirDPSRequest)
             data=resp_dict,
         )
 
+    except HTTPException:
+        # O bloco acima levanta 422 com a rejeição EXATA do governo (código e descrição).
+        # Sem este re-raise, o `except Exception` abaixo capturava a própria HTTPException e
+        # devolvia 500 "Erro interno ao preparar DPS" — jogando fora a única informação útil.
+        # Medido em 14/09/2026: o governo respondeu «E0310 — O código de tributação nacional
+        # informado não existe conforme a lista de serviços nacional» e o usuário leu
+        # "erro interno". A causa estava escrita no log e não chegava a quem podia corrigir.
+        raise
     except ValueError as e:
         logger.warning(f"Dados invalidos para emissao DPS: {e}")
         raise HTTPException(

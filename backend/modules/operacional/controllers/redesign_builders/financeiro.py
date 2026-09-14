@@ -1221,6 +1221,12 @@ ORDER BY b.comp DESC, b.cnpj"""
         "title": "Enviar PIX / Transferência (Inter)",
         "sub": "Dinheiro que SAI — 2 etapas + OTP. Por chave PIX ou colando um PIX copia-e-cola.",
         "cta": "Preparar e gerar OTP", "type": "form",
+        # A ação /action/enviar-pix EXIGE a conta de origem e recusa com 400:
+        # «Escolha de qual conta sai o pagamento: Cora (Patrimonial) ou Inter (Eletrônica).»
+        # Sem esta flag o renderizador não desenhava o seletor — a tela era impossível de
+        # enviar: toda tentativa batia no 400 e não havia onde escolher a conta.
+        # Medido em 14/09/2026. Boleto, DARF, GPS e TED já tinham a flag; o PIX era o único fora.
+        "originField": True,
         "submit": {"endpoint": "/api/v1/redesign/action/enviar-pix", "gated": True,
                    "confirm": "Isto vai ENVIAR um PIX via Inter. Gerar o código OTP para o Jordan confirmar?",
                    "okMsg": "PIX enviado."},
