@@ -171,7 +171,41 @@ def _carregar_batidas(db: Session, employee_id: str, mes: int, ano: int) -> list
         ),
         {"e": str(employee_id), "lo": lo, "hi": hi},
     ).mappings().all()
-    return [dict(r) for r in rows]
+    return _uma_fonte_por_dia([dict(r) for r in rows])
+
+
+#: Fontes que registram batida MEDIDA (o funcionário bateu). O Tangerino/Sólides é o
+#: ponto oficial da transição e continua sendo puxado todo dia — mas o que ele traz é a
+#: GRADE da escala, não o horário real: em 09/2026 foram 422 batidas com 48 horários
+#: distintos, 382 em hora cheia, contra 763 batidas e 763 horários distintos do app.
+FONTES_MEDIDAS = ("mobile", "contingencia", "facial", "biometria", "app")
+
+
+def _uma_fonte_por_dia(batidas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """No dia em que a pessoa bateu de verdade, a grade importada sai do pareamento.
+
+    Origem (13/09/2026): 134 das 180 anomalias de setembro eram UM defeito só. Nos 95
+    dias-pessoa em que as duas fontes coexistiam, a grade do Tangerino entrava junto com
+    as batidas do app — e como ela vem ~1h adiantada, o pareamento via
+    `entrada(08:00 grade) → entrada(09:01 app)` e sobrava `saida(18:01 app)`: exatamente
+    um `par_incompleto` + um `saida_sem_entrada` por dia duplicado. Ninguém tinha errado
+    nada; o mês inteiro não fechava por isso.
+
+    Dia SEM batida medida continua usando a grade — são 118 dias-pessoa de gente que
+    ainda não está no app, e esses dias são reais.
+    """
+    medidos = {
+        b["punch_timestamp"].date()
+        for b in batidas
+        if b.get("punch_timestamp") and (b.get("device_type") or "").lower() in FONTES_MEDIDAS
+    }
+    return [
+        b
+        for b in batidas
+        if (b.get("device_type") or "").lower() in FONTES_MEDIDAS
+        or not b.get("punch_timestamp")
+        or b["punch_timestamp"].date() not in medidos
+    ]
 
 
 def _carregar_feriados(db: Session, mes: int, ano: int) -> set[date]:
@@ -346,13 +380,25 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
             aberta = None
 
     if aberta is not None:
-        anomalias.append({
-            "type": "par_incompleto",
-            "date": aberta["ts"].date().isoformat(),
-            "description": f"Entrada às {_hhmm(aberta['ts'])} sem saída (saída ausente no período).",
-            "punch_id": aberta.get("punch_id"),
-            "severity": "high",
-        })
+        # Turno EM ANDAMENTO não é anomalia. A pessoa entrou às 19:00 de hoje e vai sair
+        # às 07:00 de amanhã: cobrar a saída agora é cobrar o futuro. Sem esta guarda,
+        # todo dia corrente nascia com uma "anomalia" por pessoa em turno aberto — e o DP
+        # não tem o que corrigir, porque não há nada errado.
+        #
+        # O corte é o mesmo MAX_PAIR_MIN que invalida um par: passou disso, a saída
+        # realmente não veio e aí sim é achado.
+        from zoneinfo import ZoneInfo as _ZI  # noqa: PLC0415
+
+        _agora = datetime.now(_ZI("America/Manaus")).replace(tzinfo=None)
+        _em_curso = (_agora - aberta["ts"]).total_seconds() / 60.0 < MAX_PAIR_MIN
+        if not _em_curso:
+            anomalias.append({
+                "type": "par_incompleto",
+                "date": aberta["ts"].date().isoformat(),
+                "description": f"Entrada às {_hhmm(aberta['ts'])} sem saída (saída ausente no período).",
+                "punch_id": aberta.get("punch_id"),
+                "severity": "high",
+            })
 
     return pares, anomalias
 

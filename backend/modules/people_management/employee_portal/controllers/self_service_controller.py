@@ -673,9 +673,16 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
                 "           WHERE r.employee_id::text = :e "
                 "             AND r.punch_timestamp < q.punch_timestamp "
                 "             AND r.punch_timestamp > q.punch_timestamp - interval '14 hours')"
-                " ), (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'),"
+                # O -1s existe para INCLUIR a própria batida que abre o turno na contagem.
+                # Ele ficava FORA do GREATEST e relaxava também o piso de 14h — abrindo a
+                # janela em 14h **e 1 segundo**. Quem trabalha 08:00–18:00 tem exatamente
+                # 14h entre a saída e a entrada seguinte: a saída da véspera caía dentro da
+                # fresta, `feitas` valia 1, e o app rotulava a ENTRADA DA MANHÃ como
+                # "saída para o almoço". Medido em 09/2026: é o que sobrava das anomalias
+                # depois de separar a grade do Tangerino. O -1s agora vale só para a
+                # batida de abertura, que é o que ele sempre quis dizer.
+                "  ) - interval '1 second', (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'),"
                 "   (now() AT TIME ZONE 'America/Manaus') - interval '14 hours')"
-                " - interval '1 second'"
             ),
             {"e": emp},
         )

@@ -70,6 +70,17 @@ CACADORES = {
     # derrubou com 500 o endpoint que calcula e fecha o espelho da Portaria 671 — em TODA
     # competência, sem ninguém ver. Na estreia acusa 8, sendo 7 minas ainda não pisadas.
     "checar_id_tipo_divergente.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna\(s\) com tipo divergente", s),
+    # Alocação ATIVA de quem já saiu: a cobertura do posto conta gente que não trabalha
+    # mais lá. Eram 4 em 13/09/2026 (demissões de 22/07 a 24/08), e é exatamente o número
+    # que dispara o alarme de posto descoberto. Alvo permanente: 0.
+    "checar_alocacao_de_quem_saiu.py": lambda s: _n(r"^TOTAL:\s*(\d+) alocação\(ões\) ativa\(s\) de quem saiu", s),
+    # Holerite de mês que nem começou (94 de nov/dez-2026 criados em 03/08) e holerite sem
+    # `source_system` (12 em 08/2026): ambos poluíam a tela DP → Folha: Conecta × Portte.
+    "checar_holerite_de_mes_futuro.py": lambda s: _n(r"^TOTAL:\s*(\d+) holerite\(s\) impossível\(eis\)", s),
+    # Desde 13/09/2026 o pull do Sólides/Tangerino está desligado (decisão do Jordan):
+    # quem não bate pelo app não tem ponto NENHUM. Eram 7 no dia do desligamento — 4 que
+    # nunca usaram e 3 que usavam e pararam em agosto. Alvo: 0.
+    "checar_pessoa_fora_do_app_de_ponto.py": lambda s: _n(r"^TOTAL:\s*(\d+) pessoa\(s\) sem ponto pelo Conecta PRO", s),
     # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
     "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
     # Rotina que martela o provedor de LLM falhando: 30.800 chamadas/dia com 0 ok (07/09).

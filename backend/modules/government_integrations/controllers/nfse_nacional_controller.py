@@ -98,7 +98,11 @@ async def emitir_dps(current_user: CurrentActiveUser, request: EmitirDPSRequest)
 
         # Incluir dados da transmissão real
         extra = {}
-        for k in ("http_status", "response", "xml_gerado", "xml_assinado", "xml_tamanho", "fonte", "erro"):
+        # `xml_preview` entra aqui: é a única coisa que o dry_run produz. Sem ela a tela
+        # "Simulação (dry run)?" respondia "dry_run" e mais nada — o usuário não tinha como
+        # conferir o CNPJ, a IM ou o código do serviço antes de transmitir de verdade.
+        for k in ("http_status", "response", "xml_gerado", "xml_assinado", "xml_tamanho",
+                  "xml_preview", "fonte", "erro", "im_omitida_por_E0120"):
             if k in resultado:
                 extra[k] = resultado[k]
 

@@ -436,13 +436,23 @@ app.conf.beat_schedule = {
         "schedule": 900.0,  # 15 minutos
         "options": {"queue": "integrations"},
     },
-    # Pull de batidas de ponto do Tangerino -> gp_clock_punches (de hora em hora)
-    "solides-sync-punches": {
-        "task": "solides.sync_punches",
-        "schedule": 900.0,  # 15 min — presença ao vivo (era 1h; Jordan pediu quadro fiel, 2026-07-08)
-        "kwargs": {"days_back": 2},
-        "options": {"queue": "integrations"},
-    },
+    # DESLIGADO em 13/09/2026 por decisão do Jordan: "os pontos já estão sendo batidos
+    # pelo Conecta PRO, já não temos mais necessidade de puxar as batidas do
+    # Sólides/Tangerino". O que o pull trazia não era batida medida e sim a GRADE da
+    # escala — em 09/2026 foram 422 registros com só 48 horários distintos, 382 em hora
+    # cheia, contra 763 registros e 763 horários distintos do app. Nos 95 dias-pessoa em
+    # que as duas fontes coexistiam, a grade (que vem ~1h adiantada) entrava junto e
+    # quebrava o pareamento do espelho: 134 das 180 anomalias de setembro eram esse
+    # defeito, e por causa dele o mês não fechava.
+    #
+    # A TASK CONTINUA EXISTINDO (`solides.sync_punches`) para chamada manual — só não
+    # roda mais sozinha. Para religar, devolva este bloco.
+    # "solides-sync-punches": {
+    #     "task": "solides.sync_punches",
+    #     "schedule": 900.0,
+    #     "kwargs": {"days_back": 2},
+    #     "options": {"queue": "integrations"},
+    # },
     # Health check a cada 5 minutos
     "solides-health-check-all": {
         "task": "solides.health_check_all",
