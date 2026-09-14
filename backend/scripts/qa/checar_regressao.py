@@ -81,6 +81,9 @@ CACADORES = {
     # quem não bate pelo app não tem ponto NENHUM. Eram 7 no dia do desligamento — 4 que
     # nunca usaram e 3 que usavam e pararam em agosto. Alvo: 0.
     "checar_pessoa_fora_do_app_de_ponto.py": lambda s: _n(r"^TOTAL:\s*(\d+) pessoa\(s\) sem ponto pelo Conecta PRO", s),
+    # ASO que não prova exame: 96 dos 97 assinados pelo mesmo médico, 3 datas, zero
+    # documento anexado, todos carregados em 16/03/2026. Os "25 vencidos" da tela saem daí.
+    "checar_aso_sem_lastro.py": lambda s: _n(r"^TOTAL:\s*(\d+) ASO\(s\) sem lastro", s),
     # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
     "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
     # Rotina que martela o provedor de LLM falhando: 30.800 chamadas/dia com 0 ok (07/09).
