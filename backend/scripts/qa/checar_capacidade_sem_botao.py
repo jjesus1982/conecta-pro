@@ -168,15 +168,21 @@ async def main() -> int:
         segs = [x for x in caminho.split("/") if x and not x.startswith("{") and x not in ("api", "v1")]
         if not segs:
             return False
-        cauda = segs[-1].lower()
-        if cauda in acoes_redesign:
+        # Plural e singular contam igual: a rota é `/vigilante/cursos` e a ação do
+        # redesign se chama `vigilante-curso`. Sem isto, 5 telas do vigilante que EXISTEM
+        # (curso novo, equipamento novo, entregar, devolver, nome de guerra) apareciam
+        # como capacidade órfã — medido em 14/09/2026.
+        caudas = {segs[-1].lower()}
+        caudas.add(segs[-1].lower().rstrip("s"))
+        if caudas & acoes_redesign:
             return True
-        # `contracts` + `activate` -> `contract-activate` / `contrato-activate`
         if len(segs) >= 2:
-            base = segs[-2].lower().rstrip("s")
-            for sep in ("-", "_"):
-                if f"{base}{sep}{cauda}" in acoes_redesign:
-                    return True
+            bases = {segs[-2].lower(), segs[-2].lower().rstrip("s")}
+            for base in bases:
+                for cauda in caudas:
+                    for sep in ("-", "_"):
+                        if f"{base}{sep}{cauda}" in acoes_redesign:
+                            return True
         return False
 
     def coberta(caminho: str, metodo: str) -> bool:
