@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import create_access_token, create_refresh_token, verify_refresh_token
+from core.auth.contas_encerradas import esta_encerrada
 from core.auth.dependencies import get_current_active_user
 from core.auth.security import get_password_hash, verify_password
 from core.config import settings
@@ -153,6 +154,15 @@ async def register(
     promove depois em /modulos/configuracoes/usuarios. is_active=True
     (o gate de acesso é o próprio role 'pending').
     """
+    # Conta encerrada não se recadastra pela porta da senha (a do Google é barrada no
+    # callback). Encerramento é decisão do dono — ver core/auth/contas_encerradas.py.
+    _motivo = esta_encerrada(user_data.email)
+    if _motivo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Este e-mail foi encerrado: {_motivo}",
+        )
+
     # Verificar se email ja existe
     result = await db.execute(select(User).where(User.email == user_data.email))
     existing_user = result.scalar_one_or_none()
@@ -606,6 +616,14 @@ async def google_callback(
 
         if not email:
             return RedirectResponse(url=f"{FRONTEND_URL}/login?error=no_email")
+
+        # Conta ENCERRADA não entra nem renasce. Sem esta guarda, apagar a linha não
+        # encerra nada: o ramo `if not user` abaixo CRIA o usuário de novo no primeiro
+        # clique em «entrar com Google», e ainda toca o sino dos admins.
+        _motivo = esta_encerrada(email)
+        if _motivo:
+            logger.warning(f"Login Google recusado — conta encerrada: {email} ({_motivo})")
+            return RedirectResponse(url=f"{FRONTEND_URL}/login?error=conta_encerrada")
 
         # Verificar se usuario existe
         result = await db.execute(select(User).where(User.email == email))

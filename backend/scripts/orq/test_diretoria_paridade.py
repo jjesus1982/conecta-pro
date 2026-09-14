@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jordan e Pyetra têm o MESMO acesso — em todos os portões, dos dois lados.
+"""Jordan e Pyetra têm o MESMO acesso — e conta encerrada não entra nem renasce.
 
 Origem (14/09/2026): o Jordan pediu *"o perfil da Andrya Pyetra Souza de Jesus, login
 pjesus@conectamais.pro, precisa ter o mesmo perfil full que eu tenho"*. Fui medir e os
@@ -147,11 +147,58 @@ async def main() -> int:
     except Exception as e:  # noqa: BLE001
         falhas.append(f"não consegui ler a tabela users: {type(e).__name__}: {e}")
 
+    # 5. Conta ENCERRADA não entra nem renasce. Apagar a linha não encerra nada: o callback
+    #    do Google resolve por e-mail e CRIA quando não acha — a conta voltaria como
+    #    'pending' no primeiro clique. Guarda em `core/auth/contas_encerradas.py`,
+    #    exercitada nas DUAS portas de cadastro.
+    try:
+        import inspect as _insp  # noqa: PLC0415
+
+        from core.auth.contas_encerradas import ENCERRADAS, esta_encerrada  # noqa: PLC0415
+
+        for email in ENCERRADAS:
+            if not esta_encerrada(email):
+                falhas.append(f"{email} está na lista de encerradas e não é reconhecido")
+            if not esta_encerrada(f"  {email.upper()}  "):
+                falhas.append(f"{email}: a guarda não tolera caixa alta/espaço")
+            # não pode existir no banco
+            from sqlalchemy import text as _t  # noqa: PLC0415
+
+            from core.database import async_session_factory as _f  # noqa: PLC0415
+
+            async with _f() as _db:
+                n = (
+                    await _db.execute(_t("SELECT count(*) FROM users WHERE lower(email)=:e"), {"e": email})
+                ).scalar() or 0
+            if n:
+                falhas.append(f"{email}: encerrada e MESMO ASSIM existe em users — renasceu")
+        if esta_encerrada("qualquer@outro.com"):
+            falhas.append("um e-mail qualquer foi dado como encerrado")
+
+        # As duas portas de cadastro precisam CHAMAR a guarda. É verificação de fonte
+        # porque exercitar o OAuth do Google inteiro num oráculo diário não se paga.
+        from api.v1.endpoints import auth as _auth  # noqa: PLC0415
+
+        fonte = _insp.getsource(_auth)
+        for porta, marca in (("register (senha)", "async def register"),
+                             ("google/callback", "async def google_callback")):
+            i = fonte.find(marca)
+            corpo = fonte[i : fonte.find("\n@router", i + 10)] if i >= 0 else ""
+            if not corpo:
+                falhas.append(f"porta {porta} sumiu de auth.py — a guarda ficou sem alvo")
+            elif "esta_encerrada" not in corpo:
+                falhas.append(f"porta {porta} NÃO chama esta_encerrada — conta encerrada renasce por ali")
+    except Exception as e:  # noqa: BLE001
+        falhas.append(f"não consegui conferir as contas encerradas: {type(e).__name__}: {e}")
+
     for f in falhas:
         print(f"   ✗ {f}")
     if not falhas:
         print(f"   ✓ diretoria = {sorted(DIRETORIA)}")
         print(f"   ✓ {len(listas)} lista(s) de acesso com os dois · gate do audit exercitado · users idênticos")
+        from core.auth.contas_encerradas import ENCERRADAS as _E  # noqa: PLC0415
+
+        print(f"   ✓ {len(_E)} conta(s) encerrada(s), fora do banco e barradas nas 2 portas de cadastro")
     print(f"\nTOTAL: {len(falhas)} divergência(s) de acesso da diretoria")
     return 1 if falhas else 0
 
