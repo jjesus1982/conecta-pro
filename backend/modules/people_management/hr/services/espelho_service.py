@@ -831,7 +831,12 @@ def _employees_com_batida(db: Session, mes: int, ano: int) -> list[str]:
             "SELECT DISTINCT CAST(employee_id AS TEXT) FROM time_sheets "
             "WHERE reference_month=:m AND reference_year=:y "
             "  AND coalesce(is_deleted,false)=false "
-            "  AND employee_id NOT IN (SELECT id FROM employees WHERE coalesce(is_homologacao, false) = true)"
+            # time_sheets.employee_id é VARCHAR e employees.id é UUID. Sem o CAST, o Postgres
+            # recusa a comparação ("operator does not exist: character varying = uuid") e o
+            # endpoint inteiro devolvia 500 — o cálculo do espelho da Portaria 671 não rodava
+            # em nenhuma competência. Medido em 14/09/2026. A metade de cima do UNION não
+            # falha porque gp_clock_punches.employee_id já é UUID.
+            "  AND employee_id NOT IN (SELECT CAST(id AS TEXT) FROM employees WHERE coalesce(is_homologacao, false) = true)"
         ),
         {"m": int(mes), "y": int(ano)},
     ).fetchall()

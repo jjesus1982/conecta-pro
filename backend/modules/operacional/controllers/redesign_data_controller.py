@@ -323,9 +323,13 @@ async def _build_operacional(db: AsyncSession) -> dict:
     arows = (
         await db.execute(
             text(
-                "SELECT e.nome, c.name, al.funcao, al.ativo, al.data_inicio, al.data_fim, al.created_at "
+                # employee_alocacoes.condominio_id aponta para `condominios`, NÃO para `clients`.
+                # O join antigo era em clients: 0 das 73 linhas casavam e a coluna
+                # "Cliente / Posto" saía "—" para todo mundo — a única informação que
+                # uma alocação precisa dar. Medido em 13/09/2026 no banco de produção.
+                "SELECT e.nome, cond.nome, al.funcao, al.ativo, al.data_inicio, al.data_fim, al.created_at "
                 "FROM employee_alocacoes al LEFT JOIN employees e ON e.id=al.employee_id "
-                "LEFT JOIN clients c ON c.id=al.condominio_id "
+                "LEFT JOIN condominios cond ON cond.id=al.condominio_id "
                 "ORDER BY al.ativo DESC, e.nome LIMIT 300"
             )
         )
@@ -835,7 +839,10 @@ async def _build_operacional(db: AsyncSession) -> dict:
                     t(dp.strftime("%d/%m/%Y") if dp else "—"),
                     t(str(dest)),
                     t(str(views)),
-                    b((st or "—").capitalize(), "ok" if (st or "").lower() == "publicado" else "mut"),
+                    # A MESMA coluna guarda 'publicado' (10 linhas antigas) e 'published'
+                    # (o que a ação de publicar grava hoje). Medido em 14/09/2026.
+                    # Comparar só com 'publicado' pintava de cinza um comunicado publicado.
+                    b((st or "—").capitalize(), "ok" if (st or "").lower() in ("publicado", "published") else "mut"),
                 ]
             }
             for ti, tp, pr, dp, dest, views, st in crows

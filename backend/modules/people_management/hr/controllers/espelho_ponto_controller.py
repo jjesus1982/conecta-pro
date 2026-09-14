@@ -49,7 +49,10 @@ class FecharMesRequest(BaseModel):
     ano: int
     employee_id: str | None = None
     # Se False, apenas CALCULA (dry-run) e devolve as anomalias — não fecha nada.
-    fechar: bool = True
+    # Padrão SEGURO (14/09/2026): era True, então um corpo sem `fechar` FECHAVA o mês.
+    # A tela tem um select com opção vazia — deixar em "Selecione…" omitia o campo e o
+    # mês era fechado por omissão. Fechar o mês passa a exigir escolha explícita.
+    fechar: bool = False
     # Recalcular por cima de um mês já fechado (uso administrativo).
     force: bool = False
 

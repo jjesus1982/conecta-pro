@@ -248,7 +248,10 @@ async def rd_action_escala_publicar(current_user: CurrentActiveUser, payload: di
         _aio.create_task(publish_escala_publicada(
             escala_id=aid, cliente_id=None,
             competencia=f"{sc.year}-{int(sc.month):02d}" if getattr(sc, "month", None) and getattr(sc, "year", None) else None,
-            total_turnos=int(getattr(sc, "total_shifts", 0) or 0), funcionarios=[]))
+            # n_turnos é contado de shifts logo acima (a trava de "escala sem turnos").
+            # sc.total_shifts é o contador denormalizado e estava zerado na escala recém-gerada:
+            # o evento de publicação saía anunciando 0 turnos para quem escuta.
+            total_turnos=int(n_turnos or 0), funcionarios=[]))
     return out
 
 
@@ -1011,7 +1014,7 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
             "count(r.id) FILTER (WHERE r.read_at IS NOT NULL), count(r.id) FILTER (WHERE r.confirmed_at IS NOT NULL), coalesce(a.requer_confirmacao,false) "
             "FROM communication_announcements a LEFT JOIN communication_announcement_reads r ON r.announcement_id=a.id AND coalesce(r.is_active,true) "
             "WHERE coalesce(a.is_active,true) GROUP BY a.id ORDER BY a.data_publicacao DESC NULLS LAST, a.created_at DESC LIMIT 100",
-            lambda r: [t(r[0][:60], 600, "#0F1B3A"), b(r[1].capitalize(), "ok" if r[1] == "publicado" else "mut"), t(_fd(r[2])), t(str(r[3])), t(str(r[4])),
+            lambda r: [t(r[0][:60], 600, "#0F1B3A"), b(r[1].capitalize(), "ok" if (r[1] or "").lower() in ("publicado", "published") else "mut"), t(_fd(r[2])), t(str(r[3])), t(str(r[4])),
                        b(str(r[5]), "ok" if r[5] and r[5] >= r[3] else ("warn" if r[6] else "mut")), t("Sim" if r[6] else "Não")])
     except Exception as exc:  # noqa: BLE001
         await db.rollback(); _log.warning("comunicados-leituras: %s", exc)
@@ -1030,8 +1033,11 @@ async def _ligar_escalas_grade_20260908(db, out: dict, tbl) -> None:
         out["escalas-mes"] = await tbl(
             "Escalas do mês (ciclo)", f"{await _scalar(db, 'SELECT count(*) FROM scales WHERE coalesce(is_active,true)')} escalas — rascunho → aprovação → publicada. Editar observações por linha.", "—",
             ["Escala", "Posto", "Competência", "Tipo", "Turnos", "Status"], "1.6fr 1.6fr 0.9fr 0.8fr 0.7fr 0.9fr",
+            # Turnos CONTADO de shifts, não lido de s.total_shifts. Medido em 13/09/2026:
+            # 23 das 34 escalas tinham o contador divergindo do real (153 contra 143 turnos,
+            # 157 contra 396). A tela dizia escala vazia onde havia 62 turnos gravados.
             "SELECT coalesce(s.name,'—'), coalesce(p.name,'—'), lpad(s.month::text,2,'0') || '/' || s.year, coalesce(s.scale_type::text,'—'), "
-            "coalesce(s.total_shifts,0), coalesce(s.status::text,'—'), s.id::text, coalesce(s.notes,'') "
+            "(SELECT count(*) FROM shifts sh WHERE sh.scale_id=s.id), coalesce(s.status::text,'—'), s.id::text, coalesce(s.notes,'') "
             "FROM scales s LEFT JOIN posts p ON p.id=s.post_id WHERE coalesce(s.is_active,true) ORDER BY s.year DESC, s.month DESC, p.name LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—')[:30]), t(r[2]), t((r[3] or '—')), t(str(r[4])),
                        b((r[5] or '—').replace('_', ' ').capitalize(), "ok" if r[5] == "published" else "warn" if r[5] in ("pending_approval", "approved") else "info")],
@@ -1788,8 +1794,13 @@ async def build(db) -> dict:
         out["escalas-visual"] = await tbl(
             "Editor de escalas", "Escalas e preenchimento · fonte: scales", "—",
             ["Escala", "Tipo", "Período", "Turnos", "Preenchidos", "Status"], "1.6fr 1fr 0.9fr 0.8fr 0.9fr 1fr",
-            "SELECT coalesce(name,'—'), coalesce(scale_type::text,'—'), month, year, coalesce(total_shifts,0), coalesce(filled_shifts,0), coalesce(status::text,'—') "
-            "FROM scales WHERE coalesce(is_active,true) ORDER BY year DESC NULLS LAST, month DESC NULLS LAST LIMIT 200",
+            # Turnos e Preenchidos CONTADOS de shifts. O par "153/153" da tela vinha dos
+            # contadores denormalizados e não batia com a tabela: a escala tinha 143 turnos.
+            # Preenchido = turno com employee_id; turno sem gente é buraco de escala.
+            "SELECT coalesce(s.name,'—'), coalesce(s.scale_type::text,'—'), s.month, s.year, "
+            "(SELECT count(*) FROM shifts sh WHERE sh.scale_id=s.id), "
+            "(SELECT count(sh.employee_id) FROM shifts sh WHERE sh.scale_id=s.id), coalesce(s.status::text,'—') "
+            "FROM scales s WHERE coalesce(s.is_active,true) ORDER BY s.year DESC NULLS LAST, s.month DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')),
                        t(f"{int(r[2]):02d}/{int(r[3])}" if r[2] and r[3] else '—'), t(str(int(r[4] or 0))),
                        t(f"{int(r[5] or 0)}/{int(r[4] or 0)}"), b((r[6] or '—').capitalize(), "ok" if (r[6] or '') == 'published' else "info")])

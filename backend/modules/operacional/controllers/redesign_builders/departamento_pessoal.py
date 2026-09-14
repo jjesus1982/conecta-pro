@@ -2644,7 +2644,13 @@ async def build(db, current_user=None) -> dict:
             "cta": "Executar", "type": "form",
             "submit": {"endpoint": "/api/v1/people-management/hr/ponto/fechar-mes", "showResult": True,
                        "okMsg": "Espelho processado — veja o resultado abaixo.",
-                       "confirm": "Fechar o espelho do mês para todos os colaboradores ativos. Confirma?"},
+                       # A confirmação é ESTÁTICA — o renderizador mostra a mesma frase para as
+                       # duas ações. Dizia só "Fechar": quem escolhia "Só calcular" era perguntado
+                       # sobre fechar, e quem escolhia FECHAR lia a mesma frase de sempre. Medido
+                       # em 14/09/2026. Texto agora cobre os dois caminhos com honestidade.
+                       "confirm": "Confira a Ação escolhida. Com «Calcular e FECHAR», o mês do ponto "
+                                  "é FECHADO para todos os ativos sem anomalia — reabrir depois exige "
+                                  "registro. Com «Só calcular», nada é fechado. Confirma?"},
             "fields": [
                 {"key": "mes", "label": "Mês*", "type": "select", "span": "span 1",
                  "options": [{"value": str(m), "label": f"{m:02d}"} for m in range(1, 13)]},

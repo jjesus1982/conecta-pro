@@ -287,7 +287,11 @@ async def _ligar_lote3_20260908(db, out: dict, me, current_user) -> None:
             ["Título", "Tipo", "Prioridade", "Publicado", "Situação"], "2.2fr 0.9fr 0.9fr 0.9fr 1fr",
             f"SELECT a.id::text, coalesce(a.titulo,'—'), coalesce(a.tipo,'—'), coalesce(a.prioridade,'—'), a.data_publicacao, coalesce(a.requer_confirmacao,false), "
             f"(SELECT max(r.confirmed_at) FROM communication_announcement_reads r WHERE r.announcement_id=a.id AND r.user_id::text='{uid}') "
-            "FROM communication_announcements a WHERE coalesce(a.is_active,true) AND a.status='publicado' AND (a.data_expiracao IS NULL OR a.data_expiracao >= now()) "
+            # status aceita as DUAS grafias: as 10 linhas antigas gravaram 'publicado' e a ação
+            # de publicar de hoje grava 'published'. Com o filtro só em 'publicado', todo
+            # comunicado publicado a partir de agora ficava INVISÍVEL para o colaborador —
+            # medido em 14/09/2026 publicando um e não achando no portal.
+            "FROM communication_announcements a WHERE coalesce(a.is_active,true) AND a.status IN ('publicado','published') AND (a.data_expiracao IS NULL OR a.data_expiracao >= now()) "
             "ORDER BY a.data_publicacao DESC NULLS LAST LIMIT 100",
             lambda r: [t(r[1][:70], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(_d(r[4])), b("Confirmado" if r[6] else ("Confirmar leitura" if r[5] else "Informativo"), "ok" if r[6] else ("warn" if r[5] else "mut"))],
             actionsfn=lambda r: [{"title": f"Confirmar leitura — {r[1][:50]}", "endpoint": f"/api/v1/operacional/comunicados/{r[0]}/confirmar", "method": "POST",

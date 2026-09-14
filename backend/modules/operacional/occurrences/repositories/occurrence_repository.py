@@ -68,8 +68,13 @@ class OccurrenceRepository:
             post_id=data.post_id,
             patrol_round_id=data.patrol_round_id,
             witnesses=data.witnesses,
-            # occurred_at é opcional no form rápido mobile → default: agora
-            occurred_at=data.occurred_at or datetime.now(),
+            # occurred_at é opcional no form rápido mobile → default: agora, em UTC.
+            # Era datetime.now() (hora LOCAL do container) ao lado de um utcnow() —
+            # as duas colunas são `timestamp without time zone` e a convenção da casa é
+            # UTC (created_at do Postgres bate com reported_at). Resultado medido em
+            # 13/09/2026: a MESMA ocorrência gravou occurred_at 13/09 21:09 e
+            # reported_at 14/09 01:09 — quatro horas e um dia de diferença.
+            occurred_at=data.occurred_at or datetime.utcnow(),
             reported_at=datetime.utcnow(),
             created_by=inspector_id,
         )
