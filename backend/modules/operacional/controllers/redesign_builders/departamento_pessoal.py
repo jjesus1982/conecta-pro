@@ -1323,6 +1323,162 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
               "/api/v1/people-management/dp/payslips/folha/pagar-via-pix/{mes}/{ano}/status", [{"key": "mes", "label": "Mês*", "type": "number", "span": "span 1", "value": hoje.month}, {"key": "ano", "label": "Ano*", "type": "number", "span": "span 1", "value": hoje.year}])
 
 
+
+async def _afd_e_justificativa(db, out: dict) -> None:
+    """AFD/AEJ da Portaria 671 e justificativa de ponto — LIGAR 14/09/2026.
+
+    O AFD é o primeiro documento que a fiscalização do trabalho pede. Ele existia: 39
+    linhas em `afd_records`, geradas desde o corte, com NSR contínuo. E não aparecia em
+    tela nenhuma — baixar o arquivo exigia `curl`. Idem a justificativa de falta/atraso:
+    a rota `POST /ponto/justificativa` existia e só o `revisar` tinha botão, ou seja, dava
+    para APROVAR uma justificativa que ninguém conseguia CRIAR pela tela.
+
+    Um arquivo por CNPJ (Anexo IX): o empregador vem da tabela `empresas`, nunca digitado.
+    """
+    from datetime import date as _dt
+
+    from sqlalchemy import text as _sql
+
+    # `_helpers(db)` devolve um dict PRÓPRIO, e é NELE que o `safe` escreve. Descartar esse
+    # dict (`_, safe, tbl = ...`) faz a tela ser montada e jogada fora em silêncio — foi o
+    # que aconteceu com o AFD na primeira versão desta função. Guarda e funde no fim.
+    _local, safe, tbl = _helpers(db)
+    hoje = _dt.today()
+    ini_mes = hoje.replace(day=1)
+
+    # Empregador que tem linha de AFD — a fonte é o dado, não uma constante no código.
+    try:
+        emp = (await db.execute(_sql(
+            "SELECT e.cnpj, e.razao_social FROM empresas e "
+            "WHERE regexp_replace(coalesce(e.cnpj,''),'\\D','','g') IN "
+            "      (SELECT DISTINCT cnpj FROM afd_records WHERE cnpj IS NOT NULL) "
+            "   OR e.slug = 'conecta_patrimonial' "
+            "ORDER BY (e.slug='conecta_patrimonial') DESC LIMIT 1"))).first()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        emp = None
+    cnpj = _re_sub_digitos(emp[0]) if emp and emp[0] else ""
+    razao = (emp[1] if emp else "") or "—"
+
+    try:
+        n_afd = (await db.execute(_sql("SELECT count(*) FROM afd_records"))).scalar() or 0
+        faixa = (await db.execute(_sql(
+            "SELECT min(nsr), max(nsr), count(*) FILTER (WHERE record_type='7') FROM afd_records"))).first()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        n_afd, faixa = 0, (None, None, 0)
+
+    # O NOME do arquivo AFD carrega o número do INPI do REP-P (Anexo I). Sem o instrumento
+    # registrado ele sai como "AFDSEM_INPI<cnpj>REP_P.txt" — e um AFD sem INPI é recusado
+    # numa fiscalização. Isso PRECISA aparecer na tela: gerar um arquivo que não vale é
+    # pior do que não gerar.
+    try:
+        from modules.hr.rep_integration.services import rep_p as _repp  # noqa: PLC0415
+
+        _inst = await _repp.instrumento(db)
+        _faltam = [x for x in ("INPI", "ATESTADO_TECNICO", "TERMO_RESPONSABILIDADE") if x not in _inst]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        _faltam = []
+    _aviso_inpi = (
+        f" ⚠️ INSTRUMENTO LEGAL INCOMPLETO — falta {', '.join(_faltam)}. O arquivo sai com "
+        "«SEM_INPI» no nome e não é aceito em fiscalização enquanto isso."
+        if _faltam else ""
+    )
+
+    docs = []
+    if cnpj:
+        docs = [
+            doc("Baixar AFD do mês",
+                f"/api/v1/people-management/ponto/afd/rep-p/arquivo?cnpj={cnpj}"
+                f"&inicio={ini_mes}&fim={hoje}", fmt="txt",
+                filename=f"AFD_{cnpj}_{ini_mes:%Y%m}.txt"),
+            doc("Baixar AEJ da competência",
+                f"/api/v1/people-management/ponto/afd/rep-p/aej?cnpj={cnpj}"
+                f"&ano={hoje.year}&mes={hoje.month}", fmt="txt",
+                filename=f"AEJ_{cnpj}_{hoje:%Y%m}.txt"),
+        ]
+
+    await safe("afd", tbl(
+        "AFD — arquivo fiscal do ponto (Portaria 671)",
+        f"{n_afd} linha(s) gravadas · NSR {faixa[0] or '—'} a {faixa[1] or '—'} · "
+        f"{faixa[2] or 0} batida(s) · empregador {razao}. "
+        "É o arquivo que a fiscalização pede primeiro. O NSR é contínuo por estabelecimento "
+        "e nunca se repete — por isso a geração é idempotente e não se apaga linha." + _aviso_inpi,
+        "—",
+        ["NSR", "Tipo", "Data", "Hora", "PIS", "Linha do arquivo"],
+        "0.5fr 0.5fr 0.8fr 0.6fr 1fr 2.4fr",
+        "SELECT a.nsr, a.record_type, to_char(a.record_date,'DD/MM/YYYY'), "
+        "       to_char(a.record_time,'HH24:MI:SS'), coalesce(a.pis_number,'—'), "
+        "       left(a.afd_line, 90) "
+        "FROM afd_records a ORDER BY a.nsr DESC LIMIT 300",
+        lambda r: [t(str(r[0]), 600, _ND), b(r[1] or "—", "info"), t(r[2] or "—"),
+                   t(r[3] or "—"), t(r[4] or "—"), t(r[5] or "—")]))
+    out.update(_local)  # traz o que o `safe` montou no dict do helper
+    if out.get("afd") and docs:
+        out["afd"]["docs"] = docs
+    if out.get("afd"):
+        # Gerar as linhas que faltam. Idempotente: só cria para batida >= corte SEM linha.
+        out["afd"]["headerActions"] = [{
+            "title": "Gerar as linhas de AFD que faltam",
+            "sub": "Idempotente — percorre as batidas a partir do corte e cria linha só para "
+                   "quem ainda não tem. Quem ficar de fora (sem CPF ou sem empregador) vem "
+                   "listado na resposta.",
+            "endpoint": "/api/v1/people-management/ponto/afd/rep-p/gerar",
+            "method": "POST", "btnLabel": "Gerar linhas", "submitLabel": "Gerar",
+            "btnStyle": "primary", "showResult": True,
+            "okMsg": "Linhas geradas — veja o resultado.", "fields": [],
+        }]
+
+    # JUSTIFICAR — dava para aprovar o que ninguém conseguia criar pela tela.
+    try:
+        pessoas = [
+            {"value": str(i), "label": f"{n} — {c or 'sem CPF'}"}
+            for i, n, c in (await db.execute(_sql(
+                "SELECT id, nome, cpf FROM employees WHERE status='ativo' "
+                "AND coalesce(is_homologacao,false)=false ORDER BY nome LIMIT 400"))).fetchall()
+        ]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        pessoas = []
+
+    out["justificar-ponto"] = {
+        "title": "Justificar falta ou atraso",
+        "sub": "Registra a justificativa do colaborador. Nasce PENDENTE — quem defere é o DP, "
+               "na aba «Revisar justificativas». Justificativa aprovada tira a anomalia do "
+               "caminho do fechamento do mês.",
+        "cta": "Registrar", "type": "form",
+        "submit": {"endpoint": "/api/v1/people-management/ponto/justificativa",
+                   "okMsg": "Justificativa registrada (pendente de deferimento)."},
+        "fields": [
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione", "options": pessoas},
+            {"key": "justification_type", "label": "O que houve*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "atraso", "label": "Atraso"},
+                 {"value": "falta", "label": "Falta"}]},
+            {"key": "category", "label": "Motivo*", "type": "select", "span": "span 1",
+             "ph": "Selecione", "options": [
+                 {"value": "saude", "label": "Saúde"},
+                 {"value": "familiar", "label": "Familiar"},
+                 {"value": "transito", "label": "Trânsito"},
+                 {"value": "transporte_publico", "label": "Transporte público"},
+                 {"value": "acidente", "label": "Acidente"},
+                 {"value": "outro", "label": "Outro"}]},
+            {"key": "reason", "label": "Descrição* (mín. 5 caracteres)", "type": "textarea",
+             "span": "span 2", "ph": "O que aconteceu, com a data e o horário"},
+            {"key": "punch_id", "label": "Batida relacionada (opcional)", "type": "text",
+             "span": "span 2", "ph": "Deixe vazio se a justificativa é do DIA, não de uma batida"},
+        ],
+    }
+
+
+def _re_sub_digitos(v) -> str:
+    import re as _r
+
+    return _r.sub(r"\D", "", str(v or ""))
+
+
 async def build(db, current_user=None) -> dict:
     # Base = tudo que o _build_dp já entrega (telas VIVAS + ferramentas).
     out = await _build_dp(db)
@@ -2537,8 +2693,24 @@ async def build(db, current_user=None) -> dict:
         # 2 botões em vez de 1). Rejeitar chama o handler fino rd_action_vacation_reject (id vai na
         # query ?vid= do endpoint, motivo vai no body {reason} preenchido pelo modal).
         def _fer_acts(r):
-            if (r[5] or "").upper() != "SUBMITTED":
+            st = (r[5] or "").upper()
+            # Cancelar vale para QUALQUER solicitação ainda viva — inclusive já aprovada:
+            # férias aprovada que o colaborador não vai tirar precisa ser desfeita, e isso
+            # só existia no banco (medido em 14/09/2026). O DELETE é SOFT: marca cancelada
+            # na fonte canônica, nunca apaga. Pedido de férias não se apaga, se cancela.
+            cancelar = {
+                "title": f"Cancelar as férias de {r[1] or '—'}",
+                "sub": "Marca a solicitação como CANCELADA. O registro continua existindo — "
+                       "a trilha de quem pediu e quando fica.",
+                "endpoint": f"/api/v1/people-management/hr/vacations/{r[0]}",
+                "method": "DELETE", "btnLabel": "Cancelar",
+                "submitLabel": "Cancelar solicitação", "btnStyle": "outline",
+                "okMsg": "Solicitação cancelada. Recarregue.", "fields": [],
+            }
+            if st in ("CANCELLED", "CANCELADA", "CANCELED", "REJECTED", "REJEITADA"):
                 return None
+            if st != "SUBMITTED":
+                return [cancelar]
             aprovar = {"title": f"Aprovar férias de {r[1] or '—'}",
                        "endpoint": f"/api/v1/redesign/action/ferias-aprovar?vid={r[0]}",
                        "method": "POST", "btnLabel": "Aprovar", "submitLabel": "Aprovar",
@@ -2552,7 +2724,7 @@ async def build(db, current_user=None) -> dict:
                             {"key": "reason", "label": "Motivo (obrigatório)", "type": "textarea",
                              "span": "span 2", "value": ""},
                         ]}
-            return [aprovar, rejeitar]
+            return [aprovar, rejeitar, cancelar]
 
         _n_fer = (await db.execute(_sqltext("SELECT count(*) FROM hr_vacation_requests"))).scalar() or 0
         await safe("ferias", tbl(
@@ -2755,6 +2927,7 @@ async def build(db, current_user=None) -> dict:
         "FROM sst_afastamentos f JOIN employees e ON e.id=f.employee_id WHERE f.esocial_status IS NOT NULL AND f.esocial_status <> 'nao_transmitida') x "
         "ORDER BY quando DESC NULLS LAST LIMIT 200",
         lambda r: [b(r[0], "info"), t(r[1], 600, _ND), t(r[2] or "—"), b((r[3] or "—").replace("_", " "), "ok" if (r[3] or "") in ("recibo_casado", "aceita", "transmitida") else ("bad" if "rejeit" in (r[3] or "") or "erro" in (r[3] or "") else "warn")), t((r[4] or "—")[:34])]))
+    await _afd_e_justificativa(db, out)  # AFD/AEJ e justificar ponto (14/09) — antes de montar_grupos
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03

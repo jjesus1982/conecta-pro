@@ -35,7 +35,10 @@ GRUPOS = [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
         ("fechar-mes-ponto", "Fechar mês"), ("espelho-fechar", "Espelho: calcular/fechar"),
         ("ponto-lancar", "Lançamento manual"), ("ponto-ajuste", "Ajustar batida"),
-        ("revisar-justificativa", "Revisar justificativas"), ("espelho-solicitar-homologacao", "Espelho: solicitar homologação")]),
+        ("revisar-justificativa", "Revisar justificativas"), ("espelho-solicitar-homologacao", "Espelho: solicitar homologação"),
+        # AFD/AEJ (Portaria 671): existiam no banco e em nenhuma tela — o documento que a
+        # fiscalização pede primeiro era invisível no sistema (medido em 14/09/2026).
+        ("afd", "AFD — arquivo fiscal"), ("justificar-ponto", "Justificar falta/atraso")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
