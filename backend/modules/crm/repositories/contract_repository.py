@@ -371,7 +371,13 @@ class ContractRepository:
         item = ContractItem(
             id=uuid.uuid4(),
             contract_id=contract.id,
-            service_type=data.service_type,
+            # `contract_items.service_type` é VARCHAR(30) no banco — não é ENUM do Postgres
+            # como `contract_addendums.addendum_type`. Passar o objeto Enum fazia o asyncpg
+            # recusar: «invalid input for query argument $3: <ServiceType.SECURITY:
+            # 'security'> (expected str, got ServiceType)». Incluir item num contrato
+            # devolvia 500 SEMPRE — e ninguém viu porque não havia botão na tela (medido em
+            # 13/09/2026, quando o botão foi ligado).
+            service_type=getattr(data.service_type, "value", data.service_type),
             service_name=data.service_name,
             description=data.description,
             quantity=data.quantity,

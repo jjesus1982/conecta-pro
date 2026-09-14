@@ -1006,6 +1006,131 @@ def _contrato_actions(r):
                 ],
             }
         )
+    # ── LIGAR 13/09/2026 (pedido do Jordan: "tive que recorrer ao terminal") ──────────
+    # Seis capacidades que o contrato SEMPRE teve na API e nunca teve botão. Medidas por
+    # `checar_capacidade_sem_botao`: PUT, DELETE, addendums, items, calculate-adjustment
+    # e assinar-empresa.
+
+    # ADITIVO — só faz sentido em contrato VIGENTE: a API recusa com «Contrato não
+    # encontrado ou não está ativo» (medido em 13/09/2026 contra um rascunho). Rascunho se
+    # edita; contrato em vigência se adita.
+    if st == "active":
+        acts.append(
+            {
+                "title": f"Aditivo ao contrato {r[1]}",
+                "sub": "Registra a alteração como ADITIVO — o contrato original fica intacto e a "
+                       "trilha mostra o que mudou, quando e por quê.",
+                "endpoint": f"/api/v1/crm/contracts/{r[0]}/addendums",
+                "method": "POST",
+                "btnLabel": "Aditivo",
+                "submitLabel": "Criar aditivo",
+                "btnStyle": "outline",
+                "okMsg": "Aditivo criado. Recarregue.",
+                "fields": [
+                    {"key": "addendum_type", "label": "Tipo*", "type": "select", "span": "span 1",
+                     "ph": "Selecione", "options": [
+                         {"value": "adjustment", "label": "Reajuste de valor"},
+                         {"value": "scope_change", "label": "Alteração de escopo"},
+                         {"value": "term_change", "label": "Alteração de prazo"},
+                         {"value": "team_change", "label": "Alteração de equipe/postos"},
+                         {"value": "equipment_change", "label": "Alteração de equipamentos"},
+                         {"value": "other", "label": "Outras alterações"}]},
+                    {"key": "effective_date", "label": "Vigência a partir de*", "type": "date", "span": "span 1"},
+                    {"key": "description", "label": "O que muda* (mín. 10 caracteres)", "type": "textarea",
+                     "span": "span 2", "ph": "Ex.: acréscimo de 1 posto de portaria 12x36 no turno noturno"},
+                    {"key": "reason", "label": "Motivo", "type": "text", "span": "span 2"},
+                    {"key": "new_value", "label": "Novo valor (R$) — só p/ reajuste", "type": "number", "span": "span 1"},
+                    {"key": "adjustment_percent", "label": "Reajuste (%) — só p/ reajuste", "type": "number", "span": "span 1"},
+                ],
+            }
+        )
+
+    # ITEM — contrato de serviço único é a soma dos itens (entrada, parcelas, retida).
+    acts.append(
+        {
+            "title": f"Incluir item no contrato {r[1]}",
+            "sub": "Cada item entra no valor total e aparece no instrumento.",
+            "endpoint": f"/api/v1/crm/contracts/{r[0]}/items",
+            "method": "POST",
+            "btnLabel": "Incluir item",
+            "submitLabel": "Incluir",
+            "btnStyle": "outline",
+            "okMsg": "Item incluído. Recarregue.",
+            "fields": [
+                {"key": "service_type", "label": "Serviço*", "type": "select", "span": "span 1",
+                 "ph": "Selecione", "options": [
+                     {"value": "security", "label": "Vigilância patrimonial"},
+                     {"value": "remote_gatehouse", "label": "Portaria remota"},
+                     {"value": "electronic_security", "label": "Segurança eletrônica"},
+                     {"value": "monitoring_24h", "label": "Monitoramento 24h"},
+                     {"value": "cleaning", "label": "Limpeza"},
+                     {"value": "gardening", "label": "Jardinagem"},
+                     {"value": "maintenance", "label": "Manutenção"},
+                     {"value": "facilities", "label": "Facilities geral"}]},
+                {"key": "service_name", "label": "Nome do item* (mín. 3)", "type": "text", "span": "span 1",
+                 "ph": "Ex.: Entrada (50%) na assinatura"},
+                {"key": "quantity", "label": "Quantidade", "type": "number", "span": "span 1", "value": "1"},
+                {"key": "unit_price", "label": "Valor unitário (R$)*", "type": "number", "span": "span 1"},
+                {"key": "description", "label": "Descrição", "type": "text", "span": "span 2"},
+                {"key": "notes", "label": "Observação", "type": "text", "span": "span 2"},
+            ],
+        }
+    )
+
+    # REAJUSTE — CALCULA e mostra; não aplica sozinho. Aplicar é o aditivo acima.
+    acts.append(
+        {
+            "title": f"Calcular reajuste de {r[1]}",
+            "sub": "Só CALCULA e mostra o resultado. Para valer, o reajuste vira aditivo.",
+            "endpoint": f"/api/v1/crm/contracts/{r[0]}/calculate-adjustment",
+            "method": "POST",
+            "btnLabel": "Reajuste",
+            "submitLabel": "Calcular",
+            "btnStyle": "outline",
+            "okMsg": "Reajuste calculado — veja a mensagem.",
+            "showResult": True,
+            "fields": [],
+        }
+    )
+
+    # ASSINAR PELA EMPRESA — ato jurídico com certificado ICP-Brasil. Pede a palavra
+    # digitada, como a ativação: é a diferença entre clicar por engano e decidir.
+    if r[6] and r[7] and r[8] < r[7]:
+        acts.append(
+            {
+                "title": f"Assinar {r[1]} pela Conecta Mais",
+                "sub": "ATO JURÍDICO: aplica a assinatura da empresa com o certificado ICP-Brasil "
+                       "e carimba hash, IP e horário. Não se desfaz. Confira a cláusula antes.",
+                "endpoint": f"/api/v1/crm/contracts/{r[0]}/assinar-empresa",
+                "method": "POST",
+                "btnLabel": "Assinar",
+                "submitLabel": "Assinar pela empresa",
+                "btnStyle": "primary",
+                "okMsg": "Assinatura da empresa aplicada. Recarregue.",
+                "fields": [
+                    {"key": "confirmar", "label": "Digite ASSINAR para confirmar", "type": "text",
+                     "span": "span 2", "value": ""},
+                ],
+            }
+        )
+
+    # EXCLUIR — só rascunho. Contrato que já foi para assinatura tem trilha e se ENCERRA,
+    # não se apaga; o botão "Encerrar" acima é o caminho desses.
+    if st == "draft":
+        acts.append(
+            {
+                "title": f"Excluir o rascunho {r[1]}",
+                "sub": "Apaga de vez. Só rascunho — contrato com trilha se encerra, não se apaga.",
+                "endpoint": f"/api/v1/crm/contracts/{r[0]}",
+                "method": "DELETE",
+                "btnLabel": "Excluir",
+                "submitLabel": "Excluir rascunho",
+                "btnStyle": "outline",
+                "okMsg": "Rascunho excluído. Recarregue.",
+                "fields": [],
+            }
+        )
+
     return acts or None
 
 
@@ -1397,6 +1522,29 @@ async def build(db) -> dict:
                     else [doc("Resumo (sem modelo vinculado)", f"/api/v1/crm/contracts/{r[0]}/pdf", fmt="pdf")]
                 ),
                 actionsfn=_contrato_actions,
+                # PUT /crm/contracts/{id} — editar o instrumento. Não tinha botão: mudar o
+                # valor mensal de um contrato exigia `psql` (medido em 13/09/2026).
+                # ContractUpdate tem todos os campos opcionais — em branco não altera.
+                editfn=lambda r: {
+                    "title": f"Editar contrato {r[1]}",
+                    "sub": "Campo em branco não altera. Reajuste de valor com contrato VIGENTE "
+                           "deve virar aditivo, não edição — a trilha some se você editar.",
+                    "endpoint": f"/api/v1/crm/contracts/{r[0]}",
+                    "method": "PUT",
+                    "fields": [
+                        {"key": "name", "label": "Nome do contrato", "type": "text"},
+                        {"key": "monthly_value", "label": "Valor mensal (R$)", "type": "number",
+                         "value": str(r[3] or "")},
+                        {"key": "total_value", "label": "Valor total (R$) — serviço único",
+                         "type": "number", "value": str(r[4] or "")},
+                        {"key": "setup_fee", "label": "Taxa de instalação (R$)", "type": "number"},
+                        {"key": "end_date", "label": "Fim da vigência", "type": "date"},
+                        {"key": "notice_period_days", "label": "Aviso prévio (dias)", "type": "number"},
+                        {"key": "renewal_period_months", "label": "Renovação (meses)", "type": "number"},
+                        {"key": "adjustment_fixed_percent", "label": "Reajuste fixo (%)", "type": "number"},
+                        {"key": "description", "label": "Objeto / observações", "type": "textarea"},
+                    ],
+                },
             ),
         )
         # ── CENTRAL DE CONTRATOS: a fila do que foi FECHADO e ainda não virou instrumento
