@@ -71,6 +71,25 @@ def _ged_actor(name, tipo):
 
 
 
+
+def _celula_posto(dentro, distancia, posto_nome):
+    """Diz se a batida foi DENTRO do posto — e a que distância quando foi fora.
+
+    Três estados, e a diferença entre eles decide se alguém leva falta injusta:
+      DENTRO  — geofence confirmou;
+      FORA    — confirmou que NÃO estava, com a distância medida;
+      —       — não há GPS na batida (contingência, relógio antigo). Ausência de dado
+                não é "estava fora": dizer isso seria acusar por falta de medição.
+    """
+    nome = (posto_nome or "").strip()
+    if dentro is True:
+        return b(f"No posto{(' · ' + nome[:16]) if nome else ''}", "ok")
+    if dentro is False:
+        d = f" · {int(distancia)}m" if distancia is not None else ""
+        return b(f"FORA do posto{d}", "bad")
+    return b("sem GPS", "mut")
+
+
 def _corrigir_batida(r):
     """Corrigir o TIPO de uma batida — r[4]=punch_id, r[2]=tipo atual.
 
@@ -541,25 +560,45 @@ async def build(db) -> dict:
         "ponto",
         tbl(
             "Ponto eletrônico",
-            "Últimas batidas — a linha errada se corrige aqui, com motivo",
+            "Cada batida com a SELFIE do momento — dá para ver farda, barba e se a pessoa "
+            "está no posto. Clique na foto para ampliar. A linha errada se corrige aqui, "
+            "com motivo.",
             "—",
-            ["Colaborador", "Data/hora", "Tipo", "Origem", "Status"],
-            "1.6fr 1fr 1fr 0.8fr 0.9fr",
+            ["Foto", "Colaborador", "Data/hora", "Tipo", "No posto", "Origem", "Status"],
+            "0.5fr 1.5fr 1fr 1fr 1.1fr 0.8fr 0.9fr",
             "SELECT coalesce(e.nome,'—'), to_char(p.punch_timestamp,'DD/MM HH24:MI'), "
             "coalesce(p.punch_type::text,'—'), coalesce(p.status::text,'—'), "
-            "p.punch_id, coalesce(p.device_type,'—') "
+            "p.punch_id, coalesce(p.device_type,'—'), "
+            "coalesce(p.foto_capturada_url,''), p.dentro_geofence, p.distancia_posto_metros, "
+            "coalesce(p.posto_nome,''), p.facial_match, p.facial_confidence "
             "FROM gp_clock_punches p LEFT JOIN employees e ON e.id=p.employee_id "
             "ORDER BY p.punch_timestamp DESC NULLS LAST LIMIT 200",
             lambda r: [
+                ({"isFoto": True,
+                  "v": f"/api/v1/people-management/ponto/batida/{r[4]}/foto",
+                  "alt": f"{r[0]} — {r[1]} ({_PUNCH_TP.get((r[2] or '').lower(), r[2] or '—')})"}
+                 if r[6] else t("—")),
                 t(r[0] or "—", 600, "#0F1B3A", initials(r[0] or "")),
                 t(r[1]),
                 t(_PUNCH_TP.get((r[2] or "").lower(), (r[2] or "—").capitalize())),
+                _celula_posto(r[7], r[8], r[9]),
                 t((r[5] or "—").capitalize()),
                 b(*_PUNCH_ST.get((r[3] or "").lower(), ((r[3] or "—").capitalize(), "info"))),
             ],
             actionsfn=_corrigir_batida,
+            # Filtra por posto e por origem — 200 batidas misturadas não se confere.
+            filtrofn=lambda r: {
+                "posto": r[9] or "(sem posto)",
+                "origem": (r[5] or "—").capitalize(),
+            },
         ),
     )
+    if out.get("ponto"):
+        out["ponto"]["filtros"] = [
+            {"key": "posto", "label": "Posto", "todos": "Todos os postos"},
+            {"key": "origem", "label": "Origem", "todos": "Todas"},
+        ]
+        out["ponto"]["filterUnit"] = "batida(s)"
 
     # Ponto-espelho (Portaria 671) — SOBRESCREVE p/ formatar Atraso (min) como inteiro (base exibia '0.0')
     await safe(

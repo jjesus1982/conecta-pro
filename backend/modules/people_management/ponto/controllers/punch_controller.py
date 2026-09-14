@@ -210,6 +210,53 @@ async def get_espelho_mensal(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.get("/batida/{punch_id}/foto", summary="Selfie da batida (farda, barba, quem bateu)")
+async def foto_da_batida(
+    punch_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Devolve a selfie tirada NA batida — a evidência de farda, barba e de quem bateu.
+
+    Existe porque o arquivo era salvo e não havia como vê-lo: nenhuma rota servia
+    /uploads/ponto/. É o que a Pyetra olha no Sólides e não tinha aqui (14/09/2026).
+
+    É IMAGEM DE PESSOA: exige usuário autenticado e o acesso fica registrado. `Cache-Control:
+    private` — a foto não entra em cache compartilhado.
+    """
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+
+    row = (
+        await db.execute(
+            text(
+                "SELECT p.foto_capturada_url, coalesce(e.nome,'') "
+                "FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
+                "WHERE p.punch_id = :p OR CAST(p.id AS TEXT) = :p LIMIT 1"
+            ),
+            {"p": punch_id},
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Batida não encontrada.")
+    url = (row[0] or "").strip()
+    if not url:
+        # Honesto: 404 com a razão. As batidas anteriores a 14/09/2026 não têm foto porque
+        # o serviço descartava o `foto_base64` que o app mandava — não adianta procurar.
+        raise HTTPException(
+            status_code=404,
+            detail="Esta batida não tem foto guardada. Batidas anteriores a 14/09/2026 "
+                   "não guardaram a selfie (o app enviava e o servidor descartava).",
+        )
+    caminho = os.path.join("/app", url.lstrip("/"))
+    if not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail=f"Arquivo da foto não está no disco ({url}).")
+    return FileResponse(
+        caminho,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @router.post("/justificativa", response_model=JustificationResponse, status_code=201)
 async def criar_justificativa(
     data: JustificationCreate,

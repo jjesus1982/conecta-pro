@@ -19,6 +19,8 @@ from ..models.justification import JustificationModel
 from ..models.monthly_closing import MonthlyClosingModel
 from ..schemas.punch_schemas import JustificationCreate, PunchCreate
 
+from modules.people_management.hr.services.time_record_service import _salvar_selfie_ponto
+
 logger = logging.getLogger(__name__)
 
 _MANAUS_TZ = timezone(timedelta(hours=-4))  # Manaus UTC-4, sem DST
@@ -164,6 +166,21 @@ class PunchService:
             accuracy=(data.location.accuracy or None) if data.location else None,
             dentro_geofence=dentro_geofence,
             distancia_posto_metros=distancia_metros,
+            # 🔴 A FOTO PRECISA SER GRAVADA, e não era — mesmo defeito do `accuracy` logo
+            # acima, no mesmo construtor. O app TIRA a selfie, manda em `facial.foto_base64`,
+            # o schema aceita… e o model nunca recebia o campo. Medido em 14/09/2026: 829
+            # batidas de setembro com facial conferido e GPS, e ZERO com foto.
+            #
+            # Sem a foto não dá para ver farda, barba, crachá nem se a pessoa está mesmo no
+            # posto — que é exatamente o que o DP olha no Sólides. O rosto foi CONFERIDO
+            # (facial_match), mas a evidência foi descartada logo depois de validada.
+            #
+            # `_salvar_selfie_ponto` já existia em time_record_service e grava em
+            # /app/uploads/ponto/{punch_id}.jpg. Falha ao salvar devolve None e NUNCA
+            # derruba a batida: registro de jornada não se perde por causa de imagem.
+            foto_capturada_url=_salvar_selfie_ponto(
+                punch_id, getattr(data.facial, "foto_base64", None) if data.facial else None
+            ),
             device_type=data.device_type or "web",
             is_offline=data.is_offline or False,
             posto_id=str(posto_id) if posto_id else None,

@@ -18,6 +18,7 @@ const DisciplinarySignatureModal = dynamic(
 const RdChart = dynamic(() => import('./RdChart'), { ssr: false });
 import { rdLogout } from './session';
 import { DocButtons } from './DocButtons';
+import { FotoBatida } from './FotoBatida';
 import { abrirDoc, type DocRef } from '@/lib/docsource';
 import { ExportMenu } from './ExportMenu';
 
@@ -261,7 +262,9 @@ function TableScreen({ scr }: { scr: any }) {
             <div className="rd-tbl-row" style={{ gridTemplateColumns: grid }} key={i}>
               {(row.cells || []).map((cell: any, j: number) => (
                 <span className={`rd-tbl-cell${cell.al === 'r' ? ' al-r' : ''}`} key={j}>
-                  {cell.isBadge
+                  {cell.isFoto
+                    ? <FotoBatida url={cell.v} alt={cell.alt} />
+                    : cell.isBadge
                     ? <Pill v={cell.v} color={cell.color} bg={cell.bg} />
                     : <>
                         {cell.ini && <span className="rd-init">{cell.ini}</span>}
