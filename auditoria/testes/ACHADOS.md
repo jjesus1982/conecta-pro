@@ -745,3 +745,36 @@ codificar a convenção). O conserto durável é um dos dois, e a escolha é sua
    código, uma verdade só, e exige varrer quem mais as lê.
 
 Eu recomendo a **2**. Mas não mexi: apagar coluna em produção é migração, e é decisão do dono.
+
+---
+## O QUE ESTA BATERIA DEIXOU NO ARSENAL
+
+A regra da casa diz que trava nova entra em `checar_regressao.py` ou é declarada órfã com dono.
+Esta entra: **`checar_id_tipo_divergente.py`**.
+
+**Por que ela faltava:** o defeito crítico de hoje (A2-04) foi uma comparação entre tipos —
+`time_sheets.employee_id` VARCHAR contra `employees.id` UUID. Nenhum dos 48 caçadores pegava
+essa classe. O `checar_varchar_teto` é vizinho, mas mede outra coisa (valor no teto do varchar).
+Foi preciso **clicar na tela** para descobrir que o espelho da Portaria 671 estava morto.
+
+**O que ela faz:** para cada coluna `*_id` de tabela COM dado, procura a tabela candidata pelo
+nome e compara o tipo da coluna com o tipo do `id` dela. Sem lista branca. Coluna sem tabela
+candidata é ignorada — não é achado, é nome fora da convenção.
+
+**Estreia acusando 8 — e 7 são minas ainda não pisadas:**
+```
+gp_cats.employee_id              VARCHAR × employees.id UUID
+gp_justifications.employee_id    VARCHAR × employees.id UUID
+gp_monthly_closings.employee_id  VARCHAR × employees.id UUID
+juridico_processos.employee_id   VARCHAR × employees.id UUID
+time_sheets.condominium_id       VARCHAR × condominiums.id UUID
+time_sheets.work_schedule_id     VARCHAR × work_schedules.id UUID
+time_sheets.employee_id          VARCHAR × employees.id UUID   ← esta já explodiu hoje
+```
+Cada linha dessas é um HTTP 500 esperando alguém escrever o join. A varredura das 00:00 passa
+a acusar se o número **crescer**.
+
+**O que ela NÃO pega, e fica declarado:** tipo divergente **grita** (500 na cara). Tabela errada
+**cala** — o A1-01 desta mesma bateria tinha os dois lados UUID, o join simplesmente não casou
+nenhuma das 73 linhas, e a tela mostrou «—» para todo mundo sem erro nenhum. Para essa segunda
+família ainda não há trava. É o próximo caçador a escrever.
