@@ -14,6 +14,7 @@ Navegador: Playwright MCP · usuário jjesus@conectamais.pro (admin)
 | 7 | 14/09 01:47 | Fiscal | **NFS-e AUTORIZADA** Eletrônica→Patrimonial R$ 9,50 (DPS-2026-1789350431) | — | Ambiente de **homologação** do nacional: não é documento fiscal válido, não precisa cancelar. |
 | 8 | 14/09 01:44–47 | Fiscal | 3 DPS rejeitadas pelo governo (E0310 código inválido, E0202 prestador=tomador) | — | Rejeitadas: nada foi gerado. |
 | 9 | 14/09 01:5x | Financeiro | PIX de R$ 0,01 tentado | — | **Recusado no gate** (falta conta de origem). Nenhum dinheiro saiu. |
+| 10 | 14/09 02:1x | CRM | **Proposta PROP-2026-00123** criada (Patrimonial, R$ 9,50, emitente Eletrônica) | Sim | Rascunho. Excluir em CRM › Excluir proposta, ou deixar como registro do teste. |
 
 ## Achados
 
@@ -587,3 +588,32 @@ agora diz «colaborador(es) ativo(s) com ASO vencido», não «ASOs vencidos».
   garantia até **21/05/2027**. É a consulta que evita demitir quem não pode ser demitido.
 - **Riscos jurídicos** (módulo 11): exposição estimada **R$ 339.057,57** em 65 de 65
   colaboradores, quebrada por verba, com o aviso «estimativa, não provisão» na própria tela.
+
+---
+## VERIFICAÇÃO PÓS-BAKE 2
+
+| Achado | Antes | Depois (medido na tela) |
+|---|---|---|
+| A4-02 Proposta com 500 | `NotNullViolationError` | **PROP-2026-00123 criada** · item R$ 9,50 com `empresa_do_item = CONECTAMAIS ELETRONICA LTDA` |
+| A5-01 PIX sem conta | formulário sem o campo | campo **«Conta de origem — de qual empresa»** presente |
+| A6-03 erro engolido | `500 "Erro interno"` | 422 com o código do governo *(entra no próximo teste de rejeição)* |
+| A12-01 UUID digitado | campo de texto | **select** «Colaborador*» com «NOME — CPF» |
+
+*(A sessão do navegador caiu durante o bake — os containers foram recriados. Refiz o login e
+revalidei. Vale como lembrete: bake derruba sessão de quem está usando o sistema.)*
+
+---
+## O QUE NÃO CONSEGUI TESTAR, e por quê
+
+Registro honesto do que ficou de fora, para você não achar que está coberto:
+
+| O que | Por quê |
+|---|---|
+| **Portal do Colaborador como colaborador** | O usuário admin não tem cadastro de colaborador vinculado. Vi as telas e a mensagem honesta que elas dão, mas não vi holerite, escala nem ponto de uma pessoa real. Para testar de verdade: vincular um usuário de teste a um colaborador. |
+| **Área do Cliente como síndico** | Mesma coisa pelo outro lado: vi a visão de dentro (carteira com MRR), não a visão escopada do cliente. O risco de vazamento entre condomínios **não foi testado** — e é o item de maior risco de LGPD do sistema. |
+| **Bater ponto com reconhecimento facial** | Exige celular com câmera e um colaborador real. A batida offline e a reconferência no servidor ficaram sem prova. |
+| **Pagamento efetivo com OTP** | Parei no gate de propósito: o passo 2 exige o código que chega no seu e-mail. Provei que a trava existe e recusa; não provei que o pagamento completa. |
+| **Assinatura de contrato com ICP-Brasil** | Não assinei o CTR-2026-00022 que está esperando você. Assinar contrato de cliente real é ato jurídico seu, não meu. |
+| **CAT (acidente de trabalho)** | Não abri uma. CAT de acidente que não aconteceu é documento oficial falso. Vi o formulário e a validação. |
+| **Fechar o mês do ponto** | Não fechei 09/2026: o mês não acabou e tem 182 anomalias abertas. Fechar seria congelar um mês incompleto como base da folha. |
+| **Transmitir eSocial** | Não transmiti evento nenhum. Evento no governo em nome de um colaborador é ato com efeito legal sobre terceiro. |
