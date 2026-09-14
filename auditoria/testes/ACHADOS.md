@@ -798,3 +798,29 @@ PROP-2026-00123  CONECTAMAIS PATRIMONIAL  (VAZIO)          ← antes
 ```
 Dos três bloqueios do funil, **dois estão resolvidos**. O terceiro — não existir tela para
 cadastrar cliente — continua de pé e é decisão sua.
+
+---
+## A REGRESSÃO QUE EU MESMO CAUSEI (e por que o smoke test valia a pena)
+
+Depois do quarto bake, rodei um smoke test nos **13 módulos**: `GET /redesign/data/<slug>`.
+Doze devolveram 200. **O RH devolveu 500.**
+
+```
+UnboundLocalError: cannot access local variable '_disc_emp'
+  em rh.py:504, dentro de build()
+```
+
+**A causa fui eu.** Ao trocar o campo «Colaborador (id)*» por um seletor, usei
+`replace(..., 1)` sobre uma string que aparecia **duas vezes** no arquivo — em
+`disc-recomendar` (linha 503) e em `disc-nova` (linha 672). O replace pegou a primeira, que roda
+**antes** de onde eu tinha definido a variável com as opções. O módulo inteiro caía.
+
+**Conserto:** a lista passa a ser montada no **topo** de `build()`, antes de qualquer uso, e as
+**duas** telas disciplinares usam o seletor — que era a intenção desde o começo.
+
+**A quarta lição de método desta bateria:** `replace` com contador 1 sobre string não-única
+acerta a ocorrência errada **em silêncio**. Ou o alvo é único, ou se ancora pelo contexto.
+
+**E a razão de registrar isto com destaque:** sem o smoke test, eu teria entregue o relatório
+dizendo «tudo verificado» com um módulo caído por causa da minha própria correção. Corrigir sem
+medir o efeito é o mesmo defeito que passei a noite caçando, do outro lado do balcão.
