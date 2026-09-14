@@ -688,3 +688,60 @@ pela tela (incluindo a minha, PROP-2026-00123). As que têm documento vieram por
 **Somado ao A4-01 (não há tela para criar cliente) e ao A4-02 (empresa_id faltando), o funil
 comercial tinha três bloqueios em sequência.** Dois estão corrigidos; o terceiro (cadastro de
 cliente) é decisão sua.
+
+---
+## T2-c · AFD DA PORTARIA 671 — PASSOU, e é o trabalho mais bem-feito que auditei
+
+Auditado direto na tabela `afd_records`:
+
+| Verificação | Resultado |
+|---|---|
+| Registros | 36 (1 do tipo **2** = cabeçalho da empresa + 35 do tipo **7** = marcações) |
+| NSR | **1 a 36, sem buraco nenhum** — a sequência contínua que a norma exige |
+| Cobertura | 35 batidas no dia 13/09 → **35 marcações**. Não perdeu nenhuma. |
+| Origens | 32 `mobile` · 2 `contingencia` · 1 `tangerino` — o AFD unifica as três portas |
+| Validade | **36 válidos, 0 inválidos**, 36 com `line_hash` |
+| Estabelecimento | 1 CNPJ, numeração por estabelecimento como manda a norma |
+
+**O layout está correto.** Amostra real das três primeiras linhas:
+```
+000000001 2 2026-09-13T08:31:00-0400 ... 66014833000110
+000000002 7 2026-09-13T00:25:00-0400 06144025626 8 ...
+000000003 7 2026-09-13T01:01:00-0400 07018816122 8 ...
+```
+NSR com 9 dígitos, tipo do registro, **timestamp ISO 8601 com o offset `-0400` explícito** —
+o fuso de Manaus declarado no arquivo, que é justamente o que o A1-11 e o A1-15 não faziam nas
+outras tabelas. Aqui foi feito certo.
+O CNPJ do cabeçalho é o **66014833000110 — Conecta Mais Patrimonial**, coerente com ser ela a
+empresa de vigilância.
+
+**Observação de contexto:** o AFD começou a gravar em **13/09/2026** (hoje). As 11.041 batidas
+históricas são anteriores e não estão nele. Isso é esperado — mas significa que, se a
+fiscalização pedir período anterior, o arquivo não cobre. Vale saber.
+
+---
+## RESSALVA IMPORTANTE SOBRE O A1-06 (o contador de turnos)
+
+Medido **depois** de todas as correções e dos bakes:
+```
+escalas com contador errado no banco ......... 23  (das 34)
+alocações que casam com `condominios` ........ 73  (eram 0 com `clients`)
+comunicados publicados (as duas grafias) ..... 11
+pessoas ativas com o último ASO vencido ...... 25
+```
+
+**As 23 escalas continuam com `total_shifts` errado no banco.** O que eu corrigi foi o lado do
+LEITOR: as telas «Escalas do mês» e «Editor visual» agora **contam de `shifts`** em vez de ler
+o contador. Elas mostram a verdade.
+
+Mas o contador em si segue inconsistente — e isso importa: qualquer coisa que leia
+`scales.total_shifts` direto (relatório, integração, exportação futura) vai continuar errada.
+
+**Seguir a fonte em vez do contador é o padrão certo** (é a regra da casa: ler a fonte, não
+codificar a convenção). O conserto durável é um dos dois, e a escolha é sua:
+1. **manter o contador atualizado** na escrita (gerar turno, adicionar, remover) — mais código
+   e mais um lugar para desincronizar; ou
+2. **apagar as colunas** `total_shifts`/`filled_shifts` e contar sempre de `shifts` — menos
+   código, uma verdade só, e exige varrer quem mais as lê.
+
+Eu recomendo a **2**. Mas não mexi: apagar coluna em produção é migração, e é decisão do dono.

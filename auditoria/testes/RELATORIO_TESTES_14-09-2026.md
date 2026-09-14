@@ -12,8 +12,13 @@ atravessa para o Financeiro e some quando excluída. Ocorrência nasce, resolve 
 do cliente. Folha gera e avisa que não paga. NFS-e é assinada com certificado A1 e transmitida
 ao governo de verdade. O gate de OTP recusa pagar sem saber de qual CNPJ sai o dinheiro.
 
-**E onze coisas estavam quebradas** — três delas impediam a tela de funcionar, e uma fazia o
+**E catorze coisas estavam quebradas** — quatro impediam a tela de funcionar e três faziam o
 sistema mentir todo dia sem ninguém perceber.
+
+E duas que passaram merecem ser ditas com o mesmo peso: **o AFD da Portaria 671 está impecável**
+(NSR de 1 a 36 sem buraco, 35 batidas viraram 35 marcações, fuso `-0400` declarado no arquivo) e
+**a escala 12x36 que gerei respeita a lei na letra** — zero dias consecutivos, todos os
+intervalos de exatamente dois dias.
 
 ### Não libere ainda. Estes eram os bloqueadores (todos corrigidos e verificados):
 
@@ -30,6 +35,9 @@ sistema mentir todo dia sem ninguém perceber.
 | 9 | **Erro do governo escondido** | Rejeição da NFS-e virava «Erro interno». | ✅ corrigido |
 | 10 | **Fuso misturado** | Mesma ocorrência gravada em dois dias diferentes. | ✅ corrigido |
 | 11 | **UUID digitado à mão** | Medida disciplinar pedia o id do colaborador. | ✅ corrigido |
+| 12 | **Proposta nova nunca virava contrato** | Nascia sem o CNPJ do cliente e sumia do passo seguinte. | ✅ corrigido |
+| 13 | **Proposta RECUSADA podia virar contrato** | O seletor oferecia as que o cliente já tinha dito não. | ✅ corrigido |
+| 14 | **Alerta de ASO inflado 3,5×** | Dizia 88; o número acionável é 25. Contava papel, não gente. | ✅ corrigido e verificado |
 
 ### Duas coisas que eu NÃO consertei, porque a decisão é sua
 
@@ -81,6 +89,37 @@ um comunicado, uma ocorrência (criada e resolvida), uma diária (criada e exclu
 
 ---
 
+## A sequência que você pediu, e onde cada módulo parou
+
+| # | Módulo | Veredito |
+|---|---|---|
+| 1 | **Operacional** | Passou depois de 4 correções. Escala nasce, aprova, publica — e a 12x36 sai legalmente correta. |
+| 2 | **Ponto / Gestão de Pessoas** | Passou depois da correção crítica do espelho. O AFD está impecável. |
+| 3 | **Departamento Pessoal** | Folha gera e avisa que não paga. **Bloqueado pela operação:** 182 anomalias. |
+| 4 | **Comercial** | Passou depois de 3 correções. **Falta a tela de cadastrar cliente** — decisão sua. |
+| 5 | **Financeiro** | O gate de OTP é o melhor desenho do sistema. Passou depois da correção do PIX. |
+| 6 | **Fiscal** | Emite NFS-e de verdade. **A Patrimonial não consegue emitir** — decisão sua. |
+| 7 | **GED / Kits** | Passou. Ressalva: dá para enviar kit incompleto ao cliente sem aviso. |
+| 8 | **Área do Cliente** | **Passou no teste de vazamento** — o item de maior risco do sistema. |
+| 9 | **Portal do Colaborador** | Estrutura correta e honesta. Falta testar com um colaborador real. |
+| 10 | **Saúde Ocupacional** | Passou depois da correção do alerta. Estabilidade funciona. |
+| 11 | **Jurídico & Licitações** | Passou na leitura. DET, prazos e risco trabalhista coerentes. |
+| 12 | **RH** | Passou depois da correção da medida disciplinar. |
+| 13 | **Equipamentos** | Vazio, como o manual já dizia. Nada a testar. |
+
+---
+
+## O que eu faria na sua próxima hora no sistema
+
+1. **Assinar o CTR-2026-00022** — está esperando desde 11/09 e expira em 11/10.
+2. **Decidir sobre o certificado da Patrimonial** — enquanto não decidir, ela não fatura por NFS-e.
+3. **Mandar o DP atacar as 182 anomalias** — sem isso, setembro não fecha e a folha não tem base.
+4. **Mandar apagar os 94 holerites de nov/dez** — eles poluem a tela de divergência.
+5. **Mandar encerrar as 4 alocações de quem já saiu** — a cobertura está mentindo para melhor.
+
+---
+
 *O detalhamento de cada achado, com o passo a passo, o traceback e a medição que o provou,
-está em `auditoria/testes/ACHADOS.md`.*
+está em `auditoria/testes/ACHADOS.md`. O livro-caixa do que foi gravado em produção está no
+topo do mesmo arquivo.*
 
