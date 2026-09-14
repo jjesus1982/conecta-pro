@@ -44,6 +44,19 @@ contrato, comissão, produto, aditivo e até condomínio — cliente, não. Um l
 proposta sem alguém criar o cliente por fora. O funil do manual está interrompido no primeiro
 salto.
 
+### Uma prova que eu achava impossível e consegui fazer
+
+O maior risco do sistema é **um síndico ver o condomínio do vizinho**. Eu tinha registrado isso
+como não testável por falta de credencial — até achar o `preview-token`, que deixa ver o portal
+como o cliente. Testei com o token do **Ideal Flores**:
+
+- o portal devolveu **17 kits** — de **137** que existem no sistema, todos dele;
+- pedir o kit do **Prime Arena** pelo id: **404**, e 404 é a resposta certa (nem confirma que
+  existe);
+- chamados: nenhum de terceiro.
+
+**A parede segura.** É o único item de risco de LGPD e ele passou.
+
 ### E três coisas que não são do sistema — são da operação
 
 - **182 anomalias de ponto abertas em setembro**, em 43 dos 51 colaboradores. O mês não pode

@@ -603,6 +603,34 @@ agora diz «colaborador(es) ativo(s) com ASO vencido», não «ASOs vencidos».
 revalidei. Vale como lembrete: bake derruba sessão de quem está usando o sistema.)*
 
 ---
+## MÓDULO 8 — ÁREA DO CLIENTE · O TESTE DE VAZAMENTO (que eu tinha dado como impossível)
+
+Eu havia registrado que não daria para testar o portal como síndico por falta de credencial.
+Estava errado: existe `POST /portal/access-management/{client_id}/preview-token`, que gera um
+token de 15 min para ver o portal **como o cliente**. Usei e testei de verdade.
+
+**Montagem:** token do **CONDOMÍNIO IDEAL FLORES DA CIDADE** (JWT com
+`sub = 4db583b6-…`, `type: portal`, `preview: true`, expira em 30 min).
+
+| Tentativa | Resultado | Veredito |
+|---|---|---|
+| Listar meus kits | **17 kits**, todos com `client_id` do Ideal Flores | ✅ |
+| Existem no sistema | **137 kits** de 21 clientes | — |
+| Abrir kit do **Prime Arena** pelo id | **404** «Kit documental nao encontrado» | ✅ |
+| Listar documentos desse kit alheio | **404** | ✅ |
+| Listar chamados | 0 itens, nenhum `client_id` de terceiro | ✅ |
+
+**A parede segura.** E segura do jeito certo: devolve **404**, não 403 — não confirma sequer
+que o recurso existe, que é a prática correta para não vazar a existência de um cliente.
+Dos 137 kits do sistema, o síndico enxerga os 17 que são dele.
+
+**Achado lateral (A8-01 · MENOR):** há **duas tabelas de cliente** — `clients` (26 linhas) e
+`ged_clients` (21). O portal usa `ged_clients`; o CRM e o Financeiro usam `clients`. Levei um
+404 de «cliente não encontrado» só por usar o id da tabela errada. É a mesma família de
+confusão do A1-01 (`condominios` × `clients`): três tabelas para o conceito de cliente.
+Não quebra nada hoje, mas é onde o próximo join vai errar.
+
+---
 ## O QUE NÃO CONSEGUI TESTAR, e por quê
 
 Registro honesto do que ficou de fora, para você não achar que está coberto:
@@ -610,10 +638,36 @@ Registro honesto do que ficou de fora, para você não achar que está coberto:
 | O que | Por quê |
 |---|---|
 | **Portal do Colaborador como colaborador** | O usuário admin não tem cadastro de colaborador vinculado. Vi as telas e a mensagem honesta que elas dão, mas não vi holerite, escala nem ponto de uma pessoa real. Para testar de verdade: vincular um usuário de teste a um colaborador. |
-| **Área do Cliente como síndico** | Mesma coisa pelo outro lado: vi a visão de dentro (carteira com MRR), não a visão escopada do cliente. O risco de vazamento entre condomínios **não foi testado** — e é o item de maior risco de LGPD do sistema. |
+| ~~**Área do Cliente como síndico**~~ | **TESTADO depois** — achei o `preview-token`. O escopo segura: 17 kits de 137, e 404 ao tentar o kit de outro condomínio. Ver módulo 8. |
 | **Bater ponto com reconhecimento facial** | Exige celular com câmera e um colaborador real. A batida offline e a reconferência no servidor ficaram sem prova. |
 | **Pagamento efetivo com OTP** | Parei no gate de propósito: o passo 2 exige o código que chega no seu e-mail. Provei que a trava existe e recusa; não provei que o pagamento completa. |
 | **Assinatura de contrato com ICP-Brasil** | Não assinei o CTR-2026-00022 que está esperando você. Assinar contrato de cliente real é ato jurídico seu, não meu. |
 | **CAT (acidente de trabalho)** | Não abri uma. CAT de acidente que não aconteceu é documento oficial falso. Vi o formulário e a validação. |
 | **Fechar o mês do ponto** | Não fechei 09/2026: o mês não acabou e tem 182 anomalias abertas. Fechar seria congelar um mês incompleto como base da folha. |
 | **Transmitir eSocial** | Não transmiti evento nenhum. Evento no governo em nome de um colaborador é ato com efeito legal sobre terceiro. |
+
+---
+## LIÇÕES DE MÉTODO (as três vezes que eu errei antes de acertar)
+
+Registro porque elas valem mais que os achados — são o que evita o próximo falso alarme.
+
+**1. Seletor por texto parcial acusa o inocente.**
+`has-text("Gerar")` casou com a ABA «Gerar escala» antes do BOTÃO «Gerar». Concluí que o botão
+não disparava nada. Com texto exato: `POST → 201`. Em tela cheia de abas com nome parecido,
+texto exato, sempre.
+
+**2. Contar linha não é medir estado.**
+Acusei o VT/VR de virar pagável órfão depois de excluir a diária, porque `count(*)` devolveu 1.
+Olhando o STATUS: `cancelado`. O sistema tinha feito a coisa certa — cancelar preservando o
+rastro — e eu quase reportei o oposto.
+
+**3. `pgrep -f` casa com o próprio comando.**
+Duas vezes nesta sessão: achei que um deploy estava rodando porque o meu próprio comando de
+monitoramento continha a palavra do processo que eu procurava. Já tinha caído nessa com a
+varredura de oráculos. Filtrar por PID ou por nome do executável, não por linha de comando.
+
+**E uma quarta, sobre escrever manual:**
+Escrevi as primeiras notas do manual deduzindo pelo NOME da aba. «Mapa» não é mapa — é a tabela
+de quais postos têm coordenada. «Editor visual» não arrasta nada — é a lista de preenchimento.
+«Escalas do mês» não é grade dia a dia — é lista de escalas por posto. Manual escrito por
+dedução ensina o sistema errado. Refiz olhando print por print.
