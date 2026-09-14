@@ -544,3 +544,46 @@ mexer no renderizador — fica registrado como pendência menor.)*
 
 ### T13 · EQUIPAMENTOS — confirmado vazio, como o manual 12 já dizia
 Nenhuma tela de cadastro; «Patrimônio» segue em «Nenhum registro ainda». Sem novidade.
+
+### T1-e · A ESCALA 12x36 GERADA É LEGALMENTE CORRETA — passou com folga
+Auditei no banco a escala que gerei (Prime Arena, 10/2026, 62 turnos, 4 pessoas):
+| Colaborador | Dias seguidos | Intervalos de 2 dias |
+|---|---|---|
+| ANTONIO DINIZ ASSIS DOS SANTOS | **0** | 14 |
+| CARLOS EDUARDO DA SILVA FAÇANHA | **0** | 15 |
+| MALAQUIAS PEREIRA FERREIRA | **0** | 15 |
+| RILEM FERREIRA DE SOUZA | **0** | 14 |
+
+**Zero** dias consecutivos para qualquer pessoa; **todos** os intervalos são de exatamente
+dois dias — as 36 horas de descanso da 12x36. Turnos gravados como 07:00–19:00 e 19:00–07:00,
+12 horas cada. Duas pessoas por dia, 31 dias, 62 turnos.
+O gerador não só funciona: ele respeita a regra na letra.
+
+### A7-02 · MENOR · Contracheque não chega sozinho ao GED
+`hr_payslips` tem 66 holerites em 08/2026; `ged_contracheques` tem **1**. Em 06/2026 são 49.
+A ação «Contracheques em lote» precisa ser rodada — não é automática ao gerar a folha.
+É desenho, mas cria a pegadinha: folha gerada ≠ contracheque disponível ao colaborador.
+
+---
+## MÓDULO 10 — SAÚDE OCUPACIONAL
+
+### A10-01 · GRAVE · Três telas do mesmo módulo, três números para «ASO vencido»
+| Tela | Diz | O que realmente conta |
+|---|---|---|
+| Visão geral › ASO por status | **44** | linhas com `status='vencido'` |
+| Alertas SST | **88** | **todo** ASO vencido da história |
+| *(o número acionável)* | **25** | pessoas **ativas** cujo **último** ASO venceu |
+
+**Por que 88 é o pior dos três:** conta papel, não pessoa. Alguém com três exames antigos
+aparece três vezes. A tela que deveria ser a fila de trabalho do SST inflava a urgência em
+**3,5×** — e uma fila que exagera é uma fila que ninguém trata.
+**O sistema já sabia o número certo:** a aba «Exames», no mesmo arquivo, usa a lógica correta
+(último ASO por colaborador ativo) e tem até um comentário dizendo «números batem (25)».
+**Corrigido:** Alertas passa a contar pessoa ativa com último ASO vencido — **25** — e o rótulo
+agora diz «colaborador(es) ativo(s) com ASO vencido», não «ASOs vencidos».
+
+### T10 · O QUE PASSOU NO SST
+- **Estabilidade** funciona e é precisa: CINTIA BEZERRA OLIVEIRA, acidente de trajeto,
+  garantia até **21/05/2027**. É a consulta que evita demitir quem não pode ser demitido.
+- **Riscos jurídicos** (módulo 11): exposição estimada **R$ 339.057,57** em 65 de 65
+  colaboradores, quebrada por verba, com o aviso «estimativa, não provisão» na própria tela.

@@ -49,13 +49,24 @@ async def build(db) -> dict:
 
     # Alertas SST — ASOs vencidos (renovação de exame) — gp_asos
     try:
-        n_venc = await _scalar(db, "SELECT count(*) FROM gp_asos WHERE data_validade < now()")
+        # Quem precisa RENOVAR é a pessoa ATIVA cujo ÚLTIMO ASO venceu — não todo ASO vencido
+        # da história. Contando tudo, alguém com três exames antigos aparecia três vezes:
+        # a tela dizia 88 quando o número acionável é 25 (medido em 14/09/2026), e a Visão
+        # geral do mesmo módulo dizia 44. Três telas, três números para a mesma pergunta.
+        # A aba «Exames», logo abaixo, já usava a lógica certa — é ela que vale.
+        _ULT_ASO = (
+            "SELECT DISTINCT ON (a.employee_id) a.employee_id, a.tipo::text AS tipo, "
+            "a.data_validade, a.status::text AS status "
+            "FROM gp_asos a JOIN employees e ON e.id=a.employee_id "
+            "WHERE e.status='ativo' ORDER BY a.employee_id, a.data_validade DESC NULLS LAST"
+        )
+        n_venc = await _scalar(db, f"SELECT count(*) FROM ({_ULT_ASO}) u WHERE u.data_validade < now()")
         out["alertas"] = await tbl(
-            "Alertas SST — ASOs vencidos", f"{n_venc} ASOs vencidos (renovar exame)", "—",
+            "Alertas SST — ASOs vencidos", f"{n_venc} colaborador(es) ativo(s) com ASO vencido (renovar exame)", "—",
             ["Colaborador", "Tipo", "Venceu em", "Status"], "1.8fr 1.2fr 1fr 0.9fr",
-            "SELECT coalesce(e.nome,'—'), coalesce(a.tipo::text,'—'), a.data_validade, coalesce(a.status::text,'—') "
-            "FROM gp_asos a LEFT JOIN employees e ON e.id=a.employee_id "
-            "WHERE a.data_validade < now() ORDER BY a.data_validade DESC LIMIT 200",
+            f"SELECT coalesce(e.nome,'—'), coalesce(u.tipo,'—'), u.data_validade, coalesce(u.status,'—') "
+            f"FROM ({_ULT_ASO}) u LEFT JOIN employees e ON e.id=u.employee_id "
+            "WHERE u.data_validade < now() ORDER BY u.data_validade DESC LIMIT 200",
             lambda r: [t(r[0], 600, "#0F1B3A"), t((r[1] or '—').replace('_', ' ')), t(_fmtdate(r[2])), b("Vencido", "bad")])
     except Exception:  # noqa: BLE001
         pass
