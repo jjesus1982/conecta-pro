@@ -176,6 +176,22 @@ def _bb(v, sim="Sim", nao="Não", ts="ok", tn="mut"):
 
 
 async def build(db) -> dict:
+    # Opções de colaborador para as telas disciplinares. Os formulários pediam o **UUID
+    # digitado à mão** ("Colaborador (id)*"), junto com nome e CPF também digitados. Todo o
+    # resto do sistema usa seletor. Num documento que vai para a pasta da pessoa e pode virar
+    # justa causa, um id digitado errado é medida aplicada ao colaborador errado.
+    # Medido em 14/09/2026. Definido AQUI, no topo, porque duas telas usam.
+    try:
+        _disc_emp = [
+            {"value": str(i), "label": f"{n} — {c or 'sem CPF'}"}
+            for i, n, c in (await db.execute(_sqltext(
+                "SELECT id, nome, cpf FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"
+            ))).fetchall()
+        ]
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        _disc_emp = []
+
     out = await _build_rh(db)
     _o2, _s2, tbl = _helpers(db)
 
@@ -661,21 +677,6 @@ async def build(db) -> dict:
     if isinstance(out.get("disc-medidas"), dict):
         out["disc-medidas"]["ctaTo"] = "disc-nova"
 
-    # Opções de colaborador para a medida disciplinar. O formulário pedia o **UUID digitado
-    # à mão** ("Colaborador (id)*"), junto com nome e CPF também digitados. Todo o resto do
-    # sistema usa seletor. Num documento que vai para a pasta da pessoa, um id ou CPF digitado
-    # errado é medida disciplinar aplicada ao colaborador errado. Medido em 14/09/2026.
-    try:
-        _disc_emp = [
-            {"value": str(i), "label": f"{n} — {c or 'sem CPF'}"}
-            for i, n, c in (await db.execute(_sqltext(
-                "SELECT id, nome, cpf FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"
-            ))).fetchall()
-        ]
-    except Exception:  # noqa: BLE001
-        await db.rollback()
-        _disc_emp = []
-
     out["disc-nova"] = {
         "title": "Nova medida disciplinar",
         "sub": "Nasce como RASCUNHO — nada acontece com o colaborador ate você submeter e "
@@ -685,7 +686,8 @@ async def build(db) -> dict:
         "submit": {"endpoint": "/api/v1/people-management/hr/discipline/medidas-administrativas",
                    "okMsg": "Medida criada (rascunho)"},
         "fields": [
-            {"key": "employee_id", "label": "Colaborador (id)*", "type": "text", "span": "span 1"},
+            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2",
+             "ph": "Selecione o colaborador", "options": _disc_emp},
             {"key": "employee_name", "label": "Nome do colaborador*", "type": "text", "span": "span 1"},
             {"key": "employee_cpf", "label": "CPF*", "type": "text", "span": "span 1"},
             {"key": "employee_position", "label": "Cargo", "type": "text", "span": "span 1"},
