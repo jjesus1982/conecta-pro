@@ -65,6 +65,11 @@ CACADORES = {
     # varchar(N) com valor encostado no teto e comprimentos variados — o `varchar(20)` que
     # passou meses porque o nome tinha exatamente 20 (missão de 06/09/2026).
     "checar_varchar_teto.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna", s),
+    # Coluna `*_id` de um tipo contra o `id` de outro. Nasceu da bateria E2E de 14/09/2026:
+    # `time_sheets.employee_id` é VARCHAR e `employees.id` é UUID, e um NOT IN entre os dois
+    # derrubou com 500 o endpoint que calcula e fecha o espelho da Portaria 671 — em TODA
+    # competência, sem ninguém ver. Na estreia acusa 8, sendo 7 minas ainda não pisadas.
+    "checar_id_tipo_divergente.py": lambda s: _n(r"^TOTAL:\s*(\d+) coluna\(s\) com tipo divergente", s),
     # Origem do sino com volume e ninguém abre — 5.387 avisos em 30 dias, 19 abertos (06/09).
     "checar_sino_surdo.py": lambda s: _n(r"^TOTAL:\s*(\d+) origem", s),
     # Rotina que martela o provedor de LLM falhando: 30.800 chamadas/dia com 0 ok (07/09).
