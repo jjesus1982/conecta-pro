@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { msgFromDetail } from '@/lib/string';
+import { eDiretoria } from '@/lib/diretoria';
 import dynamic from "next/dynamic";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Wallet, TrendingDown, ShieldCheck, Lock, CheckCircle2, AlertTriangle, Camera, FileText } from "lucide-react";
@@ -768,7 +769,10 @@ export default function PagamentosPage() {
   });
   const [catObs, setCatObs] = useState<Record<string, string>>({});
   const qc = useQueryClient();
-  const [isJordan, setIsJordan] = useState(false);
+  // Diretoria (Jordan + Pyetra), não "só o Jordan". Decisão do Jordan em 14/09/2026 —
+  // a lista literal que estava aqui deixava a Pyetra sem o botão Aprovar e sem a aba de
+  // auditoria. O gate que VALE é o do servidor; isto é só o que a tela mostra.
+  const [isDiretoria, setIsDiretoria] = useState(false);
 
   useEffect(() => {
     try {
@@ -776,9 +780,9 @@ export default function PagamentosPage() {
       if (token) {
         const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
         const email: string = payload.email || payload.sub || "";
-        setIsJordan(email === "jjesus@conectamais.pro" || email === "jordansjesus@gmail.com");
+        setIsDiretoria(eDiretoria(email));
       }
-    } catch { /* JWT inválido — não é Jordan */ }
+    } catch { /* JWT inválido — não é diretoria */ }
   }, []);
 
   const fetchPayments = useCallback(async (statusFilter?: string) => {
@@ -893,7 +897,7 @@ export default function PagamentosPage() {
     { key: "aprovados", label: "Aguardando Execução" },
     { key: "historico", label: "Histórico" },
     { key: "categorizacao", label: "Categorização" },
-    ...(isJordan
+    ...(isDiretoria
       ? [{ key: "audit" as Tab, label: <span className="flex items-center gap-1"><Lock className="w-3 h-3" />Audit Log</span>, red: true }]
       : []),
   ];
@@ -1010,7 +1014,7 @@ export default function PagamentosPage() {
                         <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                         <td className="px-4 py-3 text-xs text-gray-400 font-mono">{p.inter_payment_id || "—"}</td>
                         <td className="px-4 py-3">
-                          {p.status === "preparado" && isJordan && (
+                          {p.status === "preparado" && isDiretoria && (
                             <button
                               onClick={() => setSelectedPayment(p)}
                               className="text-xs bg-[#FF6B35] text-white px-3 py-1 rounded-full hover:bg-orange-600"
@@ -1018,8 +1022,8 @@ export default function PagamentosPage() {
                               Aprovar
                             </button>
                           )}
-                          {p.status === "preparado" && !isJordan && (
-                            <span className="text-xs text-gray-400">Aguardando Jordan</span>
+                          {p.status === "preparado" && !isDiretoria && (
+                            <span className="text-xs text-gray-400">Aguardando a diretoria</span>
                           )}
                           {p.status === "aprovado" && (
                             <button

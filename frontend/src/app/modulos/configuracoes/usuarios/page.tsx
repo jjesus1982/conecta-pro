@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { eDiretoria } from '@/lib/diretoria';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, ShieldCheck, Users, RefreshCw, X, Save, Lock, UserCheck, UserX, Clock, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,7 +50,9 @@ const MODULOS: ModuloConfig[] = [
   { slug: 'module:dev', label: 'Desenvolvimento', icon: '💻' },
 ];
 
-const JORDAN_EMAIL = 'jjesus@conectamais.pro';
+// A diretoria (Jordan + Pyetra) vem da fonte única. Antes era só o e-mail do Jordan
+// chumbado aqui: a Pyetra não recebia o selo "Acesso Total" nem a proteção do registro,
+// mesmo sendo admin com as mesmas permissões. Decisão do Jordan em 14/09/2026.
 
 const ROLE_LABEL: Record<string, string> = {
   admin: 'Admin', super_admin: 'Super Admin', manager: 'Gestor', gestor: 'Gestor',
@@ -70,8 +73,8 @@ function roleBadgeClass(role: string): string {
   return 'bg-gray-100 text-gray-700 border-gray-200';
 }
 
-function isJordan(u: UserItem): boolean {
-  return u.email === JORDAN_EMAIL;
+function isDiretoria(u: UserItem): boolean {
+  return eDiretoria(u.email);
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -441,7 +444,7 @@ function PermDrawer({ user, onClose, onSaved }: PermDrawerProps) {
     setError(null);
   }
 
-  const isProtected = isJordan(user);
+  const isProtected = isDiretoria(user);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -577,7 +580,7 @@ export default function UsuariosPage() {
     : users;
 
   function modBadges(perms: string[], userEmail: string) {
-    if (userEmail === JORDAN_EMAIL) {
+    if (eDiretoria(userEmail)) {
       return (
         <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs">
           <ShieldCheck className="h-3 w-3 mr-1" /> Acesso Total
@@ -681,8 +684,8 @@ export default function UsuariosPage() {
                   <TableRow key={u.id} className="hover:bg-gray-50">
                     <TableCell className="font-medium text-sm">
                       {u.name}
-                      {isJordan(u) && (
-                        <span className="ml-2 text-xs text-amber-600 font-semibold">(CEO)</span>
+                      {isDiretoria(u) && (
+                        <span className="ml-2 text-xs text-amber-600 font-semibold">(Diretoria)</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">{u.email}</TableCell>
@@ -711,9 +714,9 @@ export default function UsuariosPage() {
                           onClick={() => setSelected(u)}
                           className="text-xs"
                         >
-                          {isJordan(u) ? 'Ver' : 'Editar'}
+                          {isDiretoria(u) ? 'Ver' : 'Editar'}
                         </Button>
-                        {!isJordan(u) && (
+                        {!isDiretoria(u) && (
                           <Button
                             size="sm"
                             variant="outline"

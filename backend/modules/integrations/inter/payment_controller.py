@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
+from core.auth.diretoria import e_diretoria
 from core.database.session import get_db
 from modules.integrations.inter.services.payment_service import (
     IdempotenciaError,
@@ -486,11 +487,14 @@ async def audit_log_global(
 ):
     """Audit log global — todas as transições de pagamento.
     Restrito a Jordan (validação dual: dependency + check explícito no handler)."""
-    user_email = getattr(current_user, "email", "")
-    if user_email not in ("jjesus@conectamais.pro", "jordansjesus@gmail.com"):
+    # DIRETORIA, não "só o Jordan". A lista literal daqui tinha apenas ele, então a
+    # Pyetra levava 403 neste log enquanto passava nos outros três gates de diretoria do
+    # sistema (Consultor CEO, emitente de contrato, dono fiscal). Decisão do Jordan em
+    # 14/09/2026: mesmo perfil para os dois. Fonte única em core/auth/diretoria.py.
+    if not e_diretoria(getattr(current_user, "email", "")):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas Jordan tem acesso ao audit log global",
+            detail="Log de auditoria de pagamentos é restrito à diretoria",
         )
 
     res = await db.execute(

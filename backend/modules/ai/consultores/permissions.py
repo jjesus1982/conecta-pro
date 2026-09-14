@@ -12,8 +12,12 @@ from fastapi import Depends, HTTPException, status
 from core.auth.dependencies import get_current_active_user
 
 # Diretoria com acesso irrestrito ao Consultor Executivo (decisão Jordan 2026-07-21;
-# espelha "Financeiro = só Jordan + Pyetra").
-CONSULTOR_EXECUTIVO_EMAILS = {"jjesus@conectamais.pro", "pjesus@conectamais.pro"}
+# espelha "Financeiro = só Jordan + Pyetra"). DERIVA da fonte única desde 14/09/2026 —
+# antes eram duas listas com a mesma intenção, e elas divergiram: esta tinha a Pyetra e a
+# do payment_controller não.
+from core.auth.diretoria import DIRETORIA  # noqa: E402
+
+CONSULTOR_EXECUTIVO_EMAILS = set(DIRETORIA)
 
 
 async def require_consultor_executivo(user=Depends(get_current_active_user)):
