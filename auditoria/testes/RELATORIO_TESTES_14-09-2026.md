@@ -35,8 +35,8 @@ intervalos de exatamente dois dias.
 | 9 | **Erro do governo escondido** | Rejeição da NFS-e virava «Erro interno». | ✅ corrigido |
 | 10 | **Fuso misturado** | Mesma ocorrência gravada em dois dias diferentes. | ✅ corrigido |
 | 11 | **UUID digitado à mão** | Medida disciplinar pedia o id do colaborador. | ✅ corrigido |
-| 12 | **Proposta nova nunca virava contrato** | Nascia sem o CNPJ do cliente e sumia do passo seguinte. | ✅ corrigido |
-| 13 | **Proposta RECUSADA podia virar contrato** | O seletor oferecia as que o cliente já tinha dito não. | ✅ corrigido |
+| 12 | **Proposta nova nunca virava contrato** | Nascia sem o CNPJ do cliente e sumia do passo seguinte. | ✅ corrigido e verificado |
+| 13 | **Proposta RECUSADA podia virar contrato** | O seletor oferecia as que o cliente já tinha dito não. | ✅ corrigido e verificado |
 | 14 | **Alerta de ASO inflado 3,5×** | Dizia 88; o número acionável é 25. Contava papel, não gente. | ✅ corrigido e verificado |
 
 ### Duas coisas que eu NÃO consertei, porque a decisão é sua
@@ -123,3 +123,22 @@ um comunicado, uma ocorrência (criada e resolvida), uma diária (criada e exclu
 está em `auditoria/testes/ACHADOS.md`. O livro-caixa do que foi gravado em produção está no
 topo do mesmo arquivo.*
 
+
+---
+
+## E uma coisa que esta bateria deixou para o futuro
+
+O defeito crítico de hoje — o espelho da Portaria 671 morto — era uma comparação entre tipos
+(`varchar` contra `uuid`) que **nenhum dos 48 caçadores pegava**. Foi preciso clicar na tela
+para descobrir.
+
+Escrevi a trava que faltava: **`checar_id_tipo_divergente.py`**, já registrada na varredura das
+00:00. Ela estreia acusando **8 colunas** — e **7 são minas ainda não pisadas**, cada uma um
+HTTP 500 esperando alguém escrever o join:
+
+```
+gp_cats.employee_id · gp_justifications.employee_id · gp_monthly_closings.employee_id
+juridico_processos.employee_id · time_sheets.condominium_id · time_sheets.work_schedule_id
+```
+
+De hoje em diante, se esse número crescer, a varredura acusa antes de alguém clicar.

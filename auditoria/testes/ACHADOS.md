@@ -778,3 +778,23 @@ a acusar se o número **crescer**.
 **cala** — o A1-01 desta mesma bateria tinha os dois lados UUID, o join simplesmente não casou
 nenhuma das 73 linhas, e a tela mostrou «—» para todo mundo sem erro nenhum. Para essa segunda
 família ainda não há trava. É o próximo caçador a escrever.
+
+---
+## VERIFICAÇÃO PÓS-BAKE 4 — o funil comercial, ponta a ponta
+
+Criei uma segunda proposta pela tela, já com as correções no ar:
+
+| Passo | Antes da bateria | Agora |
+|---|---|---|
+| Criar proposta | `HTTP 500` (empresa_id nulo) | **PROP-2026-00124**, 200 OK |
+| CNPJ do cliente | `(VAZIO)` | **66014833000110** — buscado do cadastro |
+| Aparece em «Gerar contrato» | **não** (filtro exige documento) | **sim** |
+| Propostas recusadas no seletor | PROP-2026-00114 e 00093 (`rejected`) | **nenhuma** |
+
+Comparação lado a lado das duas propostas da bateria, que mostra a correção no meio:
+```
+PROP-2026-00124  CONECTAMAIS PATRIMONIAL  66014833000110   ← depois do conserto
+PROP-2026-00123  CONECTAMAIS PATRIMONIAL  (VAZIO)          ← antes
+```
+Dos três bloqueios do funil, **dois estão resolvidos**. O terceiro — não existir tela para
+cadastrar cliente — continua de pé e é decisão sua.
