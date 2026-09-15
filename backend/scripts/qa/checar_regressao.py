@@ -29,6 +29,7 @@ quando CAI. Eles existiam desde agosto e nenhum caminho os invocava.
     python3 backend/scripts/qa/checar_regressao.py --gravar   # (re)grava a base
     python3 backend/scripts/qa/checar_regressao.py --gates    # força os gates semanais
 """
+
 from __future__ import annotations
 
 import json
@@ -44,6 +45,7 @@ AQUI = Path(__file__).resolve().parent
 #: terminal vai commitar isso. Pela nossa própria regra, ` M` = outro terminal para e espera:
 #: a automação dispararia a regra da parede falsamente.
 BASE = Path("/var/lib/conecta/qa_baseline.json")
+
 
 #: caçador -> como contar as pistas na saída dele. Devolve None quando a saída NÃO tem a
 #: linha canônica do caçador — é o que separa "0 pistas" de "não rodou".
@@ -127,7 +129,9 @@ CACADORES = {
     "checar_fila_offline_estourando.py": lambda s: _n(r"^TOTAL itens offline atrasados: (\d+)", s),
     # Veículo sem leitura de KM no período: sem isso o painel de manutenção marca TODOS como
     # vencidos e é ignorado em uma semana.
-    "checar_frota_sem_km.py": lambda s: _n(r"^TOTAL veículos sem KM no período: (\d+)", s, "TOTAL veículos sem KM no período: 0"),
+    "checar_frota_sem_km.py": lambda s: _n(
+        r"^TOTAL veículos sem KM no período: (\d+)", s, "TOTAL veículos sem KM no período: 0"
+    ),
 }
 
 #: Estáticos: rodam no HOST, onde os caminhos do repositório existem. Pôr o
@@ -171,7 +175,15 @@ CACADORES_HOST = {
     # `AT TIME ZONE 'America/Manaus'` aplicado direto a coluna `timestamp without time zone`
     # que guarda UTC: SOMA 4h em vez de subtrair. Nasce em 3 dívidas reais fora do ponto
     # (financial_pagamentos_pj.updated_at e opportunities.updated_at).
-    "checar_at_time_zone_sem_fuso.py": lambda s: _n(r"^TOTAL conversões erradas: (\d+)", s, "TOTAL conversões erradas: 0"),
+    "checar_at_time_zone_sem_fuso.py": lambda s: _n(
+        r"^TOTAL conversões erradas: (\d+)", s, "TOTAL conversões erradas: 0"
+    ),
+    # ── 15/09/2026, vídeo errodp.mp4. O bake do backend de 00:47 passou a emitir `fieldsRef` e
+    # `verDaLinha` no contrato das telas; o frontend que lê essas chaves ficou compilado no host
+    # e não foi publicado. As 29 telas do redesign morriam em «Algo deu errado» — a Pyetra
+    # reportou as duas que tentou abrir. Backend 200 nos dois lados; o erro era só no navegador.
+    # HOST porque precisa falar com os DOIS containers: a API de um e o bundle publicado do outro.
+    "checar_contrato_front_back.py": lambda s: _n(r"^TOTAL:\s*(\d+) chave", s),
 }
 
 
@@ -179,8 +191,7 @@ CACADORES_HOST = {
 #: caçador do arsenal precisa do REPOSITÓRIO e do crontab, que só existem no host. Misturar
 #: os dois ambientes foi o primeiro erro deste script: dentro do container o ARSENAL_SKILLS
 #: "não existia" e as contagens saíam diferentes (27 em vez de 40) porque a raiz é outra.
-_EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend",
-                   "python3", "/app/scripts/qa/"]
+_EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend", "python3", "/app/scripts/qa/"]
 
 
 #: Travas de SIM/NÃO: não contam dívida, passam ou reprovam. Ligadas pelo EXIT CODE e nunca
@@ -192,14 +203,12 @@ _EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backe
 #: "NÃO VERIFICADO" permanente é o mesmo que não ter trava.
 TRAVAS_BINARIAS = {
     "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ", 900),
-    "checar_periodo_do_servidor.py": ("container",
-                                      "competência/data vinda do MODELO e não do servidor", 900),
+    "checar_periodo_do_servidor.py": ("container", "competência/data vinda do MODELO e não do servidor", 900),
     # CONTAINER, não host: ela varre /app/scripts/orq. No host esse caminho não existe, o
     # glob volta vazio e ela imprime "0 · 0 · 0 · 0" com exit=0 — verde por caminho errado,
     # que é o pior tipo de verde e já mordeu aqui (o checar_repositorio achava 0 no container
     # pelo motivo espelhado). Liguei errado na primeira vez; a saída zerada denunciou.
-    "checar_desmonte_comportamento.py": ("container",
-                                         "oráculo que escreve em produção e deixa linha", 5400),
+    "checar_desmonte_comportamento.py": ("container", "oráculo que escreve em produção e deixa linha", 5400),
     # Motor responde 200 e não produz frase. Existia desde 24/08 e nenhum caminho a invocava —
     # a própria trava de órfãs acusou por dias e ninguém ligou (06/09/2026).
     "checar_sucesso_vazio.py": ("container", "o motor do chat devolve 200 sem frase", 300),
@@ -209,17 +218,33 @@ TRAVAS_BINARIAS = {
     # Cobertura rotas × telas (08/09/2026): toda rota montada precisa de chamador — redesign, interno
     # (MCP/Hermes/tasks/robôs/cron), alias, externo (webhook) ou dono. Fechou em 0 · 0 com 1220 rotas;
     # rota nova sem tela volta a acusar aqui. Leva ~1 min (enumera as rotas dentro do container).
-    "checar_cobertura_rotas.py": ("host", "rota montada sem chamador no redesign nem interno (nenhum/classico > 0)", 300),
+    "checar_cobertura_rotas.py": (
+        "host",
+        "rota montada sem chamador no redesign nem interno (nenhum/classico > 0)",
+        300,
+    ),
     # A inversa (sugestão da auditoria t6, 08/09): "toda chamada tem rota?" — varre frontend/src e reprova chamada
     # alcançável pelo redesign (grafo de imports a partir das raízes do redesign/apps vivos) a rota que não existe.
     # Foi assim que apareceram 14 rotas apagadas por veredito errado (portal do funcionário, sino).
-    "checar_chamadas_sem_rota.py": ("host", "chamada do frontend alcançável pelo redesign a rota que o backend não tem", 900),
+    "checar_chamadas_sem_rota.py": (
+        "host",
+        "chamada do frontend alcançável pelo redesign a rota que o backend não tem",
+        900,
+    ),
     # `docker cp` copia, nunca apaga: handler apagado do repositório ficou no container e as duas travas acima mediram
     # um fantasma (0 · 0) até o bake de 09/09 reconstruir a imagem e o 404 aparecer no layout raiz.
-    "checar_fantasmas_container.py": ("host", "arquivo .py no container que o repositório não tem (hot-copy não apaga)", 300),
+    "checar_fantasmas_container.py": (
+        "host",
+        "arquivo .py no container que o repositório não tem (hot-copy não apaga)",
+        300,
+    ),
     # Oráculo no git não protege ninguém; oráculo na imagem protege. A varredura da meia-noite roda DENTRO do
     # container: hoje, 3 vezes, um arquivo ficou no disco e fora da imagem porque o bake fechou o contexto antes.
-    "checar_oraculos_no_container.py": ("host", "oráculo ou caçador que existe no disco e NÃO roda (fora do container)", 300),
+    "checar_oraculos_no_container.py": (
+        "host",
+        "oráculo ou caçador que existe no disco e NÃO roda (fora do container)",
+        300,
+    ),
     # Registro do servidor vazio ou encolhido (rotas, tools, executores pela guarda, regras,
     # beats, builders) — a família do "código desligado". Guarda a última contagem no banco.
     "checar_registros_servidor.py": ("container", "registro VAZIO ou que ENCOLHEU no processo do servidor", 600),
@@ -228,7 +253,11 @@ TRAVAS_BINARIAS = {
     # ferramentas etiquetadas `read` fazendo PUT/PATCH/DELETE — `read` é a classe que o
     # gate_propose deixa passar sem humano. Este caçador só as EXECUTA; a régua fica junto do
     # código que ela vigia.
-    "checar_etiqueta_de_risco.py": ("host", "trava do conector MCP falhando (etiqueta de risco, manifesto, identidade)", 300),
+    "checar_etiqueta_de_risco.py": (
+        "host",
+        "trava do conector MCP falhando (etiqueta de risco, manifesto, identidade)",
+        300,
+    ),
     # O conector serve o que DIZ que serve? Medido pela rota (`tools/list`), não pelo log —
     # que anunciou "42 de 254" por 19 dias enquanto servia 266, porque `remove_tool` não
     # existe no fastmcp 4.0.3 e o `except: pass` engolia (11/09/2026).
@@ -241,7 +270,11 @@ TRAVAS_BINARIAS = {
     # A casa nunca soube se a mensagem chegava: o envio para um JID inexistente registra
     # sucesso. Medido em 11/09 — 5 cadastros sem o nono dígito (a MEIRE entre eles) e 6 cujo
     # número não existe, dois deles com 13 lembretes de ponto cada, todos no vazio.
-    "checar_telefone_funcionario.py": ("host", "telefone de funcionário malformado (mensagem da empresa não chega)", 900),
+    "checar_telefone_funcionario.py": (
+        "host",
+        "telefone de funcionário malformado (mensagem da empresa não chega)",
+        900,
+    ),
 }
 
 #: ⚠️ `test_oraculo_todos_batem_ponto.py` NÃO entra aqui: oráculo roda na varredura da meia-noite
@@ -273,9 +306,9 @@ ORFAS_DECLARADAS: dict[str, str] = {
     # assim institucionaliza o ruído em vez de removê-lo. Quem mede desmonte agora é
     # `checar_desmonte_comportamento.py`, que EXECUTA em vez de ler o fonte.
     "provar_desmonte.py": "utilitário com argumentos (<oráculo> <tabela>): prova o desmonte "
-                          "de UM oráculo recém-escrito. Invocado à mão pela skill "
-                          "oraculo-conecta/entregue-de-verdade. Dono: quem escreve oráculo "
-                          "que escreve.",
+    "de UM oráculo recém-escrito. Invocado à mão pela skill "
+    "oraculo-conecta/entregue-de-verdade. Dono: quem escreve oráculo "
+    "que escreve.",
     # Ferramenta de MÃO da esteira de botões (14/09/2026). Fica de fora da varredura diária
     # DE PROPÓSITO: ela pergunta "lista sem forma de criar/mexer?" e é ruidosa por
     # construção — o Portal do Funcionário é leitura por natureza e ela acusa 11 lá. Sino
@@ -283,9 +316,9 @@ ORFAS_DECLARADAS: dict[str, str] = {
     # `checar_capacidade_sem_botao.py`, que pergunta o inverso e tem alvo acionável.
     # Dono: quem estiver trabalhando a esteira do Jordan (ver o relatório de 14/09).
     "checar_acao_faltando.py": "ferramenta de mão da esteira de botões: lista sem forma de "
-                               "criar/mexer. Ruidosa por construção (tela de leitura "
-                               "aparece como achado) — por isso não entra na diária. "
-                               "Dono: quem trabalha a esteira.",
+    "criar/mexer. Ruidosa por construção (tela de leitura "
+    "aparece como achado) — por isso não entra na diária. "
+    "Dono: quem trabalha a esteira.",
 }
 
 #: Prefixos que contam como TRAVA neste diretório. `fechado_*` e `varredura_*` ficaram fora
@@ -299,8 +332,11 @@ def _travas_no_disco() -> set[str]:
 
 
 def _cmd(script: str, onde: str) -> list[str]:
-    return ([sys.executable, str(AQUI / script)] if onde == "host"
-            else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script])
+    return (
+        [sys.executable, str(AQUI / script)]
+        if onde == "host"
+        else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
+    )
 
 
 def _rodar(script: str) -> tuple[int | None, str]:
@@ -310,7 +346,7 @@ def _rodar(script: str) -> tuple[int | None, str]:
     else:
         cmd, conta = _cmd(script, "container"), CACADORES[script]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # noqa: S603
     except subprocess.TimeoutExpired:
         return None, "(não terminou em 30min)"
     saida = r.stdout + r.stderr
@@ -320,7 +356,7 @@ def _rodar(script: str) -> tuple[int | None, str]:
 def _gate(script: str, onde: str, teto: int) -> tuple[int | None, int | None, str]:
     """(✅, ❌, última linha). None quando não rodou — gate que não responde não conta."""
     try:
-        r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)
+        r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)  # noqa: S603
     except subprocess.TimeoutExpired:
         return None, None, f"não terminou em {teto // 60}min"
     saida = r.stdout + r.stderr
@@ -332,13 +368,20 @@ def _gate(script: str, onde: str, teto: int) -> tuple[int | None, int | None, st
 
 def _avisar_no_sino(falhou: list[str]) -> None:
     """Publica no sino reusando o caminho da varredura (dedup por dia já embutido)."""
-    corpo = ("Trava mecânica acusou REGRESSÃO:\n- " + "\n- ".join(falhou) +
-             "\n\nCódigo novo trouxe fabricação de valor ou lista literal que a coluna não "
-             "tem. Rodar à mão:\n"
-             "docker exec conecta-pro-backend python3 /app/scripts/qa/cacar_fabricacao.py")
-    cmd = _EXEC_CONTAINER[:-1] + ["/app/modules/notifications/tasks_oraculos.py",
-                                  "--avisar", "Travas de QA: regressão", corpo]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    corpo = (
+        "Trava mecânica acusou REGRESSÃO:\n- "
+        + "\n- ".join(falhou)
+        + "\n\nCódigo novo trouxe fabricação de valor ou lista literal que a coluna não "
+        "tem. Rodar à mão:\n"
+        "docker exec conecta-pro-backend python3 /app/scripts/qa/cacar_fabricacao.py"
+    )
+    cmd = _EXEC_CONTAINER[:-1] + [
+        "/app/modules/notifications/tasks_oraculos.py",
+        "--avisar",
+        "Travas de QA: regressão",
+        corpo,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
     print(f"  sino: {(r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr) else 'sem resposta'}")
 
 
@@ -376,8 +419,7 @@ def main() -> int:
 
     # O caçador do arsenal não tem dívida aceitável: ou o documento confere, ou não confere.
     # Este roda no HOST mesmo: precisa de docs/, skills/_plugin e crontab.
-    r = subprocess.run([sys.executable, str(AQUI / "checar_arsenal.py")],
-                       capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(AQUI / "checar_arsenal.py")], capture_output=True, text=True)  # noqa: S603
     if r.returncode != 0:
         falhou.append("checar_arsenal: o arsenal diverge do sistema")
         print("  x checar_arsenal: o arsenal diverge do sistema")
@@ -396,21 +438,23 @@ def main() -> int:
         print("  (--gravar: travas binárias, gates e checar_mcp_tools pulados — não têm base)")
         r = subprocess.CompletedProcess([], 0, "", "")
     else:
-        r = subprocess.run([sys.executable, str(AQUI / "checar_mcp_tools.py")],
-                           capture_output=True, text=True, timeout=600)
+        r = subprocess.run(  # noqa: S603
+            [sys.executable, str(AQUI / "checar_mcp_tools.py")], capture_output=True, text=True, timeout=600
+        )
     if r.returncode != 0:
-        falhou.append("checar_mcp_tools: a parede do agente está fora do git, fora da "
-                      "imagem, ou apontando para rota que não existe")
+        falhou.append(
+            "checar_mcp_tools: a parede do agente está fora do git, fora da "
+            "imagem, ou apontando para rota que não existe"
+        )
         print("  x checar_mcp_tools: a parede do agente diverge")
-        print("\n".join("     " + ln for ln in r.stdout.splitlines()
-                        if ln.strip().startswith("-")))
+        print("\n".join("     " + ln for ln in r.stdout.splitlines() if ln.strip().startswith("-")))
     else:
         print("  checar_mcp_tools: confere")
 
     # As travas de sim/não, pelo exit code.
     for script, (onde, oque, teto) in ({} if gravar else TRAVAS_BINARIAS).items():
         try:
-            r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)
+            r = subprocess.run(_cmd(script, onde), capture_output=True, text=True, timeout=teto)  # noqa: S603
         except subprocess.TimeoutExpired:
             falhou.append(f"{script}: não respondeu em {teto // 60}min — NÃO VERIFICADO, não aprovado")
             print(f"  x {script}: não respondeu (NÃO VERIFICADO)")
@@ -432,15 +476,22 @@ def main() -> int:
     # invocava — inclusive a `checar_beats`, escrita no dia anterior justamente contra
     # "rotina que roda e não produz". Trava órfã é pior que trava ausente: ela dá a impressão
     # de cobertura que não existe, e o custo de escrevê-la já foi pago.
-    orfas = _travas_no_disco() - set(CACADORES) - set(CACADORES_HOST) - set(TRAVAS_BINARIAS) \
-        - set(GATES) - set(ORFAS_DECLARADAS) - {"checar_regressao.py", "checar_arsenal.py",
-                                                "checar_mcp_tools.py"}
+    orfas = (
+        _travas_no_disco()
+        - set(CACADORES)
+        - set(CACADORES_HOST)
+        - set(TRAVAS_BINARIAS)
+        - set(GATES)
+        - set(ORFAS_DECLARADAS)
+        - {"checar_regressao.py", "checar_arsenal.py", "checar_mcp_tools.py"}
+    )
     if orfas:
-        falhou.append("trava órfã (existe no disco e nenhum caminho invoca): "
-                      + ", ".join(sorted(orfas)))
+        falhou.append("trava órfã (existe no disco e nenhum caminho invoca): " + ", ".join(sorted(orfas)))
         print(f"  x arsenal: {len(orfas)} trava(s) órfã(s) — " + ", ".join(sorted(orfas)))
-        print("     Ligue em CACADORES/CACADORES_HOST (conta dívida) ou TRAVAS_BINARIAS "
-              "(passa/reprova), ou declare em ORFAS_DECLARADAS com DONO e MOTIVO.")
+        print(
+            "     Ligue em CACADORES/CACADORES_HOST (conta dívida) ou TRAVAS_BINARIAS "
+            "(passa/reprova), ou declare em ORFAS_DECLARADAS com DONO e MOTIVO."
+        )
     else:
         print(f"  arsenal: 0 trava órfã ({len(ORFAS_DECLARADAS)} declarada(s) com dono)")
 
@@ -448,6 +499,7 @@ def main() -> int:
     # A base guarda quantas condições ✅ cada gate tinha; acusa quando o número CAI. Sobe
     # sozinho quando melhora — conserto não exige cerimônia, retrocesso exige explicação.
     import datetime as _dt
+
     if "--gates" in sys.argv or (_dt.date.today().isoweekday() == 7 and not gravar):
         print("── gates semanais (critérios de aceite) ──")
         for script, (onde, teto) in GATES.items():
@@ -489,6 +541,7 @@ def main() -> int:
     # falha repetida fica no log e volta ao sino toda segunda. Sem isto, "0 -> 25 REGRESSÃO"
     # tocou dez noites seguidas (28/08–06/09/2026) e ninguém abriu nenhuma.
     import datetime as _dt2
+
     chaves_agora = {f.split(":")[0] for f in falhou}
     chaves_antes = set((base.get("_falhas") or {}).keys())
     hoje = _dt2.date.today().isoformat()
@@ -505,17 +558,23 @@ def main() -> int:
     if falhou and (novidade or _dt2.date.today().isoweekday() == 1):
         # Sem isto a trava vira log que ninguém lê: o alerta do sino saía só da varredura de
         # oráculos, e regressão de fabricação ficava em /var/log esperando alguém abrir.
-        _avisar_no_sino([f + (f"  (desde {base_falhas.get(f.split(':')[0])})" if f.split(":")[0] in chaves_antes else "  NOVA")
-                         for f in falhou])
+        _avisar_no_sino(
+            [
+                f + (f"  (desde {base_falhas.get(f.split(':')[0])})" if f.split(":")[0] in chaves_antes else "  NOVA")
+                for f in falhou
+            ]
+        )
     elif falhou:
         print("  sino: sem novidade desde a rodada anterior — em silêncio (volta na segunda)")
     if falhou:
         print("\nREGRESSÃO — código novo trouxe fabricação ou vocabulário fantasma:")
         for f in falhou:
             print(f"  {f}")
-        print(f"\nConserte, ou (se for dívida aceita) suba a base com --gravar e escreva a "
-              f"decisão na mensagem do commit — a base mora em {BASE}, fora do git de "
-              f"propósito. Deixar a dívida crescer tem que ser decisão escrita.")
+        print(
+            f"\nConserte, ou (se for dívida aceita) suba a base com --gravar e escreva a "
+            f"decisão na mensagem do commit — a base mora em {BASE}, fora do git de "
+            f"propósito. Deixar a dívida crescer tem que ser decisão escrita."
+        )
         return 1
     print("\nsem regressão")
     return 0

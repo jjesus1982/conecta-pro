@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { PanelLeftClose, PanelLeft, Menu, Search, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import RdBell from './RdBell';
@@ -986,6 +986,45 @@ function Screen({ scr, onNav }: { scr: any; onNav?: (id: string) => void }) {
 }
 
 // ── ModuleView: shell do módulo + tela ativa ────────────────────────────────
+/** Um bloco que estoura não pode levar o módulo inteiro junto.
+ *
+ * Origem: 15/09/2026, vídeo `errodp.mp4`. O backend passou a emitir `fieldsRef`/`verDaLinha`
+ * e o bundle que estava no ar não sabia ler nenhuma das duas. O throw subiu até o
+ * `app/error.tsx` — boundary de ROTA — e apagou a página inteira: tela preta, «Algo deu
+ * errado», e com ela o menu lateral. A Pyetra não tinha como nem trocar de tela; só restava
+ * voltar para o início e tentar outro módulo, que quebrava igual.
+ *
+ * Aqui o erro para no conteúdo. O shell (menu, abas, busca, topo) continua de pé e ela navega
+ * para outro lugar. O `key` do elemento reseta este estado quando a tela muda — sem isso a
+ * tela quebrada gruda e a próxima nasce quebrada por herança.
+ */
+class TelaSegura extends Component<{ children: ReactNode }, { erro: Error | null }> {
+  state: { erro: Error | null } = { erro: null };
+
+  static getDerivedStateFromError(erro: Error) { return { erro }; }
+
+  componentDidCatch(erro: Error) {
+    // Vai para o console do navegador: é o que a varredura de telas lê para acusar a quebra.
+    console.error('[redesign] a tela quebrou ao renderizar:', erro);
+  }
+
+  render() {
+    if (!this.state.erro) return this.props.children;
+    return (
+      <div className="rd-card" style={{ padding: 24, marginTop: 16 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Esta tela não abriu</div>
+        <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14 }}>
+          O resto do módulo continua funcionando — use o menu ao lado para seguir. Se repetir,
+          avise com o nome da tela.
+        </div>
+        <button type="button" className="rd-btn" onClick={() => this.setState({ erro: null })}>
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+}
+
 export default function ModuleView({ slug }: { slug: string }) {
   const data = MODULES[slug];
   const menu = useMemo(() => normMenu(data?.menu || []), [data]);
@@ -1211,9 +1250,11 @@ export default function ModuleView({ slug }: { slug: string }) {
               ? (
                 <ReloadCtx.Provider value={() => setReloadKey((k) => k + 1)}>
                   <SearchCtx.Provider value={q}>
-                    {scr?.type === 'tabs'
-                      ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} onNav={go} />
-                      : <Screen scr={scr} onNav={go} />}
+                    <TelaSegura key={`${active}:${activeTab || ''}`}>
+                      {scr?.type === 'tabs'
+                        ? <TabsScreen scr={scr} tab={activeTab} onTab={(id) => go(active, id)} onNav={go} />
+                        : <Screen scr={scr} onNav={go} />}
+                    </TelaSegura>
                   </SearchCtx.Provider>
                 </ReloadCtx.Provider>
               )

@@ -189,7 +189,24 @@ cleanup_green
 # ele subir antes dos workers, essa task cai em worker velho e morre como "unregistered".
 if [ "$SKIP_CELERY" = "1" ]; then
   log "7/7 celery: PULADO (SKIP_CELERY=1) — os workers seguem com o código anterior"
-  log "═══ BLUE/GREEN CONCLUÍDO — zero downtime (backend apenas) ═══"
+  # ── O outro lado da parede: o frontend publicado sabe ler o que este backend passou a emitir?
+# Origem: 15/09/2026. O bake das 00:47 publicou o payload achatado (`fieldsRef`/`verDaLinha`)
+# e o frontend que resolve essas chaves ficou compilado no host, nunca publicado. As 29 telas
+# do redesign morriam em «Algo deu errado» — o backend respondia 200 o tempo todo, e por isso
+# o drift de worker e o HTTP 200 do deploy ficaram verdes. Nove horas até a Pyetra reportar.
+#
+# NÃO falha o deploy: a esta altura o backend já está no ar e abortar não desfaz nada. O que
+# resolve é publicar o frontend, e é isso que este bloco manda fazer, alto e com o comando.
+log "verificação pós-deploy — o frontend publicado lê o contrato deste backend:"
+if ! python3 backend/scripts/qa/checar_contrato_front_back.py 2>&1 | tee -a "$LOG"; then
+  log "⚠️  O FRONTEND NO AR NÃO SABE LER O CONTRATO DESTE BACKEND."
+  log "    Toda tela do redesign vai cair em «Algo deu errado» no navegador do usuário."
+  log "    Corrija AGORA, publicando o frontend:"
+  log "      cd frontend && NODE_OPTIONS=--max-old-space-size=4096 npm run build"
+  log "      cd .. && ./scripts/deploy/deploy_frontend.sh"
+fi
+
+log "═══ BLUE/GREEN CONCLUÍDO — zero downtime (backend apenas) ═══"
   # Mostra QUAIS ficaram para trás. Aqui o drift é intencional, então não falha o deploy —
   # mas fica registrado no log, com nome e sobrenome, em vez de virar dívida invisível.
   log "workers que ficaram com o código anterior (drift intencional deste SKIP_CELERY):"
