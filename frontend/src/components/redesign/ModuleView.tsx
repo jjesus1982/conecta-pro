@@ -196,6 +196,32 @@ function TableScreen({ scr }: { scr: any }) {
   const hasActions = hasRowDocs || hasRowEdit || hasRowActions || hasRowSign;
   const grid = hasActions ? `${scr.grid} minmax(200px, auto)` : scr.grid;
   const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
+  // `fieldsRef` aponta para `scr.campos[ref]`: o formulário vem UMA vez por tela em vez de
+  // uma vez por linha. Sem isto, o DP mandava 2,6 MB só de `fields` repetidos — a mesma
+  // lista de opções 2.000 vezes na mesma resposta (medido em 15/09/2026, quando o Jordan
+  // disse que o sistema estava pesado). Bloco sem `fieldsRef` segue como sempre.
+  const comCampos = (bloco: any, linha?: any) => {
+    if (!bloco) return bloco;
+    // `verDaLinha` = o detalhe É a própria linha. Antes o servidor mandava os valores
+    // duplicados dentro do botão "Ver" — a linha inteira repetida dentro dela mesma, em
+    // TODA tabela do sistema. O rótulo é o cabeçalho da coluna e o valor é a célula: os
+    // dois já chegaram. Montar aqui não custa nada e economiza megabytes na resposta.
+    if (bloco.verDaLinha && linha) {
+      return {
+        ...bloco,
+        fields: (scr.cols || []).map((c: string, i: number) => {
+          const cel = (linha.cells || [])[i];
+          const v = cel && typeof cel === 'object' ? cel.v : cel;
+          return { label: c, value: (v ?? '') === '' ? '—' : v };
+        }),
+      };
+    }
+    if (Array.isArray(bloco.fields)) return bloco;
+    const ref = bloco.fieldsRef;
+    const achado = ref && scr.campos ? scr.campos[ref] : null;
+    return achado ? { ...bloco, fields: achado } : bloco;
+  };
+
   const [editRow, setEditRow] = useState<any>(null);
   const [editVals, setEditVals] = useState<Record<string, any>>({});
   const [editMsg, setEditMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -275,15 +301,15 @@ function TableScreen({ scr }: { scr: any }) {
               {hasActions && (
                 <span className="rd-tbl-cell" style={{ justifyContent: 'flex-end', gap: 6 }}>
                   {Array.isArray(row.docs) && row.docs.length > 0 && <DocButtons docs={row.docs} compact />}
-                  {row.edit && Array.isArray(row.edit.fields) && (
+                  {row.edit && (Array.isArray(row.edit.fields) || row.edit.fieldsRef) && (
                     <button type="button" className={`rd-btn ${row.edit.btnStyle === 'primary' ? 'rd-btn-primary' : 'rd-btn-outline'}`} style={{ padding: '5px 10px', fontSize: 12 }}
-                      onClick={() => { setEditRow(row.edit); const v: Record<string, any> = {}; row.edit.fields.forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
+                      onClick={() => { const b = comCampos(row.edit, row); setEditRow(b); const v: Record<string, any> = {}; (b.fields || []).forEach((f: any) => { v[f.key] = f.value ?? ''; }); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
                       {row.edit.btnLabel || 'Editar'}
                     </button>
                   )}
                   {Array.isArray(row.actions) && row.actions.map((a:any, k:number) => (
                     <button key={k} type="button" className={`rd-btn ${a.btnStyle==='primary'?'rd-btn-primary':'rd-btn-outline'}`} style={{ padding:'5px 10px', fontSize:12 }}
-                      onClick={() => { setEditRow(a); const v:Record<string,any>={}; (a.fields||[]).forEach((f:any)=>{v[f.key]=f.value??'';}); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
+                      onClick={() => { const b = comCampos(a, row); setEditRow(b); const v:Record<string,any>={}; (b.fields||[]).forEach((f:any)=>{v[f.key]=f.value??'';}); setEditVals(v); setEditMsg(null); setEditOtp(null); }}>
                       {a.btnLabel || 'Ação'}
                     </button>
                   ))}
@@ -333,7 +359,7 @@ function TableScreen({ scr }: { scr: any }) {
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink, #16277D)', marginBottom: 12 }}>{editRow.title || 'Editar'}</div>
             {editMsg && <div className={`rd-badge ${editMsg.ok ? 'rd-b-success' : 'rd-b-error'}`} style={{ height: 'auto', padding: '8px 12px', fontSize: 12.5, marginBottom: 10, display: 'block' }}>{editMsg.text}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {editRow.fields.map((f: any, i: number) => (
+              {(editRow.fields || []).map((f: any, i: number) => (
                 <div key={i} style={{ gridColumn: f.span === 'span 2' ? '1 / -1' : 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, color: 'var(--placeholder)', fontWeight: 600 }}>{f.label}</label>
                   {editRow.readOnly

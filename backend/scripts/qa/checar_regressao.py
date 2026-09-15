@@ -84,6 +84,10 @@ CACADORES = {
     # ASO que não prova exame: 96 dos 97 assinados pelo mesmo médico, 3 datas, zero
     # documento anexado, todos carregados em 16/03/2026. Os "25 vencidos" da tela saem daí.
     "checar_aso_sem_lastro.py": lambda s: _n(r"^TOTAL:\s*(\d+) ASO\(s\) sem lastro", s),
+    # Selfie da batida: o app tirava, mandava, e o construtor do PunchService não passava
+    # o campo — 829 batidas de 09/2026 com facial e GPS e ZERO com foto. Sem ela não dá
+    # para ver farda, barba nem se a pessoa está no posto. Conta só a partir de 14/09.
+    "checar_batida_sem_foto.py": lambda s: _n(r"^TOTAL:\s*(\d+) batida\(s\) sem foto", s),
     # O INVERSO do botão morto: rota que ESCREVE e nenhuma tela chama — o mapa do que
     # obriga o dono a ir ao terminal (pedido do Jordan, 13/09/2026). Estreia em 338.
     # Pesado (constrói os 32 módulos + varre os builders): ~3 min.

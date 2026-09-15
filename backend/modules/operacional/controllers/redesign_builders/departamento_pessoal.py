@@ -1193,6 +1193,11 @@ SELECT e.nome, d.dia, d.marcas, d.n, d.esperado, d.sem_almoco,
                   WHERE a.employee_id = d.employee_id AND a.ativo = true
                   ORDER BY a.data_inicio DESC LIMIT 1), '(sem posto)') AS posto
 FROM d LEFT JOIN employees e ON e.id = d.employee_id
+-- DUAS competências, não todas. A tela abre filtrada no mês corrente e o DP corrige, no
+-- máximo, o mês anterior — trazer julho junto era mandar 900 jornadas que ninguém abre.
+-- Medido em 15/09/2026: a tela era 3,9 MB (metade do módulo) por carregar 3 meses.
+-- O filtro de competência continua com as duas, que é o que se usa para fechar.
+WHERE d.dia >= (date_trunc('month', CURRENT_DATE) - interval '1 month')::date
 ORDER BY d.dia DESC, e.nome LIMIT 2000
 """
 

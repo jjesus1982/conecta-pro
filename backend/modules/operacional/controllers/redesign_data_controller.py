@@ -1724,7 +1724,8 @@ def _helpers(db: AsyncSession):
                     row["actions"] = acts
             return row
 
-        return {
+        _linhas = [_mkrow(r) for r in rows]
+        _tela = {
             "title": title,
             "sub": sub,
             "cta": cta,
@@ -1732,10 +1733,86 @@ def _helpers(db: AsyncSession):
             "searchHint": hint,
             "grid": grid,
             "cols": cols,
-            "rows": [_mkrow(r) for r in rows],
+            "rows": _linhas,
         }
+        _dedup_campos(_tela)
+        return _tela
 
     return out, safe, tbl
+
+
+def _dedup_recursivo(screens: dict) -> None:
+    """Passa o dedup por TODA tela do módulo, inclusive as que viraram aba de grupo."""
+    def _andar(no):
+        if isinstance(no, dict):
+            if no.get("type") == "table" and isinstance(no.get("rows"), list):
+                _dedup_campos(no)
+            for v in no.values():
+                _andar(v)
+        elif isinstance(no, list):
+            for v in no:
+                _andar(v)
+
+    _andar(screens)
+
+
+def _dedup_campos(tela: dict) -> None:
+    """Manda o FORMULÁRIO uma vez por tela, não uma vez por linha.
+
+    Medido em 15/09/2026, quando o Jordan disse que o sistema estava pesado. O módulo DP
+    entregava 7,8 MB por carregamento — e 2,6 MB (33%) eram a lista de `fields` dos
+    formulários de linha, REPETIDA. O formulário de «Ajustar ponto», com as mesmas quatro
+    opções de tipo de batida, vinha 2.000 vezes na mesma resposta; o segundo mais repetido,
+    1.466 vezes. Uma tela só (o Ponto) era metade do módulo.
+
+    Nada muda para quem monta a tela: `editfn`/`actionsfn` continuam devolvendo `fields`
+    normalmente. Aqui, no fim, blocos com a MESMA lista passam a apontar para uma cópia
+    única em `tela["campos"]` via `fieldsRef`. O front resolve a referência; bloco sem
+    referência (tela antiga, campo com valor por linha) segue como está.
+
+    Só deduplica o que REPETE: lista que aparece uma vez fica onde está, porque trocá-la
+    por referência gastaria mais bytes do que economiza.
+    """
+    import hashlib
+    import json as _json
+
+    linhas = tela.get("rows") or []
+    if len(linhas) < 3:  # tela pequena não paga o custo da indireção
+        return
+
+    def _blocos(linha: dict):
+        if isinstance(linha.get("edit"), dict):
+            yield linha["edit"]
+        for a in linha.get("actions") or []:
+            if isinstance(a, dict):
+                yield a
+
+    contagem: dict[str, int] = {}
+    chaves: dict[int, str] = {}
+    for linha in linhas:
+        for bloco in _blocos(linha):
+            campos = bloco.get("fields")
+            if not campos:
+                continue
+            bruto = _json.dumps(campos, sort_keys=True, ensure_ascii=False)
+            h = hashlib.md5(bruto.encode()).hexdigest()[:12]
+            contagem[h] = contagem.get(h, 0) + 1
+            chaves[id(bloco)] = h
+
+    repetidos = {h for h, n in contagem.items() if n >= 3}
+    if not repetidos:
+        return
+
+    catalogo: dict[str, list] = {}
+    for linha in linhas:
+        for bloco in _blocos(linha):
+            h = chaves.get(id(bloco))
+            if h in repetidos:
+                catalogo.setdefault(h, bloco["fields"])
+                bloco["fieldsRef"] = h
+                bloco.pop("fields", None)
+    if catalogo:
+        tela["campos"] = catalogo
 
 
 def doc(label, url=None, fmt="pdf", mode="blob", filename=None, gate=None, disabled=False, motivo=None):
@@ -1823,13 +1900,15 @@ def _ver_todas_rec(screens: dict) -> None:
                 ((a or {}).get("btnLabel") or "").strip().lower().startswith("ver") for a in (row.get("actions") or [])
             ):
                 continue
-            campos = [
-                {"label": c, "value": (cell.get("v") if isinstance(cell, dict) else cell) or "—"}
-                for c, cell in zip(cols, (row.get("cells") or []), strict=False)
-            ]
-            if campos:
+            # O "Ver" mostra A PRÓPRIA LINHA: rótulo = cabeçalho da coluna, valor = célula.
+            # Materializar isso em `fields` DUPLICAVA a linha inteira dentro dela mesma —
+            # medido em 15/09/2026: 434 bytes por linha, 2.000 linhas, ~870 KB só nessa tela,
+            # e o mesmo em toda tabela do sistema. Agora vai um MARCADOR e o front monta o
+            # detalhe a partir de `cols` + `cells`, que já estão na resposta.
+            if cols and (row.get("cells") or []):
                 row.setdefault("actions", []).insert(
-                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "fields": campos}
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe",
+                        "verDaLinha": True}
                 )
 
     for scr in list(screens.values()):
@@ -7171,6 +7250,14 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
         _ver_todas_rec(screens)  # clique-na-linha 'Ver' universal (todos os módulos)
         _aplicar_drill_mod(screens, slug)  # KPIs de dashboard clicáveis (DP/fiscal/crm)
     except Exception:  # noqa: BLE001 — navegação nunca derruba o dado
+        pass
+    # Dedup dos formulários DEPOIS da navegação: `_ver_todas_rec` acrescenta uma ação
+    # "Ver" em CADA linha, e sem passar aqui o DP voltava de 4,87 MB para 6,79 MB —
+    # 2.000 blocos novos, iguais entre si. Deduplicar no fim pega tudo que foi montado,
+    # não só o que o `tbl()` produziu.
+    try:
+        _dedup_recursivo(screens)
+    except Exception:  # noqa: BLE001 — otimização nunca derruba o dado
         pass
     return {"slug": slug, "screens": screens, "wired": list(screens.keys()), "extraMenu": EXTRA_MENU.get(slug, [])}
 
