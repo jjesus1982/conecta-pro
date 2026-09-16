@@ -322,43 +322,6 @@ class TestGetBatidasDia:
 # ========================================================================
 
 
-class TestEspelhoMensal:
-    """Testes do metodo get_espelho_mensal."""
-
-    @pytest.mark.asyncio
-    async def test_espelho_vazio(self, service, mock_db):
-        fake_result = MagicMock()
-        fake_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = fake_result
-
-        result = await service.get_espelho_mensal(1, 3, 2026)
-        assert result["employee_id"] == 1
-        assert result["month"] == 3
-        assert result["year"] == 2026
-        assert result["total_batidas"] == 0
-        assert result["batidas"] == []
-
-    @pytest.mark.asyncio
-    async def test_espelho_com_batidas(self, service, mock_db):
-        punches = []
-        for i, tipo in enumerate(["entrada", "saida_almoco", "retorno_almoco", "saida"]):
-            p = MagicMock()
-            p.to_dict.return_value = {
-                "punch_id": f"p-{i}",
-                "punch_type": tipo,
-                "punch_timestamp": f"2026-03-13T{8 + i * 4:02d}:00:00",
-            }
-            punches.append(p)
-
-        fake_result = MagicMock()
-        fake_result.scalars.return_value.all.return_value = punches
-        mock_db.execute.return_value = fake_result
-
-        result = await service.get_espelho_mensal(1, 3, 2026)
-        assert result["total_batidas"] == 4
-        assert len(result["batidas"]) == 4
-
-
 # ========================================================================
 # TESTES JUSTIFICATIVA
 # ========================================================================

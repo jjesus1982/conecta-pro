@@ -31,8 +31,6 @@ from ..schemas.punch_schemas import (
     MonthlyClosingResponse,
     PunchCreate,
     PunchResponse,
-    PunchSyncRequest,
-    PunchSyncResponse,
 )
 from ..services import dashboard_service
 from ..services.folha_pdf_service import PontoFolhaPDFService
@@ -118,7 +116,7 @@ async def _next_punch_type(db: AsyncSession, employee_id: str) -> str:
     ).fetchall()
     tipos = [r[0] for r in rows]
     if "saida" in tipos:
-        tipos = tipos[len(tipos) - tipos[::-1].index("saida"):]  # só a jornada depois da última saída
+        tipos = tipos[len(tipos) - tipos[::-1].index("saida") :]  # só a jornada depois da última saída
     count = len(tipos)
     if count >= len(_PUNCH_SEQUENCE):
         return "saida"
@@ -193,21 +191,142 @@ async def get_batidas_dia(
     return {"employee_id": employee_id, "date": data, "punches": batidas}
 
 
+#: Abreviação do dia da semana, como o espelho legal imprime.
+_DIA_SEMANA = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
+
+
+def _hm_de_min(minutos: Any) -> str:
+    """1101 -> '18:21'. Aceita negativo; devolve '—' quando não há número."""
+    if minutos is None:
+        return "—"
+    try:
+        v = int(minutos)
+    except (TypeError, ValueError):
+        return "—"
+    sinal = "-" if v < 0 else ""
+    v = abs(v)
+    return f"{sinal}{v // 60:02d}:{v % 60:02d}"
+
+
+def _dia_da_tela(d: dict[str, Any]) -> dict[str, Any]:
+    """Um dia do `daily_summary` na forma que a tela de espelho consome.
+
+    O motor único já entrega a JORNADA consolidada: entrada, intervalo e saída numa linha só,
+    mesmo quando o turno atravessa a meia-noite. `entrada2`/`saida2` continuam no payload por
+    compatibilidade com a tela, vazios — o segundo par virou o campo `intervalo`.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    iso = str(d.get("date") or "")
+    dia_br, semana = "—", ""
+    try:
+        dt = _date.fromisoformat(iso)
+        dia_br = f"{dt.day:02d}/{dt.month:02d}"
+        semana = _DIA_SEMANA[dt.weekday()]
+    except ValueError:
+        pass
+
+    obs: list[str] = []
+    if d.get("is_absent"):
+        obs.append("Falta")
+    if d.get("is_holiday"):
+        obs.append("Feriado")
+    if d.get("late"):
+        obs.append(f"Atraso {_hm_de_min(d.get('late'))}")
+    if d.get("notes"):
+        obs.append(str(d["notes"]))
+    # `notes` já costuma trazer a mesma palavra da flag ("Feriado" com is_holiday=True), e a
+    # linha saía "Feriado · Feriado". Mantém a ordem e tira o eco.
+    obs = list(dict.fromkeys(obs))
+
+    return {
+        "dia": dia_br,
+        "data": iso,
+        "dia_semana": semana,
+        "entrada1": d.get("entrada") or "",
+        "saida1": d.get("saida") or "",
+        "entrada2": "",
+        "saida2": "",
+        "intervalo": d.get("intervalo") or "",
+        "total": _hm_de_min(d.get("worked")),
+        "obs": " · ".join(obs),
+    }
+
+
 @router.get("/espelho/{employee_id}")
-async def get_espelho_mensal(
+def get_espelho_mensal(
     employee_id: str,
     month: int = Query(..., ge=1, le=12),
     year: int = Query(..., ge=2020),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_sync_db_dependency),
 ) -> dict[str, Any]:
-    """Retorna espelho de ponto mensal."""
-    service = PunchService(db)
-    try:
-        return await service.get_espelho_mensal(employee_id, month, year)
-    except ValueError as e:
-        # [Ponto Ciclo3 - Achado 3] Funcionário inexistente => 404, igual ao banco-horas
-        # (antes devolvia 200 com espelho fantasma -180h).
-        raise HTTPException(status_code=404, detail=str(e)) from e
+    """Espelho mensal — a MESMA conta do PDF que vai a assinatura.
+
+    Origem: 15/09/2026. Esta rota tinha motor próprio (`PunchService.get_espelho_mensal`) e
+    discordava do PDF em TODOS os 12 colaboradores conferidos. O PDF junta o turno noturno
+    (19:01 → 07:02, intervalo 00:59, 11:01); o motor daqui partia na meia-noite e contava dois
+    «dias» de ~6h. Em setembro eram 115 pares de batidas cruzando a meia-noite, em 21 pessoas.
+
+    Num caso a tela dizia que o colaborador devia 18h enquanto o PDF dizia que ele tinha 5h a
+    receber. Quem confere na tela e manda assinar estava aprovando outro documento — e o que
+    vale juridicamente é o PDF.
+
+    Agora não há o que reconciliar: a tela LÊ `time_sheets`, a mesma fonte do PDF. Se o mês
+    ainda não foi calculado, calcula com o motor legal (`calcular_espelho`) em vez de inventar
+    um segundo número. Síncrona de propósito — o motor legal é sync, e o FastAPI já roda
+    função `def` no threadpool.
+    """
+    from modules.people_management.hr.services.espelho_ponto_service import (  # noqa: PLC0415
+        ler_espelho,
+    )
+
+    esp = ler_espelho(db, employee_id, month, year)
+    if esp is None:
+        from modules.people_management.hr.services.espelho_service import (  # noqa: PLC0415
+            calcular_espelho,
+        )
+
+        try:
+            calcular_espelho(db, employee_id, month, year)
+        except ValueError as e:
+            # Funcionário inexistente => 404, igual ao banco-horas (antes desta rota devolver
+            # 200 com espelho fantasma de -180h, [Ponto Ciclo3 - Achado 3]).
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        esp = ler_espelho(db, employee_id, month, year)
+        if esp is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Sem espelho de {int(month):02d}/{year} para este colaborador — nem "
+                    "calculado, nem calculável (verifique se há batidas no período)."
+                ),
+            )
+
+    dias = [_dia_da_tela(d) for d in (esp.get("dias") or []) if isinstance(d, dict)]
+    return {
+        "employee_id": esp["employee_id"],
+        "employee_name": esp.get("employee_name"),
+        "competencia": f"{int(month):02d}/{year}",
+        "month": int(month),
+        "year": int(year),
+        "jornada": esp.get("work_schedule_name") or "—",
+        "escala": esp.get("work_schedule_name") or "—",
+        "posto": esp.get("condominium_name"),
+        "total_dias": len(dias),
+        "total_trabalhado": esp.get("horas_trabalhadas"),
+        "horas_esperadas": esp.get("horas_previstas"),
+        "saldo": esp.get("saldo_banco"),
+        "extras_50": esp.get("extras_50"),
+        "adicional_noturno": esp.get("adicional_noturno"),
+        "atrasos": esp.get("atrasos"),
+        "faltas_dias": esp.get("faltas_dias"),
+        "anomalias": esp.get("anomaly_count"),
+        # Quem confere precisa saber se o número ainda pode mudar antes de mandar assinar.
+        "status": esp.get("status"),
+        "fechado": esp.get("fechado"),
+        "homologado": esp.get("approved_by_employee"),
+        "dias": dias,
+    }
 
 
 @router.get("/batida/{punch_id}/foto", summary="Selfie da batida (farda, barba, quem bateu)")
@@ -245,7 +364,7 @@ async def foto_da_batida(
         raise HTTPException(
             status_code=404,
             detail="Esta batida não tem foto guardada. Batidas anteriores a 14/09/2026 "
-                   "não guardaram a selfie (o app enviava e o servidor descartava).",
+            "não guardaram a selfie (o app enviava e o servidor descartava).",
         )
     caminho = os.path.join("/app", url.lstrip("/"))
     if not os.path.exists(caminho):
@@ -367,8 +486,14 @@ async def fechar_mes_todos(
             fechados += 1
         except Exception as e:  # noqa: BLE001
             erros.append({"employee_id": eid, "erro": str(e)[:120]})
-    return {"ok": True, "competencia": f"{ano}-{mes:02d}", "total": len(rows),
-            "fechados": fechados, "erros": len(erros), "detalhe_erros": erros[:5]}
+    return {
+        "ok": True,
+        "competencia": f"{ano}-{mes:02d}",
+        "total": len(rows),
+        "fechados": fechados,
+        "erros": len(erros),
+        "detalhe_erros": erros[:5],
+    }
 
 
 @router.get("/fechamento/status", summary="Status de fechamento por competência (estado REAL)")
@@ -383,9 +508,7 @@ async def fechamento_status(
     o status da competência: 'fechado' se todos ativos fecharam, 'em_revisao' se
     parte fechou, 'aberto' se nenhum. NUNCA hardcoded.
     """
-    total_ativos = (
-        await db.execute(text("SELECT COUNT(*) FROM employees WHERE status='ativo'"))
-    ).scalar() or 0
+    total_ativos = (await db.execute(text("SELECT COUNT(*) FROM employees WHERE status='ativo'"))).scalar() or 0
     # COUNT(DISTINCT employee_id): linhas duplicadas legadas (mesmo funcionário fechado
     # 2x) não podem estourar o total (>100%). fechados <= colaboradores sempre.
     row = (
@@ -570,9 +693,17 @@ async def download_folha_pdf(
 
 # ── Painel de completude do onboarding (DP) — rollout do ponto próprio 01/08 ──
 _ONBOARDING_CAMPOS = {
-    "telefone": "Telefone", "cep": "CEP", "logradouro": "Endereço", "bairro": "Bairro",
-    "cidade": "Cidade", "nome_mae": "Nome da mãe", "naturalidade": "Naturalidade",
-    "nacionalidade": "Nacionalidade", "rg": "RG", "estado_civil": "Estado civil", "pis": "PIS",
+    "telefone": "Telefone",
+    "cep": "CEP",
+    "logradouro": "Endereço",
+    "bairro": "Bairro",
+    "cidade": "Cidade",
+    "nome_mae": "Nome da mãe",
+    "naturalidade": "Naturalidade",
+    "nacionalidade": "Nacionalidade",
+    "rg": "RG",
+    "estado_civil": "Estado civil",
+    "pis": "PIS",
 }
 
 

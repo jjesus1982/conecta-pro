@@ -22,6 +22,9 @@ interface EspelhoDay {
   saida1?: string;
   entrada2?: string;
   saida2?: string;
+  /** Intervalo da jornada. O motor legal consolida o turno numa linha só — inclusive quando
+   *  ele atravessa a meia-noite — então o segundo par virou este campo. */
+  intervalo?: string;
   total?: string;
   obs?: string;
   observacao?: string;
@@ -175,8 +178,7 @@ export default function EspelhoPontoPage() {
                       <th className="text-left py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Sem</th>
                       <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Entrada</th>
                       <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Saida</th>
-                      <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Entrada</th>
-                      <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Saida</th>
+                      <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Intervalo</th>
                       <th className="text-center py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Total</th>
                       <th className="text-left py-3 px-3 font-medium text-[hsl(var(--muted-foreground))]">Obs</th>
                     </tr>
@@ -196,8 +198,7 @@ export default function EspelhoPontoPage() {
                           <td className="py-2.5 px-3 text-[hsl(var(--muted-foreground))]">{sem}</td>
                           <td className="py-2.5 px-3 text-center font-data tabular-nums">{row.entrada1 || '--:--'}</td>
                           <td className="py-2.5 px-3 text-center font-data tabular-nums">{row.saida1 || '--:--'}</td>
-                          <td className="py-2.5 px-3 text-center font-data tabular-nums">{row.entrada2 || '--:--'}</td>
-                          <td className="py-2.5 px-3 text-center font-data tabular-nums">{row.saida2 || '--:--'}</td>
+                          <td className="py-2.5 px-3 text-center font-data tabular-nums">{row.intervalo || row.entrada2 || '--:--'}</td>
                           <td className="py-2.5 px-3 text-center font-data tabular-nums font-medium">{row.total || '00:00'}</td>
                           <td className="py-2.5 px-3">
                             {obs && (

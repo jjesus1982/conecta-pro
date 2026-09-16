@@ -11,15 +11,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import String, cast, extract, func, select, text
+from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.people_management.hr.services.time_record_service import _salvar_selfie_ponto
 
 from ..models.clock_punch import ClockPunchModel
 from ..models.justification import JustificationModel
 from ..models.monthly_closing import MonthlyClosingModel
 from ..schemas.punch_schemas import JustificationCreate, PunchCreate
-
-from modules.people_management.hr.services.time_record_service import _salvar_selfie_ponto
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +236,7 @@ class PunchService:
                     ts_dt = datetime.fromisoformat(str(ts))
                     if ts_dt.tzinfo is not None:
                         from zoneinfo import ZoneInfo
+
                         ts_dt = ts_dt.astimezone(ZoneInfo("America/Manaus")).replace(tzinfo=None)
                     existing = await self.db.execute(
                         select(ClockPunchModel.id)
@@ -282,156 +283,6 @@ class PunchService:
             .order_by(ClockPunchModel.punch_timestamp)
         )
         return [p.to_dict() for p in result.scalars().all()]
-
-    async def get_espelho_mensal(self, employee_id: str, month: int, year: int) -> dict[str, Any]:
-        """Retorna espelho de ponto mensal com totais.
-
-        Args:
-            employee_id: ID do funcionario.
-            month: Mes (1-12).
-            year: Ano.
-
-        Returns:
-            Dicionario com batidas do mes e totais.
-        """
-        result = await self.db.execute(
-            select(ClockPunchModel)
-            .where(
-                ClockPunchModel.employee_id == employee_id,
-                extract("month", _ts_local(ClockPunchModel.punch_timestamp)) == month,
-                extract("year", _ts_local(ClockPunchModel.punch_timestamp)) == year,
-            )
-            .order_by(ClockPunchModel.punch_timestamp)
-        )
-        punches = list(result.scalars().all())
-        batidas = [p.to_dict() for p in punches]
-
-        # Pareamento CRONOLÓGICO entrada->saída (mesma lógica correta do fechamento em
-        # fechar_mes / horas_service). NÃO agrupamos por dia-calendário: o turno noturno
-        # 12x36 CRUZA a meia-noite (entrada 21:00 dia N -> saída 03:00 dia N+1), então o
-        # pareamento por dia perdia todos os plantões (total=00:00, saldo -180h absurdo).
-        # Cada par é atribuído à linha do dia da ENTRADA. Até 2 pares (manhã/tarde ou
-        # 1º/2º plantão) por dia da entrada, coerente com o formato do front.
-        _SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
-        seq = sorted(
-            (p for p in punches if p.punch_timestamp),
-            key=lambda x: x.punch_timestamp,
-        )
-
-        def _hhmm(dt: datetime | None) -> str:
-            return dt.strftime("%H:%M") if dt else ""
-
-        # Constrói pares (entrada, saída) cronológicos, ignorando pares inconsistentes
-        # (duração <=0 ou >=24h). Tipagem: 'entrada'/'retorno' abrem, 'saida' fecha.
-        pares: list[tuple[datetime, datetime]] = []
-        entrada_aberta: datetime | None = None
-        for p in seq:
-            t = (p.punch_type or "").lower()
-            if "entrada" in t or "retorno" in t:
-                entrada_aberta = p.punch_timestamp
-            elif "saida" in t and entrada_aberta is not None:
-                dur_min = (p.punch_timestamp - entrada_aberta).total_seconds() / 60.0
-                if 0 < dur_min < 24 * 60:
-                    pares.append((entrada_aberta, p.punch_timestamp))
-                entrada_aberta = None
-
-        # Agrupa os pares pela DATA DA ENTRADA (é o dia do plantão para o front).
-        por_dia_entrada: dict[Any, list[tuple[datetime, datetime]]] = {}
-        for ent, sai in pares:
-            por_dia_entrada.setdefault(ent.date(), []).append((ent, sai))
-
-        dias: list[dict[str, Any]] = []
-        total_min = 0
-        for data_dia in sorted(por_dia_entrada):
-            plist = sorted(por_dia_entrada[data_dia], key=lambda x: x[0])
-            e1 = plist[0][0] if len(plist) > 0 else None
-            s1 = plist[0][1] if len(plist) > 0 else None
-            e2 = plist[1][0] if len(plist) > 1 else None
-            s2 = plist[1][1] if len(plist) > 1 else None
-            dia_min = 0
-            for ent, sai in ((e1, s1), (e2, s2)):
-                if ent and sai and sai > ent:
-                    dia_min += int((sai - ent).total_seconds() // 60)
-            total_min += dia_min
-            dias.append(
-                {
-                    "dia": data_dia.strftime("%d/%m"),
-                    "data": data_dia.isoformat(),
-                    "dia_semana": _SEMANA[data_dia.weekday()],
-                    "entrada1": _hhmm(e1),
-                    "saida1": _hhmm(s1),
-                    "entrada2": _hhmm(e2),
-                    "saida2": _hhmm(s2),
-                    "total": f"{dia_min // 60:02d}:{dia_min % 60:02d}",
-                    "obs": "",
-                }
-            )
-
-        total_trabalhado = f"{total_min // 60:02d}:{total_min % 60:02d}"
-
-        # Horas esperadas por ESCALA (regra Jordan): 12x36=180h/mês, 44h=220h/mês.
-        # PRORRATEADO pelos dias decorridos no mês (útil p/ 44h, plantão p/ 12x36): mês parcial
-        # (ex.: começo de julho) não deve exibir saldo -204:00 contra o mês inteiro.
-        from sqlalchemy import text as _text
-
-        from .dashboard_service import (
-            _ESPERADO_MES,
-            _esperado_prorrateado_min,
-            _fator_prorata,
-            _hoje_manaus,
-        )
-
-        # [Ponto Ciclo3 - Achado 3] Valida EXISTÊNCIA do funcionário antes de montar o
-        # espelho. Antes, um employee_id inexistente caía no default '12x36' e o endpoint
-        # devolvia 200 com um espelho fantasma (-180h), divergindo do banco-horas que
-        # retorna 404. Agora sinalizamos ausência para o controller devolver 404 igual.
-        _emp = (
-            await self.db.execute(
-                _text("SELECT COALESCE(escala_padrao,'12x36') FROM employees WHERE CAST(id AS text)=:e"),
-                {"e": str(employee_id)},
-            )
-        ).first()
-        if _emp is None:
-            raise ValueError("Colaborador nao encontrado")
-        escala = _emp[0] or "12x36"
-
-        _hoje = _hoje_manaus()
-        esperado_min = _esperado_prorrateado_min(escala, month, year, _hoje)
-        esperado_cheio_min = int(_ESPERADO_MES.get(escala, 220.0) * 60)
-        fator = _fator_prorata(escala, month, year, _hoje)
-
-        # [Ponto Ciclo3 - Achado 2] Distingue "não bateu ponto no período" de "trabalhou e
-        # deve horas". Sem NENHUMA batida no mês não há débito de horas a cobrar: exibir
-        # saldo -180h cru é dado incoerente. Saldo neutro (0) + obs de aguardando dado.
-        if len(batidas) == 0:
-            saldo_min = 0
-            saldo_str = "+00:00"
-            _obs_periodo = "sem batidas no periodo / aguardando dado"
-        else:
-            saldo_min = total_min - esperado_min
-            _sg = "+" if saldo_min >= 0 else "-"
-            saldo_str = f"{_sg}{abs(saldo_min) // 60:02d}:{abs(saldo_min) % 60:02d}"
-            _obs_periodo = ""
-
-        return {
-            "employee_id": employee_id,
-            "month": month,
-            "year": year,
-            "competencia": f"{month:02d}/{year}",
-            "total_batidas": len(batidas),
-            "total_dias": len(dias),
-            "total_trabalhado": total_trabalhado,
-            "escala": escala,
-            # Esperado PRORRATEADO até hoje (o que efetivamente já era devido no período decorrido).
-            "horas_esperadas": f"{esperado_min // 60:02d}:{esperado_min % 60:02d}",
-            "horas_esperadas_mes_cheio": f"{esperado_cheio_min // 60:03d}:{esperado_cheio_min % 60:02d}",
-            "prorata_pct": round(fator * 100, 1),
-            "saldo": saldo_str,
-            "saldo_minutos": saldo_min,
-            "obs": _obs_periodo,
-            "dias": dias,
-            "batidas": batidas,
-        }
 
     async def criar_justificativa(self, data: JustificationCreate) -> dict[str, Any]:
         """Cria uma justificativa de atraso ou falta no banco.
