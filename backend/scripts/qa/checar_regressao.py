@@ -184,6 +184,12 @@ CACADORES_HOST = {
     # reportou as duas que tentou abrir. Backend 200 nos dois lados; o erro era só no navegador.
     # HOST porque precisa falar com os DOIS containers: a API de um e o bundle publicado do outro.
     "checar_contrato_front_back.py": lambda s: _n(r"^TOTAL:\s*(\d+) chave", s),
+    # ── 15/09/2026. O Jordan abriu a lista de pagamento dos diaristas e disse «fora do padrão»:
+    # um nome em caixa mista no meio de 28 em CAIXA ALTA, porque `criar_diarista` gravava a
+    # caixa como a pessoa digitou. Cosmético — mas o caçador vigia junto o que não é: diarista
+    # que trabalhou no mês e está sem CPF ou sem PIX não entra no lote e some da lista sem nada
+    # apitar. HOST: fala com o postgres por docker exec.
+    "checar_diarista_impagavel.py": lambda s: _n(r"^TOTAL:\s*(\d+) diarista", s),
 }
 
 
