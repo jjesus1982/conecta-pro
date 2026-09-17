@@ -65,6 +65,9 @@ _SQL_PENDENTES = text(
       FROM sig_signature_requests r
       JOIN employees e ON e.id = r.signer_id
      WHERE r.status = 'PENDING' AND r.signer_type = 'employee'
+       -- Filtro opcional de UMA pessoa: é o botão «Cobrar assinatura» da linha, na Central
+       -- de Assinaturas. NULL = o lote inteiro, como sempre foi.
+       AND (:so_este_eid IS NULL OR e.id::text = :so_este_eid)
        -- 🔴 SÓ AVISA SOBRE O QUE DÁ PARA ASSINAR. Desde 21/08 a assinatura FALHA se não
        -- houver PDF (antes registrava "assinado" sem documento). Medido no mesmo dia: de
        -- 1.334 solicitações pendentes, 958 NÃO TÊM PDF — 679 nunca tiveram e 250 apontam
@@ -84,11 +87,14 @@ _SQL_PENDENTES = text(
        -- 12 contra 3 de gente real: a próxima rodada avisaria doze estranhos.
        -- O `lembrete_ponto` já filtrava por esta coluna desde que nasceu; este serviço não.
        AND coalesce(e.is_homologacao, false) = false
-       AND NOT EXISTS (
+       -- A janela de 3 dias protege do spam automático. O gestor clicando «Cobrar» na tela
+       -- é um ato deliberado sobre UMA pessoa: aí o clique vence a janela, senão o botão
+       -- fica mudo por três dias e ele acha que está quebrado.
+       AND (:ignorar_janela OR NOT EXISTS (
              SELECT 1 FROM portal_notifications n
               WHERE n.employee_id = e.id
                 AND n.title = :titulo_lembrete
-                AND n.created_at > now() - make_interval(days => :janela))
+                AND n.created_at > now() - make_interval(days => :janela)))
      GROUP BY e.id, e.nome, e.email, coalesce(nullif(e.celular, ''), e.telefone, '')
      ORDER BY count(*) DESC
     """
@@ -158,9 +164,33 @@ def _html(nome: str, resumo: str) -> str:
 </body></html>"""
 
 
-def avisar_pendentes(db, dry_run: bool = True, limite: int | None = None) -> dict:
-    """Um e-mail por PESSOA com tudo que ela tem para assinar. `dry_run=True` por padrão."""
-    linhas = db.execute(_SQL_PENDENTES, {"janela": _JANELA_DIAS, "titulo_lembrete": _TITULO_LEMBRETE}).mappings().all()
+def avisar_pendentes(
+    db,
+    dry_run: bool = True,
+    limite: int | None = None,
+    employee_id: str | None = None,
+    ignorar_janela: bool = False,
+) -> dict:
+    """Um e-mail por PESSOA com tudo que ela tem para assinar. `dry_run=True` por padrão.
+
+    `employee_id` cobra só aquela pessoa (botão da linha na Central de Assinaturas);
+    `ignorar_janela` deixa o clique manual furar a trava anti-spam de `_JANELA_DIAS`.
+    Toda a proteção que importa — só quem tem PDF no disco, só ativo, nunca a coorte de
+    homologação — mora na query e vale igual para os dois botões.
+    """
+    linhas = (
+        db.execute(
+            _SQL_PENDENTES,
+            {
+                "janela": _JANELA_DIAS,
+                "titulo_lembrete": _TITULO_LEMBRETE,
+                "so_este_eid": employee_id,
+                "ignorar_janela": bool(ignorar_janela),
+            },
+        )
+        .mappings()
+        .all()
+    )
     if limite:
         linhas = linhas[:limite]
 

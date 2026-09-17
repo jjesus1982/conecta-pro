@@ -72,6 +72,7 @@ EXTRA_MENU: list[dict] = [
     {"id": "kit-entrega-marcar", "label": "Marcar kit como entregue", "icon": "M3 3v18h18"},
     {"id": "kit-anexar-comprovante", "label": "Anexar comprovante do banco (exceção)", "icon": "M3 3v18h18"},
     {"id": "assinaturas-empresa-lote", "label": "Assinar em lote (empresa)", "icon": "M3 3v18h18"},
+    {"id": "assinaturas-cobrar-lote", "label": "Cobrar quem não assinou", "icon": "M3 3v18h18"},
     {"id": "kit-faturar", "label": "Faturar kit (boleto)", "icon": "M3 3v18h18"},
     {"id": "kit-checklist-evento", "label": "Registrar evento no checklist do kit", "icon": "M3 3v18h18"},
     {"id": "gedeon-perguntar", "label": "Consultor GEDEON", "icon": _ICO_D},
@@ -133,6 +134,7 @@ async def build(db) -> dict:
         _ck = f"redesign:documentos:drive:{comp}"
         try:
             from core.cache.redis import cache_get, cache_set
+
             drive = await cache_get(_ck)
         except Exception:  # noqa: BLE001 — sem Redis, lê o Drive como antes
             drive = None
@@ -691,31 +693,33 @@ async def build(db) -> dict:
                 b("Sim", "bad") if r[5] else b("Não", "mut"),
                 b((r[6] or "—").capitalize(), "ok" if (r[6] or "").lower() == "tratada" else "warn"),
             ],
-            actionsfn=lambda r: None
-            if (r[6] or "").lower() == "tratada"
-            else [
-                {
-                    "title": f"Marcar como tratada — {r[1]}",
-                    "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}/tratar",
-                    "method": "PATCH",
-                    "btnLabel": "Tratar",
-                    "submitLabel": "Marcar como tratada",
-                    "btnStyle": "primary",
-                    "okMsg": "Intercorrência tratada. Recarregue a tela.",
-                    "fields": [],
-                },
-                {
-                    "title": f"Excluir a intercorrência de {r[1]}",
-                    "sub": "Use só quando o registro foi feito por engano — some do histórico.",
-                    "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}",
-                    "method": "DELETE",
-                    "btnLabel": "Excluir",
-                    "submitLabel": "Excluir registro",
-                    "btnStyle": "outline",
-                    "okMsg": "Intercorrência excluída. Recarregue a tela.",
-                    "fields": [],
-                },
-            ],
+            actionsfn=lambda r: (
+                None
+                if (r[6] or "").lower() == "tratada"
+                else [
+                    {
+                        "title": f"Marcar como tratada — {r[1]}",
+                        "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}/tratar",
+                        "method": "PATCH",
+                        "btnLabel": "Tratar",
+                        "submitLabel": "Marcar como tratada",
+                        "btnStyle": "primary",
+                        "okMsg": "Intercorrência tratada. Recarregue a tela.",
+                        "fields": [],
+                    },
+                    {
+                        "title": f"Excluir a intercorrência de {r[1]}",
+                        "sub": "Use só quando o registro foi feito por engano — some do histórico.",
+                        "endpoint": f"/api/v1/gedeon/consultor/intercorrencias/{r[0]}",
+                        "method": "DELETE",
+                        "btnLabel": "Excluir",
+                        "submitLabel": "Excluir registro",
+                        "btnStyle": "outline",
+                        "okMsg": "Intercorrência excluída. Recarregue a tela.",
+                        "fields": [],
+                    },
+                ]
+            ),
         ),
     )
 
@@ -770,24 +774,42 @@ async def build(db) -> dict:
 
 async def _ligar_kits_20260908(db, out: dict) -> None:
     """LIGAR 08/09/2026: rotas do orquestrador de kits que só existiam por API/MCP."""
-    from modules.gedeon.controllers import orquestrador_controller as O
+    from modules.gedeon.controllers import (
+        orquestrador_controller as O,  # noqa: N812  # alias curto pré-existente, usado em todo o arquivo
+    )
     from modules.operacional.controllers.redesign_builders._ligar_generico import (
         chamar,
         painel_de_dict,
         selecionar,
         tabela_de_lista,
     )
+
     comp = O._competencia_anterior()
     try:
         conds = await chamar(O.condominios_elegiveis_endpoint, db)
         lista = conds if isinstance(conds, list) else (conds or {}).get("condominios", [])
-        opts = [{"value": (c.get("nome") if isinstance(c, dict) else str(c)), "label": (c.get("nome") if isinstance(c, dict) else str(c))} for c in lista]
+        opts = [
+            {
+                "value": (c.get("nome") if isinstance(c, dict) else str(c)),
+                "label": (c.get("nome") if isinstance(c, dict) else str(c)),
+            }
+            for c in lista
+        ]
     except Exception as exc:  # noqa: BLE001
-        logger.warning("kits: condominios elegíveis: %s", exc); opts = []
+        logger.warning("kits: condominios elegíveis: %s", exc)
+        opts = []
     if not opts:  # o serviço pode falhar fora (Drive/SSL): cai para os clientes do GED, que é a lista real dos kits
         try:
             from sqlalchemy import text as _t
-            opts = [{"value": n, "label": n} for (n,) in (await db.execute(_t("SELECT name FROM ged_clients WHERE coalesce(is_active,true) ORDER BY name LIMIT 100"))).fetchall()]
+
+            opts = [
+                {"value": n, "label": n}
+                for (n,) in (
+                    await db.execute(
+                        _t("SELECT name FROM ged_clients WHERE coalesce(is_active,true) ORDER BY name LIMIT 100")
+                    )
+                ).fetchall()
+            ]
         except Exception:  # noqa: BLE001
             await db.rollback()
     # Leitura SEM tocar o Drive na página: a conferência ATLAS vem só do cache em memória do
@@ -797,53 +819,187 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
         cached = O._ATLAS_LOTE_CACHE.get(comp)
         if cached:
             selos = cached[1].get("selos") or cached[1].get("condominios") or cached[1]
-            linhas = [{"condominio": k, **({kk: vv for kk, vv in v.items() if not isinstance(vv, (list, dict))} if isinstance(v, dict) else {"selo": v})} for k, v in (selos.items() if isinstance(selos, dict) else [])]
-            out["kits-conferencia"] = tabela_de_lista(f"Conferência dos kits — {comp}", "Selo ATLAS por condomínio (última conferência em cache, ~90 s).", linhas)
+            linhas = [
+                {
+                    "condominio": k,
+                    **(
+                        {kk: vv for kk, vv in v.items() if not isinstance(vv, (list, dict))}
+                        if isinstance(v, dict)
+                        else {"selo": v}
+                    ),
+                }
+                for k, v in (selos.items() if isinstance(selos, dict) else [])
+            ]
+            out["kits-conferencia"] = tabela_de_lista(
+                f"Conferência dos kits — {comp}",
+                "Selo ATLAS por condomínio (última conferência em cache, ~90 s).",
+                linhas,
+            )
         else:
-            out["kits-conferencia"] = painel_de_dict(f"Conferência dos kits — {comp}", "Nenhuma conferência em cache neste processo.",
-                                                    {"como_conferir": "peça ao assistente 'conferir os kits do mês' (MCP consultar_kits) ou chame GET /gedeon/kits/conferir-lote — a varredura lê o Drive e leva ~20 s"})
+            out["kits-conferencia"] = painel_de_dict(
+                f"Conferência dos kits — {comp}",
+                "Nenhuma conferência em cache neste processo.",
+                {
+                    "como_conferir": "peça ao assistente 'conferir os kits do mês' (MCP consultar_kits) ou chame GET /gedeon/kits/conferir-lote — a varredura lê o Drive e leva ~20 s"
+                },
+            )
     except Exception as exc:  # noqa: BLE001
         logger.warning("kits conferencia: %s", exc)
     # Assinaturas pendentes pelo BANCO (assinatura universal), não pelo Drive: o serviço do kit lê o
     # Drive numa thread e derrubou o worker (08/09/2026, "free(): corrupted unsorted chunks").
     try:
         from sqlalchemy import text as _t
+
         # 09/09: virou a CENTRAL DE ASSINATURAS do gestor — o que espera a EMPRESA vem primeiro, com o botão "Assinar"
         # (POST /signatures/{id}/sign, papel admin/operator) e o PDF para ler antes. O que espera o funcionário é
         # assinado por ele no portal (meu-espaço); aqui só aparece para cobrança.
-        rows = (await db.execute(_t(
-            "SELECT coalesce(signer_name,'—'), lower(coalesce(signer_type::text,'—')), coalesce(document_type,'—'), coalesce(title, reference_code, '—'), "
-            "status::text, expires_at, id::text, access_token FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
-            "AND (expires_at IS NULL OR expires_at > now()) ORDER BY (lower(signer_type::text) = 'company') DESC, created_at DESC LIMIT 300"))).fetchall()
-        linhas = [{"signatario": r[0], "papel": {"company": "EMPRESA (você)", "employee": "funcionário (portal)", "customer": "cliente"}.get(r[1], r[1]),
-                   "documento": r[3], "tipo": r[2], "status": r[4], "expira_em": r[5].strftime("%d/%m") if r[5] else "—", "_id": r[6], "_papel": r[1], "_tok": r[7]} for r in rows]
+        rows = (
+            await db.execute(
+                _t(
+                    "SELECT coalesce(signer_name,'—'), lower(coalesce(signer_type::text,'—')), coalesce(document_type,'—'), coalesce(title, reference_code, '—'), "
+                    "status::text, expires_at, id::text, access_token FROM sig_signature_requests WHERE status::text IN ('PENDING','SIGNING') "
+                    "AND (expires_at IS NULL OR expires_at > now()) ORDER BY (lower(signer_type::text) = 'company') DESC, created_at DESC LIMIT 300"
+                )
+            )
+        ).fetchall()
+        linhas = [
+            {
+                "signatario": r[0],
+                "papel": {"company": "EMPRESA (você)", "employee": "funcionário (portal)", "customer": "cliente"}.get(
+                    r[1], r[1]
+                ),
+                "documento": r[3],
+                "tipo": r[2],
+                "status": r[4],
+                "expira_em": r[5].strftime("%d/%m") if r[5] else "—",
+                "_id": r[6],
+                "_papel": r[1],
+                "_tok": r[7],
+            }
+            for r in rows
+        ]
         n_emp = sum(1 for l in linhas if l["_papel"] == "company")
         out["kits-assinaturas-pendentes"] = tabela_de_lista(
-            "Central de assinaturas", f"{n_emp} documento(s) esperam a SUA assinatura · {len(linhas) - n_emp} esperam funcionários (portal) ou clientes. Assinatura eletrônica com hash SHA-256; o PDF assinado volta para o kit na hora.",
-            linhas, cols=["signatario", "papel", "documento", "tipo", "status", "expira_em"],
+            "Central de assinaturas",
+            f"{n_emp} documento(s) esperam a SUA assinatura · {len(linhas) - n_emp} esperam funcionários (portal) ou clientes. Assinatura eletrônica com hash SHA-256; o PDF assinado volta para o kit na hora.",
+            linhas,
+            cols=["signatario", "papel", "documento", "tipo", "status", "expira_em"],
             docsfn=lambda it: [doc("Ver PDF", f"/api/v1/signatures/{it['_id']}/documento", fmt="pdf", mode="blob")],
-            actionsfn=lambda it: [{
-                "title": f"Assinar como empresa — {it['documento']}", "sub": "Registra a sua assinatura eletrônica (nome, CPF/CNPJ da empresa, data, hash) e carimba o selo no PDF.",
-                "endpoint": f"/api/v1/signatures/{it['_id']}/sign", "method": "POST", "btnLabel": "Assinar", "submitLabel": "Assinar agora",
-                "btnStyle": "primary", "okMsg": "Assinado. O kit já aponta para o PDF assinado. Recarregue.", "fields": []}] if it["_papel"] == "company" else [])
+            # Empresa: botão de assinar. Funcionário/cliente: botão de COBRAR — até 17/09/2026 a
+            # linha dele só tinha "Ver", e cobrar era coisa de terminal. O Jordan: «preciso
+            # mandar os documentos pelo sistema, tudo no frontend».
+            actionsfn=lambda it: (
+                [
+                    {
+                        "title": f"Assinar como empresa — {it['documento']}",
+                        "sub": "Registra a sua assinatura eletrônica (nome, CPF/CNPJ da empresa, data, hash) e carimba o selo no PDF.",
+                        "endpoint": f"/api/v1/signatures/{it['_id']}/sign",
+                        "method": "POST",
+                        "btnLabel": "Assinar",
+                        "submitLabel": "Assinar agora",
+                        "btnStyle": "primary",
+                        "okMsg": "Assinado. O kit já aponta para o PDF assinado. Recarregue.",
+                        "fields": [],
+                    }
+                ]
+                if it["_papel"] == "company"
+                else [
+                    {
+                        "title": f"Cobrar assinatura — {it['signatario']}",
+                        "sub": "Manda o link do Meu Espaço por WhatsApp e e-mail, direto na aba de assinar. Cobra a PESSOA: se ela tem vários documentos parados, recebe UMA mensagem com todos.",
+                        "endpoint": f"/api/v1/signatures/{it['_id']}/cobrar",
+                        "method": "POST",
+                        "btnLabel": "Cobrar",
+                        "submitLabel": "Enviar agora",
+                        "btnStyle": "primary",
+                        "okMsg": "Cobrança enviada.",
+                        "fields": [],
+                    }
+                ]
+                if it["_papel"] == "employee"
+                else []
+            ),
+        )
+        n_func = sum(1 for l in linhas if l["_papel"] == "employee")
+        out["assinaturas-cobrar-lote"] = {
+            "title": "Cobrar todo mundo que não assinou",
+            "sub": f"{n_func} funcionário(s) com documento parado. Manda o link do Meu Espaço por WhatsApp e e-mail, "
+            "um aviso por pessoa com tudo que ela tem. Quem já assinou não recebe nada — a fila lê o status "
+            "na hora. Quem foi cobrado nos últimos 3 dias também fica de fora: lembrete diário vira spam e a "
+            "pessoa aprende a ignorar o remetente.",
+            "cta": "Cobrar pendentes",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/signatures/cobrar-pendentes",
+                "okMsg": "Cobrança disparada. Recarregue a central.",
+                "showResult": True,
+            },
+            "fields": [
+                {
+                    "key": "limite",
+                    "label": "Máximo de pessoas neste disparo",
+                    "type": "number",
+                    "span": "span 1",
+                    "value": "60",
+                }
+            ],
+        }
         out["assinaturas-empresa-lote"] = {
-            "title": "Assinar tudo que espera a empresa", "sub": f"{n_emp} documento(s) pendentes da sua assinatura. Assina em lote, um a um pelo mesmo motor; um documento com problema não derruba os outros.",
-            "cta": "Assinar em lote", "type": "form",
-            "submit": {"endpoint": "/api/v1/signatures/empresa/assinar-lote", "okMsg": "Lote assinado. Recarregue a central.", "showResult": True},
-            "fields": [{"key": "limite", "label": "Máximo de documentos neste lote", "type": "number", "span": "span 1", "value": "60"}]}
+            "title": "Assinar tudo que espera a empresa",
+            "sub": f"{n_emp} documento(s) pendentes da sua assinatura. Assina em lote, um a um pelo mesmo motor; um documento com problema não derruba os outros.",
+            "cta": "Assinar em lote",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/signatures/empresa/assinar-lote",
+                "okMsg": "Lote assinado. Recarregue a central.",
+                "showResult": True,
+            },
+            "fields": [
+                {
+                    "key": "limite",
+                    "label": "Máximo de documentos neste lote",
+                    "type": "number",
+                    "span": "span 1",
+                    "value": "60",
+                }
+            ],
+        }
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); logger.warning("kits assinaturas: %s", str(exc)[:120])
+        await db.rollback()
+        logger.warning("kits assinaturas: %s", str(exc)[:120])
     try:
         from sqlalchemy import text as _t
-        rows = (await db.execute(_t(
-            "SELECT g.name, to_char(k.reference_month,'MM/YYYY'), k.sent_at, coalesce(k.sent_method,'—'), coalesce(k.sent_to,'—'), "
-            "coalesce(k.google_drive_link,'') <> '' FROM ged_document_kits k JOIN ged_clients g ON g.id=k.client_id "
-            "WHERE to_char(k.reference_month,'MM.YYYY') = :c ORDER BY g.name"), {"c": comp})).fetchall()  # competência do orquestrador é MM.AAAA
-        linhas = [{"condominio": r[0], "competencia": r[1], "entregue_em": r[2].strftime("%d/%m %H:%M") if r[2] else "—", "canal": r[3], "para": r[4], "no_drive": bool(r[5])} for r in rows]
-        out["kits-entrega-status"] = tabela_de_lista(f"Entrega dos kits — {comp}", "Entregue? Quando, por qual canal e para quem (ged_document_kits). Um condomínio por linha.", linhas,
-                                                     cols=["condominio", "competencia", "entregue_em", "canal", "para", "no_drive"])
+
+        rows = (
+            await db.execute(
+                _t(
+                    "SELECT g.name, to_char(k.reference_month,'MM/YYYY'), k.sent_at, coalesce(k.sent_method,'—'), coalesce(k.sent_to,'—'), "
+                    "coalesce(k.google_drive_link,'') <> '' FROM ged_document_kits k JOIN ged_clients g ON g.id=k.client_id "
+                    "WHERE to_char(k.reference_month,'MM.YYYY') = :c ORDER BY g.name"
+                ),
+                {"c": comp},
+            )
+        ).fetchall()  # competência do orquestrador é MM.AAAA
+        linhas = [
+            {
+                "condominio": r[0],
+                "competencia": r[1],
+                "entregue_em": r[2].strftime("%d/%m %H:%M") if r[2] else "—",
+                "canal": r[3],
+                "para": r[4],
+                "no_drive": bool(r[5]),
+            }
+            for r in rows
+        ]
+        out["kits-entrega-status"] = tabela_de_lista(
+            f"Entrega dos kits — {comp}",
+            "Entregue? Quando, por qual canal e para quem (ged_document_kits). Um condomínio por linha.",
+            linhas,
+            cols=["condominio", "competencia", "entregue_em", "canal", "para", "no_drive"],
+        )
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); logger.warning("kits entrega status: %s", exc)
+        await db.rollback()
+        logger.warning("kits entrega status: %s", exc)
     # 09/09/2026 (decisão do Jordan, opção 2): o comprovante de pagamento do kit REAL é o PDF oficial do banco,
     # baixado do internet banking e anexado aqui — a API da Cora não devolve comprovante (6 caminhos, todos 404) e
     # o do Villa Dei Fiori é o PDF do Cora com autenticação própria. Documento anexado fica intocável: a montagem
@@ -851,66 +1007,165 @@ async def _ligar_kits_20260908(db, out: dict) -> None:
     try:
         from sqlalchemy import text as _t
 
-        _k = (await db.execute(_t(
-            "SELECT k.id::text, g.name, to_char(k.reference_month,'MM/YYYY') FROM ged_document_kits k "
-            "JOIN ged_clients g ON g.id = k.client_id ORDER BY k.reference_month DESC NULLS LAST, g.name LIMIT 60"))).fetchall()
-        _e = (await db.execute(_t(
-            "SELECT id::text, nome FROM employees WHERE coalesce(status,'ativo') = 'ativo' ORDER BY nome LIMIT 400"))).fetchall()
+        _k = (
+            await db.execute(
+                _t(
+                    "SELECT k.id::text, g.name, to_char(k.reference_month,'MM/YYYY') FROM ged_document_kits k "
+                    "JOIN ged_clients g ON g.id = k.client_id ORDER BY k.reference_month DESC NULLS LAST, g.name LIMIT 60"
+                )
+            )
+        ).fetchall()
+        _e = (
+            await db.execute(
+                _t(
+                    "SELECT id::text, nome FROM employees WHERE coalesce(status,'ativo') = 'ativo' ORDER BY nome LIMIT 400"
+                )
+            )
+        ).fetchall()
         out["kit-anexar-comprovante"] = {
             "title": "Anexar comprovante do banco ao kit (exceção)",
             "sub": "O padrão é o comprovante GERADO pelo Conecta PRO, com os dados do extrato — é o que entra no kit "
-                   "sozinho. Use esta tela só quando precisar do PDF oficial do banco num caso específico: o "
-                   "arquivo anexado substitui o gerado naquele documento e fica protegido (a montagem automática "
-                   "não sobrescreve o que foi anexado à mão).",
-            "cta": "Anexar", "type": "form",
-            "submit": {"endpoint": "/api/v1/people-management/ged/documents", "multipart": True,
-                       "okMsg": "Comprovante anexado ao kit. Recarregue.", "showResult": True},
+            "sozinho. Use esta tela só quando precisar do PDF oficial do banco num caso específico: o "
+            "arquivo anexado substitui o gerado naquele documento e fica protegido (a montagem automática "
+            "não sobrescreve o que foi anexado à mão).",
+            "cta": "Anexar",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/people-management/ged/documents",
+                "multipart": True,
+                "okMsg": "Comprovante anexado ao kit. Recarregue.",
+                "showResult": True,
+            },
             "fields": [
                 selecionar("kit_id", "Kit*", [{"value": r[0], "label": f"{r[1]} — {r[2]}"} for r in _k], "span 2"),
                 selecionar("employee_id", "Colaborador*", [{"value": r[0], "label": r[1]} for r in _e], "span 2"),
-                selecionar("document_type", "Tipo*", [{"value": v, "label": l} for v, l in (
-                    ("comprovante_pagamento", "Comprovante de pagamento (salário/adiantamento)"),
-                    ("comprovante_vt", "Comprovante de VT"),
-                    ("comprovante_vr", "Comprovante de VR"))], "span 1"),
-                {"key": "document_name", "label": "Nome do documento", "type": "text", "span": "span 1",
-                 "ph": "Comprovante de Pagamento de Salário — Fulano"},
-                {"key": "notes", "label": "Observação", "type": "text", "span": "span 2", "value": "comprovante oficial do banco (anexado à mão)"},
-                {"key": "file", "label": "PDF do comprovante*", "type": "file", "span": "span 2"}]}
+                selecionar(
+                    "document_type",
+                    "Tipo*",
+                    [
+                        {"value": v, "label": l}
+                        for v, l in (
+                            ("comprovante_pagamento", "Comprovante de pagamento (salário/adiantamento)"),
+                            ("comprovante_vt", "Comprovante de VT"),
+                            ("comprovante_vr", "Comprovante de VR"),
+                        )
+                    ],
+                    "span 1",
+                ),
+                {
+                    "key": "document_name",
+                    "label": "Nome do documento",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Comprovante de Pagamento de Salário — Fulano",
+                },
+                {
+                    "key": "notes",
+                    "label": "Observação",
+                    "type": "text",
+                    "span": "span 2",
+                    "value": "comprovante oficial do banco (anexado à mão)",
+                },
+                {"key": "file", "label": "PDF do comprovante*", "type": "file", "span": "span 2"},
+            ],
+        }
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); logger.warning("kit-anexar-comprovante: %s", exc)
+        await db.rollback()
+        logger.warning("kit-anexar-comprovante: %s", exc)
 
     out["kit-entrega-preparar"] = {
-        "title": "Preparar entrega de kit", "sub": "Monta o pacote de entrega (ZIP/links) do kit do condomínio. Não envia nada.",
-        "cta": "Preparar", "type": "form",
-        "submit": {"endpoint": "/api/v1/gedeon/kits/entrega/preparar", "query": True, "okMsg": "Entrega preparada", "showResult": True},
-        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp}]}
+        "title": "Preparar entrega de kit",
+        "sub": "Monta o pacote de entrega (ZIP/links) do kit do condomínio. Não envia nada.",
+        "cta": "Preparar",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/gedeon/kits/entrega/preparar",
+            "query": True,
+            "okMsg": "Entrega preparada",
+            "showResult": True,
+        },
+        "fields": [
+            selecionar("condominio", "Condomínio*", opts),
+            {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+        ],
+    }
     out["kit-entrega-marcar"] = {
-        "title": "Marcar kit como entregue", "sub": "Registra que o kit chegou ao cliente e por qual canal. Só registra.",
-        "cta": "Marcar", "type": "form",
+        "title": "Marcar kit como entregue",
+        "sub": "Registra que o kit chegou ao cliente e por qual canal. Só registra.",
+        "cta": "Marcar",
+        "type": "form",
         "submit": {"endpoint": "/api/v1/gedeon/kits/entrega/marcar", "okMsg": "Entrega registrada"},
-        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
-                   selecionar("canal", "Canal*", [{"value": v, "label": l} for v, l in (("email", "E-mail"), ("whatsapp", "WhatsApp"), ("drive", "Google Drive"), ("presencial", "Presencial"))], "span 1"),
-                   {"key": "obs", "label": "Observação", "type": "textarea", "span": "span 2"}]}
+        "fields": [
+            selecionar("condominio", "Condomínio*", opts),
+            {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+            selecionar(
+                "canal",
+                "Canal*",
+                [
+                    {"value": v, "label": l}
+                    for v, l in (
+                        ("email", "E-mail"),
+                        ("whatsapp", "WhatsApp"),
+                        ("drive", "Google Drive"),
+                        ("presencial", "Presencial"),
+                    )
+                ],
+                "span 1",
+            ),
+            {"key": "obs", "label": "Observação", "type": "textarea", "span": "span 2"},
+        ],
+    }
     out["kit-faturar"] = {
-        "title": "Faturar kit (boleto)", "sub": "Emite a cobrança do kit no banco. A NFS-e NÃO sai por aqui: o caminho pelo provedor antigo (Ábaco) foi desligado; a nota vai pelo Portal Nacional.",
-        "cta": "Faturar", "type": "form",
-        "submit": {"endpoint": "/api/v1/gedeon/kits/faturar", "okMsg": "Faturamento disparado", "showResult": True,
-                   "confirm": "Emite boleto REAL no banco para este condomínio. Confirma?"},
-        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
-                   selecionar("tipo", "O que emitir*", [{"value": "boleto", "label": "Boleto (Inter/Cora)"}], "span 1"),
-                   selecionar("confirmar", "Modo*", [{"value": "false", "label": "Só simular (padrão)"}, {"value": "true", "label": "EMITIR de verdade"}], "span 2")]}
+        "title": "Faturar kit (boleto)",
+        "sub": "Emite a cobrança do kit no banco. A NFS-e NÃO sai por aqui: o caminho pelo provedor antigo (Ábaco) foi desligado; a nota vai pelo Portal Nacional.",
+        "cta": "Faturar",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/gedeon/kits/faturar",
+            "okMsg": "Faturamento disparado",
+            "showResult": True,
+            "confirm": "Emite boleto REAL no banco para este condomínio. Confirma?",
+        },
+        "fields": [
+            selecionar("condominio", "Condomínio*", opts),
+            {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+            selecionar("tipo", "O que emitir*", [{"value": "boleto", "label": "Boleto (Inter/Cora)"}], "span 1"),
+            selecionar(
+                "confirmar",
+                "Modo*",
+                [{"value": "false", "label": "Só simular (padrão)"}, {"value": "true", "label": "EMITIR de verdade"}],
+                "span 2",
+            ),
+        ],
+    }
     out["kit-checklist-evento"] = {
-        "title": "Registrar evento no checklist do kit", "sub": "Admissão, demissão, afastamento, férias… o que muda o kit da competência.",
-        "cta": "Registrar", "type": "form",
+        "title": "Registrar evento no checklist do kit",
+        "sub": "Admissão, demissão, afastamento, férias… o que muda o kit da competência.",
+        "cta": "Registrar",
+        "type": "form",
         "submit": {"endpoint": "/api/v1/gedeon/kits/checklist", "okMsg": "Evento registrado"},
-        "fields": [selecionar("condominio", "Condomínio*", opts), {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
-                   selecionar("tipo", "Tipo*", [{"value": v, "label": v.capitalize()} for v in ("admissao", "demissao", "afastamento", "ferias", "substituicao", "outro")], "span 1"),
-                   {"key": "funcionario", "label": "Funcionário", "type": "text", "span": "span 1"}, {"key": "data", "label": "Data", "type": "date", "span": "span 1"},
-                   {"key": "descricao", "label": "Descrição*", "type": "textarea", "span": "span 2"}]}
+        "fields": [
+            selecionar("condominio", "Condomínio*", opts),
+            {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1", "ph": comp},
+            selecionar(
+                "tipo",
+                "Tipo*",
+                [
+                    {"value": v, "label": v.capitalize()}
+                    for v in ("admissao", "demissao", "afastamento", "ferias", "substituicao", "outro")
+                ],
+                "span 1",
+            ),
+            {"key": "funcionario", "label": "Funcionário", "type": "text", "span": "span 1"},
+            {"key": "data", "label": "Data", "type": "date", "span": "span 1"},
+            {"key": "descricao", "label": "Descrição*", "type": "textarea", "span": "span 2"},
+        ],
+    }
 
 
 def _lista(res) -> bool:
     from modules.operacional.controllers.redesign_builders._ligar_generico import _lista_em
+
     return bool(_lista_em(res))
 
 
@@ -918,7 +1173,7 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
     """LIGAR lote 3 (08/09/2026): rotas que existiam sem tela. Cada bloco é independente (try/except + rollback)."""
     import logging as _lg
 
-    from sqlalchemy import text as _T
+    from sqlalchemy import text as _T  # noqa: N812  # alias curto pré-existente, usado em todo o arquivo
 
     from modules.operacional.controllers.redesign_builders._ligar_generico import (
         chamar,
@@ -926,7 +1181,8 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
         selecionar,
         tabela_de_lista,
     )
-    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, t
+
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
@@ -941,57 +1197,188 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
         try:
             return (await db.execute(_T(sql))).scalar() or 0
         except Exception:  # noqa: BLE001
-            await db.rollback(); return 0
+            await db.rollback()
+            return 0
 
     try:  # GET /ged/config/document-types
-        from modules.ged.controllers import ged_config_controller as Gc
+        from modules.ged.controllers import (
+            ged_config_controller as Gc,  # noqa: N812  # alias curto pré-existente, usado em todo o arquivo
+        )
+
         res = await chamar(Gc.get_document_types, db)
-        out["ged-tipos-documento"] = tabela_de_lista("GED — tipos de documento", "Catálogo de tipos usado nos kits (obrigatório/ativo) · fonte: ged_document_types", res)
+        out["ged-tipos-documento"] = tabela_de_lista(
+            "GED — tipos de documento",
+            "Catálogo de tipos usado nos kits (obrigatório/ativo) · fonte: ged_document_types",
+            res,
+        )
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("ged-tipos-documento: %s", exc)
+        await db.rollback()
+        _log.warning("ged-tipos-documento: %s", exc)
     try:  # GET/POST /ged/coleta-automatica
-        row = (await db.execute(_T("SELECT enabled, cron_expr, timezone, last_run, last_status, updated_at, updated_by FROM ged_coleta_config ORDER BY id LIMIT 1"))).first()
-        painel = {"ligada": bool(row[0]) if row else False, "cron": row[1] if row else None, "fuso": row[2] if row else None,
-                  "ultima_execucao": _fd(row[3], "%d/%m/%Y %H:%M") if row and row[3] else "nunca", "ultimo_status": row[4] if row else None,
-                  "atualizado_em": _fd(row[5], "%d/%m/%Y %H:%M") if row and row[5] else None, "atualizado_por": row[6] if row else None}
-        out["ged-coleta-automatica"] = painel_de_dict("GED — coleta automática", "Robô que busca guias/notas nos portais todo mês (tarefa auto_collect_task lê esta configuração) · fonte: ged_coleta_config", painel, kpis_de=["ligada", "cron", "ultima_execucao", "ultimo_status"])
+        row = (
+            await db.execute(
+                _T(
+                    "SELECT enabled, cron_expr, timezone, last_run, last_status, updated_at, updated_by FROM ged_coleta_config ORDER BY id LIMIT 1"
+                )
+            )
+        ).first()
+        painel = {
+            "ligada": bool(row[0]) if row else False,
+            "cron": row[1] if row else None,
+            "fuso": row[2] if row else None,
+            "ultima_execucao": _fd(row[3], "%d/%m/%Y %H:%M") if row and row[3] else "nunca",
+            "ultimo_status": row[4] if row else None,
+            "atualizado_em": _fd(row[5], "%d/%m/%Y %H:%M") if row and row[5] else None,
+            "atualizado_por": row[6] if row else None,
+        }
+        out["ged-coleta-automatica"] = painel_de_dict(
+            "GED — coleta automática",
+            "Robô que busca guias/notas nos portais todo mês (tarefa auto_collect_task lê esta configuração) · fonte: ged_coleta_config",
+            painel,
+            kpis_de=["ligada", "cron", "ultima_execucao", "ultimo_status"],
+        )
         out["ged-coleta-configurar"] = {
-            "title": "GED — configurar coleta automática", "sub": "Liga/desliga o robô e define o cron (ex.: 0 6 21 * * = dia 21 às 06:00). É a configuração que a tarefa Celery lê — diferente do 'agendamento de envio' dos kits.",
-            "cta": "Salvar", "type": "form", "submit": {"endpoint": "/api/v1/ged/coleta-automatica", "okMsg": "Configuração salva. Recarregue.", "showResult": True},
-            "fields": [selecionar("enabled", "Ligada?", _SN, "span 1"), {"key": "cron_expr", "label": "Cron*", "type": "text", "span": "span 1", "value": (row[1] if row else "0 6 21 * *") or "0 6 21 * *"}]}
+            "title": "GED — configurar coleta automática",
+            "sub": "Liga/desliga o robô e define o cron (ex.: 0 6 21 * * = dia 21 às 06:00). É a configuração que a tarefa Celery lê — diferente do 'agendamento de envio' dos kits.",
+            "cta": "Salvar",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/ged/coleta-automatica",
+                "okMsg": "Configuração salva. Recarregue.",
+                "showResult": True,
+            },
+            "fields": [
+                selecionar("enabled", "Ligada?", _SN, "span 1"),
+                {
+                    "key": "cron_expr",
+                    "label": "Cron*",
+                    "type": "text",
+                    "span": "span 1",
+                    "value": (row[1] if row else "0 6 21 * *") or "0 6 21 * *",
+                },
+            ],
+        }
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("ged-coleta: %s", exc)
+        await db.rollback()
+        _log.warning("ged-coleta: %s", exc)
     try:  # POST /gedeon/cnd/emitir + POST /gedeon/cnd/upload (decisão do dono 07/09: certidões só da Patrimonial)
-        emp = (await db.execute(_T("SELECT cnpj, razao_social FROM empresas WHERE slug='conecta_patrimonial' LIMIT 1"))).first()
+        emp = (
+            await db.execute(_T("SELECT cnpj, razao_social FROM empresas WHERE slug='conecta_patrimonial' LIMIT 1"))
+        ).first()
         cnpj = emp[0] if emp else ""
         out["cnd-emitir"] = {
-            "title": "Certidões — emitir pelo robô", "sub": f"Enfileira a emissão para o robô (SEFAZ-AM, CNDT, Prefeitura). Federal e Caixa são manuais: emita no portal e suba o PDF ao lado. Empresa: {emp[1] if emp else '—'}.",
-            "cta": "Emitir", "type": "form", "submit": {"endpoint": "/api/v1/gedeon/cnd/emitir", "okMsg": "Emissão enfileirada — acompanhe em Certidões (CND).", "showResult": True},
-            "fields": [{"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
-                       {"key": "portais", "label": "Portais", "type": "multiselect", "span": "span 1", "options": [{"value": v, "label": l} for v, l in (("sefaz_am", "SEFAZ-AM"), ("cndt", "CNDT (TST)"), ("prefeitura", "Prefeitura de Manaus"))]}]}
+            "title": "Certidões — emitir pelo robô",
+            "sub": f"Enfileira a emissão para o robô (SEFAZ-AM, CNDT, Prefeitura). Federal e Caixa são manuais: emita no portal e suba o PDF ao lado. Empresa: {emp[1] if emp else '—'}.",
+            "cta": "Emitir",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/gedeon/cnd/emitir",
+                "okMsg": "Emissão enfileirada — acompanhe em Certidões (CND).",
+                "showResult": True,
+            },
+            "fields": [
+                {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                {
+                    "key": "portais",
+                    "label": "Portais",
+                    "type": "multiselect",
+                    "span": "span 1",
+                    "options": [
+                        {"value": v, "label": l}
+                        for v, l in (
+                            ("sefaz_am", "SEFAZ-AM"),
+                            ("cndt", "CNDT (TST)"),
+                            ("prefeitura", "Prefeitura de Manaus"),
+                        )
+                    ],
+                },
+            ],
+        }
         out["cnd-upload"] = {
-            "title": "Certidões — subir PDF emitido manualmente", "sub": "Federal (RFB/PGFN) e FGTS (Caixa) não têm robô: suba o PDF e a validade é lida do próprio documento.",
-            "cta": "Enviar", "type": "form", "submit": {"endpoint": "/api/v1/gedeon/cnd/upload", "multipart": True, "okMsg": "Certidão registrada. Recarregue.", "showResult": True},
-            "fields": [selecionar("document_type", "Tipo*", [{"value": v, "label": l} for v, l in (("federal", "Federal — RFB/PGFN"), ("caixa", "FGTS — Caixa"))], "span 1"),
-                       {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
-                       {"key": "file", "label": "PDF da certidão*", "type": "file", "span": "span 2"}]}
+            "title": "Certidões — subir PDF emitido manualmente",
+            "sub": "Federal (RFB/PGFN) e FGTS (Caixa) não têm robô: suba o PDF e a validade é lida do próprio documento.",
+            "cta": "Enviar",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/gedeon/cnd/upload",
+                "multipart": True,
+                "okMsg": "Certidão registrada. Recarregue.",
+                "showResult": True,
+            },
+            "fields": [
+                selecionar(
+                    "document_type",
+                    "Tipo*",
+                    [
+                        {"value": v, "label": l}
+                        for v, l in (("federal", "Federal — RFB/PGFN"), ("caixa", "FGTS — Caixa"))
+                    ],
+                    "span 1",
+                ),
+                {"key": "cnpj", "label": "CNPJ", "type": "text", "span": "span 1", "value": cnpj},
+                {"key": "file", "label": "PDF da certidão*", "type": "file", "span": "span 2"},
+            ],
+        }
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("cnd: %s", exc)
+        await db.rollback()
+        _log.warning("cnd: %s", exc)
     try:  # POST /whatsapp/send/certificate-alert
         out["certidoes-avisar"] = await tbl(
-            "Certidões — avisar cliente por WhatsApp", "Avisa o síndico/cliente que uma certidão vence (ou venceu). Informe telefone e nome; o resto vem da certidão · fonte: ged_certidoes", "—",
-            ["Certidão", "Tipo", "Validade", "Situação"], "2.2fr 1fr 0.9fr 1fr",
+            "Certidões — avisar cliente por WhatsApp",
+            "Avisa o síndico/cliente que uma certidão vence (ou venceu). Informe telefone e nome; o resto vem da certidão · fonte: ged_certidoes",
+            "—",
+            ["Certidão", "Tipo", "Validade", "Situação"],
+            "2.2fr 1fr 0.9fr 1fr",
             "SELECT coalesce(name,'—'), coalesce(document_type,'—'), expiry_date, (expiry_date - current_date) FROM ged_certidoes WHERE expiry_date IS NOT NULL ORDER BY expiry_date ASC LIMIT 200",
-            lambda r: [t(r[0][:60], 600, "#0F1B3A"), t(r[1]), t(_fd(r[2])), b("Vencida" if (r[3] or 0) < 0 else (f"Vence em {r[3]}d" if (r[3] or 0) <= 30 else "Válida"), "bad" if (r[3] or 0) < 0 else "warn" if (r[3] or 0) <= 30 else "ok")],
-            actionsfn=lambda r: [{"title": f"Avisar por WhatsApp — {r[0][:40]}", "endpoint": "/api/v1/whatsapp/send/certificate-alert", "method": "POST",
-                                  "btnLabel": "Avisar cliente", "btnStyle": "outline", "submitLabel": "Enviar WhatsApp", "okMsg": "Aviso enviado.",
-                                  "fields": [{"key": "phone", "label": "Telefone (com DDD)*", "type": "text", "span": "span 1"},
-                                             {"key": "client_name", "label": "Nome do cliente*", "type": "text", "span": "span 1"},
-                                             {"key": "certificate_type", "label": "Certidão", "type": "text", "span": "span 1", "value": r[1]},
-                                             {"key": "expiry_date", "label": "Validade", "type": "text", "span": "span 1", "value": _fd(r[2])},
-                                             {"key": "days_remaining", "label": "Dias restantes", "type": "number", "span": "span 1", "value": int(r[3] or 0)}]}])
+            lambda r: [
+                t(r[0][:60], 600, "#0F1B3A"),
+                t(r[1]),
+                t(_fd(r[2])),
+                b(
+                    "Vencida" if (r[3] or 0) < 0 else (f"Vence em {r[3]}d" if (r[3] or 0) <= 30 else "Válida"),
+                    "bad" if (r[3] or 0) < 0 else "warn" if (r[3] or 0) <= 30 else "ok",
+                ),
+            ],
+            actionsfn=lambda r: [
+                {
+                    "title": f"Avisar por WhatsApp — {r[0][:40]}",
+                    "endpoint": "/api/v1/whatsapp/send/certificate-alert",
+                    "method": "POST",
+                    "btnLabel": "Avisar cliente",
+                    "btnStyle": "outline",
+                    "submitLabel": "Enviar WhatsApp",
+                    "okMsg": "Aviso enviado.",
+                    "fields": [
+                        {"key": "phone", "label": "Telefone (com DDD)*", "type": "text", "span": "span 1"},
+                        {"key": "client_name", "label": "Nome do cliente*", "type": "text", "span": "span 1"},
+                        {
+                            "key": "certificate_type",
+                            "label": "Certidão",
+                            "type": "text",
+                            "span": "span 1",
+                            "value": r[1],
+                        },
+                        {
+                            "key": "expiry_date",
+                            "label": "Validade",
+                            "type": "text",
+                            "span": "span 1",
+                            "value": _fd(r[2]),
+                        },
+                        {
+                            "key": "days_remaining",
+                            "label": "Dias restantes",
+                            "type": "number",
+                            "span": "span 1",
+                            "value": int(r[3] or 0),
+                        },
+                    ],
+                }
+            ],
+        )
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("certidoes-avisar: %s", exc)
+        await db.rollback()
+        _log.warning("certidoes-avisar: %s", exc)
 
 
 async def _ligar_lote4_20260908(db, out: dict) -> None:
@@ -1000,19 +1387,14 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
     import logging as _lg
     from datetime import date as _dt
 
-    from sqlalchemy import text as _T
+    from sqlalchemy import text as _T  # noqa: N812  # alias curto pré-existente, usado em todo o arquivo
 
-    from modules.operacional.controllers.redesign_builders._ligar_generico import (
-        chamar,
-        painel_de_dict,
-        selecionar,
-        tabela_de_lista,
-    )
-    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, t
+
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
-    hoje = _dt.today()
+    hoje = _dt.today()  # noqa: F841  # pré-existente
 
     def _fd(v, fmt="%d/%m/%Y"):
         try:
@@ -1024,33 +1406,95 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
         try:
             return (await db.execute(_T(sql))).scalar() or 0
         except Exception:  # noqa: BLE001
-            await db.rollback(); return 0
+            await db.rollback()
+            return 0
 
     def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
         """Form de CONSULTA: dispara o GET com query e mostra o resultado (a página não chama nada ao abrir)."""
-        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
-                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
-                    "fields": fields}
+        out[key] = {
+            "title": titulo,
+            "sub": sub,
+            "cta": "Consultar",
+            "type": "form",
+            "submit": {
+                "endpoint": endpoint,
+                "method": method,
+                "query": True,
+                "okMsg": "Consulta feita — veja o resultado.",
+                "showResult": True,
+            },
+            "fields": fields,
+        }
 
     try:  # GET /ged/kits/{kit_id} — documentos por kit, por SQL (a rota fica redundante)
         out["kit-documentos"] = await tbl(
-            "Documentos por kit", f"{await _n('SELECT count(*) FROM ged_kit_documents')} documentos em kits · últimos 300 · fonte: ged_kit_documents × ged_document_kits", "—",
-            ["Kit", "Colaborador", "Documento", "Tipo", "Assinado", "Gerado em"], "0.8fr 1.8fr 2fr 1fr 0.8fr 0.9fr",
+            "Documentos por kit",
+            f"{await _n('SELECT count(*) FROM ged_kit_documents')} documentos em kits · últimos 300 · fonte: ged_kit_documents × ged_document_kits",
+            "—",
+            ["Kit", "Colaborador", "Documento", "Tipo", "Assinado", "Gerado em"],
+            "0.8fr 1.8fr 2fr 1fr 0.8fr 0.9fr",
             "SELECT to_char(k.reference_month,'MM/YYYY'), coalesce(e.nome, d.employee_id::text, '—'), coalesce(d.document_name,'—'), coalesce(d.document_type,'—'), coalesce(d.is_signed,false), d.created_at "
             "FROM ged_kit_documents d LEFT JOIN ged_document_kits k ON k.id=d.kit_id LEFT JOIN employees e ON e.id=d.employee_id ORDER BY d.created_at DESC LIMIT 300",
-            lambda r: [t(r[0] or "—", 600, "#0F1B3A"), t(r[1][:36]), t(r[2][:50]), b(r[3].replace("_", " ").capitalize(), "info"), b("Sim" if r[4] else "Não", "ok" if r[4] else "mut"), t(_fd(r[5]))])
+            lambda r: [
+                t(r[0] or "—", 600, "#0F1B3A"),
+                t(r[1][:36]),
+                t(r[2][:50]),
+                b(r[3].replace("_", " ").capitalize(), "info"),
+                b("Sim" if r[4] else "Não", "ok" if r[4] else "mut"),
+                t(_fd(r[5])),
+            ],
+        )
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("kit-documentos: %s", exc)
-    _consulta("gedeon-panorama", "GEDEON — panorama dos kits", "Kits por condomínio, pendências e intercorrências da competência (AAAA-MM; vazio = mês anterior).",
-              "/api/v1/gedeon/consultor/panorama", [{"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"}])
-    _consulta("gedeon-alinhamento-dp", "GEDEON — alinhamento DP", "Folha do kit × espelho Sólides + afastamentos de um condomínio. Lê o Drive quando você clica.",
-              "/api/v1/gedeon/kits/dp/alinhamento", [{"key": "condominio", "label": "Condomínio (nome da pasta)*", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
-    _consulta("gedeon-funcionarios", "GEDEON — funcionários da folha do condomínio", "Lista quem está na folha do kit (para a visão por funcionário). Lê o Drive quando você clica.",
-              "/api/v1/gedeon/kits/funcionarios", [{"key": "condominio", "label": "Condomínio*", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
-    _consulta("gedeon-funcionario", "GEDEON — visão por funcionário", "Todos os documentos de uma pessoa no kit. Lê o Drive quando você clica.",
-              "/api/v1/gedeon/kits/funcionario", [{"key": "funcionario", "label": "Funcionário*", "type": "text", "span": "span 2"}, {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
-    _consulta("gedeon-assinaturas-pendentes", "GEDEON — quem não assinou VT/VR (Sólides)", "Pendências de assinatura dos recibos de VT/VR. Lê o Drive quando você clica.",
-              "/api/v1/gedeon/kits/assinaturas", [{"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"}, {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"}])
+        await db.rollback()
+        _log.warning("kit-documentos: %s", exc)
+    _consulta(
+        "gedeon-panorama",
+        "GEDEON — panorama dos kits",
+        "Kits por condomínio, pendências e intercorrências da competência (AAAA-MM; vazio = mês anterior).",
+        "/api/v1/gedeon/consultor/panorama",
+        [{"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"}],
+    )
+    _consulta(
+        "gedeon-alinhamento-dp",
+        "GEDEON — alinhamento DP",
+        "Folha do kit × espelho Sólides + afastamentos de um condomínio. Lê o Drive quando você clica.",
+        "/api/v1/gedeon/kits/dp/alinhamento",
+        [
+            {"key": "condominio", "label": "Condomínio (nome da pasta)*", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"},
+        ],
+    )
+    _consulta(
+        "gedeon-funcionarios",
+        "GEDEON — funcionários da folha do condomínio",
+        "Lista quem está na folha do kit (para a visão por funcionário). Lê o Drive quando você clica.",
+        "/api/v1/gedeon/kits/funcionarios",
+        [
+            {"key": "condominio", "label": "Condomínio*", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"},
+        ],
+    )
+    _consulta(
+        "gedeon-funcionario",
+        "GEDEON — visão por funcionário",
+        "Todos os documentos de uma pessoa no kit. Lê o Drive quando você clica.",
+        "/api/v1/gedeon/kits/funcionario",
+        [
+            {"key": "funcionario", "label": "Funcionário*", "type": "text", "span": "span 2"},
+            {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"},
+        ],
+    )
+    _consulta(
+        "gedeon-assinaturas-pendentes",
+        "GEDEON — quem não assinou VT/VR (Sólides)",
+        "Pendências de assinatura dos recibos de VT/VR. Lê o Drive quando você clica.",
+        "/api/v1/gedeon/kits/assinaturas",
+        [
+            {"key": "condominio", "label": "Condomínio", "type": "text", "span": "span 1"},
+            {"key": "competencia", "label": "Competência (MM.AAAA)", "type": "text", "span": "span 1"},
+        ],
+    )
 
 
 async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
@@ -1058,19 +1502,17 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
     import logging as _lg
     from datetime import date as _dt
 
-    from sqlalchemy import text as _T
+    from sqlalchemy import text as _T  # noqa: N812  # alias curto pré-existente, usado em todo o arquivo
 
     from modules.operacional.controllers.redesign_builders._ligar_generico import (
-        chamar,
-        painel_de_dict,
         selecionar,
-        tabela_de_lista,
     )
-    from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t
+    from modules.operacional.controllers.redesign_data_controller import _helpers, b, t
+
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
-    hoje = _dt.today()
+    hoje = _dt.today()  # noqa: F841  # pré-existente
 
     def _fd(v, fmt="%d/%m/%Y"):
         try:
@@ -1082,30 +1524,81 @@ async def _ligar_lote5_20260908(db, out: dict, me=None) -> None:
         try:
             return (await db.execute(_T(sql))).scalar() or 0
         except Exception:  # noqa: BLE001
-            await db.rollback(); return 0
+            await db.rollback()
+            return 0
 
     async def _emps():
         try:
-            return [{"value": str(i), "label": n} for i, n in (await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))).fetchall()]
+            return [
+                {"value": str(i), "label": n}
+                for i, n in (
+                    await db.execute(_T("SELECT id, nome FROM employees WHERE status='ativo' ORDER BY nome LIMIT 400"))
+                ).fetchall()
+            ]
         except Exception:  # noqa: BLE001
-            await db.rollback(); return []
+            await db.rollback()
+            return []
 
     def _consulta(key, titulo, sub, endpoint, fields, method="GET"):
-        out[key] = {"title": titulo, "sub": sub, "cta": "Consultar", "type": "form",
-                    "submit": {"endpoint": endpoint, "method": method, "query": True, "okMsg": "Consulta feita — veja o resultado.", "showResult": True},
-                    "fields": fields}
+        out[key] = {
+            "title": titulo,
+            "sub": sub,
+            "cta": "Consultar",
+            "type": "form",
+            "submit": {
+                "endpoint": endpoint,
+                "method": method,
+                "query": True,
+                "okMsg": "Consulta feita — veja o resultado.",
+                "showResult": True,
+            },
+            "fields": fields,
+        }
 
     try:  # GET /ged/coleta-automatica/history — por SQL
         out["ged-coleta-historico"] = await tbl(
-            "GED — histórico da coleta automática", f"{await _n('SELECT count(*) FROM ged_coleta_logs')} execuções · fonte: ged_coleta_logs", "—",
-            ["Quando", "Tipo", "Status", "Disparo", "Duração", "Novos", "Onvio", "Kits", "Certidões", "Erros"], "1fr 0.7fr 0.7fr 0.8fr 0.6fr 0.5fr 0.5fr 0.5fr 0.6fr 1fr",
+            "GED — histórico da coleta automática",
+            f"{await _n('SELECT count(*) FROM ged_coleta_logs')} execuções · fonte: ged_coleta_logs",
+            "—",
+            ["Quando", "Tipo", "Status", "Disparo", "Duração", "Novos", "Onvio", "Kits", "Certidões", "Erros"],
+            "1fr 0.7fr 0.7fr 0.8fr 0.6fr 0.5fr 0.5fr 0.5fr 0.6fr 1fr",
             "SELECT run_at, coalesce(run_type,'—'), coalesce(status,'—'), coalesce(triggered_by,'—'), duration_ms, coalesce(sync_novos,0), coalesce(onvio_matched,0), coalesce(kits_assembled,0), coalesce(certidoes_atualizadas,0), coalesce(erros::text,'') "
             "FROM ged_coleta_logs ORDER BY run_at DESC LIMIT 100",
-            lambda r: [t(_fd(r[0], "%d/%m/%Y %H:%M")), t(r[1]), b(r[2].capitalize(), "ok" if r[2] in ("ok", "success", "sucesso") else "bad" if r[2] in ("erro", "error", "failed") else "info"), t(r[3]),
-                       t(f"{(r[4] or 0) // 1000}s"), t(str(r[5])), t(str(r[6])), t(str(r[7])), t(str(r[8])), t((r[9] or "")[:40] or "—")])
+            lambda r: [
+                t(_fd(r[0], "%d/%m/%Y %H:%M")),
+                t(r[1]),
+                b(
+                    r[2].capitalize(),
+                    "ok"
+                    if r[2] in ("ok", "success", "sucesso")
+                    else "bad"
+                    if r[2] in ("erro", "error", "failed")
+                    else "info",
+                ),
+                t(r[3]),
+                t(f"{(r[4] or 0) // 1000}s"),
+                t(str(r[5])),
+                t(str(r[6])),
+                t(str(r[7])),
+                t(str(r[8])),
+                t((r[9] or "")[:40] or "—"),
+            ],
+        )
     except Exception as exc:  # noqa: BLE001
-        await db.rollback(); _log.warning("ged-coleta-historico: %s", exc)
+        await db.rollback()
+        _log.warning("ged-coleta-historico: %s", exc)
     out["ged-coleta-executar"] = {  # POST /ged/coleta-automatica/run
-        "title": "GED — executar coleta agora", "sub": "Dispara a coleta (Onvio → kits → certidões) fora do cron. Roda no Celery; acompanhe no histórico.",
-        "cta": "Executar", "type": "form", "submit": {"endpoint": "/api/v1/ged/coleta-automatica/run", "okMsg": "Coleta enfileirada — veja o histórico em alguns minutos.", "showResult": True},
-        "fields": [{"key": "mes_ref", "label": "Mês de referência (AAAA-MM, opcional)", "type": "text", "span": "span 1"}, selecionar("force_resync", "Forçar ressincronização?", _SN, "span 1")]}
+        "title": "GED — executar coleta agora",
+        "sub": "Dispara a coleta (Onvio → kits → certidões) fora do cron. Roda no Celery; acompanhe no histórico.",
+        "cta": "Executar",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/ged/coleta-automatica/run",
+            "okMsg": "Coleta enfileirada — veja o histórico em alguns minutos.",
+            "showResult": True,
+        },
+        "fields": [
+            {"key": "mes_ref", "label": "Mês de referência (AAAA-MM, opcional)", "type": "text", "span": "span 1"},
+            selecionar("force_resync", "Forçar ressincronização?", _SN, "span 1"),
+        ],
+    }

@@ -30,6 +30,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from core.auth.dependencies import get_current_active_user
 from core.database import get_db
@@ -245,11 +246,17 @@ async def documento_da_solicitacao(
     eh_dono = current_user.employee_id is not None and str(current_user.employee_id) == str(req.signer_id or "")
     if not (eh_admin or eh_dono):
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Sem acesso a este documento.")
-    caminho = req.signed_document_path if req.signed_document_path and os.path.exists(req.signed_document_path) else req.document_path
+    caminho = (
+        req.signed_document_path
+        if req.signed_document_path and os.path.exists(req.signed_document_path)
+        else req.document_path
+    )
     if not caminho or not os.path.exists(caminho):
         raise HTTPException(status_code=404, detail="PDF da solicitação não está no disco.")
     nome = f"{(req.title or req.document_type or 'documento')[:60]}.pdf".replace("/", "-")
-    return FileResponse(caminho, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'})
+    return FileResponse(
+        caminho, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'}
+    )
 
 
 @router.post(
@@ -265,7 +272,9 @@ async def assinar_lote_empresa(
     """09/09/2026: a central de assinaturas (redesign › documentos) assina em lote os pedidos PENDING do lado
     COMPANY — antes só existia o serviço (assinar_lote_empresa) sem rota, e a tela assinava um por vez."""
     if (current_user.role or "") not in ("admin", "operator"):
-        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Só administrador/operador assina pela empresa.")
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN, detail="Só administrador/operador assina pela empresa."
+        )
     try:
         limite = int((payload or {}).get("limite") or 60)
     except (TypeError, ValueError):
@@ -286,22 +295,47 @@ async def assinar_lote_empresa(
     _ref = f"sig-lote:{current_user.id}:{pasta or 'tudo'}"
     _otp = ((payload or {}).get("otp_code") or "").strip()
     if not _otp:
-        n = (await db.execute(sa_text(
-            "SELECT count(*) FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
-            f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta}"), {"pk": pk})).scalar() or 0
+        n = (
+            await db.execute(
+                sa_text(
+                    "SELECT count(*) FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
+                    f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta}"
+                ),
+                {"pk": pk},
+            )
+        ).scalar() or 0
         if not n:
             return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa nesta pasta."}
-        enviado = await _otp_generate(db, _ref, label="assinatura em lote da empresa", dest=f"{n} documento(s) pendentes · pasta {pasta or 'todas'}")
-        return {"otp_required": True, "ref": _ref,
-                "message": (f"{n} documento(s) esperam a empresa. Código enviado ao seu e-mail; digite-o para assinar todos com ICP-Brasil."
-                            if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
+        enviado = await _otp_generate(
+            db,
+            _ref,
+            label="assinatura em lote da empresa",
+            dest=f"{n} documento(s) pendentes · pasta {pasta or 'todas'}",
+        )
+        return {
+            "otp_required": True,
+            "ref": _ref,
+            "message": (
+                f"{n} documento(s) esperam a empresa. Código enviado ao seu e-mail; digite-o para assinar todos com ICP-Brasil."
+                if enviado
+                else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail."
+            ),
+        }
     if not await _otp_validate_consume(db, _ref, _otp):
         raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Código OTP inválido ou expirado.")
     # só o que está VIVO (65 pedidos expirados de contratos antigos entrariam no lote e virariam "falhas")
-    ids = [r[0] for r in (await db.execute(sa_text(
-        "SELECT id FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
-        f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta} ORDER BY created_at LIMIT :lim"),
-        {"lim": max(1, min(limite, 200)), "pk": pk})).fetchall()]
+    ids = [
+        r[0]
+        for r in (
+            await db.execute(
+                sa_text(
+                    "SELECT id FROM sig_signature_requests WHERE lower(signer_type::text) = 'company' AND status::text = 'PENDING' "
+                    f"AND (expires_at IS NULL OR expires_at > now()) {where_pasta} ORDER BY created_at LIMIT :lim"
+                ),
+                {"lim": max(1, min(limite, 200)), "pk": pk},
+            )
+        ).fetchall()
+    ]
     if not ids:
         return {"assinados": [], "falhas": [], "message": "Nada pendente para a empresa nesta pasta."}
     evidence = _evidence_from(request, None)
@@ -311,16 +345,27 @@ async def assinar_lote_empresa(
     # sobrevive a reload do backend; a resposta volta na hora e a central mostra os pendentes caindo.
     from modules.signatures.tasks import assinar_lote_empresa_task
 
-    task = assinar_lote_empresa_task.apply_async(kwargs={
-        "request_ids": [str(i) for i in ids],
-        "company_signer_id": str(current_user.id),
-        "signer_name": current_user.name,
-        "evidence": {"ip_address": evidence.ip_address, "user_agent": evidence.user_agent,
-                     "device": evidence.device, "extra": evidence.extra},
-    })
-    return {"iniciado": True, "quantidade": len(ids), "pasta": pasta or "todas", "task_id": str(getattr(task, "id", "")),
-            "message": f"Código confirmado. Assinando {len(ids)} documento(s) com ICP-Brasil em segundo plano "
-                       f"(~4 s cada). Recarregue a central para acompanhar; os PDFs assinados vão para o kit e o Drive."}
+    task = assinar_lote_empresa_task.apply_async(
+        kwargs={
+            "request_ids": [str(i) for i in ids],
+            "company_signer_id": str(current_user.id),
+            "signer_name": current_user.name,
+            "evidence": {
+                "ip_address": evidence.ip_address,
+                "user_agent": evidence.user_agent,
+                "device": evidence.device,
+                "extra": evidence.extra,
+            },
+        }
+    )
+    return {
+        "iniciado": True,
+        "quantidade": len(ids),
+        "pasta": pasta or "todas",
+        "task_id": str(getattr(task, "id", "")),
+        "message": f"Código confirmado. Assinando {len(ids)} documento(s) com ICP-Brasil em segundo plano "
+        f"(~4 s cada). Recarregue a central para acompanhar; os PDFs assinados vão para o kit e o Drive.",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -401,10 +446,18 @@ async def assinar(
         _ref = f"sig:{request_id}"
         _otp = (payload.otp_code if payload else None) or ""
         if not _otp.strip():
-            enviado = await _otp_generate(db, _ref, label="assinatura da empresa", dest=req.title or req.document_type or str(request_id))
-            return {"otp_required": True, "ref": _ref,
-                    "message": ("Código enviado ao seu e-mail. Digite-o para assinar com o certificado ICP-Brasil da empresa."
-                                if enviado else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail.")}
+            enviado = await _otp_generate(
+                db, _ref, label="assinatura da empresa", dest=req.title or req.document_type or str(request_id)
+            )
+            return {
+                "otp_required": True,
+                "ref": _ref,
+                "message": (
+                    "Código enviado ao seu e-mail. Digite-o para assinar com o certificado ICP-Brasil da empresa."
+                    if enviado
+                    else "Código gerado, mas o e-mail falhou — verifique o servidor de e-mail."
+                ),
+            }
         if not await _otp_validate_consume(db, _ref, _otp):
             raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Código OTP inválido ou expirado.")
         req_user_id = _resolve_requester(credentials)
@@ -524,11 +577,14 @@ async def public_document(
 
             res = await renderizar_contrato(db, req.reference_code)
             return Response(
-                content=res.pdf, media_type="application/pdf",
-                headers={"Content-Disposition": 'inline; filename="contrato.pdf"'})
+                content=res.pdf,
+                media_type="application/pdf",
+                headers={"Content-Disposition": 'inline; filename="contrato.pdf"'},
+            )
         except Exception:  # noqa: BLE001 — cai para o arquivo salvo, melhor que 500
-            logger.warning("public_document: render vivo falhou para %s, servindo o arquivo",
-                           req.reference_code, exc_info=True)
+            logger.warning(
+                "public_document: render vivo falhou para %s, servindo o arquivo", req.reference_code, exc_info=True
+            )
 
     # depois de assinado, o que vale é a via carimbada
     caminho = req.signed_document_path or req.document_path
@@ -547,8 +603,9 @@ async def public_document(
 
     bruto = (req.document_name or "documento").replace('"', "")
     nome = unicodedata.normalize("NFKD", bruto).encode("ascii", "ignore").decode() or "documento"
-    return Response(content=pdf, media_type="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{nome}.pdf"'})
+    return Response(
+        content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}.pdf"'}
+    )
 
 
 async def _limite_ok(chave: str, teto: int, janela: int) -> bool:
@@ -584,8 +641,9 @@ async def public_send_code(
     email = (payload.signer_email if payload else None) or ""
     nome = (payload.signer_name if payload else None) or ""
     if "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST,
-                            detail="Informe um e-mail válido para receber o código.")
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST, detail="Informe um e-mail válido para receber o código."
+        )
 
     svc = UniversalSignatureService(db)
     req = await svc._get_request_by_token(token)  # noqa: SLF001
@@ -595,10 +653,10 @@ async def public_send_code(
         raise HTTPException(status_code=409, detail="Este documento já foi assinado por você.")
 
     ip = request.client.host if request.client else "sem-ip"
-    if not await _limite_ok(f"rl:sigcode:ip:{ip}", 10, 3600) or \
-       not await _limite_ok(f"rl:sigcode:tok:{token}", 6, 3600):
-        raise HTTPException(status_code=429,
-                            detail="Muitas tentativas. Aguarde alguns minutos e tente de novo.")
+    if not await _limite_ok(f"rl:sigcode:ip:{ip}", 10, 3600) or not await _limite_ok(
+        f"rl:sigcode:tok:{token}", 6, 3600
+    ):
+        raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde alguns minutos e tente de novo.")
 
     # o código é o que a solicitação já guarda; guardamos também PARA ONDE ele foi — é essa
     # linha que sustenta a evidência de entrega no manifesto
@@ -612,19 +670,22 @@ async def public_send_code(
     from modules.crm.services.contract_signature import _html  # noqa: PLC0415
 
     ok = await send_email(
-        email, f"Seu código para assinar — {req.title or 'documento'}",
-        _html("Código de validação",
-              f"<p>Olá, {nome or req.signer_name}.</p>"
-              f"<p>Use o código abaixo para assinar eletronicamente "
-              f"<b>{req.title or 'o documento'}</b>:</p>"
-              f'<p style="font-size:34px;letter-spacing:10px;font-weight:bold;color:#16277D;'
-              f'background:#EEF2FF;border:1px solid #C9D4EA;border-radius:10px;'
-              f'padding:16px;text-align:center;margin:18px 0">{req.access_code}</p>'
-              "<p>O código é pessoal. Se você não solicitou, ignore esta mensagem — "
-              "nada será assinado.</p>"))
+        email,
+        f"Seu código para assinar — {req.title or 'documento'}",
+        _html(
+            "Código de validação",
+            f"<p>Olá, {nome or req.signer_name}.</p>"
+            f"<p>Use o código abaixo para assinar eletronicamente "
+            f"<b>{req.title or 'o documento'}</b>:</p>"
+            f'<p style="font-size:34px;letter-spacing:10px;font-weight:bold;color:#16277D;'
+            f"background:#EEF2FF;border:1px solid #C9D4EA;border-radius:10px;"
+            f'padding:16px;text-align:center;margin:18px 0">{req.access_code}</p>'
+            "<p>O código é pessoal. Se você não solicitou, ignore esta mensagem — "
+            "nada será assinado.</p>",
+        ),
+    )
     if not ok:
-        raise HTTPException(status_code=502,
-                            detail="Não conseguimos enviar o e-mail agora. Tente novamente.")
+        raise HTTPException(status_code=502, detail="Não conseguimos enviar o e-mail agora. Tente novamente.")
     dominio = email.split("@")[-1]
     return {"enviado": True, "para": f"{email[:2]}***@{dominio}"}
 
@@ -655,17 +716,23 @@ async def public_sign(
         raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 15 minutos e peça um novo código.")
     req_ord = await svc._get_request_by_token(token)  # noqa: SLF001
     if req_ord is not None and (req_ord.document_type or "").lower() in {"contrato", "contract"}:
-        pendente_antes = (await db.execute(sa_text(
-            "SELECT signer_name FROM sig_signature_requests "
-            "WHERE reference_code = :k AND signature_order < :o AND signed_at IS NULL "
-            "ORDER BY signature_order LIMIT 1"),
-            {"k": req_ord.reference_code, "o": req_ord.signature_order or 1})).scalar()
+        pendente_antes = (
+            await db.execute(
+                sa_text(
+                    "SELECT signer_name FROM sig_signature_requests "
+                    "WHERE reference_code = :k AND signature_order < :o AND signed_at IS NULL "
+                    "ORDER BY signature_order LIMIT 1"
+                ),
+                {"k": req_ord.reference_code, "o": req_ord.signature_order or 1},
+            )
+        ).scalar()
         if pendente_antes:
             raise HTTPException(
                 status_code=http_status.HTTP_409_CONFLICT,
                 detail="Este contrato ainda não foi assinado pela Conecta Mais. "
-                       "Assim que a assinatura da contratada for registrada, você poderá "
-                       "assinar por este mesmo link.")
+                "Assim que a assinatura da contratada for registrada, você poderá "
+                "assinar por este mesmo link.",
+            )
 
     try:
         res = await svc.assinar_por_token(
@@ -693,8 +760,11 @@ async def public_sign(
             r = await renderizar_contrato(db, req_ord.reference_code)
             res["envio"] = await notificar_apos_assinatura(db, req_ord.reference_code, r.pdf)
         except Exception:  # noqa: BLE001
-            logger.warning("public_sign: envio de e-mail falhou para %s (assinatura mantida)",
-                           req_ord.reference_code, exc_info=True)
+            logger.warning(
+                "public_sign: envio de e-mail falhou para %s (assinatura mantida)",
+                req_ord.reference_code,
+                exc_info=True,
+            )
             res["envio"] = {"erro": "não foi possível enviar a cópia por e-mail"}
     return res
 
@@ -737,3 +807,140 @@ def _resolve_requester(credentials: HTTPAuthorizationCredentials | None) -> uuid
 
 def _resolve_signer_id(credentials: HTTPAuthorizationCredentials | None) -> uuid.UUID | None:
     return _resolve_requester(credentials)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COBRANÇA DE ASSINATURA — os dois botões da Central de Assinaturas
+#
+# Origem: 17/09/2026. O Jordan: «mas preciso acessar o sistema, ver no sistema, mandar os
+# documentos pelo sistema, tudo no frontend». A Central mostrava os pendentes e deixava a
+# EMPRESA assinar, mas a linha do funcionário só tinha «Ver»: cobrar era coisa de terminal.
+#
+# Nada de lógica nova aqui. Os dois endpoints chamam `avisar_pendentes`, que é a mesma função
+# do beat noturno e carrega as proteções que custaram caro:
+#   · só avisa sobre o que TEM PDF no disco (senão a pessoa bate numa porta fechada);
+#   · só ativo/afastado/suspenso;
+#   · nunca a coorte de homologação — os telefones de fachada 92 99999-000X existem e
+#     pertencem a gente de verdade, que já recebeu cobrança nossa por engano;
+#   · um aviso por PESSOA, com tudo que ela tem, não um por documento.
+# A diferença entre os botões é só o alcance e a janela anti-spam.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _cobrar(employee_id: str | None, limite: int | None, ignorar_janela: bool) -> dict:
+    """Roda a cobrança na sessão SÍNCRONA, como o beat faz.
+
+    `avisar_pendentes` é síncrona e fala SMTP; numa rota async ela bloquearia o event loop
+    inteiro enquanto o servidor de e-mail responde. Vai para uma thread.
+    """
+    from core.database.session import get_sync_db
+    from modules.signatures.services.aviso_assinatura_service import avisar_pendentes
+
+    with get_sync_db() as db:
+        rel = avisar_pendentes(
+            db,
+            dry_run=False,
+            limite=limite,
+            employee_id=employee_id,
+            ignorar_janela=ignorar_janela,
+        )
+        db.commit()
+    return rel
+
+
+def _so_gestor(current_user: User) -> None:
+    if (current_user.role or "") not in ("admin", "operator"):
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Só administrador/operador cobra assinatura.",
+        )
+
+
+@router.post("/{request_id}/cobrar", summary="Cobrar a assinatura desta pessoa")
+async def cobrar_assinatura(
+    request_id: uuid.UUID = Path(..., description="Solicitação pendente"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Manda o link de assinatura para o dono DESTA solicitação, por WhatsApp e e-mail.
+
+    Cobra a PESSOA, não o documento: se ela tem cinco pendências, recebe uma mensagem só,
+    com as cinco. Clique manual fura a janela de 3 dias — é ato deliberado do gestor, e um
+    botão que fica mudo por três dias parece quebrado.
+    """
+    _so_gestor(current_user)
+
+    linha = (
+        (
+            await db.execute(
+                sa_text(
+                    "SELECT r.signer_id::text AS eid, coalesce(e.nome, r.signer_name, '—') AS nome, "
+                    "r.status::text AS st, coalesce(r.document_path,'') AS pdf "
+                    "FROM sig_signature_requests r "
+                    "LEFT JOIN employees e ON e.id = r.signer_id "
+                    "WHERE r.id = :rid"
+                ),
+                {"rid": str(request_id)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+
+    if not linha:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Solicitação não encontrada.")
+    if linha["st"] != "PENDING":
+        # Não é erro do gestor: é a tela desatualizada. A pessoa assinou nesse meio-tempo.
+        return {
+            "enviados": 0,
+            "ja_assinou": True,
+            "message": f"{linha['nome']} já assinou — nada a cobrar. Recarregue a central.",
+        }
+    if not linha["pdf"]:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=f"O PDF de {linha['nome']} não está no disco. Cobrar mandaria a pessoa "
+            "para uma tela que não abre — gere o documento antes.",
+        )
+
+    rel = await run_in_threadpool(_cobrar, linha["eid"], None, True)
+    if not rel.get("enviados"):
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=f"Não deu para avisar {linha['nome']}: sem e-mail e sem celular no cadastro, "
+            "ou o vínculo não está ativo.",
+        )
+    return {
+        "enviados": rel["enviados"],
+        "whatsapp": rel.get("whatsapp", 0),
+        "message": f"Cobrança enviada para {linha['nome']}.",
+    }
+
+
+@router.post("/cobrar-pendentes", summary="Cobrar todos os pendentes")
+async def cobrar_pendentes(
+    limite: int = Body(60, embed=True, ge=1, le=300),
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Cobra todo mundo que tem documento esperando assinatura, um aviso por pessoa.
+
+    Aqui a janela de 3 dias VALE: é disparo em massa, e quem foi cobrado anteontem não
+    precisa de novo. Quem já assinou some da fila no mesmo instante em que assina — a fonte
+    é `status`, não uma lista paralela que possa divergir do fato.
+    """
+    _so_gestor(current_user)
+    rel = await run_in_threadpool(_cobrar, None, limite, False)
+    n = rel.get("enviados", 0)
+    return {
+        "enviados": n,
+        "whatsapp": rel.get("whatsapp", 0),
+        "falhas": rel.get("falhas", 0),
+        "pessoas_na_fila": rel.get("pessoas", 0),
+        "message": (
+            f"{n} pessoa(s) cobradas ({rel.get('whatsapp', 0)} por WhatsApp)."
+            if n
+            else "Ninguém a cobrar: ou todos já assinaram, ou os pendentes foram avisados nos "
+            "últimos 3 dias. A trava de 3 dias evita que a cobrança vire spam ignorado."
+        ),
+        "amostra": rel.get("amostra", []),
+    }
