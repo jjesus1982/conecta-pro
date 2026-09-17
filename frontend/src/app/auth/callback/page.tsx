@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { destinoPosLogin, resgatarDestino } from '@/lib/destino-pos-login';
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -11,17 +12,37 @@ function AuthCallbackContent() {
     const accessToken = searchParams.get('access_token');
     const refreshToken = searchParams.get('refresh_token');
 
-    if (accessToken && refreshToken) {
-      localStorage.setItem('access_token', accessToken);
-      localStorage.setItem('refresh_token', refreshToken);
-      // Sincronizar cookie p/ o middleware (antes só salvava no localStorage)
-      const isSecure = window.location.protocol === 'https:';
-      document.cookie = `auth_token=${accessToken}; path=/; max-age=${30 * 60}; SameSite=Lax${isSecure ? '; Secure' : ''}`;
-      // Cutover: cai no redesign por padrão (troque por '/dashboard' para reverter)
-      router.replace('/redesign');
-    } else {
+    if (!accessToken || !refreshToken) {
       router.replace('/login?error=no_tokens');
+      return;
     }
+
+    localStorage.setItem('access_token', accessToken);
+    localStorage.setItem('refresh_token', refreshToken);
+    // Sincronizar cookie p/ o middleware (antes só salvava no localStorage)
+    const isSecure = window.location.protocol === 'https:';
+    document.cookie = `auth_token=${accessToken}; path=/; max-age=${30 * 60}; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+
+    // Este era o furo: até 17/09/2026 esta linha era `router.replace('/redesign')` fixo.
+    // O link de assinatura chegava aqui como ?redirect= no /login, a pessoa clicava em
+    // "Entrar com Google" — o caminho que o próprio aviso manda usar — e o destino era
+    // jogado fora. O destino guardado antes da ida vence; sem ele, manda pelo papel.
+    const guardado = resgatarDestino();
+    if (guardado) {
+      router.replace(guardado);
+      return;
+    }
+
+    let vivo = true;
+    fetch('/api/v1/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((u) => {
+        if (vivo) router.replace(destinoPosLogin(null, u?.role));
+      });
+    return () => {
+      vivo = false;
+    };
   }, [searchParams, router]);
 
   return (

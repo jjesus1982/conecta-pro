@@ -7,10 +7,9 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchRetry } from '@/lib/api';
 import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
+import { destinoPosLogin, guardarDestino } from '@/lib/destino-pos-login';
 
-// Destino padrão pós-login (cutover 2026-07-18: redesign vira o padrão).
-// Deep-links via ?redirect= são preservados. Para reverter, troque por '/dashboard'.
-const POST_LOGIN_DEFAULT = '/redesign';
+// Destino pós-login: ver lib/destino-pos-login.ts — é o único lugar que decide.
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   google_auth_failed: 'Falha na autenticacao com Google',
@@ -29,7 +28,7 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isLoading, isAuthenticated } = useAuth();
+  const { login, isLoading, isAuthenticated, user } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -51,7 +50,7 @@ function LoginContent() {
       if (d.refresh_token) localStorage.setItem('refresh_token', d.refresh_token);
       const isSecure = window.location.protocol === 'https:';
       document.cookie = `auth_token=${d.access_token}; path=/; max-age=${30 * 60}; SameSite=Lax${isSecure ? '; Secure' : ''}`;
-      window.location.href = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
+      window.location.href = destinoPosLogin(searchParams.get('redirect'), 'funcionario');
     } catch { setError('Falha na conexão. Tente de novo.'); setFacialLoading(false); setFacialOpen(false); }
   };
 
@@ -60,10 +59,9 @@ function LoginContent() {
   // auth_token chegue ao middleware — router.push() pode não enviar o cookie
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const redirect = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
-      window.location.href = redirect;
+      window.location.href = destinoPosLogin(searchParams.get('redirect'), user?.role);
     }
-  }, [isLoading, isAuthenticated, searchParams]);
+  }, [isLoading, isAuthenticated, searchParams, user]);
 
   const oauthError = useMemo(() => {
     const code = searchParams.get('error');
@@ -85,7 +83,7 @@ function LoginContent() {
     setError('');
     const result = await login({ email, password });
     if (result.success) {
-      window.location.href = searchParams.get('redirect') || POST_LOGIN_DEFAULT;
+      window.location.href = destinoPosLogin(searchParams.get('redirect'), result.role);
     } else {
       setError(result.error || 'Erro ao fazer login');
     }
@@ -413,6 +411,7 @@ function LoginContent() {
           {/* Google */}
           <a
             href="/api/v1/auth/google"
+            onClick={() => guardarDestino(searchParams.get('redirect'))}
             style={{
               width: '100%',
               height: 44,

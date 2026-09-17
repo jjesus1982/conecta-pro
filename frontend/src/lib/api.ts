@@ -16,7 +16,7 @@ const getBaseURL = (): string => {
 // Ex.: /homologacao (autocadastro) travava quem tinha sessão antiga de admin no celular.
 const PRE_LOGIN_PATHS = [
   '/login', '/primeiro-acesso', '/painel-ponto', '/homologacao', '/candidato', '/autocadastro-pj', '/cadastro',
-  '/forgot-password', '/reset-password', '/portal-funcionario', '/area-cliente', '/offline',
+  '/forgot-password', '/reset-password', '/area-cliente', '/offline',
 ];
 function emPaginaPreLogin(): boolean {
   if (typeof window === 'undefined') return false;

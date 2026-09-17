@@ -294,12 +294,21 @@ export default function ModulosLayout({
     return <PendingApprovalScreen userName={user?.name} onLogout={logout} />;
   }
 
-  // Funcionário self-service: renderiza a própria área SEM a sidebar de gestão.
-  // (fora dela, o useEffect acima já redirecionou p/ SELF_SERVICE_ROUTE.)
+  // Meu Espaço é a área PESSOAL — de qualquer pessoa com vínculo, seja qual for o papel.
+  // Renderiza SEM a sidebar de gestão: a tela é auto-contida.
+  //
+  // Origem: 17/09/2026. Esta liberação estava DENTRO do `if (isSelfService)`, então só valia
+  // para role='funcionario'. Quem tinha outro papel caía no `!currentModule` mais abaixo e
+  // via «Página fora do menu» — porque Meu Espaço, sendo área pessoal, não é módulo do menu.
+  // Dos 32 recibos de VT/VR ainda por assinar, 17 eram de agente, líder, gerente, supervisor,
+  // suporte e admin: gente que recebe o benefício igual e batia num erro ao abrir o link que
+  // a própria empresa mandou. Era o «dá erro» do relato do Jordan.
+  if (inSelfServiceArea) {
+    return <>{children}<FloatingChat /></>;
+  }
+
+  // Funcionário self-service FORA da própria área: o useEffect acima já mandou de volta.
   if (isSelfService) {
-    if (inSelfServiceArea) {
-      return <>{children}<FloatingChat /></>;
-    }
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />

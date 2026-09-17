@@ -13,7 +13,7 @@ COMO O PORTAL AUTENTICA (mecanismo EXISTENTE — nada novo foi inventado):
   CPF + data de nascimento.
 - Primeiro acesso: POST /people-management/portal/auth/primeiro-acesso —
   CPF + data de nascimento (validação de identidade) → funcionário define a
-  PRÓPRIA senha. Tela: /portal-funcionario/primeiro-acesso.
+  PRÓPRIA senha. Tela: /forgot-password.
 
 Portanto "ativar acesso" NÃO cria senha (nenhuma senha fraca é gerada):
 valida os pré-requisitos (CPF + data de nascimento no cadastro), registra a
@@ -27,22 +27,17 @@ Endpoints:
 """
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.auth.dependencies import CurrentActiveUser
-from core.database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assinaturas", tags=["SST — Rollout de Assinaturas (Fichas de EPI)"])
 
-LINK_PRIMEIRO_ACESSO = "/portal-funcionario/primeiro-acesso"
-LINK_LOGIN_PORTAL = "/portal-funcionario/login"
+# Portal antigo desligado em 17/09/2026 — ver aviso_assinatura_service.
+LINK_PRIMEIRO_ACESSO = "/forgot-password"
+LINK_LOGIN_PORTAL = "/modulos/meu-espaco?t=assinar"
 
 # Instrução única (mesma para todos): o funcionário usa dados que SÓ ele tem.
 CREDENCIAL_INICIAL = (
@@ -125,5 +120,3 @@ class AtivarAcessosRequest(BaseModel):
     """Lote de funcionários para liberar o acesso ao Portal."""
 
     employee_ids: list[str] = Field(..., min_length=1, description="UUIDs de employees ativos")
-
-

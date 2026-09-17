@@ -36,8 +36,12 @@ logger = logging.getLogger(__name__)
 #: some junto com o resto; a pessoa aprende a ignorar o remetente.
 _JANELA_DIAS = 3
 
-# /meu-espaco dava 404 (medido 07/09/2026); a entrada do colaborador (CPF) é /portal-funcionario/login.
-PORTAL_URL = os.getenv("PORTAL_URL", "https://erp.conectamais.pro/portal-funcionario/login")
+# Origem: 17/09/2026. O default daqui era `/portal-funcionario/login` — o portal ANTIGO,
+# desligado, cujas telas de autenticação jogavam a pessoa em `/login?notice=portal`, SEM
+# destino. Medido no nginx: 69 IPs distintos vieram do link de assinatura e caíram no painel
+# da empresa. O comentário antigo estava certo que `/meu-espaco` dá 404 — errou o caminho:
+# é `/modulos/meu-espaco`, e `?t=assinar` abre direto na aba de assinar.
+PORTAL_URL = os.getenv("PORTAL_URL", "https://erp.conectamais.pro/modulos/meu-espaco?t=assinar")
 
 #: `portal_notifications.notification_type` é ENUM no banco (document_pending,
 #: schedule_update, payslip_available, warning_issued, general, system). Criar um valor
@@ -148,7 +152,7 @@ def _html(nome: str, resumo: str) -> str:
        border-radius:6px;text-decoration:none;font-weight:bold">Assinar agora</a>
   </p>
   <p style="font-size:13px;color:#6b7280">
-    Entre com o seu CPF. Se tiver dúvida sobre o acesso, procure o Departamento Pessoal.
+    Entre com o seu e-mail (ou com a conta Google). Se tiver dúvida sobre o acesso, procure o Departamento Pessoal.
   </p>
   <p style="font-size:12px;color:#9ca3af">Conecta Mais — mensagem automática, não responda este e-mail.</p>
 </body></html>"""
@@ -213,8 +217,9 @@ def avisar_pendentes(db, dry_run: bool = True, limite: int | None = None) -> dic
                 rel["falhas"] += 1
                 continue
             # Registra o lembrete: é ele que segura o reenvio dentro da janela.
-            db.execute(_SQL_REGISTRA, {"eid": r["eid"], "titulo": _TITULO_LEMBRETE,
-                                       "msg": f"{' + '.join(canais)} — {resumo}"})
+            db.execute(
+                _SQL_REGISTRA, {"eid": r["eid"], "titulo": _TITULO_LEMBRETE, "msg": f"{' + '.join(canais)} — {resumo}"}
+            )
             rel["enviados"] += 1
     finally:
         if server:
@@ -227,9 +232,13 @@ def avisar_pendentes(db, dry_run: bool = True, limite: int | None = None) -> dic
 
 def mensagem_whatsapp(nome: str, resumo: str) -> str:
     primeiro = (nome or "").split()[0].title() if nome else ""
-    return (f"Olá, {primeiro}! Aqui é a Conecta Mais. Você tem {resumo} para assinar no portal do "
-            f"colaborador. Entre com seu CPF em {PORTAL_URL} e assine — leva um minuto. "
-            f"Se não conseguir entrar, responda aqui que a gente ajuda.")
+    # O texto dizia "Entre com seu CPF" — credencial do portal DESLIGADO. A pessoa chegava
+    # no lugar certo e tentava a senha errada. Hoje a entrada é e-mail/senha ou Google.
+    return (
+        f"Olá, {primeiro}! Aqui é a Conecta Mais. Você tem {resumo} para assinar no seu "
+        f"Meu Espaço. Abra {PORTAL_URL} e entre com seu e-mail (ou com a conta Google) — "
+        f"leva um minuto. Se não conseguir entrar, responda aqui que a gente ajuda."
+    )
 
 
 def enviar_whatsapp(fone: str, texto: str) -> bool:
@@ -249,34 +258,6 @@ def enviar_whatsapp(fone: str, texto: str) -> bool:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
         r = ex.submit(_run).result(timeout=60) or {}
-    return str(r.get("status", "")).lower() in ("sent", "ok", "success", "queued") or bool(r.get("id") or r.get("message_id"))
-
-    try:
-        for r in linhas:
-            resumo = _lista_legivel(r["tipos"], r["qtd"])
-            try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = "Você tem documento para assinar — Conecta Mais"
-                msg["From"] = cfg["from"]
-                msg["To"] = r["email"]
-                msg.attach(MIMEText(_html(r["nome"], resumo), "html", "utf-8"))
-                server.sendmail(cfg["user"], r["email"], msg.as_bytes())
-                # Registra o lembrete: é ele que segura o reenvio dentro da janela.
-                db.execute(
-                    _SQL_REGISTRA,
-                    {
-                        "eid": r["eid"],
-                        "titulo": _TITULO_LEMBRETE,
-                        "msg": f"E-mail enviado para {r['email']} — {resumo}",
-                    },
-                )
-                rel["enviados"] += 1
-            except Exception as exc:  # noqa: BLE001 — um e-mail ruim não cala os outros
-                rel["falhas"] += 1
-                logger.warning("aviso de assinatura para %s: %s", r["nome"], exc)
-    finally:
-        try:
-            server.quit()
-        except Exception:  # noqa: BLE001
-            pass
-    return rel
+    return str(r.get("status", "")).lower() in ("sent", "ok", "success", "queued") or bool(
+        r.get("id") or r.get("message_id")
+    )

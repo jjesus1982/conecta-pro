@@ -147,8 +147,8 @@ export function RolloutAssinaturasSection() {
           (r) =>
             `<tr><td>${r.nome ?? ''}</td><td>${r.cargo ?? ''}</td><td>${r.cpf_mascarado ?? ''}</td><td>${
               r.situacao === 'ativado'
-                ? `Primeiro acesso: ${origem}${r.link_primeiro_acesso ?? '/portal-funcionario/primeiro-acesso'} — informar CPF + data de nascimento e criar a propria senha.`
-                : `Ja tem senha: ${origem}${r.link_login ?? '/portal-funcionario/login'} — CPF + senha (esqueceu? Redefinir com CPF + data de nascimento).`
+                ? `Primeiro acesso: ${origem}${r.link_primeiro_acesso ?? '/forgot-password'} — informar CPF + data de nascimento e criar a propria senha.`
+                : `Ja tem senha: ${origem}${r.link_login ?? '/modulos/meu-espaco?t=assinar'} — CPF + senha (esqueceu? Redefinir com CPF + data de nascimento).`
             }</td></tr>`,
         )
         .join('')}
@@ -228,7 +228,7 @@ export function RolloutAssinaturasSection() {
             <ol className="list-decimal ml-5 space-y-0.5 text-muted-foreground">
               <li>
                 Abrir o Portal do Funcionario e tocar em <strong>Primeiro acesso</strong>{' '}
-                (<span className="font-mono text-xs">/portal-funcionario/primeiro-acesso</span>).
+                (<span className="font-mono text-xs">/forgot-password</span>).
               </li>
               <li>Informar <strong>CPF + data de nascimento</strong> e criar a propria senha.</li>
               <li>

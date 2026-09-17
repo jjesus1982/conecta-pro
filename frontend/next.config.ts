@@ -140,6 +140,31 @@ const nextConfig: NextConfig = {
   // Redirects para URLs legadas
   async redirects() {
     return [
+      // ── Portal do Funcionário ANTIGO (login por CPF), desligado em 2026 ──────────
+      // Eram 14 páginas-casca com `location.replace` no client. As três de autenticação
+      // mandavam para `/login?notice=portal` — SEM destino. Medido no nginx em 17/09/2026:
+      // 69 IPs distintos entraram por aqui vindos do link de assinatura e caíram no painel
+      // da empresa. Server-side (308) porque o client-side dependia do chunk carregar.
+      {
+        source: '/portal-funcionario/reset-senha',
+        destination: '/forgot-password',
+        permanent: true,
+      },
+      {
+        source: '/portal-funcionario/primeiro-acesso',
+        destination: '/forgot-password',
+        permanent: true,
+      },
+      {
+        source: '/portal-funcionario',
+        destination: '/modulos/meu-espaco',
+        permanent: true,
+      },
+      {
+        source: '/portal-funcionario/:path*',
+        destination: '/modulos/meu-espaco',
+        permanent: true,
+      },
       {
         source: '/modulos/dp/folha-salarial',
         destination: '/modulos/dp/folha',

@@ -18,7 +18,6 @@ const PUBLIC_PATHS = [
   '/offline',
   '/area-cliente',
   '/auth/callback',
-  '/portal-funcionario',
   '/modulos/configuracoes/usuarios',
 ];
 

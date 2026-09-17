@@ -35,15 +35,16 @@ CONTAINER=$(docker ps --format "{{.Names}}" | grep "$CONTAINER_NAME" | head -1)
 [[ -z "$CONTAINER" ]] && die "Container $CONTAINER_NAME não encontrado. Verifique: docker ps"
 log "Container: $CONTAINER"
 
-# ── STEP 1: Verificar BUILD_ID — abortar se idêntico (build não mudou)
+# ── STEP 1: Estado de partida (a decisão de abortar é no STEP 4.1, depois do build)
+#
+# Origem: 17/09/2026. Esta guarda ficava AQUI, antes do build, e comparava o build VELHO do
+# host com o que já estava no container. Com fonte nova ainda não buildada os dois batem, e
+# o script saía com "nada a fazer" e exit 0 — verde, sem publicar nada. Perdi um deploy
+# inteiro do fix do link de assinatura assim. A pergunta certa ("o build novo é igual ao
+# que está lá?") só pode ser feita DEPOIS de buildar.
 HOST_BUILD_ID=$(cat "$FRONTEND_DIR/.next/BUILD_ID" 2>/dev/null || echo "NONE")
 CONTAINER_BUILD_ID=$(docker exec "$CONTAINER" cat /app/.next/BUILD_ID 2>/dev/null || echo "NONE")
-log "BUILD_ID host=$HOST_BUILD_ID  container=$CONTAINER_BUILD_ID"
-
-if [[ "$HOST_BUILD_ID" == "$CONTAINER_BUILD_ID" && "$HOST_BUILD_ID" != "NONE" ]]; then
-    log "⚠️  BUILD_ID idêntico — build não mudou. Abortando (nada a fazer)."
-    exit 0
-fi
+log "BUILD_ID (antes do build) host=$HOST_BUILD_ID  container=$CONTAINER_BUILD_ID"
 
 # ── STEP 2: Verificar symlinks no build (§15.3 — usar standalone/ se symlinks detectados)
 SYMLINKS_STATIC=$(find "$FRONTEND_DIR/.next/static" -type l 2>/dev/null | wc -l)
@@ -72,6 +73,12 @@ log "Iniciando build Next.js..."
 run "cd $FRONTEND_DIR && NODE_OPTIONS=--max-old-space-size=4096 npm run build"
 NEW_BUILD_ID=$(cat "$FRONTEND_DIR/.next/BUILD_ID" 2>/dev/null || echo "NONE")
 log "Novo BUILD_ID: $NEW_BUILD_ID"
+
+# ── STEP 4.1: AGORA sim dá para dizer se há o que publicar
+if [[ "$NEW_BUILD_ID" == "$CONTAINER_BUILD_ID" && "$NEW_BUILD_ID" != "NONE" ]]; then
+    log "BUILD_ID do build novo é o mesmo do container — nada mudou. Encerrando."
+    exit 0
+fi
 
 # ── STEP 5: Sincronizar novo build → container
 log "Sincronizando novo build → $CONTAINER"

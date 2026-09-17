@@ -28,6 +28,7 @@ Cada pessoa recebe a mensagem pelo canal que ALCANÇA ela: WhatsApp quando o nú
     python3 backend/scripts/destravar_ponto_todos.py
     python3 backend/scripts/destravar_ponto_todos.py --aplicar
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,7 @@ sys.path.insert(0, "/app")
 
 DIAS_SEM_APP = 14
 DIAS_REFERENCIA_NOVA = 7
-PORTAL = "https://erp.conectamais.pro/portal-funcionario/login"
+PORTAL = "https://erp.conectamais.pro/modulos/meu-espaco"
 
 _SQL = """
 SELECT e.id::text AS eid, e.nome, coalesce(e.email,'') AS email, coalesce(e.cpf,'') AS cpf,
@@ -65,28 +66,34 @@ SELECT e.id::text AS eid, e.nome, coalesce(e.email,'') AS email, coalesce(e.cpf,
 """
 
 MSG = {
-    "A": ("Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
-          "ponto junto com a Pyetra Jesus.\n\n"
-          "Acabei de criar seu acesso ao app do ponto. Para entrar:\n"
-          "• Endereço: {portal}\n• E-mail: {email}\n• Senha: seu CPF, só os números\n\n"
-          "Na primeira vez ele vai pedir para cadastrar seu rosto. Faça num lugar claro, de "
-          "frente para a luz — é essa foto que o app usa depois para te reconhecer.\n\n"
-          "Qualquer coisa, me chama aqui."),
-    "B": ("Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
-          "ponto junto com a Pyetra Jesus.\n\n"
-          "Vi aqui que falta cadastrar seu rosto no app do ponto. Entre em {portal} (e-mail "
-          "{email}, senha é seu CPF só os números) e faça o cadastro num lugar claro, de "
-          "frente para a luz.\n\n"
-          "Enquanto isso, se precisar bater e não conseguir, use o botão *registrar para o DP "
-          "validar* — sua batida fica guardada do mesmo jeito."),
-    "C": ("Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
-          "ponto junto com a Pyetra Jesus.\n\n"
-          "Descobri por que o app não estava te reconhecendo: a foto de referência do seu "
-          "rosto ficou ruim. Já limpei ela aqui.\n\n"
-          "Agora é só entrar em {portal} (e-mail {email}, senha é seu CPF só os números) que "
-          "ele vai pedir para cadastrar seu rosto de novo. Faça num lugar claro, de frente "
-          "para a luz — leva uns 10 segundos e resolve.\n\n"
-          "Se ainda assim não der, use o botão *registrar para o DP validar* e me avisa."),
+    "A": (
+        "Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
+        "ponto junto com a Pyetra Jesus.\n\n"
+        "Acabei de criar seu acesso ao app do ponto. Para entrar:\n"
+        "• Endereço: {portal}\n• E-mail: {email}\n• Senha: seu CPF, só os números\n\n"
+        "Na primeira vez ele vai pedir para cadastrar seu rosto. Faça num lugar claro, de "
+        "frente para a luz — é essa foto que o app usa depois para te reconhecer.\n\n"
+        "Qualquer coisa, me chama aqui."
+    ),
+    "B": (
+        "Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
+        "ponto junto com a Pyetra Jesus.\n\n"
+        "Vi aqui que falta cadastrar seu rosto no app do ponto. Entre em {portal} (e-mail "
+        "{email}, senha é seu CPF só os números) e faça o cadastro num lugar claro, de "
+        "frente para a luz.\n\n"
+        "Enquanto isso, se precisar bater e não conseguir, use o botão *registrar para o DP "
+        "validar* — sua batida fica guardada do mesmo jeito."
+    ),
+    "C": (
+        "Oi, {primeiro}! Aqui é o José Luís, da Conecta Mais — eu cuido da organização do "
+        "ponto junto com a Pyetra Jesus.\n\n"
+        "Descobri por que o app não estava te reconhecendo: a foto de referência do seu "
+        "rosto ficou ruim. Já limpei ela aqui.\n\n"
+        "Agora é só entrar em {portal} (e-mail {email}, senha é seu CPF só os números) que "
+        "ele vai pedir para cadastrar seu rosto de novo. Faça num lugar claro, de frente "
+        "para a luz — leva uns 10 segundos e resolve.\n\n"
+        "Se ainda assim não der, use o botão *registrar para o DP validar* e me avisa."
+    ),
 }
 
 
@@ -95,9 +102,14 @@ def _enviar_email(cfg, server, para: str, assunto: str, corpo: str) -> bool:
     msg["Subject"] = assunto
     msg["From"] = cfg["from"]
     msg["To"] = para
-    msg.attach(MIMEText("<div style='font-family:Arial,sans-serif;font-size:15px;"
-                        "white-space:pre-wrap'>" + corpo.replace("*", "") + "</div>",
-                        "html", "utf-8"))
+    msg.attach(
+        MIMEText(
+            "<div style='font-family:Arial,sans-serif;font-size:15px;"
+            "white-space:pre-wrap'>" + corpo.replace("*", "") + "</div>",
+            "html",
+            "utf-8",
+        )
+    )
     server.sendmail(cfg["user"], para, msg.as_bytes())
     return True
 
@@ -120,30 +132,43 @@ async def main() -> int:
         elif not r["tem_rosto"]:
             plano.append({**dict(r), "situacao": "B"})
         elif int(r["app_recente"]) == 0:
-            nova = (r["face_enrolled_at"] is not None
-                    and (datetime.now() - r["face_enrolled_at"]).days < DIAS_REFERENCIA_NOVA)
+            nova = (
+                r["face_enrolled_at"] is not None
+                and (datetime.now() - r["face_enrolled_at"]).days < DIAS_REFERENCIA_NOVA
+            )
             if nova:
-                print(f"  PULO {r['nome']}: referência de "
-                      f"{r['face_enrolled_at'].strftime('%d/%m')} é nova demais para apagar")
+                print(
+                    f"  PULO {r['nome']}: referência de "
+                    f"{r['face_enrolled_at'].strftime('%d/%m')} é nova demais para apagar"
+                )
                 continue
             plano.append({**dict(r), "situacao": "C"})
 
     for p in plano:
-        print(f"  {p['situacao']}  {p['nome'][:34]:36} "
-              f"{'cria conta + ' if p['situacao']=='A' else ''}"
-              f"{'limpa referência + ' if p['situacao']=='C' else ''}avisa")
+        print(
+            f"  {p['situacao']}  {p['nome'][:34]:36} "
+            f"{'cria conta + ' if p['situacao'] == 'A' else ''}"
+            f"{'limpa referência + ' if p['situacao'] == 'C' else ''}avisa"
+        )
     if not aplicar:
         print(f"\nENSAIO: {len(plano)} pessoa(s) seriam destravadas. Rode com --aplicar.")
         return 0
 
     porta = int(os.getenv("SMTP_PORT", "465"))
-    cfg = {"host": os.getenv("SMTP_HOST", "smtp.hostinger.com"), "port": porta,
-           "user": os.getenv("SMTP_USERNAME", ""), "pass": os.getenv("SMTP_PASSWORD", ""),
-           "from": f"{os.getenv('SMTP_FROM_NAME','Conecta Mais')} "
-                   f"<{os.getenv('SMTP_FROM_EMAIL', os.getenv('SMTP_USERNAME',''))}>"}
+    cfg = {
+        "host": os.getenv("SMTP_HOST", "smtp.hostinger.com"),
+        "port": porta,
+        "user": os.getenv("SMTP_USERNAME", ""),
+        "pass": os.getenv("SMTP_PASSWORD", ""),
+        "from": f"{os.getenv('SMTP_FROM_NAME', 'Conecta Mais')} "
+        f"<{os.getenv('SMTP_FROM_EMAIL', os.getenv('SMTP_USERNAME', ''))}>",
+    }
     ctx = ssl.create_default_context()
-    server = (smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx) if porta == 465
-              else smtplib.SMTP(cfg["host"], cfg["port"]))
+    server = (
+        smtplib.SMTP_SSL(cfg["host"], cfg["port"], context=ctx)
+        if porta == 465
+        else smtplib.SMTP(cfg["host"], cfg["port"])
+    )
     if porta != 465:
         server.starttls(context=ctx)
     if cfg["pass"]:
@@ -156,25 +181,39 @@ async def main() -> int:
                 email_login = p["email_login"]
                 if p["situacao"] == "A" and p["email"]:
                     email_login = p["email"].strip().lower()
-                    await db.execute(text(
-                        "INSERT INTO users (id, email, password_hash, name, role, is_active, "
-                        " employee_id, created_at) VALUES (gen_random_uuid(), :e, :ph, :n, "
-                        " 'funcionario', true, CAST(:eid AS uuid), now())"),
-                        {"e": email_login, "ph": hash_password(re.sub(r"\D", "", p["cpf"])),
-                         "n": p["nome"], "eid": p["eid"]})
+                    await db.execute(
+                        text(
+                            "INSERT INTO users (id, email, password_hash, name, role, is_active, "
+                            " employee_id, created_at) VALUES (gen_random_uuid(), :e, :ph, :n, "
+                            " 'funcionario', true, CAST(:eid AS uuid), now())"
+                        ),
+                        {
+                            "e": email_login,
+                            "ph": hash_password(re.sub(r"\D", "", p["cpf"])),
+                            "n": p["nome"],
+                            "eid": p["eid"],
+                        },
+                    )
                 if p["situacao"] == "C":
-                    d = (await db.execute(text(
-                        "SELECT face_descriptor::text FROM employees WHERE id = CAST(:e AS uuid)"),
-                        {"e": p["eid"]})).scalar()
+                    d = (
+                        await db.execute(
+                            text("SELECT face_descriptor::text FROM employees WHERE id = CAST(:e AS uuid)"),
+                            {"e": p["eid"]},
+                        )
+                    ).scalar()
                     backup.append({"employee_id": p["eid"], "nome": p["nome"], "descriptor": d})
-                    await db.execute(text(
-                        "UPDATE employees SET face_descriptor = NULL, biometria_facial = false, "
-                        " face_enrolled_at = NULL, updated_at = now() WHERE id = CAST(:e AS uuid)"),
-                        {"e": p["eid"]})
+                    await db.execute(
+                        text(
+                            "UPDATE employees SET face_descriptor = NULL, biometria_facial = false, "
+                            " face_enrolled_at = NULL, updated_at = now() WHERE id = CAST(:e AS uuid)"
+                        ),
+                        {"e": p["eid"]},
+                    )
                 await db.commit()
 
-            texto = MSG[p["situacao"]].format(primeiro=(p["nome"].split()[0].title()),
-                                              portal=PORTAL, email=email_login or p["email"])
+            texto = MSG[p["situacao"]].format(
+                primeiro=(p["nome"].split()[0].title()), portal=PORTAL, email=email_login or p["email"]
+            )
             canal = None
             d = re.sub(r"\D", "", p["fone"] or "")
             if len(d) == 11 and d[2] == "9" and await whatsapp_service._resolve_jid("55" + d):
@@ -186,8 +225,7 @@ async def main() -> int:
                     canal = None
             if not canal and p["email"]:
                 try:
-                    _enviar_email(cfg, server, p["email"],
-                                  "Conecta Mais — seu acesso ao ponto", texto)
+                    _enviar_email(cfg, server, p["email"], "Conecta Mais — seu acesso ao ponto", texto)
                     canal = f"e-mail {p['email']}"
                 except Exception as exc:  # noqa: BLE001
                     print(f"  e-mail falhou para {p['nome']}: {exc}")
@@ -207,18 +245,26 @@ async def main() -> int:
     os.makedirs("/app/uploads", exist_ok=True)
     caminho = f"/app/uploads/destravar_ponto_{carimbo}.json"
     with open(caminho, "w", encoding="utf-8") as f:
-        json.dump({"avisados": feito, "sem_canal": sem_canal,
-                   "referencias_limpas": backup}, f, ensure_ascii=False, indent=1)
+        json.dump(
+            {"avisados": feito, "sem_canal": sem_canal, "referencias_limpas": backup}, f, ensure_ascii=False, indent=1
+        )
     async with async_session_factory() as db:
-        await db.execute(text(
-            "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
-            " source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module, "
-            " extra_data) VALUES (CAST(:i AS uuid), (now() AT TIME ZONE 'America/Manaus'), "
-            " 'ponto.destrave_em_lote', 'employees', 'lote', :d, 'people_management.ponto', "
-            " 'jordan', 'Jordan Jesus (autorização em 11/09/2026)', 'dono', 'ponto', CAST(:x AS jsonb))"),
-            {"i": str(uuid.uuid4()), "d": f"{len(feito)} pessoa(s) destravadas para bater ponto",
-             "x": json.dumps({"avisados": len(feito), "sem_canal": sem_canal,
-                              "backup": caminho}, ensure_ascii=False)})
+        await db.execute(
+            text(
+                "INSERT INTO gp_audit_logs (id, timestamp, action, entity, entity_id, description, "
+                " source_module, actor_user_id, actor_user_name, actor_user_role, actor_user_module, "
+                " extra_data) VALUES (CAST(:i AS uuid), (now() AT TIME ZONE 'America/Manaus'), "
+                " 'ponto.destrave_em_lote', 'employees', 'lote', :d, 'people_management.ponto', "
+                " 'jordan', 'Jordan Jesus (autorização em 11/09/2026)', 'dono', 'ponto', CAST(:x AS jsonb))"
+            ),
+            {
+                "i": str(uuid.uuid4()),
+                "d": f"{len(feito)} pessoa(s) destravadas para bater ponto",
+                "x": json.dumps(
+                    {"avisados": len(feito), "sem_canal": sem_canal, "backup": caminho}, ensure_ascii=False
+                ),
+            },
+        )
         await db.commit()
     print(f"\nAPLICADO: {len(feito)} avisadas · {len(sem_canal)} sem canal: {', '.join(sem_canal) or '—'}")
     print(f"registro e reversão em {caminho}")

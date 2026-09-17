@@ -128,7 +128,7 @@ export function useAuth() {
   }, []);
 
   // Login
-  const login = useCallback(async (credentials: LoginCredentials): Promise<{ success: boolean; error?: string }> => {
+  const login = useCallback(async (credentials: LoginCredentials): Promise<{ success: boolean; error?: string; role?: string }> => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
 
@@ -164,7 +164,8 @@ export function useAuth() {
         isAuthenticated: true,
       });
 
-      return { success: true };
+      // O role sai daqui para decidir o destino pós-login (ver lib/destino-pos-login).
+      return { success: true, role: userData.role };
     } catch (error) {
       setState(prev => ({ ...prev, isLoading: false }));
       return { success: false, error: getErrorMessage(error) };
