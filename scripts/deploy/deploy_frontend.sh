@@ -86,6 +86,13 @@ run "docker cp $STATIC_SRC/.  $CONTAINER:/app/.next/static/"
 run "docker cp $SERVER_SRC/.  $CONTAINER:/app/.next/server/"
 run "docker cp $FRONTEND_DIR/.next/standalone/. $CONTAINER:/app/.next/standalone/" 2>/dev/null || true
 run "docker cp $FRONTEND_DIR/.next/BUILD_ID     $CONTAINER:/app/.next/BUILD_ID"
+
+# public/ — manifest.json, ícones, sw.js, robots.
+# Origem: 17/09/2026. O deploy NUNCA copiou esta pasta. Mudei o `start_url` do manifest de
+# /dashboard para /redesign, publiquei, e o servidor continuou entregando /dashboard: o
+# arquivo do container era de outra era. Todo deploy de ícone, manifest ou service worker
+# feito até hoje ficou só no host. Não é `.next/`, então não vinha junto.
+run "docker cp $FRONTEND_DIR/public/. $CONTAINER:/app/public/"
 run "docker cp $FRONTEND_DIR/.next/routes-manifest.json $CONTAINER:/app/.next/" 2>/dev/null || true
 # Manifestos raiz (app-path-routes-manifest, prerender-manifest, build-manifest, etc.)
 # Sem estes arquivos rotas novas ficam ausentes e retornam 404 mesmo com page.js correto
