@@ -76,7 +76,11 @@ _SQL_PENDENTES = text(
      WHERE r.status = 'PENDING' AND r.signer_type = 'employee'
        -- Filtro opcional de UMA pessoa: é o botão «Cobrar assinatura» da linha, na Central
        -- de Assinaturas. NULL = o lote inteiro, como sempre foi.
-       AND (:so_este_eid IS NULL OR e.id::text = :so_este_eid)
+       -- `::text` obrigatório: pelo asyncpg, `:so_este_eid` nulo sem tipo dá
+       -- «could not determine data type of parameter $1». O serviço roda síncrono e não
+       -- sentia, mas o oráculo da coorte de homologação lê esta MESMA query em async —
+       -- e é ele que impede a cobrança de sair para os 12 telefones de fachada.
+       AND (CAST(:so_este_eid AS text) IS NULL OR e.id::text = CAST(:so_este_eid AS text))
        -- 🔴 SÓ AVISA SOBRE O QUE DÁ PARA ASSINAR. Desde 21/08 a assinatura FALHA se não
        -- houver PDF (antes registrava "assinado" sem documento). Medido no mesmo dia: de
        -- 1.334 solicitações pendentes, 958 NÃO TÊM PDF — 679 nunca tiveram e 250 apontam
@@ -105,7 +109,7 @@ _SQL_PENDENTES = text(
        -- A janela de 3 dias protege do spam automático. O gestor clicando «Cobrar» na tela
        -- é um ato deliberado sobre UMA pessoa: aí o clique vence a janela, senão o botão
        -- fica mudo por três dias e ele acha que está quebrado.
-       AND (:ignorar_janela OR NOT EXISTS (
+       AND (CAST(:ignorar_janela AS boolean) OR NOT EXISTS (
              SELECT 1 FROM portal_notifications n
               WHERE n.employee_id = e.id
                 AND n.title = :titulo_lembrete

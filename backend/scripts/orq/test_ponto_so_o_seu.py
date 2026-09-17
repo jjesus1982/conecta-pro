@@ -107,7 +107,12 @@ if g:
 """
 
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _fixtures import exige_host  # noqa: E402
+
+
 def main() -> int:
+    exige_host("lê o código-fonte do backend no repositório")
     achados: list[str] = []
 
     # ── A prova que vale: o que as rotas FAZEM, com um token real de funcionário ──

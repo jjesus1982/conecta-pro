@@ -9,6 +9,7 @@ Amarrar teste a e-mail de gente é dívida garantida: quebra em toda saída, e a
 aparece como se fosse defeito de produto — foi exatamente o que aconteceu, e três das
 sete "falhas" do dia eram isto.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -44,6 +45,31 @@ def bloqueado(motivo: str) -> None:
     raise SystemExit(EXIT_BLOQUEADO)
 
 
+def exige_host(oque: str) -> None:
+    """Encerra como BLOQUEADO quando o oráculo precisa do HOST e está rodando no container.
+
+    A varredura da meia-noite roda tudo DENTRO do `conecta-pro-backend`, de propósito (um
+    oráculo tem pico de 894 MB e derrubaria worker de celery por OOM). Mas alguns medem
+    coisas que só existem no host: o código-fonte do frontend, o `docker` para falar com
+    outro container, o crontab.
+
+    Medido em 17/09/2026: cinco oráculos apareceram VERMELHOS na varredura por esse motivo —
+    `test_link_assinatura_chega` acusou «destino-pos-login.ts sumiu» sobre um arquivo que
+    está lá, e `test_envio_nao_mente` disse «o envio mente» quando o que faltava era
+    /usr/bin/docker. Acusação falsa custa mais que trava nenhuma: ensina a ignorar o vermelho.
+
+    Nem verde (não mediu) nem vermelho (nada quebrado): BLOQUEADO, com o motivo dito.
+    """
+    import pathlib as _pl
+
+    if _pl.Path("/usr/bin/docker").exists() and _pl.Path("/opt/conecta-pro/frontend/src").is_dir():
+        return
+    bloqueado(
+        f"{oque} — este oráculo mede o HOST e está rodando dentro do container. "
+        f"Rode no host: python3 backend/scripts/orq/<nome>.py"
+    )
+
+
 def tela(telas: dict, slug: str) -> dict | None:
     """Resolve um slug do redesign até a tela REAL, seguindo `groupRef`.
 
@@ -73,11 +99,16 @@ async def usuario_por_papel(db, papel: str) -> _U | None:
     Devolve None em vez de explodir para o chamador escolher entre pular honestamente
     ou falhar — nem todo papel existe em toda base.
     """
-    r = (await db.execute(text(
-        "SELECT id::text AS id, role, permissions FROM users "
-        "WHERE role = :p AND coalesce(is_active, true) "
-        "ORDER BY created_at NULLS LAST LIMIT 1"
-    ), {"p": papel})).first()
+    r = (
+        await db.execute(
+            text(
+                "SELECT id::text AS id, role, permissions FROM users "
+                "WHERE role = :p AND coalesce(is_active, true) "
+                "ORDER BY created_at NULLS LAST LIMIT 1"
+            ),
+            {"p": papel},
+        )
+    ).first()
     if not r:
         return None
     return _U(r.id, r.role, list(r.permissions or []))
@@ -90,11 +121,16 @@ async def usuario_por_papel_com_colaborador(db, papel: str) -> _U | None:
     `employee_id`; líder precisa de posto). Pegar qualquer usuário do papel devolveria
     um sem vínculo e a asserção falharia por motivo errado.
     """
-    r = (await db.execute(text(
-        "SELECT id::text AS id, role, permissions FROM users "
-        "WHERE role = :p AND coalesce(is_active, true) AND employee_id IS NOT NULL "
-        "ORDER BY created_at NULLS LAST LIMIT 1"
-    ), {"p": papel})).first()
+    r = (
+        await db.execute(
+            text(
+                "SELECT id::text AS id, role, permissions FROM users "
+                "WHERE role = :p AND coalesce(is_active, true) AND employee_id IS NOT NULL "
+                "ORDER BY created_at NULLS LAST LIMIT 1"
+            ),
+            {"p": papel},
+        )
+    ).first()
     if not r:
         return None
     return _U(r.id, r.role, list(r.permissions or []))

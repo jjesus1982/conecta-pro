@@ -94,7 +94,12 @@ def _min(hhmm: str | None) -> int | None:
     return -v if neg else v
 
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _fixtures import exige_host  # noqa: E402
+
+
 def main() -> int:
+    exige_host("compara a tela com o PDF por docker")
     tok = _token()
     if not tok:
         return 2

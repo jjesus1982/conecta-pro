@@ -16,6 +16,7 @@ disparador novo que esqueça o filtro cai aqui, mesmo sem ninguém lembrar desta
 
 Roda no container (PYTHONPATH=/app). Sai 0 = verde; 1 = vermelho.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,27 +35,45 @@ async def main() -> int:
     gen = get_db()
     db = await gen.__anext__()
 
-    homologacao = {r[0] for r in (await db.execute(text(
-        "SELECT id::text FROM employees WHERE coalesce(is_homologacao, false)"))).fetchall()}
+    homologacao = {
+        r[0]
+        for r in (
+            await db.execute(text("SELECT id::text FROM employees WHERE coalesce(is_homologacao, false)"))
+        ).fetchall()
+    }
     if not homologacao:
         print("nenhum funcionário de homologação no banco — nada a vigiar (isto não é falha)")
         return 0
 
     # 1) aviso de assinatura (e-mail + WhatsApp). Janela de reenvio neutralizada de propósito:
     #    quem manda em quem recebe é o FILTRO, não o fato de já ter sido avisado ontem.
-    alvo = (await db.execute(SQL_ASSINATURA,
-                             {"titulo_lembrete": _TITULO_LEMBRETE, "janela": 0})).mappings().all()
+    # `so_este_eid=None` = o lote inteiro (o botão «Cobrar» de UMA pessoa passa o id aqui);
+    # `ignorar_janela=True` + `janela=0` = ver TODO mundo que a query alcançaria, sem a trava
+    # anti-spam esconder alguém de quem já saiu lembrete. Os dois parâmetros nasceram em
+    # 17/09/2026 e este oráculo não os passava — quebrava com
+    # «A value is required for bind parameter 'so_este_eid'» e virava vermelho de trava, não
+    # de defeito.
+    alvo = (
+        (
+            await db.execute(
+                SQL_ASSINATURA,
+                {"titulo_lembrete": _TITULO_LEMBRETE, "janela": 0, "so_este_eid": None, "ignorar_janela": True},
+            )
+        )
+        .mappings()
+        .all()
+    )
     for r in alvo:
         if r["eid"] in homologacao:
-            falhas.append(f"aviso de assinatura alcançaria {r['nome']} (homologação) "
-                          f"em {r['fone'] or r['email']}")
+            falhas.append(f"aviso de assinatura alcançaria {r['nome']} (homologação) em {r['fone'] or r['email']}")
 
     # 2) lembrete de ponto por WhatsApp, nas três etapas
     for etapa in (-15, 0, 10):
         for r in (await db.execute(text(SQL_PONTO), {"etapa": etapa})).mappings().all():
             if r["employee_id"] in homologacao:
-                falhas.append(f"lembrete de ponto (etapa {etapa}) alcançaria {r['nome']} "
-                              f"(homologação) em {r['telefone']}")
+                falhas.append(
+                    f"lembrete de ponto (etapa {etapa}) alcançaria {r['nome']} (homologação) em {r['telefone']}"
+                )
 
     print(f"funcionários de homologação: {len(homologacao)} · audiência do aviso de assinatura agora: {len(alvo)}")
     for f in falhas:

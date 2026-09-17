@@ -81,7 +81,14 @@ asyncio.run(main())
 """
 
 
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _fixtures import exige_host  # noqa: E402
+
+
 def main() -> int:
+    exige_host("fala com o Baileys e com outro container por docker")
     achados: list[str] = []
     try:
         codigo = f'MORTO = "{_MORTO}"\n{_PROVA}'

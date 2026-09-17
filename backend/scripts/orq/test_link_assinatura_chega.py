@@ -111,7 +111,12 @@ def _emissores_do_portal_morto() -> list[str]:
     return achados
 
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _fixtures import exige_host  # noqa: E402
+
+
 def main() -> int:
+    exige_host("lê o código-fonte do frontend e o git do repositório")
     quebras: list[str] = []
 
     # ── 1. Ninguém mais emite o link morto ───────────────────────────────────
