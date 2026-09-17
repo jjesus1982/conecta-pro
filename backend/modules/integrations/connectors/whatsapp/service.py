@@ -15,6 +15,11 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+#: Devolvido por `_resolve_jid` quando o WhatsApp RESPONDEU que o número não existe — para
+#: separar de `None`, que significa «não deu para perguntar» (rede, chave ausente, timeout).
+#: Falha de infra não pode bloquear envio; número morto tem de bloquear.
+NUMERO_NAO_EXISTE = "__nao_existe__"
+
 MONTH_NAMES = [
     "Janeiro",
     "Fevereiro",
@@ -137,21 +142,38 @@ class WhatsAppService:
             return None
         url = f"{base}/connections/{sender}/on-whatsapp"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
                     url,
                     json={"jids": [f"{digits}@s.whatsapp.net"]},
                     headers={"x-api-key": key, "Content-Type": "application/json"},
                     timeout=aiohttp.ClientTimeout(total=12),
-                ) as resp:
-                    if resp.status != 200:
-                        return None
-                    data = await resp.json()
-            # resposta: [{"jid":"559286465328@s.whatsapp.net","exists":true}]
-            if isinstance(data, list) and data:
-                item = data[0] or {}
+                ) as resp,
+            ):
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+            # Número vivo:  [{"jid":"559294755577@s.whatsapp.net","exists":true}]
+            # Número morto:  []   ← HTTP 200 com lista VAZIA. Medido em 17/09/2026 contra o
+            #                       92988887777 da Bianca. O WhatsApp RESPONDEU; a resposta é
+            #                       «não existe». A primeira versão desta correção tratava a
+            #                       lista vazia como «não consegui perguntar» e deixava passar
+            #                       justamente o caso que se queria pegar.
+            if isinstance(data, list):
+                item = (data[0] or {}) if data else {}
                 if item.get("exists") and item.get("jid"):
                     return "".join(c for c in str(item["jid"]).split("@")[0] if c.isdigit()) or None
+                # 🔴 O WhatsApp RESPONDEU e disse que este número não existe. Não é o mesmo que
+                # «não consegui perguntar»: aqui há resposta, e ela é negativa. Até 17/09/2026
+                # os dois casos devolviam None e o envio seguia com o número original — a
+                # mensagem morria no caminho e o sistema registrava sucesso.
+                #
+                # Medido nesse dia: 5 funcionários ATIVOS com número inexistente, 4 deles na
+                # cobrança de assinatura que acabara de sair «30 enviados, 0 falhas». Bianca
+                # (3 documentos parados), Eidy (2) e Ediwilson (2) nunca receberam nada —
+                # nem naquele disparo nem nos anteriores.
+                return NUMERO_NAO_EXISTE
             return None
         except Exception as e:  # noqa: BLE001 — nunca bloqueia o envio
             logger.warning("on-whatsapp resolve falhou para %s (segue com o original): %s", digits, e)
@@ -170,6 +192,13 @@ class WhatsAppService:
         phone = self._clean_phone(phone)
         # Corrige o 9º dígito: usa o JID real que o WhatsApp reconhece (best-effort).
         resolved = await self._resolve_jid(phone)
+        if resolved == NUMERO_NAO_EXISTE:
+            logger.warning("WhatsApp: %s não existe — mensagem NÃO enviada", phone)
+            return {
+                "status": "error",
+                "erro": "numero_inexistente",
+                "message": f"O número {phone} não existe no WhatsApp. Atualize o telefone no cadastro do colaborador.",
+            }
         if resolved and resolved != "".join(c for c in phone if c.isdigit()):
             logger.info("WhatsApp: número %s resolvido para o JID real +%s", phone, resolved)
             phone = f"+{resolved}"
