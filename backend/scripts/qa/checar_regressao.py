@@ -57,6 +57,13 @@ def _n(padrao: str, saida: str, zero: str | None = None) -> int | None:
 
 
 CACADORES = {
+    # Contrato de valor único ATIVO sem nenhuma cobrança: o cronograma mora em
+    # `contract_items` e o contas a receber não sabe dele — dinheiro contratado que não vira
+    # boleto. Órfã desde que nasceu; ligada em 17/09/2026.
+    "checar_contrato_sem_cobranca.py": lambda s: _n(r"^TOTAL contratos de valor único ativos sem cobrança: (\d+)", s),
+    # Texto INTERNO (margem, custo, nota do vendedor) no material que vai para o cliente.
+    # Órfã desde que nasceu; ligada em 17/09/2026. Verde hoje: 0 de 12 propostas.
+    "checar_vazamento_interno.py": lambda s: _n(r"^TOTAL propostas com texto interno no material do cliente: (\d+)", s),
     # Lê o TOTAL da linha "N pista(s) em …", não as linhas listadas: o caçador corta a lista
     # em 12 por família e escreve "(+8 não listadas)" — contar linhas dava 25 onde eram 37.
     "cacar_fabricacao.py": lambda s: _n(r"^(\d+) pista\(s\) em", s, "nenhuma assinatura de fabricação"),
@@ -138,6 +145,9 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # Tool do MCP que ESCREVE e não se declara escritora: a classe `read` é a que o
+    # `gate_propose` deixa passar sem humano. Órfã desde que nasceu; ligada em 17/09/2026.
+    "checar_mcp_declara_escrita.py": lambda s: _n(r"^TOTAL tools de escrita sem declarar: (\d+)", s),
     # Afastamento aberto e cadastro dizendo outra coisa. A Cintia estava afastada desde 21/05
     # (acidente de trajeto, CAT transmitida) e `employees.status` dizia 'ativo' havia quatro
     # meses — e é pelo CADASTRO que todo disparo decide para quem manda: o lembrete de ponto
@@ -221,6 +231,17 @@ _EXEC_CONTAINER = ["docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backe
 #: oráculo que escreve (60+, até 420s cada) e estourava o teto único de 15min todo dia —
 #: "NÃO VERIFICADO" permanente é o mesmo que não ter trava.
 TRAVAS_BINARIAS = {
+    # As três do conector MCP, órfãs desde que nasceram e ligadas em 17/09/2026. Binárias
+    # porque não há dívida a contar: ou o changelog conta a verdade, ou não; ou o container
+    # roda a imagem da tag, ou está à deriva; ou os 21 aceites passam, ou não.
+    #
+    # A de imagem é irmã do `checar_drift_workers`, e pela mesma razão: `docker cp` e build
+    # avulso deixam container rodando imagem que a tag já não aponta.
+    "checar_changelog_mcp.py": ("host", "changelog do MCP dizendo ao agente que nada mudou", 300),
+    "checar_imagem_mcp.py": ("host", "conector rodando imagem diferente da tag", 300),
+    # Só `test_aceites_cowork.py`: o `test_regressao_mcp` é do `checar_etiqueta_de_risco`
+    # (glob de mcp-server/test_*.py), e ele ESCREVE no sandbox a cada execução.
+    "checar_regressao_mcp.py": ("host", "os 21 aceites do prompt do conector", 900),
     "checar_beats.py": ("container", "rotina agendada que roda e NÃO PRODUZ", 900),
     "checar_periodo_do_servidor.py": ("container", "competência/data vinda do MODELO e não do servidor", 900),
     # CONTAINER, não host: ela varre /app/scripts/orq. No host esse caminho não existe, o

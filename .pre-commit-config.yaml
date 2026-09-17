@@ -43,7 +43,11 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: (backend/venv|frontend/node_modules|\.test\.|\.spec\.|tsconfig\.tsbuildinfo)
+        # `mcp-server/changelog.json` é 100% metadado do NOSSO git log, gerado por
+        # `mcp-server/gerar_changelog.py`. Os "segredos" que o detector acha são hashes
+        # de commit abreviados — hex de alta entropia por construção, diferentes a cada
+        # regeneração. Sem isto, toda regeneração exigiria remendar o baseline (17/09/2026).
+        exclude: (backend/venv|frontend/node_modules|\.test\.|\.spec\.|tsconfig\.tsbuildinfo|mcp-server/changelog\.json)
 
   # Governança de sessões autônomas (anti-revert, anti-multi-módulo)
   - repo: local

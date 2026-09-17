@@ -25,6 +25,7 @@ do disco versionado.
 
     python3 backend/scripts/qa/checar_changelog_mcp.py
 """
+
 from __future__ import annotations
 
 import json
@@ -34,6 +35,21 @@ from pathlib import Path
 
 RAIZ = Path("/opt/conecta-pro")
 CHANGELOG = RAIZ / "mcp-server" / "changelog.json"
+
+GIT = "/usr/bin/git"  # nosec B607 — ruff S607 recusa executável parcial
+
+
+def _so_mexe_no_changelog(commit: str) -> bool:
+    """O commit toca APENAS `mcp-server/changelog.json`? Então é a regeneração se registrando."""
+    tocados = subprocess.run(  # noqa: S603 — commit vem do próprio git log
+        [GIT, "show", "--name-only", "--pretty=format:", commit],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.splitlines()
+    linhas = [t.strip() for t in tocados if t.strip()]
+    return bool(linhas) and all(t == "mcp-server/changelog.json" for t in linhas)
 
 
 def main() -> int:
@@ -52,8 +68,11 @@ def main() -> int:
         return 1
 
     r = subprocess.run(  # noqa: S603 — argumentos fixos
-        ["git", "log", "-1", "--pretty=format:%h", "--", "mcp-server/"],
-        cwd=RAIZ, capture_output=True, text=True, check=False,
+        [GIT, "log", "-1", "--pretty=format:%h", "--", "mcp-server/"],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode != 0 or not r.stdout.strip():
         print("NÃO VERIFICADO: não consegui ler o git log de mcp-server/.")
@@ -68,17 +87,23 @@ def main() -> int:
     #
     # ponytail: tolerância fixa de 1. Se o gerador virar hook de pré-commit, o piso cai a 0.
     atrasados = subprocess.run(  # noqa: S603
-        ["git", "log", "--pretty=format:%h|%s", f"{no_arquivo}..HEAD", "--", "mcp-server/"],
-        cwd=RAIZ, capture_output=True, text=True, check=False,
+        [GIT, "log", "--pretty=format:%h|%s", f"{no_arquivo}..HEAD", "--", "mcp-server/"],
+        cwd=RAIZ,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout.strip()
-    pendentes = [l for l in atrasados.splitlines() if l.strip()]
+    # Commit que só mexe no próprio changelog.json não é mudança do conector — e contá-lo
+    # fazia a trava NUNCA convergir: regenerar criava um commit em `mcp-server/`, que voltava
+    # como pendente na execução seguinte, junto do próximo commit real. Era a segunda pendência
+    # das duas que ela acusava em 17/09/2026. O gerador (`mcp-server/gerar_changelog.py`) exclui
+    # os mesmos commits, então os dois lados concordam.
+    pendentes = [l for l in atrasados.splitlines() if l.strip() and not _so_mexe_no_changelog(l.split("|", 1)[0])]
     if not pendentes:
-        print(f"OK changelog em dia — topo {no_arquivo} ({entradas[0].get('data')}), "
-              f"{len(entradas)} entradas")
+        print(f"OK changelog em dia — topo {no_arquivo} ({entradas[0].get('data')}), {len(entradas)} entradas")
         return 0
     if len(pendentes) == 1:
-        print(f"OK changelog um commit atrás (inerente) — topo {no_arquivo}, "
-              f"pendente: {pendentes[0][:70]}")
+        print(f"OK changelog um commit atrás (inerente) — topo {no_arquivo}, pendente: {pendentes[0][:70]}")
         return 0
 
     print("  changelog ATRÁS do código:")

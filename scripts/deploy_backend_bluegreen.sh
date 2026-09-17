@@ -49,6 +49,31 @@ wait_health() {  # $1 = porta, $2 = nome
 
 cleanup_green() { $COMPOSE_BG rm -sf backend-green >/dev/null 2>&1; }
 
+# ── O sandbox do MCP e a porta 8081 ──────────────────────────────────────────
+# `conecta-pro-backend-staging` publica em 127.0.0.1:8081 — a MESMA porta do green. Em
+# 14/09/2026 um deploy o matou (Exited 137) para tomar a porta e ninguém religou: o R07 do
+# `test_regressao_mcp` — "o caso mais importante da suíte", o que prova que o sandbox não
+# vaza para produção — ficou 3 dias vermelho com `Name or service not known`.
+# Agora o deploy para o staging de propósito e o devolve no fim. O `conecta-pro-mcp` fala com
+# ele pela `conecta-staging-network`, que o compose do conector já declara — container parado
+# some do DNS da rede, e é daí que vem o `Name or service not known`.
+STAGING="conecta-pro-backend-staging"
+STAGING_ESTAVA_DE_PE=0
+
+parar_sandbox_mcp() {
+  if [ -n "$(docker ps -q -f name="^${STAGING}$")" ]; then
+    STAGING_ESTAVA_DE_PE=1
+    log "  parando $STAGING (ele ocupa a 8081 que o green precisa)"
+    docker stop "$STAGING" >/dev/null 2>&1 || true
+  fi
+}
+
+religar_sandbox_mcp() {
+  [ "$STAGING_ESTAVA_DE_PE" = "1" ] || return 0
+  docker start "$STAGING" >/dev/null 2>&1 || { log "  AVISO: não consegui religar $STAGING"; return 0; }
+  log "  $STAGING de volta (sandbox do MCP)"
+}
+
 # Serviços do compose de celery declarados sobre a imagem do backend. Lido do ARQUIVO, não
 # de `docker ps`: container já recriado mostra a tag, container antigo mostra só o hash da
 # imagem que a tag deixou de apontar — usar o que está rodando faria a lista encolher a cada
@@ -90,7 +115,11 @@ fi
 if ! mkdir "$LOCK" 2>/dev/null; then
   log "ERRO: lock ocupado ($LOCK) — outro deploy em andamento"; exit 1
 fi
-trap 'rm -rf "$LOCK" 2>/dev/null' EXIT  # rm -rf (não rmdir): libera mesmo se houver owner file dentro (senão o lock vaza e trava o fanout)
+# rm -rf (não rmdir): libera mesmo se houver owner file dentro (senão o lock vaza e trava o
+# fanout). `religar_sandbox_mcp` vai JUNTO no trap porque o deploy aborta em quatro pontos
+# (green não sobe, nginx não vira, primário não volta, imagem não resolve) e em nenhum deles
+# passaria pelo fim — foi exatamente assim que o staging ficou 3 dias fora do ar.
+trap 'religar_sandbox_mcp 2>/dev/null; rm -rf "$LOCK" 2>/dev/null' EXIT
 # Quem está segurando — o `com_lock.sh` lê isto para a espera não ser cega ("lock ocupado
 # por: deploy blue/green pid=X desde HH:MM" é acionável; "lock ocupado" não é).
 printf 'deploy blue/green pid=%s desde=%s\n' "$$" "$(date '+%F %T')" > "$LOCK/owner" 2>/dev/null
@@ -149,6 +178,7 @@ log "  imagem deste deploy: $BACKEND_IMAGE"
 
 # 2. Sobe GREEN com a imagem nova (tráfego segue no primário)
 log "2/7 subindo green (8081)..."
+parar_sandbox_mcp
 $COMPOSE_BG up -d --no-deps backend-green >>"$LOG" 2>&1 || { log "ERRO ao subir green"; cleanup_green; exit 1; }
 wait_health 8081 "green" || { cleanup_green; log "ABORTADO — tráfego intocado no primário"; exit 1; }
 
