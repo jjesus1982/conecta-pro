@@ -236,6 +236,14 @@ def avisar_pendentes(
         rel["erro_smtp"] = str(exc)[:120]
         server = None
     rel["whatsapp"] = 0
+    # Quem pediu para não receber mensagem não recebe — inclusive cobrança. A lista é a MESMA
+    # que o lembrete de ponto respeita desde que nasceu (`crm_followup_optout`); este serviço
+    # a ignorava, e um "pare de me mandar mensagem" valia num canal e não no outro.
+    # `_so_digitos` vem de lá importado, não copiado: duas versões do "só os dígitos"
+    # divergindo é opt-out pela metade. Import tardio para não amarrar o boot a `operacional`.
+    from modules.operacional.lembrete_ponto import _so_digitos
+
+    optout = {c for (c,) in db.execute(text("SELECT phone_canonical FROM crm_followup_optout")).all()}
     try:
         for r in linhas:
             resumo = _lista_legivel(r["tipos"], r["qtd"])
@@ -255,7 +263,7 @@ def avisar_pendentes(
             # a Bianca meses sem receber: o celular cadastrado não existia no WhatsApp e o
             # número de verdade estava no campo `telefone`.
             for fone in (r.get("fone"), r.get("fone_alt")):
-                if not fone:
+                if not fone or _so_digitos(fone) in optout:
                     continue
                 try:
                     if enviar_whatsapp(fone, mensagem_whatsapp(r["nome"], resumo)):

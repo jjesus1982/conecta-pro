@@ -15,7 +15,10 @@ uma delas é uma chance de a cobrança bater na porta errada e ninguém perceber
 1. Quando o primeiro número é recusado, o envio TENTA O SEGUNDO.
 2. Quando o segundo é aceito, o lembrete registrado nomeia o número que de fato recebeu —
    senão o histórico mente sobre onde a mensagem caiu.
-3. Quando o primeiro é aceito, o segundo NÃO é tentado: ninguém recebe a mesma cobrança duas
+3. Número na lista de opt-out (`crm_followup_optout`) NÃO é tentado — nem como segunda
+   opção. É a mesma lista que o lembrete de ponto respeita desde que nasceu; a cobrança a
+   ignorava, e um «pare de me mandar mensagem» valia num canal e não no outro.
+4. Quando o primeiro é aceito, o segundo NÃO é tentado: ninguém recebe a mesma cobrança duas
    vezes.
 
 A trava mede a SAÍDA da função — ela chama `avisar_pendentes` de verdade, com o envio de
@@ -125,7 +128,18 @@ def main() -> int:
             if FONE_VIVO not in msg or FONE_MORTO in msg:
                 falhas.append(f"o lembrete não nomeia o número que recebeu: {msg!r}")
 
-            # 3 · primeiro número vivo → o segundo NÃO é tentado (nada de cobrança dobrada)
+            # 3 · número na lista de opt-out NÃO é tentado, nem como segunda opção
+            chamadas.clear()
+            db.execute(
+                text("INSERT INTO crm_followup_optout (phone_canonical, motivo) VALUES (:p, 'ZZ oráculo')"),
+                {"p": FONE_VIVO},
+            )
+            serv.avisar_pendentes(db, dry_run=False, employee_id=eid, ignorar_janela=True)
+            if FONE_VIVO in chamadas:
+                falhas.append(f"mandou para número em opt-out: {chamadas}")
+            db.execute(text("DELETE FROM crm_followup_optout WHERE phone_canonical = :p"), {"p": FONE_VIVO})
+
+            # 4 · primeiro número vivo → o segundo NÃO é tentado (nada de cobrança dobrada)
             chamadas.clear()
             serv.enviar_whatsapp = lambda fone, texto: chamadas.append(fone) or True
             serv.avisar_pendentes(db, dry_run=False, employee_id=eid, ignorar_janela=True)
