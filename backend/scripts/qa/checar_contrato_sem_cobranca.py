@@ -30,10 +30,10 @@ custar dinheiro.
 
     python3 backend/scripts/qa/checar_contrato_sem_cobranca.py
 """
+
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 
 sys.path.insert(0, "/app")
@@ -46,7 +46,16 @@ SELECT c.contract_number,
          WHERE i.contract_id = c.id AND coalesce(i.is_active, true)) AS parcelas,
        (SELECT count(*) FROM receivable_accounts r
          WHERE coalesce(r.origem::text, '') = 'contrato'
-           AND coalesce(r.description, '') ILIKE '%' || c.contract_number || '%') AS recebiveis_proximos
+           AND coalesce(r.description, '') ILIKE '%' || c.contract_number || '%') AS recebiveis_proximos,
+       -- 17/09/2026: contar linha não basta. Depois que a ponte passou a existir
+       -- (`gerar_recebiveis_valor_unico`), a regressão PROVÁVEL deixou de ser "zero
+       -- recebíveis" e virou "recebíveis a menos" — uma parcela do cronograma que a ponte
+       -- não leu, ou um `service_type` novo fora de `_TIPOS_DO_CRONOGRAMA`. Cinco linhas
+       -- com quatro parcelas parece saudável e esconde R$ 7.720.
+       (SELECT coalesce(sum(r.gross_value), 0) FROM receivable_accounts r
+         WHERE coalesce(r.origem::text, '') = 'contrato'
+           AND coalesce(r.description, '') ILIKE '%' || c.contract_number || '%'
+           AND r.status <> 'cancelada') AS soma_recebiveis
   FROM contracts c
   LEFT JOIN clients cl ON cl.id = c.client_id
  WHERE c.contract_type::text = 'one_time'
@@ -64,13 +73,38 @@ async def main() -> int:
 
     orfaos = [r for r in linhas if not r["recebiveis_proximos"]]
     for r in orfaos:
-        print(f"💰 {r['contract_number']} · {r['cliente'][:34]} · R$ {r['total']:,.2f} "
-              f"em {r['parcelas']} parcela(s) — sem conta a receber")
+        print(
+            f"💰 {r['contract_number']} · {r['cliente'][:34]} · R$ {r['total']:,.2f} "
+            f"em {r['parcelas']} parcela(s) — sem conta a receber"
+        )
 
-    print(f"\nTOTAL contratos de valor único ativos sem cobrança: {len(orfaos)} "
-          f"(de {len(linhas)} ativo(s))")
+    # Tolerância de 1 centavo: o cronograma é dividido em N parcelas e o arredondamento da
+    # última é legítimo. Diferença maior que isso é parcela faltando ou sobrando.
+    truncos = [
+        r for r in linhas if r["recebiveis_proximos"] and abs(float(r["soma_recebiveis"]) - float(r["total"])) > 0.01
+    ]
+    for r in truncos:
+        falta = float(r["total"]) - float(r["soma_recebiveis"])
+        print(
+            f"➗ {r['contract_number']} · {r['cliente'][:34]} · contrato R$ {float(r['total']):,.2f} "
+            f"× recebíveis R$ {float(r['soma_recebiveis']):,.2f} — "
+            f"{'falta' if falta > 0 else 'sobra'} R$ {abs(falta):,.2f} "
+            f"em {r['recebiveis_proximos']} linha(s) para {r['parcelas']} parcela(s)"
+        )
+
+    achados = len(orfaos) + len(truncos)
+    print(f"\nTOTAL contratos de valor único ativos sem cobrança: {achados} (de {len(linhas)} ativo(s))")
     if orfaos:
         print("O cronograma está em contract_items e o contas a receber não sabe dele.")
+        print(
+            "Ponte: modules.financial.services.receivable_contract_service.gerar_recebiveis_valor_unico(preview=False)"
+        )
+    if truncos:
+        print(
+            "Há recebíveis, mas eles não somam o contrato — parcela do cronograma que a "
+            "ponte não leu (`service_type` fora de _TIPOS_DO_CRONOGRAMA?)."
+        )
+    if achados:
         print("FAIL checar_contrato_sem_cobranca")
         return 1
     print("OK checar_contrato_sem_cobranca")

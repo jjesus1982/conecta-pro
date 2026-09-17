@@ -2,12 +2,11 @@
 Controller (endpoints) para Gestão de Contratos.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-import re
-
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,10 +213,15 @@ async def gerar_pdf_por_modelo(
             "contratada": res.contratada.razao_social,
             "contratada_cnpj": res.contratada.cnpj,
             "minuta": bool(minuta),
-            **({"aviso": f"PDF de {round(len(res.pdf) / 1024)} KB — base64 OMITIDO para não "
-                         f"estourar a conversa. Confira pelo `texto_extraido`; "
-                         f"`forcar_base64=1` traz o arquivo assim mesmo."}
-               if grande else {}),
+            **(
+                {
+                    "aviso": f"PDF de {round(len(res.pdf) / 1024)} KB — base64 OMITIDO para não "
+                    f"estourar a conversa. Confira pelo `texto_extraido`; "
+                    f"`forcar_base64=1` traz o arquivo assim mesmo."
+                }
+                if grande
+                else {}
+            ),
         }
 
     fname = f"contrato_{contract_id.replace('/', '-')}.pdf"
@@ -248,8 +252,8 @@ async def abrir_assinatura_contrato(
     O hash é do PDF renderizado NESTE momento: é ele que a verificação confere depois. Se
     o contrato mudar, a assinatura anterior deixa de bater — que é o comportamento certo.
     """
-    from modules.crm.services import contract_signature as CS
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_signature as CS  # noqa: N812
+    from modules.crm.services import contract_wizard as W  # noqa: N812
     from modules.crm.services.contract_render import RenderError, renderizar_contrato
 
     try:
@@ -328,8 +332,8 @@ async def assinar_contrato_pela_empresa(
     Mesmo portão da emissão: só Jordan e Pyetra assinam pela empresa. Depois disto o link
     do cliente pode ser enviado — e não antes.
     """
-    from modules.crm.services import contract_signature as CS
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_signature as CS  # noqa: N812
+    from modules.crm.services import contract_wizard as W  # noqa: N812
     from modules.crm.services.contract_render import RenderError, renderizar_contrato
 
     W.exigir_emitente(current_user)
@@ -380,8 +384,8 @@ async def enviar_link_assinatura(
     dispara o convite. Nunca manda o código junto — o código vai depois, para o e-mail
     que a pessoa informar na própria tela.
     """
-    from modules.crm.services import contract_signature as CS
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_signature as CS  # noqa: N812
+    from modules.crm.services import contract_wizard as W  # noqa: N812
 
     W.exigir_emitente(current_user)
     papel = "customer" if parte.lower().startswith(("cli", "cont_ante", "contratante")) else "company"
@@ -509,14 +513,21 @@ async def status_assinaturas_contrato(
     # quem lesse concluiria que só faltava o cliente. Faltavam os dois.
     hash_atual = (
         await db.execute(
-            text("SELECT document_hash FROM sig_signature_requests WHERE reference_code=:k "
-                 "ORDER BY created_at DESC LIMIT 1"), {"k": num})).scalar()
+            text(
+                "SELECT document_hash FROM sig_signature_requests WHERE reference_code=:k "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"k": num},
+        )
+    ).scalar()
     for a_ in assinadas:
         h = str(a_.get("hash") or "")
         if hash_atual and h and h != hash_atual:
             a_["cobre_documento_atual"] = False
-            a_["aviso"] = ("assinou uma VERSÃO ANTERIOR do documento; o instrumento mudou "
-                           "depois disso e precisa ser assinado de novo")
+            a_["aviso"] = (
+                "assinou uma VERSÃO ANTERIOR do documento; o instrumento mudou "
+                "depois disso e precisa ser assinado de novo"
+            )
         elif hash_atual:
             a_["cobre_documento_atual"] = True
 
@@ -528,8 +539,12 @@ async def status_assinaturas_contrato(
         # erro OPOSTO: `completo: true` num contrato que o CLIENTE nunca assinou, porque o
         # pedido dele tinha sido cancelado. Ninguém assinou menos por ter sido cancelado —
         # a assinatura continua faltando, e é disso que "completo" fala.
-        "completo": (bool(assinadas) and not pendentes and not encerradas
-                     and all(a_.get("cobre_documento_atual", True) for a_ in assinadas)),
+        "completo": (
+            bool(assinadas)
+            and not pendentes
+            and not encerradas
+            and all(a_.get("cobre_documento_atual", True) for a_ in assinadas)
+        ),
     }
     if encerradas:
         # aparecem SEPARADAS, não somem: "o pedido dela foi cancelado" é a informação que
@@ -554,7 +569,7 @@ async def briefing_contrato_novo(
     Mesma função que o chat usa, exposta por HTTP para o jurídico e o Cowork: as três
     superfícies fazem a MESMA pergunta na mesma ordem.
     """
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_wizard as W  # noqa: N812
 
     try:
         W.exigir_emitente(current_user)
@@ -607,10 +622,20 @@ async def validar_modelo(
     if not corpo or not chave:
         raise HTTPException(status_code=422, detail="Informe `corpo` e `contrato`.")
 
-    tpl = (await db.execute(text(
-        "SELECT t.id::text, t.name, t.service_type FROM contracts c "
-        "LEFT JOIN contract_templates t ON t.id = c.template_id "
-        "WHERE c.contract_number = :k OR c.id::text = :k"), {"k": chave})).mappings().first()
+    tpl = (
+        (
+            await db.execute(
+                text(
+                    "SELECT t.id::text, t.name, t.service_type FROM contracts c "
+                    "LEFT JOIN contract_templates t ON t.id = c.template_id "
+                    "WHERE c.contract_number = :k OR c.id::text = :k"
+                ),
+                {"k": chave},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if tpl is None:
         raise HTTPException(status_code=404, detail=f"Contrato não encontrado: {chave}")
 
@@ -630,9 +655,12 @@ async def validar_modelo(
         "com_valor": [v for v in usadas if v in ctx and v not in vazias],
         "viriam_vazias": sorted(vazias),
         "desconhecidas_do_erp": desconhecidas,
-        "dica": ("O ERP não conhece estas variáveis — ou você as escreveu com outro nome, "
-                 "ou elas precisam virar dado do contrato: " + ", ".join(desconhecidas))
-        if desconhecidas else "Todas as variáveis do corpo têm origem no ERP.",
+        "dica": (
+            "O ERP não conhece estas variáveis — ou você as escreveu com outro nome, "
+            "ou elas precisam virar dado do contrato: " + ", ".join(desconhecidas)
+        )
+        if desconhecidas
+        else "Todas as variáveis do corpo têm origem no ERP.",
     }
 
 
@@ -813,9 +841,9 @@ async def get_contract(
     # Apontado pelo Cowork em 11/09/2026 como ressalva do B1.
     item = ContractDetailResponse.model_validate(contract)
     if getattr(contract, "client_id", None) and not item.client_name:
-        cli = (await db.execute(
-            text("SELECT name, document_number FROM clients WHERE id = :i"),
-            {"i": contract.client_id})).first()
+        cli = (
+            await db.execute(text("SELECT name, document_number FROM clients WHERE id = :i"), {"i": contract.client_id})
+        ).first()
         if cli:
             item.client_name, item.client_document = cli[0], cli[1]
     return item
@@ -935,6 +963,11 @@ async def activate_contract(
 
     # MRR: contrato ativo recorrente -> lança a linha de faturamento (client_contracts).
     await _bridge_contract_to_billing(*_mrr_args)
+    # Valor único -> o cronograma de `contract_items` vira contas a receber. Caminho
+    # separado de propósito: valor único NÃO é MRR, e a ponte acima recusa (corretamente)
+    # tudo que não é recorrente. Até 17/09/2026 não havia o outro lado, e o CTR-2026-00022
+    # ficou 8 dias ativo com R$ 46.320,00 que o financeiro não sabia que ia receber.
+    await _bridge_contract_to_receivables(ctype_val=_mrr_args[1], num=_mrr_args[0])
 
     return ContractResponse.model_validate(contract)
 
@@ -1317,6 +1350,29 @@ async def delete_template(
 # ============================================================================
 # ATIVAR CONTRATO -> alimenta o MRR (cria a linha de billing em client_contracts)
 # ============================================================================
+
+
+async def _bridge_contract_to_receivables(ctype_val, num) -> bool:
+    """Contrato de VALOR ÚNICO ativo -> uma conta a receber por parcela do cronograma.
+
+    O serviço é síncrono (psycopg2) e idempotente por `code`; roda numa thread para não
+    bloquear o event loop. Best-effort como o irmão do MRR: ponte que falha não pode
+    impedir a ativação de um contrato — mas deixa rastro no log, e o
+    `checar_contrato_sem_cobranca` acusa no dia seguinte se o dinheiro não apareceu.
+    """
+    try:
+        if str(ctype_val or "").lower() != "one_time":
+            return False
+        import asyncio as _asyncio
+
+        from modules.financial.services.receivable_contract_service import gerar_recebiveis_valor_unico
+
+        r = await _asyncio.to_thread(gerar_recebiveis_valor_unico, False)
+        logger.info(f"Recebiveis: contrato {num} -> {r.get('criados')} parcela(s), R$ {r.get('valor_total')}")
+        return bool(r.get("criados"))
+    except Exception as exc:  # noqa: BLE001 — bridge nunca quebra a ativação
+        logger.warning(f"Bridge contrato->recebiveis falhou ({num}): {exc}")
+        return False
 
 
 async def _bridge_contract_to_billing(num, ctype_val, monthly, name, client_id, start_date) -> bool:
