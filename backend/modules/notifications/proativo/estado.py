@@ -20,6 +20,7 @@ Contrato (pós-review T3 + correção da fresta de família com 2+ regras):
   permanecem ativos (não reabrem como "novos" na rodada seguinte = sem spam
   duplo).
 """
+
 from __future__ import annotations
 
 import json
@@ -30,9 +31,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _NOW = "(now() AT TIME ZONE 'America/Manaus')"
 
 
-async def transicionar(db: AsyncSession, *, correlation_id: str, regra: str,
-                       severidade: str, title: str, body: str,
-                       destinatarios: list[str]) -> bool:
+async def texto_ja_escrito(db: AsyncSession, correlation_id: str) -> tuple[str, str] | None:
+    """O título e o corpo que a LLM já escreveu para este alerta, se ele continua ativo.
+
+    Origem: 17/09/2026. `tasks.py` chamava `redator.redigir()` — que é uma chamada paga ao LLM —
+    para TODO achado, a cada rodada de 15 minutos, ANTES de `transicionar` decidir se aquilo era
+    novo. Com 379 achados ativos isso dava ~29 mil chamadas por dia, madrugada inclusive.
+    Medido entre 10 e 15/09: 132.118 chamadas, US$ 19,89 — 97,4% de toda a conta do DeepSeek,
+    enquanto o José Luís inteiro custou US$ 0,22.
+
+    O texto de um alerta que persiste não muda: já está gravado aqui desde a primeira vez.
+    Reescrevê-lo é pagar de novo pela mesma frase.
+
+    Devolve None quando o alerta é NOVO ou foi resolvido e voltou — nesses casos há o que
+    escrever, e a chamada ao LLM se justifica.
+    """
+    r = (
+        await db.execute(
+            text("SELECT title, body FROM proativo_alert_state WHERE correlation_id = :c AND resolved_at IS NULL"),
+            {"c": correlation_id},
+        )
+    ).first()
+    if r and (r[0] or "").strip() and (r[1] or "").strip():
+        return r[0], r[1]
+    return None
+
+
+async def transicionar(
+    db: AsyncSession,
+    *,
+    correlation_id: str,
+    regra: str,
+    severidade: str,
+    title: str,
+    body: str,
+    destinatarios: list[str],
+) -> bool:
     """Transição atômica: True se ESTA chamada transicionou a condição para NOVA.
 
     Cada statement é atômico no Postgres; numa corrida só existe um vencedor por
@@ -45,15 +79,19 @@ async def transicionar(db: AsyncSession, *, correlation_id: str, regra: str,
        reabri uma condição resolvida (transição NOVA) → True.
     3) senão UPDATE last_seen_at/title/body (persistente) → False.
     """
-    row = (await db.execute(text(
-        f"INSERT INTO proativo_alert_state "
-        f"(correlation_id, regra, severidade, title, body, destinatarios, "
-        f" first_seen_at, last_seen_at, resolved_at, notified_individually) "
-        f"VALUES (:c, :r, :s, :t, :b, CAST(:d AS jsonb), {_NOW}, {_NOW}, NULL, true) "
-        f"ON CONFLICT (correlation_id) DO NOTHING "
-        f"RETURNING correlation_id"),
-        {"c": correlation_id, "r": regra, "s": severidade, "t": title,
-         "b": body, "d": json.dumps(destinatarios)})).first()
+    row = (
+        await db.execute(
+            text(
+                f"INSERT INTO proativo_alert_state "
+                f"(correlation_id, regra, severidade, title, body, destinatarios, "
+                f" first_seen_at, last_seen_at, resolved_at, notified_individually) "
+                f"VALUES (:c, :r, :s, :t, :b, CAST(:d AS jsonb), {_NOW}, {_NOW}, NULL, true) "
+                f"ON CONFLICT (correlation_id) DO NOTHING "
+                f"RETURNING correlation_id"
+            ),
+            {"c": correlation_id, "r": regra, "s": severidade, "t": title, "b": body, "d": json.dumps(destinatarios)},
+        )
+    ).first()
     if row is not None:
         return True  # EU criei → transição NOVA
 
@@ -62,27 +100,33 @@ async def transicionar(db: AsyncSession, *, correlation_id: str, regra: str,
     # texto do episódio anterior. `notified_individually=true` — simétrico ao
     # INSERT: o retorno True SEMPRE significa "dispare o alerta individual", e
     # o registro deve refletir que ele FOI (vai ser) notificado individualmente.
-    row = (await db.execute(text(
-        f"UPDATE proativo_alert_state SET "
-        f"  resolved_at=NULL, last_seen_at={_NOW}, notified_individually=true, "
-        f"  severidade=:s, title=:t, body=:b, destinatarios=CAST(:d AS jsonb) "
-        f"WHERE correlation_id=:c AND resolved_at IS NOT NULL "
-        f"RETURNING correlation_id"),
-        {"c": correlation_id, "s": severidade, "t": title, "b": body,
-         "d": json.dumps(destinatarios)})).first()
+    row = (
+        await db.execute(
+            text(
+                f"UPDATE proativo_alert_state SET "
+                f"  resolved_at=NULL, last_seen_at={_NOW}, notified_individually=true, "
+                f"  severidade=:s, title=:t, body=:b, destinatarios=CAST(:d AS jsonb) "
+                f"WHERE correlation_id=:c AND resolved_at IS NOT NULL "
+                f"RETURNING correlation_id"
+            ),
+            {"c": correlation_id, "s": severidade, "t": title, "b": body, "d": json.dumps(destinatarios)},
+        )
+    ).first()
     if row is not None:
         return True  # EU reabri → transição NOVA
 
     # Persistente: já estava ativa. Só toca last_seen_at + conteúdo do digest.
-    await db.execute(text(
-        f"UPDATE proativo_alert_state SET last_seen_at={_NOW}, title=:t, body=:b "
-        f"WHERE correlation_id=:c AND resolved_at IS NULL"),
-        {"c": correlation_id, "t": title, "b": body})
+    await db.execute(
+        text(
+            f"UPDATE proativo_alert_state SET last_seen_at={_NOW}, title=:t, body=:b "
+            f"WHERE correlation_id=:c AND resolved_at IS NULL"
+        ),
+        {"c": correlation_id, "t": title, "b": body},
+    )
     return False
 
 
-async def marcar_resolvidos(db: AsyncSession, regra: str,
-                            ativos_regra: set[str]) -> int:
+async def marcar_resolvidos(db: AsyncSession, regra: str, ativos_regra: set[str]) -> int:
     """Resolve as linhas ATIVAS da `regra` que não estão mais entre os ativos.
 
     ESCOPADO POR REGRA (não por família): chame 1x por regra e SÓ para regras
@@ -96,39 +140,61 @@ async def marcar_resolvidos(db: AsyncSession, regra: str,
     todas as ativas DELA (nunca de outra regra).
     """
     if ativos_regra:
-        r = await db.execute(text(
-            f"UPDATE proativo_alert_state SET resolved_at={_NOW} "
-            f"WHERE resolved_at IS NULL AND regra = :regra "
-            f"AND NOT (correlation_id = ANY(:ativos))"),
-            {"regra": regra, "ativos": list(ativos_regra)})
+        r = await db.execute(
+            text(
+                f"UPDATE proativo_alert_state SET resolved_at={_NOW} "
+                f"WHERE resolved_at IS NULL AND regra = :regra "
+                f"AND NOT (correlation_id = ANY(:ativos))"
+            ),
+            {"regra": regra, "ativos": list(ativos_regra)},
+        )
     else:
-        r = await db.execute(text(
-            f"UPDATE proativo_alert_state SET resolved_at={_NOW} "
-            f"WHERE resolved_at IS NULL AND regra = :regra"),
-            {"regra": regra})
+        r = await db.execute(
+            text(f"UPDATE proativo_alert_state SET resolved_at={_NOW} WHERE resolved_at IS NULL AND regra = :regra"),
+            {"regra": regra},
+        )
     return r.rowcount or 0
 
 
-async def persistentes_ativos(db: AsyncSession,
-                              regra: str | None = None) -> list[dict]:
+async def persistentes_ativos(db: AsyncSession, regra: str | None = None) -> list[dict]:
     """Insumo do digest: condições ativas (resolved_at IS NULL). Filtra por
     regra quando informado."""
     if regra is not None:
-        rows = (await db.execute(text(
-            "SELECT correlation_id, regra, severidade, title, body, destinatarios "
-            "FROM proativo_alert_state WHERE resolved_at IS NULL AND regra = :regra "
-            "ORDER BY severidade DESC, last_seen_at DESC"),
-            {"regra": regra})).mappings().all()
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT correlation_id, regra, severidade, title, body, destinatarios "
+                        "FROM proativo_alert_state WHERE resolved_at IS NULL AND regra = :regra "
+                        "ORDER BY severidade DESC, last_seen_at DESC"
+                    ),
+                    {"regra": regra},
+                )
+            )
+            .mappings()
+            .all()
+        )
     else:
-        rows = (await db.execute(text(
-            "SELECT correlation_id, regra, severidade, title, body, destinatarios "
-            "FROM proativo_alert_state WHERE resolved_at IS NULL "
-            "ORDER BY severidade DESC, last_seen_at DESC"))).mappings().all()
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT correlation_id, regra, severidade, title, body, destinatarios "
+                        "FROM proativo_alert_state WHERE resolved_at IS NULL "
+                        "ORDER BY severidade DESC, last_seen_at DESC"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
     return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":
-    import asyncio, os
+    import asyncio
+    import os
+
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -146,15 +212,14 @@ if __name__ == "__main__":
         cids = [a1, b1]
 
         def kw(cid: str, regra: str) -> dict:
-            return dict(correlation_id=cid, regra=regra, severidade="critico",
-                        title="t", body="b", destinatarios=["u1"])
+            return dict(  # noqa: C408
+                correlation_id=cid, regra=regra, severidade="critico", title="t", body="b", destinatarios=["u1"]
+            )
 
         async with Session() as db:
             try:
                 # higieniza resquício de execução anterior
-                await db.execute(text(
-                    "DELETE FROM proativo_alert_state WHERE correlation_id = ANY(:c)"),
-                    {"c": cids})
+                await db.execute(text("DELETE FROM proativo_alert_state WHERE correlation_id = ANY(:c)"), {"c": cids})
                 await db.commit()
 
                 # ── 4 PONTAS via transicionar ─────────────────────────────────
@@ -165,8 +230,7 @@ if __name__ == "__main__":
                 assert await transicionar(db, **kw(a1, REGRA_A)) is False, "persistente deveria ser False"
                 await db.commit()
                 # aparece em persistentes_ativos (escopo regra)
-                assert any(r["correlation_id"] == a1
-                           for r in await persistentes_ativos(db, regra=REGRA_A))
+                assert any(r["correlation_id"] == a1 for r in await persistentes_ativos(db, regra=REGRA_A))
 
                 # ── REGRA A (financeiro) FALHA, REGRA B (financeiro) RESOLVE ──
                 # B também está ativa — mesma FAMÍLIA que A, mas REGRA distinta.
@@ -178,13 +242,14 @@ if __name__ == "__main__":
                 assert nB >= 1, f"B deveria resolver, nB={nB}"
                 # A permanece ATIVA — não foi tocada por marcar_resolvidos da regra
                 # vizinha da MESMA família (a fresta que este fix fecha)
-                assert any(r["correlation_id"] == a1
-                           for r in await persistentes_ativos(db, regra=REGRA_A)), \
-                    "A deve permanecer ATIVA quando sua regra falha, mesmo com B " \
+                assert any(r["correlation_id"] == a1 for r in await persistentes_ativos(db, regra=REGRA_A)), (
+                    "A deve permanecer ATIVA quando sua regra falha, mesmo com B "
                     "(mesma família) resolvendo com sucesso na mesma rodada"
+                )
                 # e continua persistente (não virou 'novo' → não haveria re-alerta)
-                assert await transicionar(db, **kw(a1, REGRA_A)) is False, \
+                assert await transicionar(db, **kw(a1, REGRA_A)) is False, (
                     "A ativa deve seguir persistente (False), não reabrir"
+                )
                 await db.commit()
 
                 # (3+4) RESOLVER e REABRIR: resolve A, e nova transição vira True
@@ -196,33 +261,35 @@ if __name__ == "__main__":
                 await db.commit()
                 # reabertura grava notified_individually=true (simétrico ao INSERT:
                 # retorno True SEMPRE dispara o alerta individual)
-                ni = (await db.execute(text(
-                    "SELECT notified_individually FROM proativo_alert_state "
-                    "WHERE correlation_id = :c"), {"c": a1})).scalar()
+                ni = (
+                    await db.execute(
+                        text("SELECT notified_individually FROM proativo_alert_state WHERE correlation_id = :c"),
+                        {"c": a1},
+                    )
+                ).scalar()
                 assert ni is True, f"reabertura deveria gravar notified_individually=true, veio {ni}"
 
                 # ── CORRIDA: 2 transicionar sequenciais do MESMO cid NOVO → 1 True ─
-                await db.execute(text(
-                    "DELETE FROM proativo_alert_state WHERE correlation_id = :c"),
-                    {"c": b1})
+                await db.execute(text("DELETE FROM proativo_alert_state WHERE correlation_id = :c"), {"c": b1})
                 await db.commit()
                 r1 = await transicionar(db, **kw(b1, REGRA_B))
                 r2 = await transicionar(db, **kw(b1, REGRA_B))
                 await db.commit()
-                assert (r1, r2) == (True, False), \
-                    f"corrida deu ({r1},{r2}), esperado exatamente 1 True → (True,False)"
+                assert (r1, r2) == (True, False), f"corrida deu ({r1},{r2}), esperado exatamente 1 True → (True,False)"
 
-                print("OK estado — 4 pontas via transicionar + regra-A-falha isolada "
-                      "da regra-B-mesma-família + reabertura notified_individually=true "
-                      "+ corrida (1 vencedor)")
+                print(
+                    "OK estado — 4 pontas via transicionar + regra-A-falha isolada "
+                    "da regra-B-mesma-família + reabertura notified_individually=true "
+                    "+ corrida (1 vencedor)"
+                )
             finally:
-                await db.execute(text(
-                    "DELETE FROM proativo_alert_state WHERE correlation_id = ANY(:c)"),
-                    {"c": cids})
+                await db.execute(text("DELETE FROM proativo_alert_state WHERE correlation_id = ANY(:c)"), {"c": cids})
                 await db.commit()
-                rem = (await db.execute(text(
-                    "SELECT count(*) FROM proativo_alert_state WHERE correlation_id = ANY(:c)"),
-                    {"c": cids})).scalar()
+                rem = (
+                    await db.execute(
+                        text("SELECT count(*) FROM proativo_alert_state WHERE correlation_id = ANY(:c)"), {"c": cids}
+                    )
+                ).scalar()
                 assert rem == 0, f"remanescentes={rem}"
         await eng.dispose()
 

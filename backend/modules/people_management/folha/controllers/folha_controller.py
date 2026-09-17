@@ -422,11 +422,31 @@ def baixar_recibo_vt_vr_pdf(
 
     pdf = montar_recibo_vt_vr_pdf(result, fdad, vt_concedido=vt_concedido, signatarios=_signatarios)
 
+    # O PDF PRECISA IR PARA O DISCO. Origem: 17/09/2026 — as 54 solicitações do lote nasceram
+    # sem `document_path`, e a rota que o Meu Espaço usa para abrir o documento
+    # (GET /signatures/{id}/documento) devolve 404 "PDF da solicitação não está no disco".
+    # O funcionário veria o recibo na lista e não conseguiria abrir nem assinar. Os recibos
+    # antigos que funcionam moram em /app/uploads/recibos_vtvr/ — mesmo lugar.
+    _caminho = None
+    try:
+        import pathlib as _pl
+
+        _dir = _pl.Path("/app/uploads/recibos_vtvr")
+        _dir.mkdir(parents=True, exist_ok=True)
+        _arq = _dir / f"recibo_{employee_id}_{ano}-{mes:02d}.pdf"
+        _arq.write_bytes(pdf)
+        _caminho = str(_arq)
+    except Exception as _e:  # noqa: BLE001
+        import logging as _lg2
+
+        _lg2.getLogger(__name__).warning("Recibo VT/VR não gravado em disco: %s", _e)
+
     try:
         garantir_solicitacao_assinatura_sync(
             document_type="recibo_vt_vr",
             document_id=_doc_id_recibo,
             title=f"Recibo VT/VR {mes:02d}/{ano} - {result.get('employee_nome') or 'colaborador'}",
+            document_path=_caminho,
             document_hash=_dhash(pdf),
             employee_id=employee_id,
             employee_name=result.get("employee_nome"),

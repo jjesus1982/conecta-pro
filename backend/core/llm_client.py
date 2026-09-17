@@ -21,6 +21,7 @@ Uso:
     client = novo_cliente(origem="agente.chat")        # async
     client = novo_cliente(origem="sophia", sincrono=True)
 """
+
 from __future__ import annotations
 
 import os
@@ -42,7 +43,15 @@ PRECOS: dict[str, tuple[float, float]] = {
     "text-embedding-3-small": (0.02, 0.0),
     "text-embedding-3-large": (0.13, 0.0),
     "deepseek-v4-flash": (0.22, 0.66),
+    # O nome que a API DEVOLVE não é o que a gente ENVIA: mandamos "deepseek-v4-flash" e o
+    # `usage.model` volta "deepseek-flash". O casamento é por prefixo
+    # ("deepseek-flash".startswith("deepseek-v4-flash") é False), então nenhum preço casava e
+    # `custo_usd` gravava NULL — 132.753 linhas, exatamente o período em que os US$ 20 sumiram.
+    # O painel de custo ficou em branco justamente quando havia o que ver. (17/09/2026)
+    "deepseek-flash": (0.22, 0.66),
     "deepseek-v4-pro": (0.66, 1.98),
+    "deepseek-pro": (0.66, 1.98),
+    "gpt-4.1": (2.00, 8.00),
     "gemini-3.7-flash": (0.75, 3.75),
     "claude-haiku-4-5": (1.00, 5.00),
     "glm-5.2": (0.60, 2.20),
@@ -82,8 +91,7 @@ def custo_usd(modelo: str, entrada: int, saida: int, cache_hit: int = 0) -> floa
     pc = _preco_cache(modelo)
     cacheado = min(max(cache_hit, 0), entrada) if pc is not None else 0
     novo = entrada - cacheado
-    return round(novo / 1_000_000 * p[0] + cacheado / 1_000_000 * (pc or 0.0)
-                 + saida / 1_000_000 * p[1], 6)
+    return round(novo / 1_000_000 * p[0] + cacheado / 1_000_000 * (pc or 0.0) + saida / 1_000_000 * p[1], 6)
 
 
 def _base_url() -> str | None:
@@ -130,9 +138,18 @@ def _key_openai() -> str | None:
     return (os.getenv("OPENAI_API_KEY") or "").strip() or None
 
 
-def registrar_uso(*, modelo: str, origem: str, entrada: int, saida: int,
-                  duracao_ms: int, ok: bool, erro: str | None = None,
-                  provedor: str | None = None, cache_hit: int = 0) -> None:
+def registrar_uso(
+    *,
+    modelo: str,
+    origem: str,
+    entrada: int,
+    saida: int,
+    duracao_ms: int,
+    ok: bool,
+    erro: str | None = None,
+    provedor: str | None = None,
+    cache_hit: int = 0,
+) -> None:
     """Grava uma linha de consumo. Silencioso em caso de falha, de propósito."""
     try:
         from sqlalchemy import text  # noqa: PLC0415
@@ -141,17 +158,28 @@ def registrar_uso(*, modelo: str, origem: str, entrada: int, saida: int,
         from core.database.session import SyncSessionLocal  # noqa: PLC0415
 
         with SyncSessionLocal() as s:
-            s.execute(text("""
+            s.execute(
+                text("""
                 INSERT INTO llm_usage
                     (id, criado_em, provedor, modelo, origem, tokens_entrada, tokens_saida,
                      tokens_total, custo_usd, duracao_ms, ok, erro, tokens_cache)
                 VALUES (gen_random_uuid(), now(), :p, :m, :o, :e, :s, :t, :c, :d, :ok, :err,
                         :cache)
-            """), {"p": provedor or ("custom" if _base_url() else "openai"),
-                   "m": modelo, "o": origem[:120], "e": entrada, "s": saida,
-                   "t": entrada + saida, "c": custo_usd(modelo, entrada, saida, cache_hit),
-                   "d": duracao_ms, "ok": ok, "err": (erro or "")[:300] or None,
-                   "cache": cache_hit})
+            """),
+                {
+                    "p": provedor or ("custom" if _base_url() else "openai"),
+                    "m": modelo,
+                    "o": origem[:120],
+                    "e": entrada,
+                    "s": saida,
+                    "t": entrada + saida,
+                    "c": custo_usd(modelo, entrada, saida, cache_hit),
+                    "d": duracao_ms,
+                    "ok": ok,
+                    "err": (erro or "")[:300] or None,
+                    "cache": cache_hit,
+                },
+            )
             s.commit()
     except Exception as e:  # noqa: BLE001
         # WARNING, não DEBUG: telemetria que falha em silêncio vira telemetria inexistente,
@@ -203,9 +231,27 @@ def _erro_de_provedor(e: BaseException) -> bool:
     t = f"{type(e).__name__}: {e}".lower()
     if "400" in t or "badrequest" in t:
         return False
-    return any(k in t for k in ("402", "insufficient", "credit", "quota", "billing", "payment",
-                                 "401", "authentication", "429", "rate limit",
-                                 "connection", "timeout", "timed out", "503", "502", "500"))
+    return any(
+        k in t
+        for k in (
+            "402",
+            "insufficient",
+            "credit",
+            "quota",
+            "billing",
+            "payment",
+            "401",
+            "authentication",
+            "429",
+            "rate limit",
+            "connection",
+            "timeout",
+            "timed out",
+            "503",
+            "502",
+            "500",
+        )
+    )
 
 
 def _fallback_disponivel() -> bool:
@@ -219,7 +265,8 @@ def _fallback_disponivel() -> bool:
     ok = False
     try:
         import urllib.request  # noqa: PLC0415
-        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=3) as r:
+
+        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=3) as r:  # noqa: S310  # nosec B310 - LLM_BASE_URL local
             ok = r.status == 200 and modelo_fallback().split(":")[0] in r.read(4000).decode(errors="replace")
     except Exception as exc:  # noqa: BLE001
         logger.info("llm_fallback: local indisponível (%s: %s)", type(exc).__name__, str(exc)[:80])
@@ -229,6 +276,7 @@ def _fallback_disponivel() -> bool:
 
 def _cliente_fallback(assincrono: bool) -> Any:
     from openai import AsyncOpenAI, OpenAI  # noqa: PLC0415
+
     kw = {"api_key": "ollama", "base_url": _fallback_base(), "timeout": 240.0}
     return AsyncOpenAI(**kw) if assincrono else OpenAI(**kw)
 
@@ -248,24 +296,38 @@ def _refazer_local(a, kw, origem, assincrono):
 
     def _ok(r):
         u = getattr(r, "usage", None)
-        registrar_uso(modelo=modelo_fallback(), origem=origem + "|local",
-                      entrada=getattr(u, "prompt_tokens", 0) or 0,
-                      saida=getattr(u, "completion_tokens", 0) or 0,
-                      duracao_ms=int((time.perf_counter() - t1) * 1000), ok=True, provedor="ollama-local")
+        registrar_uso(
+            modelo=modelo_fallback(),
+            origem=origem + "|local",
+            entrada=getattr(u, "prompt_tokens", 0) or 0,
+            saida=getattr(u, "completion_tokens", 0) or 0,
+            duracao_ms=int((time.perf_counter() - t1) * 1000),
+            ok=True,
+            provedor="ollama-local",
+        )
         return r
 
     def _falhou(e2):
-        registrar_uso(modelo=modelo_fallback(), origem=origem + "|local", entrada=0, saida=0,
-                      duracao_ms=int((time.perf_counter() - t1) * 1000), ok=False,
-                      erro=f"{type(e2).__name__}: {e2}", provedor="ollama-local")
+        registrar_uso(
+            modelo=modelo_fallback(),
+            origem=origem + "|local",
+            entrada=0,
+            saida=0,
+            duracao_ms=int((time.perf_counter() - t1) * 1000),
+            ok=False,
+            erro=f"{type(e2).__name__}: {e2}",
+            provedor="ollama-local",
+        )
 
     if assincrono:
+
         async def _run():
             try:
                 return _ok(await _cliente_fallback(True).chat.completions.create(*a, **_kw_fallback(kw)))
             except Exception as e2:  # noqa: BLE001
                 _falhou(e2)
                 raise
+
         return _run()
     try:
         return _ok(_cliente_fallback(False).chat.completions.create(*a, **_kw_fallback(kw)))
@@ -279,15 +341,22 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
     original = client.chat.completions.create
 
     if assincrono:
+
         async def create(*a, **kw):
             t0 = time.perf_counter()
             modelo = kw.get("model") or "?"
             try:
                 r = await original(*a, **kw)
             except Exception as e:  # noqa: BLE001
-                registrar_uso(modelo=modelo, origem=origem, entrada=0, saida=0,
-                              duracao_ms=int((time.perf_counter() - t0) * 1000),
-                              ok=False, erro=f"{type(e).__name__}: {e}")
+                registrar_uso(
+                    modelo=modelo,
+                    origem=origem,
+                    entrada=0,
+                    saida=0,
+                    duracao_ms=int((time.perf_counter() - t0) * 1000),
+                    ok=False,
+                    erro=f"{type(e).__name__}: {e}",
+                )
                 if not (_erro_de_provedor(e) and _fallback_disponivel()):
                     raise
                 try:
@@ -295,22 +364,33 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
                 except Exception:  # noqa: BLE001 — o erro que vale é o do provedor principal
                     raise e
             u = getattr(r, "usage", None)
-            registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
-                          entrada=getattr(u, "prompt_tokens", 0) or 0,
-                          saida=getattr(u, "completion_tokens", 0) or 0,
-                          cache_hit=_cache_do_usage(u),
-                          duracao_ms=int((time.perf_counter() - t0) * 1000), ok=True)
+            registrar_uso(
+                modelo=getattr(r, "model", modelo),
+                origem=origem,
+                entrada=getattr(u, "prompt_tokens", 0) or 0,
+                saida=getattr(u, "completion_tokens", 0) or 0,
+                cache_hit=_cache_do_usage(u),
+                duracao_ms=int((time.perf_counter() - t0) * 1000),
+                ok=True,
+            )
             return r
     else:
+
         def create(*a, **kw):
             t0 = time.perf_counter()
             modelo = kw.get("model") or "?"
             try:
                 r = original(*a, **kw)
             except Exception as e:  # noqa: BLE001
-                registrar_uso(modelo=modelo, origem=origem, entrada=0, saida=0,
-                              duracao_ms=int((time.perf_counter() - t0) * 1000),
-                              ok=False, erro=f"{type(e).__name__}: {e}")
+                registrar_uso(
+                    modelo=modelo,
+                    origem=origem,
+                    entrada=0,
+                    saida=0,
+                    duracao_ms=int((time.perf_counter() - t0) * 1000),
+                    ok=False,
+                    erro=f"{type(e).__name__}: {e}",
+                )
                 if not (_erro_de_provedor(e) and _fallback_disponivel()):
                     raise
                 try:
@@ -318,19 +398,29 @@ def _envolver(client: Any, origem: str, assincrono: bool) -> Any:
                 except Exception:  # noqa: BLE001
                     raise e
             u = getattr(r, "usage", None)
-            registrar_uso(modelo=getattr(r, "model", modelo), origem=origem,
-                          entrada=getattr(u, "prompt_tokens", 0) or 0,
-                          saida=getattr(u, "completion_tokens", 0) or 0,
-                          cache_hit=_cache_do_usage(u),
-                          duracao_ms=int((time.perf_counter() - t0) * 1000), ok=True)
+            registrar_uso(
+                modelo=getattr(r, "model", modelo),
+                origem=origem,
+                entrada=getattr(u, "prompt_tokens", 0) or 0,
+                saida=getattr(u, "completion_tokens", 0) or 0,
+                cache_hit=_cache_do_usage(u),
+                duracao_ms=int((time.perf_counter() - t0) * 1000),
+                ok=True,
+            )
             return r
 
     client.chat.completions.create = create
     return client
 
 
-def novo_cliente(*, origem: str, timeout: float | None = None, sincrono: bool = False,
-                 api_key: str | None = None, servico: str = "chat") -> Any:
+def novo_cliente(
+    *,
+    origem: str,
+    timeout: float | None = None,
+    sincrono: bool = False,
+    api_key: str | None = None,
+    servico: str = "chat",
+) -> Any:
     """Cria o cliente LLM da casa. `origem` identifica quem gastou — sem ela a telemetria
     diz quanto se gastou e não diz onde, que é metade da informação.
 
@@ -345,7 +435,7 @@ def novo_cliente(*, origem: str, timeout: float | None = None, sincrono: bool = 
     # a DeepSeek e produziu 1.110 erros 401 em 3 horas, ~74 a cada 15 minutos, numa rotina
     # agendada que ninguém via falhar. Com base_url próprio, quem manda é LLM_API_KEY.
     if servico == "chat":
-        chave = (_api_key() if _base_url() else (api_key or _api_key()))
+        chave = _api_key() if _base_url() else (api_key or _api_key())
     else:
         chave = api_key or _key_openai() or _api_key()
     kw: dict[str, Any] = {"api_key": chave}
