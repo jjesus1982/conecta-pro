@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { PanelLeftClose, PanelLeft, Bell, Menu } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Search, Bell, Menu } from 'lucide-react';
 import { BuscaTelas } from './BuscaTelas';
 
 export type NavItem = { key: string; label: string; icon: ReactNode; href?: string };
@@ -88,6 +88,11 @@ export function ModuleShell({
             <Menu size={20} />
           </button>
           <div className="rd-crumb">{crumb}</div>
+          {/* filtro da tela; a busca de TELAS é o Ctrl+K do <BuscaTelas /> abaixo */}
+          <div className="rd-search">
+            <Search size={16} color="var(--placeholder)" />
+            <input placeholder="Buscar…" />
+          </div>
           <BuscaTelas />
           <button type="button" className="rd-icon-btn" aria-label="Notificações">
             <Bell size={18} />

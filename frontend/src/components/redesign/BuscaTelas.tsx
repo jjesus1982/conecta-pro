@@ -104,6 +104,14 @@ function alvosLocais(): Alvo[] {
   return out;
 }
 
+/**
+ * Painel de busca — abre com Ctrl+K (ou pelo botão da barra) e some com Esc.
+ *
+ * Deliberadamente NÃO substitui o campo «Buscar…» do topo: aquele filtra o conteúdo da tela
+ * ABERTA (a tabela), é outra função e é útil. Eu quase o troquei por este — o campo morto que
+ * eu tinha visto está no `shell.tsx`, que nenhuma tela usa. Duas buscas com papéis diferentes
+ * pedem dois lugares: o campo filtra o que está na frente, o Ctrl+K leva para outra tela.
+ */
 export function BuscaTelas() {
   const router = useRouter();
   const [termo, setTermo] = useState('');
@@ -183,35 +191,54 @@ export function BuscaTelas() {
     }
   };
 
+  if (!aberto) return null;
+
   return (
-    <div ref={caixa} className="rd-search" style={{ position: 'relative' }}>
-      <Search size={16} color="var(--placeholder)" />
-      <input
-        ref={campo}
-        value={termo}
-        placeholder="Buscar tela…  (Ctrl+K)"
-        onChange={(e) => { setTermo(e.target.value); setAberto(true); }}
-        onFocus={() => setAberto(true)}
-        onKeyDown={teclas}
-        aria-label="Buscar tela"
-        aria-expanded={aberto && achados.length > 0}
-        role="combobox"
-        aria-controls="rd-busca-lista"
-      />
-      {aberto && normalizar(termo).length >= 2 && (
-        <div
-          id="rd-busca-lista"
-          role="listbox"
-          style={{
-            position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 60,
-            background: 'var(--card, #12203f)', border: '1px solid var(--border, #24365f)',
-            borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,.38)',
-            maxHeight: 360, overflowY: 'auto', minWidth: 320,
-          }}
-        >
-          {achados.length === 0 ? (
-            <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--placeholder, #8ea2c9)' }}>
-              Nada com “{termo}”. Tente o nome do assunto — “assinatura”, “ponto”, “férias”.
+    <div
+      role="presentation"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) setAberto(false); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(3,8,20,.55)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh',
+      }}
+    >
+      <div
+        ref={caixa}
+        style={{
+          width: 'min(620px, 92vw)', background: 'var(--card, #12203f)',
+          border: '1px solid var(--border, #24365f)', borderRadius: 12,
+          boxShadow: '0 24px 60px rgba(0,0,0,.5)', overflow: 'hidden',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
+                      borderBottom: '1px solid var(--border, #24365f)' }}>
+          <Search size={17} color="var(--placeholder, #8ea2c9)" />
+          <input
+            ref={campo}
+            value={termo}
+            placeholder="Buscar tela pelo nome — assinatura, ponto, férias…"
+            onChange={(e) => setTermo(e.target.value)}
+            onKeyDown={teclas}
+            aria-label="Buscar tela"
+            autoFocus
+            style={{
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              color: 'inherit', fontSize: 15,
+            }}
+          />
+          <kbd style={{ fontSize: 10, opacity: .55, border: '1px solid currentColor',
+                        borderRadius: 4, padding: '1px 5px' }}>Esc</kbd>
+        </div>
+
+        <div role="listbox" aria-label="Telas encontradas" style={{ maxHeight: '52vh', overflowY: 'auto' }}>
+          {normalizar(termo).length < 2 ? (
+            <div style={{ padding: '18px 18px', fontSize: 13, color: 'var(--placeholder, #8ea2c9)' }}>
+              Digite o nome da tela. São {universo.length} telas — «assinatura», «diária»,
+              «ponto», «férias», «holerite».
+            </div>
+          ) : achados.length === 0 ? (
+            <div style={{ padding: '18px', fontSize: 13, color: 'var(--placeholder, #8ea2c9)' }}>
+              Nada com “{termo}”. A busca lê o NOME da tela — tente o assunto.
             </div>
           ) : (
             achados.map((a, i) => (
@@ -224,21 +251,21 @@ export function BuscaTelas() {
                 onClick={() => ir(a)}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  gap: 12, width: '100%', textAlign: 'left', padding: '9px 14px',
-                  background: i === cursor ? 'rgba(242,101,34,.14)' : 'transparent',
-                  border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 13,
+                  gap: 12, width: '100%', textAlign: 'left', padding: '11px 16px',
+                  background: i === cursor ? 'rgba(242,101,34,.16)' : 'transparent',
+                  border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14,
                 }}
               >
                 <span style={{ fontWeight: 500 }}>{a.label}</span>
                 <span style={{ fontSize: 11, color: 'var(--placeholder, #8ea2c9)', whiteSpace: 'nowrap' }}>
                   {titulo(a.slug)}
-                  {i === cursor && <CornerDownLeft size={11} style={{ marginLeft: 6, verticalAlign: -1 }} />}
+                  {i === cursor && <CornerDownLeft size={11} style={{ marginLeft: 7, verticalAlign: -1 }} />}
                 </span>
               </button>
             ))
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
