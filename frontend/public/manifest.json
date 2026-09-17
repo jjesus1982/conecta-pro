@@ -2,7 +2,7 @@
   "name": "Conecta PRO",
   "short_name": "ConectaPRO",
   "description": "Sistema ERP para gestao de vigilancia e seguranca patrimonial",
-  "start_url": "/dashboard",
+  "start_url": "/redesign",
   "display": "standalone",
   "orientation": "portrait-primary",
   "theme_color": "#10b981",
@@ -20,7 +20,10 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "lang": "pt-BR",
   "dir": "ltr",
   "scope": "/",

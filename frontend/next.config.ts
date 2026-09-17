@@ -140,6 +140,125 @@ const nextConfig: NextConfig = {
   // Redirects para URLs legadas
   async redirects() {
     return [
+      // ══ A VERSÃO CLÁSSICA MORREU — 17/09/2026 ════════════════════════════════════
+      //
+      // O Jordan: «a versão clássica tem que morrer, não pode mais ter, tá confundindo» — e
+      // depois, cobrando: «eu mandei matar ele, qual foi a parte que não entendeu?». Eram duas
+      // telas para a mesma coisa (/modulos/crm e /redesign/crm, /modulos/financeiro e
+      // /redesign/financeiro): é daí que vinha o «parece que tudo faz a mesma coisa».
+      //
+      // Redirect e não deleção porque link antigo não pode virar 404 — há links salvos, links
+      // mandados por WhatsApp e o atalho do app. Quem abrir o endereço velho chega na tela
+      // nova; a antiga deixa de existir para quem usa, que é o que o dono pediu.
+      //
+      // ROTA A ROTA, sem curinga, DE PROPÓSITO: o app do funcionário mora dentro do mesmo
+      // /modulos e é a parte mais usada do sistema. Um "/modulos/operacional/:path*" engoliria
+      // ronda-mobile (546 acessos de 13 aparelhos) e ocorrencia-rapida; um "/modulos/dp/:path*"
+      // engoliria dp/ponto. Ficam de fora, vivas: meu-espaco (1.853 acessos, o campeão do
+      // sistema), gestao-pessoas/ponto/batida (304 — onde os 52 batem ponto), /campo/*,
+      // presenca, passagem-turno e instrucoes-posto. Matar isso derrubaria o ponto eletrônico
+      // e a assinatura dos recibos na manhã seguinte.
+      { source: '/modulos/area-cliente', destination: '/redesign/area-do-cliente', permanent: true },
+      { source: '/modulos/area-cliente/gerenciamento', destination: '/redesign/area-do-cliente', permanent: true },
+      { source: '/modulos/configuracoes', destination: '/redesign/configuracoes', permanent: true },
+      { source: '/modulos/configuracoes/tenants', destination: '/redesign/configuracoes', permanent: true },
+      { source: '/modulos/configuracoes/usuarios', destination: '/redesign/configuracoes', permanent: true },
+      { source: '/modulos/crm', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/atividades', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/clientes', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/comissoes', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/consultor', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/contatos', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/contratos', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/growth', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/leads', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/oportunidades', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/precificacao', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/crm/propostas', destination: '/redesign/crm', permanent: true },
+      { source: '/modulos/dp', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/admissao', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/ativacao-ponto', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/beneficios', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/contratos', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/documentos', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/esocial', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/fechamento-ponto', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/ferias', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/folha', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/funcionarios', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/licencas', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/monitor-ponto', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/prestadores-pj', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/reembolsos', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/dp/rescisao', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/financeiro', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/banking', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/boletos', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/cobrancas', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/compras', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/conciliacao', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/contabilidade', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/contas-pagar', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/contas-receber', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/contratos', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/custeio', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/custos', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/dashboard', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/estoque', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/fluxo-caixa', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/fornecedores', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/inter', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/inter/pagamentos', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/nfse-entrada', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/pagamentos-diaristas', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/financeiro/pagamentos-pj', destination: '/redesign/financeiro', permanent: true },
+      { source: '/modulos/gestao-pessoas/[id]', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/consultor', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/certidoes', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/configuracoes', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/consultor', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/documentos', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/envios', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/gestao-pessoas/ged/montar-kit', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/integracoes/logs', destination: '/redesign/integracoes', permanent: true },
+      { source: '/modulos/operacional', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/ai-command-center', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/alocacoes', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/avaliacao-equipe', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/banco-horas', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/cobertura', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/colaboradores', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/comunicados', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/consultor', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/diarias', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/diaristas', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/diaristas/escala', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/diaristas/fechamento', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/escalas', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/escalas/[id]', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/escalas/grade', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/kpi', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/medidas-administrativas', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/notificacoes', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/ocorrencias', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/postos', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/rondas', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/substituicoes', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/triagem', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/operacional/turnos', destination: '/redesign/operacional', permanent: true },
+      { source: '/modulos/seguranca', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/auditoria', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/consentimento', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/criptografia', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/esquecimento', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/mascaramento', destination: '/redesign/seguranca', permanent: true },
+      { source: '/modulos/seguranca/pia-dpia', destination: '/redesign/seguranca', permanent: true },
+
+      // O dashboard clássico é o start_url do manifest.json — 1.811 acessos de 258 IPs: é
+      // nele que o app instalado abre. Some da vista sem quebrar o atalho de ninguém.
+      { source: '/dashboard', destination: '/redesign', permanent: false },
+
       // ── Portal do Funcionário ANTIGO (login por CPF), desligado em 2026 ──────────
       // Eram 14 páginas-casca com `location.replace` no client. As três de autenticação
       // mandavam para `/login?notice=portal` — SEM destino. Medido no nginx em 17/09/2026:
