@@ -113,6 +113,14 @@ export default function MeuEspacoPage() {
   const router = useRouter();
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const [tab, setTab] = useState<Tab | null>(null);  // null = home (grid de cards)
+
+  // Abre direto na aba pedida pela URL (?t=assinar). Origem: 17/09/2026 — o José Luís manda
+  // o link da cobrança de assinatura pelo WhatsApp; caindo na home, a pessoa ainda tem que
+  // achar a aba certa no meio de 12, e no celular isso é onde a cobrança morre.
+  useEffect(() => {
+    const alvo = new URLSearchParams(window.location.search).get('t');
+    if (alvo && TABS.some((x) => x.id === alvo)) setTab(alvo as Tab);
+  }, []);
   const [onbStatus, setOnbStatus] = useState<OnboardingStatus | null>(null);
   const [onbLoading, setOnbLoading] = useState(true);
   const [completarAberto, setCompletarAberto] = useState(false);  // modo transição: abre o form sob demanda

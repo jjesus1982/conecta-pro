@@ -9,7 +9,6 @@ NAO envia ao cliente. A sugestao e entregue como:
 Tudo controlado por env (nada hardcoded). Falhas nunca derrubam o webhook.
 """
 
-from core.llm_client import modelo_barato, novo_cliente
 import json
 import logging
 import os
@@ -23,6 +22,7 @@ import aiohttp
 from sqlalchemy import text
 
 from core.database import async_session_factory
+from core.llm_client import modelo_barato, novo_cliente
 
 logger = logging.getLogger(__name__)
 
@@ -1594,7 +1594,9 @@ async def _tool_enviar_link_assinatura(conversation_id: int) -> dict:
                     "motivo": f"proposta {prop['number']} não está pronta para assinatura "
                     f"(status={st}). Diga que vai alinhar com o Jordan.",
                 }
-            base_link = f"{os.getenv('PUBLIC_BASE_URL', 'https://erp.conectamais.pro').rstrip('/')}/assinar/{prop['id']}"
+            base_link = (
+                f"{os.getenv('PUBLIC_BASE_URL', 'https://erp.conectamais.pro').rstrip('/')}/assinar/{prop['id']}"
+            )
             link = f"{base_link}?t={_gen_sign_token(str(prop['id']))}"
             msg = (
                 f"Que ótimo! 🎉 Pra deixar tudo certinho é só abrir, conferir os detalhes e "
@@ -1624,7 +1626,7 @@ async def _tool_enviar_link_assinatura(conversation_id: int) -> dict:
                 await db.rollback()
             # alerta o Jordan (o cliente pediu pra assinar -> alta prioridade)
             try:
-                from modules.crm.services import orchestration as _O  # noqa: PLC0415
+                from modules.crm.services import orchestration as _O  # noqa: PLC0415,N812
 
                 await _O.notify_owner(
                     f"✍️ *Link de assinatura ENVIADO* — {prop['client_name'] or ph}\n"
@@ -1653,8 +1655,6 @@ async def _post_public_audio(conversation_id: int, texto: str) -> bool:
     cai para resposta em texto (nunca perde a resposta).
     """
     try:
-        from openai import AsyncOpenAI  # noqa: PLC0415
-
         client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         try:
             resp = await client.audio.speech.create(
@@ -1997,9 +1997,9 @@ async def _resolver_lid(digits: str) -> str | None:
     # curto; por isso o SEM o 9 vem primeiro. Mandar para o outro é entregar a um endereço
     # fantasma — some sem erro, que foi o que aconteceu com 10 handoffs.
     candidatos = []
-    if len(digits) == 13 and digits[4] == "9":       # 55 DD 9XXXXXXXX
+    if len(digits) == 13 and digits[4] == "9":  # 55 DD 9XXXXXXXX
         candidatos = [digits[:4] + digits[5:], digits]
-    elif len(digits) == 12:                          # 55 DD XXXXXXXX
+    elif len(digits) == 12:  # 55 DD XXXXXXXX
         candidatos = [digits, digits[:4] + "9" + digits[4:]]
     else:
         candidatos = [digits]
@@ -2034,11 +2034,14 @@ async def _enviar_whatsapp_direto(numero: str, mensagem: str) -> bool:
     _lid = await _resolver_lid(digits)
     _jid = f"{_lid}@lid" if _lid else f"{digits}@s.whatsapp.net"
     if not _lid:
-        logger.warning("WhatsApp: sem LID para %s — enviando ao telefone, que "
-                       "historicamente NÃO entrega. Verifique se o número já conversou "
-                       "com o WhatsApp da empresa.", digits)
+        logger.warning(
+            "WhatsApp: sem LID para %s — enviando ao telefone, que "
+            "historicamente NÃO entrega. Verifique se o número já conversou "
+            "com o WhatsApp da empresa.",
+            digits,
+        )
     try:
-        async with aiohttp.ClientSession() as s:
+        async with aiohttp.ClientSession() as s:  # noqa: SIM117
             async with s.post(
                 url,
                 json={
@@ -2060,8 +2063,7 @@ async def _enviar_whatsapp_direto(numero: str, mensagem: str) -> bool:
         return False
 
 
-async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str,
-                                   motivo: str = "") -> str | None:
+async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str, motivo: str = "") -> str | None:
     """Transfere DE VERDADE: manda a conversa INTEIRA para o WhatsApp de quem tem competência.
 
     Decisão do Jordan, 11/09/2026 — *"não apenas diga a quem está na conversa que vai transferir,
@@ -2091,17 +2093,28 @@ async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str
         name = phone = None
         q, notes = {}, ""
         if lead_id:
-            row = (await db.execute(
-                text("SELECT name, phone, notes, qualificacao FROM leads WHERE id = :id"),
-                {"id": lead_id})).first()
+            row = (
+                await db.execute(
+                    text("SELECT name, phone, notes, qualificacao FROM leads WHERE id = :id"), {"id": lead_id}
+                )
+            ).first()
             if row:
                 name, phone, notes, qualificacao = row
-                q = qualificacao if isinstance(qualificacao, dict) else (json.loads(qualificacao) if qualificacao else {})
+                q = (
+                    qualificacao
+                    if isinstance(qualificacao, dict)
+                    else (json.loads(qualificacao) if qualificacao else {})
+                )
         if not phone:
-            tel = (await db.execute(
-                text("SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
-                     "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
-                {"c": conversation_id})).first()
+            tel = (
+                await db.execute(
+                    text(
+                        "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                        "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
             phone = tel[0] if tel else None
 
         contexto: list[str] = []
@@ -2113,11 +2126,15 @@ async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str
                 # FUNCIONÁRIO da casa: o nome do cadastro vence o do lead, e o que interessa a
                 # quem vai assumir é cargo e posto — não "qualificação de lead".
                 name = ident.nome or name
-                contexto = [x for x in (
-                    f"Funcionário da casa — {ident.cargo or 'sem cargo no cadastro'}",
-                    f"Posto: {ident.posto}" if ident.posto else "",
-                    f"Condomínio: {ident.condominio}" if ident.condominio else "",
-                ) if x]
+                contexto = [
+                    x
+                    for x in (
+                        f"Funcionário da casa — {ident.cargo or 'sem cargo no cadastro'}",
+                        f"Posto: {ident.posto}" if ident.posto else "",
+                        f"Condomínio: {ident.condominio}" if ident.condominio else "",
+                    )
+                    if x
+                ]
             elif ident.tipo == "cliente":
                 name = ident.nome or name
                 contexto = ["Cliente da base"]
@@ -2148,8 +2165,15 @@ async def _enviar_handoff_whatsapp(db, lead_id, conversation_id: int, setor: str
                 logger.warning("Transferência %s -> %s conv=%s: NÃO entregue", setor, pessoa["nome"], conversation_id)
                 await _sino_handoff_perdido(db, pessoa, name, phone, conversation_id)
 
-        logger.info("Transferência %s (%s) conv=%s: %s de %s partes -> %s",
-                    setor, label, conversation_id, len(entregues), len(partes), entregues or "ninguém")
+        logger.info(
+            "Transferência %s (%s) conv=%s: %s de %s partes -> %s",
+            setor,
+            label,
+            conversation_id,
+            len(entregues),
+            len(partes),
+            entregues or "ninguém",
+        )
         if entregues:
             return " e ".join(entregues)
     except Exception as exc:  # noqa: BLE001
@@ -2176,11 +2200,15 @@ async def _sino_handoff_perdido(db, resp: dict, lead_nome, lead_fone, conversati
                 )
             ).fetchall()
         ]
-        extra = json.dumps({
-            "idempotency_key": f"handoff_perdido:{conversation_id}",
-            "origem": "handoff_whatsapp", "familia": "comercial",
-            "severidade": "critico", "conversa": conversation_id,
-        })
+        extra = json.dumps(
+            {
+                "idempotency_key": f"handoff_perdido:{conversation_id}",
+                "origem": "handoff_whatsapp",
+                "familia": "comercial",
+                "severidade": "critico",
+                "conversa": conversation_id,
+            }
+        )
         body = (
             f"O José Luís encaminhou o lead *{lead_nome or '—'}* ({lead_fone or 'sem telefone'}) "
             f"para {resp['nome']}, mas o aviso NÃO chegou no WhatsApp dele.\n\n"
@@ -2374,10 +2402,15 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
     # rodada), NÃO reatribui nem reenvia a íntegra — evita mandar a conversa duas vezes.
     try:
         async with async_session_factory() as _dbi:
-            ja = (await _dbi.execute(
-                text("SELECT 1 FROM cwi_message_log WHERE chatwoot_conversation_id=:c AND direction='trf' "
-                     "AND created_at > now() - interval '2 minutes' LIMIT 1"),
-                {"c": conversation_id})).first()
+            ja = (
+                await _dbi.execute(
+                    text(
+                        "SELECT 1 FROM cwi_message_log WHERE chatwoot_conversation_id=:c AND direction='trf' "
+                        "AND created_at > now() - interval '2 minutes' LIMIT 1"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).first()
         if ja:
             return {"ok": True, "setor": setor, "mensagem": "conversa já encaminhada agora (envio duplicado evitado)"}
     except Exception:  # noqa: BLE001
@@ -2390,8 +2423,9 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
             from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
 
             res = await whatsapp_service.assign_team(conversation_id, team_id)
-            logger.info("transferir_conversa conv=%s setor=%s team=%s -> %s",
-                        conversation_id, setor, team_id, res.get("status"))
+            logger.info(
+                "transferir_conversa conv=%s setor=%s team=%s -> %s", conversation_id, setor, team_id, res.get("status")
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("transferir_conversa conv=%s: assign_team falhou: %s", conversation_id, exc)
 
@@ -2407,8 +2441,10 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
             responsavel = await _enviar_handoff_whatsapp(db, lead_id, conversation_id, setor, motivo)
             if responsavel:
                 await db.execute(
-                    text("INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
-                         "VALUES ('trf', :c, :setor, 'transfer')"),
+                    text(
+                        "INSERT INTO cwi_message_log (direction, chatwoot_conversation_id, content, status) "
+                        "VALUES ('trf', :c, :setor, 'transfer')"
+                    ),
                     {"c": conversation_id, "setor": setor[:200]},
                 )
                 await db.commit()
@@ -2421,13 +2457,15 @@ async def _tool_transferir_conversa(args: dict, conversation_id: int) -> dict:
             "setor": setor,
             "responsavel": responsavel,
             "mensagem": f"conversa inteira enviada para {responsavel} ({label}) — "
-                        f"avise a pessoa que {responsavel} assume daqui",
+            f"avise a pessoa que {responsavel} assume daqui",
         }
     return {
         "ok": False,
         "setor": setor,
-        "mensagem": ("NÃO consegui entregar a conversa ao responsável agora. NÃO diga que passou "
-                     "para alguém — continue você mesmo o atendimento normalmente."),
+        "mensagem": (
+            "NÃO consegui entregar a conversa ao responsável agora. NÃO diga que passou "
+            "para alguém — continue você mesmo o atendimento normalmente."
+        ),
     }
 
 
@@ -2505,12 +2543,30 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
 # ANÔNIMO, não o Jordan autenticado. Os 8 consultores do chat flutuante podem
 # citar margem porque a autorização deles aconteceu no LOGIN; aqui não houve
 # login nenhum. Por isso a resposta é PROJETADA, e a projeção é testada.
-_CAMPOS_INTERNOS_COTACAO = frozenset({
-    "salario_base", "salario_bruto", "adic_noturno", "adic_hora_reduzida",
-    "adic_ronda", "adic_intrajornada", "adic_risco", "encargos", "encargos_pct", "vt", "vr",
-    "beneficios", "repasse", "repasse_pct", "custo_total", "tributos_pct",
-    "margem", "divisor", "markup_pct", "lucro_liquido",
-})
+_CAMPOS_INTERNOS_COTACAO = frozenset(
+    {
+        "salario_base",
+        "salario_bruto",
+        "adic_noturno",
+        "adic_hora_reduzida",
+        "adic_ronda",
+        "adic_intrajornada",
+        "adic_risco",
+        "encargos",
+        "encargos_pct",
+        "vt",
+        "vr",
+        "beneficios",
+        "repasse",
+        "repasse_pct",
+        "custo_total",
+        "tributos_pct",
+        "margem",
+        "divisor",
+        "markup_pct",
+        "lucro_liquido",
+    }
+)
 
 
 def _int_clamp(valor, padrao: int, minimo: int, maximo: int) -> int:
@@ -2573,9 +2629,13 @@ def _cotacao_dono(r: dict, postos, meses) -> dict:
         "meses": meses,
         "composicao": {
             "salario_base": n("salario_base"),
-            "adicionais_soma": round(sum(n(k) for k in (
-                "adic_noturno", "adic_hora_reduzida", "adic_ronda",
-                "adic_intrajornada", "adic_risco")), 2),
+            "adicionais_soma": round(
+                sum(
+                    n(k)
+                    for k in ("adic_noturno", "adic_hora_reduzida", "adic_ronda", "adic_intrajornada", "adic_risco")
+                ),
+                2,
+            ),
             "salario_bruto": n("salario_bruto"),
             "encargos": n("encargos"),
             "encargos_pct": r.get("encargos_pct"),
@@ -2615,46 +2675,112 @@ def _cota_em_chat() -> bool:
 # INVARIANTE: todo papel externo é SUBCONJUNTO de TOOLS. Nenhum herda tool de
 # consultor interno — o interlocutor é um número anônimo.
 _SINAIS_TECNICO = (
-    "camera", "câmera", "cftv", "portao", "portão", "cancela", "interfone", "fechadura",
-    "alarme", "facial", "biometria", "nao abre", "não abre", "nao grava", "não grava",
-    "parou de funcionar", "queimou", "sem imagem", "sem sinal", "defeito", "manutencao",
-    "manutenção", "quebrou", "travou", "mudo", "nao funciona", "não funciona",
+    "camera",
+    "câmera",
+    "cftv",
+    "portao",
+    "portão",
+    "cancela",
+    "interfone",
+    "fechadura",
+    "alarme",
+    "facial",
+    "biometria",
+    "nao abre",
+    "não abre",
+    "nao grava",
+    "não grava",
+    "parou de funcionar",
+    "queimou",
+    "sem imagem",
+    "sem sinal",
+    "defeito",
+    "manutencao",
+    "manutenção",
+    "quebrou",
+    "travou",
+    "mudo",
+    "nao funciona",
+    "não funciona",
 )
 _SINAIS_ADMIN = (
-    "boleto", "nota fiscal", "nfse", "nf-e", "fatura", "segunda via", "2a via",
-    "contrato", "reajuste", "pagamento", "cobranca", "cobrança", "financeiro",
-    "vencimento", "recibo", "imposto", "atestado",
+    "boleto",
+    "nota fiscal",
+    "nfse",
+    "nf-e",
+    "fatura",
+    "segunda via",
+    "2a via",
+    "contrato",
+    "reajuste",
+    "pagamento",
+    "cobranca",
+    "cobrança",
+    "financeiro",
+    "vencimento",
+    "recibo",
+    "imposto",
+    "atestado",
 )
 
 _PAPEIS: dict[str, dict] = {
     # Prospecção: número ANÔNIMO. Nada de conta/OS — é o vetor de quem se passa por cliente.
     "sdr": {
-        "tools": ("registrar_lead", "listar_materiais", "enviar_material", "consultar_cnpj",
-                  "buscar_cliente", "consultar_agenda", "agendar_visita", "transferir_conversa",
-                  "enviar_link_assinatura", "simular_preco", "montar_proposta"),
-        "foco": ("\n\nPAPEL NESTA CONVERSA — PRÉ-VENDA/SDR. Quem fala é um contato NOVO, não "
-                 "identificado como cliente. Sua meta é qualificar o essencial e conduzir à visita. "
-                 "Você NÃO tem acesso a contrato, ordem de serviço ou conta de ninguém — se a pessoa "
-                 "afirmar que já é cliente, peça o CNPJ e confirme pelo sistema antes de tratar como tal."),
+        "tools": (
+            "registrar_lead",
+            "listar_materiais",
+            "enviar_material",
+            "consultar_cnpj",
+            "buscar_cliente",
+            "consultar_agenda",
+            "agendar_visita",
+            "transferir_conversa",
+            "enviar_link_assinatura",
+            "simular_preco",
+            "montar_proposta",
+        ),
+        "foco": (
+            "\n\nPAPEL NESTA CONVERSA — PRÉ-VENDA/SDR. Quem fala é um contato NOVO, não "
+            "identificado como cliente. Sua meta é qualificar o essencial e conduzir à visita. "
+            "Você NÃO tem acesso a contrato, ordem de serviço ou conta de ninguém — se a pessoa "
+            "afirmar que já é cliente, peça o CNPJ e confirme pelo sistema antes de tratar como tal."
+        ),
     },
     # Cliente da base, assunto genérico: relacionamento e conta.
     "pos_venda": {
-        "tools": ("consultar_minha_conta", "listar_materiais", "enviar_material", "buscar_cliente",
-                  "consultar_agenda", "agendar_visita", "transferir_conversa", "sugerir_cross_sell",
-                  "abrir_ordem_servico"),
-        "foco": ("\n\nPAPEL NESTA CONVERSA — PÓS-VENDA. Quem fala JÁ é cliente da casa: tom de "
-                 "relacionamento, não de prospecção. Não requalifique como lead novo nem ofereça o que "
-                 "ele já tem. Preço de serviço NOVO é cross-sell: levante o interesse e encaminhe ao "
-                 "Jordan — você não cota para quem já é cliente."),
+        "tools": (
+            "consultar_minha_conta",
+            "listar_materiais",
+            "enviar_material",
+            "buscar_cliente",
+            "consultar_agenda",
+            "agendar_visita",
+            "transferir_conversa",
+            "sugerir_cross_sell",
+            "abrir_ordem_servico",
+        ),
+        "foco": (
+            "\n\nPAPEL NESTA CONVERSA — PÓS-VENDA. Quem fala JÁ é cliente da casa: tom de "
+            "relacionamento, não de prospecção. Não requalifique como lead novo nem ofereça o que "
+            "ele já tem. Preço de serviço NOVO é cross-sell: levante o interesse e encaminhe ao "
+            "Jordan — você não cota para quem já é cliente."
+        ),
     },
     # Cliente da base com equipamento em pane: triagem técnica.
     "suporte_tecnico": {
-        "tools": ("consultar_minha_conta", "abrir_ordem_servico", "buscar_cliente",
-                  "consultar_agenda", "transferir_conversa"),
-        "foco": ("\n\nPAPEL NESTA CONVERSA — SUPORTE TÉCNICO. Há equipamento com problema. Sua meta é "
-                 "diagnóstico de qualidade e um chamado acionável: o técnico tem de resolver na PRIMEIRA "
-                 "visita sem pedir mais informação. Colete sintoma, quando começou, o que já tentaram e "
-                 "onde fica. NÃO venda nada e NÃO fale de preço enquanto o problema estiver aberto."),
+        "tools": (
+            "consultar_minha_conta",
+            "abrir_ordem_servico",
+            "buscar_cliente",
+            "consultar_agenda",
+            "transferir_conversa",
+        ),
+        "foco": (
+            "\n\nPAPEL NESTA CONVERSA — SUPORTE TÉCNICO. Há equipamento com problema. Sua meta é "
+            "diagnóstico de qualidade e um chamado acionável: o técnico tem de resolver na PRIMEIRA "
+            "visita sem pedir mais informação. Colete sintoma, quando começou, o que já tentaram e "
+            "onde fica. NÃO venda nada e NÃO fale de preço enquanto o problema estiver aberto."
+        ),
     },
     # ⭐ FORNECEDOR (31/08/2026). Nasce quando o telefone casa com `suppliers` — nunca pela
     # fala. Existe porque às 15:12 mandamos uma cotação ao Renier e às 15:13 ele perguntou
@@ -2667,28 +2793,30 @@ _PAPEIS: dict[str, dict] = {
     # de `_tools_ativas(owner=False)` — separação por INTERLOCUTOR, não por assunto.
     "fornecedor": {
         "tools": ("perguntar_ao_jordan", "registrar_resposta_cotacao", "transferir_conversa"),
-        "foco": ("\n\nPAPEL NESTA CONVERSA — FORNECEDOR. Quem fala é um FORNECEDOR nosso, "
-                 "identificado pelo telefone, e provavelmente está respondendo a um pedido de "
-                 "cotação que NÓS mandamos. O contexto abaixo traz as cotações abertas dele "
-                 "com os itens — use-o: pergunta como 'qual cabo?' é sobre uma LINHA daquele "
-                 "pedido, não um enigma.\n"
-                 "REGRAS INEGOCIÁVEIS AQUI:\n"
-                 "1. NUNCA invente especificação técnica (bitola, categoria, potência, "
-                 "modelo, autonomia). Material errado comprado por spec chutada é prejuízo "
-                 "real e a culpa é nossa.\n"
-                 "2. Se a especificação está no contexto (relatório de visita, item da "
-                 "cotação), responda CITANDO de onde veio.\n"
-                 "3. Se depende do Jordan, use `perguntar_ao_jordan` — mas ANTES acuse "
-                 "recebimento ao fornecedor ('boa pergunta, confirmo com o Jordan e te "
-                 "respondo'). Ele está fazendo o favor de cotar; deixá-lo mudo é pior que "
-                 "com cliente.\n"
-                 "4. Se depende dele, devolva honesto: 'a definir — me sugira o padrão que "
-                 "vocês usam nessa aplicação'.\n"
-                 "5. Quando ele mandar PREÇO, PRAZO ou VALIDADE, use "
-                 "`registrar_resposta_cotacao`. Não repita o número de volta como se fosse "
-                 "confirmado: quem confere é o Jordan.\n"
-                 "6. NÃO fale de cliente, obra nominal, valor de venda nem margem. Ele cota "
-                 "material; o negócio do outro lado não é assunto dele."),
+        "foco": (
+            "\n\nPAPEL NESTA CONVERSA — FORNECEDOR. Quem fala é um FORNECEDOR nosso, "
+            "identificado pelo telefone, e provavelmente está respondendo a um pedido de "
+            "cotação que NÓS mandamos. O contexto abaixo traz as cotações abertas dele "
+            "com os itens — use-o: pergunta como 'qual cabo?' é sobre uma LINHA daquele "
+            "pedido, não um enigma.\n"
+            "REGRAS INEGOCIÁVEIS AQUI:\n"
+            "1. NUNCA invente especificação técnica (bitola, categoria, potência, "
+            "modelo, autonomia). Material errado comprado por spec chutada é prejuízo "
+            "real e a culpa é nossa.\n"
+            "2. Se a especificação está no contexto (relatório de visita, item da "
+            "cotação), responda CITANDO de onde veio.\n"
+            "3. Se depende do Jordan, use `perguntar_ao_jordan` — mas ANTES acuse "
+            "recebimento ao fornecedor ('boa pergunta, confirmo com o Jordan e te "
+            "respondo'). Ele está fazendo o favor de cotar; deixá-lo mudo é pior que "
+            "com cliente.\n"
+            "4. Se depende dele, devolva honesto: 'a definir — me sugira o padrão que "
+            "vocês usam nessa aplicação'.\n"
+            "5. Quando ele mandar PREÇO, PRAZO ou VALIDADE, use "
+            "`registrar_resposta_cotacao`. Não repita o número de volta como se fosse "
+            "confirmado: quem confere é o Jordan.\n"
+            "6. NÃO fale de cliente, obra nominal, valor de venda nem margem. Ele cota "
+            "material; o negócio do outro lado não é assunto dele."
+        ),
     },
     # ⭐ FUNCIONÁRIO (11/09/2026). Nasce quando o telefone casa com `employees` — antes de
     # cliente, antes de lead. Existe porque 64 dos 98 números que falaram com o José Luís
@@ -2698,9 +2826,16 @@ _PAPEIS: dict[str, dict] = {
     # ⚠️ O que ele NÃO tem importa tanto quanto o que tem: nada de proposta, preço, funil ou
     # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
     "funcionario": {
-        "tools": ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
-                  "registrar_resposta_pesquisa_ponto", "consultar_minha_vida",
-                  "historico_desta_pessoa", "abrir_pendencia_dp", "transferir_conversa"),
+        "tools": (
+            "meu_ponto_hoje",
+            "registrar_batida_contingencia",
+            "justificar_ponto",
+            "registrar_resposta_pesquisa_ponto",
+            "consultar_minha_vida",
+            "historico_desta_pessoa",
+            "abrir_pendencia_dp",
+            "transferir_conversa",
+        ),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
         # vez de somar a ele. A razão foi medida em 11/09, no primeiro turno real: o papel
         # resolveu o ponto do Rene e ainda assim pediu o CNPJ dele. O prompt base tem 39.680
@@ -2708,62 +2843,66 @@ _PAPEIS: dict[str, dict] = {
         # maiúsculas — e uma instrução aditiva de 1.200 não vence isso: o modelo gastou os 500
         # tokens de saída no conflito e devolveu texto VAZIO (`finish=length`, content='').
         # Para quem é da casa o prompt de vendas não é calibragem a preservar, é ruído.
-        "prompt": ("Você é José Luís, da Conecta Mais (Manaus/AM). Fala por WhatsApp, em "
-                 "mensagens CURTAS e naturais, como uma pessoa de verdade — nunca se descreva "
-                 "como robô, IA ou atendimento automático. Uma pergunta por vez, sem textão, "
-                 "sem bajulação, emoji raríssimo.\n"
-                 "QUEM VOCÊ É PARA ELE (decisão do Jordan, 11/09/2026): você é o responsável "
-                 "por ORGANIZAR A QUESTÃO DO PONTO e trabalha junto com a PYETRA JESUS. É "
-                 "assim que você se apresenta a funcionário, e só a funcionário — para "
-                 "cliente e lead você segue sendo do atendimento.\n"
-                 "PAPEL NESTA CONVERSA — FUNCIONÁRIO DA CASA. Quem fala é COLEGA, "
-                 "identificado pelo telefone no cadastro: o contexto abaixo traz o nome, o "
-                 "cargo, o posto e o ponto dele de hoje.\n"
-                 "REGRAS INEGOCIÁVEIS AQUI:\n"
-                 "1. NUNCA peça CNPJ, nunca trate como lead, nunca ofereça proposta, preço "
-                 "ou visita comercial. Ele já trabalha aqui.\n"
-                 "2. Ponto: chame `meu_ponto_hoje` ANTES de responder qualquer coisa — "
-                 "inclusive quando ele disser que já bateu. Responda com o que o sistema "
-                 "mostra (hora e tipo), não com conselho genérico de bater o ponto.\n"
-                 "3. Se ele está no posto e o app não deixa bater, RESOLVA: "
-                 "`registrar_batida_contingencia` com o motivo nas palavras dele. A batida "
-                 "fica pendente para o DP validar e ele NÃO perde o ponto — diga isso.\n"
-                 "4. Se é atraso ou falta que já passou, `justificar_ponto`. O DP revisa.\n"
-                 "5. Ele manda PRINT quando o app falha: leia o que está escrito na imagem e "
-                 "use como motivo. Não peça para ele digitar de novo o que já mandou.\n"
-                 "6. Um assunto de cada vez, pelo nome dele. Nada de mensagem-padrão.\n"
-                 "7. PESQUISA DO PONTO: se ele responder se está ou não conseguindo bater, "
-                 "chame `registrar_resposta_pesquisa_ponto` na hora — inclusive quando a "
-                 "resposta for só 'sim'. Se disse que NÃO consegue, pergunte O QUE ACONTECE "
-                 "(rosto não reconhece? app não abre? outra coisa?) antes de registrar, e "
-                 "registre com as palavras dele. Agradeça e diga que você leva para resolver.\n"
-                 "8. VOCÊ RESPONDE A VIDA DELE, não só o ponto: holerite, escala, próximo "
-                 "turno, férias, benefícios (VT/VR/plano), documentos e comunicados saem de "
-                 "`consultar_minha_vida`. Antes era preciso transferir para um humano ler a "
-                 "mesma tela — não é mais.\n"
-                 "9. QUEIXA REPETIDA: chame `historico_desta_pessoa` antes de responder. Quem "
-                 "está no terceiro dia do mesmo problema não pode ouvir a mesma orientação do "
-                 "primeiro dia como se fosse a primeira vez.\n"
-                 "10. O QUE VOCÊ NÃO RESOLVE, VOCÊ ENTREGA — com `abrir_pendencia_dp`, não "
-                 "com um 'vou verificar'. Espelho errado, afastamento, atestado, benefício, "
-                 "divergência de holerite: descreva com as palavras dela e diga que registrou "
-                 "e que ela será avisada. Prometer sem registrar é o que faz a pessoa repetir "
-                 "a história toda semana.\n"
-                 "11. O que não for ponto, escala, holerite ou documento dele — e o que "
-                 "depender de decisão de gente — vai para `transferir_conversa`, E A PESSOA "
-                 "RECEBE A CONVERSA INTEIRA no WhatsApp dela: use setor=\"operacional\" para "
-                 "posto, escala, ronda e troca de turno (Gonzaga e Paiva); setor=\"dp\" para "
-                 "ponto, folha, férias, benefício, atestado, admissão e rescisão (Pyetra); "
-                 "setor=\"rh\" para conflito, comportamento e desligamento (Pyetra); "
-                 "setor=\"comercial\" para o resto (Jordan). Diga o NOME de quem vai assumir — "
-                 "a ferramenta devolve. Prometer o que não pode cumprir é pior que encaminhar."),
+        "prompt": (
+            "Você é José Luís, da Conecta Mais (Manaus/AM). Fala por WhatsApp, em "
+            "mensagens CURTAS e naturais, como uma pessoa de verdade — nunca se descreva "
+            "como robô, IA ou atendimento automático. Uma pergunta por vez, sem textão, "
+            "sem bajulação, emoji raríssimo.\n"
+            "QUEM VOCÊ É PARA ELE (decisão do Jordan, 11/09/2026): você é o responsável "
+            "por ORGANIZAR A QUESTÃO DO PONTO e trabalha junto com a PYETRA JESUS. É "
+            "assim que você se apresenta a funcionário, e só a funcionário — para "
+            "cliente e lead você segue sendo do atendimento.\n"
+            "PAPEL NESTA CONVERSA — FUNCIONÁRIO DA CASA. Quem fala é COLEGA, "
+            "identificado pelo telefone no cadastro: o contexto abaixo traz o nome, o "
+            "cargo, o posto e o ponto dele de hoje.\n"
+            "REGRAS INEGOCIÁVEIS AQUI:\n"
+            "1. NUNCA peça CNPJ, nunca trate como lead, nunca ofereça proposta, preço "
+            "ou visita comercial. Ele já trabalha aqui.\n"
+            "2. Ponto: chame `meu_ponto_hoje` ANTES de responder qualquer coisa — "
+            "inclusive quando ele disser que já bateu. Responda com o que o sistema "
+            "mostra (hora e tipo), não com conselho genérico de bater o ponto.\n"
+            "3. Se ele está no posto e o app não deixa bater, RESOLVA: "
+            "`registrar_batida_contingencia` com o motivo nas palavras dele. A batida "
+            "fica pendente para o DP validar e ele NÃO perde o ponto — diga isso.\n"
+            "4. Se é atraso ou falta que já passou, `justificar_ponto`. O DP revisa.\n"
+            "5. Ele manda PRINT quando o app falha: leia o que está escrito na imagem e "
+            "use como motivo. Não peça para ele digitar de novo o que já mandou.\n"
+            "6. Um assunto de cada vez, pelo nome dele. Nada de mensagem-padrão.\n"
+            "7. PESQUISA DO PONTO: se ele responder se está ou não conseguindo bater, "
+            "chame `registrar_resposta_pesquisa_ponto` na hora — inclusive quando a "
+            "resposta for só 'sim'. Se disse que NÃO consegue, pergunte O QUE ACONTECE "
+            "(rosto não reconhece? app não abre? outra coisa?) antes de registrar, e "
+            "registre com as palavras dele. Agradeça e diga que você leva para resolver.\n"
+            "8. VOCÊ RESPONDE A VIDA DELE, não só o ponto: holerite, escala, próximo "
+            "turno, férias, benefícios (VT/VR/plano), documentos e comunicados saem de "
+            "`consultar_minha_vida`. Antes era preciso transferir para um humano ler a "
+            "mesma tela — não é mais.\n"
+            "9. QUEIXA REPETIDA: chame `historico_desta_pessoa` antes de responder. Quem "
+            "está no terceiro dia do mesmo problema não pode ouvir a mesma orientação do "
+            "primeiro dia como se fosse a primeira vez.\n"
+            "10. O QUE VOCÊ NÃO RESOLVE, VOCÊ ENTREGA — com `abrir_pendencia_dp`, não "
+            "com um 'vou verificar'. Espelho errado, afastamento, atestado, benefício, "
+            "divergência de holerite: descreva com as palavras dela e diga que registrou "
+            "e que ela será avisada. Prometer sem registrar é o que faz a pessoa repetir "
+            "a história toda semana.\n"
+            "11. O que não for ponto, escala, holerite ou documento dele — e o que "
+            "depender de decisão de gente — vai para `transferir_conversa`, E A PESSOA "
+            'RECEBE A CONVERSA INTEIRA no WhatsApp dela: use setor="operacional" para '
+            'posto, escala, ronda e troca de turno (Gonzaga e Paiva); setor="dp" para '
+            "ponto, folha, férias, benefício, atestado, admissão e rescisão (Pyetra); "
+            'setor="rh" para conflito, comportamento e desligamento (Pyetra); '
+            'setor="comercial" para o resto (Jordan). Diga o NOME de quem vai assumir — '
+            "a ferramenta devolve. Prometer o que não pode cumprir é pior que encaminhar."
+        ),
     },
     # Cliente da base com assunto de dinheiro/documento: acolhe e encaminha, não decide.
     "administrativo": {
         "tools": ("consultar_minha_conta", "buscar_cliente", "transferir_conversa"),
-        "foco": ("\n\nPAPEL NESTA CONVERSA — SUPORTE ADMINISTRATIVO. O assunto é boleto, nota, contrato "
-                 "ou cobrança. Acolha e encaminhe: você NÃO confirma valor, NÃO admite erro, NÃO promete "
-                 "estorno, desconto ou prazo. Não venda nada aqui."),
+        "foco": (
+            "\n\nPAPEL NESTA CONVERSA — SUPORTE ADMINISTRATIVO. O assunto é boleto, nota, contrato "
+            "ou cobrança. Acolha e encaminhe: você NÃO confirma valor, NÃO admite erro, NÃO promete "
+            "estorno, desconto ou prazo. Não venda nada aqui."
+        ),
     },
 }
 
@@ -2780,11 +2919,20 @@ async def _fornecedor_do_telefone(db, fone: str | None) -> dict | None:
     d = re.sub(r"\D", "", str(fone or ""))
     if len(d) < 8:
         return None
-    r = (await db.execute(_t(
-        "SELECT id::text, name, coalesce(contact_name,'') ct, coalesce(category,'') cat "
-        "FROM suppliers WHERE coalesce(ativo,true) AND right(regexp_replace("
-        "  coalesce(nullif(whatsapp,''), phone, ''),'[^0-9]','','g'), 8) = :d8 LIMIT 1"),
-        {"d8": d[-8:]})).mappings().first()
+    r = (
+        (
+            await db.execute(
+                _t(
+                    "SELECT id::text, name, coalesce(contact_name,'') ct, coalesce(category,'') cat "
+                    "FROM suppliers WHERE coalesce(ativo,true) AND right(regexp_replace("
+                    "  coalesce(nullif(whatsapp,''), phone, ''),'[^0-9]','','g'), 8) = :d8 LIMIT 1"
+                ),
+                {"d8": d[-8:]},
+            )
+        )
+        .mappings()
+        .first()
+    )
     return dict(r) if r else None
 
 
@@ -2802,7 +2950,8 @@ async def _rede_fornecedor(forn: dict, rows, texto: str, conversation_id: int) -
             + f" mandou:\n\n“{ultima[:500]}”\n\n"
             f"_O José Luís respondeu:_ {str(texto or '')[:300]}\n\n"
             "⚠️ Nada foi registrado no sistema neste turno — se precisa de decisão sua, "
-            "é agora. Ele está esperando.")
+            "é agora. Ele está esperando."
+        )
         logger.info("[jose-luis] conv=%s rede do fornecedor: dono avisado", conversation_id)
     except Exception:  # noqa: BLE001 — a rede não pode derrubar a resposta
         logger.exception("rede do fornecedor falhou conv=%s", conversation_id)
@@ -2813,10 +2962,15 @@ async def _fornecedor_da_conversa(conversation_id: int) -> dict | None:
     from sqlalchemy import text as _t  # noqa: PLC0415
 
     async with async_session_factory() as db:
-        fone = (await db.execute(_t(
-            "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
-            "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
-            {"c": conversation_id})).scalar()
+        fone = (
+            await db.execute(
+                _t(
+                    "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                    "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"c": conversation_id},
+            )
+        ).scalar()
         return await _fornecedor_do_telefone(db, fone)
 
 
@@ -2828,21 +2982,34 @@ async def _contexto_fornecedor(forn: dict) -> str:
     """
     from sqlalchemy import text as _t  # noqa: PLC0415
 
-    linhas = [f"FORNECEDOR: {forn['name']}"
-              + (f" — falando com {forn['ct']}" if forn.get("ct") else "")
-              + (f" (categoria: {forn['cat']})" if forn.get("cat") else "")]
+    linhas = [
+        f"FORNECEDOR: {forn['name']}"
+        + (f" — falando com {forn['ct']}" if forn.get("ct") else "")
+        + (f" (categoria: {forn['cat']})" if forn.get("cat") else "")
+    ]
     async with async_session_factory() as db:
-        cots = (await db.execute(_t(
-            "SELECT q.id::text, q.number, to_char(q.quotation_date,'DD/MM/YYYY') dt, "
-            "       q.status, v.cliente_nome obra, "
-            "       to_char(v.data_visita,'DD/MM/YYYY') visita_dt, v.panorama "
-            "FROM purchase_quotations q "
-            "LEFT JOIN crm_visit_reports v ON v.id = q.visit_report_id "
-            "WHERE q.supplier_id::text = :s AND q.status IN ('enviada','recebida') "
-            "ORDER BY q.quotation_date DESC LIMIT 3"), {"s": forn["id"]})).mappings().all()
+        cots = (
+            (
+                await db.execute(
+                    _t(
+                        "SELECT q.id::text, q.number, to_char(q.quotation_date,'DD/MM/YYYY') dt, "
+                        "       q.status, v.cliente_nome obra, "
+                        "       to_char(v.data_visita,'DD/MM/YYYY') visita_dt, v.panorama "
+                        "FROM purchase_quotations q "
+                        "LEFT JOIN crm_visit_reports v ON v.id = q.visit_report_id "
+                        "WHERE q.supplier_id::text = :s AND q.status IN ('enviada','recebida') "
+                        "ORDER BY q.quotation_date DESC LIMIT 3"
+                    ),
+                    {"s": forn["id"]},
+                )
+            )
+            .mappings()
+            .all()
+        )
         if not cots:
-            linhas.append("Nenhuma cotação aberta com ele no sistema. Se ele falar de um "
-                          "pedido, PERGUNTE qual — não deduza.")
+            linhas.append(
+                "Nenhuma cotação aberta com ele no sistema. Se ele falar de um pedido, PERGUNTE qual — não deduza."
+            )
         for c in cots:
             if c.get("obra"):
                 # ⭐ O item herda o projeto. "cabo" sozinho não diz nada; "cabo para 64
@@ -2854,31 +3021,51 @@ async def _contexto_fornecedor(forn: dict) -> str:
                 # fornecedor criaria um vetor de fabricação sem nenhum ganho — ele não
                 # precisa da história do negócio, precisa da spec do item, que está abaixo
                 # e é o que o Jordan definiu.
-                linhas.append(f"\nOBRA DESTA COTAÇÃO: {c['obra']}"
-                              + (f" — visita de {c['visita_dt']}" if c.get("visita_dt") else "")
-                              + "\n  ⚠️ Quantidades e specs válidas são AS DOS ITENS abaixo. "
-                                "Não cite número de câmeras, prazo ou valor que não esteja "
-                                "escrito ali.")
-            itens = (await db.execute(_t(
-                "SELECT item_number, description, quantity, unit_price, "
-                "       coalesce(specifications,'') spec "
-                "FROM purchase_quotation_items WHERE quotation_id::text = :q "
-                "ORDER BY item_number"), {"q": c["id"]})).mappings().all()
-            linhas.append(f"\nCOTAÇÃO {c['number']} — enviada em {c['dt']} "
-                          f"(status: {c['status']}), {len(itens)} itens:")
+                linhas.append(
+                    f"\nOBRA DESTA COTAÇÃO: {c['obra']}"
+                    + (f" — visita de {c['visita_dt']}" if c.get("visita_dt") else "")
+                    + "\n  ⚠️ Quantidades e specs válidas são AS DOS ITENS abaixo. "
+                    "Não cite número de câmeras, prazo ou valor que não esteja "
+                    "escrito ali."
+                )
+            itens = (
+                (
+                    await db.execute(
+                        _t(
+                            "SELECT item_number, description, quantity, unit_price, "
+                            "       coalesce(specifications,'') spec "
+                            "FROM purchase_quotation_items WHERE quotation_id::text = :q "
+                            "ORDER BY item_number"
+                        ),
+                        {"q": c["id"]},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            linhas.append(
+                f"\nCOTAÇÃO {c['number']} — enviada em {c['dt']} (status: {c['status']}), {len(itens)} itens:"
+            )
             for i in itens:
-                preco = (f" · já cotado R$ {float(i['unit_price']):.2f}"
-                         if float(i["unit_price"] or 0) > 0 else " · SEM PREÇO ainda")
+                preco = (
+                    f" · já cotado R$ {float(i['unit_price']):.2f}"
+                    if float(i["unit_price"] or 0) > 0
+                    else " · SEM PREÇO ainda"
+                )
                 # ⚠️ A `specifications` é o campo onde a resposta mora. Eu gravei as specs
                 # do Renier e esqueci de exibi-las aqui — o agente continuou dizendo "sem
                 # especificação" com a spec no banco. Guardar não é mostrar.
-                linhas.append(f"  {i['item_number']}. {i['description']}"
-                              f" (qtd {float(i['quantity']):g}){preco}"
-                              + (f"\n       ESPECIFICAÇÃO: {i['spec']}" if i["spec"] else ""))
-        linhas.append("\n⚠️ Item COM linha ESPECIFICAÇÃO: responda usando exatamente ela, "
-                      "citando que é a definição do Jordan para esta obra. Item SEM essa "
-                      "linha não tem spec registrada — não invente: pergunte ao Jordan ou "
-                      "peça a sugestão do fornecedor.")
+                linhas.append(
+                    f"  {i['item_number']}. {i['description']}"
+                    f" (qtd {float(i['quantity']):g}){preco}"
+                    + (f"\n       ESPECIFICAÇÃO: {i['spec']}" if i["spec"] else "")
+                )
+        linhas.append(
+            "\n⚠️ Item COM linha ESPECIFICAÇÃO: responda usando exatamente ela, "
+            "citando que é a definição do Jordan para esta obra. Item SEM essa "
+            "linha não tem spec registrada — não invente: pergunte ao Jordan ou "
+            "peça a sugestão do fornecedor."
+        )
     return "\n".join(linhas)
 
 
@@ -2891,9 +3078,7 @@ def _papel_por_texto(texto: str | None, *, e_cliente: bool) -> str:
     """
     if not e_cliente:
         return "sdr"
-    t = "".join(
-        c for c in unicodedata.normalize("NFKD", str(texto or "").lower()) if not unicodedata.combining(c)
-    )
+    t = "".join(c for c in unicodedata.normalize("NFKD", str(texto or "").lower()) if not unicodedata.combining(c))
     if any(s in t for s in (_sem_acento_lit(x) for x in _SINAIS_TECNICO)):
         return "suporte_tecnico"
     if any(s in t for s in (_sem_acento_lit(x) for x in _SINAIS_ADMIN)):
@@ -2922,8 +3107,10 @@ def _do_registro(canal: str) -> list:
     """
     try:
         from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
-            get_tool, openai_schema,
+            get_tool,
+            openai_schema,
         )
+
         meus = _RELATORIO_REGISTRO.get(canal) or []
         saida = [openai_schema(t) for t in (get_tool(n) for n in meus) if t is not None]
         if canal == "publico":
@@ -2932,8 +3119,7 @@ def _do_registro(canal: str) -> list:
             # sobrescrevemos — servimos a versão local, e a colisão fica NOMEADA como a
             # dívida que é. Sem isto o cliente perderia a capacidade em silêncio.
             colididas = set(_RELATORIO_REGISTRO.get("colisao") or [])
-            saida += [spec for spec in (TOOLS + TOOLS_COTACAO)
-                      if (spec.get("function") or {}).get("name") in colididas]
+            saida += [spec for spec in (TOOLS + TOOLS_COTACAO) if (spec.get("function") or {}).get("name") in colididas]
         return saida
     except Exception:  # noqa: BLE001
         logger.exception("[bartolo] registro único indisponível — usando lista local")
@@ -2954,14 +3140,14 @@ def _do_registro(canal: str) -> list:
 # tudo isto. Escrever em campo é a etapa 2 e tem a sua própria conversa. Se algum dia um
 # nome de `agir_crm` aparecer em `_CONSULTAS_CAMPO`, é defeito, e o oráculo falha.
 _CONSULTAS_CAMPO: tuple[str, ...] = (
-    "catalogo",             # o que vendemos e por quanto — o motivo de tudo isto
-    "escopo_analogo",       # o que já propusemos para um caso parecido
-    "clientes",             # este já é nosso?
-    "contratos",            # e o que ele já tem conosco?
-    "propostas",            # o que já mandamos para ele
-    "contatos",             # com quem falar
-    "historico_followup",   # o que já foi dito
-    "relatorios_visita",    # o que a visita anterior achou
+    "catalogo",  # o que vendemos e por quanto — o motivo de tudo isto
+    "escopo_analogo",  # o que já propusemos para um caso parecido
+    "clientes",  # este já é nosso?
+    "contratos",  # e o que ele já tem conosco?
+    "propostas",  # o que já mandamos para ele
+    "contatos",  # com quem falar
+    "historico_followup",  # o que já foi dito
+    "relatorios_visita",  # o que a visita anterior achou
 )
 # FORA de propósito, e o motivo de cada grupo:
 #   `funil`, `ficha_cliente`, `painel_negociacoes`, `cross_sell`, `leads_frios`, `resumo_nps`
@@ -2990,11 +3176,9 @@ def _garantir_registro_crm() -> None:
     criava o mundo que queria medir e passava 8/8 com a capacidade desligada em produção.
     Oráculo que monta o cenário não mede o servidor.
     """
-    from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415
-        tools_read_crm,
-    )
-    from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415
+    from modules.ai.conversation.services.orquestrador import (  # noqa: F401,PLC0415  # noqa: F401,PLC0415
         tools_acao_crm,
+        tools_read_crm,
     )
     from modules.ai.conversation.services.orquestrador.agir_dispatcher import (  # noqa: PLC0415
         montar_acao_dispatchers,
@@ -3002,6 +3186,7 @@ def _garantir_registro_crm() -> None:
     from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
         montar_read_dispatchers,
     )
+
     montar_read_dispatchers()
     montar_acao_dispatchers()
 
@@ -3019,10 +3204,12 @@ _DESC_DONO = {
         "pergunta for de preço, custo ou margem de mão de obra. NUNCA calcule por conta "
         "própria: se ele pedir OUTRA margem ('e com 10%?'), chame esta ferramenta de novo "
         "com `margem`, jamais faça a conta de cabeça. Sem a função, chame sem argumento "
-        "para receber a lista."),
+        "para receber a lista."
+    ),
     "montar_proposta": (
         "Monta um RASCUNHO de proposta a partir da cotação e o deixa na Central de "
-        "Aprovações. NÃO envia nada ao cliente e NÃO fecha negócio."),
+        "Aprovações. NÃO envia nada ao cliente e NÃO fecha negócio."
+    ),
 }
 
 
@@ -3035,8 +3222,7 @@ _COND_EMPRESA = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 #: `suppliers.category` é VARCHAR, não enum — os valores em uso no banco (`material`,
 #: `seg_eletronica`, `tecnologia`) NÃO são os do enum Python (`materiais`, `seguranca`).
 #: Seguimos o que está no banco, que é o que as telas leem.
-_CATEGORIAS_FORNECEDOR = ("material", "seg_eletronica", "tecnologia", "servicos",
-                          "manutencao", "outros")
+_CATEGORIAS_FORNECEDOR = ("material", "seg_eletronica", "tecnologia", "servicos", "manutencao", "outros")
 
 
 async def _tool_cadastrar_fornecedor(args: dict) -> dict:
@@ -3079,12 +3265,10 @@ async def _tool_cadastrar_fornecedor(args: dict) -> dict:
             # afrouxamos a coluna (é do módulo financeiro, e um fornecedor sem CNPJ é um
             # fornecedor que não se consegue PAGAR depois). Recusa nomeando o que falta, e a
             # instrução manda o agente PERGUNTAR — pedir um dado é barato; inventar, não.
-            if not cnpj and (alvo_sem_cnpj := None) is None:
-                existente = (await db.execute(select(Supplier).where(
-                    Supplier.name.ilike(nome)))).scalars().first()
+            if not cnpj and (alvo_sem_cnpj := None) is None:  # noqa: F841
+                existente = (await db.execute(select(Supplier).where(Supplier.name.ilike(nome)))).scalars().first()
                 if existente is None:
-                    recusados.append({"nome": nome, "motivo": "falta o CNPJ (obrigatório "
-                                                             "no cadastro)"})
+                    recusados.append({"nome": nome, "motivo": "falta o CNPJ (obrigatório no cadastro)"})
                     continue
             cat = str(it.get("categoria") or "").strip().lower() or None
             if cat and cat not in _CATEGORIAS_FORNECEDOR:
@@ -3092,16 +3276,18 @@ async def _tool_cadastrar_fornecedor(args: dict) -> dict:
 
             alvo = None
             if cnpj:
-                alvo = (await db.execute(
-                    select(Supplier).where(Supplier.cpf_cnpj == cnpj))).scalars().first()
+                alvo = (await db.execute(select(Supplier).where(Supplier.cpf_cnpj == cnpj))).scalars().first()
             if alvo is None:
-                alvo = (await db.execute(select(Supplier).where(
-                    Supplier.name.ilike(nome)))).scalars().first()
+                alvo = (await db.execute(select(Supplier).where(Supplier.name.ilike(nome)))).scalars().first()
 
-            campos = {"whatsapp": zap or None, "mobile": zap or None,
-                      "contact_name": (str(it.get("contato") or "").strip() or None),
-                      "category": cat, "notes": (str(it.get("observacao") or "").strip() or None),
-                      "cpf_cnpj": cnpj or None}
+            campos = {
+                "whatsapp": zap or None,
+                "mobile": zap or None,
+                "contact_name": (str(it.get("contato") or "").strip() or None),
+                "category": cat,
+                "notes": (str(it.get("observacao") or "").strip() or None),
+                "cpf_cnpj": cnpj or None,
+            }
             campos = {k: v for k, v in campos.items() if v}
 
             if alvo is not None:
@@ -3114,23 +3300,33 @@ async def _tool_cadastrar_fornecedor(args: dict) -> dict:
                         mudou.append(k)
                 atualizados.append({"nome": alvo.name, "preenchi": mudou or ["(já estava completo)"]})
             else:
-                novo = Supplier(condominio_id=_COND_EMPRESA, name=nome,
-                                supplier_type="pessoa_juridica", status="ativo", ativo=True,
-                                **campos)
+                novo = Supplier(
+                    condominio_id=_COND_EMPRESA,
+                    name=nome,
+                    supplier_type="pessoa_juridica",
+                    status="ativo",
+                    ativo=True,
+                    **campos,
+                )
                 db.add(novo)
                 criados.append({"nome": nome, "whatsapp": zap or None, "categoria": cat})
         await db.commit()
 
     return {
-        "ok": True, "criados": criados, "atualizados": atualizados, "recusados": recusados,
+        "ok": True,
+        "criados": criados,
+        "atualizados": atualizados,
+        "recusados": recusados,
         "resumo": f"{len(criados)} novo(s) · {len(atualizados)} atualizado(s)"
-                  + (f" · {len(recusados)} recusado(s)" if recusados else ""),
-        "instrucao": ("Confirme ao Jordan NOME e TELEFONE de cada um que entrou, para ele "
-                      "conferir. Se algum ficou sem categoria, pergunte se é material, "
-                      "segurança eletrônica, tecnologia ou serviço — não chute. "
-                      "E se algum foi RECUSADO por falta de CNPJ, peça o CNPJ dele: o "
-                      "cadastro exige, porque sem CNPJ não se emite pagamento depois. "
-                      "NUNCA invente um número."),
+        + (f" · {len(recusados)} recusado(s)" if recusados else ""),
+        "instrucao": (
+            "Confirme ao Jordan NOME e TELEFONE de cada um que entrou, para ele "
+            "conferir. Se algum ficou sem categoria, pergunte se é material, "
+            "segurança eletrônica, tecnologia ou serviço — não chute. "
+            "E se algum foi RECUSADO por falta de CNPJ, peça o CNPJ dele: o "
+            "cadastro exige, porque sem CNPJ não se emite pagamento depois. "
+            "NUNCA invente um número."
+        ),
     }
 
 
@@ -3142,7 +3338,8 @@ _SCHEMA_FORNECEDOR = {
             "Grava fornecedores no cadastro da empresa. Aceita VÁRIOS de uma vez — use "
             "sempre que o Jordan mandar uma lista de fornecedores com nome e telefone. "
             "Não duplica: se já existir, completa o que estava vazio. Só cadastra: não "
-            "cota, não compra e não fala com o fornecedor."),
+            "cota, não compra e não fala com o fornecedor."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -3152,15 +3349,26 @@ _SCHEMA_FORNECEDOR = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "nome": {"type": "string", "description": "Razão social ou nome pelo qual o Jordan o chama."},
+                            "nome": {
+                                "type": "string",
+                                "description": "Razão social ou nome pelo qual o Jordan o chama.",
+                            },
                             "whatsapp": {"type": "string", "description": "Número com DDD."},
                             "telefone": {"type": "string", "description": "Alternativa ao whatsapp."},
                             "contato": {"type": "string", "description": "Nome da pessoa com quem ele fala."},
-                            "categoria": {"type": "string",
-                                          "enum": list(_CATEGORIAS_FORNECEDOR),
-                                          "description": "O que ele fornece."},
-                            "cnpj": {"type": "string", "description": "OBRIGATÓRIO para cadastro novo — sem ele o banco recusa. Se o Jordan não mandar, pergunte."},
-                            "observacao": {"type": "string", "description": "Ex.: 'melhor preço em câmera', 'entrega em 2 dias'."},
+                            "categoria": {
+                                "type": "string",
+                                "enum": list(_CATEGORIAS_FORNECEDOR),
+                                "description": "O que ele fornece.",
+                            },
+                            "cnpj": {
+                                "type": "string",
+                                "description": "OBRIGATÓRIO para cadastro novo — sem ele o banco recusa. Se o Jordan não mandar, pergunte.",
+                            },
+                            "observacao": {
+                                "type": "string",
+                                "description": "Ex.: 'melhor preço em câmera', 'entrega em 2 dias'.",
+                            },
                         },
                         "required": ["nome"],
                     },
@@ -3183,7 +3391,7 @@ def _cotacao_do_dono() -> list[dict]:
     """
     saida = []
     for spec in TOOLS_COTACAO:
-        fn = dict((spec.get("function") or {}))
+        fn = dict(spec.get("function") or {})
         nome = fn.get("name")
         if nome not in _DESC_DONO:
             continue
@@ -3195,8 +3403,10 @@ def _cotacao_do_dono() -> list[dict]:
             par["properties"] = dict(par.get("properties") or {})
             par["properties"]["margem"] = {
                 "type": "number",
-                "description": ("Margem a aplicar. Aceita 0.10 ou 10. Omita para usar a "
-                                "margem padrão da tabela (15% na mão de obra)."),
+                "description": (
+                    "Margem a aplicar. Aceita 0.10 ou 10. Omita para usar a "
+                    "margem padrão da tabela (15% na mão de obra)."
+                ),
             }
             fn["parameters"] = par
         saida.append({"type": "function", "function": fn})
@@ -3226,36 +3436,55 @@ async def _tool_falar_com_cliente(args: dict) -> dict:
         return {"erro": "informe a mensagem que devo enviar — não invento o texto."}
 
     async with async_session_factory() as db:
-        cli = (await db.execute(_t(
-            "SELECT name, coalesce(whatsapp,'') zap, coalesce(phone,'') fone, "
-            "       coalesce(technical_contact_phone,'') tec, "
-            "       coalesce(technical_contact_name,'') tec_nome "
-            "FROM clients WHERE upper(name) = upper(:r) OR name ILIKE :like "
-            "   OR regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = "
-            "      regexp_replace(:r,'[^0-9]','','g') "
-            "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"),
-            {"r": ref, "like": f"%{ref}%"})).mappings().first()
+        cli = (
+            (
+                await db.execute(
+                    _t(
+                        "SELECT name, coalesce(whatsapp,'') zap, coalesce(phone,'') fone, "
+                        "       coalesce(technical_contact_phone,'') tec, "
+                        "       coalesce(technical_contact_name,'') tec_nome "
+                        "FROM clients WHERE upper(name) = upper(:r) OR name ILIKE :like "
+                        "   OR regexp_replace(coalesce(document_number,''),'[^0-9]','','g') = "
+                        "      regexp_replace(:r,'[^0-9]','','g') "
+                        "ORDER BY (upper(name) = upper(:r)) DESC LIMIT 1"
+                    ),
+                    {"r": ref, "like": f"%{ref}%"},
+                )
+            )
+            .mappings()
+            .first()
+        )
 
     if not cli:
         return {"erro": f"não achei o cliente {ref!r} no cadastro. Confira o nome."}
 
     numero = re.sub(r"\D", "", cli["zap"] or cli["fone"] or cli["tec"] or "")
     if not numero:
-        return {"erro": f"{cli['name']} não tem telefone no cadastro — não tenho para onde "
-                        "mandar. Me passe o número que eu gravo antes."}
+        return {
+            "erro": f"{cli['name']} não tem telefone no cadastro — não tenho para onde "
+            "mandar. Me passe o número que eu gravo antes."
+        }
 
     if not args.get("confirmar"):
         # Preview: quem, qual número, e o texto INTEIRO. Resumir aqui seria esconder
         # justamente a parte que o Jordan precisa conferir.
-        return {"status": "preview", "cliente": cli["name"], "numero": numero,
-                "para": cli["tec_nome"] or None, "mensagem": msg,
-                "instrucao": ("Mostre ao Jordan o DESTINATÁRIO, o NÚMERO e o TEXTO exato, e "
-                              "pergunte se pode enviar. Só chame de novo com confirmar=true "
-                              "depois do 'pode mandar' dele.")}
+        return {
+            "status": "preview",
+            "cliente": cli["name"],
+            "numero": numero,
+            "para": cli["tec_nome"] or None,
+            "mensagem": msg,
+            "instrucao": (
+                "Mostre ao Jordan o DESTINATÁRIO, o NÚMERO e o TEXTO exato, e "
+                "pergunte se pode enviar. Só chame de novo com confirmar=true "
+                "depois do 'pode mandar' dele."
+            ),
+        }
 
     from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
         send_text_message,
     )
+
     try:
         r = await send_text_message(numero, msg)
     except Exception as e:  # noqa: BLE001
@@ -3263,9 +3492,14 @@ async def _tool_falar_com_cliente(args: dict) -> dict:
         return {"erro": f"não consegui enviar para {cli['name']}: {e}"}
 
     logger.info("[jose-luis] mensagem enviada a %s (%s) a pedido do dono", cli["name"], numero)
-    return {"ok": True, "enviado_para": cli["name"], "numero": numero, "mensagem": msg,
-            "detalhe": str(r)[:200],
-            "instrucao": "Confirme ao Jordan que saiu, repetindo para QUEM foi."}
+    return {
+        "ok": True,
+        "enviado_para": cli["name"],
+        "numero": numero,
+        "mensagem": msg,
+        "detalhe": str(r)[:200],
+        "instrucao": "Confirme ao Jordan que saiu, repetindo para QUEM foi.",
+    }
 
 
 _SCHEMA_FALAR = {
@@ -3277,14 +3511,14 @@ _SCHEMA_FALAR = {
             "disser 'sonde o X', 'pergunta pro Y', 'dá um toque no Z' ou 'faça o "
             "acompanhamento com fulano'. SEMPRE chame primeiro sem `confirmar` para mostrar "
             "a ele o destinatário, o número e o texto; só envie depois do 'pode mandar'. "
-            "Para falar com TODOS de uma vez existe followup_lote."),
+            "Para falar com TODOS de uma vez existe followup_lote."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "cliente": {"type": "string", "description": "Nome ou CNPJ do cadastro."},
                 "mensagem": {"type": "string", "description": "O texto exato a enviar."},
-                "confirmar": {"type": "boolean",
-                              "description": "false/ausente = só mostra. true = envia."},
+                "confirmar": {"type": "boolean", "description": "false/ausente = só mostra. true = envia."},
             },
             "required": ["cliente", "mensagem"],
         },
@@ -3297,10 +3531,10 @@ _SCHEMA_FALAR = {
 #: Cada nome aqui foi escolhido por uma pergunta: "ele faria isso de pé, num corredor de
 #: condomínio, sem conferir na tela?" Se a resposta é não, ficou fora.
 _ACOES_CAMPO: tuple[str, ...] = (
-    "criar_orcamento",      # o motivo de tudo — monta a proposta a partir da cotação
-    "criar_cliente",        # o prospect da visita vira cliente
-    "atualizar_cliente",    # corrigir telefone/e-mail que ele descobre na hora
-    "anotar_cliente",       # registrar o que foi combinado
+    "criar_orcamento",  # o motivo de tudo — monta a proposta a partir da cotação
+    "criar_cliente",  # o prospect da visita vira cliente
+    "atualizar_cliente",  # corrigir telefone/e-mail que ele descobre na hora
+    "anotar_cliente",  # registrar o que foi combinado
 )
 #: FORA, e o motivo de cada grupo:
 #:   `ativar_contrato` → é 🔴 com OTP, vira MRR e faturamento. Nunca de pé.
@@ -3376,12 +3610,17 @@ async def _specs_da_obra(db, visit_id: str | None) -> dict[str, str]:
         return {}
     from sqlalchemy import text as _t  # noqa: PLC0415
 
-    rows = (await db.execute(_t(
-        "SELECT lower(i.description) d, i.specifications s "
-        "FROM purchase_quotation_items i JOIN purchase_quotations q ON q.id = i.quotation_id "
-        "WHERE q.visit_report_id::text = :v AND coalesce(i.specifications,'') <> ''"),
-        {"v": visit_id})).all()
-    return {d: s for d, s in rows}
+    rows = (
+        await db.execute(
+            _t(
+                "SELECT lower(i.description) d, i.specifications s "
+                "FROM purchase_quotation_items i JOIN purchase_quotations q ON q.id = i.quotation_id "
+                "WHERE q.visit_report_id::text = :v AND coalesce(i.specifications,'') <> ''"
+            ),
+            {"v": visit_id},
+        )
+    ).all()
+    return {d: s for d, s in rows}  # noqa: C416
 
 
 def _observacao_ja_pede(obs: str) -> bool:
@@ -3459,45 +3698,68 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         # A query lia `contact_name` só para montar o "Olá, Renier!" e não o usava para
         # ACHAR: às 13:13 ele pediu ao Renier e ouviu "não achei no cadastro", com HAWK EYE
         # (Renier Souza) cadastrado e com WhatsApp.
-        cands = (await db.execute(_t(
-            "SELECT id, name, coalesce(contact_name,'') ct, "
-            "       coalesce(whatsapp, phone, '') fone, "
-            "       (upper(name) = upper(:r)) e_nome, "
-            "       (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
-            "        regexp_replace(:r,'[^0-9]','','g') "
-            "        AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11) e_cnpj, "
-            "       (upper(coalesce(contact_name,'')) = upper(:r)) e_contato "
-            "FROM suppliers WHERE coalesce(ativo,true) AND ("
-            "  upper(name) = upper(:r) OR name ILIKE :like "
-            "  OR contact_name ILIKE :like "
-            "  OR (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
-            "      regexp_replace(:r,'[^0-9]','','g') "
-            "      AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11)) "
-            # razão social exata > CNPJ > contato exato > parcial na razão > parcial no contato
-            "ORDER BY e_nome DESC, e_cnpj DESC, e_contato DESC, (name ILIKE :like) DESC, name"),
-            {"r": ref, "like": f"%{ref}%"})).mappings().all()
+        cands = (
+            (
+                await db.execute(
+                    _t(
+                        "SELECT id, name, coalesce(contact_name,'') ct, "
+                        "       coalesce(whatsapp, phone, '') fone, "
+                        "       (upper(name) = upper(:r)) e_nome, "
+                        "       (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
+                        "        regexp_replace(:r,'[^0-9]','','g') "
+                        "        AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11) e_cnpj, "
+                        "       (upper(coalesce(contact_name,'')) = upper(:r)) e_contato "
+                        "FROM suppliers WHERE coalesce(ativo,true) AND ("
+                        "  upper(name) = upper(:r) OR name ILIKE :like "
+                        "  OR contact_name ILIKE :like "
+                        "  OR (regexp_replace(coalesce(cpf_cnpj,''),'[^0-9]','','g') = "
+                        "      regexp_replace(:r,'[^0-9]','','g') "
+                        "      AND length(regexp_replace(:r,'[^0-9]','','g')) >= 11)) "
+                        # razão social exata > CNPJ > contato exato > parcial na razão > parcial no contato
+                        "ORDER BY e_nome DESC, e_cnpj DESC, e_contato DESC, (name ILIKE :like) DESC, name"
+                    ),
+                    {"r": ref, "like": f"%{ref}%"},
+                )
+            )
+            .mappings()
+            .all()
+        )
         if not cands:
             # ⚠️ NÃO oferecer cadastro aqui. A versão anterior respondia "quer que eu cadastre?"
             # — se ele aceitasse, nasceria um segundo HAWK EYE. Quem não foi achado por um
             # apelido provavelmente existe com outro nome; conferir vem antes de criar.
-            nomes = (await db.execute(_t(
-                "SELECT name || coalesce(' (' || contact_name || ')','') FROM suppliers "
-                "WHERE coalesce(ativo,true) AND coalesce(whatsapp, phone,'') <> '' "
-                "ORDER BY name LIMIT 12"))).scalars().all()
-            return {"erro": f"não achei nenhum fornecedor por {ref!r}.",
-                    "fornecedores_com_whatsapp": list(nomes),
-                    "instrucao": ("NÃO ofereça cadastrar. Pergunte se ele quis dizer um dos "
-                                  "fornecedores da lista — cadastrar de novo cria duplicata.")}
+            nomes = (
+                (
+                    await db.execute(
+                        _t(
+                            "SELECT name || coalesce(' (' || contact_name || ')','') FROM suppliers "
+                            "WHERE coalesce(ativo,true) AND coalesce(whatsapp, phone,'') <> '' "
+                            "ORDER BY name LIMIT 12"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return {
+                "erro": f"não achei nenhum fornecedor por {ref!r}.",
+                "fornecedores_com_whatsapp": list(nomes),
+                "instrucao": (
+                    "NÃO ofereça cadastrar. Pergunte se ele quis dizer um dos "
+                    "fornecedores da lista — cadastrar de novo cria duplicata."
+                ),
+            }
         # Só um casamento FORTE (razão social exata, CNPJ ou contato exato) decide sozinho.
         # Nome de pessoa colide mais que razão social, e mandar cotação para o fornecedor
         # errado é exatamente o que a parede existe para impedir — e não se desfaz.
         forte = [c for c in cands if c["e_nome"] or c["e_cnpj"] or c["e_contato"]]
         if len(forte) > 1 or (not forte and len(cands) > 1):
-            opcoes = [f"{c['name']}" + (f" ({c['ct']})" if c["ct"] else "")
-                      for c in (forte or cands)[:6]]
-            return {"erro": f"{ref!r} casa com mais de um fornecedor — não vou escolher.",
-                    "opcoes": opcoes,
-                    "instrucao": "Pergunte ao Jordan qual dos dois, citando os nomes."}
+            opcoes = [f"{c['name']}" + (f" ({c['ct']})" if c["ct"] else "") for c in (forte or cands)[:6]]
+            return {
+                "erro": f"{ref!r} casa com mais de um fornecedor — não vou escolher.",
+                "opcoes": opcoes,
+                "instrucao": "Pergunte ao Jordan qual dos dois, citando os nomes.",
+            }
         f = (forte or cands)[0]
         numero = re.sub(r"\D", "", f["fone"] or "")
         if not numero:
@@ -3512,11 +3774,20 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         # O contexto já existia no banco e estava desligado.
         visita = None
         if args.get("obra"):
-            visita = (await db.execute(_t(
-                "SELECT id::text, cliente_nome, to_char(data_visita,'DD/MM/YYYY') dt "
-                "FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
-                "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"),
-                {"o": f"%{args['obra']}%"})).mappings().first()
+            visita = (
+                (
+                    await db.execute(
+                        _t(
+                            "SELECT id::text, cliente_nome, to_char(data_visita,'DD/MM/YYYY') dt "
+                            "FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
+                            "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"
+                        ),
+                        {"o": f"%{args['obra']}%"},
+                    )
+                )
+                .mappings()
+                .first()
+            )
 
         # ⭐ 31/08/2026 18:00 — ANTES de pedir a spec ao fornecedor, procura a que o Jordan
         # JÁ DEU. Saiu para o Renier "cabo (especificação a definir — me sugira o padrão)"
@@ -3533,10 +3804,18 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
         # Pedir "sugira o padrão" a quem vende pelo código seria pior que não pedir nada.
         # ⚠️ Os códigos VTV vivem em `products.code`, NÃO em `crm_products.sku` — são dois
         # catálogos e eu procurei no errado primeiro. Lê os dois.
-        skus = set((await db.execute(_t(
-            "SELECT upper(sku) FROM crm_products WHERE coalesce(sku,'') <> '' "
-            "UNION SELECT upper(code) FROM products WHERE coalesce(code,'') <> ''"
-        ))).scalars().all())
+        skus = set(
+            (
+                await db.execute(
+                    _t(
+                        "SELECT upper(sku) FROM crm_products WHERE coalesce(sku,'') <> '' "
+                        "UNION SELECT upper(code) FROM products WHERE coalesce(code,'') <> ''"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         def _linha(item: str) -> str:
             txt = str(item)[:120]
@@ -3549,59 +3828,92 @@ async def _tool_pedir_cotacao(args: dict) -> dict:
                 return f"• {txt}  (especificação a definir — me sugira o padrão que vocês usam)"
             return f"• {txt}"
 
-        nus = [str(i) for i in itens[:40]
-               if _item_sem_especificacao(str(i)) and not _casa_spec(str(i), specs)
-               and not _tem_codigo_catalogo(str(i), skus)]
+        nus = [
+            str(i)
+            for i in itens[:40]
+            if _item_sem_especificacao(str(i))
+            and not _casa_spec(str(i), specs)
+            and not _tem_codigo_catalogo(str(i), skus)
+        ]
         linhas = "\n".join(_linha(i) for i in itens[:40])
-        corpo = (f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
-                 f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
-                 # 1200, não 400: em 31/08 a pergunta técnica do VTV-074 foi cortada no
-                 # meio ("a NF-e 19.535 e a") e a fornecedora receberia uma frase truncada.
-                 # Contexto de obra é onde mora a informação que evita recotação errada.
-                 + (str(args.get("observacao"))[:1200] + "\n\n"
-                    if args.get("observacao") else "")
-                 # ⚠️ O rodapé genérico SAI quando a observação já pediu o que ele pede.
-                 # Em 31/08 a cotação da Kely pedia preço, prazo e validade na observação —
-                 # de forma melhor, detalhada — e o rodapé repetia os três logo abaixo.
-                 # Mensagem que pede duas vezes a mesma coisa lê como malfeita, e é a
-                 # mesma família do que o Jordan chamou de "fuleira".
-                 + ("" if _observacao_ja_pede(str(args.get("observacao") or ""))
-                    else "Pode me passar preço, prazo de entrega e validade da proposta? "
-                         "Obrigado!"))
+        corpo = (
+            f"Olá{', ' + f['ct'].split()[0] if f['ct'] else ''}! Aqui é da Conecta Mais "
+            f"Eletrônica.\n\nPreciso de cotação para:\n\n{linhas}\n\n"
+            # 1200, não 400: em 31/08 a pergunta técnica do VTV-074 foi cortada no
+            # meio ("a NF-e 19.535 e a") e a fornecedora receberia uma frase truncada.
+            # Contexto de obra é onde mora a informação que evita recotação errada.
+            + (str(args.get("observacao"))[:1200] + "\n\n" if args.get("observacao") else "")
+            # ⚠️ O rodapé genérico SAI quando a observação já pediu o que ele pede.
+            # Em 31/08 a cotação da Kely pedia preço, prazo e validade na observação —
+            # de forma melhor, detalhada — e o rodapé repetia os três logo abaixo.
+            # Mensagem que pede duas vezes a mesma coisa lê como malfeita, e é a
+            # mesma família do que o Jordan chamou de "fuleira".
+            + (
+                ""
+                if _observacao_ja_pede(str(args.get("observacao") or ""))
+                else "Pode me passar preço, prazo de entrega e validade da proposta? Obrigado!"
+            )
+        )
 
         u = await _usuario_dono(db)
         if u is None:
             return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
         r = await criar_rascunho(
-            db, u, tipo="pedir_cotacao", modulo="crm",
+            db,
+            u,
+            tipo="pedir_cotacao",
+            modulo="crm",
             titulo=f"PEDIR COTAÇÃO — {f['name'][:40]}",
-            resumo=(f"Aprovar ENVIA esta mensagem por WhatsApp para {f['name']}"
-                    f"{' (' + f['ct'] + ')' if f['ct'] else ''}, número {numero}, "
-                    f"com {len(itens)} item(ns):\n\n{corpo}"
-                    + (f"\n\nOBRA: {visita['cliente_nome']} (visita de {visita['dt']}) — "
-                       "os itens ficam ligados a este projeto."
-                       if visita else
-                       "\n\n⚠️ Sem obra vinculada: os itens não herdam o contexto de nenhum "
-                       "projeto. Se é para uma obra, diga qual." if args.get("obra") is None
-                       else f"\n\n⚠️ Não achei visita para a obra {args['obra']!r}.")
-                    + (await _bloco_dimensionamento(db, (visita or {}).get("id")))
-                    + (f"\n\n⚠️ {len(nus)} item(ns) SEM especificação — vão sair pedindo "
-                       f"o padrão do fornecedor: {', '.join(nus[:6])}. Se você já sabe a "
-                       "spec, edite antes de aprovar." if nus else "")),
-            payload={"numero": numero, "fornecedor": f["name"], "mensagem": corpo,
-                     "supplier_id": str(f["id"]),
-                     "visit_report_id": (visita or {}).get("id"),
-                     "itens": [str(i)[:200] for i in itens[:40]]},
-            gate="🟡", requires_otp=False, roles_aprovador=("admin",),
-            idempotency_key=f"cotacao:{numero}:{hash(corpo) & 0xffffffff}")
+            resumo=(
+                f"Aprovar ENVIA esta mensagem por WhatsApp para {f['name']}"
+                f"{' (' + f['ct'] + ')' if f['ct'] else ''}, número {numero}, "
+                f"com {len(itens)} item(ns):\n\n{corpo}"
+                + (
+                    f"\n\nOBRA: {visita['cliente_nome']} (visita de {visita['dt']}) — "
+                    "os itens ficam ligados a este projeto."
+                    if visita
+                    else "\n\n⚠️ Sem obra vinculada: os itens não herdam o contexto de nenhum "
+                    "projeto. Se é para uma obra, diga qual."
+                    if args.get("obra") is None
+                    else f"\n\n⚠️ Não achei visita para a obra {args['obra']!r}."
+                )
+                + (await _bloco_dimensionamento(db, (visita or {}).get("id")))
+                + (
+                    f"\n\n⚠️ {len(nus)} item(ns) SEM especificação — vão sair pedindo "
+                    f"o padrão do fornecedor: {', '.join(nus[:6])}. Se você já sabe a "
+                    "spec, edite antes de aprovar."
+                    if nus
+                    else ""
+                )
+            ),
+            payload={
+                "numero": numero,
+                "fornecedor": f["name"],
+                "mensagem": corpo,
+                "supplier_id": str(f["id"]),
+                "visit_report_id": (visita or {}).get("id"),
+                "itens": [str(i)[:200] for i in itens[:40]],
+            },
+            gate="🟡",
+            requires_otp=False,
+            roles_aprovador=("admin",),
+            idempotency_key=f"cotacao:{numero}:{hash(corpo) & 0xFFFFFFFF}",
+        )
         if isinstance(r, dict) and r.get("erro"):
             return r
         # a chave é `draft_id`, não `id` — conferido no retorno de `criar_rascunho`
-        return {"status": "rascunho", "fornecedor": f["name"], "numero": numero,
-                "itens": len(itens), "draft_id": (r or {}).get("draft_id"),
-                "instrucao": ("Diga ao Jordan que o pedido está na Central esperando o clique "
-                              "dele, e MOSTRE o texto que vai sair e para quem. NADA foi "
-                              "enviado ao fornecedor ainda.")}
+        return {
+            "status": "rascunho",
+            "fornecedor": f["name"],
+            "numero": numero,
+            "itens": len(itens),
+            "draft_id": (r or {}).get("draft_id"),
+            "instrucao": (
+                "Diga ao Jordan que o pedido está na Central esperando o clique "
+                "dele, e MOSTRE o texto que vai sair e para quem. NADA foi "
+                "enviado ao fornecedor ainda."
+            ),
+        }
 
 
 _SCHEMA_LEVANTAMENTO = {
@@ -3612,11 +3924,11 @@ _SCHEMA_LEVANTAMENTO = {
             "O estado do LEVANTAMENTO de uma obra: o que já dá para dimensionar (com a "
             "regra e a origem de cada número), o que está travado, e a PRÓXIMA pergunta "
             "mais valiosa. Use SEMPRE antes de falar de cotação ou orçamento de projeto — "
-            "é assim que você deixa de perguntar o que ele já respondeu."),
+            "é assim que você deixa de perguntar o que ele já respondeu."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {"obra": {"type": "string",
-                                    "description": "Nome do condomínio/cliente da obra."}},
+            "properties": {"obra": {"type": "string", "description": "Nome do condomínio/cliente da obra."}},
             "required": ["obra"],
         },
     },
@@ -3629,13 +3941,13 @@ _SCHEMA_REG_LEVANTAMENTO = {
         "description": (
             "Grava a resposta do Jordan a uma pergunta do levantamento, em campo "
             "estruturado. Use assim que ele responder — se não gravar, a pergunta volta e "
-            "isso mata a confiança dele."),
+            "isso mata a confiança dele."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "obra": {"type": "string"},
-                "parametro": {"type": "string",
-                              "description": "O nome exato que veio em `levantamento_projeto`."},
+                "parametro": {"type": "string", "description": "O nome exato que veio em `levantamento_projeto`."},
                 "valor": {"description": "Número, texto ou true/false, como ele respondeu."},
             },
             "required": ["obra", "parametro", "valor"],
@@ -3647,10 +3959,19 @@ _SCHEMA_REG_LEVANTAMENTO = {
 async def _visita_da_obra(db, obra: str):
     from sqlalchemy import text as _t  # noqa: PLC0415
 
-    return (await db.execute(_t(
-        "SELECT id::text, cliente_nome FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
-        "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"),
-        {"o": f"%{obra}%"})).mappings().first()
+    return (
+        (
+            await db.execute(
+                _t(
+                    "SELECT id::text, cliente_nome FROM crm_visit_reports WHERE cliente_nome ILIKE :o "
+                    "ORDER BY data_visita DESC NULLS LAST, created_at DESC LIMIT 1"
+                ),
+                {"o": f"%{obra}%"},
+            )
+        )
+        .mappings()
+        .first()
+    )
 
 
 async def _tool_levantamento_projeto(args: dict) -> dict:
@@ -3666,21 +3987,30 @@ async def _tool_levantamento_projeto(args: dict) -> dict:
         q = await proxima_pergunta(db, v["id"])
     return {
         "obra": v["cliente_nome"],
-        "dimensionado": [{k: l[k] for k in ("item", "quantidade", "regra", "origem")}
-                         for l in d["linhas"] if l["quantidade"] is not None],
-        "travado": [{"item": l["item"], "falta": l["bloqueado_por"]}
-                    for l in d["linhas"] if l["quantidade"] is None],
-        "placar": f"{pl['respondidas']}/{pl['total']} respondidas · "
-                  f"{pl['itens_travados']} itens travados",
-        "proxima_pergunta": (None if not q else
-                             {"parametro": q["param"], "pergunta": q["pergunta"],
-                              "quem_responde": q["dono"],
-                              "destrava": list(q["destrava"])}),
-        "instrucao": ("Faça UMA pergunta por vez — a `proxima_pergunta` e só ela. NÃO "
-                      "pergunte nada que já esteja em `dimensionado`. Se `quem_responde` "
-                      "não for o Jordan, diga a ele de quem é a resposta (síndica, campo, "
-                      "fornecedor) em vez de cobrá-la dele. Quando ele responder, chame "
-                      "`registrar_levantamento` na hora."),
+        "dimensionado": [
+            {k: l[k] for k in ("item", "quantidade", "regra", "origem")}
+            for l in d["linhas"]
+            if l["quantidade"] is not None
+        ],
+        "travado": [{"item": l["item"], "falta": l["bloqueado_por"]} for l in d["linhas"] if l["quantidade"] is None],
+        "placar": f"{pl['respondidas']}/{pl['total']} respondidas · {pl['itens_travados']} itens travados",
+        "proxima_pergunta": (
+            None
+            if not q
+            else {
+                "parametro": q["param"],
+                "pergunta": q["pergunta"],
+                "quem_responde": q["dono"],
+                "destrava": list(q["destrava"]),
+            }
+        ),
+        "instrucao": (
+            "Faça UMA pergunta por vez — a `proxima_pergunta` e só ela. NÃO "
+            "pergunte nada que já esteja em `dimensionado`. Se `quem_responde` "
+            "não for o Jordan, diga a ele de quem é a resposta (síndica, campo, "
+            "fornecedor) em vez de cobrá-la dele. Quando ele responder, chame "
+            "`registrar_levantamento` na hora."
+        ),
     }
 
 
@@ -3699,19 +4029,29 @@ async def _tool_registrar_levantamento(args: dict) -> dict:
         if not v:
             return {"erro": f"não achei visita para {args.get('obra')!r}."}
         r = await registrar_resposta(
-            db, v["id"], str(args.get("parametro") or ""), args.get("valor"),
-            f"Jordan, WhatsApp {datetime.now().strftime('%d/%m/%Y')}")
+            db,
+            v["id"],
+            str(args.get("parametro") or ""),
+            args.get("valor"),
+            f"Jordan, WhatsApp {datetime.now().strftime('%d/%m/%Y')}",
+        )
         if r.get("erro"):
             return r
         from modules.crm.services.levantamento import placar, proxima_pergunta  # noqa: PLC0415
+
         pl = await placar(db, v["id"])
         q = await proxima_pergunta(db, v["id"])
-    return {**r, "placar": f"{pl['respondidas']}/{pl['total']} · {pl['itens_travados']} travados",
-            "proxima_pergunta": (None if not q else
-                                 {"parametro": q["param"], "pergunta": q["pergunta"],
-                                  "quem_responde": q["dono"]}),
-            "instrucao": ("Confirme em uma linha o que gravou e faça a PRÓXIMA pergunta — "
-                          "uma só. Se não houver próxima, diga o que ainda trava a cotação.")}
+    return {
+        **r,
+        "placar": f"{pl['respondidas']}/{pl['total']} · {pl['itens_travados']} travados",
+        "proxima_pergunta": (
+            None if not q else {"parametro": q["param"], "pergunta": q["pergunta"], "quem_responde": q["dono"]}
+        ),
+        "instrucao": (
+            "Confirme em uma linha o que gravou e faça a PRÓXIMA pergunta — "
+            "uma só. Se não houver próxima, diga o que ainda trava a cotação."
+        ),
+    }
 
 
 _SCHEMA_PERGUNTAR_JORDAN = {
@@ -3722,16 +4062,17 @@ _SCHEMA_PERGUNTAR_JORDAN = {
             "Leva ao Jordan uma pergunta do FORNECEDOR que só ele pode responder — "
             "especificação técnica não registrada, quantidade, autonomia, preferência de "
             "marca. Use SEMPRE que a resposta exigiria inventar spec. Antes de chamar, "
-            "responda ao fornecedor que vai confirmar: ele não pode ficar mudo esperando."),
+            "responda ao fornecedor que vai confirmar: ele não pode ficar mudo esperando."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "pergunta": {"type": "string",
-                             "description": "A pergunta do fornecedor, literal."},
+                "pergunta": {"type": "string", "description": "A pergunta do fornecedor, literal."},
                 "porque_nao_sei": {
                     "type": "string",
                     "description": "Por que você não consegue responder sozinho — qual dado "
-                                   "falta. Isto é obrigatório: se você sabe, responda."},
+                    "falta. Isto é obrigatório: se você sabe, responda.",
+                },
             },
             "required": ["pergunta", "porque_nao_sei"],
         },
@@ -3746,12 +4087,15 @@ _SCHEMA_REG_RESPOSTA = {
             "Registra o que o FORNECEDOR respondeu numa cotação: preço por item, prazo de "
             "entrega, validade. Nasce como RASCUNHO — o Jordan confere contra o que ele "
             "escreveu antes de virar dado. NÃO confirme o número de volta ao fornecedor "
-            "como se estivesse fechado."),
+            "como se estivesse fechado."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "numero_cotacao": {"type": "string",
-                                   "description": "O número que está no contexto, ex. HAWKEYE-202608311512."},
+                "numero_cotacao": {
+                    "type": "string",
+                    "description": "O número que está no contexto, ex. HAWKEYE-202608311512.",
+                },
                 "itens": {
                     "type": "array",
                     "description": "Um por item precificado.",
@@ -3760,8 +4104,10 @@ _SCHEMA_REG_RESPOSTA = {
                         "properties": {
                             "item_number": {"type": "integer", "description": "A linha, como no contexto."},
                             "preco_unitario": {"type": "number"},
-                            "observacao": {"type": "string",
-                                           "description": "O que ele disse do item (marca, modelo, spec)."},
+                            "observacao": {
+                                "type": "string",
+                                "description": "O que ele disse do item (marca, modelo, spec).",
+                            },
                         },
                         "required": ["item_number", "preco_unitario"],
                     },
@@ -3788,7 +4134,8 @@ _SCHEMA_MEU_PONTO = {
             "batidas já registradas na janela do turno, qual é a próxima batida e "
             "justificativas pendentes. Use SEMPRE antes de responder qualquer coisa sobre "
             "ponto — inclusive quando ele disser que já bateu: pode ter batido no Tangerino "
-            "e a batida ainda não ter chegado aqui."),
+            "e a batida ainda não ter chegado aqui."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
 }
@@ -3802,14 +4149,16 @@ _SCHEMA_CONTINGENCIA = {
             "rosto não reconhecido, GPS negado, app travado. Entra PENDENTE para o DP "
             "validar: ninguém perde o ponto. Use quando ele estiver NO POSTO e não "
             "conseguir bater agora. NÃO use para batida de outro dia (isso é justificativa) "
-            "nem se `meu_ponto_hoje` já mostrar a batida registrada."),
+            "nem se `meu_ponto_hoje` já mostrar a batida registrada."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "motivo": {
                     "type": "string",
                     "description": "O que impediu a batida, nas palavras dele. É a trilha "
-                                   "que o DP lê para validar — 'não deu' não serve."},
+                    "que o DP lê para validar — 'não deu' não serve.",
+                },
             },
             "required": ["motivo"],
         },
@@ -3824,16 +4173,17 @@ _SCHEMA_JUSTIFICAR = {
             "Registra a justificativa de um ATRASO ou FALTA com o motivo dito pelo "
             "funcionário. Nasce pendente e o DP revisa. Use para o que já passou "
             "(atestado, trânsito, problema em casa) — para o agora no posto use "
-            "`registrar_batida_contingencia`."),
+            "`registrar_batida_contingencia`."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "tipo": {"type": "string", "enum": ["atraso", "falta"]},
-                "motivo": {"type": "string",
-                           "description": "O que aconteceu, nas palavras dele."},
-                "categoria": {"type": "string",
-                              "enum": ["transito", "saude", "familiar", "transporte_publico",
-                                       "acidente", "outro"]},
+                "motivo": {"type": "string", "description": "O que aconteceu, nas palavras dele."},
+                "categoria": {
+                    "type": "string",
+                    "enum": ["transito", "saude", "familiar", "transporte_publico", "acidente", "outro"],
+                },
             },
             "required": ["tipo", "motivo"],
         },
@@ -3849,19 +4199,22 @@ _SCHEMA_PESQUISA = {
             "Registra a resposta do funcionário à pesquisa 'você está conseguindo bater seu "
             "ponto?'. Chame SEMPRE que ele responder, mesmo que a resposta seja só 'sim'. "
             "Sem isso a resposta vira conversa e some — e uma pesquisa que ninguém consegue "
-            "somar não é pesquisa."),
+            "somar não é pesquisa."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "consegue": {
                     "type": "boolean",
                     "description": "true se ele disse que está conseguindo bater normalmente; "
-                                   "false se disse que NÃO está. Omita se não deu para concluir."},
+                    "false se disse que NÃO está. Omita se não deu para concluir.",
+                },
                 "detalhe": {
                     "type": "string",
                     "description": "O que ele contou, nas palavras dele — o que acontece quando "
-                                   "tenta, o que aparece na tela, desde quando. Se mandou print, "
-                                   "escreva o que estava escrito nele."},
+                    "tenta, o que aparece na tela, desde quando. Se mandou print, "
+                    "escreva o que estava escrito nele.",
+                },
             },
             "required": ["detalhe"],
         },
@@ -3882,13 +4235,15 @@ _SCHEMA_MINHA_VIDA = {
             "Consulta a vida do funcionário na empresa: holerite, escala e próximo turno, "
             "férias, benefícios (VT/VR/plano), documentos e comunicados. Use SEMPRE que ele "
             "perguntar sobre qualquer um desses — a resposta está aqui e ele não precisa "
-            "esperar ninguém."),
+            "esperar ninguém."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "assunto": {"type": "string",
-                            "enum": ["holerite", "escala", "ferias", "beneficios",
-                                     "documentos", "comunicados"]},
+                "assunto": {
+                    "type": "string",
+                    "enum": ["holerite", "escala", "ferias", "beneficios", "documentos", "comunicados"],
+                },
                 "mes": {"type": "integer", "description": "só para holerite de um mês específico"},
                 "ano": {"type": "integer", "description": "só para holerite de um mês específico"},
             },
@@ -3906,7 +4261,8 @@ _SCHEMA_HISTORICO = {
             "contingência, falhas de reconhecimento facial, justificativas esperando o DP e o "
             "que ele já relatou antes. Use ANTES de responder uma queixa repetida — é o que "
             "permite dizer 'é o terceiro dia seguido' em vez de tratar cada dia como o "
-            "primeiro."),
+            "primeiro."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
 }
@@ -3920,18 +4276,29 @@ _SCHEMA_PENDENCIA = {
             "problema NÃO se resolve por você: espelho com batida duplicada ou faltando, "
             "afastamento, atestado, benefício, férias, divergência de holerite, app que não "
             "funciona para ela. Você NÃO corrige nada — descreve e entrega a quem decide. "
-            "Diga à pessoa que registrou e que ela será avisada."),
+            "Diga à pessoa que registrou e que ela será avisada."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "assunto": {"type": "string",
-                            "enum": ["corrigir_espelho", "validar_batida", "problema_no_app",
-                                     "afastamento", "ferias_ou_folga", "holerite_ou_pagamento",
-                                     "outro"]},
-                "relato": {"type": "string",
-                           "description": "O que aconteceu, com as PALAVRAS DELA — datas, "
-                                          "horários, o que aparece na tela. O DP lê isto e "
-                                          "precisa resolver sem perguntar de novo."},
+                "assunto": {
+                    "type": "string",
+                    "enum": [
+                        "corrigir_espelho",
+                        "validar_batida",
+                        "problema_no_app",
+                        "afastamento",
+                        "ferias_ou_folga",
+                        "holerite_ou_pagamento",
+                        "outro",
+                    ],
+                },
+                "relato": {
+                    "type": "string",
+                    "description": "O que aconteceu, com as PALAVRAS DELA — datas, "
+                    "horários, o que aparece na tela. O DP lê isto e "
+                    "precisa resolver sem perguntar de novo.",
+                },
             },
             "required": ["assunto", "relato"],
         },
@@ -3962,8 +4329,13 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
             assunto = str(args.get("assunto") or "")
             if assunto == "holerite":
                 return await _vf.holerites(ident.employee_id, args.get("mes"), args.get("ano"))
-            fn = {"escala": _vf.escala, "ferias": _vf.ferias, "beneficios": _vf.beneficios,
-                  "documentos": _vf.documentos, "comunicados": _vf.comunicados}.get(assunto)
+            fn = {
+                "escala": _vf.escala,
+                "ferias": _vf.ferias,
+                "beneficios": _vf.beneficios,
+                "documentos": _vf.documentos,
+                "comunicados": _vf.comunicados,
+            }.get(assunto)
             return await fn(ident.employee_id) if fn else {"erro": f"assunto desconhecido: {assunto}"}
         if name == "historico_desta_pessoa":
             from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
@@ -3972,23 +4344,34 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
         if name == "abrir_pendencia_dp":
             from modules.people_management.ponto import pendencia_dp as _pd  # noqa: PLC0415
 
-            return await _pd.abrir(db, employee_id=ident.employee_id,
-                                   nome=ident.nome or "(sem nome)",
-                                   assunto=str(args.get("assunto") or "outro"),
-                                   relato=str(args.get("relato") or ""), posto=ident.posto)
+            return await _pd.abrir(
+                db,
+                employee_id=ident.employee_id,
+                nome=ident.nome or "(sem nome)",
+                assunto=str(args.get("assunto") or "outro"),
+                relato=str(args.get("relato") or ""),
+                posto=ident.posto,
+            )
         if name == "registrar_resposta_pesquisa_ponto":
             from modules.people_management.ponto import pesquisa_ponto as _pp  # noqa: PLC0415
 
             return await _pp.registrar_resposta(
-                db, ident.employee_id, ident.nome or "(sem nome)",
+                db,
+                ident.employee_id,
+                ident.nome or "(sem nome)",
                 args.get("consegue") if isinstance(args.get("consegue"), bool) else None,
-                str(args.get("detalhe") or ""), ident.posto)
+                str(args.get("detalhe") or ""),
+                ident.posto,
+            )
         if name == "registrar_batida_contingencia":
-            return await _pf.registrar_contingencia(db, ident.employee_id,
-                                                    str(args.get("motivo") or "").strip())
+            return await _pf.registrar_contingencia(db, ident.employee_id, str(args.get("motivo") or "").strip())
         return await _pf.registrar_justificativa(
-            db, ident.employee_id, str(args.get("tipo") or "atraso"),
-            str(args.get("motivo") or ""), str(args.get("categoria") or "outro"))
+            db,
+            ident.employee_id,
+            str(args.get("tipo") or "atraso"),
+            str(args.get("motivo") or ""),
+            str(args.get("categoria") or "outro"),
+        )
 
 
 async def _contexto_funcionario(ident) -> str:
@@ -4000,19 +4383,24 @@ async def _contexto_funcionario(ident) -> str:
     """
     from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
 
-    linhas = [f"FUNCIONÁRIO: {ident.nome}"
-              + (f" — CHAME-O DE **{ident.tratamento}** (é assim que ele é chamado aqui, "
-                 f"não pelo primeiro nome do cadastro)" if ident.tratamento
-                 and ident.tratamento.lower() != (ident.nome or "").split(" ")[0].lower() else "")
-              + (f" — {ident.cargo}" if ident.cargo else "")
-              + (f" — {ident.posto}" if ident.posto else "")
-              + (f" ({ident.condominio})" if ident.condominio else "")]
+    linhas = [
+        f"FUNCIONÁRIO: {ident.nome}"
+        + (
+            f" — CHAME-O DE **{ident.tratamento}** (é assim que ele é chamado aqui, não pelo primeiro nome do cadastro)"
+            if ident.tratamento and ident.tratamento.lower() != (ident.nome or "").split(" ")[0].lower()
+            else ""
+        )
+        + (f" — {ident.cargo}" if ident.cargo else "")
+        + (f" — {ident.posto}" if ident.posto else "")
+        + (f" ({ident.condominio})" if ident.condominio else "")
+    ]
     try:
         async with async_session_factory() as db:
             s = await _pf.situacao_hoje(db, ident.employee_id)
         linhas.append(f"TURNO HOJE: {s['turno_hoje']}")
-        linhas.append("BATIDAS DA JANELA DO TURNO: "
-                      + (", ".join(s["batidas_do_turno"]) if s["batidas_do_turno"] else "NENHUMA"))
+        linhas.append(
+            "BATIDAS DA JANELA DO TURNO: " + (", ".join(s["batidas_do_turno"]) if s["batidas_do_turno"] else "NENHUMA")
+        )
         linhas.append(f"PRÓXIMA BATIDA ESPERADA: {s['proxima_batida']}")
         if s["justificativas_pendentes"]:
             linhas.append("JUSTIFICATIVAS PENDENTES: " + " | ".join(s["justificativas_pendentes"]))
@@ -4039,11 +4427,16 @@ async def _tool_perguntar_ao_jordan(args: dict, conversation_id: int, forn: dict
         f"❓ *{quem}*{' (' + contato + ')' if contato else ''} perguntou:\n\n"
         f"“{pergunta[:600]}”\n\n"
         f"_Não respondi porque:_ {str(args.get('porque_nao_sei') or '')[:300]}\n\n"
-        "Me diga o que responder e eu levo a ele.")
+        "Me diga o que responder e eu levo a ele."
+    )
     logger.info("[jose-luis] conv=%s pergunta de fornecedor levada ao dono", conversation_id)
-    return {"status": "perguntado",
-            "instrucao": ("Diga ao fornecedor que você já mandou a dúvida para o Jordan e "
-                          "volta com a resposta. NÃO invente a especificação enquanto isso.")}
+    return {
+        "status": "perguntado",
+        "instrucao": (
+            "Diga ao fornecedor que você já mandou a dúvida para o Jordan e "
+            "volta com a resposta. NÃO invente a especificação enquanto isso."
+        ),
+    }
 
 
 async def _tool_registrar_resposta_cotacao(args: dict, forn: dict | None) -> dict:
@@ -4063,29 +4456,41 @@ async def _tool_registrar_resposta_cotacao(args: dict, forn: dict | None) -> dic
         return {"erro": "nada para registrar — preço, prazo ou validade, algum deles."}
 
     async with async_session_factory() as db:
-        q = (await db.execute(_t(
-            "SELECT id::text, supplier_id::text FROM purchase_quotations WHERE number = :n"),
-            {"n": num})).mappings().first()
+        q = (
+            (
+                await db.execute(
+                    _t("SELECT id::text, supplier_id::text FROM purchase_quotations WHERE number = :n"), {"n": num}
+                )
+            )
+            .mappings()
+            .first()
+        )
         if not q:
             return {"erro": f"não achei a cotação {num!r}."}
         # 🔒 o fornecedor só mexe na cotação DELE. Sem isto, um número no cadastro poderia
         # preencher a cotação de outro — e o preço errado entraria na proposta certa.
         if forn and q["supplier_id"] != forn.get("id"):
-            logger.error("[jose-luis] fornecedor %s tentou tocar cotação de outro (%s)",
-                         forn.get("name"), num)
+            logger.error("[jose-luis] fornecedor %s tentou tocar cotação de outro (%s)", forn.get("name"), num)
             return {"erro": f"a cotação {num} não é deste fornecedor."}
 
         linhas = []
         for it in itens[:60]:
             n_item = it.get("item_number")
-            atual = (await db.execute(_t(
-                "SELECT description FROM purchase_quotation_items "
-                "WHERE quotation_id::text=:q AND item_number=:i"),
-                {"q": q["id"], "i": n_item})).scalar()
+            atual = (
+                await db.execute(
+                    _t(
+                        "SELECT description FROM purchase_quotation_items "
+                        "WHERE quotation_id::text=:q AND item_number=:i"
+                    ),
+                    {"q": q["id"], "i": n_item},
+                )
+            ).scalar()
             if atual is None:
                 return {"erro": f"a cotação {num} não tem item {n_item}."}
-            linhas.append(f"  {n_item}. {atual} → R$ {float(it.get('preco_unitario') or 0):.2f}"
-                          + (f"  ({str(it.get('observacao'))[:80]})" if it.get("observacao") else ""))
+            linhas.append(
+                f"  {n_item}. {atual} → R$ {float(it.get('preco_unitario') or 0):.2f}"
+                + (f"  ({str(it.get('observacao'))[:80]})" if it.get("observacao") else "")
+            )
 
         u = await _usuario_dono(db)
         if u is None:
@@ -4095,29 +4500,52 @@ async def _tool_registrar_resposta_cotacao(args: dict, forn: dict | None) -> dic
             extras.append(f"prazo de entrega: {args['prazo_dias']} dias")
         if args.get("validade"):
             extras.append(f"validade: {args['validade']}")
-        resumo = (f"{(forn or {}).get('name', 'O fornecedor')} respondeu a cotação {num}. "
-                  f"Aprovar GRAVA estes números:\n\n" + "\n".join(linhas)
-                  + ("\n\n" + " · ".join(extras) if extras else "")
-                  + "\n\n⚠️ Confira contra o que ele escreveu no WhatsApp — isto foi LIDO "
-                    "da conversa, não digitado por você.")
-        r = await criar_rascunho(
-            db, u, tipo="registrar_resposta_cotacao", modulo="crm",
+        resumo = (
+            f"{(forn or {}).get('name', 'O fornecedor')} respondeu a cotação {num}. "
+            f"Aprovar GRAVA estes números:\n\n"
+            + "\n".join(linhas)
+            + ("\n\n" + " · ".join(extras) if extras else "")
+            + "\n\n⚠️ Confira contra o que ele escreveu no WhatsApp — isto foi LIDO "
+            "da conversa, não digitado por você."
+        )
+        r = await criar_rascunho(  # noqa: F821
+            db,
+            u,
+            tipo="registrar_resposta_cotacao",
+            modulo="crm",
             titulo=f"RESPOSTA DE COTAÇÃO — {(forn or {}).get('name', '')[:34]}",
             resumo=resumo,
-            payload={"quotation_id": q["id"], "numero": num,
-                     "itens": [{"item_number": i.get("item_number"),
-                                "preco_unitario": float(i.get("preco_unitario") or 0),
-                                "observacao": str(i.get("observacao") or "")[:200]}
-                               for i in itens[:60]],
-                     "prazo_dias": args.get("prazo_dias"), "validade": args.get("validade")},
-            gate="🟡", requires_otp=False, roles_aprovador=("admin",),
-            idempotency_key=f"respcot:{num}:{hash(resumo) & 0xffffffff}")
+            payload={
+                "quotation_id": q["id"],
+                "numero": num,
+                "itens": [
+                    {
+                        "item_number": i.get("item_number"),
+                        "preco_unitario": float(i.get("preco_unitario") or 0),
+                        "observacao": str(i.get("observacao") or "")[:200],
+                    }
+                    for i in itens[:60]
+                ],
+                "prazo_dias": args.get("prazo_dias"),
+                "validade": args.get("validade"),
+            },
+            gate="🟡",
+            requires_otp=False,
+            roles_aprovador=("admin",),
+            idempotency_key=f"respcot:{num}:{hash(resumo) & 0xFFFFFFFF}",
+        )
         if isinstance(r, dict) and r.get("erro"):
             return r
-    return {"status": "rascunho", "cotacao": num, "itens": len(itens),
-            "draft_id": (r or {}).get("draft_id"),
-            "instrucao": ("Agradeça ao fornecedor e diga que vai conferir com o Jordan. NÃO "
-                          "diga que já está fechado nem repita os valores como confirmados.")}
+    return {
+        "status": "rascunho",
+        "cotacao": num,
+        "itens": len(itens),
+        "draft_id": (r or {}).get("draft_id"),
+        "instrucao": (
+            "Agradeça ao fornecedor e diga que vai conferir com o Jordan. NÃO "
+            "diga que já está fechado nem repita os valores como confirmados."
+        ),
+    }
 
 
 async def _exec_registrar_resposta_cotacao(db, aprovador_user, payload: dict) -> str:
@@ -4126,25 +4554,33 @@ async def _exec_registrar_resposta_cotacao(db, aprovador_user, payload: dict) ->
 
     qid = payload["quotation_id"]
     for it in payload.get("itens") or []:
-        await db.execute(_t(
-            "UPDATE purchase_quotation_items SET unit_price = :p, "
-            "  total = :p * quantity, specifications = nullif(:o,'') "
-            "WHERE quotation_id::text = :q AND item_number = :i"),
-            {"p": it["preco_unitario"], "o": it.get("observacao") or "",
-             "q": qid, "i": it["item_number"]})
-    await db.execute(_t(
-        "UPDATE purchase_quotations SET status='recebida', response_date=now(), "
-        "  delivery_days = coalesce(:d, delivery_days), "
-        "  valid_until = coalesce(cast(nullif(:v,'') as date), valid_until), "
-        "  subtotal = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
-        "              WHERE quotation_id::text = :q), "
-        "  total = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
-        "           WHERE quotation_id::text = :q) "
-        "WHERE id::text = :q"),
-        {"d": payload.get("prazo_dias"), "v": payload.get("validade") or "", "q": qid})
+        await db.execute(
+            _t(
+                "UPDATE purchase_quotation_items SET unit_price = :p, "
+                "  total = :p * quantity, specifications = nullif(:o,'') "
+                "WHERE quotation_id::text = :q AND item_number = :i"
+            ),
+            {"p": it["preco_unitario"], "o": it.get("observacao") or "", "q": qid, "i": it["item_number"]},
+        )
+    await db.execute(
+        _t(
+            "UPDATE purchase_quotations SET status='recebida', response_date=now(), "
+            "  delivery_days = coalesce(:d, delivery_days), "
+            "  valid_until = coalesce(cast(nullif(:v,'') as date), valid_until), "
+            "  subtotal = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
+            "              WHERE quotation_id::text = :q), "
+            "  total = (SELECT coalesce(sum(total),0) FROM purchase_quotation_items "
+            "           WHERE quotation_id::text = :q) "
+            "WHERE id::text = :q"
+        ),
+        {"d": payload.get("prazo_dias"), "v": payload.get("validade") or "", "q": qid},
+    )
     await db.commit()
-    logger.info("[jose-luis] cotação %s recebida — aprovada por %s", payload.get("numero"),
-                getattr(aprovador_user, "email", "?"))
+    logger.info(
+        "[jose-luis] cotação %s recebida — aprovada por %s",
+        payload.get("numero"),
+        getattr(aprovador_user, "email", "?"),
+    )
     return f"cotação {payload.get('numero')} atualizada com a resposta do fornecedor"
 
 
@@ -4162,55 +4598,67 @@ async def _exec_complementar_cotacao(db, aprovador_user, payload: dict) -> str:
     envia. O que não se desfaz é a última coisa do caminho.
     """
     from sqlalchemy import text as _t  # noqa: PLC0415
+
     from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
         send_text_message,
     )
 
     num = payload.get("numero_cotacao")
-    q = (await db.execute(_t(
-        "SELECT id::text FROM purchase_quotations WHERE number = :n"), {"n": num})).scalar()
+    q = (await db.execute(_t("SELECT id::text FROM purchase_quotations WHERE number = :n"), {"n": num})).scalar()
     if not q:
         return f"não achei a cotação {num!r} — nada foi enviado."
 
     for it in payload.get("specs") or []:
-        await db.execute(_t(
-            "UPDATE purchase_quotation_items SET specifications = :s "
-            "WHERE quotation_id::text = :q AND lower(description) = lower(:d)"),
-            {"s": it["spec"], "q": q, "d": it["item"]})
+        await db.execute(
+            _t(
+                "UPDATE purchase_quotation_items SET specifications = :s "
+                "WHERE quotation_id::text = :q AND lower(description) = lower(:d)"
+            ),
+            {"s": it["spec"], "q": q, "d": it["item"]},
+        )
     for it in payload.get("novos") or []:
-        n_item = (await db.execute(_t(
-            "SELECT coalesce(max(item_number),0) + 1 FROM purchase_quotation_items "
-            "WHERE quotation_id::text = :q"), {"q": q})).scalar()
-        await db.execute(_t(
-            "INSERT INTO purchase_quotation_items (id, quotation_id, item_number, description, "
-            "  specifications, quantity, quantity_requested, unit_price, total) "
-            "SELECT gen_random_uuid(), cast(:q as uuid), :i, :d, :s, 1, 1, 0, 0 "
-            "WHERE NOT EXISTS (SELECT 1 FROM purchase_quotation_items "
-            "  WHERE quotation_id::text = :q AND lower(description) = lower(:d))"),
-            {"q": q, "i": n_item, "d": it["item"], "s": it["spec"]})
-    await db.execute(_t(
-        "UPDATE purchase_quotations SET internal_notes = coalesce(internal_notes,'') || :m "
-        "WHERE id::text = :q"),
-        {"q": q, "m": f"\nComplemento enviado em {datetime.now():%d/%m %H:%M} "
-                      f"(aprovado por {getattr(aprovador_user, 'email', '?')})."})
+        n_item = (
+            await db.execute(
+                _t(
+                    "SELECT coalesce(max(item_number),0) + 1 FROM purchase_quotation_items "
+                    "WHERE quotation_id::text = :q"
+                ),
+                {"q": q},
+            )
+        ).scalar()
+        await db.execute(
+            _t(
+                "INSERT INTO purchase_quotation_items (id, quotation_id, item_number, description, "
+                "  specifications, quantity, quantity_requested, unit_price, total) "
+                "SELECT gen_random_uuid(), cast(:q as uuid), :i, :d, :s, 1, 1, 0, 0 "
+                "WHERE NOT EXISTS (SELECT 1 FROM purchase_quotation_items "
+                "  WHERE quotation_id::text = :q AND lower(description) = lower(:d))"
+            ),
+            {"q": q, "i": n_item, "d": it["item"], "s": it["spec"]},
+        )
+    await db.execute(
+        _t("UPDATE purchase_quotations SET internal_notes = coalesce(internal_notes,'') || :m WHERE id::text = :q"),
+        {
+            "q": q,
+            "m": f"\nComplemento enviado em {datetime.now():%d/%m %H:%M} "
+            f"(aprovado por {getattr(aprovador_user, 'email', '?')}).",
+        },
+    )
     await db.commit()
 
     try:
         await send_text_message(payload["numero"], payload["mensagem"])
     except Exception as e:  # noqa: BLE001
         logger.exception("[jose-luis] complemento de %s gravado mas NÃO enviado", num)
-        return (f"⚠️ Atualizei a cotação {num}, mas o complemento NÃO saiu: {e}. "
-                "O registro está salvo — dá para reenviar.")
+        return (
+            f"⚠️ Atualizei a cotação {num}, mas o complemento NÃO saiu: {e}. O registro está salvo — dá para reenviar."
+        )
     logger.info("[jose-luis] complemento da cotação %s enviado", num)
     return f"complemento da cotação {num} enviado e registrado"
 
 
 async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
     """Executa na APROVAÇÃO: aí sim a mensagem sai para o fornecedor."""
-    from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
-        send_text_message,
-    )
-
     # ⭐ 31/08/2026 18:35 — A ORDEM É O CONSERTO, e ela custou uma cotação.
     # Antes: ENVIAVA e depois gravava. A mensagem saiu para a Kely, o INSERT estourou o
     # `varchar(20)` do `number`, e restou o pior estado possível: **ação irreversível para
@@ -4225,54 +4673,78 @@ async def _exec_pedir_cotacao(db, aprovador_user, payload: dict) -> str:
     # `unit_price`/`total` = 0 de propósito: isto é o PEDIDO, o preço vem na resposta.
     from sqlalchemy import text as _t  # noqa: PLC0415
 
+    from modules.integrations.connectors.whatsapp.service import (  # noqa: PLC0415
+        send_text_message,
+    )
+
     sid, itens = payload.get("supplier_id"), (payload.get("itens") or [])
     if not (sid and itens):
-        return (f"NÃO enviei a {payload.get('fornecedor')}: o rascunho é de uma versão "
-                "antiga, sem itens para registrar. Peça a cotação de novo.")
-    qid = (await db.execute(_t(
-        "INSERT INTO purchase_quotations "
-        "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date, "
-        "   visit_report_id) "
-        "VALUES (gen_random_uuid(), :c, :s, :n, 'pendente_envio', current_date, current_date, "
-        "        cast(nullif(coalesce(:v,''),'') as uuid)) "
-        "RETURNING id"),
-        {"c": _COND_EMPRESA, "s": sid, "v": payload.get("visit_report_id") or "",
-         # ⚠️ O nome do fornecedor SAIU do número. Ele estourava o varchar(20) — "FUTURA
-         # TECNOLOGIA INDUSTRIA E COMERCIO DE PRODUTOS ELETRONIC" não cabe — e não servia
-         # para nada: o vínculo já existe pela FK `supplier_id`. Formato fixo, nunca cresce.
-         "n": f"COT-{datetime.now().strftime('%Y%m%d%H%M')}-{uuid4().hex[:4].upper()}"})).scalar()
+        return (
+            f"NÃO enviei a {payload.get('fornecedor')}: o rascunho é de uma versão "
+            "antiga, sem itens para registrar. Peça a cotação de novo."
+        )
+    qid = (
+        await db.execute(
+            _t(
+                "INSERT INTO purchase_quotations "
+                "  (id, condominio_id, supplier_id, number, status, quotation_date, request_date, "
+                "   visit_report_id) "
+                "VALUES (gen_random_uuid(), :c, :s, :n, 'pendente_envio', current_date, current_date, "
+                "        cast(nullif(coalesce(:v,''),'') as uuid)) "
+                "RETURNING id"
+            ),
+            {
+                "c": _COND_EMPRESA,
+                "s": sid,
+                "v": payload.get("visit_report_id") or "",
+                # ⚠️ O nome do fornecedor SAIU do número. Ele estourava o varchar(20) — "FUTURA
+                # TECNOLOGIA INDUSTRIA E COMERCIO DE PRODUTOS ELETRONIC" não cabe — e não servia
+                # para nada: o vínculo já existe pela FK `supplier_id`. Formato fixo, nunca cresce.
+                "n": f"COT-{datetime.now().strftime('%Y%m%d%H%M')}-{uuid4().hex[:4].upper()}",
+            },
+        )
+    ).scalar()
     for i, desc in enumerate(itens, start=1):
         qtd, texto = _quantidade_do_item(desc)
-        await db.execute(_t(
-            "INSERT INTO purchase_quotation_items "
-            "  (id, quotation_id, item_number, description, quantity, quantity_requested, "
-            "   unit_price, total) "
-            "VALUES (gen_random_uuid(), :q, :i, :d, :n, :n, 0, 0)"),
-            {"q": qid, "i": i, "d": texto[:200], "n": qtd})
+        await db.execute(
+            _t(
+                "INSERT INTO purchase_quotation_items "
+                "  (id, quotation_id, item_number, description, quantity, quantity_requested, "
+                "   unit_price, total) "
+                "VALUES (gen_random_uuid(), :q, :i, :d, :n, :n, 0, 0)"
+            ),
+            {"q": qid, "i": i, "d": texto[:200], "n": qtd},
+        )
     await db.commit()
-    logger.info("[jose-luis] cotação %s registrada com %d itens — enviando agora",
-                qid, len(itens))
+    logger.info("[jose-luis] cotação %s registrada com %d itens — enviando agora", qid, len(itens))
 
     # Só AGORA a mensagem sai. O registro já está comitado e sobrevive a qualquer falha.
     try:
         await send_text_message(payload["numero"], payload["mensagem"])
     except Exception as e:  # noqa: BLE001
-        await db.execute(_t(
-            "UPDATE purchase_quotations SET status='erro_envio', "
-            "  internal_notes = coalesce(internal_notes,'') || :m WHERE id::text = :q"),
-            {"q": str(qid), "m": f"\nFalha ao enviar {datetime.now():%d/%m %H:%M}: {e}"})
+        await db.execute(
+            _t(
+                "UPDATE purchase_quotations SET status='erro_envio', "
+                "  internal_notes = coalesce(internal_notes,'') || :m WHERE id::text = :q"
+            ),
+            {"q": str(qid), "m": f"\nFalha ao enviar {datetime.now():%d/%m %H:%M}: {e}"},
+        )
         await db.commit()
         logger.exception("[jose-luis] cotação %s GRAVADA mas NÃO ENVIADA", qid)
-        return (f"⚠️ Registrei a cotação, mas ela NÃO saiu para "
-                f"{payload.get('fornecedor')}: {e}\nO registro está salvo — dá para reenviar.")
+        return (
+            f"⚠️ Registrei a cotação, mas ela NÃO saiu para "
+            f"{payload.get('fornecedor')}: {e}\nO registro está salvo — dá para reenviar."
+        )
 
-    await db.execute(_t(
-        "UPDATE purchase_quotations SET status='enviada' WHERE id::text = :q"), {"q": str(qid)})
+    await db.execute(_t("UPDATE purchase_quotations SET status='enviada' WHERE id::text = :q"), {"q": str(qid)})
     await db.commit()
-    logger.info("[jose-luis] cotação %s enviada a %s — aprovada por %s", qid,
-                payload.get("fornecedor"), getattr(aprovador_user, "email", "?"))
-    return (f"cotação enviada a {payload.get('fornecedor')} e registrada "
-            f"({len(itens)} itens, status enviada)")
+    logger.info(
+        "[jose-luis] cotação %s enviada a %s — aprovada por %s",
+        qid,
+        payload.get("fornecedor"),
+        getattr(aprovador_user, "email", "?"),
+    )
+    return f"cotação enviada a {payload.get('fornecedor')} e registrada ({len(itens)} itens, status enviada)"
 
 
 _SCHEMA_COTACAO = {
@@ -4282,21 +4754,25 @@ _SCHEMA_COTACAO = {
         "description": (
             "Monta um pedido de cotação por WhatsApp para um FORNECEDOR do cadastro. Use "
             "quando o Jordan disser 'manda a lista pro Renier cotar', 'pede preço pra Kely'. "
-            "Nasce como RASCUNHO na Central: nada sai para o fornecedor sem ele aprovar."),
+            "Nasce como RASCUNHO na Central: nada sai para o fornecedor sem ele aprovar."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "fornecedor": {"type": "string", "description": "Nome ou CNPJ do cadastro."},
-                "itens": {"type": "array", "items": {"type": "string"},
-                          "description": "Uma linha por item, com quantidade. "
-                                         "Ex.: '64 câmeras IP PoE 4MP'."},
-                "obra": {"type": "string",
-                         "description": "Nome do cliente/condomínio da OBRA, se o pedido é "
-                                        "para um projeto. Amarra a cotação ao relatório de "
-                                        "visita — é o que faz 'cabo' virar 'cabo para 64 "
-                                        "câmeras IP PoE nesta obra'."},
-                "observacao": {"type": "string",
-                               "description": "Contexto: obra, prazo, condição de pagamento."},
+                "itens": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Uma linha por item, com quantidade. Ex.: '64 câmeras IP PoE 4MP'.",
+                },
+                "obra": {
+                    "type": "string",
+                    "description": "Nome do cliente/condomínio da OBRA, se o pedido é "
+                    "para um projeto. Amarra a cotação ao relatório de "
+                    "visita — é o que faz 'cabo' virar 'cabo para 64 "
+                    "câmeras IP PoE nesta obra'.",
+                },
+                "observacao": {"type": "string", "description": "Contexto: obra, prazo, condição de pagamento."},
             },
             "required": ["fornecedor", "itens"],
         },
@@ -4313,17 +4789,21 @@ _SCHEMA_AGIR = {
             "foi combinado. Toda ação nasce como RASCUNHO na Central de Aprovações — nada "
             "vai ao cliente nem entra no funil sem o Jordan aprovar. Use quando ele disser "
             "'monta o orçamento', 'cadastra esse condomínio', 'anota que...'. Para ENVIAR "
-            "algo ao cliente existe outra ferramenta; esta só registra."),
+            "algo ao cliente existe outra ferramenta; esta só registra."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "acao": {"type": "string", "enum": list(_ACOES_CAMPO),
-                         "description": "Qual ação executar."},
-                "dados": {"type": "object",
-                          "description": ("Argumentos da ação. Para criar_orcamento: cliente, "
-                                          "titulo, itens[{descricao,qtd,valor_unit}], empresa "
-                                          "('eletronica' p/ equipamento, 'patrimonial' p/ mão "
-                                          "de obra), validade_dias, observacoes.")},
+                "acao": {"type": "string", "enum": list(_ACOES_CAMPO), "description": "Qual ação executar."},
+                "dados": {
+                    "type": "object",
+                    "description": (
+                        "Argumentos da ação. Para criar_orcamento: cliente, "
+                        "titulo, itens[{descricao,qtd,valor_unit}], empresa "
+                        "('eletronica' p/ equipamento, 'patrimonial' p/ mão "
+                        "de obra), validade_dias, observacoes."
+                    ),
+                },
             },
             "required": ["acao", "dados"],
         },
@@ -4341,9 +4821,18 @@ def _extras_do_dono() -> list[dict]:
     Estas ficam FORA do registro compartilhado de propósito: registrá-las faria aparecerem
     também no Bartolo, que já tem as mesmas capacidades por outro caminho.
     """
-    return (_leitura_campo() + _cotacao_do_dono()
-            + [_SCHEMA_FORNECEDOR, _SCHEMA_FALAR, _SCHEMA_AGIR, _SCHEMA_COTACAO,
-               _SCHEMA_LEVANTAMENTO, _SCHEMA_REG_LEVANTAMENTO])
+    return (
+        _leitura_campo()
+        + _cotacao_do_dono()
+        + [
+            _SCHEMA_FORNECEDOR,
+            _SCHEMA_FALAR,
+            _SCHEMA_AGIR,
+            _SCHEMA_COTACAO,
+            _SCHEMA_LEVANTAMENTO,
+            _SCHEMA_REG_LEVANTAMENTO,
+        ]
+    )
 
 
 def _schema_leitura_campo() -> list[dict]:
@@ -4361,6 +4850,7 @@ def _schema_leitura_campo() -> list[dict]:
         from modules.ai.conversation.services.orquestrador.read_dispatcher import (  # noqa: PLC0415
             _READ_OPS,
         )
+
         ops = _READ_OPS.get("crm") or {}
     except Exception:  # noqa: BLE001
         logger.exception("[jose-luis] read_dispatcher indisponível — leitura de campo fora")
@@ -4370,26 +4860,32 @@ def _schema_leitura_campo() -> list[dict]:
     if not disp:
         return []
     linhas = "\n".join(f"- {n}: {ops[n]['desc']}" for n in disp)
-    return [{"type": "function", "function": {
-        "name": "consultar_comercial",
-        "description": (
-            "Consulta de LEITURA do comercial com os dados REAIS do ERP: catálogo de "
-            "produtos e serviços, clientes, contratos, propostas e visitas anteriores. "
-            "USE ANTES de responder qualquer pergunta sobre preço, escopo ou histórico de "
-            "cliente — nunca estime de cabeça nem invente valor. Só lê: não cria, não "
-            f"altera e não envia nada.\nConsultas disponíveis:\n{linhas}"),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "consulta": {"type": "string", "enum": disp,
-                             "description": "Qual consulta executar."},
-                "filtros": {"type": "object",
-                            "description": "Filtros opcionais da consulta "
-                                           "(ex.: busca, cliente, status, page)."},
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "consultar_comercial",
+                "description": (
+                    "Consulta de LEITURA do comercial com os dados REAIS do ERP: catálogo de "
+                    "produtos e serviços, clientes, contratos, propostas e visitas anteriores. "
+                    "USE ANTES de responder qualquer pergunta sobre preço, escopo ou histórico de "
+                    "cliente — nunca estime de cabeça nem invente valor. Só lê: não cria, não "
+                    f"altera e não envia nada.\nConsultas disponíveis:\n{linhas}"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "consulta": {"type": "string", "enum": disp, "description": "Qual consulta executar."},
+                        "filtros": {
+                            "type": "object",
+                            "description": "Filtros opcionais da consulta (ex.: busca, cliente, status, page).",
+                        },
+                    },
+                    "required": ["consulta"],
+                },
             },
-            "required": ["consulta"],
-        },
-    }}]
+        }
+    ]
 
 
 #: Cache que só guarda resultado ÚTIL: se o primeiro acesso acontecer antes de
@@ -4421,8 +4917,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         return (_do_registro("interno") or MANAGER_TOOLS) + _extras_do_dono()
     # O registro é a FONTE; as listas locais são o fallback se a publicação falhar (o
     # atendimento não pode cair porque o registro compartilhado teve problema).
-    base = _do_registro("publico") or (
-        TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS)
+    base = _do_registro("publico") or (TOOLS + TOOLS_COTACAO if _cota_em_chat() else TOOLS)
     if not _cota_em_chat():
         # A flag de cotação continua mandando: no registro as tools de cotação existem
         # sempre (o registro descreve o que EXISTE), e é aqui que se decide o que está
@@ -4437,8 +4932,15 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     if papel == "funcionario":
         # Fora do registro público de propósito: o conjunto do cliente não pode conter
         # ferramenta de ponto de pessoa. Mesma razão do par do fornecedor logo abaixo.
-        ativas += [_SCHEMA_MEU_PONTO, _SCHEMA_CONTINGENCIA, _SCHEMA_JUSTIFICAR, _SCHEMA_PESQUISA,
-                   _SCHEMA_MINHA_VIDA, _SCHEMA_HISTORICO, _SCHEMA_PENDENCIA]
+        ativas += [
+            _SCHEMA_MEU_PONTO,
+            _SCHEMA_CONTINGENCIA,
+            _SCHEMA_JUSTIFICAR,
+            _SCHEMA_PESQUISA,
+            _SCHEMA_MINHA_VIDA,
+            _SCHEMA_HISTORICO,
+            _SCHEMA_PENDENCIA,
+        ]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
         # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
@@ -4581,7 +5083,7 @@ async def _tool_simular_preco(args: dict, *, dono: bool = False) -> dict:
             try:
                 marg = float(marg) if marg is not None else None
                 if marg is not None and not (0 < marg < 1):
-                    marg = marg / 100 if 1 <= marg <= 99 else None   # aceita "10" e "0.10"
+                    marg = marg / 100 if 1 <= marg <= 99 else None  # aceita "10" e "0.10"
             except (TypeError, ValueError):
                 marg = None
             ficha = await pricing_cct.calcular_funcao(db, dict(alvo), margem=marg)
@@ -4641,9 +5143,14 @@ async def _tool_montar_proposta(args: dict, conversation_id: int) -> dict:
             }
         obs = str(args.get("observacao") or "").strip()[:400]
         resumo = (
-            f"{cot['postos']}x {cot['funcao']} · {cot['meses']} meses · "
-            f"mensal R$ {cot['mensal']:,.2f} · contrato R$ {cot['contrato']:,.2f}"
-        ).replace(",", "@").replace(".", ",").replace("@", ".")
+            (
+                f"{cot['postos']}x {cot['funcao']} · {cot['meses']} meses · "
+                f"mensal R$ {cot['mensal']:,.2f} · contrato R$ {cot['contrato']:,.2f}"
+            )
+            .replace(",", "@")
+            .replace(".", ",")
+            .replace("@", ".")
+        )
         r = await _criar_rascunho_proposta(
             titulo=f"Proposta — {cot['postos']}x {cot['funcao']} (José Luís)",
             resumo=resumo + (f" · {obs}" if obs else ""),
@@ -4666,9 +5173,12 @@ async def _tool_montar_proposta(args: dict, conversation_id: int) -> dict:
         # negativo com o rascunho já gravado (foi o que aconteceu na 1ª prova).
         if r.get("erro") or r.get("status") != "rascunho":
             logger.warning("montar_proposta: rascunho recusado conv=%s: %s", conversation_id, r)
-            return {"ok": False, "motivo": "rascunho_recusado",
-                    "instrucao": "Não consegui deixar a proposta pronta agora. Diga ao cliente que "
-                    "vai encaminhar ao Jordan e chame transferir_conversa(comercial)."}
+            return {
+                "ok": False,
+                "motivo": "rascunho_recusado",
+                "instrucao": "Não consegui deixar a proposta pronta agora. Diga ao cliente que "
+                "vai encaminhar ao Jordan e chame transferir_conversa(comercial).",
+            }
         return {
             "ok": True,
             "funcao": cot["funcao"],
@@ -4742,9 +5252,15 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         # ── papel FUNCIONÁRIO ──
         # 🔒 QUEM é o funcionário sai do TELEFONE da conversa. Se viesse por argumento,
         # "sou o Rene" bastaria para lançar ponto na jornada de outra pessoa.
-        if name in ("meu_ponto_hoje", "registrar_batida_contingencia", "justificar_ponto",
-                    "registrar_resposta_pesquisa_ponto", "consultar_minha_vida",
-                    "historico_desta_pessoa", "abrir_pendencia_dp"):
+        if name in (
+            "meu_ponto_hoje",
+            "registrar_batida_contingencia",
+            "justificar_ponto",
+            "registrar_resposta_pesquisa_ponto",
+            "consultar_minha_vida",
+            "historico_desta_pessoa",
+            "abrir_pendencia_dp",
+        ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
                 return {"erro": "não identifiquei este número no cadastro de funcionários."}
@@ -4767,7 +5283,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         if name == "transferir_conversa":
             return await _tool_transferir_conversa(args, conversation_id)
         if name == "sugerir_cross_sell":
-            from modules.crm.services import orchestration as _O  # noqa: PLC0415
+            from modules.crm.services import orchestration as _O  # noqa: PLC0415,N812
 
             async with async_session_factory() as _db:
                 return await _O.sugerir_cross_sell(_db, str(args.get("cnpj", "")))
@@ -4892,7 +5408,6 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
         if not rows:
             return
         dialogo = "\n".join(f"{'Cliente' if d == 'in' else 'Atendente'}: {c}" for d, c in reversed(rows))
-        from openai import AsyncOpenAI  # noqa: PLC0415
 
         client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         resp = await client.chat.completions.create(
@@ -4922,13 +5437,9 @@ async def _update_contact_memory(conversation_id: int, phone: str | None) -> Non
             # (_cliente_do_telefone, LGPD-safe), grava com prefixo [NAO CONFIRMADO] em
             # vez de descartar -- best-effort, nao bloqueia o atendimento.
             cliente = await _cliente_do_telefone(db, phone)
-            cnpjs_citados = {
-                "".join(c for c in m if c.isdigit()) for m in _CNPJ_MEMORIA_RE.findall(resumo)
-            }
+            cnpjs_citados = {"".join(c for c in m if c.isdigit()) for m in _CNPJ_MEMORIA_RE.findall(resumo)}
             cnpj_cliente = (
-                "".join(c for c in str(cliente.get("document_number") or "") if c.isdigit())
-                if cliente
-                else ""
+                "".join(c for c in str(cliente.get("document_number") or "") if c.isdigit()) if cliente else ""
             )
             if cnpjs_citados and not any(cnpj_cliente and c == cnpj_cliente for c in cnpjs_citados):
                 resumo = f"[NAO CONFIRMADO] {resumo}"
@@ -4968,7 +5479,7 @@ def _kb_chunks() -> list[dict]:
             try:
                 with open(path, encoding="utf-8") as f:
                     raw = f.read()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001,S112
                 continue
             mtime = os.path.getmtime(path)
             partes = raw.split("\n## ")
@@ -5010,8 +5521,6 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
         except Exception:  # noqa: BLE001
             cache = {}
         try:
-            from openai import AsyncOpenAI  # noqa: PLC0415
-
             client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
             faltantes = [c for c in chunks if cache.get(c["id"], {}).get("mtime") != c["mtime"]]
             if faltantes:
@@ -5181,11 +5690,10 @@ MANAGER_TOOLS = [
                     "levantamento": {
                         "type": "string",
                         "description": "O que foi levantado, em palavras (tipo de local, "
-                                       "o que tem, o que falta). Opcional se há visita "
-                                       "aberta.",
+                        "o que tem, o que falta). Opcional se há visita "
+                        "aberta.",
                     },
-                    "limite": {"type": "integer",
-                               "description": "Quantas propostas trazer. Padrão 2."},
+                    "limite": {"type": "integer", "description": "Quantas propostas trazer. Padrão 2."},
                 },
             },
         },
@@ -5203,24 +5711,30 @@ MANAGER_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "cliente": {"type": "string",
-                                "description": "Nome do cliente ou prospect"},
+                    "cliente": {"type": "string", "description": "Nome do cliente ou prospect"},
                     "empresa": {
                         "type": "string",
                         "enum": ["eletronica", "patrimonial", "mista"],
                         "description": "PERGUNTE PRIMEIRO. eletronica = equipamento "
-                                       "(CFTV, acesso, alarme, infra, portaria remota), "
-                                       "NF-e. patrimonial = mão de obra (portaria, "
-                                       "limpeza), NFS-e. mista = as duas.",
+                        "(CFTV, acesso, alarme, infra, portaria remota), "
+                        "NF-e. patrimonial = mão de obra (portaria, "
+                        "limpeza), NFS-e. mista = as duas.",
                     },
                     "tipo": {
                         "type": "string",
-                        "enum": ["cftv", "controle_acesso", "alarme_perimetro",
-                                 "infraestrutura", "portaria_remota",
-                                 "portaria", "limpeza", "misto"],
+                        "enum": [
+                            "cftv",
+                            "controle_acesso",
+                            "alarme_perimetro",
+                            "infraestrutura",
+                            "portaria_remota",
+                            "portaria",
+                            "limpeza",
+                            "misto",
+                        ],
                         "description": "O QUE ele foi fazer lá. Pergunte se não souber — "
-                                       "o roteiro muda por tipo e perguntar fora do "
-                                       "escopo faz o consultor parecer que não ouviu.",
+                        "o roteiro muda por tipo e perguntar fora do "
+                        "escopo faz o consultor parecer que não ouviu.",
                     },
                 },
                 "required": ["cliente"],
@@ -5241,10 +5755,17 @@ MANAGER_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "campo": {"type": "string",
-                              "enum": ["panorama", "achados", "situacao_atual",
-                                       "diagnostico_tecnico", "oportunidade_comercial",
-                                       "proximos_passos"]},
+                    "campo": {
+                        "type": "string",
+                        "enum": [
+                            "panorama",
+                            "achados",
+                            "situacao_atual",
+                            "diagnostico_tecnico",
+                            "oportunidade_comercial",
+                            "proximos_passos",
+                        ],
+                    },
                     "texto": {"type": "string"},
                 },
                 "required": ["campo", "texto"],
@@ -5607,7 +6128,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
     """Dispatcher das tools do MODO GERENTE (José Luís ↔ Jordan)."""
     from datetime import datetime as _dt
 
-    from modules.crm.services import orchestration as O
+    from modules.crm.services import orchestration as O  # noqa: N812
 
     try:
         async with async_session_factory() as db:
@@ -5653,7 +6174,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 "sugerir_reuniao",
                 "listar_reunioes",
             ):
-                from modules.crm.services import visit_reports as V  # noqa: PLC0415
+                from modules.crm.services import visit_reports as V  # noqa: PLC0415,N812
 
                 if name == "criar_relatorio_visita":
                     # ⭐ 28/08/2026 — TRÊS PORTAS CRIAM VISITA E SÓ UMA TINHA TRAVA.
@@ -5671,22 +6192,29 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                     # é o padrão; abrir outra exige que o dono diga, não que o modelo decida.
                     _ja = await _visita_aberta(db, conversation_id)
                     if _ja:
-                        return {"ja_aberta": True, "visita_id": _ja["id"],
-                                "cliente": _ja["cliente_nome"],
-                                "achados": len(_ja.get("achados") or []),
-                                "aviso": (f"Já existe visita ABERTA nesta conversa para "
-                                          f"{_ja['cliente_nome']}, com "
-                                          f"{len(_ja.get('achados') or [])} achado(s). NÃO "
-                                          "abri outra — o levantamento ficaria partido em "
-                                          "duas e o relatório sairia incompleto parecendo "
-                                          "completo."),
-                                "instrucao": ("Diga ao Jordan que a visita já está aberta e "
-                                              "que você continua nela. Se ele quiser MESMO "
-                                              "recomeçar do zero e descartar o que já foi "
-                                              "levantado, ele precisa dizer isso com essas "
-                                              "palavras — 'começar do zero' costuma "
-                                              "significar reenviar as fotos, não jogar fora "
-                                              "o trabalho.")}
+                        return {
+                            "ja_aberta": True,
+                            "visita_id": _ja["id"],
+                            "cliente": _ja["cliente_nome"],
+                            "achados": len(_ja.get("achados") or []),
+                            "aviso": (
+                                f"Já existe visita ABERTA nesta conversa para "
+                                f"{_ja['cliente_nome']}, com "
+                                f"{len(_ja.get('achados') or [])} achado(s). NÃO "
+                                "abri outra — o levantamento ficaria partido em "
+                                "duas e o relatório sairia incompleto parecendo "
+                                "completo."
+                            ),
+                            "instrucao": (
+                                "Diga ao Jordan que a visita já está aberta e "
+                                "que você continua nela. Se ele quiser MESMO "
+                                "recomeçar do zero e descartar o que já foi "
+                                "levantado, ele precisa dizer isso com essas "
+                                "palavras — 'começar do zero' costuma "
+                                "significar reenviar as fotos, não jogar fora "
+                                "o trabalho."
+                            ),
+                        }
                     return await V.criar_relatorio(
                         db,
                         cliente_nome=str(args.get("cliente_nome", "")),
@@ -5779,7 +6307,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 if not neg or not neg.get("proposal_id"):
                     return {"ok": False, "motivo": "proposta do cliente não encontrada"}
                 # chama a lógica de envio direto pelo serviço de followups (sem HTTP/token).
-                from modules.crm.services import followups as F  # noqa: PLC0415
+                from modules.crm.services import followups as F  # noqa: PLC0415,N812
 
                 tgt = await F.resolve_target(db, proposal_id=str(neg["proposal_id"]))
                 num = (
@@ -5804,7 +6332,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 neg = await O._resolve_negociacao(db, str(args.get("cliente", "")))
                 if not neg or not neg.get("proposal_id"):
                     return {"ok": False, "motivo": "proposta do cliente não encontrada"}
-                from modules.crm.services import followups as F  # noqa: PLC0415
+                from modules.crm.services import followups as F  # noqa: PLC0415,N812
 
                 row = (
                     (
@@ -5873,11 +6401,13 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 #       no funil nem sai da empresa sem o Jordan aprovar na Central.
                 acao = str(args.get("acao") or "")
                 if acao not in _ACOES_CAMPO:
-                    return {"status": "recusado",
-                            "motivo": f"ação {acao!r} não está liberada no campo; "
-                                      f"disponíveis: {', '.join(_ACOES_CAMPO)}. "
-                                      "Contrato, envio ao cliente e mudança de funil são "
-                                      "decisão de mesa, não de corredor."}
+                    return {
+                        "status": "recusado",
+                        "motivo": f"ação {acao!r} não está liberada no campo; "
+                        f"disponíveis: {', '.join(_ACOES_CAMPO)}. "
+                        "Contrato, envio ao cliente e mudança de funil são "
+                        "decisão de mesa, não de corredor.",
+                    }
                 _garantir_registro_crm()
                 from modules.ai.conversation.services.orquestrador.engine import (  # noqa: PLC0415
                     OrqScope,
@@ -5885,6 +6415,7 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
                     get_tool,
                 )
+
                 _disp = get_tool("agir_crm")
                 if _disp is None:
                     return {"erro": "agir_crm não está registrado neste processo"}
@@ -5893,17 +6424,21 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                     return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
                 try:
                     r = await _disp.handler(
-                        db, _dono,
+                        db,
+                        _dono,
                         OrqScope(tier="gestor", is_manager=True, all_posts=True),
-                        acao=acao, dados=args.get("dados") or {})
+                        acao=acao,
+                        dados=args.get("dados") or {},
+                    )
                 except PermissionError:
-                    return {"status": "recusado",
-                            "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
+                    return {"status": "recusado", "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
                 if isinstance(r, dict) and r.get("draft_id"):
-                    r["instrucao"] = ("Diga ao Jordan que o rascunho está na Central de "
-                                      "Aprovações esperando o clique dele, e RESUMA o que "
-                                      "ele vai aprovar — valor, cliente e quantos itens. "
-                                      "Nada foi gravado no funil ainda.")
+                    r["instrucao"] = (
+                        "Diga ao Jordan que o rascunho está na Central de "
+                        "Aprovações esperando o clique dele, e RESUMA o que "
+                        "ele vai aprovar — valor, cliente e quantos itens. "
+                        "Nada foi gravado no funil ainda."
+                    )
                 return r
             if name == "falar_com_cliente":
                 return await _tool_falar_com_cliente(args)
@@ -5925,16 +6460,19 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                 # direto pularia o `_gate` e seria refazer a segunda parede, pior.
                 consulta = str(args.get("consulta") or "")
                 if consulta not in _CONSULTAS_CAMPO:
-                    return {"status": "recusado",
-                            "motivo": f"consulta {consulta!r} não está liberada no campo; "
-                                      f"disponíveis: {', '.join(_CONSULTAS_CAMPO)}"}
+                    return {
+                        "status": "recusado",
+                        "motivo": f"consulta {consulta!r} não está liberada no campo; "
+                        f"disponíveis: {', '.join(_CONSULTAS_CAMPO)}",
+                    }
                 from modules.ai.conversation.services.orquestrador.engine import (  # noqa: PLC0415
                     OrqScope,
                 )
                 from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
                     get_tool,
                 )
-                _garantir_registro_crm()   # mesma causa do schema; ver o helper
+
+                _garantir_registro_crm()  # mesma causa do schema; ver o helper
                 _disp = get_tool("consultar_crm")
                 if _disp is None:
                     return {"erro": "consultar_crm não está registrado neste processo"}
@@ -5945,12 +6483,14 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
                     return {"erro": f"não encontrei o usuário {_EMAIL_DONO} no ERP"}
                 try:
                     return await _disp.handler(
-                        db, _dono,
+                        db,
+                        _dono,
                         OrqScope(tier="gestor", is_manager=True, all_posts=True),
-                        consulta=consulta, filtros=args.get("filtros") or {})
+                        consulta=consulta,
+                        filtros=args.get("filtros") or {},
+                    )
                 except PermissionError:
-                    return {"status": "recusado",
-                            "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
+                    return {"status": "recusado", "motivo": f"{_EMAIL_DONO} não tem o módulo crm liberado no ERP"}
             return {"erro": f"tool gerente desconhecida: {name}"}
     except Exception as e:  # noqa: BLE001
         logger.error("Manager tool %s exception: %s", name, e)
@@ -5964,18 +6504,69 @@ async def _exec_manager_tool(name: str, args: dict, conversation_id: int) -> dic
 # palavras, sobre um envio que não aconteceu. A lista media A SI MESMA: eu nunca a rodei
 # contra um caso positivo real. Agora são RADICAIS de ação concluída, não frases inteiras.
 _RADICAIS_FEITO = (
-    "enviei", "enviado", "enviada", "enviamos", "mandei", "mandado", "disparei", "disparado",
-    "cadastrei", "cadastrado", "cadastrada", "registrei", "registrado", "registrada",
-    "lancei", "lancado", "lançado", "gravei", "gravado", "gravada", "aprovei", "aprovado",
-    "paguei", "pago", "agendei", "agendado", "criei", "criado", "criada", "repassei",
-    "repassado", "atualizei", "atualizado", "excluí", "excluido", "excluído",
+    "enviei",
+    "enviado",
+    "enviada",
+    "enviamos",
+    "mandei",
+    "mandado",
+    "disparei",
+    "disparado",
+    "cadastrei",
+    "cadastrado",
+    "cadastrada",
+    "registrei",
+    "registrado",
+    "registrada",
+    "lancei",
+    "lancado",
+    "lançado",
+    "gravei",
+    "gravado",
+    "gravada",
+    "aprovei",
+    "aprovado",
+    "paguei",
+    "pago",
+    "agendei",
+    "agendado",
+    "criei",
+    "criado",
+    "criada",
+    "repassei",
+    "repassado",
+    "atualizei",
+    "atualizado",
+    "excluí",
+    "excluido",
+    "excluído",
 )
 # Palavras que NEGAM ou ADIAM a ação na mesma frase. Sem isto a parede quebraria o texto
 # CORRETO do rascunho — "nada saiu pro fornecedor ainda", "não foi enviado" — e transformaria
 # a guarda contra mentira numa geradora de ruído.
-_NEGACOES = ("não ", "nao ", "nada ", "nenhum", "ainda ", "sem ", "antes de", "vou ", "posso ",
-             "quer que", "assim que", "quando você", "quando voce", "se você", "se voce",
-             "precisa", "basta", "clique", "aprovar", "aprovação", "aprovacao")
+_NEGACOES = (
+    "não ",
+    "nao ",
+    "nada ",
+    "nenhum",
+    "ainda ",
+    "sem ",
+    "antes de",
+    "vou ",
+    "posso ",
+    "quer que",
+    "assim que",
+    "quando você",
+    "quando voce",
+    "se você",
+    "se voce",
+    "precisa",
+    "basta",
+    "clique",
+    "aprovar",
+    "aprovação",
+    "aprovacao",
+)
 
 
 def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str:
@@ -6008,18 +6599,23 @@ def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str
     achou = []
     for v in _RADICAIS_FEITO:
         for m in re.finditer(rf"\b{v}\b", baixo):
-            antes = baixo[max(0, m.start() - 60):m.start()]
+            antes = baixo[max(0, m.start() - 60) : m.start()]
             if not any(n in antes for n in _NEGACOES):
                 achou.append(v)
                 break
     if not achou:
         return texto
-    logger.error("[jose-luis] conv=%s AFIRMOU TER FEITO sem chamar tool nenhuma (%s) — "
-                 "correção anexada à resposta", conversation_id, ", ".join(achou[:3]))
-    return (texto + "\n\n⚠️ *Correção automática:* eu disse acima que já fiz alguma coisa, "
-            "mas NÃO executei nenhuma ação neste turno — nada foi cadastrado, enviado ou "
-            "registrado. Se você quer que eu faça, me peça de novo e eu chamo a ferramenta "
-            "de verdade.")
+    logger.error(
+        "[jose-luis] conv=%s AFIRMOU TER FEITO sem chamar tool nenhuma (%s) — correção anexada à resposta",
+        conversation_id,
+        ", ".join(achou[:3]),
+    )
+    return (
+        texto + "\n\n⚠️ *Correção automática:* eu disse acima que já fiz alguma coisa, "
+        "mas NÃO executei nenhuma ação neste turno — nada foi cadastrado, enviado ou "
+        "registrado. Se você quer que eu faça, me peça de novo e eu chamo a ferramenta "
+        "de verdade."
+    )
 
 
 def _rascunho_nao_e_envio(texto: str, rascunhos: list[dict], conversation_id: int) -> str:
@@ -6039,19 +6635,24 @@ def _rascunho_nao_e_envio(texto: str, rascunhos: list[dict], conversation_id: in
         return texto
     baixo = texto.lower()
     afirma_envio = any(
-        re.search(rf"\b{v}\b", baixo) and
-        not any(n in baixo[max(0, m.start() - 60):m.start()] for n in _NEGACOES)
+        re.search(rf"\b{v}\b", baixo) and not any(n in baixo[max(0, m.start() - 60) : m.start()] for n in _NEGACOES)
         for v in ("enviado", "enviada", "enviei", "enviamos", "mandei", "disparei")
-        for m in re.finditer(rf"\b{v}\b", baixo))
+        for m in re.finditer(rf"\b{v}\b", baixo)
+    )
     if not afirma_envio:
         return texto
     r = rascunhos[0]
     alvo = r.get("fornecedor") or r.get("cliente") or "o destinatário"
-    logger.error("[jose-luis] conv=%s afirmou ENVIO num turno que só criou rascunho (%s) — "
-                 "texto SUBSTITUÍDO", conversation_id, r.get("tool"))
-    return (f"Montei o pedido para *{alvo}* e ele está na Central esperando o seu clique.\n\n"
-            "⚠️ *Nada saiu ainda* — o envio só acontece quando você aprovar. "
-            "Confira o texto antes: ele vai sair exatamente como está lá.")
+    logger.error(
+        "[jose-luis] conv=%s afirmou ENVIO num turno que só criou rascunho (%s) — texto SUBSTITUÍDO",
+        conversation_id,
+        r.get("tool"),
+    )
+    return (
+        f"Montei o pedido para *{alvo}* e ele está na Central esperando o seu clique.\n\n"
+        "⚠️ *Nada saiu ainda* — o envio só acontece quando você aprovar. "
+        "Confira o texto antes: ele vai sair exatamente como está lá."
+    )
 
 
 async def gerar_resposta(conversation_id: int) -> str | None:
@@ -6147,8 +6748,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # Jordan carrega a nota fiscal lida pela visão, os 77 achados da visita e o
         # histórico do dia — medido: 10.902 tokens de ENTRADA, com `tokens_saida = 1200`
         # EXATO (o teto) e `content` vazio. De manhã foi 500→1200; à noite não bastou.
-        max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner
-                         else _env_num("AGENT_MAX_TOKENS", 500))
+        max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner else _env_num("AGENT_MAX_TOKENS", 500))
 
         active_tools = _tools_ativas(owner, papel)
 
@@ -6404,7 +7004,6 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             )
 
         # 2) Chamada OpenAI com LOOP de tool-calling (lazy import; chave vem do env)
-        from openai import AsyncOpenAI  # noqa: PLC0415
 
         client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
         max_rounds = int(_env_num("AGENT_MAX_TOOL_ROUNDS", 3))
@@ -6418,7 +7017,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         _bateu_teto = False
         #: Nomes de tool efetivamente CHAMADAS neste turno. É a prova de que algo foi feito.
         _executadas: set[str] = set()
-        _rascunhos_do_turno: list[dict] = []   # o que NASCEU inerte neste turno
+        _rascunhos_do_turno: list[dict] = []  # o que NASCEU inerte neste turno
         for rounds in range(1, max_rounds + 1):
             try:
                 resp = await client.chat.completions.create(
@@ -6443,9 +7042,12 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 # ferramenta" é infinitamente melhor que nada.
                 if "reasoning_content" not in str(_e):
                     raise
-                logger.warning("Agente: conv=%s recusou por `reasoning_content` — refazendo "
-                               "SEM o histórico de tool_calls (rodada %s)",
-                               conversation_id, rounds)
+                logger.warning(
+                    "Agente: conv=%s recusou por `reasoning_content` — refazendo "
+                    "SEM o histórico de tool_calls (rodada %s)",
+                    conversation_id,
+                    rounds,
+                )
                 # ⭐ 31/08/2026 — PODAR NÃO PODE APAGAR O QUE A FERRAMENTA DEVOLVEU.
                 # A versão de 28/08 tirava os turnos de tool E o resultado deles. No papel
                 # FORNECEDOR isso ficou fatal: o modelo chamava a tool certa, o 400 vinha na
@@ -6453,19 +7055,29 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 # sem nada — o Renier levava "acho que me perdi" com a informação já em mãos.
                 # A API recusa a ESTRUTURA (assistant com tool_calls + role=tool), não o
                 # conteúdo. Então a estrutura sai e o conteúdo volta como texto.
-                _resultados = [str(m.get("content") or "")[:1500] for m in messages
-                               if isinstance(m, dict) and m.get("role") == "tool"]
-                _podado = [m for m in messages
-                           if not (isinstance(m, dict)
-                                   and (m.get("tool_calls") or m.get("role") == "tool"))]
+                _resultados = [
+                    str(m.get("content") or "")[:1500]
+                    for m in messages
+                    if isinstance(m, dict) and m.get("role") == "tool"
+                ]
+                _podado = [
+                    m
+                    for m in messages
+                    if not (isinstance(m, dict) and (m.get("tool_calls") or m.get("role") == "tool"))
+                ]
                 if _resultados:
-                    _podado.append({
-                        "role": "system",
-                        "content": ("RESULTADO DAS FERRAMENTAS QUE VOCÊ JÁ CHAMOU NESTE "
-                                    "TURNO (use-o para responder; NÃO chame de novo):\n"
-                                    + "\n---\n".join(_resultados))})
+                    _podado.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "RESULTADO DAS FERRAMENTAS QUE VOCÊ JÁ CHAMOU NESTE "
+                                "TURNO (use-o para responder; NÃO chame de novo):\n" + "\n---\n".join(_resultados)
+                            ),
+                        }
+                    )
                 resp = await client.chat.completions.create(
-                    model=model, messages=_podado,
+                    model=model,
+                    messages=_podado,
                     **_chat_kwargs(model, max_tokens),
                 )
                 messages = _podado
@@ -6557,15 +7169,19 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # A condição antiga só olhava o rótulo; esta olha o NÚMERO, que é o fato.
             _bateu_teto = (
                 getattr(resp.choices[0], "finish_reason", "") == "length"
-                or (getattr(getattr(resp, "usage", None), "completion_tokens", 0) or 0)
-                >= max_tokens)
+                or (getattr(getattr(resp, "usage", None), "completion_tokens", 0) or 0) >= max_tokens
+            )
             if not texto and _bateu_teto:
                 logger.warning(
                     "Agente: conv=%s bateu o teto (%s) com content VAZIO — repetindo com "
                     "o dobro. Se isto virar rotina, o teto está pequeno demais para o "
-                    "tamanho do prompt.", conversation_id, max_tokens)
+                    "tamanho do prompt.",
+                    conversation_id,
+                    max_tokens,
+                )
                 resp = await client.chat.completions.create(
-                    model=model, messages=messages,
+                    model=model,
+                    messages=messages,
                     **_chat_kwargs(model, max_tokens * 2),
                 )
                 usage = getattr(resp, "usage", None)
@@ -6600,12 +7216,13 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # teste e irritar no uso é o desfecho que esta linha existe para pegar.
         if owner and not _executadas:
             _ult = (next((c for d, c in rows if d == "in"), "") or "").lower()
-            if any(k in _ult for k in ("cota", "orçament", "orcament", "dimension", "obra",
-                                       "levantament", "projeto")):
+            if any(k in _ult for k in ("cota", "orçament", "orcament", "dimension", "obra", "levantament", "projeto")):
                 logger.warning(
                     "[jose-luis] conv=%s DONO falou de projeto e o turno não chamou tool "
                     "nenhuma — levantamento_projeto não foi usado. Pedido: %r",
-                    conversation_id, _ult[:120])
+                    conversation_id,
+                    _ult[:120],
+                )
         # NÃO reforça CNPJ: em acompanhamento (cliente conhecido), com o Jordan, com FUNCIONÁRIO,
         # NEM em situação sensível (emergência/jurídico/cobrança/raiva/engano) — pedir CNPJ
         # nessas horas é péssimo.
@@ -6629,8 +7246,12 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # E o motivo é assimétrico: o dono no vácuo RECLAMA (foi assim que descobrimos);
             # o prospect no vácuo apenas some, e vira orçamento perdido que ninguém conta.
             # Silêncio para quem paga é mais caro que silêncio para quem manda consertar.
-            logger.warning("Agente: conv=%s turno terminou SEM texto — respondendo em vez "
-                           "de calar (owner=%s rounds=%s)", conversation_id, owner, rounds)
+            logger.warning(
+                "Agente: conv=%s turno terminou SEM texto — respondendo em vez de calar (owner=%s rounds=%s)",
+                conversation_id,
+                owner,
+                rounds,
+            )
 
             # ⚠️ TETO NA DESCULPA (28/08/2026). "Não consegui responder" saiu CINCO vezes em
             # 70 segundos na mesma conversa — e saiu para FORA, para outra empresa. Falar em
@@ -6652,11 +7273,14 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 pass
 
             if _repetiu:
-                return ("Falhei duas vezes seguidas aqui, Jordan — não vou repetir a mesma "
-                        "desculpa. Olhe o log do backend; alguma ferramenta deve estar "
-                        "quebrada." if owner else
-                        "Não estou conseguindo te atender direito agora. Vou chamar alguém "
-                        "da equipe para falar com você.")
+                return (
+                    "Falhei duas vezes seguidas aqui, Jordan — não vou repetir a mesma "
+                    "desculpa. Olhe o log do backend; alguma ferramenta deve estar "
+                    "quebrada."
+                    if owner
+                    else "Não estou conseguindo te atender direito agora. Vou chamar alguém "
+                    "da equipe para falar com você."
+                )
 
             texto = (
                 # ao dono: direto, nomeia a causa provável, e pede o que priorizar
@@ -6664,18 +7288,20 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 # faltado ferramenta OU passou do tamanho" — e o Jordan leu a primeira,
                 # foi conferir o cadastro do fornecedor e perdeu tempo num problema que
                 # não existia. Quando o número diz qual foi, a frase diz qual foi.
-                ("Sua conversa ficou longa (a nota fiscal, as fotos e o histórico do dia) "
-                 "e a resposta não coube no limite. Já subi o teto. Me repita a última "
-                 "pergunta que agora vai."
-                 if _bateu_teto else
-                 "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
-                 "ferramenta para o que você pediu. Me diga em uma frase o que é mais "
-                 "urgente aí que eu ataco só isso.")
-                if owner else
+                (
+                    "Sua conversa ficou longa (a nota fiscal, as fotos e o histórico do dia) "
+                    "e a resposta não coube no limite. Já subi o teto. Me repita a última "
+                    "pergunta que agora vai."
+                    if _bateu_teto
+                    else "Não consegui montar a resposta desta vez, Jordan — pode ter faltado "
+                    "ferramenta para o que você pediu. Me diga em uma frase o que é mais "
+                    "urgente aí que eu ataco só isso."
+                )
+                if owner
                 # ao cliente: linguagem natural, SEM jargão de sistema e SEM promessa que
                 # talvez não se cumpra ("já te respondo" mente se o próximo turno falhar).
                 # Devolve a palavra a ele, que é o que segura a conversa viva.
-                "Desculpa, acho que me perdi aqui. Pode me dizer em uma frase o que você "
+                else "Desculpa, acho que me perdi aqui. Pode me dizer em uma frase o que você "
                 "precisa? Se preferir falar com alguém da equipe, é só pedir."
             )
         return texto or None
@@ -6706,15 +7332,18 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         if _ja_avisei:
             # Já avisei há pouco. Repetir é a gagueira que enche a tela — cala e deixa o
             # rastro no log. O varredor de `in` sem `out` pega quando a causa passar.
-            logger.error("Agente: conv=%s falhou DE NOVO em menos de 5 min — silenciando a "
-                         "frase de erro para não inundar a conversa", conversation_id)
+            logger.error(
+                "Agente: conv=%s falhou DE NOVO em menos de 5 min — silenciando a "
+                "frase de erro para não inundar a conversa",
+                conversation_id,
+            )
             return None
         return (
             "Estou com um problema técnico aqui e não consegui montar a resposta. Já "
             "registrei o erro. NÃO precisa reenviar — reenviar não resolve este caso. "
             "Me dá alguns minutos."
-            if owner else
-            "Desculpa, estou com um problema técnico e não consigo te responder agora. "
+            if owner
+            else "Desculpa, estou com um problema técnico e não consigo te responder agora. "
             "Vou chamar alguém da equipe para falar com você."
         )
 
@@ -6891,9 +7520,60 @@ async def _toggle_typing(conversation_id: int, on: bool) -> None:
 #: loop com bot = 16 · maior uso humano legítimo = 8. Env para poder afrouxar sem bake.
 _LOOP_TETO = int(_env_num("AGENT_LOOP_TETO_5MIN", 12))
 
+#: ── Guarda do LOOP LENTO ────────────────────────────────────────────────────────────────
+#: A guarda de cima conta TAXA (saídas em 5 min) e não pega o eco devagar: dois robôs que
+#: trocam uma mensagem a cada poucos segundos ficam a vida toda abaixo de qualquer teto de
+#: volume. O incidente público de referência durou TRÊS HORAS assim.
+#:
+#: O sinal que separa robô de gente aqui não é volume — é o TEMPO DE RESPOSTA. Medido sobre
+#: 30 dias de conversa real desta casa (cwi_message_log), resposta do outro lado depois de a
+#: gente falar:
+#:
+#:     conversa com o bot da Campos Tecnologia ..  3,9s de média · 100% abaixo de 20s
+#:     conversa comercial de verdade (40 msg/h) . 56,3s de média ·  29% abaixo de 20s
+#:     conversas humanas (as demais) ............ 48 a 186s      ·  21 a 43% abaixo de 20s
+#:
+#: Volume não separava: a conversa de 40 mensagens numa hora era um síndico de verdade,
+#: enquanto o loop com o robô fez 16. Já o tempo separa por uma ordem de grandeza.
+#:
+#: Exijo TURNOS CONSECUTIVOS rápidos, não a média: gente responde rápido às vezes (29 a 43%
+#: dos turnos), mas não seis vezes seguidas. Seis é acima do que qualquer humano da amostra
+#: fez em sequência e abaixo do que o robô fazia o tempo todo.
+_ECO_SEG = float(_env_num("AGENT_ECO_SEGUNDOS", 20))
+_ECO_TURNOS = int(_env_num("AGENT_ECO_TURNOS", 6))
 
-async def processar_incoming(conversation_id: int, phone: str | None = None,
-                             *, _passes: int = 0) -> None:
+
+async def _eco_de_robo(conversation_id: int) -> int:
+    """Quantos turnos SEGUIDOS o outro lado respondeu em menos de `_ECO_SEG` segundos.
+
+    Devolve 0 quando não há sinal de eco. Só olha o fim da conversa: uma sequência rápida no
+    passado que já foi interrompida por um humano não conta.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    async with async_session_factory() as _db:
+        linhas = (
+            await _db.execute(
+                _t(
+                    "SELECT direction, extract(epoch FROM created_at - lag(created_at) "
+                    "  OVER (ORDER BY created_at)) AS resp "
+                    "FROM cwi_message_log WHERE chatwoot_conversation_id = :c "
+                    "  AND created_at > now() - interval '2 hours' ORDER BY created_at"
+                ),
+                {"c": conversation_id},
+            )
+        ).all()
+
+    seguidos = 0
+    for direcao, resp in linhas:
+        if direcao != "in" or resp is None:
+            continue
+        # resposta do outro lado: rápida soma, devagar zera (é o humano quebrando o eco)
+        seguidos = seguidos + 1 if float(resp) < _ECO_SEG else 0
+    return seguidos
+
+
+async def processar_incoming(conversation_id: int, phone: str | None = None, *, _passes: int = 0) -> None:
     """Entrypoint do BackgroundTask, com LOCK por conversa via REDIS (SET NX EX).
 
     Evita respostas concorrentes numa rajada de mensagens: a 1a pega o lock e responde lendo
@@ -6949,40 +7629,90 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
     if redis is not None:
         try:
             if await redis.get(f"jl:loop:conv:{conversation_id}"):
-                logger.warning("processar_incoming: conv=%s em GUARDA DE LOOP — não "
-                               "respondo (janela de silêncio ativa)", conversation_id)
+                logger.warning(
+                    "processar_incoming: conv=%s em GUARDA DE LOOP — não respondo (janela de silêncio ativa)",
+                    conversation_id,
+                )
                 if got_lock:
                     await redis.eval(
                         "if redis.call('get', KEYS[1]) == ARGV[1] then return "
-                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                        "redis.call('del', KEYS[1]) else return 0 end",
+                        1,
+                        lock_key,
+                        token,
+                    )
                 return
             from sqlalchemy import text as _t  # noqa: PLC0415
 
             async with async_session_factory() as _db:
-                saidas = (await _db.execute(_t(
-                    "SELECT count(*) FROM cwi_message_log "
-                    "WHERE chatwoot_conversation_id = :c AND direction = 'out' "
-                    "  AND created_at > now() - interval '5 minutes'"),
-                    {"c": conversation_id})).scalar() or 0
+                saidas = (
+                    await _db.execute(
+                        _t(
+                            "SELECT count(*) FROM cwi_message_log "
+                            "WHERE chatwoot_conversation_id = :c AND direction = 'out' "
+                            "  AND created_at > now() - interval '5 minutes'"
+                        ),
+                        {"c": conversation_id},
+                    )
+                ).scalar() or 0
+            # ── eco LENTO: turnos seguidos com resposta instantânea do outro lado ──
+            _seguidos = 0
+            try:
+                _seguidos = await _eco_de_robo(conversation_id)
+            except Exception:  # noqa: BLE001 — guarda quebrada não pode calar o agente
+                logger.exception("processar_incoming: conv=%s guarda de eco falhou", conversation_id)
+            if _seguidos >= _ECO_TURNOS:
+                await redis.set(f"jl:loop:conv:{conversation_id}", "1", ex=1800)
+                logger.error(
+                    "[jose-luis] ECO DE ROBÔ conv=%s — %s turnos seguidos respondidos "
+                    "em menos de %ss. Silenciando por 30 min.",
+                    conversation_id,
+                    _seguidos,
+                    _ECO_SEG,
+                )
+                await _post_private_note(
+                    conversation_id,
+                    f"⚠️ *Parei de responder aqui.* O outro lado respondeu {_seguidos} vezes "
+                    f"seguidas em menos de {int(_ECO_SEG)} segundos — esse é o ritmo de um robô, "
+                    "não de uma pessoa. Fico em silêncio por 30 minutos. Se for gente de "
+                    "verdade, responda por aqui que eu volto.",
+                )
+                if got_lock:
+                    await redis.eval(
+                        "if redis.call('get', KEYS[1]) == ARGV[1] then return "
+                        "redis.call('del', KEYS[1]) else return 0 end",
+                        1,
+                        lock_key,
+                        token,
+                    )
+                return
+
             if int(saidas) >= _LOOP_TETO:
                 # 30 min de silêncio NESTA conversa. Não derruba as outras.
                 await redis.set(f"jl:loop:conv:{conversation_id}", "1", ex=1800)
-                logger.error("[jose-luis] LOOP detectado conv=%s — %s saídas em 5 min. "
-                             "Silenciando esta conversa por 30 min.", conversation_id, saidas)
+                logger.error(
+                    "[jose-luis] LOOP detectado conv=%s — %s saídas em 5 min. Silenciando esta conversa por 30 min.",
+                    conversation_id,
+                    saidas,
+                )
                 await _post_private_note(
                     conversation_id,
                     f"⚠️ *Parei de responder aqui.* Enviei {saidas} mensagens nos últimos 5 "
                     "minutos — isso costuma ser conversa com outro robô, não com pessoa. "
                     "Fico em silêncio por 30 minutos. Se for cliente de verdade, responda "
-                    "por aqui que eu volto.")
+                    "por aqui que eu volto.",
+                )
                 if got_lock:
                     await redis.eval(
                         "if redis.call('get', KEYS[1]) == ARGV[1] then return "
-                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                        "redis.call('del', KEYS[1]) else return 0 end",
+                        1,
+                        lock_key,
+                        token,
+                    )
                 return
         except Exception:  # noqa: BLE001 — guarda quebrada não pode calar o agente
-            logger.exception("processar_incoming: conv=%s guarda de loop falhou — seguindo",
-                             conversation_id)
+            logger.exception("processar_incoming: conv=%s guarda de loop falhou — seguindo", conversation_id)
 
     # ⭐ TRAVA DA JANELA CEGA (28/08/2026). Com a análise de mídia fora do webhook, existe
     # um instante em que a mensagem JÁ está no histórico e a descrição da foto ainda não.
@@ -6993,17 +7723,27 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
         try:
             faltam = await redis.get(f"jl:midia:conv:{conversation_id}")
             if faltam and int(faltam) > 0:
-                logger.info("processar_incoming: conv=%s ADIADA — %s anexo(s) ainda em "
-                            "análise; quem responde é a task da mídia", conversation_id, faltam)
+                logger.info(
+                    "processar_incoming: conv=%s ADIADA — %s anexo(s) ainda em "
+                    "análise; quem responde é a task da mídia",
+                    conversation_id,
+                    faltam,
+                )
                 if got_lock:
                     await redis.eval(
                         "if redis.call('get', KEYS[1]) == ARGV[1] then return "
-                        "redis.call('del', KEYS[1]) else return 0 end", 1, lock_key, token)
+                        "redis.call('del', KEYS[1]) else return 0 end",
+                        1,
+                        lock_key,
+                        token,
+                    )
                 return
         except Exception:  # noqa: BLE001 — contador ilegível não pode calar o agente
-            logger.exception("processar_incoming: conv=%s contador de mídia ilegível — "
-                             "seguindo (melhor responder cedo que não responder)",
-                             conversation_id)
+            logger.exception(
+                "processar_incoming: conv=%s contador de mídia ilegível — "
+                "seguindo (melhor responder cedo que não responder)",
+                conversation_id,
+            )
 
     pend_key = f"jl:pend:conv:{conversation_id}"
     if redis is not None and not got_lock:
@@ -7011,8 +7751,11 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
             await redis.set(pend_key, "1", ex=ttl)
         except Exception:  # noqa: BLE001
             pass
-        logger.info("processar_incoming: conv=%s em processamento — ADIADA (chegou "
-                    "mensagem nova; será relida ao fim do turno atual)", conversation_id)
+        logger.info(
+            "processar_incoming: conv=%s em processamento — ADIADA (chegou "
+            "mensagem nova; será relida ao fim do turno atual)",
+            conversation_id,
+        )
         return
     try:
         await _processar_incoming_inner(conversation_id, phone)
@@ -7033,13 +7776,18 @@ async def processar_incoming(conversation_id: int, phone: str | None = None,
             # reprocessar para sempre e vira o oposto do debounce.
             try:
                 if await redis.getdel(pend_key) and _passes < 3:
-                    logger.info("processar_incoming: conv=%s chegou mensagem durante o "
-                                "turno — reprocessando (passe %d)", conversation_id, _passes + 1)
+                    logger.info(
+                        "processar_incoming: conv=%s chegou mensagem durante o turno — reprocessando (passe %d)",
+                        conversation_id,
+                        _passes + 1,
+                    )
                     await processar_incoming(conversation_id, phone, _passes=_passes + 1)
             except Exception:  # noqa: BLE001
-                logger.exception("processar_incoming: conv=%s falhou ao reprocessar o "
-                                 "pendente — mensagem pode ter ficado sem resposta",
-                                 conversation_id)
+                logger.exception(
+                    "processar_incoming: conv=%s falhou ao reprocessar o "
+                    "pendente — mensagem pode ter ficado sem resposta",
+                    conversation_id,
+                )
 
 
 async def _processar_incoming_inner(conversation_id: int, phone: str | None = None) -> None:
@@ -7069,8 +7817,10 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
         if not _da_casa:
             logger.info("processar_incoming: conv=%s já transferida — agente em silêncio", conversation_id)
             return
-        logger.info("processar_incoming: conv=%s transferida, mas é FUNCIONÁRIO — segue atendendo "
-                    "(ponto não pode ficar mudo)", conversation_id)
+        logger.info(
+            "processar_incoming: conv=%s transferida, mas é FUNCIONÁRIO — segue atendendo (ponto não pode ficar mudo)",
+            conversation_id,
+        )
     # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
     await _toggle_typing(conversation_id, True)
     try:
@@ -7139,7 +7889,7 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
         decision = "held_sensivel"
     if _sit:
         try:
-            from modules.crm.services import orchestration as _O  # noqa: PLC0415
+            from modules.crm.services import orchestration as _O  # noqa: PLC0415,N812
 
             _rotulo = {
                 "emergencia": "🚨🚨 *POSSÍVEL EMERGÊNCIA* — cliente relatou incidente em curso",
@@ -7196,6 +7946,7 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
 # `canais=("publico",)` para o conjunto do cliente e `("interno",)` para o do Jordan. O
 # default do registro é "interno" — tool nova nasce invisível ao cliente.
 
+
 def _registrar_no_registro_unico() -> dict[str, list[str]]:
     """Publica as tools deste conector no registro compartilhado. Devolve o relatório.
 
@@ -7207,7 +7958,9 @@ def _registrar_no_registro_unico() -> dict[str, list[str]]:
     a identidade de quem executa — que é a única coisa que este sistema não pode errar.
     """
     from modules.ai.conversation.services.orquestrador.tool_registry import (  # noqa: PLC0415
-        _REGISTRY, ToolDef, register,
+        _REGISTRY,
+        ToolDef,
+        register,
     )
 
     rel: dict[str, list[str]] = {"publico": [], "interno": [], "colisao": []}
@@ -7222,22 +7975,26 @@ def _registrar_no_registro_unico() -> dict[str, list[str]]:
                 rel["colisao"].append(nome)
                 continue
 
-            async def _handler(_db=None, _user=None, _scope=None, *, __nome=nome,
-                               __exec=executor, conversation_id=None, **kw):
+            async def _handler(
+                _db=None, _user=None, _scope=None, *, __nome=nome, __exec=executor, conversation_id=None, **kw
+            ):
                 # A identidade NÃO vem daqui: `conversation_id` resolve o telefone que
                 # está de fato conversando, dentro do executor. Mantido igual de propósito.
                 if conversation_id is None:
                     return {"erro": "esta ferramenta precisa do contexto da conversa"}
                 return await __exec(__nome, kw, conversation_id)
 
-            register(ToolDef(
-                name=nome, module="crm",
-                description=(fn.get("description") or "")[:900],
-                params_schema=(fn.get("parameters")
-                               or {"type": "object", "properties": {}}),
-                handler=_handler, scope_kind="cliente" if canal == "publico" else "org",
-                canais=(canal,),
-            ))
+            register(
+                ToolDef(
+                    name=nome,
+                    module="crm",
+                    description=(fn.get("description") or "")[:900],
+                    params_schema=(fn.get("parameters") or {"type": "object", "properties": {}}),
+                    handler=_handler,
+                    scope_kind="cliente" if canal == "publico" else "org",
+                    canais=(canal,),
+                )
+            )
             rel[canal].append(nome)
 
     _publicar(TOOLS, "publico", _exec_tool)
@@ -7252,12 +8009,14 @@ def _registrar_no_registro_unico() -> dict[str, list[str]]:
 #: é a forma como esta casa já perdeu rotina inteira.
 try:
     _RELATORIO_REGISTRO = _registrar_no_registro_unico()
-    logger.info("[bartolo] registro único: %d pública(s), %d interna(s), %d colisão(ões)",
-                len(_RELATORIO_REGISTRO["publico"]), len(_RELATORIO_REGISTRO["interno"]),
-                len(_RELATORIO_REGISTRO["colisao"]))
+    logger.info(
+        "[bartolo] registro único: %d pública(s), %d interna(s), %d colisão(ões)",
+        len(_RELATORIO_REGISTRO["publico"]),
+        len(_RELATORIO_REGISTRO["interno"]),
+        len(_RELATORIO_REGISTRO["colisao"]),
+    )
 except Exception:  # noqa: BLE001
-    logger.exception("[bartolo] falha ao publicar tools no registro único — "
-                     "o atendimento segue com as listas locais")
+    logger.exception("[bartolo] falha ao publicar tools no registro único — o atendimento segue com as listas locais")
     _RELATORIO_REGISTRO = {"publico": [], "interno": [], "colisao": []}
 
 
@@ -7295,11 +8054,20 @@ async def _visita_aberta(db, conversation_id: int):
     """
     from sqlalchemy import text as _t  # noqa: PLC0415
 
-    return (await db.execute(_t(
-        "SELECT id::text AS id, cliente_nome, conteudo_md, achados FROM crm_visit_reports "
-        "WHERE status::text = 'rascunho' AND conteudo_md LIKE :m "
-        "ORDER BY created_at DESC LIMIT 1"),
-        {"m": f"%[wa:{conversation_id}]%"})).mappings().first()
+    return (
+        (
+            await db.execute(
+                _t(
+                    "SELECT id::text AS id, cliente_nome, conteudo_md, achados FROM crm_visit_reports "
+                    "WHERE status::text = 'rascunho' AND conteudo_md LIKE :m "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"m": f"%[wa:{conversation_id}]%"},
+            )
+        )
+        .mappings()
+        .first()
+    )
 
 
 async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
@@ -7307,8 +8075,10 @@ async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
 
     cliente = str(args.get("cliente") or "").strip()
     if not cliente:
-        return {"erro": "informe o cliente da visita (nome como está no cadastro, ou o "
-                        "nome do prospect se ainda não for cliente)"}
+        return {
+            "erro": "informe o cliente da visita (nome como está no cadastro, ou o "
+            "nome do prospect se ainda não for cliente)"
+        }
     # ⭐ TIPO DA VISITA. Sem ele o roteiro vira interrogatório genérico — medido ao vivo
     # em 27/08/2026: o Jordan disse "fui fazer orçamento de CFTV" e o agente continuou
     # perguntando de portaria e acessos, porque o roteiro era único. O tipo mora em
@@ -7317,58 +8087,82 @@ async def _mtool_abrir_visita(db, args: dict, conversation_id: int) -> dict:
     empresa = str(args.get("empresa") or "").strip().lower()
     tipo = str(args.get("tipo") or "").strip().lower().replace(" ", "_")
     if empresa and empresa not in VISITA_EMPRESAS:
-        return {"erro": f"empresa {empresa!r} não existe. Use: "
-                        f"{', '.join(sorted(VISITA_EMPRESAS))}."}
+        return {"erro": f"empresa {empresa!r} não existe. Use: {', '.join(sorted(VISITA_EMPRESAS))}."}
     if tipo and tipo not in TIPOS_VISITA:
-        return {"erro": f"serviço {tipo!r} não existe. Use um de: "
-                        f"{', '.join(sorted(TIPOS_VISITA))}."}
+        return {"erro": f"serviço {tipo!r} não existe. Use um de: {', '.join(sorted(TIPOS_VISITA))}."}
     # Fail-closed no CNPJ: serviço que não pertence à empresa declarada é recusado, porque
     # mão de obra faturada pela Eletrônica (Lucro Real, NF-e de mercadoria) é erro fiscal,
     # não detalhe de organização.
     if empresa and tipo and empresa != "mista" and SERVICO_DA_EMPRESA.get(tipo) != empresa:
-        return {"erro": f"{tipo!r} é faturado pela "
-                        f"{SERVICO_DA_EMPRESA.get(tipo, '?')}, não pela {empresa}. "
-                        f"Se o cliente quer as duas frentes, abra como empresa='mista' — "
-                        f"saem DUAS propostas, uma por CNPJ."}
+        return {
+            "erro": f"{tipo!r} é faturado pela "
+            f"{SERVICO_DA_EMPRESA.get(tipo, '?')}, não pela {empresa}. "
+            f"Se o cliente quer as duas frentes, abra como empresa='mista' — "
+            f"saem DUAS propostas, uma por CNPJ."
+        }
     ja = await _visita_aberta(db, conversation_id)
     if ja:
-        return {"ja_aberta": True, "visita_id": ja["id"], "cliente": ja["cliente_nome"],
-                "aviso": "já existe uma visita aberta nesta conversa; feche antes de abrir "
-                         "outra para não misturar dois clientes no mesmo relatório"}
+        return {
+            "ja_aberta": True,
+            "visita_id": ja["id"],
+            "cliente": ja["cliente_nome"],
+            "aviso": "já existe uma visita aberta nesta conversa; feche antes de abrir "
+            "outra para não misturar dois clientes no mesmo relatório",
+        }
     u = await _usuario_dono(db)
     # Cliente do cadastro quando existir; prospect novo entra pelo nome (a visita é o
     # começo da prospecção, então NÃO exigimos cliente cadastrado).
-    cid = (await db.execute(_t(
-        "SELECT id::text FROM clients WHERE upper(name) = upper(:c) "
-        "   OR unaccent(name) ILIKE unaccent(:l) LIMIT 1"),
-        {"c": cliente, "l": f"%{cliente}%"})).scalar()
-    vid = (await db.execute(_t(
-        "INSERT INTO crm_visit_reports (id, cliente_nome, cliente_id, data_visita, "
-        "  conteudo_md, status, criado_por, created_at, updated_at) "
-        "VALUES (gen_random_uuid(), :nome, cast(:cid AS uuid), "
-        "        (now() AT TIME ZONE 'America/Manaus')::date, :md, 'rascunho', :u, "
-        "        now(), now()) RETURNING id::text"),
-        {"nome": cliente, "cid": cid, "u": str(getattr(u, "id", "")) or None,
-         "md": (f"[wa:{conversation_id}] [empresa:{empresa or 'indefinida'}] "
-                f"[tipo:{tipo or 'indefinido'}] "
-                f"Visita registrada pelo WhatsApp.\n")})).scalar()
+    cid = (
+        await db.execute(
+            _t(
+                "SELECT id::text FROM clients WHERE upper(name) = upper(:c) "
+                "   OR unaccent(name) ILIKE unaccent(:l) LIMIT 1"
+            ),
+            {"c": cliente, "l": f"%{cliente}%"},
+        )
+    ).scalar()
+    vid = (
+        await db.execute(
+            _t(
+                "INSERT INTO crm_visit_reports (id, cliente_nome, cliente_id, data_visita, "
+                "  conteudo_md, status, criado_por, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), :nome, cast(:cid AS uuid), "
+                "        (now() AT TIME ZONE 'America/Manaus')::date, :md, 'rascunho', :u, "
+                "        now(), now()) RETURNING id::text"
+            ),
+            {
+                "nome": cliente,
+                "cid": cid,
+                "u": str(getattr(u, "id", "")) or None,
+                "md": (
+                    f"[wa:{conversation_id}] [empresa:{empresa or 'indefinida'}] "
+                    f"[tipo:{tipo or 'indefinido'}] "
+                    f"Visita registrada pelo WhatsApp.\n"
+                ),
+            },
+        )
+    ).scalar()
     await db.commit()
     emp = VISITA_EMPRESAS.get(empresa) or {}
     return {
-        "visita_id": vid, "cliente": cliente, "cliente_cadastrado": bool(cid),
-        "empresa": empresa or "indefinida", "tipo": tipo or "indefinido",
+        "visita_id": vid,
+        "cliente": cliente,
+        "cliente_cadastrado": bool(cid),
+        "empresa": empresa or "indefinida",
+        "tipo": tipo or "indefinido",
         "empresa_rotulo": emp.get("rotulo"),
         "sempre_perguntar": emp.get("sempre_perguntar"),
         "roteiro": TIPOS_VISITA.get(tipo, ""),
         "servicos_desta_empresa": sorted(emp.get("servicos") or {}),
         "proximo": (
             "siga o roteiro deste serviço, uma pergunta por vez"
-            if (empresa and tipo) else
-            "pergunte PRIMEIRO: esta visita é para a ELETRÔNICA (CFTV, controle de "
+            if (empresa and tipo)
+            else "pergunte PRIMEIRO: esta visita é para a ELETRÔNICA (CFTV, controle de "
             "acesso, alarme/perímetro, infraestrutura, portaria remota — equipamento, "
             "NF-e), para a PATRIMONIAL (portaria, limpeza — mão de obra, NFS-e) ou "
             "MISTA? Depois pergunte QUAL serviço daquela empresa. Sem isso o roteiro "
-            "vira interrogatório genérico e o CNPJ da proposta sai errado."),
+            "vira interrogatório genérico e o CNPJ da proposta sai errado."
+        ),
     }
 
 
@@ -7385,8 +8179,14 @@ async def _mtool_anotar_visita(db, args: dict, conversation_id: int) -> dict:
         return {"erro": "sem texto para anotar"}
     # Os 6 campos do relatório, pelo nome que a estrutura já usa. Campo desconhecido NÃO
     # vira coluna nova nem some: cai em `achados`, e a resposta diz que caiu.
-    validos = {"panorama", "achados", "situacao_atual", "diagnostico_tecnico",
-               "oportunidade_comercial", "proximos_passos"}
+    validos = {
+        "panorama",
+        "achados",
+        "situacao_atual",
+        "diagnostico_tecnico",
+        "oportunidade_comercial",
+        "proximos_passos",
+    }
     destino = campo if campo in validos else "achados"
 
     # ⚠️ `achados` é jsonb (array de {tipo, descricao}); os outros CINCO são text. Tratar
@@ -7396,29 +8196,40 @@ async def _mtool_anotar_visita(db, args: dict, conversation_id: int) -> dict:
         from modules.crm.services.visit_reports import adicionar_achados  # noqa: PLC0415
 
         await adicionar_achados(db, str(v["id"]), [texto])
-        await db.execute(_t(
-            "UPDATE crm_visit_reports SET conteudo_md = "
-            "  concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
-            "WHERE id = cast(:i AS uuid)"),
-            {"i": v["id"], "linha": f"- (achados) {texto}\n"})
+        await db.execute(
+            _t(
+                "UPDATE crm_visit_reports SET conteudo_md = "
+                "  concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
+                "WHERE id = cast(:i AS uuid)"
+            ),
+            {"i": v["id"], "linha": f"- (achados) {texto}\n"},
+        )
         await db.commit()
-        return {"visita_id": v["id"], "campo": "achados", "anotado": True,
-                "aviso": (None if campo in validos else
-                          f"'{campo}' não é um campo do relatório; anotei em achados")}
+        return {
+            "visita_id": v["id"],
+            "campo": "achados",
+            "anotado": True,
+            "aviso": (None if campo in validos else f"'{campo}' não é um campo do relatório; anotei em achados"),
+        }
 
-    await db.execute(_t(
-        f"UPDATE crm_visit_reports SET {destino} = "  # noqa: S608 - lista fechada acima
-        # cast() obrigatório: bind nu dentro de concat/concat_ws deixa o asyncpg sem
-        # tipo (IndeterminateDatatypeError). Quarta vez hoje que esta família morde.
-        f"  concat_ws(E'\\n', nullif({destino}, ''), cast(:t AS text)), "
-        "  conteudo_md = concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
-        "WHERE id = cast(:i AS uuid)"),
-        {"t": texto, "i": v["id"],
-         "linha": f"- ({destino}) {texto}\n"})
+    await db.execute(
+        _t(
+            f"UPDATE crm_visit_reports SET {destino} = "  # noqa: S608 - lista fechada acima
+            # cast() obrigatório: bind nu dentro de concat/concat_ws deixa o asyncpg sem
+            # tipo (IndeterminateDatatypeError). Quarta vez hoje que esta família morde.
+            f"  concat_ws(E'\\n', nullif({destino}, ''), cast(:t AS text)), "
+            "  conteudo_md = concat(conteudo_md, cast(:linha AS text)), updated_at = now() "
+            "WHERE id = cast(:i AS uuid)"
+        ),
+        {"t": texto, "i": v["id"], "linha": f"- ({destino}) {texto}\n"},
+    )
     await db.commit()
-    return {"visita_id": v["id"], "campo": destino, "anotado": True,
-            "aviso": (None if campo in validos else
-                      f"'{campo}' não é um campo do relatório; anotei em achados")}
+    return {
+        "visita_id": v["id"],
+        "campo": destino,
+        "anotado": True,
+        "aviso": (None if campo in validos else f"'{campo}' não é um campo do relatório; anotei em achados"),
+    }
 
 
 async def _mtool_fechar_visita(db, args: dict, conversation_id: int) -> dict:
@@ -7428,31 +8239,61 @@ async def _mtool_fechar_visita(db, args: dict, conversation_id: int) -> dict:
     v = await _visita_aberta(db, conversation_id)
     if not v:
         return {"erro": "nenhuma visita aberta nesta conversa"}
-    linha = (await db.execute(_t(
-        "SELECT cliente_nome, data_visita, panorama, achados, situacao_atual, "
-        "       diagnostico_tecnico, oportunidade_comercial, proximos_passos "
-        "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"),
-        {"i": v["id"]})).mappings().first()
-    preenchidos = [k for k in ("panorama", "achados", "situacao_atual",
-                               "diagnostico_tecnico", "oportunidade_comercial",
-                               "proximos_passos") if (linha or {}).get(k)]
+    linha = (
+        (
+            await db.execute(
+                _t(
+                    "SELECT cliente_nome, data_visita, panorama, achados, situacao_atual, "
+                    "       diagnostico_tecnico, oportunidade_comercial, proximos_passos "
+                    "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"
+                ),
+                {"i": v["id"]},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    preenchidos = [
+        k
+        for k in (
+            "panorama",
+            "achados",
+            "situacao_atual",
+            "diagnostico_tecnico",
+            "oportunidade_comercial",
+            "proximos_passos",
+        )
+        if (linha or {}).get(k)
+    ]
     if not preenchidos:
         return {"erro": "a visita está vazia — me conte alguma coisa antes de fechar"}
-    await db.execute(_t(
-        "UPDATE crm_visit_reports SET status = 'concluido', updated_at = now() "
-        "WHERE id = cast(:i AS uuid)"), {"i": v["id"]})
+    await db.execute(
+        _t("UPDATE crm_visit_reports SET status = 'concluido', updated_at = now() WHERE id = cast(:i AS uuid)"),
+        {"i": v["id"]},
+    )
     await db.commit()
     return {
-        "visita_id": v["id"], "cliente": linha["cliente_nome"],
-        "data": str(linha["data_visita"]), "campos_preenchidos": preenchidos,
+        "visita_id": v["id"],
+        "cliente": linha["cliente_nome"],
+        "data": str(linha["data_visita"]),
+        "campos_preenchidos": preenchidos,
         # Vazio é DITO, não escondido: "faltou diagnóstico" é informação útil no fim de
         # uma visita, e some se a resposta só mostrar o que foi preenchido.
-        "campos_vazios": [k for k in ("panorama", "achados", "situacao_atual",
-                                      "diagnostico_tecnico", "oportunidade_comercial",
-                                      "proximos_passos") if k not in preenchidos],
+        "campos_vazios": [
+            k
+            for k in (
+                "panorama",
+                "achados",
+                "situacao_atual",
+                "diagnostico_tecnico",
+                "oportunidade_comercial",
+                "proximos_passos",
+            )
+            if k not in preenchidos
+        ],
         "relatorio": {k: linha[k] for k in preenchidos},
         "proximo": "no computador, peça ao Bartolo a visita deste cliente — ele carrega "
-                   "tudo isto. Para orçar, use o catálogo com os itens levantados.",
+        "tudo isto. Para orçar, use o catálogo com os itens levantados.",
     }
 
 
@@ -7545,7 +8386,7 @@ item pelo catálogo.
 
 async def _mtool_sugerir_escopo(db, args: dict, conversation_id: int) -> dict:
     """Escopo por analogia com o que o Jordan já vendeu. Ver crm/services/escopo_analogo."""
-    from modules.crm.services import escopo_analogo as _EA  # noqa: PLC0415
+    from modules.crm.services import escopo_analogo as _EA  # noqa: PLC0415,N812
 
     termo = str(args.get("levantamento") or "").strip()
     if not termo:
@@ -7555,15 +8396,22 @@ async def _mtool_sugerir_escopo(db, args: dict, conversation_id: int) -> dict:
         if v:
             from sqlalchemy import text as _t  # noqa: PLC0415
 
-            linha = (await db.execute(_t(
-                "SELECT concat_ws(' ', cliente_nome, panorama, situacao_atual, "
-                "  diagnostico_tecnico, oportunidade_comercial, achados::text) AS tudo "
-                "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"),
-                {"i": v["id"]})).scalar()
+            linha = (
+                await db.execute(
+                    _t(
+                        "SELECT concat_ws(' ', cliente_nome, panorama, situacao_atual, "
+                        "  diagnostico_tecnico, oportunidade_comercial, achados::text) AS tudo "
+                        "FROM crm_visit_reports WHERE id = cast(:i AS uuid)"
+                    ),
+                    {"i": v["id"]},
+                )
+            ).scalar()
             termo = str(linha or "")
     if not termo.strip():
-        return {"erro": "me diga o que você levantou (ex.: 'CFTV em torre, sem energia, "
-                        "120 m do rack'), ou abra uma visita e anote antes."}
+        return {
+            "erro": "me diga o que você levantou (ex.: 'CFTV em torre, sem energia, "
+            "120 m do rack'), ou abra uma visita e anote antes."
+        }
     return await _EA.buscar(db, termo, limite=int(args.get("limite") or 2))
 
 
@@ -7585,19 +8433,23 @@ async def _mtool_sugerir_escopo(db, args: dict, conversation_id: int) -> dict:
 
 VISITA_EMPRESAS: dict[str, dict] = {
     "eletronica": {
-        "rotulo": ("Conecta Mais Eletrônica — CNPJ 35.710.481/0001-03, Manaus/AM, "
-                   "IE + SUFRAMA, Lucro Real. Emite NF-e de MERCADORIA."),
+        "rotulo": (
+            "Conecta Mais Eletrônica — CNPJ 35.710.481/0001-03, Manaus/AM, "
+            "IE + SUFRAMA, Lucro Real. Emite NF-e de MERCADORIA."
+        ),
         "sempre_perguntar": (
             "ANTES de qualquer coisa técnica, pergunte: é VENDA ou LOCAÇÃO? "
             "No seu histórico há 6 propostas de locação de CFTV contra 3 de venda — "
             "locação é receita recorrente e o equipamento continua sendo da empresa; "
             "venda é NF-e única e o equipamento sai. Isso muda o contrato inteiro."
         ),
-        "servicos": {},   # preenchido abaixo com TIPOS_VISITA
+        "servicos": {},  # preenchido abaixo com TIPOS_VISITA
     },
     "patrimonial": {
-        "rotulo": ("Conecta Mais Patrimonial — CNPJ 66.014.833/0001-10, Simples "
-                   "Anexo III, CNAE 8111-7/00. MÃO DE OBRA humanizada, NFS-e."),
+        "rotulo": (
+            "Conecta Mais Patrimonial — CNPJ 66.014.833/0001-10, Simples "
+            "Anexo III, CNAE 8111-7/00. MÃO DE OBRA humanizada, NFS-e."
+        ),
         "sempre_perguntar": (
             "Preço de posto sai do motor CCT (`simular_preco`), NUNCA de estimativa. "
             "Piso da CCT SINDECOMPRESTS 2026: R$ 1.670. Somos AGENTES DE PORTARIA, "
@@ -7619,10 +8471,13 @@ VISITA_EMPRESAS: dict[str, dict] = {
 #: Serviço → empresa que o fatura. Fail-closed: serviço fora daqui é recusado, porque
 #: adivinhar a empresa erra o CNPJ da nota.
 SERVICO_DA_EMPRESA: dict[str, str] = {
-    "cftv": "eletronica", "controle_acesso": "eletronica",
-    "alarme_perimetro": "eletronica", "infraestrutura": "eletronica",
+    "cftv": "eletronica",
+    "controle_acesso": "eletronica",
+    "alarme_perimetro": "eletronica",
+    "infraestrutura": "eletronica",
     "portaria_remota": "eletronica",
-    "portaria": "patrimonial", "limpeza": "patrimonial",
+    "portaria": "patrimonial",
+    "limpeza": "patrimonial",
 }
 
 
