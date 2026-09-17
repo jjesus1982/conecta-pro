@@ -128,7 +128,7 @@ export function useGlobalShortcuts({
       key: '1',
       alt: true,
       description: 'Dashboard',
-      action: () => router.push('/dashboard'),
+      action: () => router.push('/redesign'),
     },
     {
       key: '2',

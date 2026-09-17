@@ -245,8 +245,6 @@ export default function ModulosLayout({
   const hasAccessToCurrent =
     !currentModule || (!!user && canAccessModule(user, currentModule));
   // Primeiro módulo que o usuário pode ver (para o redirect de /modulos)
-  const firstAccessibleModule =
-    user && !isPending ? modules.find((m) => canAccessModule(user, m)) : undefined;
 
   // Redirecionar se não autenticado
   useEffect(() => {
@@ -262,13 +260,19 @@ export default function ModulosLayout({
     }
   }, [isSelfService, inSelfServiceArea, router]);
 
-  // Redirecionar /modulos → primeiro módulo acessível (fallback client-side
-  // caso nginx intercepte o server redirect)
+  // `/modulos` vai SEMPRE para o /redesign. Não existe mais «primeiro módulo acessível» a
+  // escolher: as telas de gestão do clássico morreram em 17/09/2026 e o que sobrou em
+  // /modulos é só o app de quem trabalha no posto.
+  //
+  // Bug que EU criei no mesmo dia: ao podar o `modules.ts`, a «Área do Cliente» sobrou como
+  // primeira da lista — e o href dela é `/area-cliente`, o portal do CLIENTE. Quem clicava no
+  // botão «Clássico» do redesign caía numa tela pedindo CNPJ. O Jordan filmou e mandou o
+  // vídeo. O botão saiu; esta linha era a outra metade do defeito.
   useEffect(() => {
     if (!isLoading && isAuthenticated && pathname === '/modulos' && !isPending && !isSelfService) {
-      router.replace(firstAccessibleModule?.href ?? '/dashboard');
+      router.replace('/redesign');
     }
-  }, [isLoading, isAuthenticated, pathname, router, isPending, isSelfService, firstAccessibleModule]);
+  }, [isLoading, isAuthenticated, pathname, router, isPending, isSelfService]);
 
   // Sync WS token from localStorage whenever auth state changes
   useEffect(() => {
@@ -340,7 +344,7 @@ export default function ModulosLayout({
               A rota <code className="text-xs">{pathname}</code> não está mapeada em nenhum
               módulo do menu. Volte ao início ou acesse pelo menu de módulos.
             </p>
-            <Button onClick={() => router.push('/dashboard')} className="w-full">
+            <Button onClick={() => router.push('/redesign')} className="w-full">
               Voltar ao início
             </Button>
           </div>
@@ -354,7 +358,7 @@ export default function ModulosLayout({
     return (
       <NoAccessScreen
         moduleTitle={currentModule.title}
-        onBack={() => router.push('/dashboard')}
+        onBack={() => router.push('/redesign')}
       />
     );
   }
@@ -380,7 +384,7 @@ export default function ModulosLayout({
           <div className="h-14 flex items-center justify-between px-4 border-b border-[hsl(var(--border))]">
             {sidebarOpen ? (
               <button
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push('/redesign')}
                 className="flex items-center gap-2.5 text-[hsl(var(--foreground))] hover:text-[hsl(var(--primary))] transition-colors duration-200"
               >
                 <Image
@@ -572,7 +576,7 @@ export default function ModulosLayout({
             <button
               onClick={() => {
                 setMobileMenuOpen(false);
-                router.push('/dashboard');
+                router.push('/redesign');
               }}
               className="flex items-center gap-2.5 text-[hsl(var(--foreground))] hover:text-[hsl(var(--primary))] transition-colors duration-200"
             >

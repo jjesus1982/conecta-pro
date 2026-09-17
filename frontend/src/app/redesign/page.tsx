@@ -184,12 +184,11 @@ export default function RedesignLauncher() {
               <div className="r">{user?.role ?? ''}</div>
             </div>
           </div>
-          <a href="/modulos" title="Ir para o sistema clássico (para operações)"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', color: '#fff',
-              background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 10,
-              padding: '8px 12px', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            <LayoutGrid size={16} /> Clássico
-          </a>
+          {/* O botão «Clássico» saiu daqui em 17/09/2026. Ele levava para /modulos com o
+              tooltip «Ir para o sistema clássico (para operações)» — e era por ele que o
+              clássico continuava aparecendo depois de eu ter redirecionado as rotas.
+              O Jordan, mandando o vídeo: «tem que acabar com a porra do clássico, inclusive
+              o botão». As rotas já redirecionam; o botão era o convite. */}
           <button type="button" title="Sair" onClick={rdLogout} className="rd-launch-bell" style={{ background: 'transparent', border: 'none' }}><LogOut size={18} /></button>
         </div>
       </header>

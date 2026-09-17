@@ -118,9 +118,6 @@ export default function RedesignLogin() {
               <Btn variant="primary" type="submit" disabled={loading} style={{ width: '100%', height: 44 }}>
                 {loading ? 'Entrando…' : 'Entrar'}
               </Btn>
-              <div style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ink-weak)' }}>
-                <a href="/modulos" style={{ color: 'var(--ink-weak)' }}>Voltar ao sistema clássico</a>
-              </div>
             </form>
           )}
 

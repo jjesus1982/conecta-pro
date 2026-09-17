@@ -1236,7 +1236,6 @@ export default function ModuleView({ slug }: { slug: string }) {
           )}
           {!collapsed && (
             <div style={{ display: 'flex', gap: 4 }}>
-              <a href="/modulos" title="Sistema clássico" className="rd-foot-ico"><LayoutGrid size={15} /></a>
               <button type="button" title="Sair" onClick={rdLogout} className="rd-foot-ico"><LogOut size={15} /></button>
             </div>
           )}

@@ -74,7 +74,7 @@ export default function GlobalError({
             Tentar novamente
           </button>
           <a
-            href="/dashboard"
+            href="/redesign"
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] transition-colors"
           >
             <Home className="w-4 h-4" />

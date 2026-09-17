@@ -36,7 +36,7 @@ export default function OfflinePage() {
             Tentar novamente
           </Button>
 
-          <Link href="/dashboard">
+          <Link href="/redesign">
             <Button
               variant="outline"
               className="w-full"

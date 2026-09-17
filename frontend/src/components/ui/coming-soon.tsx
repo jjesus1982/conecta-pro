@@ -40,7 +40,7 @@ export function ComingSoon({ title, description, moduleHref }: ComingSoonProps) 
         )}
         <Button
           variant="primary"
-          onClick={() => router.push('/dashboard')}
+          onClick={() => router.push('/redesign')}
         >
           Ir para Dashboard
         </Button>

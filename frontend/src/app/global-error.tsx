@@ -22,7 +22,7 @@ export default function GlobalError({
               Tentar novamente
             </button>
             <a
-              href="/dashboard"
+              href="/redesign"
               style={{ padding: '10px 24px', background: '#e2e8f0', color: '#1e293b', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}
             >
               Ir ao Dashboard

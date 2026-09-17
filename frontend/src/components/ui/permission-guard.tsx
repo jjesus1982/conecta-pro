@@ -174,7 +174,7 @@ export function PageGuard({
             {deniedMessage}
           </p>
           <a
-            href="/dashboard"
+            href="/redesign"
             className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[hsl(var(--primary))] text-white hover:opacity-90 transition-opacity"
           >
             Voltar ao Dashboard
