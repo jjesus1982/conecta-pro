@@ -255,6 +255,26 @@ const nextConfig: NextConfig = {
       { source: '/modulos/seguranca/mascaramento', destination: '/redesign/seguranca', permanent: true },
       { source: '/modulos/seguranca/pia-dpia', destination: '/redesign/seguranca', permanent: true },
 
+      // ── as SEIS que escaparam no corte de 17/09 ──────────────────────────────────
+      // Preservei estas achando que eram do app do funcionário, porque tinham acesso alto.
+      // O título delas desmente: «Controle de Ponto — GESTÃO de jornada», «Campo — GESTÃO de
+      // operações», «Comunicados — GESTÃO de comunicados». Os 304 acessos de
+      // gestao-pessoas/ponto eram de gente PASSANDO por ela para clicar em «Bater Ponto» —
+      // e o caminho real do ponto é outro: 331 acessos vêm do `sw-ponto.js`, o service worker
+      // próprio do app, e o Meu Espaço bate ponto dentro de si mesmo.
+      //
+      // O Jordan, depois de ver que ainda abria: «e a porra do clássico ainda aparece».
+      //
+      // EXATAS, sem `:path*`: `/modulos/gestao-pessoas/ponto` não pode arrastar
+      // `/ponto/batida` (o app com service worker), nem `/modulos/campo` arrastar
+      // `campo/checkin` e `campo/ordens-servico`.
+      { source: '/modulos/gestao-pessoas/ponto', destination: '/redesign/gestao-de-pessoas', permanent: true },
+      { source: '/modulos/dp/ponto', destination: '/redesign/departamento-pessoal', permanent: true },
+      { source: '/modulos/campo', destination: '/redesign/campo', permanent: true },
+      { source: '/modulos/campo/monitoramento', destination: '/redesign/campo', permanent: true },
+      { source: '/modulos/campo/comunicados', destination: '/redesign/campo', permanent: true },
+      { source: '/modulos/operacional/presenca', destination: '/redesign/operacional', permanent: true },
+
       // O dashboard clássico é o start_url do manifest.json — 1.811 acessos de 258 IPs: é
       // nele que o app instalado abre. Some da vista sem quebrar o atalho de ninguém.
       { source: '/dashboard', destination: '/redesign', permanent: false },

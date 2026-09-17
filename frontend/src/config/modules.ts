@@ -47,20 +47,6 @@ export const modules: Module[] = [
   // =================================================================
   // 7. PONTO ELETRONICO — Card separado dentro de Gestao de Pessoas
   // =================================================================
-  {
-    id: 'ponto',
-    title: 'Ponto Eletronico',
-    description: 'Batida facial, geolocalizacao, offline e justificativas',
-    icon: 'Clock',
-    href: '/modulos/gestao-pessoas/ponto',
-    color: 'blue',
-    permissions: ['module:dp'],
-    enabled: true,
-    subModules: [
-      { id: 'ponto-dashboard', title: 'Dashboard Ponto', href: '/modulos/gestao-pessoas/ponto', icon: 'LayoutDashboard', permissions: ['module:dp'] },
-      { id: 'ponto-batida', title: 'Bater Ponto', href: '/modulos/gestao-pessoas/ponto/batida', icon: 'Fingerprint', permissions: ['module:dp'] },
-    ],
-  },
 
   // =================================================================
   // 8. PORTAL DO FUNCIONARIO — Card separado dentro de Gestao de Pessoas
