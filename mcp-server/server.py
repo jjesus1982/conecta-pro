@@ -727,7 +727,7 @@ async def _quem_tem_o_numero(so_digitos: str) -> dict | None:
         while pagina <= 20:
             leads = await erp.get("/crm/leads", params={"page": pagina, "page_size": 100})
             itens = _items(leads)
-            for l in itens:
+            for l in itens:  # noqa: E741
                 if bate(l.get("phone"), l.get("whatsapp")):
                     return {"tipo": "lead", "nome": l.get("name") or l.get("nome"),
                             "id": l.get("id")}
@@ -2613,7 +2613,7 @@ async def enviar_whatsapp(numero: str, mensagem: str, confirmar: bool = False) -
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "para": numero, "mensagem": mensagem,
-                "mensagem": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar.",
+                "mensagem": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar.",  # noqa: F601
                 "dica": "Nada aconteceu ainda. Reenvie a MESMA chamada com confirmar=true.",
                 "aviso": "Isto enviará um WhatsApp REAL. Reenvie com confirmar=true para disparar."}
     r = await erp.post("/whatsapp/send/custom", json={"phone": numero, "message": mensagem})
@@ -4913,12 +4913,37 @@ _base = Starlette(
 )
 
 
+#: Teto de requisições por minuto no conector interno. Não existia limite em CAMADA NENHUMA
+#: — nem aqui, nem no nginx (o vhost do MCP não tem limit_req). Medido em 17/09/2026.
+#:
+#: Isto NÃO substitui isolamento por usuário, e é importante não confundir as duas coisas: o
+#: conector `pessoas` serve 10 ferramentas que recebem `employee_id` por PARÂMETRO e hoje
+#: executam com a conta de serviço (role=admin), então qualquer id devolve qualquer pessoa.
+#: O limite não fecha isso. O que ele faz é separar "um id vazou" de "os 84 funcionários
+#: vazaram": um laço percorrendo o cadastro inteiro bate no teto.
+#:
+#: 240/min é folgado para o uso real (o Hermes faz dezenas de chamadas numa sessão de
+#: triagem) e apertado para varredura.
+_RPM = int(os.getenv("MCP_RPM", "240"))
+
+
 class _BearerASGI:
     """Auth de entrada por Bearer token (pura ASGI — não quebra streaming/SSE do MCP)."""
 
     def __init__(self, app, token: str):
         self.app = app
         self.token = token
+        self._janela: float = 0.0
+        self._contador: int = 0
+
+    def _estourou(self) -> bool:
+        """Janela fixa de 60s. Fixa e não deslizante de propósito: é memória O(1), e a
+        diferença entre as duas não muda nada para o que isto protege."""
+        agora = time.time()
+        if agora - self._janela >= 60:
+            self._janela, self._contador = agora, 0
+        self._contador += 1
+        return self._contador > _RPM
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and self.token:
@@ -4926,6 +4951,15 @@ class _BearerASGI:
                 headers = dict(scope.get("headers") or [])
                 if headers.get(b"authorization", b"").decode() != f"Bearer {self.token}":
                     await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                    return
+                if _RPM > 0 and self._estourou():
+                    logger.error(  # noqa: F821
+                        "MCP: teto de %s req/min estourado (%s em 60s) — recusando. "
+                        "Volume assim é varredura, não uso.", _RPM, self._contador)
+                    await JSONResponse(
+                        {"error": "rate_limited",
+                         "detail": f"Teto de {_RPM} requisições por minuto."},
+                        status_code=429)(scope, receive, send)
                     return
         await self.app(scope, receive, send)
 
@@ -5830,7 +5864,7 @@ async def ensaiar(ferramenta: str, argumentos: dict | None = None) -> dict:
 
         alvo = validate_call(alvo)
     except ImportError:  # pragma: no cover
-        ValidationError = ()  # type: ignore[assignment]
+        ValidationError = ()  # type: ignore[assignment]  # noqa: F841
 
     registro: list = []
     marca = _ENSAIO.set(registro)

@@ -7821,12 +7821,46 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
             "processar_incoming: conv=%s transferida, mas é FUNCIONÁRIO — segue atendendo (ponto não pode ficar mudo)",
             conversation_id,
         )
-    # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
-    await _toggle_typing(conversation_id, True)
+    # ── O que não precisa de modelo não chama modelo ────────────────────────────────────
+    # Só encerramento ("obrigado", "👍"), e só quando a nossa última fala não terminou em
+    # pergunta. `sim` e `ok` — os dois mais frequentes da amostra de 60 dias — ficam de FORA
+    # de propósito: quase sempre respondem a uma pergunta nossa, e um "de nada" ali quebraria
+    # a conversa. O ganho não é dinheiro (o agente inteiro custa centavos): é a resposta sair
+    # na hora e sempre igual, e é uma resposta fixa não alimentar eco com outro robô.
+    _pronta = None
     try:
-        texto = await gerar_resposta(conversation_id)
-    finally:
-        await _toggle_typing(conversation_id, False)
+        from sqlalchemy import text as _tx  # noqa: PLC0415
+
+        from modules.integrations.connectors.whatsapp.roteador import (  # noqa: PLC0415
+            resposta_pronta,
+        )
+
+        async with async_session_factory() as _dbr:
+            _ult = (
+                await _dbr.execute(
+                    _tx(
+                        "SELECT content, direction FROM cwi_message_log "
+                        "WHERE chatwoot_conversation_id = :c ORDER BY created_at DESC LIMIT 2"
+                    ),
+                    {"c": conversation_id},
+                )
+            ).all()
+        _entrada = next((c for c, d in _ult if d == "in"), "")
+        _saida = next((c for c, d in _ult if d == "out"), None)
+        _pronta = resposta_pronta(_entrada or "", _saida)
+    except Exception:  # noqa: BLE001 — roteador quebrado não pode calar o agente
+        logger.exception("processar_incoming: conv=%s roteador falhou — segue para o modelo", conversation_id)
+
+    if _pronta:
+        logger.info("processar_incoming: conv=%s encerramento — respondi sem LLM", conversation_id)
+        texto = _pronta
+    else:
+        # naturalidade: cliente ve "digitando..." enquanto a resposta e gerada
+        await _toggle_typing(conversation_id, True)
+        try:
+            texto = await gerar_resposta(conversation_id)
+        finally:
+            await _toggle_typing(conversation_id, False)
     if not texto:
         logger.warning("processar_incoming: conv=%s gerou resposta VAZIA (nada enviado)", conversation_id)
         return

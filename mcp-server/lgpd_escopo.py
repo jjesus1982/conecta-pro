@@ -47,7 +47,9 @@ NIVEL: dict[str, str] = {
     "estatisticas_funcionarios": AGREGADO,
     "resumo_folha": AGREGADO,
     "dashboard_operacional": AGREGADO,
-    "banco_horas": AGREGADO,
+    # 17/09/2026: AGREGADO significa "nenhuma pessoa identificável", mas a ferramenta recebe
+    # `employee_id` como parâmetro — o resultado é de UMA pessoa, nomeada.
+    "banco_horas": OPERACIONAL,
     "listar_rubricas_folha": AGREGADO,
     "divergencias_folha_pagamentos": AGREGADO,
     "gaps_esocial": AGREGADO,
@@ -63,7 +65,12 @@ NIVEL: dict[str, str] = {
     # identificado operacional
     "listar_funcionarios": OPERACIONAL,
     "buscar_funcionario": OPERACIONAL,
-    "obter_funcionario": OPERACIONAL,
+    # 17/09/2026: estava OPERACIONAL, cuja legenda é "nome, função, posto, escala". Chamada de
+    # verdade contra o conector devolveu CPF, PIS e data de nascimento — que é a definição de
+    # SENSIVEL. Como a trilha só registra o nível sensível (carimbo.py:71), esse acesso não
+    # deixava rastro nominal nenhum. Promover não fecha o buraco do isolamento, mas faz o que
+    # acontece ali passar a ser AUDITÁVEL.
+    "obter_funcionario": SENSIVEL,
     "listar_alocacoes": OPERACIONAL,
     "alocacoes_vigentes": OPERACIONAL,
     "funcionarios_disponiveis_posto": OPERACIONAL,
