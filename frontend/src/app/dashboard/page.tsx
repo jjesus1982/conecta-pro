@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import { moduleCategories, modules } from '@/config/modules';
-import { canAccessModule, isSelfServiceUser, SELF_SERVICE_ROUTE } from '@/types/modules';
+import { canAccessModule, SELF_SERVICE_ROUTE, temAcessoGestao } from '@/types/modules';
 import { cn } from '@/lib/utils';
 import {
   fetchAllDashboardStats,
@@ -82,9 +82,19 @@ export default function DashboardPage() {
     }
   }, [isLoading, isAuthenticated, router]);
 
-  // Funcionário self-service: nunca vê o dashboard de gestão — vai p/ sua área.
+  // Quem NÃO tem acesso de gestão abre direto na própria área.
+  //
+  // Esta rota é o `start_url` do manifest.json: é nela que o app instalado no celular abre.
+  // Até 17/09/2026 o teste aqui pegava só role='funcionario' — então os 26 'agente' e os 6
+  // 'lider' abriam o app no painel de GESTÃO, que não é deles. A porta certa é positiva e já
+  // existia, carregando a decisão do Jordan de 11/08/2026: PORTAL_ONLY_ROLES = funcionario,
+  // agente, lider («líder de posto é funcionário»).
+  //
+  // Medido antes de trocar: `supervisor` e `gerente_operacional` NÃO são portal-only, e são
+  // exatamente os 3 `supervisor_operacional` que assinam as 80 rondas dos últimos 90 dias.
+  // Eles continuam caindo no painel — a ronda não se mexe.
   useEffect(() => {
-    if (!isLoading && isAuthenticated && isSelfServiceUser(user)) {
+    if (!isLoading && isAuthenticated && !temAcessoGestao(user)) {
       router.replace(SELF_SERVICE_ROUTE);
     }
   }, [isLoading, isAuthenticated, user, router]);
