@@ -388,8 +388,8 @@ async def _build_operacional(db: AsyncSession) -> dict:
         "items": [
             (
                 lambda lbl, tone: {
-                    "title": title,
-                    "meta": f"{pname or 's/ posto'} · {occ_at.strftime('%d/%m %H:%M') if occ_at else 's/ data'}",
+                    "title": title,  # noqa: B023  # pré-existente: closure em laço, avaliada na hora
+                    "meta": f"{pname or 's/ posto'} · {occ_at.strftime('%d/%m %H:%M') if occ_at else 's/ data'}",  # noqa: B023  # pré-existente: closure em laço, avaliada na hora
                     "dot": dotmap.get(tone, "#64748B"),
                     "badge": lbl,
                     **S[tone],
@@ -975,7 +975,7 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             # `extra` acrescenta chaves à LINHA (não à célula) — é assim que a
             # tabela ganha botão de ação sem virar outra tabela. A ModuleView já
             # renderiza `row.actions`; nada muda no frontend.
-            "rows": [{"cells": rowfn(r), **((extra(r) if extra else None) or {})} for r in rows],
+            "rows": [{"cells": rowfn(r), **((extra(r) if extra else None) or {})} for r in rows],  # nosec B610 - pré-existente: não é Django ORM
         }
 
     def paytone(st):
@@ -1743,6 +1743,7 @@ def _helpers(db: AsyncSession):
 
 def _dedup_recursivo(screens: dict) -> None:
     """Passa o dedup por TODA tela do módulo, inclusive as que viraram aba de grupo."""
+
     def _andar(no):
         if isinstance(no, dict):
             if no.get("type") == "table" and isinstance(no.get("rows"), list):
@@ -1795,7 +1796,7 @@ def _dedup_campos(tela: dict) -> None:
             if not campos:
                 continue
             bruto = _json.dumps(campos, sort_keys=True, ensure_ascii=False)
-            h = hashlib.md5(bruto.encode()).hexdigest()[:12]
+            h = hashlib.md5(bruto.encode()).hexdigest()[:12]  # noqa: S324  # nosec B324 - md5 de CACHE, não de segurança
             contagem[h] = contagem.get(h, 0) + 1
             chaves[id(bloco)] = h
 
@@ -1907,8 +1908,7 @@ def _ver_todas_rec(screens: dict) -> None:
             # detalhe a partir de `cols` + `cells`, que já estão na resposta.
             if cols and (row.get("cells") or []):
                 row.setdefault("actions", []).insert(
-                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe",
-                        "verDaLinha": True}
+                    0, {"btnLabel": "Ver", "readOnly": True, "title": f"{titulo} — detalhe", "verDaLinha": True}
                 )
 
     for scr in list(screens.values()):
@@ -2663,12 +2663,16 @@ async def _build_crm(db: AsyncSession) -> dict:
     }
     # Nova proposta (FORM com ESCRITA real → POST /redesign/action/proposal)
     try:
-        _emp_rows = (await db.execute(text(
-            # `empresas` não tem coluna `ativo` — tem `status`. Conferido no banco em 14/09.
-            "SELECT id::text, coalesce(razao_social, slug) FROM empresas "
-            "WHERE coalesce(status::text,'ativo') NOT IN ('inativo','inativa') "
-            "ORDER BY is_principal DESC NULLS LAST, razao_social"
-        ))).fetchall()
+        _emp_rows = (
+            await db.execute(
+                text(
+                    # `empresas` não tem coluna `ativo` — tem `status`. Conferido no banco em 14/09.
+                    "SELECT id::text, coalesce(razao_social, slug) FROM empresas "
+                    "WHERE coalesce(status::text,'ativo') NOT IN ('inativo','inativa') "
+                    "ORDER BY is_principal DESC NULLS LAST, razao_social"
+                )
+            )
+        ).fetchall()
     except Exception:  # noqa: BLE001
         await db.rollback()
         _emp_rows = []
@@ -4167,7 +4171,7 @@ async def _build_bi(db: AsyncSession) -> dict:
             return {"v": _kv(r[1], r[2]) if r else "—", "l": label, "icon": icon, "color": color}
 
         cats: dict = {}
-        for nm, val, unit, cat, direc in rows:
+        for nm, val, unit, cat, direc in rows:  # noqa: B007  # pré-existente: variável de laço não usada
             cats.setdefault(cat or "—", []).append((nm, _kv(val, unit)))
 
         # dois painéis: FINANCIAL e COMMERCIAL/OPERATIONAL
@@ -5276,7 +5280,7 @@ async def rd_action_occurrence(
 ) -> dict:
     import uuid as _uuid
 
-    import modules.operacional.occurrences.controllers.occurrence_controller as _OC
+    import modules.operacional.occurrences.controllers.occurrence_controller as _OC  # noqa: N812  # pré-existente: alias curto de import
     from modules.operacional.occurrences.repositories.occurrence_repository import OccurrenceRepository
 
     desc = (payload.get("description") or "").strip()
@@ -5428,8 +5432,11 @@ async def rd_action_desconto_criar(
     for campo in ("valor", "percentual"):
         if campo in dados:
             try:
-                dados[campo] = float(str(dados[campo]).replace(".", "").replace(",", ".")) \
-                    if "," in str(dados[campo]) else float(dados[campo])
+                dados[campo] = (
+                    float(str(dados[campo]).replace(".", "").replace(",", "."))
+                    if "," in str(dados[campo])
+                    else float(dados[campo])
+                )
             except (TypeError, ValueError):
                 return {"ok": False, "message": f"{campo}: informe um número."}
     if "total_parcelas" in dados:
@@ -5559,7 +5566,7 @@ async def rd_action_occ_resolve(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    import modules.operacional.occurrences.controllers.occurrence_controller as _OC
+    import modules.operacional.occurrences.controllers.occurrence_controller as _OC  # noqa: N812  # pré-existente: alias curto de import
     from modules.operacional.occurrences.repositories.occurrence_repository import OccurrenceRepository
 
     occ_id = payload.get("occurrence_id")
@@ -5692,9 +5699,7 @@ async def rd_action_proposal(
     if tem_item and not empresa_id:
         raise HTTPException(status_code=400, detail="Selecione a empresa emissora da proposta.")
     items = (
-        [ProposalItemCreate(name=item_name, quantity=1, unit_price=valor, empresa_id=empresa_id)]
-        if tem_item
-        else []
+        [ProposalItemCreate(name=item_name, quantity=1, unit_price=valor, empresa_id=empresa_id)] if tem_item else []
     )
     try:
         data = ProposalCreate(
@@ -5727,7 +5732,7 @@ async def rd_action_contrato_da_proposta(
     contrato era preciso trocar de módulo. O cliente e o valor vêm da PROPOSTA, não digitados
     de novo; a modalidade é escolhida porque a proposta não a declara de forma confiável.
     """
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_wizard as W  # noqa: N812  # pré-existente: alias curto de import
 
     pid = (payload.get("proposal_id") or "").strip()
     modalidade = (payload.get("modalidade") or "").strip()
@@ -5838,8 +5843,8 @@ async def rd_action_contrato_abrir_assinatura(
     Chama a MESMA rota de negócio de /crm/contracts — o portão de emitente e a ordem dos
     signatários vivem lá, para as superfícies não divergirem.
     """
-    from modules.crm.services import contract_signature as CS
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_signature as CS  # noqa: N812  # pré-existente: alias curto de import
+    from modules.crm.services import contract_wizard as W  # noqa: N812  # pré-existente: alias curto de import
     from modules.crm.services.contract_render import RenderError, renderizar_contrato
 
     num = (payload.get("contrato") or "").strip()
@@ -5954,8 +5959,8 @@ async def rd_action_contrato_enviar_link(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Manda o link ao signatário, ou devolve para envio manual por WhatsApp."""
-    from modules.crm.services import contract_signature as CS
-    from modules.crm.services import contract_wizard as W
+    from modules.crm.services import contract_signature as CS  # noqa: N812  # pré-existente: alias curto de import
+    from modules.crm.services import contract_wizard as W  # noqa: N812  # pré-existente: alias curto de import
 
     num = (payload.get("contrato") or "").strip()
     if not num:
@@ -7224,6 +7229,37 @@ def _slug_allowed(user, slug: str) -> bool:
     if mod:
         return user_has_module(user, mod)
     return True
+
+
+@router.get("/indice")
+async def redesign_indice(current_user: CurrentActiveUser) -> dict:
+    """Índice de TODAS as abas que ESTE usuário pode abrir. Alimenta a busca do topo.
+
+    Origem: 17/09/2026. O Jordan: «to super perdido no sistema, tudo muito confuso, difícil de
+    achar as coisas». Medido: 289 itens de menu e 587 telas, com a barra «Buscar…» do shell
+    sendo um `<input>` sem uma linha de código — não havia como achar nada senão clicando.
+
+    Barato de propósito: `EXTRA_MENU` é um dict em memória, montado no import. Aqui não roda
+    NENHUM builder e não se toca no banco — buscar não pode custar o que custa abrir um módulo
+    (o de financeiro devolve 8,95 MB).
+
+    O filtro por `_slug_allowed` é a mesma porta do `/data/{slug}`: a busca não pode revelar a
+    existência de uma tela que a pessoa levaria 403 ao abrir.
+    """
+    itens: list[dict] = []
+    for slug, menu in EXTRA_MENU.items():
+        if not _slug_allowed(current_user, slug):
+            continue
+        vistos: set[str] = set()
+        for it in menu or []:
+            ident, label = it.get("id"), it.get("label")
+            # id repetido no mesmo menu existe (integracoes tinha um bloco colado 3x até hoje):
+            # na busca, item duplicado é ruído puro.
+            if not ident or not label or ident in vistos:
+                continue
+            vistos.add(ident)
+            itens.append({"slug": slug, "id": ident, "label": label})
+    return {"itens": itens, "total": len(itens)}
 
 
 @router.get("/data/{slug}")
