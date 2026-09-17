@@ -267,10 +267,14 @@ class InterAdapter(BaseBankingAdapter):
         pagina = 0
         while pagina < 40:
             data = await self._request(
-                "GET", "/banking/v2/extrato/completo",
-                params={"dataInicio": start_date.strftime("%Y-%m-%d"),
-                        "dataFim": end_date.strftime("%Y-%m-%d"),
-                        "pagina": pagina, "tamanhoPagina": 100},
+                "GET",
+                "/banking/v2/extrato/completo",
+                params={
+                    "dataInicio": start_date.strftime("%Y-%m-%d"),
+                    "dataFim": end_date.strftime("%Y-%m-%d"),
+                    "pagina": pagina,
+                    "tamanhoPagina": 100,
+                },
             )
             lote = data.get("transacoes") or []
             itens.extend(lote)
@@ -290,19 +294,21 @@ class InterAdapter(BaseBankingAdapter):
                 bk, ac = det.get("nomeEmpresaPagador"), det.get("contaBancariaPagador")
             valor = self._parse_amount(item.get("valor", 0))
             valor = -abs(valor) if is_debit else abs(valor)
-            out.append(BankTransaction(
-                transaction_id=item.get("idTransacao", ""),
-                date=datetime.fromisoformat(item.get("dataTransacao") or item.get("dataEntrada") or ""),
-                amount=valor,
-                transaction_type=TransactionType.DEBIT if is_debit else TransactionType.CREDIT,
-                description=item.get("descricao", ""),
-                counterpart_name=nm or None,
-                counterpart_document=dc or None,
-                counterpart_bank=bk or None,
-                counterpart_account=ac or None,
-                counterpart_pix_key=(det.get("chavePixRecebedor") or det.get("chavePixPagador") or None),
-                reference=det.get("endToEndId") or None,
-            ))
+            out.append(
+                BankTransaction(
+                    transaction_id=item.get("idTransacao", ""),
+                    date=datetime.fromisoformat(item.get("dataTransacao") or item.get("dataEntrada") or ""),
+                    amount=valor,
+                    transaction_type=TransactionType.DEBIT if is_debit else TransactionType.CREDIT,
+                    description=item.get("descricao", ""),
+                    counterpart_name=nm or None,
+                    counterpart_document=dc or None,
+                    counterpart_bank=bk or None,
+                    counterpart_account=ac or None,
+                    counterpart_pix_key=(det.get("chavePixRecebedor") or det.get("chavePixPagador") or None),
+                    reference=det.get("endToEndId") or None,
+                )
+            )
         return out
 
     async def get_balance(self, data_saldo: date | None = None) -> AccountBalance:
@@ -317,8 +323,10 @@ class InterAdapter(BaseBankingAdapter):
 
         # 'bloqueado' é a soma dos três: cheque, judicial e administrativo. Ler só
         # o de cheque escondia bloqueio judicial, que é justamente o que importa.
-        bloqueado = sum(self._parse_amount(raw.get(k, 0)) for k in
-                        ("bloqueadoCheque", "bloqueadoJudicialmente", "bloqueadoAdministrativo"))
+        bloqueado = sum(
+            self._parse_amount(raw.get(k, 0))
+            for k in ("bloqueadoCheque", "bloqueadoJudicialmente", "bloqueadoAdministrativo")
+        )
         return AccountBalance(
             available=self._parse_amount(raw.get("disponivel", 0)),
             blocked=bloqueado,
@@ -367,7 +375,8 @@ class InterAdapter(BaseBankingAdapter):
                     # que faltou dinheiro que na verdade so nao foi lido.
                     raise BankingAdapterError(
                         f"extrato/completo: li {len(itens)} de {declarado} lancamentos "
-                        f"declarados pelo Inter — paginacao incompleta")
+                        f"declarados pelo Inter — paginacao incompleta"
+                    )
                 break
             pagina += 1
 
@@ -421,8 +430,7 @@ class InterAdapter(BaseBankingAdapter):
                     # `/extrato/completo` devolve `dataTransacao`; o endpoint antigo devolvia
                     # `dataEntrada`. Sem este fallback a troca de endpoint quebra na primeira
                     # linha, com ValueError de isoformat sobre string vazia.
-                    date=datetime.fromisoformat(
-                        item.get("dataTransacao") or item.get("dataEntrada") or ""),
+                    date=datetime.fromisoformat(item.get("dataTransacao") or item.get("dataEntrada") or ""),
                     amount=valor,
                     transaction_type=tx_type,
                     description=descricao,
@@ -607,9 +615,14 @@ class InterAdapter(BaseBankingAdapter):
         if cod and not data.get("linhaDigitavel"):
             det = await self.get_boleto(cod)
             if det.get("success"):
-                data = {**data, "linhaDigitavel": det.get("linha_digitavel", ""),
-                        "pdfBoleto": det.get("pdf_url", ""), "pixCopiaECola": det.get("pix_copy_paste", ""),
-                        "codigoBarras": det.get("barcode", ""), "nossoNumero": det.get("nosso_numero", "")}
+                data = {
+                    **data,
+                    "linhaDigitavel": det.get("linha_digitavel", ""),
+                    "pdfBoleto": det.get("pdf_url", ""),
+                    "pixCopiaECola": det.get("pix_copy_paste", ""),
+                    "codigoBarras": det.get("barcode", ""),
+                    "nossoNumero": det.get("nosso_numero", ""),
+                }
         return {
             "boleto_id": cod,
             "barcode": data.get("codigoBarras", ""),
@@ -895,9 +908,9 @@ class InterAdapter(BaseBankingAdapter):
 
         d = "".join(c for c in (codigo or "") if c.isdigit())
         fator = 0
-        if len(d) == 47:      # linha digitável bancário: campo5 = fator(4)+valor(10)
+        if len(d) == 47:  # linha digitável bancário: campo5 = fator(4)+valor(10)
             fator = int(d[33:37] or 0)
-        elif len(d) == 44:    # código de barras
+        elif len(d) == 44:  # código de barras
             fator = int(d[5:9] or 0)
         if fator <= 0:
             return data_pagamento
@@ -945,9 +958,7 @@ class InterAdapter(BaseBankingAdapter):
             data = await self._request("POST", "/banking/v2/pagamento", json=payload)
             return {
                 "success": True,
-                "payment_id": data.get("codigoTransacao")
-                or data.get("codigoPagamento")
-                or data.get("idPagamento", ""),
+                "payment_id": data.get("codigoTransacao") or data.get("codigoPagamento") or data.get("idPagamento", ""),
                 "valor": valor,
                 "data_pagamento": data_pagamento,
                 "status": data.get("tipoRetorno") or data.get("status", "processando"),
@@ -974,8 +985,7 @@ class InterAdapter(BaseBankingAdapter):
                     f"⚠️ Confira também se este título já não foi pago no vencimento. "
                     f"[resposta do Inter: {detalhe}]"
                 )
-            return {"success": False, "status_code": e.code, "detail": detalhe,
-                    "vencimento": venc}
+            return {"success": False, "status_code": e.code, "detail": detalhe, "vencimento": venc}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1199,18 +1209,32 @@ class InterAdapter(BaseBankingAdapter):
         try:
             data = await self._request("GET", f"/banking/v2/pix/{codigo_solicitacao}")
             tx = data.get("transacaoPix", data)
+            # QUEM RECEBEU, segundo o banco. Medido em 16/09/2026 com R$ 0,01 para a chave do
+            # Jordan: o Inter devolve `recebedor.nome` ("JORDAN SANTOS DE JESUS") e o CPF
+            # mascarado ("***681522**"). Os campos vinham no `raw` e eram descartados aqui —
+            # o mesmo defeito da selfie da batida: o dado chega e o código joga fora.
+            #
+            # ⚠️ Só vem depois de PAGO. Na consulta com status ENVIADO os dois vêm vazios, então
+            # isto CONFIRMA para onde o dinheiro foi; não impede que vá para o lugar errado.
+            rec = tx.get("recebedor") or {}
             return {
                 "success": True,
                 "status": tx.get("status", ""),
                 "valor": tx.get("valor"),
                 "chave": tx.get("chave", ""),
+                "recebedor_nome": rec.get("nome") or "",
+                "recebedor_documento": rec.get("cpfCnpj") or "",
                 "erros": tx.get("erros", []),
                 "historico": data.get("historico", []),
                 "raw": data,
             }
         except BankingAdapterError as exc:
             corpo = str(exc.details.get("response", "")) if getattr(exc, "details", None) else ""
-            return {"success": False, "status_code": exc.code, "detail": f"{exc}{(' — ' + corpo[:300]) if corpo else ''}"}
+            return {
+                "success": False,
+                "status_code": exc.code,
+                "detail": f"{exc}{(' — ' + corpo[:300]) if corpo else ''}",
+            }
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 

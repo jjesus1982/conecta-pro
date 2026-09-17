@@ -8,17 +8,22 @@ para cada diarista escalado — com a chave PIX — numa fila que o Jordan REVIS
 Este é o lado INBOUND da comunicação bidirecional Operacional↔Financeiro: a ação operacional
 (escala) vira pagamento programado no Financeiro. NUNCA paga sozinho — o Jordan revisa e aprova.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import secrets
 import uuid
-from datetime import UTC, date as _date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from datetime import date as _date
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+#: Entre o envio e a consulta que revela o recebedor. Medido: com 3s o status já era PAGO.
+_ESPERA_CONFERENCIA_S = 4.0
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +74,9 @@ async def _ensure(db: AsyncSession) -> None:
             if s:
                 await db.execute(text(s))
         # competência (MM/AAAA) para o pagamento mensal de diárias (FLUXO 2, dia 15)
-        await db.execute(text(
-            "ALTER TABLE financial_pagamentos_diaristas ADD COLUMN IF NOT EXISTS competencia VARCHAR(7)"))
+        await db.execute(
+            text("ALTER TABLE financial_pagamentos_diaristas ADD COLUMN IF NOT EXISTS competencia VARCHAR(7)")
+        )
         await db.commit()
     except Exception:  # noqa: BLE001
         await db.rollback()
@@ -78,9 +84,9 @@ async def _ensure(db: AsyncSession) -> None:
     _SCHEMA_READY = True
 
 
-async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
-                                    data_pagamento: str | None = None,
-                                    user_id: str | None = None) -> dict[str, Any]:
+async def programar_diarias_mensais(
+    db: AsyncSession, mes: int, ano: int, data_pagamento: str | None = None, user_id: str | None = None
+) -> dict[str, Any]:
     """Gera o LOTE do dia 15 a partir do resumo mensal de diárias (FLUXO 2).
 
     Soma as diárias trabalhadas de cada diarista no mês (Operacional) → cria 1 pagamento por
@@ -96,21 +102,28 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
         m2, a2 = (mes + 1, ano) if mes < 12 else (1, ano + 1)
         dpag = _date(a2, m2, 15)
     # total por diarista no mês (com pix/cpf do cadastro de diárias)
-    rows = await db.execute(text(
-        """SELECT d.nome, d.cpf, d.pix, COUNT(*) AS qtd, COALESCE(SUM(l.valor),0) AS valor
+    rows = await db.execute(
+        text(
+            """SELECT d.nome, d.cpf, d.pix, COUNT(*) AS qtd, COALESCE(SUM(l.valor),0) AS valor
            FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
            WHERE EXTRACT(MONTH FROM l.data)=:m AND EXTRACT(YEAR FROM l.data)=:a
            GROUP BY d.nome, d.cpf, d.pix HAVING COALESCE(SUM(l.valor),0) > 0
-           ORDER BY d.nome"""), {"m": mes, "a": ano})
+           ORDER BY d.nome"""
+        ),
+        {"m": mes, "a": ano},
+    )
     pessoas = rows.mappings().all()
     novos = sem_pix = atualizados = 0
     for p in pessoas:
         pix = (p.get("pix") or "").strip()
         # idempotência: já existe o pagamento dessa competência p/ essa pessoa?
-        ex = await db.execute(text(
-            "SELECT id, status, valor FROM financial_pagamentos_diaristas "
-            "WHERE competencia=:c AND beneficiario=:b AND tipo='diaria_mensal'"),
-            {"c": comp, "b": p["nome"]})
+        ex = await db.execute(
+            text(
+                "SELECT id, status, valor FROM financial_pagamentos_diaristas "
+                "WHERE competencia=:c AND beneficiario=:b AND tipo='diaria_mensal'"
+            ),
+            {"c": comp, "b": p["nome"]},
+        )
         _row = ex.first()
         if _row:
             # RECALCULA em vez de pular. O mês continua correndo: quem programa no dia 10 e
@@ -118,47 +131,71 @@ async def programar_diarias_mensais(db: AsyncSession, mes: int, ano: int,
             # programado contra R$10.230 efetivamente trabalhados em julho — o Jordan pagaria
             # a menos. Só mexe em quem AINDA NÃO foi pago; 'pago'/'cancelado' são intocáveis.
             if _row[1] in ("a_revisar", "sem_pix"):
-                await db.execute(text(
-                    "UPDATE financial_pagamentos_diaristas SET valor=:v, descricao=:desc, "
-                    "pix_key=coalesce(:pix, pix_key), status=:st, updated_at=now() WHERE id=:i"),
-                    {"v": float(p["valor"]),
-                     "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
-                     "pix": pix or None, "st": "a_revisar" if pix else "sem_pix", "i": _row[0]})
+                await db.execute(
+                    text(
+                        "UPDATE financial_pagamentos_diaristas SET valor=:v, descricao=:desc, "
+                        "pix_key=coalesce(:pix, pix_key), status=:st, updated_at=now() WHERE id=:i"
+                    ),
+                    {
+                        "v": float(p["valor"]),
+                        "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
+                        "pix": pix or None,
+                        "st": "a_revisar" if pix else "sem_pix",
+                        "i": _row[0],
+                    },
+                )
                 if abs(float(_row[2] or 0) - float(p["valor"])) > 0.005:
                     atualizados += 1
             continue
         status = "a_revisar" if pix else "sem_pix"
         if not pix:
             sem_pix += 1
-        await db.execute(text(
-            """INSERT INTO financial_pagamentos_diaristas
+        await db.execute(
+            text(
+                """INSERT INTO financial_pagamentos_diaristas
                  (data_referencia, beneficiario, cpf, pix_key, valor, tipo, origem, status,
                   competencia, descricao, created_by)
-               VALUES (:d,:ben,:cpf,:pix,:valor,'diaria_mensal','diarias', :st, :comp, :desc, :uid)"""),
-            {"d": dpag, "ben": p["nome"], "cpf": p.get("cpf"), "pix": pix or None,
-             "valor": float(p["valor"]), "st": status, "comp": comp,
-             "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
-             "uid": str(user_id) if user_id else None})
+               VALUES (:d,:ben,:cpf,:pix,:valor,'diaria_mensal','diarias', :st, :comp, :desc, :uid)"""
+            ),
+            {
+                "d": dpag,
+                "ben": p["nome"],
+                "cpf": p.get("cpf"),
+                "pix": pix or None,
+                "valor": float(p["valor"]),
+                "st": status,
+                "comp": comp,
+                "desc": f"Diárias {comp}: {int(p['qtd'])} diária(s) trabalhada(s)",
+                "uid": str(user_id) if user_id else None,
+            },
+        )
         novos += 1
     # ÓRFÃOS: quem está no lote da competência mas NÃO tem mais diária lançada (o lançamento
     # foi excluído depois de programar). Sem isto, apagar a diária nunca propaga e o lote paga
     # a mais — medido em 07/2026: R$850 a revisar de 4 pessoas com ZERO lançamento.
     # Só toca no que ainda não saiu: 'pago'/'cancelado' são intocáveis.
     nomes = [p["nome"] for p in pessoas]
-    orf = await db.execute(text(
-        "UPDATE financial_pagamentos_diaristas SET status='cancelado', "
-        " descricao = descricao || ' | cancelado: sem diária lançada na competência', updated_at=now() "
-        "WHERE competencia=:c AND tipo='diaria_mensal' AND status IN ('a_revisar','sem_pix') "
-        + ("AND beneficiario <> ALL(:nomes) " if nomes else "")
-        + "RETURNING beneficiario, valor"),
-        {"c": comp, **({"nomes": nomes} if nomes else {})})
+    orf = await db.execute(
+        text(
+            "UPDATE financial_pagamentos_diaristas SET status='cancelado', "
+            " descricao = descricao || ' | cancelado: sem diária lançada na competência', updated_at=now() "
+            "WHERE competencia=:c AND tipo='diaria_mensal' AND status IN ('a_revisar','sem_pix') "
+            + ("AND beneficiario <> ALL(:nomes) " if nomes else "")
+            + "RETURNING beneficiario, valor"
+        ),
+        {"c": comp, **({"nomes": nomes} if nomes else {})},
+    )
     cancelados = orf.fetchall()
 
     await db.commit()
     lote = await listar(db, data=dpag.isoformat())
     return {
-        "competencia": comp, "data_pagamento": dpag.isoformat(),
-        "diaristas": len(pessoas), "programados_novos": novos, "atualizados": atualizados, "sem_pix": sem_pix,
+        "competencia": comp,
+        "data_pagamento": dpag.isoformat(),
+        "diaristas": len(pessoas),
+        "programados_novos": novos,
+        "atualizados": atualizados,
+        "sem_pix": sem_pix,
         "cancelados_sem_lancamento": [{"beneficiario": r[0], "valor": float(r[1] or 0)} for r in cancelados],
         "total_a_pagar": sum(x["valor"] for x in lote if x["status"] == "a_revisar"),
         "lote": lote,
@@ -174,8 +211,9 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
     await _ensure(db)
     dref = _date.fromisoformat(data) if isinstance(data, str) else data
     # diaristas escalados no dia (join com o cadastro p/ pegar nome + pix)
-    rows = await db.execute(text(
-        """
+    rows = await db.execute(
+        text(
+            """
         SELECT s.id AS schedule_id, s.diarist_id, s.condominio_id,
                d.nome, d.cpf, d.pix
         FROM diarist_schedules s
@@ -183,7 +221,10 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
         WHERE s.data_trabalho = :data
           AND COALESCE(s.ativo, TRUE) = TRUE
           AND lower(COALESCE(s.status::text,'')) NOT IN ('cancelado','cancelled')
-        """), {"data": dref})
+        """
+        ),
+        {"data": dref},
+    )
     escalados = rows.mappings().all()
 
     programados = 0
@@ -193,8 +234,9 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
         status = "a_revisar" if pix else "sem_pix"
         if not pix:
             sem_pix += 1
-        res = await db.execute(text(
-            """
+        res = await db.execute(
+            text(
+                """
             INSERT INTO financial_pagamentos_diaristas
                 (data_referencia, diarist_id, beneficiario, cpf, pix_key, valor, tipo, origem,
                  schedule_id, condominio_id, status, descricao, created_by)
@@ -204,12 +246,22 @@ async def programar_do_dia(db: AsyncSession, data: str, user_id: str | None = No
             ON CONFLICT (data_referencia, diarist_id, tipo) WHERE diarist_id IS NOT NULL
             DO NOTHING
             RETURNING id
-            """),
-            {"data": dref, "did": e["diarist_id"], "nome": e["nome"], "cpf": e.get("cpf"),
-             "pix": pix or None, "valor": VALOR_VT_VR, "sid": e["schedule_id"],
-             "cond": e.get("condominio_id"), "status": status,
-             "desc": f"VT R$ {VALE_TRANSPORTE:.2f} + VR R$ {VALE_ALIMENTACAO:.2f} (diária {data})",
-             "uid": str(user_id) if user_id else None})
+            """
+            ),
+            {
+                "data": dref,
+                "did": e["diarist_id"],
+                "nome": e["nome"],
+                "cpf": e.get("cpf"),
+                "pix": pix or None,
+                "valor": VALOR_VT_VR,
+                "sid": e["schedule_id"],
+                "cond": e.get("condominio_id"),
+                "status": status,
+                "desc": f"VT R$ {VALE_TRANSPORTE:.2f} + VR R$ {VALE_ALIMENTACAO:.2f} (diária {data})",
+                "uid": str(user_id) if user_id else None,
+            },
+        )
         if res.first():
             programados += 1
     await db.commit()
@@ -232,35 +284,60 @@ async def listar_lancados_do_dia(db: AsyncSession, data: str | _date) -> dict[st
     await _ensure(db)
     dref = _date.fromisoformat(data) if isinstance(data, str) else data
     if not (await db.execute(text("SELECT to_regclass('public.diaria_lancamentos')"))).scalar():
-        return {"data": dref.isoformat(), "total_diaristas": 0, "total_lancamentos": 0, "itens": [],
-                "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe)."}
-    rows = await db.execute(text(
-        """SELECT l.id AS lancamento_id, l.diarista_id, d.nome, l.funcao, l.posto, l.turno,
+        return {
+            "data": dref.isoformat(),
+            "total_diaristas": 0,
+            "total_lancamentos": 0,
+            "itens": [],
+            "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe).",
+        }
+    rows = await db.execute(
+        text(
+            """SELECT l.id AS lancamento_id, l.diarista_id, d.nome, l.funcao, l.posto, l.turno,
                   l.valor, d.cpf, d.pix, d.telefone
            FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
            WHERE l.data = :d
-           ORDER BY d.nome, l.id"""), {"d": dref})
+           ORDER BY d.nome, l.id"""
+        ),
+        {"d": dref},
+    )
     lanc = rows.mappings().all()
-    prog = await db.execute(text(
-        """SELECT lower(beneficiario) FROM financial_pagamentos_diaristas
+    prog = await db.execute(
+        text(
+            """SELECT lower(beneficiario) FROM financial_pagamentos_diaristas
            WHERE data_referencia = :d AND tipo = 'vt_vr' AND origem = 'diarias_dia'
-             AND status <> 'cancelado'"""), {"d": dref})
+             AND status <> 'cancelado'"""
+        ),
+        {"d": dref},
+    )
     ja_programados = {r[0] for r in prog.all()}
-    itens = [{
-        "lancamento_id": r["lancamento_id"], "diarista_id": r["diarista_id"], "nome": r["nome"],
-        "funcao": r["funcao"], "posto": r["posto"], "turno": r["turno"],
-        "valor_diaria": float(r["valor"]),
-        "tem_pix": bool((r["pix"] or "").strip()), "tem_cpf": bool((r["cpf"] or "").strip()),
-        "telefone": r["telefone"],
-        "ja_programado_vt_vr": (r["nome"] or "").lower() in ja_programados,
-    } for r in lanc]
-    return {"data": dref.isoformat(),
-            "total_diaristas": len({i["diarista_id"] for i in itens}),
-            "total_lancamentos": len(itens), "itens": itens}
+    itens = [
+        {
+            "lancamento_id": r["lancamento_id"],
+            "diarista_id": r["diarista_id"],
+            "nome": r["nome"],
+            "funcao": r["funcao"],
+            "posto": r["posto"],
+            "turno": r["turno"],
+            "valor_diaria": float(r["valor"]),
+            "tem_pix": bool((r["pix"] or "").strip()),
+            "tem_cpf": bool((r["cpf"] or "").strip()),
+            "telefone": r["telefone"],
+            "ja_programado_vt_vr": (r["nome"] or "").lower() in ja_programados,
+        }
+        for r in lanc
+    ]
+    return {
+        "data": dref.isoformat(),
+        "total_diaristas": len({i["diarista_id"] for i in itens}),
+        "total_lancamentos": len(itens),
+        "itens": itens,
+    }
 
 
-async def programar_vt_vr_dos_lancados(db: AsyncSession, data: str | _date,
-                                       created_by: str | None = None) -> dict[str, Any]:
+async def programar_vt_vr_dos_lancados(
+    db: AsyncSession, data: str | _date, created_by: str | None = None
+) -> dict[str, Any]:
     """Programa o VT+VR (R$32) de cada diarista DISTINTO com diária LANÇADA no dia.
 
     origem='diarias_dia' — NUNCA mistura com origem='escala' (FLUXO 1): são fontes distintas.
@@ -269,33 +346,48 @@ async def programar_vt_vr_dos_lancados(db: AsyncSession, data: str | _date,
     await _ensure(db)
     dref = _date.fromisoformat(data) if isinstance(data, str) else data
     if not (await db.execute(text("SELECT to_regclass('public.diaria_lancamentos')"))).scalar():
-        return {"data": dref.isoformat(), "programados_novos": 0, "ja_programados": 0, "sem_pix": 0,
-                "total_a_pagar_do_dia": 0.0, "itens": [],
-                "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe)."}
+        return {
+            "data": dref.isoformat(),
+            "programados_novos": 0,
+            "ja_programados": 0,
+            "sem_pix": 0,
+            "total_a_pagar_do_dia": 0.0,
+            "itens": [],
+            "aviso": "Nenhuma diária lançada ainda (tabela de lançamentos não existe).",
+        }
     # 1 linha por diarista DISTINTO lançado no dia (dados reais do cadastro)
-    rows = await db.execute(text(
-        """SELECT d.id AS diarista_id, d.nome, d.cpf, d.pix,
+    rows = await db.execute(
+        text(
+            """SELECT d.id AS diarista_id, d.nome, d.cpf, d.pix,
                   array_agg(l.id ORDER BY l.id) AS lanc_ids,
                   array_agg(DISTINCT l.funcao || ' @ ' || l.posto) AS servicos,
                   COUNT(*) AS qtd
            FROM diaria_lancamentos l JOIN diaria_diaristas d ON d.id = l.diarista_id
            WHERE l.data = :d
            GROUP BY d.id, d.nome, d.cpf, d.pix
-           ORDER BY d.nome"""), {"d": dref})
+           ORDER BY d.nome"""
+        ),
+        {"d": dref},
+    )
     pessoas = rows.mappings().all()
     novos = ja = sem_pix = 0
     itens: list[dict[str, Any]] = []
     for p in pessoas:
         # idempotência manual (diaristas FLUXO 2 têm id INT → fora do índice único de diarist_id UUID)
-        ex = await db.execute(text(
-            """SELECT id FROM financial_pagamentos_diaristas
+        ex = await db.execute(
+            text(
+                """SELECT id FROM financial_pagamentos_diaristas
                WHERE data_referencia = :d AND lower(beneficiario) = lower(:b)
                  AND tipo = 'vt_vr' AND origem = 'diarias_dia' AND status <> 'cancelado'
-               LIMIT 1"""), {"d": dref, "b": p["nome"]})
+               LIMIT 1"""
+            ),
+            {"d": dref, "b": p["nome"]},
+        )
         if ex.first():
             ja += 1
-            itens.append({"diarista_id": p["diarista_id"], "nome": p["nome"],
-                          "valor": VALOR_VT_VR, "resultado": "ja_programado"})
+            itens.append(
+                {"diarista_id": p["diarista_id"], "nome": p["nome"], "valor": VALOR_VT_VR, "resultado": "ja_programado"}
+            )
             continue
         pix = (p.get("pix") or "").strip()
         status = "a_revisar" if pix else "sem_pix"
@@ -303,34 +395,72 @@ async def programar_vt_vr_dos_lancados(db: AsyncSession, data: str | _date,
             sem_pix += 1
         lanc_ids = ", ".join(f"#{i}" for i in (p["lanc_ids"] or []))
         servicos = "; ".join(p["servicos"] or [])
-        await db.execute(text(
-            """INSERT INTO financial_pagamentos_diaristas
+        await db.execute(
+            text(
+                """INSERT INTO financial_pagamentos_diaristas
                  (data_referencia, beneficiario, cpf, pix_key, valor, tipo, origem, status,
                   descricao, created_by)
-               VALUES (:d, :ben, :cpf, :pix, :valor, 'vt_vr', 'diarias_dia', :st, :desc, :uid)"""),
-            {"d": dref, "ben": p["nome"], "cpf": p.get("cpf"), "pix": pix or None,
-             "valor": VALOR_VT_VR, "st": status,
-             "desc": (f"VT R$ {VALE_TRANSPORTE:.2f} + VR R$ {VALE_ALIMENTACAO:.2f} — "
-                      f"diária(s) lançada(s) em {dref.isoformat()} (lançamentos {lanc_ids}: {servicos})"),
-             "uid": str(created_by) if created_by else None})
+               VALUES (:d, :ben, :cpf, :pix, :valor, 'vt_vr', 'diarias_dia', :st, :desc, :uid)"""
+            ),
+            {
+                "d": dref,
+                "ben": p["nome"],
+                "cpf": p.get("cpf"),
+                "pix": pix or None,
+                "valor": VALOR_VT_VR,
+                "st": status,
+                "desc": (
+                    f"VT R$ {VALE_TRANSPORTE:.2f} + VR R$ {VALE_ALIMENTACAO:.2f} — "
+                    f"diária(s) lançada(s) em {dref.isoformat()} (lançamentos {lanc_ids}: {servicos})"
+                ),
+                "uid": str(created_by) if created_by else None,
+            },
+        )
         novos += 1
-        itens.append({"diarista_id": p["diarista_id"], "nome": p["nome"], "valor": VALOR_VT_VR,
-                      "resultado": "programado" if pix else "programado_sem_pix", "status": status})
+        itens.append(
+            {
+                "diarista_id": p["diarista_id"],
+                "nome": p["nome"],
+                "valor": VALOR_VT_VR,
+                "resultado": "programado" if pix else "programado_sem_pix",
+                "status": status,
+            }
+        )
     await db.commit()
-    total = (await db.execute(text(
-        """SELECT COALESCE(SUM(valor), 0) FROM financial_pagamentos_diaristas
+    total = (
+        await db.execute(
+            text(
+                """SELECT COALESCE(SUM(valor), 0) FROM financial_pagamentos_diaristas
            WHERE data_referencia = :d AND tipo = 'vt_vr' AND origem = 'diarias_dia'
              -- 'aprovado' saiu: NUNCA é escrito nesta tabela. Os estados reais
              -- são a_revisar / sem_pix / pago / cancelado. Valor que a coluna não
              -- tem num filtro é promessa de um fluxo que não existe.
-             AND status = 'a_revisar'"""), {"d": dref})).scalar()
-    return {"data": dref.isoformat(), "programados_novos": novos, "ja_programados": ja,
-            "sem_pix": sem_pix, "total_a_pagar_do_dia": float(total or 0), "itens": itens}
+             AND status = 'a_revisar'"""
+            ),
+            {"d": dref},
+        )
+    ).scalar()
+    return {
+        "data": dref.isoformat(),
+        "programados_novos": novos,
+        "ja_programados": ja,
+        "sem_pix": sem_pix,
+        "total_a_pagar_do_dia": float(total or 0),
+        "itens": itens,
+    }
 
 
-async def adicionar_manual(db: AsyncSession, data: str, beneficiario: str, pix_key: str,
-                           quantidade: int = 1, valor: float | None = None, tipo: str = "cobertura_clt",
-                           cpf: str | None = None, user_id: str | None = None) -> dict[str, Any]:
+async def adicionar_manual(
+    db: AsyncSession,
+    data: str,
+    beneficiario: str,
+    pix_key: str,
+    quantidade: int = 1,
+    valor: float | None = None,
+    tipo: str = "cobertura_clt",
+    cpf: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """Adiciona um pagamento avulso ao lote.
 
     Casos reais:
@@ -342,17 +472,34 @@ async def adicionar_manual(db: AsyncSession, data: str, beneficiario: str, pix_k
     dref = _date.fromisoformat(data) if isinstance(data, str) else data
     q = max(1, int(quantidade or 1))
     val = float(valor) if valor is not None else VALOR_VT_VR * q
-    desc = (f"VT+VR de {q} ajudante(s) (líder recebe o benefício da equipe)" if tipo == "cobertura_clt" and q > 1
-            else "Cobertura de falta (CLT) — VT+VR" if tipo == "cobertura_clt"
-            else f"VT+VR x{q}" if q > 1 else "Pagamento avulso")
-    r = await db.execute(text(
-        """INSERT INTO financial_pagamentos_diaristas
+    desc = (
+        f"VT+VR de {q} ajudante(s) (líder recebe o benefício da equipe)"
+        if tipo == "cobertura_clt" and q > 1
+        else "Cobertura de falta (CLT) — VT+VR"
+        if tipo == "cobertura_clt"
+        else f"VT+VR x{q}"
+        if q > 1
+        else "Pagamento avulso"
+    )
+    r = await db.execute(
+        text(
+            """INSERT INTO financial_pagamentos_diaristas
              (data_referencia, beneficiario, cpf, pix_key, valor, tipo, origem, status, descricao, created_by)
            VALUES (:data,:ben,:cpf,:pix,:valor,:tipo,'manual',
-                   :st, :desc, :uid) RETURNING id"""),
-        {"data": dref, "ben": beneficiario, "cpf": cpf, "pix": (pix_key or "").strip() or None,
-         "valor": val, "tipo": tipo, "st": "a_revisar" if (pix_key or "").strip() else "sem_pix",
-         "desc": desc, "uid": str(user_id) if user_id else None})
+                   :st, :desc, :uid) RETURNING id"""
+        ),
+        {
+            "data": dref,
+            "ben": beneficiario,
+            "cpf": cpf,
+            "pix": (pix_key or "").strip() or None,
+            "valor": val,
+            "tipo": tipo,
+            "st": "a_revisar" if (pix_key or "").strip() else "sem_pix",
+            "desc": desc,
+            "uid": str(user_id) if user_id else None,
+        },
+    )
     await db.commit()
     return {"ok": True, "id": int(r.scalar()), "valor": val, "quantidade": q}
 
@@ -365,36 +512,53 @@ async def listar(db: AsyncSession, data: str | None = None, status: str | None =
         where.append("data_referencia = :data")
         params["data"] = _date.fromisoformat(data) if isinstance(data, str) else data
     if status:
-        where.append("status = :status"); params["status"] = status
+        where.append("status = :status")
+        params["status"] = status
     clause = ("WHERE " + " AND ".join(where)) if where else ""
-    rows = await db.execute(text(
-        f"""SELECT id, data_referencia, diarist_id, beneficiario, cpf, pix_key, valor, tipo,
+    rows = await db.execute(
+        text(
+            f"""SELECT id, data_referencia, diarist_id, beneficiario, cpf, pix_key, valor, tipo,
                    origem, status, inter_payment_id, descricao, created_at
             FROM financial_pagamentos_diaristas {clause}
-            ORDER BY data_referencia DESC, beneficiario"""), params)
+            ORDER BY data_referencia DESC, beneficiario"""
+        ),
+        params,
+    )
     out = []
     for r in rows.mappings().all():
-        out.append({
-            "id": r["id"], "data_referencia": r["data_referencia"].isoformat() if r["data_referencia"] else None,
-            "diarist_id": str(r["diarist_id"]) if r["diarist_id"] else None,
-            "beneficiario": r["beneficiario"], "cpf": r["cpf"], "pix_key": r["pix_key"],
-            "valor": float(r["valor"]), "tipo": r["tipo"], "origem": r["origem"], "status": r["status"],
-            "inter_payment_id": r["inter_payment_id"], "descricao": r["descricao"],
-            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-        })
+        out.append(
+            {
+                "id": r["id"],
+                "data_referencia": r["data_referencia"].isoformat() if r["data_referencia"] else None,
+                "diarist_id": str(r["diarist_id"]) if r["diarist_id"] else None,
+                "beneficiario": r["beneficiario"],
+                "cpf": r["cpf"],
+                "pix_key": r["pix_key"],
+                "valor": float(r["valor"]),
+                "tipo": r["tipo"],
+                "origem": r["origem"],
+                "status": r["status"],
+                "inter_payment_id": r["inter_payment_id"],
+                "descricao": r["descricao"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+        )
     return out
 
 
 async def resumo(db: AsyncSession) -> dict[str, Any]:
     """Resumo para o painel do Financeiro / CFO cross-módulo."""
     await _ensure(db)
-    r = await db.execute(text(
-        """SELECT
+    r = await db.execute(
+        text(
+            """SELECT
              COUNT(*) FILTER (WHERE status='a_revisar') AS a_revisar,
              COALESCE(SUM(valor) FILTER (WHERE status='a_revisar'),0) AS valor_a_revisar,
              COUNT(*) FILTER (WHERE status='sem_pix') AS sem_pix,
              COUNT(*) FILTER (WHERE status='pago') AS pagos
-           FROM financial_pagamentos_diaristas"""))
+           FROM financial_pagamentos_diaristas"""
+        )
+    )
     m = r.mappings().first() or {}
     return {
         "a_revisar_qtd": int(m.get("a_revisar") or 0),
@@ -421,17 +585,17 @@ def _tipo_pix(chave: str) -> str:
     if len(dig) == 14:
         return "CNPJ"
     if len(dig) == 11:
-        return "CPF"          # diaristas usam CPF como chave
+        return "CPF"  # diaristas usam CPF como chave
     if len(c) >= 32:
-        return "EVP"          # chave aleatória
+        return "EVP"  # chave aleatória
     if c.startswith("+") or len(dig) in (12, 13):
         return "TELEFONE"
     return "CPF"
 
 
-def _where_lote_elegivel(ids: list[int] | None, data: str | None,
-                        competencia: str | None = None,
-                        tipo: str | None = None) -> tuple[list[str], dict[str, Any]]:
+def _where_lote_elegivel(
+    ids: list[int] | None, data: str | None, competencia: str | None = None, tipo: str | None = None
+) -> tuple[list[str], dict[str, Any]]:
     """WHERE do lote elegível (a_revisar com PIX), por ids, data e/ou COMPETÊNCIA.
 
     Competência é o recorte que o Jordan realmente usa: ele paga "julho", não "o dia
@@ -446,7 +610,8 @@ def _where_lote_elegivel(ids: list[int] | None, data: str | None,
         where.append("competencia = :comp")
         params["comp"] = competencia
     if ids:
-        where.append("id = ANY(:ids)"); params["ids"] = ids
+        where.append("id = ANY(:ids)")
+        params["ids"] = ids
     if data:
         where.append("data_referencia = :data")
         params["data"] = _date.fromisoformat(data) if isinstance(data, str) else data
@@ -460,8 +625,11 @@ def _where_lote_elegivel(ids: list[int] | None, data: str | None,
 
 
 async def gerar_otp_lote(
-    db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
-    user_id: str | None = None, competencia: str | None = None,
+    db: AsyncSession,
+    ids: list[int] | None = None,
+    data: str | None = None,
+    user_id: str | None = None,
+    competencia: str | None = None,
     tipo: str | None = None,
 ) -> dict[str, Any]:
     """Gera UM OTP (6 dígitos, e-mail ao Jordan) que libera o lote inteiro de diaristas.
@@ -471,9 +639,19 @@ async def gerar_otp_lote(
     """
     await _ensure(db)
     where, params = _where_lote_elegivel(ids, data, competencia, tipo)
-    rows = (await db.execute(text(
-        f"SELECT COUNT(*) n, COALESCE(SUM(valor),0) total FROM financial_pagamentos_diaristas "
-        f"WHERE {' AND '.join(where)}"), params)).mappings().first()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    f"SELECT COUNT(*) n, COALESCE(SUM(valor),0) total FROM financial_pagamentos_diaristas "
+                    f"WHERE {' AND '.join(where)}"
+                ),
+                params,
+            )
+        )
+        .mappings()
+        .first()
+    )
     n = int(rows["n"]) if rows else 0
     total = float(rows["total"]) if rows else 0.0
     if n == 0:
@@ -483,62 +661,94 @@ async def gerar_otp_lote(
     lote_id = str(uuid.uuid4())
     code = f"{secrets.randbelow(900000) + 100000}"
     exp = datetime.now(UTC) + timedelta(seconds=OTP_TTL_SECONDS)
-    await db.execute(text(
-        "INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l, :c, :e, false)"),
-        {"l": lote_id, "c": code, "e": exp})
+    await db.execute(
+        text("INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l, :c, :e, false)"),
+        {"l": lote_id, "c": code, "e": exp},
+    )
     await db.commit()
     email = os.getenv("JORDAN_EMAIL", "jjesus@conectamais.pro")
     from modules.integrations.inter.services.payment_service import _enviar_otp_email
+
     saiu_daqui = await _enviar_otp_email(email, code, total, "diaristas VT+VR (lote)", f"{n} diarista(s)")
     logger.info("diaristas lote gerar_otp: lote=%s n=%s total=%.2f email=%s", lote_id, n, total, email)
-    return {"ok": True, "lote_id": lote_id, "quantidade": n, "total": total,
-            "saiu_daqui": saiu_daqui,
-            "message": (f"Código enviado para {email}. Se não chegar em 2 min, confira o spam." if saiu_daqui else
-                        f"⚠️ O CÓDIGO NÃO SAIU — o servidor de e-mail recusou a mensagem para {email}. "
-                        f"O código existe, mas você não vai recebê-lo. Verifique o e-mail configurado antes de tentar de novo."), "expires_in_seconds": OTP_TTL_SECONDS}
-
+    return {
+        "ok": True,
+        "lote_id": lote_id,
+        "quantidade": n,
+        "total": total,
+        "saiu_daqui": saiu_daqui,
+        "message": (
+            f"Código enviado para {email}. Se não chegar em 2 min, confira o spam."
+            if saiu_daqui
+            else f"⚠️ O CÓDIGO NÃO SAIU — o servidor de e-mail recusou a mensagem para {email}. "
+            f"O código existe, mas você não vai recebê-lo. Verifique o e-mail configurado antes de tentar de novo."
+        ),
+        "expires_in_seconds": OTP_TTL_SECONDS,
+    }
 
 
 async def _pago_hoje_todas_as_fontes(db: AsyncSession) -> float:
     """Quanto já saiu HOJE (Manaus) por todas as portas: pagamentos Inter avulsos + lotes de
     diaristas + folha PJ. O teto antes só olhava o lote da vez — repetir /executar N vezes passava
     (revisão 08/09/2026)."""
-    row = (await db.execute(text(
-        "SELECT coalesce((SELECT sum(valor) FROM inter_payments WHERE status IN ('aprovado','executado','confirmado') "
-        "   AND (approved_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
-        " + coalesce((SELECT sum(valor) FROM financial_pagamentos_diaristas WHERE status='pago' "
-        "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
-        " + coalesce((SELECT sum(valor) FROM financial_pagamentos_pj WHERE status='pago' "
-        "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
-    ))).scalar()
+    row = (
+        await db.execute(
+            text(
+                "SELECT coalesce((SELECT sum(valor) FROM inter_payments WHERE status IN ('aprovado','executado','confirmado') "
+                "   AND (approved_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+                " + coalesce((SELECT sum(valor) FROM financial_pagamentos_diaristas WHERE status='pago' "
+                "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+                " + coalesce((SELECT sum(valor) FROM financial_pagamentos_pj WHERE status='pago' "
+                "   AND (updated_at AT TIME ZONE 'America/Manaus')::date = (now() AT TIME ZONE 'America/Manaus')::date), 0)"
+            )
+        )
+    ).scalar()
     return float(row or 0)
 
 
 async def _validar_e_consumir_otp_lote(db: AsyncSession, lote_id: str, otp_code: str) -> None:
     """Valida o OTP do lote (inter_lote_otp) e o marca como usado. Levanta ValueError se inválido."""
     now = datetime.now(UTC)
-    otp = (await db.execute(text(
-        "SELECT id, code FROM inter_lote_otp "
-        "WHERE lote_id = :l AND used = false AND expires_at > :now "
-        "ORDER BY created_at DESC LIMIT 1"), {"l": lote_id, "now": now})).mappings().first()
+    otp = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id, code FROM inter_lote_otp "
+                    "WHERE lote_id = :l AND used = false AND expires_at > :now "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"l": lote_id, "now": now},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not otp:
         raise ValueError("Nenhum código válido para este lote (expirado ou inexistente). Gere um novo.")
     if str(otp["code"]) != str(otp_code):
         raise ValueError("Código OTP incorreto.")
     # Consumo ATÔMICO e commitado ANTES de qualquer PIX: sem `AND used=false` + commit, duas
     # chamadas concorrentes ao /executar liam used=false e o lote saía em dobro (revisão 08/09/2026).
-    consumido = (await db.execute(text(
-        "UPDATE inter_lote_otp SET used = true WHERE id = :id AND used = false RETURNING id"),
-        {"id": str(otp["id"])})).first()
+    consumido = (
+        await db.execute(
+            text("UPDATE inter_lote_otp SET used = true WHERE id = :id AND used = false RETURNING id"),
+            {"id": str(otp["id"])},
+        )
+    ).first()
     if not consumido:
         raise ValueError("Este código já foi usado. Gere um novo código para pagar de novo.")
     await db.commit()
 
 
 async def executar_lote(
-    db: AsyncSession, ids: list[int] | None = None, data: str | None = None,
-    confirmar: bool = False, otp_code: str | None = None, lote_id: str | None = None,
-    user_id: str | None = None, competencia: str | None = None,
+    db: AsyncSession,
+    ids: list[int] | None = None,
+    data: str | None = None,
+    confirmar: bool = False,
+    otp_code: str | None = None,
+    lote_id: str | None = None,
+    user_id: str | None = None,
+    competencia: str | None = None,
     tipo: str | None = None,
 ) -> dict[str, Any]:
     """Paga o lote de diaristas via PIX (Banco Inter). confirmar=False → PRÉVIA (não envia).
@@ -549,14 +759,23 @@ async def executar_lote(
     await _ensure(db)
     # seleciona o lote elegível
     where, params = _where_lote_elegivel(ids, data, competencia, tipo)
-    rows = await db.execute(text(
-        f"SELECT id, beneficiario, pix_key, valor FROM financial_pagamentos_diaristas "
-        f"WHERE {' AND '.join(where)} ORDER BY id"), params)
+    rows = await db.execute(
+        text(
+            # `cpf` entra aqui por causa da conferência do recebedor: o Inter devolve o documento
+            # MASCARADO (***681522**) e sem o nosso CPF não há o que comparar — a conferência
+            # nasceria cega de metade, conferindo só o nome.
+            f"SELECT id, beneficiario, pix_key, valor, cpf FROM financial_pagamentos_diaristas "
+            f"WHERE {' AND '.join(where)} ORDER BY id"
+        ),
+        params,
+    )
     itens = rows.mappings().all()
     total = sum(float(i["valor"]) for i in itens)
 
     prev = {
-        "itens": len(itens), "total": total, "limite": LIMITE_LOTE_DIARIO,
+        "itens": len(itens),
+        "total": total,
+        "limite": LIMITE_LOTE_DIARIO,
         "dentro_do_limite": total <= LIMITE_LOTE_DIARIO,
         "beneficiarios": [{"id": i["id"], "nome": i["beneficiario"], "valor": float(i["valor"])} for i in itens],
     }
@@ -570,12 +789,20 @@ async def executar_lote(
         return {"ok": False, "mensagem": f"Lote de R$ {total:.2f} excede o limite de R$ {LIMITE_LOTE_DIARIO:.2f}."}
     # GATE OTP — dinheiro que sai exige o código do e-mail (1 OTP libera o lote).
     if not lote_id or not otp_code:
-        return {"ok": False, "mensagem": "Código OTP obrigatório. Gere o código e informe-o para pagar.",
-                "otp_requerido": True}
+        return {
+            "ok": False,
+            "mensagem": "Código OTP obrigatório. Gere o código e informe-o para pagar.",
+            "otp_requerido": True,
+        }
     ja_hoje = await _pago_hoje_todas_as_fontes(db)
     if ja_hoje + total > LIMITE_LOTE_DIARIO:
-        return {"ok": False, "mensagem": (f"Teto diário: já saíram R$ {ja_hoje:.2f} hoje (Inter + lotes); este lote de "
-                                          f"R$ {total:.2f} passaria de R$ {LIMITE_LOTE_DIARIO:.2f}.")}
+        return {
+            "ok": False,
+            "mensagem": (
+                f"Teto diário: já saíram R$ {ja_hoje:.2f} hoje (Inter + lotes); este lote de "
+                f"R$ {total:.2f} passaria de R$ {LIMITE_LOTE_DIARIO:.2f}."
+            ),
+        }
     try:
         await _validar_e_consumir_otp_lote(db, lote_id, otp_code)
     except ValueError as exc:
@@ -587,27 +814,87 @@ async def executar_lote(
     # ENVIO REAL via Inter (enviar_pix por item)
     import os as _os
     from decimal import Decimal
+
     from modules.integrations.banking.adapters.base import BankCredentials
     from modules.integrations.banking.adapters.inter import InterAdapter
-    adapter = InterAdapter(BankCredentials(
-        client_id=_os.getenv("INTER_CLIENT_ID", ""), client_secret=_os.getenv("INTER_CLIENT_SECRET", ""),
-        certificate_path=_os.getenv("INTER_CERT_PATH"), private_key_path=_os.getenv("INTER_KEY_PATH"),
-        agency=_os.getenv("INTER_AGENCY"), account=_os.getenv("INTER_ACCOUNT"),
-        environment=_os.getenv("INTER_ENVIRONMENT", "production")))
+
+    adapter = InterAdapter(
+        BankCredentials(
+            client_id=_os.getenv("INTER_CLIENT_ID", ""),
+            client_secret=_os.getenv("INTER_CLIENT_SECRET", ""),
+            certificate_path=_os.getenv("INTER_CERT_PATH"),
+            private_key_path=_os.getenv("INTER_KEY_PATH"),
+            agency=_os.getenv("INTER_AGENCY"),
+            account=_os.getenv("INTER_ACCOUNT"),
+            environment=_os.getenv("INTER_ENVIRONMENT", "production"),
+        )
+    )
     pagos, falhas = [], []
     try:
         for i in itens:
             try:
                 resp = await adapter.enviar_pix(
-                    chave=i["pix_key"], tipo_chave=_tipo_pix(i["pix_key"]),
-                    valor=Decimal(str(i["valor"])), nome_recebedor=i["beneficiario"],
-                    descricao="VT+VR diária (Conecta PRO)")
-                ref = (resp or {}).get("endToEndId") or (resp or {}).get("codigoSolicitacao") or (resp or {}).get("id") or "ok"
-                await db.execute(text(
-                    "UPDATE financial_pagamentos_diaristas SET status='pago', descricao=descricao||' | e2e:'||:ref, updated_at=now() WHERE id=:id"),
-                    {"ref": str(ref)[:60], "id": i["id"]})
+                    chave=i["pix_key"],
+                    tipo_chave=_tipo_pix(i["pix_key"]),
+                    valor=Decimal(str(i["valor"])),
+                    nome_recebedor=i["beneficiario"],
+                    descricao="VT+VR diária (Conecta PRO)",
+                )
+                ref = (
+                    (resp or {}).get("endToEndId")
+                    or (resp or {}).get("codigoSolicitacao")
+                    or (resp or {}).get("id")
+                    or "ok"
+                )
+
+                # QUEM RECEBEU, segundo o banco. O Inter devolve `recebedor.nome` e o CPF
+                # mascarado na consulta do pagamento, mas só depois de PAGO — medido em
+                # 16/09/2026 com R$ 0,01 autorizados: em ENVIADO os dois vêm vazios.
+                # Não previne o erro; denuncia em segundos o que antes só apareceria pela
+                # reclamação de quem não recebeu. Nunca derruba o pagamento que já saiu.
+                conf = {"veredito": "nao_confirmado"}
+                cod = (resp or {}).get("codigoSolicitacao") or ""
+                if cod:
+                    try:
+                        import asyncio as _aio  # noqa: PLC0415
+
+                        from modules.financial.services.conferencia_pix import conferir  # noqa: PLC0415
+
+                        await _aio.sleep(_ESPERA_CONFERENCIA_S)
+                        c = await adapter.consultar_pix_pagamento(cod)
+                        conf = conferir(
+                            nome_banco=c.get("recebedor_nome", ""),
+                            documento_banco=c.get("recebedor_documento", ""),
+                            nome_nosso=i["beneficiario"],
+                            documento_nosso=i.get("cpf") or "",
+                        )
+                        if conf.get("ok") is False:
+                            logger.error("PIX FOI PARA OUTRA PESSOA — %s: %s", i["beneficiario"], conf.get("detalhe"))
+                    except Exception as ce:  # noqa: BLE001
+                        # Conferência é auditoria: falhar nela não pode reabrir um pagamento feito.
+                        conf = {"veredito": "nao_confirmado", "detalhe": f"consulta falhou: {str(ce)[:120]}"}
+
+                etiqueta = ""
+                if conf.get("veredito") == "DIVERGE":
+                    etiqueta = " | ⚠ RECEBEDOR DIVERGE: " + str(conf.get("detalhe"))[:150]
+                elif conf.get("veredito") == "confere":
+                    etiqueta = " | recebedor confere"
+                await db.execute(
+                    text(
+                        "UPDATE financial_pagamentos_diaristas SET status='pago', descricao=descricao||' | e2e:'||:ref||:etq, updated_at=now() WHERE id=:id"
+                    ),
+                    {"ref": str(ref)[:60], "etq": etiqueta, "id": i["id"]},
+                )
                 await db.commit()  # por item: PIX que saiu fica 'pago' mesmo se o próximo falhar/derrubar
-                pagos.append({"id": i["id"], "nome": i["beneficiario"], "valor": float(i["valor"]), "ref": str(ref)[:60]})
+                pagos.append(
+                    {
+                        "id": i["id"],
+                        "nome": i["beneficiario"],
+                        "valor": float(i["valor"]),
+                        "ref": str(ref)[:60],
+                        "conferencia": conf,
+                    }
+                )
             except Exception as e:  # noqa: BLE001
                 logger.error("Falha ao pagar diarista %s: %s", i["id"], e)
                 falhas.append({"id": i["id"], "nome": i["beneficiario"], "erro": str(e)[:120]})
@@ -617,21 +904,35 @@ async def executar_lote(
             await adapter.close()
         except Exception:
             pass
-    return {"ok": True, "pagos": len(pagos), "falhas": len(falhas), "total_pago": sum(p["valor"] for p in pagos),
-            "detalhe_pagos": pagos, "detalhe_falhas": falhas}
+    divergentes = [p for p in pagos if (p.get("conferencia") or {}).get("ok") is False]
+    return {
+        "ok": True,
+        "pagos": len(pagos),
+        "falhas": len(falhas),
+        "total_pago": sum(p["valor"] for p in pagos),
+        # Quantos PIX foram para alguém que não é quem o cadastro diz. Sobe no resultado do
+        # lote para a tela mostrar — enterrado no log, ninguém veria.
+        "recebedor_diverge": len(divergentes),
+        "detalhe_diverge": divergentes,
+        "detalhe_pagos": pagos,
+        "detalhe_falhas": falhas,
+    }
 
 
 async def cancelar(db: AsyncSession, pagamento_id: int) -> dict[str, Any]:
     await _ensure(db)
-    await db.execute(text(
-        "UPDATE financial_pagamentos_diaristas SET status='cancelado', updated_at=now() "
-        "WHERE id=:id AND status IN ('a_revisar','sem_pix')"), {"id": pagamento_id})
+    await db.execute(
+        text(
+            "UPDATE financial_pagamentos_diaristas SET status='cancelado', updated_at=now() "
+            "WHERE id=:id AND status IN ('a_revisar','sem_pix')"
+        ),
+        {"id": pagamento_id},
+    )
     await db.commit()
     return {"ok": True}
 
 
-async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
-                              user_nome: str | None = None) -> dict[str, Any]:
+async def marcar_pago_externo(db: AsyncSession, pagamento_id: int, user_nome: str | None = None) -> dict[str, Any]:
     """Concilia um VT+VR que foi pago FORA do Conecta PRO (direto no app do banco).
 
     NÃO envia dinheiro — só registra que já saiu, pra não pagar em dobro no lote.
@@ -639,23 +940,29 @@ async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
     enviado pelo sistema. Só age em item ainda pendente (a_revisar/sem_pix)."""
     await _ensure(db)
     quem = (user_nome or "operador").strip()
-    row = (await db.execute(text(
-        "SELECT beneficiario, valor, status FROM financial_pagamentos_diaristas WHERE id=:id"),
-        {"id": pagamento_id})).first()
+    row = (
+        await db.execute(
+            text("SELECT beneficiario, valor, status FROM financial_pagamentos_diaristas WHERE id=:id"),
+            {"id": pagamento_id},
+        )
+    ).first()
     if not row:
         return {"ok": False, "mensagem": "Pagamento não encontrado."}
     if row.status in ("pago", "cancelado"):
         return {"ok": False, "mensagem": f"Item já está '{row.status}' — nada a fazer."}
-    res = await db.execute(text(
-        "UPDATE financial_pagamentos_diaristas "
-        "SET status='pago', "
-        "    descricao = descricao || ' | PAGO PELO APP INTER (fora do Conecta PRO) por ' "
-        "                || :quem || ' em ' || to_char(now(),'YYYY-MM-DD') "
-        "                || ' — conciliação manual, SEM e2e do Conecta PRO', "
-        "    updated_at=now() "
-        # 'aprovado' saiu: estado inexistente (ver acima).
-        "WHERE id=:id AND status IN ('a_revisar','sem_pix')"),
-        {"id": pagamento_id, "quem": quem})
+    res = await db.execute(
+        text(
+            "UPDATE financial_pagamentos_diaristas "
+            "SET status='pago', "
+            "    descricao = descricao || ' | PAGO PELO APP INTER (fora do Conecta PRO) por ' "
+            "                || :quem || ' em ' || to_char(now(),'YYYY-MM-DD') "
+            "                || ' — conciliação manual, SEM e2e do Conecta PRO', "
+            "    updated_at=now() "
+            # 'aprovado' saiu: estado inexistente (ver acima).
+            "WHERE id=:id AND status IN ('a_revisar','sem_pix')"
+        ),
+        {"id": pagamento_id, "quem": quem},
+    )
     await db.commit()
     if not res.rowcount:
         return {"ok": False, "mensagem": "Item não estava pendente — nada alterado."}
@@ -665,6 +972,7 @@ async def marcar_pago_externo(db: AsyncSession, pagamento_id: int,
 def _extrair_nome_pix(descricao: str) -> str | None:
     """Extrai o nome do beneficiário da descrição de um PIX enviado do extrato Inter."""
     import re
+
     d = (descricao or "").strip()
     if not d:
         return None
@@ -686,18 +994,24 @@ async def sugestoes_cadastro_historico(db: AsyncSession, dias: int = 30, valor: 
     Read-only. O histórico traz o NOME (não o CPF/chave PIX) — então cada sugestão vira um
     cadastro que o Gonzaga completa com CPF (obrigatório) + chave PIX na estrutura existente.
     Não mostra quem já está cadastrado."""
-    rows = await db.execute(text(
-        """SELECT COALESCE(descricao, raw_payload->>'description','') AS d, COUNT(*) AS n
+    rows = await db.execute(
+        text(
+            """SELECT COALESCE(descricao, raw_payload->>'description','') AS d, COUNT(*) AS n
            FROM inter_transactions
            WHERE abs(valor)=:v AND data_lancamento >= (now() AT TIME ZONE 'America/Manaus')::date - make_interval(days => :dias)
-           GROUP BY 1"""), {"v": valor, "dias": dias})
+           GROUP BY 1"""
+        ),
+        {"v": valor, "dias": dias},
+    )
     por_nome: dict[str, int] = {}
     for r in rows.mappings().all():
         nome = _extrair_nome_pix(r["d"])
         if nome:
             por_nome[nome] = por_nome.get(nome, 0) + int(r["n"])
     # já cadastrados (por nome, case-insensitive)
-    ex = await db.execute(text("SELECT lower(nome) FROM diarists UNION SELECT lower(nome) FROM diaria_diaristas"))  # o cadastro vivo é diaria_diaristas (62); diarists tem 3 de teste
+    ex = await db.execute(
+        text("SELECT lower(nome) FROM diarists UNION SELECT lower(nome) FROM diaria_diaristas")
+    )  # o cadastro vivo é diaria_diaristas (62); diarists tem 3 de teste
     cadastrados = {row[0] for row in ex.all()}
     sugestoes = [
         {"nome": n, "pagamentos_periodo": c, "ja_cadastrado": n.lower() in cadastrados}
@@ -705,8 +1019,10 @@ async def sugestoes_cadastro_historico(db: AsyncSession, dias: int = 30, valor: 
     ]
     novos = [s for s in sugestoes if not s["ja_cadastrado"]]
     return {
-        "dias": dias, "valor_referencia": valor,
-        "total_nomes": len(sugestoes), "a_cadastrar": len(novos),
+        "dias": dias,
+        "valor_referencia": valor,
+        "total_nomes": len(sugestoes),
+        "a_cadastrar": len(novos),
         "sugestoes": sugestoes,
         "aviso": "O histórico traz o nome, não o CPF/chave PIX. Cadastre cada um (CPF obrigatório) e adicione a chave PIX.",
     }
