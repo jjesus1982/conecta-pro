@@ -5,7 +5,7 @@ import os
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -42,14 +42,58 @@ router = APIRouter(prefix="/ponto", tags=["Ponto Eletronico"])
 # ==================== BATIDA E ESPELHO (async, banco real) ====================
 
 
+def _origem(req: Request) -> tuple[str | None, str | None]:
+    """IP real e aparelho de quem bateu.
+
+    Atrás do nginx, `request.client.host` é sempre 127.0.0.1 — o IP de verdade vem no
+    `X-Forwarded-For`, primeiro da lista.
+    """
+    xff = req.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (req.client.host if req.client else None)
+    return ip or None, req.headers.get("user-agent")
+
+
+#: Papéis que podem bater ponto PARA OUTRA PESSOA (correção de DP, posto sem aparelho).
+#: Todo mundo fora desta lista bate só o próprio, venha o que vier no corpo.
+_PODE_BATER_POR_OUTRO = ("admin", "super_admin", "operator", "gerente_operacional", "supervisor")
+
+
 @router.post("/batida", response_model=PunchResponse, status_code=201)
 async def registrar_batida(
     data: PunchCreate,
+    current_user: CurrentActiveUser,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> PunchResponse:
-    """Registra uma batida de ponto (entrada, saida, almoco)."""
+    """Registra uma batida de ponto (entrada, saida, almoco).
+
+    🔴 O `employee_id` do CORPO não manda mais. Até 17/09/2026 esta rota gravava a batida
+    para QUALQUER employee_id que o cliente enviasse, sem conferir de quem era o token —
+    qualquer pessoa logada batia ponto por qualquer colega. O Jordan: «cada deve ter acesso
+    apenas ao que é seu».
+
+    Agora o dono da batida sai do TOKEN. Gestor (ver `_PODE_BATER_POR_OUTRO`) segue podendo
+    bater por outro, porque correção de ponto é trabalho real do DP — mas fica registrado em
+    `created_by` quem fez.
+    """
+    dono = await _resolve_employee_id(db, current_user)
+    pedido = str(data.employee_id) if data.employee_id else ""
+    papel = (getattr(current_user, "role", "") or "").lower()
+
+    if pedido and pedido != str(dono) and papel not in _PODE_BATER_POR_OUTRO:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você só pode bater o seu próprio ponto.",
+        )
+    # Sem gestor no meio, o dono é sempre o do token — o corpo é ignorado, não obedecido.
+    if papel not in _PODE_BATER_POR_OUTRO or not pedido:
+        data.employee_id = str(dono)
+
     service = PunchService(db)
-    result = await service.registrar_batida(data)
+    _ip, _ua = _origem(request)
+    result = await service.registrar_batida(
+        data, autor_user_id=str(getattr(current_user, "id", "") or "") or None, ip=_ip, user_agent=_ua
+    )
     asyncio.create_task(
         publish_batida_registrada(
             punch_id=str(result["punch_id"]),
@@ -126,6 +170,7 @@ async def _next_punch_type(db: AsyncSession, employee_id: str) -> str:
 @router.post("/batida/me", response_model=PunchResponse, status_code=201)
 async def registrar_batida_me(
     current_user: CurrentActiveUser,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     latitude: float | None = Query(None),
     longitude: float | None = Query(None),
@@ -146,7 +191,12 @@ async def registrar_batida_me(
         device_type="web",
     )
     service = PunchService(db)
-    result = await service.registrar_batida(data)
+    result = await service.registrar_batida(
+        data,
+        autor_user_id=str(getattr(current_user, "id", "") or "") or None,
+        ip=_origem(request)[0],
+        user_agent=_origem(request)[1],
+    )
     await db.commit()
     return PunchResponse(
         punch_id=result["punch_id"],
@@ -182,10 +232,24 @@ async def get_batidas_me(
 @router.get("/batidas/{employee_id}")
 async def get_batidas_dia(
     employee_id: str,
+    current_user: CurrentActiveUser,
     data: str = Query(..., description="Data no formato YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Retorna batidas de um funcionario em um dia."""
+    """Retorna batidas de um funcionario em um dia.
+
+    🔴 Exige ser o DONO do ponto ou gestor. Até 17/09/2026 bastava estar logado e saber o
+    UUID do colega para ler a jornada dele inteira. Quem quer o próprio ponto tem
+    `GET /batidas/me`, que nem precisa saber o próprio id.
+    """
+    papel = (getattr(current_user, "role", "") or "").lower()
+    if papel not in _PODE_BATER_POR_OUTRO:
+        dono = await _resolve_employee_id(db, current_user)
+        if str(dono) != str(employee_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você só pode ver o seu próprio ponto.",
+            )
     service = PunchService(db)
     batidas = await service.get_batidas_dia(employee_id, data)
     return {"employee_id": employee_id, "date": data, "punches": batidas}

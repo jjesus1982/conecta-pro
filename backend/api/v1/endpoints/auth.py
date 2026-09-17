@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import create_access_token, create_refresh_token, verify_refresh_token
@@ -75,11 +76,7 @@ async def _notificar_admins_novo_cadastro(db: AsyncSession, novo_usuario: User, 
             "custom_data": {"origem": f"auth.{origem}", "novo_usuario_id": str(novo_usuario.id)},
         }
 
-        admins = (
-            (await db.execute(select(User).where(User.role == "admin", User.is_active.is_(True))))
-            .scalars()
-            .all()
-        )
+        admins = (await db.execute(select(User).where(User.role == "admin", User.is_active.is_(True)))).scalars().all()
         if not admins:
             return
 
@@ -127,9 +124,7 @@ async def _notificar_admins_novo_cadastro(db: AsyncSession, novo_usuario: User, 
             criadas += 1
         if criadas:
             await db.commit()
-            logger.info(
-                f"Sino: {criadas} admin(s) notificado(s) sobre cadastro pendente {novo_usuario.email}"
-            )
+            logger.info(f"Sino: {criadas} admin(s) notificado(s) sobre cadastro pendente {novo_usuario.email}")
     except Exception as e:
         # Falha de notificação NUNCA quebra o cadastro
         try:
@@ -496,7 +491,28 @@ async def reset_password(
             detail="Usuário não encontrado",
         )
 
-    user.password_hash = get_password_hash(body.new_password)
+    # 🔴 COLABORADOR NÃO ESCOLHE SENHA — a senha dele é, sempre, o próprio CPF.
+    #
+    # Regra do Jordan (17/09/2026): «a senha de cada colaborador ao logar é seu cpf, o login é
+    # o e-mail e a senha é sempre o seu cpf, sem opção de outra senha, obrigatoriamente cpf».
+    # O `primeiro_acesso_controller` já nascia assim («senha = CPF, nunca cria senha nova»);
+    # esta rota era a porta por onde uma senha diferente entrava depois.
+    #
+    # Quem tem vínculo de funcionário e CPF no cadastro tem a senha REDEFINIDA PARA O CPF,
+    # ignorando o que veio no corpo. Não é recusa: a pessoa pediu para recuperar o acesso e
+    # recupera — só que para a credencial que a empresa definiu, não para uma inventada.
+    nova = body.new_password
+    if getattr(user, "employee_id", None):
+        cpf = (
+            await db.execute(
+                sa_text("SELECT cpf FROM employees WHERE id = :eid AND cpf ~ '^[0-9]{11}$'"),
+                {"eid": str(user.employee_id)},
+            )
+        ).scalar()
+        if cpf:
+            nova = cpf
+
+    user.password_hash = get_password_hash(nova)
     await db.commit()
 
     logger.info(f"Senha redefinida com sucesso: {user.email}")

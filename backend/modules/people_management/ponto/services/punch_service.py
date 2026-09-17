@@ -61,7 +61,13 @@ class PunchService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def registrar_batida(self, data: PunchCreate) -> dict[str, Any]:
+    async def registrar_batida(
+        self,
+        data: PunchCreate,
+        autor_user_id: str | None = None,
+        ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> dict[str, Any]:
         """Registra uma batida de ponto no banco de dados.
 
         Args:
@@ -185,6 +191,20 @@ class PunchService:
             is_offline=data.is_offline or False,
             posto_id=str(posto_id) if posto_id else None,
             posto_nome=str(posto_nome) if posto_nome else None,
+            # 🔴 QUEM BATEU precisa ficar registrado, e não ficava. Medido em 17/09/2026:
+            # das 1.372 batidas dos 15 dias anteriores, ZERO tinham created_by, device_id,
+            # ip_address ou user_agent — as quatro colunas existem e nada as preenchia.
+            #
+            # Sem isto não há como responder «quem bateu o ponto de quem». O Antônio Carlos
+            # apareceu com o app logado na conta da Graciene e bateu a entrada dela às 08:05;
+            # a única prova foi o print que ele mesmo mandou. O banco não sabia de nada.
+            created_by=autor_user_id,
+            # 🔴 DE ONDE veio a batida. Sem isto não há como descobrir que DUAS pessoas usam a
+            # MESMA conta — que foi o caso do Antônio com a conta da Graciene: ele bate no posto
+            # DELA, com o login DELA, e nenhuma conferência de posto ou de autor acusa nada.
+            # O aparelho é o único sinal que separa as duas.
+            ip_address=ip,
+            user_agent=(user_agent or "")[:400] or None,
         )
         self.db.add(punch)
         await self.db.flush()

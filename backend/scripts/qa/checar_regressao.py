@@ -138,6 +138,11 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # Conta ativa de quem não trabalha mais aqui. Nasceu do print do Antônio Carlos com o app
+    # logado na conta da Graciene (17/09/2026): puxando o fio, 13 contas ativas de demitidos,
+    # inativos e suspensos — 4 delas com e-mail @conectamais.pro, que o dono acreditava existir
+    # só para ele e para a Pyetra. Desativar fecha o login e não apaga histórico nenhum.
+    "checar_acesso_de_quem_saiu.py": lambda s: _n(r"^TOTAL: (\d+) conta\(s\) ativa\(s\)", s, "TOTAL: 0 conta"),
     # Task agendada cujo `except Exception` loga e devolve normal: a task fica SUCCESS e o
     # task_falha (que só vê exceção) não avisa. Foi assim que o razão parou 27 dias (07/09/2026).
     "checar_beat_engole_falha.py": lambda s: _n(r"^TOTAL: (\d+) task\(s\) que engolem falha", s, "TOTAL: 0 task"),
