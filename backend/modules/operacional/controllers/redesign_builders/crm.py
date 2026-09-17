@@ -504,22 +504,24 @@ _ICO_CHAT = "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
 _ICO_CAL = "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
 
 EXTRA_MENU: list[dict] = [
-    # PRIMEIRA da lista de propósito: é a fila do que já foi vendido e ainda não está
-    # assinado. Sem entrada no menu a tela existe em `screens`, responde por HTTP e
-    # NINGUÉM chega nela — o defeito mais comum desta casa.
-    {"id": "jose-luis-dashboard", "label": "José Luís — painel do agente", "icon": "M3 3v18h18"},
-    # Ficha viva / negociação
-    {"id": "negociacao-responsavel", "label": "Quem conduz", "icon": _ICO_CHAT},
-    # Reuniões
-    # Visitas
-    # Documento
     {"id": "doc-ordem-servico", "label": "Ordem de serviço (PDF)", "icon": _ICO_DOC},
-    # Follow-up / contato com o cliente
-    # Análise
     {"id": "asset-upload", "label": "Enviar logo/selo", "icon": _ICO_DOC},
     {"id": "expurgar-teste", "label": "Arquivar documentos de teste", "icon": _ICO_DOC},
-    # LIGAR 08/09/2026 (revisão 100%): rotas que existiam sem tela no redesign
-    {"id": "tarefas", "label": "Tarefas", "icon": _ICO_CAL},
+    {
+        "id": "jose-luis-dashboard",
+        "label": "José Luís — painel do agente",
+        "icon": "M3 3v18h18",
+        "grupo": "José Luís (IA)",
+    },
+    {"id": "negociacao-responsavel", "label": "Quem conduz", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "contato-novo", "label": "Novo contato", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "condominios", "label": "Condomínios", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {"id": "tarefas", "label": "Tarefas", "icon": _ICO_CAL, "grupo": "Tarefas"},
     {"id": "contratos-a-emitir", "label": "Central de contratos", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "contrato-itens", "label": "Itens de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
@@ -534,13 +536,6 @@ EXTRA_MENU: list[dict] = [
         "icon": _ICO_DOC,
         "grupo": "Contratos",
     },
-    {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
-    {"id": "contato-novo", "label": "Novo contato", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
-    {"id": "condominios", "label": "Condomínios", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
-    {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
-    {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
-    {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
-    {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
     {
         "id": "whatsapp-cadastrar",
         "label": "Cadastrar WhatsApp",
@@ -557,8 +552,8 @@ EXTRA_MENU: list[dict] = [
         "grupo": "Follow-up & relacionamento",
     },
     {"id": "nps-enviar", "label": "Enviar NPS", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
-    {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
     {"id": "timeline-nota", "label": "Anotar na timeline", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT, "grupo": "Leads & funil"},
     {"id": "reuniao-sugerir", "label": "Sugerir reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},
     {"id": "reuniao-confirmar", "label": "Confirmar reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},
     {"id": "reuniao-cancelar", "label": "Cancelar reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},

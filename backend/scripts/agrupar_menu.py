@@ -29,14 +29,32 @@ BUILDERS = RAIZ / "backend/modules/operacional/controllers/redesign_builders"
 #: específico vem antes. Ver `GRUPOS["rh"]`: 'cct-' antes de qualquer coisa mais frouxa.
 GRUPOS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
     "crm": [
+        ("Leads & funil", ("novo-lead", "definir-lead", "mover-oportunidade", "reativar-lead")),
+        ("José Luís (IA)", ("jose-luis-", "consumo-ia")),
+        ("Tarefas", ("tarefa", "tarefas", "nova-tarefa")),
         (
             "Contratos",
             ("contrato", "contratos-", "novo-contrato", "aditivo", "aditivos", "modelo-contrato", "modelos-contrato"),
         ),
-        ("Propostas & orçamento", ("proposta-", "doc-orcamento", "apresentacao-", "simular-fechamento")),
+        (
+            "Propostas & orçamento",
+            (
+                "proposta-",
+                "nova-proposta",
+                "doc-orcamento",
+                "apresentacao-",
+                "simular-fechamento",
+                "simular-preco",
+                "simular-precificacao",
+                "calculado-vs-faturado",
+            ),
+        ),
         ("Follow-up & relacionamento", ("followup-", "nps-", "reativar-lead", "timeline-nota", "whatsapp-")),
         ("Reuniões & visitas", ("reuniao-", "visita-")),
-        ("Clientes & contatos", ("cliente-", "contato-", "condominio", "condominios", "consultar-cnpj")),
+        (
+            "Clientes & contatos",
+            ("cliente-", "anotar-cliente", "contato-", "condominio", "condominios", "consultar-cnpj", "negociacao-"),
+        ),
         ("Catálogo", ("produto", "produtos")),
         ("Consultor comercial", ("consultor-",)),
     ],
@@ -80,6 +98,27 @@ GRUPOS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
 _ITEM = re.compile(r'^(\s*)\{"id":\s*"([^"]+)",\s*"label":\s*"([^"]+)"(.*)\},\s*$')
 
 
+_ID = re.compile(r'"id":\s*"([^"]+)"')
+_GRUPO = re.compile(r',?\s*"grupo":\s*"[^"]*"')
+
+
+def _itens_do_bloco(texto: str) -> list[str]:
+    """Fatia o miolo do EXTRA_MENU em blocos `{...}` completos, preservando o texto original."""
+    itens: list[str] = []
+    prof, comeco = 0, None
+    for n, c in enumerate(texto):
+        if c == "{":
+            if prof == 0:
+                comeco = n
+            prof += 1
+        elif c == "}":
+            prof -= 1
+            if prof == 0 and comeco is not None:
+                itens.append(texto[comeco : n + 1])
+                comeco = None
+    return itens
+
+
 def _grupo_de(ident: str, regras: list[tuple[str, tuple[str, ...]]]) -> str | None:
     for rotulo, prefixos in regras:
         if any(ident.startswith(p) for p in prefixos):
@@ -116,21 +155,24 @@ def agrupar(slug: str, aplicar: bool) -> int:
     ordem_grupos: list[str] = []
     fora = 0
 
-    for linha in linhas[ini + 1 : fim]:
-        m = _ITEM.match(linha)
+    # Varre por CHAVES BALANCEADAS, não por linha: o `ruff format` do pre-commit quebra itens
+    # longos em várias linhas, e a versão anterior (uma regex por linha) enxergava 40 dos 45
+    # itens do CRM. A trava logo abaixo existe porque esse defeito quase apagou 5 telas.
+    for bruto in _itens_do_bloco("".join(linhas[ini + 1 : fim])):
+        m = _ID.search(bruto)
         if not m:
-            if linha.strip():
-                soltos.append(linha)  # comentário ou formato diferente: preserva onde está
             continue
-        indent, ident, label, resto = m.groups()
+        ident = m.group(1)
         if ident in vistos:
             fora += 1
             continue
         vistos.add(ident)
         g = _grupo_de(ident, regras)
-        # `grupo` já presente? tira para não duplicar a chave.
-        resto = re.sub(r',\s*"grupo":\s*"[^"]*"', "", resto)
-        nova = f'{indent}{{"id": "{ident}", "label": "{label}"{resto}' + (f', "grupo": "{g}"}},\n' if g else "},\n")
+        corpo = _GRUPO.sub("", bruto)  # tira grupo antigo, se houver
+        if g:
+            corpo = corpo[:-1].rstrip().rstrip(",") + f', "grupo": "{g}"}}'
+        # normaliza em uma linha; o `ruff format` reparte de novo se precisar
+        nova = "    " + " ".join(corpo.split()) + ",\n"
         if g:
             if g not in por_grupo:
                 por_grupo[g] = []
@@ -156,7 +198,7 @@ def agrupar(slug: str, aplicar: bool) -> int:
 
     novas = soltos + [l for g in ordem_grupos for l in por_grupo[g]]
     antes = len(vistos) + fora
-    visiveis = len([l for l in soltos if l.strip().startswith('{"id"')]) + len(ordem_grupos)
+    visiveis = len(soltos) + len(ordem_grupos)
 
     print(
         f"  {slug}: {antes} itens -> {visiveis} linhas visíveis na sidebar "

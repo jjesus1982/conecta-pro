@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 RAIZ = pathlib.Path(__file__).resolve().parents[3]
 BUILDERS = RAIZ / "backend/modules/operacional/controllers/redesign_builders"
+DOCKER = "/usr/bin/docker"  # nosec B607 - absoluto por causa do ruff S607
 
 #: `re.S` obrigatório: o `ruff format` do pre-commit quebra itens longos em VÁRIAS linhas.
 #: A primeira versão deste regex assumia um item por linha e passou a contar 1 onde havia 2 —
@@ -79,12 +81,40 @@ def main() -> int:
                 if anterior:
                     ja_fechados.add(anterior)
                 anterior = g
-        # grupo de um item só
-        from collections import Counter
+        # «grupo com 1 item» NÃO se mede aqui: o menu de um módulo vem de até três arquivos, e
+        # um grupo com um item NESTE pode ter mais quatro vindos dos outros. Conferir por
+        # arquivo acusa grupos legítimos — aconteceu com «Tarefas» e «Leads & funil» do CRM.
+        # A conta certa é no menu MONTADO, feita abaixo com as três fontes já juntas.
 
-        for g, n in Counter(sequencia).items():
-            if n == 1:
-                problemas.append(f"{arq.name}: grupo '{g}' tem 1 item — não vale a linha nem o clique")
+    # ── no menu MONTADO: grupo precisa de 2+ itens ───────────────────────────────
+    # Dentro do container porque só lá o import do controller resolve as dependências — e é
+    # ele que junta as três fontes, exatamente como o servidor entrega para a sidebar.
+    codigo = (
+        "import sys; sys.path.insert(0,'/app')\n"
+        "from modules.operacional.controllers.redesign_data_controller import EXTRA_MENU\n"
+        "from collections import Counter\n"
+        "for slug, itens in EXTRA_MENU.items():\n"
+        "    c = Counter(i['grupo'] for i in itens if isinstance(i, dict) and i.get('grupo'))\n"
+        "    for g, n in c.items():\n"
+        "        if n == 1: print(slug + '|' + g)\n"
+    )
+    try:
+        saida = subprocess.run(  # noqa: S603  # nosec B603 - argv fixo, sem shell
+            [DOCKER, "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend", "python3", "-c", codigo],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        ).stdout
+        for linha in saida.strip().splitlines():
+            if "|" in linha:
+                slug, g = linha.split("|", 1)
+                problemas.append(
+                    f"{slug}: grupo '{g}' tem 1 item no menu montado — gasta uma linha e um "
+                    "clique para mostrar uma linha"
+                )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"  (menu montado não conferido: {exc})")
 
     for p in problemas:
         print(f"  ✗ {p}")

@@ -7007,14 +7007,19 @@ EXTRA_MENU = {
     # (g-diaristas/g-escalas/g-rondas em _op_grupos.py). Menu = só os 8 grupos.
     "operacional": [],
     "crm": [
-        {"id": "novo-lead", "label": "Novo lead", "icon": "M12 5v14M5 12h14"},
+        {"id": "novo-lead", "label": "Novo lead", "icon": "M12 5v14M5 12h14", "grupo": "Leads & funil"},
         {
             "id": "nova-proposta",
             "label": "Nova proposta",
             "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h3",
         },
-        {"id": "definir-lead", "label": "Definir lead", "icon": "M20 6L9 17l-5-5"},
-        {"id": "consumo-ia", "label": "Consumo de IA", "icon": "M3 3v18h18M7 15l3-4 3 3 4-6"},
+        {"id": "definir-lead", "label": "Definir lead", "icon": "M20 6L9 17l-5-5", "grupo": "Leads & funil"},
+        {
+            "id": "consumo-ia",
+            "label": "Consumo de IA",
+            "icon": "M3 3v18h18M7 15l3-4 3 3 4-6",
+            "grupo": "José Luís (IA)",
+        },
         {
             "id": "contrato-da-proposta",
             "label": "Contrato da proposta",
@@ -7030,8 +7035,18 @@ EXTRA_MENU = {
             "label": "Enviar link de assinatura",
             "icon": "M22 2L11 13M22 2l-7 20-4-9-9-4z",
         },
-        {"id": "mover-oportunidade", "label": "Mover no funil", "icon": "M3 3v18h18M7 14l3-3 3 3 5-6"},
-        {"id": "nova-tarefa", "label": "Nova tarefa", "icon": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2"},
+        {
+            "id": "mover-oportunidade",
+            "label": "Mover no funil",
+            "icon": "M3 3v18h18M7 14l3-3 3 3 5-6",
+            "grupo": "Leads & funil",
+        },
+        {
+            "id": "nova-tarefa",
+            "label": "Nova tarefa",
+            "icon": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2",
+            "grupo": "Tarefas",
+        },
         {
             "id": "anotar-cliente",
             "label": "Anotar cliente",
@@ -7341,6 +7356,23 @@ def _discover_module_builders() -> list[str]:
         if hasattr(_m, "router"):
             router.include_router(_m.router)
         loaded.append(slug)
+
+    # O menu de um módulo vem de até TRÊS arquivos (este dict, o EXTRA_MENU do builder e as
+    # frentes que ele importa). A sidebar agrupa itens CONSECUTIVOS do mesmo grupo, então um
+    # assunto espalhado entre fontes viraria dois blocos com o mesmo nome — ou, pior, grupos de
+    # um item só. Agrupar aqui, DEPOIS da junção, é o único lugar que enxerga todas as fontes.
+    #
+    # Ordenação estável: soltos primeiro (na ordem em que chegaram), depois cada grupo inteiro
+    # na ordem em que apareceu pela primeira vez. Ninguém muda de posição sem motivo.
+    for _slug, _itens in EXTRA_MENU.items():
+        _soltos = [i for i in _itens if isinstance(i, dict) and not i.get("grupo")]
+        _grupos: dict[str, list] = {}
+        for i in _itens:
+            if isinstance(i, dict) and i.get("grupo"):
+                _grupos.setdefault(i["grupo"], []).append(i)
+        if _grupos:
+            EXTRA_MENU[_slug] = _soltos + [i for g in _grupos.values() for i in g]
+
     return loaded
 
 
