@@ -1,6 +1,7 @@
 'use client';
 
 import { Component, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { PanelLeftClose, PanelLeft, Menu, Search, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import RdBell from './RdBell';
@@ -1043,15 +1044,20 @@ export default function ModuleView({ slug }: { slug: string }) {
   // Bumpado por ReloadCtx após uma ação de escrita → refaz o fetch da tela.
   const [reloadKey, setReloadKey] = useState(0);
 
+  // `useSearchParams` e não `window.location.search`: o Ctrl+K navega para OUTRA ABA do MESMO
+  // módulo, então só a query muda. Lendo o window direto e dependendo de [screens], o efeito
+  // não rodava de novo — a URL virava `?t=kits-assinaturas-pendentes` e a tela ficava na Visão
+  // geral. Medido no navegador em 17/09/2026; no terminal a navegação parecia perfeita.
+  const sp = useSearchParams();
+
   useEffect(() => {
     try { if (localStorage.getItem('rd-sidebar-collapsed') === '1') setCollapsed(true); } catch { /* */ }
-    const sp = new URLSearchParams(window.location.search);
     const t = sp.get('t');
     // confia no ?t da URL (telas de ação/extraMenu chegam via patch, depois)
     if (t) setActive(t);
     const tb = sp.get('tab');
     if (tb) setActiveTab(tb); // aba do grupo (fundação tabs F0)
-  }, [screens]);
+  }, [screens, sp]);
 
   // Dados reais da API (READ-ONLY). Sem token → mantém exemplos do pacote.
   // RETRY: logo após o login o token pode ainda não estar no localStorage quando este efeito
