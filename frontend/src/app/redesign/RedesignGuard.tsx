@@ -6,13 +6,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { SELF_SERVICE_ROUTE, temAcessoGestao } from '@/types/modules';
 
-// Rotas públicas do redesign (não exigem token)
+// Rotas públicas do redesign (não exigem token). `/redesign/login` continua aqui porque
+// virou encaminhamento para `/login` — se o guard a protegesse, daria laço.
 const PUBLIC = ['/redesign/login', '/redesign/splash'];
 
 /**
  * Guard do redesign (client-side), em duas camadas:
  *
- * 1. AUTENTICAÇÃO — sem token → /redesign/login.
+ * 1. AUTENTICAÇÃO — sem token → /login (tela única, com a identidade do redesign).
  * 2. AUTORIZAÇÃO — funcionário sem permissão de gestão → Portal do Funcionário.
  *
  * A camada 2 existe porque o /redesign nasceu sem ela: qualquer usuário logado via
@@ -39,7 +40,7 @@ export default function RedesignGuard({ children }: { children: ReactNode }) {
     let tok: string | null = null;
     try { tok = localStorage.getItem('access_token'); } catch { /* */ }
     if (!tok) {
-      router.replace(`/redesign/login?redirect=${encodeURIComponent(pathname)}`);
+      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
     setOk(true);

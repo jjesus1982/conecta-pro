@@ -1,13 +1,35 @@
 'use client';
 
-import { AlertCircle, ScanFace, X, Loader2 } from 'lucide-react';
+import { AlertCircle, ScanFace, X, Loader2, Mail, Lock, Check } from 'lucide-react';
 import { Suspense, useState, useMemo, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchRetry } from '@/lib/api';
 import { FacialCapture, type FacialCaptureResult } from '@/components/ponto/FacialCapture';
 import { destinoPosLogin, guardarDestino } from '@/lib/destino-pos-login';
+import { Btn } from '@/components/redesign/shell';
+// O design system do redesign é escopado em `.rd-root`; esta tela veste o mesmo.
+// Origem: 17/09/2026 — o dono viu a tela ANTIGA no link de assinatura que mandamos
+// para o funcionário: «é a antiga, do clássico, não é do redesign».
+import '../redesign/redesign.css';
+
+//: Só aparece no trilho navy. Mesmo texto do protótipo de login do redesign.
+const FEATS = [
+  'Portaria remota e monitoramento',
+  'Escalas, rondas e ponto',
+  'Gestão de pessoas e DP',
+  'Financeiro, fiscal e jurídico',
+];
+
+function Campo({ icone, ...p }: { icone: React.ReactNode } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <span style={{ position: 'absolute', left: 12, color: 'var(--placeholder)', display: 'flex' }}>{icone}</span>
+      <input className="rd-input" style={{ paddingLeft: 38, width: '100%' }} {...p} />
+    </div>
+  );
+}
 
 // Destino pós-login: ver lib/destino-pos-login.ts — é o único lugar que decide.
 
@@ -26,7 +48,6 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
 };
 
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { login, isLoading, isAuthenticated, user } = useAuth();
   const [email, setEmail] = useState('');
@@ -90,346 +111,110 @@ function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* ── PAINEL ESQUERDO ── */}
+    <div className="rd-root" style={{ display: 'flex', minHeight: '100vh' }}>
+      {/* ── TRILHO DA MARCA ── mesmo do redesign: quadrante, navy e a lista de frentes. */}
       <div
-        className="hidden lg:flex flex-col justify-between relative overflow-hidden min-h-0"
-        style={{ flex: '1.25', background: '#1E3A5F', padding: '44px 52px' }}
+        className="rd-hide-mobile"
+        style={{
+          width: '42%', background: 'var(--navy)', color: '#fff', display: 'flex',
+          flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+          gap: 20, padding: 40, textAlign: 'center',
+        }}
       >
-        {/* Circles */}
-        <div
-          className="absolute pointer-events-none"
-          style={{ top: -100, right: -100, width: 360, height: 360, borderRadius: '50%', background: 'rgba(249,115,22,0.06)' }}
-        />
-        <div
-          className="absolute pointer-events-none"
-          style={{ bottom: -80, left: -80, width: 280, height: 280, borderRadius: '50%', background: 'rgba(249,115,22,0.04)' }}
-        />
-
-        {/* LOGO */}
-        <div className="flex items-center relative z-10">
-          <svg width="54" height="54" viewBox="0 0 56 56" fill="none">
-            <circle cx="28" cy="28" r="8" stroke="#F97316" strokeWidth="2.2" fill="none" />
-            <circle cx="28" cy="28" r="3.5" fill="#F97316" />
-            <line x1="28" y1="5" x2="28" y2="18" stroke="#5B9BD5" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="28" y1="38" x2="28" y2="51" stroke="#5B9BD5" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="5" y1="28" x2="18" y2="28" stroke="#5B9BD5" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="38" y1="28" x2="51" y2="28" stroke="#5B9BD5" strokeWidth="2.2" strokeLinecap="round" />
-            <circle cx="28" cy="7" r="3" stroke="white" strokeWidth="1.8" fill="rgba(255,255,255,0.1)" />
-            <circle cx="28" cy="49" r="3" stroke="white" strokeWidth="1.8" fill="rgba(255,255,255,0.1)" />
-            <circle cx="7" cy="28" r="3" stroke="white" strokeWidth="1.8" fill="rgba(255,255,255,0.1)" />
-            <circle cx="49" cy="28" r="3" stroke="white" strokeWidth="1.8" fill="rgba(255,255,255,0.1)" />
-            <line x1="12" y1="12" x2="20.5" y2="20.5" stroke="#F97316" strokeWidth="2" strokeLinecap="round" />
-            <line x1="35.5" y1="35.5" x2="44" y2="44" stroke="#F97316" strokeWidth="2" strokeLinecap="round" />
-            <line x1="44" y1="12" x2="35.5" y2="20.5" stroke="#F97316" strokeWidth="2" strokeLinecap="round" />
-            <line x1="20.5" y1="35.5" x2="12" y2="44" stroke="#F97316" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="11" cy="11" r="2.8" fill="#F97316" />
-            <circle cx="45" cy="45" r="2.8" fill="#F97316" />
-            <circle cx="45" cy="11" r="2.8" fill="#F97316" />
-            <circle cx="11" cy="45" r="2.8" fill="#F97316" />
-            <rect x="24" y="2" width="8" height="4" rx="1.5" fill="rgba(255,255,255,0.6)" />
-            <rect x="24" y="50" width="8" height="4" rx="1.5" fill="rgba(255,255,255,0.6)" />
-            <rect x="2" y="24" width="4" height="8" rx="1.5" fill="rgba(255,255,255,0.6)" />
-            <rect x="50" y="24" width="4" height="8" rx="1.5" fill="rgba(255,255,255,0.6)" />
-            <polygon points="13,7 7,7 7,13" fill="#F97316" opacity="0.85" />
-            <polygon points="43,49 49,49 49,43" fill="#F97316" opacity="0.85" />
-          </svg>
-          <div className="ml-3.5">
-            <div className="flex items-baseline gap-1.5 text-xl font-bold tracking-tight">
-              <span className="text-white">CONECTA</span>
-              <span style={{ color: '#F97316' }}>PRO</span>
-            </div>
-            <div className="mt-1" style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.38)' }}>
-              by <span style={{ color: 'rgba(249,115,22,0.65)', fontWeight: 500 }}>Conecta Mais</span>
-            </div>
-          </div>
+        <img src="/images/quadrante.png" alt="Conecta PRO" style={{ height: 84, filter: 'brightness(0) invert(1)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>CONECTA</span>
+          <span style={{ fontSize: 15, fontWeight: 800, background: 'var(--orange)', padding: '4px 9px', borderRadius: 8 }}>PRO</span>
         </div>
-
-        {/* HERO */}
-        <div className="relative z-10 text-center flex flex-col items-center">
-          <div
-            className="inline-flex items-center gap-2 rounded-full mb-8"
-            style={{
-              background: 'rgba(249,115,22,0.12)',
-              border: '1px solid rgba(249,115,22,0.25)',
-              padding: '5px 16px 5px 12px',
-              fontSize: '10.5px',
-              fontWeight: 600,
-              color: '#FB923C',
-              letterSpacing: '0.5px',
-              textTransform: 'uppercase',
-            }}
-          >
-            <span
-              className="inline-block flex-shrink-0 rounded-full"
-              style={{ width: 6, height: 6, background: '#F97316', animation: 'login-pulse 2s infinite' }}
-            />
-            Seguranca Patrimonial & Eletronica
-          </div>
-
-          <div style={{ fontSize: 13, fontWeight: 400, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: 12 }}>
-            Sistema de Gestao Empresarial
-          </div>
-
-          <div className="flex items-center gap-3 w-full mb-3.5">
-            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
-            <div style={{ width: 8, height: 8, background: '#F97316', transform: 'rotate(45deg)', opacity: 0.8, flexShrink: 0 }} />
-            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)' }} />
-          </div>
-
-          <div style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1, marginBottom: 10 }}>
-            <span className="text-white">Conecta</span>{' '}
-            <span style={{ color: '#F97316' }}>Mais</span>
-          </div>
-
-          <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.35)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 400 }}>
-            Tecnologia para quem protege
-          </div>
+        <div style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: '0.24em', color: 'rgba(255,255,255,0.55)' }}>
+          BY CONECTA MAIS<sup style={{ fontSize: 8 }}>®</sup>
         </div>
-
-        {/* MODULOS */}
-        <div className="relative z-10">
-          <div
-            style={{
-              fontSize: 10,
-              color: 'rgba(255,255,255,0.28)',
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              marginBottom: 12,
-              borderTop: '1px solid rgba(255,255,255,0.07)',
-              paddingTop: 20,
-              textAlign: 'center',
-            }}
-          >
-            Modulos disponiveis
-          </div>
-
-          <div className="flex flex-wrap gap-2 mb-3.5 justify-center">
-            {['Operacional', 'Financeiro', 'GED & Fiscal', 'DP & Folha', 'CFTV & Eletronica'].map((m) => (
-              <div
-                key={m}
-                className="flex items-center gap-1.5"
-                style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 8,
-                  padding: '7px 13px',
-                  fontSize: 11.5,
-                  color: 'rgba(255,255,255,0.68)',
-                }}
-              >
-                <span className="inline-block flex-shrink-0 rounded-full" style={{ width: 5, height: 5, background: '#F97316', opacity: 0.8 }} />
-                {m}
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
-            <div
-              className="inline-flex items-center gap-1.5"
-              style={{
-                background: 'rgba(249,115,22,0.14)',
-                border: '1px solid rgba(249,115,22,0.32)',
-                borderRadius: 100,
-                padding: '6px 20px',
-                fontSize: 12,
-                fontWeight: 700,
-                color: '#FB923C',
-                letterSpacing: '0.3px',
-              }}
-            >
-              &#10022; E muito mais
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.82)', lineHeight: 1.5 }}>
+          Sistema de gestão para<br />segurança patrimonial
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 6 }}>
+          {FEATS.map((f) => (
+            <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <Check size={14} color="#F9A97A" strokeWidth={2.4} style={{ flex: 'none' }} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>{f}</span>
             </div>
-            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.06)' }} />
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* ── PAINEL DIREITO ── */}
-      <div className="flex-1 bg-white flex flex-col justify-center" style={{ padding: '52px 50px' }}>
-        <div className="max-w-md mx-auto w-full">
-          <div style={{ marginBottom: 28 }}>
-            {/* Mobile logo */}
-            <div className="lg:hidden flex items-center gap-2 mb-6">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#1E3A5F' }}>
-                <span className="text-white font-bold text-xs">C</span>
-              </div>
-              <span className="font-bold" style={{ color: '#1E3A5F' }}>
-                CONECTA <span style={{ color: '#F97316' }}>PRO</span>
-              </span>
-            </div>
-
-            <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 600, color: '#F97316', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10 }}>
-              Conecta PRO v2.0.0
+      {/* ── FORMULÁRIO ── */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--surface)' }}>
+        <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Logo no celular, onde o trilho não aparece */}
+          <div className="rd-so-mobile">
+            <img src="/images/quadrante.png" alt="" style={{ height: 30 }} />
+            <span style={{ fontWeight: 800, color: 'var(--navy)' }}>
+              CONECTA <span style={{ color: 'var(--orange)' }}>PRO</span>
             </span>
-            <h2 style={{ fontSize: 26, fontWeight: 700, color: '#1E3A5F', letterSpacing: '-0.5px', marginBottom: 5, lineHeight: 1.2 }}>
-              Bem-vindo de volta
-            </h2>
-            <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>Entre com suas credenciais para acessar o sistema</p>
           </div>
 
-          {/* Aviso — portal do funcionario atualizado */}
+          <div>
+            <div className="rd-page-title" style={{ fontSize: 24 }}>Acessar o sistema</div>
+            <div className="rd-page-sub">Entre com suas credenciais</div>
+          </div>
+
           {notice && (
-            <div className="flex items-center gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
-              <AlertCircle className="w-4 h-4 flex-shrink-0 text-blue-500" />
-              <span className="text-sm text-blue-600">{notice}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--info-bg)', color: 'var(--info)', border: '1px solid #C7D7FE', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, fontWeight: 600 }}>
+              <AlertCircle size={16} style={{ flex: 'none' }} /> {notice}
             </div>
           )}
 
-          {/* Erro */}
           {displayError && (
-            <div className="flex items-center gap-2 p-3 rounded-xl mb-4" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
-              <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-500" />
-              <span className="text-sm text-red-600">{displayError}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid #FBD5D5', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, fontWeight: 600 }}>
+              <AlertCircle size={16} style={{ flex: 'none' }} /> {displayError}
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
-            {/* E-mail */}
-            <div style={{ marginBottom: 15 }}>
-              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 7 }}>E-mail</label>
-              <div style={{ position: 'relative' }}>
-                <svg
-                  style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: '#9CA3AF', pointerEvents: 'none' }}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <rect x="2" y="4" width="20" height="16" rx="2.5" />
-                  <path d="M2 7.5l10 7 10-7" />
-                </svg>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                  required
-                  autoFocus
-                  style={{
-                    width: '100%',
-                    height: 44,
-                    border: '1.5px solid #E9ECEF',
-                    borderRadius: 10,
-                    padding: '0 14px 0 40px',
-                    fontSize: 13.5,
-                    color: '#111827',
-                    background: '#F8F9FB',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Campo
+              icone={<Mail size={16} />}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="voce@empresa.com"
+              autoComplete="username"
+              required
+              autoFocus
+            />
+            <Campo
+              icone={<Lock size={16} />}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              required
+            />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12.5 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--ink-weak)', cursor: 'pointer' }}>
+                <input type="checkbox" style={{ accentColor: 'var(--orange)' }} aria-label="Lembrar de mim" /> Lembrar de mim
+              </label>
+              <Link href="/forgot-password" style={{ fontWeight: 600, color: 'var(--orange-txt)' }}>
+                Esqueci minha senha
+              </Link>
             </div>
-
-            {/* Senha */}
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 7 }}>Senha</label>
-              <div style={{ position: 'relative' }}>
-                <svg
-                  style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: '#9CA3AF', pointerEvents: 'none' }}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <rect x="3" y="11" width="18" height="11" rx="2.5" />
-                  <path d="M7 11V7a5 5 0 0110 0v4" />
-                </svg>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  style={{
-                    width: '100%',
-                    height: 44,
-                    border: '1.5px solid #E9ECEF',
-                    borderRadius: 10,
-                    padding: '0 14px 0 40px',
-                    fontSize: 13.5,
-                    color: '#111827',
-                    background: '#F8F9FB',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between mt-2.5">
-                <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 13, color: '#6B7280' }}>
-                  <input type="checkbox" style={{ accentColor: '#F97316' }}  aria-label="Checkbox" />
-                  Lembrar-me
-                </label>
-                <Link href="/forgot-password" style={{ fontSize: 13, fontWeight: 600, color: '#F97316' }}>
-                  Esqueci a senha
-                </Link>
-              </div>
-            </div>
-
-            {/* Botao Entrar */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                height: 46,
-                background: isLoading ? '#2d5a8f' : '#1E3A5F',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 10,
-                fontSize: 15,
-                fontWeight: 600,
-                cursor: isLoading ? 'wait' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 9,
-                marginTop: 8,
-                letterSpacing: '-0.1px',
-                fontFamily: 'inherit',
-                transition: 'background .15s',
-              }}
-            >
-              {isLoading ? 'Entrando...' : 'Entrar'}
-              {!isLoading && (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
-              )}
-            </button>
+            <Btn variant="primary" type="submit" disabled={isLoading} style={{ width: '100%', height: 44 }}>
+              {isLoading ? 'Entrando…' : 'Entrar'}
+            </Btn>
           </form>
 
-          {/* Divisor */}
-          <div className="flex items-center gap-3" style={{ margin: '17px 0' }}>
-            <div style={{ flex: 1, height: 1, background: '#E9ECEF' }} />
-            <span style={{ fontSize: 12, color: '#9CA3AF', whiteSpace: 'nowrap' }}>ou continue com</span>
-            <div style={{ flex: 1, height: 1, background: '#E9ECEF' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={{ fontSize: 12, color: 'var(--placeholder)', whiteSpace: 'nowrap' }}>ou continue com</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>
 
-          {/* Google */}
+          {/* Google — `guardarDestino` segura o destino do link de assinatura na ida ao Google. */}
           <a
             href="/api/v1/auth/google"
             onClick={() => guardarDestino(searchParams.get('redirect'))}
-            style={{
-              width: '100%',
-              height: 44,
-              background: '#fff',
-              border: '1.5px solid #E9ECEF',
-              borderRadius: 10,
-              fontSize: 13.5,
-              fontWeight: 500,
-              color: '#374151',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              fontFamily: 'inherit',
-              textDecoration: 'none',
-              transition: 'border-color .15s, background .15s',
-            }}
+            className="rd-btn rd-btn-outline"
+            style={{ width: '100%', height: 44, textDecoration: 'none' }}
           >
             <svg width="18" height="18" viewBox="0 0 18 18">
               <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
@@ -440,38 +225,28 @@ function LoginContent() {
             Entrar com Google
           </a>
 
-          {/* Entrar com o rosto (funcionário) */}
-          <button
+          {/* Entrar com o rosto — porteiro e ASG entram por aqui, sem digitar nada. */}
+          <Btn
+            variant="navy"
             type="button"
             onClick={() => { setError(''); setFacialOpen(true); }}
-            style={{
-              width: '100%', height: 44, marginTop: 10, background: '#fff',
-              border: '1.5px solid #16277D', borderRadius: 10, fontSize: 13.5, fontWeight: 600,
-              color: '#16277D', cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', gap: 8, fontFamily: 'inherit',
-            }}
+            style={{ width: '100%', height: 44 }}
           >
             <ScanFace size={18} /> Entrar com o rosto
-          </button>
+          </Btn>
 
-          {/* Primeiro acesso do funcionário */}
-          <p style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#6B7280' }}>
+          <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ink-weak)' }}>
             Funcionário no 1º acesso?{' '}
-            <Link href="/primeiro-acesso" style={{ color: '#F97316', fontWeight: 600, textDecoration: 'none' }}>
+            <Link href="/primeiro-acesso" style={{ color: 'var(--orange-txt)', fontWeight: 600 }}>
               Cadastre-se aqui
             </Link>
           </p>
 
-          {/* Footer */}
-          <p style={{ marginTop: 18, textAlign: 'center', fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.6 }}>
-            Ao entrar, voce concorda com os{' '}
-            <a href="/termos" style={{ color: '#F97316', textDecoration: 'none', fontWeight: 600 }}>
-              Termos de Uso
-            </a>{' '}
+          <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--placeholder)', lineHeight: 1.6 }}>
+            Ao entrar, você concorda com os{' '}
+            <a href="/termos" style={{ color: 'var(--orange-txt)', fontWeight: 600 }}>Termos de Uso</a>{' '}
             e{' '}
-            <a href="/privacidade" style={{ color: '#F97316', textDecoration: 'none', fontWeight: 600 }}>
-              Politica de Privacidade
-            </a>
+            <a href="/privacidade" style={{ color: 'var(--orange-txt)', fontWeight: 600 }}>Política de Privacidade</a>
           </p>
         </div>
       </div>
@@ -479,16 +254,16 @@ function LoginContent() {
       {/* Modal: login por rosto */}
       {facialOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.6)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 400 }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)', padding: 20, width: '100%', maxWidth: 400 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: '#16277D', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <ScanFace size={18} /> Entrar com o rosto
               </span>
-              <button onClick={() => { setFacialOpen(false); setFacialLoading(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={20} /></button>
+              <button onClick={() => { setFacialOpen(false); setFacialLoading(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--placeholder)' }} aria-label="Fechar"><X size={20} /></button>
             </div>
-            <p style={{ fontSize: 13, color: '#64748B', marginBottom: 12 }}>Olhe pra câmera num lugar iluminado.</p>
+            <p style={{ fontSize: 13, color: 'var(--ink-weak)', marginBottom: 12 }}>Olhe pra câmera num lugar iluminado.</p>
             {facialLoading ? (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748B' }}>
+              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-weak)' }}>
                 <Loader2 size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px' }} /> Reconhecendo…
               </div>
             ) : (
@@ -498,13 +273,11 @@ function LoginContent() {
         </div>
       )}
 
-      {/* CSS pulse */}
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <style>{`
-        @keyframes login-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(0.8); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .rd-so-mobile { display: none; }
+        @media (max-width: 820px) {
+          .rd-so-mobile { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
         }
       `}</style>
     </div>

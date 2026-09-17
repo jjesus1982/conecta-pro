@@ -5,5 +5,5 @@ export function rdLogout() {
     localStorage.removeItem('refresh_token');
   } catch { /* */ }
   try { document.cookie = 'auth_token=; path=/; max-age=0'; } catch { /* */ }
-  window.location.href = '/redesign/login';
+  window.location.href = '/login';
 }

@@ -184,6 +184,46 @@ def main() -> int:
                 "agente, líder, gerente e supervisor perdem o acesso ao próprio Meu Espaço"
             )
 
+    # ── 6. A tela de login é UMA, e veste a identidade do redesign ──────────
+    #
+    # 17/09/2026, o dono: «a tela de login dos funcionários que receberam o link é a antiga,
+    # do clássico, não é do redesign». Existiam DUAS telas: `/login`, com Google, rosto e
+    # primeiro acesso, e `/redesign/login`, bonita e mais fraca — sem nada disso e jogando
+    # fora todo destino que não começasse com `/redesign`, o defeito de hoje de manhã.
+    #
+    # Estrutural, não HTTP, pelo mesmo motivo dos elos 4 e 5: a tela é client-side, o HTML que
+    # o curl recebe vem vazio, e grep em chunk publicado MENTE — o deploy reinjeta os chunks
+    # antigos de propósito (anti-ChunkLoadError), então a frase velha continua no disco do
+    # container para sempre.
+    login = RAIZ / "frontend/src/app/login/page.tsx"
+    if not login.exists():
+        quebras.append("frontend/src/app/login/page.tsx sumiu — a tela que todo link aponta")
+    else:
+        fonte = login.read_text(encoding="utf8")
+        if "rd-root" not in fonte or "redesign.css" not in fonte:
+            quebras.append("a tela /login perdeu a identidade do redesign (rd-root + redesign.css)")
+        for velho in ("Bem-vindo de volta", "v2.0.0"):
+            if velho in fonte:
+                quebras.append(f"a tela /login voltou a mostrar o clássico: {velho!r}")
+        # Nenhum recurso pode ter se perdido na troca de roupa. Cada um destes é uma porta de
+        # entrada que alguém usa: o Google é o caminho que o próprio aviso manda usar, e o
+        # rosto é como porteiro e ASG entram sem digitar.
+        for recurso, marca in (
+            ("Google", "/api/v1/auth/google"),
+            ("entrar com o rosto", "ScanFace"),
+            ("primeiro acesso", "/primeiro-acesso"),
+            ("destino do link", "destinoPosLogin"),
+            ("destino na ida ao Google", "guardarDestino"),
+        ):
+            if marca not in fonte:
+                quebras.append(f"a tela /login perdeu «{recurso}» ({marca})")
+
+    # A segunda tela não pode voltar a autenticar: duas telas divergem, e foi a fraca que o
+    # guard do redesign mandava todo mundo usar.
+    duplicata = RAIZ / "frontend/src/app/redesign/login/page.tsx"
+    if duplicata.exists() and "/api/v1/auth/login" in duplicata.read_text(encoding="utf8"):
+        quebras.append("/redesign/login voltou a ser uma segunda tela de login — tem de só encaminhar para /login")
+
     for q in quebras:
         print(f"  ✗ {q}")
     print(f"TOTAL: {len(quebras)} elo(s) quebrado(s) no link de assinatura")
