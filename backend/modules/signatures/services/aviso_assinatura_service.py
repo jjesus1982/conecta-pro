@@ -59,6 +59,15 @@ _SQL_PENDENTES = text(
     -- Achado no mesmo dia no `identidade.py`, e a vítima foi a mesma: o NAILSON, ativo, com 19
     -- documentos no kit.
     SELECT e.id::text AS eid, e.nome, e.email, coalesce(nullif(e.celular, ''), e.telefone, '') AS fone,
+           -- O SEGUNDO número. A Bianca tinha o WhatsApp de verdade no campo `telefone`
+           -- (92 99220-8640, o mesmo da chave PIX) e `92988887777` digitado à mão no `celular`
+           -- — que é o que esta query lê primeiro. Ela ficou meses sem receber nada com o
+           -- número certo cadastrado a um campo de distância. São 8 pessoas com dois números
+           -- diferentes; agora o envio tenta o outro em vez de desistir no primeiro.
+           CASE WHEN regexp_replace(coalesce(e.celular,''), '[^0-9]', '', 'g')
+                     <> regexp_replace(coalesce(e.telefone,''), '[^0-9]', '', 'g')
+                THEN coalesce(nullif(e.telefone, ''), nullif(e.celular, ''), '')
+                ELSE '' END AS fone_alt,
            count(*) AS qtd,
            string_agg(DISTINCT r.document_type, ',') AS tipos,
            max(r.created_at) AS mais_recente
@@ -242,11 +251,17 @@ def avisar_pendentes(
                     canais.append(f"e-mail {r['email']}")
                 except Exception as exc:  # noqa: BLE001 — um e-mail ruim não cala os outros
                     logger.warning("aviso de assinatura (e-mail) para %s: %s", r["nome"], exc)
-            if r.get("fone"):
+            # Tenta os DOIS números antes de desistir. Desistir no primeiro foi o que deixou
+            # a Bianca meses sem receber: o celular cadastrado não existia no WhatsApp e o
+            # número de verdade estava no campo `telefone`.
+            for fone in (r.get("fone"), r.get("fone_alt")):
+                if not fone:
+                    continue
                 try:
-                    if enviar_whatsapp(r["fone"], mensagem_whatsapp(r["nome"], resumo)):
-                        canais.append(f"WhatsApp {r['fone']}")
+                    if enviar_whatsapp(fone, mensagem_whatsapp(r["nome"], resumo)):
+                        canais.append(f"WhatsApp {fone}")
                         rel["whatsapp"] += 1
+                        break
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("aviso de assinatura (WhatsApp) para %s: %s", r["nome"], exc)
             if not canais:
