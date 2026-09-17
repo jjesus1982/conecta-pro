@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import { PanelLeftClose, PanelLeft, Menu, Search, Plus, LogOut, LayoutGrid } from 'lucide-react';
 import RdBell from './RdBell';
 import { MODULES } from './modules';
-import { BuscaTelas } from './BuscaTelas';
 
 // Scanner de câmera (QR PIX + código de barras de boleto) — reusa o componente do clássico.
 // client-only (usa a câmera); só carrega quando o usuário abre o scanner.
@@ -1197,13 +1196,11 @@ export default function ModuleView({ slug }: { slug: string }) {
           <span className={`rd-badge ${dataState === 'loading' ? 'rd-b-neutral' : isReal ? 'rd-b-success' : 'rd-b-neutral'}`} style={{ height: 20 }}>
             {dataState === 'loading' ? 'carregando…' : isReal ? 'dados reais' : 'aguardando dado'}
           </span>
-          {/* Este campo filtra o conteúdo da tela ABERTA (a tabela). Não confundir com o
-              Ctrl+K logo abaixo, que troca de TELA — são funções diferentes. */}
+          {/* Filtra o conteúdo da tela ABERTA. Para trocar de TELA é o Ctrl+K. */}
           <div className="rd-search">
             <Search size={16} color="var(--placeholder)" />
             <input placeholder={scr?.searchHint || 'Buscar…'} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <BuscaTelas />
           <RdBell />
           {scr?.cta && isReal && (scr.type === 'form' || (scr.ctaTo && (patches[scr.ctaTo] || screens[scr.ctaTo]))) && (
             <button

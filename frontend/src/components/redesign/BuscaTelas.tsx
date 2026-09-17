@@ -17,9 +17,7 @@
  * que é local. Melhor achar metade do que não achar nada.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Search, CornerDownLeft } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { MODULES } from './modules';
 
 export type Alvo = { slug: string; id: string; label: string };
@@ -112,16 +110,16 @@ function alvosLocais(): Alvo[] {
  * eu tinha visto está no `shell.tsx`, que nenhuma tela usa. Duas buscas com papéis diferentes
  * pedem dois lugares: o campo filtra o que está na frente, o Ctrl+K leva para outra tela.
  */
-export function BuscaTelas() {
-  const router = useRouter();
-  const [termo, setTermo] = useState('');
-  const [aberto, setAberto] = useState(false);
+/**
+ * O índice das telas, pronto para consumo.
+ *
+ * Duas fontes: os pacotes locais (sem rede) e `/api/v1/redesign/indice` (as abas extras, que
+ * só o backend conhece). O remoto falha em silêncio de propósito — sem rede, a busca segue
+ * com o que é local. Melhor achar metade do que não achar nada.
+ */
+export function useTelasDoRedesign(): Alvo[] {
   const [remotos, setRemotos] = useState<Alvo[]>([]);
-  const [cursor, setCursor] = useState(0);
-  const caixa = useRef<HTMLDivElement>(null);
-  const campo = useRef<HTMLInputElement>(null);
 
-  // Índice remoto: uma vez por sessão. Falha em silêncio — ver nota no topo.
   useEffect(() => {
     let vivo = true;
     fetch('/api/v1/redesign/indice', {
@@ -133,7 +131,7 @@ export function BuscaTelas() {
     return () => { vivo = false; };
   }, []);
 
-  const universo = useMemo(() => {
+  return useMemo(() => {
     const vistos = new Set<string>();
     const out: Alvo[] = [];
     for (const a of [...alvosLocais(), ...remotos]) {
@@ -144,128 +142,12 @@ export function BuscaTelas() {
     }
     return out;
   }, [remotos]);
+}
 
-  const achados = useMemo(() => filtrar(universo, termo), [termo, universo]);
-
-  useEffect(() => setCursor(0), [termo]);
-
-  // Ctrl+K / Cmd+K de qualquer lugar; Esc fecha.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        campo.current?.focus();
-        setAberto(true);
-      }
-      if (e.key === 'Escape') setAberto(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  // Clique fora fecha — senão a lista fica pendurada sobre a tela.
-  useEffect(() => {
-    const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
-    };
-    document.addEventListener('mousedown', fora);
-    return () => document.removeEventListener('mousedown', fora);
-  }, []);
-
-  const ir = (a: Alvo) => {
-    setAberto(false);
-    setTermo('');
-    router.push(`/redesign/${a.slug}?t=${a.id}`);
-  };
-
-  const teclas = (e: React.KeyboardEvent) => {
-    if (!achados.length) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => (c + 1) % achados.length); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => (c - 1 + achados.length) % achados.length); }
-    // O cursor pode apontar fora da lista: ele é zerado por efeito DEPOIS do render em que
-    // `achados` encolheu. Enter nesse instante chamaria `ir(undefined)`.
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const alvo = achados[cursor] ?? achados[0];
-      if (alvo) ir(alvo);
-    }
-  };
-
-  if (!aberto) return null;
-
-  return (
-    <div
-      role="presentation"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) setAberto(false); }}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(3,8,20,.55)',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh',
-      }}
-    >
-      <div
-        ref={caixa}
-        style={{
-          width: 'min(620px, 92vw)', background: 'var(--card, #12203f)',
-          border: '1px solid var(--border, #24365f)', borderRadius: 12,
-          boxShadow: '0 24px 60px rgba(0,0,0,.5)', overflow: 'hidden',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
-                      borderBottom: '1px solid var(--border, #24365f)' }}>
-          <Search size={17} color="var(--placeholder, #8ea2c9)" />
-          <input
-            ref={campo}
-            value={termo}
-            placeholder="Buscar tela pelo nome — assinatura, ponto, férias…"
-            onChange={(e) => setTermo(e.target.value)}
-            onKeyDown={teclas}
-            aria-label="Buscar tela"
-            autoFocus
-            style={{
-              flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              color: 'inherit', fontSize: 15,
-            }}
-          />
-          <kbd style={{ fontSize: 10, opacity: .55, border: '1px solid currentColor',
-                        borderRadius: 4, padding: '1px 5px' }}>Esc</kbd>
-        </div>
-
-        <div role="listbox" aria-label="Telas encontradas" style={{ maxHeight: '52vh', overflowY: 'auto' }}>
-          {normalizar(termo).length < 2 ? (
-            <div style={{ padding: '18px 18px', fontSize: 13, color: 'var(--placeholder, #8ea2c9)' }}>
-              Digite o nome da tela. São {universo.length} telas — «assinatura», «diária»,
-              «ponto», «férias», «holerite».
-            </div>
-          ) : achados.length === 0 ? (
-            <div style={{ padding: '18px', fontSize: 13, color: 'var(--placeholder, #8ea2c9)' }}>
-              Nada com “{termo}”. A busca lê o NOME da tela — tente o assunto.
-            </div>
-          ) : (
-            achados.map((a, i) => (
-              <button
-                key={`${a.slug}:${a.id}`}
-                type="button"
-                role="option"
-                aria-selected={i === cursor}
-                onMouseEnter={() => setCursor(i)}
-                onClick={() => ir(a)}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  gap: 12, width: '100%', textAlign: 'left', padding: '11px 16px',
-                  background: i === cursor ? 'rgba(242,101,34,.16)' : 'transparent',
-                  border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14,
-                }}
-              >
-                <span style={{ fontWeight: 500 }}>{a.label}</span>
-                <span style={{ fontSize: 11, color: 'var(--placeholder, #8ea2c9)', whiteSpace: 'nowrap' }}>
-                  {titulo(a.slug)}
-                  {i === cursor && <CornerDownLeft size={11} style={{ marginLeft: 7, verticalAlign: -1 }} />}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
+/** Um texto casa com o termo? Mesma regra do `filtrar`, para uso fora dele. */
+export function casaTermo(texto: string, termo: string): boolean {
+  const q = normalizar(termo);
+  if (q.length < 2) return false;
+  const alvo = normalizar(texto);
+  return q.split(' ').filter(Boolean).every((p) => casaPalavra(p, alvo));
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filtrar, normalizar, titulo, type Alvo } from '../BuscaTelas';
+import { filtrar, normalizar, titulo, casaTermo, type Alvo } from '../BuscaTelas';
 
 /**
  * A busca do topo. Origem: 17/09/2026 — o Jordan: «to super perdido no sistema, difícil de
@@ -68,5 +68,23 @@ describe('titulo — o módulo aparece legível ao lado', () => {
   });
   it('e inventa um legível para slug desconhecido', () => {
     expect(titulo('minha-tela-nova')).toBe('Minha Tela Nova');
+  });
+});
+
+describe('casaTermo — a mesma regra, usada pelo CommandPalette', () => {
+  it('tolera acento e raiz, que `includes` cru não tolera', () => {
+    expect(casaTermo('Diaristas', 'diaria')).toBe(true);
+    expect(casaTermo('CCT — Férias', 'ferias')).toBe(true);
+    expect('Diaristas'.toLowerCase().includes('diaria')).toBe(false);  // o que havia antes
+  });
+
+  it('exige todas as palavras', () => {
+    expect(casaTermo('Cobrar quem não assinou', 'cobrar assinou')).toBe(true);
+    expect(casaTermo('Central de assinaturas', 'cobrar assinou')).toBe(false);
+  });
+
+  it('termo curto não casa com tudo', () => {
+    expect(casaTermo('Diaristas', 'a')).toBe(false);
+    expect(casaTermo('Diaristas', '')).toBe(false);
   });
 });

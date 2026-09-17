@@ -3,6 +3,7 @@
 import { Search, FileText, Users, Calendar, AlertTriangle, Download, X } from 'lucide-react';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTelasDoRedesign, titulo as tituloModulo, casaTermo } from './redesign/BuscaTelas';
 ;
 
 interface Command {
@@ -24,7 +25,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const commands: Command[] = useMemo(() => [
+  const comandosBase: Command[] = useMemo(() => [
     // Navegação
     {
       id: 'novo-posto',
@@ -33,7 +34,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       icon: <FileText className="w-4 h-4" />,
       category: 'navigation',
       action: () => {
-        router.push('/modulos/operacional/postos/novo');
+        router.push('/redesign/operacional?t=postos');
         onClose();
       },
     },
@@ -55,7 +56,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       icon: <Calendar className="w-4 h-4" />,
       category: 'action',
       action: () => {
-        router.push('/modulos/operacional/escalas/nova');
+        router.push('/redesign/operacional?t=escalas');
         onClose();
       },
     },
@@ -66,7 +67,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       icon: <AlertTriangle className="w-4 h-4" />,
       category: 'navigation',
       action: () => {
-        router.push('/modulos/operacional/ocorrencias/nova');
+        router.push('/redesign/operacional?t=ocorrencias');
         onClose();
       },
     },
@@ -94,12 +95,33 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     },
   ], [router, onClose]);
 
+  // ── As telas do redesign entram aqui ────────────────────────────────────────
+  // Origem: 17/09/2026. Eu tinha construído um SEGUNDO painel de busca no Ctrl+K e os dois
+  // abriram juntos — só vi no navegador. Um atalho, um painel: as 476 telas viram comandos
+  // deste, que já existe, em vez de competir com ele.
+  const telas = useTelasDoRedesign();
+  const comandosTela: Command[] = useMemo(
+    () => telas.map((t) => ({
+      id: `tela:${t.slug}:${t.id}`,
+      title: t.label,
+      description: tituloModulo(t.slug),
+      icon: <Search className="w-4 h-4" />,
+      category: 'navigation' as const,
+      action: () => { router.push(`/redesign/${t.slug}?t=${t.id}`); onClose(); },
+    })),
+    [telas, router, onClose],
+  );
+  const commands = useMemo(() => [...comandosBase, ...comandosTela], [comandosBase, comandosTela]);
+
   // Busca fuzzy simples
   const filteredCommands = useMemo(() => {
     if (!query.trim()) return commands;
 
     const lowerQuery = query.toLowerCase();
     return commands.filter(cmd => {
+      // `casaTermo` tolera acento e raiz: quem digita "diaria" acha "Diaristas", e "ferias"
+      // acha "Férias". `includes` cru não faz nem uma coisa nem outra.
+      if (casaTermo(`${cmd.title} ${cmd.description ?? ''}`, query)) return true;
       const titleMatch = cmd.title.toLowerCase().includes(lowerQuery);
       const descMatch = cmd.description?.toLowerCase().includes(lowerQuery);
       return titleMatch || descMatch;
