@@ -139,6 +139,21 @@ def agrupar(slug: str, aplicar: bool) -> int:
         else:
             soltos.append(nova)
 
+    # ── TRAVA: o script NÃO pode apagar item ────────────────────────────────────
+    # O parsing lê um item por linha, e o `ruff format` do pre-commit quebra itens longos em
+    # várias. Depois da formatação, este script passou a enxergar 40 dos 45 itens do CRM —
+    # aplicar ali teria removido 5 telas do menu sem aviso. Conta os `"id":` crus do bloco e
+    # recusa se algum tiver escapado do parsing.
+    crus = len(re.findall(r'"id":\s*"', "".join(linhas[ini + 1 : fim])))
+    lidos = len(vistos) + fora
+    if lidos != crus:
+        print(
+            f"  ABORTADO: o bloco tem {crus} itens e o parsing leu {lidos}. Provavelmente há "
+            "item quebrado em várias linhas (ruff format). Aplicar apagaria os que faltam.",
+            file=sys.stderr,
+        )
+        return 3
+
     novas = soltos + [l for g in ordem_grupos for l in por_grupo[g]]
     antes = len(vistos) + fora
     visiveis = len([l for l in soltos if l.strip().startswith('{"id"')]) + len(ordem_grupos)
