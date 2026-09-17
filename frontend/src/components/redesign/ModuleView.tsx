@@ -40,13 +40,36 @@ function Ico({ d, size = 17, stroke = 'currentColor' }: { d: string; size?: numb
   );
 }
 
-type MenuItem = { id: string; label: string; icon: string };
+type MenuItem = { id: string; label: string; icon: string; grupo?: string };
 function normMenu(menu: unknown[]): MenuItem[] {
   return (menu || []).map((it: unknown) => {
     if (Array.isArray(it)) return { id: it[0], label: it[1], icon: it[2] };
-    const o = it as { id: string; label: string; icon: string };
-    return { id: o.id, label: o.label, icon: o.icon };
+    const o = it as MenuItem;
+    return { id: o.id, label: o.label, icon: o.icon, grupo: o.grupo };
   }).filter((m) => m.id);
+}
+
+/**
+ * Agrupa o menu por assunto, preservando a ordem de chegada.
+ *
+ * Origem: 17/09/2026. O Jordan: «a side bar tá gigante, me perco diante de tanta coisa» e
+ * «parece que tudo faz a mesma coisa». Medido: 289 itens, e o RH sozinho tinha 44 — dos quais
+ * 18 eram «CCT — alguma coisa», incluindo três entradas diferentes só para feriados.
+ *
+ * Item SEM `grupo` continua solto exatamente como antes: a mudança é aditiva, nenhum módulo
+ * que não declarar grupo muda de aparência.
+ */
+type Bloco = { grupo: string | null; itens: MenuItem[] };
+function agrupar(itens: MenuItem[]): Bloco[] {
+  const blocos: Bloco[] = [];
+  for (const it of itens) {
+    const g = it.grupo || null;
+    const ultimo = blocos[blocos.length - 1];
+    // Solto e solto se juntam; grupo só continua se for o MESMO grupo em sequência.
+    if (ultimo && ultimo.grupo === g) ultimo.itens.push(it);
+    else blocos.push({ grupo: g, itens: [it] });
+  }
+  return blocos;
 }
 
 // ── Pílula de status ─────────────────────────────────────────────────────────
@@ -1043,6 +1066,8 @@ export default function ModuleView({ slug }: { slug: string }) {
   const [dataState, setDataState] = useState<'idle' | 'loading' | 'done'>('idle');
   // Bumpado por ReloadCtx após uma ação de escrita → refaz o fetch da tela.
   const [reloadKey, setReloadKey] = useState(0);
+  //: grupo -> aberto. Ausente = decide pelo item ativo (ver `agrupar`).
+  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
 
   // `useSearchParams` e não `window.location.search`: o Ctrl+K navega para OUTRA ABA do MESMO
   // módulo, então só a query muda. Lendo o window direto e dependendo de [screens], o efeito
@@ -1163,13 +1188,43 @@ export default function ModuleView({ slug }: { slug: string }) {
           <div><div className="nm">{mod.name}</div><div className="ds">{mod.desc}</div></div>
         </div>
         <nav className="rd-nav">
-          {[...menu, ...normMenu(extraMenu)].map((m) => (
-            <button key={m.id} type="button" title={m.label}
-              className={`rd-nav-item${m.id === active ? ' active' : ''}`} onClick={() => go(m.id)}>
-              <Ico d={m.icon} size={17} stroke={m.id === active ? '#fff' : '#9DB0D9'} />
-              <span>{m.label}</span>
-            </button>
-          ))}
+          {agrupar([...menu, ...normMenu(extraMenu)]).map((bloco, bi) => {
+            const itemAtivoAqui = bloco.itens.some((m) => m.id === active);
+            // O grupo do item aberto nasce expandido — a pessoa tem de VER onde está.
+            const aberto = bloco.grupo === null || abertos[bloco.grupo] === true
+              || (abertos[bloco.grupo] === undefined && itemAtivoAqui);
+            return (
+              <div key={bloco.grupo ?? `solto-${bi}`}>
+                {bloco.grupo && (
+                  <button
+                    type="button"
+                    className={`rd-nav-item rd-nav-grupo${itemAtivoAqui && !aberto ? ' active' : ''}`}
+                    aria-expanded={aberto}
+                    onClick={() => setAbertos((a) => ({ ...a, [bloco.grupo as string]: !aberto }))}
+                    title={`${bloco.grupo} — ${bloco.itens.length} telas`}
+                  >
+                    <Ico d={bloco.itens[0]?.icon || 'M3 3v18h18'} size={17}
+                         stroke={itemAtivoAqui ? '#fff' : '#9DB0D9'} />
+                    <span style={{ flex: 1 }}>{bloco.grupo}</span>
+                    {!collapsed && (
+                      <span style={{ fontSize: 10, opacity: .55, marginLeft: 6 }}>
+                        {bloco.itens.length} {aberto ? '▾' : '▸'}
+                      </span>
+                    )}
+                  </button>
+                )}
+                {aberto && bloco.itens.map((m) => (
+                  <button key={m.id} type="button" title={m.label}
+                    className={`rd-nav-item${m.id === active ? ' active' : ''}`}
+                    style={bloco.grupo ? { paddingLeft: collapsed ? undefined : 30 } : undefined}
+                    onClick={() => go(m.id)}>
+                    <Ico d={m.icon} size={17} stroke={m.id === active ? '#fff' : '#9DB0D9'} />
+                    <span>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="rd-side-foot">
           <div className="rd-avatar">{initials}</div>

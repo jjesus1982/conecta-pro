@@ -107,7 +107,7 @@ def _cnpj(v) -> str:
 # REUSA os MESMOS services dos endpoints clássicos /crm/proposals|contracts/*. Nunca
 # reimplementa lógica; ativar contrato é HEAVY → gate reforçado (confirmação digitada).
 router = APIRouter()
-from ._frente_07 import router as _r07  # frente 07
+from ._frente_07 import router as _r07  # frente 07  # noqa: E402  # import tardio pré-existente
 
 router.include_router(_r07)  # frente 07
 
@@ -507,60 +507,85 @@ EXTRA_MENU: list[dict] = [
     # PRIMEIRA da lista de propósito: é a fila do que já foi vendido e ainda não está
     # assinado. Sem entrada no menu a tela existe em `screens`, responde por HTTP e
     # NINGUÉM chega nela — o defeito mais comum desta casa.
-    {"id": "contratos-a-emitir", "label": "Central de contratos", "icon": _ICO_DOC},
     {"id": "jose-luis-dashboard", "label": "José Luís — painel do agente", "icon": "M3 3v18h18"},
-    {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC},
     # Ficha viva / negociação
-    {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT},
     {"id": "negociacao-responsavel", "label": "Quem conduz", "icon": _ICO_CHAT},
-    {"id": "whatsapp-cadastrar", "label": "Cadastrar WhatsApp", "icon": _ICO_CHAT},
     # Reuniões
-    {"id": "reuniao-sugerir", "label": "Sugerir reunião", "icon": _ICO_CAL},
-    {"id": "reuniao-confirmar", "label": "Confirmar reunião", "icon": _ICO_CAL},
-    {"id": "reuniao-cancelar", "label": "Cancelar reunião", "icon": _ICO_CAL},
     # Visitas
-    {"id": "visita-montar", "label": "Montar relatório de visita", "icon": _ICO_DOC},
-    {"id": "visita-registrar-lead", "label": "Lead a partir da visita", "icon": _ICO_DOC},
     # Documento
     {"id": "doc-ordem-servico", "label": "Ordem de serviço (PDF)", "icon": _ICO_DOC},
     # Follow-up / contato com o cliente
-    {"id": "followup-tocar", "label": "Tocar cliente", "icon": _ICO_CHAT},
-    {"id": "followup-lote", "label": "Tocar em lote", "icon": _ICO_CHAT},
-    {"id": "followup-resposta", "label": "Registrar retorno", "icon": _ICO_CHAT},
-    {"id": "followup-optout", "label": "Opt-out (não perturbe)", "icon": _ICO_CHAT},
-    {"id": "nps-enviar", "label": "Enviar NPS", "icon": _ICO_CHAT},
-    {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT},
     # Análise
-    {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC},
-    {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT},
-    {"id": "consultor-comercial-arquivo", "label": "Consultor comercial — com anexo", "icon": _ICO_CHAT},
-    {"id": "doc-orcamento", "label": "Orçamento (PDF)", "icon": _ICO_DOC},
-    {"id": "apresentacao-gerar", "label": "Gerar apresentacao", "icon": _ICO_DOC},
-    {"id": "visita-achados", "label": "Anexar achados a visita", "icon": _ICO_DOC},
     {"id": "asset-upload", "label": "Enviar logo/selo", "icon": _ICO_DOC},
     {"id": "expurgar-teste", "label": "Arquivar documentos de teste", "icon": _ICO_DOC},
     # LIGAR 08/09/2026 (revisão 100%): rotas que existiam sem tela no redesign
-    {"id": "contato-novo", "label": "Novo contato", "icon": _ICO_CHAT},
-    {"id": "produtos", "label": "Produtos (catálogo)", "icon": _ICO_DOC},
-    {"id": "produto-novo", "label": "Novo produto", "icon": _ICO_DOC},
-    {"id": "timeline-nota", "label": "Anotar na timeline", "icon": _ICO_CHAT},
     {"id": "tarefas", "label": "Tarefas", "icon": _ICO_CAL},
-    {"id": "contrato-itens", "label": "Itens de contrato", "icon": _ICO_DOC},
-    {"id": "contrato-item-novo", "label": "Novo item de contrato", "icon": _ICO_DOC},
-    {"id": "aditivos", "label": "Aditivos", "icon": _ICO_DOC},
-    {"id": "aditivo-novo", "label": "Novo aditivo", "icon": _ICO_DOC},
-    {"id": "modelos-contrato", "label": "Modelos de contrato", "icon": _ICO_DOC},
-    {"id": "modelo-contrato-novo", "label": "Novo modelo de contrato", "icon": _ICO_DOC},
-    {"id": "proposta-itens", "label": "Itens de proposta", "icon": _ICO_DOC},
-    {"id": "proposta-item-novo", "label": "Novo item de proposta", "icon": _ICO_DOC},
-    {"id": "condominios", "label": "Condomínios", "icon": _ICO_DOC},
-    {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC},
-    {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT},
-    {"id": "contrato-reajuste-calcular", "label": "Calcular reajuste de contrato", "icon": _ICO_DOC},
-    {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT},
-    {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC},
+    {"id": "contratos-a-emitir", "label": "Central de contratos", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "novo-contrato", "label": "Novo contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "contrato-itens", "label": "Itens de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "contrato-item-novo", "label": "Novo item de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "aditivos", "label": "Aditivos", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "aditivo-novo", "label": "Novo aditivo", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "modelos-contrato", "label": "Modelos de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "modelo-contrato-novo", "label": "Novo modelo de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {
+        "id": "contrato-reajuste-calcular",
+        "label": "Calcular reajuste de contrato",
+        "icon": _ICO_DOC,
+        "grupo": "Contratos",
+    },
+    {"id": "cliente-anotar", "label": "Anotar na ficha", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "contato-novo", "label": "Novo contato", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "condominios", "label": "Condomínios", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {"id": "condominio-novo", "label": "Novo condomínio", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {"id": "cliente-inadimplente", "label": "Marcar inadimplência", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "cliente-ficha-360", "label": "Ficha 360 do cliente", "icon": _ICO_CHAT, "grupo": "Clientes & contatos"},
+    {"id": "consultar-cnpj-cep", "label": "Consultar CNPJ / CEP", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+    {
+        "id": "whatsapp-cadastrar",
+        "label": "Cadastrar WhatsApp",
+        "icon": _ICO_CHAT,
+        "grupo": "Follow-up & relacionamento",
+    },
+    {"id": "followup-tocar", "label": "Tocar cliente", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "followup-lote", "label": "Tocar em lote", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "followup-resposta", "label": "Registrar retorno", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {
+        "id": "followup-optout",
+        "label": "Opt-out (não perturbe)",
+        "icon": _ICO_CHAT,
+        "grupo": "Follow-up & relacionamento",
+    },
+    {"id": "nps-enviar", "label": "Enviar NPS", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "reativar-lead", "label": "Reativar lead frio", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "timeline-nota", "label": "Anotar na timeline", "icon": _ICO_CHAT, "grupo": "Follow-up & relacionamento"},
+    {"id": "reuniao-sugerir", "label": "Sugerir reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},
+    {"id": "reuniao-confirmar", "label": "Confirmar reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},
+    {"id": "reuniao-cancelar", "label": "Cancelar reunião", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},
+    {"id": "visita-montar", "label": "Montar relatório de visita", "icon": _ICO_DOC, "grupo": "Reuniões & visitas"},
+    {
+        "id": "visita-registrar-lead",
+        "label": "Lead a partir da visita",
+        "icon": _ICO_DOC,
+        "grupo": "Reuniões & visitas",
+    },
+    {"id": "visita-achados", "label": "Anexar achados a visita", "icon": _ICO_DOC, "grupo": "Reuniões & visitas"},
+    {"id": "simular-fechamento", "label": "Simular fechamento", "icon": _ICO_DOC, "grupo": "Propostas & orçamento"},
+    {"id": "doc-orcamento", "label": "Orçamento (PDF)", "icon": _ICO_DOC, "grupo": "Propostas & orçamento"},
+    {"id": "apresentacao-gerar", "label": "Gerar apresentacao", "icon": _ICO_DOC, "grupo": "Propostas & orçamento"},
+    {"id": "proposta-itens", "label": "Itens de proposta", "icon": _ICO_DOC, "grupo": "Propostas & orçamento"},
+    {"id": "proposta-item-novo", "label": "Novo item de proposta", "icon": _ICO_DOC, "grupo": "Propostas & orçamento"},
+    {"id": "consultor-comercial", "label": "Consultor comercial", "icon": _ICO_CHAT, "grupo": "Consultor comercial"},
+    {
+        "id": "consultor-comercial-arquivo",
+        "label": "Consultor comercial — com anexo",
+        "icon": _ICO_CHAT,
+        "grupo": "Consultor comercial",
+    },
+    {"id": "produtos", "label": "Produtos (catálogo)", "icon": _ICO_DOC, "grupo": "Catálogo"},
+    {"id": "produto-novo", "label": "Novo produto", "icon": _ICO_DOC, "grupo": "Catálogo"},
 ]
-from ._frente_07 import MENU as _menu07  # frente 07
+from ._frente_07 import MENU as _menu07  # noqa: E402, N811  # import tardio e alias, pré-existentes
 
 EXTRA_MENU.extend(_menu07)  # frente 07
 
@@ -1019,7 +1044,7 @@ def _contrato_actions(r):
             {
                 "title": f"Aditivo ao contrato {r[1]}",
                 "sub": "Registra a alteração como ADITIVO — o contrato original fica intacto e a "
-                       "trilha mostra o que mudou, quando e por quê.",
+                "trilha mostra o que mudou, quando e por quê.",
                 "endpoint": f"/api/v1/crm/contracts/{r[0]}/addendums",
                 "method": "POST",
                 "btnLabel": "Aditivo",
@@ -1027,20 +1052,42 @@ def _contrato_actions(r):
                 "btnStyle": "outline",
                 "okMsg": "Aditivo criado. Recarregue.",
                 "fields": [
-                    {"key": "addendum_type", "label": "Tipo*", "type": "select", "span": "span 1",
-                     "ph": "Selecione", "options": [
-                         {"value": "adjustment", "label": "Reajuste de valor"},
-                         {"value": "scope_change", "label": "Alteração de escopo"},
-                         {"value": "term_change", "label": "Alteração de prazo"},
-                         {"value": "team_change", "label": "Alteração de equipe/postos"},
-                         {"value": "equipment_change", "label": "Alteração de equipamentos"},
-                         {"value": "other", "label": "Outras alterações"}]},
+                    {
+                        "key": "addendum_type",
+                        "label": "Tipo*",
+                        "type": "select",
+                        "span": "span 1",
+                        "ph": "Selecione",
+                        "options": [
+                            {"value": "adjustment", "label": "Reajuste de valor"},
+                            {"value": "scope_change", "label": "Alteração de escopo"},
+                            {"value": "term_change", "label": "Alteração de prazo"},
+                            {"value": "team_change", "label": "Alteração de equipe/postos"},
+                            {"value": "equipment_change", "label": "Alteração de equipamentos"},
+                            {"value": "other", "label": "Outras alterações"},
+                        ],
+                    },
                     {"key": "effective_date", "label": "Vigência a partir de*", "type": "date", "span": "span 1"},
-                    {"key": "description", "label": "O que muda* (mín. 10 caracteres)", "type": "textarea",
-                     "span": "span 2", "ph": "Ex.: acréscimo de 1 posto de portaria 12x36 no turno noturno"},
+                    {
+                        "key": "description",
+                        "label": "O que muda* (mín. 10 caracteres)",
+                        "type": "textarea",
+                        "span": "span 2",
+                        "ph": "Ex.: acréscimo de 1 posto de portaria 12x36 no turno noturno",
+                    },
                     {"key": "reason", "label": "Motivo", "type": "text", "span": "span 2"},
-                    {"key": "new_value", "label": "Novo valor (R$) — só p/ reajuste", "type": "number", "span": "span 1"},
-                    {"key": "adjustment_percent", "label": "Reajuste (%) — só p/ reajuste", "type": "number", "span": "span 1"},
+                    {
+                        "key": "new_value",
+                        "label": "Novo valor (R$) — só p/ reajuste",
+                        "type": "number",
+                        "span": "span 1",
+                    },
+                    {
+                        "key": "adjustment_percent",
+                        "label": "Reajuste (%) — só p/ reajuste",
+                        "type": "number",
+                        "span": "span 1",
+                    },
                 ],
             }
         )
@@ -1057,18 +1104,30 @@ def _contrato_actions(r):
             "btnStyle": "outline",
             "okMsg": "Item incluído. Recarregue.",
             "fields": [
-                {"key": "service_type", "label": "Serviço*", "type": "select", "span": "span 1",
-                 "ph": "Selecione", "options": [
-                     {"value": "security", "label": "Vigilância patrimonial"},
-                     {"value": "remote_gatehouse", "label": "Portaria remota"},
-                     {"value": "electronic_security", "label": "Segurança eletrônica"},
-                     {"value": "monitoring_24h", "label": "Monitoramento 24h"},
-                     {"value": "cleaning", "label": "Limpeza"},
-                     {"value": "gardening", "label": "Jardinagem"},
-                     {"value": "maintenance", "label": "Manutenção"},
-                     {"value": "facilities", "label": "Facilities geral"}]},
-                {"key": "service_name", "label": "Nome do item* (mín. 3)", "type": "text", "span": "span 1",
-                 "ph": "Ex.: Entrada (50%) na assinatura"},
+                {
+                    "key": "service_type",
+                    "label": "Serviço*",
+                    "type": "select",
+                    "span": "span 1",
+                    "ph": "Selecione",
+                    "options": [
+                        {"value": "security", "label": "Vigilância patrimonial"},
+                        {"value": "remote_gatehouse", "label": "Portaria remota"},
+                        {"value": "electronic_security", "label": "Segurança eletrônica"},
+                        {"value": "monitoring_24h", "label": "Monitoramento 24h"},
+                        {"value": "cleaning", "label": "Limpeza"},
+                        {"value": "gardening", "label": "Jardinagem"},
+                        {"value": "maintenance", "label": "Manutenção"},
+                        {"value": "facilities", "label": "Facilities geral"},
+                    ],
+                },
+                {
+                    "key": "service_name",
+                    "label": "Nome do item* (mín. 3)",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Ex.: Entrada (50%) na assinatura",
+                },
                 {"key": "quantity", "label": "Quantidade", "type": "number", "span": "span 1", "value": "1"},
                 {"key": "unit_price", "label": "Valor unitário (R$)*", "type": "number", "span": "span 1"},
                 {"key": "description", "label": "Descrição", "type": "text", "span": "span 2"},
@@ -1100,7 +1159,7 @@ def _contrato_actions(r):
             {
                 "title": f"Assinar {r[1]} pela Conecta Mais",
                 "sub": "ATO JURÍDICO: aplica a assinatura da empresa com o certificado ICP-Brasil "
-                       "e carimba hash, IP e horário. Não se desfaz. Confira a cláusula antes.",
+                "e carimba hash, IP e horário. Não se desfaz. Confira a cláusula antes.",
                 "endpoint": f"/api/v1/crm/contracts/{r[0]}/assinar-empresa",
                 "method": "POST",
                 "btnLabel": "Assinar",
@@ -1108,8 +1167,13 @@ def _contrato_actions(r):
                 "btnStyle": "primary",
                 "okMsg": "Assinatura da empresa aplicada. Recarregue.",
                 "fields": [
-                    {"key": "confirmar", "label": "Digite ASSINAR para confirmar", "type": "text",
-                     "span": "span 2", "value": ""},
+                    {
+                        "key": "confirmar",
+                        "label": "Digite ASSINAR para confirmar",
+                        "type": "text",
+                        "span": "span 2",
+                        "value": "",
+                    },
                 ],
             }
         )
@@ -1528,15 +1592,23 @@ async def build(db) -> dict:
                 editfn=lambda r: {
                     "title": f"Editar contrato {r[1]}",
                     "sub": "Campo em branco não altera. Reajuste de valor com contrato VIGENTE "
-                           "deve virar aditivo, não edição — a trilha some se você editar.",
+                    "deve virar aditivo, não edição — a trilha some se você editar.",
                     "endpoint": f"/api/v1/crm/contracts/{r[0]}",
                     "method": "PUT",
                     "fields": [
                         {"key": "name", "label": "Nome do contrato", "type": "text"},
-                        {"key": "monthly_value", "label": "Valor mensal (R$)", "type": "number",
-                         "value": str(r[3] or "")},
-                        {"key": "total_value", "label": "Valor total (R$) — serviço único",
-                         "type": "number", "value": str(r[4] or "")},
+                        {
+                            "key": "monthly_value",
+                            "label": "Valor mensal (R$)",
+                            "type": "number",
+                            "value": str(r[3] or ""),
+                        },
+                        {
+                            "key": "total_value",
+                            "label": "Valor total (R$) — serviço único",
+                            "type": "number",
+                            "value": str(r[4] or ""),
+                        },
                         {"key": "setup_fee", "label": "Taxa de instalação (R$)", "type": "number"},
                         {"key": "end_date", "label": "Fim da vigência", "type": "date"},
                         {"key": "notice_period_days", "label": "Aviso prévio (dias)", "type": "number"},
@@ -2235,6 +2307,7 @@ async def build(db) -> dict:
     await _ligar_20260908(db, out, tbl)
     await _ligar_lote4_20260908(db, out)
     from ._frente_07 import telas as _telas_07  # frente 07
+
     out.update(await _telas_07(db))
     return out
 
@@ -2260,7 +2333,7 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
         "SELECT id, coalesce(number,'—') || ' · ' || coalesce(client_name,'—') FROM proposals "
         "WHERE coalesce(is_active,true) AND status::text IN ('draft','approved') ORDER BY created_at DESC LIMIT 200"
     )
-    _sel = lambda key, label, opts, span="span 2": {
+    _sel = lambda key, label, opts, span="span 2": {  # noqa: E731  # pré-existente
         "key": key,
         "label": label,
         "type": "select",
@@ -2442,36 +2515,38 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
                 b("Concluída", "ok") if r[4] == "done" else b((r[4] or "—").capitalize(), "warn"),
             ],
             actionsfn=lambda r: (
-                [
+                (
+                    [
+                        {
+                            "title": f"Concluir tarefa — {r[0]}",
+                            "endpoint": f"/api/v1/crm/tasks/{r[5]}",
+                            "method": "PATCH",
+                            "btnLabel": "Concluir",
+                            "submitLabel": "Marcar concluída",
+                            "btnStyle": "primary",
+                            "okMsg": "Tarefa concluída. Recarregue.",
+                            "fields": [
+                                {"key": "status", "label": "Status", "type": "text", "span": "span 1", "value": "done"}
+                            ],
+                        }
+                    ]
+                    if r[4] != "done"
+                    else []
+                )
+                + [
                     {
-                        "title": f"Concluir tarefa — {r[0]}",
+                        "title": f"Excluir tarefa — {r[0]}",
                         "endpoint": f"/api/v1/crm/tasks/{r[5]}",
-                        "method": "PATCH",
-                        "btnLabel": "Concluir",
-                        "submitLabel": "Marcar concluída",
-                        "btnStyle": "primary",
-                        "okMsg": "Tarefa concluída. Recarregue.",
-                        "fields": [
-                            {"key": "status", "label": "Status", "type": "text", "span": "span 1", "value": "done"}
-                        ],
+                        "method": "DELETE",
+                        "btnLabel": "Excluir",
+                        "submitLabel": "Excluir",
+                        "btnStyle": "outline",
+                        "confirm": "Excluir a tarefa?",
+                        "okMsg": "Tarefa excluída. Recarregue.",
+                        "fields": [],
                     }
                 ]
-                if r[4] != "done"
-                else []
-            )
-            + [
-                {
-                    "title": f"Excluir tarefa — {r[0]}",
-                    "endpoint": f"/api/v1/crm/tasks/{r[5]}",
-                    "method": "DELETE",
-                    "btnLabel": "Excluir",
-                    "submitLabel": "Excluir",
-                    "btnStyle": "outline",
-                    "confirm": "Excluir a tarefa?",
-                    "okMsg": "Tarefa excluída. Recarregue.",
-                    "fields": [],
-                }
-            ],
+            ),
         )
         out["tarefas"]["ctaTo"] = "nova-tarefa"
     except Exception:  # noqa: BLE001
@@ -2584,29 +2659,31 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
                 t(brl(r[4]) if r[4] is not None else "—"),
                 b("Sim", "ok") if r[5] else b("Pendente", "warn"),
             ],
-            actionsfn=lambda r: []
-            if r[5]
-            else [
-                {
-                    "title": f"Registrar assinatura do aditivo {r[1]} — {r[0]}",
-                    "sub": "Informe o id do documento assinado (assinatura universal).",
-                    "endpoint": f"/api/v1/crm/contracts/addendums/{r[6]}/sign",
-                    "method": "POST",
-                    "btnLabel": "Assinado",
-                    "submitLabel": "Registrar assinatura",
-                    "btnStyle": "outline",
-                    "okMsg": "Aditivo assinado. Recarregue.",
-                    "fields": [
-                        {
-                            "key": "signature_document_id",
-                            "label": "Documento assinado (id)*",
-                            "type": "text",
-                            "span": "span 2",
-                            "value": "",
-                        }
-                    ],
-                }
-            ],
+            actionsfn=lambda r: (
+                []
+                if r[5]
+                else [
+                    {
+                        "title": f"Registrar assinatura do aditivo {r[1]} — {r[0]}",
+                        "sub": "Informe o id do documento assinado (assinatura universal).",
+                        "endpoint": f"/api/v1/crm/contracts/addendums/{r[6]}/sign",
+                        "method": "POST",
+                        "btnLabel": "Assinado",
+                        "submitLabel": "Registrar assinatura",
+                        "btnStyle": "outline",
+                        "okMsg": "Aditivo assinado. Recarregue.",
+                        "fields": [
+                            {
+                                "key": "signature_document_id",
+                                "label": "Documento assinado (id)*",
+                                "type": "text",
+                                "span": "span 2",
+                                "value": "",
+                            }
+                        ],
+                    }
+                ]
+            ),
         )
         out["aditivos"]["ctaTo"] = "aditivo-novo"
     except Exception:  # noqa: BLE001
@@ -2661,53 +2738,55 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
                 t(str(r[3])),
             ],
             actionsfn=lambda r: (
-                []
-                if r[2]
-                else [
-                    {
-                        "title": f"Aprovar modelo {r[0]}",
-                        "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}/approve",
-                        "method": "POST",
-                        "btnLabel": "Aprovar",
-                        "submitLabel": "Aprovar",
-                        "btnStyle": "primary",
-                        "okMsg": "Modelo aprovado. Recarregue.",
-                        "fields": [],
-                    }
-                ]
-            )
-            + [
-                {
-                    "title": f"Editar modelo {r[0]}",
-                    "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}",
-                    "method": "PUT",
-                    "btnLabel": "Editar",
-                    "submitLabel": "Salvar",
-                    "btnStyle": "outline",
-                    "okMsg": "Modelo atualizado. Recarregue.",
-                    "fields": [
-                        {"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                (
+                    []
+                    if r[2]
+                    else [
                         {
-                            "key": "description",
-                            "label": "Descrição",
-                            "type": "textarea",
-                            "span": "span 2",
-                            "value": r[5],
-                        },
-                    ],
-                },
-                {
-                    "title": f"Excluir modelo {r[0]}",
-                    "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}",
-                    "method": "DELETE",
-                    "btnLabel": "Excluir",
-                    "submitLabel": "Excluir",
-                    "btnStyle": "outline",
-                    "confirm": f"Excluir o modelo {r[0]}?",
-                    "okMsg": "Modelo excluído. Recarregue.",
-                    "fields": [],
-                },
-            ],
+                            "title": f"Aprovar modelo {r[0]}",
+                            "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}/approve",
+                            "method": "POST",
+                            "btnLabel": "Aprovar",
+                            "submitLabel": "Aprovar",
+                            "btnStyle": "primary",
+                            "okMsg": "Modelo aprovado. Recarregue.",
+                            "fields": [],
+                        }
+                    ]
+                )
+                + [
+                    {
+                        "title": f"Editar modelo {r[0]}",
+                        "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}",
+                        "method": "PUT",
+                        "btnLabel": "Editar",
+                        "submitLabel": "Salvar",
+                        "btnStyle": "outline",
+                        "okMsg": "Modelo atualizado. Recarregue.",
+                        "fields": [
+                            {"key": "name", "label": "Nome*", "type": "text", "span": "span 2", "value": r[0]},
+                            {
+                                "key": "description",
+                                "label": "Descrição",
+                                "type": "textarea",
+                                "span": "span 2",
+                                "value": r[5],
+                            },
+                        ],
+                    },
+                    {
+                        "title": f"Excluir modelo {r[0]}",
+                        "endpoint": f"/api/v1/crm/contracts/templates/{r[4]}",
+                        "method": "DELETE",
+                        "btnLabel": "Excluir",
+                        "submitLabel": "Excluir",
+                        "btnStyle": "outline",
+                        "confirm": f"Excluir o modelo {r[0]}?",
+                        "okMsg": "Modelo excluído. Recarregue.",
+                        "fields": [],
+                    },
+                ]
+            ),
         )
         out["modelos-contrato"]["ctaTo"] = "modelo-contrato-novo"
     except Exception:  # noqa: BLE001
@@ -2757,21 +2836,23 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
                 t(brl(r[5]), 600),
                 b("Sim", "info") if r[6] else b("—", "mut"),
             ],
-            actionsfn=lambda r: [
-                {
-                    "title": f"Remover item — {r[1]} ({r[0]})",
-                    "endpoint": f"/api/v1/crm/proposals/{r[8]}/items/{r[7]}",
-                    "method": "DELETE",
-                    "btnLabel": "Remover",
-                    "submitLabel": "Remover",
-                    "btnStyle": "outline",
-                    "confirm": "Remover o item da proposta?",
-                    "okMsg": "Item removido. Recarregue.",
-                    "fields": [],
-                }
-            ]
-            if (r[9] or "") in ("draft", "approved")
-            else [],
+            actionsfn=lambda r: (
+                [
+                    {
+                        "title": f"Remover item — {r[1]} ({r[0]})",
+                        "endpoint": f"/api/v1/crm/proposals/{r[8]}/items/{r[7]}",
+                        "method": "DELETE",
+                        "btnLabel": "Remover",
+                        "submitLabel": "Remover",
+                        "btnStyle": "outline",
+                        "confirm": "Remover o item da proposta?",
+                        "okMsg": "Item removido. Recarregue.",
+                        "fields": [],
+                    }
+                ]
+                if (r[9] or "") in ("draft", "approved")
+                else []
+            ),
         )
         out["proposta-itens"]["ctaTo"] = "proposta-item-novo"
     except Exception:  # noqa: BLE001
@@ -2952,14 +3033,14 @@ async def _ligar_lote4_20260908(db, out: dict) -> None:
     import logging as _lg
     from datetime import date as _dt
 
-    from sqlalchemy import text as _T
+    from sqlalchemy import text as _T  # noqa: N812  # alias curto pré-existente
 
     from modules.operacional.controllers.redesign_data_controller import _helpers
 
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
     _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
-    hoje = _dt.today()
+    hoje = _dt.today()  # noqa: F841  # pré-existente
 
     def _fd(v, fmt="%d/%m/%Y"):
         try:

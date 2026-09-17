@@ -85,6 +85,19 @@ def _onde_entrou(funcionario: dict) -> str:
     )
 
 
+def _rotulo_doc(funcionario: dict) -> str:
+    """CPF ou CNPJ conforme o número que está no campo — não conforme o tipo de vínculo."""
+    d = "".join(c for c in str(funcionario.get("cpf") or "") if c.isdigit())
+    return "CNPJ" if len(d) == 14 else "CPF"
+
+
+def _razao(funcionario: dict) -> str:
+    """Razão social só quando ela existe e é diferente do nome — senão a linha vira eco."""
+    r = str(funcionario.get("razao_social") or "").strip()
+    nome = str(funcionario.get("nome") or "").strip()
+    return r if r and r.casefold() != nome.casefold() else "—"
+
+
 def _declaracao(funcionario: dict, empresa: dict, comp: str, periodo: str, onde: str) -> str:
     """O texto que a pessoa assina — CLT e PJ não podem assinar o mesmo.
 
@@ -157,10 +170,13 @@ def montar_recibo_vt_vr_pdf(
             _cell("Cargo / Função", st, bold=True),
             _cell(cargo, st),
             _cell("Razão social" if funcionario.get("e_pj") else "CBO", st, bold=True),
-            _cell(funcionario.get("razao_social", "—") if funcionario.get("e_pj") else _cbo(cargo, funcionario), st),
+            _cell(_razao(funcionario) if funcionario.get("e_pj") else _cbo(cargo, funcionario), st),
         ],
         [
-            _cell("CNPJ" if funcionario.get("e_pj") else "CPF", st, bold=True),
+            # O rótulo segue o NÚMERO, não o vínculo: prestador sem CNPJ cadastrado recebe
+            # por CPF, e chamar CPF de CNPJ num recibo é erro de documento. (17/09/2026 — o
+            # recibo da Pyetra saiu "CNPJ 016.132.302-22", que é o CPF dela.)
+            _cell(_rotulo_doc(funcionario), st, bold=True),
             _cell(_fmt_cpf(funcionario.get("cpf")), st),
             _cell("Posto", st, bold=True),
             _cell(funcionario.get("posto", "—"), st),

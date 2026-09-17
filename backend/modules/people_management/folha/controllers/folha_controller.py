@@ -327,7 +327,8 @@ def baixar_recibo_vt_vr_pdf(
             # O CPF de verdade resolve QUAL empresa pagou (employees.cpf → empresas.slug).
             # Sem ele o branding cai no default e o recibo sai com o CNPJ errado.
             "cpf_vinculo": _pj[4],
-            "razao_social": _pj[3] or _pj[0],
+            "razao_social": _pj[3] or "",
+            "nome": _pj[0],
             "pis": "—",
             "matricula": "—",
             "posto": "ESCRITÓRIO",
