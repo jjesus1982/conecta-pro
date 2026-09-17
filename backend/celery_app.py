@@ -430,12 +430,25 @@ app.conf.beat_schedule = {
     # =========================================================================
     # SÓLIDES - INTEGRAÇÃO RH/DP
     # =========================================================================
-    # Sync incremental a cada 15 minutos
-    "solides-incremental-sync-all": {
-        "task": "solides.sync_all_condominios_incremental",
-        "schedule": 900.0,  # 15 minutos
-        "options": {"queue": "integrations"},
-    },
+    # DESLIGADO em 16/09/2026 por decisão do Jordan. O sync roda
+    # `UPDATE employees SET nome = :nome, pis, data_nascimento, sexo, escala_padrao, status
+    #  WHERE cpf = :cpf` (solides/tasks.py) e SOBRESCREVE o que se corrige à mão no
+    # Conecta PRO. Medido no mesmo dia, duas vezes seguidas:
+    #
+    #     03:28  gravei  BIANCA HELLEM DA SILVA MEIRA  (grafia confirmada pelo banco no PIX)
+    #     03:57  voltou  BIANCA HELEM DA SILVA MEIRA   (o sync desfez)
+    #
+    # O nome errado dela já custou uma mensagem de aviso não entregue e o recibo de VT/VR
+    # sem solicitação de assinatura. Não é só o nome: PIS, escala e status vinham junto.
+    # Enquanto a fonte for o Sólides, correção no Conecta PRO tem prazo de validade.
+    #
+    # A TASK CONTINUA EXISTINDO (`solides.sync_all_condominios_incremental`) para chamada
+    # manual — só não roda mais sozinha. Para religar, devolva este bloco.
+    # "solides-incremental-sync-all": {
+    #     "task": "solides.sync_all_condominios_incremental",
+    #     "schedule": 900.0,  # 15 minutos
+    #     "options": {"queue": "integrations"},
+    # },
     # DESLIGADO em 13/09/2026 por decisão do Jordan: "os pontos já estão sendo batidos
     # pelo Conecta PRO, já não temos mais necessidade de puxar as batidas do
     # Sólides/Tangerino". O que o pull trazia não era batida medida e sim a GRADE da

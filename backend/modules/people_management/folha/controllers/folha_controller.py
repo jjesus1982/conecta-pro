@@ -159,8 +159,10 @@ def _cnpj_da_competencia(db, mes: int, ano: int, condominio: str | None = None) 
     """
     from sqlalchemy import text as _sqltext
 
-    sql = ("SELECT DISTINCT em.cnpj FROM hr_payslips p JOIN empresas em ON em.id = p.empresa_id "
-           "WHERE p.reference_year = :a AND p.reference_month = :m")
+    sql = (
+        "SELECT DISTINCT em.cnpj FROM hr_payslips p JOIN empresas em ON em.id = p.empresa_id "
+        "WHERE p.reference_year = :a AND p.reference_month = :m"
+    )
     par: dict = {"a": ano, "m": mes}
     if condominio:
         sql += " AND CAST(p.condominio_id AS TEXT) = :c"
@@ -222,7 +224,7 @@ def exportar_folha_pdf(
             raise HTTPException(
                 status_code=404,
                 detail=f"Folha de {_nome[0]} em {mes:02d}/{ano} ainda não foi gerada. "
-                       "Use DP → Gerar folha (Conecta PRO).",
+                "Use DP → Gerar folha (Conecta PRO).",
             )
 
         def _f(v) -> float:
@@ -231,7 +233,9 @@ def exportar_folha_pdf(
         _bruto = sum(_f(r[7]) for r in _rows)
         _fgts = sum(_f(r[4]) for r in _rows)
         resumo = {
-            "mes": mes, "ano": ano, "escopo": _nome[0],
+            "mes": mes,
+            "ano": ano,
+            "escopo": _nome[0],
             "total_colaboradores": len(_rows),
             "total_proventos": _bruto,
             "total_descontos": sum(_f(r[5]) for r in _rows),
@@ -243,8 +247,15 @@ def exportar_folha_pdf(
             "fonte": "conecta",
             "empresa_cnpj": _cnpj_da_competencia(db, mes, ano, condominio),
             "funcionarios": [
-                {"nome": r[0], "cargo": r[1], "salario_base": _f(r[2]), "inss_value": _f(r[3]),
-                 "fgts_value": _f(r[4]), "total_descontos": _f(r[5]), "salario_liquido": _f(r[6])}
+                {
+                    "nome": r[0],
+                    "cargo": r[1],
+                    "salario_base": _f(r[2]),
+                    "inss_value": _f(r[3]),
+                    "fgts_value": _f(r[4]),
+                    "total_descontos": _f(r[5]),
+                    "salario_liquido": _f(r[6]),
+                }
                 for r in _rows
             ],
         }
@@ -288,16 +299,48 @@ def baixar_recibo_vt_vr_pdf(
 
     from ..services.recibo_vt_vr_pdf import montar_recibo_vt_vr_pdf
 
-    result = calculo_service.calcular_folha_colaborador(db, employee_id, mes, ano)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
+    # PJ não passa pelo cálculo da folha CLT — ele não tem folha. Origem: 17/09/2026: sete
+    # prestadores receberam VT/VR no lote e o `calcular_folha_colaborador` devolvia
+    # "Colaborador não encontrado ou inativo", deixando os sete sem recibo nenhum. Para eles o
+    # recibo é montado a partir do que foi PAGO, que é o único fato que existe.
+    _pj = db.execute(
+        text(
+            "SELECT nome, cargo, coalesce(cnpj,''), coalesce(razao_social,''), coalesce(cpf,'') "
+            "FROM employees WHERE CAST(id AS TEXT) = :e AND coalesce(status,'') LIKE 'pj_%'"
+        ),
+        {"e": str(employee_id)},
+    ).first()
+
+    if _pj:
+        result = {"employee_nome": _pj[0], "cargo": _pj[1] or "—", "mes": mes, "ano": ano}
+    else:
+        result = calculo_service.calcular_folha_colaborador(db, employee_id, mes, ano)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
 
     fdad: dict[str, Any] = {}
+    if _pj:
+        # Documento do prestador: CNPJ quando existe, CPF quando o PJ ainda não tem.
+        fdad = {
+            "e_pj": True,
+            "cpf": _pj[2] or _pj[4],
+            # O CPF de verdade resolve QUAL empresa pagou (employees.cpf → empresas.slug).
+            # Sem ele o branding cai no default e o recibo sai com o CNPJ errado.
+            "cpf_vinculo": _pj[4],
+            "razao_social": _pj[3] or _pj[0],
+            "pis": "—",
+            "matricula": "—",
+            "posto": "ESCRITÓRIO",
+        }
     try:
-        row = db.execute(
-            text("SELECT cpf, pis, matricula FROM employees WHERE CAST(id AS TEXT) = :e"),
-            {"e": str(employee_id)},
-        ).first()
+        row = (
+            None
+            if _pj
+            else db.execute(
+                text("SELECT cpf, pis, matricula FROM employees WHERE CAST(id AS TEXT) = :e"),
+                {"e": str(employee_id)},
+            ).first()
+        )
         if row:
             fdad = {
                 "cpf": row[0],
@@ -322,6 +365,39 @@ def baixar_recibo_vt_vr_pdf(
             fdad["data_pagamento"] = dp.strftime("%d/%m/%Y") if hasattr(dp, "strftime") else str(dp)
     except Exception:
         pass
+
+    # ── O QUE FOI PAGO DE VERDADE nesta competência ─────────────────────────────────────
+    # Origem: 16/09/2026. O recibo era montado só com o cálculo da folha (dias-padrão × valor
+    # unitário) e divergia do que entrou na conta: ADAILSON com R$ 330 + R$ 150 no papel contra
+    # R$ 308 + R$ 116 no extrato. Mesmo defeito do espelho de ponto resolvido hoje — dois
+    # motores para o mesmo número. Aqui o pagamento é a fonte, e a folha só entra quando não
+    # houve pagamento registrado (competência ainda em aberto).
+    try:
+        _pg = db.execute(
+            text(
+                "SELECT valor, descricao, updated_at::date FROM financial_pagamentos_diaristas "
+                "WHERE tipo = 'vt_vr' AND status = 'pago' AND competencia = :c "
+                "  AND upper(btrim(beneficiario)) = ("
+                "      SELECT upper(btrim(nome)) FROM employees WHERE CAST(id AS TEXT) = :e) "
+                "ORDER BY updated_at DESC LIMIT 1"
+            ),
+            {"c": f"{mes:02d}/{ano}", "e": str(employee_id)},
+        ).first()
+    except Exception:  # noqa: BLE001
+        _pg = None
+
+    if _pg:
+        import re as _re
+
+        _m = _re.search(r"VT R\$ ([\d.]+) \+ VR R\$ ([\d.]+)", str(_pg[1] or ""))
+        if _m:
+            result["vt_pago"] = float(_m.group(1))
+            result["vr_pago"] = float(_m.group(2))
+            # VT zero = quem recebe pela carteirinha do SINETRAM; a declaração precisa dizer isso.
+            fdad["vt_pelo_sinetran"] = float(_m.group(1)) == 0.0
+        fdad["pago_via_pix"] = True
+        if _pg[2]:
+            fdad["data_pagamento"] = _pg[2].strftime("%d/%m/%Y")
 
     _doc_id_recibo = f"{employee_id}:{ano}-{mes:02d}"
 
@@ -357,9 +433,7 @@ def baixar_recibo_vt_vr_pdf(
             employee_document=fdad.get("cpf"),
         )
     except Exception as _sig_exc:  # noqa: BLE001
-        _logging.getLogger(__name__).warning(
-            "Assinatura do recibo VT/VR não criada: %s", _sig_exc
-        )
+        _logging.getLogger(__name__).warning("Assinatura do recibo VT/VR não criada: %s", _sig_exc)
 
     nome = (result.get("employee_nome") or "colaborador").split()[0].lower()
     return Response(
@@ -434,5 +508,3 @@ def listar_rubricas(
     """Lista as 24 rubricas ativas da CCT 2026."""
     items = calculo_service.get_rubricas(db)
     return [RubricaResponse(**i) for i in items]
-
-

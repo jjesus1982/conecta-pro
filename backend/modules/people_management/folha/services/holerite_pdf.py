@@ -15,7 +15,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from modules.crm.services import pdf_branding as B
+from modules.crm.services import pdf_branding as B  # noqa: N812
 
 _MESES = [
     "",
@@ -49,8 +49,18 @@ def _data_br(v) -> str:
 
 
 def _fmt_cpf(v) -> str:
+    """000.000.000-00 (CPF) ou 00.000.000/0000-00 (CNPJ).
+
+    17/09/2026: o recibo de VT/VR de prestador PJ exibe CNPJ neste mesmo campo e o número
+    saía corrido (68510976000148). Documento com número corrido se confere errado. O ramo de
+    CPF não mudou.
+    """
     d = "".join(ch for ch in str(v or "") if ch.isdigit())
-    return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}" if len(d) == 11 else (str(v) or "—")
+    if len(d) == 11:
+        return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:11]}"
+    if len(d) == 14:
+        return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
+    return str(v) or "—"
 
 
 # CBO por cargo — extraído da folha oficial do Domínio/Portte (fonte de verdade)
@@ -160,7 +170,7 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
     _mes = int(holerite.get("mes") or 0)
     _ano = int(holerite.get("ano") or 0)
     _competencia = f"{_ano:04d}-{_mes:02d}" if _mes and _ano else None
-    empresa_doc = B.empresa_branding_por_cpf(funcionario.get('cpf'), _competencia)
+    empresa_doc = B.empresa_branding_por_cpf(funcionario.get("cpf"), _competencia)
     st = B.styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -410,7 +420,9 @@ def montar_holerite_pdf(holerite: dict, funcionario: dict | None = None, signata
         incluir_empresa=False,  # HOLERITE: basta a assinatura do FUNCIONÁRIO (recibo de pagamento)
     )
 
-    story += B.bloco_autenticidade_assinaturas(st, signatarios=signatarios, empresa=empresa_doc)  # 09/09: holerite carimba as assinaturas coletadas
+    story += B.bloco_autenticidade_assinaturas(
+        st, signatarios=signatarios, empresa=empresa_doc
+    )  # 09/09: holerite carimba as assinaturas coletadas
     doc.build(
         story,
         onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="HOLERITE", empresa=empresa_doc),
