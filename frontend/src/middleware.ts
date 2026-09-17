@@ -55,7 +55,11 @@ export function middleware(request: NextRequest) {
 
     if (!token) {
       const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
+      // `pathname + search`, não só `pathname`. Origem: 17/09/2026 — a cobrança de assinatura
+      // manda `/modulos/meu-espaco?t=assinar` por WhatsApp para quem quase nunca está logado.
+      // Guardando só o caminho, a pessoa logava e caía na home com 12 abas, e a aba de
+      // assinar — o motivo do link existir — se perdia no caminho.
+      loginUrl.searchParams.set('redirect', pathname + (request.nextUrl.search || ''));
       return NextResponse.redirect(loginUrl);
     }
   }
