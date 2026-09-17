@@ -700,7 +700,7 @@ export default function DashboardFinanceiroPage() {
           <CardTitle className="text-base flex items-center justify-between">
             <span className="flex items-center gap-2">
               <Landmark className="h-4 w-4 text-green-500" />
-              Últimas transações — Banco Inter
+              Últimas transações — Todas as contas
             </span>
             <a
               href="/modulos/financeiro/banking"
@@ -716,8 +716,8 @@ export default function DashboardFinanceiroPage() {
           ) : extrato.length > 0 ? (
             <div className="space-y-2">
               {extrato.map((tx, i) => {
-                const isCredit = ['credit', 'credito', 'CREDITO', 'PIX_RECEBIDO'].includes(
-                  String(tx.transaction_type || ''))
+                const isCredit = ['credit', 'credito', 'c', 'pix_recebido'].includes(
+                  String(tx.type || tx.transaction_type || '').toLowerCase())
                 return (
                   <div key={i}
                     className="flex items-center justify-between py-1.5 border-b border-[hsl(var(--border))] last:border-0">
@@ -726,7 +726,9 @@ export default function DashboardFinanceiroPage() {
                         {String(tx.description || '')}
                       </p>
                       <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                        {new Date(String(tx.transaction_date || '')).toLocaleDateString('pt-BR')}
+                        {tx.bank_name ? <span className="font-medium text-[hsl(var(--foreground))]">{String(tx.bank_name)}</span> : null}
+                        {tx.bank_name ? ' · ' : ''}
+                        {(() => { const raw = String(tx.date || tx.transaction_date || tx.data_lancamento || ''); const d = new Date(raw); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR'); })()}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-2">

@@ -7,28 +7,34 @@ import { Landmark, CheckCircle2, Clock, XCircle, Wallet, List, Receipt, Zap, Cre
 const API = '/api/v1/integrations/banking'
 const PAYMENT_API = '/api/v1/banking/payment'
 
-interface Saldo {
+interface Conta {
+  bank_code?: string
+  bank_name?: string
+  account?: string
   balance: number
   available_balance: number
   blocked_balance: number
-  account: string
 }
 
 interface Transacao {
   id: string
-  transaction_date: string
+  date?: string
+  transaction_date?: string
   transaction_type: string
+  type?: string
   amount: number
   description: string
   counterparty_name?: string
   reconciliado?: boolean
+  bank_name?: string
+  bank_code?: string
 }
 
 type Tab = 'saldo' | 'extrato' | 'boleto' | 'pix' | 'pagar' | 'darf'
 
 export default function BankingPage() {
   const [tab, setTab] = useState<Tab>('saldo')
-  const [saldo, setSaldo] = useState<Saldo | null>(null)
+  const [contas, setContas] = useState<Conta[]>([])
   const [extrato, setExtrato] = useState<Transacao[]>([])
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -88,10 +94,9 @@ export default function BankingPage() {
       const r = await fetch(`${API}/balances`,
         { headers: authHeader(t) })
       const d = await r.json()
-      const interBank = Array.isArray(d.banks)
-        ? d.banks.find((b: { bank_code: string }) => b.bank_code === '077')
-        : d
-      setSaldo(interBank || d)
+      // Multi-banco: guarda TODAS as contas (Inter, Cora, ...), não só o Inter.
+      const lista = Array.isArray(d.balances) ? d.balances : Array.isArray(d.banks) ? d.banks : []
+      setContas(lista)
     } catch {
       setMsg({ ok: false, text: 'Erro ao carregar saldo' })
     } finally { setLoading(false) }
@@ -230,6 +235,10 @@ export default function BankingPage() {
     {id: 'darf', label: 'Pagar DARF', icon: Landmark},
   ]
 
+  const totalBalance = contas.reduce((s, c) => s + (c.balance || 0), 0)
+  const totalDisponivel = contas.reduce((s, c) => s + (c.available_balance || c.balance || 0), 0)
+  const totalBloqueado = contas.reduce((s, c) => s + (c.blocked_balance || 0), 0)
+
   const inputClass = `w-full border border-gray-300 rounded-lg px-3 py-2
     text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`
   const btnClass = `px-4 py-2 rounded-lg text-sm font-medium
@@ -243,19 +252,19 @@ export default function BankingPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="font-display text-2xl font-semibold text-gray-900 flex items-center gap-2">
-              <Landmark className="w-6 h-6" /> Banco Inter
+              <Landmark className="w-6 h-6" /> Contas Bancárias
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Conta 370990072-2 • Agência 0001
+              {contas.length > 0 ? contas.map(c => c.bank_name).filter(Boolean).join(' • ') : 'Inter • Cora'}
             </p>
           </div>
-          {saldo && (
+          {contas.length > 0 && (
             <div className="text-right">
-              <p className="text-sm text-gray-500">Saldo disponível</p>
+              <p className="text-sm text-gray-500">Saldo consolidado (disponível)</p>
               <p className="font-data text-2xl font-semibold tabular-nums text-green-600">
                 {new Intl.NumberFormat('pt-BR', {
                   style: 'currency', currency: 'BRL'
-                }).format(saldo.available_balance || saldo.balance || 0)}
+                }).format(totalDisponivel)}
               </p>
             </div>
           )}
@@ -298,34 +307,52 @@ export default function BankingPage() {
           {tab === 'saldo' && (
             <div>
               <h2 className="text-lg font-semibold mb-4">
-                Posição da Conta
+                Posição das Contas
               </h2>
               {loading ? (
                 <div className="text-center py-8 text-gray-400">
                   Carregando...
                 </div>
-              ) : saldo ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[
-                    {label: 'Saldo Total', value: saldo.balance,
-                     color: 'blue'},
-                    {label: 'Disponível', value: saldo.available_balance,
-                     color: 'green'},
-                    {label: 'Bloqueado', value: saldo.blocked_balance,
-                     color: 'red'},
-                  ].map(item => (
-                    <div key={item.label}
-                      className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-500">{item.label}</p>
-                      <p className={`font-data text-2xl font-semibold tabular-nums text-${
-                        item.color}-600 mt-1`}>
-                        {new Intl.NumberFormat('pt-BR', {
-                          style: 'currency', currency: 'BRL'
-                        }).format(item.value || 0)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+              ) : contas.length > 0 ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    {[
+                      {label: 'Saldo Total (consolidado)', value: totalBalance, color: 'blue'},
+                      {label: 'Disponível (consolidado)', value: totalDisponivel, color: 'green'},
+                      {label: 'Bloqueado (consolidado)', value: totalBloqueado, color: 'red'},
+                    ].map(item => (
+                      <div key={item.label}
+                        className="bg-gray-50 rounded-lg p-4">
+                        <p className="text-sm text-gray-500">{item.label}</p>
+                        <p className={`font-data text-2xl font-semibold tabular-nums text-${
+                          item.color}-600 mt-1`}>
+                          {new Intl.NumberFormat('pt-BR', {
+                            style: 'currency', currency: 'BRL'
+                          }).format(item.value || 0)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-500 mb-2">Por conta</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {contas.map((c, i) => (
+                      <div key={i}
+                        className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900 flex items-center gap-2">
+                            <Landmark className="w-4 h-4 text-gray-400" /> {c.bank_name || '—'}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">Conta {c.account || '—'}</p>
+                        </div>
+                        <p className="font-data text-xl font-semibold tabular-nums text-green-600">
+                          {new Intl.NumberFormat('pt-BR', {
+                            style: 'currency', currency: 'BRL'
+                          }).format(c.available_balance || c.balance || 0)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <p className="text-gray-400">Sem dados</p>
               )}
@@ -355,6 +382,8 @@ export default function BankingPage() {
                         <th className="pb-2 text-gray-500 font-medium">
                           Data</th>
                         <th className="pb-2 text-gray-500 font-medium">
+                          Banco</th>
+                        <th className="pb-2 text-gray-500 font-medium">
                           Descrição</th>
                         <th className="pb-2 text-gray-500 font-medium">
                           Tipo</th>
@@ -366,15 +395,17 @@ export default function BankingPage() {
                     </thead>
                     <tbody>
                       {extrato.slice(0, 50).map((tx, i) => {
-                        const isCredit = ['credit', 'CREDITO',
-                          'PIX_RECEBIDO'].includes(
-                          tx.transaction_type || '')
+                        const isCredit = tx.type
+                          ? tx.type === 'credit'
+                          : ['credit', 'CREDITO', 'PIX_RECEBIDO'].includes(tx.transaction_type || '')
                         return (
                           <tr key={i}
                             className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="py-2 text-gray-500">
-                              {new Date(tx.transaction_date
-                                ).toLocaleDateString('pt-BR')}
+                            <td className="py-2 text-gray-500 whitespace-nowrap">
+                              {(() => { const raw = tx.date || tx.transaction_date || ''; const d = new Date(raw); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR'); })()}
+                            </td>
+                            <td className="py-2 text-gray-600 whitespace-nowrap">
+                              {tx.bank_name || '—'}
                             </td>
                             <td className="py-2 text-gray-700 max-w-xs truncate">
                               {tx.description}

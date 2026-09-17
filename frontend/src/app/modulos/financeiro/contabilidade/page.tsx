@@ -147,6 +147,19 @@ export default function ContabilidadePage() {
 
   const balanceData = trialBalance;
 
+  // A API do lançamento traz total_debit/total_credit (string) + lines[] com account_id e
+  // debit_amount/credit_amount — a tela lia entry.debit_account/amount (inexistentes) → tudo "-"/R$0.
+  const accMap: Record<string, string> = {};
+  for (const a of (accounts as any[])) accMap[a.id] = a.code ? `${a.code} — ${a.name ?? ''}`.trim() : (a.name ?? '');
+  const contasDe = (entry: any, tipo: 'debit' | 'credit'): string => {
+    const key = tipo === 'debit' ? 'debit_amount' : 'credit_amount';
+    const codes = (entry?.lines ?? [])
+      .filter((l: any) => Number(l[key] ?? 0) > 0)
+      .map((l: any) => accMap[l.account_id] ?? l.account_code ?? l.account_id ?? '—');
+    return codes.length ? Array.from(new Set(codes)).join(', ') : '—';
+  };
+  const valorEntry = (entry: any): number => Number(entry?.total_debit ?? entry?.total_credit ?? entry?.amount ?? 0);
+
   return (
     <div className="min-h-screen bg-grid">
       {/* Header */}
@@ -394,9 +407,9 @@ export default function ContabilidadePage() {
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.date || entry.created_at)}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{entry.description || '-'}</TableCell>
-                    <TableCell className="font-mono text-sm">{entry.debit_account || '-'}</TableCell>
-                    <TableCell className="font-mono text-sm">{entry.credit_account || '-'}</TableCell>
-                    <TableCell className="font-medium">{formatCurrency(entry.amount)}</TableCell>
+                    <TableCell className="font-mono text-sm">{contasDe(entry, 'debit')}</TableCell>
+                    <TableCell className="font-mono text-sm">{contasDe(entry, 'credit')}</TableCell>
+                    <TableCell className="font-medium">{formatCurrency(valorEntry(entry))}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
