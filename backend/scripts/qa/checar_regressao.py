@@ -138,6 +138,14 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # Afastamento aberto e cadastro dizendo outra coisa. A Cintia estava afastada desde 21/05
+    # (acidente de trajeto, CAT transmitida) e `employees.status` dizia 'ativo' havia quatro
+    # meses — e é pelo CADASTRO que todo disparo decide para quem manda: o lembrete de ponto
+    # exige status='ativo' e a alcançava, com a última batida dela em 29/03. Acusa os dois
+    # lados: afastado que o cadastro ignora, e cadastro afastado sem registro aberto.
+    "checar_afastamento_vs_cadastro.py": lambda s: _n(
+        r"^TOTAL: (\d+) cadastro\(s\) em desacordo", s, "TOTAL: 0 cadastro"
+    ),
     # Conta ativa de quem não trabalha mais aqui. Nasceu do print do Antônio Carlos com o app
     # logado na conta da Graciene (17/09/2026): puxando o fio, 13 contas ativas de demitidos,
     # inativos e suspensos — 4 delas com e-mail @conectamais.pro, que o dono acreditava existir
