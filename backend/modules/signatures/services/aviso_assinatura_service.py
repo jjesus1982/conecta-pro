@@ -77,7 +77,13 @@ _SQL_PENDENTES = text(
        -- Dono, 07/09/2026: "podem receber pelo app ou pelo WhatsApp" — quem tem celular
        -- também é avisado (231 notificações no portal em 30 dias, 1 lida).
        AND (coalesce(e.email,'') <> '' OR coalesce(nullif(e.celular, ''), e.telefone, '') <> '')
-       AND lower(coalesce(e.status,'')) IN ('ativo','afastado_inss','suspenso')
+       -- 🔴 'pj_%' entra aqui. Medido em 17/09/2026: dos 28 recibos de VT/VR ainda por
+       -- assinar, 5 eram de PJ ATIVO (Orlailson, Eliziel, Pedro Rafael, Sidney Ruan e o
+       -- Francisco Ediney) — e o filtro de status os deixava de fora em silêncio. O dono
+       -- mandou cobrar «os 32 que faltam»; sem isto, 5 nunca receberiam o aviso.
+       -- 'pj_pendente' entra de propósito: é PJ em cadastramento, e recibo dele existe.
+       AND (lower(coalesce(e.status,'')) IN ('ativo','afastado_inss','suspenso')
+            OR lower(coalesce(e.status,'')) LIKE 'pj_%')
        -- 🔴 11/09/2026 — A COORTE DE HOMOLOGAÇÃO MANDOU MENSAGEM PARA ESTRANHOS. Os 12
        -- funcionários de teste (criados em 01/08, `is_homologacao = true`) têm telefone
        -- sequencial de fachada — 92 99999-0001 a 0012 — e esses números EXISTEM: pertencem
