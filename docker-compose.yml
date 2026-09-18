@@ -534,10 +534,24 @@ services:
       - mcp-internal
       - mcp-ged
       - mcp-pessoas
+    # ⭐ 18/09/2026, autorizado pelo Jordan. ANTES disto /data vivia só na camada do
+    # container: 68 MB de estado do agente — state.db (sessoes), 9 MB de SKILLS aprendidas,
+    # os cron dele, kanban.db, memorias — contra 44 KB na imagem. `docker restart` preservava;
+    # `docker compose up -d` RECRIA e apagaria tudo, sem aviso.
+    # O entrypoint tem uma logica cuidadosa de "memoria ja existe, nao mexo" que dava falsa
+    # seguranca: ela protege a memoria da IMAGEM sobrescrever, nao do container ser recriado.
+    # O volume foi POPULADO com o /data vivo ANTES de ser montado aqui — montar vazio teria
+    # feito exatamente o estrago que ele existe para impedir.
+    volumes:
+      - hermes_data:/data
     networks:
       - conecta-pro-network
 
 volumes:
+  # Estado do Hermes: sessoes, skills aprendidas, cron, memorias. Ver o bloco do servico.
+  hermes_data:
+    name: conecta-pro_hermes_data
+    driver: local
   postgres_data:
     driver: local
   redis_data:
