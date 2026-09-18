@@ -2,9 +2,29 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "2ddb59bb2",
+      "data": "2026-09-18",
+      "mudanca": "test(regressao): a régua exigia a REDAÇÃO do LLM, e 8 casos 'falharam' sem defeito"
+    },
+    {
+      "commit": "f259a6e52",
+      "data": "2026-09-18",
+      "mudanca": "feat(mcp): os 4 pendentes — muro em 2 tools, recusa dura do opt-out, e os campos da emissão"
+    },
+    {
+      "commit": "e00f159c3",
+      "data": "2026-09-17",
+      "mudanca": "fix(qa): as seis travas órfãs passam a rodar, e o sandbox do MCP volta do mundo dos mortos"
+    },
+    {
       "commit": "ce6aa1475",
       "data": "2026-09-17",
       "mudanca": "feat(zap+mcp): responder sem modelo o que não precisa dele; e o MCP deixa de ser varrível"
+    },
+    {
+      "commit": "2d5873411",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
     },
     {
       "commit": "d8130b9cb",
@@ -12,9 +32,19 @@
       "mudanca": "fix(mcp): opt-out — a 1ª correção era insuficiente e o MEU teste escondeu isso"
     },
     {
+      "commit": "43fca41b8",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "bfb3972fb",
       "data": "2026-09-13",
       "mudanca": "fix(mcp): blocos 1-5 do fechamento — LGPD por inspeção, preview valida existência, ensaio valida tipo"
+    },
+    {
+      "commit": "174d08fe7",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
     },
     {
       "commit": "4ff5dae55",
@@ -22,14 +52,29 @@
       "mudanca": "fix(mcp): as escritas fecham em 26/26 — e a varredura estava medindo o próprio lixo"
     },
     {
+      "commit": "cff99b05c",
+      "data": "2026-09-13",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "c8fe76066",
       "data": "2026-09-13",
       "mudanca": "fix(mcp): a validação do Cowork derrubou duas afirmações minhas — e o método era o culpado"
     },
     {
+      "commit": "30be528a3",
+      "data": "2026-09-12",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "3eabc59cd",
       "data": "2026-09-12",
       "mudanca": "fix(lgpd): a trilha dizia a PESSOA e omitia o agente"
+    },
+    {
+      "commit": "ac9f20d2e",
+      "data": "2026-09-12",
+      "mudanca": "chore(mcp): changelog regenerado — topo b4437c5f6"
     },
     {
       "commit": "b4437c5f6",
@@ -40,6 +85,11 @@
       "commit": "8c427f3c8",
       "data": "2026-09-12",
       "mudanca": "fix: os 4 desvios e os 3 achados da validação do Cowork — inclusive um preço errado por 12x"
+    },
+    {
+      "commit": "efa6d981b",
+      "data": "2026-09-12",
+      "mudanca": "chore(mcp): changelog regenerado — blocos 1,2,3,7,8,9,10"
     },
     {
       "commit": "f0f0037ad",
@@ -72,9 +122,19 @@
       "mudanca": "fix: Blocos 4 e 5 do Cowork — o vazamento continuava, e o guard que eu escrevi não pegava"
     },
     {
+      "commit": "45f82eba6",
+      "data": "2026-09-11",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "018f4f2c4",
       "data": "2026-09-11",
       "mudanca": "fix: as 7 pendências da validação do Cowork — e a margem que ia no PDF do cliente"
+    },
+    {
+      "commit": "c6d6677be",
+      "data": "2026-09-11",
+      "mudanca": "chore(mcp): changelog regenerado — rodada das issues CP-MCP-001 a 011"
     },
     {
       "commit": "53a086ca7",
@@ -85,6 +145,11 @@
       "commit": "419d50b3c",
       "data": "2026-09-11",
       "mudanca": "feat(mcp): P2 fechado — valor numérico e data ISO ao lado do formatado"
+    },
+    {
+      "commit": "8fccc4837",
+      "data": "2026-09-11",
+      "mudanca": "chore(mcp): changelog regenerado após a rodada da auditoria"
     },
     {
       "commit": "c379ad6a8",
@@ -112,9 +177,19 @@
       "mudanca": "fix(mcp): P0 da auditoria — efeito externo exigia aprovação só em modo agente"
     },
     {
+      "commit": "3ea3a34d1",
+      "data": "2026-09-11",
+      "mudanca": "chore(mcp): changelog regenerado + imagem reassada com sandbox e request_id"
+    },
+    {
       "commit": "ecb91f555",
       "data": "2026-09-11",
       "mudanca": "feat(mcp): sandbox e request_id — o P2 que faltava para o prompt fechar 100%"
+    },
+    {
+      "commit": "7adc88edd",
+      "data": "2026-09-11",
+      "mudanca": "chore(mcp): changelog regenerado + imagem reassada"
     },
     {
       "commit": "3d458491a",
@@ -122,84 +197,9 @@
       "mudanca": "feat(qa): checar_imagem_mcp — concordância entre conectores não é atualidade"
     },
     {
-      "commit": "fac2c764d",
+      "commit": "94b3630ef",
       "data": "2026-09-11",
-      "mudanca": "fix(mcp): o teste do teto derrubava o BUILD — parede de build não pode depender de produção"
-    },
-    {
-      "commit": "9a08bba62",
-      "data": "2026-09-11",
-      "mudanca": "test(mcp): duas promessas minhas viram parede — o teto real e os quatro métodos"
-    },
-    {
-      "commit": "273dddf4d",
-      "data": "2026-09-11",
-      "mudanca": "test(mcp): o ramo da janela nunca tinha executado — promessa não é parede"
-    },
-    {
-      "commit": "8ab0728b5",
-      "data": "2026-09-11",
-      "mudanca": "fix(mcp): a JANELA também é observar a coisa errada — 100 contratos não são \"todos\""
-    },
-    {
-      "commit": "ca8f839d6",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): `changelog_mcp` — a sessão do Cowork não vê o deploy acontecer (4.x)"
-    },
-    {
-      "commit": "a72e1d8c3",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): `ensaiar` dá dry_run às 82 ferramentas de escrita de uma vez — 3.3"
-    },
-    {
-      "commit": "745e5e047",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): 2.1 vale para TODAS as geradoras — 3/19 viraram 15/20"
-    },
-    {
-      "commit": "c70c4499e",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): fecha 2.2 e 2.3 — e conserta uma guarda que falhava ABERTA"
-    },
-    {
-      "commit": "76690e682",
-      "data": "2026-09-11",
-      "mudanca": "feat(hermes): o escopo vira parede de verdade — e o Hermes ganha o conector de PESSOAS"
-    },
-    {
-      "commit": "bd20254b4",
-      "data": "2026-09-11",
-      "mudanca": "fix(mcp): 3.1 e 2.5 chegam à FERRAMENTA — estavam prontos no backend e não alcançavam ninguém"
-    },
-    {
-      "commit": "81df4c3f9",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): operação longa vira job — e segundo plano não abre porta dos fundos (3.5)"
-    },
-    {
-      "commit": "f0d5f2a9e",
-      "data": "2026-09-11",
-      "mudanca": "build(mcp): as 8 tools novas passam pelas 3 paredes do build — imagem reconstruída"
-    },
-    {
-      "commit": "1cf190e83",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): as 44 ferramentas que escreviam sem avisar passam a declarar — e uma trava"
-    },
-    {
-      "commit": "1d20e9bd4",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): anexar documento com versão, dry_run e idempotência — 2.2 e 3.3 do Cowork"
-    },
-    {
-      "commit": "d6b637e46",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): CRUD de modelos de contrato — novo tipo de negócio deixa de esperar dev"
-    },
-    {
-      "commit": "c32fc8499",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): documento LEGÍVEL, erro que ensina e identificador tolerante — P0 do Cowork"
+      "mudanca": "chore(mcp): changelog regenerado — a trava pegou 3 commits de atraso"
     }
   ]
 }
