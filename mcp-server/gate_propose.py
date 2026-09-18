@@ -138,7 +138,11 @@ CONSEQUENCIAS: dict[str, list[str]] = {
         "sai em nome da Conecta Mais — quem recebe lê como palavra da empresa",
         "mensagem entregue não se apaga do outro lado",
     ],
-    "inscrever_lead_em_sequencia": ["inscreve o lead numa régua que passa a ENVIAR sozinha"],
+    "inscrever_lead_em_sequencia": [
+        "inscreve o lead numa régua que passa a ENVIAR sozinha, sem nova aprovação",
+        "os envios saem pelo Celery DEPOIS: ninguém vai estar olhando quando saírem",
+        "mensagem entregue não se apaga do outro lado, e a régua tem D+2, D+5 e D+10",
+    ],
     # 18/09/2026 — entrou em EFEITO_EXTERNO por autorização do Jordan
     "reativar_lead": [
         "o José Luís MANDA uma mensagem de WhatsApp agora, para o celular do lead",
@@ -217,6 +221,15 @@ EFEITO_EXTERNO: dict[str, str] = {
     # mesmo efeito com duas classificações opostas, e a mais frouxa era a que ninguém tinha
     # olhado. Não é a tool que decide se precisa de aprovação, é o EFEITO.
     "reativar_lead": "um toque de WhatsApp para o lead frio, em nome da empresa",
+    # ⭐ 18/09/2026 — R6-4, a TERCEIRA que o Cowork achou com a heurística de agrupar por
+    # EFEITO. É duplicata LITERAL de `inscrever_em_sequencia`: mesma rota
+    # (`/crm/sequences/{id}/enroll`), mesmo payload, mesmo retorno — e uma estava atrás do
+    # muro e a outra não. Duas portas para o mesmo efeito é como esta apareceu.
+    #
+    # ⚠️ E o efeito dela é DIFERIDO: não manda agora, AGENDA. Mais difícil de perceber que se
+    # tivesse mandado, e a régua de "sai da empresa" tem de valer para o que sai depois.
+    "inscrever_lead_em_sequencia": "inscreve o lead numa régua que dispara mensagens sozinha, "
+                                   "por Celery, depois — e-mail ou WhatsApp",
 }
 
 # ⭐ IRREVERSÍVEL INTERNO — aprovação humana em QUALQUER MODO, como o efeito externo.

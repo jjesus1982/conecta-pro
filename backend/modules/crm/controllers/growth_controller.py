@@ -1437,39 +1437,83 @@ async def de_quem_e_o_telefone(
     digitos = re.sub(r"\D", "", numero or "")
     if digitos.startswith("55") and len(digitos) in (12, 13):
         digitos = digitos[2:]
-    if len(digitos) < 10:
+    # ⚠️ 18/09/2026 — R6-5. `len(digitos) < 10` deixava passar texto com letras: a validação
+    # de FORMA tem de ver o que veio, não só o que sobrou depois do `regexp_replace`.
+    # "92 99999-000A" tinha 10 dígitos e era classificado "forma válida".
+    if re.search(r"[A-Za-zÀ-ÿ]", numero or ""):
         raise HTTPException(status_code=422, detail={
             "ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
-            "mensagem": f"{numero!r} não tem dígitos suficientes para um telefone.",
-            "dica": "Informe com DDD."})
-    alvo = digitos[-8:]
+            "mensagem": f"{numero!r} tem letra — telefone não tem.",
+            "dica": "Informe só dígitos, com DDD.", "campos_invalidos": ["numero"]})
+    if len(digitos) not in (10, 11):
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+            "mensagem": f"{numero!r} não tem 10 nem 11 dígitos depois do DDD.",
+            "dica": "Informe com DDD: 92991234567 (11) ou 9233334444 (10).",
+            "digitos_lidos": len(digitos), "campos_invalidos": ["numero"]})
+
+    # ⭐ R6-5 — CASA O NÚMERO INTEIRO, não o sufixo de 8. A versão anterior comparava
+    # `right(...,8)`, então `92 99999-0001` e `11 99999-0001` casavam o MESMO registro. O
+    # risco corria nos dois sentidos: marcar opt-out de quem não pediu, e deixar recebendo
+    # quem pediu. Num cadastro com leads de vários DDDs isso não é hipótese — é aritmética.
+    #
+    # ⚠️ A tolerância ao NONO DÍGITO continua necessária (o cadastro tem `9299990001` e
+    # `92999990001` do mesmo assinante, porque o 9 entrou em datas diferentes por estado), mas
+    # agora ela é EXPLÍCITA e com DDD obrigatoriamente igual: comparo as duas formas do mesmo
+    # número, não um sufixo que ignora de onde a pessoa é.
+    ddd, resto = digitos[:2], digitos[2:]
+    formas = {ddd + resto}
+    if len(resto) == 9 and resto.startswith("9"):
+        formas.add(ddd + resto[1:])          # sem o nono dígito
+    elif len(resto) == 8:
+        formas.add(ddd + "9" + resto)         # com o nono dígito
+    lista = sorted(formas)
+
+    _NORM = "regexp_replace(coalesce({},''),'[^0-9]','','g')"
+
+    def _casa(col: str) -> str:
+        # compara o número normalizado COMPLETO, tirando o 55 do cadastro quando houver
+        n = _NORM.format(col)
+        return (f"(CASE WHEN left({n},2)='55' AND length({n}) IN (12,13) "
+                f"     THEN right({n}, length({n})-2) ELSE {n} END) = ANY(:formas)")
+
     cli = (await db.execute(text(
-        # ⚠️ `clients` NÃO tem `legal_name` — tem `name` e `trading_name`. Escrevi
-        # `coalesce(legal_name, name)` de memória e a rota estourou 500; quem me contou foi
-        # o fail-open do helper, que devolveu "indeterminado" em vez de recusar um opt-out
-        # legítimo por causa de um erro meu. A coluna certa saiu de
-        # `information_schema.columns`, não da minha lembrança.
         "SELECT id::text, coalesce(nullif(name,''), trading_name) AS nome FROM clients "
-        " WHERE right(regexp_replace(coalesce(whatsapp,''),'[^0-9]','','g'), 8) = :a "
-        "    OR right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'), 8) = :a "
-        "    OR right(regexp_replace(coalesce(financial_contact_phone,''),'[^0-9]','','g'), 8) = :a "
-        "    OR right(regexp_replace(coalesce(technical_contact_phone,''),'[^0-9]','','g'), 8) = :a "
-        " LIMIT 1"), {"a": alvo})).mappings().first()
+        " WHERE " + " OR ".join(_casa(c) for c in
+                                ("whatsapp", "phone", "financial_contact_phone",
+                                 "technical_contact_phone")) +
+        " LIMIT 2"), {"formas": lista})).mappings().all()
+    if len(cli) > 1:
+        # ⚠️ AMBÍGUO NÃO É ESCOLHA. Dois cadastros com o mesmo número é divergência de
+        # cadastro, e opt-out no registro errado é exatamente o dano que esta rota evita.
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "codigo": "TELEFONE_AMBIGUO", "http": 409,
+            "mensagem": f"{numero!r} está em {len(cli)} cadastros de cliente.",
+            "dica": "Resolva a duplicidade no cadastro, ou informe o id do destinatário.",
+            "candidatos": [{"tipo": "cliente", "id": c["id"], "nome": c["nome"]} for c in cli]})
     if cli:
         return {"ok": True, "encontrado": True, "tipo": "cliente",
-                "nome": cli["nome"], "id": cli["id"], "procurei_por": alvo}
-    lead = (await db.execute(text(
+                "nome": cli[0]["nome"], "id": cli[0]["id"], "procurei_por": lista}
+
+    leads = (await db.execute(text(
         # ⚠️ SEM filtro de is_active, de propósito: lead arquivado continua sendo alguém que
         # foi contatado, e é justamente dele que vem o pedido de parar.
         "SELECT id::text, name AS nome, coalesce(is_active, true) AS ativo FROM leads "
-        " WHERE right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'), 8) = :a "
-        " ORDER BY coalesce(is_active,true) DESC, created_at DESC LIMIT 1"),
-        {"a": alvo})).mappings().first()
-    if lead:
-        return {"ok": True, "encontrado": True, "tipo": "lead", "nome": lead["nome"],
-                "id": lead["id"], "lead_ativo": bool(lead["ativo"]), "procurei_por": alvo}
-    return {"ok": True, "encontrado": False, "procurei_por": alvo,
-            "mensagem": f"Nenhum cliente ou lead com telefone terminando em {alvo}."}
+        " WHERE " + _casa("phone") +
+        " ORDER BY coalesce(is_active,true) DESC, created_at DESC LIMIT 2"),
+        {"formas": lista})).mappings().all()
+    if len(leads) > 1:
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "codigo": "TELEFONE_AMBIGUO", "http": 409,
+            "mensagem": f"{numero!r} está em {len(leads)} leads.",
+            "dica": "Resolva a duplicidade, ou informe o id.",
+            "candidatos": [{"tipo": "lead", "id": l["id"], "nome": l["nome"]} for l in leads]})
+    if leads:
+        return {"ok": True, "encontrado": True, "tipo": "lead", "nome": leads[0]["nome"],
+                "id": leads[0]["id"], "lead_ativo": bool(leads[0]["ativo"]),
+                "procurei_por": lista}
+    return {"ok": True, "encontrado": False, "procurei_por": lista,
+            "mensagem": f"Nenhum cliente ou lead com o telefone {numero!r}."}
 
 
 @router.post("/followups/optout", status_code=201)

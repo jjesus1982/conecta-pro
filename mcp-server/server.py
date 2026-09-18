@@ -2353,7 +2353,14 @@ async def listar_sequencias() -> dict:
 
 @mcp.tool
 async def inscrever_lead_em_sequencia(sequencia_id: str, lead_id: str) -> dict:
-    """Inscreve um lead numa sequência de follow-up. Os envios saem automaticamente (Celery)."""
+    """⚠️ DUPLICATA de `inscrever_em_sequencia` — prefira aquela. Inscreve um lead numa régua
+    de follow-up que passa a ENVIAR sozinha (e-mail ou WhatsApp, por Celery, em D+2/D+5/D+10).
+
+    ⚠️ SAI DA EMPRESA e exige aprovação humana. Estava `write_low` FORA do muro enquanto a
+    irmã, com a MESMA rota e o MESMO payload, estava atrás dele — achada em 18/09/2026 pelo
+    Cowork agrupando tools por EFEITO em vez de por nome. Mantida por compatibilidade: quem
+    já chama continua chamando, agora com a parede certa.
+    """
     r = await erp.post(f"/crm/sequences/{sequencia_id}/enroll", json={"lead_id": lead_id})
     return {"inscrito": bool(r.get("enrolled")), "enrollment_id": r.get("enrollment_id")}
 
@@ -2914,6 +2921,16 @@ async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> d
     # ⚠️ E o lugar DURÁVEL desta regra é a rota `/crm/followups/optout` do backend, que serve
     # a tela também. Aqui ela vale só para o agente; não mexi no backend porque mudaria o
     # comportamento de todos os chamadores sem autorização.
+    # ⚠️ 18/09/2026 — R6-5: a LETRA é conferida no dado CRU, aqui. Eu pus essa checagem na
+    # rota do backend e ela nunca disparava, porque esta tool tira os não-dígitos ANTES de
+    # chamar: "92 99999-000A" chegava lá como "9299999000" e saía 404 "não cadastrado" em vez
+    # de 422 "isso tem letra". Validação a jusante da normalização não vê o que foi
+    # normalizado — a guarda vive onde o dado entra.
+    if re.search(r"[A-Za-zÀ-ÿ]", numero or ""):
+        return {"ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+                "mensagem": f"{numero!r} tem letra — telefone não tem.",
+                "dica": "Informe só dígitos, com DDD: 92991234567.",
+                "campos_invalidos": ["numero"]}
     so_digitos = re.sub(r"\D", "", numero or "")
     if so_digitos.startswith("55") and len(so_digitos) in (12, 13):
         so_digitos = so_digitos[2:]
@@ -3198,7 +3215,14 @@ async def sugerir_reuniao(titulo: str, quando_iso: str, cliente_nome: str | None
                           local: str | None = None, tipo: str = "reuniao",
                           visit_report_id: str | None = None) -> dict:
     """Agenda (sugere) uma reunião. quando_iso = YYYY-MM-DDTHH:MM. tipo: visita_tecnica|comercial|apresentacao|reuniao.
-    Fica como 'sugerido' até confirmar_reuniao. Lembrete pré-reunião é enviado automaticamente."""
+    Fica como 'sugerido' até confirmar_reuniao. Lembrete pré-reunião é enviado automaticamente.
+
+    ⚠️ O lembrete pré-reunião automático vai para O JORDAN, não para o cliente — a task
+    `crm.lembrete_reuniao` chama `notify_owner`. Registrado aqui em 18/09/2026 porque a
+    descrição dizia só "lembrete é enviado automaticamente", e o Cowork levantou a suspeita
+    correta de efeito externo não declarado. Medi o destinatário: é interno. Se algum dia o
+    lembrete passar a ir ao cliente, esta tool tem de entrar em EFEITO_EXTERNO.
+    """
     return await erp.post("/crm/reunioes", json={"titulo": titulo, "quando_iso": quando_iso,
                           "cliente_nome": cliente_nome, "local": local, "tipo": tipo,
                           "visit_report_id": visit_report_id})

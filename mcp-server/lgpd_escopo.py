@@ -104,7 +104,12 @@ NIVEL: dict[str, str] = {
     "buscar_documento": OPERACIONAL,
     # nome, cargo, CPF e RG de UMA pessoa — identificável, e o CPF torna sensível
     "definir_representante_cliente": SENSIVEL,              # /gedeon/kits/montagem — kit por pessoa
-    "registrar_evento_kit": OPERACIONAL,          # checklist do kit de admissão
+    "registrar_evento_kit": OPERACIONAL,
+    # R6-4: inscreve um LEAD identificado, com telefone, numa régua de WhatsApp. Vinha
+    # `nao_se_aplica` por inferência — o nome não diz "lead" e a descrição não dizia o que
+    # entra na régua.
+    "inscrever_lead_em_sequencia": OPERACIONAL,
+    "inscrever_em_sequencia": OPERACIONAL,          # checklist do kit de admissão
 
     # sensível — CPF, salário individual, holerite, saúde
     "baixar_holerite_pdf": SENSIVEL,

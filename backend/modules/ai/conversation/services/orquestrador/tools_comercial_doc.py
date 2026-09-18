@@ -406,6 +406,12 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
                        "chame esta ferramenta de novo com as respostas."),
         }
 
+    # ⭐ R6-1 · o congelado ANTES de renderizar de novo: é com ele que a comparação acontece.
+    ja = (await db.execute(sa_text(
+        "SELECT conteudo_hash, emitido_em::text AS quando, status::text AS status "
+        "  FROM contracts WHERE contract_number = :n OR id::text = :n"),
+        {"n": contrato})).mappings().first()
+
     try:
         res = await renderizar_contrato(db, contrato)
     except RenderError as e:
@@ -418,6 +424,52 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
     out = await salvar_pdf(db, "contrato",
                            f"Contrato {sit.contrato} — {res.contratada.razao_social}",
                            res.pdf, ref_tipo="contract", ref_id=contrato, teste=False)
+
+    # ⭐ 18/09/2026 — R6-1: CONGELA o documento. Até aqui a emissão renderizava e não
+    # persistia: `content`, `clauses` e `pdf_file_path` ficavam NULL e o status seguia
+    # `draft`. Eu chamei isso de "emitido" no relatório e o Cowork derrubou com uma leitura
+    # de três linhas — o render funcionava, o documento não existia como artefato.
+    #
+    # ⚠️ Por que importa além do vocabulário: sem conteúdo congelado, o contrato é
+    # re-renderizado do dado VIVO a cada chamada. Trocar o representante, um item ou o valor
+    # muda o que se lê de um instrumento já assinado, e `cobre_documento_atual` não tem
+    # referente. É a mesma patologia que o manifesto do 00022 exibiu, na camada do texto.
+    #
+    # ⚠️ MINUTA NÃO CONGELA. Ela é rascunho para o jurídico do cliente analisar; congelar um
+    # rascunho como se fosse o instrumento é pior que não congelar.
+    congelado: dict[str, Any] = {}
+    if not dados.get("minuta"):
+        import hashlib as _hl
+
+        h = _hl.sha256(res.pdf).hexdigest()
+        caminho = (out.get("caminho") or out.get("path") or out.get("download_url")
+                   if isinstance(out, dict) else None)
+        quem = (getattr(user, "email", None) or getattr(user, "full_name", None) or "")[:160]
+        # `status` só avança de `draft`: contrato já ativo ou suspenso não volta para
+        # "aguardando assinatura" porque alguém reemitiu a via.
+        await db.execute(sa_text(
+            "UPDATE contracts SET content = :txt, clauses = CAST(:cl AS jsonb), "
+            "  pdf_file_path = coalesce(:pdf, pdf_file_path), conteudo_hash = :h, "
+            "  emitido_em = now(), emitido_por = :q, "
+            "  status = CASE WHEN status::text = 'draft' THEN 'pending_signature'::contractstatus "
+            "                ELSE status END, "
+            "  updated_at = now() "
+            " WHERE contract_number = :n OR id::text = :n"),
+            {"txt": res.texto, "cl": _json.dumps(res.clausulas_do_modelo),
+             "pdf": caminho, "h": h, "q": quem, "n": contrato})
+        congelado = {"conteudo_hash": h, "clausulas_congeladas": len(res.clausulas_do_modelo)}
+        # ⚠️ AVISA em vez de sobrescrever em silêncio. Se já havia documento congelado e o
+        # hash mudou, alguma coisa do contrato mudou depois da emissão anterior — e se aquela
+        # via foi assinada, o que está assinado NÃO é isto. Quem emitiu precisa ler essa
+        # frase antes de mandar a nova via para o cliente.
+        if ja and ja["conteudo_hash"] and ja["conteudo_hash"] != h:
+            congelado["aviso_divergencia"] = (
+                f"O documento MUDOU em relação ao que estava congelado (emitido em "
+                f"{ja['quando']}). Hash anterior {ja['conteudo_hash'][:12]}…, novo "
+                f"{h[:12]}…. Se a via anterior já foi assinada, a assinatura cobre o "
+                f"documento ANTIGO — confira o que mudou antes de enviar esta.")
+            congelado["hash_anterior"] = ja["conteudo_hash"]
+
     # o documento existe: agora sim as gravações do wizard valem. `salvar_pdf` já comita,
     # então este ponto é o fecho do que ficou pendente lá atrás.
     await db.commit()
@@ -429,6 +481,8 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
         "clausulas": res.n_clausulas,
         "gravado_agora": gravados,
         "link": link,
+        **congelado,
+        "congelado": bool(congelado),
         "resumo": (f"Contrato {sit.contrato} emitido pelo modelo '{sit.modelo_nome}': "
                    f"{res.n_clausulas} cláusulas, emitido por {res.contratada.razao_social} "
                    f"({res.contratada.cnpj}). Link para enviar ao cliente: {link}"),

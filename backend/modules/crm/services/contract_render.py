@@ -907,7 +907,11 @@ def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
         linhas = ["COMPOSIÇÃO DO VALOR", ""]
         tot_qtd = 0
         for it in itens:
-            q = int(it["quantity"] or 0)
+            # ⚠️ R6-2: `or 1`, não `or 0`. Item gravado antes da correção do wizard tem
+            # `quantity = 0` no banco, e documento assinado não pode dizer "qtd 0 · R$ 3.500".
+            # A guarda é no RENDER também porque o dado velho não se corrige sozinho — e
+            # corrigir só a escrita deixaria os contratos já gravados imprimindo zero.
+            q = int(it["quantity"] or 0) or 1
             tot_qtd += q
             linhas.append(f"  {it['service_name'] or '—'} · qtd {q} · {brl(it['total_price'] or 0)}")
             # ⚠️ 18/09/2026 — a descrição também aqui. Consertei a tabela do PDF e este
@@ -985,7 +989,7 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     linhas = [["FUNÇÃO/DESCRIÇÃO", "QTD", "PREÇO TOTAL"]]
     tot_qtd = 0
     for it in itens:
-        q = int(it["quantity"] or 0)
+        q = int(it["quantity"] or 0) or 1      # R6-2: nunca imprime zero (ver versão texto)
         tot_qtd += q
         nome = it["service_name"] or "—"
         desc = (it["description"] or "").strip() if "description" in it.keys() else ""
@@ -1404,6 +1408,9 @@ class Resultado:
     contratada: Contratada
     n_clausulas: int
     clausulas_faltando: list[str] = field(default_factory=list)
+    # R6-1: os TÍTULOS, não só a contagem. Congelar `13` não diz quais 13 — e é a lista que
+    # permite, meses depois, provar que o instrumento assinado tinha aquelas cláusulas.
+    clausulas_do_modelo: list[str] = field(default_factory=list)
     # dado que EXISTE e não serve — endereço truncado, por exemplo. Não impede a emissão;
     # chega a quem está emitindo antes do papel sair.
     avisos: list[str] = field(default_factory=list)
@@ -1581,5 +1588,6 @@ async def renderizar_contrato(
         texto=texto,
         contratada=contratada,
         n_clausulas=len(clausulas),
+        clausulas_do_modelo=[str(c) for c in clausulas if isinstance(c, str) and c.strip()],
         clausulas_faltando=faltando,
     )

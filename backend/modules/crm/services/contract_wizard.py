@@ -456,7 +456,16 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         for i in itens:
             # `quantidade` é apelido aceito de `qtd`: o exemplo do schema dizia uma coisa e o
             # código lia outra, e quem escreveu `quantidade: 1` viu `quantity: 0` gravado.
-            qtd = int(i.get("qtd") or i.get("quantidade") or 0)
+            #
+            # ⭐ 18/09/2026 — R6-2: o DEFAULT era 0, e era esse o defeito que sobrou. Eu
+            # aceitei o apelido e deixei o zero: quem não passa quantidade — o caso normal
+            # num contrato de serviço — gravava `quantity: 0` e o documento saía
+            # "Sistema · qtd 0 · R$ 3.500,00". Tabela de composição com quantidade zero e
+            # preço de R$ 3.500 é a primeira coisa que um advogado circula.
+            #
+            # Ausente = 1, porque uma linha de composição existe: ela É uma unidade do que
+            # está sendo contratado. Zero seria afirmar que não há nenhuma.
+            qtd = int(i.get("qtd") or i.get("quantidade") or 1)
             total = Decimal(str(i.get("total") or 0))
             # no único, `service_type` carrega o PAPEL da parcela (entrada/parcela/retida),
             # que é o que o render lê para montar a Cláusula 3.2; no recorrente segue sendo
