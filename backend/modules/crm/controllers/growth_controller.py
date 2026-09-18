@@ -1444,7 +1444,12 @@ async def de_quem_e_o_telefone(
             "dica": "Informe com DDD."})
     alvo = digitos[-8:]
     cli = (await db.execute(text(
-        "SELECT id::text, coalesce(legal_name, name) AS nome FROM clients "
+        # ⚠️ `clients` NÃO tem `legal_name` — tem `name` e `trading_name`. Escrevi
+        # `coalesce(legal_name, name)` de memória e a rota estourou 500; quem me contou foi
+        # o fail-open do helper, que devolveu "indeterminado" em vez de recusar um opt-out
+        # legítimo por causa de um erro meu. A coluna certa saiu de
+        # `information_schema.columns`, não da minha lembrança.
+        "SELECT id::text, coalesce(nullif(name,''), trading_name) AS nome FROM clients "
         " WHERE right(regexp_replace(coalesce(whatsapp,''),'[^0-9]','','g'), 8) = :a "
         "    OR right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'), 8) = :a "
         "    OR right(regexp_replace(coalesce(financial_contact_phone,''),'[^0-9]','','g'), 8) = :a "
