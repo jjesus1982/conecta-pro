@@ -113,6 +113,30 @@ parede fora do git ou da imagem).
 **À mão** (com argumentos): `provar_desmonte.py <oráculo> <tabela>` — prova de desmonte de um
 oráculo recém-escrito. Mutação em produção: sempre via `_mutacao.Mutacao` (ensaio, `--aplicar`).
 
+### As que faltavam neste documento (conferido em 18/09/2026)
+
+O `checar_arsenal` acusa quando o DOCUMENTO e o disco discordam — instrução velha faz o
+próximo errar com confiança. Estas existem, rodam pelo `checar_regressao.py`, e a pergunta
+de cada uma sai da primeira linha do docstring dela, não de uma cópia que envelhece aqui:
+
+| Caçador | Pergunta |
+|---|---|
+| `checar_acao_faltando.py` | Tela que LISTA e não deixa MEXER — o mapa do que obriga o dono a ir ao terminal |
+| `checar_acesso_de_quem_saiu.py` | Quem não trabalha mais aqui não entra no sistema |
+| `checar_afastamento_vs_cadastro.py` | Afastamento aberto e cadastro dizendo outra coisa |
+| `checar_alocacao_de_quem_saiu.py` | Alocação ATIVA de quem não trabalha mais: a cobertura do posto mente para cima |
+| `checar_aso_sem_lastro.py` | ASO que não prova exame nenhum — e por isso o número de "vencidos" não quer dizer nada |
+| `checar_batida_sem_foto.py` | Batida do app sem a selfie guardada — a evidência que o app tira e o servidor perdia |
+| `checar_capacidade_sem_botao.py` | CAPACIDADE SEM BOTÃO: o sistema sabe fazer e nenhuma tela oferece — o mapa do terminal |
+| `checar_contrato_front_back.py` | Chave do contrato que o backend EMITE e o frontend publicado NÃO SABE LER |
+| `checar_contrato_vs_nota.py` | O que está no CONTRATO é o que foi para a NOTA? — a conferência que ninguém fazia |
+| `checar_diarista_impagavel.py` | Diarista que trabalhou e não tem como receber — e nome fora do padrão da lista |
+| `checar_hermes_skill_retrieval.py` | O skill-retrieval está de fato ENCOLHENDO o prompt — e não escondendo as nossas skills |
+| `checar_hermes_so_ve_o_que_executa.py` | O Hermes só enxerga, do conector `conecta`, as ferramentas que ele CONSEGUE executar |
+| `checar_holerite_de_mes_futuro.py` | Holerite de competência que ainda não aconteceu — e holerite sem origem declarada |
+| `checar_id_tipo_divergente.py` | Coluna `*_id` de um tipo comparando com um `id` de outro: o JOIN devolve 500 ou zero linha |
+| `checar_pessoa_fora_do_app_de_ponto.py` | Gente ativa que não bate ponto pelo Conecta PRO — desde 13/09 isso é gente SEM ponto |
+
 ## Comandos
 
 ```bash
