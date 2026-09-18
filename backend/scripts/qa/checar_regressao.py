@@ -145,6 +145,14 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # O skill-retrieval está ENCOLHENDO o prompt e não escondendo as nossas skills. Ele tem
+    # duas fases que puxam o custo em direções opostas (compacta / injeta); se a compactação
+    # parar, o plugin passa a CUSTAR em silêncio — medido: 26.793 com a adaptação da casa
+    # removida contra 26.569 sem plugin nenhum. Confere a adaptação lendo o arquivo instalado,
+    # porque de dentro de um processo novo ela é invisível (ordem de import).
+    "checar_hermes_skill_retrieval.py": lambda s: _n(
+        r"^TOTAL: (\d+) falha\(s\) no skill-retrieval", s, "TOTAL: 0 falha"
+    ),
     # O Hermes só enxerga, do conector `conecta`, o que CONSEGUE executar. Medido em
     # 18/09/2026 no dump real: o catálogo era 83% do payload de cada turno, e das 146
     # ferramentas daquele conector 142 recusavam SEMPRE (ele exige identidade por chamada, que

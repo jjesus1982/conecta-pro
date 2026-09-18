@@ -1,0 +1,350 @@
+"""Skill Retrieval Plugin — pre_llm_call hook + system prompt compaction.
+
+Two-phase progressive disclosure for Hermes Agent skills:
+
+1. **System prompt compaction** (at session start): Monkey-patches
+   `build_skills_system_prompt` to return names-only — all skill names
+   visible but descriptions stripped (~2K tokens instead of ~11.5K).
+
+2. **Per-turn retrieval** (pre_llm_call hook): BM25 retrieves top-K
+   relevant skills based on the user message and injects their full
+   descriptions into the user message (~300 tokens).
+
+Net token savings: ~11.5K → ~2.3K tokens per turn for skills, with
+better discovery than dumping every description into the system prompt.
+
+Configuration:
+  TOP_K defaults to 6. Override with env var ``SKILL_RETRIEVAL_TOP_K``.
+  System prompt compaction is enabled by default. Set
+  ``SKILL_RETRIEVAL_COMPACT=0`` to keep retrieval injection while leaving the
+  original Hermes skills prompt untouched.
+"""
+
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+
+# Ensure scripts/ is importable
+_scripts_dir = Path(__file__).parent / "scripts"
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+
+from bm25_retriever import get_index, get_skill_info
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_TOP_K = 6
+
+
+def _parse_top_k(raw: str | None, default: int = _DEFAULT_TOP_K) -> int:
+    """Parse TOP_K from env; invalid/empty values fall back to ``default``."""
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid SKILL_RETRIEVAL_TOP_K=%r — using default %d", raw, default
+        )
+        return default
+    if value < 1:
+        logger.warning(
+            "SKILL_RETRIEVAL_TOP_K=%r must be >= 1 — using default %d", raw, default
+        )
+        return default
+    return value
+
+
+def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
+    """Parse a permissive boolean env var without failing plugin startup."""
+    if raw is None or not str(raw).strip():
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Invalid SKILL_RETRIEVAL_COMPACT=%r — using default %s", raw, default)
+    return default
+
+
+TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
+COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
+
+# Capability snapshots captured from compact_build (Hermes'
+# build_skills_system_prompt kwargs) so the retrieval hook can rebuild the
+# BM25 corpus with the same available_tools / available_toolsets.
+#
+# Hermes' build_skills_system_prompt() has no session_id parameter, so capture
+# cannot be keyed per session. A single "latest" slot with a STALENESS WINDOW
+# is the safe contract: a prompt build and the pre_llm_call hook for the same
+# turn are adjacent in time; a snapshot older than the window belongs to
+# another session's turn and must NOT be applied (hook falls back to the
+# fail-open bare get_index()).
+_SNAPSHOT_MAX_AGE_S = 30.0
+_session_capability_snaps: dict[str, tuple[float, frozenset | None, frozenset | None]] = {}
+
+
+def _freeze_capability_set(value) -> frozenset | None:
+    try:
+        return None if value is None else frozenset(value)
+    except TypeError:
+        return None  # unhashable/odd input — treat as unknown, never raise
+
+
+def _remember_capability_snapshot(*args, **kwargs) -> None:
+    """Store available_tools / available_toolsets from a compact_build call.
+
+    Fail-soft: must never break Hermes' system-prompt construction.
+    """
+    try:
+        has_kw_tools = "available_tools" in kwargs
+        has_kw_toolsets = "available_toolsets" in kwargs
+        if not has_kw_tools and not has_kw_toolsets and not args:
+            return
+        tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
+        toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
+        session_id = kwargs.get("session_id") or ""
+        if not isinstance(session_id, str):
+            session_id = str(session_id) if session_id else ""
+        _session_capability_snaps[session_id] = (
+            time.monotonic(),
+            _freeze_capability_set(tools),
+            _freeze_capability_set(toolsets),
+        )
+        # Bounded map: keep the current session's entry, evict the oldest others.
+        if len(_session_capability_snaps) > 8:
+            others = sorted(
+                (k for k in _session_capability_snaps if k != session_id),
+                key=lambda k: _session_capability_snaps[k][0],
+            )
+            for key in others[: len(_session_capability_snaps) - 8]:
+                del _session_capability_snaps[key]
+    except Exception:
+        logger.debug("capability snapshot capture failed", exc_info=True)
+
+
+def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
+    """Return get_index/get_skill_info kwargs for a session, or None if unknown."""
+    sid = session_id or ""
+    snap = _session_capability_snaps.get(sid)
+    if snap is None:
+        return None
+    captured_at, tools, toolsets = snap
+    if time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
+        # Stale snapshot — belongs to another turn. Fail open.
+        _session_capability_snaps.pop(sid, None)
+        return None
+    return {
+        "available_tools": set(tools) if tools is not None else None,
+        "available_toolsets": set(toolsets) if toolsets is not None else None,
+    }
+
+
+# ─── Phase 1: System prompt compaction ───────────────────────────────────────
+
+def _compact_skills_prompt():
+    """Monkey-patch build_skills_system_prompt to return names-only.
+
+    The original function builds a full skill index with descriptions.
+    We wrap it: call the original, then strip all descriptions, keeping
+    only skill names organized by category.
+
+    Since the Sep 2026 decomposition, only ``agent.prompt_builder`` is
+    patched — every caller (including the ``run_agent`` PLUGIN-COMPAT
+    facade) resolves the function through it. The retrieval hook
+    (Phase 2) is unaffected.
+    """
+    try:
+        from agent import prompt_builder
+    except ImportError:
+        try:
+            import hermes_agent.agent.prompt_builder as prompt_builder
+        except ImportError:
+            logger.warning("Cannot locate prompt_builder — compaction skipped")
+            return False
+
+    # Sep 2026 decomposition (v0.21.0, PR #102117): callers resolve
+    # build_skills_system_prompt via agent.prompt_builder directly
+    # (agent/system_prompt.py uses _pb.build_skills_system_prompt), and the
+    # run_agent PLUGIN-COMPAT shim resolves the attribute through
+    # agent.prompt_builder at call time too. Patching prompt_builder alone
+    # therefore covers every resolution path. The old run_agent attribute
+    # patch is gone: it triggered `hermes doctor`'s plugin-compat AST scan
+    # (removed-on-2026-09-14 warning) and would get the plugin disabled
+    # after that date. Do NOT re-add run_agent patching.
+
+    original = prompt_builder.build_skills_system_prompt
+    if getattr(original, "_skill_retrieval_patched", False):
+        return True  # Already patched
+
+    # ══ ADAPTAÇÃO DA CASA — Conecta PRO, 18/09/2026 ════════════════════════════
+    # Não é do autor. Removê-la quando o Hermes subir para >= 0.21.0.
+    #
+    # Rodamos o Hermes **v0.19.0 (2026.7.20)** e o plugin declara
+    # `hermes_compatibility: ">=0.20.0"`. O hook `pre_llm_call` existe aqui, mas a
+    # DECOMPOSIÇÃO de setembro/2026 (PR #102117), que fez os chamadores resolverem
+    # `build_skills_system_prompt` por `agent.prompt_builder`, ainda NÃO aconteceu
+    # nesta versão: `agent/system_prompt.py` resolve pelo módulo `run_agent`
+    # (`_r = _ra()`), e `run_agent.py:165` importou a função para o próprio
+    # namespace com `from agent.prompt_builder import ...`.
+    #
+    # MEDIDO no container, não deduzido:
+    #     patch em prompt_builder  → prompt_builder aponta para o novo
+    #                              → run_agent CONTINUA no antigo
+    #     "O PATCH ALCANÇA O CHAMADOR?" False
+    #
+    # Sem esta adaptação o plugin liga só a METADE QUE ADICIONA tokens (a injeção
+    # top-K por turno) e não a que remove (a compactação) — ficaria PIOR que não
+    # instalar. O autor tirou o patch de `run_agent` porque a partir de 14/09 o
+    # `hermes doctor` passou a reprovar plugin-compat por varredura de AST; essa
+    # varredura NÃO existe na nossa versão (conferido em `hermes_cli/doctor.py`).
+    #
+    # A trava `checar_hermes_skill_retrieval.py` mede a SAÍDA (o prompt encolheu?)
+    # e acusa se esta adaptação parar de alcançar o chamador.
+    try:
+        import run_agent as _run_agent  # noqa: PLC0415
+    except ImportError:
+        _run_agent = None
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def compact_build(*args, **kwargs):
+        _remember_capability_snapshot(*args, **kwargs)
+        # Call original to get the full prompt
+        full_prompt = original(*args, **kwargs)
+        if not full_prompt:
+            return full_prompt
+
+        # Parse the <available_skills> block and strip descriptions
+        import re
+        # Extract everything between <available_skills> and </available_skills>
+        match = re.search(r"<available_skills>(.*?)</available_skills>", full_prompt, re.DOTALL)
+        if not match:
+            return full_prompt  # Can't parse — return original
+
+        skills_block = match.group(1)
+        # Build names-only version: keep category headers and skill names, drop descriptions
+        lines = skills_block.strip().split("\n")
+        compact_lines = []
+        in_skill_entry = False
+        entry_indent = 0  # indentation level of the current skill entry
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            indent = len(line) - len(line.lstrip())
+            # Skill entries (e.g. "    - name: description")
+            if stripped.startswith("-"):
+                name = stripped[1:].strip()
+                if ":" in name:
+                    name = name.split(":")[0].strip()
+                compact_lines.append(f"    - {name}")
+                in_skill_entry = True
+                entry_indent = indent
+            # Wrapped continuation of a skill description — drop it.
+            # A continuation line is MORE indented than the skill entry.
+            # Category headers are LESS indented and must clear the flag.
+            elif in_skill_entry and indent > entry_indent:
+                continue
+            # Category headers (e.g. "  creative:" or "  creative: Some description")
+            elif stripped.endswith(":") or ":" in stripped:
+                # Keep category name, drop its description
+                cat_name = stripped.split(":")[0].strip()
+                compact_lines.append(f"  {cat_name}:")
+                in_skill_entry = False
+            else:
+                compact_lines.append(line)
+
+        compact_block = "\n".join(compact_lines)
+
+        # Replace the available_skills block in the full prompt
+        result = full_prompt[:match.start()] + "<available_skills>\n" + compact_block + "\n</available_skills>" + full_prompt[match.end():]
+
+        # Add a note about the retrieval hook
+        result += (
+            f"\n\nSkill descriptions are injected per-turn by the skill-retrieval "
+            f"plugin (BM25 top-{TOP_K}). If no skills appear in the injected context "
+            f"above your message, use skill_view(name) to load any skill by name."
+        )
+        return result
+
+    compact_build._skill_retrieval_patched = True
+    prompt_builder.build_skills_system_prompt = compact_build
+    # ADAPTAÇÃO DA CASA (ver o bloco lá em cima): na v0.19.0 o chamador resolve a função
+    # pelo módulo `run_agent`, que a importou para o próprio namespace. Sem esta linha a
+    # compactação não alcança ninguém — e o plugin passa a só ADICIONAR tokens.
+    if _run_agent is not None and hasattr(_run_agent, "build_skills_system_prompt"):
+        _run_agent.build_skills_system_prompt = compact_build
+
+    logger.info("System prompt compaction enabled (names-only skill index)")
+    return True
+
+
+# ─── Phase 2: Per-turn retrieval hook ───────────────────────────────────────
+
+def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | None:
+    """pre_llm_call hook — inject top-K relevant skills per turn.
+
+    Called once per turn before the tool-calling loop. Returns a dict with
+    a "context" key whose value is appended to the user message.
+    """
+    try:
+        cap_kwargs = _capability_kwargs_for_session(session_id)
+        index = get_index(**cap_kwargs) if cap_kwargs is not None else get_index()
+        if index is None:
+            return None
+
+        results = index.retrieve(user_message, top_k=TOP_K)
+        if not results:
+            return None
+
+        # Build the injection block
+        lines = [
+            "## Retrieved Skills (top-K relevant to your query)",
+            "Load any of these with skill_view(name) if relevant:",
+            "",
+        ]
+        for skill_id, score in results:
+            info = (
+                get_skill_info(skill_id, **cap_kwargs)
+                if cap_kwargs is not None
+                else get_skill_info(skill_id)
+            )
+            if info:
+                name = info["name"]
+                desc = info["description"]
+                # Truncate long descriptions
+                if len(desc) > 200:
+                    desc = desc[:197] + "..."
+                lines.append(f"- **{name}** ({skill_id}): {desc}")
+
+        context = "\n".join(lines)
+        logger.debug("Injected %d skills for session %s", len(results), session_id)
+        return {"context": context}
+
+    except Exception as e:
+        logger.error("Skill retrieval failed: %s", e, exc_info=True)
+        return None  # fail gracefully — no injection
+
+
+def register(ctx):
+    """Register the pre_llm_call hook and optionally compact the skills system prompt."""
+    # Phase 1: Compact system prompt (names-only). Failures are logged inside
+    # _compact_skills_prompt — never abort registration of the retrieval hook.
+    if COMPACT_SYSTEM_PROMPT:
+        try:
+            _compact_skills_prompt()
+        except Exception as e:
+            logger.warning("System prompt compaction failed: %s", e, exc_info=True)
+    else:
+        logger.info("System prompt compaction disabled by SKILL_RETRIEVAL_COMPACT")
+
+    # Phase 2: Per-turn retrieval
+    ctx.register_hook("pre_llm_call", _on_pre_llm_call)
+    logger.info(
+        "Skill retrieval plugin registered (top_k=%d, compact=%s)",
+        TOP_K,
+        str(COMPACT_SYSTEM_PROMPT).lower(),
+    )
