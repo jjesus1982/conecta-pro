@@ -30,7 +30,23 @@ mcp_servers:
     headers:
       Authorization: "Bearer ${MCP_BEARER}"
     tools:
-      include: []          # vazio = todas as tools do conector
+      # ⭐ 18/09/2026 — SO AS QUE EXECUTAM. Medido no gate deste conector:
+      #   146 servidas no escopo · 4 executam · 142 recusam SEMPRE (fail-closed).
+      # Ele roda MCP_MODO=agente e exige `x-usuario-token` por chamada em tudo que toca
+      # pessoa ou dinheiro; o Hermes nao sabe mandar cabecalho por chamada (headers estaticos
+      # por conexao, `tools/mcp_tool.py`). As 142 iam no catalogo de TODO turno so para
+      # recusar: 150 ferramentas, 78.602 caracteres, 50% do payload medido no dump real de
+      # /data/sessions. Pior que custo, o modelo gastava raciocinio escolhendo ferramenta que
+      # nunca ia rodar.
+      #
+      # ⚠️ QUANDO ALGUEM CONSTRUIR o repasse de identidade por chamada, ESTA LISTA TEM DE
+      # CRESCER — senao ela vira a nova parede. O cacador `checar_hermes_so_ve_o_que_executa`
+      # compara esta lista com o que o gate deixa passar e acusa nos DOIS sentidos.
+      include:
+        - consultar_parametros_precificacao
+        - listar_precos_funcao
+        - simular_preco
+        - status_whatsapp
     supports_parallel_tool_calls: false
     timeout: 120
     connect_timeout: 60

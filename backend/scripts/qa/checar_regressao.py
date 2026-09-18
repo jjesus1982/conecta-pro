@@ -145,6 +145,15 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # O Hermes só enxerga, do conector `conecta`, o que CONSEGUE executar. Medido em
+    # 18/09/2026 no dump real: o catálogo era 83% do payload de cada turno, e das 146
+    # ferramentas daquele conector 142 recusavam SEMPRE (ele exige identidade por chamada, que
+    # o Hermes não sabe mandar). Limitar o `include` às 4 que executam cortou 46.843 → 26.540
+    # tokens de entrada por turno. Acusa nos DOIS sentidos: lista vazia (volta o desperdício) e
+    # lista defasada (vira parede quando alguém liberar mais acesso).
+    "checar_hermes_so_ve_o_que_executa.py": lambda s: _n(
+        r"^TOTAL: (\d+) divergência\(s\) entre o que o Hermes", s, "TOTAL: 0 divergência"
+    ),
     # O que está no CONTRATO foi para a NOTA? O dono explicou em 18/09/2026 por que o MIRANTE
     # não fechava — «tiramos a jardinagem» —, e a nota sabia disso desde agosto enquanto o
     # contrato, o MRR e o contas a receber seguiam com os R$ 1.500 por mais de um mês, sem
