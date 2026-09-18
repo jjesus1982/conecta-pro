@@ -416,13 +416,31 @@ def vincular_nota(chave_acesso: str, receivable_id: str | None = None, preview: 
                             f"confira em Financeiro › Contas a receber (todas já têm nota, ou não há conta dele)"
                         ),
                     }
-                if len(livres) > 1:
+                # ⚠️ O AUTOMÁTICO EXIGE VALOR IGUAL AO CENTAVO. Nada menos.
+                #
+                # A primeira versão desta função vinculava sozinha sempre que sobrasse UMA
+                # candidata, qualquer que fosse o valor. Em 18/09/2026 isso pendurou, em
+                # produção, a nota errada na conta certa e a certa na conta errada: o MIRANTE
+                # DAS FLORES tinha três notas de 08/2026 para duas contas, e cada nota
+                # processada ia comendo o que sobrava — a de R$ 12.061,50 acabou na conta de
+                # R$ 28.694,30 porque era a única que restava. Desfeito à mão, duas vezes.
+                #
+                # "Sobrou uma" NÃO é evidência: é o resto da fila. Valor igual ao centavo é
+                # evidência. Duas contas do mesmo valor seguem ambíguas — ali a evidência não
+                # distingue, e quem decide é gente.
+                centavos = [c for c in livres if abs(float(c[3] or 0) - float(valor_nota or 0)) < 0.01]
+                if len(centavos) != 1:
+                    porque = (
+                        "nenhuma bate com o valor da nota"
+                        if not centavos
+                        else f"{len(centavos)} batem com o valor da nota"
+                    )
                     return {
                         **base,
                         "ok": False,
                         "situacao": "ambiguo",
                         "erro": (
-                            f"{len(livres)} contas em aberto de {tomador} — diga qual passando "
+                            f"{len(livres)} conta(s) de {tomador} e {porque} — diga qual passando "
                             f"`receivable_id`, que eu não escolho por você"
                         ),
                         "candidatas": [
@@ -436,7 +454,7 @@ def vincular_nota(chave_acesso: str, receivable_id: str | None = None, preview: 
                             for c in livres
                         ],
                     }
-                escolhida = (livres[0][0], livres[0][1])
+                escolhida = (centavos[0][0], centavos[0][1])
 
             if usada and usada[0] == escolhida[0]:
                 return {**base, "ok": True, "situacao": "ja_vinculada", "conta": escolhida[1]}

@@ -176,8 +176,10 @@ def main() -> None:
 
             # 3 · AMBIGUIDADE É RECUSADA, não adivinhada — duas parcelas em aberto do mesmo
             #     tomador, como num contrato de valor único
+            # Ambiguidade DE VERDADE é valor igual: com valores diferentes o centavo
+            # desempata (ver 6b) e recusar ali seria dar trabalho à toa.
             r_u2 = cria(db, PATR, "77888999000144", valor=100.0)
-            r_u3 = cria(db, PATR, "77888999000144", valor=250.0)
+            r_u3 = cria(db, PATR, "77888999000144", valor=100.0)
             n_amb = nota(db, PATR, "77888999000144", comp, valor=100.0, numero="900002")
             amb = vincular_nota(n_amb)
             assert not amb["ok"] and amb.get("situacao") == "ambiguo", amb
@@ -201,7 +203,7 @@ def main() -> None:
             assert "já está vinculada à conta" in (vincular_nota(n_amb, receivable_id=r_u2).get("erro") or ""), (
                 "a mesma nota foi pendurada em duas contas"
             )
-            n_outra2 = nota(db, PATR, "77888999000144", comp, valor=250.0, numero="900003")
+            n_outra2 = nota(db, PATR, "77888999000144", comp, valor=100.0, numero="900003")
             assert "já está vinculada a OUTRA nota" in (
                 vincular_nota(n_outra2, receivable_id=r_u3).get("erro") or ""
             ), "a conta aceitou uma segunda nota"
@@ -209,6 +211,34 @@ def main() -> None:
             # 6 · conta já vinculada sai do palpite: a nota nova não a rouba por semelhança
             y = emitir_por_nota(n_outra2, preview=True)
             assert y.get("erro"), ("o palpite roubou uma conta que já tem nota", y)
+
+            # 6b · O AUTOMÁTICO EXIGE VALOR IGUAL AO CENTAVO — o caso que quebrou em produção.
+            #      Três notas para duas contas, e a versão anterior vinculava "a que sobrou":
+            #      a nota de 100 foi parar na conta de 900 porque era a única restante. Aqui a
+            #      terceira nota NÃO pode achar dona, e a de 900 tem de achar a sua.
+            r_p1 = cria(db, PATR, "33444555000166", valor=100.0)
+            r_p2 = cria(db, PATR, "33444555000166", valor=900.0)
+            n_p1 = nota(db, PATR, "33444555000166", comp, valor=100.0, numero="900010")
+            n_p2 = nota(db, PATR, "33444555000166", comp, valor=900.0, numero="900011")
+            n_p3 = nota(db, PATR, "33444555000166", comp, valor=100.0, numero="900012")
+            assert vincular_nota(n_p1)["receivable_id"] == r_p1, "valor igual não desempatou"
+            assert vincular_nota(n_p2)["receivable_id"] == r_p2, "a segunda não achou a sua"
+            sobra = vincular_nota(n_p3)
+            assert not sobra["ok"], ("a nota que sobrou foi pendurada em alguma conta", sobra)
+            # e a de valor que não bate com NENHUMA conta livre também não gruda
+            r_so = cria(db, PATR, "66777888000155", valor=500.0)
+            n_dif = nota(db, PATR, "66777888000155", comp, valor=123.45, numero="900013")
+            d = vincular_nota(n_dif)
+            assert not d["ok"] and "nenhuma bate com o valor" in (d.get("erro") or ""), d
+            assert (
+                db.execute(
+                    text("SELECT coalesce(metadata->>'nfse_chave','') FROM receivable_accounts WHERE id::text = :i"),
+                    {"i": r_so},
+                ).scalar()
+                == ""
+            ), "recusou por valor e escreveu mesmo assim"
+            assert vincular_nota(n_dif, receivable_id=r_so)["ok"], "com a conta na mão devia deixar"
+            print("OK automático só com valor igual ao centavo: «sobrou uma» não vincula nada")
 
             # 7 · competência incompatível não é escolhida sozinha: uma nota de julho não
             #     gruda na conta de setembro que estiver aberta. Conta de valor único (sem
