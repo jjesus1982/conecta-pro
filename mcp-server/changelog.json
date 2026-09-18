@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "1bd9d08c3",
+      "data": "2026-09-18",
+      "mudanca": "feat(contratos): SPEC R6 — congela o documento, e o Cowork estava certo no A1"
+    },
+    {
+      "commit": "93fca07db",
+      "data": "2026-09-18",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "2ddb59bb2",
       "data": "2026-09-18",
       "mudanca": "test(regressao): a régua exigia a REDAÇÃO do LLM, e 8 casos 'falharam' sem defeito"
@@ -190,16 +200,6 @@
       "commit": "7adc88edd",
       "data": "2026-09-11",
       "mudanca": "chore(mcp): changelog regenerado + imagem reassada"
-    },
-    {
-      "commit": "3d458491a",
-      "data": "2026-09-11",
-      "mudanca": "feat(qa): checar_imagem_mcp — concordância entre conectores não é atualidade"
-    },
-    {
-      "commit": "94b3630ef",
-      "data": "2026-09-11",
-      "mudanca": "chore(mcp): changelog regenerado — a trava pegou 3 commits de atraso"
     }
   ]
 }
