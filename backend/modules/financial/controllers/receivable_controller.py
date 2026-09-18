@@ -591,14 +591,17 @@ async def receivable_aging_pdf(
     service: ReceivableService = Depends(get_service),
     current_user: dict = Depends(get_current_user),
 ):
-    from fastapi.responses import Response as _R
+    from fastapi.responses import Response as _R  # noqa: N814
 
     from modules.financial.services.relatorio_financeiro_pdf import aging_pdf_bytes
 
     dados = await get_receivables_aging(condominio_id=condominio_id, service=service, current_user=current_user)
     pdf = aging_pdf_bytes(dados, "Contas a Receber — Aging")
-    return _R(content=pdf, media_type="application/pdf",
-              headers={"Content-Disposition": 'inline; filename="aging_receivable.pdf"'})
+    return _R(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="aging_receivable.pdf"'},
+    )
 
 
 # ── Cobrança bancária da conta a receber (07/09/2026) ────────────────────────────────────
@@ -620,7 +623,10 @@ async def emitir_cobranca_recebivel(
     return r
 
 
-@router.post("/emitir-cobranca-por-nota/{chave_acesso}", summary="Fluxo nota → boleto: emite a cobrança da conta a receber que corresponde à NFS-e")
+@router.post(
+    "/emitir-cobranca-por-nota/{chave_acesso}",
+    summary="Fluxo nota → boleto: emite a cobrança da conta a receber que corresponde à NFS-e",
+)
 async def emitir_cobranca_por_nota(
     chave_acesso: str,
     preview: bool = Query(False, description="true = só mostra o que seria emitido"),
@@ -636,9 +642,39 @@ async def emitir_cobranca_por_nota(
     return r
 
 
+@router.post("/vincular-nota/{chave_acesso}", summary="Grava na conta a receber qual NFS-e a cobre")
+async def vincular_nota_a_conta(
+    chave_acesso: str,
+    receivable_id: str | None = Query(None, description="A conta. Sem isto, procura a única candidata em aberto."),
+    preview: bool = Query(False, description="true = só mostra o que seria vinculado"),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Diz, de uma vez por todas, qual nota cobre qual conta a receber.
+
+    Sem isto o sistema adivinhava a cada consulta, por empresa + CNPJ + competência — palpite
+    que acerta o recorrente (14 de 14 notas de ago/set) e NÃO alcança contrato de valor único,
+    cujas parcelas vencem em datas e não em meses.
+
+    Com mais de uma conta em aberto do mesmo tomador devolve 409 com as candidatas, em vez de
+    escolher: pendurar a nota na parcela errada some com o dinheiro do lugar certo, em
+    silêncio.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    from modules.financial.services.cobranca_recebivel_service import vincular_nota
+
+    r = await run_in_threadpool(vincular_nota, chave_acesso, receivable_id, preview)
+    if r.get("situacao") == "ambiguo":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=r)
+    if r.get("erro"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=r["erro"])
+    return r
+
+
 @router.post("/emitir-cobrancas-mes", summary="Emite boleto/PIX de todas as contas em aberto do mês ainda sem cobrança")
 async def emitir_cobrancas_mes(
-    ano: int = Query(..., ge=2020, le=2100), mes: int = Query(..., ge=1, le=12),
+    ano: int = Query(..., ge=2020, le=2100),
+    mes: int = Query(..., ge=1, le=12),
     preview: bool = Query(True, description="false = emite de verdade"),
     current_user: dict = Depends(get_current_user),
 ) -> dict:

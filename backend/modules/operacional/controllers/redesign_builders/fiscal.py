@@ -773,11 +773,27 @@ async def _multicnpj(db, out: dict, tbl) -> None:
             "SELECT coalesce(n.numero::text,'—'), coalesce(e.nome_fantasia, e.razao_social, '—'), "
             "coalesce(n.tomador_nome,'—'), coalesce(n.valor_servicos,0), coalesce(n.iss_valor,0), n.data_emissao, "
             "n.chave_acesso, coalesce(n.cancelada, FALSE), "
-            "(SELECT r.status::text || CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN '|emitida' ELSE '|' END "
-            "   FROM receivable_accounts r WHERE r.deleted_at IS NULL AND r.empresa_id = n.empresa_id "
+            # O VÍNCULO GRAVADO vem primeiro (18/09/2026). O palpite por competência abaixo
+            # continua como rede — ele acerta o recorrente —, mas não alcança contrato de
+            # valor único, cujas parcelas vencem em DATAS e nascem sem `reference_month`.
+            "coalesce("
+            " (SELECT r.status::text || CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN '|emitida' ELSE '|' END "
+            "    FROM receivable_accounts r WHERE r.deleted_at IS NULL AND r.metadata->>'nfse_chave' = n.chave_acesso LIMIT 1), "
+            " (SELECT r.status::text || CASE WHEN r.boleto_id IS NOT NULL OR r.pix_txid IS NOT NULL THEN '|emitida' ELSE '|' END "
+            "    FROM receivable_accounts r WHERE r.deleted_at IS NULL AND r.empresa_id = n.empresa_id "
+            "     AND regexp_replace(coalesce(r.customer_document,''), '\\D', '', 'g') = regexp_replace(coalesce(n.tomador_cnpj,''), '\\D', '', 'g') "
+            "     AND r.reference_month = substr(n.competencia, 6, 2) || '/' || substr(n.competencia, 1, 4) "
+            "     AND coalesce(r.metadata->>'nfse_chave','') = '' "
+            "    ORDER BY (r.status::text IN ('pendente','parcial')) DESC, abs(r.net_value - n.valor_servicos) LIMIT 1) "
+            ") , "
+            # Há alguma conta EM ABERTO e sem nota desse tomador, em qualquer competência?
+            # Só então o botão «Vincular conta» aparece. Sem isto ele nascia em 99 linhas —
+            # todas de jan–jul, período vivido fora do Conecta PRO, onde não há recebível
+            # nenhum por decisão do dono. Botão que não pode funcionar ensina a ignorar botão.
+            "(SELECT count(*) FROM receivable_accounts r "
+            "   WHERE r.deleted_at IS NULL AND r.empresa_id = n.empresa_id "
             "    AND regexp_replace(coalesce(r.customer_document,''), '\\D', '', 'g') = regexp_replace(coalesce(n.tomador_cnpj,''), '\\D', '', 'g') "
-            "    AND r.reference_month = substr(n.competencia, 6, 2) || '/' || substr(n.competencia, 1, 4) "
-            "   ORDER BY (r.status::text IN ('pendente','parcial')) DESC, abs(r.net_value - n.valor_servicos) LIMIT 1) "
+            "    AND r.status::text IN ('pendente','parcial') AND coalesce(r.metadata->>'nfse_chave','') = '') "
             "FROM nfse_emitidas_nacional n LEFT JOIN empresas e ON e.id = n.empresa_id "
             "ORDER BY n.data_emissao DESC NULLS LAST LIMIT 200",
             lambda r: [
@@ -793,7 +809,9 @@ async def _multicnpj(db, out: dict, tbl) -> None:
                 doc("DANFSe", f"/api/v1/financial/fiscal/nfse-emitida/{r[6]}/danfse")
             ],  # LIGAR 08/09/2026
             actionsfn=lambda r: (
-                [
+                []
+                if r[7]  # nota cancelada não gera nem vincula nada
+                else [
                     {
                         "endpoint": f"/api/v1/financial/receivables/emitir-cobranca-por-nota/{r[6]}",
                         "method": "POST",
@@ -804,9 +822,30 @@ async def _multicnpj(db, out: dict, tbl) -> None:
                         "fields": [],
                     }
                 ]
-                if (not r[7])
-                and (r[8] or "").split("|")[0] in ("pendente", "parcial")
-                and not (r[8] or "").endswith("|emitida")
+                if (r[8] or "").split("|")[0] in ("pendente", "parcial") and not (r[8] or "").endswith("|emitida")
+                # Nota sem conta atrás dela: até 18/09 a linha só ficava muda e o dinheiro
+                # ficava sem dono. Agora dá para DIZER qual conta ela cobre — é o caminho dos
+                # contratos de valor único, que o palpite por competência nunca alcança.
+                else [
+                    {
+                        "endpoint": f"/api/v1/financial/receivables/vincular-nota/{r[6]}",
+                        "method": "POST",
+                        "btnLabel": "Vincular conta",
+                        "submitLabel": "Vincular",
+                        "btnStyle": "outline",
+                        "okMsg": "Nota vinculada à conta a receber. Recarregue.",
+                        # Vazio = procura a única candidata em aberto. Com mais de uma o
+                        # servidor devolve 409 com a lista, em vez de escolher por você.
+                        "fields": [
+                            {
+                                "name": "receivable_id",
+                                "label": "Conta a receber (deixe vazio se houver só uma em aberto)",
+                                "required": False,
+                            }
+                        ],
+                    }
+                ]
+                if not (r[8] or "").strip() and (r[9] or 0) > 0
                 else []
             ),
         )
