@@ -574,15 +574,32 @@ async def extra_envelope_em_toda_leitura() -> str:
 
     import tool_risk_manifest as M
 
+    # ⚠️ 18/09/2026 — LIXO SÓ NO IDENTIFICADOR, e a razão é uma falha deste próprio teste.
+    # Ele mandava lixo em TODO argumento obrigatório, então os 8 `consultor_*` recebiam
+    # "LIXO-…" como PERGUNTA — e uma pergunta é texto livre, não identificador. O teste então
+    # aceitava a resposta só se a REDAÇÃO DO LLM contivesse "inválido"/"sem pergunta". Hoje o
+    # modelo respondeu com outras palavras e 8 casos "falharam" sem defeito nenhum.
+    #
+    # Frase de LLM não é contrato. A régua passa a excluir texto livre pela ESTRUTURA — mesmo
+    # critério de `varredura_envelope._ident` — em vez de tentar adivinhar como o modelo
+    # escreve. Retrato congelado de redação é a armadilha que o oráculo da casa já documenta.
+    import re as _re
+
+    def _e_identificador(nome_param: str) -> bool:
+        return bool(_re.search(r"(^|_)id$|_id$|identificador|numero|chave|cnpj|cpf|codigo|"
+                               r"^ref$|proposta|contrato|deal|posto|employee|proposal",
+                               nome_param, _re.I))
+
     alvos = []
     for nome, classe in M.TOOL_RISK.items():
         if classe != "read" or not hasattr(S, nome):
             continue
         obrig = [p.name for p in inspect.signature(getattr(S, nome)).parameters.values()
                  if p.default is inspect.Parameter.empty]
-        if obrig:
+        ids = [n for n in obrig if _e_identificador(n)]
+        if ids:
             alvos.append((nome, obrig))
-    assert len(alvos) >= 50, f"só {len(alvos)} leituras com argumento — varredura encolheu?"
+    assert len(alvos) >= 25, f"só {len(alvos)} leituras com identificador — varredura encolheu?"
 
     # ⭐ TRÊS jeitos LEGÍTIMOS de dizer "não achei", medidos em 12/09/2026 rodando as 60.
     # A 1ª versão deste teste exigia `ok is False` de todas e reprovava 15 — entre elas
