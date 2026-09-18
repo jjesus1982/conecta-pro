@@ -32,6 +32,59 @@ from sqlalchemy.ext.asyncio import AsyncSession
 EMITENTES = {"jjesus@conectamais.pro", "pjesus@conectamais.pro"}
 
 
+class ErroDeItem(ValueError):
+    """Validação de ITEM da composição, com código próprio.
+
+    ⭐ 18/09/2026 — §3 e §4 da SPEC de emissão. Antes, TODA falha de validação voltava como
+    `403 SEM_PERMISSAO / "Esta ação é restrita."` porque o controller mapeava qualquer recusa
+    para 403. Um agente que lê 403 conclui que não tem acesso e PARA, ou pede credencial ao
+    usuário — quando bastava corrigir o payload. 403 fica para autorização de verdade.
+    """
+
+    def __init__(self, codigo: str, mensagem: str, **extra) -> None:
+        self.codigo, self.extra = codigo, extra
+        super().__init__(mensagem)
+
+
+# Chaves que o item da composição aceita. ⚠️ É a lista REAL, medida no INSERT abaixo — não a
+# que eu imaginava: a quantidade é `qtd`, não `quantidade`, e `subtotal` nunca existiu.
+# O `subtotal` era descartado em silêncio e a soma dava 0, então a trava de dinheiro
+# reclamava do VALOR ("ajuste os subtotais") quando o defeito era o NOME DO CAMPO. Mandar o
+# dono ajustar um valor que está certo é o pior tipo de mensagem de erro.
+CHAVES_DO_ITEM = ("nome", "descricao", "qtd", "quantidade", "total", "tipo",
+                  "vencimento", "notes")
+LIMITE_NOME_ITEM = 200   # contract_items.service_name é varchar(200) — medido no DDL
+
+
+def _validar_itens(itens: list) -> None:
+    """Recusa na BORDA, com código e campo. Nada de 500 e nada de descarte silencioso."""
+    for pos, i in enumerate(itens or [], start=1):
+        if not isinstance(i, dict):
+            raise ErroDeItem("ITEM_INVALIDO", f"O item {pos} não é um objeto.",
+                             posicao=pos)
+        desconhecidas = [k for k in i if k not in CHAVES_DO_ITEM]
+        if desconhecidas:
+            raise ErroDeItem(
+                "CAMPO_DESCONHECIDO",
+                f"Item {pos} ({i.get('nome') or 'sem nome'}): campo(s) "
+                f"{desconhecidas} não existe(m).",
+                posicao=pos, campos_desconhecidos=desconhecidas,
+                campos_aceitos=list(CHAVES_DO_ITEM),
+                dica=("Descartar campo em silêncio faria você achar que gravou. "
+                      "O valor da linha é `total`; a quantidade é `qtd` (ou `quantidade`)."))
+        nome = str(i.get("nome") or "")
+        if len(nome) > LIMITE_NOME_ITEM:
+            raise ErroDeItem(
+                "CAMPO_LONGO_DEMAIS",
+                f"Item {pos}: `nome` tem {len(nome)} caracteres e o limite é "
+                f"{LIMITE_NOME_ITEM}.",
+                posicao=pos, campo="nome", tamanho=len(nome),
+                limite=LIMITE_NOME_ITEM,
+                dica=("`nome` é o rótulo curto da tabela de composição. O detalhamento do "
+                      "que está sendo fornecido vai em `descricao`, que não tem limite."))
+
+
+
 class NaoAutorizado(PermissionError):
     pass
 
@@ -214,6 +267,9 @@ def _pendencias_one_time(r) -> list[Pendencia]:
 
 async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
     """Grava as respostas NO LUGAR CERTO de cada uma. Devolve o que foi feito."""
+    # ⚠️ `commit` vem em `dados` porque a assinatura é `**dados` e Python não aceita
+    # parâmetro depois de var-keyword. Consumido aqui para não vazar no payload.
+    commit = bool(dados.pop("commit", True))
     r = (await db.execute(text(_SQL), {"k": chave})).mappings().first()
     if not r:
         raise LookupError(f"Contrato não encontrado: {chave}")
@@ -240,8 +296,19 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         existe = (
             await db.execute(
                 text(
+                    # ⭐ 18/09/2026 — `ORDER BY` IDÊNTICO ao do render. Este SELECT tinha
+                    # `LIMIT 1` sem ordenação nenhuma, e o render
+                    # (`contract_render._SQL_REPRESENTANTE`) usa
+                    # `ORDER BY is_primary DESC, created_at`. Com mais de um contato que casa
+                    # o filtro de papel — o cliente do CTR-2026-00022 tem DOIS — o wizard
+                    # gravava numa linha e o PDF lia outra. Era exatamente o bug reportado:
+                    # `gravado_agora: [...]` e o texto renderizado sem mudar.
+                    #
+                    # A lição é a régua, não o caso: duas consultas que precisam apontar para
+                    # a MESMA linha têm de ordenar igual, ou uma delas escolhe sozinha.
                     "SELECT id::text FROM crm_contacts WHERE client_id::text=:c "
-                    "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%') LIMIT 1"
+                    "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%') "
+                    "ORDER BY is_primary DESC NULLS LAST, created_at LIMIT 1"
                 ),
                 {"c": r["client_id"]},
             )
@@ -250,25 +317,37 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
         if existe:
             await db.execute(
                 text(
+                    # `role` só muda se vier `representante_cargo`: sobrescrever com vazio
+                    # apagaria "Síndica" de um cadastro que já estava certo.
                     "UPDATE crm_contacts SET name=:n, notes=coalesce(nullif(:cpf,''), notes), "
+                    "role=coalesce(nullif(:cargo,''), role), "
                     "updated_at=now() WHERE id::text=:i"
                 ),
-                {"n": dados["representante"], "cpf": cpf, "i": existe},
+                {"n": dados["representante"], "cpf": cpf, "i": existe,
+                 "cargo": (dados.get("representante_cargo") or "").strip()},
             )
         else:
             await db.execute(
                 text(
                     "INSERT INTO crm_contacts (id, client_id, name, role, notes, is_primary, created_at, updated_at) "
-                    "VALUES (:i, CAST(:c AS uuid), :n, 'Representante legal', :cpf, false, now(), now())"
+                    "VALUES (:i, CAST(:c AS uuid), :n, :cargo, :cpf, false, now(), now())"
                 ),
-                {"i": str(uuid.uuid4()), "c": r["client_id"], "n": dados["representante"], "cpf": cpf},
+                {"i": str(uuid.uuid4()), "c": r["client_id"], "n": dados["representante"],
+                 "cpf": cpf,
+                 "cargo": (dados.get("representante_cargo") or "").strip()
+                          or "Representante legal"},
             )
         feitos.append(f"representante legal: {dados['representante']}")
     elif dados.get("representante_cpf"):
         await db.execute(
             text(
-                "UPDATE crm_contacts SET notes=:cpf, updated_at=now() WHERE client_id::text=:c "
-                "AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%')"
+                # ⚠️ este UPDATE não tinha LIMIT: escrevia o CPF em TODOS os contatos que
+                # casavam o papel. No cliente do 00022 isso são dois, e um deles nem é o que
+                # o render usa. Agora aponta para a MESMA linha que o render lê.
+                "UPDATE crm_contacts SET notes=:cpf, updated_at=now() WHERE id = ("
+                "  SELECT id FROM crm_contacts WHERE client_id::text=:c "
+                "   AND (role ILIKE '%representante%' OR role ILIKE '%s%ndic%' OR role ILIKE '%legal%' OR role ILIKE '%presidente%' OR role ILIKE '%diretor%' OR role ILIKE '%s%cio%' OR role ILIKE '%administrador%' OR role ILIKE '%procurador%' OR role ILIKE '%titular%') "
+                "   ORDER BY is_primary DESC NULLS LAST, created_at LIMIT 1)"
             ),
             {"cpf": dados["representante_cpf"], "c": r["client_id"]},
         )
@@ -332,8 +411,27 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
             )
             feitos.append("parâmetros de emissão: " + ", ".join(sorted(emis)))
 
+    # ⭐ 18/09/2026 — §1 da SPEC. `foro` e `cidade_assinatura` estavam SÓ no bloco `if unico:`
+    # logo acima: em contrato recorrente, passá-los era descartado em silêncio. São cláusula
+    # de todo instrumento, então gravam sempre. As outras chaves daquele bloco (prazo de
+    # execução, homologação, garantia) são de serviço único de verdade e ficam lá.
+    foro_cidade = {k: str(dados[k]).strip() for k in ("foro", "cidade_assinatura")
+                   if dados.get(k) not in (None, "")}
+    if foro_cidade and not unico:      # no único o bloco `emis` acima já gravou
+        await db.execute(
+            text(
+                "UPDATE contracts SET sla_config = "
+                "  CASE WHEN jsonb_typeof(sla_config) = 'object' THEN sla_config "
+                "       ELSE '{}'::jsonb END || CAST(:j AS jsonb), "
+                "  updated_at=now() WHERE id::text=:c"
+            ),
+            {"j": json.dumps(foro_cidade), "c": r["cid"]},
+        )
+        feitos.append("foro/praça de assinatura: " + ", ".join(sorted(foro_cidade)))
+
     itens = dados.get("itens")
     if itens:
+        _validar_itens(itens)
         # TRAVA DE DINHEIRO: a composição tem de fechar com o valor acordado. Um contrato
         # cuja tabela não soma o valor por extenso é convite a disputa.
         soma = sum(Decimal(str(i.get("total") or 0)) for i in itens)
@@ -346,13 +444,19 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
             alvo = Decimal(str(r["monthly_value"] or 0))
             rotulo = "valor mensal"
         if soma != alvo:
-            raise ValueError(
-                f"A composição soma {soma} e o {rotulo} do contrato é {alvo}. "
-                "Ajuste os subtotais — o contrato não pode sair com tabela que não fecha."
-            )
+            raise ErroDeItem(
+                "COMPOSICAO_NAO_FECHA",
+                f"A composição soma {soma} e o {rotulo} do contrato é {alvo}.",
+                soma_recebida=float(soma), valor_esperado=float(alvo),
+                diferenca=float(alvo - soma),
+                dica=("Ajuste os valores de `total` dos itens (ou o valor do contrato) até "
+                      "fechar. O contrato não pode sair com tabela que não soma o valor "
+                      "por extenso — é convite a disputa."))
         await db.execute(text("DELETE FROM contract_items WHERE contract_id::text=:c"), {"c": r["cid"]})
         for i in itens:
-            qtd = int(i.get("qtd") or 0)
+            # `quantidade` é apelido aceito de `qtd`: o exemplo do schema dizia uma coisa e o
+            # código lia outra, e quem escreveu `quantidade: 1` viu `quantity: 0` gravado.
+            qtd = int(i.get("qtd") or i.get("quantidade") or 0)
             total = Decimal(str(i.get("total") or 0))
             # no único, `service_type` carrega o PAPEL da parcela (entrada/parcela/retida),
             # que é o que o render lê para montar a Cláusula 3.2; no recorrente segue sendo
@@ -378,7 +482,19 @@ async def completar(db: AsyncSession, chave: str, **dados) -> list[str]:
             )
         feitos.append(f"composição gravada ({len(itens)} itens, soma {soma})")
 
-    await db.commit()
+    # ⭐ 18/09/2026 — §5 da SPEC: ATOMICIDADE. Este `commit` era o primeiro de dois, e
+    # acontecia ANTES do render. Emissão que falhava no render (o caso do CTR-2026-00025)
+    # deixava `payment_day`, `grace_period_days`, `sla_config` e os itens
+    # APAGADOS-E-REINSERIDOS no banco, com a resposta dizendo `ok: false`. O dono mediu:
+    # `grace_period_days` foi de 60 para 30 e os `contract_items` ganharam ids novos a cada
+    # tentativa recusada. Uma tentativa abortada por engano sobrescrevia itens de um contrato
+    # que já estava certo.
+    #
+    # Agora quem chama decide. O único chamador é a emissão, que confirma DEPOIS de o
+    # documento existir — falhou, nada muda. O default segue `True` para não mudar o
+    # comportamento de nenhum chamador futuro que não saiba disso.
+    if commit:
+        await db.commit()
     return feitos
 
 

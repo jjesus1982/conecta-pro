@@ -392,6 +392,11 @@ SELECT c.id::text, c.contract_number, c.name, c.monthly_value, c.start_date, c.e
             nullif(cl.address_neighborhood, ''),
             nullif(concat_ws('/', cl.address_city, cl.address_state), ''),
             nullif(cl.address_zipcode, ''))) AS cliente_endereco,
+       -- ⭐ 18/09/2026: cidade e UF SEPARADAS, porque `cidade_assinatura` precisa delas
+       -- sozinhas. Estavam só dentro do concat do endereço, e `_foro_e_cidade` não tinha
+       -- como alcançá-las — a cadeia de origem pularia direto para o default.
+       cl.address_city       AS cliente_cidade,
+       cl.address_state      AS cliente_uf,
        e.cnpj                AS empresa_gravada_cnpj
 FROM contracts c
 LEFT JOIN clients cl ON cl.id = c.client_id
@@ -651,9 +656,53 @@ def _ctx_one_time(row, itens: list, template: dict) -> dict:
         ),
         "multa_atraso_dia": str(par("multa_atraso_dia")),
         "multa_teto_pct": str(par("multa_teto_pct")),
-        "foro": str(par("foro", "Manaus/AM")),
-        "cidade_assinatura": str(par("cidade_assinatura", "Manaus/AM")),
+        # ⚠️ `foro` e `cidade_assinatura` SAÍRAM daqui em 18/09/2026 — ver `_foro_e_cidade`.
+        # Eles são cláusula de TODO instrumento, não do serviço único; estar aqui era o que
+        # travava a emissão de contrato recorrente.
     }
+
+
+def _foro_e_cidade(row, template: dict) -> dict:
+    """`cidade_assinatura` e `foro` para QUALQUER tipo de contrato.
+
+    ⭐ 18/09/2026 — o CTR-2026-00025 (portaria remota, recorrente) ficou em `draft` com todos
+    os dados comerciais certos e `content: null`, porque a emissão recusava com
+    "sem valor: cidade_assinatura, foro". Medindo: os dois eram lidos SÓ em `_ctx_one_time`,
+    que roda apenas quando `contract_type == 'one_time'`. Em contrato recorrente eles nunca
+    entravam no contexto, o `StrictUndefined` do Jinja os marcava vazios e `variaveis_vazias`
+    reprovava. Os dois modelos recorrentes usam `{{foro}}` no fecho — ou seja, NENHUM contrato
+    recorrente conseguia ser emitido por este caminho.
+
+    ⚠️ Eleição de foro em branco indo para assinatura é pior que contrato não emitido, então
+    o default NUNCA é vazio. A cadeia é a que o dono definiu:
+
+        cidade_assinatura: contrato (`sla_config`) → cidade do CLIENTE → sede do emitente
+                           → "Manaus/AM"
+        foro:              contrato (`sla_config`) → "Comarca de " + cidade_assinatura
+
+    Toda a operação da Conecta Mais é em Manaus; o último elo da cadeia é fato, não palpite.
+    """
+    sla = row["sla_config"] if isinstance(row["sla_config"], dict) else {}
+    var = template.get("variables") if isinstance(template.get("variables"), dict) else {}
+
+    def do_contrato(nome):
+        v = sla.get(nome)
+        if v in (None, ""):
+            v = var.get(nome)
+        return None if v in (None, "") else str(v).strip()
+
+    cidade = do_contrato("cidade_assinatura")
+    if not cidade:
+        # cidade do cliente: `clients` guarda em address_city/address_state (não há `cidade`)
+        c, uf = (row["cliente_cidade"] if "cliente_cidade" in row.keys() else None), \
+                (row["cliente_uf"] if "cliente_uf" in row.keys() else None)
+        if c:
+            cidade = f"{str(c).strip()}/{str(uf).strip()}" if uf else str(c).strip()
+    if not cidade:
+        cidade = "Manaus/AM"
+
+    foro = do_contrato("foro") or f"Comarca de {cidade}"
+    return {"cidade_assinatura": cidade, "foro": foro}
 
 
 async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) -> tuple[dict, Contratada]:
@@ -754,6 +803,9 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
     # Contrato de valor ÚNICO: as variáveis de recorrência acima continuam no ctx e apenas
     # não são citadas pelo modelo — `variaveis_vazias` só cobra o que o corpo referencia,
     # então dia de vencimento vazio não reprova um contrato que não tem mensalidade.
+    # cláusula de foro e praça de assinatura: TODO instrumento tem, recorrente ou único
+    ctx.update(_foro_e_cidade(row, template))
+
     if (row["contract_type"] or "").strip().lower() == "one_time":
         ctx.update(_ctx_one_time(row, list(itens), template))
         # a data do fecho continua vindo de `start_date`, que é NOT NULL nesta tabela
@@ -858,6 +910,14 @@ def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
             q = int(it["quantity"] or 0)
             tot_qtd += q
             linhas.append(f"  {it['service_name'] or '—'} · qtd {q} · {brl(it['total_price'] or 0)}")
+            # ⚠️ 18/09/2026 — a descrição também aqui. Consertei a tabela do PDF e este
+            # caminho seguiu sem ela: são DUAS montagens da mesma composição, e o
+            # `texto_extraido` — que é como o agente CONFERE o documento sem abrir binário —
+            # vem desta. Corrigir uma e não a outra é entregar um texto que não descreve o
+            # papel que o cliente assina.
+            desc = (it["description"] or "").strip() if "description" in it.keys() else ""
+            if desc:
+                linhas.append(f"      {desc}")
         linhas.append(f"  TOTAL · qtd {tot_qtd} · {total_fmt}")
         texto = texto.replace("[[TABELA_COMPOSICAO]]", "\n".join(linhas))
 
@@ -883,6 +943,18 @@ def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
     return texto
 
 
+def _esc(txt: str) -> str:
+    """Escapa para o mini-HTML do reportlab.
+
+    ⚠️ Nome de item e descrição vêm do cadastro, digitados por gente: um `&` ou um `<` crus
+    fazem o `Paragraph` estourar na hora de montar o PDF. Contrato que não gera por causa de
+    um "&" no nome do equipamento é o tipo de falha que ninguém associa à causa.
+    """
+    from xml.sax.saxutils import escape  # noqa: PLC0415
+
+    return escape(str(txt or ""))
+
+
 def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     """A composição do valor vira TABELA de verdade, centralizada e alinhada.
 
@@ -891,14 +963,36 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     Quantidade centralizada, valor à direita: é assim que se confere dinheiro.
     """
     from reportlab.lib import colors  # noqa: PLC0415
+    from reportlab.lib.styles import ParagraphStyle  # noqa: PLC0415
     from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
+
+    from reportlab.platypus import Paragraph  # noqa: PLC0415
+
+    # ⭐ 18/09/2026 — §2 da SPEC: a `descricao` do item vai EMBAIXO do nome, em corpo menor.
+    # Ela já era gravada em `contract_items.description` (Text, sem limite) e simplesmente
+    # não era impressa — então contrato de LOCAÇÃO não dizia o que está em comodato. No
+    # CTR-2026-00025 são 1 totem, 2 leitores faciais, 2 antenas de TAG e 640 tags RFID, e o
+    # instrumento saía sem nada disso. É o que o cliente assina e o que a Conecta Mais deve
+    # entregar de volta no fim.
+    #
+    # ⚠️ Isto NÃO é cosmético: o nome é limitado a 200 caracteres (varchar) e a descrição não
+    # é. Sem imprimir a descrição, a única forma de detalhar era estourar o nome — que era
+    # exatamente o que derrubava o servidor com 500.
+    est_nome = ParagraphStyle("it_nome", fontName="Helvetica", fontSize=9.5, leading=11.5)
+    est_desc = ParagraphStyle("it_desc", fontName="Helvetica", fontSize=7.8, leading=9.2,
+                              textColor=colors.HexColor("#4A5568"), spaceBefore=1.5)
 
     linhas = [["FUNÇÃO/DESCRIÇÃO", "QTD", "PREÇO TOTAL"]]
     tot_qtd = 0
     for it in itens:
         q = int(it["quantity"] or 0)
         tot_qtd += q
-        linhas.append([it["service_name"] or "—", str(q), brl(it["total_price"] or 0)])
+        nome = it["service_name"] or "—"
+        desc = (it["description"] or "").strip() if "description" in it.keys() else ""
+        celula = ([Paragraph(f"<b>{_esc(nome)}</b>", est_nome),
+                   Paragraph(_esc(desc), est_desc)] if desc
+                  else Paragraph(f"<b>{_esc(nome)}</b>", est_nome))
+        linhas.append([celula, str(q), brl(it["total_price"] or 0)])
     linhas.append(["TOTAL MENSAL", str(tot_qtd), total_fmt])
 
     t = Table(linhas, colWidths=[88 * mm, 22 * mm, 44 * mm], hAlign="CENTER")

@@ -94,6 +94,30 @@ async def list_clients(  # pylint: disable=too-many-locals
     return clients
 
 
+@router.get("/{client_id}", response_model=ClientResponse)
+async def get_client(
+    current_user: CurrentActiveUser, client_id: UUID,
+    service: ClientService = Depends(get_service),
+) -> ClientResponse:
+    """Ficha completa de um cliente.
+
+    ⭐ 18/09/2026 — §6 da SPEC de emissão. `obter_cliente` do MCP devolvia **405 Method Not
+    Allowed** desde setembro: a tool fazia `GET /api/v1/clients/{id}` e neste path só existia
+    **PUT**. O Starlette casa o caminho, não acha o verbo, e responde 405 — que não é
+    "não encontrei" nem "não pode", é "esse verbo não existe aqui", e nenhuma das duas
+    leituras óbvias ajuda quem chamou.
+
+    Sem esta rota não havia como conferir endereço, cidade ou contatos de um cliente antes de
+    emitir contrato — e é exatamente o que a emissão cobra. `get_client_full` traz os
+    relacionamentos; `get_client` traria só a linha.
+    """
+    client = service.get_client_full(client_id) or service.get_client(client_id)
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Cliente não encontrado")
+    return client
+
+
 @router.put("/{client_id}", response_model=ClientResponse)
 async def update_client(
     current_user: CurrentActiveUser, client_id: UUID, data: ClientUpdate, service: ClientService = Depends(get_service)

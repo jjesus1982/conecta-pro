@@ -48,6 +48,15 @@ def _sha256(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
+class AssinaturaJaAberta(RuntimeError):
+    """Já existe lote ativo de assinatura para este contrato.
+
+    ⚠️ Não é erro de permissão nem falha: é a segunda abertura sendo barrada. Reabrir exige
+    CANCELAR o lote anterior primeiro — e cancelar é decisão de quem está com o contrato na
+    mão, porque o lote antigo pode ter assinatura real dentro dele.
+    """
+
+
 async def abrir_assinatura(
     db: AsyncSession,
     contract_id: str,
@@ -68,6 +77,23 @@ async def abrir_assinatura(
         SignerType,
         UniversalSignatureService,
     )
+
+    # ⭐ 18/09/2026 — §8 da SPEC: a guarda vive AQUI, não nos controllers.
+    # Três portas chamam esta função (rota do redesign, `POST /crm/contracts/{id}/
+    # abrir-assinatura`, e a tool `abrir_assinatura_contrato`) e só UMA tinha guarda — a do
+    # redesign. As outras duas inseriam um par novo a cada chamada, e foi assim que o
+    # CTR-2026-00022 ficou com dois lotes. Guarda replicada em N chamadores é guarda que um
+    # chamador novo esquece; guarda na função é a mesma regra para todos.
+    ja_aberta = (await db.execute(
+        text("SELECT count(*) FROM sig_signature_requests "
+             " WHERE reference_code = :k "
+             "   AND upper(coalesce(status,'')) NOT IN "
+             "       ('CANCELLED','CANCELED','CANCELADA','EXPIRED','EXPIRADA')"),
+        {"k": contract_id})).scalar() or 0
+    if ja_aberta:
+        raise AssinaturaJaAberta(
+            f"O contrato {contract_id} já tem coleta de assinatura aberta "
+            f"({ja_aberta} signatário(s) ativo(s)).")
 
     doc_hash = _sha256(pdf)
     os.makedirs(PASTA_CONTRATOS, exist_ok=True)
@@ -401,6 +427,29 @@ async def manifesto_do_contrato(db: AsyncSession, contract_id: str) -> list[dict
             FROM sig_signature_requests r
             LEFT JOIN sig_signatures s ON s.id = r.signature_id
             WHERE r.reference_code = :k
+              -- ⭐ 18/09/2026 — §8 da SPEC. Esta query lia TODOS os lotes e IGNORAVA o
+              -- `status`, e o manifesto do CTR-2026-00022 saía com quatro linhas
+              -- contraditórias: duas "#1 CONTRATADA" (uma Assinado 10/09, outra Pendente) e
+              -- duas "#2 CONTRATANTE Pendente". Não era dado corrompido — eram DUAS
+              -- aberturas de assinatura (09/09 23:56 e 11/09 18:07), cada uma criando o par
+              -- completo, e a linha CANCELLED impressa como "Pendente" porque a situação era
+              -- deduzida só de `signed_at IS NOT NULL`.
+              --
+              -- ⚠️ NÃO usei constraint UNIQUE (reference_code, signature_order), que foi o
+              -- pedido literal: ela apagaria HISTÓRICO. No 00022 a ordem 1 do lote antigo
+              -- está SIGNED — é a assinatura real do Jordan, sobre outro hash de documento.
+              -- Apagar ou cancelar essa linha seria reescrever o que aconteceu.
+              --
+              -- O manifesto é a trilha do INSTRUMENTO ATUAL: lê o lote mais recente e
+              -- descarta cancelado/expirado. O histórico segue no banco, inteiro.
+              AND upper(coalesce(r.status, '')) NOT IN
+                  ('CANCELLED', 'CANCELED', 'CANCELADA', 'EXPIRED', 'EXPIRADA')
+              AND coalesce(r.document_id::text, '') = coalesce((
+                    SELECT r2.document_id::text FROM sig_signature_requests r2
+                     WHERE r2.reference_code = r.reference_code
+                       AND upper(coalesce(r2.status, '')) NOT IN
+                           ('CANCELLED', 'CANCELED', 'CANCELADA', 'EXPIRED', 'EXPIRADA')
+                     ORDER BY r2.created_at DESC LIMIT 1), '')
             ORDER BY r.signature_order"""),
                     {"k": contract_id},
                 )

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+import json as _json
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 from typing import Any
@@ -59,8 +60,24 @@ def _gate(user) -> None:
         raise PermissionError("crm")
 
 
-def _recusa(motivo: str) -> dict[str, Any]:
-    return {"status": "recusado", "motivo": motivo}
+def _recusa(motivo: str, codigo: str = "", http: int = 0, **extra) -> dict[str, Any]:
+    """Recusa com CÓDIGO e HTTP próprios.
+
+    ⭐ 18/09/2026 — §4 da SPEC. Toda recusa daqui virava `403 SEM_PERMISSAO` no controller,
+    inclusive erro de schema e campo obrigatório ausente. Um agente que lê 403 conclui que
+    não tem acesso e para, ou pede credencial ao dono — quando bastava corrigir o payload.
+    Três falhas da sessão de 18/09 saíram assim, e nenhuma era permissão.
+
+    Sem `codigo`/`http` o comportamento é o antigo (o controller decide), então nenhum
+    chamador existente muda.
+    """
+    out: dict[str, Any] = {"status": "recusado", "motivo": motivo}
+    if codigo:
+        out["codigo"] = codigo
+    if http:
+        out["http"] = http
+    out.update({k: v for k, v in extra.items() if v is not None})
+    return out
 
 
 def _dec_pos(v) -> Decimal | None:
@@ -355,11 +372,17 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
     gravados: list[str] = []
     if respostas:
         try:
-            gravados = await W.completar(db, contrato, **respostas)
-        except ValueError as e:      # composição que não fecha com o valor mensal
-            return _recusa(str(e))
+            # ⭐ §5: `commit=False` — nada é confirmado antes de o DOCUMENTO existir. Se o
+            # render recusar, o rollback da request desfaz tudo (era aqui que
+            # `grace_period_days` e os itens ficavam gravados numa emissão que respondeu
+            # `ok: false`).
+            gravados = await W.completar(db, contrato, commit=False, **respostas)
+        except W.ErroDeItem as e:    # schema/tamanho/soma do item — 422, nunca 403
+            return _recusa(str(e), codigo=e.codigo, http=422, **e.extra)
+        except ValueError as e:
+            return _recusa(str(e), codigo="VALIDACAO", http=422)
         except LookupError as e:
-            return _recusa(str(e))
+            return _recusa(str(e), codigo="NAO_ENCONTRADO", http=404)
 
     try:
         sit = await W.diagnosticar(db, contrato)
@@ -386,11 +409,18 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
     try:
         res = await renderizar_contrato(db, contrato)
     except RenderError as e:
-        return _recusa(str(e))
+        # ⚠️ e aqui NÃO comita: a sessão volta inteira no rollback da request. Falha no render
+        # deixa o contrato exatamente como estava antes da tentativa.
+        await db.rollback()
+        return _recusa(str(e), codigo="RENDER_INCOMPLETO", http=422,
+                       persistido=[])
 
     out = await salvar_pdf(db, "contrato",
                            f"Contrato {sit.contrato} — {res.contratada.razao_social}",
                            res.pdf, ref_tipo="contract", ref_id=contrato, teste=False)
+    # o documento existe: agora sim as gravações do wizard valem. `salvar_pdf` já comita,
+    # então este ponto é o fecho do que ficou pendente lá atrás.
+    await db.commit()
     link = out.get("download_url") if isinstance(out, dict) else None
     return {
         "status": "emitido",
@@ -488,13 +518,21 @@ async def _abrir_assinatura_contrato(db, user, scope, *, contrato=None, email_cl
         "FROM contracts c LEFT JOIN clients cl ON cl.id=c.client_id "
         "WHERE c.id::text=:k OR c.contract_number=:k"), {"k": contrato})).mappings().first()
 
-    sol = await CS.abrir_assinatura(
-        db, d["contract_number"], res.pdf, contratante_nome=d["cliente"] or "",
-        representante=d["rep"] or "", representante_cpf=d["cpf"] or "",
-        representante_email=email_cliente or d["mail"],
-        contratada_nome=res.contratada.razao_social,
-        assinante_empresa=getattr(user, "full_name", None) or "Jordan Santos de Jesus",
-        assinante_empresa_id=getattr(user, "id", None), solicitado_por=getattr(user, "id", None))
+    # ⭐ 18/09/2026 — §8: terceira porta para `abrir_assinatura`, e também sem guarda. A regra
+    # mora na função agora; aqui traduzo a recusa em vez de deixar a exceção subir como 500.
+    try:
+        sol = await CS.abrir_assinatura(
+            db, d["contract_number"], res.pdf, contratante_nome=d["cliente"] or "",
+            representante=d["rep"] or "", representante_cpf=d["cpf"] or "",
+            representante_email=email_cliente or d["mail"],
+            contratada_nome=res.contratada.razao_social,
+            assinante_empresa=getattr(user, "full_name", None) or "Jordan Santos de Jesus",
+            assinante_empresa_id=getattr(user, "id", None),
+            solicitado_por=getattr(user, "id", None))
+    except CS.AssinaturaJaAberta as e:
+        return _recusa(str(e), codigo="ASSINATURA_JA_ABERTA", http=409,
+                       dica=("Cancele o lote atual antes de reabrir — o anterior pode ter "
+                             "assinatura real dentro."))
     return {
         "status": "assinatura_aberta", "contrato": d["contract_number"],
         "link_do_cliente": sol.link_cliente, "documento_hash": sol.documento_hash,
@@ -531,8 +569,14 @@ async def _criar_contrato_por_modelo(db, user, scope, *, cliente_documento=None,
                                      modalidade=None, valor_mensal=None,
                                      vigencia_inicio=None, vigencia_meses=12,
                                      dia_vencimento=None, renovacao_aviso_dias=30,
-                                     carencia_dias=None, **_) -> dict[str, Any]:
-    """Cria o contrato JÁ ligado ao modelo — o passo que faltava entre briefing e emissão."""
+                                     carencia_dias=None, cidade_assinatura=None,
+                                     foro=None, **_) -> dict[str, Any]:
+    """Cria o contrato JÁ ligado ao modelo — o passo que faltava entre briefing e emissão.
+
+    ⭐ 18/09/2026 — `cidade_assinatura`/`foro` aceitos AQUI também (§1 da SPEC). Sem isto eles
+    caíam no `**_` e eram descartados em silêncio: quem os passasse na criação veria
+    `ok: true` e receberia a mesma recusa na emissão, sem entender por quê.
+    """
     from modules.crm.services import contract_wizard as W
 
     _gate(user)
@@ -546,13 +590,30 @@ async def _criar_contrato_por_modelo(db, user, scope, *, cliente_documento=None,
                                ("vigencia_inicio", vigencia_inicio)) if v in (None, "")]
     if faltando:
         return _recusa("informe: " + ", ".join(faltando))
-    return await W.criar_contrato(
+    criado = await W.criar_contrato(
         db, cliente_documento=cliente_documento, modalidade=modalidade,
         valor_mensal=float(valor_mensal), vigencia_inicio=vigencia_inicio,
         vigencia_meses=int(vigencia_meses or 12),
         dia_vencimento=int(dia_vencimento) if dia_vencimento else None,
         renovacao_aviso_dias=int(renovacao_aviso_dias or 30),
         carencia_dias=int(carencia_dias) if carencia_dias else None)
+    # ⭐ grava foro/praça em `sla_config` pelo mesmo caminho que a emissão lê. `jsonb_typeof`
+    # e não `coalesce`: a coluna pode guardar o JSON `null`, e `'null'::jsonb || '{...}'`
+    # devolve um ARRAY, não um objeto — o parâmetro sumiria sem erro nenhum.
+    extra = {k: str(v).strip() for k, v in (("cidade_assinatura", cidade_assinatura),
+                                           ("foro", foro)) if v not in (None, "")}
+    numero = criado.get("contrato") or criado.get("numero") if isinstance(criado, dict) else None
+    if extra and numero:
+        await db.execute(sa_text(
+            "UPDATE contracts SET sla_config = "
+            "  CASE WHEN jsonb_typeof(sla_config) = 'object' THEN sla_config "
+            "       ELSE '{}'::jsonb END || CAST(:j AS jsonb), updated_at = now() "
+            " WHERE contract_number = :n OR id::text = :n"),
+            {"j": _json.dumps(extra), "n": str(numero)})
+        await db.commit()
+        if isinstance(criado, dict):
+            criado["foro_e_praca"] = extra
+    return criado
 
 
 register(ToolDef(
@@ -571,7 +632,11 @@ register(ToolDef(
         "vigencia_meses": {"type": "integer"},
         "dia_vencimento": {"type": "integer"},
         "renovacao_aviso_dias": {"type": "integer"},
-        "carencia_dias": {"type": "integer"}},
+        "carencia_dias": {"type": "integer"},
+        "cidade_assinatura": {"type": "string",
+                              "description": "praça de assinatura; default Manaus/AM"},
+        "foro": {"type": "string",
+                 "description": "comarca de eleição; default 'Comarca de ' + cidade"}},
      "required": ["cliente_documento", "modalidade", "valor_mensal", "vigencia_inicio"]},
     _criar_contrato_por_modelo, scope_kind="org"))
 

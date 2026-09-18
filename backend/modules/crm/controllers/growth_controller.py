@@ -1413,6 +1413,60 @@ class OptoutIn(BaseModel):
     motivo: str | None = None
 
 
+@router.get("/telefone/de-quem")
+async def de_quem_e_o_telefone(
+    numero: str,
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """De quem é este telefone? Cliente ou lead — INCLUSIVE lead inativo.
+
+    ⭐ 18/09/2026 — existe porque a listagem de leads não serve para esta pergunta. O
+    `LeadRepository.list` filtra `is_active IS TRUE` na origem: a tabela `leads` tem 298
+    linhas e 296 com telefone, e a rota devolve **7**. Quem quisesse validar um opt-out
+    contra o cadastro por ali recusaria 291 leads reais — gente que FOI contatada e que, ao
+    pedir para parar de receber, ouviria "não te conheço".
+    
+
+    ⚠️ Compara os ÚLTIMOS 8 DÍGITOS. O nono dígito dos celulares entrou em datas diferentes
+    por estado e o cadastro tem as duas formas do mesmo número; casar o telefone inteiro faz
+    o mesmo assinante parecer duas pessoas, ou nenhuma.
+
+    Só leitura. Não decide nada — devolve quem é, e quem chama decide o que fazer.
+    """
+    digitos = re.sub(r"\D", "", numero or "")
+    if digitos.startswith("55") and len(digitos) in (12, 13):
+        digitos = digitos[2:]
+    if len(digitos) < 10:
+        raise HTTPException(status_code=422, detail={
+            "ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
+            "mensagem": f"{numero!r} não tem dígitos suficientes para um telefone.",
+            "dica": "Informe com DDD."})
+    alvo = digitos[-8:]
+    cli = (await db.execute(text(
+        "SELECT id::text, coalesce(legal_name, name) AS nome FROM clients "
+        " WHERE right(regexp_replace(coalesce(whatsapp,''),'[^0-9]','','g'), 8) = :a "
+        "    OR right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'), 8) = :a "
+        "    OR right(regexp_replace(coalesce(financial_contact_phone,''),'[^0-9]','','g'), 8) = :a "
+        "    OR right(regexp_replace(coalesce(technical_contact_phone,''),'[^0-9]','','g'), 8) = :a "
+        " LIMIT 1"), {"a": alvo})).mappings().first()
+    if cli:
+        return {"ok": True, "encontrado": True, "tipo": "cliente",
+                "nome": cli["nome"], "id": cli["id"], "procurei_por": alvo}
+    lead = (await db.execute(text(
+        # ⚠️ SEM filtro de is_active, de propósito: lead arquivado continua sendo alguém que
+        # foi contatado, e é justamente dele que vem o pedido de parar.
+        "SELECT id::text, name AS nome, coalesce(is_active, true) AS ativo FROM leads "
+        " WHERE right(regexp_replace(coalesce(phone,''),'[^0-9]','','g'), 8) = :a "
+        " ORDER BY coalesce(is_active,true) DESC, created_at DESC LIMIT 1"),
+        {"a": alvo})).mappings().first()
+    if lead:
+        return {"ok": True, "encontrado": True, "tipo": "lead", "nome": lead["nome"],
+                "id": lead["id"], "lead_ativo": bool(lead["ativo"]), "procurei_por": alvo}
+    return {"ok": True, "encontrado": False, "procurei_por": alvo,
+            "mensagem": f"Nenhum cliente ou lead com telefone terminando em {alvo}."}
+
+
 @router.post("/followups/optout", status_code=201)
 async def followup_optout(data: OptoutIn, _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
     """Marca um número como opt-out (não receber follow-ups)."""

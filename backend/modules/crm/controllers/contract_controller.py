@@ -292,21 +292,32 @@ async def abrir_assinatura_contrato(
     if not dados:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
 
-    sol = await CS.abrir_assinatura(
-        db,
-        dados["contract_number"],
-        res.pdf,
-        contratante_nome=dados["cliente"] or "",
-        representante=dados["representante"] or "",
-        representante_cpf=dados["rep_cpf"] or "",
-        representante_email=email_cliente or dados["rep_email"],
-        contratada_nome=res.contratada.razao_social,
-        # CP-MCP-008: o padrão da casa é "Jordan Jesus". Este fallback tinha o nome antigo
-        # e é ele que vai para o pedido de assinatura quando o usuário não tem `full_name`.
-        assinante_empresa=getattr(current_user, "full_name", None) or "Jordan Jesus",
-        assinante_empresa_id=getattr(current_user, "id", None),
-        solicitado_por=getattr(current_user, "id", None),
-    )
+    # ⭐ 18/09/2026 — §8 da SPEC: esta rota NÃO tinha guarda e criava um lote novo de
+    # signatários a cada chamada. A guarda agora mora em `CS.abrir_assinatura`, que serve as
+    # três portas; aqui só traduzo a recusa para HTTP — 409 (conflito de estado), não 500.
+    try:
+        sol = await CS.abrir_assinatura(
+            db,
+            dados["contract_number"],
+            res.pdf,
+            contratante_nome=dados["cliente"] or "",
+            representante=dados["representante"] or "",
+            representante_cpf=dados["rep_cpf"] or "",
+            representante_email=email_cliente or dados["rep_email"],
+            contratada_nome=res.contratada.razao_social,
+            # CP-MCP-008: o padrão da casa é "Jordan Jesus". Este fallback tinha o nome antigo
+            # e é ele que vai para o pedido de assinatura quando o usuário não tem `full_name`.
+            assinante_empresa=getattr(current_user, "full_name", None) or "Jordan Jesus",
+            assinante_empresa_id=getattr(current_user, "id", None),
+            solicitado_por=getattr(current_user, "id", None),
+        )
+    except CS.AssinaturaJaAberta as e:
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "codigo": "ASSINATURA_JA_ABERTA", "http": 409,
+            "mensagem": str(e),
+            "dica": ("Cancele o lote atual antes de reabrir — o anterior pode ter "
+                     "assinatura real dentro."),
+        }) from e
     return {
         "contrato": dados["contract_number"],
         "documento_hash": sol.documento_hash,
@@ -685,7 +696,24 @@ async def emitir_contrato_por_modelo(
 
     res = await _gerar_contrato_por_modelo(db, current_user, None, **payload)
     if res.get("status") == "recusado":
-        raise HTTPException(status_code=403, detail=res.get("motivo", "recusado"))
+        # ⭐ 18/09/2026 — §4 da SPEC. Esta linha mandava TUDO como 403: erro de schema de
+        # item, campo obrigatório ausente e falta de permissão viravam a mesma resposta
+        # "Esta ação é restrita". O agente lê 403, conclui que não tem acesso e PARA — ou
+        # pede credencial ao dono — quando o conserto era corrigir o payload.
+        #
+        # Agora o CÓDIGO manda: quem recusou sabe se foi validação (422), não-encontrado
+        # (404) ou autorização (403). Sem código, mantém 403 — o comportamento antigo para
+        # quem ainda não foi convertido.
+        detalhe = {"ok": False,
+                   "codigo": res.get("codigo") or "SEM_PERMISSAO",
+                   "http": int(res.get("http") or 403),
+                   "mensagem": res.get("motivo", "recusado")}
+        for extra in ("dica", "campos_faltantes", "campos_desconhecidos", "campos_aceitos",
+                      "posicao", "campo", "tamanho", "limite", "soma_recebida",
+                      "valor_esperado", "diferenca", "persistido"):
+            if res.get(extra) is not None:
+                detalhe[extra] = res[extra]
+        raise HTTPException(status_code=detalhe["http"], detail=detalhe)
     return res
 
 
