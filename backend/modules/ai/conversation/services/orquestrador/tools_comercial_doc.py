@@ -441,7 +441,15 @@ async def _gerar_contrato_por_modelo(db, user, scope, *, contrato=None, **dados)
     if not dados.get("minuta"):
         import hashlib as _hl
 
-        h = _hl.sha256(res.pdf).hexdigest()
+        # ⚠️ hash do TEXTO, não dos bytes do PDF. Medi os dois: renderizar duas vezes sem
+        # mudar nada dá PDFs diferentes (o arquivo carrega data de geração) e textos
+        # idênticos. Com hash de PDF o aviso de divergência dispararia em TODA emissão, e
+        # alarme que soa sempre é alarme que ninguém lê — eu teria entregado exatamente a
+        # trava-que-não-prova-nada que este projeto persegue há semanas.
+        #
+        # O que precisa ser comparável é o CONTEÚDO do instrumento, e é o texto que o render
+        # produz antes de virar papel.
+        h = _hl.sha256(res.texto.encode("utf-8")).hexdigest()
         caminho = (out.get("caminho") or out.get("path") or out.get("download_url")
                    if isinstance(out, dict) else None)
         quem = (getattr(user, "email", None) or getattr(user, "full_name", None) or "")[:160]
