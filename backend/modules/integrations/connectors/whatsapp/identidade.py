@@ -24,6 +24,7 @@ Casamento por telefone: os 8 últimos dígitos, mesma régua do `find_duplicate`
 número chega com e sem o nono dígito, com e sem DDI, e exigir igualdade exata já fez o CRM criar
 lead duplicado (lição de 09/08).
 """
+
 from __future__ import annotations
 
 import logging
@@ -95,14 +96,29 @@ _SQL_FUNCIONARIO = """
           LEFT JOIN allocations a ON a.employee_id = e.id AND a.status = 'active' AND a.is_active
           LEFT JOIN posts p       ON p.id = a.post_id
           LEFT JOIN ged_clients g ON g.id = p.ged_client_id
-         WHERE right(regexp_replace(coalesce(nullif(e.celular, ''), e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
-           AND length(regexp_replace(coalesce(nullif(e.celular, ''), e.telefone, ''), '[^0-9]', '', 'g')) >= 8
+         -- OS DOIS CAMPOS, não o `coalesce`, e o grupo ENTRE PARÊNTESES. 18/09/2026: o
+         -- coalesce para no `celular` e nunca chega ao `telefone`, e são CINCO pessoas ativas
+         -- cujo número de verdade mora no segundo campo — entre elas o EDIWILSON, o JONHATA e
+         -- o KALEL, cujo `celular` cadastrado NÃO EXISTE no WhatsApp (perguntado ao Baileys,
+         -- um por um). Quando um deles escreve, a identidade não o encontra, ele cai em LEAD
+         -- e o José Luís pede CNPJ a um colega da casa. Foi assim que a ELEN XAVIER virou
+         -- lead em 17/09.
+         --
+         -- Os parênteses não são estilo: `A OR B AND C` é `A OR (B AND C)`, e sem eles o
+         -- filtro de vínculo abaixo valeria só para o ramo do telefone — candidato e
+         -- pj_pendente voltariam a entrar pelo celular.
+         WHERE (
+                 (right(regexp_replace(coalesce(e.celular, ''), '[^0-9]', '', 'g'), 8) = :k
+                  AND length(regexp_replace(coalesce(e.celular, ''), '[^0-9]', '', 'g')) >= 8)
+              OR (right(regexp_replace(coalesce(e.telefone, ''), '[^0-9]', '', 'g'), 8) = :k
+                  AND length(regexp_replace(coalesce(e.telefone, ''), '[^0-9]', '', 'g')) >= 8)
+               )
            -- 11/09/2026: `<> 'inativo'` deixava entrar CANDIDATO e PJ_PENDENTE, que não têm
-       -- vínculo — e foi assim que o NAILSON virou "outra pessoa": o registro de candidato
-       -- dele sobreviveu à contratação (mesmo CPF) e era o único que o telefone alcançava.
-       -- Quem já foi DEMITIDO continua sendo gente da casa aqui de propósito: ele ainda
-       -- pergunta de rescisão e de espelho, e virar lead nessa hora seria pior.
-       AND lower(coalesce(e.status, 'ativo')) <> ALL(:sem_vinculo)
+           -- vínculo — e foi assim que o NAILSON virou "outra pessoa": o registro de candidato
+           -- dele sobreviveu à contratação (mesmo CPF) e era o único que o telefone alcançava.
+           -- Quem já foi DEMITIDO continua sendo gente da casa aqui de propósito: ele ainda
+           -- pergunta de rescisão e de espelho, e virar lead nessa hora seria pior.
+           AND lower(coalesce(e.status, 'ativo')) <> ALL(:sem_vinculo)
          ORDER BY e.id, (a.id IS NOT NULL) DESC, a.start_date DESC NULLS LAST
       ) q
      ORDER BY q.tem_alocacao DESC, q.updated_at DESC NULLS LAST
@@ -141,21 +157,32 @@ async def quem_e(db, telefone: str | None, *, e_dono: bool = False) -> Identidad
         # pessoa. Medir o conjunto custa uma linha; supor que ele é único custa a jornada de
         # alguém. (O `find_duplicate` do CRM já tinha essa lição: "dedup ambíguo, não escolho".)
         # uma linha por PESSOA (o DISTINCT ON acima garante), então duas linhas = duas pessoas
-        linhas = (await db.execute(sql(_SQL_FUNCIONARIO),
-                                   {"k": k, "sem_vinculo": list(SEM_VINCULO)})).fetchall()
+        linhas = (await db.execute(sql(_SQL_FUNCIONARIO), {"k": k, "sem_vinculo": list(SEM_VINCULO)})).fetchall()
         if len({r[0] for r in linhas}) > 1:
             # Da casa, sim — mas não sei QUEM. Os dois estados importam e são diferentes:
             # `e_da_casa` continua verdadeiro (ninguém vira lead nem ouve "me confirma o
             # CNPJ") e `employee_id` fica vazio, então as ferramentas de ponto recusam e a
             # conversa vai para gente. Silenciar isso seria o pior dos três caminhos.
-            logger.warning("identidade AMBÍGUA: %s casa com %s funcionários (%s) — trato como "
-                           "da casa sem identidade; ninguém mexe em ponto assim",
-                           k, len(linhas), ", ".join(str(r[1]) for r in linhas))
+            logger.warning(
+                "identidade AMBÍGUA: %s casa com %s funcionários (%s) — trato como "
+                "da casa sem identidade; ninguém mexe em ponto assim",
+                k,
+                len(linhas),
+                ", ".join(str(r[1]) for r in linhas),
+            )
             return Identidade(tipo="funcionario", nome=None)
         if linhas:
             row = linhas[0]
-            return Identidade(tipo="funcionario", employee_id=row[0], nome=row[1], cpf=row[2],
-                              cargo=row[3], posto=row[4], condominio=row[5], tratamento=row[6])
+            return Identidade(
+                tipo="funcionario",
+                employee_id=row[0],
+                nome=row[1],
+                cpf=row[2],
+                cargo=row[3],
+                posto=row[4],
+                condominio=row[5],
+                tratamento=row[6],
+            )
         linhas = (await db.execute(sql(_SQL_CLIENTE), {"k": k})).fetchall()
         if len(linhas) > 1:
             logger.warning("identidade AMBÍGUA: %s casa com %s clientes — não escolho", k, len(linhas))

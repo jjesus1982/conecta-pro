@@ -19,9 +19,11 @@ Este oráculo afirma a REGRA, não a fotografia:
 
 Roda no container (PYTHONPATH=/app). Sai 0 = verde; 1 = vermelho.
 """
+
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from datetime import date
 
@@ -31,8 +33,14 @@ from datetime import date
 CORTE = "2026-09-11"
 
 #: nada disso pertence a uma conversa com gente da casa
-PROIBIDAS_NO_PAPEL = ("registrar_lead", "simular_preco", "montar_proposta",
-                      "consultar_minha_conta", "enviar_link_assinatura", "agendar_visita")
+PROIBIDAS_NO_PAPEL = (
+    "registrar_lead",
+    "simular_preco",
+    "montar_proposta",
+    "consultar_minha_conta",
+    "enviar_link_assinatura",
+    "agendar_visita",
+)
 
 
 async def main() -> int:
@@ -56,15 +64,27 @@ async def main() -> int:
     # cala exatamente sobre os que ficaram de fora do corte: o funcionário 21 poderia voltar a
     # ser lead sem este oráculo dizer nada. Medir o conjunto inteiro custa 45 linhas a mais de
     # consulta; supor que a amostra representa custa o oráculo inteiro (11/09/2026).
-    fones = [r[0] for r in (await db.execute(text(
-        "SELECT coalesce(nullif(celular,''), telefone) FROM employees "
-        " WHERE coalesce(status,'ativo') = 'ativo' "
-        "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 10 "))).fetchall()]
+    # ⚠️ OS DOIS CAMPOS, um de cada vez. Até 18/09/2026 esta consulta lia
+    # `coalesce(celular, telefone)` — o MESMO coalesce que o código lia — e por isso ficava
+    # verde sobre o defeito que existia: cinco pessoas ativas têm o número de verdade no
+    # `telefone`, e três delas (EDIWILSON, JONHATA, KALEL) têm no `celular` um número que NEM
+    # EXISTE no WhatsApp. Quando escreviam, caíam em lead. Régua que lê o mesmo campo que o
+    # código não mede nada: concorda com ele até no erro.
+    _cadastros = (
+        await db.execute(
+            text(
+                "SELECT celular, telefone FROM employees "
+                " WHERE coalesce(status,'ativo') = 'ativo' "
+                "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 10 "
+            )
+        )
+    ).fetchall()
+    fones = [c for linha in _cadastros for c in (linha[0], linha[1]) if c and len(re.sub(r"\D", "", c)) >= 10]
     sem_identidade = 0
     for f in fones:
         ident = await quem_e(db, f)
         if ident.tipo != "funcionario" or not ident.e_da_casa:
-            falhas.append(f"telefone de funcionário ativo resolveu como '{ident.tipo}' — viraria lead")
+            falhas.append(f"telefone {f} de funcionário ativo resolveu como '{ident.tipo}' — viraria lead")
         elif not ident.employee_id:
             # da casa mas sem QUEM: é o estado de ambiguidade, e ele é correto — só não pode
             # passar despercebido, porque essa pessoa perde as ferramentas de ponto.
@@ -74,16 +94,24 @@ async def main() -> int:
     # que precisa de mão, e enquanto durar há gente sem acesso ao próprio ponto pelo WhatsApp.
     # o MESMO filtro de `_SQL_FUNCIONARIO` (`<> 'inativo'`, não `= 'ativo'`): trava que mede
     # um conjunto diferente do código que ela vigia é a versão silenciosa de não medir nada.
-    ambiguos = (await db.execute(text(
-        "SELECT count(*) FROM (SELECT right(regexp_replace(coalesce(nullif(celular,''),telefone,''),"
-        "  '[^0-9]','','g'),8) k FROM employees "
-        " WHERE lower(coalesce(status,'ativo')) <> ALL(:sem_vinculo) "
-        "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 8 "
-        " GROUP BY 1 HAVING count(*) > 1) x"), {"sem_vinculo": list(SEM_VINCULO)})).scalar() or 0
+    ambiguos = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM (SELECT right(regexp_replace(coalesce(nullif(celular,''),telefone,''),"
+                "  '[^0-9]','','g'),8) k FROM employees "
+                " WHERE lower(coalesce(status,'ativo')) <> ALL(:sem_vinculo) "
+                "   AND length(regexp_replace(coalesce(nullif(celular,''),telefone,''),'[^0-9]','','g')) >= 8 "
+                " GROUP BY 1 HAVING count(*) > 1) x"
+            ),
+            {"sem_vinculo": list(SEM_VINCULO)},
+        )
+    ).scalar() or 0
     if ambiguos:
-        falhas.append(f"{ambiguos} chave(s) de telefone casam com MAIS DE UM funcionário ativo — "
-                      "essas pessoas ficam sem ferramenta de ponto (identidade ambígua, e o "
-                      "sistema se recusa a escolher). Corrigir o cadastro.")
+        falhas.append(
+            f"{ambiguos} chave(s) de telefone casam com MAIS DE UM funcionário ativo — "
+            "essas pessoas ficam sem ferramenta de ponto (identidade ambígua, e o "
+            "sistema se recusa a escolher). Corrigir o cadastro."
+        )
 
     # 2) o papel é uma parede
     cfg = _PAPEIS.get("funcionario")
@@ -100,32 +128,47 @@ async def main() -> int:
     # 3) o prompt dele não é o de vendas
     p = _system_prompt(False, "funcionario")
     if SYSTEM_PROMPT[:400] in p:
-        falhas.append("o papel 'funcionario' voltou a carregar o SYSTEM_PROMPT de vendas — "
-                      "foi assim que o Rene levou 'me confirma o CNPJ' depois do ponto resolvido")
+        falhas.append(
+            "o papel 'funcionario' voltou a carregar o SYSTEM_PROMPT de vendas — "
+            "foi assim que o Rene levou 'me confirma o CNPJ' depois do ponto resolvido"
+        )
     if "NUNCA peça CNPJ" not in p:
         falhas.append("sumiu a regra explícita de não pedir CNPJ ao funcionário")
 
     # 4) nenhum lead NOVO com telefone de funcionário
-    novos = (await db.execute(text(
-        "SELECT l.name, l.phone FROM leads l JOIN employees e "
-        "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
-        "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
-        " WHERE l.created_at >= CAST(:corte AS date) "
-        "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10 "
-        "   AND coalesce(e.status,'ativo') = 'ativo'"), {"corte": date.fromisoformat(CORTE)})).fetchall()
+    novos = (
+        await db.execute(
+            text(
+                "SELECT l.name, l.phone FROM leads l JOIN employees e "
+                "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
+                "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
+                " WHERE l.created_at >= CAST(:corte AS date) "
+                "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10 "
+                "   AND coalesce(e.status,'ativo') = 'ativo'"
+            ),
+            {"corte": date.fromisoformat(CORTE)},
+        )
+    ).fetchall()
     for nome, fone in novos:
         falhas.append(f"lead novo criado com telefone de funcionário: {nome} ({fone})")
 
-    antigos = (await db.execute(text(
-        "SELECT count(*) FROM leads l JOIN employees e "
-        "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
-        "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
-        " WHERE l.created_at < CAST(:corte AS date) "
-        "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10"),
-        {"corte": date.fromisoformat(CORTE)})).scalar()
-    print(f"funcionários conferidos: {len(fones)} (TODOS os ativos com telefone) · "
-          f"identidade ambígua: {sem_identidade} · "
-          f"leads-funcionário ANTES do corte (dívida conhecida): {antigos}")
+    antigos = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM leads l JOIN employees e "
+                "  ON right(regexp_replace(coalesce(l.phone,''),'[^0-9]','','g'),8) "
+                "   = right(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g'),8) "
+                " WHERE l.created_at < CAST(:corte AS date) "
+                "   AND length(regexp_replace(coalesce(nullif(e.celular,''),e.telefone,''),'[^0-9]','','g')) >= 10"
+            ),
+            {"corte": date.fromisoformat(CORTE)},
+        )
+    ).scalar()
+    print(
+        f"funcionários conferidos: {len(fones)} (TODOS os ativos com telefone) · "
+        f"identidade ambígua: {sem_identidade} · "
+        f"leads-funcionário ANTES do corte (dívida conhecida): {antigos}"
+    )
     for f in falhas:
         print("FALHOU:", f)
     if falhas:
