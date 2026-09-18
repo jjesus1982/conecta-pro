@@ -66,7 +66,9 @@ def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
         return True
     if value in {"0", "false", "no", "off"}:
         return False
-    logger.warning("Invalid SKILL_RETRIEVAL_COMPACT=%r — using default %s", raw, default)
+    logger.warning(
+        "Invalid SKILL_RETRIEVAL_COMPACT=%r — using default %s", raw, default
+    )
     return default
 
 
@@ -84,7 +86,9 @@ COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"
 # another session's turn and must NOT be applied (hook falls back to the
 # fail-open bare get_index()).
 _SNAPSHOT_MAX_AGE_S = 30.0
-_session_capability_snaps: dict[str, tuple[float, frozenset | None, frozenset | None]] = {}
+_session_capability_snaps: dict[
+    str, tuple[float, frozenset | None, frozenset | None]
+] = {}
 
 
 def _freeze_capability_set(value) -> frozenset | None:
@@ -104,8 +108,16 @@ def _remember_capability_snapshot(*args, **kwargs) -> None:
         has_kw_toolsets = "available_toolsets" in kwargs
         if not has_kw_tools and not has_kw_toolsets and not args:
             return
-        tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
-        toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
+        tools = (
+            kwargs["available_tools"]
+            if has_kw_tools
+            else (args[0] if len(args) > 0 else None)
+        )
+        toolsets = (
+            kwargs["available_toolsets"]
+            if has_kw_toolsets
+            else (args[1] if len(args) > 1 else None)
+        )
         session_id = kwargs.get("session_id") or ""
         if not isinstance(session_id, str):
             session_id = str(session_id) if session_id else ""
@@ -144,6 +156,7 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
 
 
 # ─── Phase 1: System prompt compaction ───────────────────────────────────────
+
 
 def _compact_skills_prompt():
     """Monkey-patch build_skills_system_prompt to return names-only.
@@ -208,6 +221,23 @@ def _compact_skills_prompt():
         import run_agent as _run_agent  # noqa: PLC0415
     except ImportError:
         _run_agent = None
+
+    def _precisa_patchear_run_agent() -> bool:
+        """True só até a v0.20.x. Da 0.21 em diante a decomposição já resolve.
+
+        Sem número de versão legível, decide pelo FATO e não pelo palpite: patcheia se o
+        `run_agent` ainda expõe a função e ela é OUTRA que não a que acabamos de instalar.
+        """
+        if not hasattr(_run_agent, "build_skills_system_prompt"):
+            return False
+        try:
+            from hermes_cli import __version__ as _v  # noqa: PLC0415
+
+            maior, menor = (int(x) for x in str(_v).split(".")[:2])
+        except Exception:  # noqa: BLE001 — sem versão legível, decide pelo fato
+            return True
+        return (maior, menor) < (0, 21)
+
     # ═══════════════════════════════════════════════════════════════════════════
 
     def compact_build(*args, **kwargs):
@@ -219,8 +249,11 @@ def _compact_skills_prompt():
 
         # Parse the <available_skills> block and strip descriptions
         import re
+
         # Extract everything between <available_skills> and </available_skills>
-        match = re.search(r"<available_skills>(.*?)</available_skills>", full_prompt, re.DOTALL)
+        match = re.search(
+            r"<available_skills>(.*?)</available_skills>", full_prompt, re.DOTALL
+        )
         if not match:
             return full_prompt  # Can't parse — return original
 
@@ -260,7 +293,13 @@ def _compact_skills_prompt():
         compact_block = "\n".join(compact_lines)
 
         # Replace the available_skills block in the full prompt
-        result = full_prompt[:match.start()] + "<available_skills>\n" + compact_block + "\n</available_skills>" + full_prompt[match.end():]
+        result = (
+            full_prompt[: match.start()]
+            + "<available_skills>\n"
+            + compact_block
+            + "\n</available_skills>"
+            + full_prompt[match.end() :]
+        )
 
         # Add a note about the retrieval hook
         result += (
@@ -272,17 +311,30 @@ def _compact_skills_prompt():
 
     compact_build._skill_retrieval_patched = True
     prompt_builder.build_skills_system_prompt = compact_build
-    # ADAPTAÇÃO DA CASA (ver o bloco lá em cima): na v0.19.0 o chamador resolve a função
-    # pelo módulo `run_agent`, que a importou para o próprio namespace. Sem esta linha a
-    # compactação não alcança ninguém — e o plugin passa a só ADICIONAR tokens.
-    if _run_agent is not None and hasattr(_run_agent, "build_skills_system_prompt"):
+    # ADAPTAÇÃO DA CASA (ver o bloco lá em cima), agora CONDICIONAL à versão.
+    #
+    # Até a v0.20.x o chamador (`agent/system_prompt.py`) resolve a função pelo módulo
+    # `run_agent`, que a importou para o próprio namespace — e o patch do autor, que só toca
+    # `agent.prompt_builder`, não o alcança. Da v0.21 em diante a decomposição de setembro/2026
+    # fez todo mundo resolver por `agent.prompt_builder`, e aí esta linha vira ruído: pior,
+    # `run_agent` lá é um SHIM DE COMPATIBILIDADE marcado como `revert-scheduled`, e mexer nele
+    # é escrever numa porta que o upstream avisou que vai fechar.
+    #
+    # Condicional em vez de apagada porque o rollback para a imagem 0.19 tem de continuar
+    # CERTO: o plugin mora no volume e sobrevive à troca de imagem. Uma linha apagada aqui
+    # faria o rollback virar um plugin que só custa, e ninguém veria.
+    if _run_agent is not None and _precisa_patchear_run_agent():
         _run_agent.build_skills_system_prompt = compact_build
+        logger.info(
+            "adaptação da casa aplicada (Hermes < 0.21: o chamador resolve por run_agent)"
+        )
 
     logger.info("System prompt compaction enabled (names-only skill index)")
     return True
 
 
 # ─── Phase 2: Per-turn retrieval hook ───────────────────────────────────────
+
 
 def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | None:
     """pre_llm_call hook — inject top-K relevant skills per turn.

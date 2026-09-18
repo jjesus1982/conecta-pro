@@ -73,7 +73,8 @@ from agent import prompt_builder
 # mede o que ela alcança: a compactação existe, os nomes sobrevivem, o índice está completo.
 f = prompt_builder.build_skills_system_prompt
 comp = f(available_tools=set(), available_toolsets=set()) or ""
-out = {}
+from hermes_cli import __version__ as _v
+out = {"versao": str(_v)}
 orig_fn = None
 for c in (f.__closure__ or ()):
     if callable(getattr(c, "cell_contents", None)):
@@ -126,9 +127,13 @@ def main() -> int:
             f"virou só custo, porque a injeção continua somando e nada é removido"
         )
 
-    # A ADAPTAÇÃO DA CASA, conferida LENDO O ARQUIVO instalado. Não dá para vê-la de dentro
-    # de um processo novo (ver o comentário da sonda), e sem ela o plugin passa a CUSTAR:
-    # 26.793 contra 26.569 sem plugin nenhum. Uma atualização do plugin a leva junto, calada.
+    # A ADAPTAÇÃO DA CASA, conferida LENDO O ARQUIVO instalado. Não dá para vê-la de dentro de
+    # um processo novo (ver o comentário da sonda), e sem ela, no Hermes < 0.21, o plugin passa
+    # a CUSTAR: 26.793 contra 26.569 sem plugin nenhum. Uma atualização do plugin a levaria
+    # junto, calada — o plugin mora no VOLUME e sobrevive à troca de imagem.
+    #
+    # Ela é CONDICIONAL à versão: da 0.21 em diante a decomposição de setembro já resolve, e a
+    # adaptação vira no-op de propósito — assim o ROLLBACK para a 0.19 continua certo.
     r2 = subprocess.run(  # noqa: S603  # nosec B603 - argv fixo, sem shell
         [
             DOCKER,
@@ -136,7 +141,7 @@ def main() -> int:
             HERMES,
             "grep",
             "-c",
-            "_run_agent.build_skills_system_prompt = compact_build",
+            "_precisa_patchear_run_agent",
             "/data/plugins/skill-retrieval/__init__.py",
         ],
         capture_output=True,
@@ -144,12 +149,18 @@ def main() -> int:
         check=False,
         timeout=60,
     )
-    if (r2.stdout or "0").strip() in ("", "0"):
+    tem_adaptacao = (r2.stdout or "0").strip() not in ("", "0")
+    versao = str(d.get("versao") or "?")
+    try:
+        antiga = tuple(int(x) for x in versao.split(".")[:2]) < (0, 21)
+    except Exception:  # noqa: BLE001 — versão ilegível: cobra a adaptação, que é o lado seguro
+        antiga = True
+    if antiga and not tem_adaptacao:
         falhas.append(
-            "a ADAPTAÇÃO DA CASA sumiu do __init__.py instalado — sem ela a "
-            "compactação não alcança o `run_agent`, que é quem monta o prompt nesta "
-            "versão, e o plugin passa a CUSTAR em vez de economizar. Reinstale de "
-            "`hermes-runtime/plugins/skill-retrieval/`"
+            f"Hermes {versao} (< 0.21) e a ADAPTAÇÃO DA CASA sumiu do __init__.py instalado — "
+            f"sem ela a compactação não alcança o `run_agent`, que é quem monta o prompt nesta "
+            f"versão, e o plugin passa a CUSTAR em vez de economizar. Reinstale de "
+            f"`hermes-runtime/plugins/skill-retrieval/`"
         )
 
     nomes = set(d.get("nomes_no_prompt") or [])
@@ -176,7 +187,8 @@ def main() -> int:
         print(
             f"prompt de skills: {orig:,} → {comp:,} chars "
             f"(−{orig - comp:,} ~ {(orig - comp) // 4:,} tokens) · "
-            f"{len(nomes)} nomes no prompt · {len(indexadas)} indexadas"
+            f"{len(nomes)} nomes no prompt · {len(indexadas)} indexadas · "
+            f"Hermes {versao}" + (" (adaptação da casa presente)" if tem_adaptacao else "")
         )
     print(f"TOTAL: {len(falhas)} falha(s) no skill-retrieval")
     return 1 if falhas else 0
