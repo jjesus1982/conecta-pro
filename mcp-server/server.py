@@ -700,48 +700,29 @@ _DDD_BR = frozenset((
 
 
 async def _quem_tem_o_numero(so_digitos: str) -> dict | None:
-    """De quem é este telefone? `None` se não é de ninguém cadastrado.
+    """De quem é este telefone? `None` se não é de ninguém — cliente OU lead, ativo ou não.
 
-    ⚠️ Compara os ÚLTIMOS 8 DÍGITOS. O nono dígito dos celulares foi acrescentado em datas
-    diferentes por estado e o cadastro tem as duas formas do mesmo número — casar o telefone
-    inteiro faria o mesmo assinante parecer duas pessoas, ou nenhuma.
+    ⭐ 18/09/2026 — passou a usar `GET /crm/telefone/de-quem`, rota criada para esta pergunta.
+    A versão anterior paginava `/crm/leads`, e eu medi o problema disso: o
+    `LeadRepository.list` filtra `is_active IS TRUE` na origem — a tabela tem 298 linhas e
+    296 com telefone, e a rota devolve 7. Recusar opt-out com essa visão rejeitaria 291 leads
+    reais, gente que FOI contatada e que, ao pedir para parar, ouviria "não te conheço".
+    A rota nova não filtra por ativo, de propósito.
 
-    ⚠️ E a busca do ERP NÃO filtra por telefone: `/crm/leads?busca=<número>` devolveu os três
-    primeiros leads, ignorando o filtro. Por isso pagina — medi 5 clientes e 296 leads com
-    telefone, o que cabe em poucas chamadas.
+    ⚠️ FAIL-OPEN declarado: se eu não consigo LER o cadastro, devolvo "indeterminado" em vez
+    de `None`. Recusar por falha minha deixaria alguém sem a proteção que ele pediu.
     """
-    alvo = so_digitos[-8:]
-
-    def bate(*valores) -> bool:
-        return any(re.sub(r"\D", "", str(v or ""))[-8:] == alvo for v in valores if v)
-
     try:
-        clientes = await erp.get("/clients", params={"page_size": 200})
-        for c in _items(clientes):
-            if bate(c.get("whatsapp"), c.get("phone"), c.get("financial_contact_phone"),
-                    c.get("technical_contact_phone")):
-                return {"tipo": "cliente", "nome": c.get("legal_name") or c.get("name"),
-                        "id": c.get("id")}
-        # ⚠️ `page_size` máximo é 100 nesta rota (acima disso ela recusa com 422).
-        pagina = 1
-        while pagina <= 20:
-            leads = await erp.get("/crm/leads", params={"page": pagina, "page_size": 100})
-            itens = _items(leads)
-            for l in itens:  # noqa: E741
-                if bate(l.get("phone"), l.get("whatsapp")):
-                    return {"tipo": "lead", "nome": l.get("name") or l.get("nome"),
-                            "id": l.get("id")}
-            if len(itens) < 100:
-                break
-            pagina += 1
+        d = await erp.get("/crm/telefone/de-quem", params={"numero": so_digitos})
     except Exception:  # noqa: BLE001
-        # ⚠️ FAIL-OPEN DELIBERADO e declarado: se eu não consigo LER o cadastro, recusar o
-        # opt-out deixaria alguém sem a proteção por causa de uma falha minha. Devolve um
-        # dono "desconhecido" para a chamada seguir — o contrário seria a trava punindo a
-        # pessoa pelo defeito do sistema.
         return {"tipo": "indeterminado",
                 "aviso": "não consegui consultar o cadastro; opt-out registrado assim mesmo"}
-    return None
+    if not isinstance(d, dict):
+        return {"tipo": "indeterminado", "aviso": "resposta inesperada do cadastro"}
+    if not d.get("encontrado"):
+        return None
+    return {k: v for k, v in d.items()
+            if k in ("tipo", "nome", "id", "lead_ativo") and v is not None}
 
 
 def _id_valido(valor: str) -> bool:
@@ -1405,6 +1386,8 @@ async def criar_contrato_por_modelo(cliente_documento: str, modalidade: str,
                                     vigencia_meses: int = 12, dia_vencimento: int = 0,
                                     renovacao_aviso_dias: int = 30,
                                     carencia_dias: int = 0,
+                                    cidade_assinatura: str = "",
+                                    foro: str = "",
                                     dry_run: bool = False,
                                     idempotency_key: str = "") -> dict:
     """CRIA um contrato novo já ligado ao modelo e ao CNPJ emitente correto. ESCREVE.
@@ -1611,6 +1594,9 @@ async def gerar_contrato_por_modelo(
     template_id: str = "",
     representante: str = "",
     representante_cpf: str = "",
+    representante_cargo: str = "",
+    cidade_assinatura: str = "",
+    foro: str = "",
     dia_vencimento: int = 0,
     dias_primeiro_pagamento: int = 0,
     valor_total: float | None = None,
@@ -1623,6 +1609,22 @@ async def gerar_contrato_por_modelo(
     """Emite o CONTRATO COMPLETO pelo modelo cadastrado e devolve o LINK para enviar ao cliente.
 
     `contrato` aceita CTR-…, id, CNPJ do cliente ou nome aproximado.
+
+    ⭐ SCHEMA DE `itens` (18/09/2026 — era indocumentado e custava tentativa e erro):
+
+        itens=[{"nome": "Sistema",                     # rótulo CURTO da tabela, até 200 chars
+                "descricao": "Monitoramento 24h, IA de voz e app Conecta Plus",  # sem limite
+                "total": 3500,                          # ⚠️ valor da LINHA. NÃO é `subtotal`
+                "qtd": 1}]                              # opcional; `quantidade` também vale
+
+    ⚠️ A soma dos `total` tem de FECHAR com o valor mensal (ou com o valor total, no serviço
+    único). Campo com nome errado agora recusa com `CAMPO_DESCONHECIDO/422` em vez de ser
+    descartado em silêncio — antes `subtotal` virava soma 0 e o erro reclamava do VALOR, que
+    estava certo, quando o defeito era o NOME do campo.
+
+    `cidade_assinatura` e `foro` são opcionais: sem eles a cadeia é contrato → cidade do
+    cliente → "Manaus/AM", e o foro vira "Comarca de " + cidade. Nunca saem vazios — eleição
+    de foro em branco indo para assinatura é pior que contrato não emitido.
 
     Busca no banco o que já existe. Se faltar dado, NÃO falha: devolve as perguntas do que
     falta — responda passando os campos abaixo e chame de novo. Restrito ao Jordan e à Pyetra.
@@ -1653,7 +1655,10 @@ async def gerar_contrato_por_modelo(
     payload: dict[str, Any] = {"contrato": alvo}
     for chave, valor in (
         ("template_id", template_id), ("representante", representante),
-        ("representante_cpf", representante_cpf), ("payment_day", dia_vencimento),
+        ("representante_cpf", representante_cpf),
+        ("representante_cargo", representante_cargo),
+        ("cidade_assinatura", cidade_assinatura), ("foro", foro),
+        ("payment_day", dia_vencimento),
         ("grace_period_days", dias_primeiro_pagamento), ("valor_total", valor_total),
         ("objeto_resumo", objeto_resumo), ("proposta_numero", proposta_numero),
         ("prazo_exec_dias", prazo_exec_dias), ("itens", itens), ("minuta", minuta),
@@ -2389,8 +2394,61 @@ async def definir_meta_mensal(valor: float, mes: int | None = None, ano: int | N
 
 
 @mcp.tool
+async def definir_representante_cliente(cliente: str, nome: str, cargo: str = "",
+                                        cpf: str = "", rg: str = "") -> dict:
+    """Define QUEM assina pelo cliente — nome, cargo, CPF e RG. ESCREVE no cadastro.
+
+    ⭐ 18/09/2026 — §7 da SPEC de emissão. Antes, o representante só entrava por
+    `gerar_contrato_por_modelo(representante=..., representante_cpf=...)`, digitado de novo a
+    cada emissão e sem ficar no cadastro. E `cargo` não tinha parâmetro nenhum: no
+    CTR-2026-00025 a síndica é Meridiana Vasconselos da Consta e não havia caminho para dizer
+    ao sistema que ela é *síndica* — o render usava o default "Síndico", no masculino.
+
+    ⚠️ DIVERGÊNCIA DECLARADA do texto da SPEC, que pedia estes campos em `atualizar_cliente`.
+    O representante NÃO mora em `clients` — mora em `crm_contacts` (`name`, `role`, e CPF/RG
+    dentro de `notes`), e é de lá que o renderizador de contrato já lê há semanas. Criar
+    colunas de representante em `clients` faria uma SEGUNDA fonte de verdade divergente do
+    render: o cadastro mostraria um nome e o contrato imprimiria outro. A intenção do §7
+    (poder escrever e ler quem assina) está atendida aqui, na fonte que o contrato usa.
+
+    ⚠️ CPF e RG vão para `notes` no formato que o render sabe ler — `CPF 000.000.000-00 ·
+    RG 1234567 SSP/AM`. Formato livre ali some no regex do render.
+    """
+    cid = await _resolver_cliente_id(cliente)
+    if isinstance(cid, dict):
+        return cid
+    if not (nome or "").strip():
+        return {"ok": False, "codigo": "NOME_OBRIGATORIO", "http": 422,
+                "mensagem": "Informe o nome de quem assina pelo cliente.",
+                "dica": "É o nome que vai no instrumento e no pedido de assinatura."}
+    pedacos = []
+    if (cpf or "").strip():
+        pedacos.append(f"CPF {cpf.strip()}")
+    if (rg or "").strip():
+        pedacos.append(f"RG {rg.strip()}")
+    corpo = {"client_id": str(cid), "name": nome.strip(),
+             "role": (cargo or "").strip() or "Representante legal",
+             "is_primary": True}
+    if pedacos:
+        corpo["notes"] = " · ".join(pedacos)
+    try:
+        r = await erp.post("/crm/contacts/", json=corpo)
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    return {"ok": True, "cliente_id": str(cid), "representante": nome.strip(),
+            "cargo": corpo["role"], "documentos": corpo.get("notes"),
+            "registro": r.get("id") if isinstance(r, dict) else None,
+            "aviso": ("`is_primary` ligado: é esta a linha que o contrato vai ler. Se havia "
+                      "outro representante marcado como principal, confira em "
+                      "`obter_cliente` qual ficou valendo.")}
+
+
+@mcp.tool
 async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str | None = None,
-                            telefone: str | None = None, cidade: str | None = None) -> dict:
+                            telefone: str | None = None, cidade: str | None = None,
+                            uf: str | None = None, rua: str | None = None,
+                            numero: str | None = None, bairro: str | None = None,
+                            cep: str | None = None, complemento: str | None = None) -> dict:
     """Atualiza dados de um cliente (padronizar nome p/ CAIXA ALTA, corrigir contato).
     cnpj_ou_id: CNPJ (procura) ou o id do cliente. Passe só o que quer mudar.
 
@@ -2414,6 +2472,26 @@ async def atualizar_cliente(cnpj_ou_id: str, nome: str | None = None, email: str
         payload["phone"] = telefone
     if cidade is not None:
         payload["address_city"] = cidade
+    # ⭐ 18/09/2026 — §7 da SPEC. O schema `ClientUpdate` do backend JÁ aceitava o endereço
+    # COMPLETO e esta tool expunha só `cidade`: não havia como preparar um cliente para
+    # emissão de contrato. O render monta `contratante_endereco` concatenando exatamente
+    # estas seis colunas e avisa quando o resultado sai sem número ou sem CEP.
+    #
+    # ⚠️ Default `None` e teste `is not None`: `""` LIMPA o campo de propósito, ausente não
+    # toca. Cheguei a escrever estes defaults como `""` e `atualizar_cliente(cnpj)` sem campo
+    # nenhum passaria a apagar nome, e-mail e telefone do cliente.
+    if uf is not None:
+        payload["address_state"] = uf
+    if rua is not None:
+        payload["address_street"] = rua
+    if numero is not None:
+        payload["address_number"] = numero
+    if bairro is not None:
+        payload["address_neighborhood"] = bairro
+    if cep is not None:
+        payload["address_zipcode"] = cep
+    if complemento is not None:
+        payload["address_complement"] = complemento
     if not payload:
         return {"ok": False, "codigo": "NADA_PARA_ATUALIZAR", "http": 422,
                 "mensagem": "Nenhum campo foi informado.",
@@ -2696,6 +2774,10 @@ async def enviar_proposta(proposta_id: str, confirmar: bool = False) -> dict:
 async def ativar_contrato(contrato_id: str, confirmar: bool = False) -> dict:
     """Ativa um contrato (draft -> pending_signature -> active). Se for recorrente, LANÇA NO MRR.
     Ação financeira: chame com confirmar=false para ver o preview; confirmar=true para ativar."""
+    # ⭐ 18/09/2026: os dois defeitos do Bloco 2 que eu não corrigi na rodada 4 por ser
+    # ação de dinheiro. Autorizado agora. A 4ª passada da régua os reportava a cada run.
+    if (recusa := await _exigir_entidade("contrato", contrato_id)):
+        return recusa
     if not confirmar:
         return {"ok": False, "codigo": "CONFIRMACAO_NECESSARIA", "http": 409,
                 "preview": True, "contrato_id": contrato_id,
@@ -2875,18 +2957,26 @@ async def registrar_optout_whatsapp(numero: str, motivo: str | None = None) -> d
     # Então: o dono vira INFORMAÇÃO no retorno, não parede. `de_quem: null` + aviso diz ao
     # Jordan exatamente o que a recusa diria, sem o efeito colateral. Se, vendo os 291, ele
     # quiser a recusa dura mesmo assim, é trocar este bloco por um `return` — uma linha.
+    # ⭐ 18/09/2026 — RECUSA DURA, decidida pelo dono depois de ver os números. Na rodada
+    # anterior eu recusei fazer isto porque a minha visão do cadastro alcançava 7 de 296
+    # leads e barraria 291 pessoas reais. A rota `/crm/telefone/de-quem` existe justamente
+    # para tirar essa cegueira: ela lê cliente e lead SEM filtro de ativo.
+    #
+    # Agora a recusa é honesta: se não é de ninguém, é porque não é de ninguém — não porque
+    # eu não consegui olhar.
     dono = await _quem_tem_o_numero(so_digitos)
+    if dono is None:
+        return {"ok": False, "codigo": "NUMERO_NAO_CADASTRADO", "http": 404,
+                "mensagem": f"{numero!r} tem forma válida mas não é de nenhum cliente nem "
+                            f"lead cadastrado (inclusive inativos).",
+                "dica": ("Opt-out precisa apontar para alguém: registro apontando para um "
+                         "número que não é de ninguém PARECE proteger e não protege. Se a "
+                         "pessoa existe, cadastre com `criar_lead` e registre o opt-out "
+                         "dela em seguida."),
+                "campos_invalidos": ["numero"], "procurei_por": so_digitos[-8:]}
     r = await erp.post("/crm/followups/optout",
                        json={"numero": numero, "motivo": motivo})
-    if not isinstance(r, dict):
-        return r
-    if dono is None:
-        return {**r, "de_quem": None,
-                "aviso": (f"Registrei, mas {numero!r} não bate com nenhum cliente nem com "
-                          f"os leads ATIVOS que consigo ler. Pode ser um lead inativo (a "
-                          f"rota expõe 7 de 296 com telefone) ou número errado — confira "
-                          f"antes de contar com este opt-out.")}
-    return {**r, "de_quem": dono}
+    return r if not isinstance(r, dict) else {**r, "de_quem": dono}
 
 
 @mcp.tool

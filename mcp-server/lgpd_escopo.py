@@ -101,7 +101,9 @@ NIVEL: dict[str, str] = {
     "saldo_ferias": OPERACIONAL,
     "solicitar_ferias": OPERACIONAL,              # nome e período; é o fluxo de operar
     "vagas_abertas": OPERACIONAL,                 # postos com vaga, não candidatos
-    "buscar_documento": OPERACIONAL,              # /gedeon/kits/montagem — kit por pessoa
+    "buscar_documento": OPERACIONAL,
+    # nome, cargo, CPF e RG de UMA pessoa — identificável, e o CPF torna sensível
+    "definir_representante_cliente": SENSIVEL,              # /gedeon/kits/montagem — kit por pessoa
     "registrar_evento_kit": OPERACIONAL,          # checklist do kit de admissão
 
     # sensível — CPF, salário individual, holerite, saúde

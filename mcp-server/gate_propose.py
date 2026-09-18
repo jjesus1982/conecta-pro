@@ -139,7 +139,20 @@ CONSEQUENCIAS: dict[str, list[str]] = {
         "mensagem entregue não se apaga do outro lado",
     ],
     "inscrever_lead_em_sequencia": ["inscreve o lead numa régua que passa a ENVIAR sozinha"],
-    "ativar_contrato": ["submete o contrato, tirando-o de rascunho"],
+    # 18/09/2026 — entrou em EFEITO_EXTERNO por autorização do Jordan
+    "reativar_lead": [
+        "o José Luís MANDA uma mensagem de WhatsApp agora, para o celular do lead",
+        "sai em nome da Conecta Mais — quem recebe lê como palavra da empresa",
+        "lead frio reabordado na hora errada queima de vez; não há como despedir a mensagem",
+    ],
+    # ⚠️ entrada REFORÇADA em 18/09/2026, não duplicada: ela já existia dizendo apenas
+    # "submete o contrato", o que não é o que dói. Entrou em IRREVERSIVEL hoje, e quem vai
+    # aprovar precisa ler o efeito no dinheiro.
+    "ativar_contrato": [
+        "o contrato passa a ATIVO e sai de rascunho para valer entre as partes",
+        "sendo recorrente, o valor mensal ENTRA NO MRR — é de lá que nasce a cobrança",
+        "reverter depois é cancelamento de contrato, com cliente na frente, não um clique",
+    ],
     "gerar_parecer_juridico": ["cria PARECER JURÍDICO no nome do escritório"],
     "analisar_processo_juridico": ["cria registro de processo jurídico"],
     "montar_kit_completo": ["dispara a montagem COMPLETA do kit (vários documentos)"],
@@ -198,6 +211,12 @@ EFEITO_EXTERNO: dict[str, str] = {
                                 "ICP-Brasil — é ato jurídico, não rascunho",
     "propor_pagamento": "um pagamento para a fila de dinheiro que SAI",
     "gerar_lote_diarias_mes": "o lote de pagamento das diárias — dinheiro que sai",
+    # ⭐ 18/09/2026 — autorizado pelo Jordan depois da rodada 4. `reativar_lead(confirmar=true)`
+    # manda o José Luís dar um toque no lead por WhatsApp: sai da empresa, exatamente como
+    # `followup_whatsapp`, que já estava aqui. Ela estava `write_low` e FORA do muro — o
+    # mesmo efeito com duas classificações opostas, e a mais frouxa era a que ninguém tinha
+    # olhado. Não é a tool que decide se precisa de aprovação, é o EFEITO.
+    "reativar_lead": "um toque de WhatsApp para o lead frio, em nome da empresa",
 }
 
 # ⭐ IRREVERSÍVEL INTERNO — aprovação humana em QUALQUER MODO, como o efeito externo.
@@ -228,6 +247,14 @@ IRREVERSIVEL: dict[str, str] = {
     "expurgar_documentos_teste": "APAGA documentos do sistema; não há lixeira",
     "excluir_documento": "APAGA o documento; não há lixeira",
     "excluir_campanha": "APAGA a campanha e o histórico dela",
+    # ⭐ 18/09/2026 — autorizado pelo Jordan. `ativar_contrato` leva o contrato a `active` e,
+    # sendo recorrente, LANÇA NO MRR: nasce faturamento recorrente registrado. Cabe no
+    # critério escrito acima ("cria obrigação de DINHEIRO") e é irmão de `aceitar_proposta`,
+    # que já estava aqui pela mesma razão. Era `propose` com o muro ABERTO no conector
+    # público, porque `precisa_aprovacao` só valia para `propose` em modo agente — o mesmo
+    # buraco que fechei para as outras onze em 12/09 e que esta escapou.
+    "ativar_contrato": "ATIVA o contrato e lança o valor no MRR — faturamento recorrente "
+                       "que nasce registrado, com cobrança atrás",
 }
 
 # Exceções revisadas à mão: nome parece de efeito externo e o efeito é interno. Cada linha é

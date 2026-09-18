@@ -76,6 +76,8 @@ TOOL_RISK: dict[str, str] = {
     "assumir_negociacao": "write_low",
     "ativar_contrato": "propose",
     "atualizar_cliente": "write_low",
+    # 18/09/2026 — §7: quem assina pelo cliente, gravado no cadastro (crm_contacts)
+    "definir_representante_cliente": "write_low",
     "atualizar_contrato": "propose",
     "atualizar_estagio_deal": "write_low",
     "atualizar_proposta": "write_low",
@@ -259,7 +261,7 @@ TOOL_RISK: dict[str, str] = {
     "ponto_dashboard": "read",
     "presenca_ao_vivo": "read",
     "previsao_custos_mensais": "read",
-    "reativar_lead": "write_low",
+    "reativar_lead": "propose",
     "reembolsos_pendentes_aprovacao": "read",
     "reembolsos_prontos_pagamento": "read",
     "registrar_custo_recorrente": "propose",
