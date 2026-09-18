@@ -145,6 +145,14 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # O que está no CONTRATO foi para a NOTA? O dono explicou em 18/09/2026 por que o MIRANTE
+    # não fechava — «tiramos a jardinagem» —, e a nota sabia disso desde agosto enquanto o
+    # contrato, o MRR e o contas a receber seguiam com os R$ 1.500 por mais de um mês, sem
+    # nada acusar. Na estreia: 7 clientes batendo ao centavo, 4 divergindo, R$ 39.338,33 de
+    # serviço prestado e NÃO faturado. HOST porque fala com o postgres por docker exec.
+    "checar_contrato_vs_nota.py": lambda s: _n(
+        r"^TOTAL: (\d+) cliente\(s\) com contrato e nota divergentes", s, "TOTAL: 0 cliente"
+    ),
     # Tool do MCP que ESCREVE e não se declara escritora: a classe `read` é a que o
     # `gate_propose` deixa passar sem humano. Órfã desde que nasceu; ligada em 17/09/2026.
     "checar_mcp_declara_escrita.py": lambda s: _n(r"^TOTAL tools de escrita sem declarar: (\d+)", s),
