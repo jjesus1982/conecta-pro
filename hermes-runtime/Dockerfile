@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# ---- clone PINADO na tag (== v0.19.0 interna). --depth 1 + tag = detached,
+# ---- clone PINADO na tag (== v0.20.2 interna). --depth 1 + tag = detached,
 #      sem tracking branch => `hermes update` nao tem para onde puxar. ----
 # 18/09/2026 — de v2026.7.20 (0.19.0) para v2026.8.16 (0.20.2).
 #
