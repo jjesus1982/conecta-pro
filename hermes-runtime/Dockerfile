@@ -4,8 +4,8 @@
 # Orquestrador autonomo (NousResearch Hermes Agent, MIT) que fala com o
 # conector MCP do ERP (conecta-pro-mcp) e com a OpenAI. Imagem self-contained:
 # deps BAKED via `uv sync --locked` (hash-verified pela uv.lock). NAO roda o
-# install.sh (ele muta o host via apt). Checkout PINADO na tag v2026.8.16
-# (== versao interna 0.20.2) — auto-update desligado.
+# install.sh (ele muta o host via apt). Checkout PINADO na tag v2026.9.14
+# (== versao interna 0.21.3) — auto-update desligado.
 # ============================================================================
 FROM python:3.11-slim
 
@@ -27,34 +27,42 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# ---- clone PINADO na tag (== v0.20.2 interna). --depth 1 + tag = detached,
+# ---- clone PINADO na tag (== v0.21.3 interna). --depth 1 + tag = detached,
 #      sem tracking branch => `hermes update` nao tem para onde puxar. ----
-# 18/09/2026 — de v2026.7.20 (0.19.0) para v2026.8.16 (0.20.2).
+# 18/09/2026 — de v2026.7.20 (0.19.0) para v2026.9.14 (0.21.3). Doze releases, ~2 meses.
 #
-# ⛔ O TETO E O CLIENTE MCP, e ele foi MEDIDO, nao deduzido. Construi a v2026.9.14 (0.21.3),
-#    subi num container isolado com copia do estado, e os conectores PARARAM DE SERVIR
-#    FERRAMENTAS: so expunham get_prompt/list_prompts/list_resources/read_resource, e
-#    `ponto_dashboard` sumiu do catalogo — a triagem de ponto e a auditoria de kit nao
-#    funcionariam. O sinal que me fez conferir foi o custo cair DEMAIS (15.843 tokens):
-#    estava barato porque nao havia ferramenta nenhuma.
-#    Causa: 0.21.x traz `mcp==2.0.0`; a 0.19/0.20.2 trazem `mcp` 1.x, e os nossos tres
-#    conectores rodam fastmcp 4.0.4, que nao serve tools ao cliente 2.0.
-#    Fronteira exata: v2026.8.16 (0.20.2) = mcp 1.28.1 · v2026.8.19 (0.20.5) em diante = 2.0.0.
-#    Subir alem disto exige atualizar o fastmcp de `mcp-server/` e revalidar as paredes de
-#    escopo e identidade. Projeto separado.
+# ⚠️ O "TETO DO CLIENTE MCP" QUE EU DIAGNOSTIQUEI AQUI NAO EXISTIA. Fica escrito porque o erro
+#    custou uma tarde e quase virou um projeto inteiro.
+#    Na primeira tentativa a 0.21.3 subiu com os conectores servindo SO 4 verbos genericos
+#    (get_prompt/list_prompts/list_resources/read_resource) e `ponto_dashboard` fora do
+#    catalogo. Conclui "0.21 traz mcp==2.0.0 e o nosso fastmcp 4.0.4 nao serve tools a esse
+#    cliente", parei na 0.20.2 e propus um projeto de upgrade do fastmcp dos tres conectores.
+#    ERRADO. Escrevi um cliente com `mcp==2.0.0` apontado para o nosso conector: ele serviu as
+#    41 ferramentas normalmente. O protocolo estava certo o tempo todo.
+#    A causa era uma linha de CONFIG: a semantica de `tools.include: []` INVERTEU entre as
+#    versoes, e o comentario do upstream e explicito —
+#      "include: [] -> register nothing (an explicit empty whitelist)".
+#    Na 0.19 `if include_set:` tratava lista vazia como falsy e liberava tudo. Os numeros que
+#    eu li como "protocolo quebrado" (ged 4, pessoas 4) eram exatamente os 4 verbos genericos.
+#    Tirar o bloco `tools:` de `ged` e `pessoas` resolveu: 99 ferramentas na 0.21.3.
 #
-# O que esta versao ganha: um mes de correcoes, satisfaz o `>=0.20.0` do plugin
-# skill-retrieval, e 21.809 tokens de entrada por turno contra 25.455 na 0.19 (−14%), com as
-# 99 ferramentas MCP intactas (conecta 8 · ged 46 · pessoas 45) e o `ponto_dashboard`
-# devolvendo dado real.
+#    A licao: numero que MELHORA demais merece a mesma desconfianca que numero que piora. O
+#    custo caiu para 15.843 tokens e estava barato porque nao havia ferramenta nenhuma.
 #
-# A correcao de cadeia de suprimentos da v2026.8.31 fica de fora, e conferi que ela NAO nos
-# alcanca: era a entrada de catalogo e a skill do BLENDER, que nao existem nesta instalacao.
+# O que esta versao entrega, medido:
+#    prompt_tokens   25.455 (0.19) -> 21.809 (0.20.2) -> 18.552 (0.21.3)
+#    ferramentas MCP 99 intactas (conecta 8 · ged 46 · pessoas 45)
+#    ponto_dashboard dado real: 64 colaboradores, 17 presentes
+#    plugin          o ORIGINAL do autor volta a servir — a adaptacao da casa sai, e na 0.21
+#                    ela nao e so desnecessaria: DESLIGA o plugin (import removido em 14/09).
+#    v2026.8.31 traz a resposta ao comprometimento de cadeia de suprimentos (Blender), e
+#    v2026.9.11 e "The state.db Patch Release" — as duas entram junto.
 #
-# Rollback: `conecta-pro-hermes:v0.19.0-rollback` (imagem 998672a936fa) e o volume salvo em
-# .backup_hermes/volume_antes_upgrade_*.tgz. Voltando para a 0.19, a ADAPTACAO DA CASA do
-# plugin continua correta (ela e condicional a versao, < 0.21).
-ARG HERMES_TAG=v2026.8.16
+# Rollback: `conecta-pro-hermes:v0.19.0-rollback` e `:v0.20.2`, volumes em
+# .backup_hermes/. Voltando para < 0.21, TROQUE tambem o plugin pela variante adaptada
+# (`plugins/skill-retrieval/__init__.py.para-hermes-0.19-0.20`) — o cacador
+# `checar_hermes_skill_retrieval.py` cobra a variante certa nos dois sentidos.
+ARG HERMES_TAG=v2026.9.14
 RUN git clone --depth 1 --branch "${HERMES_TAG}" \
         https://github.com/NousResearch/hermes-agent.git /app
 

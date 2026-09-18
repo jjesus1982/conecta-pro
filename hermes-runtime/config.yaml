@@ -63,8 +63,15 @@ mcp_servers:
     url: "http://conecta-pro-mcp-ged:8788/mcp"
     headers:
       Authorization: "Bearer ${MCP_BEARER}"
-    tools:
-      include: []
+    # SEM bloco `tools:` de propósito — "nenhum filtro" = todas as ferramentas, e isso vale
+    # igual na 0.19, 0.20 e 0.21. NÃO escrever `include: []`: a semântica INVERTEU entre as
+    # versões e o comentário do upstream é explícito na 0.21 —
+    #   "include: [] → register nothing (an explicit empty whitelist)".
+    # Na 0.19 `if include_set:` tratava lista vazia como falsy e liberava tudo. Medido em
+    # 18/09/2026 ao testar a 0.21.3: `ged` e `pessoas` apareceram com 4 ferramentas cada — os
+    # 4 VERBOS GENÉRICOS (get_prompt/list_prompts/list_resources/read_resource) — e o
+    # `ponto_dashboard` sumiu. Eu quase atribuí isso a incompatibilidade de protocolo MCP 2.0 e
+    # abri um projeto de upgrade do fastmcp; o protocolo estava certo, era esta linha.
     supports_parallel_tool_calls: false
     timeout: 180
     connect_timeout: 60
@@ -83,8 +90,15 @@ mcp_servers:
     url: "http://conecta-pro-mcp-pessoas:8788/mcp"
     headers:
       Authorization: "Bearer ${MCP_BEARER}"
-    tools:
-      include: []
+    # SEM bloco `tools:` de propósito — "nenhum filtro" = todas as ferramentas, e isso vale
+    # igual na 0.19, 0.20 e 0.21. NÃO escrever `include: []`: a semântica INVERTEU entre as
+    # versões e o comentário do upstream é explícito na 0.21 —
+    #   "include: [] → register nothing (an explicit empty whitelist)".
+    # Na 0.19 `if include_set:` tratava lista vazia como falsy e liberava tudo. Medido em
+    # 18/09/2026 ao testar a 0.21.3: `ged` e `pessoas` apareceram com 4 ferramentas cada — os
+    # 4 VERBOS GENÉRICOS (get_prompt/list_prompts/list_resources/read_resource) — e o
+    # `ponto_dashboard` sumiu. Eu quase atribuí isso a incompatibilidade de protocolo MCP 2.0 e
+    # abri um projeto de upgrade do fastmcp; o protocolo estava certo, era esta linha.
     supports_parallel_tool_calls: false
     timeout: 120
     connect_timeout: 60
