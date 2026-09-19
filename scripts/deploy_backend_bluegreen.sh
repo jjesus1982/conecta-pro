@@ -71,7 +71,20 @@ parar_sandbox_mcp() {
 religar_sandbox_mcp() {
   [ "$STAGING_ESTAVA_DE_PE" = "1" ] || return 0
   docker start "$STAGING" >/dev/null 2>&1 || { log "  AVISO: não consegui religar $STAGING"; return 0; }
-  log "  $STAGING de volta (sandbox do MCP)"
+  # ⭐ 19/09/2026 — RELIGAR NÃO É RECONECTAR, e isso custou três recorrências no mesmo dia.
+  # O `docker start` devolve o container e ele reporta `healthy` — mas voltou SEM a
+  # `conecta-staging-network`: não resolvia nem o próprio `redis-staging`. Health check verde
+  # com a máquina sem rede não é falha de monitoramento, é monitoramento mentindo.
+  #
+  # O comentário acima já dizia "container parado some do DNS da rede"; o que faltou foi
+  # notar que voltar do `stop` não recria o endpoint. `network connect` é idempotente: se já
+  # está conectado, erra e o `|| true` engole.
+  docker network connect conecta-staging-network "$STAGING" >/dev/null 2>&1 || true
+  if docker exec "$STAGING" sh -c 'getent hosts redis-staging >/dev/null 2>&1'; then
+    log "  $STAGING de volta e NA REDE (sandbox do MCP)"
+  else
+    log "  AVISO: $STAGING de pé mas SEM RESOLVER a rede do staging — o R07 do MCP vai falhar"
+  fi
 }
 
 # Serviços do compose de celery declarados sobre a imagem do backend. Lido do ARQUIVO, não
