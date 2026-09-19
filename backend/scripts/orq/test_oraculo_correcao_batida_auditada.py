@@ -12,7 +12,8 @@ restantes não há fonte externa, e o DP NÃO TINHA FERRAMENTA: o PATCH aceitava
 ⚠️ ISTO EDITA DOCUMENTO TRABALHISTA. Este oráculo trava as três garantias, porque a
 tentação de afrouxar qualquer uma delas aparece no primeiro chamado urgente:
   1. só os 4 tipos válidos entram — correção não inventa vocabulário;
-  2. sem autor identificado, recusa — alteração anônima em ponto não existe;
+  2. sem autor identificado, recusa — e autor que não existe em `users` também recusa:
+     trilha com autor inventado vale menos que nenhuma numa reclamatória;
   3. a auditoria é obrigatória e NÃO engole exceção — sem rastro, sem correção.
 
 Afirma a REGRA, com casos sintéticos criados e removidos aqui. Não depende de nenhuma
@@ -53,11 +54,22 @@ async def main() -> None:
         ).scalar()
         assert emp, "sem funcionário ativo — pré-condição do oráculo"
 
+        # ⭐ 18/09/2026 — o autor tem de ser um usuário REAL. Em 14/09 o produto apertou a
+        # garantia 2 (`time_record_service`: `updated_by` truthy não basta, tem de existir em
+        # `users`) porque um teste passou a string "0" e gravou em `gp_audit_logs` uma
+        # alteração de ponto com autor inexistente. O produto ficou certo e ESTE ORÁCULO
+        # ficou velho: mandava "dp-oraculo", levava ValueError, e acusava «correção legítima
+        # foi recusada» — régua reprovando exatamente o aperto que ela deveria celebrar.
+        #
+        # Agora usa um usuário ativo de verdade, que é o que a produção faz. Vale mais: prova
+        # o caminho inteiro, com a checagem de existência no meio dele.
+        autor = (await db.execute(text("SELECT id::text FROM users WHERE is_active IS TRUE LIMIT 1"))).scalar()
+        assert autor, "sem usuário ativo — o oráculo não pode provar a correção legítima"
+
         falhas: list[str] = []
         try:
             for _pfx in (_PREFIXO, *_PREFIXOS_ANTIGOS):
-                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"),
-                                 {"p": f"{_pfx}%"})
+                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_pfx}%"})
             await db.execute(
                 text(
                     "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, "
@@ -81,8 +93,10 @@ async def main() -> None:
                 falhas.append("tipo fora do vocabulário foi ACEITO")
             if await tenta({"punch_type": "saida"}, None) != "recusa":
                 falhas.append("correção ANÔNIMA foi aceita — ponto sem autor")
-            if await tenta({"punch_type": "saida", "motivo": "oráculo"}, "dp-oraculo") != "aceita":
-                falhas.append("correção legítima foi recusada")
+            if await tenta({"punch_type": "saida", "motivo": "oráculo"}, "dp-oraculo") != "recusa":
+                falhas.append("autor que NÃO existe em `users` foi aceito — trilha sem autor real")
+            if await tenta({"punch_type": "saida", "motivo": "oráculo"}, autor) != "aceita":
+                falhas.append("correção legítima, com autor real, foi recusada")
 
             tipo = (
                 await db.execute(
@@ -105,8 +119,7 @@ async def main() -> None:
                 falhas.append(f"auditoria não gravada ({auditoria} registros) — correção sem rastro")
         finally:
             for _pfx in (_PREFIXO, *_PREFIXOS_ANTIGOS):
-                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"),
-                                 {"p": f"{_pfx}%"})
+                await db.execute(text("DELETE FROM gp_clock_punches WHERE punch_id LIKE :p"), {"p": f"{_pfx}%"})
             await db.execute(text("DELETE FROM gp_audit_logs WHERE entity_id LIKE :p"), {"p": f"{_PREFIXO}%"})
             await db.commit()
 
