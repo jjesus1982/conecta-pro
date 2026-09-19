@@ -131,6 +131,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_contrato_front_back.py` | Chave do contrato que o backend EMITE e o frontend publicado NÃO SABE LER |
 | `checar_contrato_vs_nota.py` | O que está no CONTRATO é o que foi para a NOTA? — a conferência que ninguém fazia |
 | `checar_data_do_banco_no_fuso.py` | Data que o banco manda em UTC gravada como dia de Manaus — 15% dos lançamentos da Cora no dia errado |
+| `checar_imagem_sumida.py` | Container de produção rodando imagem SEM TAG ou AUSENTE — o drift que `checar_drift_workers` não vê, porque compara os containers entre si |
 | `checar_diarista_impagavel.py` | Diarista que trabalhou e não tem como receber — e nome fora do padrão da lista |
 | `checar_hermes_skill_retrieval.py` | O skill-retrieval está de fato ENCOLHENDO o prompt — e não escondendo as nossas skills |
 | `checar_hermes_so_ve_o_que_executa.py` | O Hermes só enxerga, do conector `conecta`, as ferramentas que ele CONSEGUE executar |

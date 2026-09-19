@@ -185,6 +185,16 @@ CACADORES_HOST = {
     # meses — e é pelo CADASTRO que todo disparo decide para quem manda: o lembrete de ponto
     # exige status='ativo' e a alcançava, com a última batida dela em 29/03. Acusa os dois
     # lados: afastado que o cadastro ignora, e cadastro afastado sem registro aberto.
+    # Container de produção rodando imagem SEM TAG ou AUSENTE do daemon. Em 19/09/2026 os 9
+    # containers (backend + 8 workers) rodaram por horas uma camada cuja tag tinha sumido, e
+    # `checar_drift_workers.sh` disse "sem drift" — ele compara os containers ENTRE SI, então
+    # todos errados juntos passa. Quem acusou foi `checar_mcp_tools`, por acidente: ele lê uma
+    # peça de parede que por acaso mora no backend. Os 8 workers não tinham vigia nenhum.
+    # Separa os dois estados de propósito: SEM TAG é drift recuperável, AUSENTE é recriar que
+    # falha — e `docker images -q` não lista imagem sem tag, o que já me fez ler um pelo outro.
+    "checar_imagem_sumida.py": lambda s: _n(
+        r"^TOTAL: (\d+) container\(es\) rodando imagem sem tag ou ausente", s, "TOTAL: 0 container"
+    ),
     "checar_afastamento_vs_cadastro.py": lambda s: _n(
         r"^TOTAL: (\d+) cadastro\(s\) em desacordo", s, "TOTAL: 0 cadastro"
     ),
