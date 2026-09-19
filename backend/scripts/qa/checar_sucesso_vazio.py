@@ -28,10 +28,10 @@ sino que toca sempre, e essa casa já matou 3 agentes por 3 dias assim.
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 \\
         /app/scripts/qa/checar_sucesso_vazio.py
 """
+
 from __future__ import annotations
 
 import asyncio
-import sys
 
 #: Acima disto, reprova. Ver o raciocínio no docstring — o número tem data e motivo.
 PISO_PCT = 5.0
@@ -49,19 +49,38 @@ async def main() -> int:
     SQL = """
         SELECT origem,
                count(*) AS total,
-               count(*) FILTER (WHERE tokens_saida >= :teto) AS no_teto
+               count(*) FILTER (WHERE tokens_saida >= :teto) AS no_teto,
+               -- ⭐ 19/09/2026 — O QUE REPROVA agora é o MUDO, não a batida no teto.
+               -- Medido hoje: 12 chamadas do `whatsapp.agente` com tokens_saida = 1200
+               -- exato (o teto dele), e TODAS as 12 seguidas de mensagem entregue ao
+               -- cliente em menos de 3 minutos. Eram rodadas INTERMEDIÁRIAS do laço de
+               -- ferramentas — o modelo gasta o orçamento pensando numa rodada, a rodada
+               -- seguinte responde, e quem perguntou recebe. Ninguém ficou no silêncio.
+               --
+               -- A trava contava essas 12 como «200 sem frase» e reprovava. Medir a
+               -- chamada no teto é medir o MECANISMO; o que o 27/08 doeu foi o EFEITO —
+               -- o Jordan três minutos calado esperando resposta que não veio.
+               --
+               -- Mudo = bateu o teto e NÃO saiu mensagem depois. Só dá para medir onde a
+               -- saída é observável: `whatsapp.agente` tem `cwi_message_log`. Nas outras
+               -- origens a batida vira AVISO de pressão de teto, nunca reprovação — trava
+               -- que reprova o que não consegue medir é a que ensina todo mundo a ignorar.
+               count(*) FILTER (
+                 WHERE tokens_saida >= :teto AND origem = 'whatsapp.agente'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM cwi_message_log m
+                      WHERE m.direction = 'out'
+                        AND m.created_at BETWEEN llm_usage.criado_em
+                                             AND llm_usage.criado_em + interval '3 minutes')
+               ) AS mudos
         FROM llm_usage
         WHERE criado_em > now() - interval '24 hours'
-          AND ok = true
           AND origem = ANY(:origens)
-        GROUP BY 1 ORDER BY 2 DESC
+        GROUP BY origem ORDER BY origem
     """
+
     async with async_session_factory() as db:
-        # `tokens_saida` batendo exatamente o teto é a assinatura do corte: o modelo gastou
-        # tudo e parou. Não é prova perfeita (uma resposta pode terminar no limite por acaso),
-        # mas é a única que a telemetria guarda hoje — e ela move junto com o defeito.
-        linhas = (await db.execute(text(SQL),
-                                   {"teto": 1200, "origens": list(ORIGENS)})).all()
+        linhas = (await db.execute(text(SQL), {"teto": 1200, "origens": list(ORIGENS)})).all()
 
     if not linhas:
         # Ausência não é resultado — mas também não é regressão. Em 07/09/2026 o motor ficou
@@ -73,19 +92,33 @@ async def main() -> int:
         return 0
 
     ruins: list[str] = []
-    for origem, total, no_teto in linhas:
-        pct = 100.0 * int(no_teto) / int(total)
-        marca = "x " if pct > PISO_PCT else "  "
-        print(f"  {marca}{origem:24} {total:5} chamadas · {no_teto:4} no teto · {pct:5.1f}%")
-        if pct > PISO_PCT:
-            ruins.append(f"{origem}: {pct:.1f}% (piso {PISO_PCT}%)")
+    for origem, total, no_teto, mudos in linhas:
+        pct_teto = 100.0 * int(no_teto) / int(total) if total else 0.0
+        pct_mudo = 100.0 * int(mudos) / int(total) if total else 0.0
+        marca = "x " if pct_mudo > PISO_PCT else "  "
+        extra = f" · {mudos} MUDO(s) {pct_mudo:.1f}%" if mudos else ""
+        print(f"  {marca}{origem:24} {total:5} chamadas · {no_teto:4} no teto ({pct_teto:4.1f}%){extra}")
+        if pct_mudo > PISO_PCT:
+            ruins.append(f"{origem}: {pct_mudo:.1f}% de perguntas sem resposta (piso {PISO_PCT}%)")
+        elif pct_teto > 25.0:
+            # aviso, não reprovação: teto apertado custa dinheiro e segundos, não resposta.
+            print(
+                f"      aviso: {pct_teto:.1f}% das chamadas gastam o teto inteiro — "
+                "orçamento apertado para o tamanho do prompt, vale olhar o custo"
+            )
 
     if ruins:
-        print(f"\n{len(ruins)} origem(ns) acima do piso — o motor está devolvendo 200 sem "
-              f"produzir frase:\n  - " + "\n  - ".join(ruins) +
-              "\n\nA repetição em `finish_reason=length` foi desligada, o teto voltou a ser "
-              "pequeno, ou o modelo mudou de comportamento. Nos três casos alguém precisa "
-              "olhar — e a telemetria diz ok=True em todas elas.")
+        print(
+            f"\n{len(ruins)} origem(ns) acima do piso — houve pergunta que ficou SEM "
+            "resposta, com 200 e ok=True na telemetria:"
+        )
+        for r in ruins:
+            print(f"  - {r}")
+        print(
+            "\nA repetição em `finish_reason=length` foi desligada, o teto voltou a ser "
+            "pequeno, ou o modelo mudou de comportamento. Nos três casos alguém precisa "
+            "olhar — e a telemetria diz ok=True em todas elas."
+        )
         return 1
     print(f"\n  confere: nenhuma origem acima de {PISO_PCT}% de sucesso vazio")
     return 0
