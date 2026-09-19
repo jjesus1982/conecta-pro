@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "47f2a2af0",
+      "data": "2026-09-19",
+      "mudanca": "feat(contratos): portaria_remota_v2 criado da minuta de 18/09 — e a rota de criar modelo nunca funcionou"
+    },
+    {
+      "commit": "f4e64cf0c",
+      "data": "2026-09-18",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "8b632cef0",
       "data": "2026-09-18",
       "mudanca": "feat(contratos): SPEC R8 — congelado não se altera por baixo, e o TOTAL não tem quantidade"
@@ -190,16 +200,6 @@
       "commit": "adf5a12ec",
       "data": "2026-09-11",
       "mudanca": "fix: §1.2, §2.1 e §2.2 da auditoria — e `obter_contrato` estava quebrada desde sempre"
-    },
-    {
-      "commit": "e2a0cf4da",
-      "data": "2026-09-11",
-      "mudanca": "fix(mcp): P0 da auditoria — efeito externo exigia aprovação só em modo agente"
-    },
-    {
-      "commit": "3ea3a34d1",
-      "data": "2026-09-11",
-      "mudanca": "chore(mcp): changelog regenerado + imagem reassada com sandbox e request_id"
     }
   ]
 }
