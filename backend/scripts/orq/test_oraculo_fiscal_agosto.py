@@ -19,6 +19,7 @@ entra tributo novo, o oráculo cobre sozinho.
 Roda:
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_fiscal_agosto.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,7 +53,6 @@ JANELA_RENOVACAO = 10
 
 async def main() -> None:
     async with async_session_factory() as db:
-
         # ── 1. Certidão vencendo em ≤15 dias tem renovação disparada ──────────────────
         # "Disparada" = a linha foi tocada depois de a janela abrir. Sem isso, a certidão
         # vence no silêncio — e é ela que o condomínio exige para pagar a Patrimonial.
@@ -61,7 +61,9 @@ async def main() -> None:
         # Decisão do dono (07/09/2026): o vigia automático cobre SÓ a Patrimonial e SÓ os tipos
         # que o sync das 06:30 renova (FGTS, federal, trabalhista). Estadual/municipal/falência
         # e CNPJs de cliente não são "vigia dormindo": são emissão manual — viram AVISO, não falha.
-        todas = (await db.execute(text("""
+        todas = (
+            await db.execute(
+                text("""
             SELECT c.cnpj, c.document_type, c.expiry_date,
                    c.cnpj = (SELECT REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') FROM empresas
                               WHERE slug = 'conecta_patrimonial' LIMIT 1) AS patrimonial
@@ -71,7 +73,10 @@ async def main() -> None:
                AND c.expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + CAST(:janela AS integer)
                AND c.updated_at::date < c.expiry_date - CAST(:janela AS integer)
              ORDER BY c.expiry_date
-        """), {"janela": JANELA_RENOVACAO})).fetchall()
+        """),
+                {"janela": JANELA_RENOVACAO},
+            )
+        ).fetchall()
         RENOVAVEIS = {"certidao_negativa_fgts", "certidao_negativa_federal", "certidao_negativa_trabalhista"}
         paradas = [(c, t, v) for c, t, v, pat in todas if pat and t in RENOVAVEIS]
         manuais = [(c, t, v) for c, t, v, pat in todas if not (pat and t in RENOVAVEIS)]
@@ -79,7 +84,8 @@ async def main() -> None:
             print(f"AVISO (emissão manual / fora do vigia): {[f'{c}/{t} vence {v}' for c, t, v in manuais]}")
         assert not paradas, (
             f"{len(paradas)} certidão(ões) vencendo em ≤{JANELA_RENOVACAO} dias sem renovação "
-            f"disparada: {[f'{c}/{t} vence {v}' for c, t, v in paradas]}")
+            f"disparada: {[f'{c}/{t} vence {v}' for c, t, v in paradas]}"
+        )
 
         # ── 2. REMOVIDA — a regra estava errada, e a evidência que a sustentava é um DEFAULT
         #
@@ -102,35 +108,76 @@ async def main() -> None:
         # ── 3. Tributo que não pertence ao regime da empresa ──────────────────────────
         # DAS só existe no Simples Nacional. É definição do tributo, não enquadramento —
         # a única regra de regime que este oráculo se permite afirmar.
-        regime = (await db.execute(text("""
+        regime = (
+            await db.execute(
+                text("""
             SELECT e.slug, e.regime_tributario, o.tipo
               FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id
              WHERE o.active AND o.data_vencimento >= :corte
                AND o.tipo = 'DAS' AND e.regime_tributario <> 'simples_nacional'
-        """), {"corte": CORTE})).fetchall()
-        assert not regime, (
-            f"DAS cadastrado fora do Simples: {[f'{s} ({r})' for s, r, _ in regime]}")
+        """),
+                {"corte": CORTE},
+            )
+        ).fetchall()
+        assert not regime, f"DAS cadastrado fora do Simples: {[f'{s} ({r})' for s, r, _ in regime]}"
 
-        # ── 4. Obrigação vencida há >5 dias tem guia ──────────────────────────────────
-        # Prazo vencido sem valor nem recibo é prazo cego: ninguém sabe quanto é, nem se
-        # foi pago. Só de 01/08 em diante — abril a julho não se persegue.
-        sem_guia = (await db.execute(text("""
-            SELECT e.slug, o.tipo, o.data_vencimento
+        # ── 4. Obrigação vencida há >5 dias, com ou sem guia ──────────────────────────
+        # ⚠️ 18/09/2026 — ESTA REGRA TINHA UM BURACO, e ele deixava passar o caso PIOR.
+        # Ela exigia `valor_devido IS NULL`: só acusava prazo CEGO, aquele em que ninguém
+        # sabe quanto é. Medido no dia: 6 obrigações vencidas sem recibo e a trava acusava UMA.
+        # Escapavam, entre outras, um DAS Simples de R$ 24.317,87 vencido há 30 DIAS e um ISS
+        # de R$ 740,25 vencido há 40 — com valor conhecido, multa e juros correndo, e verde no
+        # relatório. Saber quanto é NÃO é melhor que não saber: é pior, porque agora o atraso é
+        # deliberado aos olhos do fisco.
+        #
+        # As duas naturezas saem separadas porque a AÇÃO é diferente: prazo cego pede levantar
+        # o valor; prazo com valor pede pagar.
+        vencidas = (
+            await db.execute(
+                text("""
+            SELECT e.slug, o.tipo, o.data_vencimento, o.valor_devido,
+                   CURRENT_DATE - o.data_vencimento AS dias
               FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id
              WHERE o.active
                AND o.data_vencimento >= :corte
                AND o.data_vencimento < CURRENT_DATE - 5
                AND o.status <> 'cumprida'
                AND (o.numero_recibo IS NULL OR o.numero_recibo = '')
-               AND o.valor_devido IS NULL
-             ORDER BY o.data_vencimento
-        """), {"corte": CORTE})).fetchall()
-        assert not sem_guia, (
-            f"{len(sem_guia)} obrigação(ões) vencida(s) há mais de 5 dias sem guia: "
-            f"{[f'{s}/{t} venceu {v}' for s, t, v in sem_guia]}")
+             ORDER BY o.valor_devido DESC NULLS LAST, o.data_vencimento
+        """),
+                {"corte": CORTE},
+            )
+        ).fetchall()
+        cegas = [r for r in vencidas if r[3] is None]
+        com_valor = [r for r in vencidas if r[3] is not None and float(r[3]) > 0]
+        zeradas = [r for r in vencidas if r[3] is not None and float(r[3]) == 0]
+        problemas = []
+        if com_valor:
+            total = sum(float(r[3]) for r in com_valor)
+            problemas.append(
+                f"{len(com_valor)} com VALOR CONHECIDO e sem recibo, somando R$ {total:,.2f} "
+                f"(multa e juros correndo): "
+                + "; ".join(
+                    f"{s}/{t} R$ {float(v):,.2f} vencida há {d} dias"
+                    for s, t, _dv, v, d in [(r[0], r[1], r[2], r[3], r[4]) for r in com_valor]
+                )
+            )
+        if cegas:
+            problemas.append(
+                f"{len(cegas)} SEM VALOR (prazo cego — ninguém sabe quanto é): "
+                + "; ".join(f"{r[0]}/{r[1]} venceu {r[2]}" for r in cegas)
+            )
+        if zeradas:
+            problemas.append(
+                f"{len(zeradas)} com valor ZERO ainda em aberto (se nada é devido, marque "
+                f"como cumprida): " + "; ".join(f"{r[0]}/{r[1]}" for r in zeradas)
+            )
+        assert not problemas, " | ".join(problemas)
 
-        print("oráculo do corte de agosto: OK — certidões renovando, obrigações no CNPJ e "
-              "regime certos, e nenhum prazo vencido sem guia")
+        print(
+            "oráculo do corte de agosto: OK — certidões renovando, obrigações no CNPJ e "
+            "regime certos, e nenhum prazo vencido sem guia"
+        )
 
 
 if __name__ == "__main__":
