@@ -8,6 +8,7 @@ cadastro não tem CPF (sem CPF não há linha, e CPF não se inventa).
 
 Roda no container (PYTHONPATH=/app). Linha canônica: `TOTAL pessoas sem instrumento: N`. Sai 1 se N>0.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,13 +31,27 @@ async def main() -> int:
 
     gen = get_db()
     db = await gen.__anext__()
-    rows = (await db.execute(text("""
+    rows = (
+        await db.execute(
+            text("""
         SELECT e.nome, count(*) batidas,
                length(regexp_replace(coalesce(e.cpf,''),'\\D','','g')) = 11 tem_cpf
         FROM gp_clock_punches p JOIN employees e ON e.id = p.employee_id
         LEFT JOIN afd_records a ON a.punch_id = p.punch_id
         WHERE p.punch_timestamp >= :d AND a.id IS NULL
-        GROUP BY 1, 3 ORDER BY 2 DESC"""), {"d": desde})).all()
+          -- ⚠️ 18/09/2026 — `pendente_de_conferencia` FORA, como em `rep_p.gerar_afd_pendentes`.
+          -- A batida offline que ainda não passou na reconferência do rosto não entra no AFD
+          -- DE PROPÓSITO (frente 02, 13/09): o AFD é memória inalterável e o NSR não volta
+          -- atrás. Este caçador copiou o WHERE sem a linha e acusou a batida da GRACIENE de
+          -- 14/09 como pessoa "sem instrumento de registro". Era a regra funcionando.
+          -- O mesmo defeito estava em `test_oraculo_rep_p`, corrigido no mesmo dia.
+          -- Quem vigia essa batida é `checar_batida_offline_suspeita`, que é o lugar certo:
+          -- ela precisa de CONFERÊNCIA humana, não de linha no AFD.
+          AND p.status <> 'pendente_de_conferencia'
+        GROUP BY 1, 3 ORDER BY 2 DESC"""),
+            {"d": desde},
+        )
+    ).all()
     for nome, n, cpf in rows[:20]:
         print(f"  {nome}: {n} batida(s) sem AFD{'' if cpf else ' — SEM CPF no cadastro'}")
     if len(rows) > 20:
