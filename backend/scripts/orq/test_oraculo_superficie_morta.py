@@ -30,6 +30,7 @@ Receita:
   docker exec -e PYTHONPATH=/app conecta-pro-backend \\
     python3 /app/scripts/orq/test_oraculo_superficie_morta.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,15 +62,32 @@ MORTAS = {
     "employee_documents": "sem superfície própria hoje",
 }
 
-#: Tabelas VIVAS cuja superfície eu quase classifiquei como morta. O número é o piso medido
-#: em 13/08 — cair abaixo dele é sinal de que a fonte parou, não de que a tabela é inútil.
+#: Tabelas VIVAS cuja superfície eu quase classifiquei como morta. Duas afirmações por
+#: tabela: `piso` guarda contra APAGAMENTO EM MASSA, e `dias` diz de quanto em quanto tempo
+#: a fonte escreve — é este que responde «a fonte parou».
+#:
+#: ⚠️ 18/09/2026 — antes havia só o piso, e ele acusou `hr_payslips` por 796 contra 800. A
+#: fonte não tinha parado: a última escrita era de 14/09, quatro dias antes. O que oscila
+#: são os RASCUNHOS — a tabela guarda o holerite oficial (`published`, 360 linhas, registro
+#: que não se mexe) e o cálculo da casa (`draft`, 380), e rascunho é substituído a cada
+#: recálculo de folha, por desenho. Piso absoluto sobre população que muda de propósito é
+#: régua que toca por meio por cento e ensina todo mundo a ignorar o sino.
+#:
+#: `dias=None` = tabela de REFERÊNCIA, que não recebe escrita regular (a `cct_cargos` é a
+#: tabela da CCT: 51 cargos, última escrita em 30/03, e isso está certo).
 VIVAS = {
-    "time_sheets": 170,
-    "gp_clock_punches": 7800,
-    "ged_kit_documents": 2600,
-    "hr_payslips": 800,
-    "cct_cargos": 51,
+    "time_sheets": (170, 45),
+    "gp_clock_punches": (7800, 3),
+    "ged_kit_documents": (2600, 15),
+    # piso nos IMUTÁVEIS: 360 publicados hoje; 300 é margem contra apagamento, não contra
+    # oscilação de rascunho. A folha é mensal — 45 dias cobre o mês fechado com folga.
+    "hr_payslips": (300, 45),
+    "cct_cargos": (51, None),
 }
+
+#: Para `hr_payslips` o piso vale sobre o que NÃO se reescreve. Sem isto, contar tudo
+#: mistura registro entregue com rascunho de recálculo.
+CONDICAO_DO_PISO = {"hr_payslips": "status = 'published'"}
 
 #: Prefixos do território do DP. `fiscal` e financeiro têm os deles e não são meus.
 MEUS = ("/hr/", "/dp/", "/ponto/", "/ged/", "/portal/", "/human-resources/", "/sst/")
@@ -90,8 +108,7 @@ async def main() -> int:
                 continue
             if n:
                 ressuscitadas.append((tabela, n, superficie))
-        print(f"(A) tabelas declaradas mortas: {len(MORTAS)} · com linhas agora: "
-              f"{len(ressuscitadas)}")
+        print(f"(A) tabelas declaradas mortas: {len(MORTAS)} · com linhas agora: {len(ressuscitadas)}")
         for tabela, n, sup in ressuscitadas:
             print(f"    ✗ {tabela}: {n} linha(s) — {sup}")
             falhas.append(
@@ -102,18 +119,39 @@ async def main() -> int:
             )
 
         # ── (B) o vivo continua vivo ─────────────────────────────────────────
-        secas = []
-        for tabela, piso in VIVAS.items():
-            n = (await db.execute(text(f"SELECT count(*) FROM {tabela}"))).scalar()  # noqa: S608
+        secas, paradas = [], []
+        for tabela, (piso, dias) in VIVAS.items():
+            onde = CONDICAO_DO_PISO.get(tabela)
+            sql = f"SELECT count(*) FROM {tabela}" + (f" WHERE {onde}" if onde else "")  # noqa: S608
+            n = (await db.execute(text(sql))).scalar()
             if n < piso:
-                secas.append((tabela, n, piso))
-        print(f"(B) tabelas declaradas vivas: {len(VIVAS)} · abaixo do piso medido: "
-              f"{len(secas)}")
-        for tabela, n, piso in secas:
-            print(f"    ✗ {tabela}: {n} (piso {piso})")
+                secas.append((tabela, n, piso, onde))
+            if dias is not None:
+                idade = (
+                    await db.execute(
+                        text(  # noqa: S608
+                            f"SELECT (current_date - max(created_at)::date) FROM {tabela}"
+                        )
+                    )
+                ).scalar()
+                if idade is None or int(idade) > dias:
+                    paradas.append((tabela, idade, dias))
+        print(
+            f"(B) tabelas declaradas vivas: {len(VIVAS)} · abaixo do piso: {len(secas)} · "
+            f"sem escrita na janela: {len(paradas)}"
+        )
+        for tabela, n, piso, onde in secas:
+            print(f"    ✗ {tabela}: {n} (piso {piso}{' em ' + onde if onde else ''})")
             falhas.append(
-                f"(B) `{tabela}` caiu para {n}, abaixo do piso {piso} medido em 13/08 — ou "
-                f"a fonte parou, ou a superfície dela virou morta sem ninguém ver"
+                f"(B) `{tabela}` caiu para {n}, abaixo do piso {piso}"
+                + (f" (contando só {onde})" if onde else "")
+                + " — some registro que não deveria sumir"
+            )
+        for tabela, idade, dias in paradas:
+            print(f"    ✗ {tabela}: última escrita há {idade} dia(s) (janela {dias})")
+            falhas.append(
+                f"(B) `{tabela}` sem escrita há {idade} dia(s), acima da janela de {dias} — "
+                f"a fonte que alimenta esta superfície parou"
             )
 
     # ── (C) prefixo duplicado novo no DP ─────────────────────────────────────
@@ -143,9 +181,11 @@ async def main() -> int:
             print(f"FALHA: {f}")
         print("TEST oraculo_superficie_morta FAIL")
         return 1
-    print("\nO inventário do morto está declarado e confere. Isto NÃO quer dizer que a "
-          "superfície morta foi resolvida — quer dizer que ela parou de se passar por "
-          "viva, e que o dia em que mudar alguém vai saber.")
+    print(
+        "\nO inventário do morto está declarado e confere. Isto NÃO quer dizer que a "
+        "superfície morta foi resolvida — quer dizer que ela parou de se passar por "
+        "viva, e que o dia em que mudar alguém vai saber."
+    )
     print("TEST oraculo_superficie_morta PASS")
     return 0
 
