@@ -135,8 +135,26 @@ def cnpj_fmt(v: str | None) -> str:
 #   maodeobra 8 · manutencao_cftv 3 · portaria_remota 2 · NULL 2
 # e de `contract_templates.service_type`: portaria_mao_de_obra, ferias, admissao.
 # Os dois vocabulários NÃO coincidem — por isso o mapa aceita as duas grafias.
-_MAO_DE_OBRA = {"maodeobra", "mao_de_obra", "portaria_mao_de_obra", "portaria_presencial", "limpeza", "servicos_gerais"}
+# ⚠️ 19/09/2026 — DUAS LÍNGUAS NA MESMA COLUNA, e eu descobri tentando criar um modelo.
+# Os 6 modelos do banco têm `service_type` em PORTUGUÊS (`portaria_remota`), gravados por
+# seeder direto. Mas o schema `ContractTemplateCreate` declara um ENUM em INGLÊS
+# ('security', 'remote_gatehouse', 'electronic_security', 'monitoring_24h', 'cleaning',
+# 'gardening', 'maintenance', 'facilities') e recusa 422 para os valores em português — que
+# são justamente os que o docstring da tool `criar_modelo_contrato` manda usar.
+#
+# Resultado: criar modelo PELA API produzia `service_type` que estes conjuntos não conheciam,
+# e o render recusaria por não saber quem presta o serviço. Não é escolher uma língua e
+# migrar a outra — migração de valor com contrato pendurado é risco sem ganho. Os dois
+# vocabulários são aceitos, e quem lê aqui sabe por quê.
+_MAO_DE_OBRA = {
+    # português — o que está no banco
+    "maodeobra", "mao_de_obra", "portaria_mao_de_obra", "portaria_presencial",
+    "limpeza", "servicos_gerais",
+    # inglês — o enum que a API aceita
+    "security", "cleaning", "gardening", "facilities",
+}
 _ELETRONICA = {
+    # português — o que está no banco
     "manutencao_cftv",
     "portaria_remota",
     "seguranca_eletronica",
@@ -144,6 +162,11 @@ _ELETRONICA = {
     "alarme",
     "controle_acesso",
     "eletronica_servico_unico",
+    # inglês — o enum que a API aceita
+    "remote_gatehouse",
+    "electronic_security",
+    "monitoring_24h",
+    "maintenance",
 }
 
 
@@ -807,6 +830,42 @@ async def montar_contexto(db: AsyncSession, contract_id: str, template: dict) ->
     # então dia de vencimento vazio não reprova um contrato que não tem mensalidade.
     # cláusula de foro e praça de assinatura: TODO instrumento tem, recorrente ou único
     ctx.update(_foro_e_cidade(row, template))
+
+    # ⭐ 18/09/2026 — PONTE GENÉRICA: parâmetro que o MODELO declara em `variables` entra no
+    # contexto, para qualquer tipo de contrato. Sem isto, um modelo novo não tem como pedir
+    # dado próprio: `par()` só roda em `_ctx_one_time`, então chave nova em `sla_config` era
+    # invisível em contrato recorrente — o mesmo defeito que travou `foro`/`cidade_assinatura`,
+    # que eu consertei caso a caso. Este é o conserto da CLASSE.
+    #
+    # Ordem: `sla_config` do CONTRATO ganha do default do MODELO. E só entra o que o modelo
+    # DECLARA — nada de despejar `sla_config` inteiro no contexto, que faria o render aceitar
+    # qualquer chave e esconder erro de digitação.
+    #
+    # ⚠️ Não sobrescreve chave que o contexto já monta: `valor_mensal_fmt` vem do banco, e um
+    # default de modelo não pode mascarar o valor real do contrato.
+    # ⚠️ `variables` vem em DOIS formatos e os dois são legítimos: o schema
+    # `ContractTemplateCreate` declara `list[str]` (só os NOMES que o modelo precisa) e o
+    # `par()` do serviço único lê como dict (nome → default). Os 6 modelos antigos têm a
+    # coluna NULA, então a divergência nunca apareceu. Aceito os dois:
+    #   lista → declara o parâmetro SEM default; o contrato tem de fornecer, e
+    #           `variaveis_vazias` recusa a emissão enquanto não fornecer;
+    #   dict  → nome → valor padrão do modelo.
+    bruto = template.get("variables")
+    if isinstance(bruto, list):
+        declaradas = {str(k): "" for k in bruto if isinstance(k, str) and k.strip()}
+    elif isinstance(bruto, dict):
+        declaradas = bruto
+    else:
+        declaradas = {}
+    if declaradas:
+        sla_do_contrato = row["sla_config"] if isinstance(row["sla_config"], dict) else {}
+        for chave, padrao in declaradas.items():
+            if chave in ctx:
+                continue
+            valor = sla_do_contrato.get(chave)
+            if valor in (None, ""):
+                valor = padrao
+            ctx[chave] = "" if valor is None else str(valor)
 
     if (row["contract_type"] or "").strip().lower() == "one_time":
         ctx.update(_ctx_one_time(row, list(itens), template))

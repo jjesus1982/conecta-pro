@@ -5523,7 +5523,8 @@ async def atualizar_modelo_contrato(template_id: str, nome: str = "",
 
 @mcp.tool
 async def criar_modelo_contrato(tipo: str, nome: str, corpo_template: str,
-                                descricao: str = "", clausulas: list[str] | None = None) -> dict:
+                                descricao: str = "", clausulas: list[str] | None = None,
+                                variaveis: list[str] | None = None) -> dict:
     """Cadastra um MODELO novo de contrato. ESCREVE. Restrito a Jordan e Pyetra.
 
     `tipo` decide o CNPJ emitente e não é livre — use um que o render saiba classificar:
@@ -5543,6 +5544,13 @@ async def criar_modelo_contrato(tipo: str, nome: str, corpo_template: str,
                "description": descricao or None,
                "clauses": clausulas or sorted(set(
                    re.findall(r"^\s*(CL[ÁA]USULA[^\n]{0,80})", corpo_template, re.M)))}
+    # ⭐ 19/09/2026 — `variaveis` DECLARA os parâmetros próprios do modelo. Sem isto, variável
+    # que só o modelo conhece era "desconhecida do ERP" no validador e ficava fora do contexto
+    # no render: modelo novo não tinha como pedir dado próprio. Declarada aqui, ela passa a ser
+    # COBRADA na emissão — `variaveis_vazias` recusa enquanto o contrato não fornecer, que é o
+    # que impede contrato sair com lacuna.
+    if variaveis:
+        payload["variables"] = [str(v) for v in variaveis if str(v).strip()]
     try:
         r = await erp.post("/crm/contracts/templates", json=payload)
     except Exception as exc:  # noqa: BLE001

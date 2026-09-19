@@ -1,0 +1,161 @@
+CONTRATO
+Prestação de Serviços de Portaria Remota e Locação de Equipamentos
+{{cidade_assinatura}}, {{data_assinatura_extenso}}
+
+Pelo presente instrumento particular de prestação de serviços, de um lado:
+CONTRATADA: {{contratada_razao_social}}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {{contratada_cnpj}}, com sede na {{contratada_endereco}}, neste ato representada por {{contratada_representante}}, {{contratada_cargo}}, CPF nº {{contratada_representante_cpf}}; e, de outro lado:
+CONTRATANTE: {{contratante_nome}}, pessoa jurídica de direito privado, inscrito no CNPJ sob o nº {{contratante_cnpj}}, com sede na {{contratante_endereco}}, neste ato representado por {{contratante_representante}}, {{contratante_cargo}}, CPF nº {{contratante_representante_cpf}}, eleito e investido no cargo conforme ata de assembleia de {{ata_assembleia_data}}, que integra este instrumento como Anexo II;
+têm entre si justo e contratado o presente Contrato de Prestação de Serviços de caráter CONTINUADO, que se regerá pelas cláusulas e condições a seguir.
+CLÁUSULA PRIMEIRA — DO OBJETO E DA NATUREZA DO SERVIÇO
+1.1. Constitui objeto deste contrato a prestação, pela CONTRATADA, de serviços de PORTARIA REMOTA e a LOCAÇÃO DOS EQUIPAMENTOS relacionados no Anexo I, operando a Central de Atendimento da CONTRATADA em Manaus/AM 24 (vinte e quatro) horas por dia, 7 (sete) dias por semana, inclusive feriados, compreendendo:
+a) atendimento remoto de visitantes, prestadores e entregadores por assistente de voz com inteligência artificial, com videochamada dirigida ao morador pelo aplicativo e transbordo para a Central de Atendimento e para o PABX virtual quando não houver resposta;
+b) controle de acesso de veículos e de pedestres, com registro individualizado de cada entrada e saída, contendo data, hora e imagem do ponto de acesso, e gestão das permissões conforme os protocolos definidos em conjunto com o CONTRATANTE;
+c) registro, classificação e comunicação ao CONTRATANTE das ocorrências identificadas nos pontos de acesso, com acionamento dos serviços públicos de emergência em situação de risco;
+d) canal direto dos condôminos com a Central de Atendimento, por aplicativo ou interfonia, para reportar ocorrências como pane de elevador, princípio de incêndio ou falta de energia, cabendo à Central acionar os órgãos competentes;
+e) disponibilização da plataforma e do aplicativo Conecta Plus, na forma da Cláusula Quinta;
+f) instalação, configuração, ativação e manutenção dos equipamentos locados relacionados no Anexo I.
+1.2. O serviço ora contratado é de natureza tecnológica, constituindo OBRIGAÇÃO DE MEIO, e NÃO se confunde nem inclui: (i) serviço de vigilância patrimonial, privativo de empresas especializadas nos termos da Lei nº 7.102/1983; (ii) serviço de segurança pessoal ou de guarda de bens; (iii) prestação de mão de obra de portaria presencial, objeto de instrumento próprio quando contratada; (iv) serviço de monitoramento eletrônico de imagens por circuito fechado de televisão (CFTV) das áreas comuns, que NÃO é objeto deste contrato e, se pretendido, deverá ser contratado em instrumento apartado.
+1.3. A captação de imagem prevista na alínea “b” do item 1.1 destina-se exclusivamente ao registro documental dos acessos nos pontos de entrada e saída, não constituindo vigilância, ronda eletrônica ou monitoramento contínuo das dependências do CONTRATANTE.
+1.4. A CONTRATADA não assume a guarda, a custódia ou a responsabilidade pela integridade do patrimônio do CONTRATANTE, de seus condôminos, moradores ou visitantes, não respondendo por furto, roubo, dano, invasão ou qualquer sinistro ocorrido em suas dependências, cuja prevenção não constitui objeto deste contrato.
+1.5. O condomínio conta com 320 (trezentas e vinte) unidades autônomas. Alteração relevante do número de unidades, dos pontos de acesso ou do escopo instalado autoriza a revisão do valor mensal, mediante termo aditivo.
+CLÁUSULA SEGUNDA — DO PRAZO E DA VIGÊNCIA
+2.1. Este contrato vigorará pelo prazo de {{vigencia_meses_extenso}}, com início em {{vigencia_inicio_extenso}} e término em {{vigencia_fim_extenso}}, renovando-se automaticamente por períodos sucessivos de 12 (doze) meses, salvo manifestação em contrário de qualquer das partes, por escrito, com antecedência mínima de 30 (trinta) dias do termo.
+2.2. A locação dos equipamentos do Anexo I é parte integrante e indissociável deste contrato, acompanhando o mesmo prazo de vigência, não subsistindo isoladamente.
+CLÁUSULA TERCEIRA — DA IMPLANTAÇÃO E DO INÍCIO DA OPERAÇÃO
+3.1. A CONTRATADA realizou vistoria técnica prévia, concluindo pela compatibilidade da solução com a infraestrutura existente do CONTRATANTE, e executará o projeto, a instalação, a configuração, o cadastro dos moradores e o treinamento no prazo de 30 (trinta) dias corridos, contados da data em que o CONTRATANTE tiver cumprido integralmente as pré-condições do item 3.2, registrada por comunicação escrita entre as partes.
+3.2. São pré-condições a cargo do CONTRATANTE, sem as quais não se inicia a contagem do prazo: (i) energia elétrica estável e dedicada nos pontos de instalação; (ii) contratação e ativação dos links de internet na forma do item 6.1; (iii) local adequado, seguro e ventilado para o servidor local e o quadro elétrico; (iv) liberação de acesso da equipe técnica às áreas necessárias; (v) entrega do cadastro inicial de moradores, unidades e veículos.
+3.3. Concluída a implantação, as partes firmarão TERMO DE ACEITE DE OPERAÇÃO, que registra o início efetivo da prestação dos serviços.
+3.4. A primeira mensalidade vencerá 30 (trinta) dias após a assinatura deste contrato. Caso o atraso na implantação decorra exclusivamente de causa imputável à CONTRATADA, o vencimento será postergado proporcionalmente aos dias de atraso, sem ônus para o CONTRATANTE.
+CLÁUSULA QUARTA — DOS EQUIPAMENTOS LOCADOS
+4.1. Para a execução dos serviços, a CONTRATADA instala e mantém no CONTRATANTE, em regime de LOCAÇÃO, os equipamentos relacionados no Anexo I — que abrangem leitores faciais, antenas de leitura de TAG, tags RFID, totem de autoatendimento, servidor local, nobreaks, baterias, quadro de comando e infraestrutura de rede —, os quais permanecem em propriedade da CONTRATADA durante toda a vigência e após o término deste contrato, sem direito de retenção pelo CONTRATANTE.
+4.2. Todos os custos de projeto, fornecimento, instalação, cabeamento, configuração e ativação correm por conta da CONTRATADA e estão compreendidos no valor mensal, não havendo investimento inicial a cargo do CONTRATANTE.
+4.3. Os equipamentos são entregues em perfeito estado de funcionamento e destinam-se exclusivamente à execução deste contrato, sendo vedado ao CONTRATANTE removê-los, cedê-los, sublocá-los, modificá-los ou permitir intervenção de terceiros não autorizados pela CONTRATADA.
+4.4. A manutenção preventiva e corretiva dos equipamentos locados, incluindo peças, mão de obra e suporte técnico, é integralmente de responsabilidade da CONTRATADA e está inclusa no valor mensal, mantendo-se a garantia durante toda a vigência, ressalvado o item 4.5.
+4.5. Correm por conta do CONTRATANTE os danos decorrentes de mau uso, vandalismo, furto, extravio, intervenção de terceiros não autorizados, surtos elétricos e descargas atmosféricas, hipóteses em que o reparo ou a reposição serão orçados à parte e executados após aprovação escrita. O CONTRATANTE declara ciência de que os equipamentos locados não estão cobertos por seguro contratado pela CONTRATADA, facultando-se-lhe incluí-los em apólice própria.
+4.6. Verificado defeito em equipamento do Anexo I, a CONTRATADA promoverá o reparo ou a substituição em até 48 (quarenta e oito) horas contadas da abertura do chamado.
+4.7. Os nobreaks e as baterias relacionados no Anexo I destinam-se a manter o controle de acesso em operação durante interrupções de energia elétrica, pelo tempo de autonomia nominal do conjunto. A substituição das baterias por fim de vida útil, durante a vigência, corre por conta da CONTRATADA.
+4.8. Estão inclusas 2 (duas) tags RFID por unidade autônoma, totalizando 640 (seiscentas e quarenta) unidades. A reposição de tag perdida, extraviada ou danificada, bem como o fornecimento de tags adicionais, será cobrada à parte, ao valor unitário de {{valor_tag_avulsa}}, reajustado na forma da Cláusula Décima Segunda.
+4.9. A substituição de peças ou equipamentos que não constem do Anexo I, quando necessária ao regular funcionamento do sistema, será orçada e somente executada após autorização escrita do CONTRATANTE, em fatura própria.
+4.10. Ao término da vigência, o CONTRATANTE poderá optar pela aquisição dos equipamentos, mediante negociação com base no valor contábil de aquisição deduzida a depreciação, conforme notas fiscais apresentadas pela CONTRATADA.
+CLÁUSULA QUINTA — DA PLATAFORMA E DO APLICATIVO CONECTA PLUS
+5.1. A CONTRATADA disponibilizará ao CONTRATANTE, aos seus moradores e ao seu representante, durante toda a vigência e sem custo adicional por usuário, o acesso à plataforma Conecta Plus, nas seguintes formas: (i) plataforma web, pelo endereço www.conectaplus.io; e (ii) aplicativo móvel Conecta Plus, disponível para download gratuito na App Store (sistema iOS) e no Google Play (sistema Android).
+5.2. A plataforma e o aplicativo permitem, conforme o perfil de acesso: a liberação de visitantes em tempo real; a geração de convites com QR Code e prazo de validade; o envio de chave virtual; a abertura remota dos acessos autorizados; o recebimento de avisos de encomenda e de comunicados do síndico; e a consulta ao histórico de acessos da própria unidade.
+5.3. Será disponibilizado ao síndico, ou a quem ele formalmente designar, perfil administrativo com acesso à gestão de cadastros de moradores, veículos e autorizados, à publicação de comunicados e aos relatórios previstos no item 7.3.
+5.4. As credenciais de acesso são pessoais e intransferíveis, cabendo a cada usuário a guarda e o sigilo de suas senhas. O CONTRATANTE compromete-se a comunicar de imediato à CONTRATADA o desligamento de morador, funcionário ou prestador, para o bloqueio dos respectivos acessos.
+5.5. A CONTRATADA poderá promover atualizações, correções e evoluções da plataforma e do aplicativo durante a vigência, sem custo adicional, preservadas as funcionalidades essenciais descritas nesta cláusula. Interrupções para manutenção programada observarão o item 8.3.
+5.6. A plataforma e o aplicativo são licenciados, e não vendidos, ao CONTRATANTE, na forma da Cláusula Décima Quarta, cessando o direito de uso com o término deste contrato.
+CLÁUSULA SEXTA — DAS OBRIGAÇÕES DO CONTRATANTE
+6.1. O CONTRATANTE obriga-se a manter, às suas expensas e em funcionamento contínuo: (i) energia elétrica estável e dedicada nos pontos de instalação; (ii) 2 (dois) links de internet, de operadoras distintas, com a capacidade mínima indicada pela CONTRATADA, sendo de sua responsabilidade a contratação e os custos dos provedores; (iii) as condições físicas de acesso e de segurança dos equipamentos.
+6.2. A indisponibilidade de energia elétrica ou de link de internet suspende a prestação do serviço remoto enquanto perdurar, sem ônus e sem responsabilidade para a CONTRATADA e sem suspensão do faturamento, cabendo ao CONTRATANTE comunicar a ocorrência de imediato.
+6.3. Os equipamentos preexistentes do CONTRATANTE — notadamente o motor e a automação do portão, as cancelas, a rede elétrica e o painel de interfonia das torres — permanecem sob sua propriedade e responsabilidade. A CONTRATADA integra-se a tais equipamentos no estado em que se encontram, não respondendo por seu funcionamento, manutenção, substituição ou obsolescência, nem por indisponibilidade do serviço deles decorrente. Eventual reparo ou substituição será orçado à parte.
+6.4. São ainda obrigações do CONTRATANTE: permitir o livre acesso dos prepostos da CONTRATADA aos locais de execução dos serviços; manter atualizado o cadastro de moradores, veículos e autorizados; comunicar alterações relevantes, como troca de síndico ou de membros do conselho e mudanças no regimento interno que afetem os procedimentos de acesso; orientar moradores, funcionários e visitantes quanto aos procedimentos de acesso, aplicando as sanções de seu regimento em caso de descumprimento; informar previamente os titulares sobre o tratamento de dados, na forma da Cláusula Décima Sétima; e efetuar os pagamentos nos prazos ajustados.
+CLÁUSULA SÉTIMA — DAS OBRIGAÇÕES DA CONTRATADA
+7.1. São obrigações da CONTRATADA: manter a Central de Atendimento em operação 24 horas por dia, todos os dias do ano, com redundância de sistemas e de links; empregar operadores treinados e submetidos a verificação de antecedentes; manter sua equipe permanentemente capacitada nos procedimentos de atendimento, operação dos sistemas e gestão de emergências; manter os equipamentos locados em funcionamento; prestar integralmente o suporte técnico, sem custo adicional; guardar sigilo sobre os dados e registros a que tiver acesso; manter sua regularidade fiscal e trabalhista; e disponibilizar canal direto de atendimento ao síndico.
+7.2. A CONTRATADA manterá à disposição do CONTRATANTE e dos moradores, em operação ininterrupta, os seguintes canais de atendimento: central telefônica gratuita 0800 880 4414; WhatsApp e ligações pelo número (92) 98221-4414; e o endereço eletrônico sac@conectamais.pro.
+7.3. A CONTRATADA apresentará ao CONTRATANTE, com periodicidade mensal, relatório das atividades realizadas, contendo logs de acesso, resumo das ocorrências registradas e tratadas e indicadores de desempenho do atendimento, disponibilizado pela plataforma Conecta Plus ao síndico, observadas as limitações da Lei nº 13.709/2018.
+7.4. A CONTRATADA comunicará por escrito ao CONTRATANTE as inovações tecnológicas aplicáveis ao sistema; havendo interesse, as alterações serão formalizadas por termo aditivo.
+7.5. A CONTRATADA poderá subcontratar serviços acessórios de infraestrutura, telecomunicações e hospedagem, permanecendo integralmente responsável perante o CONTRATANTE pela execução do objeto. A cessão integral deste contrato a terceiro depende de anuência escrita do CONTRATANTE.
+CLÁUSULA OITAVA — DOS NÍVEIS DE SERVIÇO (SLA)
+8.1. A CONTRATADA compromete-se com os seguintes níveis de serviço:
+a) atendimento do assistente de voz aos acionamentos da portaria: imediato, 24 horas por dia, todos os dias do ano;
+b) atendimento humano da Central, quando o acionamento transbordar: em até 3 (três) minutos;
+c) atendimento técnico remoto a chamado aberto pelo CONTRATANTE: em até 2 (duas) horas;
+d) comparecimento de técnico no local, quando o chamado não for solucionável remotamente: em até 4 (quatro) horas contadas da abertura do chamado, em qualquer dia e horário;
+e) reparo ou substituição de equipamento defeituoso: em até 48 (quarenta e oito) horas;
+f) disponibilidade mensal da plataforma Conecta Plus e da Central de Atendimento: 99% (noventa e nove por cento), apurada mensalmente sobre o total de horas do mês.
+8.2. Em situação de vulnerabilidade que comprometa o controle de acesso — tais como falha estrutural do portão, queda de muro ou indisponibilidade prolongada do sistema —, a CONTRATADA enviará colaborador presencial ao local em até 2 (duas) horas, para assumir as funções dos equipamentos até o restabelecimento, sem custo pelas primeiras 24 (vinte e quatro) horas de permanência, cobrando-se o excedente ao valor de {{valor_agente_excedente}} a cada 12 (doze) horas.
+8.3. Não são computados como indisponibilidade, nem caracterizam descumprimento de SLA: (i) falta de energia elétrica ou de link de internet do CONTRATANTE; (ii) falha de equipamento preexistente, na forma do item 6.3; (iii) impedimento ou demora no acesso da equipe técnica às dependências do CONTRATANTE; (iv) janelas de manutenção programada comunicadas com antecedência mínima de 48 (quarenta e oito) horas; (v) caso fortuito e força maior, nos termos do art. 393 do Código Civil, incluídos eventos climáticos severos, interrupção de serviços públicos e falhas de operadoras de telecomunicações.
+8.4. Verificada indisponibilidade total do serviço imputável à CONTRATADA, o CONTRATANTE fará jus a desconto na mensalidade subsequente, à razão de 1/30 (um trinta avos) do valor mensal por dia de indisponibilidade, mediante apuração conjunta. O desconto previsto neste item constitui a única e exclusiva reparação devida por descumprimento de nível de serviço.
+CLÁUSULA NONA — DA LIMITAÇÃO DE RESPONSABILIDADE
+9.1. A responsabilidade total e acumulada da CONTRATADA perante o CONTRATANTE, por qualquer causa e a qualquer título, decorrente deste contrato ou a ele relacionada, fica limitada ao valor correspondente a 12 (doze) mensalidades vigentes na data do evento.
+9.2. Nenhuma das partes responderá por danos indiretos, lucros cessantes, perda de receita, perda de oportunidade ou danos reflexos, ainda que advertida de sua possibilidade.
+9.3. A limitação do item 9.1 não se aplica às hipóteses de dolo e observa, quanto a incidentes de proteção de dados, o disposto no item 17.6.
+9.4. A CONTRATADA responde pelos danos corporais ou materiais causados ao CONTRATANTE ou a terceiros por ato de seus prepostos na execução deste contrato, observado o limite do item 9.1 e desde que apurada sua culpa ou dolo, mediante processo em que lhe seja assegurado o contraditório.
+CLÁUSULA DÉCIMA — DO VALOR
+10.1. Pelos serviços e pela locação dos equipamentos, o CONTRATANTE pagará à CONTRATADA o valor mensal de {{valor_mensal_fmt}} ({{valor_mensal_extenso}}), assim composto:
+
+[[TABELA_COMPOSICAO]]
+10.2. O valor pactuado contempla custos, despesas e tributos incidentes sobre a prestação, não sendo cabível cobrança adicional a qualquer título sem prévia autorização escrita do CONTRATANTE, ressalvadas as hipóteses expressamente previstas neste contrato (itens 4.5, 4.8, 4.9 e 8.2).
+10.3. Os custos de telefonia de terceiros necessários ao transbordo de chamadas para linhas móveis dos moradores correm por conta da CONTRATADA.
+10.4. Os tributos e contribuições que incidam sobre as importâncias pagas em decorrência deste contrato serão suportados por seu respectivo contribuinte, conforme a legislação que os institua ou regule.
+CLÁUSULA DÉCIMA PRIMEIRA — DO PAGAMENTO
+11.1. O pagamento será mensal, por PIX, boleto ou transferência, com vencimento no dia {{dia_vencimento_extenso}} de cada mês, mediante apresentação de nota fiscal, observado o item 3.4 quanto à primeira mensalidade.
+11.2. O boleto será encaminhado pela CONTRATADA com antecedência mínima de 10 (dez) dias da data de vencimento. Havendo atraso no envio, a data de pagamento será prorrogada proporcionalmente aos dias de atraso, sem ônus para o CONTRATANTE.
+11.3. O atraso no pagamento sujeitará o CONTRATANTE à multa de 2% (dois por cento), juros de mora de 1% (um por cento) ao mês, calculados pro rata die, e correção monetária pelo IPCA.
+CLÁUSULA DÉCIMA SEGUNDA — DO REAJUSTE
+12.1. O valor mensal será reajustado anualmente, tendo como data-base o mês de assinatura deste contrato (setembro/2026), pela variação acumulada do IPCA nos 12 (doze) meses anteriores à data do reajuste ou, na sua ausência, por índice oficial que o substitua.
+CLÁUSULA DÉCIMA TERCEIRA — DA SUSPENSÃO POR INADIMPLÊNCIA
+13.1. Persistindo a inadimplência por mais de 15 (quinze) dias, e mediante notificação formal com antecedência de 5 (cinco) dias, a CONTRATADA poderá suspender o atendimento remoto de visitantes pela Central, o acesso à plataforma e ao aplicativo Conecta Plus e a manutenção dos equipamentos, até a regularização do débito.
+13.2. A suspensão NÃO alcançará as funções locais de abertura de acesso por reconhecimento facial, tag veicular e controle remoto, que permanecerão operando, de modo a não impedir a entrada e a saída de moradores.
+13.3. Persistindo a inadimplência por mais de 60 (sessenta) dias, a CONTRATADA poderá rescindir o contrato e retirar os equipamentos, na forma da Cláusula Décima Quinta, sem prejuízo da cobrança dos valores vencidos e da multa do item 16.3.
+CLÁUSULA DÉCIMA QUARTA — DA PROPRIEDADE INTELECTUAL
+14.1. Os softwares, a plataforma Conecta Plus, o aplicativo móvel, as marcas, a metodologia e a documentação técnica são de propriedade exclusiva da CONTRATADA, licenciados ao CONTRATANTE apenas para uso conforme sua finalidade e durante a vigência deste contrato, vedada a cópia, redistribuição, sublicenciamento, engenharia reversa ou modificação.
+14.2. Os dados operacionais do CONTRATANTE — cadastros e registros de acesso — permanecem de sua titularidade e serão disponibilizados em formato legível ao término do contrato, mediante solicitação formal apresentada em até 30 (trinta) dias do encerramento.
+CLÁUSULA DÉCIMA QUINTA — DA DEVOLUÇÃO DOS EQUIPAMENTOS
+15.1. Encerrado este contrato por qualquer motivo, o CONTRATANTE facultará à CONTRATADA, em até 15 (quinze) dias, o acesso necessário à retirada dos equipamentos locados, lavrando-se termo de retirada.
+15.2. Os equipamentos serão devolvidos nas mesmas condições operacionais em que foram recebidos, ressalvado o desgaste natural de uso. Havendo dano ou falta, o CONTRATANTE indenizará a CONTRATADA pelo valor de reposição, apurado em orçamento apresentado.
+15.3. Quanto às tags RFID distribuídas aos moradores, o CONTRATANTE devolverá as que estiverem em seu poder, respondendo pelas não devolvidas ao valor unitário previsto no item 4.8, apurado em acerto final.
+15.4. A retirada dos equipamentos não depende de notificação judicial e não caracteriza interrupção indevida de serviço, uma vez encerrada a vigência.
+15.5. O cabeamento estrutural fixado na edificação permanecerá no local, sem ônus para o CONTRATANTE e sem que isso implique cessão dos equipamentos.
+CLÁUSULA DÉCIMA SEXTA — DA RESCISÃO
+16.1. Este contrato poderá ser rescindido por qualquer das partes, imotivadamente, mediante aviso prévio por escrito de 30 (trinta) dias, observado o item 16.3.
+16.2. O descumprimento de qualquer cláusula, não sanado no prazo de 30 (trinta) dias contados do recebimento de notificação escrita, faculta à parte prejudicada a rescisão, sem prejuízo das penalidades e da cobrança dos valores devidos até a data da rescisão.
+16.3. Considerando que a CONTRATADA suporta integralmente os custos de equipamentos, projeto e instalação, sem investimento inicial do CONTRATANTE, amortizando-os ao longo do prazo contratado, a rescisão imotivada pelo CONTRATANTE, ou a rescisão motivada por sua inadimplência, antes do termo final, sujeitá-lo-á ao pagamento de multa compensatória equivalente a {{multa_rescisao_pct}} das mensalidades vincendas até o término da vigência, sem prejuízo dos valores já vencidos e da devolução dos equipamentos.
+16.4. Não incidirá a multa do item 16.3 quando a rescisão decorrer de descumprimento imputável à CONTRATADA, na forma do item 16.2.
+16.5. Este contrato ficará rescindido de pleno direito na hipótese de insolvência, falência, recuperação judicial ou extrajudicial, dissolução ou liquidação de qualquer das partes.
+16.6. A reorganização societária da CONTRATADA, inclusive alteração de quadro societário, incorporação, fusão ou transferência de controle, não constitui hipótese de rescisão, desde que preservadas as condições de prestação do serviço ora pactuadas.
+CLÁUSULA DÉCIMA SÉTIMA — DA PROTEÇÃO DE DADOS PESSOAIS (LGPD)
+17.1. A execução deste contrato envolve o tratamento de dados pessoais, inclusive imagens dos pontos de acesso e biometria facial, esta qualificada como dado pessoal sensível nos termos do art. 11 da Lei nº 13.709/2018.
+17.2. Para os fins da Lei nº 13.709/2018, o CONTRATANTE é o CONTROLADOR, a quem competem as decisões sobre a finalidade e a base legal do tratamento, e a CONTRATADA atua como OPERADORA, tratando os dados exclusivamente para a finalidade contratada e conforme as instruções documentadas do CONTROLADOR.
+17.3. Compete ao CONTRATANTE, na qualidade de controlador: informar os titulares sobre o tratamento; disponibilizar aviso de privacidade e sinalização ostensiva nos pontos de captação de imagem; colher e custodiar as manifestações de consentimento quando esta for a base legal aplicável; e atender às requisições de titulares, com o apoio operacional da CONTRATADA.
+17.4. O uso de reconhecimento facial é facultativo ao morador. As partes asseguram, a quem não desejar fornecer dado biométrico, meios alternativos de acesso de igual eficácia — tag veicular, controle remoto, chave virtual no aplicativo, QR Code e atendimento pela Central —, sem qualquer prejuízo ou restrição de uso das áreas comuns.
+17.5. O dado biométrico é convertido em representação matemática (template), armazenada localmente no servidor instalado nas dependências do CONTRATANTE, não sendo possível a reconstituição da imagem facial a partir dela. As imagens dos acessos serão armazenadas no equipamento local, nas dependências do CONTRATANTE, pelo prazo de 30 (trinta) dias, findo o qual serão automaticamente descartadas, salvo requisição formal do representante legal do CONTRATANTE ou de autoridade competente.
+17.6. A CONTRATADA comunicará ao CONTRATANTE, em até 24 (vinte e quatro) horas da ciência, qualquer incidente de segurança que possa acarretar risco ou dano relevante aos titulares, cabendo ao CONTRATANTE, como controlador, a comunicação à ANPD e aos titulares. A CONTRATADA responderá regressivamente perante o CONTRATANTE pelas sanções administrativas e indenizações a terceiros decorrentes de incidente cuja origem seja comprovadamente falha de segurança da plataforma Conecta Plus ou da Central de Atendimento, observado o limite da Cláusula Nona, salvo dolo.
+17.7. A CONTRATADA manterá programa de segurança da informação por escrito, com medidas físicas, técnicas e organizacionais proporcionais à natureza dos dados tratados, e assegurará que seu pessoal, agentes e subprocessadores estejam sujeitos a obrigação de confidencialidade equivalente à deste contrato.
+17.8. Os dados da plataforma Conecta Plus e dos cadastros são hospedados em {{provedor_nuvem}}. A relação de subprocessadores será mantida atualizada e disponibilizada ao CONTRATANTE mediante solicitação.
+17.9. Encerrado o contrato, a CONTRATADA eliminará ou devolverá ao CONTRATANTE os dados pessoais tratados, no prazo de 30 (trinta) dias, salvo obrigação legal de guarda.
+CLÁUSULA DÉCIMA OITAVA — DA CONFIDENCIALIDADE
+18.1. As partes obrigam-se a manter sigilo sobre toda informação confidencial a que tiverem acesso em razão deste contrato, inclusive informações técnicas, operacionais, comerciais, financeiras, cadastros e registros de acesso, utilizando-as exclusivamente para os fins deste instrumento. A obrigação subsiste por 5 (cinco) anos após o término ou rescisão deste contrato.
+CLÁUSULA DÉCIMA NONA — DA AUSÊNCIA DE VÍNCULO
+19.1. Este contrato não constitui cessão de mão de obra nem gera vínculo empregatício entre o CONTRATANTE e os empregados, prepostos ou prestadores da CONTRATADA, que responde com exclusividade por todas as obrigações trabalhistas, previdenciárias, acidentárias, fiscais e securitárias relativas a seu pessoal.
+19.2. Eventual pessoal de portaria ou de zeladoria que permaneça em atuação presencial nas dependências do CONTRATANTE não guarda relação com este contrato nem com a CONTRATADA, sendo de responsabilidade exclusiva do CONTRATANTE ou de terceiro por ele contratado.
+CLÁUSULA VIGÉSIMA — DAS DISPOSIÇÕES GERAIS
+20.1. Este contrato e seus anexos representam o acordo integral entre as partes quanto ao objeto, substituindo entendimentos anteriores, verbais ou escritos. Alterações somente terão validade se formalizadas por termo aditivo escrito e assinado por ambas as partes.
+20.2. A tolerância quanto ao descumprimento de qualquer cláusula não implica novação ou renúncia de direitos.
+20.3. As partes declaram conhecer e observar a Lei nº 12.846/2013, obrigando-se a não praticar atos lesivos à administração pública no âmbito deste contrato.
+20.4. A Síndica signatária declara estar investida no cargo e autorizada a celebrar este contrato nos termos da convenção condominial e da ata de assembleia referida no preâmbulo.
+20.5. Integram este contrato o Anexo I (relação de equipamentos locados), o Anexo II (ata de assembleia) e a proposta comercial aceita pelo CONTRATANTE. Em caso de divergência, prevalecem as disposições deste instrumento.
+20.6. Este contrato obriga as partes e seus sucessores a qualquer título.
+CLÁUSULA VIGÉSIMA PRIMEIRA — DO FORO
+21.1. As partes elegem o foro da Comarca de Manaus/AM para dirimir quaisquer questões oriundas deste contrato, com renúncia a qualquer outro, por mais privilegiado que seja.
+
+Por terem lido e concordado com todas as cláusulas e condições ora estabelecidas, as partes firmam o presente instrumento por assinatura eletrônica, na forma do art. 10, § 2º, da MP nº 2.200-2/2001, dispensada a assinatura de testemunhas nos termos do art. 784, § 4º, do Código de Processo Civil, uma vez que a integridade deste documento é conferida pelo provedor de assinatura, conforme manifesto ao final.
+{{cidade_assinatura}}, {{data_assinatura_extenso}}.
+[[BLOCO_ASSINATURAS]]
+CONECTA MAIS ELETRÔNICA LTDA
+Jordan Santos de Jesus — Diretor Executivo · CPF 730.681.522-91
+[[BLOCO_ASSINATURAS]]
+CONDOMÍNIO SMART TOWER ITAPURANGA
+Meridiana Vasconselos da Consta — Síndica · CPF 718.131.102-63
+ANEXO I — RELAÇÃO DOS EQUIPAMENTOS LOCADOS
+Equipamentos fornecidos em regime de locação pela CONTRATADA, com projeto, instalação, configuração, ativação e manutenção inclusas, permanecendo em propriedade da CONTRATADA durante e após a vigência do contrato.
+
+Observações
+a) O projeto, a instalação, o cabeamento, a configuração e a ativação de todos os itens acima correm por conta da CONTRATADA, sem investimento inicial do CONTRATANTE.
+b) Os nobreaks e as baterias dos itens 8 e 9 mantêm o controle de acesso em operação durante interrupções de energia elétrica, pelo tempo de autonomia nominal do conjunto, e sua substituição por fim de vida útil corre por conta da CONTRATADA, na forma do item 4.7.
+c) O motor e a automação do portão, as cancelas e o painel de interfonia das torres são equipamentos preexistentes, de propriedade e responsabilidade do CONTRATANTE, aos quais a solução se integra no estado em que se encontram, nos termos do item 6.3.
+d) A plataforma web www.conectaplus.io e o aplicativo Conecta Plus, disponível na App Store e no Google Play, integram o serviço na forma da Cláusula Quinta e não constituem equipamento locado.
+
+Relação dos equipamentos:
+1. Totem de autoatendimento para visitantes — qtd 1 — Guarita
+  2. Leitor facial — entrada de pedestres/visitantes — qtd 1 — Guarita
+  3. Leitor facial — saída de pedestres — qtd 1 — Guarita
+  4. Antena de leitura de TAG — entrada de veículos — qtd 1 — Portaria
+  5. Antena de leitura de TAG — saída de veículos — qtd 1 — Portaria
+  6. Tags RFID de para-brisa (2 por unidade autônoma) — qtd 640 — Moradores
+  7. Servidor local de processamento e banco de dados — qtd 1 — Guarita
+  8. Nobreak senoidal para o servidor e controladoras de acesso — qtd {{qtd_nobreak_baterias}} — Guarita
+  9. Banco de baterias seladas de retaguarda — qtd {{qtd_nobreak_baterias}} — Guarita
+  10. Quadro de comando, fonte e proteção elétrica — qtd 1 — Guarita
+  11. Switch e infraestrutura de rede estruturada — qtd 1 conj. — Guarita
+  12. Cabeamento e acessórios de instalação — qtd 1 conj. — Condomínio

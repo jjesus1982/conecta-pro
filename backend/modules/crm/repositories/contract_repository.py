@@ -632,7 +632,13 @@ class ContractRepository:
             id=uuid.uuid4(),
             name=data.name,
             description=data.description,
-            service_type=data.service_type,
+            # ⭐ 19/09/2026 — `.value`, e por isso `POST /crm/contracts/templates` NUNCA
+            # funcionou. O schema valida `service_type` como ENUM `ServiceType`, a coluna
+            # `contract_templates.service_type` é VARCHAR, e o asyncpg recusa o objeto:
+            # "invalid input for query argument $4: <ServiceType.REMOTE_GATEHOUSE> (expected
+            # str, got ServiceType)". Os 6 modelos do banco entraram por SEEDER, com SQL
+            # direto — é por isso que a rota podia estar quebrada há meses sem ninguém ver.
+            service_type=getattr(data.service_type, "value", data.service_type),
             content_template=data.content_template,
             clauses=data.clauses,
             variables=data.variables,
