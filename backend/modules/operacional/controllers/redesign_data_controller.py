@@ -1977,9 +1977,15 @@ def _fmtdate(d, fmt="%d/%m/%Y"):
 
 async def _build_crm(db: AsyncSession) -> dict:
     out, safe, tbl = _helpers(db)
-    n_leads = await _scalar(db, "SELECT count(*) FROM leads")
+    # ⚠️ 18/09/2026 — O KPI TEM DE CONTAR O QUE A TELA QUE ELE ABRE MOSTRA.
+    # O de Leads dizia **304** e a tela de leads listava **13**: ele somava os apagados
+    # (`is_active = false`) e ela não. Clicar no número levava a outro mundo, e ninguém
+    # denunciava — o oráculo de KPIs usava `count(*)` e CONCORDAVA com o 304, enquanto
+    # acusava o de Propostas, que era o único certo (12 ativas de 37).
+    # Medido no dia: leads 304 → 13 · propostas 37 → 12 · contratos 20 = 20.
+    n_leads = await _scalar(db, "SELECT count(*) FROM leads WHERE coalesce(is_active,true)")
     n_prop = await _scalar(db, "SELECT count(*) FROM proposals WHERE coalesce(is_active,true)")
-    n_contr = await _scalar(db, "SELECT count(*) FROM contracts")
+    n_contr = await _scalar(db, "SELECT count(*) FROM contracts WHERE coalesce(is_active,true)")
     com_pend = await _scalar(
         db,
         "SELECT coalesce(sum(final_commission),0) FROM commissions WHERE status::text NOT IN ('paid','pago','cancelled','cancelada')",
@@ -1987,7 +1993,12 @@ async def _build_crm(db: AsyncSession) -> dict:
 
     async def _dash():
         lead_st = (
-            await db.execute(text("SELECT status::text, count(*) FROM leads GROUP BY status ORDER BY count(*) DESC"))
+            await db.execute(
+                text(
+                    "SELECT status::text, count(*) FROM leads WHERE coalesce(is_active,true) "
+                    "GROUP BY status ORDER BY count(*) DESC"
+                )
+            )
         ).fetchall()
         prop_st = (
             await db.execute(

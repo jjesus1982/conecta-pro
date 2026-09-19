@@ -12,6 +12,7 @@ lados; sem escrita.
 
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_kpis_telas.py
 """
+
 import asyncio
 import os
 import re
@@ -27,42 +28,99 @@ MANAUS = "(now() AT TIME ZONE 'America/Manaus')::date"
 #: (módulo, caminho na tela, rótulo exato, SQL escalar, tolerância relativa)
 KPIS = [
     # ── Financeiro · Visão Geral ──
-    ("financeiro", "g-visao/tabs[0]", "Saldo consolidado (2 bancos)",
-     "SELECT coalesce(sum(current_balance),0) FROM bank_accounts WHERE bank_code IN ('077','403')", 0.0),
-    ("financeiro", "g-visao/tabs[0]", "A pagar (próx. 7 dias)",
-     "SELECT coalesce(sum(coalesce(net_value, gross_value)),0) FROM payable_accounts WHERE status='pendente' "
-     f"AND due_date BETWEEN {MANAUS} AND {MANAUS} + 7", 0.01),
-    ("financeiro", "g-visao/tabs[1]", "A receber (aberto)",
-     "SELECT coalesce(sum(gross_value - coalesce(paid_value,0)),0) FROM receivable_accounts WHERE status='pendente'", 0.01),
-    ("financeiro", "g-visao/tabs[1]", "A pagar (aberto)",
-     "SELECT coalesce(sum(coalesce(net_value, gross_value)),0) FROM payable_accounts WHERE status='pendente'", 0.01),
+    (
+        "financeiro",
+        "g-visao/tabs[0]",
+        "Saldo consolidado (2 bancos)",
+        "SELECT coalesce(sum(current_balance),0) FROM bank_accounts WHERE bank_code IN ('077','403')",
+        0.0,
+    ),
+    (
+        "financeiro",
+        "g-visao/tabs[0]",
+        "A pagar (próx. 7 dias)",
+        "SELECT coalesce(sum(coalesce(net_value, gross_value)),0) FROM payable_accounts WHERE status='pendente' "
+        f"AND due_date BETWEEN {MANAUS} AND {MANAUS} + 7",
+        0.01,
+    ),
+    (
+        "financeiro",
+        "g-visao/tabs[1]",
+        "A receber (aberto)",
+        "SELECT coalesce(sum(gross_value - coalesce(paid_value,0)),0) FROM receivable_accounts WHERE status='pendente'",
+        0.01,
+    ),
+    (
+        "financeiro",
+        "g-visao/tabs[1]",
+        "A pagar (aberto)",
+        "SELECT coalesce(sum(coalesce(net_value, gross_value)),0) FROM payable_accounts WHERE status='pendente'",
+        0.01,
+    ),
     ("financeiro", "g-visao/tabs[1]", "Clientes ativos", "SELECT count(*) FROM clients WHERE status='active'", 0.0),
     # contratos ativos = a fonte que gera as cobranças; billing_rules era cadastro velho (07/09)
-    ("financeiro", "g-visao/tabs[3]", "Base recorrente (MRR)",
-     "SELECT coalesce(sum(monthly_value),0) FROM contracts WHERE status='active'", 0.0),
+    (
+        "financeiro",
+        "g-visao/tabs[3]",
+        "Base recorrente (MRR)",
+        "SELECT coalesce(sum(monthly_value),0) FROM contracts WHERE status='active'",
+        0.0,
+    ),
     # ── DP · Visão ──
-    ("departamento-pessoal", "g-visao/tabs[0]", "Colaboradores ativos", "SELECT count(*) FROM employees WHERE status='ativo'", 0.0),
+    (
+        "departamento-pessoal",
+        "g-visao/tabs[0]",
+        "Colaboradores ativos",
+        "SELECT count(*) FROM employees WHERE status='ativo'",
+        0.0,
+    ),
     # A tela conta hr_vacation_requests INTEIRA (20, inclusive canceladas/rejeitadas) — "mesma
     # fonte do clássico"; existe uma segunda tabela, employee_vacation_requests (15), com outro
     # dataset. Duas tabelas para a mesma coisa é achado de mapa, não deste oráculo.
-    ("departamento-pessoal", "g-visao/tabs[0]", "Solicitações de férias", "SELECT count(*) FROM hr_vacation_requests", 0.0),
-    ("departamento-pessoal", "g-visao/tabs[0]", "Admissões em processo", "SELECT count(*) FROM admission_processes", 0.0),
+    (
+        "departamento-pessoal",
+        "g-visao/tabs[0]",
+        "Solicitações de férias",
+        "SELECT count(*) FROM hr_vacation_requests",
+        0.0,
+    ),
+    (
+        "departamento-pessoal",
+        "g-visao/tabs[0]",
+        "Admissões em processo",
+        "SELECT count(*) FROM admission_processes",
+        0.0,
+    ),
     # ── Operacional · Visão ──
     ("operacional", "g-visao/tabs[0]", "Postos ativos", "SELECT count(*) FROM posts WHERE status='active'", 0.0),
     ("operacional", "g-visao/tabs[0]", "Colaboradores", "SELECT count(*) FROM employees WHERE status='ativo'", 0.0),
     ("operacional", "g-visao/tabs[0]", "Alocações ativas", "SELECT count(*) FROM employee_alocacoes WHERE ativo", 0.0),
-    ("operacional", "g-visao/tabs[0]", "Ocorrências (7d)",
-     "SELECT count(*) FROM occurrences WHERE occurred_at >= now() - interval '7 days'", 0.0),
+    (
+        "operacional",
+        "g-visao/tabs[0]",
+        "Ocorrências (7d)",
+        "SELECT count(*) FROM occurrences WHERE occurred_at >= now() - interval '7 days'",
+        0.0,
+    ),
     # Definição (operacional/ai/controller, 07/09/2026): NO TURNO = entrada nas últimas 14 h
     # sem saída depois. A antiga (entrada no dia civil) dava 0 à 1h com o noturno inteiro em pé.
-    ("operacional", "g-visao/tabs[10]", "Presentes (no turno)",
-     "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p WHERE p.punch_type='entrada' "
-     "AND p.punch_timestamp >= now() - interval '14 hours' AND NOT EXISTS (SELECT 1 FROM gp_clock_punches s "
-     "WHERE s.employee_id=p.employee_id AND s.punch_type='saida' AND s.punch_timestamp > p.punch_timestamp)", 0.0),
+    (
+        "operacional",
+        "g-visao/tabs[10]",
+        "Presentes (no turno)",
+        "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p WHERE p.punch_type='entrada' "
+        "AND p.punch_timestamp >= now() - interval '14 hours' AND NOT EXISTS (SELECT 1 FROM gp_clock_punches s "
+        "WHERE s.employee_id=p.employee_id AND s.punch_type='saida' AND s.punch_timestamp > p.punch_timestamp)",
+        0.0,
+    ),
     # ── CRM · dashboard ──
-    ("crm", "dashboard", "Leads", "SELECT count(*) FROM leads", 0.0),
-    ("crm", "dashboard", "Propostas", "SELECT count(*) FROM proposals", 0.0),
-    ("crm", "dashboard", "Contratos", "SELECT count(*) FROM contracts", 0.0),
+    # ⚠️ `coalesce(is_active,true)` nos TRÊS. A régua antiga usava `count(*)` cru e por isso
+    # concordava com o KPI de Leads que mostrava 304 enquanto a tela listava 13 — e acusava o
+    # de Propostas, que era o único certo. Régua que conta registro APAGADO abençoa o defeito
+    # e persegue o acerto. O KPI abre uma tela; ele tem de contar o que ela mostra.
+    ("crm", "dashboard", "Leads", "SELECT count(*) FROM leads WHERE coalesce(is_active,true)", 0.0),
+    ("crm", "dashboard", "Propostas", "SELECT count(*) FROM proposals WHERE coalesce(is_active,true)", 0.0),
+    ("crm", "dashboard", "Contratos", "SELECT count(*) FROM contracts WHERE coalesce(is_active,true)", 0.0),
     # ── RH · dashboard ──
     ("rh", "dashboard", "Colaboradores ativos", "SELECT count(*) FROM employees WHERE status='ativo'", 0.0),
     ("rh", "dashboard", "Candidatos", "SELECT count(*) FROM candidates", 0.0),
@@ -73,41 +131,77 @@ KPIS = [
     ("gestao-de-pessoas", "visao", "EPIs entregues", "SELECT count(*) FROM gp_epi_deliveries", 0.0),
     ("gestao-de-pessoas", "visao", "Batidas de ponto", "SELECT count(*) FROM gp_clock_punches", 0.0),
     # ── Fiscal · painel ──
-    ("fiscal", "painel", "Obrigações em aberto", "SELECT count(*) FROM fiscal_obligations WHERE status='pendente'", 0.0),
+    (
+        "fiscal",
+        "painel",
+        "Obrigações em aberto",
+        "SELECT count(*) FROM fiscal_obligations WHERE status='pendente'",
+        0.0,
+    ),
     ("fiscal", "painel", "NFS-e Emitidas", "SELECT count(*) FROM nfse_emitidas_nacional", 0.0),
     # 12 meses = NFS-e Manaus (histórico, até 12/2025) + NFS-e nacional (desde 01/2026). Medido
     # em 07/09/2026: nenhum mês com as duas fontes ao mesmo tempo e 0 notas em comum — somar
     # é correto, não dobra.
-    ("fiscal", "painel", "Faturamento (12m)",
-     "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico WHERE data_emissao >= current_date - interval '12 months'),0)"
-     " + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional WHERE data_emissao >= current_date - interval '12 months'),0)", 0.02),
+    (
+        "fiscal",
+        "painel",
+        "Faturamento (12m)",
+        "SELECT coalesce((SELECT sum(valor_servicos) FROM nfse_manaus_historico WHERE data_emissao >= current_date - interval '12 months'),0)"
+        " + coalesce((SELECT sum(valor_servicos) FROM nfse_emitidas_nacional WHERE data_emissao >= current_date - interval '12 months'),0)",
+        0.02,
+    ),
     # ── Financeiro · faturamento do mês (NFS-e emitidas na competência corrente) ──
     # rótulo dinâmico "Faturamento <última competência com nota>" — a tela mostra o último mês
     # da série, não o mês corrente (em 07/09 a nota de setembro foi movida para 08 e o rótulo
     # virou "Faturamento 2026-08"; o oráculo afirma a regra, não a foto).
-    ("financeiro", "g-visao/tabs[0]", "Faturamento 20",
-     "SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
-     "AND competencia = (SELECT max(competencia) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false)", 0.02),
+    (
+        "financeiro",
+        "g-visao/tabs[0]",
+        "Faturamento 20",
+        "SELECT coalesce(sum(valor_servicos),0) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false "
+        "AND competencia = (SELECT max(competencia) FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false)",
+        0.02,
+    ),
     # ── CRM · comissões ──
-    ("crm", "dashboard", "Comissões a pagar",
-     "SELECT coalesce(sum(coalesce(final_commission, base_commission, 0)),0) FROM commissions WHERE status='pending' AND is_active", 0.01),
+    (
+        "crm",
+        "dashboard",
+        "Comissões a pagar",
+        "SELECT coalesce(sum(coalesce(final_commission, base_commission, 0)),0) FROM commissions WHERE status='pending' AND is_active",
+        0.01,
+    ),
     # ── Fiscal · Apuração Lucro Real (Eletrônica, exercício corrente) — razão no plano de 13/08:
     # receita = saldo credor de 4.x; líquida = − ISS (5.2.2.01); sem encerramento (apuracao).
     # Antes de 07/09/2026 esta tela mostrava R$ 500.000,00: o capital social lido como receita.
-    ("financeiro", "g-fiscal/tabs[9]", "Receita líquida",
-     "SELECT -COALESCE(SUM(CASE WHEN conta_debito LIKE '4%' THEN valor WHEN conta_credito LIKE '4%' THEN -valor ELSE 0 END),0)"
-     " - COALESCE(SUM(CASE WHEN conta_debito LIKE '5.2.2.01%' THEN valor WHEN conta_credito LIKE '5.2.2.01%' THEN -valor ELSE 0 END),0)"
-     " FROM accounting_entries WHERE status='confirmado' AND coalesce(tipo_lancamento,'')<>'apuracao'"
-     " AND empresa_id='619a3df1-8bce-49ce-b77a-04f80a0e8491' AND periodo_competencia LIKE to_char(current_date,'YYYY')||'-%'", 0.001),
+    (
+        "financeiro",
+        "g-fiscal/tabs[9]",
+        "Receita líquida",
+        "SELECT -COALESCE(SUM(CASE WHEN conta_debito LIKE '4%' THEN valor WHEN conta_credito LIKE '4%' THEN -valor ELSE 0 END),0)"
+        " - COALESCE(SUM(CASE WHEN conta_debito LIKE '5.2.2.01%' THEN valor WHEN conta_credito LIKE '5.2.2.01%' THEN -valor ELSE 0 END),0)"
+        " FROM accounting_entries WHERE status='confirmado' AND coalesce(tipo_lancamento,'')<>'apuracao'"
+        " AND empresa_id='619a3df1-8bce-49ce-b77a-04f80a0e8491' AND periodo_competencia LIKE to_char(current_date,'YYYY')||'-%'",
+        0.001,
+    ),
     # ── DP · folha líquida da última competência JÁ VENCIDA. As parcelas do 13º ('13O-…') moram
     # em 2026-11/12 desde 03/08 — "max(reference_period)" pegava a 1ª parcela do 13º (achado 07/09). ──
-    ("departamento-pessoal", "g-visao/tabs[0]", "Folha líquida",
-     "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period = "
-     "(SELECT max(reference_period) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period <= to_char(current_date,'YYYY-MM'))", 0.001),
+    (
+        "departamento-pessoal",
+        "g-visao/tabs[0]",
+        "Folha líquida",
+        "SELECT coalesce(sum(net_salary),0) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period = "
+        "(SELECT max(reference_period) FROM hr_payslips WHERE payslip_code NOT LIKE '13O-%' AND reference_period <= to_char(current_date,'YYYY-MM'))",
+        0.001,
+    ),
     # ── Financeiro · recebíveis vencidos (mesma regra de 'em aberto' do periodo_contabil) ──
-    ("financeiro", "g-visao/tabs[0]", "Recebíveis vencidos",
-     "SELECT coalesce(sum(net_value),0) FROM receivable_accounts WHERE due_date < current_date AND coalesce(status::text,'') NOT ILIKE '%pag%'"
-     " AND coalesce(status::text,'') NOT ILIKE '%cancel%' AND coalesce(status::text,'') <> 'suspensa'", 0.001),
+    (
+        "financeiro",
+        "g-visao/tabs[0]",
+        "Recebíveis vencidos",
+        "SELECT coalesce(sum(net_value),0) FROM receivable_accounts WHERE due_date < current_date AND coalesce(status::text,'') NOT ILIKE '%pag%'"
+        " AND coalesce(status::text,'') NOT ILIKE '%cancel%' AND coalesce(status::text,'') <> 'suspensa'",
+        0.001,
+    ),
     # Documentos · "Kits do mês" NÃO entra: o builder lê do Google Drive (competência = mês
     # anterior), fonte de fora — é domínio do checar_oraculo_externo. Medido em 07/09/2026: o
     # Drive diz 15 kits de agosto; ged_document_kits tem 9 (em_montagem, 76,7%). Achado de mapa.
@@ -141,7 +235,7 @@ async def main() -> None:
     from sqlalchemy import text
 
     from core.database import async_session_factory
-    from modules.operacional.controllers import redesign_data_controller as RD
+    from modules.operacional.controllers import redesign_data_controller as RD  # noqa: N812
 
     falhas, ok = [], 0
     async with async_session_factory() as db:
@@ -153,10 +247,14 @@ async def main() -> None:
             try:
                 kpis = _no_caminho(telas[mod][slug], caminho)
             except Exception as exc:  # noqa: BLE001
-                falhas.append(f"{mod}/{caminho} [{rotulo}]: caminho não resolve ({type(exc).__name__})"); continue
+                falhas.append(f"{mod}/{caminho} [{rotulo}]: caminho não resolve ({type(exc).__name__})")
+                continue
             achado = next((k for k in kpis if (k.get("l") or "").startswith(rotulo)), None)
             if achado is None:
-                falhas.append(f"{mod}/{caminho} [{rotulo}]: KPI não existe mais na tela (rótulos: {[k.get('l') for k in kpis][:5]})"); continue
+                falhas.append(
+                    f"{mod}/{caminho} [{rotulo}]: KPI não existe mais na tela (rótulos: {[k.get('l') for k in kpis][:5]})"
+                )
+                continue
             tela = _num(achado.get("v"))
             banco = _num((await db.execute(text(sql))).scalar())
             dif = abs(tela - banco) / (abs(banco) or Decimal(1))
