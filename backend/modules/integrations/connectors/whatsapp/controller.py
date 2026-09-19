@@ -292,11 +292,9 @@ async def _visita_ctx_da_conversa(conv_id: int | None) -> dict | None:
                 return None
             md = str(v.get("conteudo_md") or "")
             pega = lambda k: (_re.search(rf"\[{k}:([a-z_]+)\]", md) or [None, None])[1]  # noqa: E731
-            return {"id": v["id"], "cliente": v.get("cliente_nome"),
-                    "empresa": pega("empresa"), "tipo": pega("tipo")}
+            return {"id": v["id"], "cliente": v.get("cliente_nome"), "empresa": pega("empresa"), "tipo": pega("tipo")}
     except Exception:  # noqa: BLE001
-        logger.exception("[visita] não consegui ler o contexto da visita — visão segue "
-                         "com o prompt de atendimento")
+        logger.exception("[visita] não consegui ler o contexto da visita — visão segue com o prompt de atendimento")
         return None
 
 
@@ -338,10 +336,22 @@ async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> st
 
         async def _ffmpeg(vf: str, n: int, prefixo: str) -> int:
             proc = await _a.create_subprocess_exec(
-                "ffmpeg", "-nostdin", "-loglevel", "error", "-i", entrada,
-                "-vf", vf, "-vsync", "vfr", "-frames:v", str(n),
+                "ffmpeg",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-i",
+                entrada,
+                "-vf",
+                vf,
+                "-vsync",
+                "vfr",
+                "-frames:v",
+                str(n),
                 os.path.join(tmp, prefixo + "%02d.jpg"),
-                stdout=_a.subprocess.DEVNULL, stderr=_a.subprocess.PIPE)
+                stdout=_a.subprocess.DEVNULL,
+                stderr=_a.subprocess.PIPE,
+            )
             try:
                 await _a.wait_for(proc.communicate(), timeout=120)
             except TimeoutError:
@@ -358,18 +368,24 @@ async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> st
         # sozinha — que era o meu desenho — entregaria ZERO e o vídeo seguiria valendo só
         # pela fala, que é exatamente o problema de que a gente acabou de sair.
         # Cena continua primeiro porque, quando existe corte, ele marca o momento CERTO.
-        n_cena = await _ffmpeg(
-            f"select='gt(scene,{_VIDEO_CENA})',scale={_VIDEO_LARGURA}:-2",
-            _VIDEO_MAX_QUADROS, "q_")
+        n_cena = await _ffmpeg(f"select='gt(scene,{_VIDEO_CENA})',scale={_VIDEO_LARGURA}:-2", _VIDEO_MAX_QUADROS, "q_")
         if n_cena < _VIDEO_MAX_QUADROS:
             # Preenche o resto pelo relógio. Intervalo derivado da DURAÇÃO para cobrir o
             # vídeo inteiro em vez de amontoar no começo.
             dur = 0.0
             try:
                 pr = await _a.create_subprocess_exec(
-                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                    "-of", "default=nw=1:nk=1", entrada,
-                    stdout=_a.subprocess.PIPE, stderr=_a.subprocess.DEVNULL)
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    entrada,
+                    stdout=_a.subprocess.PIPE,
+                    stderr=_a.subprocess.DEVNULL,
+                )
                 out, _ = await _a.wait_for(pr.communicate(), timeout=30)
                 dur = float((out or b"0").decode().strip() or 0)
             except Exception:  # noqa: BLE001
@@ -382,13 +398,11 @@ async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> st
         if not quadros:
             logger.warning("Webhook Chatwoot: nenhum quadro extraído do vídeo")
             return ""
-        logger.info("Webhook Chatwoot: vídeo -> %s por cena + %s por tempo",
-                    n_cena, len(quadros) - n_cena)
+        logger.info("Webhook Chatwoot: vídeo -> %s por cena + %s por tempo", n_cena, len(quadros) - n_cena)
 
         from core.llm_client import modelo_visao  # noqa: PLC0415
 
-        cli = novo_cliente(origem="whatsapp.visao.video",
-                           timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
+        cli = novo_cliente(origem="whatsapp.visao.video", timeout=float(os.getenv("AGENT_OPENAI_TIMEOUT", "90")))
         vistos = []
         for i, nome in enumerate(quadros[:_VIDEO_MAX_QUADROS], 1):
             with open(os.path.join(tmp, nome), "rb") as f:
@@ -402,17 +416,22 @@ async def _quadros_do_video(video_bytes: bytes, ext: str, visita_ctx=None) -> st
                     # genérica — a diferença entre "um corredor" e "ponto cego no acesso
                     # lateral, sem infraestrutura de energia".
                     max_completion_tokens=(700 if visita_ctx else 220),
-                    messages=[{"role": "user", "content": [
-                        {"type": "text", "text": _prompt_visao(visita_ctx)},
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]}])
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": _prompt_visao(visita_ctx)},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                            ],
+                        }
+                    ],
+                )
                 d = (r.choices[0].message.content or "").strip()
                 if d:
                     vistos.append(f"[cena {i}] {d}")
             except Exception as e:  # noqa: BLE001 — um quadro ruim não perde o vídeo
                 logger.warning("Webhook Chatwoot: quadro %s do vídeo falhou: %s", i, str(e)[:90])
-        logger.info("Webhook Chatwoot: vídeo -> %s quadro(s), %s descrito(s)",
-                    len(quadros), len(vistos))
+        logger.info("Webhook Chatwoot: vídeo -> %s quadro(s), %s descrito(s)", len(quadros), len(vistos))
         return " ".join(vistos)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -504,8 +523,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             session.get(data_url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp,
         ):
             if resp.status != 200:
-                logger.warning("Webhook Chatwoot: download de %s HTTP %s (%s)",
-                               kind, resp.status, data_url[:120])
+                logger.warning("Webhook Chatwoot: download de %s HTTP %s (%s)", kind, resp.status, data_url[:120])
                 return f"📎 [{kind} recebido — não consegui baixar o arquivo (HTTP {resp.status})]"
             # ⚠️ 28/08/2026 — ANEXO GRANDE DEIXOU DE SUMIR EM SILÊNCIO. O teto de 16 MB
             # foi dimensionado para ÁUDIO; os vídeos da visita do Jordan vieram com 3,6 a
@@ -515,10 +533,11 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             # É o terceiro irmão do `if not texto: return None` — a família que engole
             # mídia calada.
             if resp.content_length and resp.content_length > _AUDIO_MAX_BYTES:
-                logger.warning("Webhook Chatwoot: %s excede %sMB — ignorado",
-                               kind, _AUDIO_MAX_BYTES // 1048576)
-                return (f"📎 [{kind} recebido — NÃO analisado: passa de "
-                        f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]")
+                logger.warning("Webhook Chatwoot: %s excede %sMB — ignorado", kind, _AUDIO_MAX_BYTES // 1048576)
+                return (
+                    f"📎 [{kind} recebido — NÃO analisado: passa de "
+                    f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]"
+                )
             # Lê o CORPO COMPLETO em chunks. (resp.content.read(N) faz leitura PARCIAL em arquivos
             # multi-chunk -> documento TRUNCADO: DOCX vira "not a zip", PDF/PPTX/XLSX vêm vazios.
             # Áudio/imagem menores passavam por sorte. Cap de tamanho mantido.)
@@ -526,13 +545,13 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             async for _chunk in resp.content.iter_chunked(65536):
                 audio_bytes += _chunk
                 if len(audio_bytes) > _AUDIO_MAX_BYTES:
-                    logger.warning("Webhook Chatwoot: anexo excede %sMB — ignorado",
-                                   _AUDIO_MAX_BYTES // 1048576)
-                    return (f"📎 [{kind} recebido — NÃO analisado: passa de "
-                            f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]")
+                    logger.warning("Webhook Chatwoot: anexo excede %sMB — ignorado", _AUDIO_MAX_BYTES // 1048576)
+                    return (
+                        f"📎 [{kind} recebido — NÃO analisado: passa de "
+                        f"{_AUDIO_MAX_BYTES // 1048576} MB. Peça um trecho mais curto.]"
+                    )
         if not audio_bytes:
             return None
-
 
         # timeout explícito: STT/visão roda no caminho síncrono do webhook; sem teto, um
         # anexo problemático seguraria o handler (default SDK 600s) e o Chatwoot reentregaria.
@@ -547,8 +566,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
         #
         # A análise saiu do webhook e vive na FILA, então esperar mais não segura ninguém:
         # o WhatsApp já recebeu 200. Estourar o teto, sim, custa a foto.
-        _stt_to = float(os.getenv("AGENT_MIDIA_TIMEOUT",
-                                  os.getenv("AGENT_OPENAI_TIMEOUT", "90")) or 90)
+        _stt_to = float(os.getenv("AGENT_MIDIA_TIMEOUT", os.getenv("AGENT_OPENAI_TIMEOUT", "90")) or 90)
         client = novo_cliente(origem="whatsapp.stt", timeout=_stt_to, servico="audio")
 
         # ===== IMAGEM: descreve via visao do modelo =====
@@ -582,9 +600,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
                         "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    _prompt_visao(_visita_ctx, funcionario=_e_func)
-                                ),
+                                "text": (_prompt_visao(_visita_ctx, funcionario=_e_func)),
                             },
                             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                         ],
@@ -695,8 +711,11 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             if _pal_txt:
                 _sobrep = sum(1 for w in _pal_txt if w in _pal_vies) / len(_pal_txt)
                 if _sobrep > 0.8:
-                    logger.warning("Webhook Chatwoot: transcrição é ECO do prompt de viés "
-                                   "(%.0f%% de sobreposição) — refazendo SEM viés", _sobrep * 100)
+                    logger.warning(
+                        "Webhook Chatwoot: transcrição é ECO do prompt de viés "
+                        "(%.0f%% de sobreposição) — refazendo SEM viés",
+                        _sobrep * 100,
+                    )
                     # ⭐ 11/09/2026 — DESCARTAR NÃO ERA SUFICIENTE. Descartar protege contra
                     # fabricação, e isso continua valendo; mas quem falou ficou sem resposta.
                     # Medido no primeiro dia da pesquisa de ponto: o ELIZIEL respondeu por
@@ -710,19 +729,22 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
                     texto = ""
                     try:
                         _tr2 = await client.audio.transcriptions.create(
-                            model="whisper-1", file=(f"audio.{ext}", audio_bytes),
-                            language="pt", temperature=0,
+                            model="whisper-1",
+                            file=(f"audio.{ext}", audio_bytes),
+                            language="pt",
+                            temperature=0,
                         )
                         _t2 = (getattr(_tr2, "text", "") or "").strip()
                         _p2 = re.findall(r"\w{4,}", _t2.lower())
                         _s2 = (sum(1 for w in _p2 if w in _pal_vies) / len(_p2)) if _p2 else 1.0
                         if _t2 and _s2 <= 0.8:
                             texto = _t2
-                            logger.info("Webhook Chatwoot: 2ª tentativa SEM viés recuperou "
-                                        "%s caracteres", len(_t2))
+                            logger.info("Webhook Chatwoot: 2ª tentativa SEM viés recuperou %s caracteres", len(_t2))
                         else:
-                            logger.warning("Webhook Chatwoot: 2ª tentativa também ecoou ou veio "
-                                           "vazia — aí é áudio mudo mesmo, descartado")
+                            logger.warning(
+                                "Webhook Chatwoot: 2ª tentativa também ecoou ou veio "
+                                "vazia — aí é áudio mudo mesmo, descartado"
+                            )
                     except Exception as _e2:  # noqa: BLE001 — a 2ª tentativa é bônus
                         logger.warning("Webhook Chatwoot: 2ª tentativa sem viés falhou: %s", _e2)
 
@@ -775,8 +797,7 @@ async def _transcrever_audio_attachments(data: dict, conv_id: int | None = None)
             from modules.integrations.connectors.whatsapp import tasks as _t  # noqa: PLC0415
 
             _msg = str(e).lower()
-            _t._ULTIMO_ERRO["sem_credito"] = (
-                "credit" in _msg or "insufficient_quota" in _msg or "billing" in _msg)
+            _t._ULTIMO_ERRO["sem_credito"] = "credit" in _msg or "insufficient_quota" in _msg or "billing" in _msg
         except Exception:  # noqa: BLE001
             pass
         return None
@@ -1051,7 +1072,18 @@ async def chatwoot_webhook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Payload invalido")
 
     if data.get("event") != "message_created":
-        return {"status": "ignored", "event": data.get("event")}
+        # ⭐ 19/09/2026 — MEDIR ANTES DE CONSTRUIR. O Jordan pediu a confirmação de entrega
+        # ("os dois tracinhos") para decidir se uma mensagem chegou, e descobrimos que ela
+        # NÃO EXISTE no banco: `cwi_message_log.status` está vazio nas 2.201 saídas, porque
+        # este `return` descarta todo evento que não seja `message_created` — e é em
+        # `message_updated` que o Chatwoot manda a mudança de status.
+        #
+        # Só que ninguém sabe se ele manda: o descarte era MUDO. Esta linha não muda
+        # comportamento nenhum, só anota o que chega, para a decisão de gravar entrega vir
+        # de dado e não de suposição. São ~59 webhooks/dia; o volume de log é irrelevante.
+        _ev = data.get("event")
+        logger.info("Webhook Chatwoot ignorado: event=%s status=%s", _ev, data.get("status"))
+        return {"status": "ignored", "event": _ev}
 
     # Ignora notas privadas (rascunho do agente, notas internas do atendente):
     # nao loga nem reprocessa — evita poluir o historico e gerar loop.
@@ -1089,9 +1121,9 @@ async def chatwoot_webhook(
         _n = len([x for x in (data.get("attachments") or []) if x])
         content = f"{content}\n{_MARCA_ANALISE}" if content else _MARCA_ANALISE
         _midia_enfileirada = _n
-            # (A colagem na VISITA ABERTA mudou de lugar: acontece na task, depois da
-            # análise. O motivo é o mesmo de sempre — o Jordan em campo manda 15 fotos
-            # seguidas e a foto que ninguém anotar é justamente a que faz falta.)
+        # (A colagem na VISITA ABERTA mudou de lugar: acontece na task, depois da
+        # análise. O motivo é o mesmo de sempre — o Jordan em campo manda 15 fotos
+        # seguidas e a foto que ninguém anotar é justamente a que faz falta.)
 
     # Cliente/Jordan colou um link de mapa / coordenadas no TEXTO (não como pin):
     # RESOLVE de verdade — segue o redirect do link curto, extrai as coordenadas e
@@ -1129,15 +1161,15 @@ async def chatwoot_webhook(
 
             _ident = await asyncio.wait_for(quem_e(db, phone_canonical), timeout=1.0)
             if _ident.e_da_casa:
-                logger.info("Webhook: %s é %s (%s) — não crio lead", phone_canonical,
-                            _ident.tipo, _ident.nome)
+                logger.info("Webhook: %s é %s (%s) — não crio lead", phone_canonical, _ident.tipo, _ident.nome)
             else:
-                lead_id = await asyncio.wait_for(
-                    _match_or_create_lead(db, phone_canonical, name, content), timeout=1.5)
+                lead_id = await asyncio.wait_for(_match_or_create_lead(db, phone_canonical, name, content), timeout=1.5)
         except TimeoutError:
-            logger.error("Webhook Chatwoot: casamento de lead passou de 1,5s — SEGUINDO SEM "
-                         "ele para não estourar o timeout do Chatwoot (fone=%s)",
-                         phone_canonical)
+            logger.error(
+                "Webhook Chatwoot: casamento de lead passou de 1,5s — SEGUINDO SEM "
+                "ele para não estourar o timeout do Chatwoot (fone=%s)",
+                phone_canonical,
+            )
         except Exception as e:  # noqa: BLE001 — log nunca deve falhar por causa do lead
             logger.error("Webhook Chatwoot: falha ao criar/achar lead: %s", e)
 
@@ -1191,6 +1223,7 @@ async def chatwoot_webhook(
             from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
                 analisar_midia,
             )
+
             # Contador da rajada: enquanto > 0, `processar_incoming` ADIA. É a trava que
             # impede o agente de responder sobre uma foto que ainda não foi vista — e ele
             # DIRIA que viu, que é pior do que demorar.
@@ -1209,22 +1242,26 @@ async def chatwoot_webhook(
                 from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
                     _post_public_reply,
                 )
+
                 await _post_public_reply(
                     conv_id,
                     "Recebi um lote grande de arquivos e estou analisando um por um — cada "
                     "foto vira um diagnóstico, então leva alguns minutos. Pode continuar "
-                    "mandando; eu respondo com tudo quando terminar. 👍")
-            analisar_midia.apply_async(
-                args=[conv_id, msg_id, data, phone_canonical], queue="webhooks", priority=8)
+                    "mandando; eu respondo com tudo quando terminar. 👍",
+                )
+            analisar_midia.apply_async(args=[conv_id, msg_id, data, phone_canonical], queue="webhooks", priority=8)
         except Exception as e:  # noqa: BLE001
-            logger.error("Webhook: não consegui enfileirar a mídia (%s) — analisando "
-                         "INLINE, que é lento mas não perde", e)
+            logger.error(
+                "Webhook: não consegui enfileirar a mídia (%s) — analisando INLINE, que é lento mas não perde", e
+            )
             midia = await _transcrever_audio_attachments(data, conv_id)
             if midia:
-                await db.execute(text(
-                    "UPDATE cwi_message_log SET content = replace(content, :m, :t) "
-                    "WHERE chatwoot_message_id = :i"),
-                    {"m": _MARCA_ANALISE, "t": midia[:20000], "i": msg_id})
+                await db.execute(
+                    text(
+                        "UPDATE cwi_message_log SET content = replace(content, :m, :t) WHERE chatwoot_message_id = :i"
+                    ),
+                    {"m": _MARCA_ANALISE, "t": midia[:20000], "i": msg_id},
+                )
                 await db.commit()
                 await _midia_para_visita_aberta(conv_id, midia)
 
@@ -1241,16 +1278,14 @@ async def chatwoot_webhook(
             from modules.integrations.connectors.whatsapp.tasks import (  # noqa: PLC0415
                 processar_incoming_task,
             )
-            processar_incoming_task.apply_async(
-                args=[conv_id, phone_canonical], queue="webhooks", priority=8)
+
+            processar_incoming_task.apply_async(args=[conv_id, phone_canonical], queue="webhooks", priority=8)
         except Exception as e:  # noqa: BLE001
             # Redis fora do ar não pode calar o agente: cai no comportamento antigo, que é
             # pior mas não é nada. E o AVISO fica no log — falha silenciosa aqui é
             # exatamente o defeito que este bloco existe para consertar.
-            logger.error("Webhook: fila indisponível (%s) — caindo para BackgroundTasks, "
-                         "que NÃO sobrevive a deploy", e)
-            background_tasks.add_task(agent_service.processar_incoming, conv_id,
-                                      phone_canonical)
+            logger.error("Webhook: fila indisponível (%s) — caindo para BackgroundTasks, que NÃO sobrevive a deploy", e)
+            background_tasks.add_task(agent_service.processar_incoming, conv_id, phone_canonical)
 
     return {"status": "ok", "direction": direction, "lead_id": lead_id, "message_id": msg_id}
 
@@ -1270,10 +1305,17 @@ async def _midia_para_visita_aberta(conversation_id: int | None, midia: str) -> 
     """
     if not conversation_id or not midia:
         return
-    tipo = ("foto" if midia.startswith("🖼") else
-            "local" if midia.startswith("📍") else
-            "audio" if midia.startswith("🎤") else
-            "video" if midia.startswith("🎬") else "documento")
+    tipo = (
+        "foto"
+        if midia.startswith("🖼")
+        else "local"
+        if midia.startswith("📍")
+        else "audio"
+        if midia.startswith("🎤")
+        else "video"
+        if midia.startswith("🎬")
+        else "documento"
+    )
     try:
         from core.database import async_session_factory  # noqa: PLC0415
         from modules.crm.services.visit_reports import adicionar_achados  # noqa: PLC0415
@@ -1291,12 +1333,10 @@ async def _midia_para_visita_aberta(conversation_id: int | None, midia: str) -> 
             # O serviço já aceita {tipo, descricao} — é assim que se declara o tipo, e
             # não com um parâmetro `tipo=` que ele nunca teve. Passar string vira 'nota'
             # e a foto perderia a natureza no relatório.
-            await adicionar_achados(db, str(v["id"]),
-                                    [{"tipo": tipo, "descricao": midia}])
+            await adicionar_achados(db, str(v["id"]), [{"tipo": tipo, "descricao": midia}])
             logger.info("[visita] mídia (%s) anexada à visita %s", tipo, v["id"])
     except Exception:  # noqa: BLE001
-        logger.exception("[visita] falha ao anexar mídia à visita aberta — "
-                         "a mensagem segue normalmente")
+        logger.exception("[visita] falha ao anexar mídia à visita aberta — a mensagem segue normalmente")
 
 
 async def _e_funcionario_da_conversa(conv_id: int | None) -> bool:
@@ -1314,10 +1354,15 @@ async def _e_funcionario_da_conversa(conv_id: int | None) -> bool:
         from .identidade import quem_e  # noqa: PLC0415
 
         async with async_session_factory() as db:
-            fone = (await db.execute(text(
-                "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
-                "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"),
-                {"c": conv_id})).scalar()
+            fone = (
+                await db.execute(
+                    text(
+                        "SELECT phone_canonical FROM cwi_message_log WHERE chatwoot_conversation_id=:c "
+                        "AND phone_canonical IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+                    ),
+                    {"c": conv_id},
+                )
+            ).scalar()
             try:
                 from modules.crm.services.orchestration import is_owner  # noqa: PLC0415
 
@@ -1349,18 +1394,22 @@ def _prompt_visao(visita_ctx: dict | None, funcionario: bool = False) -> str:
     if funcionario and not visita_ctx:
         # 11/09/2026 — o print do ponto. A ERIKA: "Não consigo registrar meu ponto pelo app
         # conecta pro. Desde o início". O que resolve o caso está ESCRITO na tela dela.
-        return ("Esta imagem foi enviada por um FUNCIONÁRIO da Conecta Mais (porteiro, "
-                "vigilante, ASG) — quase sempre é o PRINT de uma tela do celular. "
-                "TRANSCREVA LITERALMENTE toda mensagem de erro, aviso, botão e horário "
-                "que aparecerem, entre aspas. Depois, em uma frase, diga o que a tela "
-                "mostra (ex.: 'app do ponto recusou o reconhecimento facial'). Se houver "
-                "documento (atestado, receita, comprovante), diga o tipo, a data e o "
-                "período. Não invente o que não estiver legível: diga 'não dá para ler'.")
+        return (
+            "Esta imagem foi enviada por um FUNCIONÁRIO da Conecta Mais (porteiro, "
+            "vigilante, ASG) — quase sempre é o PRINT de uma tela do celular. "
+            "TRANSCREVA LITERALMENTE toda mensagem de erro, aviso, botão e horário "
+            "que aparecerem, entre aspas. Depois, em uma frase, diga o que a tela "
+            "mostra (ex.: 'app do ponto recusou o reconhecimento facial'). Se houver "
+            "documento (atestado, receita, comprovante), diga o tipo, a data e o "
+            "período. Não invente o que não estiver legível: diga 'não dá para ler'."
+        )
     if not visita_ctx:
-        return ("Descreva esta imagem enviada por um cliente num atendimento de "
-                "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ o "
-                "atendimento: equipamento/defeito, local, documento, fachada etc. "
-                "Maximo 4 frases, em portugues.")
+        return (
+            "Descreva esta imagem enviada por um cliente num atendimento de "
+            "seguranca/portaria (Conecta Mais, Manaus). Foque no que importa p/ o "
+            "atendimento: equipamento/defeito, local, documento, fachada etc. "
+            "Maximo 4 frases, em portugues."
+        )
 
     emp = visita_ctx.get("empresa") or "indefinida"
     srv = visita_ctx.get("tipo") or "indefinido"
