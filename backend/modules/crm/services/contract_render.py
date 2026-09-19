@@ -37,7 +37,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.crm.services import pdf_branding as B
+from modules.crm.services import pdf_branding as B  # noqa: N812 — `B.` curto no meio do layout
 
 # ── As duas prestadoras. Fonte: tabela `empresas` (conferido 19/08). Ficam aqui como
 #    constante de REGRA, não de dado: a resolução tem de ser determinística e testável
@@ -694,8 +694,10 @@ def _foro_e_cidade(row, template: dict) -> dict:
     cidade = do_contrato("cidade_assinatura")
     if not cidade:
         # cidade do cliente: `clients` guarda em address_city/address_state (não há `cidade`)
-        c, uf = (row["cliente_cidade"] if "cliente_cidade" in row.keys() else None), \
-                (row["cliente_uf"] if "cliente_uf" in row.keys() else None)
+        c, uf = (
+            (row["cliente_cidade"] if "cliente_cidade" in row.keys() else None),
+            (row["cliente_uf"] if "cliente_uf" in row.keys() else None),
+        )
         if c:
             cidade = f"{str(c).strip()}/{str(uf).strip()}" if uf else str(c).strip()
     if not cidade:
@@ -895,8 +897,7 @@ def renderizar(corpo: str, ctx: dict) -> str:
 _SLUG = {PATRIMONIAL[1]: "conecta_patrimonial", ELETRONICA[1]: "conecta_eletronica"}
 
 
-def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
-                     assinaturas: list | None = None) -> str:
+def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict, assinaturas: list | None = None) -> str:
     """Resolve `[[...]]` na versão TEXTO, espelhando o que o PDF vai mostrar.
 
     Não é cosmético: é o texto que o agente lê para conferir o instrumento sem abrir
@@ -934,23 +935,52 @@ def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
         texto = texto.replace("[[TABELA_COMPOSICAO]]", "\n".join(linhas))
 
     if "[[BLOCO_ASSINATURAS]]" in texto:
-        assina = list(assinaturas or [])
+        # ⚠️ 18/09/2026 — esta montagem e a de `_bloco_assinaturas` (os quadros do PDF) são
+        # o MESMO bloco escrito duas vezes. Esta alimenta o `texto_extraido` — como o agente
+        # confere o documento sem abrir binário — e, nos modelos que trazem
+        # [[BLOCO_ASSINATURAS]] no corpo, o PRÓPRIO PDF. Elas divergiam nos DOIS estados:
+        #
+        #   · ASSINADO  — o quadro escrevia «Assinado eletronicamente por X»; aqui saía
+        #     «✔ assinado ... por X». O oráculo procurava a primeira e acusou o
+        #     CTR-2026-00019 de esconder a assinatura do Jordan, que estava lá com outra letra.
+        #   · PENDENTE  — o quadro escrevia «Aguardando assinatura eletrônica»; aqui não
+        #     saía NADA. O CTR-2026-00025, que ninguém assinou, listava as duas partes como
+        #     se estivesse firmado. Contrato que não se declara pendente é documento fabricado.
+        #
+        # E o silencioso: a data nunca saiu. `assinaturas_do_contrato` devolve a chave
+        # `quando`; o trecho lia `data`, que não existe em lugar nenhum — o `if` dava falso e
+        # o carimbo saía sem quando desde sempre, sem erro.
+        #
+        # Por isso o estado agora sai POR PARTE, dentro do mesmo laço que imprime a parte, e
+        # não numa varredura solta no fim: quem não assinou tem que aparecer não assinando.
+        assinadas = {(a.get("papel") or "").lower(): a for a in (assinaturas or [])}
         linhas = ["ASSINATURAS", ""]
         for papel, ent, pessoa, cargo in (
-            ("CONTRATADA", ctx.get("contratada_razao_social") or ctx.get("contratada_nome"),
-             ctx.get("contratada_representante"), ctx.get("contratada_cargo")),
-            ("CONTRATANTE", ctx.get("contratante_nome"),
-             ctx.get("contratante_representante"), ctx.get("contratante_cargo")),
+            (
+                "CONTRATADA",
+                ctx.get("contratada_razao_social") or ctx.get("contratada_nome"),
+                ctx.get("contratada_representante"),
+                ctx.get("contratada_cargo"),
+            ),
+            (
+                "CONTRATANTE",
+                ctx.get("contratante_nome"),
+                ctx.get("contratante_representante"),
+                ctx.get("contratante_cargo"),
+            ),
         ):
             linhas.append(f"  {papel}: {ent or '—'}")
             linhas.append(f"    por {pessoa or '—'}" + (f" · {cargo}" if cargo else ""))
+            a_ = assinadas.get(papel.lower())
+            if a_ and a_.get("nome"):
+                linhas.append(
+                    f"    ✔ Assinado eletronicamente por {a_['nome']}"
+                    + (f" em {a_['quando']}" if a_.get("quando") else "")
+                )
+            else:
+                linhas.append("    Aguardando assinatura eletrônica")
         if ctx.get("testemunhas"):
-            linhas += ["", "  TESTEMUNHA 1: ____________________",
-                       "  TESTEMUNHA 2: ____________________"]
-        for a_ in assina:
-            if a_.get("nome"):
-                linhas.append(f"  ✔ assinado eletronicamente por {a_['nome']}"
-                              + (f" em {a_['data']}" if a_.get("data") else ""))
+            linhas += ["", "  TESTEMUNHA 1: ____________________", "  TESTEMUNHA 2: ____________________"]
         texto = texto.replace("[[BLOCO_ASSINATURAS]]", "\n".join(linhas))
     return texto
 
@@ -976,9 +1006,11 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     """
     from reportlab.lib import colors  # noqa: PLC0415
     from reportlab.lib.styles import ParagraphStyle  # noqa: PLC0415
-    from reportlab.platypus import Table, TableStyle  # noqa: PLC0415
-
-    from reportlab.platypus import Paragraph  # noqa: PLC0415
+    from reportlab.platypus import (  # noqa: PLC0415
+        Paragraph,  # noqa: PLC0415
+        Table,
+        TableStyle,
+    )
 
     # ⭐ 18/09/2026 — §2 da SPEC: a `descricao` do item vai EMBAIXO do nome, em corpo menor.
     # Ela já era gravada em `contract_items.description` (Text, sem limite) e simplesmente
@@ -991,19 +1023,27 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
     # é. Sem imprimir a descrição, a única forma de detalhar era estourar o nome — que era
     # exatamente o que derrubava o servidor com 500.
     est_nome = ParagraphStyle("it_nome", fontName="Helvetica", fontSize=9.5, leading=11.5)
-    est_desc = ParagraphStyle("it_desc", fontName="Helvetica", fontSize=7.8, leading=9.2,
-                              textColor=colors.HexColor("#4A5568"), spaceBefore=1.5)
+    est_desc = ParagraphStyle(
+        "it_desc",
+        fontName="Helvetica",
+        fontSize=7.8,
+        leading=9.2,
+        textColor=colors.HexColor("#4A5568"),
+        spaceBefore=1.5,
+    )
 
     linhas = [["FUNÇÃO/DESCRIÇÃO", "QTD", "PREÇO TOTAL"]]
     tot_qtd = 0
     for it in itens:
-        q = int(it["quantity"] or 0) or 1      # R6-2: nunca imprime zero (ver versão texto)
+        q = int(it["quantity"] or 0) or 1  # R6-2: nunca imprime zero (ver versão texto)
         tot_qtd += q
         nome = it["service_name"] or "—"
         desc = (it["description"] or "").strip() if "description" in it.keys() else ""
-        celula = ([Paragraph(f"<b>{_esc(nome)}</b>", est_nome),
-                   Paragraph(_esc(desc), est_desc)] if desc
-                  else Paragraph(f"<b>{_esc(nome)}</b>", est_nome))
+        celula = (
+            [Paragraph(f"<b>{_esc(nome)}</b>", est_nome), Paragraph(_esc(desc), est_desc)]
+            if desc
+            else Paragraph(f"<b>{_esc(nome)}</b>", est_nome)
+        )
         linhas.append([celula, str(q), brl(it["total_price"] or 0)])
     # R8-1: sem quantidade na linha de total — ver a versão em texto para o motivo.
     linhas.append(["TOTAL MENSAL", "", total_fmt])
@@ -1393,19 +1433,25 @@ def build_pdf_do_texto(
 
     # mesmo cabeçalho/rodapé/selo do contract_pdf, MAS com a empresa certa
     marca = B.empresa_branding(_SLUG.get(cnpj_contratada or "", "conecta_eletronica"))
+
     # `titulo` no canto superior direito: o header_footer já aceitava e eu não passava —
     # por isso o timbrado saía sem identificação do documento, ao contrário do padrão-ouro
     # da Eletrônica.
     # pular_primeira=True quando há capa: a capa é a própria identidade da página, e o
     # cabeçalho por cima dela é o que descaracteriza o padrão-ouro.
-    cb = lambda cv, dc: B.header_footer(
-        cv,
-        dc,
-        empresa=marca,
-        titulo="Contrato",  # noqa: E731
-        seal_watermark=True,
-        pular_primeira=bool(capa),
-    )
+    def cb(cv, dc):
+        # `def` e não lambda: o `ruff format` quebra a lambda em várias linhas e leva junto o
+        # `# noqa: E731` para a linha de dentro, onde ele não silencia nada — o commit seguinte
+        # trava num lint que ninguém introduziu. Mesma família do que já cegou parser aqui.
+        return B.header_footer(
+            cv,
+            dc,
+            empresa=marca,
+            titulo="Contrato",
+            seal_watermark=True,
+            pular_primeira=bool(capa),
+        )
+
     doc.build(el, onFirstPage=cb, onLaterPages=cb)
     return buf.getvalue()
 
@@ -1551,8 +1597,11 @@ async def renderizar_contrato(
     # mandar para o cliente, e os dois eram exatamente o que faltava.
     # no contrato de valor ÚNICO a régua é o TOTAL: `valor_mensal_fmt` é R$ 0,00 ali, e a
     # tabela sairia somando parcelas para um total zerado — que é pior que não ter tabela.
-    _total_da_tabela = ctx.get("valor_total_fmt") if ctx.get("valor_total_fmt") and str(
-        ctx.get("valor_mensal_fmt", "")).endswith("0,00") else ctx["valor_mensal_fmt"]
+    _total_da_tabela = (
+        ctx.get("valor_total_fmt")
+        if ctx.get("valor_total_fmt") and str(ctx.get("valor_mensal_fmt", "")).endswith("0,00")
+        else ctx["valor_mensal_fmt"]
+    )
     texto = _blocos_em_texto(texto, list(itens), _total_da_tabela, ctx, assinaturas)
 
     # subtítulo da capa = o próprio título do instrumento, que é a 1ª linha do modelo.
