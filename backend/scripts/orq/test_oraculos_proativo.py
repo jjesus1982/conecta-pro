@@ -55,6 +55,22 @@ from modules.notifications.proativo.tasks import _avaliar, _digest
 
 MARK = "__ORC53__"  # marcador único dos seeds sintéticos (dupla garantia de limpeza)
 
+#: ⚠️ 19/09/2026 — UM lugar só, e ele precisa listar TUDO que esta suíte escreve.
+#: `digest_central` faltava, e o buraco era mudo nos TRÊS usos: o snapshot pré-teste não via
+#: essas linhas, o DELETE não as removia, e a contagem final de remanescentes não as contava.
+#: Resultado: a PROVA 7 dizia «0 remanescentes» com toda a sinceridade, olhando por um filtro
+#: que excluía justamente o que a suíte tinha acabado de criar.
+#:
+#: O efeito em produção, medido: todo dia por volta de 00:35 — quando a varredura da meia-noite
+#: chega neste oráculo — o digest «Conecta PRO — N item(ns) esperando você» era gravado para o
+#: jjesus e o pjesus. Notificação de verdade, para gente de verdade, criada por um teste; e
+#: depois a rotina legítima não mandava nada, porque o dedup via que o dia já tinha digest.
+#: Acontecia desde 16/09 e quem pegou foi `checar_desmonte_comportamento`.
+#:
+#: Regra: se a suíte pode CRIAR uma origem, ela tem de estar aqui. Ver a lição do filtro que
+#: descarta calado — «0 falhas» não é «0 esquecidos».
+ORIGENS_DA_SUITE = "('proativo','proativo_digest','digest_central')"
+
 # Fonte-de-verdade por regra p/ o oráculo 1 (self-oracle: count == len(detectar)).
 _FONTES = {
     "posto_descoberto": "SELECT count(*) FROM posts WHERE is_active AND current_headcount < required_headcount",
@@ -112,7 +128,7 @@ async def main() -> int:
                 await db.execute(
                     text(
                         "SELECT id::text FROM communication_notifications "
-                        "WHERE extra_data->>'origem' IN ('proativo','proativo_digest')"
+                        f"WHERE extra_data->>'origem' IN {ORIGENS_DA_SUITE}"
                     )
                 )
             )
@@ -618,7 +634,7 @@ async def main() -> int:
             await db.execute(
                 text(
                     "DELETE FROM communication_notifications "
-                    "WHERE extra_data->>'origem' IN ('proativo','proativo_digest') "
+                    f"WHERE extra_data->>'origem' IN {ORIGENS_DA_SUITE} "
                     "AND id::text <> ALL(:pre)"
                 ),
                 {"pre": pre_list},
@@ -638,7 +654,7 @@ async def main() -> int:
                     await db.execute(
                         text(
                             "SELECT count(*) FROM communication_notifications "
-                            "WHERE extra_data->>'origem' IN ('proativo','proativo_digest') "
+                            f"WHERE extra_data->>'origem' IN {ORIGENS_DA_SUITE} "
                             "AND id::text <> ALL(:pre)"
                         ),
                         {"pre": pre_list},
