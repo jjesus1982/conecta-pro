@@ -2,6 +2,16 @@
   "gerado_de": "git log -- mcp-server/",
   "entradas": [
     {
+      "commit": "8b632cef0",
+      "data": "2026-09-18",
+      "mudanca": "feat(contratos): SPEC R8 — congelado não se altera por baixo, e o TOTAL não tem quantidade"
+    },
+    {
+      "commit": "fab638cac",
+      "data": "2026-09-18",
+      "mudanca": "chore(mcp): changelog regenerado"
+    },
+    {
       "commit": "1bd9d08c3",
       "data": "2026-09-18",
       "mudanca": "feat(contratos): SPEC R6 — congela o documento, e o Cowork estava certo no A1"
@@ -190,16 +200,6 @@
       "commit": "3ea3a34d1",
       "data": "2026-09-11",
       "mudanca": "chore(mcp): changelog regenerado + imagem reassada com sandbox e request_id"
-    },
-    {
-      "commit": "ecb91f555",
-      "data": "2026-09-11",
-      "mudanca": "feat(mcp): sandbox e request_id — o P2 que faltava para o prompt fechar 100%"
-    },
-    {
-      "commit": "7adc88edd",
-      "data": "2026-09-11",
-      "mudanca": "chore(mcp): changelog regenerado + imagem reassada"
     }
   ]
 }
