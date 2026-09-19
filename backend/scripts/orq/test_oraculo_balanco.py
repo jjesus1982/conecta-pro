@@ -21,6 +21,7 @@ O que este oráculo trava:
 Roda:
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_balanco.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,10 +40,18 @@ TOLERANCIA = 0.01
 
 async def _saldo(db, prefixo: str) -> float:
     """Saldo DEVEDOR do grupo (débitos − créditos)."""
-    return float((await db.execute(text(
-        f"SELECT coalesce(sum(CASE WHEN conta_debito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
-        f"     - coalesce(sum(CASE WHEN conta_credito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
-        f"FROM accounting_entries"))).scalar() or 0)
+    return float(
+        (
+            await db.execute(
+                text(
+                    f"SELECT coalesce(sum(CASE WHEN conta_debito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
+                    f"     - coalesce(sum(CASE WHEN conta_credito LIKE '{prefixo}%' THEN valor ELSE 0 END), 0) "
+                    f"FROM accounting_entries"
+                )
+            )
+        ).scalar()
+        or 0
+    )
 
 
 async def main() -> None:
@@ -57,17 +66,21 @@ async def main() -> None:
         if abs(dif) > TOLERANCIA:
             falhas.append(
                 f"balanço NÃO fecha por R$ {dif:,.2f} — ativo R$ {ativo:,.2f} contra "
-                f"passivo R$ {passivo:,.2f} + PL R$ {pl:,.2f} + resultado R$ {resultado:,.2f}")
+                f"passivo R$ {passivo:,.2f} + PL R$ {pl:,.2f} + resultado R$ {resultado:,.2f}"
+            )
         else:
-            print(f"OK balanço fecha: ativo R$ {ativo:,.2f} = passivo R$ {passivo:,.2f} "
-                  f"+ PL R$ {pl:,.2f} + resultado em curso R$ {resultado:,.2f}")
+            print(
+                f"OK balanço fecha: ativo R$ {ativo:,.2f} = passivo R$ {passivo:,.2f} "
+                f"+ PL R$ {pl:,.2f} + resultado em curso R$ {resultado:,.2f}"
+            )
 
         # ── (b) a conta de passagem está vazia ───────────────────────────────
         passagem = round(await _saldo(db, "3.3.1.01"), 2)
         if abs(passagem) > TOLERANCIA:
             falhas.append(
                 f"conta de apuração 3.3.1.01 com saldo de R$ {passagem:,.2f} — a apuração "
-                f"ficou pela metade e o balanço fecha mentindo")
+                f"ficou pela metade e o balanço fecha mentindo"
+            )
         else:
             print("OK conta de apuração vazia: a apuração não ficou pela metade")
 
@@ -77,7 +90,10 @@ async def main() -> None:
         # 4.x, então uma fórmula que só olha `conta_debito LIKE '5%'` enxerga a
         # despesa original e ignora a baixa — e acusa competência já encerrada.
         # (Foi o que aconteceu na primeira versão: 42 falsos positivos.)
-        abertas = (await db.execute(text("""
+        abertas = (
+            (
+                await db.execute(
+                    text("""
             WITH mov AS (
                 SELECT periodo_competencia AS comp, conta_debito AS conta, valor AS v
                   FROM accounting_entries WHERE periodo_competencia IS NOT NULL
@@ -89,13 +105,44 @@ async def main() -> None:
             FROM mov
             WHERE comp < :mes AND (conta LIKE '4%' OR conta LIKE '5%')
             GROUP BY 1 HAVING abs(sum(v)) > 0.01 ORDER BY 1
-        """), {"mes": f"{hoje:%Y-%m}"})).mappings().all()
+        """),
+                    {"mes": f"{hoje:%Y-%m}"},
+                )
+            )
+            .mappings()
+            .all()
+        )
         if abertas:
             falhas.append(
                 f"{len(abertas)} competência(s) FECHADA(s) com resultado em aberto: "
-                f"{', '.join(a['comp'] for a in abertas[:6])} — rode a apuração")
+                f"{', '.join(a['comp'] for a in abertas[:6])} — rode a apuração"
+            )
         else:
             print("OK toda competência fechada foi encerrada contra o PL")
+
+        # ── (d2) a apuração FECHA RESÍDUO de lançamento retroativo ───────────
+        # 18/09/2026: 2026-08 foi apurada em 07/09 e DEPOIS chegaram uma folha manual de
+        # R$ 132.524,09 e notas tomadas até 17/09. Sobraram R$ 21.175,06 abertos, o balanço
+        # acusando todo dia, e a apuração se RECUSANDO a rodar: o `documento_ref` dizia que
+        # ela já tinha rodado, e o saldo era calculado ignorando os próprios lançamentos de
+        # apuração — então rodar de novo fecharia o mês inteiro em dobro.
+        #
+        # Consertado na raiz: o saldo passa a incluir a apuração (vira o RESÍDUO de verdade) e
+        # a idempotência vem de «não sobrou nada», que é fato, não de «já rodei», que é
+        # lembrança. Esta trava afirma as DUAS metades — senão a próxima pessoa "conserta" uma
+        # e reabre a outra.
+        from modules.financial.services.apuracao_resultado import apurar  # noqa: PLC0415
+
+        fechada = f"{hoje.year}-{hoje.month - 1:02d}" if hoje.month > 1 else f"{hoje.year - 1}-12"
+        seca = apurar(fechada, preview=True)
+        if seca.get("ok") and int(seca.get("contas_encerradas") or 0) != 0:
+            falhas.append(
+                f"a apuração de {fechada} quer encerrar {seca['contas_encerradas']} conta(s) de "
+                f"novo (R$ {seca.get('resultado')}) — ou ficou resíduo aberto, ou ela voltou a "
+                f"calcular o saldo ignorando os próprios lançamentos e fecharia em DOBRO"
+            )
+        else:
+            print(f"OK a apuração de {fechada} não tem o que encerrar — idempotente pelo FATO")
 
         # ── (e) o DRE concorda com a apuração ────────────────────────────────
         # Dois caminhos independentes para o mesmo número: o DRE agrega 4.x/5.x
@@ -104,7 +151,10 @@ async def main() -> None:
         # exatamente o que aconteceu até 13/08, quando o DRE tratava `4.1.1` como
         # "pessoal" (plano antigo) e mostrava a RECEITA de julho como CUSTO.
         for comp in ("2026-06", "2026-07"):
-            dre = float((await db.execute(text("""
+            dre = float(
+                (
+                    await db.execute(
+                        text("""
                 WITH mov AS (
                     SELECT conta_debito AS conta, valor AS v FROM accounting_entries
                      WHERE status='confirmado' AND coalesce(tipo_lancamento,'') <> 'apuracao'
@@ -116,35 +166,58 @@ async def main() -> None:
                 )
                 SELECT -coalesce(sum(v), 0) FROM mov
                 WHERE conta LIKE '4%' OR conta LIKE '5%'
-            """), {"c": comp})).scalar() or 0)
-            apu = float((await db.execute(text("""
+            """),
+                        {"c": comp},
+                    )
+                ).scalar()
+                or 0
+            )
+            apu = float(
+                (
+                    await db.execute(
+                        text("""
                 SELECT coalesce(sum(CASE WHEN conta_credito = '3.2.1.01' THEN valor
                                          ELSE -valor END), 0)
                 FROM accounting_entries
                 WHERE tipo_lancamento = 'apuracao' AND periodo_competencia = :c
                   AND (conta_debito = '3.2.1.01' OR conta_credito = '3.2.1.01')
-            """), {"c": comp})).scalar() or 0)
+            """),
+                        {"c": comp},
+                    )
+                ).scalar()
+                or 0
+            )
             if abs(round(dre - apu, 2)) > TOLERANCIA:
                 falhas.append(
                     f"{comp}: o DRE diz R$ {dre:,.2f} e a apuração levou R$ {apu:,.2f} ao PL "
-                    f"— diferença de R$ {dre - apu:,.2f}; um dos dois lê o plano errado")
+                    f"— diferença de R$ {dre - apu:,.2f}; um dos dois lê o plano errado"
+                )
             else:
                 print(f"OK {comp}: DRE R$ {dre:,.2f} = resultado levado ao PL")
 
         # ── (d) conta desativada do PL não volta a ser usada ─────────────────
-        mortas = (await db.execute(text("""
+        mortas = (
+            (
+                await db.execute(
+                    text("""
             SELECT c.code, count(*) AS n
             FROM fin_accounting_accounts c
             JOIN accounting_entries a
               ON a.conta_debito = c.code OR a.conta_credito = c.code
             WHERE c.code LIKE '3%' AND c.status <> 'ACTIVE'
             GROUP BY 1
-        """))).mappings().all()
+        """)
+                )
+            )
+            .mappings()
+            .all()
+        )
         if mortas:
             falhas.append(
                 "lançamento em conta de PL DESATIVADA: "
                 + ", ".join(f"{m['code']} ({m['n']})" for m in mortas)
-                + " — linha de serviço/alíquota não é patrimônio")
+                + " — linha de serviço/alíquota não é patrimônio"
+            )
         else:
             print("OK nenhuma conta desativada do PL voltou a ser usada")
 
