@@ -17,6 +17,7 @@ Identidades reais (verificadas contra o banco vivo):
 - CLIENTE  = um ged_client com portal habilitado + outro (resolvidos em runtime)
 - DIRETORIA= papel `admin` (delega ao executivo)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,11 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _fixtures import exigir_usuario, exigir_usuario_com_colaborador  # noqa: E402
+from _fixtures import (  # noqa: E402
+    exigir_usuario,
+    exigir_usuario_com_colaborador,
+    exigir_usuario_com_escopo,
+)
 from sqlalchemy import text  # noqa: E402
 
 from core.database import async_session_factory
@@ -34,9 +39,10 @@ from modules.ai.conversation.controllers.consultor_escopado_controller import (
     ConsultarIn,
     _resolver_tier_e_tools,
     _system_for,
+)
+from modules.ai.conversation.controllers.consultor_escopado_controller import (
     consultar as scoped_consultar,
 )
-from modules.ai.conversation.services.orquestrador.engine import OrqScope
 from modules.ai.conversation.services.orquestrador import tool_registry as tr
 
 # Garante o REGISTRY completo (o controller já importa modulos/posto/self/ponto; cliente não).
@@ -47,6 +53,7 @@ from modules.ai.conversation.services.orquestrador import (  # noqa: F401
     tools_posto,
     tools_self,
 )
+from modules.ai.conversation.services.orquestrador.engine import OrqScope
 
 MOTIVO = "TESTE ORACULO ORQ RBAC — apagar"
 
@@ -54,7 +61,11 @@ MOTIVO = "TESTE ORACULO ORQ RBAC — apagar"
 # dois UUIDs; quando alguém sai da empresa o oráculo estoura e a falha se disfarça de
 # defeito de RBAC. Papel e pré-condição ("um CLT com batidas", "um cliente com portal") é
 # o que o teste realmente precisa.
-PAPEL_GESTOR = "supervisor"  # dá {dp, ged, operacional, sst} — o antigo gerente_operacional
+# O gestor é pedido pelo ESCOPO, não pelo papel: em 18/09/2026 não havia NENHUM
+# `supervisor` ativo (o único, o Eliziel, está inativo) e o oráculo parou de rodar —
+# vermelho de cadastro, com o RBAC intacto. O que estes oráculos afirmam é sobre o
+# conjunto de módulos, então é ele que se pede. Ver `exigir_usuario_com_escopo`.
+ESCOPO_GESTOR = {"dp", "ged", "operacional", "sst"}
 PAPEL_LIDER = "lider"
 PAPEL_ADMIN = "admin"
 
@@ -66,14 +77,20 @@ GREEN_HILLS = ""
 async def _resolver_alvos(db) -> None:
     """Escolhe um colaborador com batidas e um cliente com portal ligado."""
     global CELIANE_EMP, GREEN_HILLS
-    CELIANE_EMP = (await db.execute(text(
-        "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id IS NOT NULL "
-        "GROUP BY employee_id ORDER BY count(*) DESC LIMIT 1"
-    ))).scalar()
+    CELIANE_EMP = (
+        await db.execute(
+            text(
+                "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id IS NOT NULL "
+                "GROUP BY employee_id ORDER BY count(*) DESC LIMIT 1"
+            )
+        )
+    ).scalar()
     assert CELIANE_EMP, "pré-condição: nenhum colaborador com batidas de ponto no banco"
-    GREEN_HILLS = (await db.execute(text(
-        "SELECT id::text FROM ged_clients WHERE portal_access_enabled = true ORDER BY id LIMIT 1"
-    ))).scalar()
+    GREEN_HILLS = (
+        await db.execute(
+            text("SELECT id::text FROM ged_clients WHERE portal_access_enabled = true ORDER BY id LIMIT 1")
+        )
+    ).scalar()
     assert GREEN_HILLS, "pré-condição: nenhum ged_client com portal_access_enabled"
 
 
@@ -84,11 +101,18 @@ async def _user(db, papel: str):
     return await exigir_usuario(db, papel)
 
 
+async def _gestor(db):
+    """Quem tem o escopo de gestor hoje — por escopo, não por papel (ver ESCOPO_GESTOR)."""
+    usuario, _quem = await exigir_usuario_com_escopo(db, ESCOPO_GESTOR)
+    return usuario
+
+
 # ── Oráculos (cada um retorna None se PASS; levanta AssertionError se a fronteira vazar) ──
+
 
 async def oraculo_1_gestor(db) -> None:
     """GESTOR NÃO vê financeiro/fiscal: nem no belt (tools), nem no handler."""
-    gonzaga = await _user(db, PAPEL_GESTOR)
+    gonzaga = await _gestor(db)
     scope, tools = await _resolver_tier_e_tools(db, gonzaga)
     names = {t.name for t in tools}
     assert "panorama_financeiro" not in names, f"financeiro VAZOU no belt do gestor: {names}"
@@ -101,7 +125,7 @@ async def oraculo_1_gestor(db) -> None:
             await tr.get_tool(tool_name).handler(db, gonzaga, None)
         except PermissionError:
             barrou = True
-        assert barrou, f"handler {tool_name} NÃO barrou o gestor (papel {PAPEL_GESTOR})"
+        assert barrou, f"handler {tool_name} NÃO barrou quem tem o escopo {sorted(ESCOPO_GESTOR)} — {modulo} vazou"
 
 
 async def oraculo_2_lider(db) -> None:
@@ -113,12 +137,14 @@ async def oraculo_2_lider(db) -> None:
 
     # Escopo com post_ids=[] (outro líder sem posto / posto alheio) => aguardando dado, nunca dado.
     vazio = await tr.get_tool("posto_escala_hoje").handler(
-        db, None, OrqScope(tier="lider", post_ids=[], employee_id=scope.employee_id))
+        db, None, OrqScope(tier="lider", post_ids=[], employee_id=scope.employee_id)
+    )
     assert vazio.get("status") == "aguardando dado", f"posto alheio VAZOU: {vazio}"
 
     # E com o próprio escopo, retorna postos (só os dele, por construção da query).
     proprio = await tr.get_tool("posto_escala_hoje").handler(
-        db, None, OrqScope(tier="lider", post_ids=scope.post_ids, employee_id=scope.employee_id))
+        db, None, OrqScope(tier="lider", post_ids=scope.post_ids, employee_id=scope.employee_id)
+    )
     assert "postos" in proprio, f"líder não obteve o próprio posto: {proprio}"
 
 
@@ -126,15 +152,16 @@ async def oraculo_3_clt_self(db) -> None:
     """CLT não alcança OUTRO colaborador: a self-tool aceita **_ (chave extra do LLM não
     quebra), mas o employee_id injetado é INERTE — o escopo vem SÓ de scope.employee_id.
     Prova por igualdade: resultado com employee_id de OUTRO injetado == resultado sem injeção."""
-    outro = (await db.execute(text(
-        "SELECT employee_id::text FROM gp_clock_punches WHERE employee_id <> :e LIMIT 1"
-    ), {"e": CELIANE_EMP})).scalar()
+    outro = (
+        await db.execute(
+            text("SELECT employee_id::text FROM gp_clock_punches WHERE employee_id <> :e LIMIT 1"), {"e": CELIANE_EMP}
+        )
+    ).scalar()
     assert outro, "pré-condição: precisa existir batida de OUTRO colaborador"
 
     tool = tr.get_tool("meu_ponto")
     plain = await tool.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP))
-    injet = await tool.handler(
-        db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
+    injet = await tool.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id=outro)  # type: ignore[call-arg]
     assert injet == plain, "meu_ponto USOU employee_id injetado — self-only quebrado (deve ser INERTE)"
 
 
@@ -143,24 +170,25 @@ async def oraculo_4_clt_justifica(db) -> None:
     Escreve UMA linha; limpa por id no finally e prova 0 remanescentes."""
     jid = None
     try:
-        antes = (await db.execute(
-            text("SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e"),
-            {"e": CELIANE_EMP})).scalar()
+        antes = (
+            await db.execute(text("SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e"), {"e": CELIANE_EMP})
+        ).scalar()
 
         out = await tr.get_tool("justificar_ajuste_de_ponto").handler(
-            db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), motivo=MOTIVO)
+            db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), motivo=MOTIVO
+        )
         jid = out.get("justification_id")
         assert jid, f"justificar não retornou justification_id: {out}"
         assert out.get("status") == "pendente", f"status esperado 'pendente', veio {out.get('status')}"
 
-        st = (await db.execute(
-            text("SELECT status FROM gp_justifications WHERE justification_id = :j"),
-            {"j": jid})).scalar()
+        st = (
+            await db.execute(text("SELECT status FROM gp_justifications WHERE justification_id = :j"), {"j": jid})
+        ).scalar()
         assert st == "pendente", f"gravou status != pendente: {st}"
 
-        depois = (await db.execute(
-            text("SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e"),
-            {"e": CELIANE_EMP})).scalar()
+        depois = (
+            await db.execute(text("SELECT count(*) FROM gp_clock_punches WHERE employee_id = :e"), {"e": CELIANE_EMP})
+        ).scalar()
         assert depois == antes, f"gp_clock_punches ALTERADO (antes={antes}, depois={depois})"
     finally:
         # Limpeza por id (e varredura por reason p/ idempotência) + prova 0 remanescentes.
@@ -168,8 +196,9 @@ async def oraculo_4_clt_justifica(db) -> None:
             await db.execute(text("DELETE FROM gp_justifications WHERE justification_id = :j"), {"j": jid})
         await db.execute(text("DELETE FROM gp_justifications WHERE reason = :r"), {"r": MOTIVO})
         await db.commit()
-        remanescentes = (await db.execute(
-            text("SELECT count(*) FROM gp_justifications WHERE reason = :r"), {"r": MOTIVO})).scalar()
+        remanescentes = (
+            await db.execute(text("SELECT count(*) FROM gp_justifications WHERE reason = :r"), {"r": MOTIVO})
+        ).scalar()
         assert remanescentes == 0, f"LIMPEZA FALHOU: {remanescentes} justificativa(s) de teste remanescente(s)"
 
 
@@ -187,12 +216,14 @@ async def oraculo_5_cliente(db) -> None:
     assert semcid.get("status") == "aguardando dado", f"sem client_id NÃO retornou aguardando: {semcid}"
 
     # (c) Outro condomínio: isolado por client_id (a tool só usa scope.client_id).
-    outro_cond = (await db.execute(text(
-        "SELECT id::text FROM ged_clients WHERE portal_access_enabled = true AND id <> :g LIMIT 1"
-    ), {"g": GREEN_HILLS})).scalar()
+    outro_cond = (
+        await db.execute(
+            text("SELECT id::text FROM ged_clients WHERE portal_access_enabled = true AND id <> :g LIMIT 1"),
+            {"g": GREEN_HILLS},
+        )
+    ).scalar()
     assert outro_cond, "pré-condição: precisa existir OUTRO condomínio com portal habilitado"
-    o = await tr.get_tool("notas_condominio").handler(
-        db, None, OrqScope(tier="cliente", client_id=outro_cond))
+    o = await tr.get_tool("notas_condominio").handler(db, None, OrqScope(tier="cliente", client_id=outro_cond))
     assert isinstance(o, dict), f"notas de outro condomínio não retornou dict: {o!r}"
 
 
@@ -217,7 +248,8 @@ async def oraculo_6_diretoria(db) -> None:
         admin = await _user(db, PAPEL_ADMIN)
         assert (admin.role or "").lower() == "admin", f"papel {PAPEL_ADMIN} não é admin: role={admin.role}"
         out = await scoped_consultar(
-            ConsultarIn(pergunta="Rota diretoria — teste oráculo (delegação)"), db=db, user=admin)
+            ConsultarIn(pergunta="Rota diretoria — teste oráculo (delegação)"), db=db, user=admin
+        )
         assert out.get("tier") == "diretoria", f"admin NÃO delegou ao executivo: tier={out.get('tier')}"
         assert out.get("resposta"), f"executivo não respondeu: {out}"
     finally:
@@ -233,24 +265,29 @@ async def oraculo_7_injecao_inerte(db) -> None:
     self_tool = tr.get_tool("meu_ponto")
     self_plain = await self_tool.handler(db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP))
     self_injet = await self_tool.handler(
-        db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP),
-        employee_id="00000000-0000-0000-0000-000000000000")  # type: ignore[call-arg]
+        db, None, OrqScope(tier="clt", employee_id=CELIANE_EMP), employee_id="00000000-0000-0000-0000-000000000000"
+    )  # type: ignore[call-arg]
     assert self_injet == self_plain, "self-tool USOU employee_id injetado (deveria ser inerte)"
 
     # (b) cliente: injetar client_id de OUTRO condomínio NÃO muda o resultado (usa scope.client_id).
-    outro_cond = (await db.execute(text(
-        "SELECT id::text FROM ged_clients WHERE portal_access_enabled = true AND id <> :g LIMIT 1"
-    ), {"g": GREEN_HILLS})).scalar()
+    outro_cond = (
+        await db.execute(
+            text("SELECT id::text FROM ged_clients WHERE portal_access_enabled = true AND id <> :g LIMIT 1"),
+            {"g": GREEN_HILLS},
+        )
+    ).scalar()
     doc = tr.get_tool("buscar_documento_condominio")
     plain = await doc.handler(db, None, OrqScope(tier="cliente", client_id=GREEN_HILLS), tipo="boleto")
     injet = await doc.handler(
-        db, None, OrqScope(tier="cliente", client_id=GREEN_HILLS), tipo="boleto", client_id=outro_cond)  # type: ignore[call-arg]
+        db, None, OrqScope(tier="cliente", client_id=GREEN_HILLS), tipo="boleto", client_id=outro_cond
+    )  # type: ignore[call-arg]
     assert injet == plain, "injeção de client_id ALTEROU o resultado — vazamento cross-condomínio"
 
     # (c) posto: injetar post_ids com o escopo vazio => segue 'aguardando dado' (scope vence o argumento).
     real_post = (await db.execute(text("SELECT id::text FROM posts WHERE is_active = true LIMIT 1"))).scalar()
     vazio = await tr.get_tool("posto_escala_hoje").handler(
-        db, None, OrqScope(tier="lider", post_ids=[], employee_id=None), post_ids=[real_post])  # type: ignore[call-arg]
+        db, None, OrqScope(tier="lider", post_ids=[], employee_id=None), post_ids=[real_post]
+    )  # type: ignore[call-arg]
     assert vazio.get("status") == "aguardando dado", f"injeção de post_ids VAZOU posto: {vazio}"
 
 
@@ -305,6 +342,7 @@ async def main() -> int:
                 print(f"ORACULO {rotulo} PASS")
             except Exception as e:  # noqa: BLE001 — um oráculo não derruba os outros; conta como FAIL
                 from modules.ai.conversation.services.llm_credit_alert import _e_erro_de_credito
+
                 if _e_erro_de_credito(str(e)):
                     # provedor de LLM sem crédito (402) não é defeito de RBAC: BLOQUEADO,
                     # não FAIL — o oráculo 6 caiu assim em 06/09/2026 com 7/8 verdes.
