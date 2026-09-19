@@ -41,6 +41,33 @@ from modules.crm.schemas.contract import (
 )
 
 
+# Campos que APARECEM no documento renderizado. Alterar qualquer um deles depois do
+# congelamento faz o registro divergir do papel que foi (ou vai ser) assinado.
+# ⚠️ `sla_config` está aqui porque guarda `foro` e `cidade_assinatura` — cláusula de eleição
+# de foro é texto do instrumento, não configuração.
+CAMPOS_NO_DOCUMENTO = frozenset({
+    "name", "monthly_value", "total_value", "start_date", "end_date", "payment_day",
+    "grace_period_days", "contract_type", "service_type", "client_id", "empresa_id",
+    "template_id", "sla_config", "renewal_period_months", "auto_renewal",
+    "retencao_iss", "retencao_inss", "retencao_csll",
+})
+
+
+class ContratoCongelado(RuntimeError):
+    """O contrato já tem documento congelado e o campo pedido aparece nele.
+
+    ⚠️ NÃO é falta de permissão, e por isso não é 403; não é ausência, e por isso não é 404.
+    É conflito de ESTADO — 409. Mesmo com aprovação humana a alteração seria errada, porque
+    criaria divergência silenciosa entre o registro e o documento assinado.
+    """
+
+    def __init__(self, *, numero: str, campos: list[str], hash_congelado: str) -> None:
+        self.numero, self.campos, self.hash = numero, campos, hash_congelado
+        super().__init__(
+            f"O contrato {numero} tem documento congelado (hash {hash_congelado[:12]}…) e "
+            f"{', '.join(campos)} aparece(m) nele.")
+
+
 class ContractRepository:
     """Repositório para operações de contrato."""
 
@@ -213,6 +240,36 @@ class ContractRepository:
         if not contract:
             return None
 
+        # ⭐ 18/09/2026 — R8-3: CONGELADO é guarda de ESTADO, não de permissão.
+        #
+        # O que havia antes: `DRAFT`/`SUSPENDED` editavam tudo, `ACTIVE` editava quatro campos
+        # e qualquer outro estado caía num `return None` que o controller traduzia em
+        # **404 "não encontrado ou não pode ser editado"**. Três problemas nisso:
+        #
+        #   1. 404 confunde "não existe" com "está congelado". O agente lê 404 e conclui que
+        #      o contrato não existe — mesma classe do 403-para-validação que já consertamos.
+        #   2. `ACTIVE` permitia `sla_config`, e é LÁ que vivem `foro` e `cidade_assinatura`:
+        #      campos que APARECEM no documento congelado. Dava para mudar a cláusula de foro
+        #      de um contrato assinado sem o documento mudar.
+        #   3. `SUSPENDED` editava TUDO, inclusive contrato com conteúdo congelado.
+        #
+        # A régua agora é o CONGELAMENTO, não o rótulo do estado: se existe `content`/
+        # `conteudo_hash`, alterar campo que aparece no documento é recusado — porque o
+        # registro passaria a dizer uma coisa e o papel assinado outra, que é exatamente a
+        # divergência que o congelamento foi feito para impedir.
+        congelado = bool(getattr(contract, "conteudo_hash", None)
+                         or getattr(contract, "content", None))
+        pedidos = {f: v for f, v in data.model_dump(exclude_unset=True).items()
+                   if v is not None}
+        if congelado:
+            no_documento = sorted(set(pedidos) & CAMPOS_NO_DOCUMENTO)
+            if no_documento:
+                raise ContratoCongelado(
+                    numero=getattr(contract, "contract_number", str(contract_id)),
+                    campos=no_documento,
+                    hash_congelado=getattr(contract, "conteudo_hash", None) or "",
+                )
+
         # Apenas rascunhos podem ser editados completamente
         if contract.status not in [ContractStatus.DRAFT, ContractStatus.SUSPENDED]:
             # Contratos ativos permitem apenas algumas atualizações
@@ -221,7 +278,8 @@ class ContractRepository:
                     "description",
                     "account_manager_id",
                     "commercial_manager_id",
-                    "sla_config",
+                    # ⚠️ `sla_config` SAIU: guarda `foro` e `cidade_assinatura`, que estão no
+                    # texto do instrumento. Para mudá-los é reemitir (hash novo) ou aditivo.
                 ]
                 for field, value in data.model_dump(exclude_unset=True).items():
                     if field in allowed_fields and value is not None:

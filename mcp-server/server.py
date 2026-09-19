@@ -758,6 +758,39 @@ def _id_ou_422(valor: str, *, o_que: str, dica: str) -> dict | None:
             "campos_invalidos": [o_que], "recebi": valor}
 
 
+async def _uuid_do_contrato(chave: str) -> str | dict:
+    """Resolve qualquer identificador de contrato para o UUID. Ou envelope.
+
+    ⚠️ `_resolver_contrato` devolve o NÚMERO (CTR-…), que é o que as rotas de EMISSÃO aceitam.
+    As rotas REST de contrato querem o UUID e fazem `uuid.UUID(...)` direto: passar o número
+    estoura com "badly formed hexadecimal UUID string" e sai 500.
+    
+    ⭐ 18/09/2026 — esta lição estava escrita dentro de `obter_contrato` desde 11/09
+    ("identificador certo para a rota errada falha tão bem quanto identificador errado") e
+    `atualizar_contrato` não a aplicava: ela mandava `PUT /crm/contracts/CTR-2026-00025` e
+    NUNCA funcionou com número de contrato. Comentário não é reuso — virou função.
+    """
+    alvo = await _resolver_contrato(chave)
+    if isinstance(alvo, dict):
+        return alvo
+    if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", str(alvo), re.I):
+        return str(alvo)
+    try:
+        # ⚠️ teto 100 nesta rota (acima disso ela recusa com 422). Escrevi 200 de memória e
+        # o helper novo estourou na primeira chamada — o mesmo teto que já me pegou em
+        # /crm/leads horas antes.
+        lista = await erp.get("/crm/contracts", params={"page_size": 100})
+    except Exception as exc:  # noqa: BLE001
+        return erro_envelope(exc)
+    achado = next((c for c in _items(lista)
+                   if str(c.get("contract_number") or "").upper() == str(alvo).upper()), None)
+    if not achado:
+        return {"ok": False, "codigo": "NAO_ENCONTRADO", "http": 404,
+                "mensagem": f"Não achei o contrato {alvo}.",
+                "dica": "listar_contratos(busca=...) ajuda a achar."}
+    return str(achado.get("id"))
+
+
 async def _get_ou_404(rota: str, *, o_que: str, chave: str, dica: str) -> dict:
     """GET que transforma "o banco não entendeu esse id" em 404 com dica.
 
@@ -2665,6 +2698,9 @@ async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None
 
     ⚠️ ESCREVE no Conecta PRO — não é consulta.
     """
+    uuid_alvo = await _uuid_do_contrato(contrato_id)
+    if isinstance(uuid_alvo, dict):
+        return uuid_alvo
     payload: dict[str, Any] = {}
     if valor_mensal is not None:
         payload["monthly_value"] = valor_mensal
@@ -2679,7 +2715,7 @@ async def atualizar_contrato(contrato_id: str, valor_mensal: float | None = None
                 "mensagem": "Nenhum campo foi informado.",
                 "dica": "Informe ao menos um campo a mudar."}
     try:
-        r = await erp.request("PUT", f"/crm/contracts/{contrato_id}", json=payload)
+        r = await erp.request("PUT", f"/crm/contracts/{uuid_alvo}", json=payload)
     except Exception as exc:  # noqa: BLE001
         return {**erro_envelope(exc), "atualizado": False}
     return {"atualizado": True, "numero": r.get("contract_number"), "status": r.get("status")}

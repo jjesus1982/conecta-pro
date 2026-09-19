@@ -922,7 +922,15 @@ def _blocos_em_texto(texto: str, itens: list, total_fmt: str, ctx: dict,
             desc = (it["description"] or "").strip() if "description" in it.keys() else ""
             if desc:
                 linhas.append(f"      {desc}")
-        linhas.append(f"  TOTAL · qtd {tot_qtd} · {total_fmt}")
+        # ⭐ 18/09/2026 — R8-1: a linha de TOTAL não tem quantidade. Somar quantidades de
+        # itens HETEROGÊNEOS não significa nada: 1 sistema + 1 locação não são "2 unidades"
+        # de coisa alguma. Antes imprimia `qtd 0`; o conserto da R6 fez o total somar
+        # (1+1=2), que é errado de outra forma.
+        #
+        # ⚠️ E o critério de aceite da R6 dizia "nenhum caminho produz qtd 0" — foi cumprido
+        # ao pé da letra e o defeito passou por baixo. A régua mirava o VALOR errado em vez
+        # da LINHA errada. Quem escreve o aceite decide o que o teste não vai olhar.
+        linhas.append(f"  TOTAL · {total_fmt}")
         texto = texto.replace("[[TABELA_COMPOSICAO]]", "\n".join(linhas))
 
     if "[[BLOCO_ASSINATURAS]]" in texto:
@@ -997,7 +1005,8 @@ def _tabela_composicao(itens: list, total_fmt: str, st: dict):
                    Paragraph(_esc(desc), est_desc)] if desc
                   else Paragraph(f"<b>{_esc(nome)}</b>", est_nome))
         linhas.append([celula, str(q), brl(it["total_price"] or 0)])
-    linhas.append(["TOTAL MENSAL", str(tot_qtd), total_fmt])
+    # R8-1: sem quantidade na linha de total — ver a versão em texto para o motivo.
+    linhas.append(["TOTAL MENSAL", "", total_fmt])
 
     t = Table(linhas, colWidths=[88 * mm, 22 * mm, 44 * mm], hAlign="CENTER")
     t.setStyle(

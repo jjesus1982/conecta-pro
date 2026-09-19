@@ -889,8 +889,25 @@ async def update_contract(
 
     Apenas contratos em rascunho podem ser editados completamente.
     """
+    from modules.crm.repositories.contract_repository import ContratoCongelado
+
     repo = ContractRepository(db)
-    contract = await repo.update(contract_id, data)
+    try:
+        contract = await repo.update(contract_id, data)
+    except ContratoCongelado as e:
+        # ⭐ 18/09/2026 — R8-3. 409, não 404: o contrato EXISTE e está congelado. O 404 antigo
+        # dizia "não encontrado ou não pode ser editado" — duas coisas opostas na mesma
+        # resposta, e quem lê conclui a errada.
+        raise HTTPException(status_code=409, detail={
+            "ok": False, "codigo": "CONTRATO_CONGELADO", "http": 409,
+            "mensagem": str(e),
+            "dica": ("O documento já foi gerado e tem hash. Para mudar o que aparece nele: "
+                     "reemita com `gerar_contrato_por_modelo` (gera hash novo e avisa a "
+                     "divergência) ou faça um ADITIVO. Alterar só o registro deixaria o "
+                     "papel assinado dizendo outra coisa."),
+            "contrato": e.numero, "campos_no_documento": e.campos,
+            "hash_congelado": e.hash,
+        }) from e
 
     if not contract:
         raise HTTPException(

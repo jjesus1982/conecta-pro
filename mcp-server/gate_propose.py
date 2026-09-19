@@ -167,10 +167,14 @@ CONSEQUENCIAS: dict[str, list[str]] = {
     "revisar_justificativa_ponto": [
         "APROVA ou REJEITA a justificativa de falta/atraso de uma pessoa",
         "a folha lê essa decisão no fechamento do mês — mexe no pagamento dela",
+        # 18/09/2026, R8-4: o critério que a pôs no muro
+        "o erro NÃO aparece agora — aparece no holerite, e aí o pagamento já saiu",
     ],
     "definir_parametros_precificacao": [
         "muda o parâmetro de onde sai TODO preço cotado a partir de agora",
         "os seis valores foram confirmados um a um contra o holerite em 10/08",
+        # 18/09/2026, R8-4: o critério que a pôs no muro
+        "o erro NÃO aparece agora — aparece na próxima proposta, com o cliente na frente",
     ],
     "atualizar_contrato": ["altera um CONTRATO — título executivo, não campo de tela"],
 }
@@ -260,6 +264,18 @@ IRREVERSIVEL: dict[str, str] = {
     "expurgar_documentos_teste": "APAGA documentos do sistema; não há lixeira",
     "excluir_documento": "APAGA o documento; não há lixeira",
     "excluir_campanha": "APAGA a campanha e o histórico dela",
+    # ⭐ 18/09/2026 — R8-4, e o critério que o Cowork escreveu vale registrar: **o erro delas
+    # não aparece na hora.** Parâmetro de precificação errado aparece na PRÓXIMA proposta;
+    # justificativa de ponto errada aparece no HOLERITE. Efeito diferido é o que o muro existe
+    # para pegar, porque quem executa não recebe o feedback que o corrigiria.
+    #
+    # As duas eram `propose` com o muro ABERTO no conector público — a mesma família das onze
+    # de 12/09, e destas eu sabia desde a R6: não mexi então porque mudam o que o dono pode
+    # fazer de dentro do ERP. Ele autorizou.
+    "definir_parametros_precificacao": "muda o parâmetro de TODO preço cotado daqui para "
+                                       "frente — o erro só aparece na próxima proposta",
+    "revisar_justificativa_ponto": "decide a falta de uma pessoa, e a decisão entra na FOLHA "
+                                   "— o erro só aparece no holerite",
     # ⭐ 18/09/2026 — autorizado pelo Jordan. `ativar_contrato` leva o contrato a `active` e,
     # sendo recorrente, LANÇA NO MRR: nasce faturamento recorrente registrado. Cabe no
     # critério escrito acima ("cria obrigação de DINHEIRO") e é irmão de `aceitar_proposta`,

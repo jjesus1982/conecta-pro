@@ -655,6 +655,47 @@ async def extra_envelope_em_toda_leitura() -> str:
     return f"{len(alvos)} leituras: todas com envelope completo e http de cliente"
 
 
+async def extra_total_sem_quantidade() -> str:
+    """A linha de TOTAL da composição não tem quantidade — em nenhum contrato renderizável.
+
+    ⭐ R8-1 (18/09/2026). Antes imprimia `TOTAL · qtd 0`; o conserto da R6 fez o total SOMAR
+    as quantidades (`qtd 2` para 1 sistema + 1 locação), que é errado de outra forma — somar
+    quantidades de itens heterogêneos não significa nada.
+    
+    ⚠️ E a razão de existir esta trava é o meu critério de aceite da R6: ele dizia "nenhum
+    caminho produz `qtd 0`". Foi cumprido ao pé da letra e o defeito passou por baixo, porque
+    a régua mirava o VALOR errado em vez da LINHA errada. Quem escreve o aceite decide o que
+    o teste não vai olhar.
+    """
+    from fastmcp import Client
+
+    alvos = ("CTR-2026-00025", "CTR-2026-00022", "CTR-2026-00019", "CTR-2026-00020")
+    problemas, lidos = [], 0
+    async with Client(S.mcp) as c:
+        for n in alvos:
+            try:
+                d = (await asyncio.wait_for(
+                    c.call_tool("baixar_contrato_pdf",
+                                {"contrato_id": n, "formato": "texto"}), timeout=120)
+                     ).structured_content or {}
+            except Exception:  # noqa: BLE001 — contrato sem documento não reprova esta régua
+                continue
+            texto = str(d.get("texto_extraido") or d.get("texto") or "")
+            if len(texto) < 500:
+                continue
+            lidos += 1
+            # qualquer forma: "TOTAL · qtd", "TOTAL MENSAL · qtd", "TOTAL  qtd 2"…
+            for linha in texto.splitlines():
+                alto = linha.upper()
+                if "TOTAL" in alto and re.search(r"\bQTD\b|QUANTIDADE", alto):
+                    problemas.append(f"{n}: {linha.strip()[:70]}")
+    assert lidos >= 2, f"só {lidos} contrato(s) com texto — a varredura não mediu nada"
+    assert not problemas, (
+        "linha de TOTAL com quantidade — somar quantidades de itens heterogêneos não "
+        "significa nada:\n    " + "\n    ".join(problemas))
+    return f"{lidos} contratos: nenhuma linha de TOTAL com quantidade"
+
+
 CASOS = [
     ("R01 documento legível", r01_documento_legivel),
     ("R02 identificador tolerante", r02_identificador_tolerante),
@@ -681,6 +722,7 @@ CASOS = [
     ("R24 escopo LGPD declarado", r24_escopo_lgpd_declarado),
     ("CP-MCP-003 request_id sempre", extra_request_id_em_toda_falha),
     ("envelope em TODA leitura", extra_envelope_em_toda_leitura),
+    ("R8-1 TOTAL sem quantidade", extra_total_sem_quantidade),
 ]
 
 

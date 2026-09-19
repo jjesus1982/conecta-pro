@@ -180,6 +180,13 @@ class Contract(Base):
     # Documentos
     pdf_file_path = Column(String(500), nullable=True)
 
+    # ⭐ 18/09/2026 — R8-2. As colunas existiam no banco (DDL_R6) e NÃO estavam mapeadas aqui:
+    # o pydantic lê atributo do objeto, então `obter_contrato` devolvia `null` para os três
+    # mesmo com o dado gravado. Schema + DDL sem model é dado que existe e ninguém alcança.
+    conteudo_hash = Column(String(64), nullable=True)
+    emitido_em = Column(DateTime, nullable=True)
+    emitido_por = Column(String(160), nullable=True)
+
     # Responsáveis
     commercial_manager_id = Column(UUID(as_uuid=True), nullable=True)
     account_manager_id = Column(UUID(as_uuid=True), nullable=True)

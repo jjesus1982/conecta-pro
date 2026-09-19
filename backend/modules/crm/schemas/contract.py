@@ -277,6 +277,13 @@ class ContractDetailResponse(ContractResponse):
     signed_by_client: str | None = None
     signed_by_company: str | None = None
     pdf_file_path: str | None = None
+    # ⭐ 18/09/2026 — R8-2: o congelamento existia e era INVISÍVEL de fora. Eu media
+    # `conteudo_hash` do lado de dentro e `obter_contrato` não devolvia — e comparar hash era
+    # o propósito da coisa. Trava que funciona e ninguém consegue auditar é meia trava:
+    # quem consome não tem como saber se o documento que ele lê é o que foi congelado.
+    conteudo_hash: str | None = None
+    emitido_em: datetime | None = None
+    emitido_por: str | None = None
     commercial_manager_id: str | None = None
     account_manager_id: str | None = None
     created_by: str | None = None
