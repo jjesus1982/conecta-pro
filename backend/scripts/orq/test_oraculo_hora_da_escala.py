@@ -20,6 +20,7 @@ precisa de gente.
 
 Roda no container (PYTHONPATH=/app). Sai 0 = verde; 1 = vermelho.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,27 +43,40 @@ async def main() -> int:
 
     gen = get_db()
     db = await gen.__anext__()
-    linhas = (await db.execute(text(SQL_DESVIO),
-                               {"dias": DIAS, "min_dias": MIN_DIAS})).mappings().all()
-    limpos, tortos = separar(linhas)
+    linhas = (await db.execute(text(SQL_DESVIO), {"dias": DIAS, "min_dias": MIN_DIAS})).mappings().all()
+    limpos, tortos, novas = separar(linhas)
 
     for r in tortos:
-        sete = ("" if r["desvio_7d"] is None
-                else f" · últimos 7 dias: {int(r['desvio_7d']):+d} min")
-        print(f"  (torto, não reprova) {r['nome'][:28]:30} {r['posto'][:26]:28} "
-              f"promete {r['promete']} e bate {int(r['desvio']):+d} min em 28 dias{sete}"
-              " — precisa de gente (ou mudou de turno há pouco)")
+        sete = "" if r["desvio_7d"] is None else f" · últimos 7 dias: {int(r['desvio_7d']):+d} min"
+        print(
+            f"  (torto, não reprova) {r['nome'][:28]:30} {r['posto'][:26]:28} "
+            f"promete {r['promete']} e bate {int(r['desvio']):+d} min em 28 dias{sete}"
+            " — precisa de gente (ou mudou de turno há pouco)"
+        )
     for r in limpos:
-        print(f"FALHOU: {r['nome'][:30]:32} {r['posto'][:26]:28} a escala promete "
-              f"{r['promete']} e ela bate {int(r['desvio']):+d} min em {r['dias']} dias — "
-              f"isso é a escala UMA HORA fora, e o lembrete de ponto sai nessa hora errada")
-    print(f"padrões conferidos: {len(linhas)} · desvio de uma hora limpa: {len(limpos)} · "
-          f"tortos (só relatados): {len(tortos)}")
+        print(
+            f"FALHOU: {r['nome'][:30]:32} {r['posto'][:26]:28} a escala promete "
+            f"{r['promete']} e ela bate {int(r['desvio']):+d} min em {r['dias']} dias — "
+            f"isso é a escala UMA HORA fora, e o lembrete de ponto sai nessa hora errada"
+        )
+    for r in novas:
+        sete = "" if r["desvio_7d"] is None else f" · últimos 7 dias: {int(r['desvio_7d']):+d} min"
+        print(
+            f"  (grade nova, não reprova) {r['nome'][:28]:30} {r['posto'][:26]:28} "
+            f"promete {r['promete']}, escrita há {r['promessa_dias']} dia(s), e a pessoa "
+            f"bate {int(r['desvio']):+d} min{sete} — é decisão recente de quem monta a "
+            "grade, confira se é o combinado NOVO"
+        )
+    print(
+        f"padrões conferidos: {len(linhas)} · desvio de uma hora limpa: {len(limpos)} · "
+        f"tortos (só relatados): {len(tortos)} · grade nova (só relatada): {len(novas)}"
+    )
     if limpos:
         raise AssertionError(
             f"{len(limpos)} escala(s) uma hora fora da vida real. Corrigir com "
             "`backend/scripts/corrigir_hora_escala.py --aplicar` (ele guarda a reversão) ou "
-            "ajustar a grade à mão se a combinação de trabalho mudou de verdade.")
+            "ajustar a grade à mão se a combinação de trabalho mudou de verdade."
+        )
     print("OK: a hora que a escala promete é a hora em que a pessoa bate")
     return 0
 

@@ -9,6 +9,7 @@ resposta não pode depender do que estava escrito num plano que já se sabe erra
 
 Duas cópias da mesma régua divergem; a que diverge cala. Então há uma só, e é esta.
 """
+
 from __future__ import annotations
 
 DIAS = 28
@@ -26,12 +27,16 @@ WITH fut AS (
   -- domingo) tinha o domingo comparado contra as batidas de dias úteis, e a trava acusava
   -- "uma hora fora" numa escala certa. Comparar só o mesmo dia da semana desfaz a mistura.
   SELECT employee_id, post_id, planned_start_time AS plan,
-         array_agg(DISTINCT extract(dow from shift_date)::int) AS dows
+         array_agg(DISTINCT extract(dow from shift_date)::int) AS dows,
+         -- quando essa promessa foi ESCRITA. Grade publicada há poucos dias é DECISÃO, não
+         -- deriva: comparar a decisão de ontem com a batida de três semanas atrás e concluir
+         -- "uma hora fora" é acusar a mudança de ser diferente do que ela mudou.
+         min(created_at)::date AS promessa_de
     FROM shifts
    WHERE shift_date >= current_date AND is_active AND NOT is_off_day
    GROUP BY 1,2,3),
 obs AS (
-  SELECT f.employee_id, f.post_id, f.plan, d.dia,
+  SELECT f.employee_id, f.post_id, f.plan, f.promessa_de, d.dia,
          (SELECT min(x.punch_timestamp) FROM gp_clock_punches x
            WHERE x.employee_id = f.employee_id
              AND x.punch_timestamp BETWEEN (d.dia + f.plan - interval '4 hours')
@@ -43,6 +48,7 @@ obs AS (
    WHERE extract(dow from d.dia)::int = ANY(f.dows))
 SELECT o.employee_id::text AS employee_id, o.post_id::text AS post_id,
        e.nome, p.name AS posto, to_char(o.plan,'HH24:MI') AS promete,
+       (current_date - o.promessa_de) AS promessa_dias,
        count(o.entrada) AS dias,
        round(percentile_cont(0.5) WITHIN GROUP (
          ORDER BY extract(epoch from (o.entrada - (o.dia + o.plan)))/60)::numeric) AS desvio,
@@ -54,17 +60,40 @@ SELECT o.employee_id::text AS employee_id, o.post_id::text AS post_id,
          FILTER (WHERE o.dia >= current_date - 7)::numeric) AS desvio_7d
   FROM obs o JOIN employees e ON e.id = o.employee_id JOIN posts p ON p.id = o.post_id
  WHERE o.entrada IS NOT NULL
- GROUP BY 1,2,3,4,5 HAVING count(o.entrada) >= :min_dias
+ GROUP BY 1,2,3,4,5,6 HAVING count(o.entrada) >= :min_dias
 """
 
 
-def separar(linhas) -> tuple[list, list]:
-    """(uma hora limpa, tortos). Limpo é corrigível por script; torto precisa de gente."""
-    limpos, tortos = [], []
+#: Promessa escrita há menos de `PROMESSA_NOVA` dias é DECISÃO de quem monta a grade, não
+#: deriva de importação. 21 dias cobre a publicação da grade do mês seguinte com folga.
+PROMESSA_NOVA = 21
+
+
+def separar(linhas) -> tuple[list, list, list]:
+    """(uma hora limpa, tortos, grade nova). Só o primeiro grupo é corrigível por script.
+
+    ⚠️ 18/09/2026 — o terceiro grupo nasceu de um quase-estrago. O Jordan publicou em 14/09 a
+    grade de OUTUBRO do Prime Arena, 12x36 em 07:00–19:00 / 19:00–07:00, com gente trocando
+    de diurno para noturno. A trava comparou essa decisão de quatro dias com as batidas de
+    setembro (06:00–18:00 e 08:00–17:00), achou uma hora limpa de desvio em quatro pessoas e
+    mandou, por escrito, rodar `corrigir_hora_escala.py --aplicar` — que teria sobrescrito a
+    grade recém-publicada do dono, em silêncio, com a média do passado que ele acabou de
+    mudar.
+
+    O defeito que esta régua caça é escala que ENVELHECEU (a grade de julho propagando um
+    erro por cinco meses). Grade nova diverge do passado por definição — é para isso que ela
+    serve. Então ela é RELATADA, nunca corrigida por script: se a mudança for engano, quem
+    sabe é gente.
+    """
+    limpos, tortos, novas = [], [], []
     for r in linhas:
         d = abs(int(r["desvio"]))
-        if LIMPO_MIN <= d <= LIMPO_MAX:
+        if d < LIMPO_MIN:
+            continue
+        if int(r["promessa_dias"] or 999) <= PROMESSA_NOVA:
+            novas.append(r)
+        elif d <= LIMPO_MAX:
             limpos.append(r)
-        elif d > LIMPO_MAX:
+        else:
             tortos.append(r)
-    return limpos, tortos
+    return limpos, tortos, novas

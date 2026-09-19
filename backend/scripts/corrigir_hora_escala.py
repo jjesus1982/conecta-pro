@@ -32,6 +32,7 @@ SEGURANÇA:
     python3 backend/scripts/corrigir_hora_escala.py
     python3 backend/scripts/corrigir_hora_escala.py --aplicar
 """
+
 from __future__ import annotations
 
 import json
@@ -40,6 +41,7 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, "/app")
+
 
 def main() -> int:
     import asyncio
@@ -58,52 +60,106 @@ def main() -> int:
         )
 
         async with async_session_factory() as db:
-            linhas = (await db.execute(text(SQL_DESVIO),
-                                       {"dias": DIAS, "min_dias": MIN_DIAS})).mappings().all()
+            linhas = (await db.execute(text(SQL_DESVIO), {"dias": DIAS, "min_dias": MIN_DIAS})).mappings().all()
             # a MESMA régua do oráculo — ver `hora_da_escala.py` para o porquê de haver uma só
-            limpos, crus = separar(linhas)
-            planos = [{"employee_id": r["employee_id"], "post_id": r["post_id"],
-                       "plan": r["promete"], "dias": int(r["dias"]), "desvio": int(r["desvio"]),
-                       "delta_h": 1 if int(r["desvio"]) > 0 else -1} for r in limpos]
-            tortos = [{"employee_id": r["employee_id"], "post_id": r["post_id"], "nome": r["nome"],
-                       "plan": r["promete"], "dias": int(r["dias"]), "desvio": int(r["desvio"])}
-                      for r in crus]
+            # `novas` NUNCA entra em `planos`: grade publicada há poucos dias é decisão de
+            # gente, e este script sobrescreveria em silêncio. Ver `separar()` — 18/09/2026.
+            limpos, crus, novas = separar(linhas)
+            planos = [
+                {
+                    "employee_id": r["employee_id"],
+                    "post_id": r["post_id"],
+                    "plan": r["promete"],
+                    "dias": int(r["dias"]),
+                    "desvio": int(r["desvio"]),
+                    "delta_h": 1 if int(r["desvio"]) > 0 else -1,
+                }
+                for r in limpos
+            ]
+            tortos = [
+                {
+                    "employee_id": r["employee_id"],
+                    "post_id": r["post_id"],
+                    "nome": r["nome"],
+                    "plan": r["promete"],
+                    "dias": int(r["dias"]),
+                    "desvio": int(r["desvio"]),
+                }
+                for r in crus
+            ]
 
-            rel: dict = {"aplicar": aplicar, "candidatos": len(planos), "tortos": tortos,
-                         "turnos": 0, "detalhe": [], "backup": ""}
+            rel: dict = {
+                "aplicar": aplicar,
+                "candidatos": len(planos),
+                "tortos": tortos,
+                "grade_nova_preservada": [
+                    {
+                        "nome": r["nome"],
+                        "posto": r["posto"],
+                        "plan": r["promete"],
+                        "escrita_ha_dias": int(r["promessa_dias"] or 0),
+                        "desvio": int(r["desvio"]),
+                    }
+                    for r in novas
+                ],
+                "turnos": 0,
+                "detalhe": [],
+                "backup": "",
+            }
             antes = []
             for p in planos:
-                alvo = (await db.execute(text(
-                    "SELECT sh.id::text, e.nome, po.name AS posto, "
-                    "       to_char(sh.planned_start_time,'HH24:MI') ini, "
-                    "       to_char(sh.planned_end_time,'HH24:MI') fim, sh.shift_date "
-                    "  FROM shifts sh JOIN employees e ON e.id=sh.employee_id "
-                    "  JOIN posts po ON po.id=sh.post_id "
-                    " WHERE sh.employee_id = CAST(:e AS uuid) AND sh.post_id = CAST(:p AS uuid) "
-                    # comparar em TEXTO: com `CAST(:h AS time)` o asyncpg passa a exigir um
-                    # objeto `time` de verdade e recusa a string (a mesma lição do §103 do kit)
-                    "   AND to_char(sh.planned_start_time,'HH24:MI') = :h "
-                    "   AND sh.shift_date >= current_date AND sh.is_active"),
-                    {"e": p["employee_id"], "p": p["post_id"], "h": p["plan"]})).mappings().all()
+                alvo = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT sh.id::text, e.nome, po.name AS posto, "
+                                "       to_char(sh.planned_start_time,'HH24:MI') ini, "
+                                "       to_char(sh.planned_end_time,'HH24:MI') fim, sh.shift_date "
+                                "  FROM shifts sh JOIN employees e ON e.id=sh.employee_id "
+                                "  JOIN posts po ON po.id=sh.post_id "
+                                " WHERE sh.employee_id = CAST(:e AS uuid) AND sh.post_id = CAST(:p AS uuid) "
+                                # comparar em TEXTO: com `CAST(:h AS time)` o asyncpg passa a exigir um
+                                # objeto `time` de verdade e recusa a string (a mesma lição do §103 do kit)
+                                "   AND to_char(sh.planned_start_time,'HH24:MI') = :h "
+                                "   AND sh.shift_date >= current_date AND sh.is_active"
+                            ),
+                            {"e": p["employee_id"], "p": p["post_id"], "h": p["plan"]},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
                 if not alvo:
                     continue
                 nova = f"{(int(p['plan'][:2]) + p['delta_h']) % 24:02d}:{p['plan'][3:]}"
                 rel["detalhe"].append(
                     f"{alvo[0]['nome'][:30]:32} {alvo[0]['posto'][:28]:30} "
                     f"{p['plan']} → {nova}  ({len(alvo)} turno(s) futuros · "
-                    f"{p['dias']} dias observados · desvio {p['desvio']:+d} min)")
-                antes += [{"shift_id": a["id"], "nome": a["nome"], "data": str(a["shift_date"]),
-                           "ini": a["ini"], "fim": a["fim"]} for a in alvo]
+                    f"{p['dias']} dias observados · desvio {p['desvio']:+d} min)"
+                )
+                antes += [
+                    {
+                        "shift_id": a["id"],
+                        "nome": a["nome"],
+                        "data": str(a["shift_date"]),
+                        "ini": a["ini"],
+                        "fim": a["fim"],
+                    }
+                    for a in alvo
+                ]
                 rel["turnos"] += len(alvo)
                 if aplicar:
-                    await db.execute(text(
-                        "UPDATE shifts SET planned_start_time = planned_start_time + make_interval(hours => :d), "
-                        "                  planned_end_time   = planned_end_time   + make_interval(hours => :d), "
-                        "                  updated_at = now() "
-                        # lista de verdade, não string "{...}": o asyncpg espera um container
-                        # para parâmetro de array e recusa a forma literal do Postgres
-                        " WHERE id::text = ANY(:ids)"),
-                        {"d": p["delta_h"], "ids": [a["id"] for a in alvo]})
+                    await db.execute(
+                        text(
+                            "UPDATE shifts SET planned_start_time = planned_start_time + make_interval(hours => :d), "
+                            "                  planned_end_time   = planned_end_time   + make_interval(hours => :d), "
+                            "                  updated_at = now() "
+                            # lista de verdade, não string "{...}": o asyncpg espera um container
+                            # para parâmetro de array e recusa a forma literal do Postgres
+                            " WHERE id::text = ANY(:ids)"
+                        ),
+                        {"d": p["delta_h"], "ids": [a["id"] for a in alvo]},
+                    )
             if aplicar and antes:
                 carimbo = datetime.now().strftime("%Y%m%d_%H%M%S")
                 caminho = f"/app/uploads/escala_hora_backup_{carimbo}.json"
@@ -118,11 +174,15 @@ def main() -> int:
     for linha in rel["detalhe"]:
         print("  " + linha)
     for t in rel["tortos"]:
-        print(f"  ⚠️ FORA DA REGRA: {t['nome'][:30]} promete {t['plan']} e bate "
-              f"{t['desvio']:+d} min em {t['dias']} dias — não é uma hora limpa; "
-              f"precisa de gente olhando, não de script")
-    print(f"\n{'APLICADO' if rel['aplicar'] else 'ENSAIO'}: {rel['candidatos']} padrão(ões) · "
-          f"{rel['turnos']} turno(s) futuros")
+        print(
+            f"  ⚠️ FORA DA REGRA: {t['nome'][:30]} promete {t['plan']} e bate "
+            f"{t['desvio']:+d} min em {t['dias']} dias — não é uma hora limpa; "
+            f"precisa de gente olhando, não de script"
+        )
+    print(
+        f"\n{'APLICADO' if rel['aplicar'] else 'ENSAIO'}: {rel['candidatos']} padrão(ões) · "
+        f"{rel['turnos']} turno(s) futuros"
+    )
     if rel["backup"]:
         print(f"reversão guardada em {rel['backup']}")
     elif not rel["aplicar"]:
