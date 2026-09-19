@@ -228,8 +228,11 @@ async def rep_p_arquivo(
         nome, txt = await rep_p.montar_afd(db, cnpj, inicio, fim)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return Response(txt.encode("latin-1", "replace"), media_type="text/plain; charset=iso-8859-1",
-                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+    return Response(
+        txt.encode("latin-1", "replace"),
+        media_type="text/plain; charset=iso-8859-1",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @router.get("/rep-p/aej", summary="AEJ (Anexo VI) do empregador na competência")
@@ -244,9 +247,14 @@ async def rep_p_aej(
         nome, txt, qt = await rep_p.montar_aej(db, cnpj, ano, mes)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return Response(txt.encode("latin-1", "replace"), media_type="text/plain; charset=iso-8859-1",
-                    headers={"Content-Disposition": f'attachment; filename="{nome}"',
-                             "X-AEJ-Contagem": ",".join(f"{k}={v}" for k, v in qt.items())})
+    return Response(
+        txt.encode("latin-1", "replace"),
+        media_type="text/plain; charset=iso-8859-1",
+        headers={
+            "Content-Disposition": f'attachment; filename="{nome}"',
+            "X-AEJ-Contagem": ",".join(f"{k}={v}" for k, v in qt.items()),
+        },
+    )
 
 
 @router.get("/rep-p/instrumento", summary="Instrumento legal do REP-P (INPI, atestado, termo)")
@@ -256,5 +264,86 @@ async def rep_p_instrumento(
 ) -> dict:
     """Vazio é a resposta honesta enquanto o dono não registrar — nunca um default."""
     inst = await rep_p.instrumento(db)
-    return {"corte": rep_p.CORTE.isoformat(), "instrumentos": inst,
-            "faltam": [t for t in ("INPI", "ATESTADO_TECNICO", "TERMO_RESPONSABILIDADE") if t not in inst]}
+    return {
+        "corte": rep_p.CORTE.isoformat(),
+        "instrumentos": inst,
+        "faltam": [t for t in ("INPI", "ATESTADO_TECNICO", "TERMO_RESPONSABILIDADE") if t not in inst],
+    }
+
+
+_TIPOS_INSTRUMENTO = {"INPI", "ATESTADO_TECNICO", "TERMO_RESPONSABILIDADE"}
+
+
+@router.post("/rep-p/instrumento", summary="Registra o instrumento legal do REP-P")
+async def rep_p_instrumento_gravar(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # pylint: disable=unused-argument
+) -> dict:
+    """Grava INPI, atestado técnico ou termo de responsabilidade — um por tipo.
+
+    ⚠️ 18/09/2026. A tabela `rep_instrumento_legal` era SÓ LEITURA: o `rep_p` lia dela, o
+    GET acima mostrava o que havia, o oráculo `test_oraculo_rep_p` cobrava os três — e não
+    existia caminho nenhum para escrever. Quando o registro do programa no INPI saísse, o
+    número não tinha onde entrar a não ser por SQL na mão, num campo que o AFD imprime.
+
+    Não inventa nada: sem os campos obrigatórios do tipo, recusa. O que o dono não tem
+    ainda continua faltando, e o vermelho do oráculo continua honesto até ele ter.
+    """
+    tipo = str(payload.get("tipo") or "").strip().upper()
+    if tipo not in _TIPOS_INSTRUMENTO:
+        raise HTTPException(status_code=400, detail=f"Tipo inválido: {tipo!r}. Válidos: {sorted(_TIPOS_INSTRUMENTO)}.")
+
+    def _data(campo: str):
+        v = (payload.get(campo) or "").strip()
+        if not v:
+            return None
+        try:
+            return date.fromisoformat(v)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{campo}: use AAAA-MM-DD.") from exc
+
+    numero = (payload.get("numero") or "").strip() or None
+    emissor = (payload.get("emissor") or "").strip() or None
+    emissao, validade = _data("data_emissao"), _data("validade")
+
+    # O que cada tipo PRECISA é o que o oráculo cobra — a mesma lista, para não divergirem.
+    if tipo == "INPI" and not (numero and emissao):
+        raise HTTPException(status_code=400, detail="INPI exige número do registro e data de emissão.")
+    if tipo == "ATESTADO_TECNICO" and not (emissor and emissao and validade):
+        raise HTTPException(
+            status_code=400,
+            detail="Atestado técnico exige emissor, data de emissão e validade (art. 89 da Portaria 671).",
+        )
+    if tipo == "TERMO_RESPONSABILIDADE" and not emissao:
+        raise HTTPException(status_code=400, detail="Termo de responsabilidade exige a data.")
+    if validade and emissao and validade < emissao:
+        raise HTTPException(status_code=400, detail="Validade anterior à emissão.")
+
+    from sqlalchemy import text as _text  # noqa: PLC0415
+
+    await db.execute(_text("DELETE FROM rep_instrumento_legal WHERE tipo = :t"), {"t": tipo})
+    await db.execute(
+        _text(
+            "INSERT INTO rep_instrumento_legal (tipo, numero, emissor, data_emissao, validade, "
+            "  arquivo_url, observacao) "
+            "VALUES (:t, :n, :e, :de, :v, :url, :obs)"
+        ),
+        {
+            "t": tipo,
+            "n": numero,
+            "e": emissor,
+            "de": emissao,
+            "v": validade,
+            "url": (payload.get("arquivo_url") or "").strip() or None,
+            "obs": (payload.get("observacao") or "").strip() or None,
+        },
+    )
+    await db.commit()
+    inst = await rep_p.instrumento(db)
+    return {
+        "ok": True,
+        "tipo": tipo,
+        "instrumentos": inst,
+        "faltam": [t for t in sorted(_TIPOS_INSTRUMENTO) if t not in inst],
+    }

@@ -24,6 +24,7 @@ não existe; (e) tabela vazia. Vermelho nas cinco.
 
 Roda no container (PYTHONPATH=/app). Sai 0 = verde; 1 = vermelho.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,6 +49,7 @@ async def main() -> int:
     # (a) rotas montadas
     try:
         from main_production import app
+
         rotas = [r.path for r in app.routes if "/afd" in r.path]
     except Exception as exc:  # noqa: BLE001
         rotas = []
@@ -68,32 +70,71 @@ async def main() -> int:
     db = await gen.__anext__()
 
     # (b) batida >= corte sem linha AFD
-    faltam = (await db.execute(text("""
+    # ⚠️ 18/09/2026 — `pendente_de_conferencia` FORA, como em `rep_p.gerar_afd_pendentes`.
+    # A batida offline que ainda não passou na reconferência do rosto não entra no AFD DE
+    # PROPÓSITO (frente 02, 13/09): o AFD é memória inalterável, e escrever nele um fato que
+    # o DP ainda pode recusar é afirmar integridade sobre o que não está confirmado — o NSR
+    # não volta atrás. O oráculo copiou o WHERE sem essa linha e acusou a batida da GRACIENE
+    # de 14/09 como lacuna legal. Era a regra funcionando.
+    faltam = (
+        await db.execute(
+            text("""
         SELECT p.punch_timestamp::date d, count(*) FROM gp_clock_punches p
         JOIN employees e ON e.id = p.employee_id
         LEFT JOIN afd_records a ON a.punch_id = p.punch_id
         WHERE p.punch_timestamp >= :c AND a.id IS NULL
+          AND p.status <> 'pendente_de_conferencia'
           AND length(regexp_replace(coalesce(e.cpf,''),'\\D','','g')) = 11
-        GROUP BY 1 ORDER BY 1"""), {"c": corte})).all()
-    desde_corte = (await db.execute(text(
-        "SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp >= :c"), {"c": corte})).scalar()
+        GROUP BY 1 ORDER BY 1"""),
+            {"c": corte},
+        )
+    ).all()
+
+    # …e a garantia no sentido inverso, que faltava: pendente NÃO PODE ter linha AFD. Sem
+    # esta, bastaria alguém afrouxar o filtro do gerador para o AFD passar a carregar batida
+    # que ainda pode ser recusada, e nada acusaria.
+    indevidas = (
+        await db.execute(
+            text("""
+        SELECT count(*) FROM gp_clock_punches p
+        JOIN afd_records a ON a.punch_id = p.punch_id
+        WHERE p.status = 'pendente_de_conferencia'""")
+        )
+    ).scalar()
+    if indevidas:
+        falhas.append(
+            f"(b) {indevidas} batida(s) `pendente_de_conferencia` COM linha AFD — o AFD "
+            "recebeu marcação que o DP ainda pode recusar, e o NSR não volta atrás"
+        )
+    desde_corte = (
+        await db.execute(text("SELECT count(*) FROM gp_clock_punches WHERE punch_timestamp >= :c"), {"c": corte})
+    ).scalar()
     for d, n in faltam:
         falhas.append(f"(b) {d:%d/%m}: {n} batida(s) sem linha AFD")
     if not desde_corte:
         print(f"(b) ainda não há batida desde o corte {corte:%d/%m/%Y} — sem dado, não é verde")
 
     # (c) NSR contínuo e único por dispositivo + corrente de hash
-    devs = (await db.execute(text("""
+    devs = (
+        await db.execute(
+            text("""
         SELECT d.serial_number, count(*), min(a.nsr), max(a.nsr), count(DISTINCT a.nsr)
-        FROM afd_records a JOIN rep_devices d ON d.id = a.device_id GROUP BY 1 ORDER BY 1"""))).all()
+        FROM afd_records a JOIN rep_devices d ON d.id = a.device_id GROUP BY 1 ORDER BY 1""")
+        )
+    ).all()
     if not devs and desde_corte:
         falhas.append("(c) nenhuma linha AFD em nenhum dispositivo")
     for serial, n, lo, hi, dist in devs:
         if lo != 1 or n != dist or hi - lo + 1 != n:
             falhas.append(f"(c) {serial}: NSR {lo}..{hi}, {n} linhas, {dist} distintos — há lacuna ou repetição")
-        linhas = (await db.execute(text("""
+        linhas = (
+            await db.execute(
+                text("""
             SELECT a.afd_line, a.record_type FROM afd_records a JOIN rep_devices d ON d.id = a.device_id
-            WHERE d.serial_number = :s ORDER BY a.nsr"""), {"s": serial})).all()
+            WHERE d.serial_number = :s ORDER BY a.nsr"""),
+                {"s": serial},
+            )
+        ).all()
         ant = None
         for linha, tipo in linhas:
             if tipo != "7":
@@ -106,10 +147,20 @@ async def main() -> int:
 
     # (d) AEJ reabre e casa com as batidas da competência
     if rep_p:
-        emps = (await db.execute(text(
-            "SELECT DISTINCT regexp_replace(em.cnpj,'\\D','','g') FROM empresas em "
-            "JOIN employees e ON e.empresa_id = em.id JOIN gp_clock_punches p ON p.employee_id = e.id "
-            "WHERE p.punch_timestamp >= :i"), {"i": datetime(hoje.year, hoje.month, 1)})).scalars().all()
+        emps = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT regexp_replace(em.cnpj,'\\D','','g') FROM empresas em "
+                        "JOIN employees e ON e.empresa_id = em.id JOIN gp_clock_punches p ON p.employee_id = e.id "
+                        "WHERE p.punch_timestamp >= :i"
+                    ),
+                    {"i": datetime(hoje.year, hoje.month, 1)},
+                )
+            )
+            .scalars()
+            .all()
+        )
         if not emps:
             falhas.append("(d) nenhum empregador com batida na competência — não dá para montar AEJ")
         for cnpj in emps:
@@ -130,21 +181,28 @@ async def main() -> int:
             esperado = ["99"] + [str(cont.get(t, 0)) for t in ("01", "02", "03", "04", "05", "06", "07", "08")]
             if trailer != esperado:
                 falhas.append(f"(d) AEJ {cnpj}: trailer {trailer} ≠ contagem real {esperado}")
-            n_banco = (await db.execute(text("""
+            n_banco = (
+                await db.execute(
+                    text("""
                 SELECT count(*) FROM gp_clock_punches p JOIN employees e ON e.id = p.employee_id
                 JOIN empresas em ON em.id = e.empresa_id
                 WHERE regexp_replace(em.cnpj,'\\D','','g') = :c AND p.punch_timestamp >= :i
                   AND length(regexp_replace(coalesce(e.cpf,''),'\\D','','g')) = 11"""),
-                {"c": cnpj, "i": datetime(hoje.year, hoje.month, 1)})).scalar()
+                    {"c": cnpj, "i": datetime(hoje.year, hoje.month, 1)},
+                )
+            ).scalar()
             if cont.get("05", 0) != n_banco:
                 falhas.append(f"(d) AEJ {cnpj}: {cont.get('05', 0)} marcações no arquivo, {n_banco} no banco")
-            print(f"AEJ {nome}: {cont.get('05', 0)} marcações · {cont.get('03', 0)} vínculos · "
-                  f"{cont.get('02', 0)} REP · {cont.get('04', 0)} horários")
+            print(
+                f"AEJ {nome}: {cont.get('05', 0)} marcações · {cont.get('03', 0)} vínculos · "
+                f"{cont.get('02', 0)} REP · {cont.get('04', 0)} horários"
+            )
 
     # (e) instrumento legal
     try:
-        inst = (await db.execute(text(
-            "SELECT tipo, numero, emissor, data_emissao, validade FROM rep_instrumento_legal"))).all()
+        inst = (
+            await db.execute(text("SELECT tipo, numero, emissor, data_emissao, validade FROM rep_instrumento_legal"))
+        ).all()
     except Exception as exc:  # noqa: BLE001
         inst = []
         falhas.append(f"(e) tabela rep_instrumento_legal não existe: {str(exc)[:80]}")
@@ -158,14 +216,18 @@ async def main() -> int:
     if not por_tipo.get("TERMO_RESPONSABILIDADE") or not por_tipo["TERMO_RESPONSABILIDADE"][3]:
         falhas.append("(e) sem termo de responsabilidade com data")
 
-    print(f"rotas afd: {len(rotas)} · corte {corte:%d/%m/%Y} · batidas desde o corte: {desde_corte} · "
-          f"dias com batida sem AFD: {len(faltam)} · dispositivos: {len(devs)} · instrumentos: {len(inst)}")
+    print(
+        f"rotas afd: {len(rotas)} · corte {corte:%d/%m/%Y} · batidas desde o corte: {desde_corte} · "
+        f"dias com batida sem AFD: {len(faltam)} · dispositivos: {len(devs)} · instrumentos: {len(inst)}"
+    )
     for f in falhas:
         print("FALHOU:", f)
     if falhas:
         raise AssertionError(f"{len(falhas)} desvio(s) no REP-P")
-    print("OK REP-P: rotas montadas, toda batida desde o corte tem AFD, NSR contínuo com hash fechado, "
-          "AEJ reabre e casa com o banco, instrumento legal registrado")
+    print(
+        "OK REP-P: rotas montadas, toda batida desde o corte tem AFD, NSR contínuo com hash fechado, "
+        "AEJ reabre e casa com o banco, instrumento legal registrado"
+    )
     return 0
 
 
