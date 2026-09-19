@@ -1,29 +1,30 @@
 """Prova o roteamento por tier (sem chamar o LLM): cada identidade real recebe o tier
 e o conjunto de tools corretos. Gestor NUNCA recebe tool de financeiro."""
+
 import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _fixtures import exigir_usuario, exigir_usuario_com_colaborador  # noqa: E402
+from _fixtures import exigir_usuario_com_colaborador, exigir_usuario_com_escopo  # noqa: E402
+
 from core.database import async_session_factory  # noqa: E402
 from modules.ai.conversation.controllers.consultor_escopado_controller import (  # noqa: E402
     _resolver_tier_e_tools,
 )
 
-# Identidade por PAPEL, não por e-mail. Até 11/08/2026 este oráculo buscava
-# `egonzaga@conectamais.pro`; a pessoa saiu, a linha sumiu de `users` e o teste passou a
-# estourar em NoneType — parecendo defeito de produto. O que se testa aqui é o PAPEL.
-# `supervisor` é quem dá {dp, ged, operacional, sst}, o mesmo conjunto do antigo gestor
-# (medido em 11/08); `lider` hoje só carrega sst e não serviria.
-PAPEL_GESTOR = "supervisor"
+# O oráculo não pede PAPEL nem PESSOA: pede o ESCOPO que ele afirma. Duas versões já
+# quebraram aqui — por e-mail (`egonzaga@conectamais.pro` saiu da empresa) e por papel
+# (`supervisor`, que em 18/09/2026 não tem NENHUM ativo). Ver `exigir_usuario_com_escopo`.
+ESCOPO_GESTOR = {"dp", "ged", "operacional", "sst"}
 
 
 async def main() -> None:
     async with async_session_factory() as db:
         # GESTOR
-        gonzaga = await exigir_usuario(db, PAPEL_GESTOR)
+        gonzaga, quem = await exigir_usuario_com_escopo(db, ESCOPO_GESTOR)
+        print(f"gestor de hoje: {quem}")
         scope, tools = await _resolver_tier_e_tools(db, gonzaga)
         nomes = {t.name for t in tools}
         assert scope.tier == "gestor", scope
@@ -54,7 +55,7 @@ async def main() -> None:
         # congelada transforma cada capacidade nova em "falha". O que importa é o INVARIANTE:
         # o núcleo continua lá e nada org-wide entra.
         NUCLEO_CLT = {"meu_ponto", "meu_holerite", "minha_escala", "justificar_ajuste_de_ponto"}
-        assert NUCLEO_CLT <= nomes, f"CLT perdeu tool do núcleo: {NUCLEO_CLT - nomes}"
+        assert nomes >= NUCLEO_CLT, f"CLT perdeu tool do núcleo: {NUCLEO_CLT - nomes}"
         vazou = {n for n in nomes if n.startswith(("panorama_", "consultar_", "listar_"))}
         assert not vazou, f"CLT recebeu tool org-wide: {vazou}"
         assert not any(t.module in ("operacional", "financeiro") for t in tools), nomes

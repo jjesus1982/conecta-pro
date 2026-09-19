@@ -147,6 +147,38 @@ async def exigir_usuario_com_colaborador(db, papel: str) -> _U:
     return u
 
 
+async def exigir_usuario_com_escopo(db, modulos: set[str]) -> tuple[_U, str]:
+    """Um usuário ativo cujo ESCOPO DE MÓDULOS é exatamente `modulos`. Devolve (usuário, motivo).
+
+    Por que não por papel, nem por e-mail — os dois já quebraram aqui, em sequência:
+      · por E-MAIL: `egonzaga@conectamais.pro` saiu da empresa e o oráculo parou;
+      · por PAPEL:  trocou-se para `supervisor`, e em 18/09/2026 NÃO HÁ NENHUM supervisor
+        ativo (o único, o Eliziel, está inativo). O oráculo voltou a parar — e a mensagem
+        pedia «crie um usuário com esse papel», que é mandar mexer no cadastro de gente para
+        satisfazer um teste.
+
+    O teste não precisa de um papel nem de uma pessoa: precisa de alguém com AQUELE ESCOPO.
+    Medido no mesmo dia: dois ativos têm exatamente {dp, ged, operacional, sst}, ambos com
+    papel `gerente_operacional`. Pedir o escopo sobrevive a renomeação de papel, a saída de
+    pessoa e a mudança do modelo de permissão — porque pergunta o que o teste afirma.
+    """
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from core.auth.module_scope import user_modules  # noqa: PLC0415
+    from core.models.user import User  # noqa: PLC0415
+
+    usuarios = (await db.execute(select(User).where(User.is_active.is_(True)))).scalars().all()
+    for u in usuarios:
+        if user_modules(u) == set(modulos):
+            return u, f"{getattr(u, 'email', '?')} (papel {getattr(u, 'role', '?')})"
+    papeis = sorted({(getattr(u, "role", None) or "?") for u in usuarios})
+    raise AssertionError(
+        f"nenhum usuário ativo com o escopo exato {sorted(modulos)} — o oráculo não pode "
+        f"rodar. Papéis ativos hoje: {papeis}. Ou alguém perdeu acesso, ou o escopo mudou de "
+        f"forma; conferir em `core/auth/module_scope.py` antes de mexer no cadastro de gente."
+    )
+
+
 async def exigir_usuario(db, papel: str) -> _U:
     """Como `usuario_por_papel`, mas falha com mensagem que diz o que fazer."""
     u = await usuario_por_papel(db, papel)

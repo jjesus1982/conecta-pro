@@ -1,25 +1,29 @@
 """Prova: um GESTOR (perms {ged,dp,operacional,sst}) recebe as tools desses módulos
 e NUNCA a de financeiro/fiscal/comercial (belt); e o suspenders barra execução fora do módulo."""
+
 import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _fixtures import exigir_usuario  # noqa: E402
+from _fixtures import exigir_usuario_com_escopo  # noqa: E402
+
 from core.auth.module_scope import user_modules  # noqa: E402
 from core.database import async_session_factory  # noqa: E402
-from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401,E402 — registra
 from modules.ai.conversation.services.orquestrador import tool_registry as tr  # noqa: E402
+from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401,E402 — registra
 
-# Por PAPEL, não por e-mail: o oráculo buscava `egonzaga@conectamais.pro` e quebrou quando
-# a pessoa saiu. `supervisor` é o papel que dá {dp, ged, operacional, sst} (medido 11/08).
-PAPEL_GESTOR = "supervisor"
+# O oráculo não pede PAPEL nem PESSOA: pede o ESCOPO que ele afirma. Duas versões já
+# quebraram aqui — por e-mail (`egonzaga@conectamais.pro` saiu da empresa) e por papel
+# (`supervisor`, que em 18/09/2026 não tem NENHUM ativo). Ver `exigir_usuario_com_escopo`.
+ESCOPO_GESTOR = {"dp", "ged", "operacional", "sst"}
 
 
 async def main() -> None:
     async with async_session_factory() as db:
-        gonzaga = await exigir_usuario(db, PAPEL_GESTOR)
+        gonzaga, quem = await exigir_usuario_com_escopo(db, ESCOPO_GESTOR)
+        print(f"gestor de hoje: {quem}")
 
         # BELT: tools que Gonzaga recebe
         mods = user_modules(gonzaga)
