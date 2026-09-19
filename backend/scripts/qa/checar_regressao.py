@@ -145,6 +145,13 @@ CACADORES = {
 #: `checar_repositorio` no container fez ele achar 0 — a raiz lá é /app, não
 #: /opt/conecta-pro/backend, e "zero achados" por caminho errado é o pior tipo de verde.
 CACADORES_HOST = {
+    # A data que gravamos do banco é a que o BANCO enxerga, no fuso de Manaus. A Cora devolve
+    # `createdAt` em UTC e recorta o extrato dela pela data LOCAL — tudo entre 20h e meia-noite
+    # daqui caía no dia seguinte nos nossos livros. Medido em 18/09/2026: 77 de 486 lançamentos
+    # (15%) no dia errado, R$ 110.057,03, inclusive um débito de R$ 27.000. Corrigidos 76; o
+    # que sobra CRUZA A VIRADA DO MÊS (R$ 200 de 01/08 para 31/07) e mexe em competência
+    # apurada — dívida conhecida, com dono, esperando decisão. CONTADA: acusa se CRESCER.
+    "checar_data_do_banco_no_fuso.py": lambda s: _n(r"^TOTAL: (\d+) lançamento\(s\) com data fora do fuso", s),
     # O skill-retrieval está ENCOLHENDO o prompt e não escondendo as nossas skills. Ele tem
     # duas fases que puxam o custo em direções opostas (compacta / injeta); se a compactação
     # parar, o plugin passa a CUSTAR em silêncio — medido: 26.793 com a adaptação da casa

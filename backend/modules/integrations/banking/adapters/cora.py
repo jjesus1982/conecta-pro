@@ -25,6 +25,7 @@ import logging
 import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -71,6 +72,25 @@ def credenciais_cora_do_env() -> BankCredentials:
     )
 
 
+#: A Cora devolve `createdAt` em UTC. Manaus é UTC−4, e o extrato DELA é recortado pela data
+#: LOCAL — foi essa diferença que criou 77 lançamentos no dia errado em 60 dias (15% do
+#: movimento, R$ 110.057,03), medidos em 18/09/2026. Tudo que acontece entre 20h e meia-noite
+#: de Manaus cai em 00h–04h UTC e ia para o dia seguinte nos nossos livros.
+#:
+#: O sintoma que denunciou: o oráculo do extrato acusou «LINHA FANTASMA — temos R$ -1.000,00
+#: que o banco não reporta». Não era fantasma: era um débito de 17/09 às 20:41 que nós
+#: lançamos em 18/09; perguntando à Cora só pelo dia 18, ela não o devolvia.
+_TZ_MANAUS = ZoneInfo("America/Manaus")
+
+
+def _em_manaus(criado_em: object) -> datetime:
+    """`createdAt` da Cora (UTC) convertido para a hora de Manaus, que é a do extrato dela."""
+    ts = datetime.fromisoformat(str(criado_em or "").replace("+00", "+00:00"))
+    if ts.tzinfo is None:  # sem fuso declarado, a Cora manda UTC
+        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+    return ts.astimezone(_TZ_MANAUS)
+
+
 class CoraAdapter(BaseBankingAdapter):
     """Adapter do Banco Cora (Integração Direta, mTLS)."""
 
@@ -96,9 +116,7 @@ class CoraAdapter(BaseBankingAdapter):
                 content=f"grant_type=client_credentials&client_id={self.credentials.client_id}",
             )
         if resp.status_code != 200:
-            raise AuthenticationError(
-                f"Cora /token HTTP {resp.status_code}: {resp.text[:200]}"
-            )
+            raise AuthenticationError(f"Cora /token HTTP {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         self._access_token = data["access_token"]
         # 24h nominais; renova com 1h de folga
@@ -115,6 +133,7 @@ class CoraAdapter(BaseBankingAdapter):
         negócio: o RETRY da mesma operação reusa a mesma chave e o Cora
         deduplica (evita boleto/pagamento em dobro). Formato UUID exigido §0."""
         import uuid as _uuid
+
         return str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"cora:{operacao}:{referencia}"))
 
     async def get_balance(self) -> AccountBalance:
@@ -151,9 +170,7 @@ class CoraAdapter(BaseBankingAdapter):
                     },
                 )
                 if resp.status_code != 200:
-                    raise BankingAdapterError(
-                        f"Cora extrato HTTP {resp.status_code}: {resp.text[:200]}"
-                    )
+                    raise BankingAdapterError(f"Cora extrato HTTP {resp.status_code}: {resp.text[:200]}")
                 data = resp.json()
                 if page == 1:
                     saldo_inicial = Decimal(int((data.get("start") or {}).get("balance", 0))) / 100
@@ -169,9 +186,11 @@ class CoraAdapter(BaseBankingAdapter):
                     transacoes.append(
                         BankTransaction(
                             transaction_id=e.get("id") or trx.get("id") or "",
-                            date=datetime.fromisoformat(str(e.get("createdAt", "")).replace("+00", "+00:00")),
+                            date=_em_manaus(e.get("createdAt")),
                             amount=valor,
-                            transaction_type=_TIPO_MAP.get(tipo_api, TransactionType.CREDIT if valor >= 0 else TransactionType.DEBIT),
+                            transaction_type=_TIPO_MAP.get(
+                                tipo_api, TransactionType.CREDIT if valor >= 0 else TransactionType.DEBIT
+                            ),
                             description=trx.get("description") or tipo_api,
                             counterpart_name=contraparte.get("name"),
                             counterpart_document=contraparte.get("identity"),
@@ -217,7 +236,6 @@ class CoraAdapter(BaseBankingAdapter):
         `code` = NOSSO id de conciliação (ecoado nas consultas). Retorna o dict
         da invoice (id inv_..., payment_options.bank_slip, pix.emv).
         """
-        import uuid
 
         if valor_centavos < 500:
             raise BankingAdapterError("Cora: cobrança mínima é R$5,00 (500 centavos)")
@@ -236,8 +254,11 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/v2/invoices/",
-                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("cobranca", code),
-                         "Content-Type": "application/json"},
+                headers={
+                    **self._auth_headers(),
+                    "Idempotency-Key": self._idem_key("cobranca", code),
+                    "Content-Type": "application/json",
+                },
                 json=payload,
             )
         if resp.status_code not in (200, 201):
@@ -254,7 +275,6 @@ class CoraAdapter(BaseBankingAdapter):
 
     async def cancelar_cobranca(self, invoice_id: str) -> bool:
         """Cancela boleto NÃO pago (204). REC-0006 = já pago (não cancela)."""
-        import uuid
 
         await self.ensure_authenticated()
         async with self._client() as cli:
@@ -278,7 +298,6 @@ class CoraAdapter(BaseBankingAdapter):
     ) -> dict:
         """Inicia pagamento de boleto por linha digitável. Retorna dict (id pay_...,
         status INITIATED). NÃO liquida sozinho enquanto D7 não estiver desligado."""
-        import uuid
 
         await self.ensure_authenticated()
         payload: dict = {"digitable_line": "".join(c for c in linha_digitavel if c.isdigit()), "code": code}
@@ -287,8 +306,11 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/payments/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("pgto-boleto", code),
-                         "Content-Type": "application/json"},
+                headers={
+                    **self._auth_headers(),
+                    "Idempotency-Key": self._idem_key("pgto-boleto", code),
+                    "Content-Type": "application/json",
+                },
                 json=payload,
             )
         if resp.status_code not in (200, 201):
@@ -299,14 +321,16 @@ class CoraAdapter(BaseBankingAdapter):
         """Inicia pagamento de DARF (sem código de barras). `data` conforme §4.2:
         name, code(receita), identity, type='DARF', reference_date, due_date,
         amount{main,fine?,interest?}."""
-        import uuid
 
         await self.ensure_authenticated()
         async with self._client() as cli:
             resp = await cli.post(
                 "/payments/darf/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("darf", code),
-                         "Content-Type": "application/json"},
+                headers={
+                    **self._auth_headers(),
+                    "Idempotency-Key": self._idem_key("darf", code),
+                    "Content-Type": "application/json",
+                },
                 json={"code": code, "data": data},
             )
         if resp.status_code not in (200, 201):
@@ -322,8 +346,11 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/payments/gps/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("gps", code),
-                         "Content-Type": "application/json"},
+                headers={
+                    **self._auth_headers(),
+                    "Idempotency-Key": self._idem_key("gps", code),
+                    "Content-Type": "application/json",
+                },
                 json={"code": code, "data": data},
             )
         if resp.status_code not in (200, 201):
@@ -331,8 +358,14 @@ class CoraAdapter(BaseBankingAdapter):
         return resp.json()
 
     async def iniciar_transferencia(
-        self, *, destination: dict, amount: int, code: str, description: str = "",
-        category: str | None = None, scheduled: str | None = None,
+        self,
+        *,
+        destination: dict,
+        amount: int,
+        code: str,
+        description: str = "",
+        category: str | None = None,
+        scheduled: str | None = None,
     ) -> dict:
         """Inicia TED por dados bancários §4.4 — `POST /transfers/initiate`. O Cora NÃO
         tem PIX de saída (por chave/copia-e-cola); transferência é sempre por dados:
@@ -351,8 +384,11 @@ class CoraAdapter(BaseBankingAdapter):
         async with self._client() as cli:
             resp = await cli.post(
                 "/transfers/initiate",
-                headers={**self._auth_headers(), "Idempotency-Key": self._idem_key("ted", code),
-                         "Content-Type": "application/json"},
+                headers={
+                    **self._auth_headers(),
+                    "Idempotency-Key": self._idem_key("ted", code),
+                    "Content-Type": "application/json",
+                },
                 json=body,
             )
         if resp.status_code not in (200, 201):
@@ -371,7 +407,6 @@ class CoraAdapter(BaseBankingAdapter):
 
     async def cancelar_pagamento(self, payment_id: str) -> bool:
         """Cancela pagamento ainda não aprovado (204). PAY-0006 = não iniciado."""
-        import uuid
 
         await self.ensure_authenticated()
         async with self._client() as cli:
@@ -408,9 +443,13 @@ class CoraAdapter(BaseBankingAdapter):
         raw = await self.consultar_pagamento(payment_id)
         from modules.integrations.banking.adapters.base import PaymentStatus
 
-        mapa = {"INITIATED": PaymentStatus.PENDING, "approved": PaymentStatus.PROCESSING,
-                "completed": PaymentStatus.COMPLETED, "reproved": PaymentStatus.CANCELLED,
-                "error": PaymentStatus.FAILED}
+        mapa = {
+            "INITIATED": PaymentStatus.PENDING,
+            "approved": PaymentStatus.PROCESSING,
+            "completed": PaymentStatus.COMPLETED,
+            "reproved": PaymentStatus.CANCELLED,
+            "error": PaymentStatus.FAILED,
+        }
         return PaymentResponse(
             payment_id=payment_id,
             status=mapa.get(raw.get("status", ""), PaymentStatus.PENDING),
@@ -421,9 +460,7 @@ class CoraAdapter(BaseBankingAdapter):
         return await self.cancelar_pagamento(payment_id)
 
     async def validate_pix_key(self, pix_key: str) -> PixKey:  # noqa: ARG002
-        raise NotImplementedError(
-            "Cora não expõe validação/envio de PIX por chave na API pública (§4.4)."
-        )
+        raise NotImplementedError("Cora não expõe validação/envio de PIX por chave na API pública (§4.4).")
 
     async def initiate_pix(self, request: PaymentRequest) -> PaymentResponse:  # noqa: ARG002
         raise NotImplementedError(
