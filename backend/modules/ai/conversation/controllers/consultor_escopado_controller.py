@@ -1,8 +1,21 @@
 """Orquestrador ESCOPADO por usuário (Peça 3): POST /consultores/chat/consultar.
 
-- admin (diretoria) -> delega ao Orquestrador Executivo (Hermes) já deployado.
-- demais -> engine in-backend com tools filtradas por user_modules (belt) + escopo
-  posto/self (suspenders). Roda com a identidade do próprio usuário (get_current_active_user).
+TODOS -> engine in-backend (`run_engine`), com tools filtradas por user_modules (belt) +
+escopo posto/self (suspenders). Roda com a identidade do próprio usuário
+(`get_current_active_user`).
+
+⚠️ 19/09/2026 — ESTE PARÁGRAFO DIZIA O CONTRÁRIO DO CÓDIGO. Ele afirmava "admin (diretoria)
+-> delega ao Orquestrador Executivo (Hermes) já deployado", e o desvio do admin para o
+gateway do Hermes foi COLAPSADO — está escrito na própria rota `consultar`, uns 300 linhas
+abaixo: o dono passa pelo mesmo motor, com a persona CEO por padrão, porque aqui ele ganha
+identidade real, rascunhos e o alcance in-process. O cérebro é o mesmo nos dois.
+
+Por que o desvio não volta: o Hermes fala com o conector por conta de serviço e cabeçalho
+FIXO por conexão. Tudo que toca pessoa ou dinheiro exige `x-usuario-token` por chamada, então
+por lá o dono teria 4 ferramentas de 146 e agiria sem identidade — exatamente o que a
+condição 2 do aceite do Bartolo proíbe ("0 execução de tool sensível com a conta de
+serviço"). Enquanto o repasse de identidade por chamada não existir, unificar no Hermes é
+trocar pessoa real por conta de serviço.
 
 COMPOSIÇÃO EXPLÍCITA DOS TIERS (lição m5 do review da Task 5):
 As tools de POSTO (tools_posto.POSTO_TOOLS) declaram module="operacional" — se o conjunto
@@ -18,6 +31,7 @@ tier decide o resto:
 (As SELF_TOOLS/justificar têm module="self", fora dos módulos canônicos, então
 `tools_for_modules` nunca as devolve — não precisam ser excluídas do conjunto de módulo.)
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -27,33 +41,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import get_current_active_user
 from core.auth.module_scope import user_modules
 from core.database import get_db
-from modules.ai.conversation.services.orquestrador import tools_autoconhecimento  # noqa: F401 — registra `o_que_voce_faz` (F4)
-from modules.ai.conversation.services.orquestrador import tools_comercial_doc  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
-from modules.ai.conversation.services.orquestrador import tools_read_crm  # noqa: F401 — registra as 8 consultas READ do CRM (Fase 6 VER)
-from modules.ai.conversation.services.orquestrador import tools_read_dp  # noqa: F401 — registra as 8 consultas READ do DP/RH (Fase 6 VER)
-from modules.ai.conversation.services.orquestrador import tools_read_financeiro  # noqa: F401 — registra as 8 consultas READ do Financeiro (Fase 6 VER)
-from modules.ai.conversation.services.orquestrador import tools_read_fiscal  # noqa: F401 — registra as 8 consultas READ do Fiscal (Fase 6 VER, read-only, diretoria)
-from modules.ai.conversation.services.orquestrador import tools_read_ged  # noqa: F401 — registra as 5 consultas READ do GED/GEDEON (Fase 6 VER, read-only, fecha o balde VER)
-from modules.ai.conversation.services.orquestrador import tools_read_juridico  # noqa: F401 — registra as 4 consultas READ do Jurídico (Fase 6 VER, read-only, fecha o balde VER)
-from modules.ai.conversation.services.orquestrador import tools_read_operacional  # noqa: F401 — registra as 8 consultas READ do Operacional (Fase 6 VER, read-only)
-from modules.ai.conversation.services.orquestrador import tools_acao_crm  # noqa: F401 — registra as 3 ações FAZER do CRM (Fase 6 FAZER, propor->aprovar)
-from modules.ai.conversation.services.orquestrador import tools_acao_dp  # noqa: F401 — registra a ação FAZER do DP (solicitar_ferias) (Fase 6 FAZER-2, propor->aprovar)
-from modules.ai.conversation.services.orquestrador import tools_acao_ged  # noqa: F401 — registra a ação FAZER do GED (registrar_evento_kit) (Fase 6 FAZER-2, propor->aprovar)
-from modules.ai.conversation.services.orquestrador import tools_acao_financeiro  # noqa: F401 — registra agir_financeiro (registrar_custo_recorrente) (Fase 6 FAZER-3, propor->aprovar)
-from modules.ai.conversation.services.orquestrador import tools_financeiro_doc  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
-from modules.ai.conversation.services.orquestrador import tools_acao_fiscal  # noqa: F401 — registra a ação FAZER do Fiscal (baixar_obrigacao) — propor->aprovar, gate 🟡
-from modules.ai.conversation.services.orquestrador import tools_fiscal_calc  # noqa: F401 — registra as 4 calculadoras fiscais (DAS, Lucro Real, comparativo, retenções) — chamam o MESMO controller da tela
-from modules.ai.conversation.services.orquestrador import tools_fiscal_doc  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
-from modules.ai.conversation.services.orquestrador import tools_operacional_doc  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
-from modules.ai.conversation.services.orquestrador import tools_rh_doc  # noqa: F401 — registra holerite no chat (Fase 6 F6)
-from modules.ai.conversation.services.orquestrador import tools_modulos  # noqa: F401 — registra as tools de módulo
+from modules.ai.conversation.services.orquestrador import (
+    tools_acao_crm,  # noqa: F401 — registra as 3 ações FAZER do CRM (Fase 6 FAZER, propor->aprovar)
+    tools_acao_dp,  # noqa: F401 — registra a ação FAZER do DP (solicitar_ferias) (Fase 6 FAZER-2, propor->aprovar)
+    tools_acao_financeiro,  # noqa: F401 — registra agir_financeiro (registrar_custo_recorrente) (Fase 6 FAZER-3, propor->aprovar)
+    tools_acao_fiscal,  # noqa: F401 — registra a ação FAZER do Fiscal (baixar_obrigacao) — propor->aprovar, gate 🟡
+    tools_acao_ged,  # noqa: F401 — registra a ação FAZER do GED (registrar_evento_kit) (Fase 6 FAZER-2, propor->aprovar)
+    tools_autoconhecimento,  # noqa: F401 — registra `o_que_voce_faz` (F4)
+    tools_comercial_doc,  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)
+    tools_financeiro_doc,  # noqa: F401 — registra gera-doc financeiro (Fase 6 F3)
+    tools_fiscal_calc,  # noqa: F401 — registra as 4 calculadoras fiscais (DAS, Lucro Real, comparativo, retenções) — chamam o MESMO controller da tela
+    tools_fiscal_doc,  # noqa: F401 — registra relatório NFS-e no chat (Fase 6 F8)
+    tools_modulos,  # noqa: F401 — registra as tools de módulo
+    tools_operacional_doc,  # noqa: F401 — registra gera-doc operacional (Fase 6 F4)
+    tools_read_crm,  # noqa: F401 — registra as 8 consultas READ do CRM (Fase 6 VER)
+    tools_read_dp,  # noqa: F401 — registra as 8 consultas READ do DP/RH (Fase 6 VER)
+    tools_read_financeiro,  # noqa: F401 — registra as 8 consultas READ do Financeiro (Fase 6 VER)
+    tools_read_fiscal,  # noqa: F401 — registra as 8 consultas READ do Fiscal (Fase 6 VER, read-only, diretoria)
+    tools_read_ged,  # noqa: F401 — registra as 5 consultas READ do GED/GEDEON (Fase 6 VER, read-only, fecha o balde VER)
+    tools_read_juridico,  # noqa: F401 — registra as 4 consultas READ do Jurídico (Fase 6 VER, read-only, fecha o balde VER)
+    tools_read_operacional,  # noqa: F401 — registra as 8 consultas READ do Operacional (Fase 6 VER, read-only)
+    tools_rh_doc,  # noqa: F401 — registra holerite no chat (Fase 6 F6)
+)
 from modules.ai.conversation.services.orquestrador.acoes import (  # noqa: F401 — registra as 6 tools de ação 5.4 (register() a nível de módulo)
     onda_a,
     onda_b,
     onda_c,
 )
-from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_engine
 from modules.ai.conversation.services.orquestrador.agir_dispatcher import montar_acao_dispatchers
+from modules.ai.conversation.services.orquestrador.engine import OrqScope, run_engine
 from modules.ai.conversation.services.orquestrador.read_dispatcher import montar_read_dispatchers
 from modules.ai.conversation.services.orquestrador.tool_registry import ToolDef, tools_for_modules
 from modules.ai.conversation.services.orquestrador.tools_ponto import JUSTIFICAR_TOOL
@@ -115,10 +131,23 @@ _LENTES = {
 }
 # Entrada da persona (slug do /redesign OU nome da lente) → agente/lente.
 _PERSONA_AGENTE = {
-    "financeiro": "cfo", "cfo": "cfo", "crm": "comercial", "comercial": "comercial",
-    "juridico": "juridico", "fiscal": "fiscal", "operacional": "operacional",
-    "departamento-pessoal": "chro", "dp": "chro", "gestao-de-pessoas": "chro", "rh": "chro", "chro": "chro",
-    "ged": "ged", "documentos": "ged", "ceo": "ceo", "executivo": "ceo", "aprovacoes": "ceo",
+    "financeiro": "cfo",
+    "cfo": "cfo",
+    "crm": "comercial",
+    "comercial": "comercial",
+    "juridico": "juridico",
+    "fiscal": "fiscal",
+    "operacional": "operacional",
+    "departamento-pessoal": "chro",
+    "dp": "chro",
+    "gestao-de-pessoas": "chro",
+    "rh": "chro",
+    "chro": "chro",
+    "ged": "ged",
+    "documentos": "ged",
+    "ceo": "ceo",
+    "executivo": "ceo",
+    "aprovacoes": "ceo",
 }
 
 # Nudge SÓ do fluxo de anexo: o usuário mandou um documento/foto e muitas vezes quer COMPARAR
@@ -191,8 +220,13 @@ async def _resolver_tier_e_tools_base(db: AsyncSession, user) -> tuple[OrqScope,
 
 
 _MODULO_AGENTE = {
-    "financeiro": "cfo", "fiscal": "fiscal", "juridico": "juridico",
-    "ged": "ged", "crm": "comercial", "operacional": "operacional", "dp": "chro",
+    "financeiro": "cfo",
+    "fiscal": "fiscal",
+    "juridico": "juridico",
+    "ged": "ged",
+    "crm": "comercial",
+    "operacional": "operacional",
+    "dp": "chro",
 }
 _AGENTE_MODULO = {agente: modulo for modulo, agente in _MODULO_AGENTE.items()}
 
@@ -274,6 +308,7 @@ def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = Fal
     lente), injeta a lente ativa + o conhecimento COMPLETO dela; senão, o conhecimento dos
     módulos do usuário (cap 2). Fail-open."""
     from modules.ai.conversation.services.consultor_conhecimento_service import contexto_para_prompt
+
     sp = _SYSTEM_BASE + _hoje_para_o_prompt()
     agente = _PERSONA_AGENTE.get((persona or "").strip().lower())
     if agente and not _lente_permitida(user, agente):
@@ -286,7 +321,7 @@ def _system_for(user, pergunta: str, persona: str | None = None, voz: bool = Fal
         for ag in list({_MODULO_AGENTE[m] for m in mods if m in _MODULO_AGENTE})[:2]:
             sp += contexto_para_prompt(ag, pergunta)
     if voz:
-        sp += _ESTILO_VOZ   # por último: manda no formato, não no conteúdo
+        sp += _ESTILO_VOZ  # por último: manda no formato, não no conteúdo
     return sp
 
 
@@ -306,8 +341,13 @@ async def consultar(
     persona = payload.persona or ("ceo" if is_admin else None)
     scope, tools = await _resolver_tier_e_tools(db, user)
     out = await run_engine(
-        db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, persona), origem="consultor_escopado",
+        db,
+        user,
+        scope,
+        tools,
+        pergunta,
+        system_prompt=_system_for(user, pergunta, persona),
+        origem="consultor_escopado",
     )
     if is_admin:
         out["tier"] = "diretoria"
@@ -327,8 +367,13 @@ async def executar(
     persona = payload.persona or (("ceo") if (getattr(user, "role", "") or "").lower() == "admin" else None)
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
-        db, user, scope, tools, pergunta,
-        system_prompt=_system_for(user, pergunta, persona, voz=payload.voz), origem="consultor_executar",
+        db,
+        user,
+        scope,
+        tools,
+        pergunta,
+        system_prompt=_system_for(user, pergunta, persona, voz=payload.voz),
+        origem="consultor_executar",
     )
 
 
@@ -343,8 +388,11 @@ async def executar_arquivo(
     """Chat com ANEXO: lê PDF/DOCX/TXT (texto) ou foto (vision) e interpreta, com as MESMAS
     tools/gate/escopo do /executar. Foto vira image_url; documento vira texto na pergunta."""
     from modules.ai.conversation.services.orquestrador.anexos import (
-        eh_imagem, extrair_texto_arquivo, imagem_data_url,
+        eh_imagem,
+        extrair_texto_arquivo,
+        imagem_data_url,
     )
+
     data = await arquivo.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Arquivo muito grande (máx 15MB).")
@@ -367,7 +415,11 @@ async def executar_arquivo(
     persona = persona or ("ceo" if (getattr(user, "role", "") or "").lower() == "admin" else "")
     scope, tools = await _resolver_tier_e_tools(db, user)
     return await run_engine(
-        db, user, scope, tools, pergunta_final,
+        db,
+        user,
+        scope,
+        tools,
+        pergunta_final,
         system_prompt=_system_for(user, pergunta_final, persona) + _ANEXO_NUDGE,
         origem="consultor_executar_arquivo",
         max_tokens=2400,  # comparação/conciliação de anexo gera resposta longa (1200 cortava)

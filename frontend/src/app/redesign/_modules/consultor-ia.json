@@ -1,34 +1,64 @@
 {
   "menu": [
-    { "id": "chat", "label": "Consultor IA", "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }
+    {
+      "id": "chat",
+      "label": "Consultor IA",
+      "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+    }
   ],
   "screens": {
     "chat": {
       "title": "Consultor IA",
-      "sub": "Pergunte sobre os SEUS dados — o assistente responde no limite do seu perfil (seus módulos, seu posto, você mesmo).",
+      "sub": "Pergunte qualquer coisa sobre os dados do ERP. A resposta fica no limite do seu perfil — seus módulos, seu posto, você mesmo. A lente muda o jeito de olhar, não o que você pode ver.",
       "type": "chat",
       "chat": {
         "endpoint": "/api/v1/consultores/chat/consultar",
         "persona": "ceo",
         "personas": [
-          { "value": "ceo", "label": "CEO — visão executiva" },
-          { "value": "cfo", "label": "CFO — financeiro" },
-          { "value": "fiscal", "label": "Fiscal" },
-          { "value": "rh", "label": "DP/RH" },
-          { "value": "juridico", "label": "Jurídico" },
-          { "value": "comercial", "label": "Comercial" },
-          { "value": "operacional", "label": "Operacional" },
-          { "value": "ged", "label": "GED" }
+          {
+            "value": "ceo",
+            "label": "CEO — visão executiva"
+          },
+          {
+            "value": "cfo",
+            "label": "CFO — financeiro"
+          },
+          {
+            "value": "fiscal",
+            "label": "Fiscal"
+          },
+          {
+            "value": "rh",
+            "label": "DP/RH"
+          },
+          {
+            "value": "juridico",
+            "label": "Jurídico"
+          },
+          {
+            "value": "comercial",
+            "label": "Comercial"
+          },
+          {
+            "value": "operacional",
+            "label": "Operacional"
+          },
+          {
+            "value": "ged",
+            "label": "GED"
+          }
         ],
         "field": "pergunta",
-        "placeholder": "Ex.: como está a cobertura dos meus postos hoje?",
+        "placeholder": "Ex.: posso contratar 5 agentes de portaria este mês?",
         "suggestions": [
-          "Como está a operação hoje?",
+          "Posso contratar 5 agentes de portaria este mês?",
+          "Qual o caixa por CNPJ hoje?",
+          "Faça o briefing executivo",
+          "Como está a cobertura dos postos hoje?",
           "Qual a minha escala?",
-          "Mostra meu ponto do mês",
-          "Preciso justificar uma batida"
+          "Mostra meu ponto do mês"
         ],
-        "disclaimer": "As respostas ficam dentro do que o seu perfil já pode ver (RBAC + escopo do seu posto/você). Ações como justificar ponto vão para o DP aprovar — o consultor só propõe."
+        "disclaimer": "Respostas ancoradas nos números reais do ERP e limitadas ao que o seu perfil já pode ver (RBAC + escopo do seu posto). Confira antes de decidir. Dinheiro que sai e ato legal exigem aprovação humana + OTP — o consultor PROPÕE, nunca executa."
       }
     }
   },

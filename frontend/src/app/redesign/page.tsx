@@ -19,8 +19,13 @@ const GROUPS: { name: string; mods: Mod[] }[] = [
   {
     name: 'Consultores IA',
     mods: [
-      { name: 'Consultor IA', desc: 'Converse sobre os seus dados (RBAC + seu escopo)', Icon: Bot, org: true },
-      { name: 'Orquestrador Executivo', desc: 'Diretoria: caixa por CNPJ, folha, runway, briefing', Icon: Sparkles, org: true },
+      // 19/09/2026 — UM tile, não dois. 'Consultor IA' e 'Orquestrador Executivo' eram duas
+      // portas para o MESMO motor: os dois JSONs chamavam `POST /consultores/chat/consultar`,
+      // e a única diferença era a de fora (um deixava escolher a lente, o outro fixava CEO).
+      // A tela agora é uma só, com as 8 lentes, e as DUAS URLs continuam servindo ela — nos
+      // últimos 14 dias foram 301 acessos ao orquestrador e 153 ao consultor, então apagar
+      // uma rota quebraria hábito de gente. Some o tile duplicado, não o endereço.
+      { name: 'Consultor IA', desc: 'Pergunte sobre o ERP no limite do seu perfil (8 lentes)', Icon: Bot, org: true },
     ],
   },
   {
