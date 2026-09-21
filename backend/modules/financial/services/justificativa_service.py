@@ -216,20 +216,3 @@ def _notificar_telegram(msg: str) -> None:
     silêncio. Canal da casa para aviso novo é o SINO.
     """
     logger.info("[telegram removido] justificativa não notificada: %s", (msg or "")[:200])
-
-
-def _notificar_telegram_desativado(msg: str) -> None:
-    """Corpo original preservado para referência — não é chamado."""
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT:
-        logger.info("Telegram (não configurado): %s", msg)
-        return
-    try:
-        import requests
-
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT, "text": msg},
-            timeout=5,
-        )
-    except Exception as exc:
-        logger.warning("Telegram erro: %s", exc)

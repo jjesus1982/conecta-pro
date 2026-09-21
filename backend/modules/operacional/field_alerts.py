@@ -1,17 +1,16 @@
-"""Alertas Telegram de campo (ocorrências operacionais).
+"""Alertas de campo (ocorrências operacionais) — SEM CANAL DE ENVIO desde 11/08/2026.
 
-Padrão seguido: modules/ai/conversation/services/llm_credit_alert.py
-(httpx.AsyncClient timeout=10, POST api.telegram.org sendMessage com
-parse_mode Markdown, try/except que só loga, anti-spam por dict em memória).
+Este módulo mandava para o Telegram. O Jordan apagou e bloqueou os dois bots, as
+credenciais saíram do `.env`, e em 20/09/2026 o corpo morto que ainda guardava a URL da
+API foi removido daqui.
 
-Destino:
-- 'grave'      → chat operacional (TELEGRAM_CHAT_ID_OPERACIONAL; fallback TELEGRAM_CHAT_ID).
-- 'gravissima' → chat operacional + chat do Jordan (TELEGRAM_CHAT_ID), sem duplicar
-                 se ambos forem o mesmo chat.
-- demais severidades → não envia.
+⚠️ O QUE ISSO SIGNIFICA HOJE, para ninguém descobrir tarde: `enviar_telegram()` devolve
+`False` e escreve o texto no log. A ocorrência GRAVE e a GRAVÍSSIMA continuam sendo
+registradas no banco normalmente — o que não acontece mais é alguém ser AVISADO na hora.
 
-Anti-spam: máx 1 mensagem por (posto+severidade) a cada 60s.
-Best-effort: NUNCA lança exceção — alerta jamais pode quebrar o registro da ocorrência.
+O canal da casa é o SINO (`communication_notifications`), que é onde todo o resto do
+sistema avisa e onde as tarefas do José Luís já escrevem. Ligar o aviso de ocorrência
+gravíssima nele é decisão do dono, não conserto técnico: por isso ficou fora deste commit.
 """
 
 from __future__ import annotations
@@ -41,37 +40,6 @@ async def enviar_telegram(texto: str, chat_id: str | None = None) -> bool:
     """
     logger.info("[telegram removido] alerta de campo não enviado: %s", (texto or "")[:200])
     return False
-
-
-async def _enviar_telegram_desativado(texto: str, chat_id: str | None = None) -> bool:
-    """Corpo original preservado para referência — não é chamado."""
-    try:
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        destino = chat_id or os.getenv("TELEGRAM_CHAT_ID_OPERACIONAL") or os.getenv("TELEGRAM_CHAT_ID", "")
-        if not token or not destino:
-            logger.warning("Alerta de campo: TELEGRAM_BOT_TOKEN/chat_id ausentes — alerta não enviado")
-            return False
-
-        import httpx
-
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        async with httpx.AsyncClient(timeout=10) as cli:
-            resp = await cli.post(
-                url,
-                json={"chat_id": destino, "text": texto, "parse_mode": "Markdown"},
-            )
-            if resp.status_code == 400:
-                # Markdown malformado (caracteres especiais) → reenviar como texto puro
-                resp = await cli.post(
-                    url, json={"chat_id": destino, "text": texto, "disable_web_page_preview": True}
-                )
-        if resp.status_code != 200:
-            logger.warning("Alerta de campo Telegram falhou (HTTP %s)", resp.status_code)
-            return False
-        return True
-    except Exception as e:  # noqa: BLE001 — alerta nunca pode quebrar o fluxo
-        logger.warning("Falha ao enviar alerta Telegram de campo: %s", e)
-        return False
 
 
 async def alertar_ocorrencia(

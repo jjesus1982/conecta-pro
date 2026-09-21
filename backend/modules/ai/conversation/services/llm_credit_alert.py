@@ -1,15 +1,24 @@
-"""Alerta de LLM indisponível/sem crédito → Telegram do Jordan.
+"""Alerta de LLM indisponível/sem crédito — SEM CANAL DE ENVIO desde 11/08/2026.
 
-Requisito (2026-07-07): "preciso que os meus chats me informem todas as vezes que
-estiverem sem crédito, pra eu recarregar". Usado pelos consultores IA (CFO, Jurídico,
-GED) no caminho de falha do provider. Trava anti-spam: 1 alerta/hora por origem.
+Pedido do Jordan em 07/07/2026: *"preciso que os meus chats me informem todas as vezes que
+estiverem sem crédito, pra eu recarregar"*. O canal era o Telegram; ele apagou e bloqueou os
+bots em 11/08, e em 20/09/2026 o corpo morto que guardava a URL da API saiu daqui.
+
+⚠️ HOJE O AVISO VIRA LOG, e é bom que fique escrito: quando um consultor fica sem crédito,
+`alertar_llm_indisponivel()` grava em nível ERROR e ninguém é notificado. Os dumps do Hermes
+de 15 e 16/09 mostraram HTTP 402 «Insufficient Balance» do DeepSeek — dois dias em que a
+triagem não rodou e nada tocou. É exatamente o buraco que este módulo existia para tapar.
+
+O canal da casa é o SINO (`communication_notifications`). Religar por lá é decisão do dono,
+não conserto técnico — por isso ficou fora do commit que removeu o Telegram.
+
+Chamado por 10 serviços de consultor no caminho de falha do provider; a função continua
+existindo e devolvendo cedo, então apagá-la quebraria chamador que não tem nada a ver com o bot.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -32,36 +41,3 @@ async def alertar_llm_indisponivel(origem: str, erro: str) -> None:
     esse tipo de coisa deve viver mesmo. Se voltar a fazer falta, o canal é o SINO.
     """
     logger.error("[telegram removido] LLM indisponível em %s: %s", origem, (erro or "")[:200])
-
-
-async def _alertar_llm_indisponivel_desativado(origem: str, erro: str) -> None:
-    """Corpo original preservado para referência — não é chamado."""
-    try:
-        agora = time.time()
-        if agora - _ULTIMO_ALERTA.get(origem, 0) < _INTERVALO_MIN_S:
-            return
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        if not token or not chat_id:
-            logger.warning("Alerta LLM: TELEGRAM_BOT_TOKEN/CHAT_ID ausentes")
-            return
-        credito = _e_erro_de_credito(erro)
-        titulo = "💳 SEM CRÉDITO na API" if credito else "⚠️ LLM indisponível"
-        msg = (
-            f"{titulo} — *{origem}*\n"
-            f"O chat está respondendo em modo indisponível.\n"
-            f"Erro: `{(erro or 'desconhecido')[:200]}`\n"
-            + ("👉 Recarregue os créditos da API para reativar.\n" if credito else "")
-            + f"_(anti-spam: próximo alerta desta origem em 1h)_"
-        )
-        import httpx
-
-        async with httpx.AsyncClient(timeout=10) as cli:
-            await cli.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"},
-            )
-        _ULTIMO_ALERTA[origem] = agora
-        logger.info("Alerta LLM enviado ao Telegram (origem=%s, credito=%s)", origem, credito)
-    except Exception as e:  # noqa: BLE001 — alerta nunca pode quebrar o consultor
-        logger.warning("Falha ao enviar alerta LLM Telegram: %s", e)

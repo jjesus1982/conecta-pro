@@ -871,7 +871,7 @@ async def link_inbound(db: AsyncSession, phone_canonical: str, content: str | No
         # CHURN/insatisfação: alerta o Jordan NA HORA (qualquer cliente, mesmo sem follow-up ativo).
         if is_churn_signal(content):
             try:
-                from modules.crm.services import orchestration as O  # noqa: PLC0415
+                from modules.crm.services import orchestration as O  # noqa: PLC0415, N812
 
                 nm = phone_canonical
                 rn = (
@@ -924,7 +924,7 @@ async def link_inbound(db: AsyncSession, phone_canonical: str, content: str | No
             )
             await db.commit()
             try:
-                from modules.crm.services import orchestration as O  # noqa: PLC0415
+                from modules.crm.services import orchestration as O  # noqa: PLC0415, N812
 
                 if nota is not None:
                     cat = "promotor" if nota >= 9 else ("neutro" if nota >= 7 else "detrator")
@@ -959,7 +959,7 @@ async def link_inbound(db: AsyncSession, phone_canonical: str, content: str | No
         # atualiza o estado da negociação + avisa o Jordan no WhatsApp dele (tempo real)
         nome = phone_canonical
         try:
-            from modules.crm.services import orchestration as O  # noqa: PLC0415 (evita import circular)
+            from modules.crm.services import orchestration as O  # noqa: PLC0415, N812 — evita import circular
 
             await O.marcar_resposta_cliente(db, phone_canonical, cls, content)
             r2 = (
@@ -1035,24 +1035,4 @@ async def notify_jordan(message: str) -> bool:
     some em silencio. Canal da casa para aviso novo e o SINO.
     """
     logger.info("[telegram removido] notify_jordan: %s", (message or "")[:200])
-    return False
-
-
-async def _notify_jordan_desativado(message: str) -> bool:
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat = os.getenv("TELEGRAM_CHAT_ID", "") or os.getenv("TELEGRAM_ALERT_CHAT_ID", "")
-    if token and chat:
-        try:
-            import aiohttp  # noqa: PLC0415
-
-            async with aiohttp.ClientSession() as s:
-                await s.post(
-                    f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": chat, "text": message},
-                    timeout=aiohttp.ClientTimeout(total=15),
-                )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.error("notify_jordan telegram falhou: %s", e)
-    logger.info("[NOTIFY JORDAN] %s", message)
     return False

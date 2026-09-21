@@ -64,30 +64,6 @@ def _telegram_send(text_msg: str) -> bool:
     return False
 
 
-def _telegram_send_desativado(text_msg: str) -> bool:
-    """Corpo original preservado para referencia — nao e chamado."""
-    token = os.getenv("MONITOR_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or ""
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
-        logger.warning("followup: TELEGRAM token/chat ausente — lista NAO enviada (so log)")
-        return False
-    try:
-        import requests  # noqa: PLC0415
-
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text_msg, "parse_mode": "HTML"},
-            timeout=15,
-        )
-        ok = r.status_code == 200 and r.json().get("ok")
-        if not ok:
-            logger.error("followup: Telegram falhou %s: %s", r.status_code, r.text[:200])
-        return bool(ok)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("followup: excecao no Telegram (best-effort): %s", e)
-        return False
-
-
 async def _enviar_followup_cliente(v: dict) -> tuple[str, str, str]:
     """BLOCO PRONTO — só roda com FOLLOWUP_AUTO_SEND=True. Retorna (channel, status, detail).
 
@@ -266,7 +242,7 @@ def owner_pendentes(self):
     """Lembra o Jordan, 1x/dia, das propostas SEM resposta há >=N dias (default 3). Best-effort."""
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         # pendentes sem resposta — lê as PROPOSTAS reais (enviadas há >=3d sem resposta).
         # cadência "1x/dia" garantida pelo agendamento diário do beat.
@@ -306,7 +282,7 @@ def owner_digest(self):
     from sqlalchemy import text as _t
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         # conta sobre as PROPOSTAS reais do CRM + estado do acompanhamento
         d = (
@@ -354,7 +330,7 @@ def owner_reminders_due(self):
     from sqlalchemy import text as _t
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         rows = (
             (
@@ -387,7 +363,7 @@ def lembrete_reuniao(self):
     from sqlalchemy import text as _t
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         rows = (
             (
@@ -439,7 +415,7 @@ def score_leads(self):
                     ld.score = score
                     ld.probability = prob
                     n += 1
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S112
                 continue
         await session.commit()
         return {"leads": len(leads), "atualizados": n}
@@ -456,7 +432,7 @@ def radar_frios(self):
     """Avisa o Jordan dos leads que esfriaram (sem auto-enviar ao cliente). 1x/dia. Best-effort."""
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         frios = await O.leads_frios(session)
         if not frios:
@@ -486,7 +462,7 @@ def heartbeat_ciclo(self):
     e quando volta ao normal (sem spam horário). Best-effort."""
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
 
         diag = await O.diagnostico_ciclo(session)
         agora_ok = bool(diag["saudavel"])
@@ -524,7 +500,7 @@ def auto_acompanhar(self):
     from sqlalchemy import text as _t
 
     async def _inner(session):
-        from modules.crm.services import orchestration as O
+        from modules.crm.services import orchestration as O  # noqa: N812
         from modules.crm.services.phone import canonical_br
 
         rows = (
@@ -569,7 +545,7 @@ def enviar_followups_agendados(self):
     from sqlalchemy import text as _t
 
     async def _inner(session):
-        from modules.crm.services import followups as F
+        from modules.crm.services import followups as F  # noqa: N812
 
         if not F.within_business_hours():
             return {"skip": "fora do horário comercial"}
@@ -608,7 +584,7 @@ def enviar_followups_agendados(self):
                 enviados += 1
         await session.commit()
         if enviados:
-            from modules.crm.services import orchestration as O
+            from modules.crm.services import orchestration as O  # noqa: N812
 
             await O.notify_owner(f"📨 {enviados} follow-up(s) agendado(s) foram enviados agora (janela comercial).")
         return {"enviados": enviados, "candidatos": len(rows)}
