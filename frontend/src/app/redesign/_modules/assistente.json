@@ -1,43 +1,6 @@
 {
-  "menu": [
-    {
-      "id": "chat",
-      "label": "Assistente IA",
-      "icon": "M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z",
-      "bg": "rgba(242,101,34,0.16)",
-      "sh": "inset 3px 0 0 #F26522",
-      "fg": "#fff"
-    },
-    {
-      "id": "historico",
-      "label": "Histórico",
-      "icon": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
-      "bg": "transparent",
-      "sh": "none",
-      "fg": "#9DB0D9"
-    }
-  ],
-  "screens": {
-    "chat": {
-      "title": "Assistente IA",
-      "sub": "Aguardando dado do servidor.",
-      "type": "table",
-      "cols": [
-        "Autor",
-        "Mensagem",
-        "Ação executada",
-        "Data"
-      ],
-      "grid": "1fr 3fr 1.2fr 1.2fr",
-      "rows": []
-    },
-    "historico": {
-      "title": "Histórico",
-      "sub": "Aguardando dado do servidor.",
-      "type": "list",
-      "items": []
-    }
-  },
+  "menu": [],
+  "screens": {},
   "mod": {
     "icon": "M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z",
     "name": "Assistente",

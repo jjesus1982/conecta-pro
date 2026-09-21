@@ -78,7 +78,7 @@ const GROUPS: { name: string; mods: Mod[] }[] = [
       { name: 'Automações', desc: 'Workflows', Icon: Workflow },
       { name: 'Agendador', desc: 'Tarefas agendadas', Icon: Clock },
       { name: 'Segurança', desc: 'LGPD e auditoria', Icon: Lock },
-      { name: 'Assistente IA', desc: 'IA geral do sistema', Icon: Sparkles, org: true },
+      { name: 'Assistente IA', desc: 'Memórias e anomalias da IA — o que ela quer guardar, você aprova', Icon: Sparkles, org: true },
       { name: 'Aprovações', desc: 'Rascunhos do agente', Icon: Bell, org: true },
       { name: 'Área do Cliente', desc: 'Portal externo', Icon: Headset },
       { name: 'Meu Espaço', desc: 'Área pessoal', Icon: User },
