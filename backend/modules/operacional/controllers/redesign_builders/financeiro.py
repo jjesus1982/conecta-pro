@@ -4692,3 +4692,246 @@ async def _rd_cancelar_pagamento(
 
 
 # _ligar_lote4_20260908: ver _fin_ligar4.py
+
+
+# ── PARCELAS DA FOLHA: conferir, editar, segurar, excluir, incluir ──────────────────────
+import logging as _log  # noqa: E402
+
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+
+logger = _log.getLogger("financeiro.parcelas")
+
+
+# 22/09/2026. O Jordan: «constrói os botões, eu quero conferir, editar, excluir, incluir».
+# Até aqui, segurar UMA pessoa do lote (o caso do Geilson) só dava por UPDATE no banco —
+# capacidade que existe no terminal e não existe para o dono não existe.
+#
+# A trava é a mesma nas quatro: NÃO se mexe em linha já paga nem em linha reservada num
+# lote ABERTO. Editar a base de um pagamento em curso é trocar o chão sob os pés de quem
+# está aprovando. E o motivo digitado fica no registro — ajuste de dinheiro sem rastro é
+# como o dinheiro some sem ninguém saber de quem foi a decisão.
+async def _parcela_mexivel(db, parcela_id: str) -> dict:
+    """Devolve a parcela se ela PODE ser alterada; senão levanta 409 dizendo por quê."""
+    r = (
+        (
+            await db.execute(
+                text(
+                    "SELECT p.id::text, e.nome, p.valor_liquido, p.data_prevista, "
+                    "       coalesce(p.status,'pendente_pagamento') AS st, "
+                    "       p.lote_ordem_id::text, p.data_pagamento, upper(coalesce(l.status,'')) AS lote_st "
+                    "  FROM payroll_payments p JOIN employees e ON e.id = p.employee_id "
+                    "  LEFT JOIN folha_lote_ordem l ON l.id = p.lote_ordem_id "
+                    " WHERE p.id = CAST(:i AS uuid)"
+                ),
+                {"i": parcela_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not r:
+        raise HTTPException(status_code=404, detail="Parcela não encontrada.")
+    if r["data_pagamento"] or r["st"] == "pago":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A parcela de {r['nome']} JÁ FOI PAGA — não se reescreve pagamento que saiu. "
+                "Se o valor estiver errado, o acerto é no mês seguinte."
+            ),
+        )
+    if r["lote_ordem_id"] and r["lote_st"] not in ("CONCLUIDO", "CANCELADO"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A parcela de {r['nome']} está reservada num lote de pagamento ABERTO. "
+                "Cancele ou conclua o lote antes de mexer nela."
+            ),
+        )
+    return dict(r)
+
+
+def _valor_br(v: object, campo: str) -> float:
+    """'668,00' ou '668.00' -> 668.0. Recusa o que não é número: valor em branco vira
+    pagamento de R$ 0,00 sem ninguém perceber."""
+    s = str(v or "").strip().replace("R$", "").replace(" ", "")
+    if not s:
+        raise HTTPException(status_code=400, detail=f"{campo} é obrigatório.")
+    s = s.replace(".", "").replace(",", ".") if "," in s else s
+    try:
+        f = round(float(s), 2)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{campo}: '{v}' não é um valor válido.")
+    if f <= 0:
+        raise HTTPException(status_code=400, detail=f"{campo} tem de ser maior que zero.")
+    return f
+
+
+@router.post("/action/parcela-editar", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_parcela_editar(
+    current_user: CurrentActiveUser, parcela_id: str, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """Muda VALOR e/ou DATA de uma parcela ainda não paga."""
+    p = await _parcela_mexivel(db, parcela_id)
+    valor = _valor_br(payload.get("valor"), "Valor")
+    data = _data_br(payload.get("data"), "Quando sai")
+    from datetime import date as _dt
+
+    await db.execute(
+        text(
+            "UPDATE payroll_payments SET valor_liquido = :v, data_prevista = :d, updated_at = now() "
+            "WHERE id = CAST(:i AS uuid)"
+        ),
+        {"v": valor, "d": _dt.fromisoformat(data), "i": parcela_id},
+    )
+    await db.commit()
+    _de, _para = float(p["valor_liquido"] or 0), valor
+    return {
+        "ok": True,
+        "message": (
+            f"{p['nome']}: {brl(_de)} → {brl(_para)}, sai em {_fmtdate(_dt.fromisoformat(data))}."
+            + (f" ⚠️ diferença de {brl(abs(_para - _de))}." if abs(_para - _de) > 0.005 else "")
+        ),
+    }
+
+
+@router.post("/action/parcela-segurar", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_parcela_segurar(
+    current_user: CurrentActiveUser, parcela_id: str, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """SEGURA (retido) ou LIBERA a parcela. Retido não entra no lote — é assim que uma
+    pessoa fica de fora sem se apagar o registro de que ela tem direito."""
+    p = await _parcela_mexivel(db, parcela_id)
+    motivo = (payload.get("motivo") or "").strip()
+    novo = "pendente_pagamento" if p["st"] == "retido" else "retido"
+    nota = f" | {'liberado' if novo != 'retido' else 'segurado'} por {getattr(current_user, 'nome', None) or getattr(current_user, 'id', '')}"
+    if motivo:
+        nota += f": {motivo[:120]}"
+    await db.execute(
+        text("UPDATE payroll_payments SET status = :s, updated_at = now() WHERE id = CAST(:i AS uuid)"),
+        {"s": novo, "i": parcela_id},
+    )
+    await db.commit()
+    logger.warning("parcela %s de %s -> %s%s", parcela_id, p["nome"], novo, nota)
+    return {
+        "ok": True,
+        "message": (
+            f"{p['nome']} — {brl(float(p['valor_liquido'] or 0))} "
+            + (
+                "LIBERADO: volta para o próximo lote."
+                if novo != "retido"
+                else "SEGURADO: não entra no lote até ser liberado."
+            )
+        ),
+    }
+
+
+@router.post("/action/parcela-excluir", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_parcela_excluir(
+    current_user: CurrentActiveUser, parcela_id: str, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """Apaga a linha. Para tirar alguém do pagamento, SEGURAR é melhor: preserva o registro."""
+    p = await _parcela_mexivel(db, parcela_id)
+    await db.execute(text("DELETE FROM payroll_payments WHERE id = CAST(:i AS uuid)"), {"i": parcela_id})
+    await db.commit()
+    logger.warning(
+        "parcela %s de %s EXCLUIDA por %s: %s",
+        parcela_id,
+        p["nome"],
+        getattr(current_user, "id", ""),
+        (payload.get("motivo") or "")[:120],
+    )
+    return {
+        "ok": True,
+        "message": (
+            f"Excluída a parcela de {p['nome']} "
+            f"({brl(float(p['valor_liquido'] or 0))}). Para só tirar do pagamento sem perder o "
+            "registro, use SEGURAR."
+        ),
+    }
+
+
+@router.post("/action/parcela-incluir", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_parcela_incluir(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Cria UMA linha de pagamento para quem ficou de fora."""
+    from datetime import date as _dt
+
+    eid = (payload.get("employee_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="Escolha a pessoa.")
+    comp = _competencia_br(payload.get("competencia"))
+    ano, mes = int(comp[:4]), int(comp[5:7])
+    try:
+        parcela = int(payload.get("parcela") or 1)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Parcela deve ser 1 ou 2.")
+    if parcela not in (1, 2):
+        raise HTTPException(status_code=400, detail="Parcela deve ser 1 ou 2.")
+    valor = _valor_br(payload.get("valor"), "Valor")
+    data = _data_br(payload.get("data"), "Quando sai")
+    pes = (
+        (
+            await db.execute(
+                text("SELECT nome, coalesce(pix_key,'') AS chave FROM employees WHERE id = CAST(:e AS uuid)"),
+                {"e": eid},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not pes:
+        raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
+    if not pes["chave"]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{pes['nome']} não tem chave PIX no cadastro — a linha nasceria impagável. Cadastre a chave antes."
+            ),
+        )
+    # O holerite é opcional: quem foi admitido depois da geração ainda não tem, e é
+    # justamente esse o caso que esta tela existe para resolver.
+    ps = (
+        await db.execute(
+            text(
+                "SELECT id::text FROM hr_payslips WHERE employee_id = CAST(:e AS uuid) "
+                "  AND reference_year = :a AND reference_month = :m AND source_system='conecta' LIMIT 1"
+            ),
+            {"e": eid, "a": ano, "m": mes},
+        )
+    ).scalar()
+    try:
+        await db.execute(
+            text(
+                "INSERT INTO payroll_payments (id, employee_id, payslip_id, mes, ano, valor_liquido, "
+                "  metodo, pix_key, status, parcela, parcelas_total, data_prevista, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), CAST(:e AS uuid), CAST(:ps AS uuid), :m, :a, :v, 'PIX', :k, "
+                "  'pendente_pagamento', :p, 2, :d, now(), now())"
+            ),
+            {
+                "e": eid,
+                "ps": ps,
+                "m": mes,
+                "a": ano,
+                "v": valor,
+                "k": pes["chave"],
+                "p": parcela,
+                "d": _dt.fromisoformat(data),
+            },
+        )
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{pes['nome']} já tem a {parcela}ª parcela de {comp}. Edite a linha existente "
+                "em «Parcelas da folha» em vez de criar outra."
+            ),
+        )
+    return {
+        "ok": True,
+        "message": (
+            f"{pes['nome']} — {parcela}ª parcela de {comp}, {brl(valor)}, sai em "
+            f"{_fmtdate(_dt.fromisoformat(data))}."
+            + ("" if ps else " (sem holerite nesta competência — a linha existe mesmo assim.)")
+        ),
+    }

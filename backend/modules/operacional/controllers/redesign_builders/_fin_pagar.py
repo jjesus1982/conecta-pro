@@ -210,6 +210,176 @@ async def build_pagar(db, out: dict) -> None:
                 },
             ],
         }
+        # ── PARCELAS DA FOLHA: conferir, editar, segurar, excluir, incluir ────────────
+        # 22/09/2026 — pedido do Jordan, depois de eu ter feito por terminal o que é dele:
+        # «constrói os botões, eu quero conferir, editar, excluir, incluir se for o caso».
+        # Até aqui a única forma de segurar UMA pessoa do lote (o caso do Geilson) era um
+        # UPDATE no banco. Capacidade que só existe no terminal não existe para o dono.
+        #
+        # O que NÃO se mexe, e a tela mostra isso em vez de esconder: linha já paga, ou
+        # reservada em lote aberto. Editar a base de um pagamento em curso é trocar o chão
+        # sob os pés de quem está aprovando.
+        _parc = (
+            await db.execute(
+                text("""
+            SELECT p.id::text, e.nome, coalesce(e.pix_key,'(sem chave)'), p.parcela,
+                   p.valor_liquido, p.data_prevista, coalesce(p.status,'pendente_pagamento'),
+                   p.lote_ordem_id IS NOT NULL AS em_lote, p.data_pagamento IS NOT NULL AS pago,
+                   to_char(make_date(p.ano, p.mes, 1),'MM/YYYY') AS comp
+              FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
+             WHERE make_date(p.ano, p.mes, 1) >= (CURRENT_DATE - INTERVAL '4 months')
+             ORDER BY p.ano DESC, p.mes DESC, p.parcela, e.nome
+             LIMIT 400
+        """)
+            )
+        ).fetchall()
+
+        def _linha_parcela(r):
+            pid, nome, chave, parcela, valor, dt, status, em_lote, pago, comp = r
+            travada = bool(pago) or status == "pago" or bool(em_lote)
+            _tone = {"pago": "ok", "retido": "warn", "aguardando_app": "info"}.get(status, "info")
+            cells = [
+                t(nome, 600, "#0F1B3A"),
+                t(str(chave)),
+                t(f"{parcela}ª"),
+                t(brl(float(valor or 0)), 600),
+                t(_fmtdate(dt) if dt else "—"),
+                b(status.replace("_", " "), _tone),
+                t(comp),
+            ]
+            if travada:
+                # Sem ações: a linha existe, o motivo aparece, e não há botão que engane.
+                return {"cells": cells, "actions": []}
+            acoes = [
+                {
+                    "title": f"Editar parcela de {nome}",
+                    "endpoint": f"/api/v1/redesign/action/parcela-editar?parcela_id={pid}",
+                    "method": "POST",
+                    "btnLabel": "Editar",
+                    "submitLabel": "Salvar",
+                    "btnStyle": "outline",
+                    "okMsg": "Parcela atualizada. Recarregue a tela.",
+                    "fields": [
+                        {
+                            "key": "valor",
+                            "label": "Valor (R$)",
+                            "type": "text",
+                            "value": f"{float(valor or 0):.2f}".replace(".", ","),
+                        },
+                        {
+                            "key": "data",
+                            "label": "Quando sai (DD/MM/AAAA)",
+                            "type": "text",
+                            "value": _fmtdate(dt) if dt else "",
+                        },
+                    ],
+                },
+                {
+                    "title": (
+                        f"LIBERAR {nome} para pagamento" if status == "retido" else f"SEGURAR {nome} fora do lote"
+                    ),
+                    "endpoint": f"/api/v1/redesign/action/parcela-segurar?parcela_id={pid}",
+                    "method": "POST",
+                    "btnLabel": "Liberar" if status == "retido" else "Segurar",
+                    "submitLabel": "Confirmar",
+                    "btnStyle": "primary" if status == "retido" else "outline",
+                    "okMsg": "Estado alterado. Recarregue a tela.",
+                    "fields": [{"key": "motivo", "label": "Por quê? (fica registrado)", "type": "text"}],
+                },
+                {
+                    "title": f"EXCLUIR a parcela de {nome}",
+                    "endpoint": f"/api/v1/redesign/action/parcela-excluir?parcela_id={pid}",
+                    "method": "POST",
+                    "btnLabel": "Excluir",
+                    "submitLabel": "Excluir",
+                    "btnStyle": "danger",
+                    "okMsg": "Parcela excluída. Recarregue a tela.",
+                    "fields": [{"key": "motivo", "label": "Por quê? (fica registrado)", "type": "text"}],
+                },
+            ]
+            return {"cells": cells, "actions": acoes}
+
+        _retidos = sum(1 for r in _parc if r[6] == "retido")
+        _a_pagar = sum(float(r[4] or 0) for r in _parc if r[6] == "pendente_pagamento")
+        out["parcelas-folha"] = {
+            "title": "Parcelas da folha — conferir e ajustar",
+            "sub": (
+                f"Cada linha é dinheiro a pagar. {len(_parc)} linha(s); "
+                f"{brl(_a_pagar)} aguardando pagamento; {_retidos} segurada(s). "
+                "Linha já PAGA ou reservada em lote ABERTO não tem botão — de propósito: "
+                "mexer na base de um pagamento em curso é pior que não poder mexer."
+            ),
+            "cta": "—",
+            "type": "table",
+            "searchHint": "Buscar pessoa…",
+            "cols": ["Pessoa", "Chave PIX", "Parcela", "Valor", "Quando sai", "Estado", "Competência"],
+            "grid": "1.8fr 1.6fr 0.6fr 1fr 1fr 1.1fr 0.9fr",
+            "rows": [_linha_parcela(r) for r in _parc],
+        }
+
+        # INCLUIR quem ficou de fora: admitido depois da geração, ou linha excluída por engano.
+        _cands = (
+            await db.execute(
+                text("""
+            SELECT e.id::text, e.nome, coalesce(e.salario_base,0)
+              FROM employees e
+             WHERE e.status='ativo' AND coalesce(e.is_homologacao,false)=false
+             ORDER BY e.nome
+        """)
+            )
+        ).fetchall()
+        out["parcela-incluir"] = {
+            "title": "Incluir pessoa numa parcela",
+            "sub": (
+                "Para quem ficou de fora: admitido depois da geração, ou linha excluída "
+                "por engano. Cria UMA linha de pagamento — não mexe na folha."
+            ),
+            "cta": "Incluir",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/redesign/action/parcela-incluir",
+                "gated": True,
+                "confirm": "Isto CRIA uma linha de dinheiro a pagar. Confirma?",
+                "okMsg": "Linha criada.",
+            },
+            "fields": [
+                {
+                    "key": "employee_id",
+                    "label": "Quem*",
+                    "type": "select",
+                    "span": "span 2",
+                    "options": [{"value": "", "label": "— escolha a pessoa —"}]
+                    + [{"value": c[0], "label": f"{c[1]} — base {brl(float(c[2] or 0))}"} for c in _cands],
+                },
+                {
+                    "key": "competencia",
+                    "label": "Competência* (MM/AAAA)",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Ex.: 09/2026",
+                },
+                {
+                    "key": "parcela",
+                    "label": "Qual parcela*",
+                    "type": "select",
+                    "span": "span 1",
+                    "value": "1",
+                    "options": [
+                        {"value": "1", "label": "1ª — adiantamento (40%)"},
+                        {"value": "2", "label": "2ª — saldo (60%)"},
+                    ],
+                },
+                {"key": "valor", "label": "Valor (R$)*", "type": "text", "span": "span 1", "ph": "Ex.: 668,00"},
+                {
+                    "key": "data",
+                    "label": "Quando sai* (DD/MM/AAAA)",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Ex.: 22/09/2026",
+                },
+            ],
+        }
+
         out["aprovar-ordem"] = {
             "title": "Aprovar ordem de pagamento (OTP)",
             "sub": (

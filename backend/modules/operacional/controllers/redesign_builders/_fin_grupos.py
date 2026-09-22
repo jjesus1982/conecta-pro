@@ -122,7 +122,7 @@ GRUPOS = [
     (
         "g-pagar-ordens",
         "Ordens & Histórico",
-        "Lotes, o que já saiu e correção. A sequência da folha é: «1. Gerar parcelas 40/60» → «Montar ordem» → «Aprovar (OTP)» → «Executar no app».",
+        "Lotes, o que já saiu e correção. A sequência da folha é: «1. Gerar parcelas 40/60» → «2. Conferir e ajustar» → «Montar ordem» → «Aprovar (OTP)» → «Executar no app».",
         [
             # ⭐ 21/09/2026 — `gerar-parcelas` ENTROU AQUI, e a falta dela era o defeito.
             # O Jordan foi pagar os 40% da folha e não achou o caminho, nem no Financeiro nem no
@@ -133,6 +133,12 @@ GRUPOS = [
             # Fica como PRIMEIRA aba, com o número no rótulo, para a ordem do fluxo ser legível
             # sem ninguém precisar saber de cor.
             ("gerar-parcelas", "1. Gerar parcelas 40/60"),
+            # ⭐ 22/09/2026 — a MESMA lição de novo, um degrau adiante. Gerar tinha porta;
+            # CONFERIR e AJUSTAR o que foi gerado, não. Segurar uma pessoa do lote (o caso
+            # do Geilson) só existia por UPDATE no banco — capacidade que vive no terminal
+            # não existe para o dono. Entra logo depois de gerar, que é quando se confere.
+            ("parcelas-folha", "2. Conferir e ajustar"),
+            ("parcela-incluir", "Incluir pessoa"),
             ("ordens-pagamento", "Ordens de pagamento"),
             ("montar-ordem", "Montar ordem"),
             ("aprovar-ordem", "Aprovar ordem (OTP)"),
