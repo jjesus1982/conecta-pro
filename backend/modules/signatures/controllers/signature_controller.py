@@ -216,13 +216,29 @@ async def assinar_lote(
     svc = UniversalSignatureService(db)
     evidence = _evidence_from(request, payload.evidence)
     try:
-        return await svc.assinar_lote(
+        r = await svc.assinar_lote(
             employee_id=current_user.employee_id,
             request_ids=payload.request_ids,
             evidence=evidence,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail=str(exc))
+    # 🔴 ZERO ASSINADO NÃO É SUCESSO. Até 22/09/2026 este lote devolvia HTTP 200 com
+    # `total_assinados: 0` e a lista de motivos escondida dentro do corpo — a tela lia 200,
+    # mostrava «assinado» e fechava. O Jeovane tentou quatro vezes, o sistema disse que deu
+    # certo quatro vezes, e o agente chegou a orientá-lo a «tocar em OK» porque a resposta
+    # afirmava sucesso. É a mesma família do `checar_sucesso_vazio`: 200 sobre operação que
+    # não aconteceu mente pior do que um erro.
+    if r.get("total") and not r.get("total_assinados"):
+        _motivos = "; ".join(str(i.get("motivo") or "")[:160] for i in (r.get("ignorados") or [])[:3])
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Nenhum documento foi assinado ({r['total']} tentado(s)). "
+                f"{_motivos or 'Sem motivo informado pelo serviço.'}"
+            ),
+        )
+    return r
 
 
 @router.get(

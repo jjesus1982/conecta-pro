@@ -42,7 +42,7 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.ai.signature.models.signature import (
@@ -335,8 +335,10 @@ class UniversalSignatureService:
             # quis passar pela mesma experiência do cliente, e o diretor nem sempre está
             # logado no painel na hora de firmar. Escopado por document_type: nenhum outro
             # fluxo (holerite, comunicado, kit) ganha token de empresa.
-            _emp_por_link = (signer.signer_type == SignerType.COMPANY
-                             and (document_type or "").lower() in {"contrato", "contract"})
+            _emp_por_link = signer.signer_type == SignerType.COMPANY and (document_type or "").lower() in {
+                "contrato",
+                "contract",
+            }
             if signer.signer_type == SignerType.CUSTOMER or _emp_por_link:
                 # token_hex, não token_urlsafe: base64url inclui "_" e "-", e link com
                 # "__" no fim é comido por chat que renderiza markdown — foi o que quebrou
@@ -399,6 +401,65 @@ class UniversalSignatureService:
     # ------------------------------------------------------------------ #
     # 2) ASSINAR
     # ------------------------------------------------------------------ #
+    async def _regerar_pdf_de_origem(self, req: Any) -> bytes | None:
+        """Monta de novo o PDF de holerite/recibo VT-VR a partir da competência do título.
+
+        Nunca levanta: se não der para regerar, devolve None e a trava de cima recusa a
+        assinatura — que é o comportamento certo. Fabricar «assinado» sem papel é pior.
+        """
+        import re as _re
+
+        tipo = (req.document_type or "").lower()
+        if tipo not in ("payslip", "recibo_vt_vr"):
+            return None
+        m = _re.search(r"(\d{1,2})/(\d{4})", str(req.document_name or ""))
+        if not m:
+            return None
+        mes, ano = int(m.group(1)), int(m.group(2))
+        try:
+            from sqlalchemy import text as _t
+
+            pid = (
+                await self.db.execute(
+                    _t(
+                        "SELECT id::text FROM hr_payslips "
+                        " WHERE employee_id = CAST(:e AS uuid) "
+                        "   AND reference_month = :m AND reference_year = :a "
+                        "   AND lower(coalesce(status,'')) <> 'cancelled' "
+                        # PUBLICADO primeiro, e desempate por data. Medido no Jeovane:
+                        # 07/2026 tem DOIS holerites criados no mesmo dia — o da Portte
+                        # cancelado e o nosso publicado. Sem ordenar por status, o
+                        # desempate ficava ao acaso da ordem física das linhas, que é
+                        # como se assina o papel errado.
+                        " ORDER BY (lower(coalesce(status,'')) = 'published') DESC, "
+                        "          created_at DESC LIMIT 1"
+                    ),
+                    {"e": str(req.signer_id), "m": mes, "a": ano},
+                )
+            ).scalar()
+            if not pid:
+                return None
+            from modules.people_management.employee_portal.services.payslip_pdf_service import (
+                gerar_pdf_holerite,
+            )
+
+            pdf = await gerar_pdf_holerite(self.db, pid)
+            if tipo == "payslip":
+                return pdf
+            # recibo de VT/VR usa o MESMO cálculo, com outro papel
+            from modules.people_management.folha.services.calculo_service import (
+                calcular_folha_colaborador,
+            )
+            from modules.people_management.folha.services.recibo_vt_vr_pdf import (
+                montar_recibo_vt_vr_pdf,
+            )
+
+            hol = calcular_folha_colaborador(self.db.get_bind(), str(req.signer_id), mes, ano)
+            return montar_recibo_vt_vr_pdf(hol, {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("não foi possível regerar o PDF de origem de %s: %s", req.id, exc)
+            return None
+
     async def assinar(
         self,
         *,
@@ -500,6 +561,16 @@ class UniversalSignatureService:
             # signatário (se houver), pra os dois selos ficarem na MESMA folha. Funcionário=slot 1 (acima).
             _src = (await self._grupo_pdf_assinado(req)) if _co else None
             _src = _src or pdf_bytes or (self._read_pdf(req.document_path) if req.document_path else None)
+            # ÚLTIMO RECURSO: REGERAR o PDF a partir do DADO. Holerite e recibo de VT/VR
+            # são derivados — o papel não é guardado em disco, é montado sob demanda. As
+            # solicitações nasciam com `document_path` nulo e `document_id` nulo (os
+            # controllers passam uma string tipo "uuid:2026-07" numa coluna UUID, que não
+            # cabe e some), então na hora de assinar não havia fonte e a trava — correta —
+            # recusava. Medido em 22/09/2026: 16 solicitações impossíveis de assinar, 6 de
+            # holerite e 10 de recibo VT/VR. O Jeovane tentou 4 vezes e o lote respondia
+            # HTTP 200 com zero assinados.
+            # Regerar é o certo: a fonte da verdade é o DADO, o PDF é consequência.
+            _src = _src or await self._regerar_pdf_de_origem(req)
             if _src:
                 from modules.signatures.services.qualified_signer import _estampar_selo_eletronico
 
@@ -1103,7 +1174,9 @@ class UniversalSignatureService:
                 SignatureRequest.signer_type == str(SignerType.EMPLOYEE),
                 SignatureRequest.signer_id == employee_id,
                 SignatureRequest.status.in_([str(s) for s in self._PENDING_STATUSES]),
-                or_(SignatureRequest.expires_at.is_(None), SignatureRequest.expires_at > datetime.now()),  # vencidas não são "a assinar" (08/09/2026)
+                or_(
+                    SignatureRequest.expires_at.is_(None), SignatureRequest.expires_at > datetime.now()
+                ),  # vencidas não são "a assinar" (08/09/2026)
             )
             .order_by(SignatureRequest.created_at.asc())
         )
@@ -1457,28 +1530,49 @@ class UniversalSignatureService:
         doc_id = str(req.document_id or "").strip()
         if not doc_id or not req.signed_document_path or not os.path.exists(req.signed_document_path):
             return
-        row = (await self.db.execute(_sql("SELECT file_path FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id})).first()
+        row = (
+            await self.db.execute(
+                _sql("SELECT file_path FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id}
+            )
+        ).first()
         if not row:
             return
         destino = row[0] or req.signed_document_path
         if destino != req.signed_document_path:
             shutil.copyfile(req.signed_document_path, destino)
-        pend = (await self.db.execute(_sql(
-            "SELECT count(*) FROM sig_signature_requests WHERE document_type = :dt AND CAST(document_id AS text) = :d "
-            "AND status::text NOT IN ('SIGNED','COMPLETED','CANCELLED','REJECTED','EXPIRED')"), {"dt": req.document_type, "d": doc_id})).scalar() or 0
+        pend = (
+            await self.db.execute(
+                _sql(
+                    "SELECT count(*) FROM sig_signature_requests WHERE document_type = :dt AND CAST(document_id AS text) = :d "
+                    "AND status::text NOT IN ('SIGNED','COMPLETED','CANCELLED','REJECTED','EXPIRED')"
+                ),
+                {"dt": req.document_type, "d": doc_id},
+            )
+        ).scalar() or 0
         sig_hash = None
         if req.signature_id:
-            sig_hash = (await self.db.execute(_sql("SELECT signature_hash FROM sig_signatures WHERE id = :i"), {"i": req.signature_id})).scalar()
-        await self.db.execute(_sql(
-            "UPDATE ged_kit_documents SET file_path = :fp, is_signed = :ok, signed_at = CASE WHEN :ok THEN :ts ELSE signed_at END, "
-            "signature_hash = coalesce(:h, signature_hash), updated_at = now() WHERE CAST(id AS text) = :d"),
-            {"fp": destino, "ok": pend == 0, "ts": signed_at, "h": sig_hash, "d": doc_id})
+            sig_hash = (
+                await self.db.execute(
+                    _sql("SELECT signature_hash FROM sig_signatures WHERE id = :i"), {"i": req.signature_id}
+                )
+            ).scalar()
+        await self.db.execute(
+            _sql(
+                "UPDATE ged_kit_documents SET file_path = :fp, is_signed = :ok, signed_at = CASE WHEN :ok THEN :ts ELSE signed_at END, "
+                "signature_hash = coalesce(:h, signature_hash), updated_at = now() WHERE CAST(id AS text) = :d"
+            ),
+            {"fp": destino, "ok": pend == 0, "ts": signed_at, "h": sig_hash, "d": doc_id},
+        )
         await self.db.commit()
         logger.info("Documento do kit %s atualizado com assinatura (%s pendente(s))", doc_id, pend)
         try:  # o assinado vai para a pasta do kit no Drive na hora (best-effort; o sync diário cobre falha)
             from modules.people_management.ged.services.google_drive_service import GoogleDriveService
 
-            kit_id = (await self.db.execute(_sql("SELECT kit_id::text FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id})).scalar()
+            kit_id = (
+                await self.db.execute(
+                    _sql("SELECT kit_id::text FROM ged_kit_documents WHERE CAST(id AS text) = :d"), {"d": doc_id}
+                )
+            ).scalar()
             if kit_id:
                 r = await GoogleDriveService(self.db).sync_documento(kit_id, doc_id)
                 await self.db.commit()
