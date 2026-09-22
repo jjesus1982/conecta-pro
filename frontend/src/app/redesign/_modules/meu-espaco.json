@@ -31,6 +31,38 @@
    "bg": "transparent",
    "sh": "none",
    "fg": "#9DB0D9"
+  },
+  {
+   "id": "assinaturas-pendentes",
+   "label": "Assinaturas pendentes",
+   "icon": "M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "minhas-manifestacoes",
+   "label": "Minhas manifestações",
+   "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "ouvidoria-abrir",
+   "label": "Abrir manifestação",
+   "icon": "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM12 8v4M12 16h.01",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
+  },
+  {
+   "id": "meus-dados",
+   "label": "Meus dados",
+   "icon": "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+   "bg": "transparent",
+   "sh": "none",
+   "fg": "#9DB0D9"
   }
  ],
  "screens": {

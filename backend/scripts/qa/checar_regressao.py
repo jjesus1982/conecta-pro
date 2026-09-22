@@ -262,6 +262,13 @@ CACADORES_HOST = {
     # chegaria. A API do Inter NÃO consulta DICT (404 medido), então a prova de destino só
     # vem do histórico de pagamento, onde o banco devolve `recebedor.nome`. HOST: postgres.
     "checar_chave_pix.py": lambda s: _n(r"^TOTAL chaves PIX com defeito:\s*(\d+)", s),
+    # ── 22/09/2026. O Jordan, três vezes no mesmo dia: «tudo o que estamos fazendo pelo
+    # terminal tem que funcionar no frontend, não podemos ficar reféns do terminal». Os
+    # três defeitos daquele dia tinham a mesma forma e nenhum caçador pegava: tela servida
+    # fora de todo menu, e ação que nenhuma tela chama. O `checar_capacidade_sem_botao`
+    # EXCLUI /redesign/action/ dizendo «ela É a porta» — e não é. HOST: precisa da API e
+    # dos JSONs de menu do frontend ao mesmo tempo.
+    "checar_tela_sem_porta.py": lambda s: _n(r"^TOTAL:\s*(\d+) sem porta", s),
 }
 
 
