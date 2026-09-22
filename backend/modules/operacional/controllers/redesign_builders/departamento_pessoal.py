@@ -445,35 +445,68 @@ async def rd_action_folha_gerar(
         _del += " AND CAST(condominio_id AS TEXT) = :c"
         _par["c"] = cond_sel
     # ── PARCELAS DERIVADAS ───────────────────────────────────────────────────────────
-    # 22/09/2026: regerar a folha DEPOIS que o Financeiro já gerou as parcelas estourava
+    # 22/09/2026: regerar a folha DEPOIS que o Financeiro gerou as parcelas estourava
     # `ForeignKeyViolation ... payroll_payments_payslip_id_fkey` — erro cru de banco na
-    # cara de quem só queria corrigir a folha. E o buraco é o inverso do que parece: o
-    # perigoso não é regerar, é regerar e deixar parcelas VELHAS apontando para holerites
-    # que já não existem, ou para valores que mudaram.
-    # Regra: parcela já paga ou já reservada em lote TRAVA a regeração (dinheiro não se
-    # reescreve). Parcela solta e não paga é derivada da folha — cai junto e é NOMEADA na
-    # resposta, porque o Financeiro precisa gerar de novo.
-    _travadas = (
+    # cara de quem só queria corrigir a folha.
+    #
+    # A primeira versão desta guarda RECUSAVA quando havia parcela paga. Estava errada, e
+    # o erro só apareceu ao desenhar a rotina mensal: o adiantamento é pago por volta do
+    # dia 20 e o SALDO é gerado no 5º dia útil do mês seguinte, com a folha refeita para
+    # pegar quem entrou ou saiu no meio. Recusar ali seria travar justamente o dia em que
+    # a folha PRECISA ser refeita — regra do Jordan: «a folha tem que rodar tanto o 40%
+    # quanto o 60% com as informações do dia que foi pedido para gerar».
+    #
+    # Regra certa, por estado da parcela:
+    #   · reservada em lote ABERTO → recusa: há pagamento em voo, e mexer na base dele
+    #     é trocar o chão sob os pés de quem está aprovando;
+    #   · PAGA → fica, e é REAPONTADA para o holerite novo da mesma pessoa. A parcela
+    #     pertence ao par funcionário+competência, não à linha física do holerite;
+    #     apagar seria apagar o registro de dinheiro que saiu;
+    #   · solta e não paga → cai junto, porque deriva da folha antiga. E a resposta DIZ
+    #     quantas caíram, senão o Financeiro segue achando que tem lançamento válido.
+    _em_voo = (
         db.execute(
             _sql(
-                "SELECT count(*) FROM payroll_payments pp JOIN hr_payslips h ON h.id = pp.payslip_id "
-                "WHERE h.source_system='conecta' AND h.reference_year=:a AND h.reference_month=:m "
-                "  AND (pp.lote_ordem_id IS NOT NULL OR pp.data_pagamento IS NOT NULL "
-                "       OR lower(coalesce(pp.status,'')) IN ('pago','aguardando_app','executado'))"
+                "SELECT count(*) FROM payroll_payments pp "
+                "  JOIN hr_payslips h ON h.id = pp.payslip_id "
+                "  LEFT JOIN folha_lote_ordem l ON l.id = pp.lote_ordem_id "
+                " WHERE h.source_system='conecta' AND h.reference_year=:a AND h.reference_month=:m "
+                "   AND pp.lote_ordem_id IS NOT NULL "
+                "   AND upper(coalesce(l.status,'')) NOT IN ('CONCLUIDO','CANCELADO')"
             ),
             {"a": ano, "m": mes},
         ).scalar()
         or 0
     )
-    if _travadas:
+    if _em_voo:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Folha {mes:02d}/{ano} não pode ser regerada: {_travadas} parcela(s) já "
-                "estão pagas ou reservadas em lote no Financeiro. Cancele o lote antes, "
-                "ou corrija por fora — regerar aqui reescreveria a base de um pagamento "
-                "que já saiu."
+                f"Folha {mes:02d}/{ano} não pode ser regerada agora: {_em_voo} parcela(s) "
+                "estão reservadas num lote de pagamento ainda ABERTO. Conclua ou cancele o "
+                "lote no Financeiro — regerar aqui trocaria a base de um pagamento em curso."
             ),
+        )
+    # PAGAS: guarda o vínculo por PESSOA para reapontar depois que os holerites novos
+    # existirem (a FK exige um holerite vivo no meio do caminho).
+    _pagas = [
+        (str(r[0]), str(r[1]))
+        for r in db.execute(
+            _sql(
+                "SELECT pp.id, pp.employee_id FROM payroll_payments pp "
+                "  JOIN hr_payslips h ON h.id = pp.payslip_id "
+                " WHERE h.source_system='conecta' AND h.reference_year=:a AND h.reference_month=:m "
+                "   AND (pp.data_pagamento IS NOT NULL "
+                "        OR lower(coalesce(pp.status,'')) IN ('pago','executado','aguardando_app'))"
+            ),
+            {"a": ano, "m": mes},
+        ).fetchall()
+    ]
+    if _pagas:
+        # Solta a FK antes do DELETE dos holerites; o reaponte vem logo depois da gravação.
+        db.execute(
+            _sql("UPDATE payroll_payments SET payslip_id = NULL WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": [i for i, _ in _pagas]},
         )
     _parc_apagadas = (
         db.execute(
@@ -541,6 +574,39 @@ async def rd_action_folha_gerar(
         gravados += 1
     db.commit()
 
+    # REAPONTA as parcelas JÁ PAGAS para o holerite novo da MESMA pessoa. A parcela é um
+    # fato (dinheiro que saiu) e pertence ao par funcionário+competência; a linha física do
+    # holerite foi substituída. Sem isto elas ficariam órfãs (payslip_id NULL) e o saldo do
+    # mês seguinte perderia a referência de quanto já tinha sido adiantado.
+    _reapontadas = 0
+    if _pagas:
+        for _pp_id, _emp_id in _pagas:
+            _reapontadas += (
+                db.execute(
+                    _sql(
+                        "UPDATE payroll_payments SET payslip_id = ("
+                        "  SELECT h.id FROM hr_payslips h WHERE h.employee_id = CAST(:e AS uuid) "
+                        "    AND h.source_system='conecta' AND h.reference_year=:a AND h.reference_month=:m "
+                        "  LIMIT 1), updated_at = now() "
+                        "WHERE id = CAST(:i AS uuid) AND payslip_id IS NULL"
+                    ),
+                    {"i": _pp_id, "e": _emp_id, "a": ano, "m": mes},
+                ).rowcount
+                or 0
+            )
+        db.commit()
+        _orfas = (
+            db.execute(
+                _sql("SELECT count(*) FROM payroll_payments WHERE mes=:m AND ano=:a AND payslip_id IS NULL"),
+                {"a": ano, "m": mes},
+            ).scalar()
+            or 0
+        )
+        if _orfas:
+            # Pessoa que saiu da folha entre o adiantamento e o saldo: recebeu, e agora não
+            # tem holerite. Não é para sumir em silêncio — o saldo dela é decisão humana.
+            logger.warning("folha %02d/%s: %s parcela(s) paga(s) sem holerite novo", mes, ano, _orfas)
+
     # ALERTA DE GENTE NAO PAGA: holerite com liquido <= 0 quase sempre e cadastro incompleto
     # (salario_base nulo em admissao recente). Sem isto o holerite de R$ 0,00 passa em silencio
     # e a pessoa nao recebe. Nunca preencher salario por conta propria — e dado do DP.
@@ -594,6 +660,11 @@ async def rd_action_folha_gerar(
                 f" ⚠️ {_parc_apagadas} parcela(s) de pagamento (não pagas) caíram junto, porque "
                 "derivavam da folha antiga — gere as parcelas de novo no Financeiro."
                 if _parc_apagadas
+                else ""
+            )
+            + (
+                f" {_reapontadas} parcela(s) JÁ PAGA(S) foram preservadas e reapontadas para os holerites novos."
+                if _reapontadas
                 else ""
             )
             + alerta

@@ -54,7 +54,12 @@ TIPOS_MENSAIS = ("mensal", "monthly")
 
 
 async def gerar_parcelas(
-    db: AsyncSession, *, competencia: str, parcelas: list[tuple[int, str]], dry_run: bool = True
+    db: AsyncSession,
+    *,
+    competencia: str,
+    parcelas: list[tuple[int, str]],
+    dry_run: bool = True,
+    etapa: str = "ambas",
 ) -> dict:
     """Cria as linhas de pagamento da competência, partidas em parcelas.
 
@@ -73,10 +78,32 @@ async def gerar_parcelas(
 
     `dry_run=True` por padrão: isto cria dinheiro a pagar: quem chama precisa dizer
     explicitamente que quer gravar.
+
+    ── ETAPAS SEPARADAS (regra do Jordan, 22/09/2026) ────────────────────────────────
+    «a folha tem que rodar tanto o 40% quanto o 60% com as informações do DIA que foi
+    pedido para gerar» — o adiantamento por volta do dia 20/21, o saldo no 5º dia útil
+    do mês seguinte. Entre as duas datas entram contratações e saídas, e o eSocial muda.
+
+    Gerar as duas de uma vez (o que esta função fazia) CONGELA em 22/09 uma folha que
+    ainda vai mudar: quem for admitido dia 25 não teria linha de saldo, e quem sair não
+    teria o valor corrigido. Por isso `etapa`:
+
+      · "adiantamento" — cria só a parcela 1, com a folha de HOJE;
+      · "saldo"        — cria só a parcela 2, com a folha do DIA em que for chamada, e
+                         confere pessoa a pessoa se o que a folha abateu bate com o que
+                         foi REALMENTE pago no adiantamento;
+      · "ambas"        — comportamento antigo, exige somar 100%. Só para competência
+                         fechada, em que nada mais vai mudar.
     """
-    soma = sum(p for p, _ in parcelas)
-    if soma != 100:
-        return {"ok": False, "erro": f"as parcelas somam {soma}%, precisam somar 100%"}
+    etapa = (etapa or "ambas").strip().lower()
+    if etapa not in ("adiantamento", "saldo", "ambas"):
+        return {"ok": False, "erro": "etapa deve ser 'adiantamento', 'saldo' ou 'ambas'"}
+    if etapa == "ambas":
+        soma = sum(p for p, _ in parcelas)
+        if soma != 100:
+            return {"ok": False, "erro": f"as parcelas somam {soma}%, precisam somar 100%"}
+    elif len(parcelas) != 1:
+        return {"ok": False, "erro": f"a etapa '{etapa}' gera UMA parcela; recebi {len(parcelas)}"}
     mes, ano = int(competencia[5:7]), int(competencia[:4])
 
     # ── FONTE POR COMPETÊNCIA, não global ────────────────────────────────────────────
@@ -160,7 +187,34 @@ async def gerar_parcelas(
             ),
         }
 
-    criadas, sem_chave, previsto, sem_base, estoura = [], [], [], [], []
+    # O QUE JÁ SAIU no adiantamento, por pessoa — a verdade do saldo não é a folha de
+    # hoje, é o dinheiro que efetivamente saiu. Lido de payroll_payments (parcela 1),
+    # que é onde o pagamento é registrado e conciliado.
+    pago_adiant: dict[str, float] = {}
+    if etapa == "saldo":
+        pago_adiant = {
+            str(r["eid"]): float(r["v"] or 0)
+            for r in (
+                await db.execute(
+                    text(
+                        # PAGO de verdade, não "tem linha". Medido em 22/09: o Geilson está
+                        # `retido` (decisão do Jordan) e com o filtro largo o desacerto NÃO
+                        # acusava — o saldo dele sairia abatido de um adiantamento que ele
+                        # nunca recebeu. Vale o mesmo para quem ficar `pendente` ou
+                        # `aguardando_app`: aprovado no sistema não é dinheiro na conta.
+                        "SELECT employee_id::text AS eid, sum(valor_liquido) AS v "
+                        "FROM payroll_payments WHERE mes = :m AND ano = :a AND parcela = 1 "
+                        "  AND (data_pagamento IS NOT NULL OR lower(coalesce(status,'')) = 'pago') "
+                        "GROUP BY 1"
+                    ),
+                    {"m": mes, "a": ano},
+                )
+            )
+            .mappings()
+            .all()
+        }
+
+    criadas, sem_chave, previsto, sem_base, estoura, desacerto = [], [], [], [], [], []
     for h in holerites:
         liquido = round(float(h["liquido"]), 2)
         base = round(float(h["base"] or 0), 2)
@@ -187,15 +241,38 @@ async def gerar_parcelas(
             continue
         acumulado, valores = 0.0, []
         adiant_folha = round(float(h["adiant_folha"] or 0), 2)
-        for i, (pct, _dt) in enumerate(parcelas, start=1):
-            if i == 1 and adiant_folha > 0:
-                v = adiant_folha  # o que a folha abateu é o que se adianta — fonte única
-            elif i < len(parcelas):
-                v = round(base * pct / 100, 2)
-            else:
-                v = liquido if h["ja_abate"] else round(liquido - acumulado, 2)
-            acumulado = round(acumulado + v, 2)
-            valores.append(v)
+        if etapa == "adiantamento":
+            # Parcela 1, sozinha. O valor é o que a FOLHA abateu (fonte única: quem decide
+            # o adiantamento é o DP). Sem rubrica na folha, cai no percentual pedido.
+            valores = [adiant_folha if adiant_folha > 0 else round(base * parcelas[0][0] / 100, 2)]
+        elif etapa == "saldo":
+            # Parcela 2, sozinha, com a folha do DIA de hoje. O líquido da folha já vem
+            # abatido do adiantamento (`ja_abate`), então ELE é o saldo.
+            ja_pago = round(pago_adiant.get(str(h["eid"]), 0.0), 2)
+            valores = [liquido if h["ja_abate"] else round(liquido - ja_pago, 2)]
+            # ⚠️ A folha abateu X e saiu Y: o saldo estaria errado nos dois sentidos, e
+            # ninguém veria — a diferença some dentro de um número plausível. Casos reais
+            # que isto pega: quem foi admitido DEPOIS do adiantamento (a folha desconta um
+            # adiantamento que ele nunca recebeu) e quem ficou retido no lote.
+            if abs(adiant_folha - ja_pago) > 0.005:
+                desacerto.append(
+                    {
+                        "nome": h["nome"],
+                        "abatido_na_folha": adiant_folha,
+                        "pago_no_adiantamento": ja_pago,
+                        "diferenca": round(adiant_folha - ja_pago, 2),
+                    }
+                )
+        else:
+            for i, (pct, _dt) in enumerate(parcelas, start=1):
+                if i == 1 and adiant_folha > 0:
+                    v = adiant_folha  # o que a folha abateu é o que se adianta — fonte única
+                elif i < len(parcelas):
+                    v = round(base * pct / 100, 2)
+                else:
+                    v = liquido if h["ja_abate"] else round(liquido - acumulado, 2)
+                acumulado = round(acumulado + v, 2)
+                valores.append(v)
 
         # 40% da base pode passar do líquido do mês inteiro (quem tem muito desconto). Um
         # saldo negativo não é pagamento: é cobrança. Fica de fora e aparece nomeado.
@@ -204,14 +281,18 @@ async def gerar_parcelas(
                 {"nome": h["nome"], "base": base, "liquido": liquido, "adiantamento": valores[0], "saldo": valores[-1]}
             )
             continue
+        # Numeração da parcela: na etapa avulsa o índice NÃO é a posição na lista — o
+        # saldo é sempre a parcela 2 de 2, mesmo sendo a única gerada nesta chamada.
+        _base_idx = {"adiantamento": 1, "saldo": 2}.get(etapa, 0)
+        _tot = 2 if etapa in ("adiantamento", "saldo") else len(parcelas)
         for i, ((_pct, dt), v) in enumerate(zip(parcelas, valores, strict=True), start=1):
             criadas.append(
                 {
                     "eid": h["eid"],
                     "payslip_id": h["payslip_id"],
                     "nome": h["nome"],
-                    "parcela": i,
-                    "total": len(parcelas),
+                    "parcela": _base_idx or i,
+                    "total": _tot,
                     "valor": v,
                     "data_prevista": dt,
                     "chave": h["chave"],
@@ -229,15 +310,24 @@ async def gerar_parcelas(
         "pessoas": len(holerites),
         "linhas": len(criadas),
         "liquido_total": round(sum(previsto), 2),
+        "etapa": etapa,
         "por_parcela": [
             {
-                "parcela": i,
+                "parcela": ({"adiantamento": 1, "saldo": 2}.get(etapa) or i),
                 "percentual": p,
                 "data_prevista": d,
-                "total": round(sum(c["valor"] for c in criadas if c["parcela"] == i), 2),
+                "total": round(
+                    sum(
+                        c["valor"] for c in criadas if c["parcela"] == ({"adiantamento": 1, "saldo": 2}.get(etapa) or i)
+                    ),
+                    2,
+                ),
             }
             for i, (p, d) in enumerate(parcelas, start=1)
         ],
+        # Quem a folha abateu diferente do que recebeu. Vazio é a única forma de dizer
+        # "ninguém"; contar só quem entrou esconderia justamente o caso perigoso.
+        "desacerto_adiantamento": desacerto,
         "sem_chave": sem_chave,
         # quem FICOU DE FORA, nomeado. Lista vazia é a única forma de dizer "ninguém
         # ficou" — contar só quem entrou esconde quem o filtro descartou calado.

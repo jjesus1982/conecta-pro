@@ -4313,22 +4313,39 @@ async def _rd_gerar_parcelas_folha(
 
     comp = _competencia_br(payload.get("competencia"))
     dry = str(payload.get("dry_run") or "sim").strip().lower() != "nao"
+    # UMA etapa por chamada (22/09/2026): adiantamento no dia 20/21, saldo no 5º dia útil
+    # do mês seguinte — cada um com a folha DAQUELE dia. Ver gerar_parcelas().
+    etapa = (payload.get("etapa") or "adiantamento").strip().lower()
     try:
-        pcts = [int(payload.get("pct1") or 40), int(payload.get("pct2") or 60)]
+        pct = int(payload.get("pct1") or 40)
     except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Percentuais devem ser números.")
-    datas = [_data_br(payload.get("data1"), "Quando sai a 1ª"), _data_br(payload.get("data2"), "Quando sai a 2ª")]
-    r = await gerar_parcelas(db, competencia=comp, parcelas=list(zip(pcts, datas, strict=False)), dry_run=dry)
+        raise HTTPException(status_code=400, detail="O percentual deve ser número.")
+    data = _data_br(payload.get("data1"), "Quando o dinheiro sai")
+    r = await gerar_parcelas(db, competencia=comp, parcelas=[(pct, data)], dry_run=dry, etapa=etapa)
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível gerar.")
-    linhas = " · ".join(f"{p['percentual']}% em {p['data_prevista']} = {brl(p['total'])}" for p in r["por_parcela"])
+    linhas = " · ".join(f"parcela {p['parcela']} em {p['data_prevista']} = {brl(p['total'])}" for p in r["por_parcela"])
     _sc = f" ⚠️ {len(r['sem_chave'])} sem chave PIX." if r.get("sem_chave") else ""
+    # O desacerto NÃO é rodapé: é gente cujo saldo sairia errado. Vem nomeado, no corpo.
+    _des = ""
+    if r.get("desacerto_adiantamento"):
+        _d = r["desacerto_adiantamento"]
+        _quem = "; ".join(
+            f"{x['nome']}: folha abateu {brl(x['abatido_na_folha'])} × recebeu {brl(x['pago_no_adiantamento'])}"
+            for x in _d[:6]
+        ) + ("…" if len(_d) > 6 else "")
+        _des = (
+            f" ⚠️ {len(_d)} pessoa(s) com o adiantamento da folha DIFERENTE do que saiu — "
+            f"o saldo delas sai errado se não corrigir: {_quem}."
+        )
     prefixo = "SIMULAÇÃO (nada gravado)" if r["dry_run"] else "GRAVADO"
+    _et = {"adiantamento": "ADIANTAMENTO (40%)", "saldo": "SALDO (60%)"}.get(r.get("etapa", ""), "AMBAS")
     return {
         "ok": True,
+        "etapa": r.get("etapa"),
         "message": (
-            f"{prefixo} — {r['pessoas']} pessoa(s), líquido {brl(r['liquido_total'])} (fonte "
-            f"{r['fonte']}). {linhas}. Postos: {', '.join(r['agrupadores'])}.{_sc}"
+            f"{prefixo} · {_et} — {r['pessoas']} pessoa(s), líquido da folha {brl(r['liquido_total'])} "
+            f"(fonte {r['fonte']}). {linhas}. Postos: {', '.join(r['agrupadores'])}.{_sc}{_des}"
         ),
     }
 
