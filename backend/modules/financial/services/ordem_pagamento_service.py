@@ -20,13 +20,15 @@ O fechamento usa a regra provada em 14/08/2026: existe UMA saída para aquele CP
 janela do pagamento, com valor igual ao líquido? Somar tudo que a pessoa recebeu erra
 — VT/VR (R$32) e adiantamentos não estão no líquido da folha.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import secrets
 import uuid
-from datetime import UTC, date as _date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from datetime import date as _date
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,9 +53,9 @@ FONTE_FOLHA = os.getenv("CONECTA_FONTE_FOLHA", "portte")
 TIPOS_MENSAIS = ("mensal", "monthly")
 
 
-async def gerar_parcelas(db: AsyncSession, *, competencia: str,
-                         parcelas: list[tuple[int, str]],
-                         dry_run: bool = True) -> dict:
+async def gerar_parcelas(
+    db: AsyncSession, *, competencia: str, parcelas: list[tuple[int, str]], dry_run: bool = True
+) -> dict:
     """Cria as linhas de pagamento da competência, partidas em parcelas.
 
     `parcelas` é [(percentual, data_prevista_iso), ...] — ex.: 40% em 20/08 e 60% em
@@ -77,9 +79,22 @@ async def gerar_parcelas(db: AsyncSession, *, competencia: str,
         return {"ok": False, "erro": f"as parcelas somam {soma}%, precisam somar 100%"}
     mes, ano = int(competencia[5:7]), int(competencia[:4])
 
-    holerites = (await db.execute(text("""
+    holerites = (
+        (
+            await db.execute(
+                text("""
         SELECT h.employee_id::text AS eid, h.id::text AS payslip_id, e.nome,
-               h.net_salary AS liquido, coalesce(e.pix_key,'') AS chave,
+               h.net_salary AS liquido, coalesce(h.base_salary, 0) AS base,
+               -- a folha do mês JÁ abate o adiantamento? Se abater, o líquido é o saldo e
+               -- não se desconta de novo. Medido em 21/09/2026: nenhuma folha Portte de 2026
+               -- traz rubrica de adiantamento SALARIAL (só 937, de FÉRIAS) — o vocabulário
+               -- dela é VA, INSS, VT, taxa negocial, odontológico e faltas. Mas isso pode
+               -- mudar no mês em que eles passarem a lançar, e aí a conta tem de mudar sozinha.
+               EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(h.deductions,'[]'::jsonb)) d
+                        WHERE upper(d->>'descricao') LIKE '%ADIANTAMENTO%'
+                          AND upper(d->>'descricao') NOT LIKE '%FERIAS%'
+                          AND upper(d->>'descricao') NOT LIKE '%FÉRIAS%') AS ja_abate,
+               coalesce(e.pix_key,'') AS chave,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf,
                coalesce(e.posto_atual_nome,'(sem posto)') AS agrupador
         FROM hr_payslips h JOIN employees e ON e.id = h.employee_id
@@ -87,63 +102,135 @@ async def gerar_parcelas(db: AsyncSession, *, competencia: str,
           AND h.source_system = :f AND h.payslip_type = ANY(:t)
           AND lower(coalesce(e.status,'')) = 'ativo'
           AND coalesce(h.net_salary, 0) > 0
-    """), {"m": mes, "a": ano, "f": FONTE_FOLHA, "t": list(TIPOS_MENSAIS)})).mappings().all()
+    """),
+                {"m": mes, "a": ano, "f": FONTE_FOLHA, "t": list(TIPOS_MENSAIS)},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     if not holerites:
-        return {"ok": False, "erro": (
-            f"nenhum holerite {FONTE_FOLHA} mensal em {competencia} para funcionário ativo")}
+        return {"ok": False, "erro": (f"nenhum holerite {FONTE_FOLHA} mensal em {competencia} para funcionário ativo")}
 
-    criadas, sem_chave, previsto = [], [], []
+    criadas, sem_chave, previsto, sem_base, estoura = [], [], [], [], []
     for h in holerites:
         liquido = round(float(h["liquido"]), 2)
+        base = round(float(h["base"] or 0), 2)
         if not h["chave"] and not h["cpf"]:
             sem_chave.append(h["nome"])
+
+        # ⭐ 21/09/2026 — ADIANTAMENTO É % DO SALÁRIO BASE, não do líquido.
+        # Jordan, no dia de pagar: «o nosso sistema tem que gerar idêntico ao da portte».
+        # Medido nos PDFs que ele subiu (48 recibos da Portte × nossa folha de 51): a rubrica
+        # 980 ADIANTAMENTO SALARIAL é exatamente 40% do salário BASE em 44 de 47 pessoas em
+        # comum — e as 3 fora do padrão são base diferente da nossa, não regra diferente
+        # (ele confirmou: «o salario de nailson é diferente»).
+        #
+        # A conta antiga dividia o LÍQUIDO, e o desvio não era de centavos: nos 47, a Portte
+        # manda R$ 31.754,70 e a nossa mandaria R$ 19.069,38 — R$ 12.685,32 A MENOS, para 47
+        # pessoas, cada uma com um recibo na mão dizendo outro valor.
+        #
+        # A ÚLTIMA parcela leva o saldo (líquido − o que já foi adiantado), e não um
+        # percentual: adiantar 40% da base e depois pagar 60% do líquido não fecha com nada.
+        # Se a folha já abate o adiantamento (`ja_abate`), o líquido JÁ é o saldo e não se
+        # desconta duas vezes.
+        if base <= 0 and len(parcelas) > 1:
+            sem_base.append(h["nome"])
+            continue
         acumulado, valores = 0.0, []
         for i, (pct, _dt) in enumerate(parcelas, start=1):
-            v = round(liquido * pct / 100, 2) if i < len(parcelas) else round(liquido - acumulado, 2)
+            if i < len(parcelas):
+                v = round(base * pct / 100, 2)
+            else:
+                v = liquido if h["ja_abate"] else round(liquido - acumulado, 2)
             acumulado = round(acumulado + v, 2)
             valores.append(v)
-        assert abs(acumulado - liquido) < 0.005, f"parcelas não fecham o líquido de {h['nome']}"
-        for i, ((_pct, dt), v) in enumerate(zip(parcelas, valores), start=1):
-            criadas.append({"eid": h["eid"], "payslip_id": h["payslip_id"], "nome": h["nome"],
-                            "parcela": i, "total": len(parcelas), "valor": v,
-                            "data_prevista": dt, "chave": h["chave"],
-                            "agrupador": h["agrupador"], "liquido": liquido})
+
+        # 40% da base pode passar do líquido do mês inteiro (quem tem muito desconto). Um
+        # saldo negativo não é pagamento: é cobrança. Fica de fora e aparece nomeado.
+        if any(v < 0 for v in valores):
+            estoura.append(
+                {"nome": h["nome"], "base": base, "liquido": liquido, "adiantamento": valores[0], "saldo": valores[-1]}
+            )
+            continue
+        for i, ((_pct, dt), v) in enumerate(zip(parcelas, valores, strict=True), start=1):
+            criadas.append(
+                {
+                    "eid": h["eid"],
+                    "payslip_id": h["payslip_id"],
+                    "nome": h["nome"],
+                    "parcela": i,
+                    "total": len(parcelas),
+                    "valor": v,
+                    "data_prevista": dt,
+                    "chave": h["chave"],
+                    "agrupador": h["agrupador"],
+                    "liquido": liquido,
+                }
+            )
         previsto.append(liquido)
 
-    resumo = {"ok": True, "dry_run": dry_run, "competencia": competencia,
-              "fonte": FONTE_FOLHA, "pessoas": len(holerites), "linhas": len(criadas),
-              "liquido_total": round(sum(previsto), 2),
-              "por_parcela": [{"parcela": i, "percentual": p, "data_prevista": d,
-                               "total": round(sum(c["valor"] for c in criadas
-                                                  if c["parcela"] == i), 2)}
-                              for i, (p, d) in enumerate(parcelas, start=1)],
-              "sem_chave": sem_chave,
-              "agrupadores": sorted({c["agrupador"] for c in criadas})}
+    resumo = {
+        "ok": True,
+        "dry_run": dry_run,
+        "competencia": competencia,
+        "fonte": FONTE_FOLHA,
+        "pessoas": len(holerites),
+        "linhas": len(criadas),
+        "liquido_total": round(sum(previsto), 2),
+        "por_parcela": [
+            {
+                "parcela": i,
+                "percentual": p,
+                "data_prevista": d,
+                "total": round(sum(c["valor"] for c in criadas if c["parcela"] == i), 2),
+            }
+            for i, (p, d) in enumerate(parcelas, start=1)
+        ],
+        "sem_chave": sem_chave,
+        # quem FICOU DE FORA, nomeado. Lista vazia é a única forma de dizer "ninguém
+        # ficou" — contar só quem entrou esconde quem o filtro descartou calado.
+        "sem_base": sem_base,
+        "adiantamento_maior_que_liquido": estoura,
+        "agrupadores": sorted({c["agrupador"] for c in criadas}),
+    }
     if dry_run:
         resumo["mensagem"] = "SIMULAÇÃO — nada gravado. Chame com dry_run=False para valer."
         return resumo
 
     for c in criadas:
-        await db.execute(text("""
+        await db.execute(
+            text("""
             INSERT INTO payroll_payments
                 (id, employee_id, payslip_id, mes, ano, valor_liquido, metodo, pix_key,
                  status, parcela, parcelas_total, data_prevista, created_at, updated_at)
             VALUES (gen_random_uuid(), CAST(:e AS uuid), :ps, :m, :a, :v, 'PIX', :k,
                  'pendente_pagamento', :par, :tot, CAST(:dt AS date), now(), now())
             ON CONFLICT (employee_id, mes, ano, parcela) DO NOTHING
-        """), {"e": c["eid"], "ps": c["payslip_id"], "m": mes, "a": ano, "v": c["valor"],
-               "k": c["chave"] or None, "par": c["parcela"], "tot": c["total"],
-               "dt": c["data_prevista"]})
+        """),
+            {
+                "e": c["eid"],
+                "ps": c["payslip_id"],
+                "m": mes,
+                "a": ano,
+                "v": c["valor"],
+                "k": c["chave"] or None,
+                "par": c["parcela"],
+                "tot": c["total"],
+                "dt": c["data_prevista"],
+            },
+        )
     await db.commit()
-    resumo["mensagem"] = (f"{len(criadas)} linha(s) criada(s) para {len(holerites)} pessoa(s). "
-                          f"Monte os lotes por agrupador e parcela.")
+    resumo["mensagem"] = (
+        f"{len(criadas)} linha(s) criada(s) para {len(holerites)} pessoa(s). Monte os lotes por agrupador e parcela."
+    )
     return resumo
 
 
-async def montar_lote(db: AsyncSession, *, competencia: str, banco: str,
-                      criado_por: str, parcela: int = 1,
-                      agrupador: str | None = None) -> dict:
+async def montar_lote(
+    db: AsyncSession, *, competencia: str, banco: str, criado_por: str, parcela: int = 1, agrupador: str | None = None
+) -> dict:
     """Junta os pagamentos pendentes da competência num lote RASCUNHO.
 
     Não aprova nada e não muda o status dos itens — só os reserva ao lote. Um item
@@ -161,14 +248,23 @@ async def montar_lote(db: AsyncSession, *, competencia: str, banco: str,
     par = {"m": mes, "a": ano, "p": parcela}
     if agrupador:
         par["ag"] = agrupador
-    itens = (await db.execute(text(f"""
+    itens = (
+        (
+            await db.execute(
+                text(f"""
         SELECT p.id::text AS id, 'clt' AS tipo, e.nome, p.valor_liquido AS valor,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf,
                coalesce(p.pix_key,'') AS chave
         FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
         WHERE p.status = 'pendente_pagamento' AND p.mes = :m AND p.ano = :a
           AND p.parcela = :p AND p.lote_ordem_id IS NULL {filtro_ag}
-    """), par)).mappings().all()
+    """),
+                par,
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     if not itens:
         alvo = f"{competencia} parcela {parcela}" + (f" · {agrupador}" if agrupador else "")
@@ -176,51 +272,89 @@ async def montar_lote(db: AsyncSession, *, competencia: str, banco: str,
 
     total = round(sum(float(i["valor"]) for i in itens), 2)
     if total > TETO_DIARIO:
-        return {"ok": False, "erro": (
-            f"lote de R$ {total:,.2f} passa do teto diário de R$ {TETO_DIARIO:,.2f}. "
-            f"Divida a competência em dois lotes — o teto existe para que um erro "
-            f"não drene a conta de uma vez.")}
+        return {
+            "ok": False,
+            "erro": (
+                f"lote de R$ {total:,.2f} passa do teto diário de R$ {TETO_DIARIO:,.2f}. "
+                f"Divida a competência em dois lotes — o teto existe para que um erro "
+                f"não drene a conta de uma vez."
+            ),
+        }
 
     sem_chave = [i["nome"] for i in itens if not i["chave"] and not i["cpf"]]
     lote_id = str(uuid.uuid4())
     slug = "".join(ch if ch.isalnum() else "_" for ch in (agrupador or "TODOS").upper())[:28]
     ref = f"ORDEM-{banco.upper()}-{competencia}-P{parcela}-{slug}"
-    await db.execute(text("""
+    await db.execute(
+        text("""
         INSERT INTO folha_lote_ordem
             (id, referencia, competencia, banco, total_centavos, qtd_itens, status,
              criado_por, parcela, agrupador)
         VALUES (CAST(:i AS uuid), :r, :c, :b, :t, :q, 'RASCUNHO', :u, :p, :ag)
-    """), {"i": lote_id, "r": ref, "c": competencia, "b": banco,
-           "t": int(round(total * 100)), "q": len(itens), "u": criado_por,
-           "p": parcela, "ag": agrupador})
-    await db.execute(text(
-        "UPDATE payroll_payments SET lote_ordem_id = CAST(:l AS uuid), updated_at = now() "
-        "WHERE id::text = ANY(CAST(:ids AS text[]))"),
-        {"l": lote_id, "ids": [str(i["id"]) for i in itens]})
+    """),
+        {
+            "i": lote_id,
+            "r": ref,
+            "c": competencia,
+            "b": banco,
+            "t": int(round(total * 100)),
+            "q": len(itens),
+            "u": criado_por,
+            "p": parcela,
+            "ag": agrupador,
+        },
+    )
+    await db.execute(
+        text(
+            "UPDATE payroll_payments SET lote_ordem_id = CAST(:l AS uuid), updated_at = now() "
+            "WHERE id::text = ANY(CAST(:ids AS text[]))"
+        ),
+        {"l": lote_id, "ids": [str(i["id"]) for i in itens]},
+    )
     await db.commit()
-    return {"ok": True, "lote_id": lote_id, "referencia": ref, "itens": len(itens),
-            "total": total, "sem_chave": sem_chave,
-            "teto": TETO_DIARIO, "folga": round(TETO_DIARIO - total, 2)}
+    return {
+        "ok": True,
+        "lote_id": lote_id,
+        "referencia": ref,
+        "itens": len(itens),
+        "total": total,
+        "sem_chave": sem_chave,
+        "teto": TETO_DIARIO,
+        "folga": round(TETO_DIARIO - total, 2),
+    }
 
 
 async def gerar_otp(db: AsyncSession, *, lote_id: str, email: str | None = None) -> dict:
     """Gera o OTP do lote e manda por e-mail. Invalida os anteriores não usados."""
-    lote = (await db.execute(text(
-        "SELECT referencia, total_centavos, qtd_itens, status FROM folha_lote_ordem "
-        "WHERE id = CAST(:i AS uuid)"), {"i": lote_id})).mappings().first()
+    lote = (
+        (
+            await db.execute(
+                text(
+                    "SELECT referencia, total_centavos, qtd_itens, status FROM folha_lote_ordem "
+                    "WHERE id = CAST(:i AS uuid)"
+                ),
+                {"i": lote_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not lote:
         return {"ok": False, "erro": "lote inexistente"}
     if lote["status"] != "RASCUNHO":
         return {"ok": False, "erro": f"lote não está em RASCUNHO (está {lote['status']})"}
 
-    await db.execute(text(
-        "UPDATE inter_lote_otp SET used = true WHERE lote_id = CAST(:l AS uuid) AND used = false"),
-        {"l": lote_id})
+    await db.execute(
+        text("UPDATE inter_lote_otp SET used = true WHERE lote_id = CAST(:l AS uuid) AND used = false"), {"l": lote_id}
+    )
     code = f"{secrets.randbelow(900000) + 100000}"
-    await db.execute(text("""
+    await db.execute(
+        text("""
         INSERT INTO inter_lote_otp (id, lote_id, code, expires_at, used, created_at)
         VALUES (gen_random_uuid(), CAST(:l AS uuid), :c, :e, false, now())
-    """), {"l": lote_id, "c": code, "e": datetime.now(UTC) + timedelta(seconds=OTP_TTL_S)})
+    """),
+        {"l": lote_id, "c": code, "e": datetime.now(UTC) + timedelta(seconds=OTP_TTL_S)},
+    )
     await db.commit()
 
     total = lote["total_centavos"] / 100
@@ -235,69 +369,120 @@ async def gerar_otp(db: AsyncSession, *, lote_id: str, email: str | None = None)
     saiu_daqui = False
     try:
         from core.mailer import send_email
+
         saiu_daqui = await send_email(
-            destino, f"[Conecta PRO] OTP ordem de pagamento R$ {total:,.2f}",
+            destino,
+            f"[Conecta PRO] OTP ordem de pagamento R$ {total:,.2f}",
             f"Código: {code}<br><br>Lote {lote['referencia']} — {lote['qtd_itens']} "
             f"pagamentos, R$ {total:,.2f}.<br>Válido por {OTP_TTL_S // 60} minutos.<br><br>"
-            f"Aprovar NÃO paga ninguém: libera a ordem para você executar no app do banco.")
+            f"Aprovar NÃO paga ninguém: libera a ordem para você executar no app do banco.",
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("OTP ordem de pagamento: falha ao enviar para %s: %s", destino, exc)
     if not saiu_daqui:
-        return {"ok": False, "saiu_daqui": False, "destino": destino, "expira_em_s": OTP_TTL_S,
-                "erro": (f"O código foi gravado mas NÃO SAIU para {destino} — o servidor recusou. Você não vai "
-                         f"recebê-lo por e-mail. Confira o endereço configurado (JORDAN_EMAIL) "
-                         f"antes de tentar de novo.")}
-    return {"ok": True, "saiu_daqui": True, "destino": destino,
-            "mensagem": f"OTP enviado para {destino}", "expira_em_s": OTP_TTL_S}
+        return {
+            "ok": False,
+            "saiu_daqui": False,
+            "destino": destino,
+            "expira_em_s": OTP_TTL_S,
+            "erro": (
+                f"O código foi gravado mas NÃO SAIU para {destino} — o servidor recusou. Você não vai "
+                f"recebê-lo por e-mail. Confira o endereço configurado (JORDAN_EMAIL) "
+                f"antes de tentar de novo."
+            ),
+        }
+    return {
+        "ok": True,
+        "saiu_daqui": True,
+        "destino": destino,
+        "mensagem": f"OTP enviado para {destino}",
+        "expira_em_s": OTP_TTL_S,
+    }
 
 
-async def aprovar_lote(db: AsyncSession, *, lote_id: str, codigo: str,
-                       aprovado_por: str) -> dict:
+async def aprovar_lote(db: AsyncSession, *, lote_id: str, codigo: str, aprovado_por: str) -> dict:
     """Valida o OTP AQUI DENTRO e libera a ordem. NÃO paga ninguém.
 
     O código é consumido (`used = true`) no MESMO commit que aprova — não existe
     janela em que um OTP aprovado siga válido para um segundo lote.
     """
-    lote = (await db.execute(text(
-        "SELECT referencia, total_centavos, qtd_itens, status FROM folha_lote_ordem "
-        "WHERE id = CAST(:i AS uuid) FOR UPDATE"), {"i": lote_id})).mappings().first()
+    lote = (
+        (
+            await db.execute(
+                text(
+                    "SELECT referencia, total_centavos, qtd_itens, status FROM folha_lote_ordem "
+                    "WHERE id = CAST(:i AS uuid) FOR UPDATE"
+                ),
+                {"i": lote_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not lote:
         return {"ok": False, "erro": "lote inexistente"}
     if lote["status"] != "RASCUNHO":
         return {"ok": False, "erro": f"lote já saiu de RASCUNHO (está {lote['status']})"}
 
-    otp = (await db.execute(text("""
+    otp = (
+        await db.execute(
+            text("""
         SELECT id::text FROM inter_lote_otp
         WHERE lote_id = CAST(:l AS uuid) AND code = :c AND used = false AND expires_at > now()
         ORDER BY created_at DESC LIMIT 1
-    """), {"l": lote_id, "c": (codigo or "").strip()})).scalar()
+    """),
+            {"l": lote_id, "c": (codigo or "").strip()},
+        )
+    ).scalar()
     if not otp:
         return {"ok": False, "erro": "código inválido, já usado ou expirado"}
 
     # A soma dos itens tem que bater com o total gravado. Se alguém mexeu num valor
     # entre montar e aprovar, o lote aprovado seria outro — aborta.
-    soma = float((await db.execute(text(
-        "SELECT coalesce(sum(valor_liquido),0) FROM payroll_payments "
-        "WHERE lote_ordem_id = CAST(:l AS uuid)"), {"l": lote_id})).scalar() or 0)
+    soma = float(
+        (
+            await db.execute(
+                text(
+                    "SELECT coalesce(sum(valor_liquido),0) FROM payroll_payments WHERE lote_ordem_id = CAST(:l AS uuid)"
+                ),
+                {"l": lote_id},
+            )
+        ).scalar()
+        or 0
+    )
     if abs(round(soma * 100) - lote["total_centavos"]) > 1:
-        return {"ok": False, "erro": (
-            f"soma dos itens (R$ {soma:,.2f}) não bate com o total do lote "
-            f"(R$ {lote['total_centavos'] / 100:,.2f}) — algum valor mudou depois de montar")}
+        return {
+            "ok": False,
+            "erro": (
+                f"soma dos itens (R$ {soma:,.2f}) não bate com o total do lote "
+                f"(R$ {lote['total_centavos'] / 100:,.2f}) — algum valor mudou depois de montar"
+            ),
+        }
 
-    await db.execute(text("UPDATE inter_lote_otp SET used = true WHERE id = CAST(:i AS uuid)"),
-                     {"i": otp})
-    await db.execute(text(
-        "UPDATE folha_lote_ordem SET status='APROVADO', aprovado_por=:u, aprovado_em=now(), "
-        "updated_at=now() WHERE id = CAST(:i AS uuid)"), {"u": aprovado_por, "i": lote_id})
-    await db.execute(text(
-        "UPDATE payroll_payments SET status='aguardando_app', updated_at=now() "
-        "WHERE lote_ordem_id = CAST(:l AS uuid) AND status='pendente_pagamento'"),
-        {"l": lote_id})
+    await db.execute(text("UPDATE inter_lote_otp SET used = true WHERE id = CAST(:i AS uuid)"), {"i": otp})
+    await db.execute(
+        text(
+            "UPDATE folha_lote_ordem SET status='APROVADO', aprovado_por=:u, aprovado_em=now(), "
+            "updated_at=now() WHERE id = CAST(:i AS uuid)"
+        ),
+        {"u": aprovado_por, "i": lote_id},
+    )
+    await db.execute(
+        text(
+            "UPDATE payroll_payments SET status='aguardando_app', updated_at=now() "
+            "WHERE lote_ordem_id = CAST(:l AS uuid) AND status='pendente_pagamento'"
+        ),
+        {"l": lote_id},
+    )
     await db.commit()
-    return {"ok": True, "referencia": lote["referencia"], "itens": lote["qtd_itens"],
-            "total": lote["total_centavos"] / 100,
-            "mensagem": "Ordem liberada. Execute os pagamentos no app do banco — "
-                        "o extrato de amanhã fecha cada um sozinho."}
+    return {
+        "ok": True,
+        "referencia": lote["referencia"],
+        "itens": lote["qtd_itens"],
+        "total": lote["total_centavos"] / 100,
+        "mensagem": "Ordem liberada. Execute os pagamentos no app do banco — "
+        "o extrato de amanhã fecha cada um sozinho.",
+    }
 
 
 async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -> dict:
@@ -309,13 +494,22 @@ async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -
     estão no líquido. Mais de uma candidata idêntica = não escolhe.
     """
     where = "AND p.lote_ordem_id = CAST(:l AS uuid)" if lote_id else ""
-    itens = (await db.execute(text(f"""
+    itens = (
+        (
+            await db.execute(
+                text(f"""
         SELECT p.id, p.mes, p.ano, p.valor_liquido AS valor, p.lote_ordem_id::text AS lote,
                p.data_prevista, p.parcela,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf
         FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
         WHERE p.status = 'aguardando_app' {where}
-    """), ({"l": lote_id} if lote_id else {}))).mappings().all()
+    """),
+                ({"l": lote_id} if lote_id else {}),
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     fechados, ambiguos, sem_par = 0, 0, 0
     for it in itens:
@@ -330,27 +524,39 @@ async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -
         else:
             pm, pa = (it["mes"] + 1, it["ano"]) if it["mes"] < 12 else (1, it["ano"] + 1)
             ini, fim = _date(pa, pm, 1), _date(pa, pm, 20)
-        cand = (await db.execute(text("""
+        cand = (
+            (
+                await db.execute(
+                    text("""
             SELECT id::text, coalesce(pix_end_to_end,'') AS e2e, transaction_date::text AS d
             FROM bank_transactions
             WHERE amount < 0 AND transaction_date BETWEEN :a AND :b
               AND regexp_replace(coalesce(counterparty_document,''),'[^0-9]','','g') = :c
               AND abs(abs(amount) - :v) <= :tol
-        """), {"a": ini, "b": fim, "c": it["cpf"],
-               "v": float(it["valor"]), "tol": TOLERANCIA})).mappings().all()
+        """),
+                    {"a": ini, "b": fim, "c": it["cpf"], "v": float(it["valor"]), "tol": TOLERANCIA},
+                )
+            )
+            .mappings()
+            .all()
+        )
         if len(cand) == 1:
-            await db.execute(text("""
+            await db.execute(
+                text("""
                 UPDATE payroll_payments SET status='pago', data_pagamento=CAST(:d AS date),
                     pix_e2e_id=coalesce(nullif(pix_e2e_id,''), :e2e), updated_at=now()
                 WHERE id::text = :i
-            """), {"d": cand[0]["d"], "e2e": cand[0]["e2e"] or None, "i": str(it["id"])})
+            """),
+                {"d": cand[0]["d"], "e2e": cand[0]["e2e"] or None, "i": str(it["id"])},
+            )
             fechados += 1
         elif len(cand) > 1:
             ambiguos += 1
         else:
             sem_par += 1
     if fechados:
-        await db.execute(text("""
+        await db.execute(
+            text("""
             UPDATE folha_lote_ordem l SET
                 status = CASE WHEN NOT EXISTS (
                     SELECT 1 FROM payroll_payments p WHERE p.lote_ordem_id = l.id
@@ -362,7 +568,7 @@ async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -
                     THEN now() ELSE concluido_em END,
                 updated_at = now()
             WHERE l.status IN ('APROVADO','EXECUTANDO')
-        """))
+        """)
+        )
     await db.commit()
-    return {"fechados": fechados, "ambiguos": ambiguos, "sem_par": sem_par,
-            "avaliados": len(itens)}
+    return {"fechados": fechados, "ambiguos": ambiguos, "sem_par": sem_par, "avaliados": len(itens)}
