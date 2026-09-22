@@ -630,6 +630,196 @@ async def aprovar_lote(db: AsyncSession, *, lote_id: str, codigo: str, aprovado_
     }
 
 
+async def executar_lote_inter(db: AsyncSession, *, lote_id: str, user_id: str = "") -> dict:
+    """PAGA o lote APROVADO enviando PIX pelo Inter — o mesmo motor do lote de diaristas.
+
+    Por que isto não existia (22/09/2026): o fluxo de ordem de pagamento nasceu para a
+    CORA, que não envia PIX por chave via API — então terminava em «execute no app do
+    banco», e o extrato do dia seguinte reconhecia cada item. A regra da Cora acabou
+    valendo para TODO lote, inclusive os do Inter, que paga por API. O Jordan aprovou um
+    lote Inter de R$ 33.137,71, abriu o app e não havia nada para aprovar: o app nunca
+    tinha recebido nada — ele esperava 49 PIX digitados à mão.
+
+    Lote da CORA continua sem execução aqui, porque ali a limitação é do banco, não nossa.
+
+    Igual ao lote de diaristas, e pelos mesmos motivos medidos:
+      · commit POR ITEM — PIX que saiu fica registrado mesmo se o próximo falhar;
+      · pergunta ao banco QUEM RECEBEU depois de cada um e grava o veredito na linha;
+      · idempotente: só paga o que ainda está `aguardando_app`, então repetir não duplica.
+    """
+    import os as _os
+    from decimal import Decimal
+
+    lote = (
+        (
+            await db.execute(
+                text(
+                    "SELECT referencia, banco, status, total_centavos FROM folha_lote_ordem WHERE id = CAST(:i AS uuid)"
+                ),
+                {"i": lote_id},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not lote:
+        return {"ok": False, "erro": "lote inexistente"}
+    if str(lote["banco"]).lower() != "inter":
+        return {
+            "ok": False,
+            "erro": (
+                f"lote do {lote['banco']}: este banco não envia PIX por chave via API. "
+                "Pague no app e o extrato reconhece cada item pelo CPF + valor."
+            ),
+        }
+    if str(lote["status"]).upper() != "APROVADO":
+        return {"ok": False, "erro": (f"lote está {lote['status']} — só se executa o que foi APROVADO com OTP.")}
+
+    itens = [
+        dict(r)
+        for r in (
+            await db.execute(
+                text(
+                    "SELECT p.id::text AS id, e.nome, coalesce(p.pix_key, e.pix_key, '') AS chave, "
+                    "       regexp_replace(coalesce(e.cpf,''),'\\D','','g') AS cpf, p.valor_liquido AS valor "
+                    "  FROM payroll_payments p JOIN employees e ON e.id = p.employee_id "
+                    " WHERE p.lote_ordem_id = CAST(:l AS uuid) AND p.status = 'aguardando_app' "
+                    " ORDER BY e.nome"
+                ),
+                {"l": lote_id},
+            )
+        )
+        .mappings()
+        .all()
+    ]
+    if not itens:
+        return {
+            "ok": True,
+            "pagos": 0,
+            "falhas": 0,
+            "mensagem": "Nada a executar: nenhum item aguardando pagamento neste lote.",
+        }
+    sem_chave = [i["nome"] for i in itens if not i["chave"]]
+    if sem_chave:
+        return {
+            "ok": False,
+            "erro": (
+                f"{len(sem_chave)} pessoa(s) sem chave PIX no lote — o pagamento sairia pela "
+                f"metade: {', '.join(sem_chave[:6])}. Cadastre a chave e monte o lote de novo."
+            ),
+        }
+
+    from modules.financial.pagamentos_diaristas_service import _tipo_pix
+    from modules.integrations.banking.adapters.base import BankCredentials
+    from modules.integrations.banking.adapters.inter import InterAdapter
+
+    adapter = InterAdapter(
+        BankCredentials(
+            client_id=_os.getenv("INTER_CLIENT_ID", ""),
+            client_secret=_os.getenv("INTER_CLIENT_SECRET", ""),
+            certificate_path=_os.getenv("INTER_CERT_PATH"),
+            private_key_path=_os.getenv("INTER_KEY_PATH"),
+            agency=_os.getenv("INTER_AGENCY"),
+            account=_os.getenv("INTER_ACCOUNT"),
+            environment=_os.getenv("INTER_ENVIRONMENT", "production"),
+        )
+    )
+    pagos, falhas, diverge = [], [], []
+    try:
+        for i in itens:
+            try:
+                resp = await adapter.enviar_pix(
+                    chave=i["chave"],
+                    tipo_chave=_tipo_pix(i["chave"]),
+                    valor=Decimal(str(i["valor"])),
+                    nome_recebedor=i["nome"],
+                    descricao=f"Folha {lote['referencia']} (Conecta PRO)",
+                )
+                if isinstance(resp, dict) and resp.get("success") is False:
+                    falhas.append({"nome": i["nome"], "erro": str(resp.get("detail") or resp.get("error"))[:140]})
+                    continue
+                ref = (resp or {}).get("codigoSolicitacao") or (resp or {}).get("endToEndId") or "ok"
+                # QUEM RECEBEU, segundo o banco — só vem depois de pago. Não impede o erro;
+                # denuncia em segundos o que só apareceria pela reclamação de quem não recebeu.
+                conf = {"veredito": "nao_confirmado"}
+                try:
+                    import asyncio as _aio  # noqa: PLC0415
+
+                    from modules.financial.pagamentos_diaristas_service import (  # noqa: PLC0415
+                        _ESPERA_CONFERENCIA_S,
+                    )
+                    from modules.financial.services.conferencia_pix import conferir  # noqa: PLC0415
+
+                    await _aio.sleep(_ESPERA_CONFERENCIA_S)
+                    c = await adapter.consultar_pix_pagamento(str(ref))
+                    conf = conferir(
+                        nome_banco=c.get("recebedor_nome", ""),
+                        documento_banco=c.get("recebedor_documento", ""),
+                        nome_nosso=i["nome"],
+                        documento_nosso=i["cpf"],
+                    )
+                except Exception as ce:  # noqa: BLE001
+                    conf = {"veredito": "nao_confirmado", "detalhe": f"consulta falhou: {str(ce)[:120]}"}
+                if conf.get("veredito") == "DIVERGE":
+                    diverge.append({"nome": i["nome"], "detalhe": str(conf.get("detalhe"))[:160]})
+                    logger.error("FOLHA: PIX FOI PARA OUTRA PESSOA — %s: %s", i["nome"], conf.get("detalhe"))
+                await db.execute(
+                    text(
+                        "UPDATE payroll_payments SET status='pago', data_pagamento=now(), "
+                        "  pix_e2e_id=:ref, updated_at=now() WHERE id = CAST(:i AS uuid)"
+                    ),
+                    {"ref": str(ref)[:60], "i": i["id"]},
+                )
+                await db.commit()  # por item: PIX que saiu fica 'pago' mesmo se o próximo falhar
+                pagos.append(
+                    {
+                        "nome": i["nome"],
+                        "valor": float(i["valor"]),
+                        "ref": str(ref)[:60],
+                        "conferencia": conf.get("veredito"),
+                    }
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error("folha lote %s: falha ao pagar %s: %s", lote_id, i["nome"], e)
+                falhas.append({"nome": i["nome"], "erro": str(e)[:140]})
+    finally:
+        await adapter.close()
+
+    restam = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM payroll_payments WHERE lote_ordem_id = CAST(:l AS uuid) "
+                "  AND status = 'aguardando_app'"
+            ),
+            {"l": lote_id},
+        )
+    ).scalar() or 0
+    await db.execute(
+        text(
+            "UPDATE folha_lote_ordem SET status = :s, concluido_em = CASE WHEN :s = 'CONCLUIDO' "
+            "  THEN now() ELSE concluido_em END, updated_at = now() WHERE id = CAST(:i AS uuid)"
+        ),
+        {"s": "CONCLUIDO" if not restam else "CONCLUIDO_PARCIAL", "i": lote_id},
+    )
+    await db.commit()
+    logger.warning(
+        "folha lote %s executado por %s: %s pagos, %s falhas, %s divergem",
+        lote_id,
+        user_id,
+        len(pagos),
+        len(falhas),
+        len(diverge),
+    )
+    return {
+        "ok": True,
+        "pagos": len(pagos),
+        "falhas": falhas,
+        "divergem": diverge,
+        "total_pago": round(sum(p["valor"] for p in pagos), 2),
+        "restam": restam,
+    }
+
+
 async def fechar_pelo_extrato(db: AsyncSession, *, lote_id: str | None = None) -> dict:
     """Fecha os itens que já apareceram no extrato. Roda no beat, sozinho.
 

@@ -4935,3 +4935,43 @@ async def _rd_parcela_incluir(current_user: CurrentActiveUser, payload: dict = B
             + ("" if ps else " (sem holerite nesta competência — a linha existe mesmo assim.)")
         ),
     }
+
+
+@router.post("/action/executar-lote-inter", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_executar_lote_inter(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """PAGA o lote APROVADO pelo Inter — mesmo motor do lote de diaristas.
+
+    Sem OTP novo AQUI de propósito: o OTP já foi consumido para APROVAR este lote, e é
+    esse o gate humano. Pedir um segundo código seria teatro — o que protege é que só
+    lote em estado APROVADO é executável, e aprovar exigiu o código no e-mail.
+    """
+    from modules.financial.services.ordem_pagamento_service import executar_lote_inter
+
+    lote_id = (payload.get("lote_id") or "").strip()
+    if not lote_id:
+        raise HTTPException(status_code=400, detail="Escolha o lote.")
+    r = await executar_lote_inter(db, lote_id=lote_id, user_id=str(getattr(current_user, "id", "")))
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("erro") or "Não foi possível executar.")
+    if "mensagem" in r:
+        return {"ok": True, "message": r["mensagem"]}
+    _f = r.get("falhas") or []
+    _d = r.get("divergem") or []
+    msg = f"{r['pagos']} pagamento(s) enviados, {brl(r['total_pago'])}."
+    if _f:
+        msg += (
+            f" ⚠️ {len(_f)} FALHARAM e NÃO foram pagos: "
+            + "; ".join(f"{x['nome']}: {x['erro']}" for x in _f[:5])
+            + ("…" if len(_f) > 5 else "")
+            + " — corrija e execute de novo (não duplica)."
+        )
+    if _d:
+        msg += (
+            f" 🚨 {len(_d)} com RECEBEDOR DIVERGENTE — o dinheiro pode ter ido para outra "
+            "pessoa: " + "; ".join(f"{x['nome']}: {x['detalhe']}" for x in _d[:5]) + "."
+        )
+    if not _f and not _d:
+        msg += " Recebedor conferido pelo banco em todos."
+    return {"ok": True, "message": msg}

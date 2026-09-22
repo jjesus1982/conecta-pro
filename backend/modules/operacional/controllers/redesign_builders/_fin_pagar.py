@@ -77,6 +77,45 @@ async def build_pagar(db, out: dict) -> None:
         }
 
         # Itens liberados para executar no app — a "lista de compras" do Jordan.
+        # ── EXECUTAR PELO INTER, por API ─────────────────────────────────────────────
+        # 22/09/2026. O Jordan aprovou o lote de R$ 33.137,71, abriu o app e não havia
+        # nada para aprovar — o app nunca recebeu nada, ele esperava 49 PIX digitados à
+        # mão. O fluxo terminava em «execute no app» porque nasceu para a CORA, que não
+        # envia PIX por chave via API. A regra do banco dela virou regra de todos, e o
+        # Inter — que paga por API, provado nas 49 transferências de R$ 0,01 desta noite —
+        # ficou de fora sem motivo.
+        _lotes_inter = [x for x in _lotes if str(x[3]).lower() == "inter" and str(x[4]).upper() == "APROVADO"]
+        out["executar-inter"] = {
+            "title": "Executar o lote pelo Inter (paga de verdade)",
+            "sub": (
+                "Envia os PIX do lote APROVADO, um a um, e pergunta ao banco QUEM RECEBEU "
+                "depois de cada um. Não pede código de novo: o OTP já foi consumido ao "
+                "aprovar, e é esse o gate. Repetir não duplica — só paga o que ainda não saiu. "
+                "Lote da CORA não aparece aqui: aquele banco não envia PIX por chave via API."
+            ),
+            "cta": "PAGAR agora",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/redesign/action/executar-lote-inter",
+                "gated": True,
+                "confirm": "Isto ENVIA os PIX do lote AGORA, de verdade. Confirma?",
+                "okMsg": "Lote executado.",
+            },
+            "fields": [
+                {
+                    "key": "lote_id",
+                    "label": "Qual lote APROVADO*",
+                    "type": "select",
+                    "span": "span 2",
+                    "options": [{"value": "", "label": "— escolha o lote —"}]
+                    + [
+                        {"value": str(x[0]), "label": f"{x[1]} — {x[6]} item(ns), {brl(x[5] / 100)}"}
+                        for x in _lotes_inter
+                    ],
+                },
+            ],
+        }
+
         out["executar-no-app"] = await tbl(
             "Executar no app do banco",
             "Pagamentos já aprovados com OTP. Pague no app e NÃO precisa voltar aqui: "
