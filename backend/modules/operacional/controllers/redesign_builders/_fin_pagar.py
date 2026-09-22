@@ -148,6 +148,43 @@ async def build_pagar(db, out: dict) -> None:
             ],
         )
 
+        # ── O DOCUMENTO, no timbrado ─────────────────────────────────────────────────
+        # 22/09/2026: «o relatório do que foi pago está fora do padrão ouro do Conecta PRO».
+        # Estava — eu tinha entregue uma TABELA e chamado de relatório. A tabela continua
+        # (é boa para conferir na tela), mas o RELATÓRIO agora é papel: logo real, cor
+        # oficial, rodapé com CNPJ e 0800, e o comprovante do banco em cada linha.
+        out["relatorio-pago-pdf"] = {
+            "title": "Relatório de pagamento (PDF timbrado)",
+            "sub": (
+                "Gera o documento oficial do que foi pago na competência, com resumo, "
+                "banco de destino e o comprovante do banco por linha. É este o papel "
+                "que se manda para a contabilidade."
+            ),
+            "cta": "Gerar PDF",
+            "type": "form",
+            "submit": {"endpoint": "/api/v1/redesign/action/relatorio-pagamento-pdf", "okMsg": "Relatório gerado."},
+            "fields": [
+                {
+                    "key": "competencia",
+                    "label": "Competência* (MM/AAAA)",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Ex.: 09/2026",
+                },
+                {
+                    "key": "parcela",
+                    "label": "Qual parcela*",
+                    "type": "select",
+                    "span": "span 1",
+                    "value": "1",
+                    "options": [
+                        {"value": "1", "label": "1ª — adiantamento (40%)"},
+                        {"value": "2", "label": "2ª — saldo (60%)"},
+                    ],
+                },
+            ],
+        }
+
         # ── AVISAR QUEM RECEBEU ──────────────────────────────────────────────────────
         # «disparar pro José Luís informar que já está no portal do funcionário - meu
         # espaço, cada um com o seu». O aviso aponta para /modulos/meu-espaco, que é a

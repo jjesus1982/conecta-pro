@@ -5108,3 +5108,105 @@ async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = 
         )
     msg += " Lembre que «enviado» não é «lido» — o WhatsApp aceita envio para número que não existe."
     return {"ok": True, "message": msg}
+
+
+@router.post("/action/relatorio-pagamento-pdf", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_relatorio_pagamento_pdf(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)
+) -> dict:
+    """Devolve o LINK do relatório de pagamento em PDF, no timbrado padrão-ouro.
+
+    22/09/2026 — «o relatório do que foi pago está fora do padrão ouro do Conecta PRO».
+    Estava: eu tinha entregue uma tabela na tela e chamado de relatório. Relatório da
+    empresa é DOCUMENTO — logo real, cor oficial, rodapé com CNPJ e 0800.
+    """
+    comp = _competencia_br(payload.get("competencia"))
+    ano, mes = int(comp[:4]), int(comp[5:7])
+    try:
+        parcela = int(payload.get("parcela") or 1)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Parcela deve ser 1 ou 2.")
+    n = (
+        await db.execute(
+            text("SELECT count(*) FROM payroll_payments WHERE mes=:m AND ano=:a AND parcela=:p AND status='pago'"),
+            {"m": mes, "a": ano, "p": parcela},
+        )
+    ).scalar() or 0
+    if not n:
+        raise HTTPException(
+            status_code=400, detail=(f"Nenhuma {parcela}ª parcela PAGA em {_comp_br(comp)} — não há o que relatar.")
+        )
+    return {
+        "ok": True,
+        "message": f"Relatório de {n} pagamento(s) — {_comp_br(comp)}.",
+        "doc": {
+            "label": f"Relatório de pagamento {_comp_br(comp)}",
+            "url": f"/api/v1/redesign/relatorio-pagamento/{ano}/{mes}/{parcela}/pdf",
+            "fmt": "pdf",
+            "mode": "blob",
+            "gate": "financeiro",
+        },
+    }
+
+
+@router.get(
+    "/relatorio-pagamento/{ano}/{mes}/{parcela}/pdf", summary="Relatório de pagamento da folha (PDF padrão-ouro)"
+)
+async def _rd_relatorio_pagamento_pdf_get(ano: int, mes: int, parcela: int, db=Depends(get_db)):
+    """PDF do que foi PAGO na competência/parcela — com o comprovante do banco por linha.
+
+    O banco de DESTINO vem do extrato do Inter quando disponível (`bank_transactions`),
+    porque é o que responde a pergunta que originou tudo isto: a chave levou o dinheiro
+    para onde? Sem casamento no extrato a coluna sai '—' em vez de inventar.
+    """
+    from fastapi.responses import Response
+
+    from modules.financial.services.relatorio_pagamento_pdf import montar_relatorio_pagamento
+
+    linhas = (
+        (
+            await db.execute(
+                text(
+                    "SELECT e.nome, coalesce(e.cpf,'—') AS cpf, coalesce(p.pix_key, e.pix_key,'—') AS chave, "
+                    "       p.valor_liquido AS valor, p.data_pagamento AS quando, "
+                    "       coalesce(p.pix_e2e_id,'—') AS comprovante, "
+                    # BANCO DE DESTINO: vem do EXTRATO importado (`counterpart_bank`), casando por
+                    # CPF do recebedor + valor. Estava lendo `raw_data->'detalhes'->>...`, que é a
+                    # forma CRUA da API do Inter — o importador normaliza para `counterpart_*`, e por
+                    # isso a coluna saía vazia em 100% das linhas. Medido em 22/09.
+                    # Fica '—' enquanto a conciliação não tiver importado o dia: a nota de rodapé do
+                    # PDF diz isso, em vez de deixar o leitor achar que o banco não foi identificado.
+                    "       coalesce((SELECT bt.raw_data->>'counterpart_bank' "
+                    "                   FROM bank_transactions bt "
+                    "                  WHERE regexp_replace(coalesce(bt.raw_data->>'counterpart_document',''),'\\D','','g') "
+                    "                        = regexp_replace(coalesce(e.cpf,''),'\\D','','g') "
+                    "                    AND abs(bt.amount) = p.valor_liquido "
+                    "                    AND coalesce(bt.raw_data->>'counterpart_bank','') <> '' "
+                    "                  ORDER BY bt.transaction_date DESC LIMIT 1), '—') AS banco, "
+                    "       (SELECT em.cnpj FROM empresas em WHERE em.id = h.empresa_id) AS empresa_cnpj "
+                    "  FROM payroll_payments p "
+                    "  JOIN employees e ON e.id = p.employee_id "
+                    "  LEFT JOIN hr_payslips h ON h.id = p.payslip_id "
+                    " WHERE p.mes = :m AND p.ano = :a AND p.parcela = :p AND p.status = 'pago' "
+                    " ORDER BY e.nome"
+                ),
+                {"m": mes, "a": ano, "p": parcela},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not linhas:
+        raise HTTPException(status_code=404, detail="Nada pago nesta competência/parcela.")
+    pdf = montar_relatorio_pagamento(
+        {
+            "competencia": f"{mes:02d}/{ano}",
+            "parcela": parcela,
+            "empresa_cnpj": linhas[0]["empresa_cnpj"],
+            "itens": [dict(r) for r in linhas],
+        }
+    )
+    nome = f"relatorio-pagamento-{ano}-{mes:02d}-p{parcela}.pdf"
+    return Response(
+        content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'}
+    )
