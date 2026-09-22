@@ -79,6 +79,30 @@ async def gerar_parcelas(
         return {"ok": False, "erro": f"as parcelas somam {soma}%, precisam somar 100%"}
     mes, ano = int(competencia[5:7]), int(competencia[:4])
 
+    # ── FONTE POR COMPETÊNCIA, não global ────────────────────────────────────────────
+    # 22/09/2026: o Jordan pediu os 40% de setembro «saindo do DP» e a geração recusou —
+    # «nenhum holerite portte mensal em 2026-09». A constante fixava a Portte como fonte
+    # única, e a Portte parou de mandar folha em julho. Resultado: o DP gerava 51
+    # holerites e o Financeiro não os enxergava. A cadeia não existia para nenhum mês
+    # que a Portte ainda não tivesse transmitido — ou seja, para o mês corrente, sempre.
+    #
+    # A regra original continua valendo e é a parte importante: a Portte é a verdade
+    # fiscal ENQUANTO ela transmitir, e as duas fontes NUNCA se somam (misturar deu 112
+    # holerites e R$160.811,99 numa competência de 56 pessoas). O que muda é só o
+    # «enquanto»: se a Portte não mandou o mês, a folha do mês é a do nosso motor.
+    fonte = FONTE_FOLHA
+    _tem_portte = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM hr_payslips WHERE reference_month = :m AND reference_year = :a "
+                "AND source_system = :f AND payslip_type = ANY(:t)"
+            ),
+            {"m": mes, "a": ano, "f": FONTE_FOLHA, "t": list(TIPOS_MENSAIS)},
+        )
+    ).scalar() or 0
+    if not _tem_portte:
+        fonte = "conecta"
+
     holerites = (
         (
             await db.execute(
@@ -90,8 +114,14 @@ async def gerar_parcelas(
                -- traz rubrica de adiantamento SALARIAL (só 937, de FÉRIAS) — o vocabulário
                -- dela é VA, INSS, VT, taxa negocial, odontológico e faltas. Mas isso pode
                -- mudar no mês em que eles passarem a lançar, e aí a conta tem de mudar sozinha.
+               -- ⚠️ `%ADIANT%`, não `%ADIANTAMENTO%`. Escrevi ADIANTAMENTO primeiro e o
+               -- padrão NÃO pegava: na folha real da Portte a rubrica é «981
+               -- DESC.ADIANT.SALARIAL», abreviada. O erro só apareceu porque o Jordan
+               -- subiu a folha de agosto DELA — a de julho, a única no banco, não tinha a
+               -- rubrica, então o banco não podia me desmentir. Sem esta correção o saldo
+               -- sairia descontado DUAS vezes: uma pelo abatimento dela, outra pela minha.
                EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(h.deductions,'[]'::jsonb)) d
-                        WHERE upper(d->>'descricao') LIKE '%ADIANTAMENTO%'
+                        WHERE upper(d->>'descricao') LIKE '%ADIANT%'
                           AND upper(d->>'descricao') NOT LIKE '%FERIAS%'
                           AND upper(d->>'descricao') NOT LIKE '%FÉRIAS%') AS ja_abate,
                coalesce(e.pix_key,'') AS chave,
@@ -103,7 +133,7 @@ async def gerar_parcelas(
           AND lower(coalesce(e.status,'')) = 'ativo'
           AND coalesce(h.net_salary, 0) > 0
     """),
-                {"m": mes, "a": ano, "f": FONTE_FOLHA, "t": list(TIPOS_MENSAIS)},
+                {"m": mes, "a": ano, "f": fonte, "t": list(TIPOS_MENSAIS)},
             )
         )
         .mappings()
@@ -111,7 +141,13 @@ async def gerar_parcelas(
     )
 
     if not holerites:
-        return {"ok": False, "erro": (f"nenhum holerite {FONTE_FOLHA} mensal em {competencia} para funcionário ativo")}
+        return {
+            "ok": False,
+            "erro": (
+                f"nenhum holerite mensal em {competencia} para funcionário ativo "
+                f"(procurei em '{fonte}'; a folha precisa estar gerada no DP antes de virar pagamento)"
+            ),
+        }
 
     criadas, sem_chave, previsto, sem_base, estoura = [], [], [], [], []
     for h in holerites:
@@ -175,7 +211,7 @@ async def gerar_parcelas(
         "ok": True,
         "dry_run": dry_run,
         "competencia": competencia,
-        "fonte": FONTE_FOLHA,
+        "fonte": fonte,
         "pessoas": len(holerites),
         "linhas": len(criadas),
         "liquido_total": round(sum(previsto), 2),
