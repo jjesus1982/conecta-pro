@@ -133,6 +133,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_data_do_banco_no_fuso.py` | Data que o banco manda em UTC gravada como dia de Manaus — 15% dos lançamentos da Cora no dia errado |
 | `checar_imagem_sumida.py` | Container de produção rodando imagem SEM TAG ou AUSENTE — o drift que `checar_drift_workers` não vê, porque compara os containers entre si |
 | `checar_diarista_impagavel.py` | Diarista que trabalhou e não tem como receber — e nome fora do padrão da lista |
+| `checar_chave_pix.py` | Chave PIX que não leva o dinheiro até a pessoa (tipo × valor, CPF inválido, chave repetida, folha pagando chave nunca provada pelo banco) |
 | `checar_hermes_skill_retrieval.py` | O skill-retrieval está de fato ENCOLHENDO o prompt — e não escondendo as nossas skills |
 | `checar_hermes_so_ve_o_que_executa.py` | O Hermes só enxerga, do conector `conecta`, as ferramentas que ele CONSEGUE executar |
 | `checar_holerite_de_mes_futuro.py` | Holerite de competência que ainda não aconteceu — e holerite sem origem declarada |

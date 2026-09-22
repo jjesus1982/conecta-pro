@@ -255,6 +255,13 @@ CACADORES_HOST = {
     # que trabalhou no mês e está sem CPF ou sem PIX não entra no lote e some da lista sem nada
     # apitar. HOST: fala com o postgres por docker exec.
     "checar_diarista_impagavel.py": lambda s: _n(r"^TOTAL:\s*(\d+) diarista", s),
+    # ── 22/09/2026. No VT+VR alguns receberam em banco que não usam (a da Graciene caiu em
+    # conta negativa) e o Jordan mandou revisar tudo antes do adiantamento. Sete defeitos —
+    # dois em gente que ia receber naquele dia: telefone gravado com tipo CPF. E um PJ com o
+    # próprio telefone sem +55 etiquetado como CPF: nem passa no dígito verificador, nunca
+    # chegaria. A API do Inter NÃO consulta DICT (404 medido), então a prova de destino só
+    # vem do histórico de pagamento, onde o banco devolve `recebedor.nome`. HOST: postgres.
+    "checar_chave_pix.py": lambda s: _n(r"^TOTAL chaves PIX com defeito:\s*(\d+)", s),
 }
 
 
