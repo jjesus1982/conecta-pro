@@ -116,6 +116,91 @@ async def build_pagar(db, out: dict) -> None:
             ],
         }
 
+        # ── RELATÓRIO DO QUE FOI PAGO ────────────────────────────────────────────────
+        # 22/09/2026 — «preciso gerar o relatório do que foi pago, PELO SISTEMA, não por
+        # aqui». Até hoje a única conferência do lote saía do terminal, lendo o extrato.
+        # Mostra o COMPROVANTE do banco (e2e) em cada linha: sem ele o relatório só repete
+        # o que nós mesmos escrevemos, e o que se quer conferir é o que o BANCO fez.
+        out["relatorio-pago"] = await tbl(
+            "Relatório do que foi pago",
+            "Folha paga por competência e parcela, com hora e comprovante do banco. "
+            "Só aparece aqui o que o sistema marcou como PAGO — não é previsão.",
+            "—",
+            ["Competência", "Parcela", "Pessoa", "Chave PIX", "Valor", "Quando saiu", "Comprovante"],
+            "0.9fr 1.3fr 1.7fr 1.4fr 1fr 1.2fr 1.5fr",
+            """SELECT lpad(p.mes::text,2,'0') || '/' || p.ano AS comp,
+                      CASE p.parcela WHEN 1 THEN 'Adiantamento (40%)'
+                                     WHEN 2 THEN 'Saldo (60%)' ELSE p.parcela::text END,
+                      e.nome, coalesce(p.pix_key, e.pix_key, '—'), p.valor_liquido,
+                      p.data_pagamento, coalesce(p.pix_e2e_id,'—')
+                 FROM payroll_payments p JOIN employees e ON e.id = p.employee_id
+                WHERE p.status = 'pago'
+                ORDER BY p.ano DESC, p.mes DESC, p.parcela, e.nome
+                LIMIT 300""",
+            lambda r: [
+                t(str(r[0]), 600, "#0F1B3A"),
+                t(str(r[1])),
+                t(str(r[2])[:30], 600),
+                t(str(r[3])[:24]),
+                t(brl(float(r[4] or 0)), 600),
+                t(_fmtdate(r[5], "%d/%m/%Y %H:%M") if r[5] else "—"),
+                t(str(r[6])[:32]),
+            ],
+        )
+
+        # ── AVISAR QUEM RECEBEU ──────────────────────────────────────────────────────
+        # «disparar pro José Luís informar que já está no portal do funcionário - meu
+        # espaço, cada um com o seu». O aviso aponta para /modulos/meu-espaco, que é a
+        # área PESSOAL escopada por quem loga — não para a visão da empresa.
+        out["avisar-pagamento"] = {
+            "title": "Avisar quem recebeu (WhatsApp)",
+            "sub": (
+                "Manda, pelo José Luís, uma mensagem a cada pessoa PAGA na competência, "
+                "dizendo que o comprovante está em Meu Espaço → Meus pagamentos. "
+                "Quem não tem telefone no cadastro fica de fora e aparece NOMEADO na "
+                "resposta — some da lista sem aviso seria pior que não mandar."
+            ),
+            "cta": "Enviar avisos",
+            "type": "form",
+            "submit": {
+                "endpoint": "/api/v1/redesign/action/avisar-pagamento",
+                "gated": True,
+                "confirm": "Isto ENVIA mensagem de WhatsApp para todos os pagos da competência. Confirma?",
+                "okMsg": "Avisos processados.",
+            },
+            "fields": [
+                {
+                    "key": "competencia",
+                    "label": "Competência* (MM/AAAA)",
+                    "type": "text",
+                    "span": "span 1",
+                    "ph": "Ex.: 09/2026",
+                },
+                {
+                    "key": "parcela",
+                    "label": "Qual parcela*",
+                    "type": "select",
+                    "span": "span 1",
+                    "value": "1",
+                    "options": [
+                        {"value": "1", "label": "1ª — adiantamento (40%)"},
+                        {"value": "2", "label": "2ª — saldo (60%)"},
+                    ],
+                },
+                {
+                    "key": "simular",
+                    "label": "Só simular?",
+                    "type": "select",
+                    "span": "span 1",
+                    "value": "sim",
+                    "options": [
+                        {"value": "sim", "label": "Sim — só listar quem receberia"},
+                        {"value": "nao", "label": "NÃO — enviar de verdade"},
+                    ],
+                },
+            ],
+        }
+
         out["executar-no-app"] = await tbl(
             "Executar no app do banco",
             "Pagamentos já aprovados com OTP. Pague no app e NÃO precisa voltar aqui: "

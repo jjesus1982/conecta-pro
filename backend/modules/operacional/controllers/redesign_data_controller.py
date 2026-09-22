@@ -149,9 +149,26 @@ async def _scalar(db: AsyncSession, sql: str) -> Any:
     return r.scalar()
 
 
+#: Fragmento SQL: quem é funcionário DE VERDADE. Usar em toda contagem de gente.
+#:
+#: ⭐ 21/09/2026 — o painel do hub dizia «64 colaboradores» e a folha da Portte tem 51. Os 13
+#: de diferença são o conjunto de HOMOLOGAÇÃO do app de ponto: 12 pessoas criadas no mesmo
+#: segundo (09/09 12:33:26), com 416 batidas criadas no segundo seguinte, holerites sem fonte
+#: e contas `@homologacao.conectamais.pro`, mais o `COLABORADOR TESTE HOMOLOGACAO`.
+#:
+#: Eles JÁ estavam marcados `is_homologacao = true`, e OITO scripts e oráculos já respeitavam
+#: a marca (`checar_telefone_funcionario`, `test_oraculo_todos_batem_ponto`, o lembrete de
+#: ponto…). Quem não respeitava era a tela. Não se apaga o conjunto — ele serve para testar o
+#: app sem tocar em gente real; o que se conserta é quem conta.
+#:
+#: ⚠️ Medido no mesmo dia: 47 lugares no backend contam `employees WHERE status='ativo'` sem
+#: este filtro. Os KPIs de headcount foram corrigidos; o resto é varredura a fazer.
+SQL_FUNCIONARIO_REAL = "coalesce(is_homologacao, false) = false"
+
+
 async def _build_operacional(db: AsyncSession) -> dict:
     postos_ativos = await _scalar(db, "SELECT count(*) FROM posts WHERE status='active'")
-    colaboradores = await _scalar(db, "SELECT count(*) FROM employees WHERE status='ativo'")
+    colaboradores = await _scalar(db, f"SELECT count(*) FROM employees WHERE status='ativo' AND {SQL_FUNCIONARIO_REAL}")
     aloc_ativas = await _scalar(db, "SELECT count(*) FROM employee_alocacoes WHERE ativo=true")
     occ_7d = await _scalar(db, "SELECT count(*) FROM occurrences WHERE occurred_at >= now()-interval '7 days'")
 
@@ -5103,6 +5120,43 @@ async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
     except Exception as _exc:  # noqa: BLE001
         await db.rollback()
         logger.warning("meu-espaco: ouvidoria/assinaturas não montadas: %s", _exc)
+    # ── MEUS PAGAMENTOS ──────────────────────────────────────────────────────────────
+    # 22/09/2026 — pedido do Jordan depois de pagar o adiantamento: «disparar pro José Luís
+    # informar que já está no portal do funcionário - meu espaço, cada um com o SEU».
+    # Escopada por `me` (o employee_id de quem logou): cada um vê só o seu. Mostra o
+    # COMPROVANTE do banco (e2e), que é o que transforma «o sistema diz que pagou» em algo
+    # que a pessoa pode conferir no extrato dela.
+    await safe(
+        "meus-pagamentos",
+        tbl(
+            "Meus pagamentos",
+            "Adiantamento e saldo da sua folha, com a data em que o dinheiro saiu e o "
+            "comprovante do banco. Se algo não bater com o seu extrato, fale com o DP.",
+            "—",
+            ["Competência", "Parcela", "Valor", "Quando saiu", "Situação", "Comprovante"],
+            "1fr 0.9fr 1fr 1.2fr 1fr 1.6fr",
+            f"""SELECT lpad(p.mes::text,2,'0') || '/' || p.ano,
+                       CASE p.parcela WHEN 1 THEN 'Adiantamento (40%)'
+                                      WHEN 2 THEN 'Saldo (60%)' ELSE p.parcela::text END,
+                       p.valor_liquido, p.data_pagamento, coalesce(p.status,'—'),
+                       coalesce(p.pix_e2e_id,'—')
+                  FROM payroll_payments p
+                 WHERE p.employee_id = {me_lit}
+                 ORDER BY p.ano DESC, p.mes DESC, p.parcela""",
+            lambda r: [
+                t(str(r[0]), 600, "#0F1B3A"),
+                t(str(r[1])),
+                t(brl(float(r[2] or 0)), 600),
+                t(_fmtdate(r[3], "%d/%m/%Y %H:%M") if r[3] else "ainda não saiu"),
+                b(
+                    "pago" if str(r[4]) == "pago" else str(r[4]).replace("_", " "),
+                    "ok" if str(r[4]) == "pago" else "warn",
+                ),
+                t(str(r[5])[:34]),
+            ],
+        ),
+    )
+
     out["meus-dados"] = {
         "title": "Meus dados",
         "sub": "Contato e endereço — o DP vê a alteração na ficha. Nome, CPF e cargo só o DP altera.",
@@ -7149,16 +7203,29 @@ async def redesign_home(current_user: CurrentActiveUser, db: AsyncSession = Depe
             await db.rollback()
             return 0
 
-    colaboradores = await _sc("SELECT count(*) FROM employees WHERE status='ativo'")
+    # ⭐ 21/09/2026 — CLT e PJ SEPARADOS. Pedido do Jordan: «na dashboard tem que informar
+    # quantos são clt e quantos são pj», porque os números têm de conferir com a folha e o
+    # recibo da Portte. Antes havia UM número, «Colaboradores», que era
+    # `count(*) WHERE status='ativo'` — e isso conta só CLT, porque PJ tem status `pj_ativo`
+    # e ficava simplesmente FORA da tela. Ninguém sabia disso olhando o painel.
+    #
+    # ⚠️ O corte é por STATUS e não por `tipo_contrato`, que seria o campo semanticamente
+    # certo: medido hoje, `tipo_contrato` está NULO em 51 dos 64 ativos, então ele não separa
+    # nada. Enquanto o cadastro não for preenchido, status é o único critério que funciona.
+    clt = await _sc(
+        f"SELECT count(*) FROM employees WHERE lower(coalesce(status,''))='ativo' AND {SQL_FUNCIONARIO_REAL}"
+    )
+    pj = await _sc(
+        f"SELECT count(*) FROM employees WHERE lower(coalesce(status,''))='pj_ativo' AND {SQL_FUNCIONARIO_REAL}"
+    )
     postos = await _sc("SELECT count(*) FROM posts WHERE coalesce(is_active,true)=true")
     clientes = await _sc("SELECT count(*) FROM clients WHERE status='active'")
-    escalas = await _sc("SELECT count(*) FROM solides_work_schedules")
 
     kpis = [
-        {"v": str(colaboradores), "l": "Colaboradores"},
+        {"v": str(clt), "l": "CLT ativos"},
+        {"v": str(pj), "l": "PJ ativos"},
         {"v": str(postos), "l": "Postos ativos"},
         {"v": str(clientes), "l": "Clientes"},
-        {"v": str(escalas), "l": "Escalas"},
     ]
 
     # Pendências REAIS: certidões com vencimento (vencidas ou vencendo em ≤45 dias)

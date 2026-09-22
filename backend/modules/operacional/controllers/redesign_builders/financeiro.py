@@ -4760,6 +4760,14 @@ async def _parcela_mexivel(db, parcela_id: str) -> dict:
     return dict(r)
 
 
+def _comp_br(iso: str) -> str:
+    """'2026-09' -> '09/2026'. O `_competencia_br` normaliza para ISO na ENTRADA; toda
+    mensagem que volta para a tela tem de sair no formato brasileiro (regra do Jordan,
+    21/09: «coloque no formato brasileiro, apenas mês/ano»)."""
+    iso = str(iso or "")
+    return f"{iso[5:7]}/{iso[:4]}" if len(iso) >= 7 and "-" in iso else iso
+
+
 def _valor_br(v: object, campo: str) -> float:
     """'668,00' ou '668.00' -> 668.0. Recusa o que não é número: valor em branco vira
     pagamento de R$ 0,00 sem ninguém perceber."""
@@ -4933,14 +4941,14 @@ async def _rd_parcela_incluir(current_user: CurrentActiveUser, payload: dict = B
         raise HTTPException(
             status_code=409,
             detail=(
-                f"{pes['nome']} já tem a {parcela}ª parcela de {comp}. Edite a linha existente "
+                f"{pes['nome']} já tem a {parcela}ª parcela de {_comp_br(comp)}. Edite a linha existente "
                 "em «Parcelas da folha» em vez de criar outra."
             ),
         )
     return {
         "ok": True,
         "message": (
-            f"{pes['nome']} — {parcela}ª parcela de {comp}, {brl(valor)}, sai em "
+            f"{pes['nome']} — {parcela}ª parcela de {_comp_br(comp)}, {brl(valor)}, sai em "
             f"{_fmtdate(_dt.fromisoformat(data))}."
             + ("" if ps else " (sem holerite nesta competência — a linha existe mesmo assim.)")
         ),
@@ -4984,4 +4992,119 @@ async def _rd_executar_lote_inter(
         )
     if not _f and not _d:
         msg += " Recebedor conferido pelo banco em todos."
+    return {"ok": True, "message": msg}
+
+
+@router.post("/action/avisar-pagamento", dependencies=[Depends(_require_financeiro_dep)])
+async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = Body(...), db=Depends(get_db)) -> dict:
+    """Avisa por WhatsApp cada pessoa PAGA na competência que o comprovante está no portal.
+
+    22/09/2026 — pedido do Jordan: «disparar pro José Luís informar que já está no portal
+    do funcionário - meu espaço, cada um com o seu».
+
+    Duas decisões que mudam o resultado:
+      · Simula por padrão. Disparo em massa que sai por engano não tem como voltar.
+      · Quem não tem telefone no cadastro sai NOMEADO na resposta. Medido nos 49 pagos de
+        setembro: 3 pessoas sem telefone (Eidy, Elen, Thiago). Contar só quem recebeu o
+        aviso faria «46 enviados» parecer cobertura total.
+    `enviado` ≠ `chegou`: o WhatsApp aceita envio para número que não existe. A prova de
+    que o número existe é a trava `checar_telefone_funcionario`, que pergunta ao WhatsApp.
+    """
+    from modules.operacional.lembrete_ponto import normalizar_telefone
+
+    comp = _competencia_br(payload.get("competencia"))
+    ano, mes = int(comp[:4]), int(comp[5:7])
+    try:
+        parcela = int(payload.get("parcela") or 1)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Parcela deve ser 1 ou 2.")
+    simular = str(payload.get("simular") or "sim").strip().lower() != "nao"
+
+    linhas = (
+        (
+            await db.execute(
+                text(
+                    "SELECT e.nome, coalesce(e.telefone,'') AS tel, p.valor_liquido AS valor, "
+                    "       p.data_pagamento AS quando "
+                    "  FROM payroll_payments p JOIN employees e ON e.id = p.employee_id "
+                    " WHERE p.mes = :m AND p.ano = :a AND p.parcela = :p AND p.status = 'pago' "
+                    " ORDER BY e.nome"
+                ),
+                {"m": mes, "a": ano, "p": parcela},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not linhas:
+        return {
+            "ok": True,
+            "message": (
+                f"Nada a avisar: nenhuma {parcela}ª parcela PAGA em {_comp_br(comp)}. "
+                "O aviso só sai depois do pagamento."
+            ),
+        }
+
+    rotulo = "adiantamento (40%)" if parcela == 1 else "saldo (60%)"
+    sem_tel = [r["nome"] for r in linhas if not normalizar_telefone(r["tel"])]
+    alvos = [r for r in linhas if normalizar_telefone(r["tel"])]
+
+    if simular:
+        return {
+            "ok": True,
+            "message": (
+                f"SIMULAÇÃO (nada enviado) — {len(alvos)} pessoa(s) receberiam o aviso do "
+                f"{rotulo} de {_comp_br(comp)}."
+                + (
+                    f" ⚠️ {len(sem_tel)} SEM TELEFONE no cadastro, ficariam de fora: "
+                    + ", ".join(sem_tel[:8])
+                    + ("…" if len(sem_tel) > 8 else "")
+                    + "."
+                    if sem_tel
+                    else " Todos têm telefone no cadastro."
+                )
+                + " Escolha «NÃO — enviar de verdade» para disparar."
+            ),
+        }
+
+    from modules.integrations.connectors.whatsapp.service import send_text_message
+
+    enviados, falhas = [], []
+    for r in alvos:
+        tel = normalizar_telefone(r["tel"])
+        primeiro = str(r["nome"]).split()[0].capitalize()
+        msg = (
+            f"Olá, {primeiro}! Seu {rotulo} de {_comp_br(comp)} já foi pago: "
+            f"{brl(float(r['valor'] or 0))}"
+            + (f", em {_fmtdate(r['quando'], '%d/%m/%Y')}" if r["quando"] else "")
+            + ".\n\nO comprovante está no Conecta PRO, em *Meu Espaço → Meus pagamentos*: "
+            "https://erp.conectamais.pro/modulos/meu-espaco\n\n"
+            "Se algo não bater com o seu extrato, fale com o DP."
+        )
+        try:
+            await send_text_message(tel, msg)
+            enviados.append(r["nome"])
+        except Exception as e:  # noqa: BLE001
+            falhas.append({"nome": r["nome"], "erro": str(e)[:100]})
+    logger.warning(
+        "aviso de pagamento %s p%s: %s enviados, %s falhas, %s sem telefone",
+        comp,
+        parcela,
+        len(enviados),
+        len(falhas),
+        len(sem_tel),
+    )
+    msg = f"{len(enviados)} aviso(s) enviados sobre o {rotulo} de {_comp_br(comp)}."
+    if sem_tel:
+        msg += (
+            f" ⚠️ {len(sem_tel)} NÃO foram avisados por não ter telefone no cadastro: "
+            + ", ".join(sem_tel[:8])
+            + ("…" if len(sem_tel) > 8 else "")
+            + "."
+        )
+    if falhas:
+        msg += (
+            f" ⚠️ {len(falhas)} falharam no envio: " + "; ".join(f"{x['nome']}: {x['erro']}" for x in falhas[:4]) + "."
+        )
+    msg += " Lembre que «enviado» não é «lido» — o WhatsApp aceita envio para número que não existe."
     return {"ok": True, "message": msg}

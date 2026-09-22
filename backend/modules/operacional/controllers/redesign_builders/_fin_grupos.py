@@ -143,6 +143,8 @@ GRUPOS = [
             ("montar-ordem", "Montar ordem"),
             ("aprovar-ordem", "Aprovar ordem (OTP)"),
             ("executar-inter", "Executar pelo Inter"),
+            ("relatorio-pago", "Relatório do que foi pago"),
+            ("avisar-pagamento", "Avisar quem recebeu"),
             ("executar-no-app", "Executar no app (Cora)"),
             ("pagamentos-inter", "Pagamentos Inter"),
             ("marcar-pago-externo", "Pago por fora"),
