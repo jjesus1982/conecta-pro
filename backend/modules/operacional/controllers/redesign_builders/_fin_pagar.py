@@ -396,12 +396,27 @@ async def build_pagar(db, out: dict) -> None:
                 "okMsg": "Ordem liberada.",
             },
             "fields": [
+                # ⭐ 22/09/2026 — era campo de TEXTO pedindo «copie o ID da aba Ordens de
+                # pagamento», e aquela aba NÃO mostra o ID (Referência, Competência,
+                # Status, Itens, Total, Pagos, Aprovado por). O formulário pedia uma coisa
+                # que o sistema não mostrava em lugar nenhum. O Jordan montou a ordem de
+                # R$ 33.137,71, foi aprovar e o OTP «não chegou» — nunca chegou a ser
+                # gerado, porque a chamada não tinha como sair com o campo vazio.
+                # Vira LISTA dos lotes abertos, pelo nome. UUID não é coisa que se digita.
                 {
                     "key": "lote_id",
-                    "label": "ID do lote*",
-                    "type": "text",
+                    "label": "Qual lote*",
+                    "type": "select",
                     "span": "span 2",
-                    "ph": "copie da aba 'Ordens de pagamento'",
+                    "options": [{"value": "", "label": "— escolha o lote —"}]
+                    + [
+                        {
+                            "value": str(_l[0]),
+                            "label": f"{_l[1]} — {_l[6]} item(ns), {brl(_l[5] / 100)} · {_l[4].capitalize()}",
+                        }
+                        for _l in _lotes
+                        if str(_l[4]).upper() in ("RASCUNHO", "APROVADO")
+                    ],
                 },
                 {
                     "key": "acao",
