@@ -13,7 +13,7 @@ Endpoints (prefixo /dp/payslips):
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -104,8 +104,14 @@ async def listar_payslips(
         result = await db.execute(stmt)
         payslips = result.scalars().all()
         # total REAL (era len(página): "876 holerites" apareciam como 20 — revisão 08/09/2026)
-        from sqlalchemy import func as _func, select as _select
-        total = (await db.execute(_select(_func.count()).select_from(stmt.order_by(None).offset(None).limit(None).subquery()))).scalar() or 0
+        from sqlalchemy import func as _func
+        from sqlalchemy import select as _select
+
+        total = (
+            await db.execute(
+                _select(_func.count()).select_from(stmt.order_by(None).offset(None).limit(None).subquery())
+            )
+        ).scalar() or 0
 
         return {
             "payslips": [_serialize_payslip(p) for p in payslips],
@@ -132,7 +138,9 @@ async def criar_payslip(
     except Exception as exc:
         await db.rollback()
         if "uq_hr_payslips_code" in str(exc) or "duplicate key" in str(exc).lower():
-            raise HTTPException(status_code=409, detail="Já existe holerite deste funcionário nesta competência.") from exc
+            raise HTTPException(
+                status_code=409, detail="Já existe holerite deste funcionário nesta competência."
+            ) from exc
         logger.error("Erro ao criar payslip: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -376,12 +384,8 @@ def _build_payslip(body: "PayslipCreateBody") -> Any:
     total_earnings = float(body.salario_bruto)
 
     # earnings/deductions como JSONB no formato esperado ({code, description, value}).
-    earnings_json = [
-        {"code": None, "description": p.descricao, "value": float(p.valor)} for p in body.proventos
-    ]
-    deductions_json = [
-        {"code": None, "description": d.descricao, "value": float(d.valor)} for d in body.descontos
-    ]
+    earnings_json = [{"code": None, "description": p.descricao, "value": float(p.valor)} for p in body.proventos]
+    deductions_json = [{"code": None, "description": d.descricao, "value": float(d.valor)} for d in body.descontos]
 
     payslip = PaySlip(
         id=uuid.uuid4(),
@@ -434,10 +438,15 @@ def _is_total_row(rubrica: dict) -> bool:
     if code_raw in _TOTAL_ROW_CODES or code in {c.lstrip("0") or "0" for c in _TOTAL_ROW_CODES}:
         return True
     desc = str(rubrica.get("description") or rubrica.get("descricao") or "").upper()
-    return "PROVENTOS TOTAIS" in desc or "TOTAL DESCONTOS" in desc or desc.strip() in {
-        "TOTAIS",
-        "TOTAL",
-    }
+    return (
+        "PROVENTOS TOTAIS" in desc
+        or "TOTAL DESCONTOS" in desc
+        or desc.strip()
+        in {
+            "TOTAIS",
+            "TOTAL",
+        }
+    )
 
 
 def _serialize_payslip(p: Any) -> dict:
@@ -522,9 +531,7 @@ async def preview_pagamento_folha(
 
 
 # ── OTP p/ dinheiro que SAI (reusa inter_lote_otp + e-mail D7 ao Jordan) ──────
-async def _folha_gerar_otp(
-    db: AsyncSession, total: float, descricao: str, detalhe: str
-) -> dict:
+async def _folha_gerar_otp(db: AsyncSession, total: float, descricao: str, detalhe: str) -> dict:
     """Gera UM código OTP (6 díg, e-mail ao Jordan) que libera a ação. NÃO move dinheiro.
 
     Devolve `lote_id` (UUID) — a tela reenvia lote_id+otp_code na hora de executar
@@ -534,7 +541,6 @@ async def _folha_gerar_otp(
     import uuid as _uuid
     from datetime import datetime as _dt
     from datetime import timedelta as _td
-    from datetime import timezone as _tz
 
     from sqlalchemy import text as _text
 
@@ -544,7 +550,7 @@ async def _folha_gerar_otp(
     lote_id = str(_uuid.uuid4())
     code = f"{_secrets.randbelow(900000) + 100000}"
     ttl = int(_os.getenv("CONECTA_PAYMENT_OTP_TTL_SECONDS", "600"))
-    exp = _dt.now(_tz.utc) + _td(seconds=ttl)
+    exp = _dt.now(UTC) + _td(seconds=ttl)
     await db.execute(
         _text("INSERT INTO inter_lote_otp (lote_id, code, expires_at, used) VALUES (:l,:c,:e,false)"),
         {"l": lote_id, "c": code, "e": exp},
@@ -587,9 +593,19 @@ async def gerar_otp_pagamento_folha(
     total = sum(float(f.get("valor_liquido") or 0) for f in elegiveis)
     if not elegiveis or total <= 0:
         return {"ok": False, "mensagem": "Nada a pagar no período (sem holerite publicado / chave PIX)."}
-    return await _folha_gerar_otp(
-        db, total, f"folha {mes:02d}/{ano}", f"{len(elegiveis)} funcionário(s)"
-    )
+    r = await _folha_gerar_otp(db, total, f"folha {mes:02d}/{ano}", f"{len(elegiveis)} funcionário(s)")
+    # A LISTA junto com o código: quem recebe, por qual chave, quanto. Antes a tela mostrava
+    # só «Folha CLT 09/2026 · R$ X» e pedia o OTP — assinar sem ler (pedido do Jordan, 22/09).
+    if r.get("ok") is not False:
+        r["itens"] = [
+            {
+                "nome": f.get("nome") or f.get("full_name") or "(sem nome)",
+                "chave": f.get("pix_key") or "(sem chave)",
+                "valor": float(f.get("valor_liquido") or 0),
+            }
+            for f in sorted(elegiveis, key=lambda x: str(x.get("nome") or ""))
+        ]
+    return r
 
 
 @router.post(
@@ -671,9 +687,7 @@ async def gerar_otp_pix_key(
     _user: CurrentActiveUser = None,
 ):
     """Gera o código que libera a troca de chave PIX do funcionário. NÃO altera nada."""
-    return await _folha_gerar_otp(
-        db, 0.0, "troca de chave PIX", f"funcionário {employee_id[:8]}"
-    )
+    return await _folha_gerar_otp(db, 0.0, "troca de chave PIX", f"funcionário {employee_id[:8]}")
 
 
 @router.put(

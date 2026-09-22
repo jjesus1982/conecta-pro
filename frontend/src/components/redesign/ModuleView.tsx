@@ -732,6 +732,12 @@ function FormScreen({ scr }: { scr: any }) {
       const { res, d } = await fire(extra);
       if (d && d.otp_required) { // gate exige OTP humano → entra no modo OTP, mantém os campos
         setOtp({ ref: d.ref || '', code: '' }); setConfirming(false);
+        // CONFERÊNCIA ANTES DE ASSINAR. Enquanto este painel não existia, a tela dizia
+        // «49 diarista(s) · R$ 0,49» e já pedia o código: o OTP era digitado sem nunca ter
+        // visto nome, chave e valor de quem recebe. Ver a lista em outra aba não serve —
+        // outro filtro é outra seleção, e a que importa é a que está prestes a sair.
+        // Não depende de showResult: em tela de dinheiro, conferir não é opt-in.
+        if (typeof d === 'object') setResultado(d as Record<string, unknown>);
         setMsg({ ok: true, text: d.message || 'Confirme com o código OTP enviado ao e-mail do Jordan.' });
         return;
       }
@@ -785,9 +791,30 @@ function FormScreen({ scr }: { scr: any }) {
             : v.toLocaleString('pt-BR');
         const pretty = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail']);
-        const rows: Array<{ label: string; value: string | null }> = [];
+        const rows: Array<{ label: string; value: string | null; sub?: string }> = [];
         for (const [k, v] of Object.entries(resultado)) {
           if (skip.has(k)) continue;
+          // Lista de gente (ex.: `itens` do lote antes do OTP): uma linha por pessoa, com a
+          // chave PIX embaixo do nome. Antes o painel descartava todo array em silêncio —
+          // o dado chegava do backend e sumia na renderização.
+          if (Array.isArray(v)) {
+            if (!v.length) continue;
+            rows.push({ label: `${pretty(k)} (${v.length})`, value: null });
+            for (const el of v as unknown[]) {
+              if (el && typeof el === 'object') {
+                const o = el as Record<string, unknown>;
+                const nome = String(o.nome ?? o.beneficiario ?? o.label ?? '—');
+                const chave = o.chave ?? o.pix_key;
+                const val = o.valor ?? o.value;
+                rows.push({
+                  label: nome,
+                  sub: chave != null ? String(chave) : undefined,
+                  value: typeof val === 'number' ? fmt(val, 'valor') : (val != null ? String(val) : ''),
+                });
+              } else { rows.push({ label: String(el), value: '' }); }
+            }
+            continue;
+          }
           if (v && typeof v === 'object' && !Array.isArray(v)) {
             rows.push({ label: pretty(k), value: null });
             for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) {
@@ -804,8 +831,11 @@ function FormScreen({ scr }: { scr: any }) {
             {rows.map((r, i) => r.value === null ? (
               <div key={i} style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, marginTop: 4 }}>{r.label}</div>
             ) : (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, fontSize: 12.5 }}>
-                <span style={{ opacity: 0.7 }}>{r.label}</span>
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, fontSize: 12.5, alignItems: 'baseline' }}>
+                <span style={{ opacity: 0.7 }}>
+                  {r.label}
+                  {r.sub && <span style={{ opacity: 0.55, fontSize: 11.5, marginLeft: 6, fontVariantNumeric: 'tabular-nums' }}>{r.sub}</span>}
+                </span>
                 <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{r.value}</span>
               </div>
             ))}

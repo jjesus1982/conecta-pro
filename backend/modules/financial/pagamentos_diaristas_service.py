@@ -654,6 +654,26 @@ async def gerar_otp_lote(
     )
     n = int(rows["n"]) if rows else 0
     total = float(rows["total"]) if rows else 0.0
+    # A LISTA, não só a contagem. Até 22/09/2026 a tela dizia «49 diarista(s) · R$ 0,49» e
+    # pedia o código: o Jordan digitava o OTP sem nunca ter visto QUEM recebe e QUANTO. Para
+    # conferir, teria de abrir outra aba, com outro filtro — que não é a mesma seleção que
+    # está prestes a pagar. Conferência que não é da seleção exata não é conferência.
+    itens = [
+        {"nome": r["beneficiario"], "chave": r["pix_key"], "valor": float(r["valor"] or 0)}
+        for r in (
+            (
+                await db.execute(
+                    text(
+                        f"SELECT beneficiario, pix_key, valor FROM financial_pagamentos_diaristas "
+                        f"WHERE {' AND '.join(where)} ORDER BY beneficiario"
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+    ]
     if n == 0:
         return {"ok": False, "mensagem": "Nenhum item elegível (a_revisar com PIX) para gerar o código."}
     if total > LIMITE_LOTE_DIARIO:
@@ -676,6 +696,7 @@ async def gerar_otp_lote(
         "lote_id": lote_id,
         "quantidade": n,
         "total": total,
+        "itens": itens,
         "saiu_daqui": saiu_daqui,
         "message": (
             f"Código enviado para {email}. Se não chegar em 2 min, confira o spam."
