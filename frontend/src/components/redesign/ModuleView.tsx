@@ -746,6 +746,20 @@ function FormScreen({ scr }: { scr: any }) {
       // outros dois pontos de submit — este, o do FORM, tinha ficado de fora. Apareceu ao
       // tornar `regime_empresa` obrigatório em 15/08/2026: o guard que impede o número
       // errado só ajuda se a tela disser POR QUE recusou.
+      // NÃO SABER ≠ TER FALHADO. 22/09/2026: o lote de 49 PIX leva ~3,5 min (o sistema
+      // pergunta ao banco quem recebeu depois de cada pagamento). O nginx cortava em 60s
+      // com 504 e esta linha dizia «Não foi possível concluir» — enquanto o backend seguia
+      // pagando, e pagou os 49. O Jordan foi conferir no meio e viu 22, achando que tinha
+      // quebrado. Dizer «falhou» sobre dinheiro que está saindo convida a repetir a
+      // operação, ou a pagar de novo pelo app do banco.
+      // 502/504 = o servidor NÃO respondeu no prazo; o que ele está fazendo, não sabemos.
+      if (res.status === 502 || res.status === 504) {
+        setMsg({ ok: false, text: gated
+          ? 'A resposta demorou mais que o limite — MAS A OPERAÇÃO PODE ESTAR EM ANDAMENTO. '
+            + 'NÃO repita e não pague por fora. Aguarde alguns minutos e confira a lista antes de tentar de novo.'
+          : 'O servidor demorou mais que o limite para responder. A operação pode ter sido concluída — confira antes de repetir.' });
+        return;
+      }
       if (!res.ok) throw new Error(msgErro(d) || 'Não foi possível concluir.');
       // honesto: mostra a mensagem REAL do backend (não inventa sucesso)
       setMsg({ ok: d.ok !== false, text: d.message || scr.submit.okMsg || 'Concluído.' });
@@ -763,7 +777,13 @@ function FormScreen({ scr }: { scr: any }) {
       // escreve nada e o reload apagaria o painel de resultado (armadilha do recarregar 1200ms).
       if (d.ok !== false && !_showRes) setTimeout(() => { try { recarregar(); } catch { /* noop */ } }, 1200);
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Erro.' });
+      // `fetch` que rejeita = a resposta não chegou. Em ação de dinheiro isso NÃO é
+      // sinônimo de "não aconteceu" — pelo mesmo motivo do 504 acima.
+      const _rede = e instanceof TypeError;
+      setMsg({ ok: false, text: _rede && gated
+        ? 'A conexão caiu antes da resposta — A OPERAÇÃO PODE ESTAR EM ANDAMENTO. NÃO repita '
+          + 'e não pague por fora. Confira a lista antes de tentar de novo.'
+        : (e instanceof Error ? e.message : 'Erro.') });
     } finally { setBusy(false); }
   }
 
