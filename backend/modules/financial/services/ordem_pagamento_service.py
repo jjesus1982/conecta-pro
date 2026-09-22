@@ -302,11 +302,29 @@ async def gerar_parcelas(
             )
         previsto.append(liquido)
 
+    # ── A LISTA DO GOVERNO, no dia em que se gera ────────────────────────────────────
+    # Regra do Jordan (22/09/2026): «quando formos gerar a segunda parcela de 60% o nosso
+    # sistema tem que ir no eSocial, conferir naquele dia a lista de empregados... e isso
+    # tem que ser permanente». Roda nas DUAS etapas, não só no saldo: se alguém foi
+    # desligado no governo sem baixa aqui, o adiantamento também pagaria errado.
+    # Só LÊ o espelho (não gasta acesso do orçamento de 10/dia do governo) e devolve
+    # sempre a DATA dele — ver conferencia_esocial para os dois limites reais.
+    try:
+        from modules.people_management.services.conferencia_esocial import (
+            conferir_lista_esocial,
+        )
+
+        _esoc = await conferir_lista_esocial(db)
+    except Exception as _e:  # noqa: BLE001
+        # Conferência é auditoria: falhar nela não pode impedir a folha de ser gerada.
+        _esoc = {"ok": False, "erro": str(_e)[:160]}
+
     resumo = {
         "ok": True,
         "dry_run": dry_run,
         "competencia": competencia,
         "fonte": fonte,
+        "esocial": _esoc,
         "pessoas": len(holerites),
         "linhas": len(criadas),
         "liquido_total": round(sum(previsto), 2),

@@ -4338,6 +4338,16 @@ async def _rd_gerar_parcelas_folha(
             f" ⚠️ {len(_d)} pessoa(s) com o adiantamento da folha DIFERENTE do que saiu — "
             f"o saldo delas sai errado se não corrigir: {_quem}."
         )
+    # A conferência com o GOVERNO entra no corpo da mensagem, com a data do espelho.
+    # Sem a data, «confere» vira promessa: o espelho pode ser de duas semanas atrás.
+    _es = ""
+    _e = r.get("esocial") or {}
+    if _e.get("ok"):
+        from modules.people_management.services.conferencia_esocial import resumo_em_texto
+
+        _es = " " + resumo_em_texto(_e)
+    elif _e:
+        _es = f" ⚠️ a conferência com o eSocial não rodou: {_e.get('erro', '')}"
     prefixo = "SIMULAÇÃO (nada gravado)" if r["dry_run"] else "GRAVADO"
     _et = {"adiantamento": "ADIANTAMENTO (40%)", "saldo": "SALDO (60%)"}.get(r.get("etapa", ""), "AMBAS")
     return {
@@ -4345,7 +4355,7 @@ async def _rd_gerar_parcelas_folha(
         "etapa": r.get("etapa"),
         "message": (
             f"{prefixo} · {_et} — {r['pessoas']} pessoa(s), líquido da folha {brl(r['liquido_total'])} "
-            f"(fonte {r['fonte']}). {linhas}. Postos: {', '.join(r['agrupadores'])}.{_sc}{_des}"
+            f"(fonte {r['fonte']}). {linhas}. Postos: {', '.join(r['agrupadores'])}.{_sc}{_des}{_es}"
         ),
     }
 
