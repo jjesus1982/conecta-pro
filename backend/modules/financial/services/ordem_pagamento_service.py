@@ -794,12 +794,20 @@ async def executar_lote_inter(db: AsyncSession, *, lote_id: str, user_id: str = 
             {"l": lote_id},
         )
     ).scalar() or 0
+    # ⚠️ Um parâmetro, DOIS usos = `AmbiguousParameterError: inconsistent types deduced
+    # for parameter $1`. A primeira versão usava `:s` no SET e dentro de um CASE, e o
+    # asyncpg não deduz o tipo. Medido em 22/09/2026, na execução REAL do lote de
+    # R$ 33.137,71: os 49 PIX saíram (commit por item salvou), e só esta última linha
+    # estourou — o lote ficou APROVADO em vez de CONCLUIDO e a tela devolveu erro sobre
+    # um pagamento que tinha dado certo. Agora a decisão é em Python, e o SQL só grava.
+    _fim = not restam
     await db.execute(
         text(
-            "UPDATE folha_lote_ordem SET status = :s, concluido_em = CASE WHEN :s = 'CONCLUIDO' "
-            "  THEN now() ELSE concluido_em END, updated_at = now() WHERE id = CAST(:i AS uuid)"
+            "UPDATE folha_lote_ordem SET status = :s, "
+            "  concluido_em = CASE WHEN :fim THEN now() ELSE concluido_em END, "
+            "  updated_at = now() WHERE id = CAST(:i AS uuid)"
         ),
-        {"s": "CONCLUIDO" if not restam else "CONCLUIDO_PARCIAL", "i": lote_id},
+        {"s": "CONCLUIDO" if _fim else "CONCLUIDO_PARCIAL", "fim": _fim, "i": lote_id},
     )
     await db.commit()
     logger.warning(
