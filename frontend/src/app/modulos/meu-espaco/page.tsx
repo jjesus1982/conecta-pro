@@ -90,7 +90,7 @@ const ESTADO_CIVIL_OPTS = [
 const SS_BASE = '/api/v1/people-management/portal/self-service';
 
 type Tab =
-  | 'assinar' | 'holerite' | 'ferias' | 'ponto' | 'beneficios'
+  | 'assinar' | 'holerite' | 'pagamentos' | 'ferias' | 'ponto' | 'beneficios'
   | 'documentos' | 'treinamentos' | 'dados'
   | 'escala' | 'comunicados' | 'reembolso' | 'ouvidoria';
 
@@ -99,6 +99,10 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'comunicados', label: 'Comunicados', icon: Bell },
   { id: 'escala', label: 'Minha escala', icon: CalendarClock },
   { id: 'holerite', label: 'Holerite', icon: FileText },
+  // 22/09/2026 — o José Luís avisou 46 pessoas que o comprovante estava em «Meu Espaço
+  // → Meus pagamentos» e elas responderam que o menu não existia. Tinham razão: a tela
+  // tinha sido construída no ModuleView do REDESIGN, e esta página aqui é outra coisa.
+  { id: 'pagamentos', label: 'Meus pagamentos', icon: Receipt },
   { id: 'documentos', label: 'Documentos', icon: FolderOpen },
   { id: 'ferias', label: 'Férias', icon: CalendarDays },
   { id: 'ponto', label: 'Ponto', icon: Clock },
@@ -273,6 +277,7 @@ export default function MeuEspacoPage() {
             {tab === 'documentos' && <DocumentosTab onIrAssinar={() => setTab('assinar')} />}
             {tab === 'ferias' && <FeriasTab />}
             {tab === 'ponto' && <PontoTab />}
+            {tab === 'pagamentos' && <PagamentosTab />}
             {tab === 'beneficios' && <BeneficiosTab />}
             {tab === 'reembolso' && <ReembolsoTab />}
             {tab === 'treinamentos' && <TreinamentosTab />}
@@ -1820,6 +1825,87 @@ interface BeneficioAtivo {
   tipo?: string; operadora?: string; plano?: string | null;
   desconto_funcionario?: number; contribuicao_empresa?: number; status?: string;
 }
+interface PagamentoLinha {
+  competencia: string; parcela: number; rotulo: string; valor: number;
+  pago_em: string | null; previsto_para: string | null; status: string;
+  comprovante: string; chave: string;
+}
+
+function PagamentosTab() {
+  const [linhas, setLinhas] = useState<PagamentoLinha[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get('/api/v1/people-management/portal/self-service/meus-pagamentos');
+        setLinhas(Array.isArray(res.data?.pagamentos) ? res.data.pagamentos : []);
+      } catch (e: unknown) {
+        const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        setError(msg || 'Não foi possível carregar seus pagamentos.');
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const brl = (v: number) => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`;
+  const dia = (iso: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null
+      : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  if (loading) return <Spinner />;
+  if (error) return <ErrorBox msg={error} />;
+  if (linhas.length === 0)
+    return <EmptyState icon={Receipt} title="Nenhum pagamento" desc="Ainda não há parcela de folha registrada para você." />;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-[hsl(var(--muted-foreground))]">
+        Adiantamento e saldo da sua folha. O <b>comprovante</b> é o código que o banco devolveu —
+        é por ele que você confere a entrada no seu extrato. Se algo não bater, fale com o DP.
+      </p>
+      {linhas.map((l, i) => {
+        const pago = l.status === 'pago';
+        return (
+          <div key={i} className="bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[hsl(var(--foreground))]">{l.rotulo}</p>
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Competência {l.competencia}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-base font-bold text-[#1E3A5F]">{brl(l.valor)}</p>
+                <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${
+                  pago ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {pago ? 'pago' : String(l.status).replace(/_/g, ' ')}
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-2 border-t border-[hsl(var(--border))] space-y-0.5">
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                {pago
+                  ? <>Saiu em <b>{dia(l.pago_em) || '—'}</b></>
+                  : <>Previsto para <b>{dia(l.previsto_para)?.slice(0, 10) || '—'}</b></>}
+              </p>
+              {l.chave && (
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Chave PIX usada: <b>{l.chave}</b></p>
+              )}
+              {l.comprovante && (
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))] break-all">
+                  Comprovante: <b>{l.comprovante}</b>
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function BeneficiosTab() {
   const [ativos, setAtivos] = useState<BeneficioAtivo[]>([]);
   const [loading, setLoading] = useState(true);

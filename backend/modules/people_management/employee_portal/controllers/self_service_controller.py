@@ -933,11 +933,9 @@ async def facial_batida(
     # registrar o ponto, então a falha do lock segue em frente (volta a ser o comportamento de
     # hoje, que é o que já havia).
     try:
-        await db.execute(_sqltext("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
-                         {"k": f"batida:{emp}"})
+        await db.execute(_sqltext("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"), {"k": f"batida:{emp}"})
     except Exception as _e_lock:  # noqa: BLE001
-        logger.warning("batida: lock consultivo indisponível para %s (%s) — sigo sem serializar",
-                       emp, _e_lock)
+        logger.warning("batida: lock consultivo indisponível para %s (%s) — sigo sem serializar", emp, _e_lock)
 
     # IDEMPOTÊNCIA (retry-safe + anti double-tap): se já houve batida nos últimos 90s,
     # devolve a MESMA (não cria outra). Assim o retry automático do app e o toque duplo
@@ -1214,8 +1212,10 @@ async def baixar_meu_documento(
 
         return RedirectResponse(url=file_path, status_code=307)
     if str(file_path).startswith("/inter/"):
-        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND,
-                            detail="Comprovante bancário: não há arquivo no seu espaço; peça ao DP.")
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Comprovante bancário: não há arquivo no seu espaço; peça ao DP.",
+        )
     # Resolve base de storage (GED). Aceita path absoluto ou relativo.
     base = os.environ.get("GED_STORAGE_PATH", "/app/uploads")
     full = file_path if os.path.isabs(file_path) else os.path.join(base, file_path)
@@ -1594,4 +1594,62 @@ async def meu_resumo(
         "nome": current_user.name,
         "email": current_user.email,
         "dashboard": dashboard,
+    }
+
+
+@router.get(
+    "/meus-pagamentos",
+    summary="Meus pagamentos (adiantamento e saldo da folha)",
+)
+async def meus_pagamentos(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    """Parcelas da folha DO PRÓPRIO funcionário logado, com o comprovante do banco.
+
+    22/09/2026 — o Jordan mandou avisar por WhatsApp os 46 que receberam o adiantamento,
+    apontando para «Meu Espaço → Meus pagamentos». Eles responderam que esse menu não
+    existia, e tinham razão: eu construí a tela no ModuleView do REDESIGN
+    (`/redesign/meu-espaco`) e as pessoas abrem `/modulos/meu-espaco`, que é uma PÁGINA
+    PRÓPRIA, escrita à mão, e não lê aquele JSON. Duas coisas com o mesmo nome.
+
+    O `pix_e2e_id` vai junto de propósito: é por ele que a pessoa confere a entrada no
+    extrato dela. Sem o comprovante, a tela só repete o que a empresa afirma.
+    """
+    emp = _employee_id(current_user)
+    linhas = (
+        (
+            await db.execute(
+                _sqltext(
+                    "SELECT lpad(p.mes::text,2,'0') || '/' || p.ano AS competencia, p.parcela, "
+                    "       p.valor_liquido AS valor, p.data_pagamento AS pago_em, "
+                    "       coalesce(p.status,'pendente_pagamento') AS status, "
+                    "       coalesce(p.pix_e2e_id,'') AS comprovante, "
+                    "       coalesce(p.pix_key,'') AS chave, p.data_prevista AS previsto_para "
+                    "  FROM payroll_payments p "
+                    " WHERE p.employee_id = CAST(:e AS uuid) "
+                    " ORDER BY p.ano DESC, p.mes DESC, p.parcela"
+                ),
+                {"e": emp},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    rotulo = {1: "Adiantamento (40%)", 2: "Saldo (60%)"}
+    return {
+        "pagamentos": [
+            {
+                "competencia": r["competencia"],
+                "parcela": r["parcela"],
+                "rotulo": rotulo.get(r["parcela"], f"Parcela {r['parcela']}"),
+                "valor": float(r["valor"] or 0),
+                "pago_em": r["pago_em"].isoformat() if r["pago_em"] else None,
+                "previsto_para": r["previsto_para"].isoformat() if r["previsto_para"] else None,
+                "status": r["status"],
+                "comprovante": r["comprovante"],
+                "chave": r["chave"],
+            }
+            for r in linhas
+        ]
     }
