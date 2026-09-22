@@ -242,7 +242,7 @@ async def gerar_parcelas(
                 (id, employee_id, payslip_id, mes, ano, valor_liquido, metodo, pix_key,
                  status, parcela, parcelas_total, data_prevista, created_at, updated_at)
             VALUES (gen_random_uuid(), CAST(:e AS uuid), :ps, :m, :a, :v, 'PIX', :k,
-                 'pendente_pagamento', :par, :tot, CAST(:dt AS date), now(), now())
+                 'pendente_pagamento', :par, :tot, :dt, now(), now())
             ON CONFLICT (employee_id, mes, ano, parcela) DO NOTHING
         """),
             {
@@ -254,7 +254,12 @@ async def gerar_parcelas(
                 "k": c["chave"] or None,
                 "par": c["parcela"],
                 "tot": c["total"],
-                "dt": c["data_prevista"],
+                # `date`, não texto: com asyncpg o CAST(:dt AS date) do SQL é tarde demais —
+                # o driver infere o tipo do parâmetro ANTES de mandar e estoura
+                # «'str' object has no attribute 'toordinal'». O dry_run nunca tocava neste
+                # INSERT, então a simulação passava e o GRAVAR nunca tinha funcionado
+                # (medido em 22/09/2026, na primeira vez que se tentou gravar de verdade).
+                "dt": _date.fromisoformat(str(c["data_prevista"])[:10]),
             },
         )
     await db.commit()
