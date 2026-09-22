@@ -977,8 +977,15 @@ def calcular_folha_colaborador(
         except Exception:  # noqa: BLE001,S110
             pass
         if _adiant <= 0 and ADIANTAMENTO_PERCENTUAL > 0:
-            _adiant = _d(salario_base * ADIANTAMENTO_PERCENTUAL)
-            _ref_adiant = f"{int(ADIANTAMENTO_PERCENTUAL * 100)}% do salário base"
+            # BASE CHEIA, não a proporcionalizada. Regra do Jordan em 22/09/2026, sobre a
+            # EIDY: «recebe os 668 cheios, é adiantamento salarial; qualquer desconto deve
+            # vir no pagamento dos 60%». Ela voltou de férias em 06/09, então a base do mês
+            # dela é 25/30 (R$1.391,67) — 40% disso daria R$556,67, e o adiantamento não
+            # segue os dias trabalhados: segue o salário. A proporcionalização continua
+            # valendo para TUDO o mais (é o que faz o líquido do mês ficar certo); ela só
+            # não manda no adiantamento.
+            _adiant = _d(salario_base_full * ADIANTAMENTO_PERCENTUAL)
+            _ref_adiant = f"{int(ADIANTAMENTO_PERCENTUAL * 100)}% do salário base (integral)"
         if _adiant > 0:
             descontos.append(
                 {

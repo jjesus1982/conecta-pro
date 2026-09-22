@@ -124,6 +124,17 @@ async def gerar_parcelas(
                         WHERE upper(d->>'descricao') LIKE '%ADIANT%'
                           AND upper(d->>'descricao') NOT LIKE '%FERIAS%'
                           AND upper(d->>'descricao') NOT LIKE '%FÉRIAS%') AS ja_abate,
+               -- O VALOR do adiantamento que a FOLHA abateu. O Financeiro não recalcula:
+               -- lê o que o DP decidiu. Enquanto os dois faziam a mesma conta em paralelo,
+               -- bastava uma regra mudar de um lado (base cheia × base proporcional, 22/09)
+               -- para a 1ª parcela e o abatimento do holerite discordarem — e a diferença
+               -- some no saldo, sem ninguém ver.
+               coalesce((SELECT (d->>'valor')::numeric
+                           FROM jsonb_array_elements(coalesce(h.deductions,'[]'::jsonb)) d
+                          WHERE upper(d->>'descricao') LIKE '%ADIANT%'
+                            AND upper(d->>'descricao') NOT LIKE '%FERIAS%'
+                            AND upper(d->>'descricao') NOT LIKE '%FÉRIAS%'
+                          LIMIT 1), 0) AS adiant_folha,
                coalesce(e.pix_key,'') AS chave,
                regexp_replace(coalesce(e.cpf,''),'[^0-9]','','g') AS cpf,
                coalesce(e.posto_atual_nome,'(sem posto)') AS agrupador
@@ -175,8 +186,11 @@ async def gerar_parcelas(
             sem_base.append(h["nome"])
             continue
         acumulado, valores = 0.0, []
+        adiant_folha = round(float(h["adiant_folha"] or 0), 2)
         for i, (pct, _dt) in enumerate(parcelas, start=1):
-            if i < len(parcelas):
+            if i == 1 and adiant_folha > 0:
+                v = adiant_folha  # o que a folha abateu é o que se adianta — fonte única
+            elif i < len(parcelas):
                 v = round(base * pct / 100, 2)
             else:
                 v = liquido if h["ja_abate"] else round(liquido - acumulado, 2)
