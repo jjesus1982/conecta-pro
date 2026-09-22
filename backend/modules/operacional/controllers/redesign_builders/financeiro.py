@@ -5019,6 +5019,17 @@ async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = 
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Parcela deve ser 1 ou 2.")
     simular = str(payload.get("simular") or "sim").strip().lower() != "nao"
+    # LOGA TODA chamada, inclusive simulação. Em 22/09 passei duas rodadas adivinhando por
+    # que «nada saiu»: o log só existia no ramo de envio real, então a simulação não deixava
+    # rastro e tive de deduzir pelo TAMANHO da resposta no access.log do nginx. Ação que
+    # manda mensagem para 46 pessoas registra o que recebeu, sempre.
+    logger.warning(
+        "avisar-pagamento recebido: comp=%s parcela=%s simular=%s por=%s",
+        comp,
+        parcela,
+        simular,
+        getattr(current_user, "id", ""),
+    )
 
     linhas = (
         (
@@ -5053,7 +5064,7 @@ async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = 
         return {
             "ok": True,
             "message": (
-                f"SIMULAÇÃO (nada enviado) — {len(alvos)} pessoa(s) receberiam o aviso do "
+                f"SIMULAÇÃO — NADA FOI ENVIADO. {len(alvos)} pessoa(s) receberiam o aviso do "
                 f"{rotulo} de {_comp_br(comp)}."
                 + (
                     f" ⚠️ {len(sem_tel)} SEM TELEFONE no cadastro, ficariam de fora: "
@@ -5063,7 +5074,7 @@ async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = 
                     if sem_tel
                     else " Todos têm telefone no cadastro."
                 )
-                + " Escolha «NÃO — enviar de verdade» para disparar."
+                + " Para disparar de verdade, troque «Simular ou ENVIAR?» para ENVIAR DE VERDADE e clique DUAS vezes (a primeira só pede confirmação)."
             ),
         }
 
@@ -5094,7 +5105,7 @@ async def _rd_avisar_pagamento(current_user: CurrentActiveUser, payload: dict = 
         len(falhas),
         len(sem_tel),
     )
-    msg = f"{len(enviados)} aviso(s) enviados sobre o {rotulo} de {_comp_br(comp)}."
+    msg = f"ENVIADO DE VERDADE — {len(enviados)} aviso(s) sobre o {rotulo} de {_comp_br(comp)}."
     if sem_tel:
         msg += (
             f" ⚠️ {len(sem_tel)} NÃO foram avisados por não ter telefone no cadastro: "

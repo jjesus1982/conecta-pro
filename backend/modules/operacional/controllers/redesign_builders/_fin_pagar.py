@@ -202,6 +202,13 @@ async def build_pagar(db, out: dict) -> None:
             "submit": {
                 "endpoint": "/api/v1/redesign/action/avisar-pagamento",
                 "gated": True,
+                # `showResult` NÃO é enfeite: sem ele o FormScreen faz `setVals({})` depois
+                # de cada envio bem-sucedido e o `useEffect` repõe os padrões — «Só simular?»
+                # volta sozinho para SIM. Medido em 22/09: o Jordan clicou duas vezes, as
+                # duas chamadas chegaram (HTTP 200, 275 bytes gzip = resposta de SIMULAÇÃO)
+                # e ele ficou achando que tinha enviado. Com showResult o formulário NÃO se
+                # limpa e a escolha dele permanece.
+                "showResult": True,
                 "confirm": "Isto ENVIA mensagem de WhatsApp para todos os pagos da competência. Confirma?",
                 "okMsg": "Avisos processados.",
             },
@@ -226,13 +233,13 @@ async def build_pagar(db, out: dict) -> None:
                 },
                 {
                     "key": "simular",
-                    "label": "Só simular?",
+                    "label": "⚠️ Simular ou ENVIAR?*",
                     "type": "select",
                     "span": "span 1",
                     "value": "sim",
                     "options": [
-                        {"value": "sim", "label": "Sim — só listar quem receberia"},
-                        {"value": "nao", "label": "NÃO — enviar de verdade"},
+                        {"value": "sim", "label": "SIMULAR — ninguém recebe nada"},
+                        {"value": "nao", "label": "ENVIAR DE VERDADE — as mensagens saem"},
                     ],
                 },
             ],
