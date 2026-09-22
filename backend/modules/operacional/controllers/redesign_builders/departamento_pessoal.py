@@ -444,6 +444,49 @@ async def rd_action_folha_gerar(
     if cond_sel:
         _del += " AND CAST(condominio_id AS TEXT) = :c"
         _par["c"] = cond_sel
+    # ── PARCELAS DERIVADAS ───────────────────────────────────────────────────────────
+    # 22/09/2026: regerar a folha DEPOIS que o Financeiro já gerou as parcelas estourava
+    # `ForeignKeyViolation ... payroll_payments_payslip_id_fkey` — erro cru de banco na
+    # cara de quem só queria corrigir a folha. E o buraco é o inverso do que parece: o
+    # perigoso não é regerar, é regerar e deixar parcelas VELHAS apontando para holerites
+    # que já não existem, ou para valores que mudaram.
+    # Regra: parcela já paga ou já reservada em lote TRAVA a regeração (dinheiro não se
+    # reescreve). Parcela solta e não paga é derivada da folha — cai junto e é NOMEADA na
+    # resposta, porque o Financeiro precisa gerar de novo.
+    _travadas = (
+        db.execute(
+            _sql(
+                "SELECT count(*) FROM payroll_payments pp JOIN hr_payslips h ON h.id = pp.payslip_id "
+                "WHERE h.source_system='conecta' AND h.reference_year=:a AND h.reference_month=:m "
+                "  AND (pp.lote_ordem_id IS NOT NULL OR pp.data_pagamento IS NOT NULL "
+                "       OR lower(coalesce(pp.status,'')) IN ('pago','aguardando_app','executado'))"
+            ),
+            {"a": ano, "m": mes},
+        ).scalar()
+        or 0
+    )
+    if _travadas:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Folha {mes:02d}/{ano} não pode ser regerada: {_travadas} parcela(s) já "
+                "estão pagas ou reservadas em lote no Financeiro. Cancele o lote antes, "
+                "ou corrija por fora — regerar aqui reescreveria a base de um pagamento "
+                "que já saiu."
+            ),
+        )
+    _parc_apagadas = (
+        db.execute(
+            _sql(
+                "DELETE FROM payroll_payments pp USING hr_payslips h "
+                "WHERE h.id = pp.payslip_id AND h.source_system='conecta' "
+                "  AND h.reference_year=:a AND h.reference_month=:m"
+            ),
+            {"a": ano, "m": mes},
+        ).rowcount
+        or 0
+    )
+
     apagados = db.execute(_sql(_del), _par).rowcount or 0
 
     gravados = 0
@@ -547,6 +590,12 @@ async def rd_action_folha_gerar(
             f"líquido {brl(liq)}, FGTS {brl(fgts)}. "
             f"Status rascunho — gerar não paga; o pagamento segue no Financeiro com OTP."
             + (f" (Substituiu {apagados} holerite(s) 'conecta' da geração anterior.)" if apagados else "")
+            + (
+                f" ⚠️ {_parc_apagadas} parcela(s) de pagamento (não pagas) caíram junto, porque "
+                "derivavam da folha antiga — gere as parcelas de novo no Financeiro."
+                if _parc_apagadas
+                else ""
+            )
             + alerta
             + par
         ),
