@@ -191,13 +191,66 @@ async def carregar_emitente(db: AsyncSession, *, slug: str | None = None, cnpj: 
     }
 
 
+async def _exigir_contador_semeado(db: AsyncSession, cnpj: str, serie: int) -> None:
+    """Em produção, recusa emitir enquanto ninguém declarar o último número REAL.
+
+    O contador se auto-semeia de `MAX(numero) FROM nfes` — e em produção essa tabela está
+    vazia, porque a casa nunca emitiu daqui. O número sairia **1**. Medido em 24/09/2026: a
+    NF-e real da Eletrônica está em **10.026, série 1** (DANFE de 17/09, protocolo
+    113263811849419), emitida por um sistema de terceiro. A SEFAZ recusaria com **539 —
+    duplicidade de NF-e com diferença na chave**, e o número ficaria queimado.
+
+    Pior: a recusa viria DEPOIS de reservar o número, abrindo buraco na numeração fiscal a
+    cada tentativa. Por isso a guarda é ANTES da reserva.
+
+    Não adianta adivinhar o último número aqui: ele muda toda vez que o emissor de terceiro
+    emite. Quem sabe é o dono, no dia em que virar a chave. A recusa diz exatamente o que
+    fazer, com o número que eu conheço hoje como piso.
+    """
+    ja = (
+        await db.execute(
+            sqltext(
+                "SELECT ultimo FROM nfe_numeracao WHERE emitente_cnpj = CAST(:c AS VARCHAR)"
+                "   AND serie = CAST(:s AS INTEGER) AND tp_amb = '1'"
+            ),
+            {"c": cnpj, "s": serie},
+        )
+    ).scalar()
+    if ja is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NUMERACAO_NAO_DECLARADA",
+                "message": (
+                    f"Antes da PRIMEIRA emissão em produção do CNPJ {cnpj} série {serie}, declare o "
+                    "último número de NF-e realmente emitido — por este sistema ou por qualquer outro. "
+                    "Sem isso o contador começa em 1 e a SEFAZ recusa com 539 (duplicidade), queimando "
+                    "o número. Nada foi transmitido e nenhum número foi consumido."
+                ),
+                "como_resolver": (
+                    "INSERT INTO nfe_numeracao (emitente_cnpj, serie, tp_amb, ultimo) "
+                    f"VALUES ('{cnpj}', {serie}, '1', <ULTIMO_NUMERO_REAL>)"
+                ),
+                "piso_conhecido": (
+                    "Em 24/09/2026 a NF-e da CONECTAMAIS ELETRONICA estava no nº 10.026, série 1 "
+                    "(DANFE de 17/09, protocolo 113263811849419). O número de hoje é maior ou igual "
+                    "a esse — confira no emissor em uso antes de declarar."
+                ),
+            },
+        )
+
+
 async def proximo_numero(db: AsyncSession, cnpj: str, serie: int, tp_amb: str) -> int:
     """Reserva o próximo número de (CNPJ, série, ambiente). Atômico.
 
     `ON CONFLICT DO UPDATE` trava a linha do contador: duas emissões concorrentes
     serializam e recebem números diferentes. `GREATEST` com o que já existe em
     `nfes` conserta um contador que nasceu depois das notas (migração).
+
+    **Em PRODUÇÃO o contador não nasce sozinho.** Ver `_exigir_contador_semeado`.
     """
+    if tp_amb == "1":
+        await _exigir_contador_semeado(db, cnpj, serie)
     linha = (
         await db.execute(
             sqltext(

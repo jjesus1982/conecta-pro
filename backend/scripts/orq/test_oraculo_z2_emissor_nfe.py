@@ -216,6 +216,29 @@ async def main() -> int:
             except prov.NFeError:
                 pass
 
+        # -- (d2) produção não emite antes de alguém declarar o último número ---
+        # A guarda nasceu em 24/09/2026 de um buraco medido: `proximo_numero` se auto-semeia
+        # de `MAX(numero) FROM nfes`, e em produção essa tabela está vazia — o número sairia
+        # 1. A NF-e real da Eletrônica está em 10.026, série 1 (DANFE de 17/09, protocolo
+        # 113263811849419), emitida por um sistema de terceiro. A SEFAZ recusaria com 539 e o
+        # número ficaria queimado — e a recusa viria DEPOIS de reservar, abrindo buraco na
+        # numeração a cada tentativa. Por isso a guarda é ANTES da reserva, e é isso que este
+        # item afirma: recusa, e sem consumir número.
+        from fastapi import HTTPException  # noqa: PLC0415
+
+        from modules.fiscal_contabil.notas_fiscais.nfe import emissor as em2  # noqa: PLC0415
+
+        antes_prod = (await db.execute(text("SELECT count(*) FROM nfe_numeracao WHERE tp_amb = '1'"))).scalar_one()
+        try:
+            n_prod = await em2.proximo_numero(db, "99999999000191", 99, "1")
+            falhas.append(f"(d2) produção reservou o nº {n_prod} sem ninguém declarar o último número real")
+        except HTTPException as e:
+            if (e.detail or {}).get("code") != "NUMERACAO_NAO_DECLARADA":
+                falhas.append(f"(d2) recusou por outro motivo: {e.detail}")
+        depois_prod = (await db.execute(text("SELECT count(*) FROM nfe_numeracao WHERE tp_amb = '1'"))).scalar_one()
+        if depois_prod != antes_prod:
+            falhas.append("(d2) a recusa CONSUMIU contador de produção — tem de recusar antes de reservar")
+
         # -- (e) o XML guardado é um nfeProc completo --------------------------
         autorizadas = (
             await db.execute(
