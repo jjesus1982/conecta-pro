@@ -421,3 +421,70 @@ ISS), que é o que ela de fato vende. No minuto em que o número entrar no cadas
 fiscal não tem coluna de preço, e os 867 produtos vindos do Bling estão com as seis colunas de
 preço **zeradas**. Nada a apagar; o que faltava era a regra escrita, para a onda do catálogo não
 preencher. Escrita.
+
+---
+
+## 26. As notas fiscais reais mudaram tudo — e o que elas custaram até agora
+
+Você subiu 9 NFS-e, 1 DANFE e o cronograma de setembro. Cada documento virou parâmetro medido,
+e **três defeitos que o sistema ia repetir só apareceram porque havia um documento verdadeiro
+para comparar.**
+
+### Os cinco impostos que sairiam a mais
+
+| # | O que estava errado | Quanto |
+|---|---|---|
+| 1 | **ICMS cobrado sobre mercadoria já tributada por ST.** Sua NF-e 10.026 sai CFOP 5405 / CST 060 / ICMS zero; o sistema faria 5102 / CST 00 / 20%. | **R$ 503,60** numa nota de R$ 2.518,00 · **52 dos seus 95 produtos** errados (55%) |
+| 2 | **INSS sem dedução de VA e VT.** Em 13 das 25 notas da Patrimonial (jun–ago) reteve-se 11% do bruto cheio. | **R$ 1.538,24/mês** de ganho ao automatizar · R$ 35.645,28/ano |
+| 3 | **Base do IBS/CBS sobre o valor cheio.** Suas notas excluem o ISS da base — medido nas quatro. | 1% do ISS, em toda nota de serviço da Eletrônica |
+| 4 | **PIS e COFINS retidos** apesar da decisão judicial 1038495-94.2024.4.01.3200, citada na sua própria nota 121. | 4,65% da base |
+| 5 | **IRRF** — decidido por você: não reter. | 1% por nota |
+
+**A medição que eu errei e a frente corrigiu:** eu disse «47% das compras entram com ICMS-ST».
+Era 50,7%. Meu filtro pegava CST de **IPI e de PIS/COFINS** junto com o de ICMS. Restrito ao
+grupo certo: **106 de 209 itens**.
+
+**A armadilha que quase me fez confirmar o erro:** sua DANFE traz «Est: R$ 503,60 (20,00%)» no
+rodapé. É a **Lei 12.741/2012** — imposto *aproximado* estimado pelo IBPT, não imposto cobrado.
+O ICMS da nota é **zero**. Ler aquilo como devido teria «provado» que 5102/20% estava certo.
+
+### Dois erros na sua planilha, um deles sai este mês
+
+- **Ideal Flores:** a linha deduz R$ 6.648,00 mas discrimina só VA 2.244,00 + VT 2.160,00 =
+  R$ 4.404,00. Faltam R$ 2.244,00 — **o VA foi escrito pela metade** (4.488 + 2.160 = 6.648
+  fecha exato). A dedução está certa; o que falta é lastro no texto da nota, que é o que a
+  fiscalização lê. **R$ 246,84 de INSS glosável**, numa nota que a Portte emite agora.
+- **Prime Arena · Manutenção R$ 1.084,50** não diz qual empresa emite (sem dados bancários).
+
+### Dois códigos para o mesmo serviço
+
+| Nota | Descrição | Código |
+|---|---|---|
+| 116 | contrato de manutenção de CFTV/cerca/portões/cancelas | **14.01.01** |
+| 120 | contrato de manutenção de CFTV/cerca/portões/cancelas | **14.06.01** |
+
+Mesma empresa, mesmo mês, descrição idêntica. Uma está errada, e o código define o ISS.
+Pergunta para o contador; o sistema não parametriza sem fonte.
+
+### O que teria custado R$ 695 mil se ninguém olhasse
+
+A rotina de conciliação usava um endereço de consulta que **não existe** — declarado no código
+desde sempre, nunca chamado, então ninguém sabia. Ele responde «não encontrado» para tudo,
+inclusive para notas que existem. Rodando em produção, as **37 notas ausentes** teriam sido
+fechadas como «o fisco disse que não existem», com a tela verde. Ordem de grandeza: **R$ 695
+mil**, por estimativa de média — o valor real sai nota a nota.
+
+Agora só o código de erro do próprio fisco fecha um número.
+
+### E o faturamento que o sistema não enxergava
+
+`faturado_na_competencia` somava as 27 notas que nunca foram transmitidas e ignorava as 115
+reais. De março a setembro, **R$ 1.741.027,01** de faturamento real aparecendo como zero em
+todo contrato. Corrigido e conferido: Mirante em 08/2026 dá R$ 40.755,80 — exatamente o que seu
+cronograma diz.
+
+### A guarda que impede o próximo erro
+
+Sua NF-e está no **nº 10.026, série 1**. O contador daqui nasceria em 1 e a SEFAZ recusaria por
+duplicidade — queimando um número a cada tentativa. Agora o sistema **se recusa a emitir em
+produção** enquanto ninguém declarar o último número real, e recusa **antes** de reservar.
