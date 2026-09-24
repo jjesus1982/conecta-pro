@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -184,3 +185,59 @@ async def deve_calar(db: AsyncSession, data: dict) -> tuple[bool, str | None, di
         logger.info("grupos: %s não cadastrado — ignorado (fail-closed)", jid)
         return True, jid, None
     return (cfg["modo"] != "falar"), jid, cfg
+
+
+async def resumo(db: AsyncSession, *, jid: str | None = None, horas: int = 24) -> dict:
+    """O que passou nos grupos observados — SOB DEMANDA, nunca empurrado.
+
+    O José Luís pediu isso na conversa de 23/09 e o Jordan concordou pelo motivo certo:
+    "se todo grupo despejar tudo, viramos ruído". Então ninguém recebe resumo automático de
+    grupo; alguém PERGUNTA e o resumo se monta na hora.
+
+    ⚠️ Não devolve a conversa inteira. `tom` (bom dia, figurinha, combinação de churrasco)
+    entra só como CONTAGEM — é a separação que o José Luís propôs entre tom e dado, e é o que
+    mantém isto a uma distância honesta de vigiar o time. O texto só aparece do que foi
+    classificado como dado relevante.
+    """
+    p: dict[str, object] = {"h": str(int(horas))}  # asyncpg exige str no `|| ' hours'`
+    onde = "quando > now() - (:h || ' hours')::interval"
+    if jid:
+        onde += " AND grupo_jid = :j"
+        p["j"] = jid
+
+    por_classe = (await db.execute(text(
+        f"SELECT g.nome, m.classificacao, count(*) FROM wa_grupo_mensagens m "  # noqa: S608
+        f"JOIN wa_grupos g ON g.jid = m.grupo_jid WHERE {onde} "
+        f"GROUP BY 1, 2 ORDER BY 1, 3 DESC"), p)).all()
+
+    relevantes = (await db.execute(text(
+        f"SELECT g.nome, m.autor_nome, m.classificacao, m.conteudo, m.quando "  # noqa: S608
+        f"FROM wa_grupo_mensagens m JOIN wa_grupos g ON g.jid = m.grupo_jid "
+        f"WHERE {onde} AND m.relevante AND m.classificacao <> 'tom' "
+        f"ORDER BY m.quando DESC LIMIT 40"), p)).all()
+
+    # Pedido de escala já virou rascunho: o resumo aponta para a Central, não repete o pedido
+    # como se ainda estivesse solto. Sem isto o Jordan leria o mesmo pedido em dois lugares e
+    # não saberia se já havia algo a decidir.
+    pedidos = (await db.execute(text(
+        "SELECT titulo, status, created_at FROM agent_drafts WHERE tipo = 'escala_pedido' "
+        "AND created_at > now() - (:h || ' hours')::interval ORDER BY created_at DESC LIMIT 20"),
+        {"h": str(int(horas))})).all()
+
+    # ⚠️ O banco guarda UTC (certo); o resumo é lido por GENTE em Manaus. Devolver
+    # "03:22" para uma mensagem das 23:22 é resumo errado, não detalhe de formato — é o
+    # irmão do `punch_timestamp` que já custou caro no operacional.
+    def _manaus(dt):
+        return (dt - timedelta(hours=4)).strftime("%d/%m %H:%M") if dt else None
+
+    return {
+        "janela_horas": int(horas),
+        "fuso": "America/Manaus (UTC-4)",
+        "conversa_por_grupo": [{"grupo": r[0], "classificacao": r[1], "mensagens": r[2]} for r in por_classe],
+        "dado_relevante": [{"grupo": r[0], "quem": r[1], "tipo": r[2],
+                            "texto": (r[3] or "")[:300], "quando": _manaus(r[4])}
+                           for r in relevantes],
+        "pedidos_de_escala": [{"titulo": r[0], "status": r[1],
+                               "quando": _manaus(r[2])} for r in pedidos],
+        "onde_decidir": "/redesign/aprovacoes" if pedidos else None,
+    }

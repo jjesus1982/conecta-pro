@@ -2517,6 +2517,9 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "consultar_minha_vida": {"kind": "action"},
     "historico_desta_pessoa": {"kind": "action"},
     "abrir_pendencia_dp": {"kind": "action"},
+    # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
+    # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
+    "resumo_grupos": {"kind": "read"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2825,6 +2828,35 @@ _PAPEIS: dict[str, dict] = {
     #
     # ⚠️ O que ele NÃO tem importa tanto quanto o que tem: nada de proposta, preço, funil ou
     # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
+    # ⭐ SUPERVISOR (23/09/2026, pedido do Jordan: "Orlailson enxerga toda a operação").
+    # É um funcionário com DUAS coisas a mais: o resumo dos grupos observados e o fato de
+    # poder aprovar pedido de escala. Não ganha escrita nenhuma — ver `supervisao.py`.
+    # O `prompt` é montado no bloco de decisão a partir do de funcionário + este foco, para
+    # não duplicar 40 linhas de prompt que divergiriam na primeira edição.
+    "supervisor": {
+        "tools": (
+            "meu_ponto_hoje",
+            "registrar_batida_contingencia",
+            "justificar_ponto",
+            "registrar_resposta_pesquisa_ponto",
+            "consultar_minha_vida",
+            "historico_desta_pessoa",
+            "abrir_pendencia_dp",
+            "transferir_conversa",
+            "resumo_grupos",
+        ),
+        "foco": (
+            "\n\nVOCÊ ESTÁ FALANDO COM UM SUPERVISOR DA OPERAÇÃO. Ele enxerga a operação "
+            "inteira, não só a vida dele. Pode te pedir o resumo do que passou nos grupos "
+            "(ferramenta resumo_grupos) e é um dos dois que decidem pedido de escala.\n"
+            "REGRA QUE NÃO SE NEGOCIA: você NÃO muda escala, NÃO troca plantão, NÃO aloca "
+            "ninguém — nem quando o supervisor manda. Pedido que mexe em escala você registra "
+            "para ser aprovado, e diz onde: a Central de Aprovações do ERP. A escala é curada "
+            "à mão pelo Jordan.\n"
+            "Ao resumir grupo, separe TOM de DADO: quantas mensagens foram conversa e QUAIS "
+            "foram informação. Não recite a conversa."
+        ),
+    },
     "funcionario": {
         "tools": (
             "meu_ponto_hoje",
@@ -4267,6 +4299,30 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_RESUMO_GRUPOS = {
+    "type": "function",
+    "function": {
+        "name": "resumo_grupos",
+        "description": (
+            "Resumo do que passou nos grupos de WhatsApp que a empresa observa (Gestão, "
+            "OPERACIONAL, Escritório). Devolve QUANTAS mensagens foram conversa e QUAIS "
+            "foram informação, mais os pedidos de escala que já viraram aprovação pendente. "
+            "Use quando o supervisor perguntar o que aconteceu, o que ele perdeu, ou se há "
+            "algo a decidir. Não empurre sozinho — só quando pedirem."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "horas": {"type": "integer",
+                          "description": "Janela em horas. Padrão 24. Use 72 para 'o fim de semana'."},
+                "grupo": {"type": "string",
+                          "description": "Nome do grupo, se a pessoa citou um só. Vazio = todos."},
+            },
+        },
+    },
+}
+
+
 _SCHEMA_PENDENCIA = {
     "type": "function",
     "function": {
@@ -4341,6 +4397,24 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
             from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
 
             return await _vf.historico(ident.employee_id)
+        if name == "resumo_grupos":
+            # ⚠️ A parede de QUEM está aqui de novo, e não só na lista de tools do papel: a
+            # lista decide o que o modelo VÊ, e o modelo pode inventar o nome de uma tool que
+            # não recebeu. Defesa em profundidade, igual ao par `simular_preco`/`_cota_em_chat`.
+            from .supervisao import papel_de_supervisao  # noqa: PLC0415
+
+            if not await papel_de_supervisao(db, ident):
+                return {"erro": "tool nao permitida"}
+            from . import grupos as _grp  # noqa: PLC0415
+
+            jid = None
+            if (alvo := str(args.get("grupo") or "").strip()):
+                jid = (await db.execute(text(
+                    "SELECT jid FROM wa_grupos WHERE nome ILIKE :n AND modo <> 'off' LIMIT 1"),
+                    {"n": f"%{alvo}%"})).scalar()
+                if not jid:
+                    return {"erro": f"não observo nenhum grupo chamado {alvo!r}"}
+            return await _grp.resumo(db, jid=jid, horas=int(args.get("horas") or 24))
         if name == "abrir_pendencia_dp":
             from modules.people_management.ponto import pendencia_dp as _pd  # noqa: PLC0415
 
@@ -4941,6 +5015,18 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
         ]
+    if papel == "supervisor":
+        # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
+        ativas += [
+            _SCHEMA_MEU_PONTO,
+            _SCHEMA_CONTINGENCIA,
+            _SCHEMA_JUSTIFICAR,
+            _SCHEMA_PESQUISA,
+            _SCHEMA_MINHA_VIDA,
+            _SCHEMA_HISTORICO,
+            _SCHEMA_PENDENCIA,
+            _SCHEMA_RESUMO_GRUPOS,
+        ]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
         # tools dele no registro comum as ofereceria a todo mundo. Entram só aqui.
@@ -4988,6 +5074,15 @@ def _system_prompt(owner: bool, papel: str | None = None) -> str:
         # tempo de CHAMADA, não de definição.
         return MANAGER_PROMPT + _ROTEIRO_TECNICO
     cfg = _PAPEIS.get(papel or "")
+    # ⭐ SUPERVISOR herda a BASE do funcionário e soma o foco dele (23/09/2026). Não é
+    # elegância: é o buraco de 11/09 de novo. Um supervisor com `foco` aditivo receberia o
+    # SYSTEM_PROMPT de VENDAS (39.680 chars, com "CNPJ É OBRIGATÓRIO" em maiúsculas) mais
+    # 1.200 chars dizendo que ele é da casa — e já sabemos como o modelo resolve essa
+    # contradição: gasta os tokens de saída nela e devolve `content` VAZIO. Quem é da casa
+    # nunca pode cair na base de vendas. E o prompt vive num lugar só, senão as duas cópias
+    # divergem na primeira edição.
+    if papel == "supervisor":
+        return _PAPEIS["funcionario"]["prompt"] + cfg["foco"]
     # Papel com prompt PRÓPRIO troca a base inteira (hoje só `funcionario` — ver o porquê lá).
     if cfg and cfg.get("prompt"):
         return cfg["prompt"]
@@ -6728,6 +6823,19 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     _cli = None if (forn or ident.tipo == "funcionario") else await _cliente_do_telefone(_db, _fone)
                 if ident.tipo == "funcionario":
                     papel = "funcionario"
+                    # ⭐ Supervisor é funcionário COM papel de conta (users.role). As duas
+                    # condições valem juntas: vínculo vivo (já garantido por `quem_e`, que
+                    # recusa inativo/candidato/pj_pendente) E o papel na conta. Derivar de
+                    # `employees.cargo` daria visão sobre 61 pessoas a quem for cadastrado
+                    # com um rótulo parecido — autorização não se infere de texto editável.
+                    try:
+                        from .supervisao import papel_de_supervisao  # noqa: PLC0415
+
+                        async with async_session_factory() as _db2:
+                            if await papel_de_supervisao(_db2, ident):
+                                papel = "supervisor"
+                    except Exception as _e:  # noqa: BLE001
+                        logger.error("supervisao: papel não resolvido (%s) — segue funcionário", _e)
                 elif forn:
                     papel = "fornecedor"
                 else:
