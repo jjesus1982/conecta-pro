@@ -2611,6 +2611,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
     "visao_operacao": {"kind": "read"},
+    "cobertura_por_escala": {"kind": "read"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2951,6 +2952,11 @@ _PAPEIS: dict[str, dict] = {
             # OPERACIONAL continua recusado, e o Jordan/Orlailson no Gestão é atendido.
             "visao_operacao",
             "resumo_grupos",
+            # ⭐ Pedida pelo Jordan no grupo depois de o agente errar (24/09/2026): ele disse
+            # "46 ainda não bateram, é turno que entra mais tarde" e o dono corrigiu — há 12x36
+            # e há horário comercial (jardineiro, artífice, ASG), e esses batem. Esta responde
+            # o que `visao_operacao` não sabe: quem JÁ DEVERIA ter entrado, por escala.
+            "cobertura_por_escala",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
@@ -4456,6 +4462,23 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_COBERTURA_ESCALA = {
+    "type": "function",
+    "function": {
+        "name": "cobertura_por_escala",
+        "description": (
+            "Quem JÁ DEVERIA ter entrado hoje e quem bateu ponto, separado por ESCALA (12x36, "
+            "44h/horário comercial) e com os postos onde falta batida. Use SEMPRE que "
+            "perguntarem de cobertura, de quem bateu, de quem faltou ou se está tudo coberto — "
+            "é mais precisa que visao_operacao, porque a base é o turno previsto para hoje e "
+            "não o total de colaboradores (quem está de folga não tem o que bater). "
+            "Devolve CONTAGEM, nunca nomes."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
 _SCHEMA_VISAO_OPERACAO = {
     "type": "function",
     "function": {
@@ -4543,6 +4566,39 @@ async def _funcionario_da_conversa(conversation_id: int):
         fone = await _phone_da_conversa(db, conversation_id)
         ident = await quem_e(db, fone)
         return ident if ident.tipo == "funcionario" and ident.employee_id else None
+
+
+async def _funcionario_do_grupo(conversation_id: int):
+    """Identidade de quem falou por último NESTE grupo, para as tools que exigem pessoa.
+
+    Existe porque `_funcionario_da_conversa` é cega em grupo: ela resolve pelo telefone da
+    conversa, e em grupo aquele campo carrega o LID do WhatsApp. `wa_grupo_mensagens` guarda o
+    autor já resolvido na absorção — inclusive o `employee_id`.
+    """
+    try:
+        async with async_session_factory() as db:
+            # ⚠️ A ÚLTIMA MENSAGEM, sem filtrar por "tem cadastro". A versão anterior pegava o
+            # último autor QUE TIVESSE `employee_id` — e isso atribuiria a pendência do DP à
+            # pessoa errada sempre que quem falou por último não estivesse cadastrado: o
+            # registro sairia no nome de quem apenas falou antes. Pendência disciplinar ou de
+            # ponto no nome errado é dano que não se desfaz com um UPDATE.
+            #
+            # Então: pego quem falou por último e, se essa pessoa não resolve a um funcionário,
+            # devolvo None. A tool recusa e diz que não identificou — que é a verdade.
+            r = (await db.execute(text(
+                "SELECT m.autor_fone, m.autor_employee_id::text, m.autor_tipo "
+                "  FROM wa_grupo_mensagens m JOIN wa_grupos g ON g.jid = m.grupo_jid "
+                " WHERE g.chatwoot_conversation_id = :c AND m.autor_fone IS NOT NULL "
+                " ORDER BY m.criado_em DESC LIMIT 1"), {"c": conversation_id})).first()
+            if not r or not r[1]:
+                return None
+            from .identidade import quem_e  # noqa: PLC0415
+
+            return await quem_e(db, r[0])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Agente: identidade de grupo não resolvida para conv=%s (%s)",
+                       conversation_id, e)
+        return None
 
 
 async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
@@ -5191,7 +5247,8 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
     if papel == "grupo":
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS]
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
+                   _SCHEMA_COBERTURA_ESCALA]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5538,10 +5595,18 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
         ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
+                # ⚠️ EM GRUPO ISSO SEMPRE FALHAVA, e o Jordan viu na cara: pediu para registrar
+                # pendência no DP e o agente respondeu "o sistema não reconheceu meu número no
+                # cadastro de funcionários, então não abriu. Fica contigo." A causa é o LID:
+                # numa conversa de grupo o `cwi_message_log.phone_canonical` guarda
+                # `134286564950018`, não telefone, e nada casa. Em `wa_grupo_mensagens` o autor
+                # já está resolvido e validado — é de lá que eu tiro quem pediu.
+                _f = await _funcionario_do_grupo(conversation_id)
+            if not _f:
                 return {"erro": "não identifiquei este número no cadastro de funcionários."}
             return await _tool_ponto_funcionario(name, args, _f)
 
-        if name in ("visao_operacao", "resumo_grupos"):
+        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala"):
             # ⚠️ ESTE BLOCO EXISTE PORQUE EU HAVIA POSTO O DESPACHO NO LUGAR ERRADO. As duas
             # tools estavam na allowlist e no schema, e o dispatcher devolvia
             # "tool desconhecida" — eu tinha escrito o `if name ==` dentro de
@@ -5570,6 +5635,10 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     return {"erro": "esta informação é para quem supervisiona a operação"}
                 if name == "visao_operacao":
                     return await visao_operacao(_dbv)
+                if name == "cobertura_por_escala":
+                    from .supervisao import cobertura_por_escala  # noqa: PLC0415
+
+                    return await cobertura_por_escala(_dbv)
                 from . import grupos as _grpr  # noqa: PLC0415
 
                 return await _grpr.resumo(_dbv, horas=int(args.get("horas") or 24))

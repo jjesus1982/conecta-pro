@@ -625,3 +625,91 @@ async def _publicar_no_grupo(conversation_id: int, texto: str) -> bool:
             return True
         logger.error("supervisao: publicação no grupo falhou %s: %s", r.status, (await r.text())[:200])
         return False
+
+
+async def cobertura_por_escala(db: AsyncSession, *, dia=None) -> dict[str, Any]:
+    """Quem JÁ DEVERIA ter entrado, por escala, e quem bateu. Agregado — sem nome no grupo.
+
+    ⭐ Nasceu de uma correção do Jordan no grupo Gestão (24/09/2026). O José Luís disse "46
+    ainda não bateram, é turno que entra mais tarde" e ele respondeu: *"não vamos ter 46
+    entrando mais tarde, veja as escalas, pois temos 12x36 e temos horário comercial —
+    jardineiros, artífices, ASG — esses batem ponto."* Estava certo, e o agente admitiu o erro
+    em vez de insistir.
+
+    ⚠️ O ERRO DE FUNDO ERA O DENOMINADOR, e é maior do que parecia: `visao_operacao` compara
+    batidas contra os **63 colaboradores ativos**, quando só **30 têm turno hoje** — os outros
+    33 estão de folga. "46 ausentes" nunca foi ausência: era gente que não tinha nada a bater.
+    Número certo sobre a base errada é número errado, e soa igualmente convincente.
+
+    Aqui a base é o TURNO PREVISTO PARA HOJE, e o corte é a hora: só entra na conta quem já
+    deveria ter entrado (`planned_start_time <= agora`, hora de Manaus). É isso que transforma
+    "17 batidas" em "faltam 5 na 12x36 e 2 na 44h às 11:56" — a primeira frase não se age, a
+    segunda sim.
+
+    ⚠️ AGREGADO DE PROPÓSITO: devolve contagem por escala e por posto, nunca a lista de quem
+    não bateu. Isso é grupo, e "quem não bateu" é dado de pessoa. Quem precisar do nome pede no
+    privado, onde o papel `funcionario`/`supervisor` responde.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    dia = dia or _date.today()
+    # ⚠️ A hora de corte vem do BANCO (`now() - 4h`), não de `datetime.now()` do processo: o
+    # container roda em UTC e a operação em Manaus. Pegar do banco mantém uma só fonte de
+    # verdade para a hora em todas as consultas desta função.
+    agora_hhmm = (await db.execute(text("SELECT (now() - interval '4 hours')::time"))).scalar()
+    linhas = (await db.execute(text("""
+        SELECT coalesce(e.escala_padrao, '(sem escala)') AS escala,
+               count(*)                                                        AS turnos,
+               count(*) FILTER (WHERE s.planned_start_time <= :agora)           AS ja_previstos,
+               count(*) FILTER (WHERE s.planned_start_time <= :agora AND EXISTS (
+                     SELECT 1 FROM gp_clock_punches p
+                      WHERE p.employee_id = s.employee_id
+                        AND p.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                                  AND (CAST(:d AS date) + s.planned_start_time) + interval '3 hours'
+               ))                                                              AS bateram
+          FROM shifts s JOIN employees e ON e.id = s.employee_id
+         WHERE s.shift_date = :d AND s.is_active AND NOT s.is_off_day AND e.status = 'ativo'
+         GROUP BY 1 ORDER BY 2 DESC"""),
+        {"d": dia, "agora": agora_hhmm})).mappings().all()
+
+    # Onde o furo está, por POSTO — é a pergunta seguinte do supervisor, e sem nome de gente.
+    postos = (await db.execute(text("""
+        SELECT coalesce(p.name, '(sem posto)') AS posto,
+               count(*) FILTER (WHERE s.planned_start_time <= :agora) AS previstos,
+               count(*) FILTER (WHERE s.planned_start_time <= :agora AND NOT EXISTS (
+                     SELECT 1 FROM gp_clock_punches g
+                      WHERE g.employee_id = s.employee_id
+                        AND g.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                                  AND (CAST(:d AS date) + s.planned_start_time) + interval '3 hours'
+               ))                                                     AS sem_batida
+          FROM shifts s JOIN employees e ON e.id = s.employee_id
+          LEFT JOIN posts p ON p.id = s.post_id
+         WHERE s.shift_date = :d AND s.is_active AND NOT s.is_off_day AND e.status = 'ativo'
+         GROUP BY 1 HAVING count(*) FILTER (WHERE s.planned_start_time <= :agora AND NOT EXISTS (
+                     SELECT 1 FROM gp_clock_punches g
+                      WHERE g.employee_id = s.employee_id
+                        AND g.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                                  AND (CAST(:d AS date) + s.planned_start_time) + interval '3 hours'
+               )) > 0
+         ORDER BY 3 DESC"""), {"d": dia, "agora": agora_hhmm})).mappings().all()
+
+    prev = sum(int(r["ja_previstos"]) for r in linhas)
+    bat = sum(int(r["bateram"]) for r in linhas)
+    return {
+        "dia": str(dia),
+        "hora_de_referencia_manaus": str(agora_hhmm)[:5],
+        "por_escala": [{"escala": r["escala"], "turnos_hoje": int(r["turnos"]),
+                        "ja_deveriam_ter_entrado": int(r["ja_previstos"]),
+                        "bateram": int(r["bateram"]),
+                        "sem_batida": int(r["ja_previstos"]) - int(r["bateram"])} for r in linhas],
+        "postos_com_furo": [{"posto": r["posto"], "previstos": int(r["previstos"]),
+                             "sem_batida": int(r["sem_batida"])} for r in postos],
+        "total_previstos_ate_agora": prev,
+        "total_bateram": bat,
+        "total_sem_batida": prev - bat,
+        # ⚠️ Vai explícito porque foi a confusão que gerou esta ferramenta: o total de
+        # colaboradores NÃO é a base. Quem está de folga não tem o que bater.
+        "leia_assim": ("a base é TURNO PREVISTO PARA HOJE, não o total de colaboradores — "
+                       "quem está de folga não entra na conta. Nomes de quem não bateu só no "
+                       "privado, nunca no grupo."),
+    }
