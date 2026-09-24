@@ -68,6 +68,8 @@ GRUPOS = [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
         ("folha-por-condominio", "Por condomínio"), ("pareamento-folha", "Conecta × Portte"),
         ("folha-rubricas", "Rubricas"), ("folha-rubrica-nova", "Nova rubrica"),  # dgx f1
+        # dgx w5 — o elo: qual ocorrência do ponto vira qual rubrica da folha, com fórmula e origem
+        ("ponto-evento-rubrica", "Mapa evento → rubrica"), ("ponto-evento-rubrica-nova", "Nova linha do mapa"),
         ("folha-nao-conformidades", "Não conformidades"), ("folha-apontamento", "Apontar"),
         ("contracheques-lote", "Contracheques em lote"),
         ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status"),
