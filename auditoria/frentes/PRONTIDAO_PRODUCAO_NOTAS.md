@@ -89,6 +89,20 @@ compartilhada na NFS-e, série chumbada no montador).
 
 ---
 
+### ⚠️ A conciliação das 37 notas só funciona DEPOIS da virada
+
+Rodei a conciliação em produção em 24/09 e ela funcionou — semeou 37 pendências de NFS-e e 585
+de DPS, consultou 10, recuperou 2, e em 8 **o fisco disse que não existem**, com o código de
+erro dele (a única coisa que fecha um número).
+
+Mas com as empresas em `nfse_ambiente='homologacao'` ela pergunta ao **ambiente errado**, e as
+2 «recuperadas» eram as minhas próprias notas de teste — que ela gravou na tabela do
+faturamento real. Isso expôs um defeito e virou conserto: `nfse_emitidas_nacional.ambiente`,
+com a precificação contando só `producao`.
+
+**Recuperar as 37 de verdade exige `nfse_ambiente='producao'`** — ou seja, vem junto com a
+virada de chave, não antes.
+
 ## Como ligar produção, quando tudo acima estiver verde
 
 1. `NFE_AMBIENTE=1` **e** `NFE_PRODUCAO_LIBERADA` com a frase-senha no `.env` (NF-e).
