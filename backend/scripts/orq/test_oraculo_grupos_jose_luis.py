@@ -74,14 +74,44 @@ async def main() -> None:
                              {"m": mid})
             await db.commit()
 
-        # ── 3 · grupo NÃO cadastrado: cala E não absorve ──
+        # ── 3 · grupo NOVO: cala, entra OBSERVANDO e SEM poder falar ──
+        # ⚠️ ESTA ASSERÇÃO JÁ ESTAVA ERRADA UMA VEZ, e do jeito que eu mais critico: ela
+        # afirmava `cfg is None` — a FOTOGRAFIA de quando grupo novo era ignorado sem registro.
+        # Em 24/09 o Jordan autorizou os grupos dos postos em bloco, a descoberta passou a
+        # auto-cadastrar em `observar`, e o oráculo ficou VERMELHO sobre comportamento correto.
+        # Oráculo que reprova uma melhoria é oráculo que vai ser desligado.
+        #
+        # A REGRA, que sobrevive à mudança: grupo novo CALA, nasce sem permissão de falar
+        # (`max_falas_dia = 0`) e não vira `falar` sozinho. O que muda é o registro; o que não
+        # muda é que ninguém ganha voz por ser adicionado a um grupo.
+        #
+        # ⚠️ E ele POLUIU a tabela de produção: o payload usava `name="T"`, e um grupo chamado
+        # "T" apareceu no cadastro junto dos condomínios reais. Teste que escreve em produção
+        # limpa o que escreveu — daí o `finally`.
         fantasma = f"1203639{uuid.uuid4().int % 10**11}@g.us"
-        calar, visto, cfg = await grp.deve_calar(db, _payload(fantasma, "trocar plantao", -1))
-        assert calar is True and cfg is None, "grupo não cadastrado tem de calar com cfg None"
-        n = (await db.execute(text("SELECT count(*) FROM wa_grupo_mensagens WHERE grupo_jid = :j"),
-                              {"j": fantasma})).scalar()
-        assert n == 0, "grupo não cadastrado absorveu mensagem — é o River Park entrando"
-        print("OK grupo não cadastrado: cala e NÃO absorve")
+        try:
+            calar, visto, cfg = await grp.deve_calar(db, _payload(fantasma, "trocar plantao", -1))
+            assert calar is True, "grupo novo tem de CALAR"
+            if cfg:
+                assert cfg["modo"] != "falar", "grupo novo nasceu podendo falar — nunca"
+                assert int(cfg.get("max_falas_dia") or 0) == 0, \
+                    "grupo novo nasceu com cota de fala — em grupo de condomínio há cliente dentro"
+            n = (await db.execute(text("SELECT count(*) FROM wa_grupo_mensagens WHERE grupo_jid = :j"),
+                                  {"j": fantasma})).scalar()
+            assert n == 0, "grupo novo absorveu mensagem na descoberta — descobrir não é absorver"
+            print("OK grupo novo: cala, observa e NÃO pode falar")
+        finally:
+            await db.execute(text("DELETE FROM wa_grupos WHERE jid = :j"), {"j": fantasma})
+            await db.commit()
+
+        # ── 3b · o EX-CLIENTE continua fora, e isso é decisão do dono ──
+        rp = (await db.execute(text(
+            "SELECT modo, max_falas_dia FROM wa_grupos WHERE nome ILIKE '%river park%'"))).first()
+        if rp:
+            assert rp[0] == "off" and int(rp[1] or 0) == 0, (
+                "o grupo do River Park saiu de `off` — a Conecta Mais não trabalha mais neste "
+                "condomínio (Jordan, 24/09/2026) e ele não pode ser absorvido nem respondido")
+            print("OK River Park (ex-cliente) segue em `off`")
 
         # ── 4 · pedido de escala é reconhecido, e relato do passado NÃO é ──
         assert sup.classificar_pedido("preciso trocar meu plantao de sabado"), "pedido de troca não reconhecido"
