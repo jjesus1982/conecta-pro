@@ -41,7 +41,7 @@ ENVS=$(docker inspect conecta-pro-backend-staging --format '{{range .Config.Env}
 # oráculo / script
 docker run --rm --network conecta-staging-network -v "$WT/backend:/app:ro" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env -e SMTP_HOST= -e SMTP_USERNAME= -e SMTP_PASSWORD= $ENVS conecta-pro-backend:latest python3 /app/scripts/orq/test_oraculo_<nome>.py
 # HTTP (porta 82NN = sua frente; pare ao fim)
-docker run --rm -d --name teste-dgx-fN --network conecta-staging-network -p 127.0.0.1:82NN:8080 -v "$WT/backend:/app:ro" --tmpfs /app/logs:rw --tmpfs /app/uploads:rw -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env -e SMTP_HOST= -e SMTP_USERNAME= -e SMTP_PASSWORD= $ENVS -e PORT=8080 conecta-pro-backend:latest
+docker run --rm -d --name teste-dgx-fN --network conecta-staging-network -p 127.0.0.1:82NN:8080 -v "$WT/backend:/app:ro" --tmpfs /app/logs:rw,mode=1777 --tmpfs /app/uploads:rw,mode=1777 -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env -e SMTP_HOST= -e SMTP_USERNAME= -e SMTP_PASSWORD= $ENVS -e PORT=8080 conecta-pro-backend:latest
 # token: POST 127.0.0.1:82NN/api/v1/auth/login (form: username=jjesus@conectamais.pro, senha em CLAUDE.md) — rate limit 5/min, guarde o token
 # a tela: GET /api/v1/redesign/data/<modulo> (com Bearer) → screens[<id>]; ação: POST /api/v1/redesign/action/<nome>
 docker stop teste-dgx-fN
