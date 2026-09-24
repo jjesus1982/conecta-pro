@@ -5,7 +5,7 @@ valores-hora REAIS do mês (noturno, trabalhadas) em vez de estimativa por escal
 Janela noturna CLT/CCT: 22:00–05:00.
 """
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import text
 
@@ -31,6 +31,71 @@ def _minutos_noturnos(inicio: datetime, fim: datetime) -> float:
 # de 13h. Acima disso são emendas causadas por batida faltando, que inflam o noturno.
 # ponytail: constante; se entrar escala > 13h (dobra autorizada), virar parâmetro por escala.
 MAX_TURNO_H = 13.0
+
+# ───────────────────── a que DIA um par de batidas pertence (DGX V1, 24/09/2026) ─────────────────
+# Um plantão é UM dia trabalhado, ainda que as batidas cruzem a meia-noite e haja intervalo.
+# O 12x36 noturno bate 19:00 → 02:00 · 03:00 → 07:00: dois pares, dois dias civis, UM plantão.
+# Atribuir cada par ao dia da própria entrada contava o segmento pós-intervalo como um segundo
+# dia trabalhado — ADAILSON SERRA ALVES apareceu com 31 dias em 08/2026 para 15 plantões.
+# A régua: o dia do turno é a data de INÍCIO (`shifts.shift_date`); tudo entre início−tolerância
+# e fim+tolerância é dele.
+
+#: Folga nas duas pontas da janela do turno: quem entra 19:01 num turno de 19:00 e quem sai
+#: 07:12 de um que termina 07:00 continua no mesmo plantão.
+TOLERANCIA_TURNO_H = 1.0
+
+#: Quando NENHUM turno cobre a batida (escala não lançada, ou lançada no dia errado — medido:
+#: RILEM FERREIRA tem a escala nos ímpares e bate nos pares), o par que começa até este tanto
+#: depois do anterior terminar, já do outro lado da meia-noite, é o mesmo plantão. O intervalo
+#: real do 12x36 é 1h; a interjornada mínima da CLT é 11h, então 3h não alcança a jornada
+#: seguinte. ponytail: heurística de continuidade; some sozinha quando a escala estiver certa.
+INTERVALO_MAX_H = 3.0
+
+SQL_TURNOS_JANELA = text(
+    "SELECT shift_date, planned_start_time, planned_end_time FROM shifts "
+    "WHERE CAST(employee_id AS TEXT) = :e AND shift_date BETWEEN :ini AND :fim "
+    "AND lower(coalesce(status,'')) <> 'cancelled' AND NOT coalesce(is_off_day,false) "
+    "ORDER BY shift_date, planned_start_time"
+)
+
+
+def janelas_de_turno(rows) -> list[tuple[datetime, datetime, date]]:
+    """(início−tolerância, fim+tolerância, shift_date) de cada turno de `SQL_TURNOS_JANELA`.
+
+    Turno noturno é o que termina antes de começar (`planned_start_time > planned_end_time`,
+    o mesmo que `shifts.is_night_shift` marca): a janela vai até o dia seguinte.
+    """
+    tol = timedelta(hours=TOLERANCIA_TURNO_H)
+    out = []
+    for dia, ini, fim in rows:
+        d0 = datetime.combine(dia, ini)
+        d1 = datetime.combine(dia + timedelta(days=1) if fim < ini else dia, fim)
+        out.append((d0 - tol, d1 + tol, dia))
+    return out
+
+
+def dia_do_plantao(entrada: datetime, janelas: list, ultimo: tuple | None = None) -> date:
+    """A data do plantão a que uma batida pertence — a régua única do "um plantão, um dia".
+
+    `janelas` de `janelas_de_turno`; `ultimo` = (saída do par anterior, dia atribuído a ele).
+    Sem turno que a cubra e sem continuidade, vale o dia civil da própria batida — que é o que
+    o pareamento fazia sempre, e por isso o diurno não muda.
+    """
+    # `janelas` vem ordenada por início: se duas se sobrepõem (noturno de D terminando 07:00 e
+    # diurno de D+1 começando 07:00), vale a que começou POR ÚLTIMO — é o turno em curso.
+    achado = None
+    for j0, j1, dia in janelas:
+        if j0 <= entrada <= j1:
+            achado = dia
+    if achado is not None:
+        return achado
+    if ultimo is not None:
+        saida_ant, dia_ant = ultimo
+        gap = (entrada - saida_ant).total_seconds()
+        if dia_ant != entrada.date() and 0 <= gap <= INTERVALO_MAX_H * 3600:
+            return dia_ant
+    return entrada.date()
+
 
 # Uma query só, usada pelo caminho sync (folha/dashboard) e pelo async (fechamento de mês) —
 # antes cada um tinha a sua cópia, e a correção de pareamento teria que ser feita duas vezes.
@@ -131,9 +196,7 @@ def _self_check():
     d = datetime
 
     # 1) turno noturno com AMBAS as batidas tipadas 'entrada' (caso RENE, 05→06/07)
-    r = horas_reais_ponto(
-        _FakeDB([("entrada", d(2026, 7, 5, 21, 1)), ("entrada", d(2026, 7, 6, 9, 1))]), "x", 7, 2026
-    )
+    r = horas_reais_ponto(_FakeDB([("entrada", d(2026, 7, 5, 21, 1)), ("entrada", d(2026, 7, 6, 9, 1))]), "x", 7, 2026)
     assert r["dias_com_par"] == 1, f"tipo errado ainda perde o turno: {r}"
     assert r["horas_trabalhadas"] == 12.0, r
     assert r["horas_noturnas"] == 7.0, r  # 22:00–05:00
@@ -159,7 +222,20 @@ def _self_check():
     assert r["dias_com_par"] == 1 and r["horas_trabalhadas"] == 9.0, f"órfã desalinhou: {r}"
     assert r["batidas_orfas"] == 1, r
 
-    print("horas_service: 3/3 OK")
+    # 4) DGX V1 — 12x36 noturno 19:00–07:00 com intervalo: o segmento pós-meia-noite é do
+    #    plantão da véspera, pela janela do turno e, sem turno lançado, pela continuidade.
+    jan = janelas_de_turno([(date(2026, 8, 2), time(19, 0), time(7, 0))])
+    assert dia_do_plantao(d(2026, 8, 2, 19, 0), jan) == date(2026, 8, 2), jan
+    assert dia_do_plantao(d(2026, 8, 3, 3, 0), jan) == date(2026, 8, 2), "pós-intervalo virou outro dia"
+    assert dia_do_plantao(d(2026, 8, 3, 3, 0), [], (d(2026, 8, 3, 2, 0), date(2026, 8, 2))) == date(2026, 8, 2)
+    assert dia_do_plantao(d(2026, 8, 3, 19, 0), [], (d(2026, 8, 3, 7, 0), date(2026, 8, 2))) == date(2026, 8, 3), (
+        "12h de intervalo não é o mesmo plantão"
+    )
+    # diurno com almoço: os dois pares já eram do mesmo dia e continuam sendo
+    jan_d = janelas_de_turno([(date(2026, 8, 3), time(8, 0), time(17, 0))])
+    assert dia_do_plantao(d(2026, 8, 3, 13, 0), jan_d) == date(2026, 8, 3), jan_d
+
+    print("horas_service: 4/4 OK")
 
 
 if __name__ == "__main__":

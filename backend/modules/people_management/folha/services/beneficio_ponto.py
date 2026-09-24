@@ -178,13 +178,34 @@ def _meses(ini: date, fim: date) -> list[tuple[int, int]]:
 
 
 async def _horas_por_dia(db, employee_id: str, ano: int, mes: int) -> dict[date, float]:
-    """Horas trabalhadas por dia (dia da ENTRADA), pareando como horas_service — mesma régua."""
-    from modules.people_management.ponto.services.horas_service import MAX_TURNO_H, SQL_BATIDAS, params_batidas
+    """Horas trabalhadas por dia de PLANTÃO, pareando como horas_service — mesma régua.
+
+    DGX V1 (24/09/2026): o dia NÃO é mais o da entrada de cada par, é o do TURNO
+    (`horas_service.dia_do_plantao`). No 12x36 noturno com intervalo (19:00 → 02:00 · 03:00 →
+    07:00) o plantão vira dois pares em dois dias civis, e o segundo contava como um segundo
+    dia trabalhado: ADAILSON SERRA ALVES, 31 dias em 08/2026 para 15 plantões. Para o diurno
+    nada muda — o turno do dia cobre a entrada e o dia do turno é o dia civil dela.
+    """
+    from modules.people_management.ponto.services.horas_service import (
+        MAX_TURNO_H,
+        SQL_BATIDAS,
+        SQL_TURNOS_JANELA,
+        dia_do_plantao,
+        janelas_de_turno,
+        params_batidas,
+    )
 
     p = params_batidas(employee_id, mes, ano)
     rows = (await db.execute(SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")})).fetchall()
-    ini, fim = p["_ini_mes"], p["_fim_mes"]
+    ini, fim = p["_ini_mes"].date(), p["_fim_mes"].date()
+    janelas = janelas_de_turno(
+        (
+            await db.execute(SQL_TURNOS_JANELA, {"e": str(employee_id), "ini": ini - timedelta(days=1), "fim": fim})
+        ).fetchall()
+    )
     horas: dict[date, float] = {}
+    dia_de: dict[datetime, date] = {}  # batida → plantão, para a varredura das solitárias
+    ultimo: tuple | None = None
     i = 0
     while i < len(rows) - 1:
         entrada, saida = rows[i][1], rows[i + 1][1]
@@ -193,12 +214,16 @@ async def _horas_por_dia(db, employee_id: str, ano: int, mes: int) -> dict[date,
             i += 1
             continue
         i += 2
-        if ini <= entrada < fim:
-            horas[entrada.date()] = horas.get(entrada.date(), 0.0) + dur
+        dia = dia_do_plantao(entrada, janelas, ultimo)
+        ultimo = (saida, dia)
+        dia_de[entrada] = dia_de[saida] = dia
+        if ini <= dia < fim:
+            horas[dia] = horas.get(dia, 0.0) + dur
     # batida solitária no dia ainda é presença registrada (hora desconhecida) — marca 0h
     for _t, ts in rows:
-        if ini <= ts < fim:
-            horas.setdefault(ts.date(), 0.0)
+        d = dia_de.get(ts) or dia_do_plantao(ts, janelas)
+        if ini <= d < fim:
+            horas.setdefault(d, 0.0)
     return horas
 
 
