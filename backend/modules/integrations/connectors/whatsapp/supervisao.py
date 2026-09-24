@@ -663,12 +663,27 @@ async def grupo_pode_ver_nomes(db: AsyncSession, conversation_id: int | None) ->
     if not conversation_id:
         return False
     try:
-        return bool((await db.execute(text(
-            "SELECT 1 FROM wa_grupos WHERE chatwoot_conversation_id = :c AND dado_pessoal_ok "
-            "  AND modo = 'falar' LIMIT 1"), {"c": int(conversation_id)})).first())
+        row = (await db.execute(text(
+            "SELECT jid FROM wa_grupos WHERE chatwoot_conversation_id = :c AND dado_pessoal_ok "
+            "  AND modo = 'falar' LIMIT 1"), {"c": int(conversation_id)})).first()
     except Exception as e:  # noqa: BLE001
         logger.warning("supervisao: não sei se o grupo %s pode ver nomes (%s)", conversation_id, e)
         return False
+    if not row:
+        return False
+
+    # ⭐ A AUTORIZAÇÃO É CONFERIDA CONTRA QUEM ESTÁ NO GRUPO AGORA (24/09/2026). Ela repousava
+    # numa frase do dono — "no Gestão estão apenas três pessoas" — e num comentário de coluna.
+    # Alguém adicionado ao grupo derrubaria a premissa em SILÊNCIO, e o agente passaria a dizer
+    # nome de colaborador na frente de quem entrou. Comentário não é parede; isto é.
+    from modules.integrations.connectors.whatsapp import grupos as _grp  # noqa: PLC0415
+
+    ok, novos = await _grp.grupo_ainda_e_o_autorizado(db, str(row[0]))
+    if not ok:
+        logger.error("supervisao: composição do grupo %s MUDOU (entrou: %s) — autorização de "
+                     "dado nominal SUSPENSA até o dono reconfirmar", row[0], novos)
+        return False
+    return True
 
 
 async def cobertura_por_escala(db: AsyncSession, *, dia=None, com_nomes: bool = False) -> dict[str, Any]:
@@ -953,6 +968,39 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
                -- falta. Um dia sem bater é ocorrência; doze dias é CADASTRO ERRADO, e reportar os
                -- dois do mesmo jeito faz o supervisor caçar a pessoa em vez de corrigir o
                -- registro. Os 26 turnos sem batida também entram no banco de horas.
+               -- ⭐ DESVIO SISTEMÁTICO = CADASTRO ERRADO, NÃO ATRASO (24/09/2026).
+               -- Medido: 8 pessoas desviam >25min do previsto de forma consistente em 5–13 dias,
+               -- e DUAS delas batem exatamente 60 min antes, no minuto zero, todo dia. Ninguém
+               -- chega uma hora antes por acaso sete dias seguidos — o horário do cadastro está
+               -- errado e a pessoa é pontual.
+               --
+               -- ⚠️ E a assimetria é o que torna isso urgente: 6 das 8 batem ANTES do previsto.
+               -- O relatório de atraso acusaria as 2 que chegam depois e SILENCIARIA as 6 cujo
+               -- cadastro está igualmente errado — erro que não dispara alarme é o que sobrevive
+               -- mais tempo. Detectar a CLASSE do erro vale mais que corrigir cada caso.
+               (SELECT round(avg(EXTRACT(EPOCH FROM (p2.punch_timestamp::time - s.planned_start_time))/60))
+                  FROM gp_clock_punches p2 JOIN shifts s2 ON s2.employee_id = p2.employee_id
+                       AND s2.shift_date = p2.punch_timestamp::date AND s2.is_active AND NOT s2.is_off_day
+                 WHERE p2.employee_id = e.id AND p2.punch_type = 'entrada'
+                   AND p2.punch_timestamp::date BETWEEN CAST(:d AS date) - 21 AND CAST(:d AS date) - 1
+                   AND s2.planned_start_time = s.planned_start_time) AS desvio_tipico_min,
+               -- ⚠️ E O DISCRIMINADOR É O DESVIO-PADRÃO, NÃO A MÉDIA. Medido: o Antonio Carlos
+               -- tem média +67min e mínimo +30 — ele VARIA, é irregularidade real de pessoa. Já o
+               -- Ediwilson e o Ailton batem 60min antes no minuto ZERO, todo dia: variação ~0.
+               -- Média alta prova que algo está fora do previsto; só a variação BAIXA prova que é
+               -- o previsto que está errado. Sem isso eu chamaria de "cadastro errado" quem chega
+               -- a hora que quer — e daria a ele um álibi que o dado não sustenta.
+               (SELECT round(coalesce(stddev_pop(EXTRACT(EPOCH FROM (p4.punch_timestamp::time - s.planned_start_time))/60), 999))
+                  FROM gp_clock_punches p4 JOIN shifts s4 ON s4.employee_id = p4.employee_id
+                       AND s4.shift_date = p4.punch_timestamp::date AND s4.is_active AND NOT s4.is_off_day
+                 WHERE p4.employee_id = e.id AND p4.punch_type = 'entrada'
+                   AND p4.punch_timestamp::date BETWEEN CAST(:d AS date) - 21 AND CAST(:d AS date) - 1
+                   AND s4.planned_start_time = s.planned_start_time) AS desvio_variacao,
+               (SELECT count(*) FROM gp_clock_punches p3 JOIN shifts s3 ON s3.employee_id = p3.employee_id
+                       AND s3.shift_date = p3.punch_timestamp::date AND s3.is_active AND NOT s3.is_off_day
+                 WHERE p3.employee_id = e.id AND p3.punch_type = 'entrada'
+                   AND p3.punch_timestamp::date BETWEEN CAST(:d AS date) - 21 AND CAST(:d AS date) - 1
+                   AND s3.planned_start_time = s.planned_start_time) AS dias_medidos,
                (SELECT (CURRENT_DATE - max(gp.punch_timestamp)::date)
                   FROM gp_clock_punches gp WHERE gp.employee_id = e.id) AS dias_sem_bater,
                (SELECT j.justification_type || ' (' || coalesce(j.status,'?') || ')'
@@ -1014,7 +1062,19 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
         elif r["bateu_em"]:
             prev = datetime.combine(dia, r["prev_ent"])
             atraso = int((r["bateu_em"] - prev).total_seconds() // 60)
-            veredito = "ATRASO" if atraso > TOLERANCIA_ATRASO_MIN else "COBERTO"
+            # Desvio típico ≥25min com ≥4 dias medidos, e o atraso de hoje dentro de 20min
+            # desse padrão → não é atraso, é o horário do cadastro que está errado.
+            _dt, _nd = r["desvio_tipico_min"], int(r["dias_medidos"] or 0)
+            _var = float(r["desvio_variacao"] or 999)
+            # Consistente = média fora do previsto E variação baixa. 15min de variação tolera o
+            # trânsito de quem é pontual, e exclui quem chega a hora que quer.
+            _padrao = (_dt is not None and _nd >= 4 and abs(float(_dt)) >= 25 and _var <= 15)
+            if _padrao:
+                veredito = "HORARIO_SUSPEITO"
+            elif atraso > TOLERANCIA_ATRASO_MIN:
+                veredito = "ATRASO"
+            else:
+                veredito = "COBERTO"
             motivo = _STATUS_EXCEÇÃO.get(str(r["bat_status"] or ""))
             # Motivos que se somam ao status, e cada um vem do DADO, não de suposição.
             extras = []
@@ -1028,8 +1088,13 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             if r["justification_id"] or r["justificativa_do_dia"]:
                 extras.append(f"justificativa: {r['justificativa_do_dia'] or 'vinculada à batida'}")
             motivo = "; ".join(x for x in ([motivo] if motivo else []) + extras) or None
-            if atraso is not None and atraso < 0:
-                veredito, atraso = "COBERTO", 0  # bateu antes da hora: pontual
+            if _padrao:
+                motivo = (f"bate {abs(int(float(_dt)))}min {'depois' if float(_dt) > 0 else 'antes'} "
+                          f"do previsto em {_nd} dias, com variação de só {int(_var)}min — o "
+                          f"horário do CADASTRO está errado e a pessoa é pontual. "
+                          f"Registrar a vigência corrige.")
+            elif atraso is not None and atraso < 0:
+                veredito, atraso = "COBERTO", 0  # bateu antes da hora, sem padrão: pontual
         elif r["ja_devia"]:
             # ⭐ SEM_BATIDA COM JUSTIFICATIVA NÃO É COBRANÇA — é fila do DP. Sem esta distinção o
             # relatório manda o supervisor atrás de quem já abriu justificativa, e ele aprende a
@@ -1069,7 +1134,15 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
         "dia": str(dia), "hora_de_referencia_manaus": str(agora)[:5],
         "posto_filtrado": posto, "turnos": len(linhas),
         "por_status": resumo_status,
-        "postos": por_posto,
+        # ⚠️ TETO. Hoje são 29 turnos em 8 postos; com os condomínios entrando isso cresce e vira
+        # o mesmo problema do `resumo_grupos`, que eu já cortei de 17.648 para 1.759 tokens. Sem
+        # filtro de posto, devolvo o RESUMO por status e só os postos com exceção — quem quer a
+        # lista de um posto pede o posto.
+        "postos": (por_posto if posto else
+                   {k: [x for x in v if x["status"] not in ("COBERTO", "AGUARDANDO")]
+                    for k, v in por_posto.items()
+                    if any(x["status"] not in ("COBERTO", "AGUARDANDO") for x in v)}),
+        "sem_filtro_mostro_so_excecao": not bool(posto),
         "tolerancia_atraso_min": TOLERANCIA_ATRASO_MIN,
         "leia_assim": ("veredito por turno: COBERTO · ATRASO (com minutos) · SEM_BATIDA · FOLGA · "
                        "AFASTADO · AGUARDANDO (turno não começou). `por_que` só aparece quando o "

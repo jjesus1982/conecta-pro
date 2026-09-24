@@ -723,6 +723,15 @@ async def expurgar(db: AsyncSession) -> dict:
         r2 = await db.execute(text(
             "DELETE FROM wa_grupo_falas WHERE quando < now() - interval '90 days' RETURNING 1"))
         falas = len(r2.fetchall())
+        # ⚠️ RISCO F: `troca_turno_confirmacoes` guarda QUEM PROMETEU assumir posto — dado de
+        # pessoa, com o texto da resposta dela. A tabela irmã (`wa_grupo_mensagens`) já tinha
+        # prazo e esta não: mais um campo de retenção que existia só no meu plano. 90 dias cobre
+        # a folha do mês e a auditoria do seguinte; depois disso é acúmulo sem finalidade.
+        r3 = await db.execute(text(
+            "DELETE FROM troca_turno_confirmacoes "
+            " WHERE criado_em < now() - make_interval(days => coalesce(retencao_dias, 90)) "
+            " RETURNING 1"))
+        confirmacoes = len(r3.fetchall())
         await db.commit()
     except Exception as e:  # noqa: BLE001
         await db.rollback()
@@ -730,4 +739,77 @@ async def expurgar(db: AsyncSession) -> dict:
         return {"ok": False, "erro": str(e)[:160]}
     if apagadas or falas:
         logger.warning("grupos: expurgo — mensagens %s · falas %s", apagadas, falas)
-    return {"ok": True, "mensagens_apagadas": apagadas, "falas_apagadas": falas}
+    return {"ok": True, "mensagens_apagadas": apagadas, "falas_apagadas": falas,
+            "confirmacoes_apagadas": confirmacoes}
+
+
+async def participantes_do_grupo(jid: str) -> list[str] | None:
+    """Telefones de quem está NO grupo agora, pelo Baileys. None se não consegui perguntar.
+
+    ⭐ Isto transforma a autorização do dono em PAREDE. Ele disse, em 24/09, "no Gestão estão
+    apenas José Luís, Jordan e Orlailson, pode expor qualquer informação ali" — e eu liguei a
+    permissão numa coluna. Mas ela repousava num fato que ninguém vigiava: **quem está dentro
+    do grupo**. Alguém adicionado amanhã, e o agente passaria a dizer nome de colaborador na
+    frente de quem entrou, sem uma linha de código notar.
+
+    Comentário na coluna não é parede. Isto é: o Baileys expõe `group-metadata` com
+    `participants`, e medi no Gestão — 3 pessoas, as três que o dono nomeou.
+
+    ⚠️ `None` (não consegui perguntar) NÃO é "mudou": é desconhecido. Quem chama decide, e a
+    decisão certa é manter a autorização — derrubá-la por falha de rede transformaria uma
+    indisponibilidade do Baileys em "o José Luís parou de responder direito", que é o tipo de
+    falha que ninguém liga ao motivo.
+    """
+    import os as _os  # noqa: PLC0415
+
+    import httpx as _httpx  # noqa: PLC0415
+
+    url = _os.getenv("BAILEYS_URL", "http://baileys-api:3025")
+    key = _os.getenv("BAILEYS_PROVIDER_DEFAULT_API_KEY", "")
+    fone = _os.getenv("BAILEYS_NUMERO", "+558008804414")
+    if not key:
+        return None
+    try:
+        async with _httpx.AsyncClient(timeout=8.0) as cli:
+            r = await cli.get(f"{url}/connections/{fone}/group-metadata",
+                              params={"jid": jid}, headers={"x-api-key": key})
+        if r.status_code != 200:
+            logger.warning("grupos: group-metadata %s para %s", r.status_code, jid)
+            return None
+        saida = []
+        for p in (r.json().get("participants") or []):
+            # `phoneNumber` vem como "559286465328@s.whatsapp.net"; o `id` é @lid e não disca.
+            pn = str(p.get("phoneNumber") or "").split("@")[0]
+            if pn.isdigit():
+                saida.append(pn)
+        return saida or None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("grupos: não consegui os participantes de %s (%s)", jid, e)
+        return None
+
+
+async def grupo_ainda_e_o_autorizado(db: AsyncSession, jid: str) -> tuple[bool, str | None]:
+    """(a composição do grupo é a autorizada?, o que mudou). Fecha o vão da autorização.
+
+    Sem lista autorizada gravada → (True, None): grupo que ninguém restringiu não é vigiado aqui.
+    Baileys indisponível → (True, None): desconhecido não é mudança (ver `participantes_do_grupo`).
+    Entrou alguém que não estava na lista → (False, quem), e a autorização de nome cai.
+    """
+    try:
+        row = (await db.execute(text(
+            "SELECT participantes_autorizados FROM wa_grupos WHERE jid = :j"), {"j": jid})).first()
+    except Exception:  # noqa: BLE001
+        return True, None
+    autorizados = set(row[0] or []) if row else set()
+    if not autorizados:
+        return True, None
+    agora = await participantes_do_grupo(jid)
+    if agora is None:
+        return True, None
+    novos = [p for p in agora if p not in autorizados]
+    if novos:
+        await db.execute(text(
+            "UPDATE wa_grupos SET participantes_conferidos_em = now() WHERE jid = :j"), {"j": jid})
+        await db.commit()
+        return False, ", ".join(novos)
+    return True, None
