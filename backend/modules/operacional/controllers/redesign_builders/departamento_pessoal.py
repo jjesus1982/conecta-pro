@@ -69,6 +69,9 @@ router.include_router(_r_u5)  # dgx u5
 from ._dgx_v4_dp_importacao import router as _r_v4  # noqa: E402 — dgx v4
 
 router.include_router(_r_v4)  # dgx v4
+from ._dgx_w3_he_classificada import router as _r_w3  # noqa: E402 — dgx w3
+
+router.include_router(_r_w3)  # dgx w3
 
 
 @router.post("/action/ponto-ajuste")
@@ -4891,4 +4894,7 @@ async def build(db, current_user=None) -> dict:
     out.update(
         await _telas_v4(db, out)
     )  # dgx v4 — falhas de importação (g-visao), apontamentos CSV (g-folha), export em funcionarios
+    from ._dgx_w3_he_classificada import telas as _telas_w3  # dgx w3
+
+    out.update(await _telas_w3(db, out))  # dgx w3 — abas no FIM de g-ponto (HE classificada)
     return out

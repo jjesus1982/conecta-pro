@@ -53,6 +53,14 @@ async def telas(db) -> dict:
 
     out: dict = {}
     comp = date.today().strftime("%Y-%m")
+    # dgx w3 — HE repassável (estimativa do DP) por contrato. Só leitura; nunca derruba a tela.
+    he_rep: dict[str, float] = {}
+    try:
+        from modules.people_management.ponto import he_classificacao as _hc
+
+        he_rep = await _hc.repassavel_por_contrato(db, comp)
+    except Exception:  # noqa: BLE001 — sem classificação de HE a coluna fica "—"
+        await db.rollback()
     try:
         linhas = await prec.relatorio_calculado_vs_faturado(db, comp)
         com = [r for r in linhas if isinstance(r["divergencia_reais"], (int, float))]
@@ -80,6 +88,7 @@ async def telas(db) -> dict:
                             else (motivo[:40] or "—"),
                             _tom(r["divergencia_pct"]),
                         ),
+                        t(brl(he_rep[r["contract_number"]]) if r["contract_number"] in he_rep else "—"),  # dgx w3
                         t(
                             aus[:48] + ("" if not r["hipoteses"] else " · " + "; ".join(r["hipoteses"])[:80]),
                             400,
@@ -94,12 +103,14 @@ async def telas(db) -> dict:
                 f"Competência {comp} · {len(linhas)} contrato(s) ativo(s) · {len(com)} com os dois números · "
                 f"{len(abaixo)} faturado(s) ABAIXO do calculado. Custo = motor CCT × efetivo dos postos (+ reserva "
                 f"técnica, PLR sindicato e taxa admin quando confirmados). Faturado = NFS-e da competência ou valor "
-                f"do contrato. Relatório para o dono: NADA aqui muda preço."
+                f"do contrato. «HE repassável não faturada» = estimativa do DP (HE classificada como repassável ao "
+                f"cliente na competência; nenhuma NFS-e discrimina HE, então não há o que abater). "
+                f"Relatório para o dono: NADA aqui muda preço."
             ),
             "cta": "—",
             "type": "table",
             "searchHint": "Contrato ou cliente…",
-            "grid": "1fr 1.6fr 0.5fr 1fr 1fr 1.3fr 1.4fr 1.8fr",
+            "grid": "1fr 1.6fr 0.5fr 1fr 1fr 1.3fr 1.4fr 1.3fr 1.8fr",
             "cols": [
                 "Contrato",
                 "Cliente",
@@ -108,6 +119,7 @@ async def telas(db) -> dict:
                 "Preço calculado",
                 "Faturado · fonte",
                 "Divergência (fat − calc)",
+                "HE repassável não faturada",  # dgx w3
                 "Parâmetros ausentes · hipóteses",
             ],
             "rows": rows,
