@@ -52,9 +52,12 @@ def validar_cpf(cpf: str) -> bool:
         return False
 
     # Calcula o primeiro dígito verificador
+    # (soma*10) % 11 JÁ É o dígito (10 vira 0). Estava `11 - resto`, que é a fórmula da OUTRA
+    # variante (soma % 11) — misturadas, reprovavam CPF válido (529.982.247-25 → dígito 9 em
+    # vez de 2). Achado pela frente DGX F6 em 24/09/2026; usada pela consulta à Receita.
     soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
     resto = (soma * 10) % 11
-    digito1 = 0 if resto in (0, 1) else 11 - resto
+    digito1 = 0 if resto == 10 else resto
 
     # Verifica o primeiro dígito
     if int(cpf[9]) != digito1:
@@ -63,7 +66,7 @@ def validar_cpf(cpf: str) -> bool:
     # Calcula o segundo dígito verificador
     soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
     resto = (soma * 10) % 11
-    digito2 = 0 if resto in (0, 1) else 11 - resto
+    digito2 = 0 if resto == 10 else resto
 
     # Verifica o segundo dígito
     return int(cpf[10]) == digito2
