@@ -248,6 +248,12 @@ async def registrar(
     ).fetchone()
     if not posto:
         raise CoberturaErro(404, "Posto não encontrado ou inativo.")
+    from modules.operacional.services import restricao_cliente as _rc  # dgx t3 — restrição por cliente
+
+    try:
+        await _rc.exigir_livre(db, cobertura_id, post_id=post_id)
+    except _rc.RestricaoErro as exc:
+        raise CoberturaErro(exc.status, str(exc)) from exc
 
     # 1ª passada: só valida (nada gravado se um dia falhar)
     dias: list[tuple[date, dict, bool]] = []

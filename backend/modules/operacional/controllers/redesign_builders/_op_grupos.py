@@ -27,6 +27,10 @@ GRUPOS = [
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
         ("gerente-hoje", "Onde está o gerente"), ("gerente-checkin", "Cheguei no posto"), ("gerente-checkout", "Saí do posto"),
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),
+        ("mapa-de-ponto", "Mapa de ponto"), ("grid-real-contratual", "Grid real/contratual"),  # frente 04 — porta (dgx t3)
+        ("vagas-do-contrato", "Vagas do contrato"), ("vaga-nova", "Nova vaga"),  # dgx t3
+        ("contratos-custo-por-vaga", "Custo por contrato"),
+        ("restricoes-cliente", "Restrições por cliente"), ("restricao-nova", "Nova restrição"),
         ("instrucoes-posto", "Instruções de posto"),
         ("passagem-turno", "Passagem de turno"), ("passagem-turno-nova", "Nova passagem"),
         ("instrucao-posto-editar", "Editar instrução"), ("checkin-manual", "Check-in manual"),
@@ -79,7 +83,8 @@ GRUPOS = [
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
         ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"), ("comunicados-leituras", "Leituras"),
         ("chamados", "Chamados"), ("chamado-novo", "Novo chamado"),  # dgx f8
-        ("avisos-painel", "Avisos · painel"), ("aviso-novo", "Novo aviso")]),
+        ("avisos-painel", "Avisos · painel"), ("aviso-novo", "Novo aviso"),
+        ("painel-alertas", "Alertas do sistema")]),  # dgx t3
 ]
 
 

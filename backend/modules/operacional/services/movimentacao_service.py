@@ -145,6 +145,12 @@ async def alocar(
         ).scalar()
         if not ok:
             raise MovimentacaoErro(422, "O posto informado não pertence a esse condomínio.")
+    from modules.operacional.services import restricao_cliente as _rc  # dgx t3 — restrição por cliente
+
+    try:
+        await _rc.exigir_livre(db, employee_id, post_id=posto_id, condominio_id=condominio_id)
+    except _rc.RestricaoErro as exc:
+        raise MovimentacaoErro(exc.status, str(exc)) from exc
 
     ativas = (
         await db.execute(

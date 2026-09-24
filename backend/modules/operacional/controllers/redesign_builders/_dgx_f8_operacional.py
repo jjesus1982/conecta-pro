@@ -287,6 +287,36 @@ async def telas(db, out: dict) -> None:
                 if (pid and dia)
                 else []
             )
+            acoes = []  # dgx t3 — Visualizado / Finalizar por linha (só ocorrências vivas)
+            if tipo == "ocorrencia" and situacao in ("aberta", "em_analise") and _rid:
+                if situacao == "aberta":
+                    acoes.append(
+                        {
+                            "title": f"Marcar como visualizada — {ref}",
+                            "endpoint": f"{_END}livro-visualizado?occ_id={_rid}",
+                            "method": "POST",
+                            "btnLabel": "Visualizado",
+                            "submitLabel": "Marcar visualizada",
+                            "btnStyle": "outline",
+                            "okMsg": "Marcada como visualizada. Recarregue a tela.",
+                            "fields": [{"key": "nota", "label": "Nota (opcional)", "type": "text", "span": "span 2"}],
+                        }
+                    )
+                acoes.append(
+                    {
+                        "title": f"Finalizar — {ref}",
+                        "endpoint": f"{_END}livro-finalizar?occ_id={_rid}",
+                        "method": "POST",
+                        "btnLabel": "Finalizar",
+                        "submitLabel": "Finalizar",
+                        "btnStyle": "primary",
+                        "okMsg": "Ocorrência finalizada. Recarregue a tela.",
+                        "fields": [
+                            {"key": "corrective_action", "label": "O que foi feito*", "type": "textarea", "span": "span 2"},
+                            {"key": "resolution_notes", "label": "Notas", "type": "textarea", "span": "span 2"},
+                        ],
+                    }
+                )
             linhas.append(
                 {
                     "cells": [
@@ -299,13 +329,18 @@ async def telas(db, out: dict) -> None:
                     ],
                     "filtros": {"posto": posto_nome.get(pid, "—"), "dia": _d(dia)},
                     "docs": docs,
+                    "actions": acoes,
                 }
             )
+        n_pend = sum(1 for r in lv if r[0] == "ocorrencia" and r[7] in ("aberta", "em_analise"))  # dgx t3
+        n_fin = sum(1 for r in lv if r[0] == "ocorrencia" and r[7] == "resolvida")
         out["livro-ocorrencias"] = {
             "title": "Livro de ocorrências do posto",
             "sub": (
-                f"{len(lv)} registro(s) nos últimos 30 dias · união de ocorrências + passagens de turno + check-ins do gerente + "
-                "instruções de posto, em ordem cronológica (hora de Manaus) · filtre por posto e dia · PDF timbrado do dia por linha"
+                f"{len(lv)} registro(s) nos últimos 30 dias · ocorrências: {n_pend} pendente(s) · {n_fin} finalizada(s) · "
+                "união de ocorrências + passagens de turno + check-ins do gerente + "
+                "instruções de posto, em ordem cronológica (hora de Manaus) · filtre por posto e dia · PDF timbrado do dia por linha · "
+                "Visualizado (→ em análise) e Finalizar por linha"
             ),
             "cta": "—",
             "type": "table",
