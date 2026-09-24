@@ -5603,7 +5603,21 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                 # já está resolvido e validado — é de lá que eu tiro quem pediu.
                 _f = await _funcionario_do_grupo(conversation_id)
             if not _f:
-                return {"erro": "não identifiquei este número no cadastro de funcionários."}
+                # ⚠️ A RECUSA TEM DE DIZER A VERDADE, e a anterior não dizia. O Jordan pediu para
+                # registrar uma pendência no grupo e recebeu "o sistema não reconheceu meu número
+                # no cadastro de funcionários" — que soa como cadastro quebrado. O motivo real é
+                # outro: ele é o DONO, não tem `employee_id`, e esta tool abre pendência sobre a
+                # SITUAÇÃO DE UMA PESSOA (o ponto dela, o atestado dela). Não há pendência "do
+                # dono" para abrir.
+                #
+                # Mensagem que descreve o sistema como quebrado quando ele está certo custa mais
+                # que o recurso que faltou: manda o dono procurar defeito onde não há.
+                return {"erro": (
+                    "esta ferramenta abre pendência sobre a situação de UM COLABORADOR "
+                    "(ponto, atestado, benefício) e precisa que quem pede seja esse colaborador. "
+                    "Quem fala aqui não resolve a um funcionário do cadastro — se a pendência é "
+                    "sobre outra pessoa, ela precisa ser aberta pelo DP na tela, ou a própria "
+                    "pessoa me chama no privado.")}
             return await _tool_ponto_funcionario(name, args, _f)
 
         if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala"):
