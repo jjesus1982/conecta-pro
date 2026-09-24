@@ -76,6 +76,41 @@ def autor_do_payload(data: dict) -> tuple[str | None, str | None]:
     cand = (data.get("sender") or {})
     extra = cand.get("additional_attributes") or {}
 
+    # ⭐ NÃO CONFIE NO NOME DO CAMPO — CONFIE NA FORMA (24/09/2026, segunda medição).
+    #
+    # O Orlailson postou a escala no OPERACIONAL e foi gravado como `lead` DESCONHECIDO. O
+    # contato dele no Chatwoot está assim:
+    #
+    #     name         = "+559281386006"      ← o telefone DE VERDADE
+    #     phone_number = "+224751964406008"   ← o LID, não telefone
+    #     identifier   = "224751964406008@lid"
+    #
+    # Ou seja: `phone_number` pode carregar LID, e o telefone pode estar em `name`. No contato
+    # do Jordan é o oposto (`phone_number` correto). Os dois casos existem HOJE, na mesma
+    # tabela — então nenhum nome de campo é fonte confiável.
+    #
+    # ⚠️ E a minha guarda anterior piorou: eu descartava `name` "quando parece telefone",
+    # justamente o caso em que ele É o telefone. A régua certa não é "parece número", é
+    # **parece telefone BRASILEIRO** — 55 + DDD + 8 ou 9 dígitos. O LID tem 15 dígitos e não
+    # começa com 55, e é isso que o separa.
+    def _fone_br(v) -> str | None:
+        d = "".join(c for c in str(v or "") if c.isdigit())
+        if d.startswith("55") and len(d) in (12, 13):
+            return d
+        if len(d) in (10, 11):  # já sem DDI
+            return d
+        return None
+
+    for bruto in (cand.get("phone_number"), cand.get("name"), extra.get("participant"),
+                  extra.get("author"), data.get("participant"), cand.get("identifier")):
+        achado = _fone_br(bruto)
+        if achado:
+            nome_cru = extra.get("participant_name") or extra.get("author_name")
+            # `name` só é NOME quando não é o telefone que acabei de usar.
+            if not nome_cru and not _fone_br(cand.get("name")):
+                nome_cru = cand.get("name")
+            return achado, (str(nome_cru) if nome_cru else None)
+
     # ⭐ A FORMA REAL, medida na primeira mensagem de verdade (24/09/2026, 08:18 no
     # OPERACIONAL). Eu tinha escrito este parser contra payload sintético e ele errou:
     #
@@ -84,28 +119,17 @@ def autor_do_payload(data: dict) -> tuple[str | None, str | None]:
     #   · sender.identifier é um **@lid**  → "134286564950018@lid", NÃO é telefone
     #   · sender.additional_attributes     → VAZIO. Era onde eu procurava.
     #
-    # `sender.name` também traz o telefone quando o contato não tem nome salvo, e é o
-    # último recurso — por isso entra depois, e só se parecer telefone.
-    fone = cand.get("phone_number") or extra.get("participant") or extra.get("author") or data.get("participant")
-    nome = extra.get("participant_name") or extra.get("author_name") or cand.get("name")
+    # Último recurso: alguns provedores prefixam o conteúdo com o autor.
+    nome = extra.get("participant_name") or extra.get("author_name")
+    fone = None
+    m = re.match(r"^\+?(\d{10,15})\s*[:\-]\s*", str(data.get("content") or ""))
+    if m:
+        fone = _fone_br(m.group(1))
 
-    # ⚠️ `identifier` só serve se NÃO for @lid nem @g.us: o primeiro é o id interno do
-    # WhatsApp (não disca e não casa com cadastro) e o segundo é o próprio grupo. Tomar o
-    # @g.us aqui atribuiria a fala ao GRUPO, que é o defeito que este módulo existe para
-    # evitar — todo aprendizado de tom sairia sem dono.
-    if not fone:
-        ident = str(cand.get("identifier") or "")
-        if ident and not ident.endswith((SUFIXO_GRUPO, "@lid")):
-            fone = ident
-
-    # `name` virou telefone? Então não é nome — é o número sem contato salvo.
-    if nome and sum(c.isdigit() for c in str(nome)) >= 10:
-        nome = None
-    if not fone:
-        # fallback: o conteúdo às vezes vem prefixado com o autor pelo próprio provedor
-        m = re.match(r"^\+?(\d{10,15})\s*[:\-]\s*", str(data.get("content") or ""))
-        if m:
-            fone = m.group(1)
+    # ⚠️ NENHUM outro palpite. O `identifier` @lid e o `phone_number` com LID já vazaram uma
+    # vez para dentro do banco (a escala do Orlailson gravada como `lead` desconhecido). Devolver
+    # None é honesto e o log abaixo diz o que veio; devolver o LID cria autor que não existe e
+    # ninguém desconfia da linha.
     if not fone:
         # ⭐ DIAGNÓSTICO da forma real (24/09/2026, quando a captura foi ligada). Eu escrevi
         # este parser contra payload SINTÉTICO, porque com a captura desligada não existia
@@ -193,6 +217,25 @@ async def absorver(db: AsyncSession, *, jid: str, conteudo: str | None,
 #: Sinais de que a mensagem carrega DADO, não só conversa. Deliberadamente conservador: o que
 #: não casa aqui fica como `tom`, e tom não vira registro em ficha de ninguém.
 _SINAIS = (
+    # ⭐ A ESCALA DO DIA, e ela vem PRIMEIRO porque é o artefato mais valioso do grupo
+    # (medida em 24/09/2026, a primeira mensagem real do OPERACIONAL):
+    #
+    #     *Prime Arena 06h às 18h*
+    #     Jair Rocha - P1
+    #     *Villa dos Pássaros 06h às 18h*
+    #     Jeovane Nascimento - P1
+    #
+    # Meu classificador a leu como `tom` — conversa — porque nenhuma das minhas palavras
+    # ("escala", "posto", "plantão") aparece ali. O sinal não é vocabulário, é ESTRUTURA:
+    # faixa de horário `HHh às HHh` e o marcador de posição `- P1`. Nenhum dos dois acontece
+    # em papo de grupo, e os dois juntos são a escala.
+    #
+    # ⚠️ Classificar isso como tom significava `relevante = false`, e portanto a escala do dia
+    # NÃO aparecer no `resumo_grupos` — a única coisa que o supervisor mais precisa ver seria
+    # justamente a que o resumo esconde. Régua de palavra-chave sobre um documento que não usa
+    # as palavras: eu já tinha essa lição escrita e ela não me protegeu de escrevê-la de novo.
+    ("escala_do_dia", re.compile(
+        r"\d{1,2}\s*h\s*(às|as|a)\s*\d{1,2}\s*h.*?\n.*?-\s*P\d", re.I | re.S)),
     ("operacional", re.compile(
         r"\bfalt(a|ou|ando)\b|\batestado\b|\bsubstitut|\bescala\b|\bposto\b|\bplant[ãa]o\b|"
         r"\bcobrir\b|\bfolga\b|\bturno\b|\bronda\b|\bocorr[êe]ncia\b|\bchave\b|"
