@@ -138,6 +138,12 @@ class DPSNacional:
     # Identificação
     id_dps: str | None = None
     numero: str | None = None
+    #: Série da DPS. Ficava CHUMBADA em dois lugares do montador («00900» no Id e
+    #: <serie>900</serie> no XML) — e por isso trocar a série em `empresas` não mudava nada:
+    #: o fisco continuava recebendo 900 e devolvendo E0014 (série+número já usados). Medido
+    #: em 24/09/2026, quando produção tentou emitir com a série 901 e o `idDPS` da resposta
+    #: ainda dizia `...00900...`. Quem emite escolhe a série; aqui ela só viaja.
+    serie: str = "900"
 
     # Prestador
     prestador: PrestadorNacional | None = None
@@ -457,7 +463,7 @@ class NFSeNacionalManager:
 
         # Id do infDPS: cMun(7) + tpInsc(1) + nrInsc(14) + serie(5) + nDPS(15) = 42 chars
         # tpInsc: 1=CPF, 2=CNPJ (prestador é CNPJ → 2)
-        serie_pad = "00900"  # série 900 com 5 dígitos
+        serie_pad = _re.sub(r"\D", "", str(dps.serie or "900"))[:5].zfill(5)  # 5 dígitos, da DPS
         ndps_pad = f"{int(dps.numero or '1'):015d}"  # nDPS com 15 dígitos
         dps_id = f"DPS13026032{cnpj_clean}{serie_pad}{ndps_pad}"
 
@@ -486,7 +492,7 @@ class NFSeNacionalManager:
     <tpAmb>{tp_amb}</tpAmb>
     <dhEmi>{(_dt.now() - __import__("datetime").timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")}-03:00</dhEmi>
     <verAplic>ConectaPRO-2.0</verAplic>
-    <serie>900</serie>
+    <serie>{_re.sub(r"[^0-9]", "", str(dps.serie or "900")) or "900"}</serie>
     <nDPS>{dps.numero or "1"}</nDPS>
     <dCompet>{competencia}</dCompet>
     <tpEmit>1</tpEmit>

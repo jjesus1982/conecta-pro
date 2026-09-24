@@ -232,8 +232,8 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — nove afirmações, linear
                     f" maior gravado {r['maior']} — número de nota queimado em silêncio"
                 )
 
-        n1 = await em.proximo_numero(db, CNPJ_FIXTURE, em.SERIE_ERP, "homologacao")
-        n2 = await em.proximo_numero(db, CNPJ_FIXTURE, em.SERIE_ERP, "homologacao")
+        n1 = await em.proximo_numero(db, CNPJ_FIXTURE, em.SERIE_PADRAO, "homologacao")
+        n2 = await em.proximo_numero(db, CNPJ_FIXTURE, em.SERIE_PADRAO, "homologacao")
         await db.commit()
         if n2 != n1 + 1:
             falhas.append(f"(g) duas reservas seguidas não são consecutivas: {n1} e {n2}")

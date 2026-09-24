@@ -165,6 +165,7 @@ class NFSeNacionalService:
         tipo_tributacao: str = "1",
         dry_run: bool = False,
         numero: str | None = None,
+        serie: str | None = None,
     ) -> dict[str, Any]:
         """
         Emite DPS (Declaração de Prestação de Serviços). **Transmite de verdade.**
@@ -268,6 +269,9 @@ class NFSeNacionalService:
         dps = DPSNacional(
             id_dps=f"DPS-{datetime.now().strftime('%Y')}-{numero_dps}",
             numero=numero_dps,
+            # Série de QUEM emite. Sem isto a DPS saía sempre com 900 (chumbada no montador),
+            # e sandbox, produção e o portal da contabilidade colidiam no fisco com E0014.
+            serie=str(serie) if serie else "900",
             prestador=prestador,
             tomador=tomador,
             servico=servico,

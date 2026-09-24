@@ -219,7 +219,7 @@ CODIGOS_MEDIDOS = (
 
 
 async def telas(db, out: dict | None = None) -> dict:
-    from modules.fiscal.services.nfse_emissao import SERIE_ERP, _ensure, estado_da_trava
+    from modules.fiscal.services.nfse_emissao import SERIE_PADRAO, _ensure, estado_da_trava
 
     await _ensure(db)
     out = out if out is not None else {}
@@ -363,7 +363,9 @@ async def telas(db, out: dict | None = None) -> dict:
             "As notas de 01–02/2026, importadas em 23/03/2026, nunca foram transmitidas por este "
             "sistema — elas aparecem como «sem comprovação» e ficam intactas, porque apagar ou "
             "reescrever registro que não é desta frente é pior do que mostrá-lo como ele é. "
-            f"Série do ERP: {SERIE_ERP} (as notas do portal do fisco usam outra numeração). "
+            f"Série padrão do ERP: {SERIE_PADRAO} — cada empresa pode declarar a sua em `empresas.nfse_serie_rps`, "
+            "e precisa: sandbox, produção e o portal da contabilidade batem na MESMA homologação do fisco "
+            "com o mesmo CNPJ, e série repetida volta como E0014. "
             "As notas que a empresa emite fora do ERP estão na tela «NFS-e emitidas (nacional)»."
         ),
         "cta": "—",

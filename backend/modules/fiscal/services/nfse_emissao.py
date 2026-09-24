@@ -66,10 +66,30 @@ logger = logging.getLogger(__name__)
 #: Onde o XML fica guardado. `/app/uploads` é bind do host (durável) — ver docstring.
 DIR_XML = Path(os.getenv("NFSE_XML_DIR", "/app/uploads/nfse"))
 
-#: Série dedicada ao ERP. As notas que a empresa já emite pelo portal do fisco usam
-#: outra numeração (114 notas em `nfse_emitidas_nacional`, nº 1–122) — série separada é
+#: Série PADRÃO do ERP, usada só quando a empresa não declarou a dela em
+#: `empresas.nfse_serie_rps`. As notas que a empresa já emite pelo portal do fisco usam
+#: outra numeração (115 notas em `nfse_emitidas_nacional`, nº 1–123) — série separada é
 #: o que impede o ERP de colidir com elas.
-SERIE_ERP = "900"
+#:
+#: POR QUE VIROU DADO E NÃO É MAIS CONSTANTE (24/09/2026, medido):
+#: a homologação do Padrão Nacional é UMA SÓ para todo mundo. O sandbox e a produção deste
+#: mesmo sistema batem nela com o MESMO CNPJ. Emitindo de produção com a série 900 — que o
+#: sandbox já tinha queimado nos testes da frente Z7 — o fisco devolveu:
+#:
+#:     E0014 · Conjunto de Série, Número, Código do Município Emissor e CNPJ/CPF informado
+#:             nesta DPS já existe em uma NFS-e gerada a partir de uma DPS enviada anteriormente
+#:
+#: É o mesmo defeito que a NF-e teve hoje (lá resolvido com série 2 para produção). A série
+#: identifica o PONTO DE EMISSÃO; sandbox e produção são dois pontos e precisam de séries
+#: diferentes. E há um terceiro ponto: o portal que a contabilidade usa, na série 70000.
+#: Com a série em `empresas`, cada ponto declara a sua sem tocar em código.
+SERIE_PADRAO = "900"
+
+
+def serie_da(emp: dict) -> str:
+    """Série da DPS desta empresa. `empresas.nfse_serie_rps` manda; sem ela, a padrão."""
+    return str(emp.get("nfse_serie_rps") or SERIE_PADRAO).strip() or SERIE_PADRAO
+
 
 #: Condomínio "empresa da casa": `nfses.condominio_id` é NOT NULL e não tem FK. Mesmo id
 #: que a frente Z3 usa em `nfes`.
@@ -141,6 +161,9 @@ async def carregar_empresa(db: AsyncSession, empresa: str) -> dict[str, Any]:
                     "SELECT id::text, slug, cnpj, razao_social, inscricao_municipal,"
                     " coalesce(nfse_ambiente,'homologacao') AS nfse_ambiente,"
                     " coalesce(codigo_municipio_ibge,'1302603') AS cod_mun,"
+                    # Série da DPS DESTA empresa. Sem ela cai na SERIE_PADRAO — e aí sandbox
+                    # e produção colidem no fisco (E0014, medido em 24/09). Ver `serie_da`.
+                    " nullif(trim(coalesce(nfse_serie_rps,'')),'') AS nfse_serie_rps,"
                     " regime_tributario::text AS regime"
                     " FROM empresas WHERE slug = :s AND status = 'ativa'"
                 ),
@@ -281,7 +304,7 @@ async def _gravar(
     chave = resultado.get("chave_acesso")
     xml_dps = resultado.get("xml_dps_assinado")
     xml_nfse = resultado.get("xml_nfse")
-    base = chave or f"rejeitada-{ambiente}-{SERIE_ERP}-{numero}"
+    base = chave or f"rejeitada-{ambiente}-{serie_da(emp)}-{numero}"
     xml_path = guardar_xml(emp["cnpj"], f"{base}-nfse", xml_nfse) or guardar_xml(emp["cnpj"], f"{base}-dps", xml_dps)
 
     nfse_id = str(uuid4())
@@ -317,7 +340,7 @@ async def _gravar(
             "slug": emp["slug"],
             "amb": ambiente,
             "st": status,
-            "serie": SERIE_ERP,
+            "serie": serie_da(emp),
             "num": numero,
             "nnfse": str(resultado.get("numero_nfse") or "")[:20] or None,
             "chave": chave,
@@ -416,7 +439,7 @@ async def emitir(
             "gravou": False,
         }
 
-    numero = await proximo_numero(db, emp["cnpj"], SERIE_ERP, ambiente)
+    numero = await proximo_numero(db, emp["cnpj"], serie_da(emp), ambiente)
     await db.commit()  # o número é reservado ANTES de ir ao fisco: não se reusa.
 
     try:
@@ -428,6 +451,7 @@ async def emitir(
             tipo_tributacao=tipo_tributacao,
             dry_run=False,
             numero=str(numero),
+            serie=serie_da(emp),
         )
     except Exception as exc:
         # O número JÁ foi reservado. Sem esta linha ele some e vira buraco invisível na
@@ -470,7 +494,7 @@ async def emitir(
         "empresa": emp["slug"],
         "cnpj": emp["cnpj"],
         "ambiente": ambiente,
-        "serie": SERIE_ERP,
+        "serie": serie_da(emp),
         "numero": numero,
         "chave_acesso": resultado.get("chave_acesso"),
         "numero_nfse": resultado.get("numero_nfse"),
@@ -488,7 +512,7 @@ async def emitir(
         # o remédio é semear `nfse_numeracao.ultimo` com o último número real — não um laço
         # que dispara N pedidos ao fisco.
         "dica": (
-            f"O nº {numero} da série {SERIE_ERP} já existe no fisco (E0141). Ele fica registrado "
+            f"O nº {numero} da série {serie_da(emp)} já existe no fisco (E0141). Ele fica registrado "
             f"como queimado e a próxima emissão usa o {numero + 1}."
             if "E0141" in str(resultado.get("response") or "")
             else None
