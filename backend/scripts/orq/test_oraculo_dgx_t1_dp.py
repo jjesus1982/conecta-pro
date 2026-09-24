@@ -15,7 +15,7 @@ O que afirma:
   2. Foto (fixture): `salvar_foto` grava arquivo que `cracha_pdf.foto_path` RESOLVE e escreve
      `employees.foto_url`; GIF é recusado; ZIP com matrícula + CPF + desconhecido → 2 gravadas,
      1 sem colaborador. Tudo desfeito ao fim (foto_url volta ao valor anterior, arquivos apagados).
-  3. Ficha: 15 seções; dependentes == jsonb_array_length; benefícios ativos == count por SQL;
+  3. Ficha: 16 seções (15 + `transferencias`, dgx w4); dependentes == jsonb_array_length; benefícios ativos == count por SQL;
      férias == min(6, count por SQL) — recontados por SQL próprio, não pelo serviço.
   4. Certificados: nº de "Vencido" == recontagem por SQL das três fontes (RH, vigilante, ficha).
   5. Turnover: admitidos/desligados do último mês == SQL próprio (só CLT, sem PJ/candidato).
@@ -40,7 +40,13 @@ import zipfile
 from datetime import date, timedelta
 
 ABAS = {
-    "g-admissao": ["colaboradores-fotos", "colaborador-foto", "colaboradores-fotos-lote", "ficha-colaborador", "certificados-vencimento"],
+    "g-admissao": [
+        "colaboradores-fotos",
+        "colaborador-foto",
+        "colaboradores-fotos-lote",
+        "ficha-colaborador",
+        "certificados-vencimento",
+    ],
     "g-visao": ["turnover-dashboard"],
     "g-cct": ["cargos-atributos", "cargo-atributos-form"],
 }
@@ -92,7 +98,14 @@ async def main() -> int:
 
     # 1) réguas puras
     hoje = date(2026, 9, 24)
-    casos = [(None, "Não expira"), (hoje - timedelta(days=1), "Vencido há 1 d"), (hoje + timedelta(days=30), "Vence em 30 d"), (hoje + timedelta(days=60), "Vence em 60 d"), (hoje + timedelta(days=90), "Vence em 90 d"), (hoje + timedelta(days=91), "Ativo")]
+    casos = [
+        (None, "Não expira"),
+        (hoje - timedelta(days=1), "Vencido há 1 d"),
+        (hoje + timedelta(days=30), "Vence em 30 d"),
+        (hoje + timedelta(days=60), "Vence em 60 d"),
+        (hoje + timedelta(days=90), "Vence em 90 d"),
+        (hoje + timedelta(days=91), "Ativo"),
+    ]
     for v, esperado in casos:
         got = t1.situacao_validade(v, hoje)[0]
         if got != esperado:
@@ -110,7 +123,11 @@ async def main() -> int:
         # 8) DDL
         cols = {
             r[0]
-            for r in (await db.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='cct_cargos'"))).fetchall()
+            for r in (
+                await db.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='cct_cargos'")
+                )
+            ).fetchall()
         }
         for c in ("cbo", "tipo_servico", "exige_cnh", "exige_cnv", "exige_porte_arma"):
             if c not in cols:
@@ -151,7 +168,9 @@ async def main() -> int:
             r = await fc.importar_zip(db, zb.getvalue())
             if len(r["ok"]) != 2 or r["nao_encontrados"] != ["999999999.jpg"] or r["ignorados"] != ["leia.txt"]:
                 falhas.append(f"lote ZIP: {r}")
-            n_com = (await db.execute(text("SELECT count(*) FROM employees WHERE foto_url LIKE 'employees/%'"))).scalar()
+            n_com = (
+                await db.execute(text("SELECT count(*) FROM employees WHERE foto_url LIKE 'employees/%'"))
+            ).scalar()
             if n_com != 2:
                 falhas.append(f"após o lote, {n_com} com foto (esperado 2)")
         finally:
@@ -163,14 +182,53 @@ async def main() -> int:
 
         # 3) ficha
         sec = await t1.ficha(db, e1)
-        esperadas = {"dados_gerais", "contrato", "documentos", "endereco_e_contato", "banco_e_pix", "alocacao", "dependentes", "beneficios", "descontos_e_vales", "aso", "cursos_e_certificados", "disciplina", "afastamentos", "ferias", "uniforme_epi_e_equipamentos"}
+        esperadas = {
+            "dados_gerais",
+            "contrato",
+            "documentos",
+            "endereco_e_contato",
+            "banco_e_pix",
+            "alocacao",
+            "dependentes",
+            "beneficios",
+            "descontos_e_vales",
+            "aso",
+            "cursos_e_certificados",
+            "disciplina",
+            "afastamentos",
+            "ferias",
+            "uniforme_epi_e_equipamentos",
+            "transferencias",
+        }  # dgx w4
         if set(sec) != esperadas:
             falhas.append(f"ficha com seções {sorted(set(sec) ^ esperadas)} a mais/menos")
-        n_dep = (await db.execute(text("SELECT coalesce(jsonb_array_length(CASE WHEN jsonb_typeof(dependentes)='array' THEN dependentes END),0) FROM employees WHERE id::text=:e"), {"e": e1})).scalar()
-        n_ben = (await db.execute(text("SELECT count(*) FROM employee_benefits WHERE employee_id::text=:e AND coalesce(status,'active')='active'"), {"e": e1})).scalar()
-        n_fer = (await db.execute(text("SELECT count(*) FROM hr_vacation_requests WHERE employee_id::text=:e"), {"e": e1})).scalar()
-        if len(sec.get("dependentes", [])) != n_dep or len(sec.get("beneficios", [])) != n_ben or len(sec.get("ferias", [])) != min(6, n_fer):
-            falhas.append(f"ficha de {n1}: dependentes {len(sec.get('dependentes', []))}/{n_dep} · benefícios {len(sec.get('beneficios', []))}/{n_ben} · férias {len(sec.get('ferias', []))}/{min(6, n_fer)}")
+        n_dep = (
+            await db.execute(
+                text(
+                    "SELECT coalesce(jsonb_array_length(CASE WHEN jsonb_typeof(dependentes)='array' THEN dependentes END),0) FROM employees WHERE id::text=:e"
+                ),
+                {"e": e1},
+            )
+        ).scalar()
+        n_ben = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM employee_benefits WHERE employee_id::text=:e AND coalesce(status,'active')='active'"
+                ),
+                {"e": e1},
+            )
+        ).scalar()
+        n_fer = (
+            await db.execute(text("SELECT count(*) FROM hr_vacation_requests WHERE employee_id::text=:e"), {"e": e1})
+        ).scalar()
+        if (
+            len(sec.get("dependentes", [])) != n_dep
+            or len(sec.get("beneficios", [])) != n_ben
+            or len(sec.get("ferias", [])) != min(6, n_fer)
+        ):
+            falhas.append(
+                f"ficha de {n1}: dependentes {len(sec.get('dependentes', []))}/{n_dep} · benefícios {len(sec.get('beneficios', []))}/{n_ben} · férias {len(sec.get('ferias', []))}/{min(6, n_fer)}"
+            )
         if sec["dados_gerais"].get("nome") != n1:
             falhas.append("ficha não é da pessoa pedida")
 
@@ -210,7 +268,17 @@ async def main() -> int:
             falhas.append("turnover do mês não segue a fórmula")
 
         # 6) termo PDF
-        a = (await db.execute(text("SELECT * FROM disciplinary_actions WHERE document_text IS NOT NULL ORDER BY created_at DESC LIMIT 1"))).mappings().first()
+        a = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT * FROM disciplinary_actions WHERE document_text IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+                    )
+                )
+            )
+            .mappings()
+            .first()
+        )
         if a:
             pdf = tp.montar_termo(dict(a))
             if not pdf.startswith(b"%PDF"):
@@ -246,7 +314,11 @@ async def main() -> int:
                 if ex.status_code != 409:
                     falhas.append(f"férias com afastamento aberto: HTTP {ex.status_code}, esperado 409")
             await db.rollback()
-            await db.execute(text("UPDATE sst_afastamentos SET data_retorno = CURRENT_DATE - 1, status='encerrado' WHERE observacoes='FIXTURE DGX T1'"))
+            await db.execute(
+                text(
+                    "UPDATE sst_afastamentos SET data_retorno = CURRENT_DATE - 1, status='encerrado' WHERE observacoes='FIXTURE DGX T1'"
+                )
+            )
             await db.commit()
             try:
                 await vc.criar_vacation(dict(pedido), _User(), db)
@@ -255,7 +327,10 @@ async def main() -> int:
                     falhas.append("férias ainda recusadas por afastamento depois do retorno")
         finally:
             await db.rollback()
-            await db.execute(text("DELETE FROM hr_vacation_requests WHERE employee_id::text=:e AND start_date='2027-03-01'"), {"e": e2})
+            await db.execute(
+                text("DELETE FROM hr_vacation_requests WHERE employee_id::text=:e AND start_date='2027-03-01'"),
+                {"e": e2},
+            )
             await db.execute(text("DELETE FROM sst_afastamentos WHERE observacoes='FIXTURE DGX T1'"))
             await db.commit()
 
@@ -269,13 +344,17 @@ async def main() -> int:
         if len((out.get("colaboradores-fotos") or {}).get("rows") or []) != n_at:
             falhas.append("tela de fotos não lista todos os ativos CLT")
 
-    print(f"ativos CLT: {n_at} · certificados: {len(itens)} ({venc} vencidos) · turnover {ini:%m/%Y}: +{ult['admitidos']} −{ult['desligados']} quadro {ult['quadro']} → {ult['turnover']:.2f}")
+    print(
+        f"ativos CLT: {n_at} · certificados: {len(itens)} ({venc} vencidos) · turnover {ini:%m/%Y}: +{ult['admitidos']} −{ult['desligados']} quadro {ult['quadro']} → {ult['turnover']:.2f}"
+    )
     for f in falhas:
         print("FALHOU:", f)
     print(f"TOTAL dgx t1: {len(falhas)} falha(s)")
     if falhas:
         return 1
-    print("OK dgx t1: foto resolve no crachá, ficha bate com o SQL, régua de validade, turnover DGX, termo em PDF, férias travadas por afastamento aberto")
+    print(
+        "OK dgx t1: foto resolve no crachá, ficha bate com o SQL, régua de validade, turnover DGX, termo em PDF, férias travadas por afastamento aberto"
+    )
     return 0
 
 

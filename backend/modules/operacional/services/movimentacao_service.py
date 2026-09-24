@@ -37,6 +37,9 @@ MOTIVOS = {
     "cobertura_de_falta": "Cobertura de falta",
     "cobertura_de_ferias": "Cobertura de férias",
     "treinamento": "Treinamento",
+    # dgx w4 — 8º motivo, além dos 7 do DGX: a pessoa continua no mesmo posto, sob outro CNPJ do
+    # grupo. `hr/services/transferencia.efetivar` encerra em D−1 e reabre em D com este motivo.
+    "transferencia_de_empresa": "Transferência entre empresas do grupo",
 }
 SOLICITANTES = {"cliente": "Cliente", "supervisor": "Supervisor", "dp": "DP", "sistema": "Sistema"}
 MOTIVOS_COM_COBERTO = ("cobertura_de_ferias", "cobertura_de_afastamento")
