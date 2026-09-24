@@ -14,6 +14,7 @@ from modules.operacional.controllers.redesign_data_controller import (
     _build_rh,
     _helpers,
     b,
+    doc,
     initials,
     t,
 )
@@ -1255,7 +1256,7 @@ async def build(db) -> dict:
             "1.7fr 1.2fr 1.2fr 1fr 1.1fr",
             "SELECT id, coalesce(employee_name,'—'), coalesce(action_type::text,'—'), "
             "coalesce(reason_category::text,'—'), incident_date, coalesce(code,'—'), "
-            "coalesce(status::text,'—') "
+            "coalesce(status::text,'—'), document_text IS NOT NULL "
             "FROM disciplinary_actions ORDER BY created_at DESC NULLS LAST LIMIT 200",
             lambda r: [
                 t(r[1], 600, _ND, initials(r[1] or "")),
@@ -1265,6 +1266,13 @@ async def build(db) -> dict:
                 b((r[6] or "—").replace("_", " ").capitalize(), _DISC_TONE.get((r[6] or "").lower(), "info")),
             ],
             actionsfn=_disc_acoes,
+            # dgx t1 — o termo existia só como texto (document_text); PDF timbrado em
+            # /redesign/disciplina/{id}/pdf (_dgx_t1_dp). Sem texto ainda = botão honesto desligado.
+            docsfn=lambda r: [
+                doc("Termo (PDF)", f"/api/v1/redesign/disciplina/{r[0]}/pdf", fmt="pdf")
+                if r[7]
+                else doc("Termo (PDF)", disabled=True, motivo="texto do termo ainda não gerado (submeta/aprove)")
+            ],
         ),
     )
     if isinstance(out.get("disc-medidas"), dict):

@@ -22,7 +22,8 @@ GRUPOS = [
     ("g-visao", "Visão geral", "Quadro de pessoal, contratos e cadastro", [
         ("visao", "Resumo"), ("funcionarios", "Funcionários"),
         ("contratos", "Contratos"), ("headcount", "Headcount"), ("cadastro-incompleto", "Cadastro incompleto"),
-        ("sem-escala", "Sem alocação"), ("cct-conformidade", "Conformidade CCT"), ("importar-cadastro", "Importar cadastro")]),
+        ("sem-escala", "Sem alocação"), ("cct-conformidade", "Conformidade CCT"), ("importar-cadastro", "Importar cadastro"),
+        ("turnover-dashboard", "Turnover")]),  # dgx t1
 
     ("g-admissao", "Admissão & Cadastro", "Entrada do colaborador, documentos e certificações", [
         ("admissao", "Admissões"), ("nova-admissao", "Nova admissão"),
@@ -31,7 +32,10 @@ GRUPOS = [
         ("certificacao", "Certificações"), ("nova-certificacao", "Nova certificação"),
         ("gerar-certificacoes", "Gerar certificações"), ("certificacoes-gerar-folha", "Certificações da folha (competência)"), ("prestadores-pj-links-empresa", "Links PJ por empresa"),
         # dgx f6 — dependentes (fonte que a folha lê) e crachás em lote
-        ("dependentes", "Dependentes"), ("dependente-novo", "Novo dependente"), ("crachas-lote", "Crachás em lote")]),
+        ("dependentes", "Dependentes"), ("dependente-novo", "Novo dependente"), ("crachas-lote", "Crachás em lote"),
+        # dgx t1 — foto (alimenta o crachá), ficha única e validade de cursos/certificados
+        ("colaboradores-fotos", "Fotos"), ("colaborador-foto", "Enviar foto"), ("colaboradores-fotos-lote", "Fotos em lote (ZIP)"),
+        ("ficha-colaborador", "Ficha do colaborador"), ("certificados-vencimento", "Cursos e certificados — validade")]),
 
     ("g-ponto", "Ponto & Jornada", "Batidas, justificativas e fechamento do mês", [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
@@ -70,7 +74,8 @@ GRUPOS = [
     ("g-cct", "Sindicato & CCT", "Sindicato, funções da convenção, eventos e benefícios por função, municípios", [
         ("cct-sindicato", "Sindicato"), ("cct-funcoes", "Funções"),
         ("cct-funcao-eventos", "Eventos por função"), ("cct-funcao-beneficios", "Benefícios por função"),
-        ("cct-municipios", "Municípios"), ("cct-municipio-novo", "Adicionar município")]),
+        ("cct-municipios", "Municípios"), ("cct-municipio-novo", "Adicionar município"),
+        ("cargos-atributos", "Cargos: CBO e exigências"), ("cargo-atributos-form", "Editar cargo")]),  # dgx t1
 
     ("g-beneficios", "Benefícios & Reembolsos", "VT/VR, benefícios da CCT e reembolsos", [
         ("beneficios", "Benefícios"), ("nova-beneficio", "Adicionar benefício"),
