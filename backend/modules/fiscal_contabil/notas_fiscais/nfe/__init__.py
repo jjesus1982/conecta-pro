@@ -6,6 +6,6 @@ Exports:
     router — FastAPI router com prefix /nfe, registrado em /fiscal/nfe
 """
 
-from .controller import router
+from .emissor import router
 
 __all__ = ["router"]

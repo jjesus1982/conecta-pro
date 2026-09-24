@@ -42,11 +42,9 @@ BASELINE_COUNTS = {
     "modules/empresas/services/contexto_grupo.py": 2,
     "modules/financial/agents/collection_negotiator.py": 2,
     "modules/financial/controllers/nfse_entrada_controller.py": 3,
-    "modules/financial/integrations/nfe_provider.py": 1,
     "modules/financial/services/fiscal_dashboard_service.py": 1,
     "modules/financial/services/ledger_auto_service.py": 2,
     "modules/fiscal/services/nfse_multi_empresa_service.py": 2,
-    "modules/fiscal_contabil/notas_fiscais/nfe/controller.py": 2,
     "modules/fiscal_contabil/notas_fiscais/nfe/entrada_controller.py": 1,
     "modules/ged/controllers/kit_real_controller.py": 1,
     "modules/gedeon/controllers/cnd_controller.py": 1,
@@ -129,11 +127,7 @@ def test_sem_cnpj_hardcoded_novo():
         "contexto_grupo:\n  " + "\n  ".join(violacoes)
     )
     # Aviso (nao falha): tetos que ficaram folgados -> baixar a baseline.
-    folgados = [
-        f"{rel}: {cont.get(rel, 0)}/{teto}"
-        for rel, teto in BASELINE_COUNTS.items()
-        if cont.get(rel, 0) < teto
-    ]
+    folgados = [f"{rel}: {cont.get(rel, 0)}/{teto}" for rel, teto in BASELINE_COUNTS.items() if cont.get(rel, 0) < teto]
     if folgados:
         print("[guard] tetos folgados (baixe a baseline): " + repr(folgados[:8]))
 

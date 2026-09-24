@@ -2567,12 +2567,29 @@ class TestNFeProvider:
         assert result.get("cStat") == "100"
         assert "Autorizado" in result.get("xMotivo", "")
 
-    def test_emitente_data(self):
-        from modules.financial.integrations.nfe_provider import _EMITENTE
+    def test_emitente_nao_e_chumbado(self):
+        """DGX Z2: o emitente NÃO mora mais no código.
 
-        assert _EMITENTE["cnpj"] == "35710481000103"
-        assert _EMITENTE["uf"] == "AM"
-        assert _EMITENTE["regime_tributario"] == "3"
+        O dict `_EMITENTE` foi removido — ele trazia IE vazia e um endereço
+        ("Rua dos Andrades, 1000, Centro") que divergia do outro emissor da casa.
+        A identidade fiscal agora vem da tabela `empresas` (empresa_lookup), e o
+        provider recusa emitir se faltar qualquer campo legal.
+        """
+        import modules.financial.integrations.nfe_provider as prov
+
+        assert not hasattr(prov, "_EMITENTE"), "emitente voltou a ser chumbado no código"
+        with pytest.raises(prov.NFeError) as exc:
+            prov.conferir_emitente({"cnpj": "35710481000103", "razao_social": "X"})
+        assert exc.value.code == "EMITENTE_INCOMPLETO"
+
+    def test_producao_travada_por_padrao(self):
+        """DGX Z2: sem o gate humano, nada sai em produção (tpAmb=1)."""
+        import modules.financial.integrations.nfe_provider as prov
+
+        assert not prov.producao_liberada()
+        with pytest.raises(prov.NFeError) as exc:
+            prov._exigir_ambiente("1", "teste")
+        assert exc.value.code == "PRODUCAO_TRAVADA"
 
     def test_uf_cod_map(self):
         from modules.financial.integrations.nfe_provider import _UF_COD

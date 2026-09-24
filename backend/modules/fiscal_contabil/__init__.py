@@ -37,7 +37,7 @@ except ImportError as _e:
 
 # --- NF-e Produto/Saída (emissão via SEFAZ-AM) ---
 try:
-    from modules.fiscal_contabil.notas_fiscais.nfe.controller import (
+    from modules.fiscal_contabil.notas_fiscais.nfe.emissor import (
         router as nfe_emissao_router,
     )
 except ImportError as _e2:
