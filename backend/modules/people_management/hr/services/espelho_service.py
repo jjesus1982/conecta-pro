@@ -17,9 +17,11 @@ Princípios (ver skill folha-cct + auditoria defensiva A1):
 FÓRMULAS (base CCT SINDECOMPRESTS AM000613/2025 — agentes de portaria):
 
 1. Pareamento cronológico entrada→saída (o turno 12x36 CRUZA a meia-noite, então
-   NÃO se agrupa por dia-calendário). Um TURNO = sequência de pares cujo intervalo
-   entre um par e o próximo é < 180 min (intrajornada); intervalos ≥ 180 min
-   separam turnos. O turno é atribuído à DATA da 1ª entrada.
+   NÃO se agrupa por dia-calendário). Um TURNO = sequência de pares que pertencem ao
+   MESMO PLANTÃO, pela régua única da casa (`ponto/services/horas_service.dia_do_plantao`,
+   DGX V1/W1/X4 — a mesma que a folha, o fechamento e a tela do DP usam): o dia é a data
+   de início da janela de `shifts` que cobre a entrada; sem turno lançado, a continuidade
+   (par que recomeça em até 3h, do outro lado da meia-noite); sem as duas, o dia civil.
    BORDA DO MÊS: as batidas são lidas com margem de ±24h além do mês (SPILL_MARGIN_H)
    para que o turno que entra 30/x 22:00 e sai 01/(x+1) feche corretamente. Depois
    do pareamento, mantém-se no espelho SÓ os turnos cuja 1ª entrada cai no mês-alvo
@@ -79,7 +81,8 @@ NIGHT_END = time(5, 0)
 REDUCED_NIGHT_MIN = 52.5  # hora noturna reduzida = 52'30"
 NIGHT_FACTOR = 60.0 / REDUCED_NIGHT_MIN  # ≈ 1.142857
 
-INTRA_SHIFT_GAP_MAX = 180  # min: gap < 180 = intervalo intrajornada (mesmo turno)
+# O corte de 180 min que separava turnos saiu daqui: quem agrupa é `dia_do_plantao`
+# (`ponto/services/horas_service`), e lá o mesmo 3h é `INTERVALO_MAX_H`. Uma régua só.
 MAX_PAIR_MIN = 24 * 60  # par com dur >= 24h é inválido
 # margem lida além das bordas do mês p/ fechar turno que cruza a virada do mês
 SPILL_MARGIN_H = 24
@@ -216,6 +219,31 @@ def _uma_fonte_por_dia(batidas: list[dict[str, Any]]) -> list[dict[str, Any]]:
         or not b.get("punch_timestamp")
         or b["punch_timestamp"].date() not in medidos
     ]
+
+
+def _janelas_de_turno(db: Session, employee_id: str, mes: int, ano: int) -> list:
+    """Janelas de turno de `shifts` na MESMA janela de spill das batidas (mês ± 24h).
+
+    Reusa a query e a primitiva da régua única (`ponto/services/horas_service`) — a folha, o
+    fechamento e a tela do DP leem daí desde a DGX V1/W1/X4. Falha em silêncio devolvendo
+    `[]`: sem janela a régua cai no dia civil, que é o que o espelho fazia sempre.
+    """
+    from modules.people_management.ponto.services.horas_service import (
+        SQL_TURNOS_JANELA,
+        janelas_de_turno,
+    )
+
+    try:
+        ini, fim = _mes_bounds(int(mes), int(ano))
+        margem = timedelta(hours=SPILL_MARGIN_H)
+        rows = db.execute(
+            SQL_TURNOS_JANELA,
+            {"e": str(employee_id), "ini": ini - margem, "fim": fim + margem},
+        ).fetchall()
+        return janelas_de_turno(rows)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("janelas de turno indisponíveis: %s", exc)
+        return []
 
 
 def _carregar_feriados(db: Session, mes: int, ano: int) -> set[date]:
@@ -428,19 +456,34 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
     return pares, anomalias
 
 
-def _agrupar_turnos(pares: list[dict]) -> list[dict]:
-    """Agrupa pares em TURNOS (gap intra-turno < 180 min = intervalo). Atribui à
-    data da 1ª entrada. Retorna [{date, entrada, saida, pares, worked_min, break_min}]."""
+def _agrupar_turnos(pares: list[dict], janelas: list | None = None) -> list[dict]:
+    """Agrupa pares em TURNOS pelo DIA DO PLANTÃO e atribui o turno a esse dia.
+
+    A régua é a única da casa (`ponto/services/horas_service.dia_do_plantao`, DGX V1/W1/X4):
+    o dia de um turno é a data de INÍCIO da janela de `shifts` que cobre a entrada; sem turno
+    lançado vale a continuidade (par que recomeça até `INTERVALO_MAX_H` depois do anterior
+    terminar, já do outro lado da meia-noite); sem as duas, o dia civil da entrada.
+
+    `janelas` vem de `janelas_de_turno(SQL_TURNOS_JANELA)`. Sem ela (lista vazia) a régua cai
+    na continuidade, que é o mesmo corte de 3h que o antigo `INTRA_SHIFT_GAP_MAX` fazia —
+    por isso o espelho de quem não tem escala lançada não se mexe.
+
+    Retorna [{date, entrada, saida, pares, worked_min, break_min}].
+    """
+    from modules.people_management.ponto.services.horas_service import dia_do_plantao
+
     turnos: list[dict] = []
     atual: list[dict] = []
+    dia_atual: date | None = None
+    ultimo: tuple | None = None  # (saída do par anterior, dia atribuído a ele)
 
-    def _fecha(grp: list[dict]) -> dict:
+    def _fecha(grp: list[dict], dia: date) -> dict:
         worked = sum(p["dur_min"] for p in grp)
         break_min = 0.0
         for i in range(1, len(grp)):
             break_min += (grp[i]["entrada"] - grp[i - 1]["saida"]).total_seconds() / 60.0
         return {
-            "date": grp[0]["entrada"].date(),
+            "date": dia,
             "entrada": grp[0]["entrada"],
             "saida": grp[-1]["saida"],
             "pares": grp,
@@ -449,17 +492,16 @@ def _agrupar_turnos(pares: list[dict]) -> list[dict]:
         }
 
     for p in pares:
-        if not atual:
-            atual = [p]
+        dia = dia_do_plantao(p["entrada"], janelas or [], ultimo)
+        ultimo = (p["saida"], dia)
+        if atual and dia == dia_atual:
+            atual.append(p)  # mesmo plantão, gap = intervalo
             continue
-        gap = (p["entrada"] - atual[-1]["saida"]).total_seconds() / 60.0
-        if 0 <= gap < INTRA_SHIFT_GAP_MAX:
-            atual.append(p)  # mesmo turno, gap = intervalo
-        else:
-            turnos.append(_fecha(atual))
-            atual = [p]
+        if atual:
+            turnos.append(_fecha(atual, dia_atual))
+        atual, dia_atual = [p], dia
     if atual:
-        turnos.append(_fecha(atual))
+        turnos.append(_fecha(atual, dia_atual))
     return turnos
 
 
@@ -520,7 +562,7 @@ def calcular_espelho(
     escala_oraculo = _carregar_escala_oraculo(db, employee_id, mes, ano)
 
     pares, anomalias = _parear(batidas)
-    turnos = _agrupar_turnos(pares)
+    turnos = _agrupar_turnos(pares, _janelas_de_turno(db, employee_id, mes, ano))
 
     # ── Recorte do mês-alvo (pareamento cruza a borda; o espelho não) ──────────
     # O turno pertence ao mês em que COMEÇA (data da 1ª entrada). Turnos/anomalias
