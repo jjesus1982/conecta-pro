@@ -353,3 +353,71 @@ para a homologação.
 58. **Quem aprova justificativa de falta, e em que prazo** — 13 paradas, a mais antiga há dois meses.
 59. **47 dos 63 ativos estão sem cliente vinculado** — por isso feriado de cliente não alcança ninguém.
 60. **A direção da batida** (entrada/saída manda ou não): 192 horas de diferença em três meses entre a tela de ponto e a folha.
+
+---
+
+## 25. A primeira nota fiscal da casa saiu
+
+Você pediu com urgência: *«coloca a emissão de NF-e de material na próxima onda para os dois
+cnpj»*. Saiu. Em **homologação**, que é o ambiente de teste da SEFAZ — a nota é real no protocolo
+e não vale nada no fisco, que é exatamente o que se quer antes da primeira de verdade.
+
+| | |
+|---|---|
+| Resposta da SEFAZ-AM | **cStat 100 — Autorizado o uso da NF-e** |
+| Protocolo | **113260013553736** |
+| Chave | `13260935710481000103550010000000091577387314` |
+| Emitente | CONECTAMAIS ELETRONICA LTDA · IE 05.426.574-6 |
+| Produto | câmera bodycam · NCM 85258919 · CFOP 5102 |
+| Imposto | ICMS 20% · PIS 1,65% · COFINS 7,60% |
+
+Antes disso a casa tinha **dois** emissores de NF-e e **zero** notas autorizadas na história
+inteira. As duas únicas tentativas eram de 11/04 e foram rejeitadas.
+
+**Também foram exercidos:** cancelamento (a SEFAZ devolveu 135, evento registrado) e inutilização
+de faixa de números (102). São os dois remédios fiscais de quem erra uma nota.
+
+**Produção continua desligada, de propósito.** Duas travas no código mais uma frase-senha que só
+você pode pôr no `.env`. Medido: **zero notas gravadas em ambiente de produção**.
+
+### A Patrimonial não emitiu, e não é falta de código
+
+O caminho inteiro foi percorrido com o certificado dela: a SEFAZ respondeu que o serviço está no
+ar, o XML foi montado no formato do Simples Nacional, assinado, aceito no schema, e o lote foi
+processado. Parou num campo só: **`Rejeição 209 — IE do emitente inválida`**.
+
+A **Inscrição Estadual da CONECTAMAIS PATRIMONIAL está vazia** no cadastro, e não existe em
+lugar nenhum do sistema — procurei em `empresas`, `tenants`, `sped_files` e `suframa_configs`;
+lá só tem a inscrição **municipal** (721042001). O Amazonas não oferece consulta cadastro pela
+internet, então não dá para descobrir sozinho.
+
+**Pergunta para você:** a Patrimonial **tem** Inscrição Estadual e ela só não está no ERP, ou ela
+**não tem** e precisa abrir na SEFAZ-AM? Se não tiver, ela continua emitindo só NFS-e (serviço,
+ISS), que é o que ela de fato vende. No minuto em que o número entrar no cadastro, a nota sai.
+
+### O resto da onda, que fecha o fluxo que você desenhou
+
+- **Cadastro fiscal do produto** com 95 NCMs tirados das suas 147 notas de compra reais, e a
+  **busca de NCM pela descrição** que você pediu.
+- **Nota a partir do orçamento** — dos dois jeitos que você pediu: buscando a proposta no CRM ou
+  **subindo o arquivo**. E obedecendo a sua regra: o emissor **nunca cria orçamento**, só consome.
+  Tem trava que proíbe o código de inserir proposta a partir dali.
+- **Bartolo** tira dúvida de NF-e na própria tela fiscal, e é proibido de inventar número.
+- **A tributação** vem de uma régua com a norma citada em cada alíquota, nunca do emissor.
+
+### Dois defeitos que eu peguei na hora de juntar
+
+1. `main_production.py` (arquivo que o CLAUDE.md proíbe mexer) voltou reformatado inteiro pelo
+   pre-commit. Comparei as duas árvores sintáticas: **uma única diferença de verdade**, o texto
+   de um log, que ficou correto. Mantido — mas conferido, não presumido.
+2. **Campo escondido aparecia na tela.** O formulário manda o id da nota num campo `hidden`; o
+   desenho não conhecia esse tipo e desenhava uma caixa de texto **editável com o UUID dentro**,
+   sem rótulo, logo acima do botão «Transmitir». Quem fosse transmitir via aquilo e podia trocar
+   o id. Não era da onda: **nove telas** mandam campo escondido. Corrigido na raiz.
+
+### O catálogo nasce sem preço, como você mandou
+
+*«deixem sem valor, quando eu for fazer os orçamentos eu edito o preço»* — conferido: o cadastro
+fiscal não tem coluna de preço, e os 867 produtos vindos do Bling estão com as seis colunas de
+preço **zeradas**. Nada a apagar; o que faltava era a regra escrita, para a onda do catálogo não
+preencher. Escrita.
