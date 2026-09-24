@@ -164,7 +164,14 @@ async def pedir_confirmacoes(db: AsyncSession, *, dia: date | None = None, envia
             if ok:
                 enviados += 1
             else:
+                # ⚠️ ENVIO FALHOU ≠ PESSOA OMISSA. Sem esta marca, o relatório das 08:30 diria
+                # "não respondeu" sobre quem nunca recebeu a pergunta — culpando a pessoa pela
+                # minha falha de entrega. `status` vira `nao_avisado` e o texto do relatório
+                # separa as duas coisas.
                 falhas.append(t["nome"])
+                await db.execute(text(
+                    "UPDATE troca_turno_confirmacoes SET status = 'nao_avisado' "
+                    " WHERE shift_id = CAST(:s AS uuid)"), {"s": t["id"]})
         else:
             enviados += 1
     await db.commit()
@@ -286,16 +293,16 @@ async def fechar_cobertura(db: AsyncSession, *, dia: date | None = None) -> dict
         bateu = (await db.execute(text("""
             SELECT min(punch_timestamp) FROM gp_clock_punches
              WHERE employee_id = CAST(:e AS uuid)
-               AND punch_timestamp BETWEEN (:d::date + :h) - interval '2 hours'
-                                       AND (:d::date + :h) + interval '2 hours'"""),
+               AND punch_timestamp BETWEEN (CAST(:d AS date) + CAST(:h AS time)) - interval '2 hours'
+                                       AND (CAST(:d AS date) + CAST(:h AS time)) + interval '2 hours'"""),
             {"e": r["employee_id"], "d": dia, "h": r["hora_inicio"]})).scalar()
         # Foto no grupo daquele posto, na janela. `wa_grupo_mensagens.tipo` guarda 'image' quando
         # a mensagem é mídia (ver `absorver`).
         foto = (await db.execute(text("""
             SELECT count(*) FROM wa_grupo_mensagens m
              WHERE m.classificacao IN ('escala_do_dia','operacional','midia')
-               AND m.criado_em BETWEEN (:d::date + :h) - interval '2 hours'
-                                   AND (:d::date + :h) + interval '3 hours'"""),
+               AND m.criado_em BETWEEN (CAST(:d AS date) + CAST(:h AS time)) - interval '2 hours'
+                                   AND (CAST(:d AS date) + CAST(:h AS time)) + interval '3 hours'"""),
             {"d": dia, "h": r["hora_inicio"]})).scalar() or 0
 
         item = {"quem": r["nome"], "posto": r["posto"] or "?",
@@ -306,6 +313,9 @@ async def fechar_cobertura(db: AsyncSession, *, dia: date | None = None) -> dict
             recusou.append(item)
         elif bateu:
             ok.append(item)
+        elif r["status"] == "nao_avisado":
+            item["por_que"] = "eu NÃO consegui avisar esta pessoa (telefone inválido ou sem WhatsApp)"
+            nao_respondeu.append(item)
         elif r["status"] == "confirmado":
             confirmou_sem_bater.append(item)
         else:
@@ -326,7 +336,7 @@ def texto_da_cobertura(r: dict) -> str:
         L.append(f"\n🔴 Confirmou e NÃO bateu ponto ({len(sem)}):")
         L += [f"• {x['quem']} — {x['posto']} {x['hora']}" for x in sem]
     if nr:
-        L.append(f"\n🟡 Não respondeu a confirmação ({len(nr)}):")
+        L.append(f"\n🟡 Sem confirmação ({len(nr)}) — inclui quem eu não consegui avisar:")
         L += [f"• {x['quem']} — {x['posto']} {x['hora']}"
               + (f" (bateu {x['bateu']})" if x["bateu"] else " (sem batida)") for x in nr]
     if rec:

@@ -1365,6 +1365,33 @@ async def chatwoot_webhook(
                 return {"status": "ok", "direction": direction, "grupo": _grupo_jid,
                         "observador": True, "erro_parede": str(e)[:120]}
 
+    # ⭐ A RESPOSTA "SIM" DA CONFIRMAÇÃO DE TURNO, registrada ANTES do agente (24/09/2026).
+    #
+    # 🔴 Eu construí `troca_turno.registrar_resposta` e NÃO LIGUEI EM NADA — ninguém a chamava.
+    # A cadeia que isso produziria na primeira manhã: às 18h as 7 pessoas recebem a pergunta,
+    # respondem "sim", nada é registrado; às 05h o lembrete cobra TODAS de novo, inclusive quem
+    # confirmou; às 08:30 o relatório diz ao Jordan que as 7 foram omissas. Pior que não ter a
+    # rotina — ela perguntaria, ignoraria a resposta e depois acusaria quem respondeu.
+    #
+    # ⚠️ Fica AQUI, no webhook, e não como tool do agente: o que vira registro de que alguém se
+    # comprometeu com um posto não pode depender de o LLM decidir chamar a ferramenta. É a mesma
+    # regra do classificador de pedido de escala — determinístico na entrada.
+    if direction == "in" and not _grupo_jid and content and phone_canonical:
+        try:
+            from modules.integrations.connectors.whatsapp import troca_turno as _tt
+            from modules.integrations.connectors.whatsapp.identidade import quem_e as _qe
+
+            if _tt.ler_resposta(content):
+                _idr = await _qe(db, phone_canonical)
+                if getattr(_idr, "employee_id", None):
+                    _res = await _tt.registrar_resposta(
+                        db, employee_id=str(_idr.employee_id), texto=content)
+                    if _res:
+                        logger.info("troca_turno: %s → %s (%s %s)", _idr.nome,
+                                    _res["status"], _res.get("posto"), _res.get("hora"))
+        except Exception as e:  # noqa: BLE001
+            logger.error("troca_turno: resposta não registrada (%s)", e)
+
     if direction == "in" and conv_id and agent_service.agent_enabled():
         # ⭐ 28/08/2026 — ERA `background_tasks.add_task(...)`, e foi assim que o Jordan
         # mandou SEIS mensagens e um PDF às 16:14 e não recebeu nada. `BackgroundTasks`
