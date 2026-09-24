@@ -99,6 +99,9 @@ POLITICA_ASSINANTES: dict[str, list[SignerType]] = {
     # Prorrogação de contrato de experiência segue o contrato: duas partes.
     "prorrogacao_contrato": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "aviso_previo": [SignerType.EMPLOYEE, SignerType.COMPANY],
+    # dgx u2 (24/09/2026): aviso de FÉRIAS (art. 135) — o funcionário dá ciência; a empresa não co-assina
+    # (mesma decisão de 21/08 para holerite/recibo: a contraparte nunca vinha e travava o documento).
+    "aviso_ferias": [SignerType.EMPLOYEE],
     "rescisao": [SignerType.EMPLOYEE, SignerType.COMPANY],
     "licitacao": [SignerType.COMPANY],
     # Documento do KIT GEDEON (contracheque/ponto/VT-VA-VR/contrato/ficha/férias/

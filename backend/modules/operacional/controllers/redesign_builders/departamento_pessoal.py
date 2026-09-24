@@ -55,6 +55,11 @@ from ._dgx_t1_dp import router as _r_t1  # noqa: E402 — dgx t1
 from ._dgx_t1_dp import telas as _telas_t1  # noqa: E402 — dgx t1
 
 router.include_router(_r_t1)  # dgx t1
+from ._dgx_u2_ferias import mapa_descobertos as _mapa_descobertos_u2  # noqa: E402 — dgx u2
+from ._dgx_u2_ferias import router as _r_u2  # noqa: E402 — dgx u2
+from ._dgx_u2_ferias import telas as _telas_u2  # noqa: E402 — dgx u2
+
+router.include_router(_r_u2)  # dgx u2
 from ._dgx_t2_ponto import router as _r_t2  # noqa: E402 — dgx t2
 
 router.include_router(_r_t2)  # dgx t2
@@ -4849,6 +4854,7 @@ async def build(db, current_user=None) -> dict:
     out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
     await _telas_t1(db, out)  # dgx t1 — foto, ficha, certificados, turnover, cargos (antes de montar_grupos)
+    await _telas_u2(db, out)  # dgx u2 — férias: recibo/conta/cobertura, aviso em lote, ficha (antes de montar_grupos)
     from ._dgx_f12_sesmt_demandas_comercial import ligar_aso_form as _ligar_aso_f12  # dgx f12
 
     await _ligar_aso_f12(db, out)  # dgx f12 — renovar-aso com médico/exames dos cadastros (antes de montar_grupos)
@@ -4863,6 +4869,7 @@ async def build(db, current_user=None) -> dict:
 
     out.update(await _telas_dgx_f3(db, out))  # dgx f3 — tipos/linhas de benefício em g-beneficios
 
+    await _mapa_descobertos_u2(db, out)  # dgx u2 — painel «postos descobertos» no mapa-ferias (depois da frente 08)
 
     from ._dgx_f7_ponto import telas as _telas_f7  # dgx f7
 

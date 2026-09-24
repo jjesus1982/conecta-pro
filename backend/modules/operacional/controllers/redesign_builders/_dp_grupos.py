@@ -74,7 +74,8 @@ GRUPOS = [
         ("saldo-ferias", "Saldo"), ("calcular-ferias", "Calcular (CLT)"),
         ("aviso-ferias", "Aviso prévio de férias"), ("sync-ferias-solides", "Sincronizar Sólides"),
         ("licencas", "Licenças"), ("nova-licenca", "Registrar afastamento"),
-        ("mapa-ferias", "Mapa de férias (risco de dobra)")]),  # dgx u3 — frente 08, montada antes de montar_grupos
+        ("mapa-ferias", "Mapa de férias (risco de dobra)"),  # dgx u3 — frente 08, montada antes de montar_grupos
+        ("aviso-ferias-lote", "Aviso em lote"), ("ferias-pessoa", "Ficha de férias")]),  # dgx u2
 
     # dgx f2 — CCT como dado: sindicato → funções → eventos/benefícios por função → municípios.
     ("g-cct", "Sindicato & CCT", "Sindicato, funções da convenção, eventos e benefícios por função, municípios", [
