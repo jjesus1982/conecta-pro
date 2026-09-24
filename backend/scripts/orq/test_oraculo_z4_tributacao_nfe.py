@@ -62,7 +62,11 @@ DESTINOS = {
     "sp_nao_contribuinte": {"uf": "SP", "contribuinte": False, "suframa": None},
     "zfm_suframa": {"uf": "AM", "contribuinte": True, "suframa": "210140500"},
 }
-PRODUTO = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0"}
+#: AA5 (24/09/2026): a régua passou a depender de COMO A MERCADORIA ENTROU. Este produto de
+#: teste declara que entrou tributada (CST 00 na nota do fornecedor) — é o caso que este oráculo
+#: sempre mediu. O caso «entrou com ICMS-ST» e o caso «não se sabe» são do oráculo da AA5
+#: (`test_oraculo_aa5_icms_st.py`), que é quem afirma a regra nova.
+PRODUTO = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0", "icms_entrada_cst": "00"}
 
 
 async def main() -> int:
@@ -206,6 +210,7 @@ async def main() -> int:
                             "valor": PRODUTO["valor"],
                             "quantidade": PRODUTO["quantidade"],
                             "origem": PRODUTO["origem"],
+                            "icms_entrada_cst": PRODUTO["icms_entrada_cst"],  # AA5
                         },
                     )
                     for campo in ("cfop", "cst_ou_csosn", "base", "aliquota", "valor", "origem_regra"):

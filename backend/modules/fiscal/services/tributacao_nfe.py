@@ -19,6 +19,14 @@ SUFRAMA 210140500 serve para a empresa RECEBER o incentivo, não para concedê-l
 está implementado e testado aqui, mas hoje é inalcançável para os dois CNPJs — e o serviço diz isso
 em `bloqueios`, em vez de deixar a tela oferecer um caminho que não existe.
 
+**Correção AA5 (24/09/2026) — o imposto que já foi pago.** Até esta data a régua devolvia CFOP
+5102 / CST 00 / ICMS 20% para toda venda interna, inclusive de mercadoria cujo ICMS já tinha sido
+retido por substituição tributária na COMPRA — cobrança em duplicidade em quase metade do
+catálogo (43 dos 95 produtos de `fin_produtos`). Agora a saída depende de **como a mercadoria
+entrou** (`produto["icms_entrada_cst"]`, que vem de `fin_produtos.icms_entrada_cst`): entrou com
+ST → CFOP 5405 / CST 060 / ICMS zero; entrou tributada → como antes; **não se sabe → recusa**,
+com mensagem que ensina, em vez de chutar. Ver o bloco «COMO A MERCADORIA ENTROU».
+
 **Determinístico e sem I/O externo.** O único acesso a banco é ler a identidade da empresa
 (`empresas`, via `empresa_lookup`). Nada de SEFAZ, nada de rede, nada de relógio. `demo()` roda o
 autoteste sem banco nenhum: `python3 -m modules.fiscal.services.tributacao_nfe`.
@@ -94,12 +102,125 @@ N_CST = "MOC NF-e 4.00, grupo N — Tabela A (origem) e Tabela B (CST de ICMS)"
 N_ST = "Convênio ICMS 142/2018 (CEST e mercadorias sujeitas a ST)"
 N_TIPI = "Decreto 11.158/2022 (TIPI)"
 
-#: o que o repositório tem de ST — nada. E o que o mercado pratica — metade das notas.
+#: o que o repositório tem de ST POR NCM — nada (CEST e MVA vazios). O que ele TEM é o fato por
+#: PRODUTO: como aquela mercadoria entrou. Ver o bloco «COMO A MERCADORIA ENTROU», abaixo.
 O_ST = (
-    "não determinável: ncms.icms_cest e ncms.icms_st_mva estão vazios nas 10.515 linhas e "
-    "suframa_configs/tax_configurations têm 0 linhas. Referência de mercado: 106 dos 207 itens "
-    "medidos (51%) vieram com CST 60 / CSOSN 500 — ICMS já retido por ST. " + SEM_FONTE
+    "MVA e CEST por NCM: não determináveis — ncms.icms_cest e ncms.icms_st_mva estão vazios nas "
+    "10.515 linhas e suframa_configs/tax_configurations têm 0 linhas. " + SEM_FONTE + ". "
+    "O que É determinável é outra coisa, e é o que esta régua usa: o CST de ICMS da NF-e de "
+    "ENTRADA do produto (ver `icms_entrada_cst`)."
 )
+
+# ─────────────────────────── COMO A MERCADORIA ENTROU (AA5, 24/09/2026) ───────────────────────
+#
+# O defeito que esta parte corrige: até 24/09/2026 a régua devolvia CFOP 5102 / CST 00 / ICMS 20%
+# para TODA venda interna — inclusive para mercadoria cujo ICMS já tinha sido retido por
+# substituição tributária na COMPRA. Isso é cobrar o imposto duas vezes.
+#
+# **A régua de fora do sistema:** a NF-e nº 10.026, série 1, da CONECTAMAIS ELETRONICA
+# (chave 1326 0935 7104 8100 0103 5500 1000 0100 2618 0548 4852, protocolo 113263811849419,
+# autorizada em 17/09/2026, destinatário CONDOMINIO RESIDENCIAL PARQUE DOS FRANCESES, R$ 2.518,00).
+# Os SEIS itens dela — NCM 85444900, 85044021, 85365090, 83014000, 85369090 e 39162000 — saíram
+# todos com **CFOP 5405 · CST 060 · BC ICMS 0,00 · V.ICMS 0,00 · %ICMS 0,00**, sob a natureza
+# «Venda de mercadoria, adquirida ou recebida de terceiros, sujeita a ST».
+#
+# **A medição de dentro:** 209 itens lidos de `nfe_entradas.xml_raw` (51 XMLs de fornecedores de
+# Manaus) em 24/09/2026 — CST de ICMS 60 → 97 · 00 → 73 · 20 → 5 · 50 → 5 · 41 → 4;
+# CSOSN 102 → 13 · 500 → 9 · 400 → 1; 2 itens sem grupo de ICMS.
+# **106 dos 209 (50,7%) entraram com o ICMS já retido por ST.** O CFOP de entrada desses 106:
+# 5929 (cupom) → 61 · 5405 → 44 · 5403 → 1 — ou seja, o próprio fornecedor já vendia como
+# contribuinte SUBSTITUÍDO.
+#
+# **O fato é do PRODUTO, não do NCM.** Medido: dos 147 códigos de produto (`cProd`) das notas de
+# entrada, **zero** têm entradas com CST divergente entre si — o fato é estável por produto. Já
+# por NCM há **5 códigos** com entradas divergentes (34054000, 40151900, 94032090, 85365090,
+# 34052000), então NCM não serve de chave. Por isso o fato mora em `fin_produtos.icms_entrada_cst`
+# (serviço `modules/fiscal/services/icms_entrada.py`), preenchido do XML da nota de entrada, e
+# chega aqui pelo `produto`, nunca por palpite.
+
+#: CST/CSOSN de ICMS que, na ENTRADA, significam «o ICMS já foi retido por substituição
+#: tributária». Tabela B do MOC NF-e 4.00 (CST 10/30/60/70) e do Ajuste SINIEF 07/2005
+#: (CSOSN 201/202/203/500).
+ICMS_ENTRADA_COM_ST = {"10", "30", "60", "70", "201", "202", "203", "500"}
+
+#: CST/CSOSN de ICMS que, na ENTRADA, significam tributação normal — a saída segue como sempre.
+ICMS_ENTRADA_NORMAL = {"00", "101", "102", "103"}
+
+#: a Tabela B do Ajuste SINIEF 07/2005 inteira. Serve para NÃO confundir o CSOSN «400» (3 dígitos
+#: de verdade) com o «origem+CST» de 3 dígitos que a DANFE imprime («060» = origem 0 + CST 60).
+CSOSN_TODOS = {"101", "102", "103", "201", "202", "203", "300", "400", "500", "900"}
+
+CFOP_ST_INTERNA_REVENDA = "5405"
+CST_SAIDA_ST = "60"
+CSOSN_SAIDA_ST = "500"
+
+N_CFOP_5405 = (
+    "Convênio SINIEF s/nº de 15/12/1970, Anexo — CFOP 5405: venda de mercadoria adquirida ou "
+    "recebida de terceiros, em operação com mercadoria sujeita ao regime de substituição "
+    "tributária, na condição de contribuinte substituído"
+)
+N_CST_60 = "MOC NF-e 4.00, grupo N, Tabela B — CST 60: ICMS cobrado anteriormente por substituição tributária"
+N_CSOSN_500 = (
+    "Ajuste SINIEF 07/2005, Anexo, Tabela B — CSOSN 500: ICMS cobrado anteriormente por "
+    "substituição tributária ou por antecipação"
+)
+O_ENTRADA_ST = (
+    "a mercadoria ENTROU com o ICMS já retido por ST (CST/CSOSN da NF-e de entrada do "
+    "fornecedor). Provado de fora: NF-e nº 10.026 série 1 da própria empresa, protocolo "
+    "113263811849419 (17/09/2026), 6 itens com CFOP 5405 / CST 060 / ICMS 0,00. Medido de "
+    "dentro: 106 dos 209 itens de nfe_entradas entraram assim"
+)
+O_ENTRADA_NORMAL = (
+    "a mercadoria ENTROU com ICMS normal (CST 00 / CSOSN 101-103 na NF-e de entrada) — "
+    "não houve retenção anterior, a saída é tributada"
+)
+
+#: a recusa que ENSINA. Sem saber como a mercadoria entrou, o sistema não escolhe CFOP.
+MSG_ENTRADA_DESCONHECIDA = (
+    "Não sei como esta mercadoria entrou{qual}. Sem o CST de ICMS da NF-e de ENTRADA não dá para "
+    "saber se o ICMS já foi retido por substituição tributária — e aí a saída é CFOP 5405 / "
+    "CST 060 com ICMS ZERO, como saiu a nossa própria NF-e nº 10.026 — ou se é tributação normal, "
+    "CFOP 5102 / CST 00 a 20%. Metade do que a casa compra entra com ICMS-ST (106 de 209 itens "
+    "medidos), então chutar erra quase uma vez em duas. Registre a entrada em Fiscal → Notas "
+    "fiscais → «Como a mercadoria entrou (ICMS-ST)», ou importe a NF-e de entrada do fornecedor. "
+    "Emitir com o CFOP errado é pior do que não emitir."
+)
+
+#: ST fora da venda interna em revenda: existe CFOP (6404), mas o tratamento do ICMS não.
+MSG_ST_SEM_FONTE = (
+    "A mercadoria entrou com ICMS já retido por ST (CST/CSOSN {cst} na nota de entrada), mas esta "
+    "operação — {destino}, {operacao} — não tem tratamento com fonte neste repositório. Só a "
+    "venda INTERNA do Amazonas, em revenda, está provada (CFOP 5405 / CST 060 / ICMS zero — NF-e "
+    "10.026 série 1). Saída interestadual de mercadoria já substituída envolve ressarcimento ao "
+    "estado de origem e CFOP 6404, e nada disso está normado aqui. " + SEM_FONTE
+)
+
+N_ENTRADA = (
+    "MOC NF-e 4.00, grupo N, Tabela B (CST) e Ajuste SINIEF 07/2005, Anexo, Tabela B (CSOSN) — "
+    "lidos do XML da NF-e de ENTRADA do fornecedor"
+)
+
+
+def classificar_entrada(cst: Any) -> str | None:
+    """Como a mercadoria entrou, a partir do CST/CSOSN de ICMS da nota de ENTRADA.
+
+    `"st"` = ICMS já retido por substituição tributária · `"normal"` = tributação normal ·
+    `None` = não se sabe (inclui CST 20/40/41/50/51/90 e CSOSN 300/400/900, que existem nas
+    notas de entrada da casa mas **não têm tratamento de saída com fonte aqui** — 9 dos 95
+    produtos de `fin_produtos` caem nesse balde, medido em 24/09/2026).
+    """
+    c = str(cst or "").strip()
+    if not c:
+        return None
+    # a DANFE imprime origem+CST junto («060»); o XML traz os dois separados («0» e «60»).
+    # CSOSN tem 3 dígitos de verdade (500, 102) e por isso é testado ANTES de desmontar.
+    if len(c) == 3 and c not in CSOSN_TODOS:
+        c = c[1:]
+    if c in ICMS_ENTRADA_COM_ST:
+        return "st"
+    if c in ICMS_ENTRADA_NORMAL:
+        return "normal"
+    return None
 
 
 def _d(v: Any) -> Decimal:
@@ -191,8 +312,12 @@ def _bloqueios(empresa: dict, destino: str) -> list[str]:
     return out
 
 
-def _icms_regime_normal(destino: str, base: Decimal, origem_merc: str) -> tuple:
+def _icms_regime_normal(destino: str, base: Decimal, origem_merc: str, entrada: str | None = None) -> tuple:
     """(cst, aliquota, norma, origem, deson, mensagens) do ICMS no regime normal."""
+    if entrada == "st":
+        # ICMS já retido por ST na COMPRA. Não se cobra de novo na saída: CST 60, sem alíquota,
+        # sem base. É o que a NF-e 10.026 da própria empresa faz nos seis itens.
+        return (CST_SAIDA_ST, None, N_CST_60, O_ENTRADA_ST, None, [])
     if destino == "zfm_entrante":
         val = base * ICMS_INTERESTADUAL / 100
         deson = {
@@ -262,7 +387,52 @@ def calcular_puro(
     aliquota: Decimal | None = None
     origem_regra = ""
 
-    linhas.append(_linha("CFOP", cfop, N_CFOP, f"destino «{DESTINOS[destino]}» × operação «{operacao}»"))
+    # ── COMO A MERCADORIA ENTROU decide o CFOP e o CST da saída. Sem esse fato não há escolha.
+    entrada_cst = str(produto.get("icms_entrada_cst") or "").strip()
+    entrada = classificar_entrada(entrada_cst)
+    entrada_fonte = str(produto.get("icms_entrada_fonte") or "").strip()
+    norma_cfop, origem_cfop = N_CFOP, f"destino «{DESTINOS[destino]}» × operação «{operacao}»"
+    recusa: str | None = None
+    if entrada is None:
+        qual = ""
+        if produto.get("codigo"):
+            qual = f" — produto «{produto['codigo']}»"
+        elif ncm:
+            qual = f" — NCM {ncm}"
+        if entrada_cst:
+            qual += (
+                f" (a nota de entrada trouxe CST/CSOSN de ICMS «{entrada_cst}», que não é nem "
+                "tributação normal nem ICMS retido por ST: redução de base, suspensão, isenção "
+                "ou diferimento não têm tratamento de saída com fonte aqui)"
+            )
+        recusa = MSG_ENTRADA_DESCONHECIDA.format(qual=qual)
+    elif entrada == "st":
+        if operacao == "revenda" and destino.startswith("interna"):
+            cfop = CFOP_ST_INTERNA_REVENDA
+            norma_cfop, origem_cfop = N_CFOP_5405, O_ENTRADA_ST
+        else:
+            recusa = MSG_ST_SEM_FONTE.format(cst=entrada_cst, destino=DESTINOS[destino].lower(), operacao=operacao)
+    if recusa:
+        bloqueios.append(recusa)
+        cfop = None
+        norma_cfop, origem_cfop = N_CFOP, SEM_FONTE
+
+    linhas.append(_linha("CFOP", cfop, norma_cfop, origem_cfop))
+    linhas.append(
+        _linha(
+            "Como a mercadoria entrou",
+            entrada_cst or None,
+            N_ENTRADA,
+            entrada_fonte
+            or (
+                O_ENTRADA_ST
+                if entrada == "st"
+                else O_ENTRADA_NORMAL
+                if entrada == "normal"
+                else "desconhecido — nenhuma NF-e de entrada registrada para este produto"
+            ),
+        )
+    )
     linhas.append(
         _linha("CRT do emitente", crt_do_regime(regime), N_CRT, f"empresas.regime_tributario = {regime or '(vazio)'}")
     )
@@ -275,15 +445,29 @@ def calcular_puro(
         )
     )
 
-    if regime == "simples_nacional":
+    if recusa:
+        # Não se sabe como entrou (ou entrou com ST numa operação sem fonte). Nada é escolhido:
+        # nem CST, nem alíquota. O bloqueio já está na lista e o emissor recusa a nota.
+        linhas.append(_linha("CST / CSOSN", None, N_ENTRADA, SEM_FONTE + " — " + recusa[:180]))
+        linhas.append(_linha("Alíquota de ICMS", None, N_ENTRADA, SEM_FONTE))
+    elif regime == "simples_nacional":
         # LC 123 art. 18: o ICMS está no DAS. Não há alíquota a destacar na nota.
         # ATENÇÃO ao nome do enum no repositório: `ICMSCSOSN.TRIBUTADA_COM_CREDITO` vale "102",
         # que na Tabela B do Ajuste SINIEF 07/2005 é «tributada SEM permissão de crédito» (o COM
         # crédito é o 101). O rótulo está trocado lá; o VALOR está certo. Usamos o valor.
-        cst_ou_csosn = ICMSCSOSN.TRIBUTADA_COM_CREDITO  # "102"
-        origem_regra = N_CSOSN + " — CSOSN 102 (tributada sem permissão de crédito)"
-        linhas.append(_linha("CSOSN", cst_ou_csosn, N_CSOSN, "padrão da casa: não transfere crédito"))
-        linhas.append(_linha("Alíquota de ICMS", None, N_SIMPLES, "ICMS recolhido no DAS — não se destaca na NF-e"))
+        if entrada == "st":
+            # Optante do Simples revendendo mercadoria já substituída: CSOSN 500, não 102.
+            cst_ou_csosn = CSOSN_SAIDA_ST  # "500"
+            origem_regra = N_CSOSN_500 + " — " + O_ENTRADA_ST
+            linhas.append(_linha("CSOSN", cst_ou_csosn, N_CSOSN_500, O_ENTRADA_ST))
+            linhas.append(
+                _linha("Alíquota de ICMS", None, N_CST_60, "ICMS já retido por ST na entrada — nada a destacar")
+            )
+        else:
+            cst_ou_csosn = ICMSCSOSN.TRIBUTADA_COM_CREDITO  # "102"
+            origem_regra = N_CSOSN + " — CSOSN 102 (tributada sem permissão de crédito)"
+            linhas.append(_linha("CSOSN", cst_ou_csosn, N_CSOSN, "padrão da casa: não transfere crédito"))
+            linhas.append(_linha("Alíquota de ICMS", None, N_SIMPLES, "ICMS recolhido no DAS — não se destaca na NF-e"))
         linhas.append(
             _linha(
                 "Crédito de ICMS ao destinatário",
@@ -299,12 +483,21 @@ def calcular_puro(
             "ICMS/IPI (LC 123/2006, art. 23)."
         )
     elif crt_do_regime(regime) == "3":
-        cst, aliquota, norma_i, origem_i, deson, msgs = _icms_regime_normal(destino, base, origem_merc)
+        cst, aliquota, norma_i, origem_i, deson, msgs = _icms_regime_normal(destino, base, origem_merc, entrada)
         cst_ou_csosn = cst
         origem_regra = origem_i
         mensagens.extend(msgs)
         linhas.append(_linha("CST de ICMS", str(cst), N_CST, origem_i))
-        linhas.append(_linha("Base de cálculo do ICMS", _cent(base), N_CST, "valor do produto × quantidade"))
+        linhas.append(
+            _linha(
+                "Base de cálculo do ICMS",
+                0.0 if entrada == "st" else _cent(base),
+                N_CST,
+                "ICMS retido na entrada: BC zero na saída (é o que a NF-e 10.026 traz)"
+                if entrada == "st"
+                else "valor do produto × quantidade",
+            )
+        )
         linhas.append(_linha("Alíquota de ICMS", aliquota, norma_i, origem_i))
         if deson:
             linhas.append(_linha("vICMSDeson", deson["vICMSDeson"], deson["norma"], deson["origem_regra"]))
@@ -329,7 +522,16 @@ def calcular_puro(
         )
         linhas.append(_linha("CST / CSOSN", None, N_CRT, SEM_FONTE))
 
-    linhas.append(_linha("Substituição tributária", None, N_ST, O_ST))
+    linhas.append(
+        _linha(
+            "Substituição tributária",
+            {"st": "ICMS já retido na entrada — saída sem novo destaque", "normal": "não — entrou tributada"}.get(
+                entrada or ""
+            ),
+            N_ST if entrada is None else N_CST_60,
+            O_ST if entrada is None else (O_ENTRADA_ST if entrada == "st" else O_ENTRADA_NORMAL),
+        )
+    )
     if ncm:
         linhas.append(
             _linha(
@@ -342,13 +544,22 @@ def calcular_puro(
         )
 
     valor = None if aliquota is None else _cent(base * aliquota / 100)
+    if entrada == "st" and not recusa:
+        # zero MEDIDO, não desconhecido: a NF-e 10.026 traz BC ICMS 0,00 e V.ICMS 0,00.
+        valor = 0.0
+        mensagens.append(
+            "Mercadoria com ICMS retido anteriormente por substituição tributária — "
+            "CST 060, sem novo destaque de ICMS nesta operação (" + N_CST_60 + ")."
+        )
     if deson:
         mensagens.insert(0, _mensagem_zfm(deson, _digitos(destinatario.get("suframa"))))
 
     return {
         "cfop": cfop,
         "cst_ou_csosn": str(cst_ou_csosn) if cst_ou_csosn else None,
-        "base": _cent(base),
+        "base": 0.0 if (entrada == "st" and not recusa) else _cent(base),
+        "icms_entrada_cst": entrada_cst or None,
+        "icms_entrada_situacao": entrada,
         "aliquota": None if aliquota is None else float(aliquota),
         "valor": valor,
         "deson": deson,
@@ -404,7 +615,14 @@ _DE_FORA = dict(_ELETRONICA, codigo_municipio_ibge="3550308", cnpj="00.000.000/0
                 nome_fantasia="(fictícia, fora do AM)")  # fmt: skip
 
 EMPRESAS_DEMO = {"conecta_eletronica": _ELETRONICA, "conecta_patrimonial": _PATRIMONIAL, "_de_fora": _DE_FORA}
-PROD = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0"}
+#: produto do autoteste que ENTROU tributado (CST 00 na nota do fornecedor) — 43 dos 95 de
+#: `fin_produtos` são assim.
+PROD = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0", "icms_entrada_cst": "00"}
+#: produto que ENTROU com o ICMS já retido por ST (CST 60) — 43 dos 95. Sai 5405 / 060 / zero.
+PROD_ST = dict(PROD, icms_entrada_cst="60")
+#: produto sem entrada conhecida — o sistema NÃO escolhe CFOP para ele. 9 dos 95 (CST 20/41/50,
+#: CSOSN 400 e 2 itens sem grupo de ICMS) caem aqui, e os 810 de `products` sem compra também.
+PROD_SEM_ENTRADA = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0", "codigo": "SEM-ENTRADA"}
 
 
 def demo() -> None:
@@ -472,7 +690,46 @@ def demo() -> None:
                     assert ln["norma"] and ln["origem_regra"], ln
                 n += 1
     assert n == 30, n
-    print(f"demo tributacao_nfe: OK — 10 blocos, {n} combinações empresa × destino × operação")
+
+    # ───────────────────────── AA5: o imposto que já foi pago ─────────────────────────
+    # 11. mercadoria que ENTROU com ICMS-ST sai 5405 / CST 060 / ICMS ZERO — é a NF-e 10.026.
+    for dest in (am_c, am_nc):
+        r = calcular_puro(_ELETRONICA, PROD_ST, dest)
+        assert (r["cfop"], r["cst_ou_csosn"]) == ("5405", "60"), r
+        assert r["aliquota"] is None and r["valor"] == 0.0 and r["base"] == 0.0, r
+        assert not r["bloqueios"], r
+        assert "substituição tributária" in r["mensagem_fiscal"], r
+
+    # 12. sem saber como entrou, NÃO se escolhe CFOP: recusa que ensina, nada de chute.
+    r = calcular_puro(_ELETRONICA, PROD_SEM_ENTRADA, am_c)
+    assert r["cfop"] is None and r["cst_ou_csosn"] is None and r["aliquota"] is None, r
+    assert any("Não sei como esta mercadoria entrou" in x for x in r["bloqueios"]), r
+    assert "SEM-ENTRADA" in " ".join(r["bloqueios"]), r
+
+    # 13. CST de entrada sem tratamento (20 redução, 41 não tributada, 50 suspensão) → recusa.
+    for cst in ("20", "41", "50", "51", "400", "90"):
+        r = calcular_puro(_ELETRONICA, dict(PROD, icms_entrada_cst=cst), am_c)
+        assert r["cfop"] is None and r["bloqueios"], (cst, r)
+
+    # 14. ST fora da venda interna em revenda não é chutada: recusa declarada «sem fonte».
+    for dest in (sp_c, sp_nc):
+        r = calcular_puro(_ELETRONICA, PROD_ST, dest)
+        assert r["cfop"] is None and any(SEM_FONTE in x for x in r["bloqueios"]), r
+    r = calcular_puro(_ELETRONICA, PROD_ST, am_c, "producao")
+    assert r["cfop"] is None and r["bloqueios"], r
+
+    # 15. Simples revendendo mercadoria já substituída: CSOSN 500, não 102.
+    r = calcular_puro(_PATRIMONIAL, PROD_ST, am_c)
+    assert (r["cfop"], r["cst_ou_csosn"]) == ("5405", "500"), r
+    assert r["aliquota"] is None, r
+
+    # 16. «060» da DANFE e «60» do XML são o mesmo fato; CSOSN 500 não é desmontado.
+    assert classificar_entrada("060") == "st" and classificar_entrada("60") == "st"
+    assert classificar_entrada("500") == "st" and classificar_entrada("102") == "normal"
+    assert classificar_entrada("000") == "normal" and classificar_entrada("") is None
+    assert classificar_entrada("53") is None and classificar_entrada("99") is None
+
+    print(f"demo tributacao_nfe: OK — 16 blocos, {n} combinações empresa × destino × operação")
 
 
 if __name__ == "__main__":
