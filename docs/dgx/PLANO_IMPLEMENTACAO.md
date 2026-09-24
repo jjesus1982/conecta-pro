@@ -118,3 +118,17 @@ Contrato: `docs/dgx/CONTRATO_TESTE_DGX.md` (4 fases: exercitar botão a botão �
 - 24/09 10:30 — T5 mesclada (16 recursos; 4 implementados: log do sistema como tela lendo a trilha viva, solicitação de material com aprovar/atender baixando estoque pela F9, exames do ASO com validade por periodicidade, **acessos temporários** com papel e expiração que expiram/revogam sozinhos e nunca abrem o Financeiro). T3 mesclada (20 recursos; 9 implementados: **vagas do contrato** como entidade (função × escala × turno × qtd × salário), custo por vaga, **restrições do cliente** que recusam movimentação, **Cobrir/Alocar por linha no grid** (grid e mapa de ponto ganharam aba — trava de porta 17 → 15), painel de alertas com 393 vivos em 20 regras, Visualizado/Finalizar no livro, copiar contrato, visitas por cliente). T4 mesclada (24 recursos, maioria já TEMOS; 5 implementados: cobrança por e-mail lendo os parâmetros da F4, **importar OFX** (parser existia sem rota), agenda de caixa por dia, comissão fechada vira conta a pagar, recebível proporcional por dias em paralelo cego). **INCIDENTE T4:** teste HTTP no sandbox herdou o SMTP real do `.env` e enviou 1 lembrete de cobrança real a um cliente — trava em curso.
 - 24/09 11:10 — T2 mesclada (ponto do DGX exercitado; o motor de cálculo deles não está provisionado no trial — cartão e banco de horas falham na própria UI deles; 2 lacunas de valor alto implementadas: **integração de batimentos** (AFD 1510/671 → batidas com chave idempotente, «só validar», log) e **fechamento de competência como trava única** (ajuste/lançamento manual em mês fechado → 409; reabrir com motivo obrigatório e trilha). **Rodada 2 completa: T1–T5 mescladas.** Próximo: prova da árvore e bake.
 - 24/09 12:05 — **bake 18 no ar** (imagem 8ea6cdc3, sem drift, 0 chaves desconhecidas). Rodada 2 em produção: DP 120 telas, Operacional 128, Financeiro 177, CRM 84, Suprimentos 22, Saúde 31, Configurações 14, Segurança 11. 6 oráculos novos + vizinhos verdes no container de produção. Trava de porta 15 (13 telas antigas + payable/receivable). Relatório fechado: `auditoria/RELATORIO_NOITE_2026-09-24.md` §9–§12 (38 decisões do dono no total).
+
+## Onda 3 — o que tem valor e não depende de decisão do dono (24/09, tarde)
+
+Jordan: *"prosiga em loop."*
+
+| # | Frente | Módulo | Estado |
+|---|---|---|---|
+| U1 | Movimentação em dois passos (pedido → aprovar/recusar, DP segue direto) + supervisão planejada com frequência e mapa realizado × planejado | operacional | em execução |
+| U2 | Férias completas: aviso em lote (PDF + assinatura), recibo timbrado com o cálculo existente, conta a pagar idempotente (art. 145), cobertura/movimentação ao aprovar, ficha por pessoa | dp | em execução |
+| U3 | Porta para toda tela: as 13 órfãs + `payable`/`receivable`; oráculo «toda tela tem porta» | diversos | em execução |
+| U4 | Rondas do Vigilância (modelos com pontos, alertas, pânico) × frente 06; chamados com setor e notificação | operacional | em execução |
+| U5 | Entrega de benefício em lote com período de apuração (DGX `EntregasBeneficios`) sobre o motor da frente 03 | dp | em execução |
+
+- 24/09 12:20 — U1–U5 lançadas.
