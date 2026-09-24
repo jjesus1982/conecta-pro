@@ -10,10 +10,10 @@
 
 | Documento | Empresa | Emite? | Homologado | Pronto p/ produção |
 |---|---|---|---|---|
-| **NF-e 55** (produto) | ELETRÔNICA | sim | ✅ **cStat 100** · nProt 113260013553955 · série 2 nº 1, de PRODUÇÃO | ⬜ falta ICMS-ST e numeração |
+| **NF-e 55** (produto) | ELETRÔNICA | sim | ✅ **cStat 100** · nProt 113260013553955 · série 2 nº 1, de PRODUÇÃO | ⬜ só a numeração (ICMS-ST corrigido) |
 | **NF-e 55** (produto) | PATRIMONIAL | **nunca** — decisão do dono, só tem inscrição municipal | — | — |
-| **NFS-e** (serviço) | ELETRÔNICA | sim | ⚠️ **cStat 100** · nDFSe 19174/19176/19177 — **do SANDBOX** | ⬜ conciliação, numeração, e provar de produção |
-| **NFS-e** (serviço) | PATRIMONIAL | sim | ⚠️ **cStat 100** · nDFSe 19175 — **do SANDBOX** | ⬜ conciliação, numeração, e provar de produção |
+| **NFS-e** (serviço) | ELETRÔNICA | sim | ✅ **autorizada DE PRODUÇÃO** · NFS-e nº 14 · nDFSe 19189 · série 901 | ⬜ série definitiva e conciliação |
+| **NFS-e** (serviço) | PATRIMONIAL | sim | ✅ **autorizada DE PRODUÇÃO** · NFS-e nº 8 · nDFSe 19190 · série 901 | ⬜ série definitiva e conciliação |
 
 **Também exercidos contra o órgão, em homologação:** cancelamento de NF-e (cStat **135**),
 inutilização de faixa (cStat **102**), status do serviço nos dois CNPJs (cStat **107**).
@@ -21,20 +21,29 @@ inutilização de faixa (cStat **102**), status do serviço nos dois CNPJs (cSta
 **Trava de produção, medida agora:** `producao_liberada = false` nos dois CNPJs ·
 **0 notas gravadas com `tp_amb='1'`**.
 
-### ⚠️ A diferença entre as duas homologações — não confundir
+### As duas homologações, e por que a de produção vale mais
 
 A **NF-e** foi provada **de dentro de produção**: o endpoint real, no container de produção,
 contra a SEFAZ-AM. Foi assim que apareceram dois defeitos que o verde do sandbox escondia — o
 `PermissionError` que apagava a linha da nota transmitida, e a numeração da homologação
 compartilhada com o sandbox.
 
-A **NFS-e** foi provada **no sandbox**. O código da frente Z7 ainda **não foi assado**, então o
-container de produção nem tem o emissor de NFS-e novo. Enquanto não for provada de produção,
-**a NFS-e não conta como homologada para efeito desta régua** — a lição de 24/09 é literal:
-oráculo em produção pega o que o staging esconde.
+A **NFS-e** também foi provada de produção, em 24/09 às 18:08 — e **pagou a viagem duas vezes**:
 
-**Pendência de orquestração, minha:** assar a onda (Z7 + AA4 + AA5 + AA6, quando fecharem) e
-repetir a emissão de NFS-e em homologação **a partir do container de produção**, nos dois CNPJs.
+1. **Série 900 já queimada pelo sandbox** → o fisco devolveu `E0014` (série+número já existem).
+   Mesmo defeito que a NF-e teve. A homologação do Padrão Nacional é UMA SÓ e três pontos batem
+   nela com o mesmo CNPJ: sandbox (900), produção, e o portal da contabilidade (70000).
+   **Conserto:** a série virou dado em `empresas.nfse_serie_rps`.
+2. **E aí o segundo apareceu, só porque o primeiro foi corrigido:** trocar a série no banco
+   **não mudava nada** — ela estava chumbada em dois lugares do montador da DPS (`"00900"` no Id
+   e `<serie>900</serie>` na tag). Descoberto porque o `idDPS` da resposta de erro ainda dizia
+   `...00900...`. Ler só «deu E0014, a série colidiu» e trocar o número erraria de novo, queimando
+   um número de DPS por tentativa.
+
+**Os quatro CNPJ×documento estão agora homologados e provados DE PRODUÇÃO.** A lição de 24/09
+confirmou-se nas duas: oráculo em produção pega o que o staging esconde — foram **quatro**
+defeitos achados assim hoje (permissão de disco na NF-e, numeração compartilhada na NF-e, série
+compartilhada na NFS-e, série chumbada no montador).
 
 ---
 
