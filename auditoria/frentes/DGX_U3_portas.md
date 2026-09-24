@@ -125,3 +125,19 @@ apontam para `payable-condicao` / `receivable-fonte`; `POST /action/payable|rece
 2. Frente 08 (`_frente_08.py`) diz no docstring «alcance hoje: deep-link» — ficou desatualizado; não editei
    `_frente_*` por contrato.
 - Commit do código com `SKIP=ruff,ruff-format` (como T5 §5.9): o hook reescreveu 6 arquivos com linhas alheias e abortou; bandit, secrets e governança passaram.
+
+## Correção do orquestrador (24/09, depois do bake 19)
+
+`backend/scripts/orq/test_oraculo_toda_tela_tem_porta.py` foi **apagado**. Dois motivos medidos:
+
+1. **Não mede onde roda.** A varredura da meia-noite roda os oráculos DENTRO do container de
+   produção, e os JSONs de menu vivem em `frontend/src/app/redesign/_modules` — que não existe
+   naquele container. Saída real em produção: `NÃO MEDIDO — JSONs de menu do front não encontrados`.
+2. **Vermelho falso todo dia.** Ele saía com código 2; a convenção da casa é `3 = BLOQUEADO`
+   (`modules/notifications/tasks_oraculos.py::_EXIT_BLOQUEADO`). Com 2, a varredura classificava
+   como **vermelho** — um alarme permanente que ninguém leria depois da segunda noite.
+
+A regra continua vigiada, e por quem consegue medi-la: o caçador `checar_tela_sem_porta.py`, que
+roda **no host** (`CACADORES_HOST` em `checar_regressao.py`, linha da trava 75), mede contra a
+produção no ar — medida mais forte que a do app importado. As melhorias de régua que a U3 fez no
+caçador (o `ctaTo` de tela de topo com `cta` é porta; `QA_CONTAINER`) ficam.

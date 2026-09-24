@@ -215,8 +215,8 @@ async def main() -> int:
             await db.commit()
 
             # ── 2/3. motor duas vezes
-            n1 = await ra.avaliar_rondas(db, agora)
-            n2 = await ra.avaliar_rondas(db, agora)
+            n1 = await ra.avaliar_rondas(db, agora, simular=True)
+            n2 = await ra.avaliar_rondas(db, agora, simular=True)
             disp = (
                 await db.execute(
                     text(
@@ -247,10 +247,10 @@ async def main() -> int:
             ok(not any(d[1] == r3 for d in disp), "ronda dentro da tolerância não dispara")
             notif = (pul[0][4] if isinstance(pul[0][4], list) else json.loads(pul[0][4] or "[]")) if pul else []
             ok(
-                len(notif) == 2
-                and all(n["status"] in ("simulado", "enviado") for n in notif)
-                and any(n["para"] == "sindico@externo.invalid" and n["status"] == "simulado" for n in notif),
-                f"notificação: 2 destinos registrados e o externo ficou SIMULADO — veio {[(n.get('para'), n.get('status')) for n in notif]}",
+                # oráculo roda na varredura DENTRO da produção: com simular=True nada sai, em
+                # qualquer ambiente. Antes desta parede o dono recebia e-mail da fixture toda noite.
+                len(notif) == 2 and all(n["status"] == "simulado" for n in notif),
+                f"notificação: 2 destinos registrados e TODOS simulados — veio {[(n.get('para'), n.get('status')) for n in notif]}",
             )
             n_dup = (
                 await db.execute(
@@ -272,6 +272,7 @@ async def main() -> int:
                 post_id=posto[0],
                 ronda_id=None,
                 mensagem=f"{FIX} teste de pânico",
+                simular=True,  # oráculo roda na varredura DENTRO da produção: nunca notifica de verdade
             )
             row = (
                 await db.execute(
@@ -289,7 +290,7 @@ async def main() -> int:
             )
             pn = (row[5] if isinstance(row[5], list) else json.loads(row[5] or "[]")) if row else []
             ok(
-                len(pn) >= 2 and all(n["status"] in ("simulado", "enviado") for n in pn),
+                len(pn) >= 2 and all(n["status"] == "simulado" for n in pn),
                 f"pânico: destinatários do alerta panico notificados — {[(n.get('canal'), n.get('status')) for n in pn]}",
             )
             sem_occ = (

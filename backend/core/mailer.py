@@ -18,10 +18,15 @@ def destinatario_permitido(to_email: str, database_url: str | None = None) -> bo
     guarda é a segunda parede, para o dia em que alguém esquecer a receita."""
     import os  # noqa: PLC0415
 
+    alvo = (to_email or "").strip().lower()
+    # RFC 2606/6761: domínios reservados que NUNCA existem. Um oráculo que usa `@externo.invalid`
+    # como destinatário de fixture não pode virar tentativa de entrega em produção (24/09/2026).
+    if alvo.endswith((".invalid", ".test", ".example", ".localhost")):
+        return False
     url = (database_url if database_url is not None else os.environ.get("DATABASE_URL", "")).lower()
     if "staging" not in url and "sandbox" not in url:
         return True
-    return (to_email or "").strip().lower().endswith("@conectamais.pro")
+    return alvo.endswith("@conectamais.pro")
 
 
 async def send_email(

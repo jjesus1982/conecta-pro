@@ -128,9 +128,13 @@ def _em_sandbox() -> bool:
 
 
 # ───────────────────────── notificação ─────────────────────────
-async def notificar(destinos: list[dict], assunto: str, texto: str) -> list[dict]:
+async def notificar(destinos: list[dict], assunto: str, texto: str, simular: bool = False) -> list[dict]:
     """destinos = [{canal: email|whatsapp, para, nome?}]. Nunca levanta: cada item vira
-    {canal, para, status} com status enviado | simulado | falhou. Em sandbox nada sai de verdade."""
+    {canal, para, status} com status enviado | simulado | falhou. Em sandbox nada sai de verdade.
+
+    `simular=True` é a parede do ORÁCULO: a varredura da meia-noite roda dentro do container de
+    PRODUÇÃO, e sem isso a fixture do oráculo U4 mandava e-mail de verdade para o dono toda noite
+    (medido em 24/09/2026). Quem testa não notifica."""
     from core.config import settings
     from core.mailer import destinatario_permitido, send_email
 
@@ -147,12 +151,12 @@ async def notificar(destinos: list[dict], assunto: str, texto: str) -> list[dict
         }
         try:
             if canal == "email":
-                if not settings.SMTP_HOST or not destinatario_permitido(para):
+                if simular or not settings.SMTP_HOST or not destinatario_permitido(para):
                     item["status"] = "simulado"
                 else:
                     item["status"] = "enviado" if await send_email(para, assunto, f"<p>{texto}</p>") else "falhou"
             elif canal == "whatsapp":
-                if _em_sandbox():
+                if simular or _em_sandbox():
                     item["status"] = "simulado"
                 else:
                     from modules.integrations.connectors.whatsapp.service import send_text_message
@@ -303,7 +307,7 @@ async def _checkpoints(db, ronda_id: str) -> list[dict]:
     return [{"post_id": r[0], "lat": r[1], "lng": r[2], "ponto": r[3], "created_at": r[4]} for r in rows]
 
 
-async def avaliar_rondas(db, agora: datetime | None = None, janela_h: int = 48) -> list[dict]:
+async def avaliar_rondas(db, agora: datetime | None = None, janela_h: int = 48, simular: bool = False) -> list[dict]:
     """Motor idempotente: avalia cada alerta ativo contra as rondas do modelo na janela e grava
     UM disparo por (alerta, ronda) — `ON CONFLICT DO NOTHING`; só o que nasceu agora notifica."""
     await _ensure(db)
@@ -341,7 +345,7 @@ async def avaliar_rondas(db, agora: datetime | None = None, janela_h: int = 48) 
             if not did:
                 continue
             texto = f"Ronda {code} ({mnome}, {insp or '—'}): {TIPOS_ALERTA[tipo]} — {json.dumps(det, ensure_ascii=False, default=str)}"
-            notif = await notificar(await _destinos(db, dest), f"[Conecta PRO] {TIPOS_ALERTA[tipo]} — {code}", texto)
+            notif = await notificar(await _destinos(db, dest), f"[Conecta PRO] {TIPOS_ALERTA[tipo]} — {code}", texto, simular=simular)
             await _gravar_notificado(db, did, notif)
             novos.append({"id": did, "tipo": tipo, "ronda": code, "modelo": mnome, "detalhe": det, "notificado": notif})
     await db.commit()
@@ -361,6 +365,7 @@ async def disparar_panico(
     ronda_id: str | None = None,
     mensagem: str | None = None,
     foto_url: str | None = None,
+    simular: bool = False,
 ) -> dict:
     """Disparo `panico` + ocorrência GRAVE pelo mesmo caminho da F8 + notificação imediata aos
     destinatários dos alertas `panico` do posto/cliente. Disparo e ocorrência saem no mesmo commit."""
@@ -445,7 +450,7 @@ async def disparar_panico(
             if x["para"] and x["para"] not in vistos:
                 vistos.add(x["para"])
                 destinos.append(x)
-    notif = await notificar(destinos, f"[Conecta PRO] PÂNICO — {posto[0]}", desc + f" Ocorrência {occ.code}.")
+    notif = await notificar(destinos, f"[Conecta PRO] PÂNICO — {posto[0]}", desc + f" Ocorrência {occ.code}.", simular=simular)
     await _gravar_notificado(db, did, notif)
     await db.commit()
     return {
