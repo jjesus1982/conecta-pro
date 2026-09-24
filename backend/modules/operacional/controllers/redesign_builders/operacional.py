@@ -12,6 +12,7 @@ from core.database import get_db
 from ._dgx_f5_movimentacoes import router as _r_f5  # dgx f5
 from ._dgx_f8_operacional import router as _r_f8  # dgx f8
 from ._dgx_t3_operacional_comercial import router as _r_t3  # dgx t3
+from ._dgx_u4_rondas_chamados import router as _r_u4  # dgx u4
 
 logger = logging.getLogger(__name__)
 from modules.operacional.controllers.redesign_data_controller import (
@@ -24,6 +25,7 @@ router = APIRouter()
 router.include_router(_r_f5)  # dgx f5
 router.include_router(_r_f8)  # dgx f8
 router.include_router(_r_t3)  # dgx t3
+router.include_router(_r_u4)  # dgx u4
 
 
 def _usuario_e_admin(current_user) -> bool:
@@ -2314,6 +2316,9 @@ async def build(db) -> dict:
         from ._dgx_t3_operacional_comercial import telas as _telas_t3  # dgx t3
 
         await _telas_t3(db, out)  # dgx t3 — vagas do contrato, restrições, grid com ação, painel de alertas
+        from ._dgx_u4_rondas_chamados import telas as _telas_u4  # dgx u4
+
+        await _telas_u4(db, out)  # dgx u4 — modelos/alertas/mapa de ronda, pânicos, setores (+ setor no chamado-novo)
         montar_grupos(out)
         # dgx t3: os oráculos da frente 04 (grid × triagem, mapa 5 estados) leem `_meta`/`rows` no id
         # raiz. Grid/mapa agora são abas de g-postos, mas o id raiz continua entregando a tela inteira

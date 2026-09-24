@@ -99,6 +99,10 @@ _DDL = [
         created_by uuid
     )""",
     "CREATE INDEX IF NOT EXISTS ix_op_chamados_status ON op_chamados (status, aberto_em)",
+    # dgx u4 — setor do chamado + contato de quem pediu + rastro do aviso
+    "ALTER TABLE op_chamados ADD COLUMN IF NOT EXISTS setor_id uuid",
+    "ALTER TABLE op_chamados ADD COLUMN IF NOT EXISTS solicitante_contato varchar(160)",
+    "ALTER TABLE op_chamados ADD COLUMN IF NOT EXISTS notificado jsonb NOT NULL DEFAULT '[]'",
 ]
 
 
@@ -488,10 +492,22 @@ async def abrir_chamado(
     categoria: str | None = None,
     prioridade: str = "normal",
     user_id: str | None = None,
+    setor_id: str | None = None,
+    solicitante_contato: str | None = None,
 ) -> dict:
     await _ensure(db)
     if len((descricao or "").strip()) < 10:
         raise SupervisaoErro(400, "Descreva o chamado (mín. 10 caracteres).")
+    setor = None
+    if setor_id:  # dgx u4
+        setor = (
+            await db.execute(
+                text("SELECT nome, responsavel, email, whatsapp FROM op_setores WHERE id = CAST(:s AS uuid) AND ativo"),
+                {"s": setor_id},
+            )
+        ).fetchone()
+        if not setor:
+            raise SupervisaoErro(404, "Setor não encontrado ou inativo.")
     if aberto_por not in ABERTO_POR or prioridade not in PRIORIDADES:
         raise SupervisaoErro(400, "Aberto por / prioridade inválidos.")
     if canal and canal not in CANAIS:
@@ -513,10 +529,12 @@ async def abrir_chamado(
         await db.execute(
             text(
                 "INSERT INTO op_chamados (post_id, condominio_id, aberto_por, solicitante_nome, canal, categoria, prioridade, descricao, "
-                " sla_min, created_by, aberto_em) VALUES (CAST(:p AS uuid), CAST(:c AS uuid), :ab, :sn, :ca, :cat, :pr, :d, :sla, "
-                " CAST(:u AS uuid), :agora) RETURNING id::text, numero"
+                " sla_min, created_by, aberto_em, setor_id, solicitante_contato) VALUES (CAST(:p AS uuid), CAST(:c AS uuid), :ab, :sn, "
+                " :ca, :cat, :pr, :d, :sla, CAST(:u AS uuid), :agora, CAST(:se AS uuid), :sc) RETURNING id::text, numero"
             ),
             {
+                "se": setor_id or None,
+                "sc": (solicitante_contato or "").strip()[:160] or None,
                 "p": post_id or None,
                 "c": (cond[0] if cond else None),
                 "ab": aberto_por,
@@ -531,8 +549,28 @@ async def abrir_chamado(
             },
         )
     ).fetchone()
+    notificado: list = []
+    if setor:  # dgx u4 — avisa o responsável do setor (e-mail real só em produção; sandbox = simulado)
+        from modules.operacional.services.ronda_alertas import notificar  # noqa: PLC0415
+
+        destinos = [{"canal": "email", "para": setor[2], "nome": setor[1]}, {"canal": "whatsapp", "para": setor[3], "nome": setor[1]}]
+        notificado = await notificar(
+            destinos, f"[Conecta PRO] Chamado #{r[1]} — {setor[0]}",
+            f"Chamado #{r[1]} ({prioridade}, SLA {PRIORIDADES[prioridade] // 60} h) aberto por {solicitante_nome or aberto_por} "
+            f"para o setor {setor[0]}: {descricao.strip()[:300]}",
+        )
+        await db.execute(
+            text("UPDATE op_chamados SET notificado = CAST(:n AS jsonb) WHERE id = CAST(:i AS uuid)"),
+            {"n": _json_dumps(notificado), "i": r[0]},
+        )
     await db.commit()
-    return {"id": r[0], "numero": r[1], "sla_min": PRIORIDADES[prioridade]}
+    return {"id": r[0], "numero": r[1], "sla_min": PRIORIDADES[prioridade], "notificado": notificado}
+
+
+def _json_dumps(v) -> str:
+    import json
+
+    return json.dumps(v, ensure_ascii=False, default=str)
 
 
 async def assumir_chamado(db, *, chamado_id: str, employee_id: str | None, user_id: str | None = None) -> dict:
@@ -568,7 +606,10 @@ async def resolver_chamado(db, *, chamado_id: str, resolucao: str, cancelar: boo
     await _ensure(db)
     row = (
         await db.execute(
-            text("SELECT status, aberto_em, atendido_em, sla_min FROM op_chamados WHERE id = CAST(:i AS uuid)"),
+            text(
+                "SELECT status, aberto_em, atendido_em, sla_min, numero, solicitante_contato, solicitante_nome, notificado "
+                "FROM op_chamados WHERE id = CAST(:i AS uuid)"
+            ),
             {"i": chamado_id},
         )
     ).fetchone()
@@ -586,9 +627,24 @@ async def resolver_chamado(db, *, chamado_id: str, resolucao: str, cancelar: boo
         ),
         {"s": "cancelado" if cancelar else "resolvido", "a": agora, "r": resolucao.strip(), "i": chamado_id},
     )
+    notificado = list(row[7] or [])
+    if row[5]:  # dgx u4 — avisa quem pediu (e-mail se tem @, senão WhatsApp)
+        from modules.operacional.services.ronda_alertas import notificar  # noqa: PLC0415
+
+        canal = "email" if "@" in row[5] else "whatsapp"
+        novo = await notificar(
+            [{"canal": canal, "para": row[5], "nome": row[6]}],
+            f"[Conecta PRO] Chamado #{row[4]} {'cancelado' if cancelar else 'resolvido'}",
+            f"Seu chamado #{row[4]} foi {'cancelado' if cancelar else 'resolvido'}: {resolucao.strip()[:300]}",
+        )
+        notificado += [{**n, "evento": "resolucao"} for n in novo]
+        await db.execute(
+            text("UPDATE op_chamados SET notificado = CAST(:n AS jsonb) WHERE id = CAST(:i AS uuid)"),
+            {"n": _json_dumps(notificado), "i": chamado_id},
+        )
     await db.commit()
     no_prazo = agora <= row[1] + timedelta(minutes=int(row[3] or 0))
-    return {"id": chamado_id, "status": "cancelado" if cancelar else "resolvido", "sla_cumprido": no_prazo}
+    return {"id": chamado_id, "status": "cancelado" if cancelar else "resolvido", "sla_cumprido": no_prazo, "notificado": notificado}
 
 
 # ───────────────────────── avisos ─────────────────────────
