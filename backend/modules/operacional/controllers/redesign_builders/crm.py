@@ -115,6 +115,9 @@ from ._dgx_f12_sesmt_demandas_comercial import router as _r12  # dgx f12  # noqa
 router.include_router(
     _r12
 )  # dgx f12 — SESMT/demandas/comercial (ações de tipos de exame, médicos, ASO, atendimentos, fontes, regiões)
+from ._dgx_aa2_orcamento_catalogo import router as _raa2  # dgx aa2  # noqa: E402
+
+router.include_router(_raa2)  # dgx aa2 — item do orçamento escolhido no catálogo (preço do dia digitado)
 
 
 async def _crm_gate(db, rec_id, coro_factory, ok_msg, noun="registro", idem=None):
@@ -263,6 +266,13 @@ async def rd_action_proposta_item_novo(
     pid = (payload.get("proposal_id") or "").strip()
     if len(pid) != 36:
         raise HTTPException(status_code=400, detail="Selecione a proposta.")
+    # ⚠️ 24/09/2026 (frente AA2) — `empresa_id` é NOT NULL em `proposal_items` desde 28/08 e
+    # esta ação nunca o mandou: o formulário "Novo item de proposta" devolvia HTTP 500 em
+    # TODA tentativa (medido no sandbox pela porta 8292). Agora é campo do formulário e,
+    # sem ele, a recusa é 400 com frase — não um 500 sem explicação.
+    emp = (payload.get("empresa_id") or "").strip()
+    if len(emp) != 36:
+        raise HTTPException(status_code=400, detail="Escolha qual CNPJ emite este item.")
     try:
         data = ProposalItemCreate(
             code=None,
@@ -272,6 +282,7 @@ async def rd_action_proposta_item_novo(
             quantity=_num(payload.get("quantity"), 1) or 1,
             unit_price=_num(payload.get("unit_price")),
             discount_percent=_num(payload.get("discount_percent")),
+            empresa_id=emp,
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
@@ -534,7 +545,12 @@ EXTRA_MENU: list[dict] = [
     {"id": "aditivos", "label": "Aditivos", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "aditivo-novo", "label": "Novo aditivo", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "contrato-copiar", "label": "Copiar contrato", "icon": _ICO_DOC, "grupo": "Contratos"},  # dgx t3
-    {"id": "visitas-por-cliente", "label": "Última visita por cliente", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},  # dgx t3
+    {
+        "id": "visitas-por-cliente",
+        "label": "Última visita por cliente",
+        "icon": _ICO_CAL,
+        "grupo": "Reuniões & visitas",
+    },  # dgx t3
     {"id": "modelos-contrato", "label": "Modelos de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "modelo-contrato-novo", "label": "Novo modelo de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {
@@ -587,6 +603,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "produtos", "label": "Produtos (catálogo)", "icon": _ICO_DOC, "grupo": "Catálogo"},
     {"id": "produto-novo", "label": "Novo produto", "icon": _ICO_DOC, "grupo": "Catálogo"},
 ]
+from ._dgx_aa2_orcamento_catalogo import MENU as _menu_aa2  # noqa: E402, N811  # dgx aa2
+
+EXTRA_MENU.extend(_menu_aa2)  # dgx aa2 — Catálogo → item do orçamento
 from ._frente_07 import MENU as _menu07  # noqa: E402, N811  # import tardio e alias, pré-existentes
 
 EXTRA_MENU.extend(_menu07)  # frente 07
@@ -2347,6 +2366,9 @@ async def build(db) -> dict:
         ],
     }
 
+    from ._dgx_aa2_orcamento_catalogo import garantir_elo as _aa2_elo  # dgx aa2
+
+    await _aa2_elo(db)  # dgx aa2 — proposal_items.produto_id tem de existir ANTES da tela de itens
     await _ligar_20260908(db, out, tbl)
     await _ligar_lote4_20260908(db, out)
     from ._frente_07 import telas as _telas_07  # frente 07
@@ -2360,6 +2382,9 @@ async def build(db) -> dict:
     from ._dgx_t3_operacional_comercial import telas_crm as _telas_t3  # dgx t3
 
     await _telas_t3(db, out)  # dgx t3 — copiar contrato, última visita por cliente
+    from ._dgx_aa2_orcamento_catalogo import telas as _telas_aa2  # dgx aa2
+
+    await _telas_aa2(db, out)  # dgx aa2 — catálogo → item do orçamento (preço do dia digitado)
     return out
 
 
@@ -2384,6 +2409,7 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
         "SELECT id, coalesce(number,'—') || ' · ' || coalesce(client_name,'—') FROM proposals "
         "WHERE coalesce(is_active,true) AND status::text IN ('draft','approved') ORDER BY created_at DESC LIMIT 200"
     )
+    emp = await _opts("SELECT id, razao_social FROM empresas ORDER BY razao_social")  # dgx aa2
     _sel = lambda key, label, opts, span="span 2": {  # noqa: E731  # pré-existente
         "key": key,
         "label": label,
@@ -2872,15 +2898,23 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
             "Itens de proposta",
             f"{await _scalar(db, 'SELECT count(*) FROM proposal_items WHERE coalesce(is_active,true)')} itens — o que compõe cada proposta",
             "Novo item",
-            ["Proposta", "Item", "Qtd", "Unitário", "Desc. %", "Total", "Opcional"],
-            "1.4fr 2fr 0.5fr 1fr 0.6fr 1fr 0.7fr",
+            ["Proposta", "Item", "Catálogo", "Qtd", "Unitário", "Desc. %", "Total", "Opcional"],
+            "1.3fr 2fr 1.1fr 0.5fr 0.9fr 0.6fr 0.9fr 0.7fr",
+            # dgx aa2 — `i.produto_id` é o elo com o catálogo (`products`). NULO = item digitado
+            # à mão, que é o caso dos 177 itens anteriores a 24/09/2026: a tela DIZ isso em vez
+            # de fingir que todo item tem produto. É esse elo que faz o orçamento aprovado virar
+            # nota sem a Z5 ter de adivinhar o produto pela descrição.
             "SELECT coalesce(p.number,'—'), coalesce(i.name,'—'), coalesce(i.quantity,0), coalesce(i.unit_price,0), coalesce(i.discount_percent,0), "
-            "coalesce(i.total,0), coalesce(i.is_optional,false), i.id::text, p.id::text, p.status::text "
-            "FROM proposal_items i JOIN proposals p ON p.id=i.proposal_id WHERE coalesce(i.is_active,true) AND coalesce(p.is_active,true) "
+            "coalesce(i.total,0), coalesce(i.is_optional,false), i.id::text, p.id::text, p.status::text, "
+            "coalesce(pr.code,''), coalesce(pr.ncm,'') "
+            "FROM proposal_items i JOIN proposals p ON p.id=i.proposal_id "
+            "LEFT JOIN products pr ON pr.id = i.produto_id "
+            "WHERE coalesce(i.is_active,true) AND coalesce(p.is_active,true) "
             "ORDER BY p.created_at DESC, i.sort_order LIMIT 300",
             lambda r: [
                 t(r[0], 600, "#0F1B3A"),
                 t(r[1]),
+                b(f"{r[10]}" + (f" · NCM {r[11]}" if r[11] else ""), "ok") if r[10] else b("digitado à mão", "mut"),
                 t(str(r[2])),
                 t(brl(r[3])),
                 t(str(r[4])),
@@ -2910,12 +2944,15 @@ async def _ligar_20260908(db, out: dict, tbl) -> None:
         await db.rollback()
     out["proposta-item-novo"] = {
         "title": "Novo item de proposta",
-        "sub": "Só em proposta em rascunho/aprovada (ainda não enviada).",
+        "sub": "Só em proposta em rascunho/aprovada (ainda não enviada). Item de MATERIAL tem "
+        "caminho melhor: a aba «Catálogo → item do orçamento» traz código, descrição, unidade e "
+        "NCM prontos — aqui é para o que não está no catálogo.",
         "cta": "Adicionar",
         "type": "form",
         "submit": {"endpoint": "/api/v1/redesign/action/proposta-item-novo", "okMsg": "Item adicionado"},
         "fields": [
             _sel("proposal_id", "Proposta*", prop),
+            _sel("empresa_id", "CNPJ que emite este item*", emp),  # dgx aa2 — NOT NULL no banco
             {"key": "name", "label": "Item*", "type": "text", "span": "span 2"},
             {"key": "unit", "label": "Unidade*", "type": "text", "span": "span 1", "ph": "posto / un / mês"},
             {"key": "quantity", "label": "Quantidade*", "type": "number", "span": "span 1"},

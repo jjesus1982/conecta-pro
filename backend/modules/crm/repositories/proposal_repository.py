@@ -413,6 +413,13 @@ class ProposalRepository:
         await self.db.refresh(item)
 
         # Recalcular totais da proposta
+        # ⚠️ 24/09/2026 (frente AA2) — o `refresh(proposal, ["items"])` FALTAVA aqui, e sem ele
+        # `calculate_totals()` lia a coleção de ANTES do insert: proposta ganhava item e o
+        # subtotal ficava no valor velho (medido no sandbox: item de R$ 2.501 entrou e o
+        # subtotal continuou R$ 0,00). O `remove_item` logo abaixo sempre teve esse refresh —
+        # era o `add_item` que estava sozinho. Ninguém tinha visto porque as 177 linhas de
+        # produção nasceram por `create()`/`replace_items`, que calculam em memória.
+        await self.db.refresh(proposal, ["items", "term_options"])
         proposal.calculate_totals()
         await self.db.commit()
 
