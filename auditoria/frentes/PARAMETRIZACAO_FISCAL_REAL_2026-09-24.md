@@ -94,10 +94,23 @@ IBPT), **não** imposto cobrado. O ICMS da nota é **zero**. Ler aqueles 20% com
    (ISS 100 + CSLL 20) porque o ISS foi «Retido pelo Tomador»; nas outras o ISS é «Não Retido» e
    só a CSLL entra na retenção.
 
-**INCONSISTÊNCIA que precisa de decisão do contador:** o **IRRF de 1%** aparece **só na nota 121**
-(setembro). As três de agosto — inclusive a 116, mesmo código de serviço `14.01.01` e mesmo tipo
-de tomador (condomínio) — saíram **sem IRRF**. Ou as de agosto retiveram a menos, ou a de setembro
-reteve a mais. **Não parametrizo isso sem fonte.**
+**IRRF — DECIDIDO PELO DONO em 24/09/2026: não reter.** Palavras dele:
+*«vamos usar daqui pra frente sem a retenção do irrf»*.
+
+O que motivou a pergunta: o **IRRF de 1%** aparecia **só na nota 121** (setembro, R$ 18,00). As
+três de agosto — inclusive a **116**, com o **mesmo código de serviço `14.01.01`** e o **mesmo
+tipo de tomador (condomínio)** — saíram **sem IRRF**. Uma das duas práticas estava errada, e o
+dono escolheu a de agosto.
+
+**Como implementar:** `irrf_reter = false` é **parâmetro por empresa**, semeado com a decisão
+acima e a data, **não** um `if` no código nem a remoção do campo. O cálculo do IRRF continua
+existindo e desligado — o dia que o contador disser o contrário, muda uma linha de tabela e as
+notas voltam a sair com ele.
+
+**O que fica registrado para o contador:** a nota 121 já foi emitida COM IRRF de R$ 18,00. Se a
+posição correta for «não reter», aquela nota reteve a mais; se for «reter», as de agosto
+retiveram a menos. A decisão do dono vale daqui para a frente e **não reabre o passado** — o que
+fazer com a 121 e com as de agosto é decisão dele, com o contador.
 
 ## 5. NFS-e da PATRIMONIAL (Simples Nacional)
 
@@ -143,7 +156,8 @@ identificada pelos dados bancários na descrição:
 
 ## 7. O que fica sem fonte (não parametrizar, perguntar)
 
-1. **IRRF** — presente só na nota 121. Devido ou não nas de agosto? (§4)
+1. ~~IRRF~~ — **DECIDIDO pelo dono em 24/09: não reter daqui para a frente** (§4). Fica para
+   o contador apenas o que fazer com a 121, que já saiu com R$ 18,00.
 2. **CST 53, 06, 20, 50, 41 na entrada** — 33 itens. Diferimento, redução de base, suspensão e
    não tributada têm tratamento de saída próprio; não há nota real de saída que mostre qual.
 3. **A nota 26 da Patrimonial** (R$ 12.061,50, código 110201) — o dono confirmou que foi erro e
