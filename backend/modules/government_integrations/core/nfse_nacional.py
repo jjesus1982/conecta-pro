@@ -23,6 +23,7 @@ import gzip
 import logging
 import re
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -252,6 +253,30 @@ def _conferir_tp_amb(xml: str | bytes, tp_amb: str, url: str, operacao: str = "E
         raise NFSeAmbienteError(f"{operacao}: XML em PRODUÇÃO sem o gate humano. Nada foi transmitido.")
 
 
+def _erro_do_fisco(resp: Any) -> dict[str, Any] | None:
+    """O bloco `erro` que o Padrão Nacional devolve em JSON, ou `None`.
+
+    `None` significa «não foi o fisco que respondeu isso» — página de erro do servidor
+    web, proxy, qualquer coisa. Distinguir os dois é o que impede a conciliação de fechar
+    um número fiscal com base num 404 de rota errada. Ver `_get`.
+    """
+    import json as _json
+
+    if "json" not in str(resp.headers.get("content-type", "")).lower():
+        return None
+    try:
+        dado = _json.loads(resp.text)
+    except Exception:  # noqa: BLE001
+        return None
+    erro = dado.get("erro") if isinstance(dado, dict) else None
+    if isinstance(erro, dict) and erro.get("codigo"):
+        return erro
+    # alguns retornos trazem uma lista de erros
+    if isinstance(erro, list) and erro and isinstance(erro[0], dict) and erro[0].get("codigo"):
+        return erro[0]
+    return None
+
+
 def _ler_retorno_nfse(corpo: str) -> dict[str, Any]:
     """Lê o que o fisco devolveu no 201: chave, NFS-e assinada e os números DELE.
 
@@ -304,6 +329,50 @@ def _ler_retorno_nfse(corpo: str) -> dict[str, Any]:
     return fora
 
 
+def chave_dps(cnpj: str, serie: str, numero: int | str, cod_municipio: str = "1302603") -> str:
+    """Chave da DPS: cMun(7) + tpInsc(1) + nrInsc(14) + serie(5) + nDPS(15) = 42 dígitos.
+
+    É a ÚNICA chave que se pode construir. A chave da NFS-e (50 dígitos) carrega um
+    código numérico de 8 dígitos sorteado pelo fisco — medido em 24/09/2026 nos DANFSe
+    das duas empresas: `…260896878833` (nota 29) e `…260894006421 00` (nota 116), sem
+    relação com o número da nota. Por isso a conciliação varre DPS, não NFS-e.
+
+    tpInsc: 1 = CPF, 2 = CNPJ. Prestador é CNPJ → 2.
+    """
+    doc = re.sub(r"\D", "", str(cnpj))
+    return f"{str(cod_municipio)[:7]}2{doc:0>14}{re.sub(r'\D', '', str(serie)):0>5}{int(numero):015d}"
+
+
+@contextmanager
+def _certificado_pem(caminho: str | None, senha: str | None):
+    """Exporta o .pfx para o par PEM que o mTLS exige e apaga os arquivos ao sair.
+
+    `emitir_dps` tem a sua própria cópia desta dança e continua com ela: deduplicar o
+    único caminho de emissão fiscal provado não valia o risco nesta frente.
+    NUNCA loga a senha — nem em erro.
+    """
+    from .certificate_manager import CertificateManager
+
+    cert_mgr = CertificateManager(pfx_path=caminho, password=senha)
+    cert_mgr.load()
+    tmp_cert = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb")  # noqa: SIM115
+    tmp_key = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb")  # noqa: SIM115
+    try:
+        tmp_cert.write(cert_mgr.get_certificate_pem())
+        tmp_cert.close()
+        tmp_key.write(cert_mgr.get_private_key_pem())
+        tmp_key.close()
+        yield (tmp_cert.name, tmp_key.name)
+    finally:
+        import os as _os
+
+        for _p in (tmp_cert.name, tmp_key.name):
+            try:
+                _os.unlink(_p)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 class NFSeNacionalManager:
     """
     Gerenciador de NFS-e Padrão Nacional (Preparação).
@@ -322,7 +391,11 @@ class NFSeNacionalManager:
     ENDPOINTS = {
         "emitir_dps": "/nfse",
         "consultar_nfse": "/nfse/{chave}",
-        "consultar_dps": "/nfse/DPS/{chave}",
+        # MEDIDO em 24/09/2026 contra a produção restrita — o valor anterior aqui era
+        # "/nfse/DPS/{chave}" e devolve 404 **com página HTML do IIS**, porque a rota não
+        # existe. Ninguém tinha notado: o dicionário estava declarado e nenhum método o
+        # usava. O caminho certo é `/dps/{id}`, minúsculo e sem o prefixo `/nfse`.
+        "consultar_dps": "/dps/{chave}",
         "danfse": "/nfse/DANFSe/{chave}",
         "eventos": "/nfse/{chave}/eventos",
     }
@@ -606,6 +679,102 @@ class NFSeNacionalManager:
             return segunda
 
         return result
+
+    def _get(self, caminho: str, operacao: str) -> dict[str, Any]:
+        """GET mTLS no host do ambiente. Leitura pura: não cria, não altera, não numera.
+
+        A trava de produção NÃO roda aqui de propósito: ela existe para impedir que saia
+        documento fiscal irreversível, e consultar não emite nada. Conciliar a produção
+        exige justamente ler a produção. O que a trava garante continua garantido —
+        `emitir_dps` é o único caminho que grava no fisco.
+        """
+        import requests
+
+        url = f"{self.url_base}{caminho}"
+        fora: dict[str, Any] = {"url": url, "ambiente": self.ambiente.value, "operacao": operacao}
+        if not self.certificado_path:
+            fora["status"] = "sem_certificado"
+            fora["erro"] = "Consulta ao fisco exige certificado A1 (mTLS) — nenhum configurado para este CNPJ."
+            return fora
+        try:
+            with _certificado_pem(self.certificado_path, self.certificado_senha) as pem:
+                resp = requests.get(url, cert=pem, timeout=30, verify=True)
+        except Exception as e:  # noqa: BLE001 — senha NUNCA entra na mensagem
+            fora["status"] = "erro_rede"
+            fora["erro"] = f"{type(e).__name__}: {e}"
+            return fora
+        fora["http_status"] = resp.status_code
+        fora["response"] = resp.text[:1000]
+        if resp.status_code == 200:
+            fora["status"] = "encontrada"
+            fora.update(_ler_retorno_nfse(resp.text))
+            return fora
+
+        # ── O 404 que MENTE ──────────────────────────────────────────────────────────
+        # Medido em 24/09/2026: o fisco devolve 404 em DOIS casos muito diferentes.
+        #
+        #   caminho errado   → 404 text/html, página do IIS «The resource cannot be found»
+        #   não existe mesmo → 404 application/json, {"erro": {"codigo": "E2404",
+        #                      "descricao": "Não foi gerada uma NFS-e com o identificador
+        #                      de DPS informado"}}
+        #
+        # Ler o primeiro como «o fisco disse que não existe» é o pior erro possível nesta
+        # rotina: ela fecharia as 37 notas ausentes como inexistentes, com a tela verde, e
+        # o dinheiro ficaria perdido com aparência de conferido. Foi o que aconteceu na
+        # primeira medição desta frente, com `/nfse/DPS/{chave}` — que não é rota.
+        #
+        # Então: **só o código de erro do próprio fisco fecha um número.**
+        erro = _erro_do_fisco(resp)
+        if resp.status_code == 404 and erro:
+            fora["status"] = "inexistente"
+            fora["codigo_erro"] = erro.get("codigo")
+            fora["descricao_erro"] = erro.get("descricao")
+        elif resp.status_code == 404:
+            fora["status"] = "caminho_invalido"
+            fora["erro"] = (
+                f"HTTP 404 sem corpo de erro do fisco em {url} — isto é rota inexistente, "
+                "NÃO «documento não existe». Nada foi concluído sobre este número."
+            )
+        else:
+            fora["status"] = f"http_{resp.status_code}"
+            if erro:
+                fora["codigo_erro"] = erro.get("codigo")
+                fora["descricao_erro"] = erro.get("descricao")
+        return fora
+
+    def consultar_nfse(self, chave_acesso: str) -> dict[str, Any]:
+        """`GET /nfse/{chave}` — a NFS-e que o fisco tem, pela chave de 50 dígitos."""
+        chave = re.sub(r"\D", "", str(chave_acesso or ""))
+        if len(chave) != 50:
+            return {"status": "chave_invalida", "erro": f"Chave da NFS-e tem 50 dígitos; recebi {len(chave)}."}
+        return self._get(self.ENDPOINTS["consultar_nfse"].format(chave=chave), "consultar_nfse")
+
+    def consultar_por_dps(self, serie: str, numero: int | str, cod_municipio: str = "1302603") -> dict[str, Any]:
+        """`GET /nfse/DPS/{chave}` — a NFS-e gerada por (CNPJ + série + número de DPS).
+
+        A chave da DPS é construtível (ver `chave_dps`), e é por ela que a conciliação
+        pergunta ao fisco por um número que este banco não tem.
+        """
+        chave = chave_dps(self.cnpj, serie, numero, cod_municipio)
+        fora = self._get(self.ENDPOINTS["consultar_dps"].format(chave=chave), "consultar_por_dps")
+        # Medido: `/dps/{id}` devolve SÓ `{tipoAmbiente, versaoAplicativo,
+        # dataHoraProcessamento, chaveAcesso}` — a chave, não a nota. Quem tem o `<NFSe>`
+        # assinado, com valores e tributos, é `/nfse/{chave}`. Duas idas, uma conclusão.
+        if fora.get("status") == "encontrada" and fora.get("chave_acesso") and not fora.get("xml_nfse"):
+            detalhe = self.consultar_nfse(fora["chave_acesso"])
+            if detalhe.get("status") == "encontrada":
+                fora.update({k: v for k, v in detalhe.items() if k not in ("url", "operacao")})
+                fora["status"] = "encontrada"
+            else:
+                # A chave existe e a nota não veio: NÃO é «inexistente». É pendência.
+                fora["status"] = "detalhe_indisponivel"
+                fora["erro"] = (
+                    f"DPS achada (chave {fora['chave_acesso']}) mas GET /nfse/{{chave}} devolveu {detalhe.get('status')}"
+                )
+        fora["chave_dps"] = chave
+        fora["serie"] = str(serie)
+        fora["numero_dps"] = int(numero)
+        return fora
 
     def consultar_status_migracao(self) -> dict[str, Any]:
         """
