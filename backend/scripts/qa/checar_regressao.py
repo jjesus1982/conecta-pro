@@ -163,6 +163,11 @@ CACADORES_HOST = {
     # noturno (frentes V1/W1): 4 casos (RILEM 53/53 batidas fora, ADEILSON 93%, MAIARA 100%).
     # CONTADA: dívida de cadastro com dono — acusa se CRESCER.
     "checar_escala_paridade.py": lambda s: _n(r"^TOTAL escalas na paridade errada: (\d+)", s),
+    # A casa tem OITO pareadores de batida (varredura estática da frente X4, 24/09/2026). Três já
+    # falam a mesma língua (folha, fechamento, tela do DP) desde V1/W1/X4; o espelho LEGAL — o PDF
+    # que o colaborador assina e vai para a homologação — ainda tem régua própria. Este oráculo
+    # afirma que os três casados continuam casados e que espelho assinado não é reescrito.
+    "test_oraculo_x4_pareador_unico.py": lambda s: _n(r"^TOTAL desvios: (\d+)", s),
     # O skill-retrieval está ENCOLHENDO o prompt e não escondendo as nossas skills. Ele tem
     # duas fases que puxam o custo em direções opostas (compacta / injeta); se a compactação
     # parar, o plugin passa a CUSTAR em silêncio — medido: 26.793 com a adaptação da casa
