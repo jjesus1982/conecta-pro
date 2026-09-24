@@ -345,9 +345,26 @@ async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
         "aviso_defasagem": ("nenhuma batida há mais de 12h — o relógio pode estar calado e "
                             "estes números não valem; confira antes de decidir")
                            if (horas_sem_batida or 0) > 12 else None,
-        # Informativo, não alarme: a carga do Sólides está velha de propósito ou não, e isso é
-        # decisão do Jordan — não é o que alimenta os números acima.
-        "ultima_carga_solides": d.get("ultima_sync_solides"),
+        # 🔴 O CARIMBO DO SÓLIDES SAIU DAQUI, e a razão é o oposto de um conserto de máquina.
+        #
+        # Ele dizia "última carga: 17/09" e estava CERTO — o sync foi DESLIGADO pelo Jordan, em
+        # duas decisões registradas no `celery_app.py`:
+        #   · 13/09 — o pull de batidas trazia a GRADE, não batida medida (422 registros com 48
+        #     horários distintos contra 763 do app; 134 das 180 anomalias do mês eram isso);
+        #   · 16/09 — o sync fazia `UPDATE employees` por CPF e DESFAZIA correção feita à mão
+        #     ("03:28 gravei BIANCA HELLEM; 03:57 voltou BIANCA HELEM").
+        #
+        # ⚠️ E foi por eu expor esse campo que o agente disse ao Jordan, hoje: *"a última carga
+        # do sistema foi 17/09; se estiver desatualizada, o número tá enganoso"*. Ele ofereceu
+        # uma explicação falsa para um número correto — porque eu entreguei, junto do dado, um
+        # carimbo de uma fonte APOSENTADA. Frescor de fonte morta apresentado como frescor do
+        # dado gera desconfiança no número certo, que é pior que não informar nada.
+        #
+        # O frescor que importa já está em `horas_desde_a_ultima_batida`, e ele vem do relógio
+        # que está de pé: o nosso.
+        "fonte_do_ponto": ("app/facial do Conecta PRO — o pull do Sólides foi desligado em "
+                           "13 e 16/09/2026 por decisão do dono; a data de 17/09 que aparece em "
+                           "relatórios antigos é dessa fonte aposentada e NÃO indica dado velho"),
         "escala_e_read_only": "eu não mudo escala; pedido de troca vira aprovação sua ou do Orlailson",
     })
 
@@ -895,7 +912,18 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
 
     linhas = (await db.execute(text(f"""
         SELECT pp.name AS posto, e.nome, e.cargo, coalesce(e.escala_padrao,'(sem)') AS escala,
-               s.planned_start_time AS prev_ent, s.planned_end_time AS prev_sai,
+               e.status AS situacao,
+               -- ⭐ HORÁRIO VIGENTE MANDA SOBRE O DO TURNO (item 2, 24/09/2026). A Celiane bateu
+               -- 09:00 e o relatório a acusou de 60min de atraso porque `shifts` diz 08:00 — e o
+               -- Jordan corrigiu: 09:00–18:00 é o horário CERTO dela. Sem vigência, ela apareceria
+               -- atrasada TODO DIA, e um relatório que acusa quem está certo é pior que nenhum.
+               --
+               -- `coalesce` e não substituição: a vigência cobre quem tem exceção registrada; o
+               -- resto segue pelo turno, que é o certo para a maioria.
+               coalesce(hv.entrada, s.planned_start_time) AS prev_ent,
+               coalesce(hv.saida,   s.planned_end_time)   AS prev_sai,
+               (hv.entrada IS NOT NULL) AS horario_por_vigencia,
+               hv.intervalo_min,
                s.is_off_day,
                (s.planned_start_time <= :agora) AS ja_devia,
                g.punch_timestamp AS bateu_em, g.status AS bat_status, g.punch_type,
@@ -919,6 +947,14 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
                               AND coalesce(af.data_retorno, af.data_fim_prevista, :d)
                    AND lower(coalesce(af.status,'')) NOT IN ('encerrado','cancelado')
                  LIMIT 1) AS afastamento,
+               -- ⭐ A ANOMALIA QUE EXPÔS O GEILSON. Ele está `ativo`, com 26 turnos em setembro,
+               -- e a última batida é de 12/09 — doze dias. O afastamento pelo INSS existe na vida
+               -- real e NÃO está em `sst_afastamentos`, então o sistema o escala todo dia e conta
+               -- falta. Um dia sem bater é ocorrência; doze dias é CADASTRO ERRADO, e reportar os
+               -- dois do mesmo jeito faz o supervisor caçar a pessoa em vez de corrigir o
+               -- registro. Os 26 turnos sem batida também entram no banco de horas.
+               (SELECT (CURRENT_DATE - max(gp.punch_timestamp)::date)
+                  FROM gp_clock_punches gp WHERE gp.employee_id = e.id) AS dias_sem_bater,
                (SELECT j.justification_type || ' (' || coalesce(j.status,'?') || ')'
                   FROM gp_justifications j
                  -- ⚠️ `gp_justifications.employee_id` é VARCHAR e `employees.id` é uuid — a
@@ -930,13 +966,23 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
           FROM shifts s
           JOIN employees e ON e.id = s.employee_id
           JOIN posts pp ON pp.id = s.post_id
+          LEFT JOIN ponto_horario_vigencia hv
+                 ON hv.employee_id = e.id
+                AND :d BETWEEN hv.vigencia_inicio AND coalesce(hv.vigencia_fim, :d)
           LEFT JOIN LATERAL (
               SELECT * FROM gp_clock_punches x
                WHERE x.employee_id = s.employee_id AND x.punch_type = 'entrada'
                  AND x.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
                                            AND (CAST(:d AS date) + s.planned_start_time) + interval '4 hours'
                ORDER BY x.punch_timestamp LIMIT 1) g ON TRUE
-         WHERE s.shift_date = :d AND s.is_active AND e.status = 'ativo' {filtro}
+         -- ⚠️ NÃO filtro mais por `status = 'ativo'`, e isso VIROU um achado. Com o filtro, quem
+         -- está escalado sem estar ativo ficava INVISÍVEL no relatório — e existe: KEYSON DA
+         -- SILVA PINTO está `demitido` e tem turno hoje. O posto conta com alguém que não vem, e
+         -- o relatório não dizia nada porque a linha era descartada antes de ser avaliada.
+         --
+         -- Filtro que esconde o caso anômalo é pior que filtro nenhum: ele produz um relatório
+         -- limpo sobre uma operação furada. Agora essas linhas ENTRAM e ganham veredito próprio.
+         WHERE s.shift_date = :d AND s.is_active {filtro}
          ORDER BY pp.name, s.planned_start_time, e.nome"""), p)).mappings().all()
 
     if not linhas:
@@ -947,7 +993,17 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
     resumo_status: dict[str, int] = {}
     for r in linhas:
         # ── o veredito ──
-        if r["is_off_day"]:
+        _st = str(r["situacao"] or "").lower()
+        if _st in ("demitido", "desligado", "inativo", "candidato"):
+            # O turno existe e a pessoa não. Isto é buraco de COBERTURA disfarçado de escala
+            # cheia — e é o que o filtro antigo escondia.
+            veredito = "ESCALADO_SEM_VINCULO"
+            motivo = (f"a pessoa está {_st!r} no cadastro e tem turno hoje — o posto conta com "
+                      f"quem não vem. Corrigir a escala ou o cadastro.")
+            atraso = None
+        elif _st in ("afastado_inss", "afastado", "suspenso", "ferias", "férias"):
+            veredito, motivo, atraso = "AFASTADO", f"cadastro: {_st}", None
+        elif r["is_off_day"]:
             veredito, motivo, atraso = "FOLGA", None, None
         elif r["afastamento"]:
             # Afastamento vem ANTES de férias e de tudo: quem está afastado não deve ser
@@ -978,9 +1034,15 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             # ⭐ SEM_BATIDA COM JUSTIFICATIVA NÃO É COBRANÇA — é fila do DP. Sem esta distinção o
             # relatório manda o supervisor atrás de quem já abriu justificativa, e ele aprende a
             # desconfiar do relatório inteiro.
+            dias = r["dias_sem_bater"]
             if r["justificativa_do_dia"]:
                 veredito = "SEM_BATIDA_JUSTIFICADA"
                 motivo = f"já tem justificativa aberta: {r['justificativa_do_dia']}"
+            elif dias is not None and dias >= 3:
+                # Não chamo de falta: chamo de cadastro suspeito, que é o que o dado sustenta.
+                veredito = "AUSENTE_PROLONGADO"
+                motivo = (f"{dias} dias sem bater e ainda ativo/escalado — provável afastamento, "
+                          f"férias ou desligamento NÃO lançado. Isto é cadastro, não falta.")
             else:
                 veredito, motivo = "SEM_BATIDA", None
             atraso = None
@@ -989,6 +1051,7 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
 
         resumo_status[veredito] = resumo_status.get(veredito, 0) + 1
         item = {"escala": r["escala"],
+                **({"horario_corrigido_por_vigencia": True} if r["horario_por_vigencia"] else {}),
                 "previsto": f"{r['prev_ent'].strftime('%H:%M')}–{r['prev_sai'].strftime('%H:%M')}",
                 "bateu": r["bateu_em"].strftime("%H:%M:%S") if r["bateu_em"] else None,
                 "status": veredito}
@@ -1011,8 +1074,84 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
         "leia_assim": ("veredito por turno: COBERTO · ATRASO (com minutos) · SEM_BATIDA · FOLGA · "
                        "AFASTADO · AGUARDANDO (turno não começou). `por_que` só aparece quando o "
                        "DADO traz o motivo — status `pending` é o normal da casa e NÃO é problema. "
-                       "SEM_BATIDA_JUSTIFICADA já está com o DP: NÃO cobre de novo."
+                       "SEM_BATIDA_JUSTIFICADA já está com o DP: NÃO cobre de novo. "
+                       "AUSENTE_PROLONGADO é CADASTRO a corrigir (afastamento/férias/desligamento "
+                       "não lançado), NÃO é falta da pessoa — não cobre quem está nesse estado. "
+                       "`horario_corrigido_por_vigencia` significa que usei o horário real da "
+                       "pessoa, não o do turno. ESCALADO_SEM_VINCULO é grave e urgente: há turno "
+                       "para quem está demitido/inativo, então o posto acha que está coberto."
                        + (" Este grupo está autorizado a dado nominal: DIGA os nomes aqui."
                           if com_nomes else
                           " Sem autorização nominal neste grupo: respondo sem pessoa.")),
+    }
+
+
+async def auditoria_cadastro_vs_gov(db: AsyncSession) -> dict[str, Any]:
+    """Onde o cadastro, a operação e o GOVERNO discordam. Só leitura, nunca transmite.
+
+    ⭐ Nasceu de um pedido do Jordan (24/09/2026): *"nosso sistema precisa estar 100% online e
+    sincronizado com o eSocial, ter ele como fonte da verdade, assim nunca fica defasado."*
+
+    ⚠️ E aqui eu divirjo com medição, porque a direção importa: **o eSocial é DESTINO, não
+    fonte.** Ele recebe o que nós enviamos (S-2200 admissão, S-2230 afastamento, S-2299
+    desligamento); não existe lista canônica de colaborador que ele devolva. Fazer dele fonte da
+    verdade inverte o fluxo — nada apareceria lá que não tivesse saído daqui primeiro.
+
+    O caso do Geilson prova: ele não está afastado no nosso cadastro, então NADA foi transmitido.
+    Nenhum sync o traria, porque não há o que trazer.
+
+    ⭐ Mas a necessidade por trás do pedido está certa, e o uso certo do eSocial é ser AUDITOR, não
+    fonte: o que foi transmitido é prova de que existe, e a DIVERGÊNCIA entre o que registramos e
+    o que transmitimos é o sinal mais forte de dado defasado que existe nesta casa.
+
+    🔴 Medido ao escrever isto: os 8 afastamentos de `sst_afastamentos` estão TODOS
+    `nao_transmitida` — inclusive o acidente de trajeto da Cintia, de 21/05, que tem prazo legal
+    mais curto. Não é atraso de sistema: é exposição.
+
+    ⚠️ ESTA FUNÇÃO NÃO TRANSMITE NADA. Transmitir gera evento real no governo e é ação do dono,
+    com OTP, pela tela. Aqui só se mede e se relata.
+    """
+    afast = (await db.execute(text("""
+        SELECT coalesce(a.employee_nome, e.nome, '(sem nome)') AS quem, a.tipo, a.data_inicio,
+               a.status, coalesce(a.esocial_status,'(sem status)') AS gov,
+               (CURRENT_DATE - a.data_inicio) AS dias
+          FROM sst_afastamentos a LEFT JOIN employees e ON e.id = a.employee_id
+         ORDER BY a.data_inicio DESC"""))).mappings().all()
+
+    # Quem a OPERAÇÃO trata como afastado (não bate há dias, segue escalado) e o cadastro não.
+    sem_lancamento = (await db.execute(text("""
+        SELECT e.nome, e.status,
+               (CURRENT_DATE - (SELECT max(g.punch_timestamp)::date FROM gp_clock_punches g
+                                 WHERE g.employee_id = e.id)) AS dias_sem_bater,
+               (SELECT count(*) FROM shifts s WHERE s.employee_id = e.id
+                 AND s.shift_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE
+                 AND s.is_active AND NOT s.is_off_day) AS turnos_no_mes
+          FROM employees e
+         WHERE e.status = 'ativo'
+           AND (SELECT max(g.punch_timestamp)::date FROM gp_clock_punches g
+                 WHERE g.employee_id = e.id) < CURRENT_DATE - 3
+           AND EXISTS (SELECT 1 FROM shifts s WHERE s.employee_id = e.id
+                        AND s.shift_date = CURRENT_DATE AND s.is_active AND NOT s.is_off_day)
+         ORDER BY 3 DESC"""))).mappings().all()
+
+    # Escalado hoje sem vínculo — buraco de cobertura que a escala esconde.
+    sem_vinculo = (await db.execute(text("""
+        SELECT e.nome, e.status, p.name AS posto
+          FROM shifts s JOIN employees e ON e.id = s.employee_id
+          LEFT JOIN posts p ON p.id = s.post_id
+         WHERE s.shift_date = CURRENT_DATE AND s.is_active AND NOT s.is_off_day
+           AND e.status IN ('demitido','desligado','inativo','candidato')"""))).mappings().all()
+
+    nao_transmitidos = [dict(a) for a in afast if str(a["gov"]).startswith("nao_")]
+    return {
+        "afastamentos_registrados": len(afast),
+        "nao_transmitidos_ao_esocial": nao_transmitidos,
+        "afastamento_provavel_sem_lancamento": [dict(x) for x in sem_lancamento],
+        "escalado_sem_vinculo": [dict(x) for x in sem_vinculo],
+        "leia_assim": (
+            "O eSocial é DESTINO, não fonte: só chega lá o que sai daqui. Então 'defasado' se "
+            "mede por DIVERGÊNCIA — afastamento registrado e não transmitido, pessoa que a "
+            "operação trata como afastada e o cadastro diz ativa, e turno para quem não tem "
+            "vínculo. ⚠️ Eu NÃO transmito nada: transmitir gera evento real no governo e é ação "
+            "do dono, pela tela, com OTP."),
     }

@@ -2613,6 +2613,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "visao_operacao": {"kind": "read"},
     "cobertura_por_escala": {"kind": "read"},
     "situacao_do_turno": {"kind": "read"},
+    "auditoria_cadastro": {"kind": "read"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2967,6 +2968,10 @@ _PAPEIS: dict[str, dict] = {
             # pergunta — ele escolheria a mais pobre metade das vezes, e as duas divergiriam na
             # primeira mudança de regra. A função fica no módulo, sem ser oferecida.
             "situacao_do_turno",
+            # ⭐ Auditoria cadastro × operação × governo. O Jordan pediu o eSocial como "fonte da
+            # verdade"; ele é DESTINO, e o valor real dele é ser auditor — a divergência entre o
+            # que registramos e o que transmitimos é o sinal mais forte de dado defasado.
+            "auditoria_cadastro",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
@@ -4476,6 +4481,22 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_AUDITORIA_CADASTRO = {
+    "type": "function",
+    "function": {
+        "name": "auditoria_cadastro",
+        "description": (
+            "Onde o cadastro, a operação e o GOVERNO discordam: afastamento registrado e NÃO "
+            "transmitido ao eSocial (com dias de atraso), pessoa que não bate há dias e segue "
+            "ativa/escalada (afastamento provável sem lançamento), e turno para quem está "
+            "demitido/inativo. Use quando perguntarem se o cadastro está em ordem, se há "
+            "pendência com o eSocial, ou por que alguém aparece como falta. NÃO transmite nada."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
 _SCHEMA_ESCALA_POSTO = {
     "type": "function",
     "function": {
@@ -5284,7 +5305,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
         ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
-                   _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO]
+                   _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5656,7 +5677,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     "pessoa me chama no privado.")}
             return await _tool_ponto_funcionario(name, args, _f)
 
-        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala", "situacao_do_turno"):
+        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala", "situacao_do_turno", "auditoria_cadastro"):
             # ⚠️ ESTE BLOCO EXISTE PORQUE EU HAVIA POSTO O DESPACHO NO LUGAR ERRADO. As duas
             # tools estavam na allowlist e no schema, e o dispatcher devolvia
             # "tool desconhecida" — eu tinha escrito o `if name ==` dentro de
@@ -5685,6 +5706,10 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     return {"erro": "esta informação é para quem supervisiona a operação"}
                 if name == "visao_operacao":
                     return await visao_operacao(_dbv)
+                if name == "auditoria_cadastro":
+                    from .supervisao import auditoria_cadastro_vs_gov  # noqa: PLC0415
+
+                    return await auditoria_cadastro_vs_gov(_dbv)
                 if name == "situacao_do_turno":
                     from .supervisao import (  # noqa: PLC0415
                         grupo_pode_ver_nomes,
