@@ -47,6 +47,28 @@ logger = logging.getLogger(__name__)
 
 #: CLT art. 59 §5 — acordo individual. Espelha `TimeBankService.DEFAULT_EXPIRATION_DAYS`.
 COMPENSACAO_DIAS = 180
+
+#: Corte declarado pelo DONO: crédito de competência ≤ este mês está QUITADO (pago em dinheiro
+#: fora do sistema) e não é passivo nem vence. Jordan, 24/09/2026: «ninguém tem banco de horas nem
+#: valores a vencer porque eu já paguei tudo». Mora em `system_configs` (chave abaixo) e não no
+#: código, porque é decisão de dono e muda sem deploy — o mesmo padrão do `contabil.corte_baseline`.
+CHAVE_CORTE = "banco_horas.corte_quitado"
+
+
+async def corte_quitado(db) -> date | None:
+    """Última competência que o dono declarou QUITADA (ou None). `AAAA-MM` → último dia do mês."""
+    from core.parametros import param  # noqa: PLC0415
+
+    v = await param(db, CHAVE_CORTE, default=None)
+    if not v:
+        return None
+    txt = str(v).strip()[:7]
+    try:
+        ano, mes = int(txt[:4]), int(txt[5:7])
+    except ValueError:
+        logger.warning("dgx x1: %s com valor inválido (%r) — corte ignorado", CHAVE_CORTE, v)
+        return None
+    return date(ano, 12, 31) if mes == 12 else date(ano, mes + 1, 1) - timedelta(days=1)
 #: CLT art. 59 §3 — o crédito não compensado é pago como extra (adicional mínimo de 50%).
 FATOR_HE = Decimal("1.5")
 #: mesmo divisor do motor de folha (`calculo_service.DIVISOR_ESCALA`) — copiado, não importado,
@@ -201,7 +223,12 @@ async def apurar(db, competencia: str | date) -> dict:
     ano, mes, ini, fim = competencia_periodo(competencia)
     rows = (await db.execute(text(_SQL_APURAR), {"ini": ini, "fim": fim, "ano": ano, "mes": mes})).fetchall()
 
-    vence_em = fim + timedelta(days=COMPENSACAO_DIAS)
+    corte = await corte_quitado(db)
+    quitada = bool(corte and fim <= corte)
+    # Competência quitada pelo dono: o crédito existiu e foi PAGO em dinheiro. Ele continua medido
+    # (a tela mostra as horas), mas não vence e não é passivo — zerar `a_pagar` e `vence_em` é o
+    # que separa «já resolvido» de «esquecido».
+    vence_em = None if quitada else fim + timedelta(days=COMPENSACAO_DIAS)
     linhas: list[dict] = []
     for (
         eid,
@@ -234,6 +261,9 @@ async def apurar(db, competencia: str | date) -> dict:
             estado, fonte = "sem_saldo", "espelho"
         else:
             estado, fonte = "sem_dado", "sem_dado"
+        if quitada:
+            # o dono declarou pago: a hora continua visível, mas não é pendência
+            estado = "quitado_pelo_dono"
         linha = {
             "employee_id": eid,
             "nome": nome,
@@ -248,7 +278,7 @@ async def apurar(db, competencia: str | date) -> dict:
             "saldo_ponto": float(_h(sp)),
             "he_ponto": float(_h(hp)),
             "valor_hora": float(vh),
-            "a_pagar_por_vencimento": float(ap),
+            "a_pagar_por_vencimento": 0.0 if quitada else float(ap),
             "ja_pago_como_he": float(_r(he_rs)),
             "vence_em": vence_em,
         }
@@ -269,15 +299,21 @@ async def apurar(db, competencia: str | date) -> dict:
                 "sp": _h(sp),
                 "hp": _h(hp),
                 "vh": vh,
-                "ap": ap,
+                "ap": Decimal("0") if quitada else ap,
                 "he": _r(he_rs),
                 # vence quando há crédito a compensar — do ledger OU, na sua ausência, do ponto
-                "venc": vence_em if (cr > 0 or si > 0 or _h(sp) > 0) else None,
+                "venc": None if quitada else (vence_em if (cr > 0 or si > 0 or _h(sp) > 0) else None),
             },
         )
     await db.commit()
     logger.info("dgx x1: apuradas %d pessoa(s) em %02d/%d", len(linhas), mes, ano)
-    return {"competencia": f"{ano}-{mes:02d}", "pessoas": len(linhas), "linhas": linhas}
+    return {
+        "competencia": f"{ano}-{mes:02d}",
+        "pessoas": len(linhas),
+        "linhas": linhas,
+        "quitada_pelo_dono": quitada,
+        "corte": corte.isoformat() if corte else None,
+    }
 
 
 async def competencias(db) -> list[str]:

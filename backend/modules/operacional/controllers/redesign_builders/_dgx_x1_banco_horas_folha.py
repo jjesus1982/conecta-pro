@@ -43,6 +43,9 @@ _CEGO = (
 _ESTADO = {
     "apurado": ("lançado no banco", "ok"),
     "sem_lancamento": ("saldo no ponto, nada no banco", "bad"),
+    # Jordan, 24/09/2026: «ninguém tem banco de horas nem valores a vencer porque eu já paguei
+    # tudo». O crédito continua medido e visível; deixa de ser pendência e de vencer.
+    "quitado_pelo_dono": ("quitado pelo dono (pago)", "ok"),
     "sem_saldo": ("sem saldo no mês", "mut"),
     "sem_dado": ("sem dado", "mut"),
 }
@@ -316,6 +319,7 @@ async def rd_banco_horas_folha_apurar(
         "resumo": (
             f"{r['pessoas']} pessoa(s) · {sem} com saldo no ponto e nenhum lançamento no banco · "
             f"{venc:.2f}h vencidas ({brl(pagar)} a pagar pela CLT art. 59 §3). "
-            "Nada mudou em folha, holerite ou pagamento."
+            + ("Competência QUITADA pelo dono — o crédito foi pago em dinheiro e não vence. " if r.get("quitada_pelo_dono") else "")
+            + "Nada mudou em folha, holerite ou pagamento."
         ),
     }

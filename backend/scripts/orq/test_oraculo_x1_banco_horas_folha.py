@@ -92,6 +92,35 @@ def _brl(v: Decimal) -> str:
     return f"R$ {s}"
 
 
+async def _corte_do_dono(db, falhas: list[str], resumo: list[str]) -> None:
+    """(g) O corte declarado pelo DONO manda: competência quitada não vence e não é passivo.
+
+    Jordan, 24/09/2026: «ninguém tem banco de horas nem valores a vencer porque eu já paguei
+    tudo». Virou `banco_horas.corte_quitado` em `system_configs`. Esta afirmação existe para o
+    número não ressuscitar sozinho no próximo «Apurar» — e para que, se alguém APAGAR o corte,
+    apareça vermelho em vez de o passivo voltar calado.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    from modules.people_management.folha.services import banco_horas_folha as bh  # noqa: PLC0415
+
+    corte = await bh.corte_quitado(db)
+    if corte is None:
+        resumo.append("(g) corte do dono: NAO declarado — todo crédito volta a vencer")
+        return
+    resumo.append(f"(g) corte do dono: crédito até {corte:%d/%m/%Y} declarado QUITADO")
+    ruim = (await db.execute(_t(
+        "SELECT count(*) FROM banco_horas_conferencia "
+        "WHERE competencia <= :c AND (vence_em IS NOT NULL OR a_pagar_por_vencimento <> 0)"), {"c": corte})).scalar() or 0
+    if ruim:
+        falhas.append(f"(g) {ruim} linha(s) de competência quitada ainda vencem ou cobram — corte não respeitado")
+    n_q = (await db.execute(_t(
+        "SELECT count(*) FROM banco_horas_conferencia WHERE competencia <= :c AND estado <> 'quitado_pelo_dono'"),
+        {"c": corte})).scalar() or 0
+    if n_q:
+        falhas.append(f"(g) {n_q} linha(s) de competência quitada sem o estado `quitado_pelo_dono` (reapure)")
+
+
 async def main() -> int:  # noqa: C901, PLR0912, PLR0915
     from sqlalchemy import text
 
@@ -123,6 +152,14 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
             print("TOTAL desvios: 1")
             return 1
         ano, mes = int(r[0]), int(r[1])
+        # A fixture de crédito VENCIDO precisa viver DEPOIS do corte que o dono declarou quitado
+        # (`banco_horas.corte_quitado`, 24/09/2026), senão a regra da CLT que ela prova é anulada
+        # pelo próprio corte — e o oráculo passaria a exigir passivo onde o dono já pagou.
+        from modules.people_management.folha.services import banco_horas_folha as _bh  # noqa: PLC0415
+
+        _corte = await _bh.corte_quitado(db)
+        if _corte and date(ano, mes, 1) <= _corte:
+            ano, mes = (_corte.year + (_corte.month == 12), (_corte.month % 12) + 1)
         comp = f"{ano}-{mes:02d}"
         ini = date(ano, mes, 1)
         fim = date(ano + (mes == 12), (mes % 12) + 1, 1) - timedelta(days=1)
@@ -349,6 +386,12 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
         ).scalar() or 0
         if n_fix:
             falhas.append(f"(f) {n_fix} fixture(s) '{FIX}' não foram apagadas")
+
+        # (g) o corte declarado pelo dono manda — fora do try/finally das fixtures
+        _resumo_g: list[str] = []
+        await _corte_do_dono(db, falhas, _resumo_g)
+        for _r in _resumo_g:
+            print(_r)
 
     for f in falhas:
         print("FALHOU:", f)
