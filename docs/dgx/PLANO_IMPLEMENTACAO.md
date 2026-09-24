@@ -99,3 +99,18 @@ certificados/turnover (rh), rondas (g-rondas). **Cada frente estende isso; não 
 - 24/09 04:40 — F8 mesclada (coberturas com folga trabalhada derivada dos turnos e movimentação da F5 nas de férias/afastamento; livro de ocorrências do posto como união + PDF do dia; checklist de supervisão com semente de 10 itens e ocorrência automática; chamados com SLA unindo tickets do portal; painel de avisos por pessoa). **12/12 frentes mescladas.** Próximo: bake 17.
 - 24/09 05:05 — árvore final provada (35 módulos, 0 falhas). Meu bake 17 recusou: lock ocupado — outra sessão tinha iniciado um blue/green 17 s antes, construindo do DISCO (já com as 12 frentes). Esperando o deploy dela terminar para medir o efeito em produção; se faltar algo, bake próprio.
 - 24/09 05:30 — **12/12 no ar.** O deploy da outra sessão (imagem f316811d, sem drift) publicou F8/F9/F12; primeiro acesso aplicou a DDL (11 tipos de exame, 2 médicos, 7 assuntos com SLA, região Manaus, checklist de supervisão com 10 itens). Os 13 oráculos novos rodados no container de produção: verdes. Trava de porta: 17 = 15 telas pré-existentes + `payable`/`receivable` (sem tela porque a F11 trocou os forms). Worktrees removidas; branches `dgx/f*` ficam como histórico. Relatório da manhã: `auditoria/RELATORIO_NOITE_2026-09-24.md`.
+
+## Rodada 2 — passagem completa no DGX (24/09, manhã)
+
+Jordan: *"tem alguma coisa a mais no DGX que não tem no nosso? testou todas as telas? botões? funções? recursos?"* → *"pode começar, testa tudo e implementa o que faltar, loop autônomo."*
+Contrato: `docs/dgx/CONTRATO_TESTE_DGX.md` (4 fases: exercitar botão a botão → comparar cavando → lista de lacunas commitada → implementar). Cliente único: `scripts/dgx/dgx_client.py`.
+
+| # | Grupo do DGX | Lacunas | Estado |
+|---|---|---|---|
+| T1 | DP/RH (ficha completa, fotos, afastamentos, férias, medidas disciplinares, cursos, benefícios/entregas/reajustes, vales, crachás, demissão em lote, turnover) | `docs/dgx/lacunas/dp_rh.md` | em execução |
+| T2 | Apontamentos/Ponto (escalas, controle, ocorrências, fechamento/exportação, cartão, banco de horas, integração de batimentos, relógios, configurações) | `docs/dgx/lacunas/ponto.md` | em execução |
+| T3 | Operacional + Comercial (postos/vagas, movimentações, grid, coberturas, livro, avisos, Q-Watcher, Vigilância; clientes, contratos, fontes pagadoras, regiões, visitas) | `docs/dgx/lacunas/operacional_comercial.md` | em execução |
+| T4 | Faturamento + Financeiro (faturas, NF, cobrança, recibos, comissões; contas, conciliação, fluxo, orçamento, contas fixas, relatórios) | `docs/dgx/lacunas/faturamento_financeiro.md` | em execução |
+| T5 | Suprimentos + Frotas + SESMT + Demandas + Configurações (compras, estoque, uniformes, equipamentos; frota completa; ASO; atendimentos; acessos temporários, perfis, log) | `docs/dgx/lacunas/suprimentos_frotas_sesmt_config.md` | em execução |
+
+- 24/09 08:45 — T1–T5 lançados. Dado de teste no DGX com prefixo `TESTE CP` (colaborador compartilhado criado pelo T1).
