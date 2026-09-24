@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 import psycopg2
 
@@ -48,6 +49,43 @@ def _condominio_padrao(cur) -> str:
     return r[0] if r else "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 
+def valor_proporcional(
+    valor, inicio: date | None, fim: date | None, primeiro: date, ultimo: date, base_dias
+) -> Decimal:
+    """Pró-rata por dias do DGX (`NotaServicoContratoValorProporcional` + `Dias`, 24/09/2026 — T4).
+
+    Contrato que começa ou termina dentro da competência paga só os dias cobertos, sobre uma base
+    fixa de dias (o DGX usa 30). `base_dias` vazio/0 = regra desligada → valor cheio (é o estado de
+    produção hoje; o oráculo `test_oraculo_t4_faturamento_financeiro` prova que nada muda).
+    Mês inteiro coberto → valor cheio, mesmo em mês de 31 dias com base 30.
+    """
+    valor = Decimal(str(valor or 0))
+    try:
+        base = int(base_dias or 0)
+    except (TypeError, ValueError):
+        base = 0
+    de = max(inicio or primeiro, primeiro)
+    ate = min(fim or ultimo, ultimo)
+    cobertos = (ate - de).days + 1
+    if base <= 0 or cobertos >= (ultimo - primeiro).days + 1:
+        return valor
+    if cobertos <= 0:
+        return Decimal("0.00")
+    return (valor * Decimal(min(cobertos, base)) / Decimal(base)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _base_proporcional(cur) -> int | None:
+    """Lê `fiscal.nfse_valor_proporcional_dias` (semeado pela F4) — escopo global; vazio = desligado."""
+    try:
+        cur.execute(
+            "SELECT nullif(trim(valor),'') FROM system_configs WHERE chave = 'fiscal.nfse_valor_proporcional_dias' AND ativo"
+        )
+        r = cur.fetchone()
+        return int(r[0]) if r and r[0] else None
+    except Exception:  # noqa: BLE001 — tabela/coluna ausente = regra desligada
+        return None
+
+
 def gerar_recebiveis(mes: int, ano: int, preview: bool = True) -> dict:
     """Cria um recebível 'pendente' por contrato ativo na competência.
 
@@ -68,10 +106,12 @@ def gerar_recebiveis(mes: int, ano: int, preview: bool = True) -> dict:
     try:
         with conn.cursor() as cur:
             cond_id = _condominio_padrao(cur)
+            base_dias = _base_proporcional(cur)  # dgx t4 — None = valor cheio (comportamento de sempre)
             cur.execute(
                 """
                 SELECT c.id::text, c.monthly_value, c.client_id::text, c.empresa_id,
-                       cl.name, cl.document_number, cl.billing_day, c.contract_number
+                       cl.name, cl.document_number, cl.billing_day, c.contract_number,
+                       c.start_date, c.end_date
                 FROM contracts c
                 LEFT JOIN clients cl ON cl.id = c.client_id
                 WHERE c.status = 'active'
@@ -84,7 +124,8 @@ def gerar_recebiveis(mes: int, ano: int, preview: bool = True) -> dict:
             )
             criados, valor_total, existentes = 0, 0.0, 0
             itens = []
-            for cid, valor, client_id, empresa_id, nome, doc, billing_day, num in cur.fetchall():
+            for cid, valor, client_id, empresa_id, nome, doc, billing_day, num, c_ini, c_fim in cur.fetchall():
+                valor = valor_proporcional(valor, c_ini, c_fim, primeiro, ultimo, base_dias)  # dgx t4
                 code = f"REC-{cid[:8]}-{ano}{mes:02d}"
                 cur.execute("SELECT 1 FROM receivable_accounts WHERE code = %s LIMIT 1", (code,))
                 if cur.fetchone():
