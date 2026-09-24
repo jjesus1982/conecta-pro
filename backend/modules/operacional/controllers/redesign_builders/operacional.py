@@ -12,6 +12,7 @@ from core.database import get_db
 from ._dgx_f5_movimentacoes import router as _r_f5  # dgx f5
 from ._dgx_f8_operacional import router as _r_f8  # dgx f8
 from ._dgx_t3_operacional_comercial import router as _r_t3  # dgx t3
+from ._dgx_u1_movimentacao_supervisao import router as _r_u1  # dgx u1
 
 logger = logging.getLogger(__name__)
 from modules.operacional.controllers.redesign_data_controller import (
@@ -24,6 +25,7 @@ router = APIRouter()
 router.include_router(_r_f5)  # dgx f5
 router.include_router(_r_f8)  # dgx f8
 router.include_router(_r_t3)  # dgx t3
+router.include_router(_r_u1)  # dgx u1
 
 
 def _usuario_e_admin(current_user) -> bool:
@@ -2314,6 +2316,9 @@ async def build(db) -> dict:
         from ._dgx_t3_operacional_comercial import telas as _telas_t3  # dgx t3
 
         await _telas_t3(db, out)  # dgx t3 — vagas do contrato, restrições, grid com ação, painel de alertas
+        from ._dgx_u1_movimentacao_supervisao import telas as _telas_u1  # dgx u1
+
+        await _telas_u1(db, out)  # dgx u1 — supervisão planejada (planos, mapa, hoje)
         montar_grupos(out)
         # dgx t3: os oráculos da frente 04 (grid × triagem, mapa 5 estados) leem `_meta`/`rows` no id
         # raiz. Grid/mapa agora são abas de g-postos, mas o id raiz continua entregando a tela inteira
@@ -2496,6 +2501,13 @@ async def rd_action_gerente_checkin(current_user: CurrentActiveUser, payload: di
     svc = VisitaService(db)
     visita = await svc.criar_visita(data, getattr(current_user, "id", None))
     visita = await svc.fazer_checkin(visita.id, float(lat) if lat else None, float(lng) if lng else None)
+    try:  # dgx u1 — check-in no posto fecha a ocorrência de supervisão planejada do dia
+        from modules.operacional.services import supervisao_planejada as _sp
+        await _sp.marcar_realizada(db, post_id=post_id, checkin_visita_id=str(visita.id), employee_id=emp,
+                                   user_id=str(getattr(current_user, "id", "") or "") or None)
+    except Exception as exc:  # noqa: BLE001 — o check-in já está gravado; o plano é secundário
+        await db.rollback()
+        logger.warning("supervisão planejada: marcar_realizada no check-in falhou: %s", exc)
     onde = "sem GPS" if dist is None else (f"a {dist:.0f} m do posto" if dist <= raio else f"⚠️ FORA do raio: {dist:.0f} m do posto")
     await _avisar_dono(f"📍 *{nome.title()}* chegou em *{post[0]}* às {agora:%H:%M} ({onde}).",
                        silencio=bool(payload.get("_silencio")) and str(getattr(current_user, "role", "")).lower() == "admin")
