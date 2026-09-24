@@ -38,7 +38,9 @@ GRUPOS = [
         ("livro-ocorrencias", "Livro de ocorrências"), ("livro-ocorrencia-nova", "Registrar no livro"),  # dgx f8
         ("livro-ocorrencias-pdf", "Livro do dia (PDF)"), ("checklist-modelos", "Checklist · modelos"),
         ("checklist-modelo-novo", "Checklist · novo modelo"), ("checklist-executar", "Checklist · executar"),
-        ("checklist-execucoes", "Checklist · execuções")]),
+        ("checklist-execucoes", "Checklist · execuções"),
+        ("supervisao-planos", "Supervisão · planos"), ("supervisao-plano-novo", "Supervisão · novo plano"),  # dgx u1
+        ("supervisao-mapa", "Supervisão · realizado × planejado"), ("supervisao-hoje", "Supervisão · hoje")]),  # dgx u1
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
         ("avaliacao-criar", "Avaliar colaborador"),

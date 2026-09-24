@@ -188,6 +188,20 @@ async def build(db: AsyncSession, current_user=None) -> dict:
         # integers"), de forma intermitente, enquanto outra sessão gravava rascunhos.
         "rows": [linha for linha in (_row_seguro(r) for r in rows) if linha],
     }
+    # dgx u1 — pedidos de movimentação pendentes (op_movimentacao_pedidos, NÃO agent_drafts): a mesma mesa,
+    # só para quem pode decidir (module:dp / admin). Erro aqui não derruba a Central.
+    try:
+        from core.auth.module_scope import user_has_module
+        from ._dgx_u1_movimentacao_supervisao import linhas_central
+
+        if current_user is not None and user_has_module(current_user, "dp"):
+            extra = await linhas_central(db)
+            if extra:
+                scr["rows"] = extra + scr["rows"]
+                scr["sub"] = f"{len(extra)} movimentação(ões) aguardando o DP · " + scr["sub"]
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("Central: pedidos de movimentação (dgx u1) falharam: %s", exc)
     # As duas telas são independentes: erro nos prazos não pode levar as aprovações junto.
     try:
         prazos = await _tela_prazos(db, current_user)

@@ -12,6 +12,13 @@ a pessoa nos joins por competência (`financeiro.py` soma folha × alocação po
 
 `AllocationRepository` (tabela `allocations`, employee × post, 89 linhas) é OUTRA tabela — não
 tem regra reaproveitável aqui; a duplicidade é conferida por SQL nesta.
+
+Dois passos (U1, 24/09/2026): `pedir()` grava em `op_movimentacao_pedidos` (pendente) SEM tocar
+em `employee_alocacoes`; `aprovar()` chama `alocar()` — o mesmo caminho do DP (encerra a anterior
+em D−1, parede da restrição por cliente) — e liga `alocacao_id`; `recusar()` só marca. O pedido
+NÃO mora em `employee_alocacoes` de propósito: 4 leitores (folha × alocação em `financeiro.py`,
+custo por condomínio no DP) filtram só por data, sem `ativo` — uma linha pendente lá vazaria
+para a folha do condomínio antes de alguém aprovar.
 """
 
 from __future__ import annotations
@@ -52,7 +59,17 @@ _DDL = [
     # retroativo: só as colunas novas ainda nulas; nada das antigas muda
     f"UPDATE employee_alocacoes SET tipo='alocar', motivo='alocacao_de_vaga', observacao=coalesce(observacao, '{RETRO}') "
     "WHERE tipo IS NULL AND motivo IS NULL",
+    # dgx u1 — pedido de movimentação (pendente → aprovada | recusada); tabela própria de propósito (ver docstring)
+    "CREATE TABLE IF NOT EXISTS op_movimentacao_pedidos ("
+    " id uuid PRIMARY KEY DEFAULT gen_random_uuid(), employee_id uuid NOT NULL, condominio_id uuid NOT NULL, posto_id uuid,"
+    " funcao varchar(120) NOT NULL, data_inicio date NOT NULL, motivo varchar(40) NOT NULL, coberto_employee_id uuid,"
+    " solicitado_por varchar(20), solicitante_nome varchar(120), observacao text,"
+    " status varchar(12) NOT NULL DEFAULT 'pendente', pedido_por uuid,"
+    " pedido_em timestamp DEFAULT (now() AT TIME ZONE 'America/Manaus'),"
+    " decidido_por uuid, decidido_em timestamp, decisao_motivo text, alocacao_id uuid)",
+    "CREATE INDEX IF NOT EXISTS ix_op_mov_pedidos_status ON op_movimentacao_pedidos (status, pedido_em)",
 ]
+STATUS_PEDIDO = ("pendente", "aprovada", "recusada")
 
 
 class MovimentacaoErro(ValueError):  # noqa: N818 — nome em PT-BR, padrão da casa
@@ -97,24 +114,10 @@ async def _coberto_ausente_em(db, coberto_employee_id: str, motivo: str, dia: da
     return (await db.execute(text(sql), {"e": coberto_employee_id, "d": dia})).scalar() is not None
 
 
-async def alocar(
-    db,
-    *,
-    employee_id: str,
-    condominio_id: str,
-    funcao: str,
-    data_inicio,
-    motivo: str,
-    solicitado_por: str = "dp",
-    posto_id: str | None = None,
-    solicitante_nome: str | None = None,
-    coberto_employee_id: str | None = None,
-    observacao: str | None = None,
-    user_id: str | None = None,
-) -> dict:
-    """Aloca em nova vaga. Encerra a alocação ativa anterior do colaborador em `data_inicio − 1` e
-    liga `alocacao_origem_id`. 409 se já houver ativa igual; 422 se cobertura sem coberto ausente."""
-    await _ensure(db)
+async def _checar_entrada(
+    db, employee_id, condominio_id, funcao, data_inicio, motivo, solicitado_por, posto_id, coberto_employee_id
+) -> tuple[date, str]:
+    """Checagens de entrada comuns a `alocar` e `pedir` (400/422). Devolve (dia, função em maiúsculas)."""
     dia = _data(data_inicio)
     funcao = (funcao or "").strip().upper()
     if not employee_id or not condominio_id or not funcao:
@@ -145,6 +148,30 @@ async def alocar(
         ).scalar()
         if not ok:
             raise MovimentacaoErro(422, "O posto informado não pertence a esse condomínio.")
+    return dia, funcao
+
+
+async def alocar(
+    db,
+    *,
+    employee_id: str,
+    condominio_id: str,
+    funcao: str,
+    data_inicio,
+    motivo: str,
+    solicitado_por: str = "dp",
+    posto_id: str | None = None,
+    solicitante_nome: str | None = None,
+    coberto_employee_id: str | None = None,
+    observacao: str | None = None,
+    user_id: str | None = None,
+) -> dict:
+    """Aloca em nova vaga. Encerra a alocação ativa anterior do colaborador em `data_inicio − 1` e
+    liga `alocacao_origem_id`. 409 se já houver ativa igual; 422 se cobertura sem coberto ausente."""
+    await _ensure(db)
+    dia, funcao = await _checar_entrada(
+        db, employee_id, condominio_id, funcao, data_inicio, motivo, solicitado_por, posto_id, coberto_employee_id
+    )
     from modules.operacional.services import restricao_cliente as _rc  # dgx t3 — restrição por cliente
 
     try:
@@ -235,3 +262,130 @@ async def remover(
     )
     await db.commit()
     return {"id": alocacao_id, "data_fim": fim.isoformat()}
+
+
+# ───────────────────────── dois passos (dgx u1) ─────────────────────────
+_CAMPOS_PEDIDO = (
+    "employee_id::text, condominio_id::text, posto_id::text, funcao, data_inicio, motivo, coberto_employee_id::text, "
+    "solicitado_por, solicitante_nome, observacao, status"
+)
+
+
+async def pedir(
+    db,
+    *,
+    employee_id: str,
+    condominio_id: str,
+    funcao: str,
+    data_inicio,
+    motivo: str,
+    solicitado_por: str = "supervisor",
+    posto_id: str | None = None,
+    solicitante_nome: str | None = None,
+    coberto_employee_id: str | None = None,
+    observacao: str | None = None,
+    user_id: str | None = None,
+) -> dict:
+    """Pedido de alocação: mesma checagem de entrada do `alocar`, mas NÃO toca em `employee_alocacoes`.
+    A anterior continua ativa até alguém aprovar. 409 se já há pedido pendente igual."""
+    await _ensure(db)
+    dia, funcao = await _checar_entrada(
+        db, employee_id, condominio_id, funcao, data_inicio, motivo, solicitado_por, posto_id, coberto_employee_id
+    )
+    dup = (
+        await db.execute(
+            text(
+                "SELECT 1 FROM op_movimentacao_pedidos WHERE status='pendente' AND employee_id=CAST(:e AS uuid) "
+                "AND condominio_id=CAST(:c AS uuid) AND funcao=:f AND coalesce(posto_id::text,'')=:p"
+            ),
+            {"e": employee_id, "c": condominio_id, "f": funcao, "p": posto_id or ""},
+        )
+    ).scalar()
+    if dup:
+        raise MovimentacaoErro(409, "Já existe pedido pendente igual para esse colaborador.")
+    pid = (
+        await db.execute(
+            text(
+                "INSERT INTO op_movimentacao_pedidos (employee_id, condominio_id, posto_id, funcao, data_inicio, motivo, "
+                " coberto_employee_id, solicitado_por, solicitante_nome, observacao, pedido_por) "
+                "VALUES (CAST(:e AS uuid), CAST(:c AS uuid), CAST(:p AS uuid), :f, :d, :m, CAST(:cob AS uuid), :s, :sn, :obs, "
+                " CAST(:u AS uuid)) RETURNING id::text"
+            ),
+            {
+                "e": employee_id,
+                "c": condominio_id,
+                "p": posto_id or None,
+                "f": funcao,
+                "d": dia,
+                "m": motivo,
+                "cob": coberto_employee_id or None,
+                "s": solicitado_por,
+                "sn": (solicitante_nome or "").strip() or None,
+                "obs": (observacao or "").strip() or None,
+                "u": user_id or None,
+            },
+        )
+    ).scalar()
+    await db.commit()
+    return {"id": pid, "status": "pendente", "data_inicio": dia.isoformat()}
+
+
+async def _pedido_pendente(db, pedido_id: str):
+    row = (
+        await db.execute(
+            text(f"SELECT {_CAMPOS_PEDIDO} FROM op_movimentacao_pedidos WHERE id = CAST(:i AS uuid)"), {"i": pedido_id}
+        )
+    ).fetchone()
+    if not row:
+        raise MovimentacaoErro(404, "Pedido não encontrado.")
+    if row[10] != "pendente":
+        raise MovimentacaoErro(409, f"Esse pedido já está {row[10]}.")
+    return row
+
+
+async def aprovar(db, *, pedido_id: str, user_id: str | None) -> dict:
+    """Aprova = `alocar()` de hoje (encerra a anterior em D−1, restrição por cliente, 409 de duplicada).
+    Se `alocar` recusar, o pedido fica pendente — nada muda."""
+    await _ensure(db)
+    r = await _pedido_pendente(db, pedido_id)
+    res = await alocar(  # commita
+        db,
+        employee_id=r[0],
+        condominio_id=r[1],
+        funcao=r[3],
+        posto_id=r[2],
+        data_inicio=r[4],
+        motivo=r[5],
+        solicitado_por=r[7] or "supervisor",
+        solicitante_nome=r[8],
+        coberto_employee_id=r[6],
+        observacao=r[9],
+        user_id=user_id,
+    )
+    await db.execute(
+        text(
+            "UPDATE op_movimentacao_pedidos SET status='aprovada', decidido_por=CAST(:u AS uuid), "
+            "decidido_em=(now() AT TIME ZONE 'America/Manaus'), alocacao_id=CAST(:a AS uuid) WHERE id = CAST(:i AS uuid)"
+        ),
+        {"u": user_id or None, "a": res["id"], "i": pedido_id},
+    )
+    await db.commit()
+    return {"pedido_id": pedido_id, **res}
+
+
+async def recusar(db, *, pedido_id: str, motivo: str, user_id: str | None) -> dict:
+    """Recusa o pedido: só marca. `employee_alocacoes` fica exatamente como estava."""
+    await _ensure(db)
+    await _pedido_pendente(db, pedido_id)
+    motivo = (motivo or "").strip()
+    if len(motivo) < 3:
+        raise MovimentacaoErro(400, "Diga por que está recusando (mínimo 3 caracteres).")
+    await db.execute(
+        text(
+            "UPDATE op_movimentacao_pedidos SET status='recusada', decidido_por=CAST(:u AS uuid), "
+            "decidido_em=(now() AT TIME ZONE 'America/Manaus'), decisao_motivo=:m WHERE id = CAST(:i AS uuid)"
+        ),
+        {"u": user_id or None, "m": motivo, "i": pedido_id},
+    )
+    await db.commit()
+    return {"pedido_id": pedido_id, "status": "recusada"}
