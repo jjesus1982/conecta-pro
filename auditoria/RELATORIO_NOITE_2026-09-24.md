@@ -291,16 +291,21 @@ não faz*.
 Tudo abaixo foi medido em **paralelo cego**: nenhuma linha de folha, holerite ou pagamento mudou.
 Cada frente teve que provar diferença de **R$ 0,00** contra os holerites gravados para ser aceita.
 
+**Os números abaixo foram apurados EM PRODUÇÃO** (em 24/09, competências de janeiro a setembro),
+pelo mesmo botão «Apurar» que você usaria. Eles substituem os primeiros que publiquei, medidos no
+sandbox com menos competências.
+
 | O quê | Quanto | Onde ver |
 |---|---|---|
-| **Crédito de banco de horas** nunca pago nem compensado | **R$ 8.404,86** — e **R$ 1.459,88 vencem em 27/09** (16 pessoas, crédito de março) | `…departamento-pessoal?t=banco-horas-vencendo` |
-| **Feriado trabalhado e hora extra de 100%** | **R$ 5.399,01** em três competências — 21 pessoas trabalharam em 05/09 e 21 em 07/09, e o holerite pagou o dia uma vez só | `…?t=feriado-trabalhado` |
-| **Atraso** medido e nunca descontado | **R$ 3.077,57** estimados, R$ 0,00 descontados | `…?t=atraso-conferencia` |
+| **Crédito de banco de horas** nunca pago nem compensado | **R$ 7.546,95** — o ponto mediu 933,32 h de crédito (valeriam R$ 12.560,43 como hora extra) e o holerite pagou R$ 5.013,48. E **16 pessoas têm 119,59 h que vencem em 27/09** (entre R$ 1.108,68 e R$ 1.663,02, conforme o adicional) | `…departamento-pessoal?t=banco-horas-vencendo` |
+| **Feriado trabalhado e hora extra de 100%** | **R$ 5.399,01** em três competências — 28 pessoas, dois feriados de setembro, 446 h; o holerite pagou R$ 3.723,17 e a regra manda R$ 7.936,02 | `…?t=feriado-trabalhado` |
+| **Atraso** medido e nunca descontado | **R$ 6.771,63** estimados em 90 pessoas (994 h), R$ 0,00 descontados — não existe rubrica de atraso | `…?t=atraso-conferencia` |
 
 ### O banco de horas tem zero lançamentos
 
 O módulo existe inteiro — modelo, regra da CLT, onze rotas, oito telas — e **nunca recebeu um
-registro**. As 933 horas de crédito estão no espelho de ponto, não no banco. É por isso que
+registro**: 83 pessoas têm saldo medido pelo ponto e **zero** têm lançamento no banco. As 933 horas
+de crédito estão no espelho de ponto, não no banco. É por isso que
 ninguém viu o prazo chegando.
 
 ### Antes de descontar atraso, leia isto
