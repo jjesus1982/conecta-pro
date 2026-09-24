@@ -197,3 +197,35 @@ Feito na hora: a receita do container efêmero zera `SMTP_HOST/USERNAME/PASSWORD
 36. **Recebível proporcional por dias**: ligar (`fiscal.nfse_valor_proporcional_dias` = 30)?
 37. **Acesso temporário com Financeiro** para o contador? Hoje proibido.
 38. **Permissão por tela/ação** como o DGX (frente G) ou seguir por módulo.
+
+---
+
+# Onda 3 (24/09, tarde) — "prosiga em loop"
+
+Cinco frentes escolhidas por valor sem depender das suas decisões. Relatórios `auditoria/frentes/DGX_U1..U5_*.md`.
+
+## 13. O que entrou (bake 19)
+
+| Frente | O que o DGX faz | O que passou a existir aqui |
+|---|---|---|
+| **U1** Movimentação em dois passos | movimentação nasce pendente e alguém aprova | pedido em `op_movimentacao_pedidos` (uma linha pendente NÃO vaza para a folha por condomínio — 4 leitores juntam alocação só por data); Aprovar chama o `alocar` de ontem, respeita restrições do cliente; pendentes na Central de Aprovações; DP/admin seguem alocando direto |
+| **U1** Supervisão planejada | Q-Watcher: plano por posto com frequência, mapa realizado × planejado | planos por posto (diário/semanal/quinzenal/mensal), ocorrências geradas todo dia às 00:30 (idempotente), checklist ou check-in do gerente marca realizada; telas «Planos», «Mapa» (mês × posto), «Hoje» |
+| **U2** Férias completas | aviso em lote, recibo, conta a pagar, cobertura | Aprovar com substituto cria a cobertura (F8) e a movimentação (F5) na hora — sem substituto avisa «posto X ficará descoberto de A a B»; recibo e aviso em PDF timbrado com o cálculo que já existia (Δ R$ 0,00); aviso em lote (1 página por pessoa) com fila de assinatura; conta a pagar idempotente, vencimento início−2 (art. 145), não paga; ficha de férias por pessoa; «postos descobertos» no mapa de férias |
+| **U3** Porta para toda tela | — | 13 telas órfãs há semanas: 6 ganharam aba, 4 do marketing já tinham botão (o caçador não via `ctaTo`), 1 virou botão, 2 ações antigas removidas. Telas sem porta: **15 → 1** (a que sobra é `crm.json` alterado no disco por outra sessão, sem commit). Oráculo novo «toda tela tem porta» |
+| **U4** Rondas do Vigilância | modelos com pontos, alertas, pânico | modelos de ronda com pontos ordenados e raio; alertas por tipo (atrasada, ponto pulado, fora de sequência, pânico, sem movimento) com destinatários; motor a cada 5 min, um disparo por alerta × ronda; **pânico** pela API com foto → disparo + ocorrência grave + aviso; setores por contrato; chamado avisa o setor ao abrir e o solicitante ao resolver |
+| **U5** Entrega de benefício | lote com período de apuração | entrega como lote (referência, previsão, apuração manual ou por apontamento, acerto contra as duas anteriores), itens pessoa a pessoa, arquivo do operador, conta idempotente; apuração provisória enquanto o mês não fecha |
+
+Oráculos novos: `u1_movimentacao_supervisao` · `u2_ferias_completas` · `toda_tela_tem_porta` · `u4_rondas_chamados` · `u5_entrega_beneficio`. Beats novos: supervisão planejada 00:30, alertas de ronda a cada 5 min.
+
+## 14. Defeito real achado de passagem (onda 4 já cuida)
+
+O motor de benefício da frente 03 conta **dois dias trabalhados** num plantão 12x36 **noturno com intervalo** (19→02 · 03→07): o segmento depois da meia-noite vira "outro dia". ADAILSON: 31 dias em 08/2026 para 15 plantões. Até a correção entrar, **não aprove entrega de benefício por apontamento de escala noturna** (a manual continua certa).
+
+## 15. Decisões novas (só você)
+
+39. **Quem aprova movimentação** — hoje `module:dp` e admin; supervisor e aprovador podem ser a mesma pessoa.
+40. **Folga trabalhada em cobertura vira HE ou folga compensatória** (a folha não lê nada disso ainda).
+41. **Persistir o cálculo das férias na aprovação** (hoje o recibo recalcula a cada abertura) e **recibo na fila de assinatura**.
+42. **Conta de benefício por operadora ou por entrega**; vencimento = 1º dia da previsão?
+43. **Pânico sem alerta configurado**: para quem vai? Hoje só para os destinatários do alerta do posto.
+44. **`crm.json` alterado no disco sem commit** por outra sessão (tira `atividades` do menu): commitar ou restaurar do HEAD — decide quem mexeu.
