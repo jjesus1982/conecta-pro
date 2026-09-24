@@ -323,6 +323,44 @@ def agent_enabled() -> bool:
     return os.getenv("AGENT_ENABLED", "false").lower() == "true"
 
 
+#: Frases comerciais que NÃO podem sair num grupo interno. Cada uma corresponde a uma
+#: desobediência MEDIDA, não a uma precaução.
+_PEDIDO_COMERCIAL = re.compile(
+    r"[^.!?\n]*\b(cnpj|raz[ãa]o social|dados (de |do )?cadastro|me confirma o (cnpj|cpf))\b[^.!?\n]*[.!?]?",
+    re.I)
+
+
+def limpar_resposta_de_grupo(texto: str) -> str:
+    """Tira da resposta o que é de VENDAS. Mecânico, porque o prompt já falhou três vezes.
+
+    🔴 O prompt base diz "NUNCA peça CNPJ". Eu reforcei no `foco` do papel `grupo`, no fim, por
+    recência. E na terceira medição real ele fechou assim, de novo:
+    *"Ah, e pra eu já te registrar certinho aqui, me confirma o CNPJ do condomínio? 🙏"*
+    Num grupo onde todos são da casa e ninguém é lead.
+
+    É a regra que eu mesmo escrevi neste módulo virando contra mim: **prompt se desobedece;
+    caminho que não executa, não.** Instrução é orientação; isto é a parede. Trabalha sobre a
+    SAÍDA, então não depende de o modelo concordar.
+
+    ⚠️ Remove a FRASE, não a resposta: o resto do texto costuma ser bom (na medição que motivou
+    isto, as três intercorrências e os números estavam certos). Descartar tudo por causa do
+    fecho seria trocar um defeito por outro maior.
+    """
+    if not texto:
+        return texto
+    limpo = _PEDIDO_COMERCIAL.sub("", texto)
+    # Sobra de pontuação e linha vazia que a remoção deixa atrás.
+    # A remoção deixa a linha do fecho com só o emoji que acompanhava a frase ("\n\n 🙏").
+    # Linha que sobrou sem palavra nenhuma sai inteira — resto de remoção parece erro de envio.
+    limpo = "\n".join(l for l in limpo.splitlines() if re.search(r"\w", l) or not l.strip())
+    limpo = re.sub(r"\n{3,}", "\n\n", limpo)
+    limpo = re.sub(r"[ \t]{2,}", " ", limpo).strip()
+    if limpo != texto.strip():
+        logger.warning("Agente: removi pedido comercial da resposta de grupo (o prompt não bastou)")
+    # Se a limpeza esvaziou a resposta, ela ERA só o pedido comercial — melhor calar.
+    return limpo if len(limpo) > 15 else ""
+
+
 def _normalizar_assistants(messages: list[dict], model: str) -> list[dict]:
     """Garante `reasoning_content` em TODA mensagem de assistente. Devolve a lista pronta.
 
@@ -2514,6 +2552,21 @@ async def _foi_transferida(conversation_id: int) -> bool:
     horas = int(_env_num("AGENT_TRANSFER_SILENCE_HORAS", 12))
     try:
         async with async_session_factory() as db:
+            # ⭐ GRUPO NÃO É TICKET (24/09/2026). O Jordan escreveu no Gestão e NÃO houve
+            # resposta nenhuma — nem nota. A causa: a conversa tinha dois marcadores `trf`, de
+            # 15:00 e 15:04, porque as respostas de FALHA daquela manhã ("vou chamar alguém da
+            # equipe") dispararam transferência. Resultado: o próprio erro do agente o calou no
+            # grupo por 12 horas.
+            #
+            # A trava está certa para conversa de CLIENTE: quando um humano assume um
+            # atendimento, o agente sai da frente. Mas grupo não se "assume" — não há fila, não
+            # há dono, e ninguém fecha um grupo. A mesma regra, aplicada onde não cabe, produz
+            # silêncio permanente exatamente no lugar onde o dono pediu conversa.
+            _e_grupo = (await db.execute(text(
+                "SELECT 1 FROM wa_grupos WHERE chatwoot_conversation_id = :c LIMIT 1"),
+                {"c": conversation_id})).first()
+            if _e_grupo:
+                return False
             row = (
                 await db.execute(
                     text(
@@ -2880,7 +2933,11 @@ _PAPEIS: dict[str, dict] = {
     "grupo": {
         "tools": (
             "abrir_pendencia_dp",
-            "transferir_conversa",
+            # ⚠️ `transferir_conversa` FICA FORA DO GRUPO, e isso não é economia de tool: foi ela
+            # que se calou a si mesmo. A resposta de falha ("vou chamar alguém da equipe")
+            # transferiu a conversa do Gestão, e a trava de transferência silenciou o agente ali
+            # por 12h — o Jordan escreveu e não recebeu NADA. Não existe "transferir um grupo":
+            # todo mundo já está dentro dele, inclusive o dono.
             "listar_materiais",
             # ⭐ 24/09/2026, PRIMEIRO TESTE REAL: o Jordan perguntou no Gestão "como está a
             # cobertura nos postos hoje?" e o agente respondeu "desculpa, acho que me perdi
@@ -8390,6 +8447,12 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
             logger.error("alerta situação sensível falhou conv=%s: %s", conversation_id, e)
 
     if decision == "grupo_publica":
+        # Parede de saída: o prompt pede, isto garante. Ver `limpar_resposta_de_grupo`.
+        texto = limpar_resposta_de_grupo(texto)
+        if not texto:
+            logger.info("Agente: conv=%s resposta era só pedido comercial — calando",
+                        conversation_id)
+            return
         ok = await _post_public_reply(conversation_id, texto)
         if not ok:
             # Falhou publicar: vira nota para o trabalho não se perder, e o log diz o motivo.
