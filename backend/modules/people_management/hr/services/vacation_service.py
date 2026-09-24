@@ -11,7 +11,7 @@ Adiciona cálculo de saldo de férias com valores CLT reais (Decimal).
 
 import contextlib
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
@@ -357,7 +357,7 @@ class VacationService:
             ),
             {
                 "by": str(approved_by_id) if approved_by_id else None,
-                "at": datetime.now(timezone.utc),
+                "at": datetime.now(UTC),
                 "rid": str(vacation_id),
             },
         )
@@ -429,7 +429,7 @@ class VacationService:
             ),
             {
                 "by": str(rejected_by_id) if rejected_by_id else None,
-                "at": datetime.now(timezone.utc),
+                "at": datetime.now(UTC),
                 "reason": reason,
                 "rid": str(vacation_id),
             },
@@ -464,7 +464,7 @@ class VacationService:
             ),
             {
                 "by": str(cancelled_by_id) if cancelled_by_id else None,
-                "at": datetime.now(timezone.utc),
+                "at": datetime.now(UTC),
                 "reason": reason,
                 "rid": str(vacation_id),
             },
@@ -504,6 +504,9 @@ class VacationService:
         importadas = 0
         atualizadas = 0
         erros: list[dict] = []
+        from modules.people_management.hr.services import importacao_falhas as _falhas
+
+        await _falhas._ensure(self.db)
 
         try:
             base_url = os.getenv("SOLIDES_BASE_URL", "https://employer.tangerino.com.br")
@@ -546,13 +549,24 @@ class VacationService:
                         )
                     ).fetchone()
                     if not row:
+                        # DGX V4: some da resposta e some da vida. Vai para `dp_importacao_falhas`
+                        # (origem solides) — é uma pessoa de férias que o ERP não vai registrar.
+                        await _falhas.registrar(
+                            self.db,
+                            "solides",
+                            f"absence:{solides_id}",
+                            f"employeeId {solides_emp_id} do Sólides sem vínculo em solides_employees",
+                            nome=str(absence.get("employeeName") or absence.get("name") or "") or None,
+                            dados={"inicio": str(start_raw), "fim": str(end_raw)},
+                        )
                         continue
                     local_emp_id = row[0]
 
                     # Grava na FONTE CANÔNICA de férias (hr_vacation_requests), que é a que a tela
                     # lê — antes ia para gp_justifications como "falta" e o botão "Sincronizar
                     # Sólides" nunca mudava a tela (revisão 08/09/2026). Idempotente pelo código.
-                    from datetime import date as _date, timedelta as _td
+                    from datetime import date as _date
+                    from datetime import timedelta as _td
 
                     request_code = f"FER-SOL-{solides_id}"[:50]
                     dup = (
@@ -580,7 +594,9 @@ class VacationService:
                             "cond": _HVR_DEFAULT_CONDOMINIO_ID,
                             "emp": str(local_emp_id),
                             "code": request_code,
-                            "sd": sd, "ed": ed, "rd": ed + _td(days=1),
+                            "sd": sd,
+                            "ed": ed,
+                            "rd": ed + _td(days=1),
                             "days": (ed - sd).days + 1,
                             "notes": f"Férias Sólides {solides_id}",
                         },
@@ -590,6 +606,9 @@ class VacationService:
 
                 except Exception as e:
                     erros.append({"absence_id": str(absence.get("id", "")), "error": str(e)[:200]})
+                    await _falhas.registrar(
+                        self.db, "solides", f"absence:{absence.get('id', '')}", f"erro ao importar férias: {e}"
+                    )
 
         except Exception as e:
             logger.error("sync_vacations_from_solides erro: %s", e)

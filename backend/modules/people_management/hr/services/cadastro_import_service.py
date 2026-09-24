@@ -141,6 +141,12 @@ class CadastroImportService:
 
         cpf_col = next(raw for raw, alvo in col_map.items() if alvo == "cpf")
 
+        # DGX V4: o erro por linha também vai para a FILA (`dp_importacao_falhas`) — antes vivia
+        # só no JSON da resposta, cortado em 20 CPFs, e sumia quando alguém fechava a aba.
+        from modules.people_management.hr.services import importacao_falhas as _falhas
+
+        await _falhas._ensure(self.db)
+
         atualizados, nao_encontrados, ignorados, erros = 0, 0, 0, 0
         nao_encontrados_cpfs = []
         for _, row in df.iterrows():
@@ -183,9 +189,13 @@ class CadastroImportService:
                     nao_encontrados += 1
                     if len(nao_encontrados_cpfs) < 20:
                         nao_encontrados_cpfs.append(cpf)
+                    await _falhas.registrar(
+                        self.db, "planilha", cpf, "CPF da planilha sem colaborador no cadastro", cpf=cpf
+                    )
             except Exception as exc:  # noqa: BLE001
                 erros += 1
                 logger.warning("[CadastroImport] erro no CPF %s: %s", cpf, exc)
+                await _falhas.registrar(self.db, "planilha", cpf, f"erro ao gravar o cadastro: {exc}", cpf=cpf)
         await self.db.commit()
 
         return {

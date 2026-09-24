@@ -18,12 +18,20 @@ fecharia o ciclo. O financeiro não tropeça nisso porque importa `_fin_grupos` 
 do build.
 """
 
+# fmt: off
+# Este arquivo é DADO escrito à mão: uma linha por grupo/menu.
+# `ruff format` explode cada item em uma linha por campo (300+ linhas de diff) num arquivo
+# que várias frentes editam ao mesmo tempo — conflito garantido em todas, e nenhuma linha
+# mais legível no fim. Medido em 24/09/2026, ao acrescentar 2 abas (dgx v4).
 GRUPOS = [
     ("g-visao", "Visão geral", "Quadro de pessoal, contratos e cadastro", [
         ("visao", "Resumo"), ("funcionarios", "Funcionários"),
         ("contratos", "Contratos"), ("headcount", "Headcount"), ("cadastro-incompleto", "Cadastro incompleto"),
         ("sem-escala", "Sem alocação"), ("cct-conformidade", "Conformidade CCT"), ("importar-cadastro", "Importar cadastro"),
-        ("turnover-dashboard", "Turnover")]),  # dgx t1
+        ("turnover-dashboard", "Turnover"),  # dgx t1
+        # dgx v4 (24/09/2026): anexada DEPOIS de montar_grupos por `_dgx_v4_dp_importacao.telas(db, out)`,
+        # ao FIM deste grupo; listada aqui para a composição do grupo ficar num lugar só.
+        ("importacao-falhas", "Falhas de importação")]),
 
     ("g-admissao", "Admissão & Cadastro", "Entrada do colaborador, documentos e certificações", [
         ("admissao", "Admissões"), ("nova-admissao", "Nova admissão"),
@@ -67,7 +75,9 @@ GRUPOS = [
         # tela (medido em 14/09/2026). Criar/editar/encerrar só existia pelo `psql`.
         ("descontos", "Descontos (consignado, pensão)"), ("desconto-novo", "Novo desconto"),
         # dgx f6 — vale (adiantamento avulso, mesmo caminho dos descontos) e evento coletivo
-        ("vales", "Vales"), ("vale-novo", "Novo vale"), ("eventos-coletivos", "Eventos coletivos"), ("evento-coletivo-novo", "Novo evento coletivo")]),
+        ("vales", "Vales"), ("vale-novo", "Novo vale"), ("eventos-coletivos", "Eventos coletivos"), ("evento-coletivo-novo", "Novo evento coletivo"),
+        # dgx v4 (24/09/2026): idem — anexada ao FIM deste grupo por `_dgx_v4_dp_importacao.telas(db, out)`.
+        ("folha-apontamentos-importar", "Importar apontamentos (CSV)")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),
