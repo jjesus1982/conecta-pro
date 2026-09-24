@@ -6,6 +6,7 @@ import logging
 import os
 from datetime import date as _date
 
+from fastapi import APIRouter
 from sqlalchemy import text as _sql
 
 from modules.operacional.controllers.redesign_data_controller import (
@@ -21,9 +22,15 @@ from modules.operacional.controllers.redesign_data_controller import (
     t,
 )
 
+from ._dgx_z1_produto_fiscal import MENU as _menu_z1  # noqa: N811  # dgx z1
+from ._dgx_z1_produto_fiscal import router as _router_z1  # dgx z1
+
 logger = logging.getLogger(__name__)
 
 SLUG = "fiscal"
+
+router = APIRouter()
+router.include_router(_router_z1)  # dgx z1 — cadastro fiscal do produto (NF-e)
 
 #: Lido pelo loader no IMPORT e deduplicado por "id" (ver f82d7448 — dict virava aba
 #: fantasma). NUNCA popular isto dentro de build(): cresceria a cada requisição.
@@ -69,6 +76,7 @@ EXTRA_MENU: list[dict] = [
         "icon": _ICO_CALC,
         "grupo": "Consultor fiscal",
     },
+    *_menu_z1,  # dgx z1 — cadastro fiscal do produto (grupo «Notas fiscais»)
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -335,6 +343,9 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    from ._dgx_z1_produto_fiscal import telas as _telas_z1  # dgx z1
+
+    await _telas_z1(db, out)  # dgx z1 — produtos fiscais, tributação por CNPJ, NCM oficial
     return out
 
 
