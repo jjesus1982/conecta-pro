@@ -54,6 +54,23 @@ LEGITIMOS = (
 )
 
 
+async def _telas_do_modulo(db, slug: str) -> set[str]:
+    """Ids que o backend REALMENTE serve no módulo — raiz e abas de grupo."""
+    from modules.operacional.controllers.redesign_data_controller import BUILDERS  # noqa: PLC0415
+
+    builder = BUILDERS.get(slug)
+    if builder is None:
+        raise LookupError(f"módulo «{slug}» não tem builder")
+    import inspect  # noqa: PLC0415
+
+    telas = await (builder(db, current_user=None) if "current_user" in inspect.signature(builder).parameters else builder(db))
+    ids = set(telas)
+    for v in telas.values():
+        if isinstance(v, dict) and v.get("type") == "tabs":
+            ids |= {ab.get("id") for ab in (v.get("tabs") or []) if ab.get("id")}
+    return ids
+
+
 async def main() -> int:
     from sqlalchemy import text
 
@@ -84,6 +101,31 @@ async def main() -> int:
                 falhas.append(f"{d['codigo']}: impacto «{d['impacto']}» fora do vocabulário")
             if d["numero_sql"] and not (d["unidade"] or "").strip():
                 falhas.append(f"{d['codigo']}: tem numero_sql e não tem unidade")
+            # «Ir para a tela» tem que levar a uma tela que EXISTE. Em 24/09/2026, 8 das 29 linhas
+            # apontavam para id inventado (`t=rubricas` em vez de `folha-rubricas`, `t=alertas` em
+            # vez de `painel-alertas`…). Mandar o dono para o vazio é pior que não mandar: ele
+            # conclui que a coisa não existe e para de confiar no painel.
+            alvo = (d["tela_para_agir"] or "").strip()
+            if alvo and not alvo.startswith("/redesign/"):
+                falhas.append(f"{d['codigo']}: tela_para_agir «{alvo}» não é URL do redesign")
+
+        # ── 2-bis) toda «Ir para a tela» aponta para tela que o backend serve ──────────
+        import re as _re  # noqa: PLC0415
+
+        alvos: dict[str, set[str]] = {}
+        for d in linhas:
+            m = _re.match(r"/redesign/([a-z-]+)(?:\?t=([a-z0-9-]+))?", (d["tela_para_agir"] or "").strip())
+            if m and m.group(2):
+                alvos.setdefault(m.group(1), set()).add(m.group(2))
+        for mod, pedidas in sorted(alvos.items()):
+            try:
+                pacote = await _telas_do_modulo(db, mod)
+            except Exception as exc:  # noqa: BLE001
+                falhas.append(f"módulo «{mod}» do painel não montou: {type(exc).__name__}: {exc}")
+                continue
+            faltam = sorted(pedidas - pacote)
+            if faltam:
+                falhas.append(f"tela(s) inexistente(s) em «{mod}»: {', '.join(faltam)}")
 
         # ── 3) nenhum numero_sql escreve ────────────────────────────────────────────────
         for d in linhas:

@@ -257,7 +257,7 @@ SEMENTE: tuple[tuple, ...] = (
         "dinheiro",
         SQL_FALTAS_FORA_INSS,
         "R$",
-        "/redesign/departamento-pessoal?t=rubricas",
+        "/redesign/departamento-pessoal?t=folha-rubricas",
     ),
     (
         "D02",
@@ -437,7 +437,7 @@ SEMENTE: tuple[tuple, ...] = (
         "dinheiro",
         SQL_NFE_SO_RESUMO,
         "itens",
-        "/redesign/suprimentos?t=nfe-entradas",
+        "/redesign/suprimentos?t=nf-entrada",
     ),
     # ─── outras mensuráveis (mesmas fontes, número recontado aqui) ───
     (
@@ -450,7 +450,7 @@ SEMENTE: tuple[tuple, ...] = (
         "cadastro",
         SQL_RUBRICA_NUNCA_EMITIDA,
         "itens",
-        "/redesign/departamento-pessoal?t=rubricas",
+        "/redesign/departamento-pessoal?t=folha-rubricas",
     ),
     (
         "D16",
@@ -487,7 +487,7 @@ SEMENTE: tuple[tuple, ...] = (
         "operacao",
         SQL_LEAD_SEM_CONTATO,
         "itens",
-        "/redesign/operacional?t=alertas",
+        "/redesign/operacional?t=painel-alertas",
     ),
     # ─── escolha pura: SEM número, e a tela diz isso ───
     (
@@ -524,7 +524,7 @@ SEMENTE: tuple[tuple, ...] = (
         "risco",
         None,
         None,
-        "/redesign/operacional?t=frota-vistoria",
+        "/redesign/equipamentos?t=frota-vistoria-itens",
     ),
     (
         "D22",
@@ -597,7 +597,7 @@ SEMENTE: tuple[tuple, ...] = (
         "risco",
         None,
         None,
-        "/redesign/operacional?t=g-ocorrencias",
+        "/redesign/operacional?t=ocorrencias",
     ),
     (
         "D28",
@@ -608,7 +608,7 @@ SEMENTE: tuple[tuple, ...] = (
         "dinheiro",
         None,
         None,
-        "/redesign/departamento-pessoal?t=importar-apontamento",
+        "/redesign/departamento-pessoal?t=folha-apontamentos-importar",
     ),
 )
 
