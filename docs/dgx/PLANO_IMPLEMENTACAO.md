@@ -247,3 +247,58 @@ documento fiscal irreversível.
 - Busca de NCM pela descrição (pedido do dono): entregue com fonte por candidato; **taxa real medida 61%**, abaixo dos 70% pedidos — teto estrutural (71 dos 95 NCMs aparecem uma vez só). O oráculo trava em 55% e imprime a taxa; 70% viraria alarme falso.
 - Bartolo: **nenhum chat novo** — é o consultor que já existia, com 5 consultas novas e uma regra («PROIBIDO inventar NCM, alíquota ou CFOP; CONSULTE ANTES de dizer que não existe»). A linha de base pegou ele afirmando com confiança que a casa «não tem NF-e de saída» e inventando tabela de CFOP de memória.
 - Colisão estrutural resolvida no merge: **quatro frentes criaram `router = ...` no mesmo `fiscal.py`** e cada definição apagava a anterior — as rotas de emitir NF-e e de produto fiscal sumiam alternadamente, sem erro. Um router só; quem chega depois INCLUI.
+
+## RADAR — catálogo de produto a partir da compra, alimentando o orçamento do CRM
+
+**Pedido do dono (24/09):** *«baseado nas notas fiscais de compra da Conecta Eletrônica, cadastrar
+os produtos, ter cuidado com duplicidades, pois aí na hora de fazer o orçamento fazemos pelo CRM,
+já estará lá com toda a descrição, só seleciona o item e as quantidades; e se aprovado a gente
+marca lá, porque se foi aprovado vai gerar nota fiscal. Depois de resolver o emissor, coloca isso
+no radar.»*
+
+**O fluxo inteiro que ele desenhou:** compra → catálogo → orçamento no CRM → aprovado → nota.
+As pontas já existem: a Z5 faz **proposta aprovada → rascunho de nota**, e a Z1 fez o cadastro
+fiscal. Falta o miolo: **o catálogo que nasce da compra e entra no orçamento**.
+
+### O que eu já medi (e que muda o desenho)
+
+| Fonte | Linhas | O que é |
+|---|---|---|
+| `products` | **867** (193 com NCM) | catálogo importado do **Bling** em 27/08 — já existe e ninguém citou |
+| `nfe_compras_estoque` | 147 | itens das notas de compra, com NCM e descrição do fornecedor |
+| `nfe_entradas.xml_raw` | 207 itens / 50 NF-e | o XML cru, com **tributação real** (a Z4 achou: 51% com ICMS-ST) |
+| `fin_produtos` | 95 | o cadastro fiscal que a Z1 semeou |
+| `proposal_items` | 177 | os itens dos orçamentos do CRM — o destino |
+
+**A duplicidade NÃO é textual: as 147 descrições são todas diferentes entre si.** É semântica, e
+ela tem duas caras opostas — medidas nos dados reais:
+
+- **NCM 64039190 — «bota»: 10 linhas que são UM produto em 10 tamanhos** (N36, N37, N38 … N45).
+  Juntar em 10 produtos polui o orçamento; e a casa **já tem grade de tamanho** (`sst_uniforme_grade`,
+  frente 10) — é ali que o tamanho vive, não no catálogo.
+- **NCM 34025000 — 9 linhas que são 9 produtos DIFERENTES** (detergente, lava-roupas, limpa-vidros,
+  multiuso, sabão em pó de três marcas). Mesmo NCM, produtos distintos.
+
+**Conclusão para quem for implementar: «mesmo NCM = mesmo produto» está errado nas duas direções.**
+A régua tem de separar o que é **variação** (tamanho, cor, volume) do que é **produto distinto**, e
+deixar o humano confirmar o que a régua não tiver certeza — sem fundir no escuro.
+
+### Desenho proposto (para a onda seguinte ao emissor)
+
+1. **Uma fonte só de catálogo.** Decidir entre `products` (867, Bling) e `fin_produtos` (95,
+   fiscal) — hoje são dois, e já divergem no mesmo item (a Z1 achou fita isolante com NCM
+   `39191020` num e `59061000` no outro). Provavelmente: `products` é o catálogo comercial e
+   `fin_produtos` a face fiscal dele; então o elo é uma coluna, não uma terceira tabela.
+2. **Importador da compra → catálogo**, com proposta de agrupamento: candidato novo, candidato
+   igual a um existente (com o porquê e o score) e candidato que é **variação** de um existente.
+   Nada entra sozinho: a tela mostra a proposta e o humano aprova em lote.
+3. **Preço**: a compra dá o **custo** (`last_purchase_price`, `average_price` já existem em
+   `products`). Preço de venda é decisão comercial — o catálogo sugere pela margem e ninguém
+   fatura sem o humano confirmar.
+4. **No CRM**: o item do orçamento passa a vir do catálogo (código, descrição completa, unidade,
+   NCM), em vez de texto livre. É isso que faz o orçamento aprovado virar nota sem redigitar.
+5. **Aprovado → nota**: já existe (Z5). O elo que falta é o item da proposta carregar o
+   `produto_id` — hoje ele é texto e a Z5 tem de casar por descrição.
+
+**Pré-requisito:** o emissor (Z2) fechado, e os três bloqueios do dono resolvidos (CFOP de saída,
+IE da Patrimonial, IE correta da Eletrônica).
