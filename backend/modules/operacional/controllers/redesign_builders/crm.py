@@ -533,6 +533,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "contrato-item-novo", "label": "Novo item de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "aditivos", "label": "Aditivos", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "aditivo-novo", "label": "Novo aditivo", "icon": _ICO_DOC, "grupo": "Contratos"},
+    {"id": "contrato-copiar", "label": "Copiar contrato", "icon": _ICO_DOC, "grupo": "Contratos"},  # dgx t3
+    {"id": "visitas-por-cliente", "label": "Última visita por cliente", "icon": _ICO_CAL, "grupo": "Reuniões & visitas"},  # dgx t3
     {"id": "modelos-contrato", "label": "Modelos de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {"id": "modelo-contrato-novo", "label": "Novo modelo de contrato", "icon": _ICO_DOC, "grupo": "Contratos"},
     {
@@ -2355,6 +2357,9 @@ async def build(db) -> dict:
     await _telas_f12(
         db, out
     )  # dgx f12 — assuntos, atendimentos, feedbacks, diretórios, fontes pagadoras, regiões, postos por cliente
+    from ._dgx_t3_operacional_comercial import telas_crm as _telas_t3  # dgx t3
+
+    await _telas_t3(db, out)  # dgx t3 — copiar contrato, última visita por cliente
     return out
 
 

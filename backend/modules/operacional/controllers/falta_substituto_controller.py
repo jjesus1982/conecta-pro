@@ -392,6 +392,12 @@ async def escalar_substituto(
             raise HTTPException(status_code=404, detail="Substituto não encontrado ou não está ativo.")
         if emp[0] == sub["original_employee_id"]:
             raise HTTPException(status_code=422, detail="O substituto não pode ser o próprio faltoso.")
+        from modules.operacional.services import restricao_cliente as _rc  # dgx t3 — restrição por cliente
+
+        try:
+            await _rc.exigir_livre(db, body.employee_id, post_id=sub["post_id"])
+        except _rc.RestricaoErro as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
         conflito = (
             await db.execute(
                 text(
