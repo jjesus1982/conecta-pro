@@ -178,7 +178,9 @@ def _carregar_batidas(db: Session, employee_id: str, mes: int, ano: int) -> list
 #: ponto oficial da transição e continua sendo puxado todo dia — mas o que ele traz é a
 #: GRADE da escala, não o horário real: em 09/2026 foram 422 batidas com 48 horários
 #: distintos, 382 em hora cheia, contra 763 batidas e 763 horários distintos do app.
-FONTES_MEDIDAS = ("mobile", "contingencia", "facial", "biometria", "app")
+# "relogio" = batida importada de arquivo AFD de relógio (dgx t2, 24/09/2026). Em 24/09 havia
+# 0 linhas com esse device_type — o espelho de todo mês já calculado é idêntico por construção.
+FONTES_MEDIDAS = ("mobile", "contingencia", "facial", "biometria", "app", "relogio")
 
 
 def _uma_fonte_por_dia(batidas: list[dict[str, Any]]) -> list[dict[str, Any]]:

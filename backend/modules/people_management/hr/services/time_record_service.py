@@ -622,6 +622,12 @@ class TimeRecordService:
         """
         employee_id = str(data["employee_id"])
         record_date = data["record_date"]
+        # dgx t2 (24/09/2026): mês FECHADO recusa o lançamento manual — reabrir é ato com motivo.
+        from modules.people_management.ponto import fechamento
+
+        _trava = await fechamento.competencia_fechada(self.db, employee_id, record_date)
+        if _trava:
+            raise ValueError(_trava)
         # server_timestamp/created_at = momento do LANCAMENTO (metadado de auditoria), hora local.
         # O punch_timestamp em si vem da data/hora INFORMADA pelo operador (ts_dt abaixo).
         now = datetime.now()

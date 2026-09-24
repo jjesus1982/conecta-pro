@@ -55,6 +55,9 @@ from ._dgx_t1_dp import router as _r_t1  # noqa: E402 — dgx t1
 from ._dgx_t1_dp import telas as _telas_t1  # noqa: E402 — dgx t1
 
 router.include_router(_r_t1)  # dgx t1
+from ._dgx_t2_ponto import router as _r_t2  # noqa: E402 — dgx t2
+
+router.include_router(_r_t2)  # dgx t2
 
 
 @router.post("/action/ponto-ajuste")
@@ -4864,4 +4867,7 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_f7_ponto import telas as _telas_f7  # dgx f7
 
     out.update(await _telas_f7(db, out))  # dgx f7 — abas no fim de g-ponto
+    from ._dgx_t2_ponto import telas as _telas_t2  # dgx t2
+
+    out.update(await _telas_t2(db, out))  # dgx t2 — abas no fim de g-ponto
     return out

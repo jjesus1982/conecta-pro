@@ -78,10 +78,14 @@ async def create_manual_record(
 ) -> Any:
     """Cria lançamento manual de ponto (uso por admin/DP)."""
     service = TimeRecordService(db)
-    result = await service.create_manual(
-        data=data.model_dump(),
-        created_by=str(current_user.id),
-    )
+    try:
+        result = await service.create_manual(
+            data=data.model_dump(),
+            created_by=str(current_user.id),
+        )
+    except ValueError as exc:  # dgx t2: competência fechada → 409, não 500
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.commit()
     asyncio.create_task(
         publish_ponto_registrado(
