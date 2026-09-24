@@ -226,6 +226,19 @@ async def importar(db, conteudo: str, origem: str, quem: str, simular: bool = Fa
             dict(resumo, erros=json.dumps(resumo["erros"], ensure_ascii=False, default=str)),
         )
     ).scalar()
+    # DGX V4: cada marcação recusada também vira pendência COM DONO na fila do DP
+    # (`dp_importacao_falhas`, origem afd). O log acima é o resumo da execução; a fila é a
+    # lista de trabalho — PIS/CPF sem colaborador é cadastro faltando, não ruído de arquivo.
+    from modules.people_management.hr.services import importacao_falhas as _falhas
+
+    for e in resumo["erros"]:
+        await _falhas.registrar(
+            db,
+            "afd",
+            f"{origem}:{e.get('nsr', e.get('linha', ''))}",
+            str(e.get("erro", "erro não descrito")),
+            dados={"arquivo": resumo["arquivo"], "importacao": rid},
+        )
     await db.commit()
     resumo["id"] = rid
     resumo["pessoas"] = sorted({m["nome"] for m in a_inserir})

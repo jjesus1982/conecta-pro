@@ -49,6 +49,13 @@ def _l1510(nsr: int, ddmmaaaa: str, hhmm: str, pis: str) -> str:
 async def _limpar(db):
     await db.execute(text("DELETE FROM gp_clock_punches WHERE chave_idempotente LIKE :p"), {"p": f"afd:{ORIGEM}:%"})
     await db.execute(text("DELETE FROM ponto_integracoes_batimentos WHERE origem = :o"), {"o": ORIGEM})
+    # DGX V4: desde 24/09 as marcações recusadas também entram na fila `dp_importacao_falhas`
+    # (origem afd) — a fixture precisa sair de lá também, senão o painel de pendências do DP
+    # nasce com duas falhas de teste que ninguém consegue resolver.
+    await db.execute(
+        text("DELETE FROM dp_importacao_falhas WHERE origem = 'afd' AND identificador_origem LIKE :p"),
+        {"p": f"{ORIGEM}:%"},
+    )
     await db.execute(text("DELETE FROM gp_monthly_closings WHERE employee_id = :e"), {"e": FIX})
     await db.execute(text("DELETE FROM ponto_reaberturas WHERE quem = :q"), {"q": FIX})
     await db.commit()

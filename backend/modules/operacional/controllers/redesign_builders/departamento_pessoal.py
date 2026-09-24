@@ -66,6 +66,9 @@ router.include_router(_r_t2)  # dgx t2
 from ._dgx_u5_entrega_beneficio import router as _r_u5  # noqa: E402 — dgx u5
 
 router.include_router(_r_u5)  # dgx u5
+from ._dgx_v4_dp_importacao import router as _r_v4  # noqa: E402 — dgx v4
+
+router.include_router(_r_v4)  # dgx v4
 
 
 @router.post("/action/ponto-ajuste")
@@ -4883,4 +4886,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_t2_ponto import telas as _telas_t2  # dgx t2
 
     out.update(await _telas_t2(db, out))  # dgx t2 — abas no fim de g-ponto
+    from ._dgx_v4_dp_importacao import telas as _telas_v4  # dgx v4
+
+    out.update(
+        await _telas_v4(db, out)
+    )  # dgx v4 — falhas de importação (g-visao), apontamentos CSV (g-folha), export em funcionarios
     return out
