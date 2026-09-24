@@ -2890,6 +2890,9 @@ ORDER BY b.comp DESC, b.cnpj"""
     from modules.operacional.controllers.redesign_builders import _dgx_v5_fiscal_relatorios as _v5  # dgx v5
 
     await _v5.telas(db, out)  # dgx v5 — formas de pagamento, centros de custo em árvore, relatórios PDF/Excel
+    from modules.operacional.controllers.redesign_builders import _dgx_w2_fatura as _w2  # dgx w2
+
+    await _w2.telas(db, out)  # dgx w2 — fatura como DOCUMENTO (itens, número, GerarConta, copiar/imprimir em lote)
     montar_grupos(out)  # SEMPRE por último — ver comentário acima
     return out
 
@@ -2904,6 +2907,9 @@ router.include_router(_t4r.router)  # dgx t4 — cobrança por e-mail, importar 
 import modules.operacional.controllers.redesign_builders._dgx_v5_fiscal_relatorios as _v5r  # noqa: E402 — dgx v5
 
 router.include_router(_v5r.router)  # dgx v5 — formas de pagamento, centros de custo, relatórios PDF/Excel
+import modules.operacional.controllers.redesign_builders._dgx_w2_fatura as _w2r  # noqa: E402 — dgx w2
+
+router.include_router(_w2r.router)  # dgx w2 — faturas: criar/emitir/gerar conta/copiar/cancelar + PDF avulso e em lote
 
 
 def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:

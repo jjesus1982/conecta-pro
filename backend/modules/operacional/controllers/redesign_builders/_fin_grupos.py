@@ -58,6 +58,10 @@ GRUPOS = [
             ("billing-contrato-ativado", "Faturar contrato ativado"),
             ("recibos", "Recibos de venda"),  # dgx f11
             ("recibo-novo", "Emitir recibo"),  # dgx f11
+            ("faturas", "Faturas"),  # dgx w2
+            ("fatura-nova", "Nova fatura"),  # dgx w2
+            ("fatura-itens", "Itens das faturas"),  # dgx w2
+            ("faturas-copiar-lote", "Copiar faturas em lote"),  # dgx w2
         ],
     ),
     # ── "Pagar" tinha 29 ABAS num grupo só, e o Jordan disse o que isso é na prática:
