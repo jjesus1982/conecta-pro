@@ -4821,6 +4821,9 @@ async def build(db, current_user=None) -> dict:
 
     out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
+    from ._dgx_f12_sesmt_demandas_comercial import ligar_aso_form as _ligar_aso_f12  # dgx f12
+
+    await _ligar_aso_f12(db, out)  # dgx f12 — renovar-aso com médico/exames dos cadastros (antes de montar_grupos)
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 
