@@ -482,18 +482,27 @@ async def conferir_e_avisar(
     db: AsyncSession, *, texto: str, autor_fone: str | None, ident: Any = None,
     chatwoot_message_id: int | None = None,
 ) -> dict[str, Any]:
-    """Confere a escala postada e responde a QUEM POSTOU, no privado dele. Nunca no grupo.
+    """Confere a escala postada e publica o resultado no GRUPO DE RELATÓRIO (Gestão).
 
-    ⭐ É o desenho que resolve o pedido do Jordan sem furar a parede: o grupo é onde o José Luís
-    APRENDE, a conversa privada é onde ele AJUDA. A parede proíbe falar no grupo — e não precisa
-    ser afrouxada para ele ser útil.
+    ⭐ DECISÃO DO JORDAN, 24/09/2026: *"não trata nada no privado, tudo nos grupos, com
+    Orlailson no Gestão, eu quero acompanhar todas as tratativas."* Eu havia feito no privado
+    dele; o dono quer a tratativa visível, e a razão é boa — decisão sobre escala que acontece
+    em DM some, e ele fica fora do que o supervisor combinou.
 
-    Três guardas, e cada uma tem motivo:
+    ⚠️ E ISSO NÃO AFROUXA A PAREDE, porque relatório não é conversa. A parede impede o **LLM**
+    de improvisar resposta em grupo (`modo = observar` → `processar_incoming` recusa). Aqui o
+    texto é composto por código determinístico, a partir de consulta ao banco, e publicado por
+    uma chamada nossa. O Gestão continua `observar`: o José Luís não vai discutir lá, só
+    publicar o que conferiu. As duas coisas convivem, e confundi-las seria abrir a porta que
+    passei a noite fechando.
 
-      · só responde a quem SUPERVISIONA. A escala nomeia 3 a 9 pessoas e seus postos; mandar
-        isso para qualquer um que colar um texto parecido no grupo é vazamento;
-      · só uma vez por mensagem (`wa_grupo_falas` guarda a marca). Reentrega do Chatwoot é
-        normal, e o Orlailson não pode receber a mesma conferência três vezes;
+    Guardas, e cada uma tem motivo:
+
+      · a escala tem de vir de quem SUPERVISIONA. Ela nomeia 3 a 9 pessoas e seus postos, e
+        publicar isso porque qualquer um colou um texto parecido no grupo é vazamento;
+      · o destino sai do BANCO (`recebe_relatorio`), não de constante: o Jordan muda de grupo
+        sem ninguém mexer em código, e um JID fixo aqui viraria mentira no dia da mudança;
+      · uma vez por mensagem (`wa_grupo_falas` guarda a marca). Reentrega do Chatwoot é normal;
       · falha NUNCA derruba a absorção. O aprendizado de tom vale mais que o aviso.
     """
     papel = await papel_de_supervisao(db, ident)
@@ -514,14 +523,25 @@ async def conferir_e_avisar(
         return {"avisado": False, "motivo": "não é escala"}
 
     msg = _texto_da_conferencia(r)
-    fone = autor_fone if str(autor_fone).startswith("+") else f"+{autor_fone}"
-    try:
-        from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
 
-        enviado = await whatsapp_service.send_custom(fone, msg)
+    # Para onde vai: o grupo marcado como destino de relatório. Sem destino cadastrado eu NÃO
+    # escolho um — publicar num grupo por palpite é pior que não publicar.
+    destino = (await db.execute(text(
+        "SELECT chatwoot_conversation_id, nome FROM wa_grupos "
+        " WHERE recebe_relatorio AND chatwoot_conversation_id IS NOT NULL LIMIT 1"))).first()
+    if not destino:
+        return {"avisado": False, "motivo": "nenhum grupo marcado como destino de relatório "
+                                            "(ou a conversa dele ainda não foi aprendida)",
+                "conferencia": r}
+    conv_destino, nome_destino = int(destino[0]), destino[1]
+
+    quem = getattr(ident, "nome", None) or autor_fone or "supervisor"
+    corpo = f"📋 *Escala de {r.get('dia')}* (postada por {quem})\n\n{msg}"
+    try:
+        enviado = await _publicar_no_grupo(conv_destino, corpo)
     except Exception as e:  # noqa: BLE001
-        logger.error("supervisao: conferência não entregue a %s (%s)", fone, e)
-        return {"avisado": False, "motivo": f"falha no envio: {str(e)[:100]}", "conferencia": r}
+        logger.error("supervisao: conferência não publicada no %s (%s)", nome_destino, e)
+        return {"avisado": False, "motivo": f"falha ao publicar: {str(e)[:100]}", "conferencia": r}
 
     # A marca vai DEPOIS do envio: gravar antes e falhar o envio deixaria o Orlailson sem a
     # conferência e sem chance de recebê-la na reentrega.
@@ -534,5 +554,42 @@ async def conferir_e_avisar(
         await db.rollback()
         logger.warning("supervisao: marca da conferência não gravada (%s)", e)
 
-    return {"avisado": bool(enviado), "para": fone, "divergencias": len(r.get("divergencias") or []),
+    return {"avisado": bool(enviado), "para": nome_destino,
+            "divergencias": len(r.get("divergencias") or []),
             "conferidos": r.get("conferidos"), "linhas": r.get("linhas")}
+
+
+async def _publicar_no_grupo(conversation_id: int, texto: str) -> bool:
+    """Publica texto NA CONVERSA do grupo (`private: false` — o grupo VÊ). Best-effort.
+
+    ⚠️ Por que não `whatsapp_service.send_custom`: ele limpa e resolve TELEFONE
+    (`_clean_phone` + `_resolve_jid`), e um JID de grupo (`120363…@g.us`) seria destruído no
+    caminho — o envio falharia, ou pior, iria para um número inventado pela limpeza. Grupo se
+    alcança pela CONVERSA que o Chatwoot já tem, e o `conversation_id` dela eu aprendo do
+    tráfego (`wa_grupos.chatwoot_conversation_id`).
+
+    ⚠️ `private: false` é a diferença entre isto e `_post_private_note`. Com `true` a mensagem
+    fica só no painel do Chatwoot — foi exatamente o que aconteceu nas 5 respostas de hoje de
+    madrugada, e é por isso que ninguém no grupo as viu. Aqui o dono QUER que o grupo veja.
+    """
+    import json as _json  # noqa: PLC0415
+    import os as _os  # noqa: PLC0415
+
+    import aiohttp  # noqa: PLC0415
+
+    base = _os.getenv("CHATWOOT_BASE_URL", "http://chatwoot-fazerai:3000").rstrip("/")
+    conta = _os.getenv("CHATWOOT_ACCOUNT_ID", "1")
+    token = _os.getenv("CHATWOOT_API_TOKEN", "")
+    if not token:
+        logger.warning("supervisao: CHATWOOT_API_TOKEN ausente — relatório não publicado")
+        return False
+    url = f"{base}/api/v1/accounts/{conta}/conversations/{conversation_id}/messages"
+    async with aiohttp.ClientSession() as s, s.post(
+        url, data=_json.dumps({"content": texto, "message_type": "outgoing", "private": False}),
+        headers={"api_access_token": token, "Content-Type": "application/json"},
+        timeout=aiohttp.ClientTimeout(total=20),
+    ) as r:
+        if r.status in (200, 201):
+            return True
+        logger.error("supervisao: publicação no grupo falhou %s: %s", r.status, (await r.text())[:200])
+        return False

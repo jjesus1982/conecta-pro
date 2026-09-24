@@ -25,6 +25,31 @@ padrão — o oposto do que o dono pediu. O próprio agente escreveu a régua:
 A parede mora no WEBHOOK, antes do enfileiramento. Não é instrução de prompt, não é `foco` de
 papel, não é julgamento do modelo: em modo `observar` o agente não é NEM CHAMADO. Prompt se
 desobedece; caminho que não executa, não.
+
+⭐ MUDANÇA DE RUMO DO DONO — 24/09/2026, e registro aqui para este arquivo não continuar
+afirmando o contrário do que está no ar. Depois de ver a captura funcionando, o Jordan decidiu,
+em duas etapas:
+
+  1. *"não trata nada no privado, tudo nos grupos, com Orlailson no Gestão, eu quero acompanhar
+     todas as tratativas"* — relatório de conferência passou de DM para o grupo `Gestão`
+     (`wa_grupos.recebe_relatorio`);
+  2. *"quero que ele interaja e converse com naturalidade nestes 3 grupos sempre que achar
+     necessário"* — os três grupos passaram a `modo = 'falar'`.
+
+O que a parede protegia continua protegido, por peças DIFERENTES, e vale saber quais:
+
+  · **River Park segue FORA** (nem cadastrado → `off` → ignorado por inteiro);
+  · **dado pessoal não entra em grupo**: o papel `grupo` em `agent_service` NÃO recebe
+    `consultar_minha_vida`, `meu_ponto_hoje` nem `historico_desta_pessoa`. Holerite de alguém
+    na frente de 60 pessoas é LGPD, não preferência — e isso decorre de regra do próprio dono;
+  · **teto por dia** (`max_falas_dia`, hoje 20/grupo): naturalidade não é enxurrada;
+  · **operacional segue READ-ONLY**: pedido que mexe em escala vira rascunho para aprovação;
+  · **`varrer_sem_resposta` NÃO persegue grupo**, em nenhum modo. Em grupo, "sem resposta" é o
+    normal — o prompt diz que silêncio é o padrão, e o suspensório desfaria isso forçando
+    resposta a toda mensagem.
+
+A lição de desenho: "silêncio" e "não falar no grupo" pareciam a mesma coisa e não eram. Quando
+o dono mudou uma, a outra precisou ser reimplementada em outro lugar — não reaproveitada.
 """
 from __future__ import annotations
 
@@ -246,6 +271,14 @@ _SINAIS = (
     ("comercial", re.compile(
         r"\bproposta\b|\bor[çc]amento\b|\bcontrato\b|\bcliente novo\b|\bfornecedor\b|"
         r"\bcota[çc][ãa]o\b|\bR\$\s?\d", re.I)),
+    # ⭐ MENÇÃO A ALGUÉM NUNCA É CONVERSA (24/09/2026). O grupo Gestão trouxe um pedido de
+    # troca de fardamento dos ASGs de 5 postos, com "urgência", mencionando o Jordan por
+    # `mention://contact/` — e meu classificador chamou de `tom`, o que o tornaria invisível no
+    # resumo. Quem menciona alguém está pedindo ação dele; nenhuma régua de vocabulário pega
+    # isso porque a palavra que importa é o NOME de quem foi chamado.
+    ("solicitacao", re.compile(
+        r"mention://contact/|\b(solicit|urgen|preciso que|pode(ria)? (ver|pedir|providenciar)|"
+        r"fardament|uniforme|material|providenci)", re.I)),
     ("pendencia", re.compile(
         r"\bpendente\b|\bcobrar\b|\bat[ée] (hoje|amanh[ãa]|segunda|sexta)\b|\bprazo\b|"
         r"\bquem vai\b|\bfica de\b", re.I)),
@@ -361,6 +394,43 @@ async def resumo(db: AsyncSession, *, jid: str | None = None, horas: int = 24) -
                                "quando": _manaus(r[2])} for r in pedidos],
         "onde_decidir": "/redesign/aprovacoes" if pedidos else None,
     }
+
+
+async def grupo_da_conversa(db: AsyncSession, conversation_id: int | None) -> dict | None:
+    """A config do grupo desta conversa do Chatwoot, ou None quando não é grupo.
+
+    Separada de `conversa_e_grupo_calado` porque as perguntas são diferentes e confundi-las
+    já custou caro nesta casa: "é grupo?" e "devo calar?" mudam de resposta de forma
+    independente. Desde 24/09/2026 o Jordan quer o José Luís CONVERSANDO nos grupos, então
+    "é grupo" passou a governar PROMPT e FERRAMENTAS (um grupo não é um 1:1: não se mostra
+    holerite de ninguém na frente de 60 pessoas), enquanto "devo calar" governa só o silêncio.
+    """
+    if not conversation_id:
+        return None
+    try:
+        r = (await db.execute(text(
+            "SELECT jid, nome, modo, foco, midia_ok, max_falas_dia FROM wa_grupos "
+            " WHERE chatwoot_conversation_id = :c LIMIT 1"), {"c": int(conversation_id)})).mappings().first()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("grupos: não sei se a conversa %s é grupo (%s)", conversation_id, e)
+        return None
+    return dict(r) if r else None
+
+
+async def falas_hoje(db: AsyncSession, jid: str) -> int:
+    """Quantas vezes o José Luís já falou NESTE grupo hoje (hora de Manaus)."""
+    try:
+        return int((await db.execute(text(
+            "SELECT count(*) FROM wa_grupo_falas WHERE grupo_jid = :j "
+            "  AND quando > date_trunc('day', now() - interval '4 hours') + interval '4 hours'"),
+            {"j": jid})).scalar() or 0)
+    except Exception as e:  # noqa: BLE001
+        # ⚠️ Falha aqui devolve 0, e 0 LIBERA a fala. É deliberado e é o oposto do resto deste
+        # módulo: o teto existe para não virar ruído, não para proteger ninguém. Um erro de
+        # contagem que CALASSE o agente pareceria "ele parou de funcionar", e o Jordan pediu
+        # que ele conversasse.
+        logger.warning("grupos: não contei as falas de %s (%s)", jid, e)
+        return 0
 
 
 async def conversa_e_grupo_calado(db: AsyncSession, conversation_id: int | None) -> str | None:

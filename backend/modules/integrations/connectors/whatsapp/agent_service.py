@@ -2829,6 +2829,40 @@ _PAPEIS: dict[str, dict] = {
     #
     # ⚠️ O que ele NÃO tem importa tanto quanto o que tem: nada de proposta, preço, funil ou
     # conta de cliente. Porteiro não é lead, e o assunto dele é o próprio trabalho.
+    # ⭐ GRUPO (24/09/2026): "o José Luís está em 3 grupos, quero que interaja e converse com
+    # naturalidade nestes 3 grupos sempre que achar necessário" — Jordan.
+    #
+    # ⚠️ AS FERRAMENTAS DE DADO PESSOAL FICAM FORA, E ISSO DECORRE DE REGRA DELE, NÃO MINHA.
+    # No 1:1 o `funcionario` tem `consultar_minha_vida` (holerite, férias, benefícios),
+    # `meu_ponto_hoje` e `historico_desta_pessoa`. A MESMA ferramenta num grupo de 60 pessoas
+    # publica o holerite de alguém na frente de todos. Dado de vida pessoal continua sendo
+    # assunto de conversa privada; no grupo ele conversa, orienta e chama para o privado.
+    #
+    # O que sobra é o que faz sentido em público: registrar pendência para o DP, transferir
+    # para humano, consultar material, e a visão da operação para quem supervisiona.
+    "grupo": {
+        "tools": (
+            "abrir_pendencia_dp",
+            "transferir_conversa",
+            "listar_materiais",
+        ),
+        "foco": (
+            "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
+            "pessoas. Várias pessoas leem tudo que você escreve, inclusive o Jordan.\n"
+            "COMO SE COMPORTAR: fale como um colega que está ali no grupo — curto, natural, "
+            "sem se anunciar e sem formalidade de atendimento. Você NÃO precisa responder "
+            "toda mensagem: só fale quando tiver algo útil (uma informação que falta, um "
+            "erro que ninguém viu, uma pergunta direta a você, ou alguém te mencionando). "
+            "Conversa entre colegas, piada, bom dia e combinação de horário NÃO pedem "
+            "resposta sua. Silêncio é resposta válida e é o padrão.\n"
+            "⛔ NUNCA fale de dado pessoal de ninguém no grupo: holerite, salário, atestado, "
+            "exame, advertência, férias, banco de horas, ponto de uma pessoa nomeada. Se "
+            "alguém pedir isso, diga que chama no privado — e chame. Isso não é preferência, "
+            "é LGPD.\n"
+            "⛔ Você NÃO muda escala, NÃO aloca ninguém, NÃO paga nada. Pedido que mexe em "
+            "escala você registra para o Jordan ou o Orlailson aprovarem, e diz que registrou."
+        ),
+    },
     # ⭐ SUPERVISOR (23/09/2026, pedido do Jordan: "Orlailson enxerga toda a operação").
     # É um funcionário com DUAS coisas a mais: o resumo dos grupos observados e o fato de
     # poder aprovar pedido de escala. Não ganha escrita nenhuma — ver `supervisao.py`.
@@ -5041,6 +5075,10 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
         ]
+    if papel == "grupo":
+        # SÓ o que é publicável. Nenhum schema de ponto/vida entra aqui — ver o comentário
+        # do papel `grupo` em `_PAPEIS`.
+        ativas += [_SCHEMA_PENDENCIA]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5108,7 +5146,9 @@ def _system_prompt(owner: bool, papel: str | None = None) -> str:
     # contradição: gasta os tokens de saída nela e devolve `content` VAZIO. Quem é da casa
     # nunca pode cair na base de vendas. E o prompt vive num lugar só, senão as duas cópias
     # divergem na primeira edição.
-    if papel == "supervisor":
+    if papel in ("supervisor", "grupo"):
+        # Mesma razão de 11/09 em ambos: quem é da casa não pode receber a base de VENDAS
+        # (41.692 chars com "CNPJ É OBRIGATÓRIO" em maiúsculas). O grupo é da casa.
         return _PAPEIS["funcionario"]["prompt"] + cfg["foco"]
     # Papel com prompt PRÓPRIO troca a base inteira (hoje só `funcionario` — ver o porquê lá).
     if cfg and cfg.get("prompt"):
@@ -6884,6 +6924,33 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # histórico do dia — medido: 10.902 tokens de ENTRADA, com `tokens_saida = 1200`
         # EXATO (o teto) e `content` vazio. De manhã foi 500→1200; à noite não bastou.
         max_tokens = int(_env_num("AGENT_MAX_TOKENS_DONO", 3000) if owner else _env_num("AGENT_MAX_TOKENS", 500))
+
+        # ⭐ O CONTEXTO GRUPO VENCE O PAPEL DA PESSOA (24/09/2026). Sem isto, um agente de
+        # portaria escrevendo no OPERACIONAL seria atendido como `funcionario` — com holerite e
+        # ponto na mão — e a resposta sairia para 60 pessoas. O papel diz QUEM fala; o grupo diz
+        # ONDE, e onde manda mais, porque é o que define quem LÊ.
+        #
+        # ⚠️ Vale para o dono também: `owner=True` traz o MANAGER_PROMPT e as ferramentas de
+        # gerente. Num grupo, não. Se o Jordan quiser aquilo, é no privado dele.
+        _cfg_grupo = None
+        try:
+            from modules.integrations.connectors.whatsapp import grupos as _grp  # noqa: PLC0415
+
+            async with async_session_factory() as _dbg:
+                _cfg_grupo = await _grp.grupo_da_conversa(_dbg, conversation_id)
+                if _cfg_grupo:
+                    _falou = await _grp.falas_hoje(_dbg, _cfg_grupo["jid"])
+                    _teto = int(_cfg_grupo.get("max_falas_dia") or 0)
+                    # Teto por dia: o Jordan pediu naturalidade, não enxurrada. `0` = sem teto.
+                    if _teto and _falou >= _teto:
+                        logger.info("Agente: grupo %s no teto de %s fala(s) hoje — calando",
+                                    _cfg_grupo["nome"], _teto)
+                        return
+        except Exception as e:  # noqa: BLE001
+            logger.error("Agente: contexto de grupo não resolvido (%s) — sigo como 1:1", e)
+
+        if _cfg_grupo:
+            papel, owner = "grupo", False
 
         active_tools = _tools_ativas(owner, papel)
 

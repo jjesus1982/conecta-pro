@@ -542,10 +542,16 @@ def varrer_sem_resposta(self):  # noqa: ARG001
               -- ⚠️ A parede de verdade mora em `processar_incoming` (o ponto por onde esta
               -- varredura e o webhook passam). Esta linha não é a parede — é esta task
               -- parando de MENTIR no log e de gastar fila com trabalho que será recusado.
+              -- ⚠️ EXCLUI GRUPO EM QUALQUER MODO, e não só em observação (24/09/2026,
+              -- quando o Jordan liberou a conversa nos grupos). Num grupo, "mensagem sem
+              -- resposta" é o NORMAL: o prompt diz "silêncio é resposta válida e é o padrão",
+              -- porque conversa entre colegas, bom dia e piada não pedem resposta do agente.
+              -- Com a condição antiga (`modo <> 'falar'`), virar o modo para `falar` faria esta
+              -- varredura perseguir TODA mensagem de grupo e forçar uma resposta — desfazendo
+              -- pelo suspensório exatamente o comportamento que o prompt pede.
               AND NOT EXISTS (
                     SELECT 1 FROM wa_grupos g
-                    WHERE g.chatwoot_conversation_id = m.chatwoot_conversation_id
-                      AND g.modo <> 'falar')
+                    WHERE g.chatwoot_conversation_id = m.chatwoot_conversation_id)
             GROUP BY 1"""), {"mn": _VARRE_MIN, "mx": _VARRE_MAX})
         return [dict(x) for x in r.mappings().all()]
 
