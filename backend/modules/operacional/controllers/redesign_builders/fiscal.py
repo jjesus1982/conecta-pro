@@ -6,6 +6,7 @@ import logging
 import os
 from datetime import date as _date
 
+from fastapi import APIRouter
 from sqlalchemy import text as _sql
 
 from modules.operacional.controllers.redesign_data_controller import (
@@ -61,6 +62,20 @@ EXTRA_MENU: list[dict] = [
         "label": "Cobertura de certidões",
         "icon": _ICO_CALC,
         "grupo": "Certidões & sincronismo",
+    },
+    # dgx z4 — a tributação da NF-e de mercadoria (mapa, simulador e conferência com a praça)
+    {"id": "nfe-tributacao-mapa", "label": "Mapa da tributação (NF-e)", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
+    {
+        "id": "nfe-tributacao-simulador",
+        "label": "Simulador de tributação da NF-e",
+        "icon": _ICO_CALC,
+        "grupo": "Notas fiscais",
+    },
+    {
+        "id": "nfe-tributacao-divergencias",
+        "label": "Nossa regra × a praça de Manaus",
+        "icon": _ICO_CALC,
+        "grupo": "Notas fiscais",
     },
     {"id": "consultor-fiscal", "label": "Consultor fiscal", "icon": _ICO_CALC, "grupo": "Consultor fiscal"},
     {
@@ -335,7 +350,17 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    from modules.operacional.controllers.redesign_builders import _dgx_z4_tributacao as _z4  # dgx z4
+
+    await _z4.telas(db, out)  # dgx z4 — mapa da tributação, simulador de NF-e e conferência com a praça
     return out
+
+
+# ── ESCRITA (router incluído pelo discovery). `fiscal.py` não tinha router até a Z4.
+router = APIRouter()
+import modules.operacional.controllers.redesign_builders._dgx_z4_tributacao as _z4r  # noqa: E402 — dgx z4
+
+router.include_router(_z4r.router)  # dgx z4 — simular tributação (read-only: não emite, não grava)
 
 
 def _fmt_kpi(v, unidade: str) -> str:
