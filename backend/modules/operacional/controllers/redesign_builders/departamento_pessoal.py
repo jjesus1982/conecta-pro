@@ -86,6 +86,9 @@ router.include_router(_r_x2)  # dgx x2
 from ._dgx_x3_feriado import router as _r_x3  # noqa: E402 — dgx x3
 
 router.include_router(_r_x3)  # dgx x3
+from ._dgx_y3_justificativa_batida import router as _r_y3  # noqa: E402 — dgx y3
+
+router.include_router(_r_y3)  # dgx y3
 
 
 @router.post("/action/ponto-ajuste")
@@ -4930,4 +4933,7 @@ async def build(db, current_user=None) -> dict:
     out.update(
         await _telas_x2(db, out)
     )  # dgx x2 — conferência atraso/falta justificada, abas no FIM de g-folha (paralelo cego)
+    from ._dgx_y3_justificativa_batida import telas as _telas_y3  # dgx y3
+
+    out.update(await _telas_y3(db, out))  # dgx y3 — fila de justificativas e batida faltando, abas no FIM de g-ponto
     return out

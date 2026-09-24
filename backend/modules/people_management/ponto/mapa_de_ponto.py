@@ -95,7 +95,7 @@ SELECT sh.id::text AS shift_id, sh.shift_date, sh.planned_start_time, p.name AS 
 #: Mesma validade e mesma cauda D+1 07:00 de `presence_controller._batidas_por_funcionario`;
 #: traz a mais o que o geofence precisa (posição, posto que o app validou).
 _SQL_BATIDAS = """
-SELECT cp.employee_id::text AS employee_id, cp.punch_timestamp, cp.posto_id, cp.posto_nome,
+SELECT cp.employee_id::text AS employee_id, cp.punch_timestamp, cp.punch_type, cp.posto_id, cp.posto_nome,
        cp.dentro_geofence, cp.distancia_posto_metros, cp.latitude, cp.longitude, cp.device_type
   FROM gp_clock_punches cp
  WHERE cp.punch_timestamp >= :ini AND cp.punch_timestamp < :fim

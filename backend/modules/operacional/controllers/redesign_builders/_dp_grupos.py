@@ -70,7 +70,11 @@ GRUPOS = [
         # dgx w3 (24/09/2026): idem, anexadas por `_dgx_w3_he_classificada.telas(db, out)` — a HE
         # com MOTIVO (repassável ao cliente × custo nosso) e o resumo por contrato.
         ("he-classificar", "HE: classificar"), ("he-classificar-lote", "HE: confirmar/reclassificar em lote"),
-        ("he-por-contrato", "HE por contrato")]),
+        ("he-por-contrato", "HE por contrato"),
+        # dgx y3 (24/09/2026): idem, anexadas por `_dgx_y3_justificativa_batida.telas(db, out)` —
+        # a FILA da justificativa (com dias parados e o efeito proposto na folha) e a batida que
+        # falta virando pendência com nome.
+        ("justificativas-fila", "Fila de justificativas"), ("batida-faltando", "Batida faltando")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
