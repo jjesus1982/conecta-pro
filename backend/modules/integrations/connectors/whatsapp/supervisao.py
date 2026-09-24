@@ -179,3 +179,89 @@ async def registrar_pedido_de_escala(
         roles_aprovador=ROLES_KIT_OP,
         idempotency_key=idem,
     )
+
+
+async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
+    """A operação inteira, em NÚMEROS — leitura pura, para quem supervisiona.
+
+    "Orlailson enxerga toda a operação" (Jordan, 23/09/2026). Até aqui ele enxergava só os
+    grupos; isto é a operação de verdade: quantos estão de pé hoje, quantos faltaram, quem
+    está sem escala, quantas inconsistências de ponto no período.
+
+    ⭐ Reusa `dashboard_service.get_dashboard`, que é a MESMA função que monta a tela de ponto.
+    Não reescrevi as consultas: a casa já pagou por família de código duplicada que divergiu
+    na primeira mudança, e um número que o WhatsApp mostra diferente da tela é pior que número
+    nenhum — quem lê não sabe em qual acreditar.
+
+    ⚠️ O serviço é SÍNCRONO (`Session`, não `AsyncSession`), daí o `run_in_threadpool`: chamar
+    sync de dentro do loop travaria o webhook inteiro enquanto a consulta roda.
+
+    ⚠️ FRESCOR MEDIDO NA BATIDA, não em `ultima_sync_solides`. Minha primeira versão media a
+    carga do Sólides e teria disparado aviso de defasagem em TODA chamada: ela está 7 dias
+    velha (17/09) e as batidas continuam entrando normalmente — 83 de 34 pessoas em 23/09,
+    porque o relógio é nosso (`gp_clock_punches`), não o Sólides. Alarme que soa sempre é
+    alarme que ninguém lê, e eu quase entreguei exatamente isso dentro do campo criado para
+    proteger de dado velho — o mesmo erro do hash sobre bytes de PDF.
+
+    ⚠️ E `presentes`/`ausentes` são contados DESDE 00:00, então às 00:07 são naturalmente
+    0 e 63. Vai rotulado, senão o supervisor lê "63 ausentes" de madrugada e acha que a
+    empresa não foi trabalhar. Número sem a janela que o gerou não é dado, é susto.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+    from modules.people_management.ponto.services import dashboard_service as _ds  # noqa: PLC0415
+
+    def _ler() -> dict[str, Any]:
+        with SyncSessionLocal() as s:
+            return {"dash": _ds.get_dashboard(s), "sem_escala": _ds.get_colaboradores_sem_escala(s)}
+
+    try:
+        lido = await run_in_threadpool(_ler)
+    except Exception as e:  # noqa: BLE001
+        logger.error("visao_operacao falhou (%s)", e)
+        return {"erro": "não consegui ler a operação agora", "detalhe": str(e)[:160]}
+
+    d = lido["dash"] or {}
+    sem = lido["sem_escala"] or []
+
+    # Frescor pela ÚLTIMA BATIDA — é de onde os números vêm. `punch_timestamp` é hora de
+    # Manaus nesta tabela (não UTC), então comparo com a hora de Manaus.
+    horas_sem_batida = None
+    try:
+        horas_sem_batida = (await db.execute(text(
+            "SELECT round(EXTRACT(EPOCH FROM (now() - interval '4 hours' - "
+            "  max(punch_timestamp))) / 3600.0, 1) FROM gp_clock_punches"))).scalar()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("visao_operacao: frescor da batida não medido (%s)", e)
+
+    return {
+        "hoje_desde_meia_noite": {
+            "colaboradores": d.get("total_colaboradores"),
+            "presentes": d.get("presentes_hoje"),
+            "ausentes": d.get("ausentes_hoje"),
+            "afastados": d.get("afastados"),
+            "leia_assim": ("contado desde 00:00 de hoje — de madrugada 'ausentes' é o turno "
+                           "que ainda não bateu, não gente faltando"),
+        },
+        "a_resolver": {
+            "inconsistencias_no_periodo": d.get("inconsistencias_periodo"),
+            "pontos_em_aberto": d.get("pontos_em_aberto"),
+            "sem_escala": len(sem),
+            "quem_esta_sem_escala": [x.get("nome") or x.get("employee_nome") for x in sem[:15]],
+        },
+        "por_escala": d.get("por_escala"),
+        "banco_de_horas": d.get("banco_horas"),
+        "horas_desde_a_ultima_batida": horas_sem_batida,
+        # 12h é a régua porque o turno mais longo da casa é 12x36: passar disso sem NENHUMA
+        # batida de ninguém significa relógio calado, e aí sim o número não vale.
+        "aviso_defasagem": ("nenhuma batida há mais de 12h — o relógio pode estar calado e "
+                            "estes números não valem; confira antes de decidir")
+                           if (horas_sem_batida or 0) > 12 else None,
+        # Informativo, não alarme: a carga do Sólides está velha de propósito ou não, e isso é
+        # decisão do Jordan — não é o que alimenta os números acima.
+        "ultima_carga_solides": d.get("ultima_sync_solides"),
+        "escala_e_read_only": "eu não mudo escala; pedido de troca vira aprovação sua ou do Orlailson",
+    }

@@ -2520,6 +2520,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
+    "visao_operacao": {"kind": "read"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2844,6 +2845,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_pendencia_dp",
             "transferir_conversa",
             "resumo_grupos",
+            "visao_operacao",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ FALANDO COM UM SUPERVISOR DA OPERAÇÃO. Ele enxerga a operação "
@@ -4299,6 +4301,22 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_VISAO_OPERACAO = {
+    "type": "function",
+    "function": {
+        "name": "visao_operacao",
+        "description": (
+            "A operação inteira em números: quantos colaboradores, quantos bateram ponto hoje, "
+            "quantos ainda não, afastados, inconsistências de ponto a resolver, quem está sem "
+            "escala, distribuição por escala e banco de horas. Use quando o supervisor "
+            "perguntar como está a operação, quem faltou, o que há para resolver. "
+            "É LEITURA — você não muda escala nem aloca ninguém."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
 _SCHEMA_RESUMO_GRUPOS = {
     "type": "function",
     "function": {
@@ -4397,6 +4415,14 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
             from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
 
             return await _vf.historico(ident.employee_id)
+        if name == "visao_operacao":
+            # Mesma parede dupla do `resumo_grupos`: a lista do papel decide o que o modelo VÊ,
+            # e o despacho recusa de novo porque o modelo pode inventar o nome.
+            from .supervisao import papel_de_supervisao, visao_operacao  # noqa: PLC0415
+
+            if not await papel_de_supervisao(db, ident):
+                return {"erro": "tool nao permitida"}
+            return await visao_operacao(db)
         if name == "resumo_grupos":
             # ⚠️ A parede de QUEM está aqui de novo, e não só na lista de tools do papel: a
             # lista decide o que o modelo VÊ, e o modelo pode inventar o nome de uma tool que
@@ -5026,6 +5052,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
             _SCHEMA_RESUMO_GRUPOS,
+            _SCHEMA_VISAO_OPERACAO,
         ]
     if papel == "fornecedor":
         # Estas duas NÃO vivem no registro do cliente — fornecedor não é cliente, e pôr as
