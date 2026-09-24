@@ -77,6 +77,9 @@ from ._dgx_w4_transferencia import router as _r_w4  # noqa: E402 — dgx w4
 
 router.include_router(_r_w4)  # dgx w4
 router.include_router(_r_w5)  # dgx w5
+from ._dgx_x3_feriado import router as _r_x3  # noqa: E402 — dgx x3
+
+router.include_router(_r_x3)  # dgx x3
 
 
 @router.post("/action/ponto-ajuste")
@@ -4871,6 +4874,9 @@ async def build(db, current_user=None) -> dict:
     out.update(
         await _telas_w5(db, out)
     )  # dgx w5 — mapa evento do ponto → rubrica da folha (abas em _dp_grupos, g-folha)
+    from ._dgx_x3_feriado import telas as _telas_x3  # dgx x3
+
+    await _telas_x3(db, out)  # dgx x3 — feriado trabalhado e HE 100% (abas em _dp_grupos, g-folha)
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
     await _telas_t1(db, out)  # dgx t1 — foto, ficha, certificados, turnover, cargos (antes de montar_grupos)
     await _telas_u2(db, out)  # dgx u2 — férias: recibo/conta/cobertura, aviso em lote, ficha (antes de montar_grupos)
