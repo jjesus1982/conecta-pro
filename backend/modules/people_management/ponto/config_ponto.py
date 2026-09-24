@@ -110,9 +110,15 @@ SELECT id, escopo, escopo_id, tolerancia_entrada_min, tolerancia_saida_min, raio
  ORDER BY created_at, id
 """
 
+#: DGX Y4 (24/09/2026): a coluna `condominio_id` daqui saía de `condominios.client_id =
+#: e.cliente_id` e resolvia **0 dos 63 ativos** — `employees.cliente_id` é campo morto (órfão em
+#: 37, nulo em 14; ver `operacional/services/vinculo_cliente.py`). Quem de fato resolve o
+#: condomínio nesta função é o `_SQL_CTX_POSTO` logo abaixo, por `posto_atual_id → posts.client_id`
+#: — 48 dos 63 —, que é a mesma fonte do nível 2 do resolvedor. A linha morta saiu: no único
+#: registro do banco em que ela devolvia algo (um candidato), o caminho vivo devolve o MESMO
+#: condomínio, então isto é deleção, não mudança de comportamento.
 _SQL_CTX_EMPREGADO = """
-SELECT e.cargo AS funcao, e.escala_padrao AS escala, e.posto_atual_id::text AS post_id,
-       (SELECT c.id::text FROM condominios c WHERE c.client_id = e.cliente_id ORDER BY c.ativo DESC LIMIT 1) AS condominio_id
+SELECT e.cargo AS funcao, e.escala_padrao AS escala, e.posto_atual_id::text AS post_id
   FROM employees e WHERE e.id::text = :e
 """
 _SQL_CTX_POSTO = """
@@ -177,7 +183,6 @@ async def config_ponto(
             funcao = funcao or r["funcao"]
             escala = r["escala"]
             post_id = post_id or r["post_id"]
-            condominio_id = condominio_id or r["condominio_id"]
     if post_id and not condominio_id:
         condominio_id = (await db.execute(text(_SQL_CTX_POSTO), {"p": str(post_id)})).scalar()
     regras = await carregar_regras(db, ref)

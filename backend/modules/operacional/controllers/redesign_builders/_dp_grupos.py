@@ -31,7 +31,8 @@ GRUPOS = [
         ("turnover-dashboard", "Turnover"),  # dgx t1
         # dgx v4 (24/09/2026): anexada DEPOIS de montar_grupos por `_dgx_v4_dp_importacao.telas(db, out)`,
         # ao FIM deste grupo; listada aqui para a composição do grupo ficar num lugar só.
-        ("importacao-falhas", "Falhas de importação")]),
+        ("importacao-falhas", "Falhas de importação"),
+        ("vinculo-cliente", "Vínculo com o cliente")]),  # dgx y4
 
     ("g-admissao", "Admissão & Cadastro", "Entrada do colaborador, documentos e certificações", [
         ("admissao", "Admissões"), ("nova-admissao", "Nova admissão"),

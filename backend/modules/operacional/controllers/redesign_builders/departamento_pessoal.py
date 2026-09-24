@@ -89,6 +89,9 @@ router.include_router(_r_y2)  # dgx y2
 from ._dgx_x3_feriado import router as _r_x3  # noqa: E402 — dgx x3
 
 router.include_router(_r_x3)  # dgx x3
+from ._dgx_y4_vinculo import router as _r_y4  # noqa: E402 — dgx y4
+
+router.include_router(_r_y4)  # dgx y4
 
 
 @router.post("/action/ponto-ajuste")
@@ -4886,6 +4889,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_x3_feriado import telas as _telas_x3  # dgx x3
 
     await _telas_x3(db, out)  # dgx x3 — feriado trabalhado e HE 100% (abas em _dp_grupos, g-folha)
+    from ._dgx_y4_vinculo import telas as _telas_y4  # dgx y4
+
+    await _telas_y4(db, out)  # dgx y4 — vínculo pessoa↔cliente: fonte e confiança (aba em _dp_grupos, g-visao)
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
     await _telas_t1(db, out)  # dgx t1 — foto, ficha, certificados, turnover, cargos (antes de montar_grupos)
     await _telas_u2(db, out)  # dgx u2 — férias: recibo/conta/cobertura, aviso em lote, ficha (antes de montar_grupos)
