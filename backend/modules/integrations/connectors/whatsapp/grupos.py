@@ -344,8 +344,14 @@ async def deve_calar(db: AsyncSession, data: dict) -> tuple[bool, str | None, di
         # Então o grupo se AUTO-CADASTRA em `off`: fica registrado com nome e jid, visível na
         # tabela, e continua ignorado até alguém decidir. Descobrir não é absorver.
         await _descobrir(db, jid, data)
-        logger.info("grupos: %s não cadastrado — ignorado (fail-closed)", jid)
-        return True, jid, None
+        # ⚠️ RELÊ depois de descobrir. Sem isto a PRIMEIRA mensagem do grupo novo volta com
+        # `cfg=None` e o webhook não a absorve — e a primeira mensagem de um grupo de posto é,
+        # justamente, a foto da troca de turno que motivou entrar nele. Perder exatamente o
+        # primeiro registro é o tipo de defeito que ninguém nota até precisar do histórico.
+        cfg = await config_do_grupo(db, jid)
+        if not cfg:
+            logger.info("grupos: %s não cadastrado e não registrei — ignorado", jid)
+            return True, jid, None
     return (cfg["modo"] != "falar"), jid, cfg
 
 
@@ -517,13 +523,36 @@ async def _descobrir(db: AsyncSession, jid: str, data: dict) -> None:
             nome = str(n).strip()[:120]
             break
     try:
+        # ⭐ A POLÍTICA INVERTEU, COM AUTORIZAÇÃO EXPLÍCITA (24/09/2026): *"mandei o Orlailson
+        # adicionar o José Luís em todos os grupos dos postos de serviços da Conecta Mais, de
+        # todos os condomínios, exclui o grupo do River Park, não trabalhamos mais neste
+        # condomínio"* — Jordan.
+        #
+        # Antes: nada era permitido por padrão, e grupo novo nascia `off`. Isso protegia quando
+        # ninguém havia decidido nada. Agora o dono decidiu em bloco, e manter `off` por padrão
+        # faria cada condomínio novo exigir intervenção manual — o mesmo vão de antes, com
+        # outra roupa.
+        #
+        # ⚠️ Então a parede deixa de ser "nada entra" e passa a ser uma LISTA DE EXCLUSÃO, e é
+        # honesto dizer que isso é mais frágil: uma lista de negação só protege do que está
+        # nela. Duas coisas compensam:
+        #   · quem entra nasce em `observar` + `max_falas_dia = 0`. **Ele NUNCA fala em grupo de
+        #     condomínio**, porque lá tem síndico e morador. Isso não é preferência — decorre da
+        #     própria decisão do dono de tirar o River Park;
+        #   · `midia_ok = true` porque a FOTO é a evidência da troca de turno, que é o motivo de
+        #     ele estar nesses grupos.
+        #
+        # O River Park está cadastrado à mão como `off`, com o motivo escrito na linha, e o
+        # `ON CONFLICT DO NOTHING` abaixo garante que esta descoberta nunca o reabra.
         await db.execute(text(
-            "INSERT INTO wa_grupos (jid, nome, modo, midia_ok, max_falas_dia) "
-            "VALUES (:j, :n, 'off', false, 0) ON CONFLICT (jid) DO NOTHING"),
-            {"j": jid, "n": nome or "(sem nome)"})
+            "INSERT INTO wa_grupos (jid, nome, modo, midia_ok, max_falas_dia, foco) "
+            "VALUES (:j, :n, 'observar', true, 0, :f) ON CONFLICT (jid) DO NOTHING"),
+            {"j": jid, "n": nome or "(sem nome)",
+             "f": "Grupo de posto/condomínio descoberto automaticamente. OBSERVA e absorve "
+                  "foto de troca de turno; NUNCA fala (tem cliente dentro)."})
         await db.commit()
-        logger.warning("grupos: DESCOBERTO grupo novo %r (%s) — cadastrado em `off`, "
-                       "aguardando decisão do dono", nome, jid)
+        logger.warning("grupos: DESCOBERTO grupo novo %r (%s) — em `observar`, mídia ON, "
+                       "SEM permissão de falar", nome, jid)
     except Exception as e:  # noqa: BLE001
         await db.rollback()
         logger.warning("grupos: não registrei o grupo novo %s (%s)", jid, e)

@@ -882,3 +882,73 @@ async def _checar_canal_surdo(session):
             "perde a sessão.")
     logger.error("checar_canal_surdo: canal SURDO (%s), %ª falha — dono avisado", motivo, n)
     return {"vivo": False, "motivo": motivo, "falhas": n, "avisado": n == 2}
+
+
+# ═════════ TROCA DE TURNO — os três tempos (Jordan, 24/09/2026) ═════════
+#
+# ⚠️ As três tasks são finas de propósito: a lógica vive em `troca_turno.py`, testável sem
+# Celery. Task que carrega regra é regra que só roda em produção.
+
+@app.task(name="whatsapp.turno_pedir_confirmacao", bind=True, max_retries=1)
+def turno_pedir_confirmacao(self):  # noqa: ARG001
+    """Véspera 18h Manaus: pergunta a quem assume posto amanhã às 06h/07h se está tudo certo."""
+    from modules.integrations.connectors.whatsapp import troca_turno as _tt
+
+    try:
+        r = _run_async(lambda s: _tt.pedir_confirmacoes(s))
+        logger.info("[jose-luis] confirmação de turno pedida: %s", r)
+        return r
+    except Exception as e:  # noqa: BLE001
+        logger.error("turno_pedir_confirmacao falhou: %s", e)
+        return {"ok": False, "erro": str(e)[:200]}
+
+
+@app.task(name="whatsapp.turno_lembrar", bind=True, max_retries=1)
+def turno_lembrar(self):  # noqa: ARG001
+    """A cada 15 min na janela da manhã: cobra SÓ quem não confirmou, ~1h antes de assumir."""
+    from modules.integrations.connectors.whatsapp import troca_turno as _tt
+
+    try:
+        r = _run_async(lambda s: _tt.lembrar_uma_hora_antes(s))
+        if r.get("lembrados"):
+            logger.info("[jose-luis] lembrete de turno: %s", r)
+        return r
+    except Exception as e:  # noqa: BLE001
+        logger.error("turno_lembrar falhou: %s", e)
+        return {"ok": False, "erro": str(e)[:200]}
+
+
+@app.task(name="whatsapp.turno_fechar_cobertura", bind=True, max_retries=1)
+def turno_fechar_cobertura(self):  # noqa: ARG001
+    """08:30 Manaus: publica no GESTÃO a cobertura da manhã (confirmação × batida × foto)."""
+    from modules.integrations.connectors.whatsapp import supervisao as _sup
+    from modules.integrations.connectors.whatsapp import troca_turno as _tt
+
+    async def _fazer(s):
+        from sqlalchemy import text as _t
+
+        r = await _tt.fechar_cobertura(s)
+        # ⚠️ SILÊNCIO QUANDO NÃO HÁ TURNO, mas NÃO quando está tudo certo. São casos
+        # diferentes: "não havia troca hoje" não interessa a ninguém; "as 8 trocas foram
+        # cobertas" é exatamente o que tira o Paiva do 05:30 — ele precisa saber que alguém
+        # conferiu, senão volta a conferir sozinho.
+        if not r.get("turnos"):
+            return {"ok": True, "turnos": 0, "publicado": False}
+        destino = (await s.execute(_t(
+            "SELECT chatwoot_conversation_id FROM wa_grupos "
+            " WHERE recebe_relatorio AND chatwoot_conversation_id IS NOT NULL LIMIT 1"))).scalar()
+        if not destino:
+            logger.warning("turno_fechar_cobertura: sem grupo de relatório — nada publicado")
+            return {"ok": False, "motivo": "sem destino", **r}
+        ok = await _sup._publicar_no_grupo(int(destino), _tt.texto_da_cobertura(r))
+        return {"ok": bool(ok), "publicado": bool(ok), "turnos": r["turnos"],
+                "confirmou_e_nao_bateu": len(r["confirmou_e_nao_bateu"]),
+                "nao_respondeu": len(r["nao_respondeu"])}
+
+    try:
+        r = _run_async(_fazer)
+        logger.info("[jose-luis] cobertura da troca publicada: %s", r)
+        return r
+    except Exception as e:  # noqa: BLE001
+        logger.error("turno_fechar_cobertura falhou: %s", e)
+        return {"ok": False, "erro": str(e)[:200]}

@@ -116,6 +116,11 @@ app.conf.task_routes = {
     # outro nome. 28/08/2026.
     "whatsapp.processar_incoming": {"queue": "webhooks"},
     "whatsapp.varrer_sem_resposta": {"queue": "webhooks"},
+    # Troca de turno: tirar o Paiva do 05:30 (24/09/2026). Fila de webhooks porque são
+    # mensagens de WhatsApp e a ordem importa (o lembrete não pode passar o relatório).
+    "whatsapp.turno_pedir_confirmacao": {"queue": "webhooks"},
+    "whatsapp.turno_lembrar": {"queue": "webhooks"},
+    "whatsapp.turno_fechar_cobertura": {"queue": "webhooks"},
     # Análise de foto/áudio/vídeo. Mesma fila da resposta: é o mesmo pedaço de conversa e
     # a ordem entre eles importa (a descrição precisa estar pronta antes do turno).
     "whatsapp.analisar_midia": {"queue": "webhooks"},
@@ -775,6 +780,29 @@ app.conf.beat_schedule = {
     # Rede de segurança da resposta: a cada 2 min procura conversa cuja última mensagem é
     # do cliente e ficou sem resposta. Transforma "sumiu" em "atrasou" — ver
     # whatsapp.varrer_sem_resposta.
+    # ── TROCA DE TURNO — os três tempos (Jordan, 24/09/2026) ───────────────────────────────
+    # ⚠️ TODO `crontab` AQUI É UTC, e a operação é Manaus (UTC-4). Errar isso põe a pergunta da
+    # véspera às 14h e o lembrete depois do turno já ter começado — o defeito seria invisível
+    # para mim e óbvio para quem recebe a mensagem na hora errada.
+    #   véspera 18:00 Manaus = 22:00 UTC
+    "whatsapp-turno-pedir-confirmacao": {
+        "task": "whatsapp.turno_pedir_confirmacao",
+        "schedule": crontab(hour=22, minute=0),
+    },
+    #   lembrete: roda de 15 em 15 entre 04:00 e 07:00 UTC (00:00–03:00 Manaus)? NÃO —
+    #   o turno é 06/07h MANAUS = 10/11h UTC, e o lembrete é 1h antes: 09:00–11:00 UTC.
+    #   A própria task só age em quem está a ~1h de assumir, então rodar de 15 em 15 é barato
+    #   e tolera atraso de fila sem perder ninguém.
+    "whatsapp-turno-lembrar-15min": {
+        "task": "whatsapp.turno_lembrar",
+        "schedule": crontab(minute="*/15", hour="9-11"),
+    },
+    #   cobertura: 08:30 Manaus = 12:30 UTC — depois das duas trocas (06h e 07h), com folga
+    #   para batida atrasada entrar na conta.
+    "whatsapp-turno-cobertura": {
+        "task": "whatsapp.turno_fechar_cobertura",
+        "schedule": crontab(hour=12, minute=30),
+    },
     "whatsapp-varrer-sem-resposta-2min": {
         "task": "whatsapp.varrer_sem_resposta",
         "schedule": crontab(minute="*/2"),
