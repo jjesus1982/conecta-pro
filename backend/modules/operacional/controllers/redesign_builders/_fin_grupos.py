@@ -53,6 +53,8 @@ GRUPOS = [
             ("baixar-recebivel", "Dar baixa"),
             ("registrar-conta-receber", "Registrar"),
             ("billing-contrato-ativado", "Faturar contrato ativado"),
+            ("recibos", "Recibos de venda"),  # dgx f11
+            ("recibo-novo", "Emitir recibo"),  # dgx f11
         ],
     ),
     # ── "Pagar" tinha 29 ABAS num grupo só, e o Jordan disse o que isso é na prática:
@@ -105,6 +107,8 @@ GRUPOS = [
             ("diaristas-a-cadastrar", "Diaristas a cadastrar"),
             ("diarias-sobrepostas", "Sobrepostas à folha CLT"),
             ("folha-pj-programar", "Programar folha PJ"),
+            ("pensionistas", "Pensionistas"),  # dgx f11
+            ("pensionista-novo", "Cadastrar pensionista"),  # dgx f11
         ],
     ),
     (
@@ -117,6 +121,9 @@ GRUPOS = [
             ("transferir-ted", "TED"),
             ("pagar-darf", "DARF"),
             ("pagar-gps", "GPS / INSS"),
+            ("contas-fixas", "Contas fixas"),  # dgx f11
+            ("conta-fixa-nova", "Nova conta fixa"),  # dgx f11
+            ("contas-fixas-gerar", "Gerar títulos do mês"),  # dgx f11
         ],
     ),
     (
@@ -209,6 +216,10 @@ GRUPOS = [
             ("contabilidade", "Extrato categorizado"),
             ("cancelar-boleto", "Cancelar boleto"),
             ("dre-consolidado", "DRE consolidado (grupo)"),
+            ("codigos-servico", "Códigos de serviço (LC 116)"),  # dgx f11
+            ("codigo-servico-novo", "Novo código de serviço"),  # dgx f11
+            ("cfop-natureza", "CFOP / Natureza"),  # dgx f11
+            ("cfop-novo", "Novo CFOP"),  # dgx f11
         ],
     ),
     (
@@ -231,6 +242,10 @@ GRUPOS = [
             ("custo-recorrente-novo", "Novo custo recorrente"),
             ("custos-recorrentes-lista", "Custos recorrentes"),
             ("orcamento-kv", "Orçado do mês"),
+            ("orcamento-vs-realizado", "Análise orçamentária (por centro)"),  # dgx f11
+            ("orcamento-centro-novo", "Lançar orçamento"),  # dgx f11
+            ("comissoes-fechamento", "Fechamento de comissões"),  # dgx f11
+            ("comissoes-fechar", "Fechar período"),  # dgx f11
         ],
     ),
     (
@@ -249,6 +264,8 @@ GRUPOS = [
             ("beneficiarios-seed", "Semear beneficiários"),
             ("estoque-movimentos", "Movimentos de estoque"),
             ("estoque-resumo", "Resumo do estoque"),
+            ("condicoes-pagamento", "Condições de pagamento"),  # dgx f11
+            ("condicao-pagamento-nova", "Nova condição"),  # dgx f11
         ],
     ),
 ]

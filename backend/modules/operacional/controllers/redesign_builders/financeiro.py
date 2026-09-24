@@ -408,29 +408,31 @@ async def build(db) -> dict:
                 _nf(r[5], r[6]),
                 b((r[4] or "—").replace("_", " ").capitalize(), _pj_tone.get((r[4] or "").lower(), "info")),
             ],
-            actionsfn=lambda r: [
-                {
-                    "title": f"Nota fiscal do PJ — {r[1]} {r[0]}",
-                    "endpoint": f"/api/v1/financial/pagamentos-pj/item/{r[7]}/nota-fiscal",
-                    "method": "POST",
-                    "btnLabel": "NF recebida?",
-                    "btnStyle": "outline",
-                    "submitLabel": "Registrar",
-                    "okMsg": "Situação da NF registrada. Recarregue.",
-                    "fields": [
-                        {
-                            "key": "ok",
-                            "label": "Nota fiscal recebida e conferida?",
-                            "type": "select",
-                            "span": "span 2",
-                            "value": "true" if r[6] else "false",
-                            "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}],
-                        }
-                    ],
-                }
-            ]
-            if r[5]
-            else [],
+            actionsfn=lambda r: (
+                [
+                    {
+                        "title": f"Nota fiscal do PJ — {r[1]} {r[0]}",
+                        "endpoint": f"/api/v1/financial/pagamentos-pj/item/{r[7]}/nota-fiscal",
+                        "method": "POST",
+                        "btnLabel": "NF recebida?",
+                        "btnStyle": "outline",
+                        "submitLabel": "Registrar",
+                        "okMsg": "Situação da NF registrada. Recarregue.",
+                        "fields": [
+                            {
+                                "key": "ok",
+                                "label": "Nota fiscal recebida e conferida?",
+                                "type": "select",
+                                "span": "span 2",
+                                "value": "true" if r[6] else "false",
+                                "options": [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}],
+                            }
+                        ],
+                    }
+                ]
+                if r[5]
+                else []
+            ),
         ),
     )
 
@@ -1282,9 +1284,9 @@ ORDER BY b.comp DESC, b.cnpj"""
             "SELECT chave_acesso, coalesce(numero,'—'), coalesce(competencia,'—'), coalesce(tomador_nome,'—'), valor_servicos, valor_liquido "
             "FROM nfse_emitidas_nacional WHERE coalesce(cancelada,false)=false ORDER BY data_emissao DESC NULLS LAST LIMIT 200",
             lambda r: [t(r[1], 600, "#0F1B3A"), t(r[2]), t(r[3]), t(brl(r[4]), 600), t(brl(r[5]))],
-            docsfn=lambda r: [doc("DANFSe", f"/api/v1/financial/fiscal/nfse-emitida/{r[0]}/danfse", fmt="pdf")]
-            if r[0]
-            else [],
+            docsfn=lambda r: (
+                [doc("DANFSe", f"/api/v1/financial/fiscal/nfse-emitida/{r[0]}/danfse", fmt="pdf")] if r[0] else []
+            ),
         ),
     )
 
@@ -2284,9 +2286,11 @@ ORDER BY b.comp DESC, b.cnpj"""
                 t(_fmtdate(r[4])),
                 b((r[5] or "—").capitalize(), _ip_tone.get((r[5] or "").lower(), "info")),
             ],
-            docsfn=lambda r: [doc("Comprovante", f"/api/v1/financeiro/inter/payments/{r[0]}/comprovante", fmt="pdf")]
-            if (r[5] or "").lower() in ("confirmado", "executado")
-            else [],
+            docsfn=lambda r: (
+                [doc("Comprovante", f"/api/v1/financeiro/inter/payments/{r[0]}/comprovante", fmt="pdf")]
+                if (r[5] or "").lower() in ("confirmado", "executado")
+                else []
+            ),
         ),
     )
 
@@ -2713,21 +2717,23 @@ ORDER BY b.comp DESC, b.cnpj"""
                 t(f"dia {int(r[4])}" if r[4] else "—"),
                 b("Ativo", "ok") if r[7] else b("Inativo", "mut"),
             ],
-            actionsfn=lambda r: None
-            if not r[7]
-            else [
-                {
-                    "title": f"Remover o custo recorrente: {r[2]}",
-                    "sub": "Para de projetar esta despesa no fluxo. Não apaga lançamento ja feito.",
-                    "endpoint": f"/api/v1/financial/cfo/custos-recorrentes/{r[0]}",
-                    "method": "DELETE",
-                    "btnLabel": "Remover",
-                    "submitLabel": "Remover custo",
-                    "btnStyle": "outline",
-                    "okMsg": "Custo removido. Recarregue.",
-                    "fields": [],
-                },
-            ],
+            actionsfn=lambda r: (
+                None
+                if not r[7]
+                else [
+                    {
+                        "title": f"Remover o custo recorrente: {r[2]}",
+                        "sub": "Para de projetar esta despesa no fluxo. Não apaga lançamento ja feito.",
+                        "endpoint": f"/api/v1/financial/cfo/custos-recorrentes/{r[0]}",
+                        "method": "DELETE",
+                        "btnLabel": "Remover",
+                        "submitLabel": "Remover custo",
+                        "btnStyle": "outline",
+                        "okMsg": "Custo removido. Recarregue.",
+                        "fields": [],
+                    },
+                ]
+            ),
         ),
     )
     if isinstance(out.get("custos-recorrentes-lista"), dict):
@@ -2868,12 +2874,20 @@ ORDER BY b.comp DESC, b.cnpj"""
     from modules.operacional.controllers.redesign_builders._fin_ligar4 import build_ligar4
 
     await build_ligar4(db, out)  # lote 4 LIGAR (08/09) — antes de montar_grupos
+    from modules.operacional.controllers.redesign_builders._dgx_f11_financeiro import telas as _telas_f11  # dgx f11
+
+    await _telas_f11(
+        db, out
+    )  # dgx f11 — condições, contas fixas, códigos de serviço/CFOP, recibos, comissões, orçado×realizado, pensionistas
     montar_grupos(out)  # SEMPRE por último — ver comentário acima
     return out
 
 
 # ── ESCRITA (router incluído pelo registry). Dinheiro que SAI = SEMPRE gate humano.
 router = APIRouter()
+from modules.operacional.controllers.redesign_builders import _dgx_f11_financeiro as _f11  # noqa: E402 — dgx f11
+
+router.include_router(_f11.router)  # dgx f11
 
 
 def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
