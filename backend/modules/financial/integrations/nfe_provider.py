@@ -240,10 +240,16 @@ def injetar_ibscbs(raiz, p_ibs_uf: str = IBS_UF_2026, p_ibs_mun: str = IBS_MUN_2
         gcb = _sub(gg, "gCBS")
         _sub(gcb, "pCBS", p_cbs)
         _sub(gcb, "vCBS", _q(v_cbs))
-        tot_bc += vbc
-        tot_uf += v_uf
-        tot_mun += v_mun
-        tot_cbs += v_cbs
+        # AA5, 24/09/2026 — o total tem de ser a SOMA DOS VALORES DOS ITENS, não o cálculo sobre
+        # a base somada. Acumular o valor não arredondado e arredondar no fim dá diferença de
+        # centavos assim que a nota tem mais de um item, e a SEFAZ devolve
+        # «1080 · Rejeicao: Total de IBS UF difere da soma dos itens». Medido com os 6 itens da
+        # NF-e 10.026 (R$ 2.518,00): itens somam 2,53 e o total saía 2,52. Só notas de 1 item
+        # tinham sido testadas até aqui.
+        tot_bc += Decimal(_q(vbc))
+        tot_uf += Decimal(_q(v_uf))
+        tot_mun += Decimal(_q(v_mun))
+        tot_cbs += Decimal(_q(v_cbs))
 
     total = raiz.find(".//total")
     if total is None:

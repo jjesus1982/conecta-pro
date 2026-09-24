@@ -68,7 +68,15 @@ _DESTINOS_MAPA = [
     ("Outro estado (não contribuinte)", {"uf": "SP", "contribuinte": False, "suframa": None}),
     ("Para a ZFM, com SUFRAMA do destinatário", {"uf": "AM", "contribuinte": True, "suframa": "210140500"}),
 ]
-_PROD_MAPA = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0"}
+_PROD_MAPA = {"ncm": "85311000", "valor": 1000, "quantidade": 1, "origem": "0", "icms_entrada_cst": "00"}
+
+#: AA5 — o mapa passa a ter DUAS metades, porque a saída depende de como a mercadoria entrou:
+#: entrou tributada (CST 00) ou entrou com o ICMS já retido por ST (CST 60). Metade do que a casa
+#: compra é a segunda — 106 dos 209 itens de `nfe_entradas`.
+_ENTRADAS_MAPA = [
+    ("Entrou tributada (CST 00)", "00"),
+    ("Entrou com ICMS-ST retido (CST 60)", "60"),
+]
 
 
 def _vazia(titulo: str, sub: str) -> dict:
@@ -120,6 +128,9 @@ async def simular(db, payload: dict) -> dict:
         "valor": p.get("valor") or 0,
         "quantidade": p.get("quantidade") or 1,
         "origem": str(p.get("origem") or "0"),
+        # AA5 — o fato que decide o CFOP/CST da saída. No simulador a pessoa escolhe; na EMISSÃO
+        # ele vem do catálogo (`fin_produtos.icms_entrada_cst`), nunca do payload.
+        "icms_entrada_cst": str(p.get("icms_entrada_cst") or "").strip(),
     }
     destinatario = {
         "uf": str(p.get("uf") or "AM").upper().strip(),
@@ -149,33 +160,39 @@ async def _tela_mapa(db) -> dict:
     rows: list[dict] = []
     bloqueadas = 0
     for cnpj, nome, regime, _ie, _suf in empresas:
-        for rotulo, dest in _DESTINOS_MAPA:
-            for op, op_lbl in (("revenda", "revenda"), ("producao", "produção própria")):
-                r = await tn.calcular(db, cnpj, _PROD_MAPA, dest, op)
-                if r["bloqueios"]:
-                    bloqueadas += 1
-                norma = next(
-                    (ln["norma"] for ln in r["linhas"] if ln["rotulo"] in ("Alíquota de ICMS", "CSOSN", "CST / CSOSN")),
-                    tn.SEM_FONTE,
-                )
-                rows.append(
-                    {
-                        "cells": [
-                            t(nome[:28], 600, _ND),
-                            t("Simples Nacional" if regime == "simples_nacional" else "Lucro real"),
-                            t(f"{rotulo} · {op_lbl}"),
-                            t(r["cfop"] or "—", 600, _ND),
-                            b(r["cst_ou_csosn"] or "sem fonte", "ok" if r["cst_ou_csosn"] else "bad"),
-                            t(_rs(r["base"])),
-                            t(_pct(r["aliquota"]), 600, "#0F1B3A" if r["aliquota"] else "#94A3B8"),
-                            t(_rs(r["valor"])),
-                            t(_rs((r["deson"] or {}).get("vICMSDeson"))),
-                            t(norma[:110]),
-                            b("bloqueada", "bad") if r["bloqueios"] else b("emissível", "ok"),
-                        ],
-                        "filtros": {"empresa": nome, "regime": regime, "operacao": op},
-                    }
-                )
+        for ent_lbl, ent_cst in _ENTRADAS_MAPA:
+            for rotulo, dest in _DESTINOS_MAPA:
+                for op, op_lbl in (("revenda", "revenda"), ("producao", "produção própria")):
+                    r = await tn.calcular(db, cnpj, dict(_PROD_MAPA, icms_entrada_cst=ent_cst), dest, op)
+                    if r["bloqueios"]:
+                        bloqueadas += 1
+                    norma = next(
+                        (
+                            ln["norma"]
+                            for ln in r["linhas"]
+                            if ln["rotulo"] in ("Alíquota de ICMS", "CSOSN", "CST / CSOSN")
+                        ),
+                        tn.SEM_FONTE,
+                    )
+                    rows.append(
+                        {
+                            "cells": [
+                                t(nome[:28], 600, _ND),
+                                t("Simples Nacional" if regime == "simples_nacional" else "Lucro real"),
+                                b(ent_lbl, "warn" if ent_cst == "60" else "mut"),
+                                t(f"{rotulo} · {op_lbl}"),
+                                t(r["cfop"] or "—", 600, _ND),
+                                b(r["cst_ou_csosn"] or "sem fonte", "ok" if r["cst_ou_csosn"] else "bad"),
+                                t(_rs(r["base"])),
+                                t(_pct(r["aliquota"]), 600, "#0F1B3A" if r["aliquota"] else "#94A3B8"),
+                                t(_rs(r["valor"])),
+                                t(_rs((r["deson"] or {}).get("vICMSDeson"))),
+                                t(norma[:110]),
+                                b("bloqueada", "bad") if r["bloqueios"] else b("emissível", "ok"),
+                            ],
+                            "filtros": {"empresa": nome, "regime": regime, "operacao": op, "entrada": ent_lbl},
+                        }
+                    )
     return {
         "title": "Mapa da tributação (NF-e)",
         "sub": (
@@ -183,7 +200,12 @@ async def _tela_mapa(db) -> dict:
             f"que o simulador (`fiscal/services/tributacao_nfe.py`). {bloqueadas} estão bloqueadas "
             "— a coluna Norma diz de onde cada alíquota veio, e «sem fonte» significa decisão do "
             "contador, nunca um número chutado. Produto-base do mapa: NCM 85311000, R$ 1.000,00, "
-            "origem 0 (nacional). O SUFRAMA do destinatário NÃO transforma a venda em operação de "
+            "origem 0 (nacional). **A coluna «Como a mercadoria entrou» é a correção da AA5**: "
+            "mercadoria que entrou com o ICMS já retido por substituição tributária sai com CFOP "
+            "5405 / CST 060 e ICMS ZERO — é o que a NF-e nº 10.026 da própria empresa faz nos seis "
+            "itens (protocolo 113263811849419, 17/09/2026). Antes desta correção a régua dava 5102 "
+            "/ CST 00 / 20% para tudo, cobrando de novo imposto já pago em 43 dos 95 produtos do "
+            "catálogo. O SUFRAMA do destinatário NÃO transforma a venda em operação de "
             "ZFM quando o emitente já está em Manaus — " + tn.N_ZFM
         ),
         "cta": "—",
@@ -192,11 +214,13 @@ async def _tela_mapa(db) -> dict:
             {"key": "empresa", "label": "Empresa"},
             {"key": "regime", "label": "Regime"},
             {"key": "operacao", "label": "Operação"},
+            {"key": "entrada", "label": "Como entrou"},
         ],
-        "grid": "1.3fr 0.9fr 1.9fr 0.5fr 0.6fr 0.8fr 0.6fr 0.8fr 0.8fr 2.4fr 0.8fr",
+        "grid": "1.3fr 0.9fr 1.5fr 1.9fr 0.5fr 0.6fr 0.8fr 0.6fr 0.8fr 0.8fr 2.4fr 0.8fr",
         "cols": [
             "Empresa",
             "Regime",
+            "Como a mercadoria entrou",
             "Operação",
             "CFOP",
             "CST/CSOSN",
@@ -261,6 +285,21 @@ async def _tela_simulador(db) -> dict:
                 "options": [
                     {"value": "revenda", "label": "Revenda (mercadoria de terceiros)"},
                     {"value": "producao", "label": "Produção do próprio estabelecimento"},
+                ],
+            },
+            {
+                "key": "icms_entrada_cst",
+                "label": "Como a mercadoria ENTROU (CST/CSOSN de ICMS da nota de entrada)*",
+                "type": "select",
+                "span": "span 2",
+                "options": [
+                    {"value": "", "label": "Não sei — a régua recusa a nota (e explica por quê)"},
+                    {"value": "00", "label": "00 — entrou tributada (ICMS normal) → sai 5102 / CST 00"},
+                    {"value": "60", "label": "60 — ICMS já retido por ST → sai 5405 / CST 060, ICMS zero"},
+                    {"value": "10", "label": "10 — tributada com cobrança de ICMS por ST → sai 5405 / CST 060"},
+                    {"value": "500", "label": "CSOSN 500 — ICMS retido por ST (fornecedor do Simples)"},
+                    {"value": "102", "label": "CSOSN 102 — fornecedor do Simples, sem ST → sai 5102"},
+                    {"value": "20", "label": "20 — redução de base (sem fonte aqui: vai para o contador)"},
                 ],
             },
             {"key": "ncm", "label": "NCM", "type": "text", "span": "span 1", "ph": "85311000"},

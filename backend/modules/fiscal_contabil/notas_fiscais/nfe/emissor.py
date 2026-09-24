@@ -44,6 +44,7 @@ from modules.financial.integrations.nfe_provider import (
     create_nfe_provider,
     producao_liberada,
 )
+from modules.fiscal.services import icms_entrada
 from modules.fiscal.services.tributacao_nfe import calcular_puro
 
 logger = logging.getLogger(__name__)
@@ -314,10 +315,16 @@ def _tributar(emitente: dict[str, Any], dados: dict[str, Any]) -> tuple[list[dic
         calc = calcular_puro(
             emitente,
             {
+                "codigo": item.get("codigo"),
                 "ncm": item.get("ncm"),
                 "valor": item.get("valor_unitario"),
                 "quantidade": item.get("quantidade") or 1,
                 "origem": item.get("icms_origem") or "0",
+                # AA5 — como a mercadoria ENTROU decide o CFOP/CST da saída. Vem do CATÁLOGO
+                # (`enriquecer_itens`, chamado em `emitir`), nunca do payload: se viesse do
+                # payload, qualquer chamada declararia «entrou com ST» e ganharia ICMS zero.
+                "icms_entrada_cst": item.get("icms_entrada_cst"),
+                "icms_entrada_fonte": item.get("icms_entrada_fonte"),
             },
             alvo,
             operacao=str(dados.get("operacao") or "revenda"),
@@ -439,6 +446,9 @@ async def emitir(
     numero = await proximo_numero(db, cnpj_emit, serie, tp_amb)
     await db.commit()  # o número é reservado ANTES de ir à SEFAZ: não se reusa.
 
+    # AA5: o fato «como a mercadoria entrou» é colado nos itens a partir de `fin_produtos`
+    # ANTES da régua. Sem ele a régua recusa — melhor não emitir do que emitir com o CFOP errado.
+    await icms_entrada.enriquecer_itens(db, dados.get("items") or [])
     itens, mensagens = _tributar(emitente, dados)
 
     nfe_id = uuid4()

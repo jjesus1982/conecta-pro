@@ -129,6 +129,12 @@ from modules.operacional.controllers.redesign_builders import _dgx_z7_nfse as _z
 EXTRA_MENU.extend(_z7m.EXTRA_MENU)  # dgx z7
 router.include_router(_z7m.router)  # dgx z7
 
+# dgx aa5 — como a mercadoria ENTROU (ICMS-ST): o fato que decide o CFOP/CST da SAÍDA.
+from modules.operacional.controllers.redesign_builders import _dgx_aa5_icms_st as _aa5m  # noqa: E402
+
+EXTRA_MENU.extend(_aa5m.EXTRA_MENU)  # dgx aa5
+router.include_router(_aa5m.router)  # dgx aa5
+
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
 
@@ -413,6 +419,7 @@ async def build(db) -> dict:
     # dgx z7 — POR ÚLTIMO de propósito: a tela de emitir NFS-e SUBSTITUI a `nfse-emitir-dps`
     # antiga (que falava direto com o controller do governo e não gravava nada em `nfses`).
     await _z7m.telas(db, out)  # dgx z7 — emitir NFS-e (homologação) + emitidas com estado real
+    await _aa5m.telas(db, out)  # dgx aa5 — como a mercadoria entrou (ICMS-ST) + registro manual
     return out
 
 

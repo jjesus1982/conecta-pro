@@ -571,6 +571,18 @@ def _itens_do_xml(xml: str) -> dict[str, dict]:
             if no.tag.split("}")[-1] == "orig":
                 orig = (no.text or "").strip()
                 break
+        # ── AA5: o CST/CSOSN de ICMS que o FORNECEDOR declarou na entrada. É o que diz se a
+        # mercadoria chegou com o ICMS já retido por substituição tributária — e, portanto, se a
+        # saída dela é CFOP 5405 / CST 060 (ICMS zero) ou CFOP 5102 / CST 00. Lido do primeiro
+        # (único) filho de `det/imposto/ICMS`, que é o grupo ICMS00/ICMS60/ICMSSN500/…
+        icms_cst = ""
+        imposto = next((c for c in det if c.tag.split("}")[-1] == "imposto"), None)
+        icms = next((c for c in imposto if c.tag.split("}")[-1] == "ICMS"), None) if imposto is not None else None
+        if icms is not None and len(icms):
+            for c in icms[0]:
+                if c.tag.split("}")[-1] in ("CST", "CSOSN"):
+                    icms_cst = (c.text or "").strip()
+                    break
         out[cprod] = {
             "ean": campos.get("cEAN") or "",
             "ucom": campos.get("uCom") or "",
@@ -578,6 +590,8 @@ def _itens_do_xml(xml: str) -> dict[str, dict]:
             "cest": campos.get("CEST") or "",
             "orig": orig,
             "xprod": campos.get("xProd") or "",
+            "icms_cst": icms_cst,
+            "cfop": campos.get("CFOP") or "",
         }
     return out
 
