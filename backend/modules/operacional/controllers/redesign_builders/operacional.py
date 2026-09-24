@@ -9,6 +9,8 @@ from sqlalchemy import text as _sqltext
 from core.auth.dependencies import CurrentActiveUser
 from core.database import get_db
 
+from ._dgx_f5_movimentacoes import router as _r_f5  # dgx f5
+
 logger = logging.getLogger(__name__)
 from modules.operacional.controllers.redesign_data_controller import (
     IC, S, _build_operacional, _fmtdate, _helpers, _scalar, b, brl, doc, initials, t,
@@ -17,6 +19,7 @@ from modules.operacional.controllers.redesign_data_controller import (
 SLUG = "operacional"
 
 router = APIRouter()
+router.include_router(_r_f5)  # dgx f5
 
 
 def _usuario_e_admin(current_user) -> bool:
@@ -2294,6 +2297,8 @@ async def build(db) -> dict:
         _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
         _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
         await _ligar_20260908_op(db, out, tbl)  # ANTES de montar_grupos: a aba só nasce se a tela já existir
+        from ._dgx_f5_movimentacoes import telas as _telas_f5  # dgx f5
+        await _telas_f5(db, out)  # dgx f5 — ANTES de montar_grupos (abas em _op_grupos)
         montar_grupos(out)
     except Exception as e:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
         # Mas NÃO em silêncio: um NameError aqui (um acento numa f-string) deixou o módulo
