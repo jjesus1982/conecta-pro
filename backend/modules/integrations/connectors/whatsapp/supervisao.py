@@ -1155,3 +1155,53 @@ async def auditoria_cadastro_vs_gov(db: AsyncSession) -> dict[str, Any]:
             "vínculo. ⚠️ Eu NÃO transmito nada: transmitir gera evento real no governo e é ação "
             "do dono, pela tela, com OTP."),
     }
+
+
+async def registrar_ajuste_de_escala(db: AsyncSession, *, relato: str, quem_relatou: str | None = None,
+                                     posto: str | None = None) -> dict[str, Any]:
+    """Registra ajuste de escala RELATADO POR TERCEIRO — supervisor falando de outra pessoa.
+
+    🔴 Existe porque faltava, e a falta produziu um rótulo errado na Central. Em 24/09 o Orlailson
+    disse no Gestão "hoje é a Maiara Muniz, Eidy não faz mais parte de lá", e o agente registrou
+    o relato — CERTO no texto — usando `abrir_pendencia_dp`, a única ferramenta de escrita que eu
+    havia lhe dado no grupo. Resultado: um ajuste de escala entrou como
+    *"ORLAILSON PAIVA PEREIRA: outro assunto de DP relatado pelo funcionário"*.
+
+    O texto estava correto e o cabeçalho enganava quem lê a lista. **Ferramenta que falta não
+    produz silêncio — produz uso torto da ferramenta vizinha**, e o registro fica difícil de
+    achar justamente quando alguém precisa dele.
+
+    ⚠️ Diferente de `registrar_pedido_de_escala`: lá quem pede é a PRÓPRIA pessoa (falta, troca,
+    folga) e o rascunho sai no nome dela, com sugestão de substituto. Aqui quem fala é o
+    supervisor SOBRE a escala de outro, e o que importa é o ajuste, não a autorização de alguém.
+
+    NÃO altera escala. Nunca. Vira rascunho para o Jordan ou o Orlailson aplicarem na tela.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from modules.ai.conversation.services.orquestrador.acoes.base import ROLES_KIT_OP  # noqa: PLC0415
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho  # noqa: PLC0415
+
+    txt = " ".join(str(relato or "").split())
+    if len(txt) < 12:
+        return {"erro": "me diz o que precisa ser ajustado, com posto e pessoas"}
+    quem = quem_relatou or "supervisor"
+    alvo = f" — {posto}" if posto else ""
+    nome_curto = txt[:90]
+
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+    dia = (datetime.now(UTC) - timedelta(hours=4)).strftime("%Y-%m-%d")
+
+    return await criar_rascunho(
+        db, SimpleNamespace(id=None, nome=quem, name=quem),
+        tipo="escala_pedido",
+        modulo="operacional",
+        titulo=f"Ajustar escala{alvo}: {nome_curto}",
+        resumo=(f"AJUSTE DE ESCALA relatado por {quem}"
+                f"{f' sobre o posto {posto}' if posto else ''}: \"{txt[:400]}\". "
+                f"Aprovar AUTORIZA o ajuste; aplicar na escala continua sendo clique humano."),
+        payload={"relato": txt[:1000], "relatado_por": quem, "posto": posto,
+                 "origem": "grupo", "aplica_automaticamente": False},
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"ajuste_escala:{(posto or 'sem_posto')}:{dia}:{hash(txt) % 10**8}",
+    )

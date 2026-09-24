@@ -2614,6 +2614,8 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "cobertura_por_escala": {"kind": "read"},
     "situacao_do_turno": {"kind": "read"},
     "auditoria_cadastro": {"kind": "read"},
+    "estado_da_rotina_de_turno": {"kind": "read"},
+    "registrar_ajuste_de_escala": {"kind": "write"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2972,6 +2974,16 @@ _PAPEIS: dict[str, dict] = {
             # verdade"; ele é DESTINO, e o valor real dele é ser auditor — a divergência entre o
             # que registramos e o que transmitimos é o sinal mais forte de dado defasado.
             "auditoria_cadastro",
+            # 🔴 O agente NEGOU ter esta rotina ("não disparo mensagem sozinho") enquanto os
+            # beats dela estavam registrados e iam rodar às 18h do mesmo dia. Capacidade que ele
+            # tem e não sabe que tem é pior que capacidade ausente: a ausente não gera
+            # desconfiança no dono.
+            "estado_da_rotina_de_turno",
+            # 🔴 Faltava, e a falta produziu rótulo errado: sem ferramenta para relato de
+            # TERCEIRO, o agente usou `abrir_pendencia_dp` e um ajuste de escala entrou como
+            # "outro assunto de DP". Ferramenta que falta não produz silêncio — produz uso torto
+            # da vizinha.
+            "registrar_ajuste_de_escala",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
@@ -2982,6 +2994,12 @@ _PAPEIS: dict[str, dict] = {
             "erro que ninguém viu, uma pergunta direta a você, ou alguém te mencionando). "
             "Conversa entre colegas, piada, bom dia e combinação de horário NÃO pedem "
             "resposta sua. Silêncio é resposta válida e é o padrão.\n"
+            "O QUE VOCÊ FAZ SOZINHO (você TEM estas rotinas — nunca diga que não dispara "
+            "mensagem): na véspera às 18h você pergunta a quem assume posto de manhã se está "
+            "tudo certo; ~1h antes do turno você cobra só quem não confirmou; às 08:30 você "
+            "publica no Gestão a cobertura da troca, para o Jordan e o Orlailson saberem se "
+            "houve baixa. Para o estado disso use estado_da_rotina_de_turno — não responda de "
+            "cabeça.\n"
             "SOBRE DADO DE PESSOA NESTE GRUPO: quem decide é a FERRAMENTA, não você. Toda "
             "ferramenta que devolve dado de pessoa traz um campo `leia_assim` dizendo se este "
             "grupo está autorizado. Se ele disser que está, DIGA OS NOMES aqui mesmo — não "
@@ -4481,6 +4499,44 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_AJUSTE_ESCALA = {
+    "type": "function",
+    "function": {
+        "name": "registrar_ajuste_de_escala",
+        "description": (
+            "Registra um AJUSTE DE ESCALA que o supervisor relatou sobre OUTRA pessoa "
+            "('hoje é a Maiara, a Eidy não faz mais parte de lá', 'trocar o P2 do Mirante'). "
+            "Use isto — e NÃO abrir_pendencia_dp — quando o assunto é a escala de terceiro. "
+            "Vira rascunho para o Jordan ou o Orlailson aplicarem; você não muda escala."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "relato": {"type": "string", "description": "O que precisa ser ajustado, com as palavras de quem falou."},
+                "posto": {"type": "string", "description": "Posto/condomínio, se citado."},
+            },
+            "required": ["relato"],
+        },
+    },
+}
+
+
+_SCHEMA_ROTINA_TURNO = {
+    "type": "function",
+    "function": {
+        "name": "estado_da_rotina_de_turno",
+        "description": (
+            "O que a SUA rotina automática de confirmação de turno já fez e o que falta: quem "
+            "será chamado na véspera, quem já confirmou, quem não respondeu, e os horários em que "
+            "você pergunta (18:00), cobra (1h antes) e publica a cobertura no Gestão (08:30). "
+            "Use SEMPRE que perguntarem se/quando você manda mensagem, quem confirmou, ou se vai "
+            "haver baixa amanhã. VOCÊ TEM esta rotina — ela roda sozinha."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
 _SCHEMA_AUDITORIA_CADASTRO = {
     "type": "function",
     "function": {
@@ -5305,7 +5361,8 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
         ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
-                   _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO]
+                   _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO,
+                   _SCHEMA_ROTINA_TURNO, _SCHEMA_AJUSTE_ESCALA]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5677,7 +5734,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     "pessoa me chama no privado.")}
             return await _tool_ponto_funcionario(name, args, _f)
 
-        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala", "situacao_do_turno", "auditoria_cadastro"):
+        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala", "situacao_do_turno", "auditoria_cadastro", "estado_da_rotina_de_turno",
+                        "registrar_ajuste_de_escala"):
             # ⚠️ ESTE BLOCO EXISTE PORQUE EU HAVIA POSTO O DESPACHO NO LUGAR ERRADO. As duas
             # tools estavam na allowlist e no schema, e o dispatcher devolvia
             # "tool desconhecida" — eu tinha escrito o `if name ==` dentro de
@@ -5706,6 +5764,20 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     return {"erro": "esta informação é para quem supervisiona a operação"}
                 if name == "visao_operacao":
                     return await visao_operacao(_dbv)
+                if name == "registrar_ajuste_de_escala":
+                    from .supervisao import registrar_ajuste_de_escala  # noqa: PLC0415
+
+                    _q = (await _dbv.execute(text(
+                        "SELECT m.autor_nome FROM wa_grupo_mensagens m JOIN wa_grupos g "
+                        "  ON g.jid = m.grupo_jid WHERE g.chatwoot_conversation_id = :c "
+                        " ORDER BY m.criado_em DESC LIMIT 1"), {"c": conversation_id})).scalar()
+                    return await registrar_ajuste_de_escala(
+                        _dbv, relato=str(args.get("relato") or ""),
+                        quem_relatou=_q, posto=(str(args.get("posto") or "").strip() or None))
+                if name == "estado_da_rotina_de_turno":
+                    from .troca_turno import estado_da_rotina  # noqa: PLC0415
+
+                    return await estado_da_rotina(_dbv)
                 if name == "auditoria_cadastro":
                     from .supervisao import auditoria_cadastro_vs_gov  # noqa: PLC0415
 

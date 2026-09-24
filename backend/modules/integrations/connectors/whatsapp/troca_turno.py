@@ -335,3 +335,54 @@ def texto_da_cobertura(r: dict) -> str:
     if not sem and not nr and not rec:
         L.append("Sem pendência na troca desta manhã.")
     return "\n".join(L)
+
+
+async def estado_da_rotina(db: AsyncSession, *, dia=None) -> dict[str, Any]:
+    """O que a rotina de confirmação JÁ FEZ e o que falta. Para o agente saber o que ele faz.
+
+    🔴 Esta função existe porque eu construí a rotina e NÃO CONTEI A ELE. Em 24/09 o Jordan
+    perguntou no grupo *"a partir de que horas você vai mandar mensagem para os que estão com
+    escala para amanhã?"* e o José Luís respondeu: *"essa parte não é minha — eu não disparo
+    mensagem sozinho. Só respondo quando alguém me chama."*
+
+    A resposta foi HONESTA e ERRADA ao mesmo tempo: os beats estavam registrados e iam disparar
+    às 18h daquele mesmo dia. Ele não tinha prompt nem ferramenta que dissesse que a capacidade
+    existe — então negou algo que faz. **Capacidade que o agente tem e não sabe que tem é pior
+    que capacidade ausente**: a ausente não gera desconfiança no dono, e essa gera.
+
+    Devolve: quem será chamado, quem já confirmou, quem não respondeu, e os horários da rotina.
+    """
+    dia = dia or (hoje_manaus() + timedelta(days=1))
+    turnos = await _turnos_da_janela(db, dia)
+    conf = (await db.execute(text("""
+        SELECT e.nome, c.hora_inicio, c.status, c.pedido_em, c.lembrete_em, c.resposta_texto,
+               coalesce(p.name,'(sem posto)') AS posto
+          FROM troca_turno_confirmacoes c JOIN employees e ON e.id = c.employee_id
+          LEFT JOIN posts p ON p.id = c.post_id
+         WHERE c.data = :d ORDER BY c.hora_inicio, e.nome"""), {"d": dia})).mappings().all()
+
+    return {
+        "dia_alvo": str(dia),
+        "janela_da_rotina": f"{HORA_MIN:%H:%M}–{HORA_MAX:%H:%M} (os turnos que o dono marcou como a dor)",
+        "quando_eu_pergunto": "18:00 de Manaus, na véspera",
+        "quando_eu_cobro": "~1h antes de cada turno, e SÓ quem não confirmou",
+        "quando_eu_publico_no_gestao": "08:30 de Manaus, depois das trocas de 06h e 07h",
+        "vou_chamar": [{"quem": t["nome"], "posto": t["posto"] or "(sem posto)",
+                        "hora": t["planned_start_time"].strftime("%H:%M"),
+                        "tem_telefone": bool(t["telefone"])} for t in turnos],
+        "ja_perguntei": [{"quem": c["nome"], "posto": c["posto"],
+                          "hora": c["hora_inicio"].strftime("%H:%M"), "situacao": c["status"],
+                          "respondeu": c["resposta_texto"],
+                          "lembrete_enviado": bool(c["lembrete_em"])} for c in conf],
+        "resumo": {
+            "escalados_na_janela": len(turnos),
+            "perguntados": len(conf),
+            "confirmados": sum(1 for c in conf if c["status"] == "confirmado"),
+            "recusados": sum(1 for c in conf if c["status"] == "recusado"),
+            "aguardando": sum(1 for c in conf if c["status"] == "aguardando"),
+        },
+        "leia_assim": ("SIM, você tem esta rotina e ela roda sozinha — não diga que não dispara "
+                       "mensagem. Se `perguntados` for 0 e o dia alvo for amanhã, é porque ainda "
+                       "não deu 18:00. Você NÃO muda escala: confirmação é registro, e quem não "
+                       "confirma vira linha no relatório do Gestão, não substituição automática."),
+    }
