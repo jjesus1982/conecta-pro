@@ -130,6 +130,51 @@ fazer com a 121 e com as de agosto é decisão dele, com o contador.
    da Eletrônica: o que se exclui é o ISS, e aqui não há ISS na nota.
 3. **PIS, COFINS e CSLL não são retidos** — código **«0 - PIS/COFINS/CSLL Não Retidos»** (Simples).
 
+### REGRA DO DONO (24/09/2026) — deduzir VA e VT antes dos 11%, sempre
+
+Palavras dele, em duas mensagens:
+> *«vamos deduzir vale-alimentação e vale-transporte antes de aplicar os 11% em todas as notas
+> que tiver cessão de mão de obra, isso é regra, vai nos possibilitar economizar»*
+> *«essa regra só vale para cessão de mão de obra que sempre terá nota fiscal de serviço emitida
+> pela conecta patrimonial»*
+
+**O gatilho é o EMITENTE, e isso torna a regra checável sem interpretar texto:**
+
+| Emitente | Cessão de mão de obra? | INSS |
+|---|---|---|
+| **CONECTAMAIS PATRIMONIAL** | **sempre** | 11% sobre **bruto − (VA + VT)** |
+| CONECTAMAIS ELETRONICA | **nunca** | não há retenção do Art. 31 |
+
+Isso elimina um falso positivo que eu mesmo tinha produzido: classifiquei «Instalação/Portaria
+Remota» do Gelain como cessão porque a palavra «portaria» aparece. **Portaria remota não é cessão
+de mão de obra** — não há pessoa posta no cliente — e é da Eletrônica. Fora.
+
+**O dinheiro, medido.** Em **agosto** as cinco notas da Patrimonial retiveram **11% do bruto, sem
+dedução nenhuma** — conferido ao centavo nas cinco. O cronograma de setembro já deduz em três
+linhas. A diferença só nessas três:
+
+| Tomador | Bruto | VA+VT | INSS com dedução | INSS s/ dedução | Diferença |
+|---|---|---|---|---|---|
+| Prime Arena | 29.600,00 | 2.684,00 | 2.960,76 | 3.256,00 | **295,24** |
+| Laranjeiras Village | 42.544,50 | 3.688,00 | 4.274,21 | 4.679,90 | **405,69** |
+| Ideal Flores | 65.842,42 | 4.404,00 | 6.511,62 | 7.242,67 | **731,05** |
+| | | | | | **R$ 1.431,98** |
+
+**A condição legal que não pode ser esquecida:** a dedução só se sustenta com **VA e VT
+discriminados na própria nota**. O cronograma do dono já escreve assim; a nota emitida pelo
+sistema tem de escrever também, ou a dedução é glosável.
+
+**O PROBLEMA QUE ISSO EXPÕE — o número não está no sistema.** Medido em 24/09:
+- `beneficio_entregas` e `beneficio_entrega_itens`: **0 linhas**. A estrutura existe, o dado não.
+- `beneficio_linhas`: 2 linhas, só a diária do VT (SINETRAM e SOLIDES, R$ 10,00/dia).
+- `folha_verba_espelho` tem **«Desconto VT» (1010)** e **«Desconto VR» (1011)** — isso é o
+  **desconto de 6% do empregado**, NÃO o custo do benefício pago pela empresa. Base errada.
+
+Ou seja: hoje o sistema **não sabe** quanto de VA+VT foi entregue por contrato/mês. Enquanto não
+souber, **o valor é digitado pelo humano na emissão** (como o dono já faz na planilha) e o sistema
+faz a conta e escreve na nota — **nunca inventa o número**. Ligar a fonte automática
+(entrega de benefício por posto → cliente) é frente própria.
+
 **O INSS é a única retenção, e ela tem base própria.** Retenção de **11%** pelo **Art. 31 da
 Lei 9.711/98**, com base = **valor bruto menos vale-alimentação e vale-transporte do mês**.
 Do cronograma do dono, o caso do Prime Arena:
