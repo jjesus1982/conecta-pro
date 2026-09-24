@@ -64,8 +64,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # assinatura. Com DENY o quadro do contrato vinha vazio e a pessoa assinaria às
         # cegas — o pior desfecho possível aqui. É um PDF de mesma origem: não há ação
         # para um clickjacking sequestrar, ao contrário de uma tela do ERP.
-        _publico = request.url.path.startswith("/api/v1/signatures/public/") and \
-            request.url.path.endswith("/documento")
+        _publico = request.url.path.startswith("/api/v1/signatures/public/") and request.url.path.endswith("/documento")
         response.headers["X-Frame-Options"] = "SAMEORIGIN" if _publico else "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -242,8 +241,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 # encaminha. Sem ele na lista, o middleware não confia no X-Forwarded-For e o app registra
 # o IP do gateway. Foi o que aconteceu com a 1ª assinatura do CTR-2026-00019: o manifesto
 # promete endereço IP como trilha de auditoria e gravou 172.20.0.1 para todo mundo.
-app.add_middleware(ProxyHeadersMiddleware,
-                   trusted_hosts=["127.0.0.1", "::1", "172.20.0.1", "172.17.0.1"])
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["127.0.0.1", "::1", "172.20.0.1", "172.17.0.1"])
 
 
 @app.get("/health", tags=["Health"])
@@ -352,6 +350,7 @@ async def root():
 # API URLs inalteradas — apenas imports reorganizados
 # =============================================================================
 from fastapi import APIRouter, Depends
+
 from core.auth.dependencies import require_permission
 
 # Blindagem do backend Financeiro (2026-07-14): só quem tem module:financeiro (admin=Jordan/Pyetra
@@ -499,24 +498,24 @@ try:
         kpi_trends_router,
         notification_router,
         occurrence_router,
-        shift_handover_router,
-        team_evaluation_router,
-        triage_router,
-        presence_router,
-        post_orders_router,
         ocorrencias_alias,
         operacional_ai_router,
         operacional_dashboard_router,
         operacional_ws_router,
         ordem_servico_router,
+        post_orders_router,
         post_router,
+        presence_router,
         reports_router,
         scale_router,
         scale_template_router,
         scale_templates_alias,
+        shift_handover_router,
         shift_router,
         substitution_router,
+        team_evaluation_router,
         time_bank_router,
+        triage_router,
         vacation_router,
         visita_router,
     )
@@ -559,16 +558,22 @@ try:
         router as scale_optimizer_router,
     )
 
-    api_router.include_router(dashboard_unificado_router, prefix="/operacional/unificado", tags=["Operacional - Visão Unificada"])
-    api_router.include_router(scale_optimizer_router, prefix="/operacional", tags=["Operacional - Otimização de Escalas"])
+    api_router.include_router(
+        dashboard_unificado_router, prefix="/operacional/unificado", tags=["Operacional - Visão Unificada"]
+    )
+    api_router.include_router(
+        scale_optimizer_router, prefix="/operacional", tags=["Operacional - Otimização de Escalas"]
+    )
     api_router.include_router(presence_router, prefix="/operacional", tags=["Operacional - Presença"])
     # Grade por pessoa + fluxo falta→substituto (2026-07-10)
     from modules.operacional.controllers.falta_substituto_controller import router as falta_substituto_router
     from modules.operacional.controllers.grade_controller import router as grade_router
+
     api_router.include_router(falta_substituto_router, prefix="/operacional", tags=["Operacional - Falta e Substituto"])
     api_router.include_router(grade_router, prefix="/operacional", tags=["Operacional - Grade por pessoa"])
     # Redesign — dados reais por módulo (READ-ONLY): GET /redesign/data/{slug}
     from modules.operacional.controllers.redesign_data_controller import router as redesign_data_router
+
     api_router.include_router(redesign_data_router, prefix="/redesign", tags=["Redesign - Dados reais"])
     api_router.include_router(post_orders_router, prefix="/operacional", tags=["Operacional - Instruções de Posto"])
     # AI
@@ -735,7 +740,9 @@ except Exception as e:
 try:
     from modules.ged.controllers.financial_overview_controller import router as fin_overview_router
 
-    api_router.include_router(fin_overview_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial Overview"])
+    api_router.include_router(
+        fin_overview_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial Overview"]
+    )
     logger.info("Modulo Financial Overview: OK")
 except Exception as e:
     logger.warning(f"Modulo Financial Overview: {e}")
@@ -803,36 +810,73 @@ try:
         supplier_router,
     )
 
-    api_router.include_router(accounting_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contabilidade"])
-    api_router.include_router(supplier_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Fornecedores"])
-    api_router.include_router(payable_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas a Pagar"])
-    api_router.include_router(customer_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Clientes"])
-    api_router.include_router(receivable_category_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Categorias"])
-    api_router.include_router(receivable_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas a Receber"])
-    api_router.include_router(billing_rule_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Regras de Cobranca"])
-    api_router.include_router(bank_account_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas Bancarias"])
-    api_router.include_router(bank_transaction_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Transacoes"])
-    api_router.include_router(bank_reconciliation_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Conciliacao"])
-    api_router.include_router(cashflow_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Fluxo de Caixa"])
-    api_router.include_router(purchase_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Compras"])
-    api_router.include_router(inventory_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Estoque"])
-    api_router.include_router(fiscal_router, dependencies=[_FISCAL_GATE], prefix="/financial", tags=["Financial - Fiscal/Tributário"])
+    api_router.include_router(
+        accounting_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contabilidade"]
+    )
+    api_router.include_router(
+        supplier_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Fornecedores"]
+    )
+    api_router.include_router(
+        payable_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas a Pagar"]
+    )
+    api_router.include_router(
+        customer_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Clientes"]
+    )
+    api_router.include_router(
+        receivable_category_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Categorias"]
+    )
+    api_router.include_router(
+        receivable_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas a Receber"]
+    )
+    api_router.include_router(
+        billing_rule_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Regras de Cobranca"]
+    )
+    api_router.include_router(
+        bank_account_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Contas Bancarias"]
+    )
+    api_router.include_router(
+        bank_transaction_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Transacoes"]
+    )
+    api_router.include_router(
+        bank_reconciliation_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Conciliacao"]
+    )
+    api_router.include_router(
+        cashflow_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Fluxo de Caixa"]
+    )
+    api_router.include_router(
+        purchase_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Compras"]
+    )
+    api_router.include_router(
+        inventory_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Estoque"]
+    )
+    api_router.include_router(
+        fiscal_router, dependencies=[_FISCAL_GATE], prefix="/financial", tags=["Financial - Fiscal/Tributário"]
+    )
     # ALIAS de compat: o client GERADO do frontend (orval, a partir do openapi de dev/main.py)
     # chama /financial/fiscal/fiscal/* (prefixo dobrado). Em produção só existia o single e a
     # tela Gestão Fiscal 404-ava. Servimos o dobrado TAMBÉM, mesmo gate, até regenerar o client.
     api_router.include_router(
-        fiscal_router, dependencies=[_FISCAL_GATE], prefix="/financial/fiscal",
-        tags=["Financial - Fiscal/Tributário (alias client gerado)"], include_in_schema=False,
+        fiscal_router,
+        dependencies=[_FISCAL_GATE],
+        prefix="/financial/fiscal",
+        tags=["Financial - Fiscal/Tributário (alias client gerado)"],
+        include_in_schema=False,
     )
     api_router.include_router(financial_ai_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial AI"])
-    api_router.include_router(relatorios_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Relatórios"])
+    api_router.include_router(
+        relatorios_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Relatórios"]
+    )
     if nfse_entrada_router:
-        api_router.include_router(nfse_entrada_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - NFS-e Entrada"])
+        api_router.include_router(
+            nfse_entrada_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - NFS-e Entrada"]
+        )
     from modules.financial.controllers.diaristas_relatorio_controller import (
         router as diaristas_doc_router,
     )
-    api_router.include_router(diaristas_doc_router, dependencies=[_FIN_GATE], prefix="/financial",
-                              tags=["Financial - Diaristas (documentos)"])
+
+    api_router.include_router(
+        diaristas_doc_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Diaristas (documentos)"]
+    )
     logger.info("Modulo Financeiro: OK (18 routers)")
 except Exception as e:
     logger.warning(f"Modulo Financeiro: {e}")
@@ -877,7 +921,10 @@ try:
     )
 
     api_router.include_router(
-        recurring_billing_router, dependencies=[_FIN_GATE], prefix="/financial", tags=["Financial - Cobrança Recorrente PIX"]
+        recurring_billing_router,
+        dependencies=[_FIN_GATE],
+        prefix="/financial",
+        tags=["Financial - Cobrança Recorrente PIX"],
     )
     logger.info("Cobrança Recorrente PIX: OK")
 except Exception as _e:
@@ -964,7 +1011,9 @@ try:
     )
 
     api_router.include_router(
-        _guias_drive_router, dependencies=[_FISCAL_GATE], prefix="/fiscal",
+        _guias_drive_router,
+        dependencies=[_FISCAL_GATE],
+        prefix="/fiscal",
         tags=["Fiscal - Guias do Drive"],
     )
     logger.info("Guias Drive: OK (sync + status da pasta Portte/Onvio)")
@@ -973,12 +1022,12 @@ except Exception as _e:
 
 # NF-e Produto/Saída (emissão via SEFAZ-AM) — bloco isolado
 try:
-    from modules.fiscal_contabil.notas_fiscais.nfe.controller import (
+    from modules.fiscal_contabil.notas_fiscais.nfe.emissor import (
         router as _nfe_emissao_router,
     )
 
     api_router.include_router(_nfe_emissao_router, prefix="/fiscal", tags=["NF-e Produto"])
-    logger.info("NF-e Produto: OK (emitir + listar + status + sefaz-status)")
+    logger.info("NF-e Produto: OK (emitir + cancelar + inutilizar + listar + sefaz-status)")
 except Exception as _e:
     logger.warning(f"NF-e Produto: {_e}")
 
@@ -1071,7 +1120,9 @@ try:
     api_router.include_router(integration_router, tags=["Integrations - API Gateway"])
     api_router.include_router(connector_router, tags=["Integrations - Conectores"])
     api_router.include_router(solides_router, prefix="/integrations", tags=["Integrations - Sólides RH/DP"])
-    api_router.include_router(banking_router, dependencies=[_FIN_GATE], prefix="/integrations", tags=["Integrations - Banking"])
+    api_router.include_router(
+        banking_router, dependencies=[_FIN_GATE], prefix="/integrations", tags=["Integrations - Banking"]
+    )
     # D6 — Inter endpoints consolidados (/financeiro/inter/)
     try:
         from modules.integrations.inter.inter_controller import router as _inter_d6_router
@@ -1368,6 +1419,7 @@ try:
     api_router.include_router(_webhook_router, tags=["Webhooks — Inter"])
     try:
         from modules.integrations.banking.controllers.cora_webhook_controller import router as _cora_wh
+
         api_router.include_router(_cora_wh, tags=["Webhooks — Cora"])
         logger.info("Webhooks Cora: OK (invoice + payment)")
     except Exception as _e:

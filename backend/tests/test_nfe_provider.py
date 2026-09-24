@@ -94,7 +94,15 @@ class TestNFeProvider:
         }
 
         with patch.object(self.provider, "_emitir_sync", return_value=fake_result):
-            resultado = await self.provider.emitir_nfe(nfe_data=nfe_data, nfe_id=uuid4(), numero=123)
+            resultado = await self.provider.emitir_nfe(
+                nfe_data=nfe_data,
+                nfe_id=uuid4(),
+                numero=123,
+                # A identidade do emitente vem da tabela `empresas` (DGX Z2): nada
+                # chumbado no provider. Aqui basta um dicionário — `_emitir_sync`
+                # está mockado e a conferência de campos mora dentro dele.
+                emitente={"slug": "conecta_eletronica"},
+            )
 
         # Verificar estrutura da resposta
         assert "status" in resultado
@@ -124,7 +132,13 @@ class TestNFeProvider:
         }
 
         with patch.object(self.provider, "_cancelar_sync", return_value=fake_result):
-            resultado = await self.provider.cancelar_nfe(chave_acesso=chave_acesso, motivo=motivo, nfe_id=uuid4())
+            resultado = await self.provider.cancelar_nfe(
+                chave_acesso=chave_acesso,
+                motivo=motivo,
+                nfe_id=uuid4(),
+                protocolo="135260000012345",
+                cnpj_emitente="13123456000199",
+            )
 
         # Verificar estrutura da resposta
         assert "status" in resultado
@@ -145,7 +159,13 @@ class TestNFeProvider:
         motivo = "Teste cancelamento com motivo suficiente"
 
         with pytest.raises(NFeError) as exc_info:
-            await self.provider.cancelar_nfe(chave_acesso=chave_invalida, motivo=motivo, nfe_id=uuid4())
+            await self.provider.cancelar_nfe(
+                chave_acesso=chave_invalida,
+                motivo=motivo,
+                nfe_id=uuid4(),
+                protocolo="135260000012345",
+                cnpj_emitente="13123456000199",
+            )
 
         assert "44 dígitos" in str(exc_info.value)
         assert exc_info.value.code == "INVALID_KEY"
@@ -157,7 +177,13 @@ class TestNFeProvider:
         motivo_curto = "Erro"  # Menos de 15 caracteres
 
         with pytest.raises(NFeError) as exc_info:
-            await self.provider.cancelar_nfe(chave_acesso=chave_acesso, motivo=motivo_curto, nfe_id=uuid4())
+            await self.provider.cancelar_nfe(
+                chave_acesso=chave_acesso,
+                motivo=motivo_curto,
+                nfe_id=uuid4(),
+                protocolo="135260000012345",
+                cnpj_emitente="13123456000199",
+            )
 
         assert "15 caracteres" in str(exc_info.value)
         assert exc_info.value.code == "INVALID_REASON"
