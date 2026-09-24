@@ -152,6 +152,11 @@ CACADORES_HOST = {
     # que sobra CRUZA A VIRADA DO MÊS (R$ 200 de 01/08 para 31/07) e mexe em competência
     # apurada — dívida conhecida, com dono, esperando decisão. CONTADA: acusa se CRESCER.
     "checar_data_do_banco_no_fuso.py": lambda s: _n(r"^TOTAL: (\d+) lançamento\(s\) com data fora do fuso", s),
+    # O mesmo `:p` em `SET col = :p` e em `CASE WHEN :p = ...` vira UM `$1` com dois tipos
+    # deduzidos (varchar × text) e o asyncpg recusa a query inteira — 500 mudo. Derrubou o
+    # `executar_lote_inter` em 22/09 e o webhook da Cora (efetivada/cancelada) desde sempre;
+    # os dois provados por `prepare()` no sandbox em 24/09/2026. Cura: CAST em todo uso.
+    "checar_parametro_ambiguo.py": lambda s: _n(r"^TOTAL parâmetros ambíguos: (\d+)", s),
     # O skill-retrieval está ENCOLHENDO o prompt e não escondendo as nossas skills. Ele tem
     # duas fases que puxam o custo em direções opostas (compacta / injeta); se a compactação
     # parar, o plugin passa a CUSTAR em silêncio — medido: 26.793 com a adaptação da casa

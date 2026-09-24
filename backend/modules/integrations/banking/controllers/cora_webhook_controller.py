@@ -41,8 +41,7 @@ async def receber_webhook_cora(
         except Exception:  # noqa: BLE001
             pass
 
-    logger.info("Webhook Cora: event=%s resource=%s id=%s",
-                webhook_event_type, webhook_resource_id, webhook_event_id)
+    logger.info("Webhook Cora: event=%s resource=%s id=%s", webhook_event_type, webhook_resource_id, webhook_event_id)
 
     if not webhook_event_type or not webhook_resource_id:
         return {"success": True, "ignored": "headers ausentes"}
@@ -55,8 +54,7 @@ async def receber_webhook_cora(
             await _atualizar_pagamento(webhook_resource_id, webhook_event_type)
         # transfer/service_receipt: logados; conciliação via extrato/beat
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Webhook Cora: falha ao processar %s (%s) — beat concilia depois",
-                       webhook_resource_id, exc)
+        logger.warning("Webhook Cora: falha ao processar %s (%s) — beat concilia depois", webhook_resource_id, exc)
 
     return {"success": True}
 
@@ -89,8 +87,10 @@ async def _conciliar_invoice(invoice_id: str, event_type: str) -> None:
         )
         await db.commit()
         if res.rowcount == 0 and status == "PAID":
-            logger.warning("Webhook Cora invoice %s pago mas 0 receivables casados "
-                           "(cobrança emitida fora do recurring_billing?)", invoice_id)
+            logger.warning(
+                "Webhook Cora invoice %s pago mas 0 receivables casados (cobrança emitida fora do recurring_billing?)",
+                invoice_id,
+            )
     logger.info("Webhook Cora invoice %s: %s (pago R$%.2f) — conciliado", invoice_id, event_type, total_pago)
 
 
@@ -103,11 +103,11 @@ async def _atualizar_pagamento(payment_id: str, event_type: str) -> None:
     trigger = event_type.split(".", 1)[-1]
     # status enum bank_transactions: pendente | efetivada | cancelada | estornada
     mapa_status = {
-        "completed": "efetivada",   # liquidado
-        "approved": "pendente",     # aprovado no app, ainda liquidando
+        "completed": "efetivada",  # liquidado
+        "approved": "pendente",  # aprovado no app, ainda liquidando
         "created": "pendente",
-        "reproved": "cancelada",    # Jordan rejeitou no app → NÃO vai sair
-        "error": "cancelada",       # falhou no banco
+        "reproved": "cancelada",  # Jordan rejeitou no app → NÃO vai sair
+        "error": "cancelada",  # falhou no banco
     }
     novo = mapa_status.get(trigger)
     if not novo:
@@ -115,9 +115,12 @@ async def _atualizar_pagamento(payment_id: str, event_type: str) -> None:
     async with async_session_factory() as db:
         await db.execute(
             text(
-                "UPDATE bank_transactions SET status = :st, reconciliation_status = "
-                "CASE WHEN :st = 'efetivada' THEN 'conciliado' "
-                "     WHEN :st = 'cancelada' THEN 'ignorado' ELSE reconciliation_status END, "
+                # CAST em todo uso de :st — asyncpg deduz text × varchar para o mesmo $1 e recusa
+                # (AmbiguousParameterError, provado no sandbox em 24/09/2026): o webhook da Cora
+                # nunca conseguiu marcar 'efetivada'/'cancelada'.
+                "UPDATE bank_transactions SET status = CAST(:st AS text), reconciliation_status = "
+                "CASE WHEN CAST(:st AS text) = 'efetivada' THEN 'conciliado' "
+                "     WHEN CAST(:st AS text) = 'cancelada' THEN 'ignorado' ELSE reconciliation_status END, "
                 "reconciliation_note = COALESCE(reconciliation_note,'') || ' | cora:' || :trig, "
                 "updated_at = NOW() WHERE external_id = :pid"
             ),
