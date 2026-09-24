@@ -19,15 +19,11 @@ _TOTAL_ROW_CODES = {"0099", "99", "9999", "0999"}
 
 def _is_total_row(rubrica: dict) -> bool:
     """True se a rubrica é uma linha de TOTAL (não itemizável)."""
-    code_raw = str(rubrica.get("code") or "").strip()
+    code_raw = str(rubrica.get("code") or rubrica.get("codigo") or "").strip()
     if code_raw in _TOTAL_ROW_CODES:
         return True
     desc = str(rubrica.get("description") or rubrica.get("descricao") or "").upper()
-    return (
-        "PROVENTOS TOTAIS" in desc
-        or "TOTAL DESCONTOS" in desc
-        or desc.strip() in {"TOTAIS", "TOTAL"}
-    )
+    return "PROVENTOS TOTAIS" in desc or "TOTAL DESCONTOS" in desc or desc.strip() in {"TOTAIS", "TOTAL"}
 
 
 class PayslipPortalService:
@@ -240,28 +236,27 @@ class PayslipPortalService:
         }
 
         if include_items:
-            # Construir lista de itens no formato do portal (PayslipItem)
+            # Construir lista de itens no formato do portal (PayslipItem).
+            # 24/09/2026 (DGX Y5, medido): `hr_payslips.earnings/deductions` guarda as chaves em
+            # PORTUGUÊS (`descricao`/`valor`/`referencia`) — vem assim do cálculo e da importação
+            # da Domínio. Este dict só lia as em inglês, então TODA linha do holerite chegava ao
+            # colaborador com descrição "" e R$ 0,00: 10 linhas anônimas valendo zero, com o
+            # líquido certo no topo. O total nunca denunciou, porque o total vem de outro campo.
             items = []
-            for e in earnings if isinstance(earnings, list) else []:
-                if isinstance(e, dict) and not _is_total_row(e):
-                    items.append(
-                        {
-                            "description": e.get("description", ""),
-                            "type": "provento",
-                            "reference": str(e.get("reference", "")) if e.get("reference") else None,
-                            "value": float(e.get("value", 0)),
-                        }
-                    )
-            for d in deductions if isinstance(deductions, list) else []:
-                if isinstance(d, dict) and not _is_total_row(d):
-                    items.append(
-                        {
-                            "description": d.get("description", ""),
-                            "type": "desconto",
-                            "reference": str(d.get("reference", "")) if d.get("reference") else None,
-                            "value": float(d.get("value", 0)),
-                        }
-                    )
+            for rubrica, tipo in [(e, "provento") for e in earnings if isinstance(earnings, list)] + [
+                (d, "desconto") for d in deductions if isinstance(deductions, list)
+            ]:
+                if not isinstance(rubrica, dict) or _is_total_row(rubrica):
+                    continue
+                ref = rubrica.get("reference") or rubrica.get("referencia")
+                items.append(
+                    {
+                        "description": rubrica.get("description") or rubrica.get("descricao") or "",
+                        "type": tipo,
+                        "reference": str(ref) if ref else None,
+                        "value": float(rubrica.get("value") or rubrica.get("valor") or 0),
+                    }
+                )
             data["items"] = items
 
         return data

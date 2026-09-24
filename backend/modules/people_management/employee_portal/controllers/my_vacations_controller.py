@@ -195,33 +195,46 @@ async def get_vacation_requests(
     employee_id: CurrentEmployeeId,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Retorna solicitacoes de ferias do funcionario autenticado."""
-    try:
-        from sqlalchemy import select
+    """Solicitações de férias do funcionário autenticado — de `hr_vacation_requests`.
 
-        from modules.operacional.vacations.models import VacationRequest
+    24/09/2026 (DGX Y5, medido no sandbox): esta função lia
+    `modules.operacional.vacations.models.VacationRequest` — a CÓPIA
+    `employee_vacation_requests`, que parou em 01/04 com pedidos presos em SUBMITTED. O
+    builder do portal já usava `hr_vacation_requests` e explica por quê (a autoritativa,
+    `test_oraculo_ferias_autoritativa`, 13/08): a pessoa via "enviado" num pedido que o DP
+    já tinha aprovado. Pior: o campo `dias` da cópia guarda texto ("15 dias") e o schema
+    pede `int` — a validação estourava, o `except` engolia, e o colaborador com 3 férias
+    recebia HTTP 200 com lista VAZIA. Zero não é a mesma coisa que nenhum.
 
-        result = await db.execute(
-            select(VacationRequest).where(
-                VacationRequest.employee_id == str(employee_id),
+    O `id` devolvido é o de `hr_vacation_requests`, que é o mesmo que as rotas
+    `/self-service/minhas-ferias/{vid}/recibo|aviso/pdf` esperam.
+    """
+    from sqlalchemy import text as _sql
+
+    linhas = (
+        (
+            await db.execute(
+                _sql(
+                    "SELECT id::text AS vid, start_date, end_date, days_requested AS dias, "
+                    "       nullif(status::text,'') AS situacao, created_at "
+                    "  FROM hr_vacation_requests WHERE employee_id = CAST(:e AS uuid) "
+                    " ORDER BY start_date DESC NULLS LAST LIMIT 200"
+                ),
+                {"e": str(employee_id)},
             )
         )
-        vacations = result.scalars().all()
-
-        return [
-            VacationRequestResponse(
-                id=str(getattr(v, "id", None)),
-                data_inicio=str(getattr(v, "start_date", None) or getattr(v, "data_inicio", "")),
-                data_fim=str(getattr(v, "end_date", None) or getattr(v, "data_fim", "")),
-                dias=getattr(v, "dias", None) or getattr(v, "days", None),
-                status=getattr(v, "status", None),
-                tipo=getattr(v, "tipo", None) or getattr(v, "type", "ferias"),
-                created_at=str(getattr(v, "created_at", "")),
-            )
-            for v in vacations
-        ]
-
-    except (ImportError, Exception) as e:
-        logger.warning(f"Erro ao buscar solicitacoes de ferias do funcionario {employee_id}: {e}")
-
-    return []
+        .mappings()
+        .all()
+    )
+    return [
+        VacationRequestResponse(
+            id=r["vid"],
+            data_inicio=str(r["start_date"] or ""),
+            data_fim=str(r["end_date"] or ""),
+            dias=r["dias"],
+            status=r["situacao"],
+            tipo="ferias",
+            created_at=str(r["created_at"] or ""),
+        )
+        for r in linhas
+    ]

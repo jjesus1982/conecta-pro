@@ -1137,6 +1137,17 @@ async def meus_beneficios(
     # comparar o "garantido pela CCT" com o holerite viraria prova de gap num contencioso.
     if isinstance(resultado, dict):
         resultado.pop("beneficios_cct", None)
+        # DGX Y5: dizer POR QUAL REGRA cada benefício é concedido (beneficio_tipos, DGX F3).
+        # Até 24/09/2026 a tela mostrava «Plano Odontológico · R$ 9,00» e ninguém sabia de onde
+        # saía o 9,00. Aqui vai a regra de CONCESSÃO; a apuração interna continua no escritório.
+        regras = await _regras_por_tipo(db, emp)
+        _hoje = _date.today()
+        resultado["competencia"] = f"{_hoje.month:02d}/{_hoje.year}"
+        for item in resultado.get("beneficios_ativos") or []:
+            if isinstance(item, dict):
+                item["regra"] = regras.get(
+                    item.get("tipo"), "Regra ainda não cadastrada — procure o Departamento Pessoal."
+                )
     return resultado
 
 
@@ -1652,4 +1663,220 @@ async def meus_pagamentos(
             }
             for r in linhas
         ]
+    }
+
+
+# --------------------------------------------------------------------------- #
+# DGX Y5 (24/09/2026) — o que o COLABORADOR passa a ver do que as outras frentes
+# construíram para o escritório. Tudo aqui resolve o employee_id pelo TOKEN
+# (`_employee_id`): não há id de pessoa no caminho nem no corpo, então não há o que
+# forjar. As rotas do escritório que serviam o mesmo papel (redesign/ferias/…,
+# redesign/crachas/pdf) ganharam `exigir_dono` no mesmo commit.
+# --------------------------------------------------------------------------- #
+
+_REGRA_DESCONTO = {
+    "nenhum": "Sem desconto — custeado pela empresa.",
+    "fixo": "Desconto fixo de R$ {v} por mês.",
+    "percentual_sobre_salario": "Desconto de {v}% sobre o salário base.",
+    "percentual_sobre_valor": "Desconto de {v}% sobre o valor do benefício.",
+    "percentual_valor_sobre_falta": "Desconto de {v}% do valor a cada falta.",
+    "valor_por_dia": "R$ {v} por dia trabalhado.",
+    "unidade": "R$ {v} por unidade recebida.",
+}
+
+
+def _frase_regra(tipo_desconto: str | None, coef) -> str:
+    """Como o benefício é concedido, em UMA frase — para quem RECEBE, não para quem apura."""
+    chave = (tipo_desconto or "").strip().lower()
+    modelo = _REGRA_DESCONTO.get(chave)
+    if not modelo:
+        return "Regra ainda não cadastrada — procure o Departamento Pessoal."
+    if "{v}" not in modelo:
+        return modelo
+    valor = float(coef or 0)
+    # dinheiro sempre com dois decimais (R$ 8,50, não R$ 8,5); percentual sem zero à toa (4%)
+    txt = f"{valor:.2f}" if "R$" in modelo else f"{valor:.2f}".rstrip("0").rstrip(".")
+    return modelo.format(v=txt.replace(".", ","))
+
+
+async def _regras_por_tipo(db: AsyncSession, emp: str) -> dict[str, str]:
+    """`employee_benefits.type` → frase da regra, lida de `beneficio_tipos` (DGX F3).
+
+    Só a regra de CONCESSÃO. A conferência interna (`folha_beneficio_conferencia`) não entra
+    aqui nem por acidente: ela é a nossa apuração paralela, não o que a pessoa recebeu.
+    """
+    try:
+        linhas = (
+            (
+                await db.execute(
+                    _sqltext(
+                        "SELECT x.type, bt.tipo_desconto, bt.coeficiente_desconto "
+                        "  FROM employee_benefits x "
+                        "  JOIN beneficio_tipos bt ON bt.id = x.beneficio_tipo_id "
+                        " WHERE x.employee_id = CAST(:e AS uuid)"
+                    ),
+                    {"e": emp},
+                )
+            )
+            .mappings()
+            .all()
+        )
+    except Exception as exc:  # noqa: BLE001 — beneficio_tipos nasce no 1º acesso da F3
+        await db.rollback()
+        logger.warning("regras de benefício indisponíveis: %s", exc)
+        return {}
+    return {r["type"]: _frase_regra(r["tipo_desconto"], r["coeficiente_desconto"]) for r in linhas}
+
+
+@router.get(
+    "/meu-cracha/pdf",
+    summary="Baixar o meu crachá (PDF)",
+    description="Crachá funcional do funcionário LOGADO, com foto. Mesmo gerador do lote do DP "
+    "(hr/services/cracha_pdf) — o colaborador não precisa pedir ao escritório.",
+)
+async def meu_cracha_pdf(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    from fastapi.responses import Response
+
+    from modules.operacional.controllers.redesign_builders._dgx_f6_dp import pessoas_para_cracha
+    from modules.people_management.hr.services.cracha_pdf import montar_crachas
+
+    emp = _employee_id(current_user)
+    pessoas = await pessoas_para_cracha(db, {"employee_ids": [emp]})
+    if not pessoas:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Seu cadastro não está ativo — o crachá é emitido para colaborador ativo.",
+        )
+    return Response(
+        content=montar_crachas(pessoas, titulo="Meu crachá"),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="meu-cracha.pdf"', "Cache-Control": "no-store"},
+    )
+
+
+async def _minha_ferias(db: AsyncSession, emp: str, vid: str) -> str:
+    """Valida que a férias é DO funcionário logado. 404 (não 403) para não confirmar a existência."""
+    try:
+        vid = str(UUID(str(vid)))
+    except ValueError:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Férias não encontrada.")
+    dono = (
+        await db.execute(
+            _sqltext("SELECT employee_id::text FROM hr_vacation_requests WHERE id = CAST(:v AS uuid)"),
+            {"v": vid},
+        )
+    ).scalar()
+    if not dono or str(dono) != str(emp):
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Férias não encontrada.")
+    return vid
+
+
+@router.get(
+    "/minhas-ferias/{vid}/recibo/pdf",
+    summary="Baixar o recibo das MINHAS férias (PDF)",
+    description="Recibo timbrado das férias do funcionário logado (mesmos números da calculadora "
+    "do DP — DGX U2). Só das férias DELE: qualquer outro id devolve 404.",
+)
+async def meu_recibo_ferias_pdf(
+    vid: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    from fastapi.responses import Response
+
+    from modules.people_management.hr.services import ferias_dgx as fd
+
+    emp = _employee_id(current_user)
+    vid = await _minha_ferias(db, emp, vid)
+    try:
+        pdf = await fd.pdf_recibo(db, vid)
+    except fd.FeriasErro as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="recibo-ferias-{vid[:8]}.pdf"'},
+    )
+
+
+@router.get(
+    "/minhas-ferias/{vid}/aviso/pdf",
+    summary="Baixar o aviso das MINHAS férias (PDF)",
+    description="Aviso de férias (art. 135 CLT) do funcionário logado — o mesmo papel que entra "
+    "na fila «documentos a assinar» (DGX U2). Só das férias DELE.",
+)
+async def meu_aviso_ferias_pdf(
+    vid: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    from fastapi.responses import Response
+
+    from modules.people_management.hr.services import ferias_dgx as fd
+
+    emp = _employee_id(current_user)
+    vid = await _minha_ferias(db, emp, vid)
+    try:
+        pdf = await fd.pdf_aviso(db, vid)
+    except fd.FeriasErro as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="aviso-ferias-{vid[:8]}.pdf"'},
+    )
+
+
+@router.get(
+    "/minhas-justificativas",
+    summary="Minhas justificativas de falta/atraso e o status de cada uma",
+    description="O que o funcionário escreveu e em que pé está: pendente, aprovada ou rejeitada "
+    "(gp_justifications). Até 24/09/2026 ele escrevia e nunca mais via — 13 paradas no sandbox, "
+    "nenhuma revisada. A decisão do DP aparece aqui; o parecer interno do revisor, não.",
+)
+async def minhas_justificativas(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Any:
+    emp = _employee_id(current_user)
+    rotulo = {"pendente": "Em análise pelo DP", "aprovada": "Aprovada", "rejeitada": "Não aceita"}
+    linhas = (
+        (
+            await db.execute(
+                _sqltext(
+                    "SELECT j.justification_id, j.justification_type, coalesce(j.status,'pendente') AS status, "
+                    "       j.reason, j.category, j.created_at, j.reviewed_at, p.punch_timestamp "
+                    "  FROM gp_justifications j "
+                    "  LEFT JOIN gp_clock_punches p ON CAST(p.id AS TEXT) = j.punch_id "
+                    " WHERE j.employee_id = :e "
+                    " ORDER BY j.created_at DESC LIMIT 200"
+                ),
+                {"e": str(emp)},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    itens = [
+        {
+            "id": r["justification_id"],
+            "tipo": "Atraso" if (r["justification_type"] or "") == "atraso" else "Falta",
+            "motivo": r["reason"],
+            "categoria": r["category"],
+            "status": (r["status"] or "pendente").lower(),
+            "situacao": rotulo.get((r["status"] or "pendente").lower(), r["status"]),
+            "enviada_em": r["created_at"].isoformat() if r["created_at"] else None,
+            "decidida_em": r["reviewed_at"].isoformat() if r["reviewed_at"] else None,
+            "batida_em": r["punch_timestamp"].isoformat() if r["punch_timestamp"] else None,
+        }
+        for r in linhas
+    ]
+    return {
+        "employee_id": str(emp),
+        "total": len(itens),
+        "pendentes": sum(1 for i in itens if i["status"] == "pendente"),
+        "justificativas": itens,
     }
