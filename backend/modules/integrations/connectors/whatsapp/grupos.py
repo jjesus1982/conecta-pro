@@ -242,6 +242,23 @@ async def absorver(db: AsyncSession, *, jid: str, conteudo: str | None,
 #: Sinais de que a mensagem carrega DADO, não só conversa. Deliberadamente conservador: o que
 #: não casa aqui fica como `tom`, e tom não vira registro em ficha de ninguém.
 _SINAIS = (
+    # 🔴 PESSOAL/DISCIPLINAR VEM PRIMEIRO, e este balde nasceu de um erro meu com consequência
+    # de LGPD (24/09/2026). Eu ia usar o balde `tom` como corpus para ensinar o TOM da casa ao
+    # agente — "é só conversa, não é dado". Fui olhar o que havia lá dentro e achei:
+    #
+    #     "Informo que foi feita aplicação de uma advertência disciplinar no Sr. <nome>"
+    #
+    # Advertência disciplinar NOMINAL, classificada como conversa, a um passo de ser injetada no
+    # prompt como exemplo de estilo. O balde `tom` não é "o que não importa" — é "o que minha
+    # régua não reconheceu", e isso inclui o que ela deveria proteger.
+    #
+    # Agora advertência, atestado, exame, afastamento e salário saem de `tom`, entram como
+    # `pessoal`, contam como RELEVANTE (o supervisor precisa saber que houve) e ficam FORA do
+    # corpus de tom e fora de qualquer citação de texto.
+    ("pessoal", re.compile(
+        r"\badvert[êe]ncia\b|\bdisciplinar\b|\bsuspens[ãa]o\b|\bjusta causa\b|"
+        r"\batestado\b|\bexame\b|\baso\b|\bafastament|\bINSS\b|\bsal[áa]rio\b|"
+        r"\bholerite\b|\bcontracheque\b|\bdemiss|\brescis|\bferias\b|\bférias\b", re.I)),
     # ⭐ A ESCALA DO DIA, e ela vem PRIMEIRO porque é o artefato mais valioso do grupo
     # (medida em 24/09/2026, a primeira mensagem real do OPERACIONAL):
     #
@@ -556,3 +573,59 @@ async def _descobrir(db: AsyncSession, jid: str, data: dict) -> None:
     except Exception as e:  # noqa: BLE001
         await db.rollback()
         logger.warning("grupos: não registrei o grupo novo %s (%s)", jid, e)
+
+
+#: Palavras que tiram uma mensagem do corpus de tom, mesmo classificada como `tom`. É uma
+#: SEGUNDA barreira, não a primeira: a primeira é a classificação `pessoal`. Duas porque a
+#: consequência de errar aqui é dado de pessoa dentro do prompt do modelo, e classificação é
+#: régua de palavra — sempre haverá a frase que ela não previu.
+_FORA_DO_TOM = re.compile(
+    r"advert|disciplinar|atestado|exame|afastament|sal[áa]rio|holerite|demiss|rescis|"
+    r"\bCPF\b|\bRG\b|R\$\s?\d|\bsuspens", re.I)
+
+
+async def corpus_de_tom(db: AsyncSession, *, jid: str | None = None, limite: int = 14) -> list[dict]:
+    """Como a CASA fala, para o agente soar como colega e não como atendimento.
+
+    ⭐ Por que isto existe: o Jordan pediu que o José Luís interagisse com naturalidade nos
+    grupos, e a primeira rodada real saiu "Imagina! 😊 💙" e "Não estou conseguindo te atender
+    direito agora" — tom de SAC, não de alguém que trabalha ali. O jeito de corrigir não é eu
+    inventar um estilo no prompt: é mostrar como as pessoas de verdade escrevem nesses grupos.
+    É o único aprendizado desta frente que tem dado real por trás.
+
+    ⚠️ QUATRO FILTROS, e cada um tem uma razão que custou medição:
+
+      · só `tom` — dado operacional/financeiro/pessoal não é exemplo de estilo;
+      · NUNCA `pessoal`, e ainda passa por `_FORA_DO_TOM` (defesa em profundidade: achei
+        advertência disciplinar nominal dentro do balde `tom`);
+      · só mensagem CURTA (≤ 160 chars): o que ensina tom é a réplica do dia a dia, não o
+        comunicado longo — e comunicado longo é onde mora nome de gente;
+      · só de quem é da CASA (`autor_tipo` funcionário/dono). Cliente em grupo de condomínio
+        não define como a empresa fala, e usar a fala dele seria pior que inútil.
+
+    Devolve [] sem drama quando não há corpus: o agente segue com o prompt base. Ensinar tom é
+    melhoria, não dependência.
+    """
+    p: dict[str, object] = {"lim": int(limite) * 4}
+    onde = ("m.classificacao = 'tom' AND m.autor_tipo IN ('funcionario','dono') "
+            "AND length(m.conteudo) BETWEEN 2 AND 160")
+    if jid:
+        onde += " AND m.grupo_jid = :j"
+        p["j"] = jid
+    try:
+        rows = (await db.execute(text(
+            f"SELECT m.autor_nome, m.conteudo, g.nome FROM wa_grupo_mensagens m "  # noqa: S608
+            f"  JOIN wa_grupos g ON g.jid = m.grupo_jid WHERE {onde} "
+            f" ORDER BY m.criado_em DESC LIMIT :lim"), p)).all()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("grupos: corpus de tom indisponível (%s)", e)
+        return []
+    saida = []
+    for autor, conteudo, grupo in rows:
+        if _FORA_DO_TOM.search(conteudo or ""):
+            continue
+        saida.append({"quem": (autor or "").split()[0].title() if autor else "colega",
+                      "grupo": grupo, "texto": " ".join(str(conteudo).split())[:160]})
+        if len(saida) >= limite:
+            break
+    return saida

@@ -7041,6 +7041,40 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # Sem este bloco o agente pergunta o nome de quem ele já conhece — e ignora que
             # a batida que o funcionário jura ter feito está ali, vinda do Tangerino.
             messages.append({"role": "system", "content": await _contexto_funcionario(ident)})
+        if _cfg_grupo:
+            # ⭐ O TOM SAI DO HISTÓRICO REAL DO GRUPO, não da minha imaginação (24/09/2026,
+            # pedido do Jordan: "usa o histórico dos grupos pra ajustar o tom dele").
+            #
+            # A primeira rodada real saiu "Imagina! 😊 💙" e "Não estou conseguindo te atender
+            # direito agora" — tom de SAC, não de quem trabalha ali. Descrever o estilo desejado
+            # em prosa é o que eu já tinha feito e não bastou; mostrar como as pessoas escrevem
+            # é a única forma que tem dado por trás.
+            #
+            # ⚠️ Exemplos são de ESTILO, e isso vai dito no bloco: sem essa linha o modelo
+            # tende a reaproveitar o CONTEÚDO — e há nome de gente nas mensagens reais.
+            try:
+                from modules.integrations.connectors.whatsapp import grupos as _grpt  # noqa: PLC0415
+
+                async with async_session_factory() as _dbt:
+                    _corpus = await _grpt.corpus_de_tom(_dbt, jid=_cfg_grupo["jid"])
+                    if len(_corpus) < 4:  # pouco do grupo? amplia para a casa toda
+                        _corpus = await _grpt.corpus_de_tom(_dbt)
+                if _corpus:
+                    _ex = "\n".join(f'- {c["quem"]}: "{c["texto"]}"' for c in _corpus)
+                    # ⚠️ CONCATENADO no system prompt, NÃO como segunda mensagem de sistema.
+                    # Medido: com dois `role=system` no grupo, o modelo passou a devolver
+                    # `reasoning_content` em vez de texto, a retentativa do motor descartava o
+                    # histórico de tool_calls e o turno terminava vazio — duas vezes seguidas,
+                    # não foi sorte. Antes do bloco de tom, a mesma conversa respondia certo.
+                    messages[0]["content"] += "\n\n" + (
+                        "COMO A CASA FALA NESTES GRUPOS (exemplos reais, recentes):\n" + _ex +
+                        "\n\nUse isso como referência de ESTILO: tamanho da frase, direto ao "
+                        "ponto, sem saudação de atendimento, sem 'estou à disposição', emoji só "
+                        "quando a casa usa. ⛔ NÃO reaproveite o CONTEÚDO desses exemplos e "
+                        "NUNCA repita nome de pessoa que apareça neles — são amostra de escrita, "
+                        "não informação sobre a operação de hoje.")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Agente: corpus de tom não carregado (%s) — segue sem exemplos", e)
         if forn:
             # O contexto NÃO é decoração: sem a cotação e os itens, "Qual cabo?" é um
             # enigma e o agente escala para humano — que foi o que aconteceu às 15:13.
