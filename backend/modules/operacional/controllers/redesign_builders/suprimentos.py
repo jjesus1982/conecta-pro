@@ -10,12 +10,15 @@ from fastapi import APIRouter
 
 from ._dgx_f9_suprimentos import MENU as _menu_f9  # noqa: N811  # dgx f9
 from ._dgx_f9_suprimentos import router as _router_f9  # dgx f9
+from ._dgx_t5_suprimentos_frotas_sesmt_config import MENU_SUP as _menu_t5  # noqa: N811  # dgx t5
+from ._dgx_t5_suprimentos_frotas_sesmt_config import router as _router_t5  # dgx t5
 
 SLUG = "suprimentos"
-EXTRA_MENU: list[dict] = list(_menu_f9)
+EXTRA_MENU: list[dict] = [*_menu_f9, *_menu_t5]  # dgx t5 — solicitações de material
 
 router = APIRouter()
 router.include_router(_router_f9)  # dgx f9
+router.include_router(_router_t5)  # dgx t5 — ações de material, exame do ASO, acesso temporário e log (um só router)
 
 
 async def build(db) -> dict:
@@ -29,4 +32,7 @@ async def build(db) -> dict:
     await _telas_f9(db, out)  # dgx f9
     if "solicitacoes-compra" in out:
         out["requisicoes"] = out["solicitacoes-compra"]  # porta que já existia no JSON do módulo
+    from ._dgx_t5_suprimentos_frotas_sesmt_config import telas_sup as _telas_t5  # dgx t5
+
+    await _telas_t5(db, out)  # dgx t5 — solicitação de material por posto (atender baixa o estoque)
     return out

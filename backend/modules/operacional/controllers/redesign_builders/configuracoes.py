@@ -16,12 +16,14 @@ from modules.operacional.controllers.redesign_data_controller import (
 
 from ._dgx_f4_parametros import MENU as _MENU_F4  # dgx f4
 from ._dgx_f4_parametros import router  # dgx f4  # noqa: F401 — router é colhido pelo discovery
+from ._dgx_t5_suprimentos_frotas_sesmt_config import MENU_CFG as _MENU_T5  # dgx t5
 
 SLUG = "configuracoes"
 EXTRA_MENU: list[dict] = [
     {"id": "notificacoes-fila-resumo", "label": "Notificações — resumo", "icon": "M3 3v18h18"},
     {"id": "notificacoes-fila", "label": "Notificações — fila", "icon": "M3 3v18h18"},
     *_MENU_F4,  # dgx f4
+    *_MENU_T5,  # dgx t5 — acessos temporários
 ]
 _ND = "#0F1B3A"
 
@@ -169,6 +171,14 @@ async def build(db) -> dict:
         await db.rollback()
         out["parametros"] = {"title": "Parâmetros do sistema", "sub": f"Sem dado: {str(exc)[:160]}", "cta": "—",
                              "type": "table", "grid": "1fr", "cols": ["Situação"], "rows": [{"cells": [t("aguardando dado honesto")]}]}
+    from ._dgx_t5_suprimentos_frotas_sesmt_config import telas_config as _telas_t5  # dgx t5
+
+    try:
+        await _telas_t5(db, out)  # dgx t5 — acessos temporários (expira os vencidos antes de listar)
+    except Exception as exc:  # noqa: BLE001 — a tela diz por quê; não derruba usuários/tenants
+        await db.rollback()
+        out["acessos-temporarios"] = {"title": "Acessos temporários", "sub": f"Sem dado: {str(exc)[:160]}", "cta": "—",
+                                      "type": "table", "grid": "1fr", "cols": ["Situação"], "rows": [{"cells": [t("aguardando dado honesto")]}]}
     return out
 
 
