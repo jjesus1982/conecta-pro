@@ -323,6 +323,42 @@ def agent_enabled() -> bool:
     return os.getenv("AGENT_ENABLED", "false").lower() == "true"
 
 
+def _normalizar_assistants(messages: list[dict], model: str) -> list[dict]:
+    """Garante `reasoning_content` em TODA mensagem de assistente. Devolve a lista pronta.
+
+    🔴 A CAUSA RAIZ DO `reasoning_content`, isolada em 24/09/2026 com o payload REAL em mãos —
+    e ela é o oposto do que o conserto de 28/08 assumia. Bissecção sobre a requisição que
+    falhava (17 mensagens, 5 tools):
+
+        payload real, como é                → 400
+        payload real SEM tools              → OK
+        sem as mensagens de assistant       → OK
+        assistants com reasoning_content=""  → OK   ← o conserto
+
+    A regra do provedor: **com `tools` na chamada, toda mensagem `assistant` do histórico
+    precisa carregar `reasoning_content`.** As mensagens de assistente reconstruídas do
+    histórico do Chatwoot (respostas que o José Luís já deu) nunca tiveram o campo — elas vêm
+    de texto guardado, não de uma resposta viva do modelo.
+
+    ⚠️ Por que o conserto anterior não pegava: ele PODAVA os turnos com `tool_calls`. Na
+    requisição que eu medi não havia NENHUM `tool_calls` — a poda não tinha o que podar, a
+    retentativa caía no mesmo 400 e o turno terminava sem texto. Lógica certa para um defeito
+    que não era este. É a régua observando a coisa errada, de novo, e desta vez eu só achei
+    porque capturei o payload em arquivo em vez de raciocinar sobre ele.
+
+    Só age em modelo de raciocínio (o campo é extensão do provedor; mandar para quem não
+    espera é convidar outro 400).
+    """
+    if "deepseek" not in (model or "").lower():
+        return messages
+    saida = []
+    for m in messages:
+        if m.get("role") == "assistant" and "reasoning_content" not in m:
+            m = {**m, "reasoning_content": ""}
+        saida.append(m)
+    return saida
+
+
 def _chat_kwargs(model: str, max_tokens: int, temperature: float = 0.7) -> dict:
     """Kwargs compativeis com a familia do modelo.
 
@@ -7030,9 +7066,17 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             # conseguindo te atender". É a assinatura exata do defeito de 11/09, e eu o
             # reintroduzi ao mexer numa variável que carregava DOIS significados.
             #
-            # 1500 porque a resposta de grupo lê o retorno de `visao_operacao` (um JSON com
-            # dezenas de campos) e ainda precisa escrever duas frases em português.
-            max_tokens = int(_env_num("AGENT_MAX_TOKENS_GRUPO", 1500))
+            # ⚠️ 3000, e o número tem medição atrás. Pus 1500 raciocinando sobre o tamanho do
+            # JSON da ferramenta — e o JSON tem 879 chars (~293 tokens), não é ele. O que
+            # consome o teto é o RACIOCÍNIO: este é um modelo de thinking, e os tokens de
+            # pensamento contam no mesmo `max_tokens` da resposta. Com 1500, duas de cada três
+            # tentativas terminavam o turno sem texto — ele pensava, chamava a ferramenta,
+            # recebia o resultado e não sobrava orçamento para escrever.
+            #
+            # 3000 é o mesmo teto que o dono já tem para o mesmo tipo de trabalho (ler retorno
+            # de ferramenta e redigir), então não é número inventado — é o que a casa já provou
+            # que basta.
+            max_tokens = int(_env_num("AGENT_MAX_TOKENS_GRUPO", 3000))
 
         active_tools = _tools_ativas(owner, papel)
 
@@ -7340,7 +7384,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             try:
                 resp = await client.chat.completions.create(
                     model=model,
-                    messages=messages,
+                    messages=_normalizar_assistants(messages, model),
                     tools=active_tools,
                     tool_choice="auto",
                     **_chat_kwargs(model, max_tokens),
