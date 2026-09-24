@@ -93,7 +93,8 @@ GRUPOS = [
         ("chamados", "Chamados"), ("chamado-novo", "Novo chamado"),  # dgx f8
         ("avisos-painel", "Avisos · painel"), ("aviso-novo", "Novo aviso"),
         ("painel-alertas", "Alertas do sistema"),  # dgx t3
-        ("setores", "Setores de chamado"), ("setor-novo", "Novo setor")]),  # dgx u4
+        ("setores", "Setores de chamado"), ("setor-novo", "Novo setor"),  # dgx u4
+        ("setor-etiqueta", "Etiquetas QR dos setores")]),  # dgx v2 — no FIM do grupo
 ]
 
 
