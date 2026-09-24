@@ -151,20 +151,37 @@ async def absorver(db: AsyncSession, *, jid: str, conteudo: str | None,
         return False
     classe = classificar(conteudo)
     try:
-        await db.execute(text(
+        r = await db.execute(text(
             "INSERT INTO wa_grupo_mensagens "
             "  (grupo_jid, chatwoot_message_id, autor_fone, autor_nome, autor_employee_id, "
             "   autor_tipo, conteudo, classificacao, relevante) "
             "VALUES (:j, :mid, :af, :an, CAST(:aid AS uuid), :at, :c, :cl, :rel) "
             "ON CONFLICT (chatwoot_message_id) WHERE chatwoot_message_id IS NOT NULL "
-            "DO NOTHING"),
+            "DO NOTHING RETURNING id"),
             {"j": jid, "mid": chatwoot_message_id, "af": autor_fone,
              "an": (getattr(identidade, "nome", None) or autor_nome),
              "aid": getattr(identidade, "employee_id", None),
              "at": getattr(identidade, "tipo", None),
              "c": str(conteudo)[:8000], "cl": classe, "rel": classe != "tom"})
+        gravou = r.first() is not None
         await db.commit()
-        return True
+        # ⭐ 24/09/2026 — O `DO NOTHING` DESCARTAVA EM SILÊNCIO e esta função devolvia True de
+        # qualquer jeito: sucesso vazio, o padrão de falha que esta casa já documentou três
+        # vezes. Descobri do pior jeito, causando: meu replay de teste usou `id: 4137`, um id
+        # PLAUSÍVEL do espaço real, e meia hora depois a mensagem verdadeira do grupo Gestão
+        # nasceu com esse mesmo id — colidiu, foi descartada, e o webhook respondeu 200.
+        #
+        # A lição não é "não teste em produção": é que id de teste nunca pode morar no espaço
+        # de id real. O oráculo desta frente usa id NEGATIVO justamente por isso, e eu
+        # hand-rolei um replay positivo sem aplicar a minha própria regra.
+        #
+        # Agora o descarte APARECE. Não é erro (reentrega do Chatwoot é normal e o dedup é
+        # desejado), por isso `info` e não `warning` — mas fica medível, e uma rajada de
+        # descartes deixa de ser invisível.
+        if not gravou:
+            logger.info("grupos: mensagem %s do grupo %s já existia — nada gravado (dedup)",
+                        chatwoot_message_id, jid)
+        return gravou
     except Exception as e:  # noqa: BLE001
         # ⚠️ absorver NUNCA pode derrubar o webhook: o 200 para o Chatwoot vale mais que a
         # linha, porque 200 não reentrega e a mensagem se perderia de vez.
