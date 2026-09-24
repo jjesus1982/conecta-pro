@@ -196,3 +196,26 @@ Todas em paralelo cego: Σ|Δ| contra `hr_payslips` = R$ 0,00 é condição de e
   - **X4 · pareadores:** são **OITO** em `backend/modules`, não três. A tela de ponto do DP entrou na régua única (Σ|Δ| 162 → 2 dias). O espelho LEGAL (`espelho_service`) — o PDF que o colaborador assina — continua com régua própria e é a maior dívida que sobra. 19 espelhos assinados provados intocados.
   - **X5 · painel do dono:** 28 decisões semeadas, 18 com número ao vivo, em `/redesign/bi?t=decisoes-do-dono`.
 - 24/09 22:35 — duas travas ajustadas: oráculo X4 registrado em `checar_regressao.py`; e a varredura dele deixou de acusar quem IMPORTA a régua única (acusava a X3, que faz certo — trava que pune o certo empurra a próxima frente a copiar).
+
+## Decisão do dono — banco de horas quitado (24/09, 12h20)
+
+Jordan: *«ninguém tem banco de horas nem valores a vencer porque eu já paguei tudo, pode zerar
+essa conta»*. Não bastava apagar as 334 linhas — o crédito é MEDIDO do espelho, então voltaria no
+próximo «Apurar». Virou **corte declarado** (`system_configs.banco_horas.corte_quitado = 2026-09`),
+o mesmo padrão do `contabil.corte_baseline`. Reapurado em produção jan→set: **R$ 0,00 a pagar, 0
+com vencimento, 334 linhas em `quitado_pelo_dono`** (as horas continuam visíveis). Oráculo ganhou o
+bloco (g): apagar o corte fica VERMELHO, em vez de o passivo voltar calado; e a fixture que prova a
+CLT art. 59 §3 passou a nascer depois do corte, para a regra seguir valendo para crédito novo.
+Registrado no painel como **D29 · decidida**. Bake 23 (imagem 0f8da58d) publicou o código do corte.
+
+## Onda 7 — a última milha do ponto, e o colaborador (24/09, tarde)
+
+| # | Frente | Módulo | Estado |
+|---|---|---|---|
+| Y1 | **Espelho LEGAL na régua única** — o PDF que o colaborador assina é o último pareador fora da régua; espelho assinado é intocável | ponto | em execução |
+| Y2 | **A direção da batida** — 192 h de diferença em 3 meses entre a tela e a folha; medir, classificar por causa e recomendar, sem escolher | ponto | em execução |
+| Y3 | **Justificativa e batida faltante** — 13 justificativas paradas (0 aprovadas, a mais antiga de 21/07) e 20.445 min que são batida de entrada faltando, não atraso | ponto | em execução |
+| Y4 | **Colaborador sem cliente** — 47 de 63 órfãos, e é por isso que feriado de cliente não alcança ninguém; resolver pelo vínculo VIVO, não preenchendo 47 cadastros por inferência | dp | em execução |
+| Y5 | **O que o COLABORADOR vê** — 30 frentes construíram para o escritório; ele continua vendo o mesmo. Ligar aviso de férias, recibo, crachá, espelho e benefício ao portal, com oráculo de vazamento | portal | em execução |
+
+- 24/09 12:45 — Y1–Y5 lançadas sobre o bake 23.
