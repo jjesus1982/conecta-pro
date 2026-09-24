@@ -87,7 +87,10 @@ GRUPOS = [
     ("g-beneficios", "Benefícios & Reembolsos", "VT/VR, benefícios da CCT e reembolsos", [
         ("beneficios", "Benefícios"), ("nova-beneficio", "Adicionar benefício"),
         ("beneficios-cct", "Benefícios CCT"), ("novo-beneficio-cct", "Adicionar da CCT"),
-        ("reembolsos", "Reembolsos"), ("registrar-reembolso", "Registrar reembolso")]),
+        ("reembolsos", "Reembolsos"), ("registrar-reembolso", "Registrar reembolso"),
+        # dgx u5 (24/09/2026): anexadas DEPOIS de montar_grupos por `_dgx_u5_entrega_beneficio.telas(db, out)`,
+        # ao fim deste grupo (depois das abas da frente 03 e da f3); listadas aqui pela composição ficar num lugar só.
+        ("beneficio-entregas", "Entregas (lote)"), ("beneficio-entrega-nova", "Nova entrega"), ("beneficio-entrega-itens", "Itens da entrega")]),
 
     ("g-saude", "Saúde & eSocial", "ASO (NR-7) e espelho dos eventos do eSocial", [
         ("renovar-aso", "Agendar/renovar ASO"),
