@@ -1219,3 +1219,26 @@ def supervisao_planejada_gerar(self, dia: str | None = None):
     except Exception as exc:
         logger.error(f"[Operacional Task] supervisão planejada falhou: {exc}")
         raise self.retry(exc=exc)
+
+
+@app.task(name="operacional.ronda_alertas_avaliar", bind=True, max_retries=1, default_retry_delay=120)
+def ronda_alertas_avaliar(self):
+    """Motor de alertas de ronda (DGX U4, 24/09/2026): avalia os alertas ativos contra as rondas
+    da janela e grava UM disparo por (alerta, ronda) — idempotente; só o que nasce agora notifica."""
+    from core.database import async_session_factory  # noqa: PLC0415
+    from modules.operacional.services.ronda_alertas import avaliar_rondas  # noqa: PLC0415
+
+    async def _run() -> dict:
+        async with async_session_factory() as db:
+            disparos = await avaliar_rondas(db)
+            await db.commit()
+            return {"disparos": len(disparos)}
+
+    try:
+        result = asyncio.run(_run())
+        if result["disparos"]:
+            logger.info(f"[Operacional Task] alertas de ronda: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] alertas de ronda falharam: {exc}")
+        raise self.retry(exc=exc)

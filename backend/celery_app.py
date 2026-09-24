@@ -126,6 +126,7 @@ app.conf.task_routes = {
     "operacional.send_shift_reminders": {"queue": "operacional"},
     "operacional.daily_coverage_report": {"queue": "operacional"},
     "operacional.supervisao_planejada_gerar": {"queue": "operacional"},
+    "operacional.ronda_alertas_avaliar": {"queue": "operacional"},
     "operacional.fechar_turnos_por_ponto": {"queue": "operacional"},
     # SST - Afastamentos
     "sst.verificar_afastamentos_vencidos": {"queue": "operacional"},
@@ -541,6 +542,12 @@ app.conf.beat_schedule = {
     "operacional-shift-reminders-30min": {
         "task": "operacional.send_shift_reminders",
         "schedule": 1800.0,  # 30 minutos
+        "options": {"queue": "operacional"},
+    },
+    # Alertas de ronda (DGX U4): ronda atrasada / ponto pulado / fora de sequência, a cada 5 min
+    "operacional-ronda-alertas": {
+        "task": "operacional.ronda_alertas_avaliar",
+        "schedule": crontab(minute="*/5"),
         "options": {"queue": "operacional"},
     },
     # Supervisão planejada (DGX U1): gera as ocorrências do dia às 00:30 Manaus e fecha o passado

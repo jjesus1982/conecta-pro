@@ -126,11 +126,12 @@ Jordan: *"prosiga em loop."*
 | # | Frente | Módulo | Estado |
 |---|---|---|---|
 | U1 | Movimentação em dois passos (pedido → aprovar/recusar, DP segue direto) + supervisão planejada com frequência e mapa realizado × planejado | operacional | mesclada · oráculo verde |
-| U2 | Férias completas: aviso em lote (PDF + assinatura), recibo timbrado com o cálculo existente, conta a pagar idempotente (art. 145), cobertura/movimentação ao aprovar, ficha por pessoa | dp | em execução |
-| U3 | Porta para toda tela: as 13 órfãs + `payable`/`receivable`; oráculo «toda tela tem porta» | diversos | em execução |
+| U2 | Férias completas: aviso em lote (PDF + assinatura), recibo timbrado com o cálculo existente, conta a pagar idempotente (art. 145), cobertura/movimentação ao aprovar, ficha por pessoa | dp | mesclada · oráculo verde |
+| U3 | Porta para toda tela: as 13 órfãs + `payable`/`receivable`; oráculo «toda tela tem porta» | diversos | mesclada · oráculo verde |
 | U4 | Rondas do Vigilância (modelos com pontos, alertas, pânico) × frente 06; chamados com setor e notificação | operacional | mesclada · oráculo verde |
-| U5 | Entrega de benefício em lote com período de apuração (DGX `EntregasBeneficios`) sobre o motor da frente 03 | dp | em execução |
+| U5 | Entrega de benefício em lote com período de apuração (DGX `EntregasBeneficios`) sobre o motor da frente 03 | dp | mesclada · oráculo verde |
 
 - 24/09 12:20 — U1–U5 lançadas.
 - 24/09 13:05 — U1 mesclada (pedido de movimentação em tabela própria `op_movimentacao_pedidos` — 4 leitores juntam `employee_alocacoes` só por data e uma linha pendente vazaria para a folha; aprovar chama o `alocar` de ontem; pendentes na Central de Aprovações; supervisão planejada com frequência, ocorrências por dia geradas de forma idempotente, checklist ou check-in do gerente marca realizada; mapa mês × posto). Beat 00:30 fica com o orquestrador.
 - 24/09 13:40 — U4 mesclada (modelos de ronda com pontos e raio; alertas por tipo; motor idempotente; **pânico** pela API com foto → disparo + ocorrência grave + notificação; setores por contrato; chamado avisa o setor ao abrir e o solicitante ao resolver; sandbox só simula).
+- 24/09 14:30 — U3 mesclada (13 telas órfãs: 6 ganharam aba, 4 do marketing já tinham botão (falso positivo do caçador corrigido), 1 virou botão, 2 ações removidas; telas sem porta 15 → 1 — a que sobra é `crm.json` alterado no disco por outra sessão, sem commit). U2 mesclada (aprovar férias com substituto cria cobertura F8 + movimentação F5; recibo e aviso em PDF com o cálculo existente; aviso em lote com fila de assinatura; conta a pagar idempotente venc. início−2; ficha por pessoa; painel «postos descobertos» no mapa). U5 mesclada (entrega de benefício como lote com período de apuração manual/apontamento, acerto contra as duas anteriores, arquivo do operador, conta idempotente). **Onda 3 completa.** Beats registrados: supervisão 00:30, alertas de ronda */5. Achado da U5 para a onda 4: motor da frente 03 conta 2 dias no 12x36 noturno com intervalo (ADAILSON 31 dias em 08/2026 para 15 plantões).
