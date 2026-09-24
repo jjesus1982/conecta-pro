@@ -89,6 +89,25 @@ ELIZIEL   (92984997784)  tipo=lead         papel=None                  ✅ barra
 condição e não entra. Mas a **conta viva com papel de gerente no ERP** é um furo de RBAC que
 não é deste módulo — não mexi, perfis são seus.
 
+🔶 **O que "enxerga toda a operação" ainda NÃO é.** Hoje ele enxerga os **grupos** (quem falou,
+o que foi dado, o que virou pedido) e a vida dele. Não enxerga postos, alocações, faltas do dia
+e ASOs vencendo — isso são 9 rotas que eu já localizei e **não liguei**. O caminho curto seria
+escrever SQL direto nessas tabelas, e eu não fiz de propósito: não confirmei os schemas, e
+escrever consulta sobre schema chutado é a fabricação que o projeto proíbe. Fica como a próxima
+tarefa, com as rotas já mapeadas:
+
+```
+/operacional/posts · /operacional/allocations/current · /operacional/dashboard
+/operacional/substitutions/pending · /operacional/grade/{posto_id}
+/operacional/presenca/substitutos/{posto_id}
+/people-management/ponto/colaboradores-sem-escala
+/people-management/ponto/justificativas/pendentes · /people-management/sst/asos/vencendo
+```
+
+⚠️ E o caminho para elas **não** é a ponte MCP: o conector interno não as publica, e alargar o
+escopo dele exporia escrita de escala ao time. Tem de ser in-process, chamando a coroutine do
+controller, como as calculadoras do fiscal.
+
 ### Itens 3 e 4 — tom separado de dado, e resumo sob demanda
 
 `resumo_grupos`, e só o supervisor alcança:

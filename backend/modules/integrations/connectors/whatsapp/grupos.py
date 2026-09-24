@@ -179,6 +179,27 @@ async def deve_calar(db: AsyncSession, data: dict) -> tuple[bool, str | None, di
     """
     jid = jid_do_payload(data)
     if not jid:
+        # ⭐ SEGUNDO SINAL, independente do parser (23/09/2026). Todo o resto desta parede
+        # depende de `jid_do_payload` achar o JID em um dos dois lugares que eu MEDI — e eu
+        # medi com payload sintético, porque a captura de grupo ainda estava desligada. Se a
+        # forma real do Chatwoot puser o JID num terceiro lugar, `jid` vem None, a função
+        # devolve "não é grupo", a mensagem segue para o agente e o José Luís **responde no
+        # grupo** — exatamente o que o dono proibiu.
+        #
+        # Então: se o sufixo de grupo aparecer EM QUALQUER LUGAR do payload e eu não tiver
+        # conseguido extrair o JID, isto é uma mensagem de grupo que meu parser não entendeu.
+        # Calo, e grito no log. O silêncio é o default seguro; o log é o que me diz que o
+        # parser precisa de conserto, em vez de o grupo descobrir isso por mim.
+        try:
+            import json  # noqa: PLC0415
+
+            if SUFIXO_GRUPO in json.dumps(data, default=str):
+                logger.error("grupos: payload TEM %s e o parser não achou o JID — calando. "
+                             "Conserte `jid_do_payload`. Chaves: %s",
+                             SUFIXO_GRUPO, sorted(data)[:12])
+                return True, None, None
+        except Exception:  # noqa: BLE001
+            pass
         return False, None, None
     cfg = await config_do_grupo(db, jid)
     if not cfg:

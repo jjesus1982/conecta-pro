@@ -1313,7 +1313,12 @@ async def chatwoot_webhook(
                     # Falhar aqui NÃO pode derrubar a absorção nem fazer o agente falar:
                     # o pedido perdido é ruim, o agente respondendo no grupo é pior.
                     logger.error("grupos: pedido de escala não registrado (%s)", e)
-            if _grupo_jid and _calar:
+            # ⚠️ `_calar` MANDA, com ou sem jid. A versão anterior era `if _grupo_jid and
+            # _calar`, e isso tornava inútil o segundo sinal da parede: quando o payload é de
+            # grupo mas o parser não extrai o JID, `deve_calar` devolve (True, None) — a
+            # parede respondia certo e QUEM CHAMA ignorava, deixando a mensagem seguir para o
+            # agente. Lógica certa, observação errada, no mesmo dia em que escrevi as duas.
+            if _calar:
                 # 200 para o Chatwoot do mesmo jeito: reentrega não ajuda, a mensagem já está
                 # absorvida (ou deliberadamente ignorada) e o agente não deve responder.
                 return {"status": "ok", "direction": direction, "grupo": _grupo_jid,
@@ -1321,8 +1326,20 @@ async def chatwoot_webhook(
         except Exception as e:  # noqa: BLE001
             # ⚠️ Se a parede falhar, CALA para grupo. O erro seguro aqui é o silêncio: falar
             # num grupo por falha de código é o dano que não se desfaz.
+            # E "para grupo" não pode depender de `_grupo_jid`, que é justamente o que não
+            # existe quando a parede estourou ANTES de resolvê-lo. O sinal que sobra é o
+            # sufixo no payload cru — o mesmo de `deve_calar`, aqui de novo porque este é o
+            # caminho em que aquele nem chegou a rodar.
             logger.error("grupos: parede falhou (%s) — calando por precaução", e)
-            if _grupo_jid:
+            _parece_grupo = bool(_grupo_jid)
+            if not _parece_grupo:
+                try:
+                    import json as _json  # noqa: PLC0415
+
+                    _parece_grupo = "@g.us" in _json.dumps(data, default=str)
+                except Exception:  # noqa: BLE001
+                    _parece_grupo = False
+            if _parece_grupo:
                 return {"status": "ok", "direction": direction, "grupo": _grupo_jid,
                         "observador": True, "erro_parede": str(e)[:120]}
 
