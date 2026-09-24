@@ -23,6 +23,7 @@ chamados e avisos. Regras aqui; a pintura fica em `_dgx_f8_operacional.py`.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -466,6 +467,13 @@ async def executar(
             {"o": ocorrencia, "i": pid},
         )
     await db.commit()
+    try:  # dgx u1 — checklist no posto fecha a ocorrência de supervisão planejada do dia
+        from modules.operacional.services import supervisao_planejada as _sp
+
+        await _sp.marcar_realizada(db, post_id=post_id, dia=agora.date(), checklist_preenchido_id=pid, user_id=user_id)
+    except Exception as exc:  # noqa: BLE001 — o checklist já está gravado; o plano é secundário
+        await db.rollback()
+        logging.getLogger(__name__).warning("supervisão planejada: marcar_realizada falhou: %s", exc)
     return {
         "id": pid,
         "conformes": conformes,

@@ -167,9 +167,22 @@ async def telas(db, out: dict) -> None:
                 t(f"{aprov} · {_d(aprov_em)}" if aprov else "—"),
                 status,
             ],
-            "filtros": {"mes": f"{data:%m/%Y}" if data else "—", "condominio": cond or "—"},
+            "filtros": {
+                "mes": f"{data:%m/%Y}" if data else "—",
+                "condominio": cond or "—",
+                "status": "ativa" if ativo else "encerrada",  # dgx u1
+            },
             "actions": [_acao_encerrar(r, hoje_s)] if (ativo and not remocao) else [],
         }
+
+    try:  # dgx u1 — pedidos pendentes/recusadas (op_movimentacao_pedidos) no mesmo ledger, com Aprovar/Recusar
+        from ._dgx_u1_movimentacao_supervisao import linhas_pedidos
+
+        linhas.extend(await linhas_pedidos(db))
+    except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("dgx u1: pedidos no ledger falharam: %s", exc)
+    n_pend = sum(1 for x in linhas if x["filtros"].get("status") == "pendente")
 
     for r in rows:
         if r[4] == "remover" and r[2]:
@@ -179,8 +192,8 @@ async def telas(db, out: dict) -> None:
     out["movimentacoes"] = {
         "title": "Movimentações — alocar / remover de vaga",
         "sub": (
-            f"{n_ativas} alocação(ões) ativa(s) · {len(rows)} no histórico · motivo tipado (7 do DGX) · "
-            "fonte: employee_alocacoes (a mesma do kit GEDEON, Hermes e 'Sem alocação' do DP) · Encerrar por linha"
+            f"{n_ativas} alocação(ões) ativa(s) · {n_pend} pedido(s) aguardando o DP · {len(rows)} no histórico · "
+            "motivo tipado (7 do DGX) · fonte: employee_alocacoes (a mesma do kit GEDEON, Hermes e 'Sem alocação' do DP)"
         ),
         "cta": "—",
         "type": "table",
@@ -197,7 +210,11 @@ async def telas(db, out: dict) -> None:
             "Aprovado",
             "Situação",
         ],
-        "filtros": [{"key": "mes", "label": "Mês"}, {"key": "condominio", "label": "Condomínio"}],
+        "filtros": [
+            {"key": "mes", "label": "Mês"},
+            {"key": "condominio", "label": "Condomínio"},
+            {"key": "status", "label": "Situação"},  # dgx u1: pendente | ativa | recusada | encerrada
+        ],
         "rows": linhas or [{"cells": [t("Nenhuma movimentação registrada", 500)] + [t("—")] * 8}],
     }
 
@@ -272,6 +289,16 @@ async def telas(db, out: dict) -> None:
                 "options": [{"value": k, "label": v} for k, v in ms.SOLICITANTES.items() if k != "sistema"],
             },
             {"key": "solicitante_nome", "label": "Nome de quem pediu", "type": "text", "ph": "síndico, supervisor…"},
+            {  # dgx u1 — dois passos: quem não é DP sempre pede; DP/admin decide
+                "key": "pedir_aprovacao",
+                "label": "Pedir aprovação do DP?",
+                "type": "select",
+                "options": [
+                    {"value": "", "label": "Automático (sim, exceto DP/admin)"},
+                    {"value": "sim", "label": "Sim — fica pendente até o DP aprovar"},
+                    {"value": "nao", "label": "Não — alocar agora (só DP/admin)"},
+                ],
+            },
             {"key": "observacao", "label": "Observação", "type": "textarea", "span": "span 2"},
         ],
     }
@@ -339,6 +366,34 @@ async def rd_movimentacao_alocar(
             return {
                 "ok": True,
                 "message": f"Removido da vaga atual em {r['data_fim'][8:10]}/{r['data_fim'][5:7]}/{r['data_fim'][:4]}.",
+                **r,
+            }
+        # dgx u1 — dois passos: "" = automático (DP/admin direto, resto pede); "sim" = pede; "nao" = direto só DP/admin
+        from ._dgx_u1_movimentacao_supervisao import e_dp
+
+        pedir = p.get("pedir_aprovacao") or ""
+        if pedir == "nao" and not e_dp(current_user):
+            raise HTTPException(
+                status_code=403, detail="Alocar direto é restrito ao DP — deixe em 'Sim' e envie o pedido."
+            )
+        if pedir == "sim" or (pedir == "" and not e_dp(current_user)):
+            r = await ms.pedir(
+                db,
+                employee_id=p.get("employee_id", ""),
+                condominio_id=p.get("condominio_id", ""),
+                funcao=p.get("funcao", ""),
+                posto_id=p.get("posto_id") or None,
+                data_inicio=p.get("data_inicio"),
+                motivo=p.get("motivo", ""),
+                solicitado_por=p.get("solicitado_por") or "supervisor",
+                solicitante_nome=p.get("solicitante_nome"),
+                coberto_employee_id=p.get("coberto_employee_id") or None,
+                observacao=p.get("observacao"),
+                user_id=uid,
+            )
+            return {
+                "ok": True,
+                "message": "Pedido registrado — fica pendente até o DP aprovar (nada mudou ainda).",
                 **r,
             }
         r = await ms.alocar(
