@@ -1265,6 +1265,67 @@ async def chatwoot_webhook(
                 await db.commit()
                 await _midia_para_visita_aberta(conv_id, midia)
 
+    # ⭐ 23/09/2026 — GRUPO: absorve e CALA, antes de qualquer decisão do agente.
+    #
+    # A parede mora aqui e não no prompt porque o Jordan pediu silêncio nos três grupos
+    # (Gestão, OPERACIONAL, Escritório) e o próprio agente escreveu a régua na conversa:
+    # "silêncio tem que ser regra técnica, não minha boa vontade". Em modo `observar` o
+    # agente não é NEM ENFILEIRADO — prompt se desobedece, caminho que não executa não.
+    #
+    # ⚠️ Fail-closed: grupo NÃO CADASTRADO também cala, e nem é absorvido. Alguém adicionar
+    # este número a um grupo novo não pode começar a gravar conversa de terceiro sozinho.
+    # É por isso que o RIVER PARK (grupo de cliente) fica fora, por decisão do dono.
+    _grupo_jid = None
+    if direction == "in":
+        try:
+            from modules.integrations.connectors.whatsapp import grupos as _grp  # noqa: PLC0415
+
+            _calar, _grupo_jid, _cfg = await _grp.deve_calar(db, data)
+            if _grupo_jid and _cfg:
+                _fone_autor, _nome_autor = _grp.autor_do_payload(data)
+                _ident = None
+                if _fone_autor:
+                    from modules.integrations.connectors.whatsapp.identidade import (  # noqa: PLC0415
+                        quem_e,
+                    )
+
+                    _ident = await quem_e(db, _fone_autor)
+                await _grp.absorver(
+                    db, jid=_grupo_jid, conteudo=content, chatwoot_message_id=msg_id,
+                    autor_fone=_fone_autor, autor_nome=_nome_autor, identidade=_ident)
+                # ⭐ "Pedido que muda escala vira aprovação" (Jordan, 23/09/2026). Acontece
+                # AQUI, dentro do modo observador e antes do `return`: o José Luís não
+                # responde no grupo, mas o pedido não se perde — vira rascunho inerte para
+                # o Jordan ou o Orlailson decidirem. Nada é escrito em escala.
+                try:
+                    from modules.integrations.connectors.whatsapp import (  # noqa: PLC0415
+                        supervisao as _sup,
+                    )
+
+                    _rot = _sup.classificar_pedido(content)
+                    if _rot:
+                        _r = await _sup.registrar_pedido_de_escala(
+                            db, rotulo=_rot, texto=content or "", autor_nome=_nome_autor,
+                            autor_fone=_fone_autor, ident=_ident, origem=_grupo_jid)
+                        logger.info("grupos: pedido de escala %r de %s → %s",
+                                    _rot, _nome_autor, _r.get("draft_id") or _r.get("erro"))
+                except Exception as e:  # noqa: BLE001
+                    # Falhar aqui NÃO pode derrubar a absorção nem fazer o agente falar:
+                    # o pedido perdido é ruim, o agente respondendo no grupo é pior.
+                    logger.error("grupos: pedido de escala não registrado (%s)", e)
+            if _grupo_jid and _calar:
+                # 200 para o Chatwoot do mesmo jeito: reentrega não ajuda, a mensagem já está
+                # absorvida (ou deliberadamente ignorada) e o agente não deve responder.
+                return {"status": "ok", "direction": direction, "grupo": _grupo_jid,
+                        "observador": True, "message_id": msg_id}
+        except Exception as e:  # noqa: BLE001
+            # ⚠️ Se a parede falhar, CALA para grupo. O erro seguro aqui é o silêncio: falar
+            # num grupo por falha de código é o dano que não se desfaz.
+            logger.error("grupos: parede falhou (%s) — calando por precaução", e)
+            if _grupo_jid:
+                return {"status": "ok", "direction": direction, "grupo": _grupo_jid,
+                        "observador": True, "erro_parede": str(e)[:120]}
+
     if direction == "in" and conv_id and agent_service.agent_enabled():
         # ⭐ 28/08/2026 — ERA `background_tasks.add_task(...)`, e foi assim que o Jordan
         # mandou SEIS mensagens e um PDF às 16:14 e não recebeu nada. `BackgroundTasks`
