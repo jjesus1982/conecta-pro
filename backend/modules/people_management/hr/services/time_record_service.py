@@ -196,7 +196,11 @@ class TimeRecordService:
         result = await self.db.execute(sql, params)
         rows = result.mappings().all()
 
-        records = self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
+        records = self._pair_punches(
+            rows,
+            escalas=await self._escalas_por_funcionario(rows),
+            janelas=await self._janelas_por_funcionario(rows),
+        )
         records = await self._fill_employee_names(records)
 
         # Filter by status if requested
@@ -268,7 +272,8 @@ class TimeRecordService:
             # entao pedir a batida de SAIDA nunca acharia por id: dai o `_punch_ids`.
             alvo = str(row.get("punch_id") or row.get("id", ""))
             escalas = await self._escalas_por_funcionario(day_rows)
-            for r in self._pair_punches(day_rows, manter_origem=True, escalas=escalas):
+            janelas = await self._janelas_por_funcionario(day_rows)
+            for r in self._pair_punches(day_rows, manter_origem=True, escalas=escalas, janelas=janelas):
                 if alvo in r.pop("_punch_ids", ()):
                     return r
 
@@ -980,7 +985,11 @@ class TimeRecordService:
         # Pareia na janela larga e mantem so os turnos que COMECARAM dentro do mes.
         records = [
             r
-            for r in self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
+            for r in self._pair_punches(
+                rows,
+                escalas=await self._escalas_por_funcionario(rows),
+                janelas=await self._janelas_por_funcionario(rows),
+            )
             if str(first_day) <= r["record_date"] <= str(last_day)
         ]
 
@@ -995,7 +1004,12 @@ class TimeRecordService:
         dias_trabalhados: set[str] = set()
 
         for rec in records:
-            dias_trabalhados.add(rec["record_date"])
+            # PLANTAO fechado, nao registro: a ponta solta (`inconsistencia`) e um BURACO de
+            # ponto, nao um dia trabalhado -- a mesma convencao de `parear_batidas`, que conta
+            # `batidas_orfas` a parte e nunca as transforma em dia. Sem isto o espelho dizia
+            # 21 dias onde a folha e o fechamento diziam 16 (ANILSON, 08/2026).
+            if rec.get("status") == "regular":
+                dias_trabalhados.add(rec["record_date"])
             if rec.get("total_hours"):
                 try:
                     parts = rec["total_hours"].split(":")
@@ -1103,7 +1117,11 @@ class TimeRecordService:
         # Pareia na janela larga, devolve so o dia pedido (o par pertence ao dia da entrada).
         records = [
             r
-            for r in self._pair_punches(rows, escalas=await self._escalas_por_funcionario(rows))
+            for r in self._pair_punches(
+                rows,
+                escalas=await self._escalas_por_funcionario(rows),
+                janelas=await self._janelas_por_funcionario(rows),
+            )
             if r["record_date"] == str(record_date)
         ]
         records = await self._fill_employee_names(records)
@@ -1126,6 +1144,7 @@ class TimeRecordService:
         dur: int | None,
         lunch: tuple[dict[str, Any], dict[str, Any]] | None = None,
         escala: str | None = None,
+        dia: date | None = None,
     ) -> dict[str, Any]:
         """Monta UM registro diario a partir das pontas do turno.
 
@@ -1148,9 +1167,10 @@ class TimeRecordService:
         else:
             source = "portal"
 
-        # O par pertence ao dia da ENTRADA (mesma convencao de horas_service.parear_batidas):
-        # senao o turno da virada seria contado nos dois dias.
-        dia = (clock_in or clock_out).date()
+        # O turno pertence ao dia do PLANTAO -- a regua unica de `horas_service.dia_do_plantao`
+        # (DGX V1/W1/X4). Sem `dia` calculado pelo chamador vale o dia civil da entrada, que e
+        # o que este metodo fazia sempre e continua valendo para o diurno.
+        dia = dia or (clock_in or clock_out).date()
         # DECISAO Jordan 2026-08-06: escala 12x36 NAO gera hora extra -- a CCT compensa o
         # plantao por escala, nao por sobrejornada. As 4h alem das 8h de referencia sao a
         # natureza do plantao, nao trabalho extraordinario. As HORAS trabalhadas continuam
@@ -1196,6 +1216,7 @@ class TimeRecordService:
         *,
         manter_origem: bool = False,
         escalas: dict[str, str] | None = None,
+        janelas: dict[str, list] | None = None,
     ) -> list[dict[str, Any]]:
         """Emparelha batidas por funcionario, com DIRECAO.
 
@@ -1222,10 +1243,20 @@ class TimeRecordService:
         registro consumiu). So o get_by_id usa: os registros sao chaveados pela batida de
         ENTRADA, entao pedir a batida de SAIDA nao acharia registro por id. A chave e
         removida por padrao para nunca vazar no contrato da API.
+
+        `janelas` mapeia employee_id -> janelas de turno (`horas_service.janelas_de_turno`) e
+        fecha a regua UNICA «um plantao e UM dia» (DGX V1/W1/X4). Sem ela, o 12x36 noturno com
+        intervalo (19:00 -> 02:00 · 03:00 -> 07:00) datava o segmento pos-meia-noite no dia
+        SEGUINTE quando os dois pares nao se fundiam -- e a tela de ponto mostrava dois
+        plantoes onde houve um, contra o que a folha e o fechamento contam. Quem chama sem
+        `janelas` continua no dia civil da entrada, que e o que o diurno sempre teve.
         """
         from collections import defaultdict
 
-        from modules.people_management.ponto.services.horas_service import MAX_TURNO_H
+        from modules.people_management.ponto.services.horas_service import (
+            MAX_TURNO_H,
+            dia_do_plantao,
+        )
 
         # Agrupar SO por funcionario -- o dia sai do par, nao da batida solta.
         por_emp: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1240,6 +1271,7 @@ class TimeRecordService:
             return str(p.get("punch_id") or p.get("id", ""))
 
         _esc = escalas or {}
+        _jan = janelas or {}
 
         def _emite(reg: dict[str, Any], *consumidas: dict[str, Any]) -> None:
             reg["_punch_ids"] = {_pid(x) for x in consumidas}
@@ -1249,6 +1281,11 @@ class TimeRecordService:
             punches.sort(key=lambda p: p["punch_timestamp"])
             n = len(punches)
             i = 0
+            # (saida do turno anterior, dia atribuido a ele) -- a continuidade de
+            # `dia_do_plantao` quando NAO ha turno lancado que cubra a batida.
+            ultimo: tuple[datetime, date] | None = None
+            jan_emp = _jan.get(emp_id, [])
+
             while i < n:
                 a = punches[i]
                 tipo_a = str(a.get("punch_type", "")).lower()
@@ -1256,12 +1293,34 @@ class TimeRecordService:
                 # DIRECAO: uma saida nunca abre turno. E a ponta final de um turno que
                 # comecou antes desta janela -> registro parcial, nao par.
                 if tipo_a == "saida":
-                    _emite(self._registro(emp_id, None, a, None, escala=_esc.get(emp_id)), a)
+                    # ponta final de um turno que comecou antes: o dia dela e o do plantao
+                    # que a continuidade aponta -- nunca um dia trabalhado novo.
+                    _emite(
+                        self._registro(
+                            emp_id,
+                            None,
+                            a,
+                            None,
+                            escala=_esc.get(emp_id),
+                            dia=dia_do_plantao(a["punch_timestamp"], jan_emp, ultimo),
+                        ),
+                        a,
+                    )
                     i += 1
                     continue
 
                 if i + 1 >= n:
-                    _emite(self._registro(emp_id, a, None, None, escala=_esc.get(emp_id)), a)
+                    _emite(
+                        self._registro(
+                            emp_id,
+                            a,
+                            None,
+                            None,
+                            escala=_esc.get(emp_id),
+                            dia=dia_do_plantao(a["punch_timestamp"], jan_emp, ultimo),
+                        ),
+                        a,
+                    )
                     break
 
                 b = punches[i + 1]
@@ -1301,24 +1360,40 @@ class TimeRecordService:
                         and 0 < bruto <= teto
                         and str(c.get("punch_type", "")).lower() != "saida"
                     ):
+                        _d = dia_do_plantao(a["punch_timestamp"], jan_emp, ultimo)
                         _emite(
-                            self._registro(emp_id, a, d, bruto - intervalo, lunch=(b, c), escala=_esc.get(emp_id)),
+                            self._registro(
+                                emp_id, a, d, bruto - intervalo, lunch=(b, c), escala=_esc.get(emp_id), dia=_d
+                            ),
                             a,
                             b,
                             c,
                             d,
                         )
+                        ultimo = (d["punch_timestamp"], _d)
                         i += 4
                         continue
 
                 dur = _calc_minutes_between(a["punch_timestamp"], b["punch_timestamp"])
                 if not (0 < dur <= teto):
                     # Sem turno plausivel: `a` fica orfa e avanca UMA posicao.
-                    _emite(self._registro(emp_id, a, None, None, escala=_esc.get(emp_id)), a)
+                    _emite(
+                        self._registro(
+                            emp_id,
+                            a,
+                            None,
+                            None,
+                            escala=_esc.get(emp_id),
+                            dia=dia_do_plantao(a["punch_timestamp"], jan_emp, ultimo),
+                        ),
+                        a,
+                    )
                     i += 1
                     continue
 
-                _emite(self._registro(emp_id, a, b, dur, escala=_esc.get(emp_id)), a, b)
+                _d = dia_do_plantao(a["punch_timestamp"], jan_emp, ultimo)
+                _emite(self._registro(emp_id, a, b, dur, escala=_esc.get(emp_id), dia=_d), a, b)
+                ultimo = (b["punch_timestamp"], _d)
                 i += 2
 
         records.sort(key=lambda r: r["record_date"], reverse=True)
@@ -1371,6 +1446,37 @@ class TimeRecordService:
         except Exception:  # noqa: BLE001 — tela de ponto nao cai por causa da escala
             logger.warning("Nao foi possivel resolver escala_padrao; tratando como 12x36")
             return {}
+
+    async def _janelas_por_funcionario(self, rows: list[Any]) -> dict[str, list]:
+        """Janelas de turno (`horas_service.janelas_de_turno`) de quem aparece nas batidas.
+
+        E a regua UNICA «um plantao e UM dia» (DGX V1/W1) chegando ao terceiro pareador da
+        casa. Uma consulta por funcionario, na janela das proprias batidas +-1 dia; mesma
+        fonte (`shifts`) e mesma tolerancia que a folha e o fechamento usam. Falha em
+        silencio devolvendo {} -- sem janela o pareador volta ao dia civil da entrada, que
+        e o comportamento anterior e nunca piora nada.
+        """
+        from modules.people_management.ponto.services.horas_service import (
+            SQL_TURNOS_JANELA,
+            janelas_de_turno,
+        )
+
+        ids = {str(r["employee_id"]) for r in rows if r.get("employee_id") is not None}
+        datas = [r["punch_timestamp"] for r in rows if r.get("punch_timestamp") is not None]
+        if not ids or not datas:
+            return {}
+        ini = min(datas).date() - timedelta(days=1)
+        fim = max(datas).date() + timedelta(days=1)
+        out: dict[str, list] = {}
+        try:
+            for eid in ids:
+                turnos = (await self.db.execute(SQL_TURNOS_JANELA, {"e": eid, "ini": ini, "fim": fim})).fetchall()
+                if turnos:
+                    out[eid] = janelas_de_turno(turnos)
+        except Exception:  # noqa: BLE001 — tela de ponto nao cai por causa da escala
+            logger.warning("Nao foi possivel resolver as janelas de turno; dia civil da entrada")
+            return {}
+        return out
 
     async def _get_employee_name(self, employee_id: str) -> str | None:
         """Busca nome do funcionario por ID."""
