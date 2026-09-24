@@ -151,3 +151,49 @@ orquestrador com compilação + ruff + trava de porta + oráculo da frente + or�
 dois arquivos de plug (`departamento_pessoal.py`, `_dp_grupos.py`) e triviais (ambos os lados
 somam). O que custou tempo: o container efêmero morrendo no boot por `/app/logs` (3 vezes) — está
 no contrato agora.
+
+---
+
+# Rodada 2 (24/09, manhã) — o DGX testado por dentro, botão a botão
+
+**Pergunta do Jordan:** *"tem alguma coisa a mais no DGX que não tem no nosso? testou todas as telas? botões? funções? recursos?"* Resposta honesta de manhã: não, eu tinha lido o DGX, não exercitado. Então: *"pode começar, testa tudo e implementa o que faltar."*
+
+## 9. Como foi feito
+
+Cinco agentes, cada um com navegador próprio no trial do DGX (`scripts/dgx/dgx_client.py`), criaram dado de teste `TESTE CP` lá (colaborador compartilhado **TESTE CP COLABORADOR 01**, RE TCP01, fica no trial), percorreram cada tela e fluxo do seu grupo registrando o que cada botão FAZ, compararam cavando o nosso código, commitaram a lista de lacunas **antes** de implementar, e implementaram o que vale (alto/médio valor, esforço P/M). Listas: `docs/dgx/lacunas/*.md`. Relatórios: `auditoria/frentes/DGX_T1..T5_*.md`.
+
+**Limite do trial:** o motor de cálculo de ponto do DGX (`Digiexpress.CalculoPonto`) não está provisionado — cartão de ponto, banco de horas e «Calcular» falham na própria tela deles. Os apps de celular não puderam ser instalados.
+
+## 10. O que a passagem achou e o que entrou (bake 18)
+
+| Grupo | Recursos vistos | Já tínhamos | Implementado agora | Fica (G / baixo / não se aplica) |
+|---|---|---|---|---|
+| DP/RH | 24 | 10 (ontem) | **foto do colaborador** (individual + ZIP em lote; crachá sai com foto), ficha em 15 seções, certificados por vencimento, turnover, atributos do cargo (CBO, exige CNH/CNV/porte), termo disciplinar PDF, férias travadas por afastamento aberto + registrar retorno | recibo/conta de férias, entrega com apuração configurável, suspensão descontando na folha |
+| Ponto | 14 | maioria | **integração de batimentos** (arquivo AFD 1510/671 → batidas com chave idempotente, «só validar»), **fechamento de competência como trava única** (ajuste/lançamento em mês fechado → 409; reabrir com motivo e trilha) | cartão/banco de horas do DGX não puderam ser vistos |
+| Operacional + Comercial | 20 | 2 | **vagas do contrato** como entidade (função × escala × turno × qtd × salário), custo por vaga, **restrições do cliente** que recusam movimentação, **Cobrir/Alocar por linha no grid**, grid e mapa de ponto com aba, painel de alertas (393 vivos em 20 regras), Visualizado/Finalizar no livro, copiar contrato, visitas por cliente | movimentação em 2 passos, supervisão planejada com frequência |
+| Faturamento + Financeiro | 24 | 11 | cobrança por e-mail lendo os parâmetros, **importar OFX** (o parser existia sem rota), agenda de caixa por dia, comissão fechada vira conta a pagar, recebível proporcional (cego) | CNAB (temos API do Inter, melhor), calendário visual |
+| Suprimentos/Frotas/SESMT/Config | 16 | 7 | **log do sistema** como tela, solicitação de material (posto pede, almoxarifado atende, baixa estoque), exames do ASO com validade, **acessos temporários** (papel + expiração, expiram e revogam sozinhos, nunca Financeiro) | permissão por tela/ação (G) |
+
+Oráculos novos: `dgx_t1_dp` · `integracao_batimentos` · `t3_operacional_comercial` · `t4_faturamento_financeiro` · `t5_log_materiais_exames_acessos` · `mailer_sandbox`. Trava de porta: 17 → 15 (grid e mapa de ponto ganharam aba).
+
+## 11. INCIDENTE — um e-mail real saiu do sandbox
+
+O teste HTTP da ação de cobrança por e-mail (T4), rodando no container efêmero com banco de staging mas o `.env` de **produção**, enviou de verdade **um** lembrete de cobrança para `presidencia@chacaramaiapolis.com.br` (fatura R$ 23.160,00 vencida em 09/09). A ação em si está certa (só dispara por clique humano); o erro foi o ambiente de teste herdar o SMTP real.
+
+Feito na hora: a receita do container efêmero zera `SMTP_HOST/USERNAME/PASSWORD` (cobre os 7 remetentes do backend) e `core/mailer.py` recusa destinatário fora de `@conectamais.pro` quando o banco é staging/sandbox, com oráculo. **Decisão sua:** avisar o cliente que o lembrete foi automático, ou deixar (a fatura está mesmo vencida).
+
+## 12. Decisões novas que só você toma (além das 25 da noite)
+
+26. **Suspensão desconta na folha?** (DGX liga a um evento). Dinheiro.
+27. **15 desligados sem data de demissão** — o turnover fica cego a eles.
+28. **Foto obrigatória na admissão?** Agora existe upload; entrar em «cadastro incompleto»?
+29. **Trava de mês fechado também na batida do app e na justificativa?** Hoje só no DP.
+30. **Reimportar o histórico do Tangerino** por AFD (6.621 batidas, meses já homologados).
+31. **Mirante das Flores e Villa dos Pássaros têm 2 contratos vivos cada** — qual posto serve qual (senão calculado × faturado soma os dois).
+32. **5 postos da Conecta Village apontam para contrato inexistente.**
+33. **Salário base por vaga**: nenhum preenchido — «custo por contrato» mostra R$ 0.
+34. **295 leads sem contato** afogam o painel de alertas; **19 de 29 clientes sem visita há 30+ dias**.
+35. **Cobrança por e-mail automática** (beat) ou só por clique? Hoje clique, de propósito.
+36. **Recebível proporcional por dias**: ligar (`fiscal.nfse_valor_proporcional_dias` = 30)?
+37. **Acesso temporário com Financeiro** para o contador? Hoje proibido.
+38. **Permissão por tela/ação** como o DGX (frente G) ou seguir por módulo.
