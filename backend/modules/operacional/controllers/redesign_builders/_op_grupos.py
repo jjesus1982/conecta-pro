@@ -9,7 +9,9 @@ GRUPOS = [
         ("visao", "Resumo"), ("kpi", "KPIs"), ("cobertura", "Cobertura"),
         ("cobertura-risco", "Cobertura em risco"), ("mapa", "Mapa"),
         ("campo", "Campo"), ("triagem", "Triagem"), ("relatorios", "Relatórios"),
-        ("consultor", "Consultor IA"), ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
+        ("consultor", "Consultor IA"), ("consultor-op", "Consultor operacional"),  # dgx u3
+        ("consultor-op-arquivo", "Consultor operacional · anexo"),  # dgx u3
+        ("agentes", "Agentes"), ("ai-command-center", "AI Command")]),
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
         ("escalas-mes", "Escalas do mês"), ("grade-redesenhar", "Redesenhar grade"),
         ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"),
@@ -23,7 +25,8 @@ GRUPOS = [
         ("registrar-falta", "Registrar falta"),
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
         ("escalas-rascunho", "Escalas em rascunho"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template"),
-        ("coberturas", "Coberturas"), ("cobertura-nova", "Nova cobertura")]),  # dgx f8
+        ("coberturas", "Coberturas"), ("cobertura-nova", "Nova cobertura"),  # dgx f8
+        ("otimizar-escala", "Otimizar escala (dia)"), ("otimizar-escala-mes", "Otimizar escala (mês)")]),  # dgx u3 — só sugere, não grava
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
         ("gerente-hoje", "Onde está o gerente"), ("gerente-checkin", "Cheguei no posto"), ("gerente-checkout", "Saí do posto"),
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),

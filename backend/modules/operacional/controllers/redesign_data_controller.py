@@ -1127,13 +1127,13 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             ],
         ),
     )
-    # Registrar conta a pagar (FORM com ESCRITA real → POST /redesign/action/payable) — REGISTRO, não pagamento
+    # Registrar conta a pagar (FORM com ESCRITA real → POST /redesign/action/payable-condicao, F11) — REGISTRO, não pagamento
     out["registrar-conta-pagar"] = {
         "title": "Registrar conta a pagar",
         "sub": "Lançar uma conta a pagar (registro — o pagamento é sempre com OTP)",
         "cta": "Registrar",
         "type": "form",
-        "submit": {"endpoint": "/api/v1/redesign/action/payable", "okMsg": "Conta a pagar registrada"},
+        "submit": {"endpoint": "/api/v1/redesign/action/payable-condicao", "okMsg": "Conta a pagar registrada"},  # dgx u3
         "fields": [
             {
                 "key": "description",
@@ -1154,13 +1154,13 @@ async def _build_financeiro(db: AsyncSession) -> dict:
             {"key": "notes", "label": "Observações", "type": "textarea", "span": "span 2", "ph": "Opcional…"},
         ],
     }
-    # Registrar conta a receber (ESCRITA real → POST /redesign/action/receivable) — REGISTRO, não recebimento
+    # Registrar conta a receber (ESCRITA real → POST /redesign/action/receivable-condicao, F11) — REGISTRO, não recebimento
     out["registrar-conta-receber"] = {
         "title": "Registrar conta a receber",
         "sub": "Lançar uma conta a receber (registro — não gera boleto/PIX)",
         "cta": "Registrar",
         "type": "form",
-        "submit": {"endpoint": "/api/v1/redesign/action/receivable", "okMsg": "Conta a receber registrada"},
+        "submit": {"endpoint": "/api/v1/redesign/action/receivable-condicao", "okMsg": "Conta a receber registrada"},  # dgx u3
         "fields": [
             {
                 "key": "description",
@@ -5038,8 +5038,19 @@ async def _build_meu_espaco(db: AsyncSession, current_user=None) -> dict:
         "title": "Notificações",
         "sub": f"{len(nrows)} notificações",
         "cta": "Marcar lidas",
+        "ctaTo": "notificacoes-marcar-todas",  # dgx u3 — o botão existia e não levava a nada
         "type": "list",
         "items": nitems,
+    }
+    # dgx u3: veio do operacional (lá era tela sem porta e as notificações não vivem lá).
+    # A rota é a mesma de sempre (operacional.py: rd_action_notif_marcar_todas) — marca as do usuário logado.
+    out["notificacoes-marcar-todas"] = {
+        "title": "Marcar notificações como lidas",
+        "sub": f"Marca TODAS as suas {len(nrows)} notificações como lidas",
+        "cta": "Marcar todas",
+        "type": "form",
+        "submit": {"endpoint": "/api/v1/redesign/action/notificacoes-marcar-todas", "okMsg": "Notificações marcadas como lidas"},
+        "fields": [],
     }
     # ── LIGAR (revisão 08/09/2026): ouvidoria, meus dados e assinaturas pendentes existiam só por API ──
     _SS = "/api/v1/people-management/portal/self-service"
@@ -6402,7 +6413,10 @@ async def rd_action_substituir(
     }
 
 
-@router.post("/action/payable", dependencies=[Depends(require_permission("module:financeiro"))])
+# dgx u3 (24/09/2026): a rota HTTP /action/payable saiu — desde a F11 os forms postam em
+# /action/payable-condicao (`_dgx_f11_financeiro._conta_com_condicao`, que sem condição faz
+# exatamente isto: 1 título). Nenhuma tela, MCP ou teste chamava a rota (grep 24/09). A FUNÇÃO
+# fica porque `_dgx_f10_frotas` a chama por import (locação → título em contas a pagar).
 async def rd_action_payable(
     current_user: CurrentActiveUser,
     payload: dict = Body(...),
@@ -6448,47 +6462,8 @@ async def rd_action_payable(
     return {"ok": True, "id": str(account.id), "message": "Conta a pagar registrada (não paga — pagamento é com OTP)"}
 
 
-@router.post("/action/receivable", dependencies=[Depends(require_permission("module:financeiro"))])
-async def rd_action_receivable(
-    current_user: CurrentActiveUser,
-    payload: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    # REGISTRO de conta a receber (não gera boleto/PIX). Gate financeiro.
-    import uuid as _uuid
-    from datetime import date as _date
-    from decimal import Decimal, InvalidOperation
-
-    from modules.financial.schemas.receivable import ReceivableAccountCreate
-    from modules.financial.services.receivable_service import ReceivableService
-
-    desc = (payload.get("description") or "").strip()
-    if len(desc) < 3:
-        raise HTTPException(status_code=400, detail="Descrição (mínimo 3 caracteres).")
-    try:
-        valor = Decimal(_brl_norm(str(payload.get("valor") or "0")))
-    except (InvalidOperation, ValueError):
-        raise HTTPException(status_code=400, detail="Valor inválido.")
-    if valor <= 0:
-        raise HTTPException(status_code=400, detail="O valor deve ser maior que zero.")
-    try:
-        due = _date.fromisoformat((payload.get("due_date") or "").strip())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Vencimento inválido.")
-    # customer_name é texto livre (todos os receivables usam assim; customer_id FK→customers, não clients)
-    try:
-        data = ReceivableAccountCreate(
-            condominio_id=_uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
-            description=desc,
-            gross_value=valor,
-            due_date=due,
-            customer_name=(payload.get("customer_name") or "").strip() or None,
-            notes=(payload.get("notes") or "").strip() or None,
-        )
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Dados inválidos: {e}")
-    account = await ReceivableService(db).create_account(data, current_user.id)
-    return {"ok": True, "id": str(account.id), "message": "Conta a receber registrada"}
+# dgx u3 (24/09/2026): /action/receivable e rd_action_receivable removidos — mesmo motivo do payable
+# acima; o caminho vivo é /action/receivable-condicao (F11). Sem chamador em front, MCP ou testes.
 
 
 @router.post("/action/epi-delivery")

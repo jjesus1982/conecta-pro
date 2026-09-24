@@ -44,7 +44,8 @@ GRUPOS = [
         ("revisar-justificativa", "Revisar justificativas"), ("espelho-solicitar-homologacao", "Espelho: solicitar homologação"),
         # AFD/AEJ (Portaria 671): existiam no banco e em nenhuma tela — o documento que a
         # fiscalização pede primeiro era invisível no sistema (medido em 14/09/2026).
-        ("afd", "AFD — arquivo fiscal"), ("justificar-ponto", "Justificar falta/atraso"),
+        ("afd", "AFD — arquivo fiscal"), ("rep-p-instrumento", "Instrumento legal (INPI/atestado)"),  # dgx u3
+        ("justificar-ponto", "Justificar falta/atraso"),
         # dgx f7 (24/09/2026): montadas DEPOIS de montar_grupos por `_dgx_f7_ponto.telas(db, out)`,
         # que as anexa ao fim deste grupo; listadas aqui para a composição do grupo ficar num lugar só.
         ("ponto-configuracoes", "Configurações de ponto"), ("ponto-configuracao-nova", "Nova configuração"),
@@ -72,7 +73,8 @@ GRUPOS = [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),
         ("saldo-ferias", "Saldo"), ("calcular-ferias", "Calcular (CLT)"),
         ("aviso-ferias", "Aviso prévio de férias"), ("sync-ferias-solides", "Sincronizar Sólides"),
-        ("licencas", "Licenças"), ("nova-licenca", "Registrar afastamento")]),
+        ("licencas", "Licenças"), ("nova-licenca", "Registrar afastamento"),
+        ("mapa-ferias", "Mapa de férias (risco de dobra)")]),  # dgx u3 — frente 08, montada antes de montar_grupos
 
     # dgx f2 — CCT como dado: sindicato → funções → eventos/benefícios por função → municípios.
     ("g-cct", "Sindicato & CCT", "Sindicato, funções da convenção, eventos e benefícios por função, municípios", [

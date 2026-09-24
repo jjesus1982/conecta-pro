@@ -1506,12 +1506,8 @@ async def build(db) -> dict:
                 {"key": "motivo", "label": "Motivo (se cancelar)", "type": "text", "span": "span 1", "ph": "Opcional"},
             ],
         }
-        # ── 3 edge-actions ligadas 2026-08-04 (marcar-todas notif · checkin manual · localização posto) ──
-        out["notificacoes-marcar-todas"] = {
-            "title": "Marcar notificações como lidas", "sub": "Marca TODAS as suas notificações como lidas", "cta": "Marcar todas",
-            "type": "form", "submit": {"endpoint": "/api/v1/redesign/action/notificacoes-marcar-todas", "okMsg": "Notificações marcadas como lidas"},
-            "fields": [],
-        }
+        # ── edge-actions ligadas 2026-08-04 (checkin manual · localização posto). "Marcar notificações
+        # como lidas" mudou para o meu-espaço (dgx u3): a tela de notificações vive lá, a ação idem.
         _shifts_hoje = (await db.execute(_sqltext(
             "SELECT s.id, coalesce(e.nome,'—') || coalesce(' · '||to_char(s.planned_start_time,'HH24:MI'),'') "
             "FROM shifts s LEFT JOIN employees e ON e.id=s.employee_id "
@@ -2300,44 +2296,6 @@ async def build(db) -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("[operacional] telas de gerente falharam: %s", exc)
 
-    try:
-        from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
-        _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
-        _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
-        await _ligar_20260908_op(db, out, tbl)  # ANTES de montar_grupos: a aba só nasce se a tela já existir
-        from ._dgx_f5_movimentacoes import telas as _telas_f5  # dgx f5
-        await _telas_f5(db, out)  # dgx f5 — ANTES de montar_grupos (abas em _op_grupos)
-        from ._dgx_f8_operacional import telas as _telas_f8  # dgx f8
-
-        await _telas_f8(db, out)  # dgx f8 — coberturas, livro, checklist, chamados, avisos
-        # dgx t3 — grid/mapa (frente 04) ANTES de montar_grupos: eram órfãos do menu porque
-        # nasciam depois da navegação; e as telas T3 penduram ação nas linhas do grid.
-        from ._frente_04 import telas as _telas_04  # frente 04
-
-        out.update(await _telas_04(db))
-        from ._dgx_t3_operacional_comercial import telas as _telas_t3  # dgx t3
-
-        await _telas_t3(db, out)  # dgx t3 — vagas do contrato, restrições, grid com ação, painel de alertas
-        from ._dgx_u1_movimentacao_supervisao import telas as _telas_u1  # dgx u1
-
-        await _telas_u1(db, out)  # dgx u1 — supervisão planejada (planos, mapa, hoje)
-        from ._dgx_u4_rondas_chamados import telas as _telas_u4  # dgx u4
-
-        await _telas_u4(db, out)  # dgx u4 — modelos/alertas/mapa de ronda, pânicos, setores (+ setor no chamado-novo)
-        montar_grupos(out)
-        # dgx t3: os oráculos da frente 04 (grid × triagem, mapa 5 estados) leem `_meta`/`rows` no id
-        # raiz. Grid/mapa agora são abas de g-postos, mas o id raiz continua entregando a tela inteira
-        # (não o stub de redirect) — deep-link antigo e oráculos seguem iguais; custo: 2 telas repetidas.
-        for _tid in ("mapa-de-ponto", "grid-real-contratual"):
-            _full = next((tb["screen"] for tb in out.get("g-postos", {}).get("tabs", []) if tb["id"] == _tid), None)
-            if _full:
-                out[_tid] = _full
-    except Exception as e:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
-        # Mas NÃO em silêncio: um NameError aqui (um acento numa f-string) deixou o módulo
-        # inteiro em "Aguardando dado" — HTTP 200, 1.3MB de payload, zero pista no log.
-        # Sem os grupos g-*, o frontend não monta a navegação e a tela parece vazia.
-        logger.error("operacional: navegação NÃO montada (telas ficam soltas): %s", e, exc_info=True)
-
     # ── Consultor operacional (2026-08-10) ─────────────────────────────────────────
     # SÓ os dois consultores. As outras 8 rotas órfãs deste módulo (allocations/bulk,
     # shifts/bulk, alocar/desalocar diarista, scales/reject, scale-optimizer) mexem em
@@ -2410,6 +2368,46 @@ async def build(db) -> dict:
         ],
     }
     # tela diarista-alocar aposentada 08/09/2026 (gravava em diarist_assignments, universo morto)
+
+    # dgx u3: navegação DEPOIS dos forms consultor-op(-arquivo)/otimizar-escala(-mes) — eram órfãos
+    # por nascerem depois de montar_grupos; agora são abas de g-visao / g-escalas (_op_grupos).
+    try:
+        from modules.operacional.controllers.redesign_builders._op_grupos import montar_grupos
+        _aplicar_drill(out)   # KPIs clicáveis ANTES de agrupar (dashboards viram abas depois)
+        _ver_todas(out)       # clique-na-linha (Ver) em toda tabela
+        await _ligar_20260908_op(db, out, tbl)  # ANTES de montar_grupos: a aba só nasce se a tela já existir
+        from ._dgx_f5_movimentacoes import telas as _telas_f5  # dgx f5
+        await _telas_f5(db, out)  # dgx f5 — ANTES de montar_grupos (abas em _op_grupos)
+        from ._dgx_f8_operacional import telas as _telas_f8  # dgx f8
+
+        await _telas_f8(db, out)  # dgx f8 — coberturas, livro, checklist, chamados, avisos
+        # dgx t3 — grid/mapa (frente 04) ANTES de montar_grupos: eram órfãos do menu porque
+        # nasciam depois da navegação; e as telas T3 penduram ação nas linhas do grid.
+        from ._frente_04 import telas as _telas_04  # frente 04
+
+        out.update(await _telas_04(db))
+        from ._dgx_t3_operacional_comercial import telas as _telas_t3  # dgx t3
+
+        await _telas_t3(db, out)  # dgx t3 — vagas do contrato, restrições, grid com ação, painel de alertas
+        from ._dgx_u1_movimentacao_supervisao import telas as _telas_u1  # dgx u1
+
+        await _telas_u1(db, out)  # dgx u1 — supervisão planejada (planos, mapa, hoje)
+        from ._dgx_u4_rondas_chamados import telas as _telas_u4  # dgx u4
+
+        await _telas_u4(db, out)  # dgx u4 — modelos/alertas/mapa de ronda, pânicos, setores (+ setor no chamado-novo)
+        montar_grupos(out)
+        # dgx t3: os oráculos da frente 04 (grid × triagem, mapa 5 estados) leem `_meta`/`rows` no id
+        # raiz. Grid/mapa agora são abas de g-postos, mas o id raiz continua entregando a tela inteira
+        # (não o stub de redirect) — deep-link antigo e oráculos seguem iguais; custo: 2 telas repetidas.
+        for _tid in ("mapa-de-ponto", "grid-real-contratual"):
+            _full = next((tb["screen"] for tb in out.get("g-postos", {}).get("tabs", []) if tb["id"] == _tid), None)
+            if _full:
+                out[_tid] = _full
+    except Exception as e:  # noqa: BLE001 — nunca derruba o módulo por causa da navegação
+        # Mas NÃO em silêncio: um NameError aqui (um acento numa f-string) deixou o módulo
+        # inteiro em "Aguardando dado" — HTTP 200, 1.3MB de payload, zero pista no log.
+        # Sem os grupos g-*, o frontend não monta a navegação e a tela parece vazia.
+        logger.error("operacional: navegação NÃO montada (telas ficam soltas): %s", e, exc_info=True)
 
     if "grid-real-contratual" not in out:  # dgx t3: normalmente já montado antes da navegação; aqui só se aquele bloco falhou
         from ._frente_04 import telas as _telas_04  # frente 04

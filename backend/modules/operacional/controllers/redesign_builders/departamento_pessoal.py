@@ -4852,6 +4852,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_f12_sesmt_demandas_comercial import ligar_aso_form as _ligar_aso_f12  # dgx f12
 
     await _ligar_aso_f12(db, out)  # dgx f12 — renovar-aso com médico/exames dos cadastros (antes de montar_grupos)
+    from ._frente_08 import telas as _telas_08  # frente 08
+
+    out.update(await _telas_08(db))  # frente 08 — ANTES de montar_grupos: aba em g-ferias (dgx u3)
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 
@@ -4860,9 +4863,6 @@ async def build(db, current_user=None) -> dict:
 
     out.update(await _telas_dgx_f3(db, out))  # dgx f3 — tipos/linhas de benefício em g-beneficios
 
-    from ._frente_08 import telas as _telas_08  # frente 08
-
-    out.update(await _telas_08(db))  # frente 08
 
     from ._dgx_f7_ponto import telas as _telas_f7  # dgx f7
 

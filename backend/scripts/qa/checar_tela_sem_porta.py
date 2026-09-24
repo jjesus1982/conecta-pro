@@ -28,6 +28,18 @@ postura do `checar_contrato_front_back`. Roda no HOST porque precisa da API e do
 de menu do frontend ao mesmo tempo.
 
     python3 backend/scripts/qa/checar_tela_sem_porta.py
+    QA_API=http://127.0.0.1:8233 QA_CONTAINER=teste-dgx-u3 QA_RAIZ=$WT python3 ...   # container efêmero
+
+Portas (o que o `ModuleView.tsx` de fato desenha): item do menu do pacote, item do
+`extraMenu`, aba de grupo (`type: tabs`), e — desde 24/09/2026 (dgx u3) — `ctaTo` de uma
+tela de topo com `cta`: o botão do cabeçalho leva à tela-alvo (`ModuleView.tsx:1315`, só
+quando `screens[ctaTo]` existe). Sem contar o `ctaTo`, os 4 forms do marketing apareciam
+órfãos há semanas, com botão «Nova campanha» na tela-mãe. Dentro de ABA o front não lê
+`ctaTo`, por isso a mãe precisa ser tela de topo, não aba.
+
+As funções puras (`telas_sem_porta`, `acoes_orfas`, ...) são importadas pelo oráculo
+`scripts/orq/test_oraculo_toda_tela_tem_porta.py`, que aplica a MESMA régua ao app
+importado (sem produção) — regra, não fotografia.
 
 Linha canônica: `TOTAL: <n> sem porta` (binária: n = 0). Exit 1 quando há achado.
 """
@@ -46,6 +58,8 @@ from pathlib import Path
 API = os.environ.get("QA_API", "http://127.0.0.1:8080")
 RAIZ = Path(os.environ.get("QA_RAIZ", "/opt/conecta-pro"))
 MENUS = RAIZ / "frontend/src/app/redesign/_modules"
+#: de onde ler as rotas /redesign/action/* — o container que serve QA_API (efêmero: teste-dgx-uN)
+CONTAINER = os.environ.get("QA_CONTAINER", "conecta-pro-backend")
 
 #: Telas que existem para serem alcançadas por OUTRA tela, nunca pelo menu. Sem esta
 #: lista o caçador vira ruído — e trava que grita à toa ninguém lê.
@@ -74,9 +88,9 @@ def _get(caminho: str, token: str) -> dict:
         return json.loads(r.read())
 
 
-def _portas_do_menu(slug: str) -> set[str]:
+def portas_do_menu(menus: Path, slug: str) -> set[str]:
     """Itens do menu que o FRONT desenha para este módulo."""
-    arq = MENUS / f"{slug}.json"
+    arq = menus / f"{slug}.json"
     if not arq.exists():
         return set()
     try:
@@ -96,7 +110,7 @@ def _acoes_do_router() -> set[str]:
         "                        if '/redesign/action/' in getattr(r,'path','')]))"
     )
     r = subprocess.run(  # noqa: S603
-        ["/usr/bin/docker", "exec", "-e", "PYTHONPATH=/app", "conecta-pro-backend", "python3", "-c", sonda],
+        ["/usr/bin/docker", "exec", "-e", "PYTHONPATH=/app", CONTAINER, "python3", "-c", sonda],
         capture_output=True,
         timeout=300,
         check=False,
@@ -105,6 +119,79 @@ def _acoes_do_router() -> set[str]:
         if ln.startswith("@@"):
             return {p.split("/redesign/action/")[-1] for p in json.loads(ln[2:])}
     return set()
+
+
+def telas_sem_porta(telas: dict, raiz: set[str]) -> list[str]:
+    """Ids de tela servida e sem porta. `raiz` = ids do menu do pacote + extraMenu (telas de TOPO).
+    Porta também é: aba de grupo; `ctaTo` de tela de topo com `cta` (transitivo — a tela-alvo vira
+    tela de topo quando o botão leva até ela, e pode ter o seu próprio `ctaTo`)."""
+    raiz = set(raiz)
+    mudou = True
+    while mudou:
+        mudou = False
+        for tid, tela in telas.items():
+            if tid not in raiz or not isinstance(tela, dict) or not tela.get("cta"):
+                continue
+            alvo = tela.get("ctaTo")
+            if isinstance(alvo, str) and alvo in telas and alvo not in raiz:
+                raiz.add(alvo)
+                mudou = True
+    portas = set(raiz)
+    for tela in telas.values():
+        if isinstance(tela, dict) and tela.get("type") == "tabs":
+            portas |= {ab.get("id") for ab in (tela.get("tabs") or []) if isinstance(ab, dict)}
+    return [
+        tid
+        for tid, tela in telas.items()
+        if tid not in portas
+        # stub de deep-link antigo: existe para redirecionar, não para ser aberto
+        and not (isinstance(tela, dict) and tela.get("type") == "redirect")
+    ]
+
+
+def colhe_endpoints(o: object, achados: set[str]) -> None:
+    """Todo `submit.endpoint` /redesign/action/X presente no payload → X entra em `achados`."""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == "endpoint" and isinstance(v, str) and "/redesign/action/" in v:
+                achados.add(v.split("/redesign/action/")[-1].split("?")[0])
+            else:
+                colhe_endpoints(v, achados)
+    elif isinstance(o, list):
+        for x in o:
+            colhe_endpoints(x, achados)
+
+
+def fonte_builders(modules_dir: Path) -> str:
+    """Fonte concatenado de todo redesign_builders/*.py — CÓDIGO também conta como chamador (ver main)."""
+    fonte = ""
+    for arq in modules_dir.rglob("redesign_builders/*.py"):
+        try:
+            fonte += arq.read_text(encoding="utf8")
+        except OSError:
+            continue
+    return fonte
+
+
+def acoes_orfas(acoes: set[str], endpoints_chamados: set[str], fonte: str) -> list[str]:
+    """Rotas /redesign/action/* que nenhuma tela (payload) nem builder (fonte) chama."""
+    import re as _re
+
+    chamados = set(endpoints_chamados)
+    chamados |= {m.group(1) for m in _re.finditer(r"/redesign/action/([a-z0-9\-_]+)", fonte)}
+    # Builder que monta o endpoint por concatenação (`A + "frota-retorno"`, f"{_ACT}conta-fixa-
+    # encerrar") não casa com o literal acima — 9 ações por linha das frentes DGX F10/F11
+    # apareceram órfãs em 24/09/2026 sem ser. O NOME da ação entre aspas no fonte é chamador.
+    for a in acoes:
+        nome = a.split("/")[0].split("{")[0].strip("-")
+        if nome and _re.search(r"[\"'}/]" + _re.escape(nome) + r"[\"'?]", fonte):
+            chamados.add(nome)
+    return sorted(
+        a
+        for a in acoes
+        # rota com parâmetro de caminho: o nome base é o que a tela referencia
+        if a.split("/")[0].split("{")[0].strip("-") not in chamados and a not in chamados
+    )
 
 
 def main() -> int:  # noqa: C901, PLR0912
@@ -134,62 +221,18 @@ def main() -> int:  # noqa: C901, PLR0912
         except (urllib.error.URLError, TimeoutError, OSError):
             continue  # módulo que não respondeu agora: não inventa achado
         telas = d.get("screens") or {}
-        portas = _portas_do_menu(slug) | {
+        raiz = portas_do_menu(MENUS, slug) | {
             m.get("id") for m in (d.get("extraMenu") or []) if isinstance(m, dict) and m.get("id")
         }
-        # abas de grupo também são porta — a tela vive dentro do grupo
-        for tela in telas.values():
-            if isinstance(tela, dict) and tela.get("type") == "tabs":
-                portas |= {ab.get("id") for ab in (tela.get("tabs") or []) if isinstance(ab, dict)}
-
-        def _colhe_endpoints(o: object) -> None:
-            if isinstance(o, dict):
-                for k, v in o.items():
-                    if k == "endpoint" and isinstance(v, str) and "/redesign/action/" in v:
-                        endpoints_chamados.add(v.split("/redesign/action/")[-1].split("?")[0])
-                    else:
-                        _colhe_endpoints(v)
-            elif isinstance(o, list):
-                for x in o:
-                    _colhe_endpoints(x)
-
-        _colhe_endpoints(telas)
-
-        for tid, tela in telas.items():
-            if tid in portas:
-                continue
-            if isinstance(tela, dict) and tela.get("type") == "redirect":
-                continue  # stub de deep-link antigo: existe para redirecionar, não para ser aberto
-            sem_porta.append(f"{slug}/{tid}")
+        colhe_endpoints(telas, endpoints_chamados)
+        sem_porta += [f"{slug}/{tid}" for tid in telas_sem_porta(telas, raiz)]
 
     # ⚠️ O payload de HOJE não basta. Ação de LINHA só aparece quando existe linha que a
     # ofereça: as três de parcela (`parcela-editar/excluir/segurar`) sumiram da medição
     # porque, no momento do teste, as 49 linhas estavam todas `pago` e linha paga não tem
     # botão — de propósito. Um caçador que muda de cor conforme o dado do dia é pior que
     # nenhum. Por isso o CÓDIGO dos builders também conta como chamador.
-    fonte = ""
-    for arq in (RAIZ / "backend/modules").rglob("redesign_builders/*.py"):
-        try:
-            fonte += arq.read_text(encoding="utf8")
-        except OSError:
-            continue
-    import re as _re
-
-    endpoints_chamados |= {m.group(1) for m in _re.finditer(r"/redesign/action/([a-z0-9\-_]+)", fonte)}
-    acoes = _acoes_do_router()
-    # Builder que monta o endpoint por concatenação (`A + "frota-retorno"`, f"{_ACT}conta-fixa-
-    # encerrar") não casa com o literal acima — 9 ações por linha das frentes DGX F10/F11
-    # apareceram órfãs em 24/09/2026 sem ser. O NOME da ação entre aspas no fonte é chamador.
-    for a in acoes:
-        nome = a.split("/")[0].split("{")[0].strip("-")
-        if nome and _re.search(r"[\"'}/]" + _re.escape(nome) + r"[\"'?]", fonte):
-            endpoints_chamados.add(nome)
-    acoes_orfas = sorted(
-        a
-        for a in acoes
-        # rota com parâmetro de caminho: o nome base é o que a tela referencia
-        if a.split("/")[0].split("{")[0].strip("-") not in endpoints_chamados and a not in endpoints_chamados
-    )
+    orfas = acoes_orfas(_acoes_do_router(), endpoints_chamados, fonte_builders(RAIZ / "backend/modules"))
 
     if sem_porta:
         print(f"  TELA servida e fora de todo menu/aba: {len(sem_porta)}")
@@ -197,14 +240,14 @@ def main() -> int:  # noqa: C901, PLR0912
             print(f"       {x}")
         if len(sem_porta) > 40:
             print(f"       … e mais {len(sem_porta) - 40}")
-    if acoes_orfas:
-        print(f"  AÇÃO que nenhuma tela chama: {len(acoes_orfas)}")
-        for x in acoes_orfas[:40]:
+    if orfas:
+        print(f"  AÇÃO que nenhuma tela chama: {len(orfas)}")
+        for x in orfas[:40]:
             print(f"       /redesign/action/{x}")
-        if len(acoes_orfas) > 40:
-            print(f"       … e mais {len(acoes_orfas) - 40}")
+        if len(orfas) > 40:
+            print(f"       … e mais {len(orfas) - 40}")
 
-    total = len(sem_porta) + len(acoes_orfas)
+    total = len(sem_porta) + len(orfas)
     print(f"TOTAL: {total} sem porta")
     return 1 if total else 0
 

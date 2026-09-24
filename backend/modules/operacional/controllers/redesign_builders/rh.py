@@ -648,6 +648,9 @@ async def build(db) -> dict:
             if _opts
             else "Todos os desligados já têm motivo informado. ✓"
         )
+        if isinstance(out.get("turnover"), dict):  # dgx u3 — porta: botão da tela-mãe
+            out["turnover"]["cta"] = "Registrar motivo"
+            out["turnover"]["ctaTo"] = "registrar-motivo-desligamento"
         out["registrar-motivo-desligamento"] = {
             "title": "Registrar motivo de desligamento",
             "sub": _sub,
