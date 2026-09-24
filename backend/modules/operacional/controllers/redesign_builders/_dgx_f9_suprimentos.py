@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS sst_uniforme_kits (
   id serial PRIMARY KEY, funcao varchar(80) NOT NULL, grade_id integer NOT NULL REFERENCES sst_uniforme_grade(id),
   quantidade integer NOT NULL CHECK (quantidade > 0), ativo boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(), created_by varchar(120), UNIQUE (funcao, grade_id));
+-- dgx v3: grupo hierárquico (sup_grupos) também no kit de uniforme
+ALTER TABLE sst_uniforme_kits ADD COLUMN IF NOT EXISTS grupo varchar(20);
 """
 _TIPOS_EQUIP = "'armamento','colete','radio','celular','rastreador'"
 
@@ -651,6 +653,13 @@ async def telas(db, out: dict | None = None) -> dict:
     )
 
     # ── 2) materiais e estoque ─────────────────────────────────────────────────────────────
+    # dgx v3: grupo deixa de ser a lista fixa de 6 e passa a ser a hierarquia de `sup_grupos`
+    from ._dgx_v3_frota_app import grupos_opts as _gopts  # noqa: PLC0415
+    from ._dgx_v3_frota_app import rotulo_grupo as _grot
+
+    g_opts = await _gopts(db)
+    g_rot = await _grot(db)
+
     def _edit_mat(r):
         return _acao(
             f"Editar {r[0]} — {(r[1] or '')[:40]}",
@@ -658,7 +667,7 @@ async def telas(db, out: dict | None = None) -> dict:
             "Salvar",
             [
                 _h("item_code", r[0]),
-                _sel("grupo", "Grupo", vazio + [{"value": k, "label": v} for k, v in GRUPOS], value=r[2] or ""),
+                _sel("grupo", "Grupo", vazio + g_opts, value=r[2] or ""),  # dgx v3
                 {"key": "minimo", "label": "Mínimo", "type": "text", "value": _n(r[4], 0) if r[4] is not None else ""},
                 {"key": "maximo", "label": "Máximo", "type": "text", "value": _n(r[5], 0) if r[5] is not None else ""},
                 {"key": "descricao", "label": "Descrição", "type": "text", "span": "span 2", "value": r[1] or ""},
@@ -678,7 +687,7 @@ async def telas(db, out: dict | None = None) -> dict:
             lambda r: [
                 t(r[0], 600, _ND),
                 t((r[1] or "—")[:60]),
-                t(dict(GRUPOS).get(r[2], r[2] or "—")),
+                t(g_rot.get(r[2], r[2] or "—")),  # dgx v3
                 t(r[3] or "—"),
                 t(_n(r[4], 0)),
                 t(_n(r[5], 0)),
@@ -696,7 +705,7 @@ async def telas(db, out: dict | None = None) -> dict:
                     "Inativado. Recarregue.",
                 ),
             ],
-            filtrofn=lambda r: dict(GRUPOS).get(r[2], "Sem grupo"),
+            filtrofn=lambda r: g_rot.get(r[2], "Sem grupo"),  # dgx v3
         ),
     )
     await safe(
@@ -710,7 +719,7 @@ async def telas(db, out: dict | None = None) -> dict:
             A + "material",
             [
                 {"key": "item_code", "label": "Código", "type": "text"},
-                _sel("grupo", "Grupo*", [{"value": k, "label": v} for k, v in GRUPOS]),
+                _sel("grupo", "Grupo*", g_opts),  # dgx v3
                 {"key": "descricao", "label": "Descrição*", "type": "text", "span": "span 2"},
                 _sel("unidade", "Unidade*", [{"value": u, "label": u} for u in UNIDADES], value="UN"),
                 {"key": "custo", "label": "Custo unitário (R$)", "type": "text"},
@@ -756,7 +765,7 @@ async def telas(db, out: dict | None = None) -> dict:
                 "cells": [
                     t(r[0], 600, _ND),
                     t((r[1] or "—")[:55]),
-                    t(dict(GRUPOS).get(r[2], r[2] or "—")),
+                    t(g_rot.get(r[2], r[2] or "—")),  # dgx v3
                     t(r[3] or "—"),
                     t(_n(r[4], 0), 600),
                     t(_n(r[5], 0)),
@@ -1020,14 +1029,16 @@ async def telas(db, out: dict | None = None) -> dict:
             "Kit de uniforme por função",
             "Composição: quais SKUs e quantas unidades cada função recebe. «Entregar kit da função» cria uma solicitação de entrega por item, para cada pessoa da função.",
             "—",
-            ["Função", "Item", "Tamanho", "Qtd por pessoa", "Estoque do SKU", "Pessoas na função"],
-            "1.6fr 1.6fr 0.7fr 0.9fr 0.9fr 1fr",
-            "SELECT k.id, k.funcao, g.item, g.tamanho, k.quantidade, g.atual, (SELECT count(*) FROM employees e WHERE upper(e.cargo) = k.funcao AND e.status = 'ativo') "
+            ["Função", "Item", "Tamanho", "Grupo", "Qtd por pessoa", "Estoque do SKU", "Pessoas na função"],
+            "1.6fr 1.6fr 0.7fr 1fr 0.9fr 0.9fr 1fr",
+            "SELECT k.id, k.funcao, g.item, g.tamanho, k.quantidade, g.atual, (SELECT count(*) FROM employees e WHERE upper(e.cargo) = k.funcao AND e.status = 'ativo'), "
+            "k.grupo "  # dgx v3
             "FROM sst_uniforme_kits k JOIN sst_uniforme_grade g ON g.id = k.grade_id WHERE k.ativo ORDER BY k.funcao, g.item, g.tamanho",
             lambda r: [
                 t(r[1], 600, _ND),
                 t(r[2]),
                 t(r[3]),
+                t(g_rot.get(r[7], r[7] or "—")),  # dgx v3
                 t(str(r[4]), 600),
                 t(str(r[5]) if r[5] is not None else "sem contagem"),
                 t(str(r[6])),
@@ -1056,6 +1067,9 @@ async def telas(db, out: dict | None = None) -> dict:
             [
                 _sel("funcao", "Função*", funcoes, "span 2"),
                 _sel("grade_id", "SKU*", skus, "span 2"),
+                _sel(
+                    "grupo", "Grupo", [{"value": "", "label": "—"}, *await _gopts(db, ("uniforme", "ambos"))]
+                ),  # dgx v3
                 {"key": "quantidade", "label": "Quantidade por pessoa*", "type": "text", "value": "1"},
             ],
             okMsg="Item adicionado ao kit.",
@@ -1527,8 +1541,11 @@ async def material(current_user: CurrentActiveUser, payload: dict = Body(...), d
         payload.get("grupo") or "",
         (payload.get("unidade") or "UN").strip().upper()[:6],
     )
-    if not desc or grupo not in dict(GRUPOS):
+    if not desc:
         raise HTTPException(status_code=400, detail="Descrição e grupo são obrigatórios.")
+    from ._dgx_v3_frota_app import garantir_grupo  # noqa: PLC0415 — dgx v3: grupo novo nasce, não é recusado
+
+    grupo = await garantir_grupo(db, grupo)
     code = (payload.get("item_code") or "").strip().upper()[:60]
     if not code:
         code = f"MAT-{(await db.execute(text('SELECT count(*) + 1 FROM nfe_compras_estoque WHERE item_code LIKE :p'), {'p': 'MAT-%'})).scalar():04d}"
@@ -1560,8 +1577,10 @@ async def material_editar(current_user: CurrentActiveUser, payload: dict = Body(
     await _ensure(db)
     code = (payload.get("item_code") or "").strip()
     grupo = payload.get("grupo") or None
-    if grupo and grupo not in dict(GRUPOS):
-        raise HTTPException(status_code=400, detail="Grupo inválido.")
+    if grupo:
+        from ._dgx_v3_frota_app import garantir_grupo  # noqa: PLC0415 — dgx v3
+
+        grupo = await garantir_grupo(db, grupo)
     mi, ma = f10._dec(payload.get("minimo"), "Mínimo"), f10._dec(payload.get("maximo"), "Máximo")
     if mi is not None and ma is not None and ma < mi:
         raise HTTPException(status_code=400, detail="Máximo não pode ser menor que o mínimo.")
@@ -1745,13 +1764,19 @@ async def kit_uniforme(current_user: CurrentActiveUser, payload: dict = Body(...
     )
     if not funcao or not gid or not qtd:
         raise HTTPException(status_code=400, detail="Função, SKU e quantidade são obrigatórios.")
+    grupo = (payload.get("grupo") or "").strip() or None
+    if grupo:  # dgx v3 — texto livre cria o grupo
+        from ._dgx_v3_frota_app import garantir_grupo  # noqa: PLC0415
+
+        grupo = await garantir_grupo(db, grupo, "uniforme")
     if not await _um(db, "SELECT 1 FROM sst_uniforme_grade WHERE id = :g AND ativo", g=gid):
         raise HTTPException(status_code=404, detail="SKU não encontrado.")
     await db.execute(
         text(
-            "INSERT INTO sst_uniforme_kits (funcao, grade_id, quantidade, created_by) VALUES (:f, :g, :q, :u) ON CONFLICT (funcao, grade_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, ativo = true"
+            "INSERT INTO sst_uniforme_kits (funcao, grade_id, quantidade, grupo, created_by) VALUES (:f, :g, :q, :gr, :u) "  # dgx v3
+            "ON CONFLICT (funcao, grade_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, grupo = EXCLUDED.grupo, ativo = true"
         ),
-        {"f": funcao[:80], "g": gid, "q": qtd, "u": f10._quem(current_user)},
+        {"f": funcao[:80], "g": gid, "q": qtd, "gr": grupo, "u": f10._quem(current_user)},
     )
     await db.commit()
     return {"ok": True, "message": f"Kit de {funcao}: item gravado ({qtd} por pessoa)."}

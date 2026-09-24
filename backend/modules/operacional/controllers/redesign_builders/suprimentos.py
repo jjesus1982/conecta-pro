@@ -12,9 +12,12 @@ from ._dgx_f9_suprimentos import MENU as _menu_f9  # noqa: N811  # dgx f9
 from ._dgx_f9_suprimentos import router as _router_f9  # dgx f9
 from ._dgx_t5_suprimentos_frotas_sesmt_config import MENU_SUP as _menu_t5  # noqa: N811  # dgx t5
 from ._dgx_t5_suprimentos_frotas_sesmt_config import router as _router_t5  # dgx t5
+from ._dgx_v3_frota_app import (
+    MENU_SUP as _menu_v3,  # noqa: N811  # dgx v3 — grupos (router incluído em equipamentos.py)
+)
 
 SLUG = "suprimentos"
-EXTRA_MENU: list[dict] = [*_menu_f9, *_menu_t5]  # dgx t5 — solicitações de material
+EXTRA_MENU: list[dict] = [*_menu_f9, *_menu_t5, *_menu_v3]  # dgx t5 — solicitações de material; dgx v3 — grupos
 
 router = APIRouter()
 router.include_router(_router_f9)  # dgx f9
@@ -35,4 +38,7 @@ async def build(db) -> dict:
     from ._dgx_t5_suprimentos_frotas_sesmt_config import telas_sup as _telas_t5  # dgx t5
 
     await _telas_t5(db, out)  # dgx t5 — solicitação de material por posto (atender baixa o estoque)
+    from ._dgx_v3_frota_app import telas_sup as _telas_v3  # dgx v3
+
+    await _telas_v3(db, out)  # dgx v3 — grupos hierárquicos de materiais/uniformes
     return out

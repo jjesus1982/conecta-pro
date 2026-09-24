@@ -107,6 +107,11 @@ async def build(db) -> dict:
     from ._dgx_f10_frotas import telas as _telas_f10  # dgx f10 — saídas, multas, trocas, locações, requisições
 
     await _telas_f10(db, out)
+    from ._dgx_v3_frota_app import (
+        telas_equip as _telas_v3,  # dgx v3 — manutenções, itens de vistoria, `manutencoes` unificada
+    )
+
+    await _telas_v3(db, out)
     return out
 
 
@@ -115,11 +120,15 @@ from fastapi import APIRouter  # noqa: E402
 
 from ._dgx_f10_frotas import MENU as _menu_f10  # noqa: E402,N811  # dgx f10
 from ._dgx_f10_frotas import router as _router_f10  # noqa: E402
+from ._dgx_v3_frota_app import MENU_EQUIP as _menu_v3  # noqa: E402,N811  # dgx v3
+from ._dgx_v3_frota_app import router as _router_v3  # noqa: E402  # dgx v3
 from ._frente_10 import MENU_EQUIPAMENTOS as _menu_10  # noqa: E402,N811
 from ._frente_10 import router as _router_10  # noqa: E402
 
 router = APIRouter()
 router.include_router(_router_10)
 router.include_router(_router_f10)  # dgx f10
+router.include_router(_router_v3)  # dgx v3
 EXTRA_MENU.extend(_menu_10)
 EXTRA_MENU.extend(_menu_f10)  # dgx f10
+EXTRA_MENU.extend(_menu_v3)  # dgx v3

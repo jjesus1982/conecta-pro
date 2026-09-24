@@ -51,7 +51,7 @@ MENU = [
     {"id": "frota-requisicao-nova", "label": "Frota · Nova requisição", "icon": "M12 5v14M5 12h14"},
 ]
 
-from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, t  # noqa: E402
+from modules.operacional.controllers.redesign_data_controller import _helpers, b, brl, doc, t  # noqa: E402
 
 # módulo inteiro, não nomes: se `_frente_10` for importado primeiro (oráculo dele), ele ainda está
 # pela metade quando o discovery chega aqui — nome resolvido na chamada nunca quebra o ciclo.
@@ -128,6 +128,13 @@ CREATE TABLE IF NOT EXISTS frota_requisicoes (
   aprovado_por varchar(120), aprovado_em timestamptz, comprovante_url varchar(500),
   leitura_id integer REFERENCES frota_leituras(id), observacao text,
   created_at timestamptz NOT NULL DEFAULT now(), created_by varchar(120));
+-- dgx v3: multa vira conta a pagar e ganha ciclo de recurso
+ALTER TABLE frota_multas ADD COLUMN IF NOT EXISTS payable_id uuid;
+ALTER TABLE frota_multas ADD COLUMN IF NOT EXISTS cabe_recurso boolean NOT NULL DEFAULT false;
+ALTER TABLE frota_multas ADD COLUMN IF NOT EXISTS recurso_lancado_em timestamptz;
+ALTER TABLE frota_multas ADD COLUMN IF NOT EXISTS recurso_resultado varchar(12)
+  CHECK (recurso_resultado IS NULL OR recurso_resultado IN ('pendente','deferido','parcial','indeferido'));
+ALTER TABLE frota_multas ADD COLUMN IF NOT EXISTS recurso_observacao text;
 ALTER TABLE frota_leituras ADD COLUMN IF NOT EXISTS proxima_km integer;
 ALTER TABLE frota_leituras ADD COLUMN IF NOT EXISTS proxima_data date;
 """
@@ -245,6 +252,8 @@ def _acao(titulo, endpoint, btn, fields, ok="Feito. Recarregue.", style="outline
 
 # ----------------------------------------------------------------------------- telas
 async def telas(db, out: dict | None = None) -> dict:
+    from . import _dgx_v3_frota_app as v3  # noqa: PLC0415 — dgx v3: ações de conta/recurso na linha da multa
+
     await _ensure(db)
     _out, safe, tbl = _helpers(db)
     if out is None:
@@ -429,7 +438,8 @@ async def telas(db, out: dict | None = None) -> dict:
             "0.4fr 0.8fr 1fr 1.1fr 1.6fr 0.5fr 0.9fr 0.9fr 1.3fr 1.3fr 1fr",
             "SELECT m.id, v.placa, m.data_infracao, m.hora, coalesce(m.orgao,'—'), coalesce(m.auto_infracao,'—'), coalesce(m.descricao,'—'), "
             "m.pontos, m.vencimento, m.valor, m.valor_com_desconto, coalesce(c.nome,'—'), m.status, m.condutor_sugerido_id, s.nome, "
-            "m.condutor_employee_id, m.desconto_folha FROM frota_multas m JOIN frota_veiculos v ON v.id = m.veiculo_id "
+            "m.condutor_employee_id, m.desconto_folha, m.payable_id::text, m.cabe_recurso, m.recurso_resultado, "  # dgx v3
+            "m.recurso_lancado_em FROM frota_multas m JOIN frota_veiculos v ON v.id = m.veiculo_id "
             "LEFT JOIN employees c ON c.id = m.condutor_employee_id LEFT JOIN employees s ON s.id = m.condutor_sugerido_id "
             "ORDER BY (m.status IN ('paga','desconto_em_folha')), m.vencimento NULLS LAST, m.id DESC LIMIT 300",
             lambda r: [
@@ -445,7 +455,8 @@ async def telas(db, out: dict | None = None) -> dict:
                 t(r[14] or "—"),
                 b(*_ST_MULTA.get(r[12], (r[12], "mut"))),
             ],
-            actionsfn=_acoes_multa,
+            actionsfn=lambda r: [*_acoes_multa(r), *v3.acoes_multa(r)],  # dgx v3
+            docsfn=lambda r: [doc(f"Multa #{r[0]} (PDF)", f"/api/v1/redesign/frota/multas/{r[0]}/pdf")],  # dgx v3
         ),
     )
     await safe(
@@ -790,6 +801,15 @@ async def frota_saida(current_user: CurrentActiveUser, payload: dict = Body(...)
         raise HTTPException(status_code=400, detail="Veículo, motorista, KM e motivo são obrigatórios.")
     if await _um(db, "SELECT 1 FROM frota_saidas WHERE veiculo_id = :v AND data_retorno IS NULL", v=vid):
         raise HTTPException(status_code=409, detail="Este veículo tem uma saída aberta. Registre o retorno antes.")
+    from . import _dgx_v3_frota_app as v3  # noqa: PLC0415 — dgx v3
+
+    item = await v3.bloqueio_locomocao(db, vid)
+    if item:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Veículo BLOQUEADO: a última vistoria reprovou «{item}», item que impede locomoção. "
+            "Registre uma vistoria nova com o item aprovado antes de liberar a saída.",
+        )
     ultimo = (await db.execute(text("SELECT max(km) FROM frota_leituras WHERE veiculo_id = :v"), {"v": vid})).scalar()
     if ultimo is not None and km < ultimo:
         raise HTTPException(
