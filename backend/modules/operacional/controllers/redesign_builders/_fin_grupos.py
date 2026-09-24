@@ -29,6 +29,7 @@ GRUPOS = [
             ("fluxo-tendencia", "Tendência mensal"),
             ("fluxo-categorias", "Saídas por categoria"),
             ("fluxo-fornecedores", "Saídas por fornecedor"),
+            ("relatorio-financeiro", "Relatórios em PDF/Excel"),  # dgx v5
         ],
     ),
     (
@@ -250,6 +251,9 @@ GRUPOS = [
             ("comissoes-fechamento", "Fechamento de comissões"),  # dgx f11
             ("comissoes-fechar", "Fechar período"),  # dgx f11
             ("comissoes-conta-gerada", "Comissões → conta a pagar"),  # dgx t4
+            ("centros-custo", "Centros de custo (árvore)"),  # dgx v5
+            ("centro-custo-novo", "Novo centro de custo"),  # dgx v5
+            ("centro-custo-categoria", "Ligar categoria a um centro"),  # dgx v5
         ],
     ),
     (
@@ -270,6 +274,8 @@ GRUPOS = [
             ("estoque-resumo", "Resumo do estoque"),
             ("condicoes-pagamento", "Condições de pagamento"),  # dgx f11
             ("condicao-pagamento-nova", "Nova condição"),  # dgx f11
+            ("formas-pagamento", "Formas de pagamento"),  # dgx v5
+            ("forma-pagamento-nova", "Nova forma de pagamento"),  # dgx v5
         ],
     ),
 ]

@@ -171,6 +171,12 @@ async def _ensure(db: AsyncSession) -> None:
             {"c": cod, "d": desc, "t": tipo, "g": grupo},
         )
     await db.commit()
+    # dgx v5 — DEPOIS do CREATE TABLE acima: as colunas fiscais (NBS/CST/IBS/CBS, origem_regra) e o
+    # `limite_valor` da condição são ALTERs sobre estas mesmas tabelas. Chamar aqui garante que a
+    # tela do F11 nunca leia uma coluna que ainda não nasceu, seja qual for a ordem dos builders.
+    from modules.operacional.controllers.redesign_builders._dgx_v5_fiscal_relatorios import _ensure as _ensure_v5
+
+    await _ensure_v5(db)
 
 
 # ── regras puras (o oráculo importa estas) ──────────────────────────────────────────────────
@@ -440,6 +446,27 @@ async def orcado_realizado(db: AsyncSession) -> list[dict]:
     return out
 
 
+def agrupar_por_centro(linhas: list[dict], categoria_centro: dict[str, str]) -> list[dict]:
+    """dgx v5 — rola as linhas (categoria, mês) para (centro, mês) pelo vínculo
+    `fin_cost_center_categorias`. Categoria sem centro cai em «(sem centro)». NADA é migrado:
+    o extrato continua classificado por categoria; o centro é só uma leitura por cima."""
+    acc: dict[tuple[str, str], dict] = {}
+    for x in linhas:
+        centro = categoria_centro.get(x["centro"], "(sem centro)")
+        k = (centro, x["mes"])
+        a = acc.setdefault(k, {"centro": centro, "mes": x["mes"], "orcado": None, "realizado": Decimal("0")})
+        if x["orcado"] is not None:
+            a["orcado"] = (a["orcado"] or Decimal("0")) + x["orcado"]
+        a["realizado"] += x["realizado"]
+    out = []
+    for a in sorted(acc.values(), key=lambda y: (y["mes"], y["centro"]), reverse=True):
+        o, r = a["orcado"], a["realizado"]
+        a["desvio"] = (o - r) if o is not None else None
+        a["desvio_pct"] = (float((o - r) / o * 100) if o else None) if o is not None else None
+        out.append(a)
+    return out
+
+
 _SQL_PENSOES = (
     "SELECT d.id::text, e.id::text, e.nome, coalesce(d.descricao,'Pensão alimentícia'), d.valor, d.percentual, d.data_inicio, "
     "       bf.id, bf.nome, bf.chave_pix, bf.tipo_chave "
@@ -466,7 +493,8 @@ async def telas(db, out: dict | None = None) -> dict:
     conds = (
         await db.execute(
             text(
-                "SELECT id, nome, parcelas, dias, entrada_percentual, ativo FROM fin_condicoes_pagamento ORDER BY ativo DESC, id"
+                "SELECT id, nome, parcelas, dias, entrada_percentual, ativo, limite_valor "
+                "  FROM fin_condicoes_pagamento ORDER BY ativo DESC, id"
             )
         )
     ).fetchall()
@@ -494,16 +522,27 @@ async def telas(db, out: dict | None = None) -> dict:
             "span": "span 1",
             **({"value": str(r[4] or 0)} if r else {}),
         },
+        # dgx v5 — o servidor do DGX RECUSA conta acima do limite da condição. Vazio = sem teto.
+        {
+            "key": "limite_valor",
+            "label": "Limite de valor (R$) — vazio = sem limite",
+            "type": "text",
+            "span": "span 1",
+            "ph": "Ex.: 50.000,00",
+            **({"value": (f"{r[6]:.2f}" if r and r[6] is not None else "")} if r else {}),
+        },
     ]
     mine["condicoes-pagamento"] = {
         "title": "Condições de pagamento",
-        "sub": "À vista, 30, 30/60, 30/60/90… O número de parcelas é o número de prazos. Usada em «Registrar conta» (pagar e receber) para gerar as parcelas com os vencimentos certos.",
+        "sub": "À vista, 30, 30/60, 30/60/90… O número de parcelas é o número de prazos. Usada em «Registrar conta» "
+        "(pagar e receber) para gerar as parcelas com os vencimentos certos. Com LIMITE preenchido, registrar conta "
+        "acima do teto é RECUSADO (422) — é a regra que o servidor do DGX impõe.",
         "cta": "Nova condição",
         "ctaTo": "condicao-pagamento-nova",
         "type": "table",
         "searchHint": "Buscar condição…",
-        "grid": "1.4fr 0.6fr 1.4fr 0.7fr 0.7fr",
-        "cols": ["Nome", "Parcelas", "Dias", "Entrada", "Ativa"],
+        "grid": "1.4fr 0.6fr 1.4fr 0.7fr 1fr 0.7fr",
+        "cols": ["Nome", "Parcelas", "Dias", "Entrada", "Limite", "Ativa"],
         "rows": [
             {
                 "cells": [
@@ -511,6 +550,7 @@ async def telas(db, out: dict | None = None) -> dict:
                     t(str(r[2])),
                     t(" / ".join(str(x) for x in (r[3] or [])) + " dias"),
                     t(f"{float(r[4] or 0):.0f}%"),
+                    t(brl(r[6]), 600) if r[6] is not None else t("sem limite", 400, "#94A3B8"),
                     b("Ativa", "ok") if r[5] else b("Inativa", "mut"),
                 ],
                 "edit": {
@@ -727,25 +767,110 @@ async def telas(db, out: dict | None = None) -> dict:
             **({"value": r[5] or ""} if r else {}),
         },
         {"key": "cnae", "label": "CNAE", "type": "text", "span": "span 1", **({"value": r[6] or ""} if r else {})},
+        # ── dgx v5: cadastro fiscal completo (LC 214/2025). Vazio = sem fonte; NUNCA inventado.
+        # A emissão de NFS-e NÃO lê estes campos hoje (cNBS é fixo no XML nacional) — ver
+        # `_dgx_v5_fiscal_relatorios.py`. Preencher aqui é preparar 2027, não mudar nota nenhuma.
+        {"key": "nbs", "label": "NBS", "type": "text", "span": "span 1", **({"value": r[9] or ""} if r else {})},
+        {
+            "key": "cst_iss",
+            "label": "CST ISS",
+            "type": "text",
+            "span": "span 1",
+            **({"value": r[10] or ""} if r else {}),
+        },
+        {
+            "key": "cst_pis",
+            "label": "CST PIS",
+            "type": "text",
+            "span": "span 1",
+            **({"value": r[11] or ""} if r else {}),
+        },
+        {
+            "key": "cst_cofins",
+            "label": "CST COFINS",
+            "type": "text",
+            "span": "span 1",
+            **({"value": r[12] or ""} if r else {}),
+        },
+        {
+            "key": "classificacao_tributaria",
+            "label": "Classificação tributária (cClassTrib)",
+            "type": "text",
+            "span": "span 1",
+            **({"value": r[13] or ""} if r else {}),
+        },
+        {
+            "key": "incide_ibs",
+            "label": "Incide IBS",
+            "type": "select",
+            "span": "span 1",
+            "options": [
+                {"value": "", "label": "— não sei —"},
+                {"value": "1", "label": "Sim"},
+                {"value": "0", "label": "Não"},
+            ],
+            **({"value": ("" if r[14] is None else ("1" if r[14] else "0"))} if r else {}),
+        },
+        {
+            "key": "incide_cbs",
+            "label": "Incide CBS",
+            "type": "select",
+            "span": "span 1",
+            "options": [
+                {"value": "", "label": "— não sei —"},
+                {"value": "1", "label": "Sim"},
+                {"value": "0", "label": "Não"},
+            ],
+            **({"value": ("" if r[15] is None else ("1" if r[15] else "0"))} if r else {}),
+        },
+        {
+            "key": "aliquota_ibs",
+            "label": "Alíquota IBS (%)",
+            "type": "number",
+            "span": "span 1",
+            **({"value": str(r[16]) if r and r[16] is not None else ""} if r else {}),
+        },
+        {
+            "key": "aliquota_cbs",
+            "label": "Alíquota CBS (%)",
+            "type": "number",
+            "span": "span 1",
+            **({"value": str(r[17]) if r and r[17] is not None else ""} if r else {}),
+        },
+        {
+            "key": "origem_regra",
+            "label": "Origem da regra (obrigatória se preencher qualquer campo da reforma)",
+            "type": "text",
+            "span": "span 2",
+            "ph": "Ex.: parecer do contador 09/2026 · LC 214/2025 art. X · nota técnica",
+            **({"value": r[18] or ""} if r else {}),
+        },
     ]
     await safe(
         "codigos-servico",
         tbl(
-            "Códigos de serviço (LC 116 / cTribNac)",
-            "As NFS-e daqui não usam CFOP: usam o código de tributação nacional (LC 116). A alíquota vem da última NFS-e emitida com o código — vazia = nunca emitida. «Notas» = quantas saíram com ele.",
+            "Códigos de serviço (LC 116 / cTribNac + reforma tributária)",
+            "As NFS-e daqui não usam CFOP: usam o código de tributação nacional (LC 116). A alíquota vem da última NFS-e "
+            "emitida com o código — vazia = nunca emitida. «Notas» = quantas saíram com ele. NBS/CST/IBS/CBS (dgx v5) são "
+            "CADASTRO: a emissão não lê estes campos hoje (o cNBS do XML nacional é fixo) — preencher NÃO muda nota nenhuma.",
             "Novo código",
-            ["Item LC 116", "cTribNac", "Descrição", "ISS", "Cód. municipal", "CNAE", "Notas"],
-            "0.7fr 0.7fr 2.4fr 0.5fr 0.9fr 0.7fr 0.5fr",
+            ["Item LC 116", "cTribNac", "Descrição", "ISS", "NBS", "CST PIS/COFINS", "Reforma", "Notas"],
+            "0.7fr 0.6fr 2fr 0.5fr 0.7fr 0.8fr 0.9fr 0.5fr",
             "SELECT s.id, s.item_lc116, s.ctribnac, s.descricao, s.aliquota_iss, s.codigo_municipal, s.cnae, s.ativo, "
-            "       (SELECT count(*) FROM nfse_emitidas_nacional n WHERE n.codigo_servico = s.ctribnac AND coalesce(n.cancelada,false)=false) "
+            "       (SELECT count(*) FROM nfse_emitidas_nacional n WHERE n.codigo_servico = s.ctribnac AND coalesce(n.cancelada,false)=false), "
+            "       s.nbs, s.cst_iss, s.cst_pis, s.cst_cofins, s.classificacao_tributaria, s.incide_ibs, s.incide_cbs, "
+            "       s.aliquota_ibs, s.aliquota_cbs, s.origem_regra "
             "  FROM fin_codigos_servico s ORDER BY s.ativo DESC, 9 DESC, s.item_lc116",
             lambda r: [
                 t(r[1], 600, _ND),
                 t(r[2] or "—"),
-                t((r[3] or "—")[:70]),
+                t((r[3] or "—")[:60]),
                 t(f"{float(r[4]):.2f}%" if r[4] is not None else "—"),
-                t(r[5] or "—"),
-                t(r[6] or "—"),
+                t(r[9] or "—"),
+                t(f"{r[11] or '—'} / {r[12] or '—'}"),
+                b("IBS+CBS", "ok")
+                if (r[14] and r[15])
+                else (b("parcial", "warn") if (r[14] or r[15]) else b("a definir", "mut")),
                 b(str(r[8]), "ok" if r[8] else "mut"),
             ],
             editfn=lambda r: {
@@ -1003,38 +1128,63 @@ async def telas(db, out: dict | None = None) -> dict:
     linhas = await orcado_realizado(db)
     centros = sorted({x["centro"] for x in linhas})
     n_orc = sum(1 for x in linhas if x["orcado"] is not None)
+    # dgx v5 — a MESMA tela passa a ter duas leituras: por categoria do extrato (a de sempre) e
+    # por centro de custo formal, rolando pelo vínculo `fin_cost_center_categorias`. Um seletor
+    # no topo, não uma segunda tela — e zero dado migrado.
+    try:
+        cat_centro = {
+            r[0]: f"{r[1]} · {r[2]}"
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT k.categoria, c.code, c.name FROM fin_cost_center_categorias k "
+                        "  JOIN fin_cost_centers c ON c.id = k.cost_center_id"
+                    )
+                )
+            ).fetchall()
+        }
+    except Exception:  # noqa: BLE001 — antes do _ensure da V5 rodar a 1ª vez
+        await db.rollback()
+        cat_centro = {}
+    por_centro = agrupar_por_centro(linhas, cat_centro) if cat_centro else []
+
+    def _linha_orc(x, visao):
+        return {
+            "filtros": {"visao": visao, "mes": _br(x["mes"])},
+            "cells": [
+                t(x["centro"][:36], 600, _ND),
+                t(_br(x["mes"])),
+                t(
+                    brl(x["orcado"]) if x["orcado"] is not None else "—",
+                    600,
+                    "#334155" if x["orcado"] is not None else "#94A3B8",
+                ),
+                t(brl(x["realizado"]), 600),
+                t(brl(x["desvio"]) if x["desvio"] is not None else "—"),
+                t(f"{x['desvio_pct']:+.1f}%" if x["desvio_pct"] is not None else "—"),
+                b("sem orçamento", "mut")
+                if x["orcado"] is None
+                else (b("dentro", "ok") if x["desvio"] >= 0 else b("estourou", "bad")),
+            ],
+        }
+
     mine["orcamento-vs-realizado"] = {
-        "title": "Análise orçamentária — orçado × realizado por centro",
-        "sub": f"Centro = categoria das saídas classificadas no extrato (a que a casa usa de fato; fin_cost_centers está vazia). {len(linhas)} linhas · {n_orc} com orçamento. "
+        "title": "Análise orçamentária — orçado × realizado",
+        "sub": f"{len(linhas)} linha(s) por categoria · {n_orc} com orçamento. «Por categoria» é a classificação "
+        "das saídas do extrato (a que a casa usa de fato). «Por centro» soma essas mesmas categorias nos centros "
+        f"de custo — {len(cat_centro)} categoria(s) ligada(s) hoje (ligue em Custos › Ligar categoria a um centro). "
         "Lance o orçado em «Lançar orçamento» para a comparação acender.",
         "cta": "Lançar orçamento",
         "ctaTo": "orcamento-centro-novo",
         "type": "table",
-        "searchHint": "Buscar centro…",
-        "filterCol": 1,
-        "filterLabel": "Mês",
+        "searchHint": "Buscar centro ou categoria…",
+        "filtros": [
+            {"key": "visao", "label": "Visão", "padrao": "Por categoria"},
+            {"key": "mes", "label": "Mês"},
+        ],
         "grid": "1.4fr 0.7fr 1fr 1fr 1fr 0.7fr 0.8fr",
-        "cols": ["Centro", "Mês", "Orçado", "Realizado", "Desvio", "Desvio %", "Situação"],
-        "rows": [
-            {
-                "cells": [
-                    t(x["centro"][:36], 600, _ND),
-                    t(_br(x["mes"])),
-                    t(
-                        brl(x["orcado"]) if x["orcado"] is not None else "—",
-                        600,
-                        "#334155" if x["orcado"] is not None else "#94A3B8",
-                    ),
-                    t(brl(x["realizado"]), 600),
-                    t(brl(x["desvio"]) if x["desvio"] is not None else "—"),
-                    t(f"{x['desvio_pct']:+.1f}%" if x["desvio_pct"] is not None else "—"),
-                    b("sem orçamento", "mut")
-                    if x["orcado"] is None
-                    else (b("dentro", "ok") if x["desvio"] >= 0 else b("estourou", "bad")),
-                ]
-            }
-            for x in linhas
-        ]
+        "cols": ["Centro / categoria", "Mês", "Orçado", "Realizado", "Desvio", "Desvio %", "Situação"],
+        "rows": [_linha_orc(x, "Por categoria") for x in linhas] + [_linha_orc(x, "Por centro") for x in por_centro]
         or [
             {
                 "cells": [
@@ -1191,25 +1341,31 @@ async def rd_condicao_salvar(
     ent = _dec(payload.get("entrada_percentual") or "0", "Entrada", minimo=None)
     if ent < 0 or ent >= 100:
         raise HTTPException(status_code=400, detail="Entrada: 0 a 99%.")
-    p = {"n": nome, "p": len(dias), "d": json.dumps(dias), "e": ent}
+    # dgx v5 — limite de valor da condição. Vazio = NULL = sem teto (comportamento de hoje).
+    lim = _dec(payload["limite_valor"], "Limite") if str(payload.get("limite_valor") or "").strip() else None
+    p = {"n": nome, "p": len(dias), "d": json.dumps(dias), "e": ent, "l": lim}
     if cid:
         await db.execute(
             text(
-                "UPDATE fin_condicoes_pagamento SET nome=:n, parcelas=:p, dias=CAST(:d AS jsonb), entrada_percentual=:e WHERE id=:i"
+                "UPDATE fin_condicoes_pagamento SET nome=:n, parcelas=:p, dias=CAST(:d AS jsonb), "
+                " entrada_percentual=:e, limite_valor=:l WHERE id=:i"
             ),
             {**p, "i": int(cid)},
         )
     else:
         await db.execute(
             text(
-                "INSERT INTO fin_condicoes_pagamento (nome, parcelas, dias, entrada_percentual) VALUES (:n, :p, CAST(:d AS jsonb), :e) ON CONFLICT (nome) DO UPDATE SET parcelas=EXCLUDED.parcelas, dias=EXCLUDED.dias, entrada_percentual=EXCLUDED.entrada_percentual, ativo=true"
+                "INSERT INTO fin_condicoes_pagamento (nome, parcelas, dias, entrada_percentual, limite_valor) "
+                "VALUES (:n, :p, CAST(:d AS jsonb), :e, :l) ON CONFLICT (nome) DO UPDATE SET parcelas=EXCLUDED.parcelas, "
+                " dias=EXCLUDED.dias, entrada_percentual=EXCLUDED.entrada_percentual, limite_valor=EXCLUDED.limite_valor, ativo=true"
             ),
             p,
         )
     await db.commit()
     return {
         "ok": True,
-        "message": f"Condição «{nome}» salva ({len(dias)} parcela(s): {'/'.join(map(str, dias))} dias).",
+        "message": f"Condição «{nome}» salva ({len(dias)} parcela(s): {'/'.join(map(str, dias))} dias)"
+        + (f", limite {brl(lim)}." if lim is not None else ", sem limite de valor."),
     }
 
 
@@ -1225,12 +1381,25 @@ async def _conta_com_condicao(db, current_user, payload: dict, tipo: str) -> dic
     if str(payload.get("condicao_id") or "").strip():
         cond = (
             await db.execute(
-                text("SELECT nome, dias, entrada_percentual FROM fin_condicoes_pagamento WHERE id=:i AND ativo"),
+                text(
+                    "SELECT nome, dias, entrada_percentual, limite_valor FROM fin_condicoes_pagamento "
+                    " WHERE id=:i AND ativo"
+                ),
                 {"i": int(payload["condicao_id"])},
             )
         ).first()
         if not cond:
             raise HTTPException(status_code=400, detail="Condição de pagamento inexistente ou inativa.")
+        # dgx v5 — teto da condição (regra do DGX). 422 e não 400: é o valor ENVIADO que a
+        # regra de negócio recusa, não a forma do pedido. Sem limite gravado, nada muda.
+        if cond[3] is not None and valor > Decimal(str(cond[3])):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Valor {brl(valor)} acima do limite da condição «{cond[0]}» ({brl(cond[3])}). "
+                    "Escolha outra condição ou ajuste o limite em Cadastros › Condições de pagamento."
+                ),
+            )
     dias = list(cond[1]) if cond else [0]
     vencs = vencimentos(dias, base)
     vals = parcelas(valor, len(dias), Decimal(str(cond[2] or 0)) if cond else Decimal("0"))
@@ -1275,6 +1444,22 @@ async def _conta_com_condicao(db, current_user, payload: dict, tipo: str) -> dic
                 current_user.id,
             )
             ids.append(str(c.id))
+    # dgx v5 — forma de pagamento escolhida no form (select sobre `payment_methods`). Opcional:
+    # em branco, o título nasce como sempre nasceu. A coluna já existia no pagável; no recebível
+    # ela é criada pelo _ensure da V5.
+    forma = str(payload.get("forma_pagamento_id") or "").strip()
+    if forma and ids:
+        tabela = "payable_accounts" if tipo == "pagar" else "receivable_accounts"
+        # `id::text = ANY(:ids)` com LISTA de str: o asyncpg recusa a forma textual '{a,b}' de
+        # array ("a sized iterable container expected, got type 'str'") — medido em 24/09, 500.
+        await db.execute(
+            text(
+                f"UPDATE {tabela} SET payment_method_id = CAST(:f AS uuid) "  # noqa: S608 — nome de tabela literal
+                " WHERE id::text = ANY(:ids)"
+            ),
+            {"f": forma, "ids": list(ids)},
+        )
+        await db.commit()
     det = " · ".join(f"{d.strftime('%d/%m')} {brl(v)}" for v, d in zip(vals, vencs, strict=True))
     return {
         "ok": True,
@@ -1399,6 +1584,39 @@ async def rd_codigo_servico_salvar(
     )
     if aliq is not None and not 0 <= aliq <= 10:
         raise HTTPException(status_code=400, detail="Alíquota ISS: 0 a 10%.")
+    # dgx v5 — campos da reforma tributária (LC 214/2025). Vazio = NULL = "sem fonte", nunca 0/false
+    # inventado. Preencher QUALQUER um deles exige dizer DE ONDE veio a regra: campo fiscal sem
+    # procedência é o mesmo erro do cTribNac chutado que o fisco devolvia com E0310.
+    _txt = lambda k: (str(payload.get(k) or "").strip() or None)  # noqa: E731
+    _bool = lambda k: (None if str(payload.get(k) or "").strip() == "" else str(payload[k]).strip() == "1")  # noqa: E731
+
+    def _pct(k: str):
+        s = str(payload.get(k) or "").strip()
+        if not s:
+            return None
+        v = _dec(s, k, minimo=None)
+        if not 0 <= v <= 100:
+            raise HTTPException(status_code=400, detail=f"{k}: 0 a 100%.")
+        return v
+
+    fiscais = {
+        "nbs": _txt("nbs"),
+        "cst_iss": _txt("cst_iss"),
+        "cst_pis": _txt("cst_pis"),
+        "cst_cofins": _txt("cst_cofins"),
+        "classificacao_tributaria": _txt("classificacao_tributaria"),
+        "incide_ibs": _bool("incide_ibs"),
+        "incide_cbs": _bool("incide_cbs"),
+        "aliquota_ibs": _pct("aliquota_ibs"),
+        "aliquota_cbs": _pct("aliquota_cbs"),
+    }
+    origem = _txt("origem_regra")
+    if any(v is not None for v in fiscais.values()) and not origem:
+        raise HTTPException(
+            status_code=400,
+            detail="Origem da regra é obrigatória quando você preenche NBS, CST, classificação ou IBS/CBS "
+            "(diga o parecer, a lei ou a nota técnica de onde veio).",
+        )
     p = {
         "i": item,
         "c": ctrib,
@@ -1406,24 +1624,35 @@ async def rd_codigo_servico_salvar(
         "a": aliq,
         "m": str(payload.get("codigo_municipal") or "").strip() or None,
         "n": str(payload.get("cnae") or "").strip() or None,
+        **fiscais,
+        "origem_regra": origem,
     }
+    _cols = list(fiscais) + ["origem_regra"]
+    _set = ", ".join(f"{c}=:{c}" for c in _cols)
     if str(payload.get("id") or "").strip():
         await db.execute(
             text(
-                "UPDATE fin_codigos_servico SET item_lc116=:i, ctribnac=:c, descricao=:d, aliquota_iss=:a, codigo_municipal=:m, cnae=:n WHERE id=:id"
+                "UPDATE fin_codigos_servico SET item_lc116=:i, ctribnac=:c, descricao=:d, aliquota_iss=:a, "
+                f" codigo_municipal=:m, cnae=:n, {_set} WHERE id=:id"
             ),
             {**p, "id": int(payload["id"])},
         )
     else:
         await db.execute(
             text(
-                "INSERT INTO fin_codigos_servico (item_lc116, ctribnac, descricao, aliquota_iss, codigo_municipal, cnae) VALUES (:i, :c, :d, :a, :m, :n) "
-                "ON CONFLICT (item_lc116) DO UPDATE SET descricao=EXCLUDED.descricao, aliquota_iss=EXCLUDED.aliquota_iss, codigo_municipal=EXCLUDED.codigo_municipal, cnae=EXCLUDED.cnae, ativo=true"
+                "INSERT INTO fin_codigos_servico (item_lc116, ctribnac, descricao, aliquota_iss, codigo_municipal, "
+                f" cnae, {', '.join(_cols)}) VALUES (:i, :c, :d, :a, :m, :n, {', '.join(':' + c for c in _cols)}) "
+                "ON CONFLICT (item_lc116) DO UPDATE SET descricao=EXCLUDED.descricao, aliquota_iss=EXCLUDED.aliquota_iss, "
+                f" codigo_municipal=EXCLUDED.codigo_municipal, cnae=EXCLUDED.cnae, ativo=true, {_set}"
             ),
             p,
         )
     await db.commit()
-    return {"ok": True, "message": f"Código {item} (cTribNac {ctrib}) salvo."}
+    return {
+        "ok": True,
+        "message": f"Código {item} (cTribNac {ctrib}) salvo."
+        + (f" Regra fiscal com origem: {origem[:60]}." if origem else ""),
+    }
 
 
 @router.post("/action/cfop-salvar", dependencies=_GATE)
