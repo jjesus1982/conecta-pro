@@ -57,6 +57,11 @@ def _n(padrao: str, saida: str, zero: str | None = None) -> int | None:
 
 
 CACADORES = {
+    # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
+    # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
+    # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
+    # acusa se CRESCER. Enquanto o dia está aqui, ele fica FORA da conta de dinheiro, de propósito.
+    "checar_batida_faltando.py": lambda s: _n(r"^TOTAL dias com batida faltando: (\d+)", s),
     # Contrato de valor único ATIVO sem nenhuma cobrança: o cronograma mora em
     # `contract_items` e o contas a receber não sabe dele — dinheiro contratado que não vira
     # boleto. Órfã desde que nasceu; ligada em 17/09/2026.
@@ -168,6 +173,14 @@ CACADORES_HOST = {
     # que o colaborador assina e vai para a homologação — ainda tem régua própria. Este oráculo
     # afirma que os três casados continuam casados e que espelho assinado não é reescrito.
     "test_oraculo_x4_pareador_unico.py": lambda s: _n(r"^TOTAL desvios: (\d+)", s),
+    # O espelho LEGAL — o PDF que o colaborador assina — entrou na régua única em 24/09 (Y1).
+    # Antes, ele datava o turno noturno no dia seguinte e acusava FALTA em dia trabalhado.
+    # Espelho assinado é imutável: o oráculo relê os 19 protegidos e exige 0 reescritos.
+    "test_oraculo_y1_espelho_regua.py": lambda s: _n(r"^TOTAL desvios: (\d+)", s),
+    # As duas réguas de pareamento discordam em 133,27 h (59 pessoa×dia) por causa do DADO, não
+    # do código: tipo de batida errado no aparelho, batida duplicada, virada de meia-noite. A
+    # trava conta as divergências — cair é bom, crescer é a operação piorando.
+    "test_oraculo_y2_direcao_batida.py": lambda s: _n(r"^TOTAL desvios: (\d+)", s),
     # O skill-retrieval está ENCOLHENDO o prompt e não escondendo as nossas skills. Ele tem
     # duas fases que puxam o custo em direções opostas (compacta / injeta); se a compactação
     # parar, o plugin passa a CUSTAR em silêncio — medido: 26.793 com a adaptação da casa

@@ -292,9 +292,17 @@ deixar o humano confirmar o que a régua não tiver certeza — sem fundir no es
 2. **Importador da compra → catálogo**, com proposta de agrupamento: candidato novo, candidato
    igual a um existente (com o porquê e o score) e candidato que é **variação** de um existente.
    Nada entra sozinho: a tela mostra a proposta e o humano aprova em lote.
-3. **Preço**: a compra dá o **custo** (`last_purchase_price`, `average_price` já existem em
-   `products`). Preço de venda é decisão comercial — o catálogo sugere pela margem e ninguém
-   fatura sem o humano confirmar.
+3. **Preço: o catálogo nasce SEM preço de venda — decisão do dono em 24/09.** Palavras dele:
+   *«nos produtos cadastrados deixem sem valor, quando eu for fazer os orçamentos eu edito o preço,
+   porque os preços variam muito, tem muitas constantes, então quando eu orçar pego o preço do dia
+   e edito na hora.»* Isso **cancela** a ideia anterior de "o catálogo sugere pela margem": não há
+   sugestão, não há preço padrão, não há preenchimento automático no item do orçamento. O campo
+   chega **vazio** e o humano digita o preço do dia.
+   - `fin_produtos` já obedece: a Z1 não criou coluna de preço nenhuma. **Manter assim.**
+   - O custo da compra (`last_purchase_price`, `average_price` em `products`) **pode ser exibido
+     como referência** na tela do orçamento, mas **nunca** copiado para o campo de preço de venda.
+   - Quem implementar: o importador da compra **não escreve preço de venda**, e o item do orçamento
+     **não herda valor** do catálogo. Só código, descrição, unidade e NCM.
 4. **No CRM**: o item do orçamento passa a vir do catálogo (código, descrição completa, unidade,
    NCM), em vez de texto livre. É isso que faz o orçamento aprovado virar nota sem redigitar.
 5. **Aprovado → nota**: já existe (Z5). O elo que falta é o item da proposta carregar o
