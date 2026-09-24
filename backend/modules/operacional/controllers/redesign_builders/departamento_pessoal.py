@@ -44,6 +44,10 @@ router.include_router(_r_f1)  # dgx f1
 from ._dgx_f3_tipos_beneficio import router as _r_dgx_f3  # noqa: E402 — dgx f3
 
 router.include_router(_r_dgx_f3)  # dgx f3
+from ._dgx_f6_dp import router as _r06  # noqa: E402 — dgx f6
+from ._dgx_f6_dp import telas as _telas_f6  # noqa: E402 — dgx f6
+
+router.include_router(_r06)  # dgx f6
 
 
 @router.post("/action/ponto-ajuste")
@@ -4813,6 +4817,7 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_f1_rubricas import telas as _telas_f1  # dgx f1
 
     out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
+    await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 

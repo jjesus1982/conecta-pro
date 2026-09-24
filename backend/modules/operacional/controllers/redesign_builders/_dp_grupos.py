@@ -29,7 +29,9 @@ GRUPOS = [
         ("prestadores-pj", "Prestadores PJ"), ("novo-prestador-pj", "Novo prestador PJ"),
         ("documentos", "Documentos"), ("nova-documento", "Enviar documento"),
         ("certificacao", "Certificações"), ("nova-certificacao", "Nova certificação"),
-        ("gerar-certificacoes", "Gerar certificações"), ("certificacoes-gerar-folha", "Certificações da folha (competência)"), ("prestadores-pj-links-empresa", "Links PJ por empresa")]),
+        ("gerar-certificacoes", "Gerar certificações"), ("certificacoes-gerar-folha", "Certificações da folha (competência)"), ("prestadores-pj-links-empresa", "Links PJ por empresa"),
+        # dgx f6 — dependentes (fonte que a folha lê) e crachás em lote
+        ("dependentes", "Dependentes"), ("dependente-novo", "Novo dependente"), ("crachas-lote", "Crachás em lote")]),
 
     ("g-ponto", "Ponto & Jornada", "Batidas, justificativas e fechamento do mês", [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
@@ -49,7 +51,9 @@ GRUPOS = [
         ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status"),
         # Descontos recorrentes: 97 ativos no banco descontando da folha todo mês, e nenhuma
         # tela (medido em 14/09/2026). Criar/editar/encerrar só existia pelo `psql`.
-        ("descontos", "Descontos (consignado, pensão)"), ("desconto-novo", "Novo desconto")]),
+        ("descontos", "Descontos (consignado, pensão)"), ("desconto-novo", "Novo desconto"),
+        # dgx f6 — vale (adiantamento avulso, mesmo caminho dos descontos) e evento coletivo
+        ("vales", "Vales"), ("vale-novo", "Novo vale"), ("eventos-coletivos", "Eventos coletivos"), ("evento-coletivo-novo", "Novo evento coletivo")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),
@@ -74,7 +78,8 @@ GRUPOS = [
 
     ("g-desligamento", "Desligamento", "Aviso prévio, cálculo e rescisão", [
         ("aviso-previo", "Aviso prévio"), ("rescisao", "Rescisões"),
-        ("nova-rescisao", "Nova rescisão"), ("calcular-rescisao", "Calcular (CLT)")]),
+        ("nova-rescisao", "Nova rescisão"), ("calcular-rescisao", "Calcular (CLT)"),
+        ("demissao-lote", "Demissão em lote")]),  # dgx f6
 ]
 
 #: Telas que somem da navegação por serem DUPLICATA exata de outra já agrupada — mesmo
