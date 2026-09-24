@@ -49,6 +49,15 @@ EXTRA_MENU: list[dict] = [
     },
     {"id": "nfe-entrada-xml", "label": "Importar XML de NF-e de compra", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
     {"id": "nfse-emitidas", "label": "NFS-e emitidas (nacional)", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
+    # dgx z6 — item escrito aqui (e não importado de `dgx_z6_bartolo.MENU`) pelo mesmo motivo do
+    # `bi.py`/x5: o EXTRA_MENU é lido no IMPORT, e um import no topo fecharia o ciclo com o
+    # `redesign_data_controller`. O id tem de casar com `dgx_z6_bartolo.TELA`.
+    {
+        "id": "bartolo-fiscal",
+        "label": "Bartolo — tire sua dúvida",
+        "icon": "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z",
+        "grupo": "Notas fiscais",
+    },
     {"id": "calc-simples", "label": "Calcular DAS (Simples)", "icon": _ICO_CALC, "grupo": "Cálculos"},
     {"id": "calc-lucro-real", "label": "Calcular Lucro Real", "icon": _ICO_CALC, "grupo": "Cálculos"},
     {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC, "grupo": "Cálculos"},
@@ -335,6 +344,12 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+
+    # dgx z6 — «Bartolo — tire sua dúvida» (a ação entra pelo `router` do próprio módulo, que o
+    # discovery monta sozinho porque o arquivo não tem prefixo `_`; aqui só a tela).
+    from .dgx_z6_bartolo import telas as _z6_telas  # dgx z6
+
+    out.update(await _z6_telas(db, out))  # dgx z6
     return out
 
 
