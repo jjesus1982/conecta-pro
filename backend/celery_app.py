@@ -125,6 +125,7 @@ app.conf.task_routes = {
     "operacional.expire_time_bank_entries": {"queue": "operacional"},
     "operacional.send_shift_reminders": {"queue": "operacional"},
     "operacional.daily_coverage_report": {"queue": "operacional"},
+    "operacional.supervisao_planejada_gerar": {"queue": "operacional"},
     "operacional.fechar_turnos_por_ponto": {"queue": "operacional"},
     # SST - Afastamentos
     "sst.verificar_afastamentos_vencidos": {"queue": "operacional"},
@@ -540,6 +541,12 @@ app.conf.beat_schedule = {
     "operacional-shift-reminders-30min": {
         "task": "operacional.send_shift_reminders",
         "schedule": 1800.0,  # 30 minutos
+        "options": {"queue": "operacional"},
+    },
+    # Supervisão planejada (DGX U1): gera as ocorrências do dia às 00:30 Manaus e fecha o passado
+    "operacional-supervisao-planejada": {
+        "task": "operacional.supervisao_planejada_gerar",
+        "schedule": crontab(hour=0, minute=30),  # app.conf.timezone = America/Manaus
         "options": {"queue": "operacional"},
     },
     # Relatório de cobertura diário às 23:55h

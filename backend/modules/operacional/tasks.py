@@ -1194,3 +1194,28 @@ def triagem_ponto_hermes(self, data: str | None = None):
         # devolve ok=False de propósito: `task_falha.registrar_sucesso_vazio_no_sino` publica
         # no sino sozinho, e falha silenciosa de tarefa agendada é a doença desta casa.
         return {"ok": False, "erro": str(exc)[:300]}
+
+
+@app.task(name="operacional.supervisao_planejada_gerar", bind=True, max_retries=2, default_retry_delay=300)
+def supervisao_planejada_gerar(self, dia: str | None = None):
+    """Gera as ocorrências do dia dos planos de supervisão (DGX U1, 24/09/2026) e fecha o status
+    do passado. Idempotente (ON CONFLICT DO NOTHING) — rodar duas vezes não duplica; sem o beat
+    o mapa só preenchia quando alguém abria a tela."""
+    from datetime import date as _date  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+    from modules.operacional.services.supervisao_planejada import gerar_ocorrencias  # noqa: PLC0415
+
+    async def _run() -> dict:
+        async with async_session_factory() as db:
+            r = await gerar_ocorrencias(db, _date.fromisoformat(dia) if dia else None)
+            await db.commit()
+            return r
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Operacional Task] supervisão planejada: {result}")
+        return result
+    except Exception as exc:
+        logger.error(f"[Operacional Task] supervisão planejada falhou: {exc}")
+        raise self.retry(exc=exc)
