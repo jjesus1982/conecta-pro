@@ -43,7 +43,7 @@ GRUPOS = [
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
         ("folha-por-condominio", "Por condomínio"), ("pareamento-folha", "Conecta × Portte"),
-        ("folha-rubricas", "Rubricas"),
+        ("folha-rubricas", "Rubricas"), ("folha-rubrica-nova", "Nova rubrica"),  # dgx f1
         ("folha-nao-conformidades", "Não conformidades"), ("folha-apontamento", "Apontar"),
         ("contracheques-lote", "Contracheques em lote"),
         ("chaves-pix", "Chaves PIX"), ("cadastrar-pix-key", "Cadastrar chave PIX"), ("pagar-folha-preview", "Folha PIX: prévia"), ("pagar-folha-status", "Folha PIX: status"),

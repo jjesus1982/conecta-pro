@@ -38,6 +38,9 @@ router.include_router(_r03)  # frente 03
 from ._dgx_f2_cct import router as _rf2  # noqa: E402 — dgx f2
 
 router.include_router(_rf2)  # dgx f2
+from ._dgx_f1_rubricas import router as _r_f1  # noqa: E402 — dgx f1
+
+router.include_router(_r_f1)  # dgx f1
 
 
 @router.post("/action/ponto-ajuste")
@@ -4804,6 +4807,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_f2_cct import telas as _telas_f2  # dgx f2
 
     out.update(await _telas_f2(db, out))  # dgx f2 — antes de montar_grupos (abas do g-cct + aviso na cct-conformidade)
+    from ._dgx_f1_rubricas import telas as _telas_f1  # dgx f1
+
+    out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 
