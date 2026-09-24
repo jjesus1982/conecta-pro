@@ -1,0 +1,32 @@
+"""Redesign builder — Suprimentos (DGX F9, 24/09/2026).
+
+O monólito (`redesign_data_controller._build_suprimentos`) entrega `visao` e `almoxarifado` lendo
+`nfe_compras_estoque`. Este builder chama esse mesmo corpo e estende com a cadeia de compras,
+materiais/estoque, fornecedores, comunicações móveis/rastreadores e kits (`_dgx_f9_suprimentos`).
+`requisicoes` (item do JSON do módulo, nunca ligado) passa a ser a tela de solicitações de compra.
+"""
+
+from fastapi import APIRouter
+
+from ._dgx_f9_suprimentos import MENU as _menu_f9  # noqa: N811  # dgx f9
+from ._dgx_f9_suprimentos import router as _router_f9  # dgx f9
+
+SLUG = "suprimentos"
+EXTRA_MENU: list[dict] = list(_menu_f9)
+
+router = APIRouter()
+router.include_router(_router_f9)  # dgx f9
+
+
+async def build(db) -> dict:
+    from modules.operacional.controllers.redesign_data_controller import _build_suprimentos
+
+    # tardio de propósito: no boot este arquivo é importado pelo discovery enquanto `_dgx_f9` ainda
+    # está pela metade (ciclo data_controller → discovery → aqui → _dgx_f9 → data_controller)
+    from ._dgx_f9_suprimentos import telas as _telas_f9  # dgx f9
+
+    out = await _build_suprimentos(db)
+    await _telas_f9(db, out)  # dgx f9
+    if "solicitacoes-compra" in out:
+        out["requisicoes"] = out["solicitacoes-compra"]  # porta que já existia no JSON do módulo
+    return out
