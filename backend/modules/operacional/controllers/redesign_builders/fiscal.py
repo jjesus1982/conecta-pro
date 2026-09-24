@@ -71,6 +71,15 @@ EXTRA_MENU: list[dict] = [
     },
 ]
 
+# dgx z3 — NF-e de produto (emitir/conferir/emitidas/DANFE). No FIM do menu, de propósito.
+# O import fica aqui embaixo (e não no topo) porque `_dgx_z3_tela_nfe` importa deste mesmo
+# pacote de volta; aqui o módulo do data_controller já está montado. O `router` do Z3 vira o
+# router deste builder — `fiscal.py` não tinha nenhum, e sem ele as rotas não sobem.
+from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3m  # noqa: E402
+
+EXTRA_MENU.extend(_z3m.EXTRA_MENU)  # dgx z3
+router = _z3m.router  # dgx z3
+
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
 
@@ -335,6 +344,9 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3  # dgx z3
+
+    await _z3.telas(db, out)  # dgx z3 — emitir NF-e (homologação por padrão), conferir, emitidas, DANFE
     return out
 
 
