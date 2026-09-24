@@ -177,6 +177,13 @@ def main() -> int:  # noqa: C901, PLR0912
 
     endpoints_chamados |= {m.group(1) for m in _re.finditer(r"/redesign/action/([a-z0-9\-_]+)", fonte)}
     acoes = _acoes_do_router()
+    # Builder que monta o endpoint por concatenação (`A + "frota-retorno"`, f"{_ACT}conta-fixa-
+    # encerrar") não casa com o literal acima — 9 ações por linha das frentes DGX F10/F11
+    # apareceram órfãs em 24/09/2026 sem ser. O NOME da ação entre aspas no fonte é chamador.
+    for a in acoes:
+        nome = a.split("/")[0].split("{")[0].strip("-")
+        if nome and _re.search(r"[\"'}/]" + _re.escape(nome) + r"[\"'?]", fonte):
+            endpoints_chamados.add(nome)
     acoes_orfas = sorted(
         a
         for a in acoes
