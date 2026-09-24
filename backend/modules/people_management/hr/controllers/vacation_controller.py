@@ -70,6 +70,7 @@ def _normalize_days(raw: Any) -> str | None:
     m = _re.search(r"\d+", str(raw))
     return m.group(0) if m else None
 
+
 # FIX 2026-04-16: include_router(_vacation_ops_router) REMOVIDO.
 # O ops router tem prefix="/vacations" — incluí-lo aqui gerava prefix duplo
 # /hr/vacations/vacations/... Rotas DP definidas diretamente abaixo.
@@ -335,6 +336,7 @@ async def gerar_aviso_previo_ferias(
     employee_name = getattr(vacation, "employee_name", None) or "Funcionário"
     cargo = "Agente de Segurança"
     admission_date = "Não informada"
+    emp = None
 
     try:
         from sqlalchemy import select as sa_select
@@ -357,7 +359,9 @@ async def gerar_aviso_previo_ferias(
 
     vacation_start = start_date.strftime("%d/%m/%Y") if start_date else "—"
     vacation_end = end_date.strftime("%d/%m/%Y") if end_date else "—"
-    vacation_days = _normalize_days(days) or (str((end_date - start_date).days + 1) if start_date and end_date else "30")
+    vacation_days = _normalize_days(days) or (
+        str((end_date - start_date).days + 1) if start_date and end_date else "30"
+    )
 
     if start_date:
         period_end_dt = start_date - timedelta(days=1)
@@ -372,89 +376,40 @@ async def gerar_aviso_previo_ferias(
     notice_date = date.today().strftime("%d/%m/%Y")
 
     try:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
         from modules.crm.services import (
             pdf_branding as B,  # noqa: N812 — grafia dos geradores (pré-existente; hook do ruff travava o commit)
         )
 
+        # dgx u2 — a página do aviso mora em `ferias_dgx.story_aviso` (o lote em `aviso-ferias-lote` monta
+        # a MESMA página, uma por pessoa). Os dados continuam vindo daqui: nada muda para quem já chamava.
+        from modules.people_management.hr.services.ferias_dgx import _doc, story_aviso
+
         st = B.styles()
-        body_style = st["corpo"]
-        label_style = st["cell"]
-
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=16 * mm,
-            leftMargin=16 * mm,
-            topMargin=40 * mm,
-            bottomMargin=16 * mm,
-        )
-
-        story = []
-        story += B.secao("DADOS DO EMPREGADO", st)
-
-        box_data = [
-            [Paragraph(f"<b>Empregado(a):</b> {employee_name}", label_style)],
-            [Paragraph(f"<b>Cargo:</b> {cargo}", label_style)],
-            [Paragraph(f"<b>Data de Admissão:</b> {admission_date}", label_style)],
-            [Paragraph(f"<b>Período Aquisitivo:</b> {period_start} a {period_end}", label_style)],
-        ]
-        box = Table(box_data, colWidths=[178 * mm])
-        box.setStyle(
-            TableStyle(
-                [
-                    ("BOX", (0, 0), (-1, -1), 0.6, B.AZUL_ESCURO),
-                    ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D9E1F2")),
-                    ("BACKGROUND", (0, 0), (-1, -1), B.FUNDO_CLARO),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ]
-            )
-        )
-        story.append(box)
-        story.append(Spacer(1, 5 * mm))
-
-        story += B.secao("COMUNICADO", st)
-        story.append(Paragraph(f"Prezado(a) <b>{employee_name}</b>,", body_style))
-        story.append(
-            Paragraph(
-                f"Comunicamos que suas férias estão programadas para o período de "
-                f"<b>{vacation_start}</b> a <b>{vacation_end}</b> "
-                f"({vacation_days} dias), conforme artigo 135 da CLT e CCT SINDECOMPRESTS 2026.",
-                body_style,
-            )
-        )
-        story.append(
-            Paragraph(
-                "O pagamento das férias será efetuado com antecedência mínima de "
-                "2 (dois) dias, conforme determina o artigo 145 da CLT.",
-                body_style,
-            )
-        )
-        story.append(Paragraph(f"Retorno previsto: <b>{return_date}</b>.", body_style))
-
-        # Assinaturas (padrão-ouro: funcionário assina digital pelo Portal; empresa = CEO Jordan)
-        story += B.campos_assinatura(
+        doc = _doc(buffer)
+        story = story_aviso(
+            {
+                "employee_name": employee_name,
+                "cargo": cargo,
+                "admission_date": admission_date,
+                "period_start": period_start,
+                "period_end": period_end,
+                "vacation_start": vacation_start,
+                "vacation_end": vacation_end,
+                "vacation_days": vacation_days,
+                "return_date": return_date,
+                "notice_date": notice_date,
+            },
             st,
-            funcionario_nome=employee_name,
-            data_str=notice_date,
-            digital_funcionario=True,
-            digital_empresa=True,
-            data_empresa=notice_date,
-            espaco_antes=14,
         )
-
+        # empregador por CPF × competência (multi-CNPJ), como o holerite — antes saía sempre a Eletrônica
+        _empresa = B.empresa_branding_por_cpf(
+            getattr(emp, "cpf", None), start_date.strftime("%Y-%m") if start_date else None
+        )
         doc.build(
             story,
-            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS"),
-            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS"),
+            onFirstPage=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS", empresa=_empresa),
+            onLaterPages=lambda cv, dc: B.header_footer(cv, dc, titulo="AVISO DE FÉRIAS", empresa=_empresa),
         )
         pdf_bytes = buffer.getvalue()
         buffer.close()
