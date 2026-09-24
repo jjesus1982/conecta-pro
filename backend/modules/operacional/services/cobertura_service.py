@@ -404,3 +404,67 @@ async def registrar(
         "alocacao_id": alocacao_id,
         "ids": ids,
     }
+
+
+async def livres_para_cobrir(
+    db,
+    *,
+    cargos: list[str],
+    dia,
+    post_id: str | None = None,
+    excluir_employee_id: str | None = None,
+) -> list[dict]:
+    """Funcionários ATIVOS que podem cobrir um turno em `dia`, ordenados por "já é deste posto".
+
+    ⭐ EXTRAÍDA de `falta_substituto_controller.sugerir_substitutos` em 24/09/2026, e extraída
+    em vez de copiada por um motivo concreto: esta consulta carrega REGRA DE DOMÍNIO que ninguém
+    reconstrói de memória —
+
+      · turno já agendado no dia desqualifica;
+      · **interjornada (CLT art. 66)**: noturno na véspera que vira a meia-noite não cobre hoje;
+      · férias APROVADA/EM CURSO/AGENDADA desqualifica.
+
+    Uma segunda cópia disso divergiria na primeira mudança de regra, e a cópia errada colocaria
+    gente em turno que a lei não permite. O Jordan pediu que o José Luís sugerisse substituto
+    para o Orlailson; a sugestão tem de sair da MESMA consulta que a tela usa, senão o WhatsApp
+    e o sistema recomendam pessoas diferentes e ninguém sabe qual vale.
+
+    ⚠️ `excluir_employee_id=None` é tratado explicitamente. A versão da rota fazia
+    `e.id <> CAST(:faltoso AS uuid)` e, com NULL, a comparação vira NULL — que o SQL trata como
+    falso e **descarta todas as linhas**. Na rota isso nunca acontecia porque a substituição
+    sempre tem faltoso; no caminho do WhatsApp, onde só há o nome de quem pediu, aconteceria
+    sempre, e o sintoma seria "nenhum substituto disponível" — uma resposta plausível e vazia.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    if not cargos:
+        return []
+    rows = (await db.execute(_t("""
+        SELECT DISTINCT ON (e.id) e.id::text, e.nome, e.cargo, p2.name,
+               (CAST(:post AS uuid) IS NOT NULL AND a.post_id = CAST(:post AS uuid)) AS mesmo_posto
+        FROM employees e
+        LEFT JOIN allocations a ON a.employee_id=e.id AND a.status='active' AND a.is_active
+        LEFT JOIN posts p2 ON p2.id=a.post_id
+        WHERE e.status='ativo' AND upper(e.cargo) = ANY(CAST(:cargos AS text[]))
+          AND (CAST(:excluir AS uuid) IS NULL OR e.id <> CAST(:excluir AS uuid))
+          AND NOT EXISTS (
+            SELECT 1 FROM shifts s2 WHERE s2.employee_id=e.id AND s2.shift_date=:dia
+              AND s2.is_active AND NOT s2.is_off_day
+              AND s2.status IN ('scheduled','in_progress','completed'))
+          AND NOT EXISTS (  -- interjornada (CLT art. 66)
+            SELECT 1 FROM shifts s3 WHERE s3.employee_id=e.id AND s3.shift_date=CAST(:dia AS date) - 1
+              AND s3.is_active AND NOT s3.is_off_day AND s3.planned_end_time <= s3.planned_start_time
+              AND s3.status IN ('scheduled','in_progress','completed'))
+          AND NOT EXISTS (
+            SELECT 1 FROM hr_vacation_requests v WHERE v.employee_id=e.id
+              AND upper(v.status) IN ('APPROVED','IN_PROGRESS','SCHEDULED')
+              AND :dia BETWEEN v.start_date AND v.end_date)
+        ORDER BY e.id, mesmo_posto DESC
+        """), {"cargos": [c.upper() for c in cargos], "excluir": excluir_employee_id,
+               "dia": dia, "post": post_id})).all()
+    return sorted(
+        [{"employee_id": r[0], "nome": r[1], "cargo": r[2], "posto_atual": r[3],
+          "mesmo_posto": bool(r[4]), "disponibilidade": "de folga hoje (sem turno agendado)"}
+         for r in rows],
+        key=lambda f: (not f["mesmo_posto"], f["nome"]),
+    )

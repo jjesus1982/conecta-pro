@@ -145,8 +145,55 @@ async def registrar_pedido_de_escala(
     # ⚠️ O título diz "AUTORIZAR", não "trocar". Aprovar aqui autoriza a mudança; aplicar na
     # escala continua sendo o Jordan na tela. Um rascunho que se lesse "plantão trocado"
     # faria o aprovador acreditar num efeito que este módulo não produz.
+    # ⭐ QUEM PODE COBRIR JÁ VEM NO RASCUNHO (24/09/2026, pedido do Jordan: "o José Luís tem de
+    # ser o braço direito do Orlailson"). O gargalo dele não é DECIDIR a troca — é PESQUISAR
+    # quem está livre, e isso são 4 a 9 rateios por dia. A lista sai da MESMA consulta que a
+    # tela de substituição usa (`cobertura_service.livres_para_cobrir`), incluindo a
+    # interjornada do art. 66: se o WhatsApp sugerisse por régua própria, ele e o sistema
+    # recomendariam pessoas diferentes e ninguém saberia qual vale.
+    #
+    # ⚠️ Best-effort de propósito: falha aqui NÃO pode impedir o pedido de ser registrado. O
+    # rascunho sem sugestão continua útil; pedido perdido, não.
+    sugestoes: list[dict] = []
+    if rotulo in ("troca de plantão", "cobertura de posto", "falta anunciada", "atestado"):
+        try:
+            from datetime import date as _date  # noqa: PLC0415
+
+            from modules.operacional.services import cobertura_service as _cob  # noqa: PLC0415
+
+            _cargo = (getattr(ident, "cargo", None) or "").upper()
+            _post_id = None
+            if emp:
+                _post_id = (await db.execute(text(
+                    "SELECT post_id::text FROM allocations WHERE employee_id = CAST(:e AS uuid) "
+                    "  AND status='active' AND is_active LIMIT 1"), {"e": str(emp)})).scalar()
+            # ⚠️ O MAPA DE COMPATIBILIDADE É O DA TELA, não o meu. Minha primeira versão passou
+            # só o cargo da pessoa e devolveu ZERO na primeira execução real: quem pediu era o
+            # Orlailson (`Supervisor Operacional`) e ninguém mais tem esse cargo. A tela resolve
+            # isso com `CARGOS_COMPATIVEIS` — líder cobre agente e vice-versa — e usar régua
+            # própria aqui é o mesmo erro de duas cópias, só que no vocabulário em vez da
+            # consulta. Ele e o sistema recomendariam gente diferente.
+            from modules.operacional.controllers.falta_substituto_controller import (  # noqa: PLC0415
+                CARGOS_COMPATIVEIS as _COMPAT,
+            )
+
+            _cargos = _COMPAT.get(_cargo, [_cargo] if _cargo else [])
+            if _cargos:
+                sugestoes = await _cob.livres_para_cobrir(
+                    db, cargos=_cargos, dia=_date.today(), post_id=_post_id,
+                    excluir_employee_id=str(emp) if emp else None)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("supervisao: não sugeri substituto para %s (%s)", nome, e)
+
     titulo = f"Autorizar {rotulo} — {nome}"
-    resumo = (f'{nome} pediu em {origem}: "{texto.strip()[:220]}". '
+    _quem = ""
+    if sugestoes:
+        _mesmo = [s["nome"] for s in sugestoes if s["mesmo_posto"]][:3]
+        _outros = [s["nome"] for s in sugestoes if not s["mesmo_posto"]][:3]
+        _quem = (f" Podem cobrir hoje: {len(sugestoes)} livres"
+                 + (f", do MESMO posto: {', '.join(_mesmo)}" if _mesmo else "")
+                 + (f"; de outros postos: {', '.join(_outros)}" if _outros else "") + ".")
+    resumo = (f'{nome} pediu em {origem}: "{texto.strip()[:220]}".{_quem} '
               f"Aprovar AUTORIZA a mudança; a escala continua sendo aplicada à mão.")
 
     # Idempotência pela pessoa + rótulo + dia: a mesma pessoa repetindo o pedido três vezes
@@ -173,6 +220,11 @@ async def registrar_pedido_de_escala(
             # Declarado no payload para quem lê o rascunho não precisar confiar na prosa:
             # não há executor que escreva em escala, de propósito.
             "aplica_automaticamente": False,
+            # Quem pode cobrir, para o Orlailson decidir sem pesquisar. Guardo os 10 primeiros:
+            # a lista inteira (18 hoje) não cabe numa decisão, e o que importa é o topo — a
+            # ordenação já põe o mesmo posto primeiro.
+            "podem_cobrir": sugestoes[:10],
+            "podem_cobrir_total": len(sugestoes),
         },
         gate="🟡",
         requires_otp=False,

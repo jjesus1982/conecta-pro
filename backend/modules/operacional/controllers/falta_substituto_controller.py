@@ -282,47 +282,15 @@ async def sugerir_substitutos(
     cargo = (sub["faltoso_cargo"] or "").upper()
     cargos_ok = CARGOS_COMPATIVEIS.get(cargo, [cargo] if cargo else [])
 
-    funcionarios = []
-    if cargos_ok:
-        rows = (
-            await db.execute(
-                text(
-                    """
-                    SELECT DISTINCT ON (e.id) e.id::text, e.nome, e.cargo, p2.name,
-                           (a.post_id = CAST(:post AS uuid)) AS mesmo_posto
-                    FROM employees e
-                    LEFT JOIN allocations a ON a.employee_id=e.id AND a.status='active' AND a.is_active
-                    LEFT JOIN posts p2 ON p2.id=a.post_id
-                    WHERE e.status='ativo' AND upper(e.cargo) = ANY(CAST(:cargos AS text[]))
-                      AND e.id <> CAST(:faltoso AS uuid)
-                      AND NOT EXISTS (
-                        SELECT 1 FROM shifts s2 WHERE s2.employee_id=e.id AND s2.shift_date=:dia
-                          AND s2.is_active AND NOT s2.is_off_day
-                          AND s2.status IN ('scheduled','in_progress','completed'))
-                      AND NOT EXISTS (  -- interjornada (CLT art. 66): noturno na véspera (vira a meia-noite) não cobre hoje
-                        SELECT 1 FROM shifts s3 WHERE s3.employee_id=e.id AND s3.shift_date=CAST(:dia AS date) - 1
-                          AND s3.is_active AND NOT s3.is_off_day AND s3.planned_end_time <= s3.planned_start_time
-                          AND s3.status IN ('scheduled','in_progress','completed'))
-                      AND NOT EXISTS (
-                        SELECT 1 FROM hr_vacation_requests v WHERE v.employee_id=e.id
-                          AND upper(v.status) IN ('APPROVED','IN_PROGRESS','SCHEDULED')
-                          AND :dia BETWEEN v.start_date AND v.end_date)
-                    ORDER BY e.id, mesmo_posto DESC
-                    """
-                ),
-                {"cargos": cargos_ok, "faltoso": sub["original_employee_id"],
-                 "dia": sub["data"], "post": sub["post_id"]},
-            )
-        ).all()
-        funcionarios = sorted(
-            [
-                {"employee_id": r[0], "nome": r[1], "cargo": r[2],
-                 "posto_atual": r[3], "mesmo_posto": bool(r[4]),
-                 "disponibilidade": "de folga hoje (sem turno agendado)"}
-                for r in rows
-            ],
-            key=lambda f: (not f["mesmo_posto"], f["nome"]),
-        )
+    # ⭐ A consulta vive em `cobertura_service.livres_para_cobrir` desde 24/09/2026. Foi
+    # EXTRAÍDA (não copiada) para que o José Luís possa sugerir substituto ao Orlailson no
+    # WhatsApp usando exatamente a mesma régua desta tela — incluindo a interjornada do art. 66.
+    # Duas cópias divergiriam, e a cópia errada colocaria gente em turno que a lei não permite.
+    from modules.operacional.services import cobertura_service as _cob  # noqa: PLC0415
+
+    funcionarios = await _cob.livres_para_cobrir(
+        db, cargos=cargos_ok, dia=sub["data"], post_id=sub["post_id"],
+        excluir_employee_id=sub["original_employee_id"])
 
     # Diaristas do Fluxo 2 (planilha) com o valor automático da diária
     funcao_sugerida = CARGO_PARA_FUNCAO.get(cargo)
