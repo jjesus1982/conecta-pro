@@ -936,7 +936,11 @@ function FormScreen({ scr }: { scr: any }) {
         </div>
       )}
       <div className="rd-form-grid">
-        {(scr.fields || []).map((f: any, i: number) => (
+        {(scr.fields || []).filter((f: any) => f && f.type !== 'hidden').map((f: any, i: number) => (
+          /* `hidden` é o id que o builder manda junto (nfe_id, rascunho_id…). O useEffect acima já
+             semeou o estado com ele; o que faltava era não DESENHAR. Sem este filtro a tela mostrava
+             uma caixa sem rótulo com um UUID dentro, editável — quem estivesse transmitindo uma NF-e
+             via uma caixa estranha e podia trocar o id da nota. 9 builders mandam campo `hidden`. */
           <div className="rd-field" key={i} style={{ gridColumn: f.span || 'span 1' }}>
             <label className="rd-label" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>{f.label}</label>
             {f.type === 'geo' ? (

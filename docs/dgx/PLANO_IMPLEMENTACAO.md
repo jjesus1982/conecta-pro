@@ -233,7 +233,7 @@ rejeitadas — a última com «Informado NCM inexistente». Não há tela de emi
 | # | Frente | Entrega | Estado |
 |---|---|---|---|
 | Z1 | **Cadastro fiscal do produto** — NCM validado contra tabela oficial, CFOP, CST/CSOSN por empresa; seed dos **95 NCMs reais** que vieram das 147 NF-e de compra | fiscal | mesclada · oráculo verde |
-| Z2 | **Um emissor só, provado** — escolher entre os dois, aposentar o outro, e AUTORIZAR uma nota em **homologação para cada CNPJ**; chave com DV, numeração por CNPJ+série, XML assinado e protocolo guardados, cancelamento e inutilização | fiscal | em execução |
+| Z2 | **Um emissor só, provado** — escolher entre os dois, aposentar o outro, e AUTORIZAR uma nota em **homologação para cada CNPJ**; chave com DV, numeração por CNPJ+série, XML assinado e protocolo guardados, cancelamento e inutilização | fiscal | **mesclada · NOTA AUTORIZADA** (cStat 100, nProt 113260013553736) · oráculo verde · a Patrimonial para na IE vazia |
 | Z3 | **A tela e o DANFE** — nova nota, prévia do XML com o que falta em vermelho, lista com o motivo da rejeição por extenso, DANFE em PDF com a faixa «SEM VALOR FISCAL» em homologação | fiscal | mesclada · oráculo verde |
 | Z4 | **A tributação certa** — Zona Franca, SUFRAMA, lucro real × Simples; cada regra com a norma citada, e «sem fonte» onde não houver | fiscal | mesclada · oráculo verde |
 
@@ -243,6 +243,24 @@ documento fiscal irreversível.
 
 - 24/09 13:20 — Z1–Z4 lançadas.
 - 24/09 15:30 — Z1, Z3, Z4, Z5 e Z6 mescladas (falta a Z2, o emissor). **Três bloqueios que são do DONO, não de código:** (1) ninguém sabe qual **CFOP de saída** a Conecta usa — por isso **0 dos 95 produtos** está pronto para emitir, e foi por isso que as notas de 11/04 foram rejeitadas; (2) a **Patrimonial não tem Inscrição Estadual** no cadastro, e sem IE não existe NF-e 55; (3) a IE gravada no emissor para a Eletrônica (`45177801`) é a **municipal** — a estadual é 05.426.574-6 (repassado à Z2).
+- 24/09 18:50 — **Z2 mesclada. A casa emitiu a primeira NF-e autorizada da sua história**, em
+  homologação, SEFAZ-AM: `cStat 100 · Autorizado o uso da NF-e`, nProt **113260013553736**,
+  chave `13260935710481000103550010000000091577387314`, CONECTAMAIS ELETRONICA LTDA, CFOP 5102,
+  ICMS 20%. Cancelamento (135) e inutilização de faixa (102) também exercidos. Produção continua
+  travada por duas camadas mais gate humano: **0 linhas com `tp_amb = '1'`**.
+  Dos 3 bloqueios: o (3) caiu — a IE estadual correta já estava em `empresas` e o emissor novo lê
+  de lá; o (1) caiu — o CFOP vem da régua da Z4, não de cadastro. **Fica o (2): a Patrimonial não
+  tem Inscrição Estadual em lugar nenhum** (procurei em `empresas`, `tenants`, `sped_files`,
+  `suframa_configs`; só existe a municipal 721042001). A SEFAZ-AM rejeita 209 e o Amazonas não
+  oferece consulta cadastro para descobrir.
+- 24/09 — dois achados do orquestrador na hora de mesclar, medidos e não presumidos:
+  - `main_production.py` (zona proibida) veio reformatado inteiro pelo `ruff format` do
+    pre-commit. Comparei as duas árvores sintáticas ignorando ordem de nomes em import:
+    **uma única diferença semântica**, o texto do log, que ficou correto. Mantido.
+  - **campo `type: "hidden"` desenhava uma caixa de texto editável com o UUID dentro** — o
+    `ModuleView` não tratava esse tipo e caía no `<input type="text">`. Quem fosse transmitir uma
+    NF-e veria um campo sem rótulo com o id da nota, e podia editá-lo. Não é defeito da onda Z:
+    **9 builders** mandam campo `hidden`. Corrigido na raiz com um filtro.
 - Achados que mudam o entendimento: as duas empresas estão DENTRO da ZFM, então o Convênio ICM 65/88 (de fora para dentro) **não se aplica** à venda delas para comprador de Manaus — é operação interna, CFOP 5102, ICMS 20%; e o emissor manda `is_zfm=True` por padrão. **51% dos itens que a casa COMPRA vêm com ICMS-ST** e não há uma linha de CEST cadastrada.
 - Busca de NCM pela descrição (pedido do dono): entregue com fonte por candidato; **taxa real medida 61%**, abaixo dos 70% pedidos — teto estrutural (71 dos 95 NCMs aparecem uma vez só). O oráculo trava em 55% e imprime a taxa; 70% viraria alarme falso.
 - Bartolo: **nenhum chat novo** — é o consultor que já existia, com 5 consultas novas e uma regra («PROIBIDO inventar NCM, alíquota ou CFOP; CONSULTE ANTES de dizer que não existe»). A linha de base pegou ele afirmando com confiança que a casa «não tem NF-e de saída» e inventando tabela de CFOP de memória.
