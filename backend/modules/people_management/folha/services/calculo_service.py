@@ -15,6 +15,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from core.parametros import param_sync  # dgx f4
+
 # FONTE ÚNICA de INSS/IRRF (mesma primitiva do payroll_service — motor unificado).
 # Ver clt_calculator: INSS soma-e-arredonda-no-fim; IRRF c/ desconto simplificado + redutor.
 from modules.people_management.common.utils.clt_calculator import (
@@ -976,7 +978,10 @@ def calcular_folha_colaborador(
                 _ref_adiant = f"pago em {_rows_ad[1]:%d/%m/%Y}"
         except Exception:  # noqa: BLE001,S110
             pass
-        if _adiant <= 0 and ADIANTAMENTO_PERCENTUAL > 0:
+        # dgx f4: o % é parâmetro (system_configs `folha.adiantamento_percentual`, em %); sem linha
+        # no banco vale a constante — comportamento idêntico (oráculo test_oraculo_parametros_por_cnpj).
+        _pct_adiant = _d(param_sync(db, "folha.adiantamento_percentual", default=ADIANTAMENTO_PERCENTUAL * 100)) / Decimal(100)
+        if _adiant <= 0 and _pct_adiant > 0:
             # BASE CHEIA, não a proporcionalizada. Regra do Jordan em 22/09/2026, sobre a
             # EIDY: «recebe os 668 cheios, é adiantamento salarial; qualquer desconto deve
             # vir no pagamento dos 60%». Ela voltou de férias em 06/09, então a base do mês
@@ -984,8 +989,8 @@ def calcular_folha_colaborador(
             # segue os dias trabalhados: segue o salário. A proporcionalização continua
             # valendo para TUDO o mais (é o que faz o líquido do mês ficar certo); ela só
             # não manda no adiantamento.
-            _adiant = _d(salario_base_full * ADIANTAMENTO_PERCENTUAL)
-            _ref_adiant = f"{int(ADIANTAMENTO_PERCENTUAL * 100)}% do salário base (integral)"
+            _adiant = _d(salario_base_full * _pct_adiant)
+            _ref_adiant = f"{int(_pct_adiant * 100)}% do salário base (integral)"
         if _adiant > 0:
             descontos.append(
                 {
