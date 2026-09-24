@@ -30,7 +30,7 @@ from __future__ import annotations
 import calendar
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import text
@@ -160,16 +160,21 @@ async def parametros(db) -> Parametros:
 # ───────────────────────── mapa de frequência ─────────────────────────
 
 
-def _dias_do_mes(ano: int, mes: int) -> list[date]:
-    return [date(ano, mes, d) for d in range(1, calendar.monthrange(ano, mes)[1] + 1)]
-
-
 def _comp(ano: int, mes: int) -> tuple[date, date]:
     return date(ano, mes, 1), date(ano, mes, calendar.monthrange(ano, mes)[1])
 
 
 def _anterior(ano: int, mes: int) -> tuple[int, int]:
     return (ano - 1, 12) if mes == 1 else (ano, mes - 1)
+
+
+def _meses(ini: date, fim: date) -> list[tuple[int, int]]:
+    """(ano, mês) de cada mês que a janela toca — dgx u5."""
+    out, y, m = [], ini.year, ini.month
+    while (y, m) <= (fim.year, fim.month):
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
 
 
 async def _horas_por_dia(db, employee_id: str, ano: int, mes: int) -> dict[date, float]:
@@ -198,10 +203,20 @@ async def _horas_por_dia(db, employee_id: str, ano: int, mes: int) -> dict[date,
 
 
 async def mapa_frequencia(
-    db, employee_id: str, ano: int, mes: int, horas_minimas: Decimal | None, emp: dict | None = None
+    db,
+    employee_id: str,
+    ano: int,
+    mes: int,
+    horas_minimas: Decimal | None,
+    emp: dict | None = None,
+    periodo: tuple[date, date] | None = None,
 ) -> dict:
-    """Dia a dia da competência: T/E/F/I/S/O/V/A/X/? (ver LEGENDA). Nunca inventa escala."""
-    ini, fim = _comp(ano, mes)
+    """Dia a dia da competência: T/E/F/I/S/O/V/A/X/? (ver LEGENDA). Nunca inventa escala.
+
+    `periodo=(ini, fim)` (dgx u5, entrega em lote): janela arbitrária no lugar do mês — pode cruzar
+    meses (16/09–15/10); `ano`/`mes` são ignorados. Sem `periodo` nada muda (o oráculo da F3 compara)."""
+    ini, fim = periodo or _comp(ano, mes)
+    dias = [ini + timedelta(days=i) for i in range((fim - ini).days + 1)]
     if emp is None:
         r = (
             await db.execute(
@@ -231,7 +246,7 @@ async def mapa_frequencia(
     fonte_escala = "shifts"
     if not planejados:
         if escala == "44h":
-            planejados = {d for d in _dias_do_mes(ano, mes) if d.weekday() < 6}  # seg–sáb
+            planejados = {d for d in dias if d.weekday() < 6}  # seg–sáb
             fonte_escala = "escala_padrao"
         elif escala:
             fonte_escala = "escala_padrao_sem_dias"  # 12x36 sem escala lançada: sabe quantos, não quais
@@ -265,12 +280,17 @@ async def mapa_frequencia(
             )
         ).fetchall()
     ]
-    horas = await _horas_por_dia(db, employee_id, ano, mes)
+    if periodo is None:
+        horas = await _horas_por_dia(db, employee_id, ano, mes)
+    else:  # dgx u5: a janela pode cruzar meses — lê mês a mês (mesma régua) e recorta
+        horas = {}
+        for y, m in _meses(ini, fim):
+            horas.update({d: h for d, h in (await _horas_por_dia(db, employee_id, y, m)).items() if ini <= d <= fim})
     tem_ponto = bool(horas)
     adm, dem = emp.get("data_admissao"), emp.get("data_demissao")
 
     mapa: dict[str, str] = {}
-    for d in _dias_do_mes(ano, mes):
+    for d in dias:
         if (adm and d < adm) or (dem and d > dem):
             cod = "X"
         elif any(a <= d <= b for a, b in ferias):
@@ -296,7 +316,15 @@ async def mapa_frequencia(
     if fonte_escala == "escala_padrao_sem_dias":
         from modules.people_management.folha.services.calculo_service import dias_vt_vr
 
-        prev_vt, prev_vr = dias_vt_vr(escala, mes, ano)
+        if periodo is None:
+            prev_vt, prev_vr = dias_vt_vr(escala, mes, ano)
+        else:  # dgx u5: "sabe quantos, não quais" — mês inteiro = dias_vt_vr; mês parcial = proporção dos dias na janela
+            prev_vt = prev_vr = 0
+            for y, m in _meses(ini, fim):
+                vt, vr = dias_vt_vr(escala, m, y)
+                nd = calendar.monthrange(y, m)[1]
+                na = sum(1 for d in dias if (d.year, d.month) == (y, m))
+                prev_vt, prev_vr = prev_vt + round(vt * na / nd), prev_vr + round(vr * na / nd)
         ocupados = cont["V"] + cont["A"] + cont["X"]
         prev_vt, prev_vr = max(0, prev_vt - ocupados), max(0, prev_vr - ocupados)
         # dgx f3: quantos dias a regra "remover férias/afastados" tirou — devolvidos se a regra disser NÃO

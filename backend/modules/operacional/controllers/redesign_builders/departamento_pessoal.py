@@ -58,6 +58,9 @@ router.include_router(_r_t1)  # dgx t1
 from ._dgx_t2_ponto import router as _r_t2  # noqa: E402 — dgx t2
 
 router.include_router(_r_t2)  # dgx t2
+from ._dgx_u5_entrega_beneficio import router as _r_u5  # noqa: E402 — dgx u5
+
+router.include_router(_r_u5)  # dgx u5
 
 
 @router.post("/action/ponto-ajuste")
@@ -4859,6 +4862,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_f3_tipos_beneficio import telas as _telas_dgx_f3  # dgx f3
 
     out.update(await _telas_dgx_f3(db, out))  # dgx f3 — tipos/linhas de benefício em g-beneficios
+    from ._dgx_u5_entrega_beneficio import telas as _telas_u5  # dgx u5
+
+    out.update(await _telas_u5(db, out))  # dgx u5 — entregas em lote, abas no fim de g-beneficios
 
     from ._frente_08 import telas as _telas_08  # frente 08
 
