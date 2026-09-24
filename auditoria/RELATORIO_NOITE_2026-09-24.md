@@ -229,3 +229,50 @@ O motor de benefício da frente 03 conta **dois dias trabalhados** num plantão 
 42. **Conta de benefício por operadora ou por entrega**; vencimento = 1º dia da previsão?
 43. **Pânico sem alerta configurado**: para quem vai? Hoje só para os destinatários do alerta do posto.
 44. **`crm.json` alterado no disco sem commit** por outra sessão (tira `atividades` do menu): commitar ou restaurar do HEAD — decide quem mexeu.
+
+---
+
+# Onda 4 (24/09, tarde) — o resto das listas de lacunas
+
+Cinco frentes, escolhidas do que sobrou em `docs/dgx/lacunas/*.md` com esforço pequeno/médio e sem depender de decisão sua. Relatórios `auditoria/frentes/DGX_V1..V5_*.md`. No ar no bake 20.
+
+## 16. O defeito de cálculo que a onda 3 achou — corrigido (V1)
+
+O motor de benefício contava **dois dias trabalhados** num plantão 12x36 noturno com intervalo: as batidas depois da meia-noite viravam "outro dia". ADAILSON aparecia com 31 dias em agosto para 15 plantões.
+
+A régua agora vive num lugar só (`ponto/services/horas_service.py`): o dia de um plantão é a data em que ele começa, e todas as batidas da janela pertencem a ele.
+
+| Medida | Antes | Depois |
+|---|---|---|
+| ADAILSON, dias trabalhados em 08/2026 | 31 | 15 |
+| Σ das diferenças contra a referência, 08/2026 | 226 | 41 |
+| Σ das diferenças contra a referência, 09/2026 | 142 | 10 |
+
+O que resta de diferença **não é o motor**: é escala lançada no dia errado (RILEM está marcado nos ímpares e bate nos pares) e férias da Eidy. É dado, a operação corrige.
+
+**Folha, holerite e pagamento não passam por esse caminho** — para as 64 pessoas-mês que não trabalham à noite a diferença é zero. Em produção só a competência 08/2026 tem conferência guardada, e ela não muda; setembro nascerá certo no primeiro cálculo. A trava que a onda 3 pediu ("não aprovar entrega de benefício por apontamento noturno") pode sair.
+
+## 17. O que mais entrou
+
+| Frente | O que passou a existir |
+|---|---|
+| **V2** | Vaga do contrato vira **vaga de recrutamento** com um clique (o banco garante uma aberta por posto) e o candidato aprovado já cai alocado naquele posto. **QR** por setor: etiqueta em PDF, página pública sem login, e o chamado aberto por ali avisa o responsável |
+| **V3** | **Manutenção de veículo** como entidade: aprovar gera a troca tipada (óleo, pneu, correia), o título a pagar e o pedido de material. **Multa** vira conta e tem recurso — deferido cancela o título sem pagar nada. **Itens de vistoria** configuráveis: item que impede locomoção bloqueia a saída do veículo. Grupos de material em árvore |
+| **V4** | **Fila de falhas de importação**: os quatro importadores do DP (planilha, Sólides, Portte, arquivo de relógio) param de perder o erro no meio do caminho — cada pendência fica com dono, resolver ou ignorar. **Exportar e imprimir** colaboradores com contadores por status. **Apontamentos por CSV**, em paralelo cego |
+| **V5** | Códigos de serviço com os campos fiscais que faltavam (NBS, CST, PIS/COFINS, IBS/CBS) — **o XML da nota continua byte a byte igual**, é cadastro para quando você decidir ligar. Formas de pagamento (a tabela existia vazia; faltava a porta), limite por condição de pagamento, centros de custo em árvore, e **relatórios financeiros em PDF e Excel** com 11 agrupamentos |
+
+## 18. Três defeitos que o verde escondia e a prova por HTTP pegou
+
+- Uma consulta com lista de identificadores quebrava de verdade (erro 500) no caminho do relatório — o oráculo passava.
+- O "só validar" da importação por CSV dizia que nada tinha sido gravado, e deixava pendência na fila.
+- O oráculo de rondas **mandava e-mail real** na varredura da meia-noite, que roda dentro da produção. Você receberia um alerta falso toda noite. Duas paredes: quem testa não notifica, e domínio reservado nunca recebe.
+
+## 19. Decisões novas (só você)
+
+45. **Recalcular a conferência de benefício de 09/2026** quando quiser — vai baixar R$ 1.386,00 (eram dias contados a mais).
+46. **A escala de quatro pessoas está lançada no dia errado** (RILEM, ADEILSON, DANIEL, MAURÍCIO): bate nos pares, escala nos ímpares.
+47. **O gêmeo do defeito** vive no campo informativo do holerite (86 dias a mais em agosto). Corrigir toca o cálculo da folha — ficou fora de propósito.
+48. **Quais itens de vistoria devem bloquear a saída** do veículo: hoje nenhum dos cinco.
+49. **Multa em folha**: parcela única (hoje) e o que fazer quando o recurso é deferido depois do título pago.
+50. **Ligar os campos fiscais na emissão da NFS-e** muda o que vai ao fisco — não fiz.
+51. **CSV de apontamento deve lançar na folha ou só apontar?** Hoje aponta.
