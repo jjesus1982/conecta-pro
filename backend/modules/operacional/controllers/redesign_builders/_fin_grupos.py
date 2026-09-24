@@ -13,6 +13,7 @@ GRUPOS = [
             ("cockpit", "Cockpit"),
             ("dashboard", "Resumo"),
             ("fluxo-caixa", "Fluxo de Caixa"),
+            ("fluxo-caixa-agenda", "Agenda de caixa (por dia)"),  # dgx t4
             ("projecao", "Projeção & Insights"),
             ("dre-inline", "DRE"),
             ("indicadores", "Indicadores DSO/DPO"),
@@ -42,6 +43,7 @@ GRUPOS = [
             ("regua", "Régua"),
             ("fila-cobranca", "Fila de cobrança"),
             ("registrar-cobranca", "Registrar cobrança"),
+            ("cobranca-email", "Cobrança por e-mail"),  # dgx t4
             ("recorrencia", "Recorrência (MRR)"),
             ("gerar-cobrancas", "Gerar cobranças"),
             ("boletos", "Boletos"),
@@ -177,6 +179,7 @@ GRUPOS = [
             ("ajustar-saldo", "Ajustar saldo"),
             ("conciliacao-bancaria", "Conciliação (extrato)"),
             ("conciliar-auto", "Rodar conciliação"),
+            ("importar-ofx", "Importar OFX"),  # dgx t4
             ("conciliar-classificados", "2ª passada (classificados)"),
             ("classificar-saidas", "Classificar saídas"),
             ("corrigir-classificacao", "Corrigir classificação"),
@@ -246,6 +249,7 @@ GRUPOS = [
             ("orcamento-centro-novo", "Lançar orçamento"),  # dgx f11
             ("comissoes-fechamento", "Fechamento de comissões"),  # dgx f11
             ("comissoes-fechar", "Fechar período"),  # dgx f11
+            ("comissoes-conta-gerada", "Comissões → conta a pagar"),  # dgx t4
         ],
     ),
     (

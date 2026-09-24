@@ -2884,15 +2884,20 @@ ORDER BY b.comp DESC, b.cnpj"""
     await _f12.telas_fin(
         db, out
     )  # dgx f12 — select de fonte pagadora em «Registrar conta a receber» (depois do F11, que troca o endpoint)
+    from modules.operacional.controllers.redesign_builders import _dgx_t4_faturamento_financeiro as _t4  # dgx t4
+
+    await _t4.telas(db, out)  # dgx t4 — cobrança por e-mail, importar OFX, agenda de caixa, comissões → conta a pagar
     montar_grupos(out)  # SEMPRE por último — ver comentário acima
     return out
 
 
 # ── ESCRITA (router incluído pelo registry). Dinheiro que SAI = SEMPRE gate humano.
 router = APIRouter()
+import modules.operacional.controllers.redesign_builders._dgx_t4_faturamento_financeiro as _t4r  # noqa: E402
 from modules.operacional.controllers.redesign_builders import _dgx_f11_financeiro as _f11  # noqa: E402 — dgx f11
 
 router.include_router(_f11.router)  # dgx f11
+router.include_router(_t4r.router)  # dgx t4 — cobrança por e-mail, importar OFX, comissões → conta a pagar
 
 
 def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
