@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser
+from core.auth.module_scope import exigir_dono
 from core.database import get_db
 from modules.operacional.controllers.redesign_data_controller import S, _fmtdate, _helpers, b, brl, doc, initials, t
 from modules.people_management.hr.services import ferias_dgx as fd
@@ -520,17 +521,32 @@ async def rd_aviso_lote_pdf(
         raise _erro(exc) from exc
 
 
+async def dono_da_ferias(db: AsyncSession, vid: str) -> str | None:
+    """De quem é esta férias. Usado pela parede self-only do portal (Y5)."""
+    row = (
+        await db.execute(
+            text("SELECT employee_id::text FROM hr_vacation_requests WHERE id = CAST(:v AS uuid)"),
+            {"v": vid},
+        )
+    ).first()
+    return row[0] if row else None
+
+
 @router.get("/ferias/{vid}/recibo/pdf", summary="Recibo de férias (padrão-ouro, mesmos números da calculadora)")
 async def rd_recibo_pdf(vid: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
+    vid = _uuid(vid)
+    exigir_dono(current_user, await dono_da_ferias(db, vid))  # y5: recibo de terceiro era 200 %PDF
     try:
-        return _pdf(await fd.pdf_recibo(db, _uuid(vid)), f"recibo-ferias-{vid[:8]}.pdf")
+        return _pdf(await fd.pdf_recibo(db, vid), f"recibo-ferias-{vid[:8]}.pdf")
     except fd.FeriasErro as exc:
         raise _erro(exc) from exc
 
 
 @router.get("/ferias/{vid}/aviso/pdf", summary="Aviso de férias individual (padrão-ouro)")
 async def rd_aviso_pdf(vid: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
+    vid = _uuid(vid)
+    exigir_dono(current_user, await dono_da_ferias(db, vid))  # y5: aviso de terceiro era 200 %PDF
     try:
-        return _pdf(await fd.pdf_aviso(db, _uuid(vid)), f"aviso-ferias-{vid[:8]}.pdf")
+        return _pdf(await fd.pdf_aviso(db, vid), f"aviso-ferias-{vid[:8]}.pdf")
     except fd.FeriasErro as exc:
         raise _erro(exc) from exc

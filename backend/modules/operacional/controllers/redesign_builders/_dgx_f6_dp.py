@@ -1276,9 +1276,13 @@ async def rd_crachas_pdf(
 
 @router.get("/crachas/pdf", summary="Crachás em lote (PDF padrão-ouro)")
 async def rd_crachas_pdf_get(current_user: CurrentActiveUser, ids: str, db: AsyncSession = Depends(get_db)):
+    from core.auth.module_scope import exigir_dono
     from modules.people_management.hr.services.cracha_pdf import montar_crachas
 
-    pessoas = await pessoas_para_cracha(db, {"employee_ids": _lista(ids)})
+    alvos = _lista(ids)
+    for eid in alvos:  # y5: crachá de terceiro saía com 200 %PDF para token de colaborador
+        exigir_dono(current_user, eid)
+    pessoas = await pessoas_para_cracha(db, {"employee_ids": alvos})
     if not pessoas:
         raise HTTPException(status_code=404, detail="Nenhum colaborador ativo nos ids informados.")
     pdf = montar_crachas(pessoas)
