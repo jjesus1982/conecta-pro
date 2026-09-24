@@ -971,6 +971,14 @@ def registrar_ajuste(db: Session, ajuste: dict[str, Any]) -> dict[str, Any]:
     # employee_id na gp_clock_punches eh UUID — usar o UUID direto (nao hash)
     emp_uuid = ajuste["employee_id"]
 
+    # dgx t2 (24/09/2026): mês FECHADO (espelho ou fechamento mensal) recusa o ajuste —
+    # antes o ajuste entrava por cima de espelho fechado/homologado sem ninguém saber.
+    from modules.people_management.ponto import fechamento
+
+    _trava = fechamento.competencia_fechada_sync(db, emp_uuid, datetime.fromisoformat(str(ajuste["timestamp"])))
+    if _trava:
+        raise ValueError(_trava)
+
     db.execute(
         text(
             "INSERT INTO gp_clock_punches "

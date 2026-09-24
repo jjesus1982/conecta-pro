@@ -684,7 +684,10 @@ async def ajuste_ponto(
     db: Session = Depends(get_sync_db_dependency),
 ) -> dict[str, Any]:
     """Registra ajuste manual de ponto (somente DP)."""
-    return dashboard_service.registrar_ajuste(db, request.model_dump())
+    try:
+        return dashboard_service.registrar_ajuste(db, request.model_dump())
+    except ValueError as exc:  # dgx t2: competência fechada → 409, não 500
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get(
