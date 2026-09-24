@@ -107,10 +107,11 @@ Contrato: `docs/dgx/CONTRATO_TESTE_DGX.md` (4 fases: exercitar botão a botão �
 
 | # | Grupo do DGX | Lacunas | Estado |
 |---|---|---|---|
-| T1 | DP/RH (ficha completa, fotos, afastamentos, férias, medidas disciplinares, cursos, benefícios/entregas/reajustes, vales, crachás, demissão em lote, turnover) | `docs/dgx/lacunas/dp_rh.md` | em execução |
+| T1 | DP/RH (ficha completa, fotos, afastamentos, férias, medidas disciplinares, cursos, benefícios/entregas/reajustes, vales, crachás, demissão em lote, turnover) | `docs/dgx/lacunas/dp_rh.md` | mesclada · oráculo verde |
 | T2 | Apontamentos/Ponto (escalas, controle, ocorrências, fechamento/exportação, cartão, banco de horas, integração de batimentos, relógios, configurações) | `docs/dgx/lacunas/ponto.md` | em execução |
 | T3 | Operacional + Comercial (postos/vagas, movimentações, grid, coberturas, livro, avisos, Q-Watcher, Vigilância; clientes, contratos, fontes pagadoras, regiões, visitas) | `docs/dgx/lacunas/operacional_comercial.md` | em execução |
 | T4 | Faturamento + Financeiro (faturas, NF, cobrança, recibos, comissões; contas, conciliação, fluxo, orçamento, contas fixas, relatórios) | `docs/dgx/lacunas/faturamento_financeiro.md` | em execução |
 | T5 | Suprimentos + Frotas + SESMT + Demandas + Configurações (compras, estoque, uniformes, equipamentos; frota completa; ASO; atendimentos; acessos temporários, perfis, log) | `docs/dgx/lacunas/suprimentos_frotas_sesmt_config.md` | em execução |
 
 - 24/09 08:45 — T1–T5 lançados. Dado de teste no DGX com prefixo `TESTE CP` (colaborador compartilhado criado pelo T1).
+- 24/09 09:40 — T1 mesclada: 24 recursos do DP/RH do DGX exercitados (colaborador `TESTE CP COLABORADOR 01` criado lá — RE TCP01), 10 já cobertos ontem, 7 implementados agora: **foto do colaborador** (individual + ZIP em lote por matrícula/CPF; o crachá da F6 passa a sair com foto), ficha do colaborador em 15 seções, certificados por vencimento, dashboard de turnover, atributos do cargo (CBO, exige CNH/CNV/porte), termo disciplinar em PDF, trava de férias com afastamento aberto + registrar retorno.
