@@ -73,3 +73,10 @@ não pelo serviço); sai 0 verde / 1 vermelho; linha final `TOTAL ...: N`. Rode 
 ## Ponytail
 Menor diff PROVÁVEL, não o mais curto. Sem abstração para um caso. Deleção > adição. Se vai
 "consertar" muitos registros de uma vez, pare — há uma regra que você não procurou.
+
+## O scratchpad é COMPARTILHADO entre os agentes da mesma onda
+
+Medido em 24/09/2026: o `msg.txt` de uma frente sobrescreveu o de outra e um commit saiu com a
+mensagem errada (corrigido por `--amend`); arquivos de medição do orquestrador foram apagados no
+meio. **Escreva sempre em subpasta própria**: `<scratchpad>/<sua-frente>/…` (ex.: `w3/msg.txt`),
+nunca na raiz. E nunca apague arquivo do scratchpad que não seja seu.
