@@ -952,3 +952,67 @@ def turno_fechar_cobertura(self):  # noqa: ARG001
     except Exception as e:  # noqa: BLE001
         logger.error("turno_fechar_cobertura falhou: %s", e)
         return {"ok": False, "erro": str(e)[:200]}
+
+
+# ═════════ REDE DE SEGURANÇA PARA GRUPO (Jordan, 24/09/2026) ═════════
+#
+# 🔴 A DÍVIDA QUE EU ABRI E ESTA TASK PAGA. `varrer_sem_resposta` era a rede que recuperava
+# mensagem perdida quando um worker morre — e eu a excluí dos grupos de propósito, porque em
+# grupo "sem resposta" é o NORMAL (o prompt diz "silêncio é resposta válida e é o padrão") e ela
+# forçaria resposta a toda piada e bom dia.
+#
+# A consequência apareceu no mesmo dia: o Jordan mandou duas mensagens no Gestão às 15:37 e
+# 15:49, um bake recriou o worker da fila `webhooks` naquele minuto, as tarefas sumiram e o
+# Chatwoot não reentrega — ele já recebeu 200. Duas mensagens para o nada.
+#
+# ⭐ A RÉGUA CERTA NÃO É "SEM RESPOSTA", É "FALARAM COM ELE E NÃO HOUVE RESPOSTA". A menção
+# (`mention://contact/…/Conecta`) é o sinal inequívoco de que alguém esperava resposta — e é o
+# que separa "ninguém falou com ele" de "alguém falou e a mensagem se perdeu".
+#
+# ⚠️ Só grupos em `falar`. Em grupo de condomínio (modo `observar`) ele não responde nem quando
+# mencionado, e recuperar ali seria dar voz onde o dono não deu.
+
+#: Nome do próprio número nas menções. `[@Conecta Mais](mention://contact/3/Conecta%20Mais)` —
+#: o id do contato muda por instalação, o nome não. Configurável porque o dia em que mudar, o
+#: sintoma seria a rede parar de funcionar em silêncio.
+_MENCAO_A_MIM = os.getenv("JOSE_LUIS_NOME_MENCAO", "Conecta")
+
+
+@app.task(name="whatsapp.varrer_grupos_mencao", bind=True, max_retries=1)
+def varrer_grupos_mencao(self):  # noqa: ARG001
+    """Recupera menção ao José Luís em grupo `falar` que ficou sem resposta. 3–60 min."""
+    from sqlalchemy import text as _t
+
+    async def _pendentes(s):
+        r = await s.execute(_t("""
+            SELECT m.grupo_jid, g.nome, g.chatwoot_conversation_id AS conv, count(*) AS n
+              FROM wa_grupo_mensagens m
+              JOIN wa_grupos g ON g.jid = m.grupo_jid
+             WHERE g.modo = 'falar' AND g.chatwoot_conversation_id IS NOT NULL
+               AND m.conteudo ILIKE '%mention://contact/%'
+               AND m.conteudo ILIKE '%' || :eu || '%'
+               AND m.criado_em BETWEEN now() - interval '60 minutes'
+                                   AND now() - interval '3 minutes'
+               -- resposta NOSSA depois dela? `wa_grupo_falas` guarda o que o agente publicou.
+               AND NOT EXISTS (
+                     SELECT 1 FROM wa_grupo_falas f
+                      WHERE f.grupo_jid = m.grupo_jid AND f.quando > m.criado_em)
+             GROUP BY 1, 2, 3"""), {"eu": _MENCAO_A_MIM})
+        return [dict(x) for x in r.mappings().all()]
+
+    try:
+        pend = _run_async(_pendentes)
+    except Exception as e:  # noqa: BLE001
+        logger.error("varrer_grupos_mencao: consulta falhou: %s", e)
+        return {"ok": False}
+
+    if not pend:
+        return {"ok": True, "pendentes": 0}  # silêncio honesto: nada preso
+
+    for p in pend:
+        logger.warning("[jose-luis] %s mencão(ões) no grupo %s SEM resposta — reprocessando "
+                       "conv=%s", p["n"], p["nome"], p["conv"])
+        processar_incoming_task.apply_async(
+            args=[int(p["conv"]), None], queue="webhooks", priority=9)
+    return {"ok": True, "pendentes": len(pend),
+            "grupos": [p["nome"] for p in pend]}
