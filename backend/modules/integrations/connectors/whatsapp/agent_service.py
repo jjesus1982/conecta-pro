@@ -7319,8 +7319,25 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 if _cfg_grupo:
                     _falou = await _grp.falas_hoje(_dbg, _cfg_grupo["jid"])
                     _teto = int(_cfg_grupo.get("max_falas_dia") or 0)
-                    # Teto por dia: o Jordan pediu naturalidade, não enxurrada. `0` = sem teto.
-                    if _teto and _falou >= _teto:
+                    # ⭐ MENÇÃO DIRETA FURA O TETO (24/09/2026). O Jordan escreveu
+                    # "@José Luís quem você vai avisar hoje sobre o turno?" e o agente CALOU —
+                    # `grupo Gestão no teto de 20 falas hoje`. O teto existe contra enxurrada
+                    # NÃO SOLICITADA; ser chamado pelo nome e não responder é a pior falha
+                    # possível, porque o dono conclui que o sistema quebrou.
+                    #
+                    # ⚠️ E boa parte das 20 falas do dia eram MEUS testes — o teto foi consumido
+                    # por mim e cobrado dele. Contador compartilhado entre teste e operação é
+                    # armadilha: eu gasto, o usuário paga.
+                    _mencionado = False
+                    try:
+                        _ult = (await _dbg.execute(_sql_text(
+                            "SELECT m.conteudo FROM wa_grupo_mensagens m WHERE m.grupo_jid = :j "
+                            " ORDER BY m.criado_em DESC LIMIT 1"), {"j": _cfg_grupo["jid"]})).scalar()
+                        _mencionado = bool(_ult and "mention://contact/" in str(_ult)
+                                           and "Conecta" in str(_ult))
+                    except Exception:  # noqa: BLE001
+                        _mencionado = False
+                    if _teto and _falou >= _teto and not _mencionado:
                         logger.info("Agente: grupo %s no teto de %s fala(s) hoje — calando",
                                     _cfg_grupo["nome"], _teto)
                         return
