@@ -41,6 +41,9 @@ EXTRA_MENU: list[dict] = [
     {"id": "medico-novo", "label": "Novo médico", "icon": "M3 3v18h18"},
     {"id": "exames-por-funcao", "label": "Exames por função", "icon": "M3 3v18h18"},
     {"id": "aso-agendar", "label": "Agendar/renovar ASO", "icon": "M3 3v18h18"},
+    # dgx t5 — exame por colaborador com data e «válido até» (audiometria de 6 meses ≠ ASO anual)
+    {"id": "aso-exames-vencendo", "label": "Exames por colaborador", "icon": "M3 3v18h18"},
+    {"id": "aso-exame-novo", "label": "Registrar exame", "icon": "M3 3v18h18"},
 ]
 
 
@@ -315,6 +318,9 @@ async def build(db) -> dict:
     from ._dgx_f12_sesmt_demandas_comercial import telas_sst as _telas_f12  # dgx f12
 
     await _telas_f12(db, out)  # dgx f12 — tipos de exame, médicos, exames por função, ASO com cadastros
+    from ._dgx_t5_suprimentos_frotas_sesmt_config import telas_sst as _telas_t5  # dgx t5
+
+    await _telas_t5(db, out)  # dgx t5 — exames por colaborador com validade
     return out
 
 

@@ -7363,6 +7363,14 @@ async def redesign_data(slug: str, current_user: CurrentActiveUser, db: AsyncSes
         if slug in _SLUG_ADMIN_ONLY:
             raise HTTPException(status_code=403, detail="Acesso restrito à administração/diretoria.")
         raise HTTPException(status_code=403, detail=f"Sem acesso ao módulo '{_SLUG_MODULO_CANONICO.get(slug)}'.")
+    # dgx t5 — acesso temporário vencido é desativado aqui, na porta por onde todo mundo passa
+    # (um UPDATE; `is_active=false` derruba o login nas travas que já existem). Nunca derruba a tela.
+    try:
+        from modules.operacional.controllers.redesign_builders._dgx_t5_suprimentos_frotas_sesmt_config import expirar_acessos
+
+        await expirar_acessos(db)
+    except Exception:  # noqa: BLE001
+        await db.rollback()
     builder = BUILDERS.get(slug)
     if not builder:
         return {"slug": slug, "screens": {}, "wired": [], "extraMenu": []}

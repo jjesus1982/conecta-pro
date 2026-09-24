@@ -15,8 +15,11 @@ from modules.operacional.controllers.redesign_data_controller import (  # noqa: 
     t,
 )
 
+from ._dgx_t5_suprimentos_frotas_sesmt_config import MENU_SEG as _MENU_T5  # dgx t5
+
 SLUG = "seguranca"
 EXTRA_MENU: list[dict] = [
+    *_MENU_T5,  # dgx t5 — log do sistema (crm_audit_log) e telas abertas
     {"id": "lgpd-pia", "label": "LGPD — nova avaliação (PIA)", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "lgpd-apagamento", "label": "LGPD — pedido de apagamento", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
     {"id": "erasure-pedidos", "label": "LGPD — pedidos de apagamento", "icon": "M12 2l7 4v6c0 5-3 8-7 10-4-2-7-5-7-10V6z"},
@@ -131,4 +134,10 @@ async def build(db) -> dict:
              ]},
         ]))
 
+    from ._dgx_t5_suprimentos_frotas_sesmt_config import telas_seguranca as _telas_t5  # dgx t5
+
+    try:
+        await _telas_t5(db, out)  # dgx t5 — `auditoria` passa a ler crm_audit_log (a trilha viva)
+    except Exception:  # noqa: BLE001 — a auditoria de turnover continua na tela se a viva falhar
+        await db.rollback()
     return out
