@@ -13,7 +13,9 @@ GRUPOS = [
     ("g-escalas", "Escalas & Turnos", "Escalas, grade, alocações, turnos e substituições", [
         ("escalas-mes", "Escalas do mês"), ("grade-redesenhar", "Redesenhar grade"),
         ("escalas", "Escalas"), ("escalas-grade", "Grade por pessoa"), ("escalas-templates", "Templates"),
-        ("escalas-visual", "Editor visual"), ("alocacoes", "Alocações"), ("turnos", "Turnos"),
+        ("escalas-visual", "Editor visual"), ("alocacoes", "Alocações"),
+        ("movimentacoes", "Movimentações"), ("movimentacao-nova", "Nova movimentação"),  # dgx f5
+        ("movimentacao-encerrar", "Encerrar alocação"), ("turnos", "Turnos"),
         ("substituicoes", "Substituições"), ("escala-submeter", "Submeter escala"),
         ("escala-aprovar", "Aprovar escala"), ("escala-rejeitar", "Rejeitar escala"),
         ("escala-publicar", "Publicar escala"), ("substituicao-confirmar", "Confirmar substituição"),
