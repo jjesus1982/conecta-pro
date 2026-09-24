@@ -22,42 +22,30 @@ import base64
 import gzip
 import logging
 import re
-import ssl
 import tempfile
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-try:
-    import httpx
-
-    HTTPX_AVAILABLE = True
-except ImportError:
-    HTTPX_AVAILABLE = False
-
 logger = logging.getLogger(__name__)
 
 
-# Endpoints do Sistema Nacional NFS-e
-# URL REAL validada: sefin.nfse.gov.br/sefinnacional/ (versão SefinNacional_1.6.0)
-# Auth: mTLS com certificado A1 ICP-Brasil
-# Formato: XML DPS assinado → GZip → Base64 → POST /nfse
-NFSE_NACIONAL_ENDPOINTS = {
-    "producao": {
-        "base_url": "https://sefin.nfse.gov.br",
-        "api_url": "https://sefin.nfse.gov.br/sefinnacional",
-        "portal": "https://www.nfse.gov.br/EmissorNacional",
-        "swagger": "https://www.nfse.gov.br/swagger/contribuintesissqn/",
-    },
-    "homologacao": {
-        "base_url": "https://sefin.nfse.gov.br",
-        "api_url": "https://sefin.nfse.gov.br/sefinnacional",
-        "portal": "https://www.nfse.gov.br/EmissorNacional",
-        "swagger": "https://www.nfse.gov.br/swagger/contribuintesissqn/",
-    },
-}
+# O endereço do fisco. NÃO existe "host de homologação" com esse nome: o ambiente de teste do
+# Padrão Nacional chama-se PRODUÇÃO RESTRITA e tem host PRÓPRIO — medido em 24/09/2026:
+#   sefin.producaorestrita.nfse.gov.br → 189.9.67.145 · HTTPS válido · HTTP 403 sem certificado
+#   sefin.nfse.gov.br                  → 189.9.84.43  · HTTPS válido · HTTP 403 sem certificado
+# (403 sem certificado é o esperado: a autenticação é mTLS com A1 ICP-Brasil.)
+# O `tpAmb` do XML e o HOST têm de concordar — um DPS com tpAmb=2 enviado ao host de produção
+# é recusado, e o contrário seria nota real emitida sem querer. Quem escolhe é `url_para()`.
+URL_PRODUCAO = "https://sefin.nfse.gov.br/sefinnacional"
+URL_PRODUCAO_RESTRITA = "https://sefin.producaorestrita.nfse.gov.br/sefinnacional"
+
+
+def url_para(ambiente: "AmbienteNacional | str") -> str:
+    """Host do fisco para o ambiente pedido. Homologação = produção restrita, host próprio."""
+    return URL_PRODUCAO if str(ambiente) == "producao" else URL_PRODUCAO_RESTRITA
 
 
 class AmbienteNacional(StrEnum):
@@ -128,6 +116,12 @@ class ServicoNacional:
     valor_desconto_incondicionado: Decimal = Decimal("0")
     valor_desconto_condicionado: Decimal = Decimal("0")
     codigo_cnae: str | None = None
+    #: cNBS — Nomenclatura Brasileira de Serviços. OPCIONAL no leiaute e sem fonte
+    #: oficial neste repositório: o valor que estava CHUMBADO aqui ("120032900" =
+    #: «instalação de maquinários») ia em TODA nota, inclusive nas de vigilância da
+    #: Patrimonial — o fisco devolvia o xNBS errado, medido em 24/09/2026. Sem tabela
+    #: NBS, a tag não vai. Número fiscal sem fonte não se inventa.
+    codigo_nbs: str | None = None
     aliquota_iss: Decimal = Decimal("0.05")
     iss_retido: bool = False
 
@@ -179,6 +173,137 @@ class DPSNacional:
             )
 
 
+# ---------------------------------------------------------------------------
+# A trava de produção — duas camadas + gate humano
+#
+# NFS-e autorizada em produção é documento fiscal IRREVERSÍVEL, com ISS devido ao
+# município e obrigação acessória. O padrão é o mesmo que a frente Z2 usa na NF-e
+# (`financial/integrations/nfe_provider._exigir_ambiente`), com gate PRÓPRIO: soltar
+# a NF-e de mercadoria não pode soltar junto a nota de serviço.
+#
+#   camada 1 — `_exigir_ambiente_nfse()` no COMEÇO de toda emissão, antes de gastar
+#              numeração ou tocar o certificado;
+#   camada 2 — `_conferir_tp_amb()` relê o <tpAmb> do XML JÁ ASSINADO, imediatamente
+#              antes do POST, e confere contra o host de destino.
+#
+# Env setada como "1"/"true" NÃO abre: só a frase-senha exata.
+# ---------------------------------------------------------------------------
+
+ENV_GATE_PRODUCAO_NFSE = "NFSE_PRODUCAO_LIBERADA"
+_SENHA_GATE_NFSE = "sim-emitir-nfse-em-producao-com-iss-devido"
+
+
+class NFSeAmbienteError(RuntimeError):
+    """Pedido de transmissão recusado pela trava de ambiente. Nada foi transmitido."""
+
+    def __init__(self, msg: str, code: str = "PRODUCAO_TRAVADA") -> None:
+        super().__init__(msg)
+        self.code = code
+
+
+def producao_nfse_liberada() -> bool:
+    """True só quando o dono destravou produção na env, com a frase exata."""
+    import os as _os
+
+    return _os.getenv(ENV_GATE_PRODUCAO_NFSE, "") == _SENHA_GATE_NFSE
+
+
+def _exigir_ambiente_nfse(tp_amb: str, operacao: str = "Emissão de NFS-e") -> None:
+    """Camada 1. Toda ida ao fisco passa por aqui."""
+    if tp_amb == "2":
+        return
+    if tp_amb != "1":
+        raise NFSeAmbienteError(
+            f"Ambiente de NFS-e inválido: {tp_amb!r} (1=produção, 2=homologação/produção restrita)",
+            code="AMBIENTE_INVALIDO",
+        )
+    if not producao_nfse_liberada():
+        raise NFSeAmbienteError(
+            f"{operacao} em PRODUÇÃO bloqueada. NFS-e autorizada em produção é documento "
+            f"fiscal irreversível, com ISS devido ao município. Para liberar, defina a "
+            f"variável de ambiente {ENV_GATE_PRODUCAO_NFSE} com o valor-senha combinado — "
+            f"decisão humana, nunca automática."
+        )
+
+
+def tp_amb_do_xml(xml: str | bytes) -> list[str]:
+    """Os <tpAmb> do que REALMENTE vai no fio (com ou sem prefixo de namespace)."""
+    bruto = xml.encode("utf-8") if isinstance(xml, str) else bytes(xml)
+    return [m.decode() for m in re.findall(rb"<(?:\w+:)?tpAmb>(\d)</(?:\w+:)?tpAmb>", bruto)]
+
+
+def _conferir_tp_amb(xml: str | bytes, tp_amb: str, url: str, operacao: str = "Emissão de NFS-e") -> None:
+    """Camada 2. O ambiente é o que está no XML assinado e no HOST — não o que o config diz."""
+    achados = set(tp_amb_do_xml(xml))
+    if not achados:
+        raise NFSeAmbienteError(f"{operacao}: XML sem <tpAmb> — recuso transmitir às cegas.", code="TPAMB_AUSENTE")
+    if achados != {tp_amb}:
+        raise NFSeAmbienteError(
+            f"{operacao}: tpAmb do XML {sorted(achados)} difere do ambiente pedido ({tp_amb}). Nada foi transmitido.",
+            code="TPAMB_DIVERGENTE",
+        )
+    em_producao = url.rstrip("/") == URL_PRODUCAO.rstrip("/")
+    if em_producao != (tp_amb == "1"):
+        raise NFSeAmbienteError(
+            f"{operacao}: o host ({url}) não corresponde ao tpAmb={tp_amb} do XML. Nada foi transmitido.",
+            code="HOST_DIVERGENTE",
+        )
+    if achados == {"1"} and not producao_nfse_liberada():
+        raise NFSeAmbienteError(f"{operacao}: XML em PRODUÇÃO sem o gate humano. Nada foi transmitido.")
+
+
+def _ler_retorno_nfse(corpo: str) -> dict[str, Any]:
+    """Lê o que o fisco devolveu no 201: chave, NFS-e assinada e os números DELE.
+
+    O Padrão Nacional não tem "protocolo de autorização" como a NF-e. O que prova a
+    nota é o conjunto `chaveAcesso` + o XML `<NFSe>` assinado pelo próprio fisco, que
+    traz `cStat`, `nNFSe` (número da nota no município) e `nDFSe` (sequencial nacional
+    do documento). Medido em 24/09/2026 contra a produção restrita: HTTP 201 devolve
+    `{tipoAmbiente, versaoAplicativo, dataHoraProcessamento, chaveAcesso, nfseXmlGZipB64}`.
+
+    Devolve só o que ACHOU. Campo ausente não vira zero nem string vazia — some.
+    """
+    import json as _json
+
+    fora: dict[str, Any] = {}
+    try:
+        dado = _json.loads(corpo)
+    except Exception:  # noqa: BLE001 — corpo que não é JSON não derruba a emissão
+        return fora
+    if not isinstance(dado, dict):
+        return fora
+    if dado.get("chaveAcesso"):
+        fora["chave_acesso"] = str(dado["chaveAcesso"])
+    if dado.get("dataHoraProcessamento"):
+        fora["data_hora_processamento"] = str(dado["dataHoraProcessamento"])
+    if dado.get("tipoAmbiente") is not None:
+        fora["tp_amb_retorno"] = str(dado["tipoAmbiente"])
+    b64 = dado.get("nfseXmlGZipB64")
+    if not b64:
+        return fora
+    try:
+        xml = gzip.decompress(base64.b64decode(b64)).decode("utf-8")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"NFS-e: retorno com nfseXmlGZipB64 ilegível ({e})")
+        return fora
+    fora["xml_nfse"] = xml
+    for tag, chave in (
+        ("cStat", "c_stat"),
+        ("nNFSe", "numero_nfse"),
+        ("nDFSe", "numero_dfe"),
+        ("dhProc", "data_processamento"),
+        ("ambGer", "amb_ger"),
+        ("vISSQN", "valor_iss_fisco"),
+        ("pAliqAplic", "aliquota_iss_fisco"),
+        ("vBC", "base_calculo_fisco"),
+        ("vLiq", "valor_liquido_fisco"),
+    ):
+        m = re.search(rf"<(?:\w+:)?{tag}>([^<]+)</(?:\w+:)?{tag}>", xml)
+        if m:
+            fora[chave] = m.group(1)
+    return fora
+
+
 class NFSeNacionalManager:
     """
     Gerenciador de NFS-e Padrão Nacional (Preparação).
@@ -189,13 +314,10 @@ class NFSeNacionalManager:
     Quando a migração for realizada, este manager substituirá
     o NFSeManausManager para novas emissões.
 
-    URLs previstas:
-    - Produção: https://nfse.fazenda.gov.br/api/
-    - Homologação: https://nfse-homolog.fazenda.gov.br/api/
+    Hosts em `url_para()` — produção e produção restrita são endereços DIFERENTES.
     """
 
-    # URL REAL validada em 2026-03-24 (SefinNacional_1.6.0)
-    URL_API = "https://sefin.nfse.gov.br/sefinnacional"
+    URL_API = URL_PRODUCAO  # compatibilidade com quem já lia a constante da classe
 
     ENDPOINTS = {
         "emitir_dps": "/nfse",
@@ -226,12 +348,9 @@ class NFSeNacionalManager:
         self.certificado_path = certificado_path
         self.certificado_senha = certificado_senha
 
-        # Homologação nacional = "produção restrita" (URL distinta da produção)
-        self.url_base = (
-            "https://sefin.producaorestrita.nfse.gov.br/sefinnacional"
-            if ambiente == AmbienteNacional.HOMOLOGACAO
-            else self.URL_API
-        )
+        # Homologação nacional = "produção restrita", host PRÓPRIO (ver `url_para`).
+        self.url_base = url_para(ambiente)
+        self.tp_amb = "1" if ambiente == AmbienteNacional.PRODUCAO else "2"
 
         logger.info(f"NFSe Nacional Manager inicializado - Ambiente: {ambiente.value}, URL: {self.url_base}")
 
@@ -257,6 +376,8 @@ class NFSeNacionalManager:
         _aliquota = f"{dps.servico.aliquota_iss * 100:.2f}" if dps.servico else "5.00"  # noqa: F841
         _valor_iss = f"{dps.valor_iss:.2f}" if dps.valor_iss else "0.00"  # noqa: F841
         descricao = dps.servico.descricao if dps.servico else "Prestação de serviços"
+        nbs = _re.sub(r"\D", "", (dps.servico.codigo_nbs or "")) if dps.servico else ""
+        tag_nbs = f"\n        <cNBS>{nbs}</cNBS>" if nbs else ""
         competencia = (
             dps.data_competencia.strftime("%Y-%m-%d") if dps.data_competencia else _dt.now().strftime("%Y-%m-%d")
         )
@@ -315,8 +436,7 @@ class NFSeNacionalManager:
       <cServ>
         <cTribNac>{cod_trib}</cTribNac>
         <cTribMun>100</cTribMun>
-        <xDescServ>{descricao}</xDescServ>
-        <cNBS>120032900</cNBS>
+        <xDescServ>{descricao}</xDescServ>{tag_nbs}
       </cServ>
     </serv>
     <valores>
@@ -355,6 +475,10 @@ class NFSeNacionalManager:
 
         import requests
 
+        # Camada 1 da trava: ANTES de montar, assinar ou reservar qualquer coisa.
+        # Vale para TODO chamador deste manager — não só para o emissor da Z7.
+        _exigir_ambiente_nfse(self.tp_amb, "Emissão de NFS-e")
+
         # 1. Construir XML
         if _sem_im and dps.prestador:
             dps.prestador.inscricao_municipal = ""
@@ -386,6 +510,9 @@ class NFSeNacionalManager:
             signer = NFSeNacionalXMLSigner(cert_mgr)
             xml_assinado = signer.sign_nfse(xml_dps)
             result["xml_assinado"] = True
+            # O XML que REALMENTE vai no fio. Sem ele, quem persiste a nota guarda o
+            # rascunho sem assinatura — e o que vale legalmente é o assinado.
+            result["xml_dps_assinado"] = xml_assinado
         except Exception as e:
             logger.error(f"Erro assinando DPS: {e}")
             result["status"] = "erro_assinatura"
@@ -416,6 +543,10 @@ class NFSeNacionalManager:
                 tmp_key.write(cert_mgr.get_private_key_pem())
                 tmp_key_path = tmp_key.name
 
+            # Camada 2 da trava: o ambiente é o que está no XML ASSINADO e no host de
+            # destino, não o que o config disse lá atrás.
+            _conferir_tp_amb(xml_assinado, self.tp_amb, url, "Emissão de NFS-e")
+
             resp = requests.post(
                 url,
                 json={"dpsXmlGZipB64": xml_b64},
@@ -426,9 +557,11 @@ class NFSeNacionalManager:
 
             result["http_status"] = resp.status_code
             result["response"] = resp.text[:1000]
+            result["url"] = url
 
             if resp.status_code in (200, 201):
                 result["status"] = "aceita"
+                result.update(_ler_retorno_nfse(resp.text))
             elif resp.status_code == 400:
                 result["status"] = "rejeitada"
             else:
@@ -436,6 +569,10 @@ class NFSeNacionalManager:
 
             logger.info(f"NFS-e Nacional: HTTP {resp.status_code} — {resp.text[:200]}")
 
+        except NFSeAmbienteError:
+            # A trava recusou. Não vira "erro_transmissao" genérico: sobe como recusa,
+            # senão a tela diz «erro» onde deveria dizer «bloqueado de propósito».
+            raise
         except Exception as e:
             logger.error(f"Erro transmitindo DPS: {e}")
             result["status"] = "erro_transmissao"
@@ -598,306 +735,6 @@ for _item, _d in MAPEAMENTO_SERVICOS_VIGILANCIA.items():
 
 #: Vigilância/segurança privada (LC 116 item 11.02) — o serviço da Patrimonial.
 CTRIBNAC_PADRAO = MAPEAMENTO_SERVICOS_VIGILANCIA["11.02"]["ctribnac"]
-
-
-@dataclass
-class NFSeNacionalResult:
-    """Resultado de operação com NFS-e Nacional."""
-
-    sucesso: bool
-    mensagem: str
-    codigo: str | None = None
-    chave_acesso: str | None = None
-    numero_nfse: int | None = None
-    codigo_verificacao: str | None = None
-    link_nfse: str | None = None
-    xml_nfse: str | None = None
-    pdf_danfse: bytes | None = None
-    dados_retorno: dict[str, Any] | None = None
-    tempo_resposta: float = 0.0
-
-
-class NFSeNacionalClient:
-    """
-    Cliente para integração com o Sistema Nacional NFS-e.
-
-    Utiliza API REST com autenticação mTLS (certificado digital).
-
-    Endpoints:
-    - Produção: https://www.nfse.gov.br/api
-    - Homologação: https://www.producaorestrita.nfse.gov.br/api
-
-    Rotas principais:
-    - POST /dps - Enviar DPS (gera NFS-e)
-    - GET /dps/{id} - Consultar DPS
-    - GET /nfse/{chaveAcesso} - Consultar NFS-e
-    - GET /danfse/{chaveAcesso} - Baixar DANFSE (PDF)
-    - POST /nfse/{chaveAcesso}/eventos - Registrar eventos (cancelamento, etc)
-    """
-
-    def __init__(
-        self,
-        ambiente: str = "2",
-        cert_path: str | None = None,
-        cert_password: str | None = None,
-    ):
-        """
-        Inicializa o cliente NFS-e Nacional.
-
-        Args:
-            ambiente: 1=Produção, 2=Homologação
-            cert_path: Caminho do certificado PFX/P12
-            cert_password: Senha do certificado
-        """
-        if not HTTPX_AVAILABLE:
-            raise ImportError("httpx é necessário para NFSeNacionalClient. Instale com: pip install httpx")
-
-        self.ambiente = ambiente
-        env_key = "producao" if ambiente == "1" else "homologacao"
-        self.endpoints = NFSE_NACIONAL_ENDPOINTS[env_key]
-        self.api_url = self.endpoints["api_url"]
-
-        self.cert_path = cert_path
-        self.cert_password = cert_password
-
-        self._client: httpx.AsyncClient | None = None
-        self._cert_pem_path: str | None = None
-        self._key_pem_path: str | None = None
-
-        logger.info(f"NFSeNacionalClient inicializado: Ambiente={'Produção' if ambiente == '1' else 'Homologação'}")
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Obtém cliente HTTP com certificado mTLS."""
-        if self._client is None:
-            ssl_context = ssl.create_default_context()
-
-            if self.cert_path:
-                from .certificate_manager import CertificateManager
-
-                cert_manager = CertificateManager(pfx_path=self.cert_path, password=self.cert_password)
-                cert_manager.load()
-
-                # Exportar para arquivos temporários PEM
-                with tempfile.NamedTemporaryFile(mode="wb", suffix=".pem", delete=False) as cert_file:
-                    cert_file.write(cert_manager.get_certificate_pem())
-                    self._cert_pem_path = cert_file.name
-
-                with tempfile.NamedTemporaryFile(mode="wb", suffix=".pem", delete=False) as key_file:
-                    key_file.write(cert_manager.get_private_key_pem())
-                    self._key_pem_path = key_file.name
-
-                ssl_context.load_cert_chain(self._cert_pem_path, self._key_pem_path)
-
-            self._client = httpx.AsyncClient(
-                base_url=self.api_url,
-                verify=ssl_context,
-                timeout=60.0,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
-            )
-
-        return self._client
-
-    async def close(self):
-        """Fecha o cliente HTTP e limpa arquivos temporários."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-        # Limpar arquivos temporários
-        import os
-
-        if self._cert_pem_path and os.path.exists(self._cert_pem_path):
-            os.unlink(self._cert_pem_path)
-        if self._key_pem_path and os.path.exists(self._key_pem_path):
-            os.unlink(self._key_pem_path)
-
-    def _compress_and_encode_xml(self, xml: str) -> str:
-        """Compacta (GZip) e codifica (Base64) o XML."""
-        xml_bytes = xml.encode("utf-8")
-        compressed = gzip.compress(xml_bytes)
-        return base64.b64encode(compressed).decode("ascii")
-
-    def _decode_and_decompress_xml(self, encoded: str) -> str:
-        """Decodifica (Base64) e descompacta (GZip) o XML."""
-        compressed = base64.b64decode(encoded)
-        xml_bytes = gzip.decompress(compressed)
-        return xml_bytes.decode("utf-8")
-
-    async def enviar_dps(self, dps: DPSNacional) -> NFSeNacionalResult:
-        """
-        Envia um DPS para gerar NFS-e.
-
-        Args:
-            dps: Declaração de Prestação de Serviços
-
-        Returns:
-            Resultado da operação
-        """
-        import time
-
-        start_time = time.time()
-
-        try:
-            client = await self._get_client()
-
-            # Montar payload JSON (formato da API Nacional)
-            dps.calcular_valores()
-
-            payload = {
-                "infDPS": {
-                    "tpAmb": int(self.ambiente),
-                    "dhEmi": datetime.now(UTC).isoformat(),
-                    "verAplic": "CONECTA_PRO_1.0",
-                    "dCompet": dps.data_competencia.strftime("%Y-%m"),
-                    "prest": dps.prestador.to_dict()
-                    if hasattr(dps.prestador, "to_dict")
-                    else {
-                        "CNPJ": re.sub(r"[^\d]", "", dps.prestador.cnpj),
-                        "IM": dps.prestador.inscricao_municipal,
-                    },
-                    "serv": {
-                        "cServ": dps.servico.codigo_tributacao_nacional,
-                        "xDescServ": dps.servico.descricao,
-                    },
-                    "valores": {
-                        "vServPrest": float(dps.servico.valor_servico),
-                        "vISS": float(dps.valor_iss or 0),
-                    },
-                }
-            }
-
-            if dps.tomador:
-                payload["infDPS"]["toma"] = {
-                    "CPF" if len(re.sub(r"[^\d]", "", dps.tomador.cpf_cnpj)) == 11 else "CNPJ": re.sub(
-                        r"[^\d]", "", dps.tomador.cpf_cnpj
-                    ),
-                    "xNome": dps.tomador.razao_social,
-                }
-
-            response = await client.post("/dps", json=payload)
-            tempo_resposta = time.time() - start_time
-
-            if response.status_code in [200, 201]:
-                data = response.json()
-                return NFSeNacionalResult(
-                    sucesso=True,
-                    mensagem="DPS enviado com sucesso",
-                    chave_acesso=data.get("chaveAcesso"),
-                    numero_nfse=data.get("numero"),
-                    codigo_verificacao=data.get("codigoVerificacao"),
-                    link_nfse=data.get("link"),
-                    dados_retorno=data,
-                    tempo_resposta=tempo_resposta,
-                )
-            else:
-                data = response.json() if "application/json" in response.headers.get("content-type", "") else {}
-                return NFSeNacionalResult(
-                    sucesso=False,
-                    mensagem=data.get("message", f"Erro HTTP {response.status_code}"),
-                    codigo=str(response.status_code),
-                    dados_retorno=data,
-                    tempo_resposta=tempo_resposta,
-                )
-
-        except Exception as e:
-            logger.error(f"Erro ao enviar DPS: {e}")
-            return NFSeNacionalResult(sucesso=False, mensagem=str(e), tempo_resposta=time.time() - start_time)
-
-    async def consultar_nfse(self, chave_acesso: str) -> NFSeNacionalResult:
-        """Consulta uma NFS-e pela chave de acesso."""
-        import time
-
-        start_time = time.time()
-
-        try:
-            client = await self._get_client()
-            response = await client.get(f"/nfse/{chave_acesso}")
-            tempo_resposta = time.time() - start_time
-
-            if response.status_code == 200:
-                data = response.json()
-                xml_nfse = None
-                if "xmlNFSe" in data:
-                    xml_nfse = self._decode_and_decompress_xml(data["xmlNFSe"])
-
-                return NFSeNacionalResult(
-                    sucesso=True,
-                    mensagem="NFS-e encontrada",
-                    chave_acesso=chave_acesso,
-                    numero_nfse=data.get("numero"),
-                    xml_nfse=xml_nfse,
-                    dados_retorno=data,
-                    tempo_resposta=tempo_resposta,
-                )
-            else:
-                return NFSeNacionalResult(
-                    sucesso=False,
-                    mensagem=f"Erro HTTP {response.status_code}",
-                    codigo=str(response.status_code),
-                    tempo_resposta=tempo_resposta,
-                )
-
-        except Exception as e:
-            logger.error(f"Erro ao consultar NFS-e: {e}")
-            return NFSeNacionalResult(sucesso=False, mensagem=str(e), tempo_resposta=time.time() - start_time)
-
-    async def baixar_danfse(self, chave_acesso: str) -> NFSeNacionalResult:
-        """Baixa o DANFSE (PDF) de uma NFS-e."""
-        import time
-
-        start_time = time.time()
-
-        try:
-            client = await self._get_client()
-            response = await client.get(f"/danfse/{chave_acesso}")
-            tempo_resposta = time.time() - start_time
-
-            if response.status_code == 200:
-                return NFSeNacionalResult(
-                    sucesso=True,
-                    mensagem="DANFSE baixado",
-                    chave_acesso=chave_acesso,
-                    pdf_danfse=response.content,
-                    tempo_resposta=tempo_resposta,
-                )
-            else:
-                return NFSeNacionalResult(
-                    sucesso=False, mensagem=f"Erro HTTP {response.status_code}", tempo_resposta=tempo_resposta
-                )
-
-        except Exception as e:
-            return NFSeNacionalResult(sucesso=False, mensagem=str(e), tempo_resposta=time.time() - start_time)
-
-    async def cancelar_nfse(self, chave_acesso: str, codigo: str, motivo: str) -> NFSeNacionalResult:
-        """Registra evento de cancelamento de NFS-e."""
-        import time
-
-        start_time = time.time()
-
-        try:
-            client = await self._get_client()
-            payload = {"tipoEvento": "cancelamento", "codigoCancelamento": codigo, "motivo": motivo}
-            response = await client.post(f"/nfse/{chave_acesso}/eventos", json=payload)
-            tempo_resposta = time.time() - start_time
-
-            if response.status_code in [200, 201]:
-                return NFSeNacionalResult(
-                    sucesso=True,
-                    mensagem="NFS-e cancelada",
-                    chave_acesso=chave_acesso,
-                    dados_retorno=response.json(),
-                    tempo_resposta=tempo_resposta,
-                )
-            else:
-                return NFSeNacionalResult(
-                    sucesso=False, mensagem=f"Erro HTTP {response.status_code}", tempo_resposta=tempo_resposta
-                )
-
-        except Exception as e:
-            return NFSeNacionalResult(sucesso=False, mensagem=str(e), tempo_resposta=time.time() - start_time)
 
 
 logger.info("Módulo NFSeNacional carregado")

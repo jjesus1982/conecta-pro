@@ -48,7 +48,8 @@ EXTRA_MENU: list[dict] = [
     {"id": "aging-receber", "label": "A receber por competência", "icon": _ICO_CALC},
     {"id": "aging-pagar", "label": "A pagar por competência", "icon": _ICO_CALC},
     {"id": "kpis-financeiros", "label": "KPIs financeiros (beat)", "icon": _ICO_CALC},
-    {"id": "nfse-emitir-dps", "label": "NFS-e nacional — emitir DPS", "icon": "M3 3v18h18", "grupo": "Notas fiscais"},
+    # dgx z7 — a tela por trás deste id passou a ser a que persiste e guarda o XML.
+    {"id": "nfse-emitir-dps", "label": "Emitir NFS-e (serviço)", "icon": "M3 3v18h18", "grupo": "Notas fiscais"},
     {
         "id": "nfse-multi-tributos",
         "label": "Tributos da NFS-e (multi-CNPJ)",
@@ -117,6 +118,16 @@ EXTRA_MENU.extend(_z3m.EXTRA_MENU)  # dgx z3
 # frente de baixo sumiam sem erro nenhum (medido no merge de 24/09/2026: as de emitir NF-e e as de
 # produto fiscal, alternadamente). Quem chegar depois INCLUI, nunca reatribui.
 router.include_router(_z3m.router)  # dgx z3
+
+# dgx z7 — NFS-e de serviço (Padrão Nacional) para os DOIS CNPJs, provada em homologação.
+# A tela de emitir REUSA o id `nfse-emitir-dps` (a entrada de menu não muda): o que muda é
+# para onde ela aponta — a ação da Z7 persiste em `nfses`, guarda o XML e passa pela trava
+# de produção. Dois caminhos de emissão, um deles sem persistência, é a armadilha que a Z2
+# desmontou na NF-e.
+from modules.operacional.controllers.redesign_builders import _dgx_z7_nfse as _z7m  # noqa: E402
+
+EXTRA_MENU.extend(_z7m.EXTRA_MENU)  # dgx z7
+router.include_router(_z7m.router)  # dgx z7
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
@@ -398,6 +409,10 @@ async def build(db) -> dict:
     from .dgx_z6_bartolo import telas as _z6_telas  # dgx z6
 
     out.update(await _z6_telas(db, out))  # dgx z6
+
+    # dgx z7 — POR ÚLTIMO de propósito: a tela de emitir NFS-e SUBSTITUI a `nfse-emitir-dps`
+    # antiga (que falava direto com o controller do governo e não gravava nada em `nfses`).
+    await _z7m.telas(db, out)  # dgx z7 — emitir NFS-e (homologação) + emitidas com estado real
     return out
 
 
@@ -1373,14 +1388,10 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
 
     from sqlalchemy import text as _T  # noqa: N812  # alias curto pré-existente
 
-    from modules.operacional.controllers.redesign_builders._ligar_generico import (
-        selecionar,
-    )
     from modules.operacional.controllers.redesign_data_controller import _helpers
 
     _log = _lg.getLogger(__name__)
     _, _safe, tbl = _helpers(db)
-    _SN = [{"value": "true", "label": "Sim"}, {"value": "false", "label": "Não"}]
 
     def _fd(v, fmt="%d/%m/%Y"):
         try:
@@ -1395,55 +1406,9 @@ async def _ligar_lote3_20260908(db, out: dict) -> None:
             await db.rollback()
             return 0
 
-    out["nfse-emitir-dps"] = {  # POST /government/nfse-nacional/emitir — dry_run por padrão
-        "title": "NFS-e nacional — emitir DPS",
-        "sub": "Emite uma nota pelo padrão nacional (ADN). A empresa escolhida define o CNPJ E o certificado que assina. Fica em SIMULAÇÃO (dry_run) até você trocar para 'não' — aí transmite de verdade. Tomador e serviço em JSON.",
-        "cta": "Emitir",
-        "type": "form",
-        "submit": {
-            "endpoint": "/api/v1/government/nfse-nacional/emitir",
-            "okMsg": "Processado — veja o resultado.",
-            "showResult": True,
-        },
-        "fields": [
-            selecionar(
-                "empresa",
-                "Empresa que emite*",
-                [
-                    {
-                        "value": "conecta_patrimonial",
-                        "label": "ConectaMais Patrimonial — vigilância, portaria, limpeza",
-                    },
-                    {"value": "conecta_eletronica", "label": "ConectaMais Eletrônica — CFTV, monitoramento, automação"},
-                ],
-                "span 2",
-            ),
-            {
-                "key": "tomador",
-                "label": "Tomador (JSON)*",
-                "type": "json",
-                "span": "span 2",
-                "value": '{"cpf_cnpj": "", "razao_social": "", "logradouro": "", "numero": "S/N", "bairro": "", "codigo_municipio": "1302603", "uf": "AM", "cep": "", "email": ""}',
-            },
-            {
-                "key": "servico",
-                "label": "Serviço (JSON)*",
-                "type": "json",
-                "span": "span 2",
-                "value": '{"codigo_tributacao_nacional": "110201", "descricao": "", "valor_servico": 0}',
-            },
-            {"key": "competencia", "label": "Competência (AAAA-MM)", "type": "text", "span": "span 1"},
-            selecionar(
-                "tipo_tributacao",
-                "Tributação",
-                [
-                    {"value": "1", "label": "1 — no município"},
-                    {"value": "2", "label": "2 — fora do município"},
-                    {"value": "3", "label": "3 — isenção"},
-                    {"value": "4", "label": "4 — imune"},
-                ],
-                "span 1",
-            ),
-            selecionar("dry_run", "Simulação (dry run)?", _SN, "span 1"),
-        ],
-    }
+    # A tela «NFS-e nacional — emitir DPS» era montada AQUI e apontava direto para
+    # /government/nfse-nacional/emitir — que transmite e NÃO grava nada: nem linha em
+    # `nfses`, nem XML, nem número. Foi assim que 27 linhas ficaram dizendo «autorizada»
+    # sem protocolo nenhum. A frente Z7 remonta esta MESMA tela (mesmo id, mesma entrada
+    # de menu) apontando para a ação que persiste e guarda o XML — ver `_dgx_z7_nfse.py`,
+    # chamado no fim do `build()`.
