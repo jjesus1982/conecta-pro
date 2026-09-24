@@ -77,6 +77,9 @@ from ._dgx_w4_transferencia import router as _r_w4  # noqa: E402 — dgx w4
 
 router.include_router(_r_w4)  # dgx w4
 router.include_router(_r_w5)  # dgx w5
+from ._dgx_x2_atraso_falta import router as _r_x2  # noqa: E402 — dgx x2
+
+router.include_router(_r_x2)  # dgx x2
 
 
 @router.post("/action/ponto-ajuste")
@@ -4910,4 +4913,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_w3_he_classificada import telas as _telas_w3  # dgx w3
 
     out.update(await _telas_w3(db, out))  # dgx w3 — abas no FIM de g-ponto (HE classificada)
+    from ._dgx_x2_atraso_falta import telas as _telas_x2  # dgx x2
+
+    out.update(
+        await _telas_x2(db, out)
+    )  # dgx x2 — conferência atraso/falta justificada, abas no FIM de g-folha (paralelo cego)
     return out

@@ -87,7 +87,12 @@ GRUPOS = [
         # dgx f6 — vale (adiantamento avulso, mesmo caminho dos descontos) e evento coletivo
         ("vales", "Vales"), ("vale-novo", "Novo vale"), ("eventos-coletivos", "Eventos coletivos"), ("evento-coletivo-novo", "Novo evento coletivo"),
         # dgx v4 (24/09/2026): idem — anexada ao FIM deste grupo por `_dgx_v4_dp_importacao.telas(db, out)`.
-        ("folha-apontamentos-importar", "Importar apontamentos (CSV)")]),
+        ("folha-apontamentos-importar", "Importar apontamentos (CSV)"),
+        # dgx x2 (24/09/2026): conferência ponto × folha — o atraso que o ponto mede e a folha nunca
+        # desconta, e a falta justificada que a folha desconta mesmo assim. Paralelo CEGO.
+        ("atraso-conferencia", "Atraso: conferência"),
+        ("falta-justificada-conferencia", "Falta justificada: conferência"),
+        ("ponto-folha-apurar", "Apurar conferência ponto × folha")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),
