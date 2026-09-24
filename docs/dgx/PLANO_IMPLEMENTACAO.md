@@ -125,10 +125,11 @@ Jordan: *"prosiga em loop."*
 
 | # | Frente | Módulo | Estado |
 |---|---|---|---|
-| U1 | Movimentação em dois passos (pedido → aprovar/recusar, DP segue direto) + supervisão planejada com frequência e mapa realizado × planejado | operacional | em execução |
+| U1 | Movimentação em dois passos (pedido → aprovar/recusar, DP segue direto) + supervisão planejada com frequência e mapa realizado × planejado | operacional | mesclada · oráculo verde |
 | U2 | Férias completas: aviso em lote (PDF + assinatura), recibo timbrado com o cálculo existente, conta a pagar idempotente (art. 145), cobertura/movimentação ao aprovar, ficha por pessoa | dp | em execução |
 | U3 | Porta para toda tela: as 13 órfãs + `payable`/`receivable`; oráculo «toda tela tem porta» | diversos | em execução |
 | U4 | Rondas do Vigilância (modelos com pontos, alertas, pânico) × frente 06; chamados com setor e notificação | operacional | em execução |
 | U5 | Entrega de benefício em lote com período de apuração (DGX `EntregasBeneficios`) sobre o motor da frente 03 | dp | em execução |
 
 - 24/09 12:20 — U1–U5 lançadas.
+- 24/09 13:05 — U1 mesclada (pedido de movimentação em tabela própria `op_movimentacao_pedidos` — 4 leitores juntam `employee_alocacoes` só por data e uma linha pendente vazaria para a folha; aprovar chama o `alocar` de ontem; pendentes na Central de Aprovações; supervisão planejada com frequência, ocorrências por dia geradas de forma idempotente, checklist ou check-in do gerente marca realizada; mapa mês × posto). Beat 00:30 fica com o orquestrador.
