@@ -83,6 +83,22 @@ def autor_do_payload(data: dict) -> tuple[str | None, str | None]:
         m = re.match(r"^\+?(\d{10,15})\s*[:\-]\s*", str(data.get("content") or ""))
         if m:
             fone = m.group(1)
+    if not fone:
+        # ⭐ DIAGNÓSTICO da forma real (24/09/2026, quando a captura foi ligada). Eu escrevi
+        # este parser contra payload SINTÉTICO, porque com a captura desligada não existia
+        # payload real para olhar. Se a forma do Chatwoot puser o autor num terceiro lugar, o
+        # sintoma é silencioso: a mensagem entra com autor nulo e o aprendizado de tom sai sem
+        # dono. Então registro a ESTRUTURA quando falho — e só quando falho.
+        #
+        # ⚠️ Só as CHAVES, nunca os valores: payload de grupo carrega texto de conversa e
+        # telefone de terceiro, e log não é lugar de dado pessoal. As chaves bastam para
+        # consertar o parser.
+        try:
+            logger.warning(
+                "grupos: autor NÃO identificado — forma do payload: topo=%s sender=%s extra=%s",
+                sorted(data)[:15], sorted(cand)[:15], sorted(extra)[:15])
+        except Exception:  # noqa: BLE001
+            pass
     return (str(fone) if fone else None), (str(nome) if nome else None)
 
 
