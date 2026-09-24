@@ -318,7 +318,13 @@ async def faturado_na_competencia(db: AsyncSession, cnpj: str, ref: date) -> flo
     receita que não existiu **e ignorava as 115 que existiram**: de 03 a 09/2026 eram
     **R$ 1.759.088,51** de faturamento real aparecendo como zero em todo contrato.
 
-    **Duas exclusões, e elas são coisas diferentes.** `cancelada` é fato do FISCO. `erro_confirmado`
+    **TRÊS exclusões, e elas são coisas diferentes.** `ambiente` nasceu em 24/09/2026 de um
+    erro meu: rodei a conciliação com as empresas em homologação e ela gravou DUAS NOTAS DE
+    TESTE minhas (R$ 1.000 e R$ 500) nesta tabela, que é lida como faturamento real. A tabela
+    veio da sincronia do ADN, que só roda em produção, e por isso ninguém tinha pensado no
+    ambiente. Agora cada linha declara o seu, e só `producao` conta como receita.
+
+    **As outras duas.** `cancelada` é fato do FISCO. `erro_confirmado`
     é decisão NOSSA sobre uma nota que no fisco segue válida — a 26 da Patrimonial (Mirante,
     R$ 12.061,50) duplica tomador e valor da 27 com outro código de serviço, e o dono confirmou
     em 24/09 que foi erro. A aritmética fecha: sem ela o Mirante em 08/2026 dá R$ 40.755,80,
@@ -337,6 +343,7 @@ async def faturado_na_competencia(db: AsyncSession, cnpj: str, ref: date) -> flo
         SELECT sum(valor_servicos)::float FROM nfse_emitidas_nacional
          WHERE NOT coalesce(cancelada, false)
            AND NOT coalesce(erro_confirmado, false)
+           AND coalesce(ambiente, 'producao') = 'producao'
            AND regexp_replace(coalesce(tomador_cnpj,''),'[^0-9]','','g') = :c
            AND competencia = to_char(CAST(:m AS date), 'YYYY-MM')"""),
             {"c": cnpj, "m": ref},

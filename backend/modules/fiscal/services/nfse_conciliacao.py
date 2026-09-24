@@ -98,6 +98,14 @@ _DDL = (
     # A coluna que o orquestrador criou em produção em 24/09; aqui para o sandbox ter a
     # mesma forma. `ADD COLUMN IF NOT EXISTS` em produção é no-op.
     "ALTER TABLE nfse_emitidas_nacional ADD COLUMN IF NOT EXISTS observacao_interna TEXT",
+    # DE QUE AMBIENTE VEIO A LINHA. Medido em 24/09/2026: rodei esta conciliação com as
+    # empresas em `nfse_ambiente='homologacao'` e ela gravou DUAS NOTAS DE TESTE minhas
+    # (R$ 1.000 e R$ 500) em `nfse_emitidas_nacional` — a tabela que a precificação lê como
+    # faturamento REAL. A tabela nasceu da sincronia do ADN, que roda em produção, e por
+    # isso ninguém tinha pensado no ambiente. Agora ela declara, e o padrão é 'producao'
+    # porque é o que as 115 linhas existentes são.
+    "ALTER TABLE nfse_emitidas_nacional ADD COLUMN IF NOT EXISTS ambiente VARCHAR(16) NOT NULL DEFAULT 'producao'",
+    "CREATE INDEX IF NOT EXISTS ix_nfse_emitidas_nacional_ambiente ON nfse_emitidas_nacional (ambiente)",
 )
 
 #: Maior número de DPS observado nos DANFSe que o dono subiu. Piso, nunca teto.
@@ -377,7 +385,7 @@ async def conciliar(
 
         estado = str(r.get("status") or "")
         if estado == "encontrada" and r.get("chave_acesso"):
-            gravada = await _gravar_nota(db, cnpj=cnpj, resultado=r, quem=quem)
+            gravada = await _gravar_nota(db, cnpj=cnpj, resultado=r, quem=quem, ambiente=str(pend["ambiente"]))
             await _marcar(
                 db,
                 pend,
@@ -488,7 +496,9 @@ async def _subir_piso(db: AsyncSession, cnpj: str, numero_dps: int) -> None:
     )
 
 
-async def _gravar_nota(db: AsyncSession, *, cnpj: str, resultado: dict[str, Any], quem: str) -> dict[str, Any]:
+async def _gravar_nota(
+    db: AsyncSession, *, cnpj: str, resultado: dict[str, Any], quem: str, ambiente: str
+) -> dict[str, Any]:
     """Grava (ou sobrescreve) a nota em `nfse_emitidas_nacional` com o que o FISCO devolveu.
 
     `ON CONFLICT (chave_acesso) DO UPDATE` de propósito: a linha da NFS-e 29 que o dono
@@ -517,6 +527,9 @@ async def _gravar_nota(db: AsyncSession, *, cnpj: str, resultado: dict[str, Any]
         "descricao": (_tag(xml, "xDescServ") or "")[:2000] or None,
         "cancelada": bool(_tag(xml, "situacao") == "2") or "<e105101>" in xml,
         "cnpj": cnpj,
+        # O ambiente de ONDE a resposta veio. Sem isto, nota de homologação entra na conta do
+        # faturamento real — aconteceu em 24/09 e é o motivo da coluna existir.
+        "ambiente": ambiente,
         "obs": (
             f"Recuperada da conciliação com o fisco em {datetime.now():%d/%m/%Y %H:%M} por {quem} "
             f"(DPS série {resultado.get('serie')} nº {resultado.get('numero_dps')}, "
@@ -528,13 +541,14 @@ async def _gravar_nota(db: AsyncSession, *, cnpj: str, resultado: dict[str, Any]
             "INSERT INTO nfse_emitidas_nacional"
             " (chave_acesso, numero, competencia, data_emissao, tomador_cnpj, tomador_nome,"
             "  valor_servicos, iss_valor, iss_aliquota, valor_liquido, inss_retido,"
-            "  codigo_servico, descricao, fonte, empresa_id, cancelada, observacao_interna)"
+            "  codigo_servico, descricao, fonte, empresa_id, cancelada, observacao_interna, ambiente)"
             " SELECT :chave, :numero, :competencia, :data_emissao, :tomador_cnpj, :tomador_nome,"
             "        :valor, :iss_valor, :iss_aliquota, :valor_liquido, :inss,"
-            "        :codigo_servico, :descricao, 'conciliacao_fisco', e.id, :cancelada, :obs"
+            "        :codigo_servico, :descricao, 'conciliacao_fisco', e.id, :cancelada, :obs, :ambiente"
             "   FROM empresas e WHERE regexp_replace(e.cnpj,'\\D','','g') = :cnpj"
             " ON CONFLICT (chave_acesso) DO UPDATE SET"
-            "   numero = EXCLUDED.numero, competencia = COALESCE(EXCLUDED.competencia, nfse_emitidas_nacional.competencia),"
+            "   numero = EXCLUDED.numero, ambiente = EXCLUDED.ambiente,"
+            "   competencia = COALESCE(EXCLUDED.competencia, nfse_emitidas_nacional.competencia),"
             "   data_emissao = COALESCE(EXCLUDED.data_emissao, nfse_emitidas_nacional.data_emissao),"
             "   tomador_cnpj = COALESCE(EXCLUDED.tomador_cnpj, nfse_emitidas_nacional.tomador_cnpj),"
             "   tomador_nome = COALESCE(EXCLUDED.tomador_nome, nfse_emitidas_nacional.tomador_nome),"
