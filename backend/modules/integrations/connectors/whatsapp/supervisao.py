@@ -895,6 +895,7 @@ _STATUS_EXCEÇÃO = {
 
 
 async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=None,
+                            hora: str | None = None, cargo: str | None = None,
                             com_nomes: bool = False) -> dict[str, Any]:
     """Por posto → turno → pessoa: QUEM, QUANDO, ONDE e POR QUÊ. O pedido do Jordan de 24/09.
 
@@ -924,6 +925,23 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
     if posto and len(str(posto).strip()) >= 3:
         filtro = " AND unaccent(lower(pp.name)) LIKE '%'||unaccent(lower(:po))||'%'"
         p["po"] = " ".join(str(posto).split())
+    # ⭐ FILTRO POR HORA (24/09/2026). O Jordan pediu "todos os agentes que assumem às 18:00 e
+    # às 19:00, de todos os condomínios" — a pergunta de planejamento mais natural que existe —
+    # e o agente respondeu que não conseguia montar. Era o meu teto que escondia.
+    # ⭐ FILTRO POR CARGO (24/09/2026). O Jordan pediu "todos os AGENTES DE PORTARIA que assumem
+    # às 18h e 19h" e o agente respondeu misturando o Geilson, que é JARDINEIRO. A ferramenta
+    # devolvia o cargo em cada linha e nenhum filtro — então ele trouxe tudo e citou quem não
+    # pertencia à pergunta. Devolver o campo e esperar que o modelo filtre é confiar juízo onde
+    # cabe consulta: a operação tem agente de portaria, ASG, jardineiro e artífice no mesmo posto,
+    # e misturá-los muda a conclusão de quem lê.
+    if cargo and len(str(cargo).strip()) >= 3:
+        filtro += " AND unaccent(lower(e.cargo)) LIKE '%'||unaccent(lower(:cg))||'%'"
+        p["cg"] = " ".join(str(cargo).split())
+    if hora and str(hora).strip():
+        _hs = [h for h in re.findall(r"\d{1,2}", str(hora))][:4]
+        if _hs:
+            filtro += " AND EXTRACT(HOUR FROM s.planned_start_time) = ANY(:horas)"
+            p["horas"] = [int(h) for h in _hs]
 
     linhas = (await db.execute(text(f"""
         SELECT pp.name AS posto, e.nome, e.cargo, coalesce(e.escala_padrao,'(sem)') AS escala,
@@ -1132,17 +1150,23 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
 
     return {
         "dia": str(dia), "hora_de_referencia_manaus": str(agora)[:5],
-        "posto_filtrado": posto, "turnos": len(linhas),
+        "posto_filtrado": posto, "cargo_filtrado": cargo, "hora_filtrada": hora,
+        "turnos": len(linhas),
         "por_status": resumo_status,
         # ⚠️ TETO. Hoje são 29 turnos em 8 postos; com os condomínios entrando isso cresce e vira
         # o mesmo problema do `resumo_grupos`, que eu já cortei de 17.648 para 1.759 tokens. Sem
         # filtro de posto, devolvo o RESUMO por status e só os postos com exceção — quem quer a
         # lista de um posto pede o posto.
-        "postos": (por_posto if posto else
-                   {k: [x for x in v if x["status"] not in ("COBERTO", "AGUARDANDO")]
+        # ⚠️ AGUARDANDO FICA. Minha primeira versão do teto cortava COBERTO **e** AGUARDANDO
+        # sem filtro — e AGUARDANDO é justamente "quem vai assumir". O Jordan perguntou quem
+        # assume às 18h e 19h em todos os condomínios e o agente disse que não conseguia: eu
+        # havia otimizado para o caso que IMAGINEI (o supervisor só quer problema) e quebrado a
+        # pergunta de planejamento. Corto só COBERTO, que é o volume (14 de 29 hoje).
+        "postos": (por_posto if (posto or hora) else
+                   {k: [x for x in v if x["status"] != "COBERTO"]
                     for k, v in por_posto.items()
-                    if any(x["status"] not in ("COBERTO", "AGUARDANDO") for x in v)}),
-        "sem_filtro_mostro_so_excecao": not bool(posto),
+                    if any(x["status"] != "COBERTO" for x in v)}),
+        "sem_filtro_omito_os_cobertos": not bool(posto or hora),
         "tolerancia_atraso_min": TOLERANCIA_ATRASO_MIN,
         "leia_assim": ("veredito por turno: COBERTO · ATRASO (com minutos) · SEM_BATIDA · FOLGA · "
                        "AFASTADO · AGUARDANDO (turno não começou). `por_que` só aparece quando o "
@@ -1216,13 +1240,55 @@ async def auditoria_cadastro_vs_gov(db: AsyncSession) -> dict[str, Any]:
            AND e.status IN ('demitido','desligado','inativo','candidato')"""))).mappings().all()
 
     nao_transmitidos = [dict(a) for a in afast if str(a["gov"]).startswith("nao_")]
+
+    # ⭐ O ESPELHO DO eSOCIAL É FONTE SOBRE QUEM ESTÁ NA EMPRESA — o Jordan estava certo e minha
+    # objeção era parcial. Eu disse "eSocial é destino, não fonte": verdade para o que NÓS
+    # enviamos, e falso para o quadro completo. A Portte transmite do lado dela, e
+    # `esocial_eventos_espelho` traz o vínculo LEGAL de volta: 26 S-2230 (afastamento) e 5 S-2299
+    # (desligamento), por CPF.
+    #
+    # 🔴 A medição que fechou a discussão: o GEILSON está `ativo` no nosso cadastro, escalado 27
+    # vezes em setembro, e tem **S-2299 — DESLIGAMENTO — em 30/06**. Não era "afastamento não
+    # lançado" como eu reportei: era desligamento de junho que nunca chegou aqui. E o KEYSON, que
+    # o nosso diz `demitido`, tem S-2230 (afastamento). Os dois estão TROCADOS entre as fontes.
+    #
+    # ⚠️ O limite é de DATA, não de conceito: o espelho vai até julho. Movimentação de agosto e
+    # setembro não está lá — resolve Geilson e Keyson, não resolve o Euler. Para ser fonte viva
+    # precisa de sync contínuo do espelho, que hoje não roda. Digo isso no retorno para ninguém
+    # concluir "não está no eSocial, então não houve".
+    divergencia_gov = (await db.execute(text("""
+        SELECT e.nome, e.status AS nosso_status, e.cargo,
+               x.tipo AS evento_esocial, x.dt_evento::date AS quando,
+               (SELECT count(*) FROM shifts s WHERE s.employee_id = e.id
+                 AND s.shift_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE
+                 AND s.is_active AND NOT s.is_off_day) AS turnos_30d
+          FROM employees e
+          JOIN LATERAL (
+              SELECT y.tipo, y.dt_evento FROM esocial_eventos_espelho y
+               WHERE regexp_replace(coalesce(y.cpf_trabalhador,''), '\D', '', 'g')
+                     = regexp_replace(coalesce(e.cpf,''), '\D', '', 'g')
+                 AND y.tipo IN ('S-2299','S-2230')
+               ORDER BY y.dt_evento DESC LIMIT 1) x ON TRUE
+         WHERE regexp_replace(coalesce(e.cpf,''), '\D', '', 'g') <> ''
+           AND ((x.tipo = 'S-2299' AND e.status NOT IN ('demitido','desligado','inativo'))
+             OR (x.tipo = 'S-2230' AND e.status = 'ativo'))
+         ORDER BY x.dt_evento"""))).mappings().all()
+
     return {
+        "divergencia_com_esocial": [dict(x) for x in divergencia_gov],
+        "esocial_cobre_ate": (await db.execute(text(
+            "SELECT max(dt_evento)::date FROM esocial_eventos_espelho"))).scalar(),
         "afastamentos_registrados": len(afast),
         "nao_transmitidos_ao_esocial": nao_transmitidos,
         "afastamento_provavel_sem_lancamento": [dict(x) for x in sem_lancamento],
         "escalado_sem_vinculo": [dict(x) for x in sem_vinculo],
         "leia_assim": (
-            "O eSocial é DESTINO, não fonte: só chega lá o que sai daqui. Então 'defasado' se "
+            "⚠️ `divergencia_com_esocial` é o mais forte: o espelho traz o vínculo LEGAL "
+            "(S-2299 desligamento, S-2230 afastamento) transmitido pela contabilidade. Quem o "
+            "eSocial diz desligado e o nosso cadastro diz ativo está ESCALADO SEM VÍNCULO — e o "
+            "número de turnos vai ao lado. ⚠️ MAS o espelho cobre só até `esocial_cobre_ate`: "
+            "ausência ali NÃO prova que não houve movimentação depois. "
+            "Sobre o que NÓS enviamos: só chega lá o que sai daqui. Então 'defasado' se "
             "mede por DIVERGÊNCIA — afastamento registrado e não transmitido, pessoa que a "
             "operação trata como afastada e o cadastro diz ativa, e turno para quem não tem "
             "vínculo. ⚠️ Eu NÃO transmito nada: transmitir gera evento real no governo e é ação "

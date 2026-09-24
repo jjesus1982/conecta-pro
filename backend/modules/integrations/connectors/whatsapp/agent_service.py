@@ -4567,9 +4567,17 @@ _SCHEMA_ESCALA_POSTO = {
         ),
         "parameters": {
             "type": "object",
-            "properties": {"posto": {"type": "string",
-                                     "description": "Nome do posto/condomínio, como a pessoa falou. "
-                                                    "Vazio ou ausente = todos os postos."}},
+            "properties": {
+                "posto": {"type": "string",
+                          "description": "Nome do posto/condomínio, como a pessoa falou. Vazio = todos."},
+                "hora": {"type": "string",
+                         "description": "Hora(s) de INÍCIO do turno, se a pessoa citou "
+                                        "(ex.: '18', '18 e 19', '06:00'). Vazio = todas."},
+                "cargo": {"type": "string",
+                          "description": "Cargo, se a pessoa restringiu (ex.: 'agente de portaria', "
+                                         "'jardineiro', 'ASG'). USE SEMPRE que a pergunta citar uma "
+                                         "função — a operação tem cargos diferentes no mesmo posto."},
+            },
         },
     },
 }
@@ -5790,6 +5798,8 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
 
                     return await situacao_do_turno(
                         _dbv, posto=(str(args.get("posto") or "").strip() or None),
+                        hora=(str(args.get("hora") or "").strip() or None),
+                        cargo=(str(args.get("cargo") or "").strip() or None),
                         com_nomes=await grupo_pode_ver_nomes(_dbv, conversation_id))
                 if name == "cobertura_por_escala":
                     from .supervisao import (  # noqa: PLC0415
