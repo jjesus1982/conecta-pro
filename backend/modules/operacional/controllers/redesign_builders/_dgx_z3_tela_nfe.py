@@ -58,6 +58,7 @@ Prefixo `_` = o discovery pula. `fiscal.py` expõe o `router` e chama `telas(db,
 from __future__ import annotations
 
 import io
+import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
@@ -70,6 +71,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, require_permission
 from core.database import get_db
+
+logger = logging.getLogger(__name__)
 
 # ── ANTES do import do data_controller ───────────────────────────────────────────────────────
 # O ciclo é real e fecha aqui: este módulo importa o `redesign_data_controller`, que no fim do
@@ -819,7 +822,77 @@ async def carregar_nota(db: AsyncSession, nfe_id: str) -> tuple[dict, list[dict]
             )
         ).fetchall()
     ]
+    #: COSTURA ENTRE DUAS FRENTES, medida em produção em 24/09/2026 com a primeira nota
+    #: autorizada daqui: o DANFE saía com cabeçalho, chave, protocolo e a tarja «SEM VALOR
+    #: FISCAL» — e **sem uma linha de produto**. A Z3 lê os itens de `nfe_itens`; a Z2 decidiu
+    #: não popular essa tabela («os itens vivem no XML guardado, que é a fonte legal»). Cada
+    #: frente estava certa sozinha e o documento saía inválido.
+    #:
+    #: O remendo NÃO é popular `nfe_itens` no emissor: isso cria uma segunda cópia que pode
+    #: divergir do que foi ao fisco. Lê-se do XML autorizado, que é o que a SEFAZ carimbou —
+    #: assim o DANFE não tem como discordar da nota. `nfe_itens` continua sendo o caminho das
+    #: notas montadas pela tela (rascunho, antes de transmitir), e tem precedência quando existe.
+    if not itens and cab.get("xml_autorizado"):
+        itens = _itens_do_xml(str(cab["xml_autorizado"]))
     return cab, itens
+
+
+#: Namespace do leiaute 4.00. O `nfeProc` guardado traz o `protNFe` com prefixo (`ns0:`) e a
+#: `NFe` sem — por isso a busca é por sufixo de tag, não por caminho com prefixo fixo.
+_NS_NFE = "{http://www.portalfiscal.inf.br/nfe}"
+
+
+def _itens_do_xml(xml: str) -> list[dict]:
+    """Itens lidos do XML que a SEFAZ autorizou. Nunca levanta: DANFE sem item é ruim,
+    DANFE que estoura é pior — quem chama já trata lista vazia."""
+
+    def txt(no, tag: str, padrao: str = "") -> str:
+        achado = no.find(f"{_NS_NFE}{tag}")
+        return (achado.text or padrao) if achado is not None else padrao
+
+    #: `defusedxml`, não o ET da stdlib: o conteúdo vem do banco, mas quem o pôs lá foi uma
+    #: resposta da SEFAZ — é entrada externa, e bomba de entidade XML é barata de montar.
+    from defusedxml.ElementTree import fromstring as _parse  # noqa: PLC0415 — só este caminho
+
+    try:
+        raiz = _parse(xml)
+    except ET.ParseError:
+        logger.warning("DANFE: XML guardado não é XML válido; itens ficam vazios.")
+        return []
+    fora = []
+    for det in raiz.iter(f"{_NS_NFE}det"):
+        prod = det.find(f"{_NS_NFE}prod")
+        if prod is None:
+            continue
+        imp = det.find(f"{_NS_NFE}imposto")
+        icms = pis = cofins = None
+        if imp is not None:
+            # ICMS00/ICMS40/ICMSSN102… — o grupo tem nome variável; pega-se o primeiro filho.
+            gi = imp.find(f"{_NS_NFE}ICMS")
+            icms = next(iter(gi), None) if gi is not None else None
+            gp = imp.find(f"{_NS_NFE}PIS")
+            pis = next(iter(gp), None) if gp is not None else None
+            gc = imp.find(f"{_NS_NFE}COFINS")
+            cofins = next(iter(gc), None) if gc is not None else None
+        fora.append(
+            {
+                "codigo": txt(prod, "cProd"),
+                "descricao": txt(prod, "xProd"),
+                "ncm": txt(prod, "NCM"),
+                "cfop": txt(prod, "CFOP"),
+                "unidade": txt(prod, "uCom"),
+                "quantidade": Decimal(txt(prod, "qCom", "0") or "0"),
+                "valor_unitario": Decimal(txt(prod, "vUnCom", "0") or "0"),
+                "valor_desconto": Decimal(txt(prod, "vDesc", "0") or "0"),
+                "icms_cst": txt(icms, "CST") or txt(icms, "CSOSN") if icms is not None else "40",
+                "icms_aliquota": Decimal(txt(icms, "pICMS", "0") or "0") if icms is not None else Decimal(0),
+                "pis_cst": txt(pis, "CST", "07") if pis is not None else "07",
+                "pis_aliquota": Decimal(txt(pis, "pPIS", "0") or "0") if pis is not None else Decimal(0),
+                "cofins_cst": txt(cofins, "CST", "07") if cofins is not None else "07",
+                "cofins_aliquota": Decimal(txt(cofins, "pCOFINS", "0") or "0") if cofins is not None else Decimal(0),
+            }
+        )
+    return fora
 
 
 async def _empresas(db: AsyncSession) -> list[dict]:

@@ -218,6 +218,29 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — um oráculo é uma lista 
     async with async_session_factory() as db:
         await z3._ensure(db)
 
+        # ── 3b) DANFE de nota AUTORIZADA nunca sai sem produto ───────────────────────────
+        # Este item nasceu de um defeito REAL, medido em produção em 24/09/2026, na primeira
+        # nota autorizada daqui: o DANFE saía com cabeçalho, chave, protocolo e a tarja — e
+        # ZERO linhas de produto. O item (3) acima passava verde porque entrega os itens na
+        # mão (`z3.danfe_pdf(nota, _itens_ok())`) e nunca exercitava de onde eles VÊM.
+        # A Z3 lia de `nfe_itens`; a Z2 decidiu não popular essa tabela (os itens vivem no
+        # XML autorizado, que é a fonte legal). Cada frente certa sozinha, documento inválido.
+        # Agora a régua é a saída de ponta a ponta: carregar a nota do banco e conferir que o
+        # PDF traz o NCM e o CFOP de cada item dela.
+        for (nid,) in (
+            await db.execute(text("SELECT id FROM nfes WHERE status = 'autorizada' ORDER BY created_at DESC LIMIT 5"))
+        ).all():
+            cab_db, itens_db = await z3.carregar_nota(db, str(nid))
+            if not itens_db:
+                falhas.append(f"(3b) nota AUTORIZADA {str(nid)[:8]} carrega ZERO itens — DANFE sairia sem produto")
+                continue
+            pdf_db = z3.danfe_pdf(cab_db, itens_db)
+            for it in itens_db:
+                for campo in ("ncm", "cfop"):
+                    valor = str(it.get(campo) or "")
+                    if valor and valor.encode() not in pdf_db:
+                        falhas.append(f"(3b) DANFE da nota {str(nid)[:8]} não mostra o {campo.upper()} {valor} do item")
+
         # fixture: uma nota REJEITADA com xMotivo longo
         await db.execute(text("DELETE FROM nfes WHERE coalesce(motivo_rejeicao,'') LIKE :p"), {"p": f"%{FIXTURE}%"})
         await db.execute(
