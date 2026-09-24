@@ -375,6 +375,21 @@ async def _registrar_falha(
     await db.commit()
 
 
+async def _exigir_documento_nfe55(db: AsyncSession, *, slug: str | None, cnpj: str | None) -> None:
+    """Traduz a política de documentos da empresa para o `NFeError` desta casa.
+
+    Sem isto, a Patrimonial era recusada por `EMITENTE_INCOMPLETO / falta: inscrição
+    estadual, CEP` — o que manda a pessoa correr atrás de uma IE que o dono não pediu.
+    A recusa certa diz o motivo (ela vende serviço) e aponta a tela de NFS-e.
+    """
+    from modules.fiscal.services.documentos_da_empresa import DocumentoNaoPermitido, exigir_nfe_produto
+
+    try:
+        await exigir_nfe_produto(db, slug=slug, cnpj=None if slug else cnpj)
+    except DocumentoNaoPermitido as e:
+        raise NFeError(str(e), code=e.code, details={"empresa": e.empresa, "tela": e.tela}) from e
+
+
 async def emitir(
     db: AsyncSession,
     *,
@@ -392,6 +407,10 @@ async def emitir(
     _exigir_ambiente(tp_amb, "Emissão de NF-e")
     emitente = await carregar_emitente(db, slug=slug, cnpj=cnpj)
     cnpj_emit = emitente["cnpj"]
+    # Antes de reservar número: esta empresa emite NF-e de PRODUTO? A CONECTAMAIS
+    # PATRIMONIAL não emite — decisão do dono em 24/09/2026, não cadastro incompleto.
+    # A regra mora em `empresas` (frente Z7); aqui só se obedece e se explica.
+    await _exigir_documento_nfe55(db, slug=slug, cnpj=cnpj_emit)
     numero = await proximo_numero(db, cnpj_emit, serie, tp_amb)
     await db.commit()  # o número é reservado ANTES de ir à SEFAZ: não se reusa.
 

@@ -163,6 +163,7 @@ class NFSeNacionalService:
         competencia: str | None = None,
         tipo_tributacao: str = "1",
         dry_run: bool = False,
+        numero: str | None = None,
     ) -> dict[str, Any]:
         """
         Emite DPS (Declaracao de Prestacao de Servicos).
@@ -243,6 +244,7 @@ class NFSeNacionalService:
             valor_desconto_incondicionado=Decimal(str(servico_data.get("valor_desconto_incondicionado", 0))),
             valor_desconto_condicionado=Decimal(str(servico_data.get("valor_desconto_condicionado", 0))),
             codigo_cnae=servico_data.get("codigo_cnae"),
+            codigo_nbs=servico_data.get("codigo_nbs"),
             aliquota_iss=aliquota_iss,
             iss_retido=servico_data.get("iss_retido", False),
         )
@@ -253,8 +255,11 @@ class NFSeNacionalService:
         else:
             comp_date = datetime.now()
 
-        # Gerar numero DPS
-        numero_dps = f"{int(datetime.now().timestamp())}"
+        # Número da DPS. Quem chama pelo emissor da Z7 passa o número reservado no
+        # contador atômico (`nfse_emissao.proximo_numero`). Sem número dado, cai no
+        # timestamp histórico — que é buraco garantido na numeração e por isso fica
+        # anotado aqui em vez de escondido.
+        numero_dps = str(numero).strip() if numero else f"{int(datetime.now().timestamp())}"
 
         # Criar DPS
         dps = DPSNacional(
