@@ -133,7 +133,9 @@ GRUPOS = [
         ("reembolsos", "Reembolsos"), ("registrar-reembolso", "Registrar reembolso"),
         # dgx u5 (24/09/2026): anexadas DEPOIS de montar_grupos por `_dgx_u5_entrega_beneficio.telas(db, out)`,
         # ao fim deste grupo (depois das abas da frente 03 e da f3); listadas aqui pela composição ficar num lugar só.
-        ("beneficio-entregas", "Entregas (lote)"), ("beneficio-entrega-nova", "Nova entrega"), ("beneficio-entrega-itens", "Itens da entrega")]),
+        ("beneficio-entregas", "Entregas (lote)"), ("beneficio-entrega-nova", "Nova entrega"), ("beneficio-entrega-itens", "Itens da entrega"),
+        # dgx aa6 (24/09/2026): VA/VT por contrato — a dedução da base do INSS (Art. 31 da Lei 9.711/98)
+        ("va-vt-contrato", "VA/VT por contrato"), ("va-vt-efetivo", "Efetivo por contrato")]),
 
     ("g-saude", "Saúde & eSocial", "ASO (NR-7) e espelho dos eventos do eSocial", [
         ("renovar-aso", "Agendar/renovar ASO"),

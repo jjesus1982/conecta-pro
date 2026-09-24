@@ -44,6 +44,9 @@ router.include_router(_r_f1)  # dgx f1
 from ._dgx_f3_tipos_beneficio import router as _r_dgx_f3  # noqa: E402 — dgx f3
 
 router.include_router(_r_dgx_f3)  # dgx f3
+from ._dgx_aa6_va_vt import router as _r_aa6  # noqa: E402 — dgx aa6
+
+router.include_router(_r_aa6)  # dgx aa6
 from ._dgx_f6_dp import router as _r06  # noqa: E402 — dgx f6
 from ._dgx_f6_dp import telas as _telas_f6  # noqa: E402 — dgx f6
 
@@ -4917,6 +4920,9 @@ async def build(db, current_user=None) -> dict:
     from ._dgx_u5_entrega_beneficio import telas as _telas_u5  # dgx u5
 
     out.update(await _telas_u5(db, out))  # dgx u5 — entregas em lote, abas no fim de g-beneficios
+    from ._dgx_aa6_va_vt import telas as _telas_aa6  # dgx aa6
+
+    await _telas_aa6(db, out)  # dgx aa6 — VA/VT por contrato e efetivo divergente, no fim de g-beneficios
 
     await _mapa_descobertos_u2(db, out)  # dgx u2 — painel «postos descobertos» no mapa-ferias (depois da frente 08)
 
