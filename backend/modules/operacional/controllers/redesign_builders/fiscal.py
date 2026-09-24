@@ -8,6 +8,7 @@ from datetime import date as _date
 
 from sqlalchemy import text as _sql
 
+from modules.operacional.controllers.redesign_builders import dgx_z5_orcamento_nota as _z5  # dgx z5
 from modules.operacional.controllers.redesign_data_controller import (
     _ICF,
     IC,
@@ -69,6 +70,8 @@ EXTRA_MENU: list[dict] = [
         "icon": _ICO_CALC,
         "grupo": "Consultor fiscal",
     },
+    # dgx z5 — do orçamento à nota: o emissor CONSOME orçamento (proposta ou arquivo), nunca cria.
+    *_z5.ABAS,
 ]
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
@@ -335,6 +338,7 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    await _z5.telas(db, out)  # dgx z5 — orçamento (proposta ou arquivo) → rascunho de nota, com a origem
     return out
 
 
