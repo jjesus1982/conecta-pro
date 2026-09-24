@@ -242,11 +242,36 @@ def _caminho_xml(cnpj: str, chave: str, sufixo: str) -> Path:
 
 
 def _guardar_xml(cnpj: str, chave: str, sufixo: str, conteudo: str | None) -> str | None:
+    """Grava o XML em disco. NUNCA levanta.
+
+    Medido em PRODUÇÃO, 24/09/2026: a pasta `/app/uploads/nfe/<cnpj>/<AAMM>` tinha sido criada
+    por fora com dono `root`, e o processo roda como uid 999. O `write_text` levantou
+    `PermissionError`, a exceção subiu por `emitir()` até virar HTTP 500, **a transação foi
+    desfeita e a linha da nota sumiu** — mas o número já tinha sido consumido pelo contador. Duas
+    tentativas assim abriram os números **3 e 4** como buraco na numeração fiscal: o contador
+    dizia 4 e só existiam as notas 1 e 2.
+
+    O veredito da SEFAZ é o fato irreversível; o arquivo em disco é conveniência — o mesmo XML
+    também vai para `nfes.xml_autorizado`/`nfes.xml_enviado`, que é a cópia que sobrevive. Perder
+    o arquivo é dívida a resolver; perder a LINHA da nota é buraco fiscal invisível. Então aqui o
+    erro de disco vira log e `None`, e a nota é gravada do mesmo jeito.
+    """
     if not conteudo:
         return None
-    caminho = _caminho_xml(cnpj, chave, sufixo)
-    caminho.write_text(conteudo, encoding="utf-8")
-    return str(caminho)
+    try:
+        caminho = _caminho_xml(cnpj, chave, sufixo)
+        caminho.write_text(conteudo, encoding="utf-8")
+        return str(caminho)
+    except OSError as e:
+        logger.error(
+            "NF-e %s: XML (%s) NÃO foi para o disco (%s). A nota é gravada assim mesmo; "
+            "o XML continua em `nfes.xml_*`. Conferir dono/permissão de %s.",
+            chave,
+            sufixo,
+            e,
+            DIR_XML,
+        )
+        return None
 
 
 def _provider_para(emitente: dict[str, Any], tp_amb: str | None = None):
