@@ -57,6 +57,12 @@ GRUPOS = [
         ("aviso-ferias", "Aviso prévio de férias"), ("sync-ferias-solides", "Sincronizar Sólides"),
         ("licencas", "Licenças"), ("nova-licenca", "Registrar afastamento")]),
 
+    # dgx f2 — CCT como dado: sindicato → funções → eventos/benefícios por função → municípios.
+    ("g-cct", "Sindicato & CCT", "Sindicato, funções da convenção, eventos e benefícios por função, municípios", [
+        ("cct-sindicato", "Sindicato"), ("cct-funcoes", "Funções"),
+        ("cct-funcao-eventos", "Eventos por função"), ("cct-funcao-beneficios", "Benefícios por função"),
+        ("cct-municipios", "Municípios"), ("cct-municipio-novo", "Adicionar município")]),
+
     ("g-beneficios", "Benefícios & Reembolsos", "VT/VR, benefícios da CCT e reembolsos", [
         ("beneficios", "Benefícios"), ("nova-beneficio", "Adicionar benefício"),
         ("beneficios-cct", "Benefícios CCT"), ("novo-beneficio-cct", "Adicionar da CCT"),
@@ -114,6 +120,8 @@ MENU = [
      "icon": "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"},
     {"id": "g-ferias", "label": "Férias & Afastamentos",
      "icon": "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"},
+    {"id": "g-cct", "label": "Sindicato & CCT",  # dgx f2
+     "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 11h.01M15 11h.01"},
     {"id": "g-beneficios", "label": "Benefícios & Reembolsos",
      "icon": "M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"},
     {"id": "g-saude", "label": "Saúde & eSocial",

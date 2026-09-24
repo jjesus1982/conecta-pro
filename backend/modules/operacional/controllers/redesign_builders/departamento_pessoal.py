@@ -35,6 +35,9 @@ router = APIRouter()
 from ._frente_03 import router as _r03  # noqa: E402 — frente 03
 
 router.include_router(_r03)  # frente 03
+from ._dgx_f2_cct import router as _rf2  # noqa: E402 — dgx f2
+
+router.include_router(_rf2)  # dgx f2
 
 
 @router.post("/action/ponto-ajuste")
@@ -797,7 +800,12 @@ async def rd_action_reembolso_rejeitar(
 # `_modules/departamento-pessoal.json`. As telas continuam TODAS montadas no build; só saem
 # da navegação de topo. Menu em UM lugar só — o front soma pacote + EXTRA_MENU, então
 # declarar nos dois duplicaria cada aba.
-EXTRA_MENU: list[dict] = []
+EXTRA_MENU: list[dict] = [
+    # dgx f2 — grupo «Sindicato & CCT» (g-cct em _dp_grupos.GRUPOS). Está AQUI e não no pacote
+    # JSON porque a frente não edita frontend/; quando o orquestrador levar para o
+    # `_modules/departamento-pessoal.json`, apagar daqui (menu em um lugar só).
+    {"id": "g-cct", "label": "Sindicato & CCT", "icon": "M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 11h.01M15 11h.01"},
+]
 
 # datas: as tabelas usam date/timestamp; formatador defensivo local
 _ND = "#0F1B3A"
@@ -4793,6 +4801,9 @@ async def build(db, current_user=None) -> dict:
     await _descontos(db, out)  # descontos recorrentes (14/09) — antes de montar_grupos
     await _afd_e_justificativa(db, out)  # AFD/AEJ e justificar ponto (14/09) — antes de montar_grupos
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
+    from ._dgx_f2_cct import telas as _telas_f2  # dgx f2
+
+    out.update(await _telas_f2(db, out))  # dgx f2 — antes de montar_grupos (abas do g-cct + aviso na cct-conformidade)
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 
