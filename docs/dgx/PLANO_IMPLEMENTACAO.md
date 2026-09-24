@@ -151,3 +151,15 @@ Jordan: *"prosiga em loop."*
 - 24/09 16:15 — onda 4 (V1–V5) relançada: a primeira tentativa morreu no limite do modelo, com as 5 branches vazias (limpas).
 - 24/09 17:40 — **onda 4 completa**, 5/5 mescladas com vizinhos verdes. V1: plantão noturno vira UM dia (ADAILSON 31 → 15; conferência de 09/2026 cai R$ 1.386,00 e a trava da U5 pode sair); régua na fonte única `ponto/services/horas_service.py`, folha/holerite/pagamento intocados (Σ|Δ| = 0 para quem não trabalha à noite). V2: vaga do contrato → vaga de recrutamento (índice único: uma aberta por posto) e candidato aprovado cai alocado; QR público para abrir chamado com etiqueta em PDF. V3: manutenção de veículo como entidade (aprovar → troca tipada + título + pedido de material), multa vira conta e tem recurso (deferido cancela o título sem pagar), itens de vistoria configuráveis que bloqueiam a saída, grupos hierárquicos. V4: fila de falhas dos 4 importadores do DP, exportar/imprimir colaboradores com contadores pelas réguas existentes, apontamentos por CSV em paralelo cego. V5: 10 campos fiscais nos códigos de serviço (XML da NFS-e byte-idêntico), formas de pagamento (a tabela já existia vazia — faltava a porta), limite por condição, centros de custo em árvore (`parent_id` já existia), relatórios em PDF/Excel.
 - Achados das frentes que o verde não pegava: `ANY(CAST(:ids AS uuid[]))` quebra no asyncpg (V5, 500 real); «só validar» do CSV gravava pendência (V4); o scratchpad é compartilhado entre agentes da mesma onda e trocou mensagens de commit (V4/V5 — corrigido por amend).
+
+## Onda 5 — o que restou com valor, e o gêmeo do defeito (24/09, noite)
+
+| # | Frente | Módulo | Estado |
+|---|---|---|---|
+| W1 | O **gêmeo** do plantão noturno: `parear_batidas['dias_trabalhados']` tem o mesmo defeito (86 dias a mais em 08/2026) e alimenta o holerite informativo e `gp_monthly_closings`; + caçador da **escala lançada na paridade errada** (a classe do RILEM) | folha | em execução |
+| W2 | **Fatura como documento** (numerada, com itens, período, condição, cópia em lote, PDF individual e em lote, vira recebível) — temos recebível, não tínhamos o documento | financeiro | em execução |
+| W3 | **Hora extra classificada**: por que ela existiu (cobertura, pedido do cliente, falta de efetivo, atraso) e se é repassável — a coluna «HE repassável não faturada» entra no calculado × faturado | ponto | em execução |
+| W4 | **Transferência entre as empresas do grupo** (o caso GEILSON, que só apareceu no espelho do eSocial): mantém admissão/férias/dependentes, encerra e reabre alocação, enfileira S-2299 + S-2200 como RASCUNHO, e uma régua que compara espelho × sistema | dp | em execução |
+| W5 | **O elo que falta do «Evento como hub»**: mapa evento do ponto → rubrica da folha como cadastro em cascata, com oráculo que exige que TODA verba de ponto do holerite publicado seja explicada pelo mapa (Σ\|Δ\| = R$ 0,00). O que não fechar é a dívida medida entre cadastro e motor | folha | em execução |
+
+- 24/09 18:05 — W1–W5 lançadas sobre o bake 20.
