@@ -335,6 +335,15 @@ async def deve_calar(db: AsyncSession, data: dict) -> tuple[bool, str | None, di
         return False, None, None
     cfg = await config_do_grupo(db, jid)
     if not cfg:
+        # ⭐ DESCOBERTA SEM CONSENTIMENTO DE ABSORVER (24/09/2026). O fail-closed está certo —
+        # grupo novo não começa a gravar conversa de terceiro sozinho — mas ele tem um custo que
+        # eu ia pagar caro: o Jordan disse "vou incluir ele nos outros grupos" (os dos
+        # condomínios, onde as fotos da troca de turno são postadas). Sem isto, ele me adiciona,
+        # as fotos chegam, NADA acontece, e parece defeito meu.
+        #
+        # Então o grupo se AUTO-CADASTRA em `off`: fica registrado com nome e jid, visível na
+        # tabela, e continua ignorado até alguém decidir. Descobrir não é absorver.
+        await _descobrir(db, jid, data)
         logger.info("grupos: %s não cadastrado — ignorado (fail-closed)", jid)
         return True, jid, None
     return (cfg["modo"] != "falar"), jid, cfg
@@ -489,3 +498,32 @@ async def aprender_conversa(db: AsyncSession, *, jid: str, conversation_id: int 
     except Exception as e:  # noqa: BLE001
         await db.rollback()
         logger.warning("grupos: não aprendi a conversa de %s (%s)", jid, e)
+
+
+async def _descobrir(db: AsyncSession, jid: str, data: dict) -> None:
+    """Registra um grupo novo em `off` (ignorado) para alguém decidir depois. Best-effort.
+
+    ⚠️ `modo='off'` e NADA de absorção: o grupo passa a EXISTIR na tabela, com o nome que o
+    Chatwoot mostra, e segue ignorado. É a diferença entre "eu não sabia que esse grupo existe"
+    e "eu sei, e estou esperando decisão" — a primeira é um vão, a segunda é uma fila.
+
+    O nome sai do payload porque é a única coisa que identifica o grupo para um humano: um JID
+    `120363…@g.us` não diz a ninguém de que condomínio se trata.
+    """
+    nome = None
+    for fonte in (((data.get("conversation") or {}).get("meta") or {}).get("sender") or {},
+                  data.get("sender") or {}):
+        if (n := fonte.get("name")) and str(n).strip():
+            nome = str(n).strip()[:120]
+            break
+    try:
+        await db.execute(text(
+            "INSERT INTO wa_grupos (jid, nome, modo, midia_ok, max_falas_dia) "
+            "VALUES (:j, :n, 'off', false, 0) ON CONFLICT (jid) DO NOTHING"),
+            {"j": jid, "n": nome or "(sem nome)"})
+        await db.commit()
+        logger.warning("grupos: DESCOBERTO grupo novo %r (%s) — cadastrado em `off`, "
+                       "aguardando decisão do dono", nome, jid)
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("grupos: não registrei o grupo novo %s (%s)", jid, e)
