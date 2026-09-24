@@ -32,6 +32,7 @@ pergunta vista de dois lados:
 from __future__ import annotations
 
 import re
+from datetime import datetime
 import unicodedata
 from typing import Any
 
@@ -768,4 +769,250 @@ async def cobertura_por_escala(db: AsyncSession, *, dia=None, com_nomes: bool = 
                           "de quem não bateu, com posto e horário previsto."
                           if com_nomes else
                           " Nomes de quem não bateu só no privado, nunca neste grupo.")),
+    }
+
+
+async def escala_do_posto(db: AsyncSession, *, posto: str, dia=None, com_nomes: bool = False) -> dict[str, Any]:
+    """QUEM está escalado num posto hoje: pessoa, cargo, escala, horário e se bateu.
+
+    ⭐ Nasceu de um vão que apareceu no primeiro minuto de monitoramento (24/09/2026). O Jordan
+    perguntou no Gestão *"qual a escala dos agentes de portaria do Ideal Flores hoje de dia?"* — a
+    pergunta operacional mais básica que existe — e o agente respondeu, honestamente, que não
+    tinha: *"não tenho o Ideal Flores aberto por tipo de escala; o sistema me dá o total na 12x36
+    e na 44h e os furos por posto"*.
+
+    Ele não inventou, e é por isso que o vão apareceu limpo em vez de virar resposta plausível.
+    Mas `cobertura_por_escala` responde "quantos" e "quem FALTOU" — nunca "quem ESTÁ". Agregado
+    responde a pergunta do supervisor sobre o conjunto; sobre UM posto, ele quer a lista.
+
+    ⚠️ `com_nomes` vem de `grupo_pode_ver_nomes`, como nas outras. Sem autorização devolve
+    contagem e horários, sem pessoa — o mesmo critério, uma decisão só.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    dia = dia or _date.today()
+    alvo = " ".join(str(posto or "").split())
+    if len(alvo) < 3:
+        return {"erro": "qual posto? me diz o nome (ex.: Ideal Flores, Green Hills)"}
+
+    postos = (await db.execute(text(
+        "SELECT id::text, name FROM posts "
+        " WHERE unaccent(lower(name)) LIKE '%'||unaccent(lower(:a))||'%'"), {"a": alvo})).all()
+    if not postos:
+        return {"erro": f"não achei posto com {alvo!r} no nome"}
+    if len(postos) > 1:
+        # Ambiguidade é achado, não detalhe: escolher em silêncio daria a escala do posto errado.
+        return {"ambiguo": True, "candidatos": [p[1] for p in postos],
+                "mensagem": f"{alvo!r} casa com {len(postos)} postos — me diz qual"}
+    post_id, post_nome = postos[0]
+
+    agora = (await db.execute(text("SELECT (now() - interval '4 hours')::time"))).scalar()
+    linhas = (await db.execute(text("""
+        SELECT e.nome, e.cargo, coalesce(e.escala_padrao,'(sem)') AS escala,
+               to_char(s.planned_start_time,'HH24:MI') AS entrada,
+               to_char(s.planned_end_time,'HH24:MI')   AS saida,
+               (s.planned_start_time <= :agora)        AS ja_devia,
+               (SELECT to_char(min(g.punch_timestamp),'HH24:MI') FROM gp_clock_punches g
+                 WHERE g.employee_id = s.employee_id
+                   AND g.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                             AND (CAST(:d AS date) + s.planned_start_time) + interval '3 hours') AS bateu
+          FROM shifts s JOIN employees e ON e.id = s.employee_id
+         WHERE s.post_id = CAST(:p AS uuid) AND s.shift_date = :d
+           AND s.is_active AND NOT s.is_off_day AND e.status = 'ativo'
+         ORDER BY s.planned_start_time, e.nome"""),
+        {"p": post_id, "d": dia, "agora": agora, "agora2": agora})).mappings().all()
+
+    if not linhas:
+        return {"posto": post_nome, "dia": str(dia), "turnos": 0,
+                "mensagem": f"nenhum turno ativo no {post_nome} em {dia}"}
+
+    def _item(r):
+        base = {"escala": r["escala"], "entrada": r["entrada"], "saida": r["saida"],
+                "bateu": r["bateu"], "ja_deveria_ter_entrado": bool(r["ja_devia"])}
+        if com_nomes:
+            base = {"quem": r["nome"], "cargo": r["cargo"], **base}
+        return base
+
+    faltam = [r for r in linhas if r["ja_devia"] and not r["bateu"]]
+    return {
+        "posto": post_nome, "dia": str(dia), "hora_de_referencia_manaus": str(agora)[:5],
+        "turnos": len(linhas),
+        "escalados": [_item(r) for r in linhas],
+        "sem_batida_ate_agora": len(faltam),
+        "leia_assim": ("`bateu` vazio em quem JÁ deveria ter entrado é o que olhar; vazio em "
+                       "quem entra mais tarde é normal."
+                       + ("" if com_nomes else " Este grupo não tem autorização para nome: "
+                          "devolvo horário e escala, sem pessoa.")),
+    }
+
+
+#: Tolerância de atraso, em minutos. Abaixo disso a batida conta como pontual — ninguém bate no
+#: segundo exato, e acusar 3 minutos como atraso treina o supervisor a ignorar o relatório.
+TOLERANCIA_ATRASO_MIN = 10
+
+#: Status de batida que são EXCEÇÃO. ⚠️ `pending` NÃO está aqui, e é a distinção que mais importa
+#: nesta função: das 148 batidas de entrada dos últimos 7 dias, TODAS estão `pending`. É o estado
+#: NORMAL da casa, não uma pendência. Tratar default de coluna como evidência de problema faria o
+#: relatório acusar 100% das batidas — alarme que soa sempre.
+_STATUS_EXCEÇÃO = {
+    "pending_contingencia": "batida por contingência, aguardando o DP validar",
+    "fora_local": "bateu FORA do local do posto (geofence)",
+    "rejected": "batida recusada",
+    "recusada": "batida recusada",
+}
+
+
+async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=None,
+                            com_nomes: bool = False) -> dict[str, Any]:
+    """Por posto → turno → pessoa: QUEM, QUANDO, ONDE e POR QUÊ. O pedido do Jordan de 24/09.
+
+    ⭐ É o item 3 do que o próprio agente listou no grupo ("status derivado"), e o que faltava
+    para ele responder "por quê" em vez de "quantos". Cada turno sai com um veredito:
+
+        COBERTO · ATRASO (com minutos) · SEM_BATIDA · FOLGA · AFASTADO
+
+    e, quando há, o MOTIVO vindo do dado — não de suposição: contingência aguardando DP, batida
+    fora do geofence, facial que não reconheceu, batida feita offline, justificativa vinculada.
+
+    ⭐ O DADO JÁ EXISTIA E EU NÃO LIA. `gp_clock_punches` tem `punch_type`, `status`,
+    `device_type`, `device_id`, `latitude/longitude`, `dentro_geofence`,
+    `distancia_posto_metros`, `facial_match`, `facial_confidence`, `is_offline` e
+    `justification_id`. A minha versão anterior pegava `min(punch_timestamp)` e jogava o resto
+    fora — o agente respondia "1 sem batida" quando podia dizer "bateu por contingência, o DP
+    não validou". Capacidade que existe e ninguém lê é capacidade que não existe.
+
+    ⚠️ `pending` NÃO é problema: é o estado de TODAS as batidas da casa. Ver `_STATUS_EXCEÇÃO`.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    dia = dia or _date.today()
+    agora = (await db.execute(text("SELECT (now() - interval '4 hours')::time"))).scalar()
+
+    filtro, p = "", {"d": dia, "agora": agora, "tol": TOLERANCIA_ATRASO_MIN}
+    if posto and len(str(posto).strip()) >= 3:
+        filtro = " AND unaccent(lower(pp.name)) LIKE '%'||unaccent(lower(:po))||'%'"
+        p["po"] = " ".join(str(posto).split())
+
+    linhas = (await db.execute(text(f"""
+        SELECT pp.name AS posto, e.nome, e.cargo, coalesce(e.escala_padrao,'(sem)') AS escala,
+               s.planned_start_time AS prev_ent, s.planned_end_time AS prev_sai,
+               s.is_off_day,
+               (s.planned_start_time <= :agora) AS ja_devia,
+               g.punch_timestamp AS bateu_em, g.status AS bat_status, g.punch_type,
+               g.dentro_geofence, g.distancia_posto_metros, g.facial_match, g.is_offline,
+               g.device_type, g.justification_id,
+               EXISTS (SELECT 1 FROM hr_vacation_requests v WHERE v.employee_id = e.id
+                        AND upper(v.status) IN ('APPROVED','IN_PROGRESS','SCHEDULED')
+                        AND :d BETWEEN v.start_date AND v.end_date) AS de_ferias,
+               -- ⭐ ITEM 4 do pedido: o turno vem MARCADO quando há pendência ou afastamento,
+               -- "senão eu repito cobrança já resolvida" (palavras do próprio agente no grupo).
+               --
+               -- ⚠️ `sst_afastamentos` e NÃO `time_justifications`: aquela é a tabela grande do
+               -- DP e está com ZERO linhas. Se eu tivesse ligado nela, a conclusão seria "não
+               -- existe justificativa nenhuma nesta casa" — verde que não prova nada porque a
+               -- tabela está vazia. As que têm dado são `gp_justifications` (14, ligada à
+               -- BATIDA por `punch_id`) e `sst_afastamentos` (8, afastamento de verdade).
+               (SELECT af.tipo || coalesce(' — ' || af.motivo, '')
+                  FROM sst_afastamentos af
+                 WHERE af.employee_id = e.id
+                   AND :d BETWEEN af.data_inicio
+                              AND coalesce(af.data_retorno, af.data_fim_prevista, :d)
+                   AND lower(coalesce(af.status,'')) NOT IN ('encerrado','cancelado')
+                 LIMIT 1) AS afastamento,
+               (SELECT j.justification_type || ' (' || coalesce(j.status,'?') || ')'
+                  FROM gp_justifications j
+                 -- ⚠️ `gp_justifications.employee_id` é VARCHAR e `employees.id` é uuid — a
+                 -- comparação direta estoura. Mais um tipo divergente na mesma família de
+                 -- `diaria_diaristas.id` (integer): nesta base a chave de pessoa aparece em três
+                 -- tipos diferentes, e supor um deles é errar um terço das vezes.
+                 WHERE j.employee_id = CAST(e.id AS text) AND j.created_at::date = :d
+                 ORDER BY j.created_at DESC LIMIT 1) AS justificativa_do_dia
+          FROM shifts s
+          JOIN employees e ON e.id = s.employee_id
+          JOIN posts pp ON pp.id = s.post_id
+          LEFT JOIN LATERAL (
+              SELECT * FROM gp_clock_punches x
+               WHERE x.employee_id = s.employee_id AND x.punch_type = 'entrada'
+                 AND x.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                           AND (CAST(:d AS date) + s.planned_start_time) + interval '4 hours'
+               ORDER BY x.punch_timestamp LIMIT 1) g ON TRUE
+         WHERE s.shift_date = :d AND s.is_active AND e.status = 'ativo' {filtro}
+         ORDER BY pp.name, s.planned_start_time, e.nome"""), p)).mappings().all()
+
+    if not linhas:
+        return {"dia": str(dia), "posto_filtrado": posto, "turnos": 0,
+                "mensagem": "nenhum turno ativo com esse filtro"}
+
+    por_posto: dict[str, list] = {}
+    resumo_status: dict[str, int] = {}
+    for r in linhas:
+        # ── o veredito ──
+        if r["is_off_day"]:
+            veredito, motivo, atraso = "FOLGA", None, None
+        elif r["afastamento"]:
+            # Afastamento vem ANTES de férias e de tudo: quem está afastado não deve ser
+            # cobrado por não bater, e o motivo é o que o SST registrou, não suposição minha.
+            veredito, motivo, atraso = "AFASTADO", str(r["afastamento"])[:120], None
+        elif r["de_ferias"]:
+            veredito, motivo, atraso = "AFASTADO", "férias aprovada no período", None
+        elif r["bateu_em"]:
+            prev = datetime.combine(dia, r["prev_ent"])
+            atraso = int((r["bateu_em"] - prev).total_seconds() // 60)
+            veredito = "ATRASO" if atraso > TOLERANCIA_ATRASO_MIN else "COBERTO"
+            motivo = _STATUS_EXCEÇÃO.get(str(r["bat_status"] or ""))
+            # Motivos que se somam ao status, e cada um vem do DADO, não de suposição.
+            extras = []
+            if r["dentro_geofence"] is False:
+                d = r["distancia_posto_metros"]
+                extras.append(f"fora do geofence{f' ({int(d)}m do posto)' if d else ''}")
+            if r["facial_match"] is False:
+                extras.append("facial não reconheceu")
+            if r["is_offline"]:
+                extras.append("batida offline, sincronizada depois")
+            if r["justification_id"] or r["justificativa_do_dia"]:
+                extras.append(f"justificativa: {r['justificativa_do_dia'] or 'vinculada à batida'}")
+            motivo = "; ".join(x for x in ([motivo] if motivo else []) + extras) or None
+            if atraso is not None and atraso < 0:
+                veredito, atraso = "COBERTO", 0  # bateu antes da hora: pontual
+        elif r["ja_devia"]:
+            # ⭐ SEM_BATIDA COM JUSTIFICATIVA NÃO É COBRANÇA — é fila do DP. Sem esta distinção o
+            # relatório manda o supervisor atrás de quem já abriu justificativa, e ele aprende a
+            # desconfiar do relatório inteiro.
+            if r["justificativa_do_dia"]:
+                veredito = "SEM_BATIDA_JUSTIFICADA"
+                motivo = f"já tem justificativa aberta: {r['justificativa_do_dia']}"
+            else:
+                veredito, motivo = "SEM_BATIDA", None
+            atraso = None
+        else:
+            veredito, motivo, atraso = "AGUARDANDO", "turno ainda não começou", None
+
+        resumo_status[veredito] = resumo_status.get(veredito, 0) + 1
+        item = {"escala": r["escala"],
+                "previsto": f"{r['prev_ent'].strftime('%H:%M')}–{r['prev_sai'].strftime('%H:%M')}",
+                "bateu": r["bateu_em"].strftime("%H:%M:%S") if r["bateu_em"] else None,
+                "status": veredito}
+        if atraso:
+            item["atraso_min"] = atraso
+        if motivo:
+            item["por_que"] = motivo
+        if r["device_type"]:
+            item["onde"] = r["device_type"]
+        if com_nomes:
+            item = {"quem": r["nome"], "cargo": r["cargo"], **item}
+        por_posto.setdefault(r["posto"], []).append(item)
+
+    return {
+        "dia": str(dia), "hora_de_referencia_manaus": str(agora)[:5],
+        "posto_filtrado": posto, "turnos": len(linhas),
+        "por_status": resumo_status,
+        "postos": por_posto,
+        "tolerancia_atraso_min": TOLERANCIA_ATRASO_MIN,
+        "leia_assim": ("veredito por turno: COBERTO · ATRASO (com minutos) · SEM_BATIDA · FOLGA · "
+                       "AFASTADO · AGUARDANDO (turno não começou). `por_que` só aparece quando o "
+                       "DADO traz o motivo — status `pending` é o normal da casa e NÃO é problema. "
+                       "SEM_BATIDA_JUSTIFICADA já está com o DP: NÃO cobre de novo."
+                       + (" Este grupo está autorizado a dado nominal: DIGA os nomes aqui."
+                          if com_nomes else
+                          " Sem autorização nominal neste grupo: respondo sem pessoa.")),
     }

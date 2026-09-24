@@ -2612,6 +2612,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "resumo_grupos": {"kind": "read"},
     "visao_operacao": {"kind": "read"},
     "cobertura_por_escala": {"kind": "read"},
+    "situacao_do_turno": {"kind": "read"},
     "registrar_lead": {"kind": "write"},
     "consultar_minha_conta": {"kind": "action"},
     "abrir_ordem_servico": {"kind": "action"},
@@ -2957,6 +2958,15 @@ _PAPEIS: dict[str, dict] = {
             # e há horário comercial (jardineiro, artífice, ASG), e esses batem. Esta responde
             # o que `visao_operacao` não sabe: quem JÁ DEVERIA ter entrado, por escala.
             "cobertura_por_escala",
+            # ⭐ Vão achado no primeiro minuto de monitoramento: o Jordan perguntou a escala do
+            # Ideal Flores e o agente só tinha o agregado. Agregado responde "quantos"; sobre UM
+            # posto o supervisor quer a LISTA — e o "por quê" de cada linha.
+            #
+            # ⚠️ `escala_do_posto` NÃO entra: `situacao_do_turno` faz o que ela faz e mais o
+            # veredito. Publicar as duas seria oferecer ao modelo duas ferramentas para a mesma
+            # pergunta — ele escolheria a mais pobre metade das vezes, e as duas divergiriam na
+            # primeira mudança de regra. A função fica no módulo, sem ser oferecida.
+            "situacao_do_turno",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
@@ -2967,10 +2977,14 @@ _PAPEIS: dict[str, dict] = {
             "erro que ninguém viu, uma pergunta direta a você, ou alguém te mencionando). "
             "Conversa entre colegas, piada, bom dia e combinação de horário NÃO pedem "
             "resposta sua. Silêncio é resposta válida e é o padrão.\n"
-            "⛔ NUNCA fale de dado pessoal de ninguém no grupo: holerite, salário, atestado, "
-            "exame, advertência, férias, banco de horas, ponto de uma pessoa nomeada. Se "
-            "alguém pedir isso, diga que chama no privado — e chame. Isso não é preferência, "
-            "é LGPD.\n"
+            "SOBRE DADO DE PESSOA NESTE GRUPO: quem decide é a FERRAMENTA, não você. Toda "
+            "ferramenta que devolve dado de pessoa traz um campo `leia_assim` dizendo se este "
+            "grupo está autorizado. Se ele disser que está, DIGA OS NOMES aqui mesmo — não "
+            "ofereça levar para o privado, não peça permissão. Se ele disser que não está, "
+            "responda em número e chame no privado.\n"
+            "⛔ Independente disso: holerite, salário, advertência disciplinar e exame médico "
+            "não entram em grupo nenhum. Escala, ponto, batida e posto entram quando o "
+            "`leia_assim` autoriza.\n"
             "⛔ Você NÃO muda escala, NÃO aloca ninguém, NÃO paga nada. Pedido que mexe em "
             "escala você registra para o Jordan ou o Orlailson aprovarem, e diz que registrou.\n"
             "🔴 REGRA MAIS IMPORTANTE — NÚMERO E STATUS SÓ SAEM DE FERRAMENTA. Você NUNCA "
@@ -4462,6 +4476,28 @@ _SCHEMA_HISTORICO = {
     },
 }
 
+_SCHEMA_ESCALA_POSTO = {
+    "type": "function",
+    "function": {
+        "name": "situacao_do_turno",
+        "description": (
+            "Por posto → turno → pessoa: QUEM está escalado, QUANDO era previsto, QUANDO bateu "
+            "(hora exata), ONDE bateu (dispositivo/geofence) e POR QUÊ quando algo fugiu do "
+            "esperado. Cada turno vem com veredito: COBERTO, ATRASO (com minutos), SEM_BATIDA, "
+            "FOLGA, AFASTADO ou AGUARDANDO. Use para qualquer pergunta sobre escala, ponto, "
+            "atraso ou quem está num posto — com ou sem filtro de posto. É a mais completa; "
+            "cobertura_por_escala só serve para o panorama por tipo de escala."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"posto": {"type": "string",
+                                     "description": "Nome do posto/condomínio, como a pessoa falou. "
+                                                    "Vazio ou ausente = todos os postos."}},
+        },
+    },
+}
+
+
 _SCHEMA_COBERTURA_ESCALA = {
     "type": "function",
     "function": {
@@ -5248,7 +5284,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
         ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
-                   _SCHEMA_COBERTURA_ESCALA]
+                   _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5620,7 +5656,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     "pessoa me chama no privado.")}
             return await _tool_ponto_funcionario(name, args, _f)
 
-        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala"):
+        if name in ("visao_operacao", "resumo_grupos", "cobertura_por_escala", "situacao_do_turno"):
             # ⚠️ ESTE BLOCO EXISTE PORQUE EU HAVIA POSTO O DESPACHO NO LUGAR ERRADO. As duas
             # tools estavam na allowlist e no schema, e o dispatcher devolvia
             # "tool desconhecida" — eu tinha escrito o `if name ==` dentro de
@@ -5649,6 +5685,15 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                     return {"erro": "esta informação é para quem supervisiona a operação"}
                 if name == "visao_operacao":
                     return await visao_operacao(_dbv)
+                if name == "situacao_do_turno":
+                    from .supervisao import (  # noqa: PLC0415
+                        grupo_pode_ver_nomes,
+                        situacao_do_turno,
+                    )
+
+                    return await situacao_do_turno(
+                        _dbv, posto=(str(args.get("posto") or "").strip() or None),
+                        com_nomes=await grupo_pode_ver_nomes(_dbv, conversation_id))
                 if name == "cobertura_por_escala":
                     from .supervisao import (  # noqa: PLC0415
                         cobertura_por_escala,
