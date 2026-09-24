@@ -80,11 +80,11 @@ REDUCED_NIGHT_MIN = 52.5  # hora noturna reduzida = 52'30"
 NIGHT_FACTOR = 60.0 / REDUCED_NIGHT_MIN  # ≈ 1.142857
 
 INTRA_SHIFT_GAP_MAX = 180  # min: gap < 180 = intervalo intrajornada (mesmo turno)
-MAX_PAIR_MIN = 24 * 60     # par com dur >= 24h é inválido
+MAX_PAIR_MIN = 24 * 60  # par com dur >= 24h é inválido
 # margem lida além das bordas do mês p/ fechar turno que cruza a virada do mês
 SPILL_MARGIN_H = 24
 
-EXPECTED_12X36_MIN = 660           # 12h - 1h intervalo
+EXPECTED_12X36_MIN = 660  # 12h - 1h intervalo
 EXPECTED_44H = {0: 480, 1: 480, 2: 480, 3: 480, 4: 480, 5: 240, 6: 0}  # seg..dom
 ESPERADO_MES_HORAS = {"12x36": 180.0, "44h": 220.0}
 DIVISOR = {"12x36": 180.0, "44h": 220.0}
@@ -135,14 +135,18 @@ def _normaliza_escala(escala: str | None) -> str:
 
 # ── Leitura de dado real (READ-ONLY) ───────────────────────────────────────
 def _carregar_funcionario(db: Session, employee_id: str) -> dict[str, Any] | None:
-    row = db.execute(
-        text(
-            "SELECT CAST(id AS TEXT) AS id, nome, matricula, cpf, pis, cargo, "
-            "       posto_atual_nome, departamento, escala_padrao, salario_base "
-            "FROM employees WHERE CAST(id AS TEXT) = :e"
-        ),
-        {"e": str(employee_id)},
-    ).mappings().first()
+    row = (
+        db.execute(
+            text(
+                "SELECT CAST(id AS TEXT) AS id, nome, matricula, cpf, pis, cargo, "
+                "       posto_atual_nome, departamento, escala_padrao, salario_base "
+                "FROM employees WHERE CAST(id AS TEXT) = :e"
+            ),
+            {"e": str(employee_id)},
+        )
+        .mappings()
+        .first()
+    )
     return dict(row) if row else None
 
 
@@ -153,24 +157,28 @@ def _carregar_batidas(db: Session, employee_id: str, mes: int, ano: int) -> list
     ini, fim = _mes_bounds(mes, ano)
     lo = datetime.combine(ini, time(0, 0)) - timedelta(hours=SPILL_MARGIN_H)
     hi = datetime.combine(fim, time(0, 0)) + timedelta(hours=SPILL_MARGIN_H)
-    rows = db.execute(
-        text(
-            "SELECT punch_id, punch_type, (punch_timestamp) AS punch_timestamp, status, device_type, "
-            "       COALESCE(justification_id,'') AS justification_id "
-            "FROM gp_clock_punches "
-            "WHERE CAST(employee_id AS TEXT) = :e "
-            "  AND (punch_timestamp) >= :lo AND (punch_timestamp) < :hi "
-            # Desempate DETERMINÍSTICO p/ batidas no MESMO timestamp: SAÍDA antes de
-            # ENTRADA (fecha o turno aberto antes de abrir o próximo — troca de turno)
-            # e punch_id como desempate final. Sem isso, o pareamento (e o espelho
-            # legal) dependeria da ordem física de linha do banco. NÃO fabrica nada:
-            # só fixa a ordem de leitura de batidas que já existem.
-            "ORDER BY punch_timestamp, "
-            "  CASE WHEN lower(COALESCE(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, "
-            "  punch_id"
-        ),
-        {"e": str(employee_id), "lo": lo, "hi": hi},
-    ).mappings().all()
+    rows = (
+        db.execute(
+            text(
+                "SELECT punch_id, punch_type, (punch_timestamp) AS punch_timestamp, status, device_type, "
+                "       COALESCE(justification_id,'') AS justification_id "
+                "FROM gp_clock_punches "
+                "WHERE CAST(employee_id AS TEXT) = :e "
+                "  AND (punch_timestamp) >= :lo AND (punch_timestamp) < :hi "
+                # Desempate DETERMINÍSTICO p/ batidas no MESMO timestamp: SAÍDA antes de
+                # ENTRADA (fecha o turno aberto antes de abrir o próximo — troca de turno)
+                # e punch_id como desempate final. Sem isso, o pareamento (e o espelho
+                # legal) dependeria da ordem física de linha do banco. NÃO fabrica nada:
+                # só fixa a ordem de leitura de batidas que já existem.
+                "ORDER BY punch_timestamp, "
+                "  CASE WHEN lower(COALESCE(punch_type,'')) LIKE 'sa%' THEN 0 ELSE 1 END, "
+                "  punch_id"
+            ),
+            {"e": str(employee_id), "lo": lo, "hi": hi},
+        )
+        .mappings()
+        .all()
+    )
     return _uma_fonte_por_dia([dict(r) for r in rows])
 
 
@@ -231,21 +239,28 @@ def _carregar_escala_oraculo(db: Session, employee_id: str, mes: int, ano: int) 
     Ausente (ex.: jun/2026) → dict vazio; o motor não estima faltas/atrasos.
     """
     try:
-        rows = db.execute(
-            text(
-                "SELECT shift_date, planned_start_time, planned_end_time, "
-                "       COALESCE(planned_break_minutes,0) AS brk, COALESCE(is_off_day,false) AS off "
-                "FROM shifts WHERE CAST(employee_id AS TEXT)=:e "
-                "AND shift_date >= :ini AND shift_date < :fim "
-                # 🔴 TURNO CANCELADO NÃO É DIA DE ESCALA. Sem este filtro ele entrava na
-                # conta e virava FALTA: em 07/2026, AILTON aparecia com 27 faltas e 0 dias
-                # trabalhados contra 16 dias de escala real — mais faltas do que dias.
-                # 32 espelhos de julho estavam assim.
-                "AND lower(coalesce(status::text,'')) <> 'cancelled'"
-            ),
-            {"e": str(employee_id), "ini": date(ano, mes, 1),
-             "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1))},
-        ).mappings().all()
+        rows = (
+            db.execute(
+                text(
+                    "SELECT shift_date, planned_start_time, planned_end_time, "
+                    "       COALESCE(planned_break_minutes,0) AS brk, COALESCE(is_off_day,false) AS off "
+                    "FROM shifts WHERE CAST(employee_id AS TEXT)=:e "
+                    "AND shift_date >= :ini AND shift_date < :fim "
+                    # 🔴 TURNO CANCELADO NÃO É DIA DE ESCALA. Sem este filtro ele entrava na
+                    # conta e virava FALTA: em 07/2026, AILTON aparecia com 27 faltas e 0 dias
+                    # trabalhados contra 16 dias de escala real — mais faltas do que dias.
+                    # 32 espelhos de julho estavam assim.
+                    "AND lower(coalesce(status::text,'')) <> 'cancelled'"
+                ),
+                {
+                    "e": str(employee_id),
+                    "ini": date(ano, mes, 1),
+                    "fim": (date(ano + 1, 1, 1) if mes == 12 else date(ano, mes + 1, 1)),
+                },
+            )
+            .mappings()
+            .all()
+        )
         return {
             r["shift_date"]: {
                 "planned_start": r["planned_start_time"],
@@ -336,47 +351,55 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
         if abre:
             if aberta is not None:
                 # entrada anterior nunca foi fechada
-                anomalias.append({
-                    "type": "par_incompleto",
-                    "date": aberta["ts"].date().isoformat(),
-                    "description": (
-                        f"Entrada às {_hhmm(aberta['ts'])} sem saída correspondente "
-                        f"(próxima batida é outra entrada às {_hhmm(ts)})."
-                    ),
-                    "punch_id": aberta.get("punch_id"),
-                    "severity": "high",
-                })
+                anomalias.append(
+                    {
+                        "type": "par_incompleto",
+                        "date": aberta["ts"].date().isoformat(),
+                        "description": (
+                            f"Entrada às {_hhmm(aberta['ts'])} sem saída correspondente "
+                            f"(próxima batida é outra entrada às {_hhmm(ts)})."
+                        ),
+                        "punch_id": aberta.get("punch_id"),
+                        "severity": "high",
+                    }
+                )
             aberta = {"ts": ts, "punch_id": b.get("punch_id"), "manual": _is_manual(b)}
         elif fecha:
             if aberta is None:
-                anomalias.append({
-                    "type": "saida_sem_entrada",
-                    "date": ts.date().isoformat(),
-                    "description": f"Saída às {_hhmm(ts)} sem entrada aberta correspondente.",
-                    "punch_id": b.get("punch_id"),
-                    "severity": "high",
-                })
+                anomalias.append(
+                    {
+                        "type": "saida_sem_entrada",
+                        "date": ts.date().isoformat(),
+                        "description": f"Saída às {_hhmm(ts)} sem entrada aberta correspondente.",
+                        "punch_id": b.get("punch_id"),
+                        "severity": "high",
+                    }
+                )
                 continue
             dur = (ts - aberta["ts"]).total_seconds() / 60.0
             if dur <= 0 or dur >= MAX_PAIR_MIN:
-                anomalias.append({
-                    "type": "par_invalido",
-                    "date": aberta["ts"].date().isoformat(),
-                    "description": (
-                        f"Par entrada {_hhmm(aberta['ts'])} → saída {_hhmm(ts)} com duração "
-                        f"inválida ({dur/60:.1f}h)."
-                    ),
-                    "punch_id": aberta.get("punch_id"),
-                    "severity": "high",
-                })
+                anomalias.append(
+                    {
+                        "type": "par_invalido",
+                        "date": aberta["ts"].date().isoformat(),
+                        "description": (
+                            f"Par entrada {_hhmm(aberta['ts'])} → saída {_hhmm(ts)} com duração "
+                            f"inválida ({dur / 60:.1f}h)."
+                        ),
+                        "punch_id": aberta.get("punch_id"),
+                        "severity": "high",
+                    }
+                )
             else:
-                pares.append({
-                    "entrada": aberta["ts"],
-                    "saida": ts,
-                    "dur_min": dur,
-                    "entrada_manual": aberta["manual"],
-                    "saida_manual": _is_manual(b),
-                })
+                pares.append(
+                    {
+                        "entrada": aberta["ts"],
+                        "saida": ts,
+                        "dur_min": dur,
+                        "entrada_manual": aberta["manual"],
+                        "saida_manual": _is_manual(b),
+                    }
+                )
             aberta = None
 
     if aberta is not None:
@@ -387,18 +410,20 @@ def _parear(batidas: list[dict]) -> tuple[list[dict], list[dict]]:
         #
         # O corte é o mesmo MAX_PAIR_MIN que invalida um par: passou disso, a saída
         # realmente não veio e aí sim é achado.
-        from zoneinfo import ZoneInfo as _ZI  # noqa: PLC0415
+        from zoneinfo import ZoneInfo  # noqa: PLC0415
 
-        _agora = datetime.now(_ZI("America/Manaus")).replace(tzinfo=None)
+        _agora = datetime.now(ZoneInfo("America/Manaus")).replace(tzinfo=None)
         _em_curso = (_agora - aberta["ts"]).total_seconds() / 60.0 < MAX_PAIR_MIN
         if not _em_curso:
-            anomalias.append({
-                "type": "par_incompleto",
-                "date": aberta["ts"].date().isoformat(),
-                "description": f"Entrada às {_hhmm(aberta['ts'])} sem saída (saída ausente no período).",
-                "punch_id": aberta.get("punch_id"),
-                "severity": "high",
-            })
+            anomalias.append(
+                {
+                    "type": "par_incompleto",
+                    "date": aberta["ts"].date().isoformat(),
+                    "description": f"Entrada às {_hhmm(aberta['ts'])} sem saída (saída ausente no período).",
+                    "punch_id": aberta.get("punch_id"),
+                    "severity": "high",
+                }
+            )
 
     return pares, anomalias
 
@@ -585,12 +610,14 @@ def calcular_espelho(
 
         manual = any(p["entrada_manual"] or p["saida_manual"] for p in t["pares"])
         if manual:
-            anomalias.append({
-                "type": "batida_manual",
-                "date": dia.isoformat(),
-                "description": f"Turno de {_hhmm(t['entrada'])}–{_hhmm(t['saida'])} contém batida manual/ajuste — conferir.",
-                "severity": "medium",
-            })
+            anomalias.append(
+                {
+                    "type": "batida_manual",
+                    "date": dia.isoformat(),
+                    "description": f"Turno de {_hhmm(t['entrada'])}–{_hhmm(t['saida'])} contém batida manual/ajuste — conferir.",
+                    "severity": "medium",
+                }
+            )
 
         notas = []
         if is_holiday:
@@ -600,23 +627,25 @@ def calcular_espelho(
         if overtime > 0:
             notas.append(f"Extra {'100%' if is_100 else '50%'} {int(overtime)}min")
 
-        daily.append({
-            "date": dia.isoformat(),
-            "entrada": _hhmm(t["entrada"]),
-            "saida": _hhmm(t["saida"]),
-            "intervalo": f"{int(brk)//60:02d}:{int(brk)%60:02d}" if brk > 0 else "",
-            "worked": int(round(worked)),
-            "expected": int(esperado),
-            "overtime": int(round(overtime)),
-            "overtime_type": "100" if is_100 else "50",
-            "night_real": int(round(night_real)),
-            "night_ficta": int(round(night_reduced)),
-            "late": int(round(late)),
-            "early": int(round(early)),
-            "is_holiday": is_holiday,
-            "is_absent": False,
-            "notes": "; ".join(notas) if notas else None,
-        })
+        daily.append(
+            {
+                "date": dia.isoformat(),
+                "entrada": _hhmm(t["entrada"]),
+                "saida": _hhmm(t["saida"]),
+                "intervalo": f"{int(brk) // 60:02d}:{int(brk) % 60:02d}" if brk > 0 else "",
+                "worked": int(round(worked)),
+                "expected": int(esperado),
+                "overtime": int(round(overtime)),
+                "overtime_type": "100" if is_100 else "50",
+                "night_real": int(round(night_real)),
+                "night_ficta": int(round(night_reduced)),
+                "late": int(round(late)),
+                "early": int(round(early)),
+                "is_holiday": is_holiday,
+                "is_absent": False,
+                "notes": "; ".join(notas) if notas else None,
+            }
+        )
 
     # Dias de escala publicada sem batida → anomalia (só com oráculo)
     #
@@ -657,17 +686,19 @@ def calcular_espelho(
             if not _trabalha_no_dia(db, employee_id, dia):
                 continue
             motivo = _dia_coberto_por_abono(db, employee_id, dia)
-            anomalias.append({
-                "type": "dia_sem_batida",
-                "date": dia.isoformat(),
-                "description": (
-                    "Dia de escala sem nenhuma batida de ponto."
-                    + (f" Coberto por {motivo}." if motivo else " Sem justificativa.")
-                ),
-                "severity": "medium" if motivo else "high",
-                "justified": bool(motivo),
-                "justification": motivo,
-            })
+            anomalias.append(
+                {
+                    "type": "dia_sem_batida",
+                    "date": dia.isoformat(),
+                    "description": (
+                        "Dia de escala sem nenhuma batida de ponto."
+                        + (f" Coberto por {motivo}." if motivo else " Sem justificativa.")
+                    ),
+                    "severity": "medium" if motivo else "high",
+                    "justified": bool(motivo),
+                    "justification": motivo,
+                }
+            )
             absent_days += 1
             if not motivo:
                 unjustified_absent += 1
@@ -782,7 +813,8 @@ def calcular_espelho(
     ts.anomaly_count = len(anomalias)
     ts.anomaly_resolved_count = resolvidas
     ts.manual_entries_count = sum(
-        1 for b in batidas_mes
+        1
+        for b in batidas_mes
         if (b.get("device_type") or "").lower() in MANUAL_DEVICE_TYPES or b.get("justification_id")
     )
     ts.has_pending_issues = has_pending
@@ -790,6 +822,7 @@ def calcular_espelho(
     ts.daily_summary = daily
     if hourly_rate is not None:
         from decimal import Decimal
+
         ts.hourly_rate = Decimal(str(round(hourly_rate, 2)))
     ts.extra_metadata = metadata
     ts.notes = " | ".join(obs) if obs else None
@@ -889,7 +922,6 @@ def _employees_com_batida(db: Session, mes: int, ano: int) -> list[str]:
     return [r[0] for r in rows]
 
 
-
 def _hoje_manaus() -> date:
     """Hoje em Manaus. A sessão do Postgres roda em UTC e o dia dela vira às 20h daqui —
     usar `date.today()` do processo jogaria a data um dia à frente por 4 horas todo dia."""
@@ -965,12 +997,14 @@ def fechar_mes(
             continue
         calculados.append(resumo)
         if resumo.get("has_pending_issues"):
-            bloqueados.append({
-                "employee_id": resumo["employee_id"],
-                "employee_name": resumo.get("employee_name"),
-                "anomaly_open_count": resumo.get("anomaly_open_count"),
-                "anomalias": [a for a in resumo.get("anomalias", []) if not a.get("justified")],
-            })
+            bloqueados.append(
+                {
+                    "employee_id": resumo["employee_id"],
+                    "employee_name": resumo.get("employee_name"),
+                    "anomaly_open_count": resumo.get("anomaly_open_count"),
+                    "anomalias": [a for a in resumo.get("anomalias", []) if not a.get("justified")],
+                }
+            )
             continue
         if fechar and not resumo.get("ja_fechado"):
             ts = (
@@ -989,10 +1023,12 @@ def fechar_mes(
                 ts.closed_by_id = (closed_by or "")[:50] or None
                 ts.closed_by_name = closed_by
                 db.flush()
-                fechados.append({
-                    "employee_id": resumo["employee_id"],
-                    "employee_name": resumo.get("employee_name"),
-                })
+                fechados.append(
+                    {
+                        "employee_id": resumo["employee_id"],
+                        "employee_name": resumo.get("employee_name"),
+                    }
+                )
 
     return {
         "mes": int(mes),
@@ -1012,14 +1048,13 @@ def fechar_mes(
         "aviso": (
             "Existem espelhos com anomalia ABERTA — corrija/justifique (justificativa "
             "de ponto, férias ou afastamento) antes do fechamento definitivo."
-            if bloqueados else "Todos os espelhos processados estão sem anomalia aberta."
+            if bloqueados
+            else "Todos os espelhos processados estão sem anomalia aberta."
         ),
     }
 
 
-def fechamento_status(
-    db: Session, mes: int, ano: int, *, employee_id: str | None = None
-) -> dict[str, Any]:
+def fechamento_status(db: Session, mes: int, ano: int, *, employee_id: str | None = None) -> dict[str, Any]:
     """Status por funcionário do mês (lê apenas time_sheets já calculados):
     calculado? anomalias? fechado? homologado (approved_by_employee)?"""
     params: dict[str, Any] = {"m": int(mes), "y": int(ano)}
@@ -1028,9 +1063,10 @@ def fechamento_status(
         filtro_emp = " AND CAST(employee_id AS TEXT) = :e"
         params["e"] = str(employee_id)
 
-    rows = db.execute(
-        text(
-            """
+    rows = (
+        db.execute(
+            text(
+                """
             SELECT CAST(id AS TEXT) AS id, CAST(employee_id AS TEXT) AS employee_id,
                    employee_name, position_name, condominium_name, work_schedule_name,
                    status, hours_worked_minutes, hours_expected_minutes, hours_balance_minutes,
@@ -1041,10 +1077,15 @@ def fechamento_status(
             FROM time_sheets
             WHERE reference_month = :m AND reference_year = :y
               AND COALESCE(is_deleted, false) = false
-            """ + filtro_emp + " ORDER BY employee_name"
-        ),
-        params,
-    ).mappings().all()
+            """
+                + filtro_emp
+                + " ORDER BY employee_name"
+            ),
+            params,
+        )
+        .mappings()
+        .all()
+    )
 
     itens: list[dict] = []
     tot = {"total": 0, "calculados": 0, "com_anomalia": 0, "fechados": 0, "homologados": 0}
@@ -1052,33 +1093,35 @@ def fechamento_status(
         abertas = max(int(r.get("anomaly_count") or 0) - int(r.get("anomaly_resolved_count") or 0), 0)
         fechado = (r.get("status") or "") in STATUS_FECHADO_SET
         homologado = bool(r.get("approved_by_employee"))
-        itens.append({
-            "time_sheet_id": r["id"],
-            "employee_id": r["employee_id"],
-            "employee_name": r.get("employee_name") or "—",
-            "position_name": r.get("position_name"),
-            "condominium_name": r.get("condominium_name"),
-            "escala": r.get("work_schedule_name"),
-            "status": r.get("status"),
-            "calculado": True,
-            "hours_worked_minutes": r.get("hours_worked_minutes"),
-            "hours_expected_minutes": r.get("hours_expected_minutes"),
-            "hours_balance_minutes": r.get("hours_balance_minutes"),
-            "overtime_total_minutes": r.get("overtime_total_minutes"),
-            "night_hours_minutes": r.get("night_hours_minutes"),
-            "absent_days": int(r.get("absent_days") or 0),
-            "anomalias_abertas": abertas,
-            "has_pending_issues": bool(r.get("has_pending_issues")),
-            "fechado": fechado,
-            "closed_at": r.get("closed_at").isoformat() if r.get("closed_at") else None,
-            "homologado": homologado,
-            "employee_approved_at": (
-                r.get("employee_approved_at").isoformat() if r.get("employee_approved_at") else None
-            ),
-            "last_calculated_at": (
-                r.get("last_calculated_at").isoformat() if r.get("last_calculated_at") else None
-            ),
-        })
+        itens.append(
+            {
+                "time_sheet_id": r["id"],
+                "employee_id": r["employee_id"],
+                "employee_name": r.get("employee_name") or "—",
+                "position_name": r.get("position_name"),
+                "condominium_name": r.get("condominium_name"),
+                "escala": r.get("work_schedule_name"),
+                "status": r.get("status"),
+                "calculado": True,
+                "hours_worked_minutes": r.get("hours_worked_minutes"),
+                "hours_expected_minutes": r.get("hours_expected_minutes"),
+                "hours_balance_minutes": r.get("hours_balance_minutes"),
+                "overtime_total_minutes": r.get("overtime_total_minutes"),
+                "night_hours_minutes": r.get("night_hours_minutes"),
+                "absent_days": int(r.get("absent_days") or 0),
+                "anomalias_abertas": abertas,
+                "has_pending_issues": bool(r.get("has_pending_issues")),
+                "fechado": fechado,
+                "closed_at": r.get("closed_at").isoformat() if r.get("closed_at") else None,
+                "homologado": homologado,
+                "employee_approved_at": (
+                    r.get("employee_approved_at").isoformat() if r.get("employee_approved_at") else None
+                ),
+                "last_calculated_at": (
+                    r.get("last_calculated_at").isoformat() if r.get("last_calculated_at") else None
+                ),
+            }
+        )
         tot["total"] += 1
         tot["calculados"] += 1
         if abertas > 0:
