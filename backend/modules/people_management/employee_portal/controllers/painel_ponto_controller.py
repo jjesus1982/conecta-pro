@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.database.session import get_sync_db_dependency
+from core.parametros import param_sync  # dgx f4
 from modules.people_management.ponto.coorte_ponto import (
     APRENDIZADO_DESDE,
     HORAS_ENTRE_TURNOS,
@@ -148,6 +149,8 @@ def painel(
     }
 
     atrasados, sem_horario, de_folga, no_solides = [], [], [], []
+    # dgx f4: tolerância é parâmetro (system_configs `ponto.tolerancia_entrada_min`); sem linha, vale a constante.
+    tol_entrada = int(param_sync(db, "ponto.tolerancia_entrada_min", default=TOLERANCIA_ENTRADA_MIN))
     for f in funcionarios:
         if f["bateu_hoje"]:
             continue
@@ -172,7 +175,7 @@ def painel(
             sem_horario.append(f["nome"])
             continue
         eh, em_ = [int(x) for x in ent.split(":")]
-        limite = eh * 60 + em_ + TOLERANCIA_ENTRADA_MIN
+        limite = eh * 60 + em_ + tol_entrada
         # turno noturno cruza a meia-noite: às 07:00 ninguém está atrasado para as 18:00
         if agora_min > limite and (eh <= 13 or agora_min >= eh * 60):
             f["atraso_min"] = agora_min - (eh * 60 + em_)

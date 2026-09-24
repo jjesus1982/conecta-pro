@@ -14,10 +14,14 @@ from modules.operacional.controllers.redesign_data_controller import (
     t,
 )
 
+from ._dgx_f4_parametros import MENU as _MENU_F4  # dgx f4
+from ._dgx_f4_parametros import router  # dgx f4  # noqa: F401 — router é colhido pelo discovery
+
 SLUG = "configuracoes"
 EXTRA_MENU: list[dict] = [
     {"id": "notificacoes-fila-resumo", "label": "Notificações — resumo", "icon": "M3 3v18h18"},
     {"id": "notificacoes-fila", "label": "Notificações — fila", "icon": "M3 3v18h18"},
+    *_MENU_F4,  # dgx f4
 ]
 _ND = "#0F1B3A"
 
@@ -157,6 +161,14 @@ async def build(db) -> dict:
 
     await _ligar_lote3_20260908(db, out)
     await _ligar_lote5_20260908(db, out)
+    from ._dgx_f4_parametros import telas as _telas_f4  # dgx f4
+
+    try:
+        await _telas_f4(db, out)
+    except Exception as exc:  # noqa: BLE001 — a tela diz por quê; não derruba usuários/tenants
+        await db.rollback()
+        out["parametros"] = {"title": "Parâmetros do sistema", "sub": f"Sem dado: {str(exc)[:160]}", "cta": "—",
+                             "type": "table", "grid": "1fr", "cols": ["Situação"], "rows": [{"cells": [t("aguardando dado honesto")]}]}
     return out
 
 
