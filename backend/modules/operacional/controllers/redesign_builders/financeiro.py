@@ -2887,6 +2887,9 @@ ORDER BY b.comp DESC, b.cnpj"""
     from modules.operacional.controllers.redesign_builders import _dgx_t4_faturamento_financeiro as _t4  # dgx t4
 
     await _t4.telas(db, out)  # dgx t4 — cobrança por e-mail, importar OFX, agenda de caixa, comissões → conta a pagar
+    from modules.operacional.controllers.redesign_builders import _dgx_v5_fiscal_relatorios as _v5  # dgx v5
+
+    await _v5.telas(db, out)  # dgx v5 — formas de pagamento, centros de custo em árvore, relatórios PDF/Excel
     montar_grupos(out)  # SEMPRE por último — ver comentário acima
     return out
 
@@ -2898,6 +2901,9 @@ from modules.operacional.controllers.redesign_builders import _dgx_f11_financeir
 
 router.include_router(_f11.router)  # dgx f11
 router.include_router(_t4r.router)  # dgx t4 — cobrança por e-mail, importar OFX, comissões → conta a pagar
+import modules.operacional.controllers.redesign_builders._dgx_v5_fiscal_relatorios as _v5r  # noqa: E402 — dgx v5
+
+router.include_router(_v5r.router)  # dgx v5 — formas de pagamento, centros de custo, relatórios PDF/Excel
 
 
 def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:
