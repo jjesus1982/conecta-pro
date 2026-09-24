@@ -156,10 +156,12 @@ Jordan: *"prosiga em loop."*
 
 | # | Frente | Módulo | Estado |
 |---|---|---|---|
-| W1 | O **gêmeo** do plantão noturno: `parear_batidas['dias_trabalhados']` tem o mesmo defeito (86 dias a mais em 08/2026) e alimenta o holerite informativo e `gp_monthly_closings`; + caçador da **escala lançada na paridade errada** (a classe do RILEM) | folha | em execução |
+| W1 | O **gêmeo** do plantão noturno: `parear_batidas['dias_trabalhados']` tem o mesmo defeito (86 dias a mais em 08/2026) e alimenta o holerite informativo e `gp_monthly_closings`; + caçador da **escala lançada na paridade errada** (a classe do RILEM) | folha | mesclada · oráculo verde |
 | W2 | **Fatura como documento** (numerada, com itens, período, condição, cópia em lote, PDF individual e em lote, vira recebível) — temos recebível, não tínhamos o documento | financeiro | em execução |
 | W3 | **Hora extra classificada**: por que ela existiu (cobertura, pedido do cliente, falta de efetivo, atraso) e se é repassável — a coluna «HE repassável não faturada» entra no calculado × faturado | ponto | em execução |
 | W4 | **Transferência entre as empresas do grupo** (o caso GEILSON, que só apareceu no espelho do eSocial): mantém admissão/férias/dependentes, encerra e reabre alocação, enfileira S-2299 + S-2200 como RASCUNHO, e uma régua que compara espelho × sistema | dp | em execução |
 | W5 | **O elo que falta do «Evento como hub»**: mapa evento do ponto → rubrica da folha como cadastro em cascata, com oráculo que exige que TODA verba de ponto do holerite publicado seja explicada pelo mapa (Σ\|Δ\| = R$ 0,00). O que não fechar é a dívida medida entre cadastro e motor | folha | em execução |
 
 - 24/09 18:05 — W1–W5 lançadas sobre o bake 20.
+- 24/09 19:00 — W1 mesclada. O gêmeo era a montante do `calculo_service` (que não precisou ser tocado): a régua da V1 passou a valer no pareamento. Σ|Δ| 84 dias em 08/2026 e 52 em 09/2026 (ADAILSON 31→15, ANDREA 31→15, ANILSON 29→16, RILEM 25→14); **paralelo cego provado verba a verba nos 167 holerites gravados: Σ|Δ| = R$ 0,00**, só o campo informativo muda em 25 deles. Trava **77** registrada (`checar_escala_paridade`): 4 escalas na paridade errada. Achado a seguir: o espelho (`time_record_service._pair_punches`) é o TERCEIRO pareador da casa e ainda usa a régua velha.
+- 24/09 19:05 — medição das telas em produção: **39 de 44** telas das ondas DGX mostram dado real (cct-funcoes 51, mapa-ferias 52, movimentacoes 73, parcelas-folha 99, orcamento-vs-realizado 95, materiais/estoque 147, auditoria 400…). As 5 vazias estão vazias porque o cadastro ainda não existe (frota sem veículo, exames do ASO novos, certificados sem registro) — nenhuma com erro.
