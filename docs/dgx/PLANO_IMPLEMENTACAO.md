@@ -171,3 +171,21 @@ Jordan: *"prosiga em loop."*
 - 24/09 20:25 — W2 mesclada. A prova por HTTP pegou dois defeitos que o oráculo verde não pegava: `ADD COLUMN IF NOT EXISTS` toma lock exclusivo mesmo com a coluna já existindo (deadlock em duas emissões simultâneas) e nenhuma fatura com conta gerada podia ser cancelada. **Onda 5 completa.**
 - 24/09 20:35 — mina desarmada: o builder do Financeiro inteiro (183 telas) deixava de carregar por import circular vindo da W2, e o oráculo da V5 passava verde cuspindo o aviso. Corrigido por delegação tardia e provado na ordem que quebrava.
 - 24/09 20:40 — travas mecânicas contra a linha de base: sem regressão minha. `checar_uso_real` 381 → 408 é exatamente o tamanho das telas novas (ninguém as usou ainda); `checar_oraculo_externo` 1 → 2 é melhora (mais número com âncora de fora); `checar_irreversivel` 0 → 1 aponta `whatsapp/agent_service.py:8303` — avisa o dono antes de executar — e **não é desta linha de trabalho** (é da sessão que mexe no José Luís).
+
+## Onda 6 — o ponto mede, a folha não vê (24/09, noite)
+
+A lista de lacunas do DGX está esgotada nos itens de esforço P/M. O que sobrou de maior valor é
+**dívida nossa**, que a W5 revelou ao provar o mapa evento→rubrica: dos 15 eventos, o motor produz
+8. Os 7 que faltam são dinheiro nos dois sentidos.
+
+| # | Frente | O que mede (e NÃO muda) | Estado |
+|---|---|---|---|
+| X1 | **Banco de horas × folha** — o banco está completo no Operacional e nunca conversou com a folha. Quanto venceu sem pagar nem compensar (art. 59 §2 CLT) é passivo | folha | em execução |
+| X2 | **Atraso e falta justificada** — o ponto mede atraso e a folha nunca desconta; e falta justificada aprovada que foi descontada mesmo assim é dinheiro tirado do colaborador | folha | em execução |
+| X3 | **Feriado trabalhado e HE 100%** — a rubrica 0011 existe e o motor nunca a emitiu; quem trabalhou em feriado recebeu o quê? | folha | em execução |
+| X4 | **O terceiro pareador** — `time_record_service._pair_punches` alimenta o ESPELHO (o documento que o colaborador assina) e ainda usa a régua velha; unificar em `horas_service` | ponto | em execução |
+| X5 | **Painel do dono** — as 51 decisões pendentes saem do markdown e viram tela com o número de hoje e o botão para agir | bi | em execução |
+
+Todas em paralelo cego: Σ|Δ| contra `hr_payslips` = R$ 0,00 é condição de entrega em X1, X2, X3 e X4.
+
+- 24/09 20:55 — X1–X5 lançadas.
