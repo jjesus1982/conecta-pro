@@ -764,10 +764,27 @@ async def participantes_do_grupo(jid: str) -> list[str] | None:
 
     import httpx as _httpx  # noqa: PLC0415
 
-    url = _os.getenv("BAILEYS_URL", "http://baileys-api:3025")
-    key = _os.getenv("BAILEYS_PROVIDER_DEFAULT_API_KEY", "")
-    fone = _os.getenv("BAILEYS_NUMERO", "+558008804414")
+    # ⚠️ OS NOMES SÃO DIFERENTES DOS DOIS LADOS, e eu usei os do lado errado. No Chatwoot as
+    # variáveis se chamam `BAILEYS_PROVIDER_DEFAULT_*`; no backend do Conecta são
+    # `BAILEYS_API_KEY` / `BAILEYS_URL` / `BAILEYS_CONNECTION` — mesmo VALOR, outro NOME.
+    #
+    # 🔴 E o desenho fazia isso passar em silêncio: sem chave, `participantes_do_grupo` devolve
+    # None, e None MANTÉM a autorização (por decisão: falha de rede não deve derrubar permissão).
+    # Resultado: a parede que eu acabei de construir para vigiar a composição do grupo ficaria
+    # INERTE, sempre respondendo "não consegui perguntar, sigo liberando" — exatamente o padrão
+    # de trava que existe e não gateia nada, que eu passei o dia caçando nos outros lugares.
+    #
+    # Provei funcionando com a chave injetada à mão no teste, num ambiente que não era o de
+    # produção. Verificar o ambiente REAL antes de anunciar era o passo que faltava.
+    url = _os.getenv("BAILEYS_URL") or "http://baileys-api:3025"
+    key = (_os.getenv("BAILEYS_API_KEY")
+           or _os.getenv("BAILEYS_PROVIDER_DEFAULT_API_KEY") or "")
+    fone = _os.getenv("BAILEYS_CONNECTION") or _os.getenv("BAILEYS_NUMERO") or "+558008804414"
     if not key:
+        # Log em ERROR, não em warning: chave ausente aqui significa parede desligada, e o
+        # sintoma é uma permissão que continua valendo sem ninguém conferir.
+        logger.error("grupos: sem chave do Baileys — a parede da composição do grupo está "
+                     "INERTE e a autorização de dado nominal segue por padrão")
         return None
     try:
         async with _httpx.AsyncClient(timeout=8.0) as cli:
