@@ -110,6 +110,11 @@ e consecutivos (item (c) do oráculo). O `GREATEST` também considera `MAX(numer
 `MAX(numero_final)` das faixas inutilizadas, então um contador que nasce depois das notas não
 repete número.
 
+O contador só avança para além de uma faixa inutilizada quando essa faixa **encosta** nele
+(`numero_inicial <= ultimo + 1`). Inutilizar 9500–9502 estando no nº 8 é legítimo e fica
+declarado em `nfe_eventos`, mas não pode empurrar o contador para 9503 — isso abriria 9491
+números sem nota e sem inutilização. (Foi o que a primeira versão fez; o oráculo pegou.)
+
 O número é reservado **antes** de ir à SEFAZ e nunca volta atrás. Se a transmissão falhar,
 `_registrar_falha()` grava a linha mesmo assim — sem isso o número some e vira buraco invisível
 (foi exatamente o que aconteceu com o nº 3 aqui, por um `AmbiguousParameterError`; a linha hoje
@@ -164,7 +169,10 @@ depois: notas tp_amb=1: 0 · contadores tp_amb=1: 0
 
 ### CONECTAMAIS ELETRONICA LTDA — **AUTORIZADA** ✅
 
-Emitida pelo endpoint real (`POST /api/v1/fiscal/nfe/emitir`, porta 8282):
+Duas notas autorizadas pelo endpoint real (`POST /api/v1/fiscal/nfe/emitir`, porta 8282):
+nº 8 (detalhada abaixo) e nº 9 — `cStat 100`, nProt **113260013553736**, chave
+**13260935710481000103550010000000091577387314** —, esta última já com a árvore final
+(pós-merge da onda e pós-`ruff format`), o que prova que a reformatação não cegou nada.
 
 | | |
 |---|---|
@@ -272,7 +280,12 @@ Testes de unidade: `tests/test_nfe_provider.py` **11 passed, 2 skipped**;
 ## §5 — O que NÃO foi feito
 
 1. **Nenhuma emissão em produção.** Por desenho. O caminho está pronto e travado atrás do gate.
-2. **Nenhuma tela.** É território da frente Z3. Os 5 endpoints mantêm o path antigo.
+2. **Nenhuma tela desenhada.** É território da Z3 e o layout não foi tocado. Só os **3 pontos
+   de chamada** do emissor dentro de `_dgx_z3_tela_nfe.py` foram repontados para a API nova
+   (`emitir_nfe(..., emitente)`, `cancelar_nfe(..., protocolo, cnpj)`) e a recusa "emitente fixo
+   na Eletrônica" foi substituída pela identidade por CNPJ — era a pendência que a coordenação
+   apontou como minha. Oráculo da Z3 depois disso: `TOTAL falhas Z3: 0`. Os 5 endpoints mantêm
+   o path antigo.
 3. **A nota da Patrimonial não foi autorizada** — falta a IE no cadastro (§7.1). Não inventei.
 4. **Sem XSD local.** Baixar o PL_010 do portal da NF-e é download com captcha; ficou como
    pendência de infraestrutura. O item (e) do oráculo diz isso em vez de fingir.

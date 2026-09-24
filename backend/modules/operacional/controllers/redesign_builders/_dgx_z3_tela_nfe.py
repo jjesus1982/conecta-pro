@@ -28,11 +28,11 @@ O que foi cavado ANTES de construir
     `"pdf_danfe": None`; a PyNFe traz um `processamento/danfe.py`, mas ele desenha o leiaute
     dela e não conhece a marca. O DANFE aqui é reportlab + `crm/services/pdf_branding`
     (`marca_canvas`/`rodape_canvas`), que já é o timbre dos outros 28 geradores.
-  · **O emitente do provider é FIXO na Eletrônica** (`nfe_provider._EMITENTE`, CNPJ
-    35.710.481/0001-03). Logo a tela recusa transmitir por qualquer outro CNPJ com uma
-    mensagem que explica o porquê, em vez de mandar à SEFAZ um XML com o CNPJ errado. A
-    Patrimonial, além disso, não tem Inscrição Estadual cadastrada (`empresas`) — sem IE a
-    SEFAZ não autoriza NF-e de mercadoria. Quem parametriza o emitente é a frente Z2.
+  · **O emitente deixou de ser fixo** (DGX Z2, 24/09/2026): a identidade fiscal vem de
+    `empresas` pelo CNPJ da própria nota (`emissor.carregar_emitente`), e o provider recusa
+    com `EMITENTE_INCOMPLETO` nomeando o campo que falta. A Patrimonial segue bloqueada —
+    não por código, mas porque não tem Inscrição Estadual cadastrada, e sem IE a SEFAZ-AM
+    rejeita 209. Assim que a IE entrar em `empresas`, a nota dela sai por este mesmo caminho.
   · **A empresa emitente vem da tabela `empresas`** (slug, cnpj, inscricao_estadual,
     regime_tributario, certificado_a1_path/senha, codigo_municipio_ibge) — não de constante
     nova. CRT sai do regime: lucro_real → 3, simples_nacional → 1.
@@ -919,22 +919,21 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
             ),
         )
 
-    # O emissor de hoje monta o XML com o CNPJ da Eletrônica FIXO (nfe_provider._EMITENTE).
-    # Transmitir por outro CNPJ mandaria ao fisco um XML com o emitente errado — recusa honesta.
+    # DGX Z2: o emitente deixou de ser fixo. A identidade fiscal vem de `empresas` pelo CNPJ da
+    # própria nota, e o emissor recusa (EMITENTE_INCOMPLETO) se faltar um campo legal.
     from modules.financial.integrations import nfe_provider as prov
+    from modules.fiscal_contabil.notas_fiscais.nfe.emissor import carregar_emitente
 
-    cnpj_emissor = so_digitos(prov._EMITENTE["cnpj"])
-    if so_digitos(cab["emitente_cnpj"]) != cnpj_emissor:
+    try:
+        emitente = await carregar_emitente(db, cnpj=so_digitos(cab["emitente_cnpj"]))
+        prov.conferir_emitente(emitente)
+    except prov.NFeError as e:
+        raise HTTPException(status_code=422, detail=e.message) from e
+    except LookupError as e:
         raise HTTPException(
             status_code=422,
-            detail=(
-                f"O emissor de NF-e desta casa está parametrizado para o CNPJ "
-                f"{_br_doc(cnpj_emissor)} ({prov._EMITENTE['razao_social']}). A nota é do CNPJ "
-                f"{_br_doc(cab['emitente_cnpj'])} — o rascunho está salvo, mas transmitir por "
-                "este CNPJ exige parametrizar o emitente antes (não dá para mandar um XML com "
-                "o emitente errado)."
-            ),
-        )
+            detail=f"CNPJ {_br_doc(cab['emitente_cnpj'])} não está cadastrado em «empresas».",
+        ) from e
     if not emp["cert_path"]:
         raise HTTPException(status_code=422, detail=f"{emp['razao']} está sem certificado A1 cadastrado.")
 
@@ -982,7 +981,7 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
 
     provider = prov.create_nfe_provider(emp["cert_path"], emp["cert_senha"], ambiente=COD_AMBIENTE[ambiente], uf="AM")
     try:
-        r = await provider.emitir_nfe(nfe_data, _UUID(nfe_id), int(cab["numero"] or 0))
+        r = await provider.emitir_nfe(nfe_data, _UUID(nfe_id), int(cab["numero"] or 0), emitente)
     except Exception as e:  # noqa: BLE001 — falha local NUNCA vira "autorizada"
         await db.execute(
             text("UPDATE nfes SET motivo_rejeicao = :m, updated_at = now() WHERE id::text = :i"),
@@ -1405,7 +1404,14 @@ async def rd_nfe_cancelar(
     async def _dispatch():
         provider = create_nfe_provider(emp["cert_path"], emp["cert_senha"], ambiente=COD_AMBIENTE[ambiente], uf="AM")
         try:
-            r = await provider.cancelar_nfe(so_digitos(cab["chave_acesso"]), justificativa, _UUID(nfe_id))
+            # DGX Z2: o evento 110111 exige o protocolo de autorização e o CNPJ do emitente.
+            r = await provider.cancelar_nfe(
+                so_digitos(cab["chave_acesso"]),
+                justificativa,
+                _UUID(nfe_id),
+                str(cab.get("protocolo_autorizacao") or ""),
+                so_digitos(cab["emitente_cnpj"]),
+            )
         except NFeError as e:
             raise HTTPException(status_code=502, detail=f"A SEFAZ não cancelou: {e.message}") from e
         await db.execute(

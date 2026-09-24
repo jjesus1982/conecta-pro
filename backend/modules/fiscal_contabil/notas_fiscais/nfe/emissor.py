@@ -215,11 +215,15 @@ async def proximo_numero(db: AsyncSession, cnpj: str, serie: int, tp_amb: str) -
                 "                 WHERE emitente_cnpj = CAST(:cnpj AS VARCHAR)"
                 "                   AND serie = CAST(:serie AS INTEGER)"
                 "                   AND tp_amb = CAST(:amb AS VARCHAR)), 0),"
+                # Só faixa inutilizada que ENCOSTA no contador o empurra. Inutilizar
+                # 9500-9502 estando no nº 8 é legítimo, mas não pode pular para 9503 —
+                # isso abriria 9491 números sem nota e sem inutilização declarada.
                 "       COALESCE((SELECT MAX(numero_final) FROM nfe_eventos"
                 "                 WHERE emitente_cnpj = CAST(:cnpj AS VARCHAR)"
                 "                   AND serie = CAST(:serie AS INTEGER)"
                 "                   AND tp_amb = CAST(:amb AS VARCHAR)"
-                "                   AND tipo = 'inutilizacao'), 0)"
+                "                   AND tipo = 'inutilizacao' AND codigo_status = '102'"
+                "                   AND numero_inicial <= nfe_numeracao.ultimo + 1), 0)"
                 "     ) + 1,"
                 "     updated_at = now()"
                 " RETURNING ultimo"
@@ -614,16 +618,25 @@ async def inutilizar(
             ),
             {"cnpj": emitente["cnpj"], "serie": serie, "amb": tp_amb, "ini": numero_inicial, "fim": numero_final},
         )
-        # O contador nunca volta atrás: a faixa inutilizada some da fila.
+        # O contador só avança se a faixa inutilizada encostar nele. Uma faixa lá em cima
+        # fica declarada em `nfe_eventos` e o contador segue de onde estava.
         await db.execute(
             sqltext(
                 "INSERT INTO nfe_numeracao (emitente_cnpj, serie, tp_amb, ultimo)"
-                " VALUES (CAST(:cnpj AS VARCHAR), CAST(:serie AS INTEGER), CAST(:amb AS VARCHAR),"
-                "         CAST(:fim AS INTEGER))"
+                " VALUES (CAST(:cnpj AS VARCHAR), CAST(:serie AS INTEGER), CAST(:amb AS VARCHAR), 0)"
                 " ON CONFLICT (emitente_cnpj, serie, tp_amb) DO UPDATE"
-                " SET ultimo = GREATEST(nfe_numeracao.ultimo, CAST(:fim AS INTEGER)), updated_at = now()"
+                " SET ultimo = CASE WHEN CAST(:ini AS INTEGER) <= nfe_numeracao.ultimo + 1"
+                "                   THEN GREATEST(nfe_numeracao.ultimo, CAST(:fim AS INTEGER))"
+                "                   ELSE nfe_numeracao.ultimo END,"
+                "     updated_at = now()"
             ),
-            {"cnpj": emitente["cnpj"], "serie": serie, "amb": tp_amb, "fim": numero_final},
+            {
+                "cnpj": emitente["cnpj"],
+                "serie": serie,
+                "amb": tp_amb,
+                "ini": numero_inicial,
+                "fim": numero_final,
+            },
         )
     await db.commit()
     return {**resultado, "xml_path": xml_path}
