@@ -39,14 +39,14 @@ própria, na sua branch. O orquestrador (a sessão principal) faz merge, bake e 
 WT=$(git rev-parse --show-toplevel)   # a sua worktree
 ENVS=$(docker inspect conecta-pro-backend-staging --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(DATABASE_URL|REDIS_URL)=' | sed 's/^/-e /' | tr '\n' ' ')
 # oráculo / script
-docker run --rm --network conecta-staging-network -v "$WT/backend:/app:ro" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env $ENVS conecta-pro-backend:latest python3 /app/scripts/orq/test_oraculo_<nome>.py
+docker run --rm --network conecta-staging-network -v "$WT/backend:/app:ro" -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env -e SMTP_HOST= -e SMTP_USERNAME= -e SMTP_PASSWORD= $ENVS conecta-pro-backend:latest python3 /app/scripts/orq/test_oraculo_<nome>.py
 # HTTP (porta 82NN = sua frente; pare ao fim)
-docker run --rm -d --name teste-dgx-fN --network conecta-staging-network -p 127.0.0.1:82NN:8080 -v "$WT/backend:/app:ro" --tmpfs /app/logs:rw --tmpfs /app/uploads:rw -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env $ENVS -e PORT=8080 conecta-pro-backend:latest
+docker run --rm -d --name teste-dgx-fN --network conecta-staging-network -p 127.0.0.1:82NN:8080 -v "$WT/backend:/app:ro" --tmpfs /app/logs:rw --tmpfs /app/uploads:rw -e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 --env-file /opt/conecta-pro/.env -e SMTP_HOST= -e SMTP_USERNAME= -e SMTP_PASSWORD= $ENVS -e PORT=8080 conecta-pro-backend:latest
 # token: POST 127.0.0.1:82NN/api/v1/auth/login (form: username=jjesus@conectamais.pro, senha em CLAUDE.md) — rate limit 5/min, guarde o token
 # a tela: GET /api/v1/redesign/data/<modulo> (com Bearer) → screens[<id>]; ação: POST /api/v1/redesign/action/<nome>
 docker stop teste-dgx-fN
 ```
-(`--tmpfs /app/logs` é obrigatório: o bind é só-leitura e o startup escreve em `/app/logs` — sem isso o container morre com "Read-only file system", exit 3.)
+(`-e SMTP_HOST=` etc. é OBRIGATÓRIO: o `.env` é o de produção e em 24/09 um teste mandou e-mail real a um cliente. `--tmpfs /app/logs` é obrigatório: o bind é só-leitura e o startup escreve em `/app/logs` — sem isso o container morre com "Read-only file system", exit 3.)
 SQL direto no sandbox: `docker exec conecta-pro-postgres-staging psql -U postgres -d conecta_pro_staging -Atc "..."`.
 Fixture no sandbox é permitida, marcada com `'FIXTURE DGX FN'` num campo de texto. **Produção
 (`conecta-pro-postgres`/`conecta_pro`) é só leitura para você.**

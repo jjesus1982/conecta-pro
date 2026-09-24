@@ -10,8 +10,23 @@ from core.config import settings
 from core.logging import logger
 
 
-async def send_email(to_email: str, subject: str, html_body: str,
-                     anexos: list[tuple[str, bytes]] | None = None) -> bool:
+def destinatario_permitido(to_email: str, database_url: str | None = None) -> bool:
+    """Fora de produção (banco `staging`/`sandbox`), só @conectamais.pro recebe e-mail.
+
+    Em 24/09/2026 um teste HTTP no container efêmero herdou o SMTP real do `.env` e mandou um
+    lembrete de cobrança de verdade a um cliente. A receita do container agora zera o SMTP; esta
+    guarda é a segunda parede, para o dia em que alguém esquecer a receita."""
+    import os  # noqa: PLC0415
+
+    url = (database_url if database_url is not None else os.environ.get("DATABASE_URL", "")).lower()
+    if "staging" not in url and "sandbox" not in url:
+        return True
+    return (to_email or "").strip().lower().endswith("@conectamais.pro")
+
+
+async def send_email(
+    to_email: str, subject: str, html_body: str, anexos: list[tuple[str, bytes]] | None = None
+) -> bool:
     """
     Envia email via SMTP.
 
@@ -27,13 +42,16 @@ async def send_email(to_email: str, subject: str, html_body: str,
     if not settings.SMTP_HOST:
         logger.warning("SMTP não configurado — email não enviado")
         return False
+    if not destinatario_permitido(to_email):
+        logger.warning(f"SANDBOX: e-mail para {to_email} NÃO enviado (só @conectamais.pro fora de produção)")
+        return False
 
     msg = MIMEMultipart("mixed" if anexos else "alternative")
     msg["Subject"] = subject
     msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
-    for nome, conteudo in (anexos or []):
+    for nome, conteudo in anexos or []:
         from email.mime.application import MIMEApplication  # noqa: PLC0415
 
         parte = MIMEApplication(conteudo, _subtype="pdf")
