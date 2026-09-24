@@ -74,10 +74,33 @@ def autor_do_payload(data: dict) -> tuple[str | None, str | None]:
     atribuído ao grupo em vez de à pessoa — inútil para saber como a CASA fala.
     """
     cand = (data.get("sender") or {})
-    # o fazer-ai põe o autor em `additional_attributes` quando a conversa é de grupo
     extra = cand.get("additional_attributes") or {}
-    fone = extra.get("participant") or extra.get("author") or data.get("participant")
-    nome = extra.get("participant_name") or extra.get("author_name")
+
+    # ⭐ A FORMA REAL, medida na primeira mensagem de verdade (24/09/2026, 08:18 no
+    # OPERACIONAL). Eu tinha escrito este parser contra payload sintético e ele errou:
+    #
+    #   · o GRUPO é o contato da CONVERSA  → conversation.meta.sender.identifier = ...@g.us
+    #   · o AUTOR é o `sender` do TOPO     → sender.phone_number = "+559286465328"
+    #   · sender.identifier é um **@lid**  → "134286564950018@lid", NÃO é telefone
+    #   · sender.additional_attributes     → VAZIO. Era onde eu procurava.
+    #
+    # `sender.name` também traz o telefone quando o contato não tem nome salvo, e é o
+    # último recurso — por isso entra depois, e só se parecer telefone.
+    fone = cand.get("phone_number") or extra.get("participant") or extra.get("author") or data.get("participant")
+    nome = extra.get("participant_name") or extra.get("author_name") or cand.get("name")
+
+    # ⚠️ `identifier` só serve se NÃO for @lid nem @g.us: o primeiro é o id interno do
+    # WhatsApp (não disca e não casa com cadastro) e o segundo é o próprio grupo. Tomar o
+    # @g.us aqui atribuiria a fala ao GRUPO, que é o defeito que este módulo existe para
+    # evitar — todo aprendizado de tom sairia sem dono.
+    if not fone:
+        ident = str(cand.get("identifier") or "")
+        if ident and not ident.endswith((SUFIXO_GRUPO, "@lid")):
+            fone = ident
+
+    # `name` virou telefone? Então não é nome — é o número sem contato salvo.
+    if nome and sum(c.isdigit() for c in str(nome)) >= 10:
+        nome = None
     if not fone:
         # fallback: o conteúdo às vezes vem prefixado com o autor pelo próprio provedor
         m = re.match(r"^\+?(\d{10,15})\s*[:\-]\s*", str(data.get("content") or ""))

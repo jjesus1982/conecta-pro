@@ -1285,11 +1285,19 @@ async def chatwoot_webhook(
                 _fone_autor, _nome_autor = _grp.autor_do_payload(data)
                 _ident = None
                 if _fone_autor:
+                    from modules.crm.services.orchestration import is_owner  # noqa: PLC0415
                     from modules.integrations.connectors.whatsapp.identidade import (  # noqa: PLC0415
                         quem_e,
                     )
 
-                    _ident = await quem_e(db, _fone_autor)
+                    # ⚠️ `e_dono` É OBRIGATÓRIO AQUI. `quem_e` não consulta `is_owner` — ela
+                    # RECEBE a resposta de quem chama, e o default é False. Chamei sem o
+                    # parâmetro e o Jordan, falando no grupo dele, foi resolvido como
+                    # `cliente: CONECTAMAIS PATRIMONIAL LTDA` — o número dele está no cadastro
+                    # de clientes da própria empresa. Medido na primeira mensagem real
+                    # (24/09/2026): atribuir a fala do dono a um cliente é o tipo de
+                    # fabricação que este projeto proíbe, e vinha calado.
+                    _ident = await quem_e(db, _fone_autor, e_dono=is_owner(_fone_autor))
                 await _grp.absorver(
                     db, jid=_grupo_jid, conteudo=content, chatwoot_message_id=msg_id,
                     autor_fone=_fone_autor, autor_nome=_nome_autor, identidade=_ident)
