@@ -62,7 +62,11 @@ GRUPOS = [
         # dgx t2 (24/09/2026): idem, anexadas por `_dgx_t2_ponto.telas(db, out)` — fechamento como
         # ato (reabrir com motivo) e integração de batimentos (arquivo AFD de relógio → batidas).
         ("integracao-batimentos", "Integração de batimentos"), ("integracao-batimentos-importar", "Importar arquivo do relógio"),
-        ("ponto-reaberturas", "Meses fechados / reaberturas"), ("ponto-reabrir-mes", "Reabrir mês")]),
+        ("ponto-reaberturas", "Meses fechados / reaberturas"), ("ponto-reabrir-mes", "Reabrir mês"),
+        # dgx w3 (24/09/2026): idem, anexadas por `_dgx_w3_he_classificada.telas(db, out)` — a HE
+        # com MOTIVO (repassável ao cliente × custo nosso) e o resumo por contrato.
+        ("he-classificar", "HE: classificar"), ("he-classificar-lote", "HE: confirmar/reclassificar em lote"),
+        ("he-por-contrato", "HE por contrato")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
