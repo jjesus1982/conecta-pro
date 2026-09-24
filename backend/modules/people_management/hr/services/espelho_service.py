@@ -209,16 +209,14 @@ def _uma_fonte_por_dia(batidas: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _carregar_feriados(db: Session, mes: int, ano: int) -> set[date]:
+    """Feriados do mês que valem para TODOS (nacional/estadual/municipal). Feriado com escopo
+    CLIENTE (dgx f7, 24/09/2026) NÃO entra aqui: o espelho não sabe o condomínio da pessoa no
+    dia, e um feriado de um cliente não pode virar HE 100% no espelho dos outros."""
+    from modules.people_management.ponto.config_ponto import feriados_do_periodo_sync
+
     try:
-        rows = db.execute(
-            text(
-                "SELECT data_feriado FROM cct_feriados "
-                "WHERE EXTRACT(MONTH FROM data_feriado)=:m AND EXTRACT(YEAR FROM data_feriado)=:y "
-                "AND COALESCE(is_active,true)=true"
-            ),
-            {"m": int(mes), "y": int(ano)},
-        ).fetchall()
-        return {r[0] for r in rows if r[0]}
+        ini, fim = _mes_bounds(int(mes), int(ano))  # fim = 1º dia do mês seguinte (exclusivo)
+        return set(feriados_do_periodo_sync(db, ini, fim - timedelta(days=1), None))
     except Exception as exc:  # noqa: BLE001
         logger.debug("feriados indisponíveis: %s", exc)
         return set()

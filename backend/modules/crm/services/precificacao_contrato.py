@@ -72,10 +72,12 @@ async def carregar_parametros_contrato(db: AsyncSession, ref: date) -> dict[str,
     return {c: resolver_parametro(por.get(c), ref) for c in CHAVES}
 
 
-async def carregar_feriados(db: AsyncSession, ano: int) -> frozenset[date]:
-    rs = (await db.execute(text(
-        "SELECT data_feriado FROM cct_feriados WHERE is_active AND ano = :a"), {"a": ano})).scalars().all()
-    return frozenset(rs)
+async def carregar_feriados(db: AsyncSession, ano: int, condominio_id: str | None = None) -> frozenset[date]:
+    """Feriados do ano pela leitura única com escopo (dgx f7, 24/09/2026): sem condomínio, só o
+    que vale para todos; com condomínio, entram também os feriados de CLIENTE daquele condomínio."""
+    from modules.people_management.ponto.config_ponto import feriados_do_periodo
+
+    return frozenset(await feriados_do_periodo(db, date(ano, 1, 1), date(ano, 12, 31), condominio_id))
 
 
 # ───────────────────────────────────────────────────── efetivo e custo ──

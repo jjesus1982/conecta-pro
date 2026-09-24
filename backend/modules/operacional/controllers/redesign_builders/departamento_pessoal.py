@@ -35,6 +35,9 @@ router = APIRouter()
 from ._frente_03 import router as _r03  # noqa: E402 — frente 03
 
 router.include_router(_r03)  # frente 03
+from ._dgx_f7_ponto import router as _r_f7  # noqa: E402 — dgx f7
+
+router.include_router(_r_f7)  # dgx f7
 
 
 @router.post("/action/ponto-ajuste")
@@ -4801,4 +4804,8 @@ async def build(db, current_user=None) -> dict:
     from ._frente_08 import telas as _telas_08  # frente 08
 
     out.update(await _telas_08(db))  # frente 08
+
+    from ._dgx_f7_ponto import telas as _telas_f7  # dgx f7
+
+    out.update(await _telas_f7(db, out))  # dgx f7 — abas no fim de g-ponto
     return out

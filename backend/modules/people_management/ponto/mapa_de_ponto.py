@@ -24,7 +24,9 @@ de Manaus (convenção do `punch_service`; medido em 12/09: batida 17:02 com `cr
 21:02 UTC). Por isso aqui NÃO há conversão — `agora` é Manaus naive, como no quadro ao vivo.
 
 A tolerância é lida do banco (`geofence_zones.entry_tolerance_minutes` do posto); sem valor lá
-— e em 12/09 nenhum posto tinha — vale a do quadro ao vivo, que é a que a triagem enxerga.
+— e em 12/09 nenhum posto tinha — vale a de `config_ponto` (DGX F7, 24/09: cascata colaborador >
+escala > função > posto > condomínio > empresa, cuja semente é exatamente os 15 min do quadro ao
+vivo). O raio de geofence sem valor em `posts` vem da mesma cascata (semente 150 m).
 """
 from __future__ import annotations
 
@@ -34,11 +36,11 @@ from zoneinfo import ZoneInfo
 from modules.operacional.presence.controllers.presence_controller import (
     _SHIFT_ESPERADO,
     FIM_JANELA_NOTURNO,
-    TOLERANCIA_ATRASO,
     _janela_presenca,
     _janela_turno,
     _primeira_batida_na_janela,
 )
+from modules.people_management.ponto import config_ponto as cfg
 from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
 from modules.people_management.ponto.services.punch_service import _haversine
 
@@ -68,7 +70,9 @@ _SQL_TURNOS = f"""
 SELECT sh.id::text AS shift_id, sh.shift_date, sh.planned_start_time, sh.planned_end_time,
        sh.actual_start_time, sh.status AS shift_status,
        sh.post_id::text AS post_id, p.name AS posto, coalesce(c.name, '—') AS cliente,
-       sh.employee_id::text AS employee_id, e.nome
+       sh.employee_id::text AS employee_id, e.nome,
+       e.cargo AS funcao, e.escala_padrao AS escala,
+       (SELECT co.id::text FROM condominios co WHERE co.client_id = p.client_id ORDER BY co.ativo DESC LIMIT 1) AS condominio_id
   FROM shifts sh
   JOIN employees e ON e.id = sh.employee_id
   JOIN posts p ON p.id = sh.post_id
@@ -101,8 +105,9 @@ SELECT cp.employee_id::text AS employee_id, cp.punch_timestamp, cp.posto_id, cp.
 """
 
 _SQL_POSTOS_GEO = """
-SELECT id::text AS post_id, name, latitude, longitude, geofence_raio_metros
-  FROM posts WHERE is_active AND latitude IS NOT NULL AND longitude IS NOT NULL
+SELECT p.id::text AS post_id, p.name, p.latitude, p.longitude, p.geofence_raio_metros,
+       (SELECT co.id::text FROM condominios co WHERE co.client_id = p.client_id ORDER BY co.ativo DESC LIMIT 1) AS condominio_id
+  FROM posts p WHERE p.is_active AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
 """
 
 _SQL_TOLERANCIA = """
@@ -140,7 +145,7 @@ def posto_do_geofence(batida: dict, postos_geo: list[dict]) -> tuple[str | None,
     for p in postos_geo:
         d = _haversine(lat, lon, p["latitude"], p["longitude"])
         menor = d if menor is None or d < menor else menor
-        if d <= (p["geofence_raio_metros"] or 150):
+        if d <= (p["geofence_raio_metros"] or p.get("raio_padrao") or 150):
             dentro.append((d, p["post_id"]))
     return (min(dentro)[1], min(dentro)[0]) if dentro else (None, menor)
 
@@ -170,12 +175,15 @@ def classificar(turno: dict, batidas: list[dict], tolerancia_min: int, agora: da
     return ("atendido_com_atraso" if b["punch_timestamp"] > limite else "ok"), b
 
 
-async def _carregar(db, de: date, ate: date) -> tuple[list[dict], dict[str, list[dict]], list[dict], dict[str, int]]:
+async def _carregar(db, de: date, ate: date) -> tuple[list[dict], dict[str, list[dict]], list[dict], dict[str, int], list[dict]]:
     from sqlalchemy import text
 
+    regras = await cfg.carregar_regras(db, ate)
     turnos = (await db.execute(text(_SQL_TURNOS.format(nao_ausente=nao_ausente_em("sh.shift_date"))),
                                {"de": de, "ate": ate})).mappings().all()
     postos_geo = [dict(r) for r in (await db.execute(text(_SQL_POSTOS_GEO))).mappings().all()]
+    for p in postos_geo:  # raio sem valor em `posts` → cascata (semente 150 m)
+        p["raio_padrao"] = cfg.resolver(regras, posto=p["post_id"], condominio=p["condominio_id"])["raio_metros"]
     tol = {r[0]: int(r[1]) for r in (await db.execute(text(_SQL_TOLERANCIA))).all()}
     bats = (await db.execute(text(_SQL_BATIDAS), {
         "ini": datetime.combine(de, time.min),
@@ -185,11 +193,16 @@ async def _carregar(db, de: date, ate: date) -> tuple[list[dict], dict[str, list
         b = dict(r)
         b["posto_geofence"], b["dist_geofence"] = posto_do_geofence(b, postos_geo)
         batidas.setdefault(b["employee_id"], []).append(b)
-    return [dict(t) for t in turnos], batidas, postos_geo, tol
+    return [dict(t) for t in turnos], batidas, postos_geo, tol, regras
 
 
-def _tolerancia(tol: dict[str, int], post_id: str) -> int:
-    return tol.get(post_id, int(TOLERANCIA_ATRASO.total_seconds() // 60))
+def _tolerancia(tol: dict[str, int], t: dict, regras: list[dict]) -> int:
+    """`geofence_zones` do posto (dado antigo) vence; senão a cascata de `config_ponto` para
+    este turno (pessoa, escala, função, posto, condomínio) — semente = os 15 min de sempre."""
+    if t["post_id"] in tol:
+        return tol[t["post_id"]]
+    return int(cfg.resolver(regras, colaborador=t["employee_id"], escala=t.get("escala"), funcao=t.get("funcao"),
+                            posto=t["post_id"], condominio=t.get("condominio_id"))["tolerancia_entrada_min"])
 
 
 def _item(t: dict, estado: str | None, b: dict | None, tol_min: int) -> dict:
@@ -213,10 +226,10 @@ async def mapa_do_dia(db, dia: date | None = None, agora: datetime | None = None
 
     agora = agora or agora_manaus()
     dia = dia or agora.date()
-    turnos, batidas, _geo, tol = await _carregar(db, dia, dia)
+    turnos, batidas, _geo, tol, regras = await _carregar(db, dia, dia)
     itens = []
     for t in turnos:
-        tm = _tolerancia(tol, t["post_id"])
+        tm = _tolerancia(tol, t, regras)
         estado, b = classificar(t, batidas.get(t["employee_id"], []), tm, agora)
         itens.append(_item(t, estado, b, tm))
 
@@ -245,7 +258,7 @@ async def mapa_do_dia(db, dia: date | None = None, agora: datetime | None = None
         "itens": itens, "fora_de_escala": fora,
         "nao_vencidos": sum(1 for i in itens if i["estado"] is None),
         "excluidos": [{"nome": r["nome"], "posto": r["posto"], "turno": f"{r['planned_start_time']:%H:%M}"} for r in excluidos],
-        "tolerancia_padrao_min": int(TOLERANCIA_ATRASO.total_seconds() // 60),
+        "tolerancia_padrao_min": int(cfg.resolver(regras)["tolerancia_entrada_min"]),
         "tolerancia_do_banco": tol,
     }
 
@@ -259,7 +272,7 @@ async def grade_do_mes(db, ano: int, mes: int, agora: datetime | None = None) ->
     agora = agora or agora_manaus()
     de = date(ano, mes, 1)
     ate = (date(ano + (mes == 12), mes % 12 + 1, 1) - timedelta(days=1))
-    turnos, batidas, _geo, tol = await _carregar(db, de, ate)
+    turnos, batidas, _geo, tol, regras = await _carregar(db, de, ate)
     postos: dict[str, dict] = {}
     for t in turnos:
         p = postos.setdefault(t["post_id"], {"post_id": t["post_id"], "posto": t["posto"], "cliente": t["cliente"], "dias": {}})
@@ -269,7 +282,7 @@ async def grade_do_mes(db, ano: int, mes: int, agora: datetime | None = None) ->
         if t["shift_date"] > agora.date():
             cel["pendente"] += 1
             continue
-        estado, _b = classificar(t, batidas.get(t["employee_id"], []), _tolerancia(tol, t["post_id"]), agora)
+        estado, _b = classificar(t, batidas.get(t["employee_id"], []), _tolerancia(tol, t, regras), agora)
         if estado is None:
             cel["pendente"] += 1
         elif estado == "descoberto":

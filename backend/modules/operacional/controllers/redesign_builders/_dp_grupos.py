@@ -38,7 +38,12 @@ GRUPOS = [
         ("revisar-justificativa", "Revisar justificativas"), ("espelho-solicitar-homologacao", "Espelho: solicitar homologação"),
         # AFD/AEJ (Portaria 671): existiam no banco e em nenhuma tela — o documento que a
         # fiscalização pede primeiro era invisível no sistema (medido em 14/09/2026).
-        ("afd", "AFD — arquivo fiscal"), ("justificar-ponto", "Justificar falta/atraso")]),
+        ("afd", "AFD — arquivo fiscal"), ("justificar-ponto", "Justificar falta/atraso"),
+        # dgx f7 (24/09/2026): montadas DEPOIS de montar_grupos por `_dgx_f7_ponto.telas(db, out)`,
+        # que as anexa ao fim deste grupo; listadas aqui para a composição do grupo ficar num lugar só.
+        ("ponto-configuracoes", "Configurações de ponto"), ("ponto-configuracao-nova", "Nova configuração"),
+        ("relogios-ponto", "Relógios/aparelhos"), ("feriados", "Feriados"), ("feriado-novo", "Novo feriado"),
+        ("cartao-ponto-lote", "Cartão de ponto em lote"), ("ausencias-dashboard", "Ausências")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
