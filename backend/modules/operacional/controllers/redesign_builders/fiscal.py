@@ -86,6 +86,15 @@ EXTRA_MENU: list[dict] = [
     },
 ]
 
+# dgx z3 — NF-e de produto (emitir/conferir/emitidas/DANFE). No FIM do menu, de propósito.
+# O import fica aqui embaixo (e não no topo) porque `_dgx_z3_tela_nfe` importa deste mesmo
+# pacote de volta; aqui o módulo do data_controller já está montado. O `router` do Z3 vira o
+# router deste builder — `fiscal.py` não tinha nenhum, e sem ele as rotas não sobem.
+from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3m  # noqa: E402
+
+EXTRA_MENU.extend(_z3m.EXTRA_MENU)  # dgx z3
+router = _z3m.router  # dgx z3
+
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
 
@@ -353,11 +362,16 @@ async def build(db) -> dict:
     from modules.operacional.controllers.redesign_builders import _dgx_z4_tributacao as _z4  # dgx z4
 
     await _z4.telas(db, out)  # dgx z4 — mapa da tributação, simulador de NF-e e conferência com a praça
+    from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3  # dgx z3
+
+    await _z3.telas(db, out)  # dgx z3 — emitir NF-e (homologação por padrão), conferir, emitidas, DANFE
     return out
 
 
-# ── ESCRITA (router incluído pelo discovery). `fiscal.py` não tinha router até a Z4.
-router = APIRouter()
+# ── ESCRITA (router incluído pelo discovery). `fiscal.py` não tinha router até a onda 8.
+# Z3 e Z4 nasceram na mesma onda e cada uma criou o seu; a segunda definição SOBRESCREVIA a
+# primeira e as rotas da Z3 (emitir, DANFE, cancelar) sumiam sem erro nenhum. Um router só,
+# incluindo os dois — medido no merge de 24/09/2026.
 import modules.operacional.controllers.redesign_builders._dgx_z4_tributacao as _z4r  # noqa: E402 — dgx z4
 
 router.include_router(_z4r.router)  # dgx z4 — simular tributação (read-only: não emite, não grava)
