@@ -232,13 +232,18 @@ rejeitadas — a última com «Informado NCM inexistente». Não há tela de emi
 
 | # | Frente | Entrega | Estado |
 |---|---|---|---|
-| Z1 | **Cadastro fiscal do produto** — NCM validado contra tabela oficial, CFOP, CST/CSOSN por empresa; seed dos **95 NCMs reais** que vieram das 147 NF-e de compra | fiscal | em execução |
+| Z1 | **Cadastro fiscal do produto** — NCM validado contra tabela oficial, CFOP, CST/CSOSN por empresa; seed dos **95 NCMs reais** que vieram das 147 NF-e de compra | fiscal | mesclada · oráculo verde |
 | Z2 | **Um emissor só, provado** — escolher entre os dois, aposentar o outro, e AUTORIZAR uma nota em **homologação para cada CNPJ**; chave com DV, numeração por CNPJ+série, XML assinado e protocolo guardados, cancelamento e inutilização | fiscal | em execução |
-| Z3 | **A tela e o DANFE** — nova nota, prévia do XML com o que falta em vermelho, lista com o motivo da rejeição por extenso, DANFE em PDF com a faixa «SEM VALOR FISCAL» em homologação | fiscal | em execução |
-| Z4 | **A tributação certa** — Zona Franca, SUFRAMA, lucro real × Simples; cada regra com a norma citada, e «sem fonte» onde não houver | fiscal | em execução |
+| Z3 | **A tela e o DANFE** — nova nota, prévia do XML com o que falta em vermelho, lista com o motivo da rejeição por extenso, DANFE em PDF com a faixa «SEM VALOR FISCAL» em homologação | fiscal | mesclada · oráculo verde |
+| Z4 | **A tributação certa** — Zona Franca, SUFRAMA, lucro real × Simples; cada regra com a norma citada, e «sem fonte» onde não houver | fiscal | mesclada · oráculo verde |
 
 **A regra da onda:** emissão SOMENTE em homologação (`tpAmb = 2`). O caminho de produção fica
 pronto e travado atrás de gate humano, e **nenhum agente o exercita** — nota em produção é
 documento fiscal irreversível.
 
 - 24/09 13:20 — Z1–Z4 lançadas.
+- 24/09 15:30 — Z1, Z3, Z4, Z5 e Z6 mescladas (falta a Z2, o emissor). **Três bloqueios que são do DONO, não de código:** (1) ninguém sabe qual **CFOP de saída** a Conecta usa — por isso **0 dos 95 produtos** está pronto para emitir, e foi por isso que as notas de 11/04 foram rejeitadas; (2) a **Patrimonial não tem Inscrição Estadual** no cadastro, e sem IE não existe NF-e 55; (3) a IE gravada no emissor para a Eletrônica (`45177801`) é a **municipal** — a estadual é 05.426.574-6 (repassado à Z2).
+- Achados que mudam o entendimento: as duas empresas estão DENTRO da ZFM, então o Convênio ICM 65/88 (de fora para dentro) **não se aplica** à venda delas para comprador de Manaus — é operação interna, CFOP 5102, ICMS 20%; e o emissor manda `is_zfm=True` por padrão. **51% dos itens que a casa COMPRA vêm com ICMS-ST** e não há uma linha de CEST cadastrada.
+- Busca de NCM pela descrição (pedido do dono): entregue com fonte por candidato; **taxa real medida 61%**, abaixo dos 70% pedidos — teto estrutural (71 dos 95 NCMs aparecem uma vez só). O oráculo trava em 55% e imprime a taxa; 70% viraria alarme falso.
+- Bartolo: **nenhum chat novo** — é o consultor que já existia, com 5 consultas novas e uma regra («PROIBIDO inventar NCM, alíquota ou CFOP; CONSULTE ANTES de dizer que não existe»). A linha de base pegou ele afirmando com confiança que a casa «não tem NF-e de saída» e inventando tabela de CFOP de memória.
+- Colisão estrutural resolvida no merge: **quatro frentes criaram `router = ...` no mesmo `fiscal.py`** e cada definição apagava a anterior — as rotas de emitir NF-e e de produto fiscal sumiam alternadamente, sem erro. Um router só; quem chega depois INCLUI.
