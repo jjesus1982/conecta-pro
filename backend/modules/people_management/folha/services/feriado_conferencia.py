@@ -46,6 +46,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from modules.operacional.services import vinculo_cliente  # dgx y4 — o resolvedor único do vínculo
 from modules.people_management.ponto.config_ponto import feriados_do_periodo
 from modules.people_management.ponto.he_classificacao import competencia_valida
 
@@ -178,15 +179,19 @@ def _d(v) -> Decimal:
 
 # ───────────────────────────────── leituras ─────────────────────────────────
 #: Quem pode entrar na conferência: todo empregado com batida na competência. O condomínio sai
-#: da MESMA consulta que a F7/W5 usam para a cascata (`condominios.client_id = employees.cliente_id`).
+#: DGX Y4 (24/09/2026): o condomínio saía daqui por `condominios.client_id = e.cliente_id` e
+#: resolvia **0 das 61 pessoas** com batida em 09/2026 — `employees.cliente_id` é campo morto
+#: (órfão em 37 dos 63 ativos, nulo em 14). Enquanto foi assim, **feriado de CLIENTE não alcançava
+#: ninguém**: `config_ponto.SQL_FERIADOS` exige `f.condominio_id = :cond` para o escopo `cliente`.
+#: O condomínio agora vem do resolvedor único (`operacional/services/vinculo_cliente.py`), pela
+#: alocação vigente na competência — 0 → 46 pessoas. Só ACRESCENTA: ninguém tinha condomínio antes,
+#: e nenhum dos condomínios resolvidos tem UF/cidade que exclua um feriado que hoje se aplica
+#: (o oráculo `y4_vinculo_cliente` afirma isso, item (f) — feriado é dinheiro).
 _SQL_PESSOAS = """
 SELECT e.id::text AS employee_id, coalesce(e.nome,'?') AS nome, e.cargo,
        coalesce(e.escala_padrao,'44h') AS escala,
-       coalesce(e.salario_base, 0) AS salario_cadastro,
-       co.id::text AS condominio_id, coalesce(co.nome,'—') AS condominio
+       coalesce(e.salario_base, 0) AS salario_cadastro
   FROM employees e
-  LEFT JOIN LATERAL (SELECT c.id, c.nome FROM condominios c
-                      WHERE c.client_id = e.cliente_id ORDER BY c.ativo DESC LIMIT 1) co ON true
  WHERE EXISTS (SELECT 1 FROM gp_clock_punches p
                 WHERE p.employee_id = e.id
                   AND p.punch_timestamp >= CAST(:de AS date) - 1
@@ -319,6 +324,13 @@ async def apurar(db, competencia: str) -> dict[str, Any]:
     de, ate = _mes_bounds(ano, mes)
 
     pessoas = [dict(r) for r in (await db.execute(text(_SQL_PESSOAS), {"de": de, "ate": ate})).mappings().all()]
+    # dgx y4 — o condomínio de cada um pela alocação vigente NO FIM DA COMPETÊNCIA (não hoje):
+    # quem mudou de posto em outubro não reescreve o feriado de setembro.
+    vinc = await vinculo_cliente.mapa_cliente(db, [p["employee_id"] for p in pessoas], ref=ate)
+    for p in pessoas:
+        v = vinc.get(p["employee_id"]) or {}
+        p["condominio_id"] = v.get("condominio_id")
+        p["condominio"] = v.get("condominio_nome") or "—"
 
     hol: dict[str, dict[str, Any]] = {
         str(r[0]): {"base": Decimal(str(r[1] or 0)), "verbas": dict(r[2] or {})}
