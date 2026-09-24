@@ -98,7 +98,9 @@ GRUPOS = [
         # desconta, e a falta justificada que a folha desconta mesmo assim. Paralelo CEGO.
         ("atraso-conferencia", "Atraso: conferência"),
         ("falta-justificada-conferencia", "Falta justificada: conferência"),
-        ("ponto-folha-apurar", "Apurar conferência ponto × folha")]),
+        ("ponto-folha-apurar", "Apurar conferência ponto × folha"),
+        # dgx x3 — feriado trabalhado (dobra) e HE que deveria ser 100%: conferência em paralelo cego
+        ("feriado-trabalhado", "Feriado trabalhado e HE 100%"), ("feriado-apurar", "Apurar feriado/HE 100%")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),

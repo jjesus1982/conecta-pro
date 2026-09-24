@@ -545,6 +545,21 @@ async def _tela_relogios(db) -> dict:
 async def _tela_feriados(db, op: dict) -> dict:
     await cfg._ensure(db)
     conds = {o["value"]: o["label"] for o in op["condominio"]}
+    # dgx x3 — quem TRABALHOU em cada feriado, na competência corrente (a conferência da X3;
+    # `folha_feriado_conferencia`). 0 pessoas não significa «ninguém trabalhou»: significa que a
+    # competência ainda não foi apurada — a coluna diz qual dos dois é.
+    trabalhado: dict = {}
+    comp_x3, janela_x3 = "—", None
+    try:
+        from modules.people_management.folha.services import feriado_conferencia as _fc
+
+        _c = (await _fc.competencias(db, 1) or [None])[0]
+        if _c:
+            comp_x3 = f"{_c[5:7]}/{_c[:4]}"
+            janela_x3 = _fc._mes_bounds(int(_c[:4]), int(_c[5:7]))
+            trabalhado = await _fc.trabalhado_por_feriado(db, *janela_x3)
+    except Exception as exc:  # noqa: BLE001 — a tela de feriados não cai por causa da coluna nova
+        logger.debug("dgx x3: contagem de feriado trabalhado indisponível: %s", exc)
     rows_db = (
         await db.execute(
             text(
@@ -576,6 +591,11 @@ async def _tela_feriados(db, op: dict) -> dict:
                 t(onde(r)),
                 t(str(r[9] or "—")),
                 t("todo ano" if r[8] else "só " + str(r[9] or "—")),
+                (
+                    b(f"{trabalhado[r[1]]} pessoa(s)", "bad")
+                    if trabalhado.get(r[1])
+                    else t("0" if janela_x3 and janela_x3[0] <= r[1] <= janela_x3[1] else "fora da competência")
+                ),
                 b("ativo" if r[10] else "removido", "ok" if r[10] else "mut"),
             ],
             "filtros": {"Escopo": _ESCOPO_FERIADO.get(r[4], r[4]), "Ano": str(r[9] or "—")},
@@ -602,13 +622,25 @@ async def _tela_feriados(db, op: dict) -> dict:
         "sub": (
             f"{len(rows_db)} feriado(s) · nacional vale para todos · estadual/municipal valem para o condomínio da mesma UF/cidade · "
             "CLIENTE vale só para aquele condomínio (não entra no espelho dos outros nem na precificação) · "
-            "fonte: cct_feriados · leitura única: config_ponto.feriados_do_dia"
+            "fonte: cct_feriados · leitura única: config_ponto.feriados_do_dia · "
+            f"a coluna «Trabalhado» é a conferência da X3 na competência {comp_x3} "
+            "(aba «Feriado trabalhado e HE 100%», em Folha de pagamento)"
         ),
         "cta": "—",
         "type": "table",
         "searchHint": "Buscar feriado…",
-        "grid": "0.8fr 2fr 0.8fr 1fr 1.2fr 0.5fr 0.8fr 0.7fr",
-        "cols": ["Data", "Feriado", "Tipo", "Escopo", "Onde vale", "Ano", "Recorrente", "Estado"],
+        "grid": "0.8fr 2fr 0.8fr 1fr 1.2fr 0.5fr 0.8fr 1fr 0.7fr",
+        "cols": [
+            "Data",
+            "Feriado",
+            "Tipo",
+            "Escopo",
+            "Onde vale",
+            "Ano",
+            "Recorrente",
+            f"Trabalhado ({comp_x3})",
+            "Estado",
+        ],
         "rows": rows,
     }
 
