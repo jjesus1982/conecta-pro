@@ -6,7 +6,7 @@
 Ferramenta única para **uma coisa só**: pegar um módulo já codado e deixá-lo *entregue*.
 
 Não é catálogo. Existem 15 skills nossas e 16 genéricas instaladas; aqui entram **as 11 que
-atuam no fechamento**, mais as **78 travas mecânicas**. O resto (PDF, slides, folha-CCT,
+atuam no fechamento**, mais as **79 travas mecânicas**. O resto (PDF, slides, folha-CCT,
 jurídico, NotebookLM, genéricas de fan-out) é situacional e fica de fora de propósito —
 arsenal grande vira cerimônia, e cerimônia é o que faz alguém pular etapa.
 
@@ -31,7 +31,7 @@ provar que funciona, ligar o que ficou solto, e entregar.
 | 10 | **deploy-bake** | tornar durável sem quebrar | sim |
 | 11 | **conecta-backend-recon** | *(dentro do raio-x)* rota montada sem superfície | não |
 
-## 2. As 78 travas (código, não skill)
+## 2. As 79 travas (código, não skill)
 
 Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um erro medido.
 (Como cada uma é ligada — contada, sim/não, gate semanal, à mão — está na página operacional.)
@@ -57,6 +57,7 @@ Skill só age quando alguém invoca; **trava age sempre**. Cada uma nasceu de um
 | `checar_nao_vigiado.py` | tela do redesign que **nenhum oráculo nem regra cita** — *o Balanço exibiu PL de +R$ 2,02 mi por meses sem vigia* | `backend/scripts/qa` |
 | `checar_irreversivel.py` | registro **criado depois do disparo** externo (AST) — *a cotação de 31/08 saía por WhatsApp antes de existir* | `backend/scripts/qa` |
 | `checar_dominio.py` (+ `verdades_dominio.py`) | verdade de domínio **curada** × código × banco × vigência — *FAIXAS_INSS_2026 com a tabela de 2024 num arquivo e a de 2026 no outro; "erro de domínio não tem trava" virou "tem, depois que um humano escreve a verdade uma vez"* | `backend/scripts/qa` |
+| `checar_homologacao_na_receita.py` | **nota de TESTE contada como receita** — a conciliação da NFS-e, rodada com as empresas em homologação, gravou R$ 1.500 de notas minhas na tabela do faturamento real; a trava não confia na coluna `ambiente`, cruza com o que o sistema sabe ter emitido em teste — *24/09/2026, erro do orquestrador* | `backend/scripts/qa` |
 | `checar_batida_faltando.py` | dia trabalhado **sem a batida de entrada ou saída** — não é atraso nem falta, é dado que falta, e o mapa de ponto chuta em cima dele — *64% do "atraso" medido pela X2 era isto; 114 dias na produção em 24/09* | `backend/scripts/qa` |
 | `checar_bake_pendente.py` | o que está **no ar por docker cp** (docker diff) — e **assa sozinho** na madrugada se as 6 guardas passam — *14 arquivos de duas sessões no ar sem ninguém saber* | `backend/scripts/qa` |
 | `checar_llm_martelando.py` | rotina que **martela o LLM falhando** — *30.800 chamadas/dia com 0 ok, quatro dias, e a única evidência era a fatura que não subia* | `backend/scripts/qa` |

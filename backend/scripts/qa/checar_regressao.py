@@ -57,6 +57,12 @@ def _n(padrao: str, saida: str, zero: str | None = None) -> int | None:
 
 
 CACADORES = {
+    # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
+    # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
+    # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
+    # `ambiente` — ela cruza com o que o sistema SABE ter emitido em teste, porque campo errado
+    # é exatamente o defeito. CONTADA: tem de ser 0 e ficar em 0.
+    "checar_homologacao_na_receita.py": lambda s: _n(r"^TOTAL: (\d+) nota\(s\) de teste contada", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
