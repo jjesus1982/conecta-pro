@@ -92,6 +92,17 @@ async def papel_de_supervisao(db: AsyncSession, ident: Any) -> str | None:
     vivo), sem conta, conta desativada ou papel fora da lista → None, e o José Luís trata a
     pessoa como funcionário comum, que é o comportamento de hoje.
     """
+    # ⭐ O DONO É O SUPERVISOR DE TUDO, e isso precisou ser dito em voz alta (24/09/2026).
+    # `quem_e` com `e_dono=True` devolve `tipo="dono"` e NENHUM `employee_id` — ele não é
+    # resolvido pelo cadastro de colaboradores, é reconhecido pelo telefone antes de tudo. Com
+    # a exigência de `tipo == "funcionario"` logo abaixo, o Jordan era RECUSADO: perguntou a
+    # cobertura no grupo dele e o agente respondeu "não estou conseguindo te atender".
+    #
+    # ⚠️ Não é atalho de permissão: `is_owner` é a régua mais estrita do sistema (telefone do
+    # dono, com e sem o 9, em env). Quem chega aqui como `dono` já passou por ela.
+    if getattr(ident, "tipo", None) == "dono":
+        return "admin"
+
     emp = getattr(ident, "employee_id", None)
     if not emp or getattr(ident, "tipo", None) != "funcionario":
         return None
@@ -279,6 +290,22 @@ async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
     d = lido["dash"] or {}
     sem = lido["sem_escala"] or []
 
+    # ⚠️ Decimal NÃO é serializável em JSON, e o retorno desta função vai para o MODELO como
+    # resultado de ferramenta. `banco_horas` traz Decimal do Postgres, e o turno do agente morria
+    # com "Object of type Decimal is not JSON serializable" — sintoma no grupo: resposta vazia.
+    # Converter aqui, e não em quem chama, porque quem chama vai esquecer.
+    def _limpar(v):
+        from decimal import Decimal as _D  # noqa: PLC0415
+        if isinstance(v, _D):
+            return float(v)
+        if isinstance(v, dict):
+            return {k: _limpar(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [_limpar(x) for x in v]
+        return v
+
+    # (a limpeza é aplicada no RETORNO inteiro, mais abaixo — ver o comentário lá)
+
     # Frescor pela ÚLTIMA BATIDA — é de onde os números vêm. `punch_timestamp` é hora de
     # Manaus nesta tabela (não UTC), então comparo com a hora de Manaus.
     horas_sem_batida = None
@@ -289,7 +316,12 @@ async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         logger.warning("visao_operacao: frescor da batida não medido (%s)", e)
 
-    return {
+    # ⚠️ `_limpar` no RETORNO INTEIRO, não campo por campo. Minha primeira versão limpou só o
+    # dicionário do dashboard e o Decimal continuou vazando — ele vinha do `round()` do
+    # Postgres em `horas_sem_batida`, que devolve `numeric`. Limpar as fontes que eu LEMBREI
+    # deixou a que eu esqueci, e o sintoma (turno do agente morrendo com "Decimal is not JSON
+    # serializable") é idêntico nos dois casos. Uma saída, uma limpeza.
+    return _limpar({
         "hoje_desde_meia_noite": {
             "colaboradores": d.get("total_colaboradores"),
             "presentes": d.get("presentes_hoje"),
@@ -316,7 +348,7 @@ async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
         # decisão do Jordan — não é o que alimenta os números acima.
         "ultima_carga_solides": d.get("ultima_sync_solides"),
         "escala_e_read_only": "eu não mudo escala; pedido de troca vira aprovação sua ou do Orlailson",
-    }
+    })
 
 
 # ═════════ ESCALA DO DIA: ele POSTA, o sistema CONFERE ═════════

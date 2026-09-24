@@ -20,6 +20,7 @@ from uuid import uuid4
 
 import aiohttp
 from sqlalchemy import text
+from sqlalchemy import text as _sql_text
 
 from core.database import async_session_factory
 from core.llm_client import modelo_barato, novo_cliente
@@ -2845,6 +2846,18 @@ _PAPEIS: dict[str, dict] = {
             "abrir_pendencia_dp",
             "transferir_conversa",
             "listar_materiais",
+            # ⭐ 24/09/2026, PRIMEIRO TESTE REAL: o Jordan perguntou no Gestão "como está a
+            # cobertura nos postos hoje?" e o agente respondeu "desculpa, acho que me perdi
+            # aqui". Não foi o prompt — foi que eu tirei ferramenta demais. Com 3 tools de
+            # pendência/material ele não tinha COMO responder a pergunta mais óbvia de um grupo
+            # de operação, e um agente sem meio de responder não fica calado: ele improvisa
+            # desculpa. Restringir por LGPD é certo; restringir até a mudez é outro defeito.
+            #
+            # `visao_operacao` é AGREGADA (quantos, não quem ganha quanto) e o despacho já exige
+            # que QUEM PERGUNTA supervisione — então um agente de portaria perguntando no
+            # OPERACIONAL continua recusado, e o Jordan/Orlailson no Gestão é atendido.
+            "visao_operacao",
+            "resumo_grupos",
         ),
         "foco": (
             "\n\nVOCÊ ESTÁ NUM GRUPO DE WHATSAPP DA EMPRESA, não numa conversa de duas "
@@ -2860,7 +2873,22 @@ _PAPEIS: dict[str, dict] = {
             "alguém pedir isso, diga que chama no privado — e chame. Isso não é preferência, "
             "é LGPD.\n"
             "⛔ Você NÃO muda escala, NÃO aloca ninguém, NÃO paga nada. Pedido que mexe em "
-            "escala você registra para o Jordan ou o Orlailson aprovarem, e diz que registrou."
+            "escala você registra para o Jordan ou o Orlailson aprovarem, e diz que registrou.\n"
+            "🔴 REGRA MAIS IMPORTANTE — NÚMERO E STATUS SÓ SAEM DE FERRAMENTA. Você NUNCA "
+            "afirma como está a operação de cabeça, nem 'lembrando' do que foi dito antes no "
+            "grupo. Quem está no posto, quantos bateram ponto, o que está coberto, quem "
+            "faltou, quantas pendências: isso vem de visao_operacao ou resumo_grupos, "
+            "chamadas AGORA, nesta conversa. Sem a chamada, o número não existe.\n"
+            "Se você não tem a ferramenta para responder, diga que não tem — não improvise. "
+            "Frase inventada com cara de relatório é pior que não responder, porque o Jordan e "
+            "o Orlailson DECIDEM em cima do que você escreve aqui.\n"
+            "⛔ NADA DE COMERCIAL AQUI. Não peça CNPJ, não peça dado de cadastro, não ofereça "
+            "proposta, preço, visita ou orçamento. Este grupo é gente da CASA — ninguém aqui é "
+            "lead. (A base já diz isso; repito no fim porque foi desobedecido uma vez: o agente "
+            "respondeu a cobertura certa e fechou pedindo o CNPJ do condomínio.)\n"
+            "⛔ Não sugira procurar pessoa que não está ativa na empresa. Se for indicar "
+            "alguém, indique o supervisor da operação ou o Jordan, por cargo, não por memória "
+            "de conversa antiga."
         ),
     },
     # ⭐ SUPERVISOR (23/09/2026, pedido do Jordan: "Orlailson enxerga toda a operação").
@@ -4449,14 +4477,6 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
             from modules.people_management.ponto import vida_do_funcionario as _vf  # noqa: PLC0415
 
             return await _vf.historico(ident.employee_id)
-        if name == "visao_operacao":
-            # Mesma parede dupla do `resumo_grupos`: a lista do papel decide o que o modelo VÊ,
-            # e o despacho recusa de novo porque o modelo pode inventar o nome.
-            from .supervisao import papel_de_supervisao, visao_operacao  # noqa: PLC0415
-
-            if not await papel_de_supervisao(db, ident):
-                return {"erro": "tool nao permitida"}
-            return await visao_operacao(db)
         if name == "resumo_grupos":
             # ⚠️ A parede de QUEM está aqui de novo, e não só na lista de tools do papel: a
             # lista decide o que o modelo VÊ, e o modelo pode inventar o nome de uma tool que
@@ -5076,9 +5096,9 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_PENDENCIA,
         ]
     if papel == "grupo":
-        # SÓ o que é publicável. Nenhum schema de ponto/vida entra aqui — ver o comentário
-        # do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA]
+        # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
+        # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS]
     if papel == "supervisor":
         # Tudo o que o funcionário tem (ele também bate ponto) MAIS o resumo dos grupos.
         ativas += [
@@ -5427,6 +5447,39 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             if not _f:
                 return {"erro": "não identifiquei este número no cadastro de funcionários."}
             return await _tool_ponto_funcionario(name, args, _f)
+
+        if name in ("visao_operacao", "resumo_grupos"):
+            # ⚠️ ESTE BLOCO EXISTE PORQUE EU HAVIA POSTO O DESPACHO NO LUGAR ERRADO. As duas
+            # tools estavam na allowlist e no schema, e o dispatcher devolvia
+            # "tool desconhecida" — eu tinha escrito o `if name ==` dentro de
+            # `_tool_ponto_funcionario`, que só é chamada para a lista de nomes de PONTO.
+            # Medi os dois extremos (o schema chegava ao modelo, a função funcionava) e não medi
+            # o MEIO. O sintoma no grupo foi o agente terminar o turno sem texto.
+            #
+            # ⚠️ E a identidade NÃO pode sair de `_funcionario_da_conversa`: numa conversa de
+            # grupo o `cwi_message_log.phone_canonical` guarda o **LID** (`134286564950018`), não
+            # telefone — é o terceiro lugar onde o LID envenena a identificação. Uso
+            # `wa_grupo_mensagens`, onde o autor já foi resolvido e validado na absorção.
+            from .supervisao import papel_de_supervisao, visao_operacao  # noqa: PLC0415
+
+            async with async_session_factory() as _dbv:
+                _quem = (await _dbv.execute(text(
+                    "SELECT m.autor_fone, m.autor_employee_id::text, m.autor_tipo "
+                    "  FROM wa_grupo_mensagens m JOIN wa_grupos g ON g.jid = m.grupo_jid "
+                    " WHERE g.chatwoot_conversation_id = :c AND m.autor_fone IS NOT NULL "
+                    " ORDER BY m.criado_em DESC LIMIT 1"), {"c": conversation_id})).first()
+                if not _quem:
+                    return {"erro": "não sei quem está perguntando neste grupo"}
+                from types import SimpleNamespace as _NS  # noqa: PLC0415
+
+                _ident_v = _NS(tipo=_quem[2], employee_id=_quem[1], nome=None)
+                if not await papel_de_supervisao(_dbv, _ident_v):
+                    return {"erro": "esta informação é para quem supervisiona a operação"}
+                if name == "visao_operacao":
+                    return await visao_operacao(_dbv)
+                from . import grupos as _grpr  # noqa: PLC0415
+
+                return await _grpr.resumo(_dbv, horas=int(args.get("horas") or 24))
 
         if name in ("perguntar_ao_jordan", "registrar_resposta_cotacao"):
             _forn = await _fornecedor_da_conversa(conversation_id)
@@ -6950,7 +7003,36 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             logger.error("Agente: contexto de grupo não resolvido (%s) — sigo como 1:1", e)
 
         if _cfg_grupo:
+            # ⚠️ A IDENTIDADE PRECISA EXISTIR ANTES DE DERRUBAR `owner`. O bloco que resolve
+            # `ident` roda `if not owner` — para o Jordan ele é PULADO, e `ident` fica None.
+            # Eu então forçava `owner=False` e o papel `grupo`, mas sem identidade: o despacho
+            # de `visao_operacao` chama `papel_de_supervisao(db, None)`, recebe None e RECUSA a
+            # ferramenta. Medido: o turno terminou com 1 rodada e sem texto, e a resposta foi
+            # "não estou conseguindo te atender" — para o dono, dentro do grupo dele.
+            #
+            # A causa de fundo: `owner` carregava DOIS significados (quem é × o que pode), e eu
+            # mexi num deles esperando não afetar o outro.
+            if ident is None:
+                try:
+                    from .identidade import quem_e as _quem_e_g  # noqa: PLC0415
+
+                    async with async_session_factory() as _dbi:
+                        ident = await _quem_e_g(
+                            _dbi, phone_row[0] if phone_row else None, e_dono=owner)
+                except Exception as e:  # noqa: BLE001
+                    logger.error("Agente: identidade no grupo não resolvida (%s)", e)
             papel, owner = "grupo", False
+            # ⚠️ E O TETO DE SAÍDA TEM DE SUBIR JUNTO. Forçar `owner=False` tira as ferramentas
+            # de gerente (era o objetivo) e, de carona, derruba o teto de 3000 para 500 —
+            # porque ele é calculado a partir de `owner`. Medido no primeiro teste real: o
+            # Jordan perguntou a cobertura no Gestão, o modelo gastou os 500 tokens em três
+            # rodadas de ferramenta e terminou o turno SEM TEXTO, caindo no "não estou
+            # conseguindo te atender". É a assinatura exata do defeito de 11/09, e eu o
+            # reintroduzi ao mexer numa variável que carregava DOIS significados.
+            #
+            # 1500 porque a resposta de grupo lê o retorno de `visao_operacao` (um JSON com
+            # dezenas de campos) e ainda precisa escrever duas frases em português.
+            max_tokens = int(_env_num("AGENT_MAX_TOKENS_GRUPO", 1500))
 
         active_tools = _tools_ativas(owner, papel)
 
@@ -8120,8 +8202,35 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
         except Exception:  # noqa: BLE001
             _sit = ""
 
+    # ⭐ GRUPO AUTORIZADO PUBLICA NO GRUPO (24/09/2026, "quero que ele interaja e converse com
+    # naturalidade nestes 3 grupos" — Jordan). Precisa de um ramo PRÓPRIO porque havia DOIS
+    # bloqueios, e eu só tinha visto um:
+    #
+    #   1. `AGENT_MODE` é `copilot` por padrão → toda resposta vira nota privada de painel;
+    #   2. mesmo em `autonomous`, existe `elif info["is_group"]: decision = "skipped_group"` —
+    #      alguém já havia decidido que grupo não recebe resposta automática.
+    #
+    # Medido no primeiro teste real: o Jordan escreveu no Gestão e a resposta saiu
+    # `private=true`, sem `source_id`. Ele não viu nada. O modo `falar` no banco não bastava.
+    #
+    # ⚠️ NÃO mexi em `AGENT_MODE`. Ligar `autonomous` global faria o agente responder
+    # CLIENTE sozinho, o que é outra decisão, de outro tamanho, e ninguém pediu. Este ramo
+    # libera só os grupos que o dono autorizou, um por linha no banco.
+    _grupo_fala = None
+    try:
+        from modules.integrations.connectors.whatsapp import grupos as _grpd  # noqa: PLC0415
+
+        async with async_session_factory() as _dbd:
+            _cfgd = await _grpd.grupo_da_conversa(_dbd, conversation_id)
+        if _cfgd and _cfgd.get("modo") == "falar":
+            _grupo_fala = _cfgd
+    except Exception as e:  # noqa: BLE001
+        logger.error("Agente: não sei se conv=%s é grupo autorizado (%s)", conversation_id, e)
+
     decision = "copilot_note"
-    if agent_mode() == "autonomous":
+    if _grupo_fala:
+        decision = "grupo_publica"
+    elif agent_mode() == "autonomous":
         info = await _get_conversation_info(conversation_id)
         # Em operacao de operador unico, o Chatwoot auto-atribui a conversa ao
         # agente humano -> o guard antigo silenciava o bot pra SEMPRE. O sinal
@@ -8168,7 +8277,27 @@ async def _processar_incoming_inner(conversation_id: int, phone: str | None = No
         except Exception as e:  # noqa: BLE001
             logger.error("alerta situação sensível falhou conv=%s: %s", conversation_id, e)
 
-    if decision == "autonomous_sent":
+    if decision == "grupo_publica":
+        ok = await _post_public_reply(conversation_id, texto)
+        if not ok:
+            # Falhou publicar: vira nota para o trabalho não se perder, e o log diz o motivo.
+            decision = "grupo_publica_falhou"
+            await _post_private_note(conversation_id, texto)
+        else:
+            # ⚠️ O REGISTRO DA FALA VAI AQUI, e só quando publicou de verdade. `max_falas_dia`
+            # conta esta tabela: registrar antes (ou registrar tentativa falha) gastaria o teto
+            # com fala que ninguém leu, e o agente emudeceria no grupo sem ter dito nada.
+            try:
+                async with async_session_factory() as _dbf:
+                    await _dbf.execute(_sql_text(
+                        "INSERT INTO wa_grupo_falas (grupo_jid, motivo, texto) "
+                        "VALUES (:j, 'resposta', :t)"),
+                        {"j": _grupo_fala["jid"], "t": texto[:2000]})
+                    await _dbf.commit()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Agente: fala no grupo não registrada (%s) — o teto do dia "
+                               "não vai contá-la", e)
+    elif decision == "autonomous_sent":
         ok = False
         # voz responde voz: se a ultima entrada foi audio OU o cliente/Jordan PEDIU resposta em
         # audio (ex.: "me manda o resumo em audio"), entrega em AUDIO (TTS). Falha -> texto.
