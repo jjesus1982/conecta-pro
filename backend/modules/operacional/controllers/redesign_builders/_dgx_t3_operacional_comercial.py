@@ -374,6 +374,7 @@ async def telas(db, out: dict) -> None:
                 "vagas": [
                     {
                         "post_id": r[0],
+                        "posto": r[5],  # dgx v2 — rótulo da ação «Recrutar»
                         "contrato": r[3],
                         "contratado": r[8],
                         "alocado": r[9],

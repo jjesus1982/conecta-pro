@@ -44,7 +44,13 @@ STATUS_CHAMADO = {
     "cancelado": "Cancelado",
 }
 ABERTO_POR = {"cliente": "Cliente", "supervisor": "Supervisor", "colaborador": "Colaborador", "sistema": "Sistema"}
-CANAIS = {"whatsapp": "WhatsApp", "telefone": "Telefone", "app": "App", "portal": "Portal do cliente"}
+CANAIS = {
+    "whatsapp": "WhatsApp",
+    "telefone": "Telefone",
+    "app": "App",
+    "portal": "Portal do cliente",
+    "qr": "QR do setor",  # dgx v2 — etiqueta no setor, página pública sem login
+}
 CATEGORIAS_CHAMADO = {
     "falta_efetivo": "Falta de efetivo",
     "conduta": "Conduta do colaborador",

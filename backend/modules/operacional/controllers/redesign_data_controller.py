@@ -3390,22 +3390,33 @@ async def _build_recrutamento(db: AsyncSession) -> dict:
 
     _vaga_tone = {"aberta": "ok", "rascunho": "mut", "pausada": "warn", "encerrada": "bad", "preenchida": "info"}
     await safe("visao", _visao())
+    # dgx v2 — as colunas post_id/contract_id nascem aqui se o operacional ainda não foi aberto
+    try:
+        from modules.operacional.controllers.redesign_builders._dgx_v2_recrutamento_qr import _ensure as _ensure_v2
+
+        await _ensure_v2(db)
+    except Exception:  # noqa: BLE001
+        await db.rollback()
     await safe(
         "vagas",
         tbl(
             "Vagas",
-            f"{n_vagas} vagas",
+            f"{n_vagas} vagas · Posto/Contrato preenchidos quando a vaga nasceu de «Recrutar» na vaga do contrato (DGX V2)",
             "Abrir vaga",
-            ["Vaga", "Departamento", "Local", "Nº", "Status"],
-            "2fr 1.4fr 1.4fr 0.6fr 0.9fr",
-            "SELECT title, coalesce(department,'—'), coalesce(nullif(concat_ws('/', city, state),''),'—'), coalesce(vacancies,1), coalesce(status,'—') "
-            "FROM job_positions ORDER BY created_at DESC NULLS LAST LIMIT 200",
+            ["Vaga", "Departamento", "Posto", "Contrato", "Preench.", "Nº", "Status"],
+            "1.8fr 1.1fr 1.3fr 1.1fr 0.7fr 0.5fr 0.9fr",
+            "SELECT v.title, coalesce(v.department,'—'), coalesce(p.name,'—'), "
+            "coalesce(k.contract_number, c.name, '—'), coalesce(v.filled_count,0), coalesce(v.vacancies,1), coalesce(v.status,'—') "
+            "FROM job_positions v LEFT JOIN posts p ON p.id = v.post_id LEFT JOIN contracts k ON k.id = v.contract_id "
+            "LEFT JOIN clients c ON c.id = k.client_id ORDER BY v.created_at DESC NULLS LAST LIMIT 200",
             lambda r: [
                 t(r[0], 600, "#0F1B3A"),
                 t(r[1]),
-                t(r[2]),
-                t(str(r[3])),
-                b(*(((r[4] or "—").capitalize()), _vaga_tone.get((r[4] or "").lower(), "mut"))),
+                t(r[2], 600 if r[2] != "—" else 400),
+                t(r[3]),
+                t(f"{r[4]}/{r[5]}"),
+                t(str(r[5])),
+                b(*(((r[6] or "—").capitalize()), _vaga_tone.get((r[6] or "").lower(), "mut"))),
             ],
         ),
     )

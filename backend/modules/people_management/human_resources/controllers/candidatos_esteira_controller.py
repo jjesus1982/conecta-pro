@@ -476,7 +476,8 @@ def baixar_documento_candidato(
 
 
 class AprovarBody(BaseModel):
-    posto_id: str
+    posto_id: str = ""  # dgx v2: pode vir vazio se `vaga_id` apontar uma vaga ligada a posto
+    vaga_id: str | None = None  # dgx v2 — vaga do recrutamento (`job_positions`) aberta pela vaga do contrato
     turno: str | None = None  # 12x36 → 'diurno'|'noturno' (default: do posto)
     paridade: str | None = None  # 12x36 → 'pares'|'impares' (default: impares)
     salario_base: float | None = None  # override; default = piso da CCT do cargo
@@ -660,6 +661,26 @@ async def aprovar_e_ativar(
             + ". Rode 'Verificar' novamente (ou confira os dados do candidato).",
         )
 
+    # dgx v2 — quando a aprovação vem de uma vaga do recrutamento aberta a partir da vaga do
+    # contrato, o POSTO vem da vaga (`job_positions.post_id`). Sem `vaga_id`, nada muda.
+    vaga = None
+    if body.vaga_id:
+        vaga = (
+            (
+                await db.execute(
+                    text("SELECT id::text, post_id::text AS post_id, title FROM job_positions WHERE id::text = :v"),
+                    {"v": body.vaga_id},
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not vaga:
+            raise HTTPException(status_code=404, detail="Vaga de recrutamento não encontrada.")
+    posto_id = body.posto_id or (vaga or {}).get("post_id") or ""
+    if not posto_id:
+        raise HTTPException(status_code=422, detail="Informe o posto (ou uma vaga ligada a um posto).")
+
     posto = (
         (
             await db.execute(
@@ -668,7 +689,7 @@ async def aprovar_e_ativar(
                     "FROM posts p LEFT JOIN clients c ON c.id = p.client_id "
                     "WHERE p.id::text = :pid AND p.is_active AND coalesce(p.code,'') <> 'CONECTA-BASE'"
                 ),
-                {"pid": body.posto_id},
+                {"pid": posto_id},
             )
         )
         .mappings()
@@ -947,6 +968,53 @@ async def aprovar_e_ativar(
 
     await db.commit()
 
+    # ── 7) dgx v2: veio de uma vaga ligada a um POSTO → registra a MOVIMENTAÇÃO (F5, motivo
+    #    `alocacao_de_vaga`) e baixa a vaga. Depois do commit e best-effort, como o contrato e a
+    #    notificação: a ativação já está gravada e não pode ser desfeita por causa deste passo.
+    vaga_mov: dict[str, Any] | None = None
+    if vaga and vaga.get("post_id"):
+        try:
+            from modules.operacional.services import movimentacao_service as _ms
+
+            cond = (
+                await db.execute(
+                    text(
+                        "SELECT c.id::text FROM condominios c WHERE c.client_id = CAST(:cl AS uuid) AND c.ativo "
+                        "ORDER BY c.nome LIMIT 1"
+                    ),
+                    {"cl": posto["client_id"]},
+                )
+            ).scalar()
+            if not cond:
+                vaga_mov = {"ok": False, "motivo": f"o cliente do posto {posto['name']} não tem condomínio ativo"}
+            else:
+                mov = await _ms.alocar(
+                    db,
+                    employee_id=candidato_id,
+                    condominio_id=cond,
+                    funcao=cargo,
+                    data_inicio=hoje,
+                    motivo="alocacao_de_vaga",
+                    solicitado_por="dp",
+                    posto_id=posto["id"],
+                    observacao=f"Aprovado na esteira pela vaga «{vaga['title']}» (recrutamento).",
+                    user_id=uid or None,
+                )
+                vaga_mov = {"ok": True, "alocacao_id": mov["id"], "posto": posto["name"], "motivo": "alocacao_de_vaga"}
+            await db.execute(
+                text(
+                    "UPDATE job_positions SET filled_count = coalesce(filled_count, 0) + 1, "
+                    " status = CASE WHEN coalesce(filled_count, 0) + 1 >= coalesce(vacancies, 1) THEN 'preenchida' ELSE status END, "
+                    " closed_at = CASE WHEN coalesce(filled_count, 0) + 1 >= coalesce(vacancies, 1) THEN now() ELSE closed_at END "
+                    "WHERE id::text = :v"
+                ),
+                {"v": vaga["id"]},
+            )
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — nunca desfaz a ativação; o motivo aparece na resposta
+            await db.rollback()
+            vaga_mov = {"ok": False, "motivo": str(exc)[:300]}
+
     return {
         "success": True,
         "candidato_id": candidato_id,
@@ -967,6 +1035,7 @@ async def aprovar_e_ativar(
                 "turno": turno,
                 "turnos_gerados": turnos,
                 "setor": setor,
+                "vaga": vaga_mov,  # dgx v2 — None quando não veio de vaga com posto
             },
             "ponto": {"facial": "já cadastrada no autocadastro", "pode_bater": True},
             "financeiro": {
