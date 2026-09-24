@@ -23,9 +23,15 @@ from modules.operacional.controllers.redesign_data_controller import (
     t,
 )
 
+from ._dgx_z1_produto_fiscal import MENU as _menu_z1  # noqa: N811  # dgx z1
+from ._dgx_z1_produto_fiscal import router as _router_z1  # dgx z1
+
 logger = logging.getLogger(__name__)
 
 SLUG = "fiscal"
+
+router = APIRouter()
+router.include_router(_router_z1)  # dgx z1 — cadastro fiscal do produto (NF-e)
 
 #: Lido pelo loader no IMPORT e deduplicado por "id" (ver f82d7448 — dict virava aba
 #: fantasma). NUNCA popular isto dentro de build(): cresceria a cada requisição.
@@ -87,6 +93,7 @@ EXTRA_MENU: list[dict] = [
     },
     # dgx z5 — do orçamento à nota: o emissor CONSOME orçamento (proposta ou arquivo), nunca cria.
     *_z5.ABAS,
+    *_menu_z1,  # dgx z1 — cadastro fiscal do produto (grupo «Notas fiscais»)
 ]
 
 # dgx z3 — NF-e de produto (emitir/conferir/emitidas/DANFE). No FIM do menu, de propósito.
@@ -96,7 +103,11 @@ EXTRA_MENU: list[dict] = [
 from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3m  # noqa: E402
 
 EXTRA_MENU.extend(_z3m.EXTRA_MENU)  # dgx z3
-router = _z3m.router  # dgx z3
+# UM router só para o builder fiscal. Quatro frentes da onda 8 (Z1, Z3, Z4, Z5) plugaram aqui na
+# mesma noite e cada uma criou o seu — a definição seguinte SOBRESCREVIA a anterior e as rotas da
+# frente de baixo sumiam sem erro nenhum (medido no merge de 24/09/2026: as de emitir NF-e e as de
+# produto fiscal, alternadamente). Quem chegar depois INCLUI, nunca reatribui.
+router.include_router(_z3m.router)  # dgx z3
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
@@ -369,6 +380,9 @@ async def build(db) -> dict:
 
     await _z3.telas(db, out)  # dgx z3 — emitir NF-e (homologação por padrão), conferir, emitidas, DANFE
     await _z5.telas(db, out)  # dgx z5 — orçamento (proposta ou arquivo) → rascunho de nota, com a origem
+    from ._dgx_z1_produto_fiscal import telas as _telas_z1  # dgx z1
+
+    await _telas_z1(db, out)  # dgx z1 — produtos fiscais, tributação por CNPJ, NCM oficial
     return out
 
 
