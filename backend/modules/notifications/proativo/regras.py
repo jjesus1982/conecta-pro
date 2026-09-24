@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from modules.financial.services.periodo_contabil import SQL_CONTA_EM_ABERTO
 
 logger = logging.getLogger(__name__)
 
@@ -348,33 +349,49 @@ register(Regra(
 
 # ─────────────────────────── justificativa_parada ───────────────────────────
 async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
+    """Justificativa de ponto parada além do PRAZO.
+
+    O prazo era 48 h chumbadas; desde a DGX Y3 (24/09/2026) é o parâmetro
+    `ponto.justificativa_prazo_dias` (semente 5), o mesmo número que a aba «Fila de
+    justificativas» mostra — dois lugares dizendo prazos diferentes é como ninguém acredita
+    em nenhum dos dois.
+
+    O alerta também passou a dizer QUEM: «id 3» não é acionável. Medido em 24/09: 13
+    justificativas na base, 13 pendentes, zero aprovadas, a mais antiga desde 21/07.
+    """
+    from modules.people_management.ponto.services.justificativa_batida import prazo_dias
+    dias = await prazo_dias(db)
     rows = (await db.execute(text(
-        "SELECT id, coalesce(employee_id,'') AS emp, "
-        "       EXTRACT(EPOCH FROM (now() - created_at))/3600 AS horas "
-        "FROM gp_justifications "
-        "WHERE lower(coalesce(status,'')) IN ('pending','pendente') "
-        "AND created_at < now() - interval '48 hours'"))).mappings().all()
+        "SELECT j.id, coalesce(e.nome, 'colaborador') AS nome, "
+        "       coalesce(j.justification_type, 'ponto') AS tipo, "
+        "       (CAST((now() AT TIME ZONE 'America/Manaus') AS date) - j.created_at::date) AS dias "
+        "FROM gp_justifications j LEFT JOIN employees e ON e.id::text = j.employee_id "
+        "WHERE lower(coalesce(j.status,'')) IN ('pending','pendente','em_analise') "
+        "AND j.created_at::date < CAST((now() AT TIME ZONE 'America/Manaus') AS date) - CAST(:d AS integer)"),
+        {"d": dias})).mappings().all()
     out = []
     for r in rows:
         out.append(Achado(
             correlation_id=f"justificativa_parada:{r['id']}",
-            dados={"just_id": int(r["id"]), "horas": int(r["horas"] or 0)},
+            dados={"just_id": int(r["id"]), "nome": r["nome"], "tipo": r["tipo"],
+                   "dias": int(r["dias"] or 0), "prazo": dias},
         ))
     return out
 
 
 def _tpl_justificativa(d: dict) -> tuple[str, str]:
     return (
-        "Justificativa de ponto parada",
-        f"Uma justificativa de ponto está pendente de análise há {d['horas']}h "
-        f"(id {d['just_id']}). Revisar.",
+        f"Justificativa parada há {d['dias']} dias: {str(d['nome']).title()}",
+        f"A justificativa de {d['tipo']} de {str(d['nome']).title()} está pendente há "
+        f"{d['dias']} dia(s) — o prazo é {d['prazo']}. Deferir ou indeferir na aba "
+        f"«Fila de justificativas» (Ponto & Jornada). Indeferir exige motivo.",
     )
 
 
 register(Regra(
     nome="justificativa_parada", familia="ponto", severidade="atencao",
     roles_destino=("admin", "gerente_operacional"),
-    action_url="/modulos/operacional/ponto/justificativas",
+    action_url="/redesign/departamento-pessoal?t=g-ponto&tab=justificativas-fila",
     detectar=_detectar_justificativa, template=_tpl_justificativa,
 ))
 
@@ -1801,4 +1818,3 @@ REGISTRY["gerente_sem_checkin"] = Regra(
     roles_destino=("admin",), action_url="/modulos/operacional",
     detectar=_detectar_gerente_sem_checkin, template=_tpl_gerente_sem_checkin,
 )
-

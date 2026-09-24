@@ -76,7 +76,11 @@ GRUPOS = [
         # réguas de pareamento lado a lado, com a batida crua: é a tela que o dono abre para decidir
         # a §7.1 da X4 (o tipo da batida manda, ou a ordem cronológica?). Paralelo CEGO.
         ("ponto-divergencia-regua", "Direção da batida: A × B"),
-        ("ponto-divergencia-regua-apurar", "Apurar direção da batida")]),
+        ("ponto-divergencia-regua-apurar", "Apurar direção da batida"),
+        # dgx y3 (24/09/2026): idem, anexadas por `_dgx_y3_justificativa_batida.telas(db, out)` —
+        # a FILA da justificativa (com dias parados e o efeito proposto na folha) e a batida que
+        # falta virando pendência com nome.
+        ("justificativas-fila", "Fila de justificativas"), ("batida-faltando", "Batida faltando")]),
 
     ("g-folha", "Folha de pagamento", "Geração, conferência contra a Portte e contracheques", [
         ("folha", "Folha"), ("folha-gerar", "Gerar folha"),
