@@ -63,6 +63,13 @@ from sqlalchemy import text  # noqa: E402
 
 from core.database import async_session_factory  # noqa: E402
 
+#: As telas desta frente entram na régua: `checar_nao_vigiado.py` conta como vigiada a
+#: tela cujo slug um oráculo cita, e a onda fiscal nasceu com 40 descobertas. Citar num
+#: comentário enganaria o contador — `conferir_telas` monta o builder e prova que a tela
+#: existe e não é casca.
+TELAS_DA_FRENTE = ("bartolo-fiscal",)
+MODULO_DA_FRENTE = "fiscal"
+
 MARCA = "FIXTURE DGX Z6"
 PAINEL = "/redesign/bi?t=decisoes-do-dono"
 RAIZ = Path(__file__).resolve().parents[1].parent  # /app
@@ -382,6 +389,9 @@ async def _usuario_real(db):
 async def main() -> int:
     parede_so_leitura()
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         try:
             await parede_nao_sei(db)
             await parede_rejeicao(db)

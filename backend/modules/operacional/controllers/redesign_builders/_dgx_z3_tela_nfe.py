@@ -1068,10 +1068,17 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
 
     await db.execute(
         text(
-            "UPDATE nfes SET status = :st, chave_acesso = coalesce(nullif(:ch,''), chave_acesso), "
+            "UPDATE nfes SET status = CAST(:st AS text), chave_acesso = coalesce(nullif(:ch,''), chave_acesso), "
             " protocolo_autorizacao = nullif(:pr,''), motivo_rejeicao = nullif(:mo,''), "
             " c_stat = nullif(:cs,''), xml_autorizado = nullif(:xml,''), ambiente = :amb, "
-            " data_autorizacao = CASE WHEN :st = 'autorizada' THEN now() ELSE data_autorizacao END, "
+            # O CAST está nas DUAS ocorrências de `:st` de propósito. O mesmo parâmetro serve
+            # `SET status = :st` (a coluna é varchar) e a comparação com literal aqui (text); o
+            # asyncpg deduz os dois tipos e levanta `AmbiguousParameterError: text versus
+            # character varying`. Provado por `prepare()` em 24/09/2026 — e castar só UM lado
+            # NÃO resolve, também medido. Sem isso o botão «Transmitir» morre no 1º clique, em
+            # silêncio: foi assim que o webhook da Cora passou meses sem marcar transação.
+            " data_autorizacao = CASE WHEN CAST(:st AS text) = 'autorizada' THEN now() "
+            "                         ELSE data_autorizacao END, "
             " updated_at = now() WHERE id::text = :i"
         ),
         {

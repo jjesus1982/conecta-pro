@@ -59,6 +59,13 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+#: As telas desta frente entram na régua: `checar_nao_vigiado.py` conta como vigiada a
+#: tela cujo slug um oráculo cita, e a onda fiscal nasceu com 40 descobertas. Citar num
+#: comentário enganaria o contador — `conferir_telas` monta o builder e prova que a tela
+#: existe e não é casca.
+TELAS_DA_FRENTE = ("nfe-do-orcamento", "nfe-do-arquivo", "nfe-rascunhos", "nfe-rascunho-itens")
+MODULO_DA_FRENTE = "fiscal"
+
 #: Arquivos DESTA frente — a varredura do item 6 lê exatamente estes.
 ARQUIVOS_DA_FRENTE = (
     "/app/modules/fiscal/services/orcamento_para_nota.py",
@@ -198,6 +205,9 @@ async def main() -> int:  # noqa: C901 — seis afirmações, cada uma curta
 
     fixtures: list[str] = []
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         await z5.ensure_schema(db)
 
         # ── 1+3) fixture a partir de uma proposta REAL (leitura), soma e idempotência ───────

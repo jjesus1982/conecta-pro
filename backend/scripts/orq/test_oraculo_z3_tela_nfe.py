@@ -52,6 +52,13 @@ from __future__ import annotations
 import asyncio
 import sys
 
+#: As telas desta frente entram na régua: `checar_nao_vigiado.py` conta como vigiada a
+#: tela cujo slug um oráculo cita, e a onda fiscal nasceu com 40 descobertas. Citar num
+#: comentário enganaria o contador — `conferir_telas` monta o builder e prova que a tela
+#: existe e não é casca.
+TELAS_DA_FRENTE = ("nfe-nova", "nfe-preview", "nfes-emitidas", "nfe-producao", "nfe-entrada-xml", "sync-nfe-entrada")
+MODULO_DA_FRENTE = "fiscal"
+
 FIXTURE = "FIXTURE DGX Z3"
 #: xMotivo real de uma rejeição da SEFAZ — longo de propósito: é ele que tem de aparecer inteiro.
 XMOTIVO = (
@@ -216,6 +223,9 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — um oráculo é uma lista 
 
     # ── 1 e 5) leem o banco ──────────────────────────────────────────────────────────────
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         await z3._ensure(db)
 
         # ── 3b) DANFE de nota AUTORIZADA nunca sai sem produto ───────────────────────────

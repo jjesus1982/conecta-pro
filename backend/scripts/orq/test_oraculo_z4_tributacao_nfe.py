@@ -37,6 +37,13 @@ from __future__ import annotations
 import asyncio
 import sys
 
+#: As telas desta frente entram na régua: `checar_nao_vigiado.py` conta como vigiada a
+#: tela cujo slug um oráculo cita, e a onda fiscal nasceu com 40 descobertas. Citar num
+#: comentário enganaria o contador — `conferir_telas` monta o builder e prova que a tela
+#: existe e não é casca.
+TELAS_DA_FRENTE = ("nfe-tributacao-mapa", "nfe-tributacao-divergencias", "nfe-tributacao-simulador")
+MODULO_DA_FRENTE = "fiscal"
+
 #: Tabela B do Ajuste SINIEF 07/2005 — recontada aqui de propósito. O oráculo confere a régua,
 #: não a importa do serviço.
 CST_REGIME_NORMAL = {"00", "10", "20", "30", "40", "41", "50", "51", "60", "70", "90"}
@@ -68,6 +75,9 @@ async def main() -> int:
     combinacoes = 0
 
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         # ── (6) o regime e a IE vêm do BANCO. SQL próprio, sem passar pelo serviço.
         linhas = (
             await db.execute(
