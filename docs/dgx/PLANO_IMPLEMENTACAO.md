@@ -253,6 +253,19 @@ documento fiscal irreversível.
   tem Inscrição Estadual em lugar nenhum** (procurei em `empresas`, `tenants`, `sped_files`,
   `suframa_configs`; só existe a municipal 721042001). A SEFAZ-AM rejeita 209 e o Amazonas não
   oferece consulta cadastro para descobrir.
+- 24/09 19:20 — **o dono respondeu o bloqueio (2) e ele virou REGRA, não pendência:**
+  *«a patrimonial tem apenas inscrição municipal, homologa também. nf de serviço e nf de produto
+  pra eletronica e nf de serviço para a patrimonial»*. Ou seja: a Patrimonial **nunca** emitirá
+  NF-e modelo 55 — ela vende serviço, não mercadoria. A recusa dela no emissor tem de dizer isso
+  e apontar a NFS-e, em vez de «cadastro incompleto». E «homologa também» abriu a frente **Z7**:
+  provar a **NFS-e em homologação nos dois CNPJs**, com transmissão e protocolo reais.
+- 24/09 19:20 — **medição que motivou a Z7, e ela é grave:** as **27 NFS-e** gravadas com
+  `status='autorizada'` (todas da Eletrônica, a última de 12/02) têm **zero protocolo, zero
+  código de verificação, zero XML enviado e zero XML de retorno**. Nunca foram transmitidas a
+  Manaus — é o mesmo padrão da NF-e antes da Z2: o status é uma palavra escrita aqui dentro, não
+  um fato do órgão. A Patrimonial tem zero NFS-e, sempre teve. E o webservice de homologação de
+  Manaus **não resolve no DNS** (`nfse-hml.manaus.am.gov.br`; só `nfse-prd` responde, HTTP 200),
+  então o caminho de homologação da NFS-e é a primeira coisa que a Z7 tem de descobrir e provar.
 - 24/09 — dois achados do orquestrador na hora de mesclar, medidos e não presumidos:
   - `main_production.py` (zona proibida) veio reformatado inteiro pelo `ruff format` do
     pre-commit. Comparei as duas árvores sintáticas ignorando ordem de nomes em import:
