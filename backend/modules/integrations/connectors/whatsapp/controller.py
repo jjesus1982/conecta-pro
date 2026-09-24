@@ -1301,6 +1301,10 @@ async def chatwoot_webhook(
                 await _grp.absorver(
                     db, jid=_grupo_jid, conteudo=content, chatwoot_message_id=msg_id,
                     autor_fone=_fone_autor, autor_nome=_nome_autor, identidade=_ident)
+                # Aprende qual conversa do Chatwoot é este grupo. É o único lugar que vê o JID
+                # e o `conversation_id` juntos, e é o que permite a `processar_incoming`
+                # reconhecer o grupo quando a varredura a reenfileira sem passar por aqui.
+                await _grp.aprender_conversa(db, jid=_grupo_jid, conversation_id=conv_id)
                 # ⭐ "Pedido que muda escala vira aprovação" (Jordan, 23/09/2026). Acontece
                 # AQUI, dentro do modo observador e antes do `return`: o José Luís não
                 # responde no grupo, mas o pedido não se perde — vira rascunho inerte para

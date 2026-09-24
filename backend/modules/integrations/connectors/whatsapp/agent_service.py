@@ -7723,6 +7723,33 @@ async def processar_incoming(conversation_id: int, phone: str | None = None, *, 
         logger.info("processar_incoming: conv=%s número interno — agente não responde", conversation_id)
         return
 
+    # ⭐ GRUPO EM MODO OBSERVAR NÃO É RESPONDIDO — e a trava mora AQUI, não no webhook.
+    #
+    # 24/09/2026, medido com o Jordan mandando mensagem no grupo Gestão às 08:50: o webhook
+    # barrou certo, a mensagem foi absorvida certo, e às 08:54 o José Luís redigiu resposta.
+    # A segunda porta era `tasks.varrer_sem_resposta`, um beat que acha conversa com mensagem
+    # entrando e sem resposta e REENFILEIRA esta função. Ela existe para garantir que silêncio
+    # nunca aconteça; a parede de grupo existe para garantir que ele SEMPRE aconteça. Objetivos
+    # opostos, e a varredura ganhava por rodar depois — pior: mensagem de grupo, que por
+    # desenho nunca terá resposta, é candidata PERMANENTE dela durante 90 minutos.
+    #
+    # Guardar cada chamador é a receita para o chamador novo nascer furado. Este é o ponto por
+    # onde os dois passam, e por onde passará o terceiro.
+    try:
+        from modules.integrations.connectors.whatsapp import grupos as _grp  # noqa: PLC0415
+
+        async with async_session_factory() as _dbg:
+            _jid_calado = await _grp.conversa_e_grupo_calado(_dbg, conversation_id)
+        if _jid_calado:
+            logger.info("processar_incoming: conv=%s é o grupo %s em observação — agente "
+                        "não responde (nem nota interna)", conversation_id, _jid_calado)
+            return
+    except Exception as e:  # noqa: BLE001
+        # Não cala por falha: a maioria das conversas é de CLIENTE, e não atender cliente por
+        # erro desta consulta é dano maior que uma nota interna num grupo. O log é o que
+        # transforma isso em algo que alguém vê.
+        logger.error("processar_incoming: não sei se conv=%s é grupo (%s) — sigo", conversation_id, e)
+
     lock_key = f"jl:lock:conv:{conversation_id}"
     token = _uuid.uuid4().hex  # valor ÚNICO: o release só apaga SE for o dono (não rouba lock alheio)
     # TTL generoso (>= pior caso da geração: até 4 chamadas OpenAI × timeout) p/ o lock não

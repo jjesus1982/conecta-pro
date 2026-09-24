@@ -533,6 +533,19 @@ def varrer_sem_resposta(self):  # noqa: ARG001
                     WHERE o.chatwoot_conversation_id = m.chatwoot_conversation_id
                       AND o.direction IN ('out', 'drf')
                       AND o.created_at > m.created_at)
+              -- ⭐ 24/09/2026: GRUPO EM OBSERVAÇÃO NÃO É "SEM RESPOSTA", é silêncio por
+              -- decisão do dono. Sem esta linha, toda mensagem de grupo virava candidata
+              -- PERMANENTE desta varredura durante os 90 min da janela: um WARNING
+              -- "conversa X SEM resposta" por rodada, para sempre, sobre algo que está
+              -- certo. Alarme que soa sempre é alarme que ninguém lê.
+              --
+              -- ⚠️ A parede de verdade mora em `processar_incoming` (o ponto por onde esta
+              -- varredura e o webhook passam). Esta linha não é a parede — é esta task
+              -- parando de MENTIR no log e de gastar fila com trabalho que será recusado.
+              AND NOT EXISTS (
+                    SELECT 1 FROM wa_grupos g
+                    WHERE g.chatwoot_conversation_id = m.chatwoot_conversation_id
+                      AND g.modo <> 'falar')
             GROUP BY 1"""), {"mn": _VARRE_MIN, "mx": _VARRE_MAX})
         return [dict(x) for x in r.mappings().all()]
 

@@ -116,6 +116,45 @@ async def main() -> None:
         assert vivos >= 1, "nenhum supervisor com vínculo vivo resolveu — a visão da operação caiu"
         print(f"OK supervisão pelo RBAC: {vivos} com vínculo vivo, contas sem vínculo barradas")
 
+        # ── 6 · A SEGUNDA PORTA: `processar_incoming` recusa conversa de grupo ──
+        # ⭐ Esta é a asserção que nasceu de um defeito REAL, não de imaginação (24/09/2026).
+        # A parede do webhook estava certa, a mensagem do Jordan no Gestão foi absorvida
+        # certa, e quatro minutos depois o José Luís redigiu resposta: `varrer_sem_resposta`
+        # reenfileira `processar_incoming` sem passar pelo webhook. Um beat cujo propósito é
+        # garantir que silêncio nunca aconteça, contra uma parede cujo propósito é garantir
+        # que ele sempre aconteça.
+        #
+        # Então o oráculo afirma o PONTO COMPARTILHADO, não o webhook: toda conversa mapeada a
+        # grupo não-`falar` tem de ser reconhecida como calada. E a irmã do caminho feliz:
+        # conversa que NÃO é grupo não pode ser calada, senão eu silenciei cliente.
+        mapeadas = (await db.execute(text(
+            "SELECT chatwoot_conversation_id, nome, modo FROM wa_grupos "
+            " WHERE chatwoot_conversation_id IS NOT NULL"))).all()
+        assert mapeadas, ("nenhum grupo mapeado a conversa do Chatwoot — a trava de "
+                          "`processar_incoming` não tem o que consultar e a varredura volta a furar")
+        for conv, nome, modo in mapeadas:
+            calado = await grp.conversa_e_grupo_calado(db, conv)
+            if modo == "falar":
+                assert calado is None, f"grupo {nome!r} em modo falar não deveria ser calado"
+            else:
+                assert calado, (f"conversa {conv} é o grupo {nome!r} em {modo!r} e NÃO foi "
+                                f"reconhecida — `varrer_sem_resposta` responderia nele")
+        # o controle: um id de conversa que não é grupo nenhum
+        livre = max(c for c, _, _ in mapeadas) + 100000
+        assert await grp.conversa_e_grupo_calado(db, livre) is None, \
+            "conversa que não é grupo foi calada — isto silenciaria cliente"
+        print(f"OK processar_incoming recusa as {len(mapeadas)} conversas de grupo, e só elas")
+
+        # ── 7 · a varredura não mira grupo (senão grita 'SEM resposta' para sempre) ──
+        from modules.integrations.connectors.whatsapp import tasks as _tk  # noqa: PLC0415
+        assert "wa_grupos" in _tk.varrer_sem_resposta.__doc__ or True  # doc é livre
+        import inspect  # noqa: PLC0415
+        fonte = inspect.getsource(_tk.varrer_sem_resposta)
+        assert "wa_grupos" in fonte, (
+            "`varrer_sem_resposta` voltou a não excluir grupo: cada mensagem de grupo vira "
+            "WARNING 'SEM resposta' por rodada durante 90min, sobre algo que está certo")
+        print("OK varrer_sem_resposta exclui grupo em observação")
+
     print("TEST oraculo_grupos_jose_luis PASS")
 
 

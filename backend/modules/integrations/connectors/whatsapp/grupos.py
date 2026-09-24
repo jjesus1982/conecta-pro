@@ -318,3 +318,61 @@ async def resumo(db: AsyncSession, *, jid: str | None = None, horas: int = 24) -
                                "quando": _manaus(r[2])} for r in pedidos],
         "onde_decidir": "/redesign/aprovacoes" if pedidos else None,
     }
+
+
+async def conversa_e_grupo_calado(db: AsyncSession, conversation_id: int | None) -> str | None:
+    """JID do grupo quando ESTA conversa do Chatwoot é um grupo que não deve ser respondido.
+
+    ⭐ Existe porque a parede do webhook NÃO era a única porta, e eu descobri do pior jeito:
+    com o Jordan mandando mensagem no grupo Gestão às 08:50 de 24/09 e o José Luís redigindo
+    resposta às 08:54, quatro minutos depois, com a parede do webhook funcionando e a mensagem
+    corretamente absorvida.
+
+    A segunda porta é `tasks.varrer_sem_resposta` — um beat que procura conversa cuja última
+    mensagem é de quem escreveu e que não teve resposta, e REENFILEIRA `processar_incoming`.
+    Ela existe para garantir que silêncio nunca aconteça; esta parede existe para garantir que
+    silêncio SEMPRE aconteça em grupo. São objetivos opostos, e a varredura ganhava por rodar
+    depois. Uma mensagem de grupo, que nunca terá resposta por desenho, é candidata PERMANENTE
+    da varredura durante os 90 minutos da janela dela.
+
+    ⚠️ Por isso a trava mora aqui e é chamada de `processar_incoming`, o ponto por onde os DOIS
+    caminhos passam — e por onde passará o terceiro que alguém escrever amanhã. Guardar cada
+    chamador é a receita para o chamador novo nascer furado; foi assim que esta frente gastou
+    uma noite.
+
+    `None` = não é grupo calado (ou não sei) → o agente segue o caminho normal. Fail-closed
+    NÃO cabe aqui: recusar na dúvida silenciaria conversa de CLIENTE, e o dano de não atender
+    cliente é maior que o de uma nota interna num grupo.
+    """
+    if not conversation_id:
+        return None
+    try:
+        r = (await db.execute(text(
+            "SELECT jid, modo FROM wa_grupos WHERE chatwoot_conversation_id = :c LIMIT 1"),
+            {"c": int(conversation_id)})).first()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("grupos: não sei se a conversa %s é grupo (%s)", conversation_id, e)
+        return None
+    if r and r[1] != "falar":
+        return str(r[0])
+    return None
+
+
+async def aprender_conversa(db: AsyncSession, *, jid: str, conversation_id: int | None) -> None:
+    """Grava qual conversa do Chatwoot corresponde a este grupo. Idempotente e best-effort.
+
+    O mapeamento se aprende do tráfego real em vez de ser cadastrado à mão: o webhook é o
+    único lugar que vê o JID e o `conversation_id` juntos. E a varredura só age a partir de 3
+    minutos, então a primeira mensagem do grupo já deixa o mapa pronto antes de ela olhar.
+    """
+    if not conversation_id:
+        return
+    try:
+        await db.execute(text(
+            "UPDATE wa_grupos SET chatwoot_conversation_id = :c "
+            " WHERE jid = :j AND coalesce(chatwoot_conversation_id, -1) <> :c"),
+            {"c": int(conversation_id), "j": jid})
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("grupos: não aprendi a conversa de %s (%s)", jid, e)
