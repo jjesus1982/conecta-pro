@@ -6,8 +6,10 @@ import logging
 import os
 from datetime import date as _date
 
+from fastapi import APIRouter
 from sqlalchemy import text as _sql
 
+from modules.operacional.controllers.redesign_builders import dgx_z5_orcamento_nota as _z5  # dgx z5
 from modules.operacional.controllers.redesign_data_controller import (
     _ICF,
     IC,
@@ -21,9 +23,15 @@ from modules.operacional.controllers.redesign_data_controller import (
     t,
 )
 
+from ._dgx_z1_produto_fiscal import MENU as _menu_z1  # noqa: N811  # dgx z1
+from ._dgx_z1_produto_fiscal import router as _router_z1  # dgx z1
+
 logger = logging.getLogger(__name__)
 
 SLUG = "fiscal"
+
+router = APIRouter()
+router.include_router(_router_z1)  # dgx z1 — cadastro fiscal do produto (NF-e)
 
 #: Lido pelo loader no IMPORT e deduplicado por "id" (ver f82d7448 — dict virava aba
 #: fantasma). NUNCA popular isto dentro de build(): cresceria a cada requisição.
@@ -49,6 +57,15 @@ EXTRA_MENU: list[dict] = [
     },
     {"id": "nfe-entrada-xml", "label": "Importar XML de NF-e de compra", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
     {"id": "nfse-emitidas", "label": "NFS-e emitidas (nacional)", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
+    # dgx z6 — item escrito aqui (e não importado de `dgx_z6_bartolo.MENU`) pelo mesmo motivo do
+    # `bi.py`/x5: o EXTRA_MENU é lido no IMPORT, e um import no topo fecharia o ciclo com o
+    # `redesign_data_controller`. O id tem de casar com `dgx_z6_bartolo.TELA`.
+    {
+        "id": "bartolo-fiscal",
+        "label": "Bartolo — tire sua dúvida",
+        "icon": "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z",
+        "grupo": "Notas fiscais",
+    },
     {"id": "calc-simples", "label": "Calcular DAS (Simples)", "icon": _ICO_CALC, "grupo": "Cálculos"},
     {"id": "calc-lucro-real", "label": "Calcular Lucro Real", "icon": _ICO_CALC, "grupo": "Cálculos"},
     {"id": "calc-comparativo", "label": "Comparar regimes", "icon": _ICO_CALC, "grupo": "Cálculos"},
@@ -62,6 +79,20 @@ EXTRA_MENU: list[dict] = [
         "icon": _ICO_CALC,
         "grupo": "Certidões & sincronismo",
     },
+    # dgx z4 — a tributação da NF-e de mercadoria (mapa, simulador e conferência com a praça)
+    {"id": "nfe-tributacao-mapa", "label": "Mapa da tributação (NF-e)", "icon": _ICO_CALC, "grupo": "Notas fiscais"},
+    {
+        "id": "nfe-tributacao-simulador",
+        "label": "Simulador de tributação da NF-e",
+        "icon": _ICO_CALC,
+        "grupo": "Notas fiscais",
+    },
+    {
+        "id": "nfe-tributacao-divergencias",
+        "label": "Nossa regra × a praça de Manaus",
+        "icon": _ICO_CALC,
+        "grupo": "Notas fiscais",
+    },
     {"id": "consultor-fiscal", "label": "Consultor fiscal", "icon": _ICO_CALC, "grupo": "Consultor fiscal"},
     {
         "id": "consultor-fiscal-arquivo",
@@ -69,7 +100,23 @@ EXTRA_MENU: list[dict] = [
         "icon": _ICO_CALC,
         "grupo": "Consultor fiscal",
     },
+    # dgx z5 — do orçamento à nota: o emissor CONSOME orçamento (proposta ou arquivo), nunca cria.
+    *_z5.ABAS,
+    *_menu_z1,  # dgx z1 — cadastro fiscal do produto (grupo «Notas fiscais»)
 ]
+
+# dgx z3 — NF-e de produto (emitir/conferir/emitidas/DANFE). No FIM do menu, de propósito.
+# O import fica aqui embaixo (e não no topo) porque `_dgx_z3_tela_nfe` importa deste mesmo
+# pacote de volta; aqui o módulo do data_controller já está montado. O `router` do Z3 vira o
+# router deste builder — `fiscal.py` não tinha nenhum, e sem ele as rotas não sobem.
+from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3m  # noqa: E402
+
+EXTRA_MENU.extend(_z3m.EXTRA_MENU)  # dgx z3
+# UM router só para o builder fiscal. Quatro frentes da onda 8 (Z1, Z3, Z4, Z5) plugaram aqui na
+# mesma noite e cada uma criou o seu — a definição seguinte SOBRESCREVIA a anterior e as rotas da
+# frente de baixo sumiam sem erro nenhum (medido no merge de 24/09/2026: as de emitir NF-e e as de
+# produto fiscal, alternadamente). Quem chegar depois INCLUI, nunca reatribui.
+router.include_router(_z3m.router)  # dgx z3
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
@@ -335,7 +382,32 @@ async def build(db) -> dict:
 
     await _ligar_20260908(db, out)
     await _ligar_lote3_20260908(db, out)
+    from modules.operacional.controllers.redesign_builders import _dgx_z4_tributacao as _z4  # dgx z4
+
+    await _z4.telas(db, out)  # dgx z4 — mapa da tributação, simulador de NF-e e conferência com a praça
+    from modules.operacional.controllers.redesign_builders import _dgx_z3_tela_nfe as _z3  # dgx z3
+
+    await _z3.telas(db, out)  # dgx z3 — emitir NF-e (homologação por padrão), conferir, emitidas, DANFE
+    await _z5.telas(db, out)  # dgx z5 — orçamento (proposta ou arquivo) → rascunho de nota, com a origem
+    from ._dgx_z1_produto_fiscal import telas as _telas_z1  # dgx z1
+
+    await _telas_z1(db, out)  # dgx z1 — produtos fiscais, tributação por CNPJ, NCM oficial
+
+    # dgx z6 — «Bartolo — tire sua dúvida» (a ação entra pelo `router` do próprio módulo, que o
+    # discovery monta sozinho porque o arquivo não tem prefixo `_`; aqui só a tela).
+    from .dgx_z6_bartolo import telas as _z6_telas  # dgx z6
+
+    out.update(await _z6_telas(db, out))  # dgx z6
     return out
+
+
+# ── ESCRITA (router incluído pelo discovery). `fiscal.py` não tinha router até a onda 8.
+# Z3 e Z4 nasceram na mesma onda e cada uma criou o seu; a segunda definição SOBRESCREVIA a
+# primeira e as rotas da Z3 (emitir, DANFE, cancelar) sumiam sem erro nenhum. Um router só,
+# incluindo os dois — medido no merge de 24/09/2026.
+import modules.operacional.controllers.redesign_builders._dgx_z4_tributacao as _z4r  # noqa: E402 — dgx z4
+
+router.include_router(_z4r.router)  # dgx z4 — simular tributação (read-only: não emite, não grava)
 
 
 def _fmt_kpi(v, unidade: str) -> str:

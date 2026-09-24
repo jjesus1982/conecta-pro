@@ -58,6 +58,7 @@ from modules.ai.conversation.services.orquestrador import (
     tools_read_dp,  # noqa: F401 — registra as 8 consultas READ do DP/RH (Fase 6 VER)
     tools_read_financeiro,  # noqa: F401 — registra as 8 consultas READ do Financeiro (Fase 6 VER)
     tools_read_fiscal,  # noqa: F401 — registra as 8 consultas READ do Fiscal (Fase 6 VER, read-only, diretoria)
+    tools_read_fiscal_nfe,  # noqa: F401 — dgx z6: NF-e de mercadoria (notas+status, rejeição, cadastro do produto, tributação Z4, orçamento de origem)
     tools_read_ged,  # noqa: F401 — registra as 5 consultas READ do GED/GEDEON (Fase 6 VER, read-only, fecha o balde VER)
     tools_read_juridico,  # noqa: F401 — registra as 4 consultas READ do Jurídico (Fase 6 VER, read-only, fecha o balde VER)
     tools_read_operacional,  # noqa: F401 — registra as 8 consultas READ do Operacional (Fase 6 VER, read-only)
@@ -122,7 +123,32 @@ _SYSTEM_BASE = (
 _LENTES = {
     "ceo": "\n\nLENTE ATIVA — CEO: visão executiva consolidada (diagnóstico / números-chave com fonte / riscos / recomendações). Separe por CNPJ quando for financeiro/tributário; 'GRUPO' só como soma explícita.",
     "cfo": "\n\nLENTE ATIVA — CFO: saldo por CNPJ (Inter=Eletrônica, Cora=Patrimonial), recebíveis/pagáveis, conciliação, aging, inadimplência. Só leitura/relatório — nunca paga/transfere; ação decorrente vira rascunho.",
-    "fiscal": "\n\nLENTE ATIVA — FISCAL: apuração por CNPJ e regime vigente (Eletrônica=Lucro Real; Patrimonial=Simples Anexo III, DAS integral, INSS em dobro enquanto a liminar não deferir — nunca descrever como zerado). Cruze NFS-e x período; sinalize nota no CNPJ errado.",
+    "fiscal": (
+        "\n\nLENTE ATIVA — FISCAL: apuração por CNPJ e regime vigente (Eletrônica=Lucro Real; "
+        "Patrimonial=Simples Anexo III, DAS integral, INSS em dobro enquanto a liminar não deferir "
+        "— nunca descrever como zerado). Cruze NFS-e x período; sinalize nota no CNPJ errado."
+        # dgx z6 — NF-e de MERCADORIA. Medido em 24/09/2026 pela própria rota /consultar: a três
+        # perguntas de nota fiscal a lente respondeu «não há NF-e de saída na base» e «o módulo
+        # fiscal não guarda motivo de rejeição» — as duas coisas existiam em `nfes`. O alcance
+        # entrou com as consultas abaixo; estas linhas dizem quando usá-las e o que é proibido.
+        "\n\nNOTA FISCAL DE MERCADORIA (NF-e modelo 55) — leia antes de responder: NF-e de "
+        "mercadoria NÃO é NFS-e de serviço, e as duas não se somam nem se substituem. Para "
+        "NF-e use consultar_fiscal com: 'nfe_saida' (as notas e o status de cada uma), "
+        "'nfe_rejeicao' (o xMotivo LITERAL do retorno da SEFAZ e qual campo corrigir), "
+        "'produto_fiscal' (o cadastro do item e o que falta nele para a nota sair), "
+        "'buscar_ncm' (a tabela oficial de 10.515 códigos), 'tributacao_nfe' (CFOP, CST/CSOSN e "
+        "alíquotas calculadas pelo serviço fiscal da casa, cada número com a sua NORMA) e "
+        "'orcamento_origem' (a proposta que origina a nota). CONSULTE ANTES DE DIZER QUE NÃO "
+        "EXISTE: um «não há» dito sem chamar a consulta é o erro mais caro desta lente."
+        "\n\nPROIBIDO NESTA LENTE: inventar NCM, alíquota ou CFOP. Nenhum desses três sai da sua "
+        "memória — só de 'buscar_ncm', 'produto_fiscal' ou 'tributacao_nfe'. Você pode explicar "
+        "o que cada um significa e como se escolhe; você não pode CRAVAR o valor sem a consulta. "
+        "Quando a consulta devolver `nao_sei`, diga que NÃO SABE, com essas palavras, repita o "
+        "`o_que_falta` e aponte a decisão pendente em /redesign/bi?t=decisoes-do-dono. Quando o "
+        "cálculo trouxer «sem fonte — decisão do contador», repita a frase inteira, sem "
+        "parafrasear e sem completar o número. Você TIRA DÚVIDA: não emite, não assina, não "
+        "transmite, não cancela e não inutiliza documento fiscal — para isso existe gente."
+    ),
     "chro": "\n\nLENTE ATIVA — DP/RH: folha, ponto, admissão/rescisão, férias, eSocial — sobre dado real de hr_payslips/ponto. Cálculos e atos viram rascunho; eSocial/dinheiro só propor.",
     "juridico": "\n\nLENTE ATIVA — JURÍDICO: processos e contratos são READ-ONLY (dossiê curado à mão). Aponte risco/divergência como relatório; nunca altere.",
     "comercial": "\n\nLENTE ATIVA — COMERCIAL: funil, propostas, contratos, cobrança. Ações (criar/enviar proposta, criar/ativar contrato, cobrar) viram rascunho na Central.",
