@@ -135,3 +135,15 @@ Jordan: *"prosiga em loop."*
 - 24/09 13:05 — U1 mesclada (pedido de movimentação em tabela própria `op_movimentacao_pedidos` — 4 leitores juntam `employee_alocacoes` só por data e uma linha pendente vazaria para a folha; aprovar chama o `alocar` de ontem; pendentes na Central de Aprovações; supervisão planejada com frequência, ocorrências por dia geradas de forma idempotente, checklist ou check-in do gerente marca realizada; mapa mês × posto). Beat 00:30 fica com o orquestrador.
 - 24/09 13:40 — U4 mesclada (modelos de ronda com pontos e raio; alertas por tipo; motor idempotente; **pânico** pela API com foto → disparo + ocorrência grave + notificação; setores por contrato; chamado avisa o setor ao abrir e o solicitante ao resolver; sandbox só simula).
 - 24/09 14:30 — U3 mesclada (13 telas órfãs: 6 ganharam aba, 4 do marketing já tinham botão (falso positivo do caçador corrigido), 1 virou botão, 2 ações removidas; telas sem porta 15 → 1 — a que sobra é `crm.json` alterado no disco por outra sessão, sem commit). U2 mesclada (aprovar férias com substituto cria cobertura F8 + movimentação F5; recibo e aviso em PDF com o cálculo existente; aviso em lote com fila de assinatura; conta a pagar idempotente venc. início−2; ficha por pessoa; painel «postos descobertos» no mapa). U5 mesclada (entrega de benefício como lote com período de apuração manual/apontamento, acerto contra as duas anteriores, arquivo do operador, conta idempotente). **Onda 3 completa.** Beats registrados: supervisão 00:30, alertas de ronda */5. Achado da U5 para a onda 4: motor da frente 03 conta 2 dias no 12x36 noturno com intervalo (ADAILSON 31 dias em 08/2026 para 15 plantões).
+
+## Onda 4 — o que sobrou nas listas de lacunas com esforço P/M e sem decisão (24/09, fim de tarde)
+
+| # | Frente | Módulo | Estado |
+|---|---|---|---|
+| V1 | Defeito do motor de benefício: plantão 12x36 noturno com intervalo contado como 2 dias (ADAILSON 31 → 15) — corrigir na fonte única, Σ|Δ| diurnos = 0 | folha | em execução |
+| V2 | Vaga do contrato → vaga de recrutamento (elo posto/contrato; candidato aprovado cai alocado no posto) + QR de abertura de chamado por setor com etiqueta em PDF | operacional | em execução |
+| V3 | Frota como no APP Frotas: manutenção como entidade (aprovar, gera troca tipada e título, pede materiais), multa → conta/recurso, itens de vistoria configuráveis (impede locomoção), grupos hierárquicos de materiais | equipamentos | em execução |
+| V4 | DP: fila de falhas de importação (todos os importadores gravam), exportar/imprimir colaboradores com contadores por status pela régua `identidade`, importar apontamentos CSV pelo escritor existente | dp | em execução |
+| V5 | Fiscal/financeiro: códigos de serviço com NBS/CST/PIS-COFINS/IBS-CBS (NFS-e byte-idêntica), formas de pagamento como cadastro, limite por condição, centros de custo em árvore ligados às categorias, relatórios PDF/Excel | financeiro | em execução |
+
+- 24/09 15:20 — V1 lançada durante o gate; V2–V5 lançadas com o bake 19 em curso (agentes em worktree não afetam o disco do build).
