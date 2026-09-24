@@ -219,3 +219,26 @@ Registrado no painel como **D29 · decidida**. Bake 23 (imagem 0f8da58d) publico
 | Y5 | **O que o COLABORADOR vê** — 30 frentes construíram para o escritório; ele continua vendo o mesmo. Ligar aviso de férias, recibo, crachá, espelho e benefício ao portal, com oráculo de vazamento | portal | em execução |
 
 - 24/09 12:45 — Y1–Y5 lançadas sobre o bake 23.
+
+## Onda 8 — NF-e de material para os DOIS CNPJs (24/09, pedido urgente do dono)
+
+Jordan: *«coloca a emissão de NF-e de material na próxima onda para os dois cnpj, preciso urgente
+emitir notas fiscais»*.
+
+**O estado que motivou:** existem **dois** emissores de NF-e no repositório
+(`fiscal_contabil/notas_fiscais/nfe/controller.py` com lxml e `financial/integrations/nfe_provider.py`
+com pynfe) e **nenhuma nota autorizada**. As duas únicas tentativas são de 11/04/2026, ambas
+rejeitadas — a última com «Informado NCM inexistente». Não há tela de emissão no redesign.
+
+| # | Frente | Entrega | Estado |
+|---|---|---|---|
+| Z1 | **Cadastro fiscal do produto** — NCM validado contra tabela oficial, CFOP, CST/CSOSN por empresa; seed dos **95 NCMs reais** que vieram das 147 NF-e de compra | fiscal | em execução |
+| Z2 | **Um emissor só, provado** — escolher entre os dois, aposentar o outro, e AUTORIZAR uma nota em **homologação para cada CNPJ**; chave com DV, numeração por CNPJ+série, XML assinado e protocolo guardados, cancelamento e inutilização | fiscal | em execução |
+| Z3 | **A tela e o DANFE** — nova nota, prévia do XML com o que falta em vermelho, lista com o motivo da rejeição por extenso, DANFE em PDF com a faixa «SEM VALOR FISCAL» em homologação | fiscal | em execução |
+| Z4 | **A tributação certa** — Zona Franca, SUFRAMA, lucro real × Simples; cada regra com a norma citada, e «sem fonte» onde não houver | fiscal | em execução |
+
+**A regra da onda:** emissão SOMENTE em homologação (`tpAmb = 2`). O caminho de produção fica
+pronto e travado atrás de gate humano, e **nenhum agente o exercita** — nota em produção é
+documento fiscal irreversível.
+
+- 24/09 13:20 — Z1–Z4 lançadas.
