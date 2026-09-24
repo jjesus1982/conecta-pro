@@ -51,6 +51,10 @@ router.include_router(_r06)  # dgx f6
 from ._dgx_f7_ponto import router as _r_f7  # noqa: E402 — dgx f7
 
 router.include_router(_r_f7)  # dgx f7
+from ._dgx_t1_dp import router as _r_t1  # noqa: E402 — dgx t1
+from ._dgx_t1_dp import telas as _telas_t1  # noqa: E402 — dgx t1
+
+router.include_router(_r_t1)  # dgx t1
 
 
 @router.post("/action/ponto-ajuste")
@@ -3420,8 +3424,28 @@ async def build(db, current_user=None) -> dict:
                     }
                 ]
                 if r[6]
-                else None
-            ),
+                else []
+            )
+            + (
+                # dgx t1 — o backend de retorno (PUT /sst/afastamentos/{id}/retorno, recalcula estabilidade e
+                # retransmite o S-2230 de término) existia e nenhuma tela chamava; sem retorno o afastamento
+                # ficava "ativo" para sempre e a trava de férias (vacation_controller) nunca liberava.
+                [
+                    {
+                        "title": f"Registrar retorno — {r[0] or '—'}",
+                        "endpoint": f"/api/v1/people-management/sst/afastamentos/{r[5]}/retorno",
+                        "method": "PUT",
+                        "btnLabel": "Registrar retorno",
+                        "btnStyle": "primary",
+                        "submitLabel": "Registrar retorno",
+                        "okMsg": "Retorno registrado — afastamento encerrado; estabilidade recalculada.",
+                        "fields": [{"key": "data_retorno", "label": "Data do retorno", "type": "date"}],
+                    }
+                ]
+                if (r[4] or "").lower() == "ativo"
+                else []
+            )
+            or None,
         ),
     )
 
@@ -4821,6 +4845,7 @@ async def build(db, current_user=None) -> dict:
 
     out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
+    await _telas_t1(db, out)  # dgx t1 — foto, ficha, certificados, turnover, cargos (antes de montar_grupos)
     from ._dgx_f12_sesmt_demandas_comercial import ligar_aso_form as _ligar_aso_f12  # dgx f12
 
     await _ligar_aso_f12(db, out)  # dgx f12 — renovar-aso com médico/exames dos cadastros (antes de montar_grupos)

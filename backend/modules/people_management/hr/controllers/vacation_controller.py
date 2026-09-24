@@ -8,10 +8,9 @@ cálculo de saldo, detalhes e aprovação.
 import asyncio
 import io
 import logging
+import uuid as _uuid_mod
 from datetime import date, timedelta
 from typing import Any
-
-import uuid as _uuid_mod
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -378,7 +377,9 @@ async def gerar_aviso_previo_ferias(
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-        from modules.crm.services import pdf_branding as B
+        from modules.crm.services import (
+            pdf_branding as B,  # noqa: N812 — grafia dos geradores (pré-existente; hook do ruff travava o commit)
+        )
 
         st = B.styles()
         body_style = st["corpo"]
@@ -520,6 +521,25 @@ async def criar_vacation(data: dict, current_user: CurrentActiveUser, db: AsyncS
         raise HTTPException(status_code=404, detail="Colaborador não encontrado")
     if ed < sd:
         raise HTTPException(status_code=422, detail="A data de término não pode ser anterior à data de início.")
+    # dgx t1 (24/09/2026) — regra que o DGX impõe e nós não: "Já existe um afastamento para este
+    # colaborador". Afastamento ABERTO (status ativo, sem data de retorno) → não se programa férias;
+    # registre o retorno primeiro (Licenças → Registrar retorno). Aqui, e não na tela: o MCP
+    # `solicitar_ferias` e o portal chegam por este mesmo caminho.
+    _af = (
+        await db.execute(
+            _sqltext(
+                "SELECT tipo, data_inicio FROM sst_afastamentos WHERE employee_id = CAST(:e AS uuid) "
+                "AND lower(coalesce(status,'')) = 'ativo' AND data_retorno IS NULL ORDER BY data_inicio DESC LIMIT 1"
+            ),
+            {"e": emp},
+        )
+    ).first()
+    if _af:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Colaborador com afastamento aberto ({str(_af[0] or '—').replace('_', ' ')} desde "
+            f"{_af[1].strftime('%d/%m/%Y') if _af[1] else '—'}). Registre o retorno antes de programar férias.",
+        )
     # Teto legal: férias nunca excedem 30 dias corridos (CLT art. 130). Este endpoint recebe
     # dict cru (sem schema Pydantic) — a tela do DP posta DIRETO nesta rota, então a
     # validação precisa estar aqui (a guarda no schema de /operacional/vacations não a cobre).
