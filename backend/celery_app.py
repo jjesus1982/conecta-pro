@@ -36,6 +36,8 @@ app = Celery(
         "modules.client_portal.tasks",
         "modules.financial.tasks",
         "modules.fiscal_contabil.obrigacoes.tasks",
+        # dgx aa4: conciliação da NFS-e com o fisco (roda DEPOIS da sincronia do ADN).
+        "modules.fiscal.tasks",
         "modules.crm.tasks",
         # 09/09/2026: o lote de assinatura da empresa saiu do processo do backend (morria em qualquer reload)
         "modules.signatures.tasks",
@@ -430,6 +432,13 @@ app.conf.beat_schedule = {
     "financial-nfse-nacional-diario": {
         "task": "financial.sincronizar_nfse_nacional",
         "schedule": crontab(hour=4, minute=30),
+    },
+    # dgx aa4 — conciliação por NÚMERO, depois da sincronia por NSU acima. Pergunta ao
+    # fisco pelos números que a régua da numeração por CNPJ diz que faltam, e grava
+    # também a resposta «não existe». Só GET: não emite, não cancela, não numera.
+    "fiscal-conciliar-nfse-diario": {
+        "task": "fiscal.conciliar_nfse_com_fisco",
+        "schedule": crontab(hour=5, minute=30),
     },
     # Contabilidade que fecha sozinha: folha + ISS no razão — diariamente às 05:00
     "financial-fechar-razao-diario": {

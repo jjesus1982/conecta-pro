@@ -301,7 +301,12 @@ class TestStatus:
             assert "data" in data
             assert "ambiente" in data["data"]
             assert "status_api" in data["data"]
-            assert data["data"]["migracao_disponivel"] is False
+            # dgx aa4 (24/09/2026): era `is False` — a régua estava errada, não o código.
+            # Manaus ADERIU ao Padrão Nacional: `nfse_emitidas_nacional` tem 115 notas reais
+            # desta casa com chave começando em 1302603 (IBGE de Manaus), e a frente Z7
+            # emitiu pelos dois CNPJs em homologação. Afirmar indisponibilidade era fixar
+            # uma crença falsa com um teste verde.
+            assert data["data"]["migracao_disponivel"] is True
 
 
 class TestMigracao:
@@ -524,7 +529,8 @@ class TestNFSeNacionalService:
         assert resultado is not None
         assert "ambiente" in resultado
         assert "status_api" in resultado
-        assert resultado["migracao_disponivel"] is False
+        # dgx aa4 (24/09/2026): ver comentário em TestNFSeNacionalEndpoints.
+        assert resultado["migracao_disponivel"] is True
 
 
 class TestNFSeNacionalSchemas:

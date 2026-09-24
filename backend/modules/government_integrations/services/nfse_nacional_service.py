@@ -43,19 +43,20 @@ class CertificadoDeOutraEmpresaError(RuntimeError):
 
 class NFSeNacionalService:
     """
-    Service para operacoes de NFS-e com Padrao Nacional.
+    Service para operações de NFS-e com o Padrão Nacional.
 
-    IMPORTANTE: Este service esta em preparacao para a migracao.
-    O Padrao Nacional ainda nao esta disponivel em Manaus.
-    Use NFSeManausService para emissoes atuais.
+    **Manaus ADERIU** — o texto anterior aqui dizia «em preparação, o Padrão Nacional ainda
+    não está disponível em Manaus» e isso é falso desde pelo menos 01/2026: esta casa tem
+    115 NFS-e reais no Padrão Nacional, com chave começando em `1302603` (IBGE de Manaus),
+    e a frente Z7 emitiu em homologação pelos DOIS CNPJs em 24/09/2026.
 
-    Funcionalidades (preparacao):
-    - Emissao de DPS (Declaracao de Prestacao de Servicos)
-    - Consulta de DPS/NFS-e
-    - Cancelamento de NFS-e
-    - Substituicao de NFS-e
-    - Consulta de status de migracao
-    - Comparacao entre padroes
+    O que é REAL aqui:
+    - emissão de DPS (`emitir_dps`) — provada contra a produção restrita, `cStat 100`;
+    - consulta de NFS-e por chave e por chave de DPS (`consultar_nfse`, `consultar_por_dps`)
+      — é o que a conciliação da frente AA4 usa para achar nota que o ERP não tem.
+
+    O que é RECUSA declarada (e não simulação):
+    - cancelamento, substituição e consulta de eventos por chave. Ver `_NAO_IMPLEMENTADO`.
     - Mapeamento de codigos de servico
     """
 
@@ -166,9 +167,11 @@ class NFSeNacionalService:
         numero: str | None = None,
     ) -> dict[str, Any]:
         """
-        Emite DPS (Declaracao de Prestacao de Servicos).
+        Emite DPS (Declaração de Prestação de Serviços). **Transmite de verdade.**
 
-        NOTA: Esta em preparacao. Retorna payload preparado para migracao.
+        O aviso «em preparação, retorna payload preparado para migração» que estava aqui
+        ficou obsoleto: este caminho autorizou NFS-e reais em 24/09/2026. Produção continua
+        travada em `nfse_nacional` (duas camadas + frase-senha) — ver frente Z7.
 
         Args:
             tomador_data: Dados do tomador do servico
@@ -178,7 +181,7 @@ class NFSeNacionalService:
             tipo_tributacao: Tipo de tributacao
 
         Returns:
-            Dict com resultado da emissao (preparacao)
+            Dict com o que o fisco devolveu (chave de acesso, cStat, nNFSe, nDFSe, XML)
         """
         manager = self._get_manager()
 
@@ -300,74 +303,43 @@ class NFSeNacionalService:
 
         return resultado
 
-    def consultar_dps(self, id_dps: str) -> dict[str, Any]:
+    def consultar_por_dps(self, serie: str, numero: int | str) -> dict[str, Any]:
+        """Pergunta ao fisco qual NFS-e saiu de (CNPJ + série + número de DPS).
+
+        Substituiu um stub que devolvia um estado inventado e uma mensagem dizendo que o
+        Padrão Nacional não estava disponível, **sem bater em URL nenhuma** — texto simulado
+        num caminho de dinheiro. Manaus aderiu, e esta casa tem 115 notas reais lá dentro.
         """
-        Consulta DPS pelo ID.
+        return self._get_manager().consultar_por_dps(serie, numero)
 
-        NOTA: Em preparacao. Retorna informacoes simuladas.
+    def consultar_nfse(self, chave_acesso: str) -> dict[str, Any]:
+        """`GET /nfse/{chave}` de verdade. Também substituiu um stub que não fazia requisição."""
+        return self._get_manager().consultar_nfse(chave_acesso)
 
-        Args:
-            id_dps: ID da DPS
-
-        Returns:
-            Dict com dados da DPS
-        """
-        logger.info(f"Consulta DPS: {id_dps}")
-
-        return {
-            "status": "preparacao",
-            "id_dps": id_dps,
-            "mensagem": "Consulta de DPS em preparacao. Padrao Nacional ainda nao disponivel.",
-            "nota": "Use NFSeManausService para consultas no padrao atual (ABRASF).",
-        }
-
-    def consultar_nfse(self, numero_nfse: str) -> dict[str, Any]:
-        """
-        Consulta NFS-e pelo numero nacional.
-
-        NOTA: Em preparacao. Retorna informacoes simuladas.
-
-        Args:
-            numero_nfse: Numero nacional da NFS-e
-
-        Returns:
-            Dict com dados da NFS-e
-        """
-        logger.info(f"Consulta NFS-e Nacional: {numero_nfse}")
-
-        return {
-            "status": "preparacao",
-            "numero_nfse": numero_nfse,
-            "mensagem": "Consulta de NFS-e Nacional em preparacao. Migracao prevista para 2026.",
-            "nota": "Use NFSeManausService para consultas no padrao atual.",
-        }
+    #: Cancelamento e substituição de NFS-e existem no Padrão Nacional (evento
+    #: `POST /nfse/{chave}/eventos`) e NÃO estão implementados aqui. O que havia no lugar
+    #: eram três stubs devolvendo um estado inventado e a mensagem de que o Padrão Nacional
+    #: não estava disponível — texto simulado num caminho de documento fiscal, e falso desde
+    #: que Manaus aderiu: esta casa tem 115 notas reais no Padrão Nacional.
+    #: Cancelar sem nunca ter exercido o caminho é pior que não cancelar. A recusa abaixo
+    #: diz a verdade e aponta onde fazer.
+    _NAO_IMPLEMENTADO = {
+        "status": "nao_implementado",
+        "implementado": False,
+        "mensagem": (
+            "Este sistema NÃO cancela nem substitui NFS-e do Padrão Nacional — o evento "
+            "`POST /nfse/{chave}/eventos` nunca foi exercido aqui e nada que não foi exercido "
+            "contra o fisco entra num caminho de documento fiscal. Faça pelo portal do fisco. "
+            "Atenção ao prazo de cancelamento."
+        ),
+    }
 
     def cancelar_nfse(
         self, numero_nfse: str, motivo_cancelamento: str = "1", justificativa: str | None = None
     ) -> dict[str, Any]:
-        """
-        Cancela uma NFS-e no Padrao Nacional.
-
-        NOTA: Em preparacao. Retorna informacoes simuladas.
-
-        Args:
-            numero_nfse: Numero nacional da NFS-e a cancelar
-            motivo_cancelamento: Codigo do motivo
-            justificativa: Justificativa detalhada
-
-        Returns:
-            Dict com resultado do cancelamento
-        """
-        logger.info(f"Cancelamento NFS-e Nacional: {numero_nfse}")
-
-        return {
-            "status": "preparacao",
-            "numero_nfse": numero_nfse,
-            "motivo_cancelamento": motivo_cancelamento,
-            "justificativa": justificativa,
-            "mensagem": "Cancelamento em preparacao. Padrao Nacional ainda nao disponivel.",
-            "nota": "Use NFSeManausService para cancelamentos no padrao atual.",
-        }
+        """Recusa honesta. Ver `_NAO_IMPLEMENTADO`."""
+        logger.info(f"Cancelamento de NFS-e pedido e RECUSADO (não implementado): {numero_nfse}")
+        return {**self._NAO_IMPLEMENTADO, "operacao": "cancelar_nfse", "numero_nfse": numero_nfse}
 
     def substituir_nfse(
         self,
@@ -375,47 +347,27 @@ class NFSeNacionalService:
         tomador_data: dict[str, Any],
         servico_data: dict[str, Any],
     ) -> dict[str, Any]:
-        """
-        Substitui uma NFS-e no Padrao Nacional.
-
-        NOTA: Em preparacao. Retorna informacoes simuladas.
-
-        Args:
-            numero_nfse_substituida: Numero da NFS-e a substituir
-            tomador_data: Dados do tomador
-            servico_data: Dados do servico
-
-        Returns:
-            Dict com resultado da substituicao
-        """
-        logger.info(f"Substituicao NFS-e Nacional: {numero_nfse_substituida}")
-
+        """Recusa honesta. Ver `_NAO_IMPLEMENTADO`."""
+        logger.info(f"Substituição de NFS-e pedida e RECUSADA (não implementada): {numero_nfse_substituida}")
         return {
-            "status": "preparacao",
+            **self._NAO_IMPLEMENTADO,
+            "operacao": "substituir_nfse",
             "numero_nfse_substituida": numero_nfse_substituida,
-            "mensagem": "Substituicao em preparacao. Padrao Nacional ainda nao disponivel.",
-            "nota": "Use NFSeManausService para substituicoes no padrao atual.",
         }
 
     def consultar_eventos(self, numero_nfse: str) -> dict[str, Any]:
+        """Recusa honesta: a consulta de eventos por chave não foi exercida contra o fisco.
+
+        Quem hoje traz evento de cancelamento é a varredura do ADN por NSU
+        (`gedeon/services/nfse_nacional_adn.distribuir`), que lê `e105101`/`e105102` — e
+        essa SIM é real e está em produção.
         """
-        Consulta eventos de uma NFS-e.
-
-        NOTA: Em preparacao.
-
-        Args:
-            numero_nfse: Numero nacional da NFS-e
-
-        Returns:
-            Dict com eventos da NFS-e
-        """
-        logger.info(f"Consulta eventos NFS-e Nacional: {numero_nfse}")
-
+        logger.info(f"Consulta de eventos de NFS-e pedida e RECUSADA (não implementada): {numero_nfse}")
         return {
-            "status": "preparacao",
+            **self._NAO_IMPLEMENTADO,
+            "operacao": "consultar_eventos",
             "numero_nfse": numero_nfse,
-            "eventos": [],
-            "mensagem": "Consulta de eventos em preparacao.",
+            "onde_ha_evento_de_verdade": "modules/gedeon/services/nfse_nacional_adn.distribuir (ADN, por NSU)",
         }
 
     def consultar_status_migracao(self) -> dict[str, Any]:
@@ -458,10 +410,14 @@ class NFSeNacionalService:
 
     def validar_conexao(self) -> dict[str, Any]:
         """
-        Valida conexao e status do Padrao Nacional.
+        Valida conexão e status do Padrão Nacional.
+
+        Devolvia `status_api = "preparacao"` e «Migração prevista para 2026» — texto que a
+        tela podia mostrar e que é falso: Manaus já está no Padrão Nacional e este sistema
+        emite por ele. O que esta função sabe de verdade é se há certificado e se ele vale.
 
         Returns:
-            Dict com status da conexao
+            Dict com o host do ambiente, o certificado e a validade dele
         """
         manager = self._get_manager()
 
@@ -469,10 +425,13 @@ class NFSeNacionalService:
             "ambiente": self.ambiente,
             "cnpj": self.cnpj,
             "url_base": manager.url_base,
-            "status_api": "preparacao",
+            "status_api": "ativo",
             "certificado_configurado": self._cert_manager is not None,
-            "migracao_disponivel": False,
-            "mensagem": "Padrao Nacional em preparacao. Migracao prevista para 2026.",
+            "migracao_disponivel": True,
+            "mensagem": (
+                "Manaus está no Padrão Nacional: há 115 NFS-e reais desta casa lá, e a emissão por "
+                "este caminho foi autorizada em homologação (produção restrita) em 24/09/2026."
+            ),
         }
 
         # Validar certificado se configurado

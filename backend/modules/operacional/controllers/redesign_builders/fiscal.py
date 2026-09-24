@@ -134,6 +134,12 @@ from modules.operacional.controllers.redesign_builders import _dgx_aa5_icms_st a
 
 EXTRA_MENU.extend(_aa5m.EXTRA_MENU)  # dgx aa5
 router.include_router(_aa5m.router)  # dgx aa5
+# dgx aa4 — conciliação da NFS-e com o fisco (as 37 notas que faltavam), parametrização em
+# DADO (série 70000, NBS por código, IBS/CBS sobre a base menos ISS) e as 14 notas do mês.
+from modules.operacional.controllers.redesign_builders import _dgx_aa4_nfse_conciliacao as _aa4m  # noqa: E402
+
+EXTRA_MENU.extend(_aa4m.EXTRA_MENU)  # dgx aa4
+router.include_router(_aa4m.router)  # dgx aa4
 
 _GTONE = {"pago": "ok", "paga": "ok", "conciliado": "ok", "pendente": "warn", "vencido": "bad", "vencida": "bad"}
 
@@ -420,6 +426,7 @@ async def build(db) -> dict:
     # antiga (que falava direto com o controller do governo e não gravava nada em `nfses`).
     await _z7m.telas(db, out)  # dgx z7 — emitir NFS-e (homologação) + emitidas com estado real
     await _aa5m.telas(db, out)  # dgx aa5 — como a mercadoria entrou (ICMS-ST) + registro manual
+    await _aa4m.telas(db, out)  # dgx aa4 — conciliação com o fisco, parâmetros fiscais e cronograma do mês
     return out
 
 
