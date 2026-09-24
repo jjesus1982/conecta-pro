@@ -93,7 +93,12 @@ GRUPOS = [
         # vence sem pagar nem compensar é passivo (CLT art. 59 §3) e ninguém a via.
         ("banco-horas-folha", "Banco de horas × folha"),
         ("banco-horas-folha-apurar", "Apurar banco de horas × folha"),
-        ("banco-horas-vencendo", "Banco de horas vencendo (60 dias)")]),
+        ("banco-horas-vencendo", "Banco de horas vencendo (60 dias)"),
+        # dgx x2 (24/09/2026): conferência ponto × folha — o atraso que o ponto mede e a folha nunca
+        # desconta, e a falta justificada que a folha desconta mesmo assim. Paralelo CEGO.
+        ("atraso-conferencia", "Atraso: conferência"),
+        ("falta-justificada-conferencia", "Falta justificada: conferência"),
+        ("ponto-folha-apurar", "Apurar conferência ponto × folha")]),
 
     ("g-ferias", "Férias & Afastamentos", "Programação, saldo, cálculo e licenças", [
         ("ferias", "Férias"), ("solicitar-ferias", "Solicitar"),
