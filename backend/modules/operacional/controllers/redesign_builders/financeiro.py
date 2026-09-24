@@ -2879,6 +2879,11 @@ ORDER BY b.comp DESC, b.cnpj"""
     await _telas_f11(
         db, out
     )  # dgx f11 — condições, contas fixas, códigos de serviço/CFOP, recibos, comissões, orçado×realizado, pensionistas
+    from modules.operacional.controllers.redesign_builders import _dgx_f12_sesmt_demandas_comercial as _f12  # dgx f12
+
+    await _f12.telas_fin(
+        db, out
+    )  # dgx f12 — select de fonte pagadora em «Registrar conta a receber» (depois do F11, que troca o endpoint)
     montar_grupos(out)  # SEMPRE por último — ver comentário acima
     return out
 

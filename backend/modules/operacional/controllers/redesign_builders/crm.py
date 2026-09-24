@@ -110,6 +110,11 @@ router = APIRouter()
 from ._frente_07 import router as _r07  # frente 07  # noqa: E402  # import tardio pré-existente
 
 router.include_router(_r07)  # frente 07
+from ._dgx_f12_sesmt_demandas_comercial import router as _r12  # dgx f12  # noqa: E402
+
+router.include_router(
+    _r12
+)  # dgx f12 — SESMT/demandas/comercial (ações de tipos de exame, médicos, ASO, atendimentos, fontes, regiões)
 
 
 async def _crm_gate(db, rec_id, coro_factory, ok_msg, noun="registro", idem=None):
@@ -583,6 +588,47 @@ EXTRA_MENU: list[dict] = [
 from ._frente_07 import MENU as _menu07  # noqa: E402, N811  # import tardio e alias, pré-existentes
 
 EXTRA_MENU.extend(_menu07)  # frente 07
+EXTRA_MENU.extend(
+    [  # dgx f12 — Demandas (assuntos/atendimentos/feedbacks/diretórios) e Comercial (fontes pagadoras/regiões/postos)
+        {"id": "atendimentos", "label": "Atendimentos", "icon": _ICO_CHAT, "grupo": "Demandas & atendimentos"},
+        {"id": "atendimento-novo", "label": "Novo atendimento", "icon": _ICO_CHAT, "grupo": "Demandas & atendimentos"},
+        {"id": "demandas-assuntos", "label": "Assuntos", "icon": _ICO_DOC, "grupo": "Demandas & atendimentos"},
+        {"id": "demanda-assunto-novo", "label": "Novo assunto", "icon": _ICO_DOC, "grupo": "Demandas & atendimentos"},
+        {
+            "id": "feedbacks",
+            "label": "Feedbacks (NPS + satisfação)",
+            "icon": _ICO_CHAT,
+            "grupo": "Demandas & atendimentos",
+        },
+        {
+            "id": "diretorios-cliente",
+            "label": "Diretórios do cliente",
+            "icon": _ICO_DOC,
+            "grupo": "Clientes & contatos",
+        },
+        {
+            "id": "diretorio-contato-novo",
+            "label": "Incluir no diretório",
+            "icon": _ICO_DOC,
+            "grupo": "Clientes & contatos",
+        },
+        {"id": "postos-por-cliente", "label": "Postos por cliente", "icon": _ICO_DOC, "grupo": "Clientes & contatos"},
+        {
+            "id": "fontes-pagadoras",
+            "label": "Fontes pagadoras",
+            "icon": _ICO_DOC,
+            "grupo": "Fontes pagadoras & regiões",
+        },
+        {
+            "id": "fonte-pagadora-nova",
+            "label": "Nova fonte pagadora",
+            "icon": _ICO_DOC,
+            "grupo": "Fontes pagadoras & regiões",
+        },
+        {"id": "regioes", "label": "Regiões", "icon": _ICO_DOC, "grupo": "Fontes pagadoras & regiões"},
+        {"id": "regiao-nova", "label": "Nova região", "icon": _ICO_DOC, "grupo": "Fontes pagadoras & regiões"},
+    ]
+)
 
 # Toda rota de contato tem `confirmar`: False = PREVIEW (resolve o número, não envia).
 # O select nasce vazio e campo intocado nao e enviado -> o default do backend (False) vale,
@@ -2304,6 +2350,11 @@ async def build(db) -> dict:
     from ._frente_07 import telas as _telas_07  # frente 07
 
     out.update(await _telas_07(db))
+    from ._dgx_f12_sesmt_demandas_comercial import telas_crm as _telas_f12  # dgx f12
+
+    await _telas_f12(
+        db, out
+    )  # dgx f12 — assuntos, atendimentos, feedbacks, diretórios, fontes pagadoras, regiões, postos por cliente
     return out
 
 
