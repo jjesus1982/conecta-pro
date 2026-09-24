@@ -40,10 +40,24 @@ logger = logging.getLogger(__name__)
 #: ANTES do import do data_controller (mesmo motivo do F1: o ciclo de import fecha com o router pronto).
 router = APIRouter()
 
-from modules.operacional.controllers.redesign_builders._dgx_f11_financeiro import (  # noqa: E402
-    _comp,
-    _dec,
-)
+
+
+# Import TARDIO de propósito: `_dgx_f11_financeiro` importa o `redesign_data_controller`, que
+# importa os builders — inclusive este. No topo, o ciclo fecha com o F11 ainda pela metade e o
+# builder do Financeiro inteiro deixa de carregar («cannot import name '_comp' from partially
+# initialized module», visto em 24/09/2026 na saída de um oráculo). Delegar mantém a fonte única.
+def _comp(v):
+    from modules.operacional.controllers.redesign_builders._dgx_f11_financeiro import _comp as _f  # noqa: PLC0415
+
+    return _f(v)
+
+
+def _dec(v):
+    from modules.operacional.controllers.redesign_builders._dgx_f11_financeiro import _dec as _f  # noqa: PLC0415
+
+    return _f(v)
+
+
 from modules.operacional.controllers.redesign_data_controller import (  # noqa: E402
     _helpers,
     b,
