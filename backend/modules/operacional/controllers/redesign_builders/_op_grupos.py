@@ -74,7 +74,10 @@ GRUPOS = [
         ("ocorrencias", "Ocorrências"),
         ("ocorrencia-rapida", "Ocorrência rápida"), ("resolver-ocorrencia", "Resolver ocorrência"),
         ("comentar-ocorrencia", "Comentar ocorrência"), ("nova-ronda", "Nova ronda"),
-        ("ronda-transicao", "Andamento da ronda"), ("rondas-stats", "Indicadores")]),
+        ("ronda-transicao", "Andamento da ronda"), ("rondas-stats", "Indicadores"),
+        ("ronda-modelos", "Modelos de ronda"), ("ronda-modelo-novo", "Novo modelo"),  # dgx u4
+        ("ronda-alertas", "Alertas de ronda"), ("ronda-alerta-novo", "Novo alerta"),
+        ("ronda-mapa", "Mapa da ronda (previsto × batido)"), ("panicos", "Pânicos")]),
     # Saíram "notificacoes" e "notificacoes-marcar-todas": o menu do operacional oferecia
     # duas entradas que este builder não entrega. "notificacoes" é tela do _build_meu_espaco
     # (outro módulo) e "notificacoes-marcar-todas" não existe em builder nenhum. Clicar em
@@ -86,7 +89,8 @@ GRUPOS = [
         ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"), ("comunicados-leituras", "Leituras"),
         ("chamados", "Chamados"), ("chamado-novo", "Novo chamado"),  # dgx f8
         ("avisos-painel", "Avisos · painel"), ("aviso-novo", "Novo aviso"),
-        ("painel-alertas", "Alertas do sistema")]),  # dgx t3
+        ("painel-alertas", "Alertas do sistema"),  # dgx t3
+        ("setores", "Setores de chamado"), ("setor-novo", "Novo setor")]),  # dgx u4
 ]
 
 

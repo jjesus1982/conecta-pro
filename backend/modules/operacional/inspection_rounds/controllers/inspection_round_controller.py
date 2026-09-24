@@ -178,6 +178,65 @@ async def minhas_rondas(
     return [InspectionRoundSummary.model_validate(r) for r in rounds]
 
 
+@router.post(
+    "/panico",
+    status_code=status.HTTP_201_CREATED,
+    summary="Botão de pânico (dgx u4)",
+    description="Colaborador autenticado aciona o pânico: grava o disparo, abre ocorrência GRAVE no posto e avisa os "
+    "destinatários dos alertas tipo pânico do posto/cliente. Multipart: lat, lng, post_id?, ronda_id?, mensagem?, foto?.",
+)
+async def panico(
+    current_user: CurrentActiveUser,
+    lat: float | None = Form(None),
+    lng: float | None = Form(None),
+    post_id: str | None = Form(None),
+    ronda_id: str | None = Form(None),
+    mensagem: str | None = Form(None),
+    foto: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Declarada ANTES de /{round_id}, senão o path param engole 'panico' (lição da frente 6)."""
+    from modules.operacional.services import ronda_alertas as ra
+
+    foto_url = None
+    if foto is not None and foto.filename:
+        ext = _MIME_EXT.get((foto.content_type or "").lower())
+        if not ext:
+            raise HTTPException(status_code=422, detail="Foto inválida — envie JPEG, PNG ou WebP.")
+        conteudo = await foto.read()
+        if not conteudo or len(conteudo) > _MAX_FOTO_BYTES:
+            raise HTTPException(status_code=422, detail="Foto vazia ou acima de 10MB.")
+        destino = FOTOS_DIR / "panico"
+        destino.mkdir(parents=True, exist_ok=True)
+        nome = f"{uuid4().hex[:12]}{ext}"
+        (destino / nome).write_bytes(conteudo)
+        foto_url = f"/api/v1/operacional/rondas/fotos/panico/{nome}"
+    employee_id = (
+        await db.execute(text("SELECT employee_id::text FROM users WHERE id = CAST(:u AS uuid)"), {"u": str(current_user.id)})
+    ).scalar()
+    try:
+        r = await ra.disparar_panico(
+            db, user_id=str(current_user.id), employee_id=employee_id,
+            employee_nome=str(getattr(current_user, "name", "") or current_user.email), lat=lat, lng=lng,
+            post_id=post_id or None, ronda_id=ronda_id or None, mensagem=mensagem, foto_url=foto_url,
+        )
+    except (ra.RondaErro, ValueError) as exc:
+        await db.rollback()
+        if foto_url:
+            (FOTOS_DIR / "panico" / foto_url.rsplit("/", 1)[-1]).unlink(missing_ok=True)
+        raise HTTPException(status_code=getattr(exc, "status", 400), detail=str(exc)) from exc
+    return {"ok": True, "message": f"Pânico registrado — ocorrência {r['occurrence_code']}.", **r}
+
+
+@router.get("/fotos/panico/{nome}", summary="Baixar foto do pânico (dgx u4)")
+async def baixar_foto_panico(nome: str, current_user: CurrentActiveUser) -> FileResponse:
+    base = (FOTOS_DIR / "panico").resolve()
+    alvo = (base / nome).resolve()
+    if not str(alvo).startswith(str(base)) or not alvo.is_file():
+        raise HTTPException(status_code=404, detail="Foto não encontrada.")
+    return FileResponse(alvo)
+
+
 @router.get(
     "/{round_id}",
     response_model=InspectionRoundResponse,

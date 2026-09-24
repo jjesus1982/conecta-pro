@@ -1100,11 +1100,14 @@ async def rd_chamado_abrir(
             categoria=p.get("categoria") or None,
             prioridade=p.get("prioridade") or "normal",
             user_id=_uid(current_user),
+            setor_id=p.get("setor_id") or None,  # dgx u4
+            solicitante_contato=p.get("solicitante_contato") or None,  # dgx u4
         )
     except ss.SupervisaoErro as exc:
         await db.rollback()
         raise _erro(exc) from exc
-    return {"ok": True, "message": f"Chamado #{r['numero']} aberto (SLA {r['sla_min'] // 60} h).", **r}
+    aviso = ", ".join(f"{n['canal']} {n['status']}" for n in r.get("notificado") or []) or "setor sem aviso"
+    return {"ok": True, "message": f"Chamado #{r['numero']} aberto (SLA {r['sla_min'] // 60} h) · {aviso}.", **r}
 
 
 @router.post("/action/chamado-assumir")
