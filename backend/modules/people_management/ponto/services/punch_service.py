@@ -457,11 +457,21 @@ class PunchService:
         # Mesma logica do caminho sync da folha: horas_service.parear_batidas. Aqui so muda
         # o transporte (sessao async). Tinhamos uma COPIA deste loop, e ela carregava o mesmo
         # defeito de parear por punch_type -- o fechamento do mes fechava com hora a menos.
-        from .horas_service import SQL_BATIDAS, params_batidas, parear_batidas
+        from .horas_service import (
+            SQL_BATIDAS,
+            SQL_TURNOS_JANELA,
+            janelas_de_turno,
+            params_batidas,
+            params_turnos,
+            parear_batidas,
+        )
 
         p = params_batidas(employee_id, month, year)
         rows = (await self.db.execute(SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")})).fetchall()
-        _h = parear_batidas(rows, p["_ini_mes"], p["_fim_mes"])
+        # [DGX W1] as janelas de turno fecham a régua "um plantão é UM dia": sem elas o
+        # segmento pós-meia-noite do 12x36 noturno virava um segundo dia no fechamento.
+        turnos = (await self.db.execute(SQL_TURNOS_JANELA, params_turnos(p))).fetchall()
+        _h = parear_batidas(rows, p["_ini_mes"], p["_fim_mes"], janelas_de_turno(turnos))
 
         total_batidas = _h["total_batidas"]
         horas_trabalhadas = _h["horas_trabalhadas"]

@@ -126,7 +126,7 @@ def params_batidas(employee_id: str, mes: int, ano: int) -> dict:
     }
 
 
-def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime) -> dict:
+def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime, janelas: list | None = None) -> dict:
     """Pareia batidas em ordem CRONOLÓGICA e devolve as horas do mês.
 
     Ignora o `punch_type`: as batidas do noturno vêm tipadas erradas com frequência (turno
@@ -139,6 +139,11 @@ def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime) -> dict:
     avança duas e desalinha tudo que vem depois).
 
     O par conta no mês da ENTRADA — senão o turno da virada seria contado duas vezes.
+
+    `janelas` (de `janelas_de_turno`) é a régua do "um plantão é UM dia" (DGX V1/W1): o 12x36
+    noturno bate 19:00 → 02:00 · 03:00 → 07:00 e o segmento pós-intervalo contava como um
+    SEGUNDO dia trabalhado — ADAILSON aparecia com 31 dias em 08/2026 para 15 plantões. Só
+    `dias_trabalhados` muda: horas, noturno e `dias_com_par` seguem pelo par, como sempre.
     """
     total_min = 0.0
     noturno_min = 0.0
@@ -147,6 +152,7 @@ def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime) -> dict:
     dias_distintos: set = set()
     no_mes = 0
     i = 0
+    ultimo: tuple | None = None  # (saída, dia do plantão) do par anterior — continuidade
     while i < len(rows) - 1:
         entrada, saida = rows[i][1], rows[i + 1][1]
         dur = (saida - entrada).total_seconds() / 60.0
@@ -155,12 +161,17 @@ def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime) -> dict:
             i += 1
             continue
         i += 2
+        # o dia do plantão é calculado ANTES do filtro de mês: o par da virada (31/07 19:00)
+        # é a continuidade do segmento de 01/08 03:00, e sem ele o mês novo ganhava um dia.
+        dia = dia_do_plantao(entrada, janelas or [], ultimo)
+        ultimo = (saida, dia)
         if not (ini_mes <= entrada < fim_mes):
             continue  # turno da virada pertence ao mês da entrada, não a este
         total_min += dur
         noturno_min += _minutos_noturnos(entrada, saida)
         pares += 1
-        dias_distintos.add(entrada.date())
+        if ini_mes.date() <= dia < fim_mes.date():
+            dias_distintos.add(dia)
 
     no_mes = sum(1 for _, ts in rows if ini_mes <= ts < fim_mes)
     return {
@@ -174,23 +185,36 @@ def parear_batidas(rows, ini_mes: datetime, fim_mes: datetime) -> dict:
     }
 
 
+def params_turnos(p: dict) -> dict:
+    """Params do SQL_TURNOS_JANELA na mesma janela (mês ± 1 dia) de `params_batidas`."""
+    return {"e": p["e"], "ini": p["ini"].date(), "fim": p["fim"].date()}
+
+
 def horas_reais_ponto(db, employee_id: str, mes: int, ano: int) -> dict:
     """Horas reais do funcionário no mês a partir das batidas (caminho sync)."""
     p = params_batidas(employee_id, mes, ano)
     rows = db.execute(SQL_BATIDAS, {k: v for k, v in p.items() if not k.startswith("_")}).fetchall()
-    return parear_batidas(rows, p["_ini_mes"], p["_fim_mes"])
+    turnos = db.execute(SQL_TURNOS_JANELA, params_turnos(p)).fetchall()
+    return parear_batidas(rows, p["_ini_mes"], p["_fim_mes"], janelas_de_turno(turnos))
 
 
 def _self_check():
     """Os 3 casos que motivaram o pareamento cronológico. Roda: python3 horas_service.py"""
 
     class _FakeDB:
-        def __init__(self, punches):
+        def __init__(self, punches, turnos=()):
             self._p = punches
+            self._t = list(turnos)
 
-        def execute(self, _sql, params):
+        def execute(self, sql, params):
+            if sql is SQL_TURNOS_JANELA:
+                return type("R", (), {"fetchall": lambda _s: self._t})()
             ini, fim = params["ini"], params["fim"]
-            rows = sorted((t, ts) for t, ts in self._p if ini <= ts < fim)
+            # mesma ordenação do SQL_BATIDAS: timestamp, saída antes de entrada no empate
+            rows = sorted(
+                ((t, ts) for t, ts in self._p if ini <= ts < fim),
+                key=lambda r: (r[1], 0 if r[0].lower().startswith("sa") else 1),
+            )
             return type("R", (), {"fetchall": lambda _s: rows})()
 
     d = datetime
@@ -235,7 +259,32 @@ def _self_check():
     jan_d = janelas_de_turno([(date(2026, 8, 3), time(8, 0), time(17, 0))])
     assert dia_do_plantao(d(2026, 8, 3, 13, 0), jan_d) == date(2026, 8, 3), jan_d
 
-    print("horas_service: 4/4 OK")
+    # 5) DGX W1 — o gêmeo: `dias_trabalhados` de um 12x36 noturno com intervalo. Três
+    #    plantões 19:00→02:00 · 03:00→07:00 são TRÊS dias, não seis. As horas não mudam.
+    _p5 = []
+    for _d0 in (2, 4, 6):
+        _p5 += [
+            ("entrada", d(2026, 8, _d0, 19, 0)),
+            ("saida", d(2026, 8, _d0 + 1, 2, 0)),
+            ("entrada", d(2026, 8, _d0 + 1, 3, 0)),
+            ("saida", d(2026, 8, _d0 + 1, 7, 0)),
+        ]
+    _t5 = [(date(2026, 8, _d0), time(19, 0), time(7, 0)) for _d0 in (2, 4, 6)]
+    r = horas_reais_ponto(_FakeDB(_p5, _t5), "x", 8, 2026)
+    assert r["dias_trabalhados"] == 3, f"plantão noturno virou 2 dias: {r}"
+    assert r["dias_com_par"] == 6 and r["horas_trabalhadas"] == 33.0, f"as horas mudaram: {r}"
+    # sem escala lançada (a classe RILEM: escala na paridade errada) a continuidade segura
+    assert horas_reais_ponto(_FakeDB(_p5), "x", 8, 2026)["dias_trabalhados"] == 3, "sem escala, o gêmeo voltou"
+    # diurno partido pelo almoço: já era 1 dia e continua 1
+    _p5d = [
+        ("entrada", d(2026, 8, 3, 8, 0)),
+        ("saida", d(2026, 8, 3, 12, 0)),
+        ("entrada", d(2026, 8, 3, 13, 0)),
+        ("saida", d(2026, 8, 3, 17, 0)),
+    ]
+    assert horas_reais_ponto(_FakeDB(_p5d), "x", 8, 2026)["dias_trabalhados"] == 1
+
+    print("horas_service: 5/5 OK")
 
 
 if __name__ == "__main__":
