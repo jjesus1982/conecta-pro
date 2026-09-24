@@ -276,3 +276,75 @@ O que resta de diferença **não é o motor**: é escala lançada no dia errado 
 49. **Multa em folha**: parcela única (hoje) e o que fazer quando o recurso é deferido depois do título pago.
 50. **Ligar os campos fiscais na emissão da NFS-e** muda o que vai ao fisco — não fiz.
 51. **CSV de apontamento deve lançar na folha ou só apontar?** Hoje aponta.
+
+---
+
+# Ondas 5 e 6 (24/09, noite) — o que o ponto mede e a folha nunca viu
+
+A lista de paridade com o concorrente acabou nos itens de esforço pequeno e médio. O que sobrou de
+maior valor não é deles: é **dívida nossa**, e apareceu quando a frente do mapa evento→rubrica
+provou que o cadastro explica tudo o que o motor faz — e então a pergunta virou *o que o motor
+não faz*.
+
+## 20. Três números com nome, dia e valor
+
+Tudo abaixo foi medido em **paralelo cego**: nenhuma linha de folha, holerite ou pagamento mudou.
+Cada frente teve que provar diferença de **R$ 0,00** contra os holerites gravados para ser aceita.
+
+| O quê | Quanto | Onde ver |
+|---|---|---|
+| **Crédito de banco de horas** nunca pago nem compensado | **R$ 8.404,86** — e **R$ 1.459,88 vencem em 27/09** (16 pessoas, crédito de março) | `…departamento-pessoal?t=banco-horas-vencendo` |
+| **Feriado trabalhado e hora extra de 100%** | **R$ 5.399,01** em três competências — 21 pessoas trabalharam em 05/09 e 21 em 07/09, e o holerite pagou o dia uma vez só | `…?t=feriado-trabalhado` |
+| **Atraso** medido e nunca descontado | **R$ 3.077,57** estimados, R$ 0,00 descontados | `…?t=atraso-conferencia` |
+
+### O banco de horas tem zero lançamentos
+
+O módulo existe inteiro — modelo, regra da CLT, onze rotas, oito telas — e **nunca recebeu um
+registro**. As 933 horas de crédito estão no espelho de ponto, não no banco. É por isso que
+ninguém viu o prazo chegando.
+
+### Antes de descontar atraso, leia isto
+
+**64% do que aparece como atraso em setembro não é atraso: é batida de entrada faltando.** Está
+marcado em coluna própria e fora da conta de dinheiro. Descontar sem resolver isso é descontar de
+quem trabalhou. E das 13 justificativas de falta na base, **13 estão pendentes e nenhuma foi
+aprovada** — a mais antiga desde 21 de julho. O motor nunca consulta a justificativa: aprovar hoje
+não devolveria o dinheiro de ninguém.
+
+## 21. O que mais entrou
+
+| Frente | O que passou a existir |
+|---|---|
+| **Movimentação em dois passos** | supervisor pede, DP aprova; o pedido mora em tabela própria porque uma linha pendente em `employee_alocacoes` vazaria para a folha do condomínio |
+| **Supervisão planejada** | plano por posto com frequência, ocorrências geradas todo dia às 00:30, checklist ou check-in do gerente marca realizada, mapa mês × posto |
+| **Férias completas** | aprovar com substituto cria cobertura e movimentação na hora; recibo e aviso em PDF; aviso em lote com fila de assinatura; conta a pagar com vencimento do art. 145; «postos descobertos» no mapa |
+| **Rondas** | modelos com pontos e raio, alertas por tipo, **pânico** com foto que abre ocorrência grave, motor a cada 5 minutos |
+| **Fatura como documento** | numerada, com itens, período, cópia em lote, PDF individual e em lote — antes só existia o recebível |
+| **Transferência entre empresas** | o caso do Geilson: mantém admissão, férias e dependentes, deixa os dois eventos do eSocial em rascunho, e uma régua compara o que o governo diz com o que temos |
+| **Hora extra classificada** | por que ela existiu e se é repassável; a coluna «HE repassável não faturada» entrou no calculado × faturado |
+| **Painel do dono** | as decisões pendentes saíram do arquivo e viraram tela em Inteligência, com o número de hoje |
+
+## 22. O que as travas pegaram (e uma que aprendeu)
+
+- O **oráculo de rondas mandava e-mail de verdade** na varredura da meia-noite, que roda dentro da produção. Você receberia um alerta falso toda noite. Duas paredes: quem testa não notifica, e domínio reservado nunca recebe.
+- O **builder inteiro do Financeiro**, com 183 telas, deixava de carregar por import circular — e o oráculo passava verde cuspindo o aviso.
+- O **oráculo do feriado** acusava duas pessoas de terem trabalhado em feriado por causa de uma batida que atravessou a meia-noite. Corrigido antes de entregar.
+- Uma trava **punia quem faz certo**: acusava de "pareador clandestino" a frente que importa a régua única. Trava assim empurra a próxima pessoa a copiar a lógica, que é o defeito que ela deveria impedir.
+
+## 23. A dívida que sobra, em uma frase
+
+A casa tem **oito** lugares que pareiam batida de ponto. Três já falam a mesma língua. O que ainda
+tem régua própria e carrega risco é o **espelho legal** — o PDF que o colaborador assina e vai
+para a homologação.
+
+## 24. Decisões novas (só você)
+
+52. **Os R$ 1.459,88 que vencem em 27/09** — pagar como hora extra, compensar, ou aceitar a perda.
+53. **Existe acordo de banco de horas assinado?** Sem ele, os R$ 8.404,86 não são saldo: são hora extra vencida.
+54. **Qual rubrica recebe crédito e débito de banco de horas** — hoje não existe nenhuma, e é isso que trava a ligação.
+55. **Pagar ou não os R$ 5.399,01 de feriado**, e se cria rubrica própria ou usa a 0011.
+56. **No 12x36, o feriado é compensado na folga?** A Súmula 444 do TST diz que não.
+57. **Descontar atraso?** Não existe rubrica, e a régua legal (10 minutos, art. 58 §1º) é mais dura que os 15 que o sistema usa.
+58. **Quem aprova justificativa de falta, e em que prazo** — 13 paradas, a mais antiga há dois meses.
+59. **47 dos 63 ativos estão sem cliente vinculado** — por isso feriado de cliente não alcança ninguém.
+60. **A direção da batida** (entrada/saída manda ou não): 192 horas de diferença em três meses entre a tela de ponto e a folha.
