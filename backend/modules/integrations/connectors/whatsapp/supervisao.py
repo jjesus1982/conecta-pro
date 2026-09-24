@@ -627,7 +627,33 @@ async def _publicar_no_grupo(conversation_id: int, texto: str) -> bool:
         return False
 
 
-async def cobertura_por_escala(db: AsyncSession, *, dia=None) -> dict[str, Any]:
+async def grupo_pode_ver_nomes(db: AsyncSession, conversation_id: int | None) -> bool:
+    """A conversa está num grupo com autorização EXPLÍCITA para dado nominal?
+
+    ⚠️ Esta função existe porque eu cometi o erro de gravar a autorização e não ligá-la em nada.
+    O Jordan autorizou às 16:20 ("no Gestão estão apenas José Luís, Jordan e Orlailson, pode
+    expor qualquer informação ali"), eu criei `wa_grupos.dado_pessoal_ok`, e vinte minutos depois
+    o agente respondeu no Gestão "nome de quem não bateu só no privado" — porque o TEXTO da
+    restrição estava cravado no retorno da ferramenta e nenhuma linha consultava a coluna.
+
+    **Autorização registrada no banco que nenhum código lê é autorização que não existe.** É a
+    irmã exata do `tool_risk_manifest` que não gateia nada: o dado está lá, parece proteção (ou
+    permissão), e o comportamento ignora.
+
+    Fail-closed: na dúvida, `False` — não expor nome é o erro reversível.
+    """
+    if not conversation_id:
+        return False
+    try:
+        return bool((await db.execute(text(
+            "SELECT 1 FROM wa_grupos WHERE chatwoot_conversation_id = :c AND dado_pessoal_ok "
+            "  AND modo = 'falar' LIMIT 1"), {"c": int(conversation_id)})).first())
+    except Exception as e:  # noqa: BLE001
+        logger.warning("supervisao: não sei se o grupo %s pode ver nomes (%s)", conversation_id, e)
+        return False
+
+
+async def cobertura_por_escala(db: AsyncSession, *, dia=None, com_nomes: bool = False) -> dict[str, Any]:
     """Quem JÁ DEVERIA ter entrado, por escala, e quem bateu. Agregado — sem nome no grupo.
 
     ⭐ Nasceu de uma correção do Jordan no grupo Gestão (24/09/2026). O José Luís disse "46
@@ -693,6 +719,28 @@ async def cobertura_por_escala(db: AsyncSession, *, dia=None) -> dict[str, Any]:
                )) > 0
          ORDER BY 3 DESC"""), {"d": dia, "agora": agora_hhmm})).mappings().all()
 
+    # ⭐ OS NOMES, quando o grupo tem autorização do dono (`dado_pessoal_ok`). O Jordan foi
+    # explícito: *"manda ele dizer o nome de quem não bateu ponto no grupo, não precisa ser no
+    # privado, pode ser no grupo de gestão, não haverá vazamento de informação."* No Gestão são
+    # três pessoas, todas com autoridade sobre a operação.
+    quem_nao_bateu: list[dict] = []
+    if com_nomes:
+        quem_nao_bateu = [dict(r) for r in (await db.execute(text("""
+            SELECT e.nome, coalesce(p.name,'(sem posto)') AS posto,
+                   to_char(s.planned_start_time,'HH24:MI') AS previsto,
+                   coalesce(e.escala_padrao,'(sem)') AS escala
+              FROM shifts s JOIN employees e ON e.id = s.employee_id
+              LEFT JOIN posts p ON p.id = s.post_id
+             WHERE s.shift_date = :d AND s.is_active AND NOT s.is_off_day AND e.status = 'ativo'
+               AND s.planned_start_time <= :agora
+               AND NOT EXISTS (
+                     SELECT 1 FROM gp_clock_punches g
+                      WHERE g.employee_id = s.employee_id
+                        AND g.punch_timestamp BETWEEN (CAST(:d AS date) + s.planned_start_time) - interval '3 hours'
+                                                  AND (CAST(:d AS date) + s.planned_start_time) + interval '3 hours')
+             ORDER BY s.planned_start_time, e.nome"""),
+            {"d": dia, "agora": agora_hhmm})).mappings().all()]
+
     prev = sum(int(r["ja_previstos"]) for r in linhas)
     bat = sum(int(r["bateram"]) for r in linhas)
     return {
@@ -709,7 +757,15 @@ async def cobertura_por_escala(db: AsyncSession, *, dia=None) -> dict[str, Any]:
         "total_sem_batida": prev - bat,
         # ⚠️ Vai explícito porque foi a confusão que gerou esta ferramenta: o total de
         # colaboradores NÃO é a base. Quem está de folga não tem o que bater.
+        #
+        # ⚠️ E o TEXTO muda com a autorização. Antes ele dizia sempre "nomes só no privado", e o
+        # agente obedecia — inclusive no grupo onde o dono havia liberado. Instrução fixa no
+        # retorno da ferramenta vira lei para o modelo; ela tem de refletir a permissão real.
+        "quem_nao_bateu": quem_nao_bateu,
         "leia_assim": ("a base é TURNO PREVISTO PARA HOJE, não o total de colaboradores — "
-                       "quem está de folga não entra na conta. Nomes de quem não bateu só no "
-                       "privado, nunca no grupo."),
+                       "quem está de folga não entra na conta."
+                       + (" Este grupo tem autorização do dono para dado nominal: DIGA os nomes "
+                          "de quem não bateu, com posto e horário previsto."
+                          if com_nomes else
+                          " Nomes de quem não bateu só no privado, nunca neste grupo.")),
     }

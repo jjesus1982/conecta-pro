@@ -5650,9 +5650,16 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
                 if name == "visao_operacao":
                     return await visao_operacao(_dbv)
                 if name == "cobertura_por_escala":
-                    from .supervisao import cobertura_por_escala  # noqa: PLC0415
+                    from .supervisao import (  # noqa: PLC0415
+                        cobertura_por_escala,
+                        grupo_pode_ver_nomes,
+                    )
 
-                    return await cobertura_por_escala(_dbv)
+                    # A autorização vem do BANCO, por grupo — não de constante nem de prompt.
+                    # Ver `grupo_pode_ver_nomes`: eu já gravei essa permissão uma vez sem ligá-la
+                    # em nada, e o agente seguiu recusando nome no grupo onde o dono liberou.
+                    return await cobertura_por_escala(
+                        _dbv, com_nomes=await grupo_pode_ver_nomes(_dbv, conversation_id))
                 from . import grupos as _grpr  # noqa: PLC0415
 
                 return await _grpr.resumo(_dbv, horas=int(args.get("horas") or 24))
