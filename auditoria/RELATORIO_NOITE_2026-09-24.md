@@ -15,10 +15,9 @@ Relatórios por frente: `auditoria/frentes/DGX_F1..F12_*.md` (cada um com §6 «
 
 ## 1. Em uma linha
 
-**12 frentes planejadas, 9 no ar** (F1–F7, F10, F11 — bake 16 às 00:35, sem drift), **3 em
-execução** quando este relatório foi escrito (F8 operacional, F9 suprimentos, F12 SESMT/demandas/
-comercial — seção 6 diz o estado final). **13 oráculos rodados no container de produção, todos
-verdes.** Tudo foi provado num container efêmero contra uma cópia de produção antes de subir, e a
+**12 frentes planejadas, 12 mescladas e no ar** (F1–F7, F10, F11 no bake 16 às 00:35; F8, F9, F12 no
+bake seguinte, 01:05 — os dois sem drift). **16 oráculos novos rodados no container de produção,
+todos verdes.** Tudo foi provado num container efêmero contra uma cópia de produção antes de subir, e a
 árvore mesclada foi provada de novo antes do bake (35 módulos do redesign abertos, 0 falhas).
 
 Três bugs achados de passagem e corrigidos: o webhook da Cora nunca conseguia marcar transação
@@ -56,6 +55,9 @@ pensionistas.
 | **Cartão de ponto em lote** | `…departamento-pessoal?t=cartao-ponto-lote` | 08/2026 → PDF com 48 espelhos |
 | **Dependentes / Vales / Crachás** | `…departamento-pessoal?t=dependentes` · `?t=vales` · `?t=crachas-lote` | dependentes contando salário-família; vale entra na prévia da folha; crachás 8 por folha (sem foto — ninguém tem) |
 | **Frota** | `/redesign/equipamentos?t=frota-saidas` | saída única por veículo, retorno com KM, multa sugere o condutor |
+| **Coberturas / Livro do posto / Checklist / Chamados** | `/redesign/operacional?t=coberturas` · `?t=livro-ocorrencias` · `?t=checklist-executar` · `?t=chamados` | cobertura em folga detectada nos turnos; livro do dia em PDF timbrado; checklist com item reprovado gera ocorrência; chamado urgente com SLA 1h em vermelho |
+| **Suprimentos** | `/redesign/suprimentos?t=estoque` · `?t=nf-entrada` | 147 materiais com os 6 status; 84 NF-e da SEFAZ com «Conferir recebimento» |
+| **Exames por função / Atendimentos / Fontes pagadoras** | `/redesign/saude-ocupacional?t=exames-por-funcao` · `/redesign/crm?t=atendimentos` · `?t=fontes-pagadoras` | 57 de 63 ativos sem ASO válido, por função; 9 atendimentos (4 ouvidoria + 5 portal) com SLA; quem paga ≠ quem contrata |
 | **Condições / Contas fixas / Recibos** | `/redesign/financeiro?t=condicoes-pagamento` · `?t=contas-fixas` · `?t=recibos` | 30/60 gera 2 parcelas; gerar mês duas vezes cria uma só; recibo 00001 em PDF |
 
 ## 4. O que só você decide — os números estão nos §7 de cada relatório
@@ -89,11 +91,22 @@ pensionistas.
 15. **As 15 comissões «auto — proposta»** (R$ 5.110,62) são reais ou lixo de teste?
 16. **`ItemListaServico` 17.19 fixo no emissor de Manaus vs 11.02 nas notas gravadas** — qual?
 
-## 5. O que o sistema passou a vigiar sozinho (14 oráculos + 1 caçador)
+**Operação, suprimentos, SESMT (F8, F9, F12):**
+17. **Folga trabalhada vira HE ou folga compensatória?** O resumo por pessoa/mês já existe; a folha não lê.
+18. **21 colaboradores com 2 logins** em `users` — o «não lidos» do app é por usuário; qual vale?
+19. **32 NF-e só em resumo** (R$ 13,4 mil): manifestar ciência para baixar o XML e entrar no estoque?
+20. **Mínimo/máximo dos 147 materiais**: todos «Mínimo não informado» — quem preenche.
+21. **Unificar fornecedores** (`suppliers` 60 × `financial_fornecedores` 12) e **aposentar `fin_stock_*`/`inventory_items`** (semente sem escritor).
+22. **Apagar a família morta `health_asos`/`health_medical_exams`** (só `gp_asos` vive) — rito de apagar pacote.
+23. **Códigos Tab. 27 em branco** (espirometria, RX, ECG, EEG) — confirmar com a MBS antes do S-2220.
+24. **NFS-e apontar para a fonte pagadora** (tomador = administradora): muda XML e retenção — não feito.
+25. **As 4 manifestações de ouvidoria de 07/2026** são texto de teste, abertas há 2 meses — responder ou expurgar?
+
+## 5. O que o sistema passou a vigiar sozinho (13 oráculos novos + 1 caçador)
 
 `rubricas_dizem_a_verdade` · `cct_como_dado` · `beneficio_regra_e_dado` · `parametros_por_cnpj` ·
 `movimentacao_com_motivo` · `dp_complementos` · `ponto_configuravel` · `frota_operacional` ·
-`financeiro_cadastros` · `validar_cpf` (+ os das frentes de 13/09 que continuam verdes: grid × triagem,
+`financeiro_cadastros` · `operacional_dgx` · `suprimentos_cadeia` · `sesmt_demandas_comercial` · `validar_cpf` (+ os das frentes de 13/09 que continuam verdes: grid × triagem,
 mapa 5 estados, benefício fecha, vistoria par). Caçador novo **`checar_parametro_ambiguo`** (trava 76):
 o padrão `SET x = :p … CASE WHEN :p` que derrubou o lote Inter e o webhook da Cora não volta calado.
 Todos entram na varredura da meia-noite por descoberta automática.
@@ -109,13 +122,12 @@ Todos entram na varredura da meia-noite por descoberta automática.
 | F5 | Movimentações | ✅ no ar | `DGX_F5_movimentacoes.md` |
 | F6 | DP complementos | ✅ no ar | `DGX_F6_dp_complementos.md` |
 | F7 | Ponto configurável | ✅ no ar | `DGX_F7_ponto.md` |
-| F8 | Operacional (coberturas, livro, checklist, chamados, avisos) | 🔄 ver abaixo | `DGX_F8_operacional.md` |
-| F9 | Suprimentos (compras, estoque, fornecedores, rádios/rastreadores) | 🔄 ver abaixo | `DGX_F9_suprimentos.md` |
+| F8 | Operacional (coberturas, livro, checklist, chamados, avisos) | ✅ no ar | `DGX_F8_operacional.md` |
+| F9 | Suprimentos (compras, estoque, fornecedores, rádios/rastreadores) | ✅ no ar | `DGX_F9_suprimentos.md` |
 | F10 | Frotas | ✅ no ar | `DGX_F10_frotas.md` |
 | F11 | Financeiro/Faturamento | ✅ no ar | `DGX_F11_financeiro.md` |
-| F12 | SESMT + Demandas + Comercial | 🔄 ver abaixo | `DGX_F12_sesmt_demandas_comercial.md` |
+| F12 | SESMT + Demandas + Comercial | ✅ no ar | `DGX_F12_sesmt_demandas_comercial.md` |
 
-_(esta seção é atualizada quando F8, F9 e F12 fecharem — ver o log do plano)_
 
 ## 7. O que NÃO foi feito, de propósito
 
@@ -132,10 +144,10 @@ _(esta seção é atualizada quando F8, F9 e F12 fecharem — ver o log do plano
 
 ## 8. Como a noite foi conduzida (para a próxima)
 
-10 agentes em worktrees isoladas, cada um testando num container efêmero contra o sandbox
+12 agentes em worktrees isoladas, cada um testando num container efêmero contra o sandbox
 (recopiado de produção às 23:40), commits por pathspec na própria branch, merge só pelo
 orquestrador com compilação + ruff + trava de porta + oráculo da frente + oráculos vizinhos,
-árvore mesclada provada antes do bake, um bake só. Os conflitos de merge foram sempre os mesmos
+árvore mesclada provada antes do bake, dois bakes (o segundo saiu pelo deploy de outra sessão que pegou o disco já mesclado — o lock serializou, como deve). Os conflitos de merge foram sempre os mesmos
 dois arquivos de plug (`departamento_pessoal.py`, `_dp_grupos.py`) e triviais (ambos os lados
 somam). O que custou tempo: o container efêmero morrendo no boot por `/app/logs` (3 vezes) — está
 no contrato agora.
