@@ -7372,6 +7372,8 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         total_in = total_out = 0
         texto = ""
         rounds = 0
+        # Uma única vez por turno: ver o bloco `length` + nada emitido, mais abaixo.
+        _ja_dobrei = False
 
         # inicializado ANTES do laço: ele é lido depois, e o laço pode quebrar na 1ª
         # rodada — `NameError` dentro do tratador de erro seria o defeito do 323 de novo,
@@ -7389,6 +7391,38 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     tool_choice="auto",
                     **_chat_kwargs(model, max_tokens),
                 )
+                # ⭐ O MODELO PENSOU ATÉ O FIM DO ORÇAMENTO E NÃO DISSE NADA (24/09/2026).
+                # Medido no grupo, com instrumentação em vez de teoria:
+                #
+                #     FALHA: finish=length · out=3000 (o teto EXATO) · content=0 · tool_calls=False
+                #     OK   : finish=tool_calls out=1568 → finish=stop out=492 → texto
+                #
+                # É modelo de raciocínio: os tokens de pensamento saem do MESMO `max_tokens` da
+                # resposta. Às vezes ele consome o orçamento inteiro pensando e o turno acaba
+                # sem texto e sem ferramenta — o usuário recebe "não estou conseguindo te
+                # atender", que é a frase de falha mais cara que existe: parece defeito de
+                # produto e é só orçamento.
+                #
+                # ⚠️ Subir o teto default resolveria e encareceria TODA chamada, inclusive as
+                # que terminam bem em 500 tokens. Então a resposta é dirigida ao caso exato:
+                # `length` + nada emitido → UMA retentativa com o dobro. Uma só, porque modelo
+                # de raciocínio pode pensar indefinidamente e retentativa sem teto é laço.
+                _ch0 = resp.choices[0] if resp.choices else None
+                if (_ch0 and _ch0.finish_reason == "length"
+                        and not (_ch0.message.content or "").strip()
+                        and not getattr(_ch0.message, "tool_calls", None)
+                        and not _ja_dobrei):
+                    _ja_dobrei = True
+                    logger.warning(
+                        "Agente: conv=%s gastou %s tokens pensando e não emitiu nada — "
+                        "refazendo com o dobro do teto", conversation_id, max_tokens)
+                    resp = await client.chat.completions.create(
+                        model=model,
+                        messages=_normalizar_assistants(messages, model),
+                        tools=active_tools,
+                        tool_choice="auto",
+                        **_chat_kwargs(model, max_tokens * 2),
+                    )
             except Exception as _e:  # noqa: BLE001
                 # 🔴 28/08/2026 — O 400 DO `reasoning_content` NÃO SE RESOLVE DEVOLVENDO O
                 # CAMPO. Eu tinha consertado assim e o erro continuou em produção com o
