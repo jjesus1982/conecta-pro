@@ -80,3 +80,13 @@ Medido em 24/09/2026: o `msg.txt` de uma frente sobrescreveu o de outra e um com
 mensagem errada (corrigido por `--amend`); arquivos de medição do orquestrador foram apagados no
 meio. **Escreva sempre em subpasta própria**: `<scratchpad>/<sua-frente>/…` (ex.: `w3/msg.txt`),
 nunca na raiz. E nunca apague arquivo do scratchpad que não seja seu.
+
+## Memória: não bakear com a onda inteira rodando
+
+Medido em 24/09/2026: o bake 22 foi morto pelo sistema no passo 2/7 (green subindo) porque
+`docker build` + 5 agentes + containers efêmeros esgotaram a RAM. O tráfego **não** chegou a ser
+trocado — produção seguiu no primário, íntegra — mas o deploy caiu pela metade e deixou um green
+órfão. **Regra do orquestrador:** esperar os agentes da onda terminarem antes do bake, e conferir
+`free -m` (avail ≥ ~8 GB) e `docker stats` antes de disparar. Se morrer no meio: conferir
+`grep "server 127.0.0.1:808" /etc/nginx/sites-available/erp.conectamais.pro` (tem que apontar
+para o primário), `docker rm -f conecta-pro-backend-green` e repetir.
