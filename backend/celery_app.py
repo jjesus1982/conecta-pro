@@ -119,6 +119,7 @@ app.conf.task_routes = {
     # Troca de turno: tirar o Paiva do 05:30 (24/09/2026). Fila de webhooks porque são
     # mensagens de WhatsApp e a ordem importa (o lembrete não pode passar o relatório).
     "whatsapp.varrer_grupos_mencao": {"queue": "webhooks"},
+    "whatsapp.expurgar_grupos": {"queue": "maintenance"},
     "whatsapp.turno_pedir_confirmacao": {"queue": "webhooks"},
     "whatsapp.turno_lembrar": {"queue": "webhooks"},
     "whatsapp.turno_fechar_cobertura": {"queue": "webhooks"},
@@ -806,6 +807,11 @@ app.conf.beat_schedule = {
     },
     # Rede de segurança PARA GRUPO: só menção ao José Luís que ficou sem resposta. A de
     # 2 minutos (`varrer_sem_resposta`) exclui grupo de propósito — ver a task.
+    # Retenção: 07:10 UTC = 03:10 Manaus. Longe do pico e antes dos oráculos das 05:00.
+    "whatsapp-expurgar-grupos-diario": {
+        "task": "whatsapp.expurgar_grupos",
+        "schedule": crontab(hour=7, minute=10),
+    },
     "whatsapp-varrer-grupos-mencao-3min": {
         "task": "whatsapp.varrer_grupos_mencao",
         "schedule": crontab(minute="*/3"),

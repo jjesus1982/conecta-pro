@@ -259,6 +259,25 @@ _SINAIS = (
         r"\badvert[êe]ncia\b|\bdisciplinar\b|\bsuspens[ãa]o\b|\bjusta causa\b|"
         r"\batestado\b|\bexame\b|\baso\b|\bafastament|\bINSS\b|\bsal[áa]rio\b|"
         r"\bholerite\b|\bcontracheque\b|\bdemiss|\brescis|\bferias\b|\bférias\b", re.I)),
+    # ⭐ ROTINA — o comunicado de praxe do posto (24/09/2026). Os grupos dos condomínios
+    # despejam comunicado a cada 15 minutos, e a maior parte diz que está tudo normal:
+    # "Portões de entrada e saída operando normalmente", "Bombas da piscina operando
+    # normalmente", "Lixeira em ordem e sem autorizações", "Informo registro de entrada".
+    #
+    # Medido em 24h: 96 mensagens, 12.660 caracteres, e o `resumo_grupos` levou 17.648 tokens de
+    # ENTRADA para o modelo numa única chamada. Com mais condomínios entrando isso bate no teto,
+    # e o sintoma é o que o Jordan já viu: turno terminando sem texto.
+    #
+    # ⚠️ `rotina` não é lixo — é a PROVA de que o posto reportou. Ela CONTA no resumo ("Mirante:
+    # 30 comunicados de rotina") e não é CITADA. Mesma jogada do `tom`, por outra razão: tom é
+    # conversa, rotina é registro repetitivo. O que interessa ao supervisor é a exceção.
+    #
+    # E vem ANTES de `operacional` de propósito: "portão operando normalmente" casa com
+    # `\bport[ãa]o\b` e viraria dado relevante, enchendo o resumo de nada.
+    ("rotina", re.compile(
+        r"(em ordem|operando normalmente|funcionando normalmente|sem autoriza|sem ocorr|"
+        r"fica (o )?registr|fica registrado|registro de entrada|abastecid|"
+        r"nada a relatar|tudo (tranquilo|normal|em ordem)|sem intercorr)", re.I)),
     # ⭐ A ESCALA DO DIA, e ela vem PRIMEIRO porque é o artefato mais valioso do grupo
     # (medida em 24/09/2026, a primeira mensagem real do OPERACIONAL):
     #
@@ -395,11 +414,20 @@ async def resumo(db: AsyncSession, *, jid: str | None = None, horas: int = 24) -
         f"JOIN wa_grupos g ON g.jid = m.grupo_jid WHERE {onde} "
         f"GROUP BY 1, 2 ORDER BY 1, 3 DESC"), p)).all()
 
+    # ⚠️ TETO DURO E PRIORIDADE POR EXCEÇÃO. A versão anterior devolvia 40 mensagens com 300
+    # chars cada — 12k de texto que viravam 17.648 tokens de entrada, e crescendo a cada
+    # condomínio novo. Aqui: `rotina` e `tom` ficam fora do texto (aparecem na contagem), e a
+    # ordem é por EXCEÇÃO primeiro (ocorrência/pendência/solicitação), não por hora.
+    #
+    # `pessoal` entra só onde o dono autorizou dado nominal — nos grupos de condomínio não.
     relevantes = (await db.execute(text(
         f"SELECT g.nome, m.autor_nome, m.classificacao, m.conteudo, m.quando "  # noqa: S608
         f"FROM wa_grupo_mensagens m JOIN wa_grupos g ON g.jid = m.grupo_jid "
-        f"WHERE {onde} AND m.relevante AND m.classificacao <> 'tom' "
-        f"ORDER BY m.quando DESC LIMIT 40"), p)).all()
+        f"WHERE {onde} AND m.relevante AND m.classificacao NOT IN ('tom','rotina') "
+        f"  AND (m.classificacao <> 'pessoal' OR g.dado_pessoal_ok) "
+        f"ORDER BY (m.conteudo ~* 'danific|colidiu|quebrad|defeito|troca|urgen|falta|"
+        f"           ocorr[êe]ncia|problema|parad|vazament|sem energia') DESC, m.quando DESC "
+        f"LIMIT 12"), p)).all()
 
     # Pedido de escala já virou rascunho: o resumo aponta para a Central, não repete o pedido
     # como se ainda estivesse solto. Sem isto o Jordan leria o mesmo pedido em dois lugares e
@@ -419,8 +447,11 @@ async def resumo(db: AsyncSession, *, jid: str | None = None, horas: int = 24) -
         "janela_horas": int(horas),
         "fuso": "America/Manaus (UTC-4)",
         "conversa_por_grupo": [{"grupo": r[0], "classificacao": r[1], "mensagens": r[2]} for r in por_classe],
+        # 240 chars: cabe o que aconteceu e corta o cabeçalho repetido ("Conecta Mais –
+        # Segurança e Tecnologia / Data / Posto / Turno / Agente"), que é idêntico em toda
+        # mensagem e ocupava metade do orçamento sem informar nada novo.
         "dado_relevante": [{"grupo": r[0], "quem": r[1], "tipo": r[2],
-                            "texto": (r[3] or "")[:300], "quando": _manaus(r[4])}
+                            "texto": _essencia(r[3]), "quando": _manaus(r[4])}
                            for r in relevantes],
         "pedidos_de_escala": [{"titulo": r[0], "status": r[1],
                                "quando": _manaus(r[2])} for r in pedidos],
@@ -629,3 +660,74 @@ async def corpus_de_tom(db: AsyncSession, *, jid: str | None = None, limite: int
         if len(saida) >= limite:
             break
     return saida
+
+
+#: O cabeçalho que TODO comunicado de posto repete. Cortá-lo não perde informação: o grupo já
+#: diz o posto, e data/turno/agente vêm nos outros campos do resumo.
+#: ⚠️ SEM ÂNCORA `^`: o Ideal Flores manda "*CONDOMÍNIO IDEAL FLORES* *Conecta Mais – ...*" —
+#: o nome do condomínio vem ANTES do cabeçalho, e com a âncora no início o corte não acontecia.
+#: Régua ancorada num formato que só um posto segue é régua que falha nos outros.
+_CABECALHO_COMUNICADO = re.compile(
+    r"\*?\s*Conecta Mais[^\n]*\n+(\s*\*?\s*(Data|Posto|Turno|Agente|AGP|ronda|AGP P\d)\s*\*?\s*:?[^\n]*\n+)*",
+    re.I)
+
+
+def _essencia(texto: str | None) -> str:
+    """O que a mensagem DIZ, sem o cabeçalho de praxe. Máx. 240 chars.
+
+    ⚠️ Metade do orçamento de tokens do resumo era cabeçalho idêntico: "*Conecta Mais –
+    Segurança e Tecnologia* / *Data*: 24/09/2026 / *Posto*: GREEN HILLS / *Turno Diurno*: 07h
+    às 19h / *AGP P1*: Fernanda maciel". Repetido em cada uma das ~96 mensagens do dia. O
+    supervisor não precisa reler isso doze vezes — ele precisa do que aconteceu.
+    """
+    t = _CABECALHO_COMUNICADO.sub("", str(texto or "")).strip()
+    # Sobra do nome do condomínio antes do cabeçalho, quando havia.
+    t = re.sub(r"^\*?\s*(COND[OMÍNIO]*\.?\s+)?[A-ZÁÉÍÓÚÂÊÔÃÕÇ \d\-]{4,40}\*?\s*", "", t, count=1)
+    t = " ".join(t.split())
+    return (t or " ".join(str(texto or "").split()))[:240]
+
+
+async def expurgar(db: AsyncSession) -> dict:
+    """Apaga mensagem de grupo além da retenção de CADA grupo. Roda no beat diário.
+
+    🔴 Por que isto existe (24/09/2026, pedido do Jordan). `wa_grupos.retencao_dias` existia com
+    default 90 e **nada apagava** — o campo que deveria limitar não tinha quem o lesse. É o mesmo
+    erro que eu havia acabado de consertar na autorização (`dado_pessoal_ok` gravado e ignorado),
+    na direção oposta: lá a permissão não valia, aqui a proteção não existia.
+
+    ⚠️ E o que acumulava não é conversa da equipe: é DADO DE TERCEIRO. Os comunicados de portaria
+    trazem nome de morador, de visitante, marca/modelo/placa de carro — hoje o Prime Arena mandou
+    "VISITANTE NOME: MÔNICA MENDES, FIAT TORO, PLACA QZD 1I85, LIBERADO POR: ...". Guardar isso
+    para sempre num banco nosso, sem prazo e sem finalidade declarada, é o oposto do que a
+    cláusula de eliminação em 30 dias promete ao cliente.
+
+    ⭐ 30 dias para grupo de CONDOMÍNIO (tem cliente e terceiro dentro), 90 para grupo interno.
+    O número não é meu: 30 é o prazo que a minuta de contrato promete. A retenção por grupo vem
+    da coluna, então o Jordan muda caso a caso sem tocar em código.
+
+    A FALA do agente (`wa_grupo_falas`) segue a mesma régua: é registro do que NÓS dissemos, e
+    não faz sentido guardar mais tempo que o contexto que a gerou.
+    """
+    apagadas = {}
+    try:
+        grupos = (await db.execute(text(
+            "SELECT jid, nome, coalesce(retencao_dias, 90) AS dias FROM wa_grupos"))).mappings().all()
+        for g in grupos:
+            r = await db.execute(text(
+                "DELETE FROM wa_grupo_mensagens WHERE grupo_jid = :j "
+                "  AND criado_em < now() - make_interval(days => :d) RETURNING 1"),
+                {"j": g["jid"], "d": int(g["dias"])})
+            n = len(r.fetchall())
+            if n:
+                apagadas[g["nome"]] = n
+        r2 = await db.execute(text(
+            "DELETE FROM wa_grupo_falas WHERE quando < now() - interval '90 days' RETURNING 1"))
+        falas = len(r2.fetchall())
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.error("grupos.expurgar falhou (%s)", e)
+        return {"ok": False, "erro": str(e)[:160]}
+    if apagadas or falas:
+        logger.warning("grupos: expurgo — mensagens %s · falas %s", apagadas, falas)
+    return {"ok": True, "mensagens_apagadas": apagadas, "falas_apagadas": falas}

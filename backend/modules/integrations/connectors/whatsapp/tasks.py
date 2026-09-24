@@ -1016,3 +1016,23 @@ def varrer_grupos_mencao(self):  # noqa: ARG001
             args=[int(p["conv"]), None], queue="webhooks", priority=9)
     return {"ok": True, "pendentes": len(pend),
             "grupos": [p["nome"] for p in pend]}
+
+
+@app.task(name="whatsapp.expurgar_grupos", bind=True, max_retries=1)
+def expurgar_grupos(self):  # noqa: ARG001
+    """Diário 03:10 Manaus: apaga mensagem de grupo além da retenção de cada grupo.
+
+    ⚠️ `wa_grupos.retencao_dias` existia com default 90 e NADA apagava — o campo que deveria
+    limitar não tinha quem o lesse. E o que acumulava é dado de TERCEIRO: nome de morador, de
+    visitante, placa de carro, nos comunicados de portaria. 30 dias nos grupos de condomínio,
+    que é o prazo que a minuta promete ao cliente; 90 nos internos.
+    """
+    from modules.integrations.connectors.whatsapp import grupos as _grp
+
+    try:
+        r = _run_async(_grp.expurgar)
+        logger.info("[jose-luis] expurgo de grupos: %s", r)
+        return r
+    except Exception as e:  # noqa: BLE001
+        logger.error("expurgar_grupos falhou: %s", e)
+        return {"ok": False, "erro": str(e)[:200]}
