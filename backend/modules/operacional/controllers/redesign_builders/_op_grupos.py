@@ -22,14 +22,19 @@ GRUPOS = [
         ("substituicao-rejeitar", "Rejeitar substituição"), ("substituicao-concluir", "Concluir substituição"),
         ("registrar-falta", "Registrar falta"),
         ("escalar-substituto", "Escalar substituto"), ("postos-sem-escala", "Postos sem escala"),
-        ("escalas-rascunho", "Escalas em rascunho"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template")]),
+        ("escalas-rascunho", "Escalas em rascunho"), ("escala-gerar", "Gerar escala"), ("escalas-template-salvar", "Salvar template"),
+        ("coberturas", "Coberturas"), ("cobertura-nova", "Nova cobertura")]),  # dgx f8
     ("g-postos", "Postos & Presença", "Postos, presença, instruções e passagem de turno", [
         ("gerente-hoje", "Onde está o gerente"), ("gerente-checkin", "Cheguei no posto"), ("gerente-checkout", "Saí do posto"),
         ("postos", "Postos"), ("presenca", "Presença hoje"), ("ausentes-hoje", "Ausentes hoje"),
         ("instrucoes-posto", "Instruções de posto"),
         ("passagem-turno", "Passagem de turno"), ("passagem-turno-nova", "Nova passagem"),
         ("instrucao-posto-editar", "Editar instrução"), ("checkin-manual", "Check-in manual"),
-        ("posto-localizacao", "Localização do posto"), ("posto-editar", "Editar posto")]),
+        ("posto-localizacao", "Localização do posto"), ("posto-editar", "Editar posto"),
+        ("livro-ocorrencias", "Livro de ocorrências"), ("livro-ocorrencia-nova", "Registrar no livro"),  # dgx f8
+        ("livro-ocorrencias-pdf", "Livro do dia (PDF)"), ("checklist-modelos", "Checklist · modelos"),
+        ("checklist-modelo-novo", "Checklist · novo modelo"), ("checklist-executar", "Checklist · executar"),
+        ("checklist-execucoes", "Checklist · execuções")]),
     ("g-equipe", "Equipe & Ponto", "Colaboradores, avaliação e banco de horas", [
         ("colaboradores", "Colaboradores"), ("avaliacao-equipe", "Avaliação de equipe"),
         ("avaliacao-criar", "Avaliar colaborador"),
@@ -72,7 +77,9 @@ GRUPOS = [
         ("comunicados", "Comunicados"),
         ("comunicado-novo", "Novo comunicado"), ("comunicado-publicar", "Publicar comunicado"),
         ("comunicado-editar", "Editar comunicado"), ("comunicado-excluir", "Excluir comunicado"),
-        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"), ("comunicados-leituras", "Leituras")]),
+        ("alerta-criar", "Novo alerta"), ("alerta-ack", "Reconhecer alerta"), ("comunicados-leituras", "Leituras"),
+        ("chamados", "Chamados"), ("chamado-novo", "Novo chamado"),  # dgx f8
+        ("avisos-painel", "Avisos · painel"), ("aviso-novo", "Novo aviso")]),
 ]
 
 
