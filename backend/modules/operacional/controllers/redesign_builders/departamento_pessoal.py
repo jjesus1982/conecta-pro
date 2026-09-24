@@ -83,6 +83,9 @@ router.include_router(_r_x1)  # dgx x1
 from ._dgx_x2_atraso_falta import router as _r_x2  # noqa: E402 — dgx x2
 
 router.include_router(_r_x2)  # dgx x2
+from ._dgx_y2_direcao_batida import router as _r_y2  # noqa: E402 — dgx y2
+
+router.include_router(_r_y2)  # dgx y2
 from ._dgx_x3_feriado import router as _r_x3  # noqa: E402 — dgx x3
 
 router.include_router(_r_x3)  # dgx x3
@@ -4930,4 +4933,9 @@ async def build(db, current_user=None) -> dict:
     out.update(
         await _telas_x2(db, out)
     )  # dgx x2 — conferência atraso/falta justificada, abas no FIM de g-folha (paralelo cego)
+    from ._dgx_y2_direcao_batida import telas as _telas_y2  # dgx y2
+
+    out.update(
+        await _telas_y2(db, out)
+    )  # dgx y2 — as duas réguas de pareamento lado a lado, abas no FIM de g-ponto (paralelo cego)
     return out
