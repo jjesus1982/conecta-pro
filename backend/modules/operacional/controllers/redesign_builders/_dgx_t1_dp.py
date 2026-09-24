@@ -116,10 +116,15 @@ async def _opt_pessoas(db: AsyncSession, so_ativos: bool = False) -> list[dict]:
     where = "status = 'ativo'" if so_ativos else "data_demissao IS NULL"
     rows = (
         await db.execute(
-            text(f"SELECT id::text, nome, coalesce(matricula,''), coalesce(status,'') FROM employees WHERE {where} AND {_CLT} ORDER BY nome")
+            text(
+                f"SELECT id::text, nome, coalesce(matricula,''), coalesce(status,'') FROM employees WHERE {where} AND {_CLT} ORDER BY nome"
+            )
         )
     ).fetchall()
-    return [{"value": r[0], "label": f"{r[1]}" + (f" · {r[2]}" if r[2] else "") + ("" if r[3] == "ativo" else f" ({r[3]})")} for r in rows]
+    return [
+        {"value": r[0], "label": f"{r[1]}" + (f" · {r[2]}" if r[2] else "") + ("" if r[3] == "ativo" else f" ({r[3]})")}
+        for r in rows
+    ]
 
 
 async def _tela_fotos(db: AsyncSession, out: dict) -> None:
@@ -139,9 +144,19 @@ async def _tela_fotos(db: AsyncSession, out: dict) -> None:
         tem = foto_path(r[4]) is not None
         linhas.append(
             {
-                "cells": [t(r[1], 600, _ND, initials(r[1])), t(r[2]), t(r[3]), b("com foto", "ok") if tem else b("sem foto", "bad"), t(r[4] if tem else "—")],
+                "cells": [
+                    t(r[1], 600, _ND, initials(r[1])),
+                    t(r[2]),
+                    t(r[3]),
+                    b("com foto", "ok") if tem else b("sem foto", "bad"),
+                    t(r[4] if tem else "—"),
+                ],
                 "filtro": "com foto" if tem else "sem foto",
-                "docs": [doc("Foto", f"/api/v1/redesign/colaboradores/{r[0]}/foto", fmt="jpg", filename=f"foto-{r[2]}.jpg")] if tem else [],
+                "docs": [
+                    doc("Foto", f"/api/v1/redesign/colaboradores/{r[0]}/foto", fmt="jpg", filename=f"foto-{r[2]}.jpg")
+                ]
+                if tem
+                else [],
             }
         )
     out["colaboradores-fotos"] = {
@@ -160,10 +175,28 @@ async def _tela_fotos(db: AsyncSession, out: dict) -> None:
         "sub": "JPEG, PNG ou WebP até 5 MB — rosto de frente, fundo claro (é a foto do crachá). Substitui a anterior.",
         "cta": "Enviar foto",
         "type": "form",
-        "submit": {"endpoint": _ACT + "colaborador-foto", "okMsg": "Foto gravada.", "multipart": True, "showResult": True},
+        "submit": {
+            "endpoint": _ACT + "colaborador-foto",
+            "okMsg": "Foto gravada.",
+            "multipart": True,
+            "showResult": True,
+        },
         "fields": [
-            {"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": await _opt_pessoas(db)},
-            {"key": "foto", "label": "Foto*", "type": "file", "accept": "image/jpeg,image/png,image/webp", "span": "span 2"},
+            {
+                "key": "employee_id",
+                "label": "Colaborador*",
+                "type": "select",
+                "span": "span 2",
+                "ph": "Selecione",
+                "options": await _opt_pessoas(db),
+            },
+            {
+                "key": "foto",
+                "label": "Foto*",
+                "type": "file",
+                "accept": "image/jpeg,image/png,image/webp",
+                "span": "span 2",
+            },
         ],
     }
     out["colaboradores-fotos-lote"] = {
@@ -172,8 +205,15 @@ async def _tela_fotos(db: AsyncSession, out: dict) -> None:
         "(03527554238.jpg) ou pelo id. Quem não casar aparece no resultado — nada é inventado.",
         "cta": "Importar fotos",
         "type": "form",
-        "submit": {"endpoint": _ACT + "colaboradores-fotos-lote", "okMsg": "Lote processado.", "multipart": True, "showResult": True},
-        "fields": [{"key": "arquivo", "label": "ZIP*", "type": "file", "accept": ".zip,application/zip", "span": "span 2"}],
+        "submit": {
+            "endpoint": _ACT + "colaboradores-fotos-lote",
+            "okMsg": "Lote processado.",
+            "multipart": True,
+            "showResult": True,
+        },
+        "fields": [
+            {"key": "arquivo", "label": "ZIP*", "type": "file", "accept": ".zip,application/zip", "span": "span 2"}
+        ],
     }
 
 
@@ -186,7 +226,16 @@ async def _tela_ficha(db: AsyncSession, out: dict) -> None:
         "cta": "Abrir ficha",
         "type": "form",
         "submit": {"endpoint": _ACT + "ficha-colaborador", "okMsg": "Ficha aberta.", "showResult": True},
-        "fields": [{"key": "employee_id", "label": "Colaborador*", "type": "select", "span": "span 2", "ph": "Selecione", "options": await _opt_pessoas(db)}],
+        "fields": [
+            {
+                "key": "employee_id",
+                "label": "Colaborador*",
+                "type": "select",
+                "span": "span 2",
+                "ph": "Selecione",
+                "options": await _opt_pessoas(db),
+            }
+        ],
     }
 
 
@@ -203,7 +252,16 @@ async def certificados(db: AsyncSession, hoje: date | None = None) -> list[dict]
             )
         )
     ).fetchall():
-        itens.append({"employee_id": r[0], "nome": r[1], "item": r[2], "origem": "RH · certificado", "conclusao": r[3], "vence_em": r[4]})
+        itens.append(
+            {
+                "employee_id": r[0],
+                "nome": r[1],
+                "item": r[2],
+                "origem": "RH · certificado",
+                "conclusao": r[3],
+                "vence_em": r[4],
+            }
+        )
     for r in (
         await db.execute(
             text(
@@ -211,7 +269,16 @@ async def certificados(db: AsyncSession, hoje: date | None = None) -> list[dict]
             )
         )
     ).fetchall():
-        itens.append({"employee_id": r[0], "nome": r[1], "item": (r[2] or "curso").replace("_", " "), "origem": "vigilante", "conclusao": r[3], "vence_em": r[4]})
+        itens.append(
+            {
+                "employee_id": r[0],
+                "nome": r[1],
+                "item": (r[2] or "curso").replace("_", " "),
+                "origem": "vigilante",
+                "conclusao": r[3],
+                "vence_em": r[4],
+            }
+        )
     for r in (
         await db.execute(
             text(
@@ -222,7 +289,16 @@ async def certificados(db: AsyncSession, hoje: date | None = None) -> list[dict]
     ).fetchall():
         for col, rotulo in ((2, "CNV"), (3, "curso de vigilante"), (4, "CNH"), (5, "porte de arma")):
             if r[col]:
-                itens.append({"employee_id": r[0], "nome": r[1], "item": rotulo, "origem": "ficha", "conclusao": None, "vence_em": r[col]})
+                itens.append(
+                    {
+                        "employee_id": r[0],
+                        "nome": r[1],
+                        "item": rotulo,
+                        "origem": "ficha",
+                        "conclusao": None,
+                        "vence_em": r[col],
+                    }
+                )
     for it in itens:
         it["situacao"], it["tom"] = situacao_validade(it["vence_em"], hoje)
     itens.sort(key=lambda x: (x["vence_em"] or date.max, x["nome"]))
@@ -237,7 +313,11 @@ async def _tela_certificados(db: AsyncSession, out: dict) -> None:
         "title": "Cursos e certificados — validade",
         "sub": f"{len(itens)} item(ns) · {venc} vencido(s) · {v30} vencem em ≤ 30 dias · régua: vencido / ≤30 / ≤60 / ≤90 / ativo / não expira "
         "· fontes: certificados do RH, cursos do vigilante e validades da ficha (CNV, CNH, porte)"
-        + (" · aguardando dado: nenhum certificado emitido pelo RH ainda" if not any(i["origem"].startswith("RH") for i in itens) else ""),
+        + (
+            " · aguardando dado: nenhum certificado emitido pelo RH ainda"
+            if not any(i["origem"].startswith("RH") for i in itens)
+            else ""
+        ),
         "cta": "—",
         "type": "table",
         "searchHint": "Buscar pessoa ou curso…",
@@ -245,8 +325,17 @@ async def _tela_certificados(db: AsyncSession, out: dict) -> None:
         "cols": ["Colaborador", "Curso / certificado", "Origem", "Conclusão", "Vence em", "Situação"],
         "rows": [
             {
-                "cells": [t(i["nome"], 600, _ND, initials(i["nome"])), t(i["item"]), t(i["origem"]), t(_fmtdate(i["conclusao"])), t(_fmtdate(i["vence_em"])), b(i["situacao"], i["tom"])],
-                "filtro": "vencido" if i["situacao"].startswith("Vencido") else ("vence em 90 d" if i["situacao"].startswith("Vence") else i["situacao"].lower()),
+                "cells": [
+                    t(i["nome"], 600, _ND, initials(i["nome"])),
+                    t(i["item"]),
+                    t(i["origem"]),
+                    t(_fmtdate(i["conclusao"])),
+                    t(_fmtdate(i["vence_em"])),
+                    b(i["situacao"], i["tom"]),
+                ],
+                "filtro": "vencido"
+                if i["situacao"].startswith("Vencido")
+                else ("vence em 90 d" if i["situacao"].startswith("Vence") else i["situacao"].lower()),
             }
             for i in itens
         ]
@@ -280,7 +369,15 @@ async def serie_turnover(db: AsyncSession, meses: int = 12, hoje: date | None = 
             )
         ).first()
         adm, desl, quadro = int(r[0] or 0), int(r[1] or 0), int(r[2] or 0)
-        out.append({"mes": m, "admitidos": adm, "desligados": desl, "quadro": quadro, "turnover": turnover(adm, desl, quadro + desl)})
+        out.append(
+            {
+                "mes": m,
+                "admitidos": adm,
+                "desligados": desl,
+                "quadro": quadro,
+                "turnover": turnover(adm, desl, quadro + desl),
+            }
+        )
     return out
 
 
@@ -308,7 +405,9 @@ async def _tela_turnover(db: AsyncSession, out: dict) -> None:
     ).scalar() or 0
     sem_data = (
         await db.execute(
-            text(f"SELECT count(*) FROM employees WHERE {_CLT} AND status IN ('demitido','inativo') AND coalesce(data_demissao, data_desligamento) IS NULL")
+            text(
+                f"SELECT count(*) FROM employees WHERE {_CLT} AND status IN ('demitido','inativo') AND coalesce(data_demissao, data_desligamento) IS NULL"
+            )
         )
     ).scalar() or 0
     rot = {"M": "Masculino", "F": "Feminino"}
@@ -316,27 +415,54 @@ async def _tela_turnover(db: AsyncSession, out: dict) -> None:
         "title": "Turnover",
         "sub": f"12 meses até {_fmtdate(date.today())} · fórmula (DGX): (admitidos + desligados) ÷ 2 ÷ quadro do período · "
         f"quadro = CLT no quadro ao fim do mês (PJ, candidatos e homologação fora) · {sem_motivo} desligado(s) sem motivo registrado"
-        + (f" · {sem_data} desligado(s)/inativo(s) SEM data de demissão (fora da série — cadastrar a data)" if sem_data else ""),
+        + (
+            f" · {sem_data} desligado(s)/inativo(s) SEM data de demissão (fora da série — cadastrar a data)"
+            if sem_data
+            else ""
+        ),
         "cta": "—",
         "type": "dash",
         "panelGrid": "1fr 1fr",
         "kpis": [
-            {"v": str(quadro), "l": "Ativos (CLT)", "icon": "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8", "color": _ND},
+            {
+                "v": str(quadro),
+                "l": "Ativos (CLT)",
+                "icon": "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8",
+                "color": _ND,
+            },
             {"v": str(adm12), "l": "Admitidos · 12 m", "icon": "M12 5v14M5 12h14", "color": "#16A34A"},
             {"v": str(desl12), "l": "Desligados · 12 m", "icon": "M5 12h14", "color": "#B91C1C"},
-            {"v": f"{turnover(adm12, desl12, quadro + desl12):.2f}".replace(".", ","), "l": "Turnover · 12 m", "icon": "M3 3v18h18", "color": "#B45309"},
+            {
+                "v": f"{turnover(adm12, desl12, quadro + desl12):.2f}".replace(".", ","),
+                "l": "Turnover · 12 m",
+                "icon": "M3 3v18h18",
+                "color": "#B45309",
+            },
         ],
         "panels": [
             {
                 "title": "Mensal (últimos 6 meses) — admitidos · desligados · quadro · turnover",
                 "rows": [
-                    {"left": x["mes"].strftime("%m/%Y"), "right": f"+{x['admitidos']} · −{x['desligados']} · {x['quadro']} · {x['turnover']:.2f}".replace(".", ","), **S["bad" if x["desligados"] > x["admitidos"] else ("ok" if x["admitidos"] else "mut")]}
+                    {
+                        "left": x["mes"].strftime("%m/%Y"),
+                        "right": f"+{x['admitidos']} · −{x['desligados']} · {x['quadro']} · {x['turnover']:.2f}".replace(
+                            ".", ","
+                        ),
+                        **S["bad" if x["desligados"] > x["admitidos"] else ("ok" if x["admitidos"] else "mut")],
+                    }
                     for x in ult6
                 ],
             },
             {
                 "title": "Gênero — ativos · desligados 12 m",
-                "rows": [{"left": rot.get(r[0], r[0]), "right": f"{int(r[1] or 0)} ativos · {int(r[2] or 0)} desligados", **S["info"]} for r in g]
+                "rows": [
+                    {
+                        "left": rot.get(r[0], r[0]),
+                        "right": f"{int(r[1] or 0)} ativos · {int(r[2] or 0)} desligados",
+                        **S["info"],
+                    }
+                    for r in g
+                ]
                 or [{"left": "aguardando dado", "right": "—", **S["mut"]}],
             },
         ],
@@ -364,7 +490,16 @@ async def _tela_cargos(db: AsyncSession, out: dict) -> None:
         "cols": ["Cargo", "Piso", "CBO", "Tipo de serviço", "CNH", "CNV", "Porte", "Ativos"],
         "rows": [
             {
-                "cells": [t(r[1], 600, _ND), t(brl(r[2]) if r[2] is not None else "—"), t(r[3] or "—"), t(r[4] or "—"), b("exige", "warn") if r[5] else t("—"), b("exige", "warn") if r[6] else t("—"), b("exige", "warn") if r[7] else t("—"), t(str(int(r[8] or 0)))],
+                "cells": [
+                    t(r[1], 600, _ND),
+                    t(brl(r[2]) if r[2] is not None else "—"),
+                    t(r[3] or "—"),
+                    t(r[4] or "—"),
+                    b("exige", "warn") if r[5] else t("—"),
+                    b("exige", "warn") if r[6] else t("—"),
+                    b("exige", "warn") if r[7] else t("—"),
+                    t(str(int(r[8] or 0))),
+                ],
                 "filtro": r[4] or "sem tipo",
             }
             for r in rows
@@ -378,12 +513,43 @@ async def _tela_cargos(db: AsyncSession, out: dict) -> None:
         "type": "form",
         "submit": {"endpoint": _ACT + "cargo-atributos-salvar", "okMsg": "Cargo atualizado."},
         "fields": [
-            {"key": "cargo_id", "label": "Cargo*", "type": "select", "span": "span 2", "ph": "Selecione", "options": [{"value": r[0], "label": f"{r[1]}" + (f" · CBO {r[3]}" if r[3] else "")} for r in rows]},
+            {
+                "key": "cargo_id",
+                "label": "Cargo*",
+                "type": "select",
+                "span": "span 2",
+                "ph": "Selecione",
+                "options": [{"value": r[0], "label": f"{r[1]}" + (f" · CBO {r[3]}" if r[3] else "")} for r in rows],
+            },
             {"key": "cbo", "label": "CBO", "type": "text", "span": "span 1", "ph": "517420"},
-            {"key": "tipo_servico", "label": "Tipo de serviço", "type": "select", "span": "span 1", "options": [{"value": x, "label": x} for x in TIPOS_SERVICO]},
-            {"key": "exige_cnh", "label": "Exige CNH", "type": "select", "span": "span 1", "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}]},
-            {"key": "exige_cnv", "label": "Exige CNV", "type": "select", "span": "span 1", "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}]},
-            {"key": "exige_porte_arma", "label": "Exige porte de arma", "type": "select", "span": "span 1", "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}]},
+            {
+                "key": "tipo_servico",
+                "label": "Tipo de serviço",
+                "type": "select",
+                "span": "span 1",
+                "options": [{"value": x, "label": x} for x in TIPOS_SERVICO],
+            },
+            {
+                "key": "exige_cnh",
+                "label": "Exige CNH",
+                "type": "select",
+                "span": "span 1",
+                "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}],
+            },
+            {
+                "key": "exige_cnv",
+                "label": "Exige CNV",
+                "type": "select",
+                "span": "span 1",
+                "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}],
+            },
+            {
+                "key": "exige_porte_arma",
+                "label": "Exige porte de arma",
+                "type": "select",
+                "span": "span 1",
+                "options": [{"value": "nao", "label": "Não"}, {"value": "sim", "label": "Sim"}],
+            },
         ],
     }
 
@@ -407,8 +573,19 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
     e = (await db.execute(text("SELECT * FROM employees WHERE id::text = :e"), {"e": employee_id})).mappings().first()
     if not e:
         raise HTTPException(status_code=404, detail="Colaborador não encontrado.")
-    dp = (await db.execute(text("SELECT * FROM employee_dp WHERE employee_id::text = :e LIMIT 1"), {"e": employee_id})).mappings().first() or {}
-    cct = (await db.execute(text("SELECT cargo_nome, piso_salarial, cbo FROM cct_cargos WHERE id = :c"), {"c": e.get("cct_cargo_id")})).first() if e.get("cct_cargo_id") else None
+    dp = (
+        await db.execute(text("SELECT * FROM employee_dp WHERE employee_id::text = :e LIMIT 1"), {"e": employee_id})
+    ).mappings().first() or {}
+    cct = (
+        (
+            await db.execute(
+                text("SELECT cargo_nome, piso_salarial, cbo FROM cct_cargos WHERE id = :c"),
+                {"c": e.get("cct_cargo_id")},
+            )
+        ).first()
+        if e.get("cct_cargo_id")
+        else None
+    )
     from modules.people_management.hr.services.cracha_pdf import foto_path
 
     def kv(pairs) -> dict:
@@ -421,37 +598,102 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
         deps = json.loads(deps or "[]")
     sec: dict = {
         "dados_gerais": kv(
-            [("nome", e["nome"]), ("matricula", e.get("matricula")), ("cpf", e.get("cpf")), ("nascimento", e.get("data_nascimento")), ("sexo", e.get("sexo")),
-             ("estado_civil", e.get("estado_civil")), ("nacionalidade", e.get("nacionalidade")), ("naturalidade", e.get("naturalidade")),
-             ("nome_da_mae", e.get("nome_mae")), ("nome_do_pai", e.get("nome_pai")), ("grau_de_instrucao", dp.get("grau_instrucao")), ("raca_cor", dp.get("raca_cor")),
-             ("pcd", dp.get("deficiencia")), ("tipo_de_deficiencia", dp.get("tipo_deficiencia")), ("status", e.get("status")), ("foto", "sim" if foto_path(e.get("foto_url")) else "sem foto"),
-             ("cracha", e.get("cracha_numero"))]
+            [
+                ("nome", e["nome"]),
+                ("matricula", e.get("matricula")),
+                ("cpf", e.get("cpf")),
+                ("nascimento", e.get("data_nascimento")),
+                ("sexo", e.get("sexo")),
+                ("estado_civil", e.get("estado_civil")),
+                ("nacionalidade", e.get("nacionalidade")),
+                ("naturalidade", e.get("naturalidade")),
+                ("nome_da_mae", e.get("nome_mae")),
+                ("nome_do_pai", e.get("nome_pai")),
+                ("grau_de_instrucao", dp.get("grau_instrucao")),
+                ("raca_cor", dp.get("raca_cor")),
+                ("pcd", dp.get("deficiencia")),
+                ("tipo_de_deficiencia", dp.get("tipo_deficiencia")),
+                ("status", e.get("status")),
+                ("foto", "sim" if foto_path(e.get("foto_url")) else "sem foto"),
+                ("cracha", e.get("cracha_numero")),
+            ]
         ),
         "contrato": kv(
-            [("cargo", e.get("cargo")), ("funcao_cct", cct[0] if cct else None), ("piso_cct", cct[1] if cct else None), ("cbo", cct[2] if cct else None),
-             ("departamento", e.get("departamento")), ("setor", e.get("setor")), ("centro_de_custo", e.get("centro_custo")), ("gestor", e.get("gestor_nome")),
-             ("admissao", e.get("data_admissao")), ("tipo_de_contrato", e.get("tipo_contrato")), ("regime", e.get("regime_trabalho")), ("jornada", e.get("jornada_trabalho")),
-             ("carga_semanal", e.get("carga_horaria_semanal")), ("escala", e.get("escala_padrao")), ("turno", e.get("turno_padrao")), ("salario_base", e.get("salario_base")),
-             ("insalubridade_pct", e.get("insalubridade_percentual")), ("periculosidade_pct", e.get("periculosidade_percentual")), ("adicional_ronda_pct", e.get("adicional_ronda_percentual")),
-             ("demissao", e.get("data_demissao") or e.get("data_desligamento")), ("motivo_desligamento", e.get("motivo_desligamento"))]
+            [
+                ("cargo", e.get("cargo")),
+                ("funcao_cct", cct[0] if cct else None),
+                ("piso_cct", cct[1] if cct else None),
+                ("cbo", cct[2] if cct else None),
+                ("departamento", e.get("departamento")),
+                ("setor", e.get("setor")),
+                ("centro_de_custo", e.get("centro_custo")),
+                ("gestor", e.get("gestor_nome")),
+                ("admissao", e.get("data_admissao")),
+                ("tipo_de_contrato", e.get("tipo_contrato")),
+                ("regime", e.get("regime_trabalho")),
+                ("jornada", e.get("jornada_trabalho")),
+                ("carga_semanal", e.get("carga_horaria_semanal")),
+                ("escala", e.get("escala_padrao")),
+                ("turno", e.get("turno_padrao")),
+                ("salario_base", e.get("salario_base")),
+                ("insalubridade_pct", e.get("insalubridade_percentual")),
+                ("periculosidade_pct", e.get("periculosidade_percentual")),
+                ("adicional_ronda_pct", e.get("adicional_ronda_percentual")),
+                ("demissao", e.get("data_demissao") or e.get("data_desligamento")),
+                ("motivo_desligamento", e.get("motivo_desligamento")),
+            ]
         ),
         "documentos": kv(
-            [("rg", e.get("rg")), ("orgao_uf", f"{e.get('rg_orgao') or ''} {e.get('rg_uf') or ''}".strip()), ("ctps", e.get("ctps_numero") or dp.get("ctps_numero")),
-             ("ctps_serie_uf", f"{e.get('ctps_serie') or dp.get('ctps_serie') or ''} {e.get('ctps_uf') or dp.get('ctps_uf') or ''}".strip()), ("pis", e.get("pis") or dp.get("pis_pasep")),
-             ("titulo_de_eleitor", e.get("titulo_eleitor")), ("zona_secao", f"{e.get('zona_eleitoral') or ''}/{e.get('secao_eleitoral') or ''}".strip("/")),
-             ("reservista", e.get("certificado_reservista")), ("cnh", e.get("cnh_numero")), ("cnh_categoria", e.get("cnh_categoria")), ("cnh_validade", e.get("cnh_validade")),
-             ("cnv", e.get("cnv")), ("cnv_validade", e.get("cnv_validade")), ("curso_de_vigilante_validade", e.get("curso_vigilante_validade")),
-             ("porte_de_arma", e.get("porte_arma")), ("porte_numero", e.get("porte_arma_numero")), ("porte_validade", e.get("porte_arma_validade"))]
+            [
+                ("rg", e.get("rg")),
+                ("orgao_uf", f"{e.get('rg_orgao') or ''} {e.get('rg_uf') or ''}".strip()),
+                ("ctps", e.get("ctps_numero") or dp.get("ctps_numero")),
+                (
+                    "ctps_serie_uf",
+                    f"{e.get('ctps_serie') or dp.get('ctps_serie') or ''} {e.get('ctps_uf') or dp.get('ctps_uf') or ''}".strip(),
+                ),
+                ("pis", e.get("pis") or dp.get("pis_pasep")),
+                ("titulo_de_eleitor", e.get("titulo_eleitor")),
+                ("zona_secao", f"{e.get('zona_eleitoral') or ''}/{e.get('secao_eleitoral') or ''}".strip("/")),
+                ("reservista", e.get("certificado_reservista")),
+                ("cnh", e.get("cnh_numero")),
+                ("cnh_categoria", e.get("cnh_categoria")),
+                ("cnh_validade", e.get("cnh_validade")),
+                ("cnv", e.get("cnv")),
+                ("cnv_validade", e.get("cnv_validade")),
+                ("curso_de_vigilante_validade", e.get("curso_vigilante_validade")),
+                ("porte_de_arma", e.get("porte_arma")),
+                ("porte_numero", e.get("porte_arma_numero")),
+                ("porte_validade", e.get("porte_arma_validade")),
+            ]
         ),
         "endereco_e_contato": kv(
-            [("endereco", " ".join(str(x) for x in (e.get("logradouro"), e.get("numero"), e.get("complemento")) if x)), ("bairro", e.get("bairro")),
-             ("cidade_uf", f"{e.get('cidade') or ''}/{e.get('uf') or ''}".strip("/")), ("cep", e.get("cep")), ("email", e.get("email")), ("telefone", e.get("telefone")),
-             ("celular", e.get("celular")), ("contato_de_emergencia", e.get("contato_emergencia")), ("telefone_de_emergencia", e.get("telefone_emergencia"))]
+            [
+                (
+                    "endereco",
+                    " ".join(str(x) for x in (e.get("logradouro"), e.get("numero"), e.get("complemento")) if x),
+                ),
+                ("bairro", e.get("bairro")),
+                ("cidade_uf", f"{e.get('cidade') or ''}/{e.get('uf') or ''}".strip("/")),
+                ("cep", e.get("cep")),
+                ("email", e.get("email")),
+                ("telefone", e.get("telefone")),
+                ("celular", e.get("celular")),
+                ("contato_de_emergencia", e.get("contato_emergencia")),
+                ("telefone_de_emergencia", e.get("telefone_emergencia")),
+            ]
         ),
         "banco_e_pix": kv(
-            [("pix", e.get("pix_key") or e.get("pix")), ("tipo_da_chave", e.get("pix_key_type")), ("pix_confirmada", e.get("pix_confirmada")),
-             ("banco", e.get("banco_codigo") or e.get("banco")), ("agencia", e.get("banco_agencia") or e.get("agencia")), ("conta", e.get("banco_conta") or e.get("conta")),
-             ("tipo_de_conta", e.get("banco_tipo") or e.get("tipo_conta")), ("forma_de_pagamento", e.get("tipo_pagamento"))]
+            [
+                ("pix", e.get("pix_key") or e.get("pix")),
+                ("tipo_da_chave", e.get("pix_key_type")),
+                ("pix_confirmada", e.get("pix_confirmada")),
+                ("banco", e.get("banco_codigo") or e.get("banco")),
+                ("agencia", e.get("banco_agencia") or e.get("agencia")),
+                ("conta", e.get("banco_conta") or e.get("conta")),
+                ("tipo_de_conta", e.get("banco_tipo") or e.get("tipo_conta")),
+                ("forma_de_pagamento", e.get("tipo_pagamento")),
+            ]
         ),
     }
     aloc = (
@@ -463,16 +705,30 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
             {"e": employee_id},
         )
     ).fetchall()
-    sec["alocacao"] = kv([("posto_atual", e.get("posto_atual_nome")), ("cliente", e.get("cliente_nome")), ("no_posto_desde", e.get("data_inicio_posto"))]) | {
-        f"alocacao_{i + 1}": f"{r[0] or '—'} · {r[1] or '—'} · desde {_fmtdate(r[2])}" + (f" · {r[4]}" if r[4] else "") for i, r in enumerate(aloc)
+    sec["alocacao"] = kv(
+        [
+            ("posto_atual", e.get("posto_atual_nome")),
+            ("cliente", e.get("cliente_nome")),
+            ("no_posto_desde", e.get("data_inicio_posto")),
+        ]
+    ) | {
+        f"alocacao_{i + 1}": f"{r[0] or '—'} · {r[1] or '—'} · desde {_fmtdate(r[2])}" + (f" · {r[4]}" if r[4] else "")
+        for i, r in enumerate(aloc)
     }
     sec["dependentes"] = [
-        {"nome": d.get("nome") or "(sem nome — herdado da Portte)", "valor": f"{d.get('grau') or d.get('tipo') or '—'} · nasc. {d.get('nascimento') or d.get('data_nascimento') or '—'}" + (" · salário-família" if d.get("menor_14") else "")}
+        {
+            "nome": d.get("nome") or "(sem nome — herdado da Portte)",
+            "valor": f"{d.get('grau') or d.get('tipo') or '—'} · nasc. {d.get('nascimento') or d.get('data_nascimento') or '—'}"
+            + (" · salário-família" if d.get("menor_14") else ""),
+        }
         for d in deps
         if isinstance(d, dict)
     ]
     sec["beneficios"] = [
-        {"nome": f"{r[0] or '—'}" + (f" · {r[1]}" if r[1] else "") + (f" · {r[4]}" if r[4] else ""), "valor": (f"{brl(r[2])}" if r[2] is not None else "—") + (f" · qtd {r[3]}" if r[3] else "")}
+        {
+            "nome": f"{r[0] or '—'}" + (f" · {r[1]}" if r[1] else "") + (f" · {r[4]}" if r[4] else ""),
+            "valor": (f"{brl(r[2])}" if r[2] is not None else "—") + (f" · qtd {r[3]}" if r[3] else ""),
+        }
         for r in (
             await db.execute(
                 text(
@@ -485,38 +741,65 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
         ).fetchall()
     ]
     sec["descontos_e_vales"] = [
-        {"nome": f"{r[0]} · {r[1] or r[2] or '—'}", "valor": f"{brl(r[3])}" + (f" · parcela {r[4]}/{r[5]}" if r[5] else "")}
+        {
+            "nome": f"{r[0]} · {r[1] or r[2] or '—'}",
+            "valor": f"{brl(r[3])}" + (f" · parcela {r[4]}/{r[5]}" if r[5] else ""),
+        }
         for r in (
             await db.execute(
-                text("SELECT tipo, descricao, motivo, valor, parcela_atual, total_parcelas FROM employee_deductions WHERE employee_id::text = :e AND ativo ORDER BY data_inicio DESC"),
+                text(
+                    "SELECT tipo, descricao, motivo, valor, parcela_atual, total_parcelas FROM employee_deductions WHERE employee_id::text = :e AND ativo ORDER BY data_inicio DESC"
+                ),
                 {"e": employee_id},
             )
         ).fetchall()
     ]
     sec["aso"] = [
-        {"nome": f"{r[0] or '—'} · {_fmtdate(r[1])}", "valor": f"válido até {_fmtdate(r[2])} · " + ("apto" if r[3] else ("inapto" if r[3] is False else r[4] or "—"))}
+        {
+            "nome": f"{r[0] or '—'} · {_fmtdate(r[1])}",
+            "valor": f"válido até {_fmtdate(r[2])} · "
+            + ("apto" if r[3] else ("inapto" if r[3] is False else r[4] or "—")),
+        }
         for r in (
             await db.execute(
-                text("SELECT tipo, data_realizacao, data_validade, apto, status FROM gp_asos WHERE employee_id::text = :e ORDER BY coalesce(data_realizacao, data_agendamento) DESC NULLS LAST LIMIT 4"),
+                text(
+                    "SELECT tipo, data_realizacao, data_validade, apto, status FROM gp_asos WHERE employee_id::text = :e ORDER BY coalesce(data_realizacao, data_agendamento) DESC NULLS LAST LIMIT 4"
+                ),
                 {"e": employee_id},
             )
         ).fetchall()
     ]
-    sec["cursos_e_certificados"] = [{"nome": f"{i['item']} ({i['origem']})", "valor": f"{_fmtdate(i['vence_em'])} · {i['situacao']}"} for i in await certificados(db) if i["employee_id"] == employee_id]
+    sec["cursos_e_certificados"] = [
+        {"nome": f"{i['item']} ({i['origem']})", "valor": f"{_fmtdate(i['vence_em'])} · {i['situacao']}"}
+        for i in await certificados(db)
+        if i["employee_id"] == employee_id
+    ]
     sec["disciplina"] = [
-        {"nome": f"{(r[0] or '—').replace('_', ' ')} · {_fmtdate(r[1])}", "valor": f"{r[2] or '—'} · {(r[3] or '—').replace('_', ' ')}"}
+        {
+            "nome": f"{(r[0] or '—').replace('_', ' ')} · {_fmtdate(r[1])}",
+            "valor": f"{r[2] or '—'} · {(r[3] or '—').replace('_', ' ')}",
+        }
         for r in (
             await db.execute(
-                text("SELECT action_type, incident_date, code, status FROM disciplinary_actions WHERE employee_id::text = :e ORDER BY incident_date DESC NULLS LAST LIMIT 10"),
+                text(
+                    "SELECT action_type, incident_date, code, status FROM disciplinary_actions WHERE employee_id::text = :e ORDER BY incident_date DESC NULLS LAST LIMIT 10"
+                ),
                 {"e": employee_id},
             )
         ).fetchall()
     ]
     sec["afastamentos"] = [
-        {"nome": f"{(r[0] or '—').replace('_', ' ')} · {_fmtdate(r[1])}", "valor": (f"retorno {_fmtdate(r[2])}" if r[2] else f"previsto {_fmtdate(r[3])}") + f" · {r[4] or '—'}" + (f" · CID {r[5]}" if r[5] else "")}
+        {
+            "nome": f"{(r[0] or '—').replace('_', ' ')} · {_fmtdate(r[1])}",
+            "valor": (f"retorno {_fmtdate(r[2])}" if r[2] else f"previsto {_fmtdate(r[3])}")
+            + f" · {r[4] or '—'}"
+            + (f" · CID {r[5]}" if r[5] else ""),
+        }
         for r in (
             await db.execute(
-                text("SELECT tipo, data_inicio, data_retorno, data_fim_prevista, status, cid FROM sst_afastamentos WHERE employee_id::text = :e ORDER BY data_inicio DESC LIMIT 10"),
+                text(
+                    "SELECT tipo, data_inicio, data_retorno, data_fim_prevista, status, cid FROM sst_afastamentos WHERE employee_id::text = :e ORDER BY data_inicio DESC LIMIT 10"
+                ),
                 {"e": employee_id},
             )
         ).fetchall()
@@ -525,7 +808,9 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
         {"nome": f"{_fmtdate(r[0])} a {_fmtdate(r[1])}", "valor": f"{r[2] or 0} dias · {r[3] or '—'}"}
         for r in (
             await db.execute(
-                text("SELECT start_date, end_date, days_requested, status FROM hr_vacation_requests WHERE employee_id::text = :e ORDER BY start_date DESC LIMIT 6"),
+                text(
+                    "SELECT start_date, end_date, days_requested, status FROM hr_vacation_requests WHERE employee_id::text = :e ORDER BY start_date DESC LIMIT 6"
+                ),
                 {"e": employee_id},
             )
         ).fetchall()
@@ -541,17 +826,47 @@ async def ficha(db: AsyncSession, employee_id: str) -> dict:
     ).first()
     eq = (
         await db.execute(
-            text("SELECT count(*) FROM equipamentos_controlados_alocacoes WHERE employee_id::text = :e AND devolvido_em IS NULL"),
+            text(
+                "SELECT count(*) FROM equipamentos_controlados_alocacoes WHERE employee_id::text = :e AND devolvido_em IS NULL"
+            ),
             {"e": employee_id},
         )
     ).scalar()
-    sec["uniforme_epi_e_equipamentos"] = {"uniformes_epi_em_posse": int(uni[0] or 0), "uniformes_epi_pendentes": int(uni[1] or 0), "armamento_colete_em_posse": int(eq or 0)}
+    sec["uniforme_epi_e_equipamentos"] = {
+        "uniformes_epi_em_posse": int(uni[0] or 0),
+        "uniformes_epi_pendentes": int(uni[1] or 0),
+        "armamento_colete_em_posse": int(eq or 0),
+    }
+    # dgx w4 — transferências entre as empresas do grupo (a admissão acima NUNCA muda com elas)
+    try:
+        from modules.people_management.hr.services import transferencia as _tr
+
+        await _tr._ensure(db)
+        sec["transferencias"] = [
+            {
+                "nome": f"{_fmtdate(r[0])} · {r[1] or '—'} → {r[2]}",
+                "valor": f"motivo {r[3]} — {_tr.MOTIVOS.get(r[3], '?')} · {r[4]}",
+            }
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT data, empresa_origem_cnpj, empresa_destino_cnpj, motivo, status FROM dp_transferencias WHERE employee_id::text = :e ORDER BY data DESC"
+                    ),
+                    {"e": employee_id},
+                )
+            ).fetchall()
+        ] or [{"nome": "nenhuma transferência registrada", "valor": "—"}]
+    except Exception as exc:  # noqa: BLE001 — a ficha não cai por causa de uma seção
+        await db.rollback()
+        sec["transferencias"] = [{"nome": "seção indisponível", "valor": f"{type(exc).__name__}: {str(exc)[:120]}"}]
     return sec
 
 
 # ----------------------------------------------------------------------------- ações
 @router.post("/action/colaborador-foto", dependencies=[Depends(_gate_dp)])
-async def rd_colaborador_foto(request: Request, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> dict:
+async def rd_colaborador_foto(
+    request: Request, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+) -> dict:
     from modules.people_management.hr.services.foto_colaborador import salvar_foto
 
     form = await request.form()
@@ -592,10 +907,14 @@ async def rd_fotos_lote(request: Request, current_user: CurrentActiveUser, db: A
 
 
 @router.get("/colaboradores/{employee_id}/foto", summary="Foto do colaborador (arquivo)")
-async def rd_colaborador_foto_get(employee_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> FileResponse:
+async def rd_colaborador_foto_get(
+    employee_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)
+) -> FileResponse:
     from modules.people_management.hr.services.cracha_pdf import foto_path
 
-    url = (await db.execute(text("SELECT foto_url FROM employees WHERE id::text = :e"), {"e": _uuid(employee_id)})).scalar()
+    url = (
+        await db.execute(text("SELECT foto_url FROM employees WHERE id::text = :e"), {"e": _uuid(employee_id)})
+    ).scalar()
     p = foto_path(url)
     if not p:
         raise HTTPException(status_code=404, detail="Colaborador sem foto.")
@@ -603,7 +922,9 @@ async def rd_colaborador_foto_get(employee_id: str, current_user: CurrentActiveU
 
 
 @router.post("/action/ficha-colaborador", dependencies=[Depends(_gate_dp)])
-async def rd_ficha(current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)) -> dict:
+async def rd_ficha(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)
+) -> dict:
     sec = await ficha(db, _uuid(payload.get("employee_id")))
     return {"ok": True, "message": f"Ficha de {sec['dados_gerais'].get('nome', '—')}.", **sec}
 
@@ -612,27 +933,41 @@ async def rd_ficha(current_user: CurrentActiveUser, payload: dict = Body(...), d
 async def rd_termo_pdf(action_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)):
     from modules.people_management.hr.services.termo_disciplinar_pdf import montar_termo
 
-    a = (await db.execute(text("SELECT * FROM disciplinary_actions WHERE id::text = :i"), {"i": _uuid(action_id)})).mappings().first()
+    a = (
+        (await db.execute(text("SELECT * FROM disciplinary_actions WHERE id::text = :i"), {"i": _uuid(action_id)}))
+        .mappings()
+        .first()
+    )
     if not a:
         raise HTTPException(status_code=404, detail="Medida não encontrada.")
     if not a.get("document_text"):
         raise HTTPException(status_code=409, detail="Medida ainda sem texto gerado — submeta/aprove primeiro.")
     # chaves que `pdf_branding.bloco_autenticidade_assinaturas` lê: signer_name, signer_type, signed_at, signature_hash
     assin = (
-        await db.execute(
-            text(
-                "SELECT signer_name, lower(coalesce(signer_type,'')) AS signer_type, created_at AS signed_at, signature_hash FROM digital_signatures "
-                "WHERE document_type = 'disciplinary_action' AND document_id = :i AND coalesce(is_valid, true) ORDER BY created_at"
-            ),
-            {"i": a["id"]},
+        (
+            await db.execute(
+                text(
+                    "SELECT signer_name, lower(coalesce(signer_type,'')) AS signer_type, created_at AS signed_at, signature_hash FROM digital_signatures "
+                    "WHERE document_type = 'disciplinary_action' AND document_id = :i AND coalesce(is_valid, true) ORDER BY created_at"
+                ),
+                {"i": a["id"]},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     pdf = montar_termo(dict(a), [dict(s) for s in assin])
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="termo-{a.get("code") or action_id[:8]}.pdf"'})
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="termo-{a.get("code") or action_id[:8]}.pdf"'},
+    )
 
 
 @router.post("/action/cargo-atributos-salvar", dependencies=[Depends(_gate_dp)])
-async def rd_cargo_atributos(current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)) -> dict:
+async def rd_cargo_atributos(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)
+) -> dict:
     await _ensure(db)
     cid = _uuid(payload.get("cargo_id"))
     cbo = "".join(ch for ch in str(payload.get("cbo") or "") if ch.isdigit())
@@ -655,7 +990,10 @@ async def rd_cargo_atributos(current_user: CurrentActiveUser, payload: dict = Bo
             params[k] = v in ("sim", "true")
     if not sets:
         raise HTTPException(status_code=422, detail="Nada para gravar.")
-    r = await db.execute(text(f"UPDATE cct_cargos SET {', '.join(sets)}, updated_at = now() WHERE id::text = :c RETURNING cargo_nome"), params)
+    r = await db.execute(
+        text(f"UPDATE cct_cargos SET {', '.join(sets)}, updated_at = now() WHERE id::text = :c RETURNING cargo_nome"),
+        params,
+    )
     nome = r.scalar()
     if not nome:
         raise HTTPException(status_code=404, detail="Cargo não encontrado.")

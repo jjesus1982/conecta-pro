@@ -69,6 +69,9 @@ router.include_router(_r_u5)  # dgx u5
 from ._dgx_v4_dp_importacao import router as _r_v4  # noqa: E402 — dgx v4
 
 router.include_router(_r_v4)  # dgx v4
+from ._dgx_w4_transferencia import router as _r_w4  # noqa: E402 — dgx w4
+
+router.include_router(_r_w4)  # dgx w4
 
 
 @router.post("/action/ponto-ajuste")
@@ -4861,6 +4864,9 @@ async def build(db, current_user=None) -> dict:
     await _telas_f6(db, out)  # dgx f6 — dependentes, vales, eventos coletivos, crachás, demissão em lote
     await _telas_t1(db, out)  # dgx t1 — foto, ficha, certificados, turnover, cargos (antes de montar_grupos)
     await _telas_u2(db, out)  # dgx u2 — férias: recibo/conta/cobertura, aviso em lote, ficha (antes de montar_grupos)
+    from ._dgx_w4_transferencia import telas as _telas_w4  # dgx w4
+
+    await _telas_w4(db, out)  # dgx w4 — transferência entre empresas do grupo (abas em g-admissao)
     from ._dgx_f12_sesmt_demandas_comercial import ligar_aso_form as _ligar_aso_f12  # dgx f12
 
     await _ligar_aso_f12(db, out)  # dgx f12 — renovar-aso com médico/exames dos cadastros (antes de montar_grupos)

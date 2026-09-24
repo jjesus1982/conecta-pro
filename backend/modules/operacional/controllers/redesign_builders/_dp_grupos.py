@@ -43,7 +43,11 @@ GRUPOS = [
         ("dependentes", "Dependentes"), ("dependente-novo", "Novo dependente"), ("crachas-lote", "Crachás em lote"),
         # dgx t1 — foto (alimenta o crachá), ficha única e validade de cursos/certificados
         ("colaboradores-fotos", "Fotos"), ("colaborador-foto", "Enviar foto"), ("colaboradores-fotos-lote", "Fotos em lote (ZIP)"),
-        ("ficha-colaborador", "Ficha do colaborador"), ("certificados-vencimento", "Cursos e certificados — validade")]),
+        ("ficha-colaborador", "Ficha do colaborador"), ("certificados-vencimento", "Cursos e certificados — validade"),
+        # dgx w4 — transferência entre as empresas do grupo. Fica AQUI e não em Desligamento de
+        # propósito: transferir não é rescindir; o vínculo continua, noutro CNPJ.
+        ("transferencias", "Transferências"), ("transferencia-nova", "Nova transferência"),
+        ("transferencia-simular", "Simular transferência"), ("transferencias-conferencia", "Conferência eSocial × sistema")]),
 
     ("g-ponto", "Ponto & Jornada", "Batidas, justificativas e fechamento do mês", [
         ("ponto", "Ponto"), ("fechamento-ponto", "Fechamento"),
