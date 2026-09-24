@@ -351,6 +351,12 @@ def _quintos_pareadores() -> list[str]:
             continue
         if not PADRAO_PAREIA.search(txt) or not PADRAO_PAR.search(txt):
             continue
+        # Quem IMPORTA a régua única não é pareador próprio — é consumidor dela. Sem esta linha o
+        # oráculo acusava `folha/services/feriado_conferencia.py` (frente X3), que importa
+        # `dia_do_plantao`/`janelas_de_turno`/`MAX_TURNO_H` do `horas_service` de propósito.
+        # A régua tem que premiar quem faz certo, senão empurra a próxima frente a copiar a lógica.
+        if "horas_service import" in txt or "services.horas_service" in txt:
+            continue
         rel = str(f.relative_to("/app"))
         if rel not in PAREADORES_CONHECIDOS:
             achados.append(rel)
