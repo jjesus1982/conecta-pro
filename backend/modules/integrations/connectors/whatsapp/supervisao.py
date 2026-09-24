@@ -317,3 +317,222 @@ async def visao_operacao(db: AsyncSession) -> dict[str, Any]:
         "ultima_carga_solides": d.get("ultima_sync_solides"),
         "escala_e_read_only": "eu não mudo escala; pedido de troca vira aprovação sua ou do Orlailson",
     }
+
+
+# ═════════ ESCALA DO DIA: ele POSTA, o sistema CONFERE ═════════
+#
+# O Jordan escolheu isto como item 2 (24/09/2026), e a razão está na medição da primeira
+# mensagem real: o Orlailson digita a escala no grupo à mão, e ela JÁ ESTÁ CERTA no ERP.
+# Conferi as três linhas daquele dia — 3 postos existem, 2 funcionários ativos, 1 diarista com
+# diária lançada. Ou seja: o trabalho dele ali não é DECIDIR, é transcrever e conferir. Conferir
+# é o que a máquina faz melhor, e é onde ele perde o dia.
+#
+# ⚠️ Isto NÃO escreve nada. Divergência vira RELATÓRIO para ele, nunca correção — o operacional
+# é curado à mão pelo Jordan, e essa regra não muda porque ficou conveniente.
+
+#: `*Prime Arena 06h às 18h*` — o cabeçalho do posto traz nome e faixa de horário.
+_CAB_POSTO = re.compile(r"^\*?\s*(?P<posto>.+?)\s+(?P<ini>\d{1,2})\s*h\s*(?:às|as|a)\s*(?P<fim>\d{1,2})\s*h\s*\*?$", re.I)
+#: `Jair Rocha - P1` — a pessoa e a posição no posto.
+_LINHA_PESSOA = re.compile(r"^(?P<nome>[^-]{3,60}?)\s*-\s*P\s*(?P<pos>\d+)\s*$", re.I)
+
+
+def ler_escala_postada(texto: str) -> list[dict]:
+    """Interpreta a escala que o Orlailson posta. [] quando o texto não é uma escala.
+
+    ⚠️ Deliberadamente tolerante com a FORMA e rígida com a ESTRUTURA: ele escreve à mão, no
+    celular, e vai variar asterisco, acento e espaço. O que não varia é a sequência
+    "cabeçalho de posto com horário" → "pessoa - P<n>". Exigir formato exato faria a
+    conferência falhar justamente nos dias em que ele estiver com pressa, que são os dias em
+    que ela mais importa.
+    """
+    itens: list[dict] = []
+    posto = ini = fim = None
+    for linha in str(texto or "").splitlines():
+        t = linha.strip()
+        if not t:
+            continue
+        if (m := _CAB_POSTO.match(t)):
+            posto, ini, fim = m.group("posto").strip(" *"), m.group("ini"), m.group("fim")
+            continue
+        if posto and (m := _LINHA_PESSOA.match(t)):
+            itens.append({"posto_texto": posto, "pessoa_texto": m.group("nome").strip(),
+                          "posicao": f"P{m.group('pos')}", "inicio": f"{int(ini):02d}:00",
+                          "fim": f"{int(fim):02d}:00"})
+    return itens
+
+
+async def conferir_escala(db: AsyncSession, texto: str, *, dia=None) -> dict:
+    """Confere a escala postada contra o ERP. Devolve o que DIVERGE, não o que bate.
+
+    Para cada linha da escala pergunta três coisas ao sistema, na ordem em que doem:
+
+      1. o POSTO existe? (nome do grupo é abreviado: "Prime Arena" × "Condomínio Prime Arena")
+      2. a PESSOA existe — como funcionário ativo OU como diarista?
+      3. o ERP CONCORDA que ela está nesse posto hoje? (turno em `shifts`, ou diária lançada)
+
+    ⚠️ O relatório é feito para ser LIDO no WhatsApp: se tudo bate, a resposta é uma linha. Um
+    relatório que repete as 12 linhas certas para esconder a única errada é pior que nenhum —
+    é como o alarme que soa sempre.
+    """
+    from datetime import date as _date  # noqa: PLC0415
+
+    dia = dia or _date.today()
+    itens = ler_escala_postada(texto)
+    if not itens:
+        return {"e_escala": False}
+
+    divergencias: list[dict] = []
+    conferidos = 0
+
+    for it in itens:
+        alvo = it["posto_texto"]
+        # Nome abreviado no grupo × nome cadastrado. Casa pelos tokens significativos, e se
+        # casar com MAIS DE UM posto eu não escolho — ambiguidade é achado, não detalhe.
+        postos = (await db.execute(text(
+            "SELECT id::text, name FROM posts WHERE unaccent(lower(name)) LIKE '%'||unaccent(lower(:a))||'%'"),
+            {"a": alvo})).all()
+        if not postos:
+            divergencias.append({"linha": it, "problema": f"posto {alvo!r} não existe no sistema"})
+            continue
+        if len(postos) > 1:
+            divergencias.append({"linha": it, "problema":
+                f"{alvo!r} casa com {len(postos)} postos ({', '.join(p[1] for p in postos)}) — não escolho"})
+            continue
+        post_id, post_nome = postos[0]
+
+        pessoa = it["pessoa_texto"]
+        # Funcionário: casa por TODOS os tokens do nome (nome do grupo costuma ser curto).
+        emps = (await db.execute(text(
+            "SELECT id::text, nome, status FROM employees WHERE unaccent(lower(nome)) LIKE ALL ("
+            "  SELECT '%'||unaccent(lower(x))||'%' FROM unnest(string_to_array(:p,' ')) AS x WHERE length(x)>2)"),
+            {"p": pessoa})).all()
+        diaristas = (await db.execute(text(
+            "SELECT id, nome FROM diaria_diaristas WHERE unaccent(lower(nome)) LIKE ALL ("
+            "  SELECT '%'||unaccent(lower(x))||'%' FROM unnest(string_to_array(:p,' ')) AS x WHERE length(x)>2)"),
+            {"p": pessoa})).all()
+
+        if not emps and not diaristas:
+            divergencias.append({"linha": it, "problema":
+                f"{pessoa!r} não está no cadastro — nem funcionário, nem diarista"})
+            continue
+
+        if emps:
+            emp_id, emp_nome, status = emps[0]
+            if status != "ativo":
+                divergencias.append({"linha": it, "problema":
+                    f"{emp_nome} está {status!r} no cadastro, e aparece na escala"})
+                continue
+            tem_turno = (await db.execute(text(
+                "SELECT 1 FROM shifts WHERE employee_id=CAST(:e AS uuid) AND post_id=CAST(:p AS uuid) "
+                "  AND shift_date=:d AND is_active AND NOT is_off_day LIMIT 1"),
+                {"e": emp_id, "p": post_id, "d": dia})).scalar()
+            if not tem_turno:
+                # Pode estar escalado em OUTRO posto — e isso é mais grave que não ter turno.
+                outro = (await db.execute(text(
+                    "SELECT p.name FROM shifts s JOIN posts p ON p.id=s.post_id "
+                    " WHERE s.employee_id=CAST(:e AS uuid) AND s.shift_date=:d AND s.is_active "
+                    "   AND NOT s.is_off_day LIMIT 1"), {"e": emp_id, "d": dia})).scalar()
+                divergencias.append({"linha": it, "problema": (
+                    f"{emp_nome} está na escala do {post_nome}, mas o sistema o tem em {outro}"
+                    if outro else
+                    f"{emp_nome} está na escala do {post_nome} e NÃO tem turno no sistema hoje")})
+                continue
+        else:
+            dia_id, dia_nome = diaristas[0]
+            # ⚠️ `diaria_diaristas.id` é INTEGER, não uuid — ao contrário de `employees.id`,
+            # `posts.id` e tudo mais nesta função. Eu castei para uuid por hábito e a consulta
+            # estourou. Tipo se confere no `information_schema`, não na memória.
+            lancada = (await db.execute(text(
+                "SELECT status FROM diaria_lancamentos WHERE diarista_id = :i AND data = :d LIMIT 1"),
+                {"i": int(dia_id), "d": dia})).scalar()
+            if not lancada:
+                # ⭐ Esta é a divergência que custa DINHEIRO: diarista trabalhando sem diária
+                # lançada não entra no pagamento, e (memória do projeto) não recebe o VT+VR
+                # automático de R$32 que só nasce do lançamento.
+                divergencias.append({"linha": it, "problema": (
+                    f"{dia_nome} é DIARISTA e a diária de hoje NÃO está lançada — "
+                    f"sem lançamento não há pagamento nem VT+VR")})
+                continue
+        conferidos += 1
+
+    return {"e_escala": True, "linhas": len(itens), "conferidos": conferidos,
+            "divergencias": divergencias, "dia": str(dia)}
+
+
+def _texto_da_conferencia(r: dict) -> str:
+    """O relatório como ele chega no WhatsApp. Curto quando bate, específico quando não.
+
+    ⚠️ Divergência PRIMEIRO. Um relatório que começa listando os acertos para depois esconder
+    o único erro no fim é o mesmo defeito do alarme que soa sempre: quem lê aprende a rolar
+    até o fim e um dia não rola. E quando tudo bate, é UMA linha — o supervisor precisa saber
+    que a conferência rodou, não receber um parágrafo por dia dizendo que está tudo bem.
+    """
+    div = r.get("divergencias") or []
+    n, ok = r.get("linhas", 0), r.get("conferidos", 0)
+    if not div:
+        return f"✅ Escala conferida: {ok}/{n} batem com o sistema."
+    linhas = [f"⚠️ Escala conferida: {ok}/{n} batem. {len(div)} para olhar:"]
+    for d in div:
+        it = d.get("linha") or {}
+        linhas.append(f"• {it.get('posto_texto','?')} / {it.get('pessoa_texto','?')}: {d['problema']}")
+    return "\n".join(linhas)
+
+
+async def conferir_e_avisar(
+    db: AsyncSession, *, texto: str, autor_fone: str | None, ident: Any = None,
+    chatwoot_message_id: int | None = None,
+) -> dict[str, Any]:
+    """Confere a escala postada e responde a QUEM POSTOU, no privado dele. Nunca no grupo.
+
+    ⭐ É o desenho que resolve o pedido do Jordan sem furar a parede: o grupo é onde o José Luís
+    APRENDE, a conversa privada é onde ele AJUDA. A parede proíbe falar no grupo — e não precisa
+    ser afrouxada para ele ser útil.
+
+    Três guardas, e cada uma tem motivo:
+
+      · só responde a quem SUPERVISIONA. A escala nomeia 3 a 9 pessoas e seus postos; mandar
+        isso para qualquer um que colar um texto parecido no grupo é vazamento;
+      · só uma vez por mensagem (`wa_grupo_falas` guarda a marca). Reentrega do Chatwoot é
+        normal, e o Orlailson não pode receber a mesma conferência três vezes;
+      · falha NUNCA derruba a absorção. O aprendizado de tom vale mais que o aviso.
+    """
+    papel = await papel_de_supervisao(db, ident)
+    if not papel:
+        return {"avisado": False, "motivo": "quem postou não supervisiona"}
+    if not autor_fone:
+        return {"avisado": False, "motivo": "sem telefone de quem postou"}
+
+    marca = f"conferencia:{chatwoot_message_id}"
+    if chatwoot_message_id is not None:
+        ja = (await db.execute(text(
+            "SELECT 1 FROM wa_grupo_falas WHERE motivo = :m LIMIT 1"), {"m": marca})).scalar()
+        if ja:
+            return {"avisado": False, "motivo": "já conferida"}
+
+    r = await conferir_escala(db, texto)
+    if not r.get("e_escala"):
+        return {"avisado": False, "motivo": "não é escala"}
+
+    msg = _texto_da_conferencia(r)
+    fone = autor_fone if str(autor_fone).startswith("+") else f"+{autor_fone}"
+    try:
+        from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
+
+        enviado = await whatsapp_service.send_custom(fone, msg)
+    except Exception as e:  # noqa: BLE001
+        logger.error("supervisao: conferência não entregue a %s (%s)", fone, e)
+        return {"avisado": False, "motivo": f"falha no envio: {str(e)[:100]}", "conferencia": r}
+
+    # A marca vai DEPOIS do envio: gravar antes e falhar o envio deixaria o Orlailson sem a
+    # conferência e sem chance de recebê-la na reentrega.
+    try:
+        await db.execute(text(
+            "INSERT INTO wa_grupo_falas (grupo_jid, motivo, texto) VALUES (:j, :m, :t)"),
+            {"j": "privado", "m": marca, "t": msg[:2000]})
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("supervisao: marca da conferência não gravada (%s)", e)
+
+    return {"avisado": bool(enviado), "para": fone, "divergencias": len(r.get("divergencias") or []),
+            "conferidos": r.get("conferidos"), "linhas": r.get("linhas")}

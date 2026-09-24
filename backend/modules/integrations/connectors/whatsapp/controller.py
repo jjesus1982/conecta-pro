@@ -1314,6 +1314,16 @@ async def chatwoot_webhook(
                         supervisao as _sup,
                     )
 
+                    # ⭐ ESCALA POSTADA → CONFERIDA, e a resposta vai no PRIVADO de quem
+                    # postou, nunca no grupo (24/09/2026, item 2 do Jordan). O grupo é onde ele
+                    # aprende; a conversa privada é onde ele ajuda. A parede não precisou ser
+                    # afrouxada para o José Luís ser útil.
+                    if _grp.classificar(content or "") == "escala_do_dia":
+                        _c = await _sup.conferir_e_avisar(
+                            db, texto=content or "", autor_fone=_fone_autor, ident=_ident,
+                            chatwoot_message_id=msg_id)
+                        logger.info("grupos: escala conferida → %s", _c)
+
                     _rot = _sup.classificar_pedido(content)
                     if _rot:
                         _r = await _sup.registrar_pedido_de_escala(
