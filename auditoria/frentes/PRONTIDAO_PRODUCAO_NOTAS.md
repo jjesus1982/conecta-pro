@@ -12,14 +12,29 @@
 |---|---|---|---|---|
 | **NF-e 55** (produto) | ELETRÔNICA | sim | ✅ **cStat 100** · nProt 113260013553955 · série 2 nº 1, de PRODUÇÃO | ⬜ falta ICMS-ST e numeração |
 | **NF-e 55** (produto) | PATRIMONIAL | **nunca** — decisão do dono, só tem inscrição municipal | — | — |
-| **NFS-e** (serviço) | ELETRÔNICA | sim | ✅ **cStat 100** · nDFSe 19174/19176/19177 | ⬜ falta conciliação e numeração |
-| **NFS-e** (serviço) | PATRIMONIAL | sim | ✅ **cStat 100** · nDFSe 19175 | ⬜ falta conciliação e numeração |
+| **NFS-e** (serviço) | ELETRÔNICA | sim | ⚠️ **cStat 100** · nDFSe 19174/19176/19177 — **do SANDBOX** | ⬜ conciliação, numeração, e provar de produção |
+| **NFS-e** (serviço) | PATRIMONIAL | sim | ⚠️ **cStat 100** · nDFSe 19175 — **do SANDBOX** | ⬜ conciliação, numeração, e provar de produção |
 
 **Também exercidos contra o órgão, em homologação:** cancelamento de NF-e (cStat **135**),
 inutilização de faixa (cStat **102**), status do serviço nos dois CNPJs (cStat **107**).
 
 **Trava de produção, medida agora:** `producao_liberada = false` nos dois CNPJs ·
 **0 notas gravadas com `tp_amb='1'`**.
+
+### ⚠️ A diferença entre as duas homologações — não confundir
+
+A **NF-e** foi provada **de dentro de produção**: o endpoint real, no container de produção,
+contra a SEFAZ-AM. Foi assim que apareceram dois defeitos que o verde do sandbox escondia — o
+`PermissionError` que apagava a linha da nota transmitida, e a numeração da homologação
+compartilhada com o sandbox.
+
+A **NFS-e** foi provada **no sandbox**. O código da frente Z7 ainda **não foi assado**, então o
+container de produção nem tem o emissor de NFS-e novo. Enquanto não for provada de produção,
+**a NFS-e não conta como homologada para efeito desta régua** — a lição de 24/09 é literal:
+oráculo em produção pega o que o staging esconde.
+
+**Pendência de orquestração, minha:** assar a onda (Z7 + AA4 + AA5 + AA6, quando fecharem) e
+repetir a emissão de NFS-e em homologação **a partir do container de produção**, nos dois CNPJs.
 
 ---
 
