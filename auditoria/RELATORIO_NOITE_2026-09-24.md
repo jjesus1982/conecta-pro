@@ -16,7 +16,7 @@ Relatórios por frente: `auditoria/frentes/DGX_F1..F12_*.md` (cada um com §6 «
 ## 1. Em uma linha
 
 **12 frentes planejadas, 12 mescladas e no ar** (F1–F7, F10, F11 no bake 16 às 00:35; F8, F9, F12 no
-bake seguinte, 01:05 — os dois sem drift). **16 oráculos novos rodados no container de produção,
+bake seguinte, 01:05 — os dois sem drift). **13 oráculos novos rodados no container de produção,
 todos verdes.** Tudo foi provado num container efêmero contra uma cópia de produção antes de subir, e a
 árvore mesclada foi provada de novo antes do bake (35 módulos do redesign abertos, 0 falhas).
 
