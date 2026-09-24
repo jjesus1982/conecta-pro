@@ -180,12 +180,19 @@ A lista de lacunas do DGX está esgotada nos itens de esforço P/M. O que sobrou
 
 | # | Frente | O que mede (e NÃO muda) | Estado |
 |---|---|---|---|
-| X1 | **Banco de horas × folha** — o banco está completo no Operacional e nunca conversou com a folha. Quanto venceu sem pagar nem compensar (art. 59 §2 CLT) é passivo | folha | em execução |
-| X2 | **Atraso e falta justificada** — o ponto mede atraso e a folha nunca desconta; e falta justificada aprovada que foi descontada mesmo assim é dinheiro tirado do colaborador | folha | em execução |
-| X3 | **Feriado trabalhado e HE 100%** — a rubrica 0011 existe e o motor nunca a emitiu; quem trabalhou em feriado recebeu o quê? | folha | em execução |
-| X4 | **O terceiro pareador** — `time_record_service._pair_punches` alimenta o ESPELHO (o documento que o colaborador assina) e ainda usa a régua velha; unificar em `horas_service` | ponto | em execução |
-| X5 | **Painel do dono** — as 51 decisões pendentes saem do markdown e viram tela com o número de hoje e o botão para agir | bi | em execução |
+| X1 | **Banco de horas × folha** — o banco está completo no Operacional e nunca conversou com a folha. Quanto venceu sem pagar nem compensar (art. 59 §2 CLT) é passivo | folha | mesclada · oráculo verde |
+| X2 | **Atraso e falta justificada** — o ponto mede atraso e a folha nunca desconta; e falta justificada aprovada que foi descontada mesmo assim é dinheiro tirado do colaborador | folha | mesclada · oráculo verde |
+| X3 | **Feriado trabalhado e HE 100%** — a rubrica 0011 existe e o motor nunca a emitiu; quem trabalhou em feriado recebeu o quê? | folha | mesclada · oráculo verde |
+| X4 | **O terceiro pareador** — `time_record_service._pair_punches` alimenta o ESPELHO (o documento que o colaborador assina) e ainda usa a régua velha; unificar em `horas_service` | ponto | mesclada · oráculo verde |
+| X5 | **Painel do dono** — as 51 decisões pendentes saem do markdown e viram tela com o número de hoje e o botão para agir | bi | mesclada · oráculo verde |
 
 Todas em paralelo cego: Σ|Δ| contra `hr_payslips` = R$ 0,00 é condição de entrega em X1, X2, X3 e X4.
 
 - 24/09 20:55 — X1–X5 lançadas.
+- 24/09 22:30 — **onda 6 completa, 5/5.** O que ela mediu, tudo em paralelo cego (Σ|Δ| = R$ 0,00 nos holerites em X1, X2, X3 e X4):
+  - **X1 · banco de horas:** a tabela `time_bank` tem **0 linhas** — o módulo inteiro existe e nunca recebeu um lançamento. A hora está no espelho: 933,32 h de crédito em 6 competências. Pela CLT art. 59 §3 valeriam R$ 12.560,43; o holerite pagou R$ 4.155,57. **R$ 8.404,86 nunca pagos nem compensados, e R$ 1.459,88 vencem em 27/09/2026** (16 pessoas, crédito de 03/2026).
+  - **X2 · atraso:** 30.336 min marcados, R$ 3.077,57 estimados, R$ 0,00 descontados (não existe rubrica de atraso). Mas **64% do «atraso» de setembro é batida de ENTRADA faltando**, não atraso — marcado em coluna própria e fora da conta de dinheiro. E das 13 justificativas da base, **13 pendentes, 0 aprovadas**, a mais antiga desde 21/07.
+  - **X3 · feriado:** **R$ 5.399,01** de passivo nominal em 3 competências — 21 pessoas trabalharam em 05/09 e 21 em 07/09, e o holerite pagou o dia uma vez só; mais 29 linhas de HE que o espelho classifica como 100% e a folha pagou a 1,5. A rubrica 0011 nunca foi emitida em 2026. O oráculo mordeu: acusava 2 pessoas de feriado que não trabalharam (batida solitária sem continuidade de plantão) — corrigido antes de entregar.
+  - **X4 · pareadores:** são **OITO** em `backend/modules`, não três. A tela de ponto do DP entrou na régua única (Σ|Δ| 162 → 2 dias). O espelho LEGAL (`espelho_service`) — o PDF que o colaborador assina — continua com régua própria e é a maior dívida que sobra. 19 espelhos assinados provados intocados.
+  - **X5 · painel do dono:** 28 decisões semeadas, 18 com número ao vivo, em `/redesign/bi?t=decisoes-do-dono`.
+- 24/09 22:35 — duas travas ajustadas: oráculo X4 registrado em `checar_regressao.py`; e a varredura dele deixou de acusar quem IMPORTA a régua única (acusava a X3, que faz certo — trava que pune o certo empurra a próxima frente a copiar).
