@@ -35,6 +35,9 @@ router = APIRouter()
 from ._frente_03 import router as _r03  # noqa: E402 — frente 03
 
 router.include_router(_r03)  # frente 03
+from ._dgx_f1_rubricas import router as _r_f1  # noqa: E402 — dgx f1
+
+router.include_router(_r_f1)  # dgx f1
 
 
 @router.post("/action/ponto-ajuste")
@@ -4793,6 +4796,9 @@ async def build(db, current_user=None) -> dict:
     await _descontos(db, out)  # descontos recorrentes (14/09) — antes de montar_grupos
     await _afd_e_justificativa(db, out)  # AFD/AEJ e justificar ponto (14/09) — antes de montar_grupos
     await _ligar_lote5_20260908(db, out)  # lote 5 LIGAR (08/09) — antes de montar_grupos
+    from ._dgx_f1_rubricas import telas as _telas_f1  # dgx f1
+
+    out.update(await _telas_f1(db, out))  # dgx f1 — rubricas como dado (sobrescreve folha-rubricas; abas em _dp_grupos)
     montar_grupos(out)
     from ._frente_03 import telas as _telas_03  # frente 03
 
