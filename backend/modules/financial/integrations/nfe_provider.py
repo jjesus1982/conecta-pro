@@ -514,8 +514,23 @@ def _montar_nota_fiscal(
         fone=emit.endereco_telefone or "0000000000",
     )
 
+    # ⚠️ SEM TEXTO PADRÃO. Aqui havia `info or "NF-e emitida pelo Conecta PRO ERP."` — ou seja,
+    # toda nota sem dados adicionais saía com essa frase DENTRO do `infCpl`, que é campo do
+    # documento fiscal e vai assinado ao fisco.
+    #
+    # Removido em 25/09/2026 por duas razões que se somam:
+    #
+    #  1. O dono pediu a identificação do sistema «no canto inferior da nota», e ela foi feita
+    #     onde ele pediu: uma linha no PÉ da folha do DANFE, FORA do quadro fiscal. Escrever
+    #     também no `infCpl` contraria a decisão e duplica a marca em dois lugares, um deles
+    #     impróprio.
+    #  2. `infCpl` é «informações de interesse do contribuinte». Marketing do emissor não é
+    #     interesse do contribuinte destinatário, e o campo aparece no DANFE que vai ao cliente.
+    #
+    # Sem texto, o campo fica vazio — que é o correto quando não há o que informar. O que o
+    # usuário escrever continua indo inteiro.
     info = str(nfe_data.get("informacoes_complementares") or "").strip()
-    nf.informacoes_complementares_interesse_contribuinte = (info or "NF-e emitida pelo Conecta PRO ERP.")[:5000]
+    nf.informacoes_complementares_interesse_contribuinte = info[:5000]
 
     return nf, emit, chave
 

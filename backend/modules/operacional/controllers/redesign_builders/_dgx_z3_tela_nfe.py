@@ -464,6 +464,28 @@ def xml_preview(cab: dict, itens: list[dict]) -> str:
     emit = ET.SubElement(inf, "emit")
     ET.SubElement(emit, "CNPJ").text = so_digitos(cab.get("emitente_cnpj"))
     ET.SubElement(emit, "xNome").text = (cab.get("emitente_razao_social") or "")[:60]
+    # ⚠️ O ENDEREÇO DO EMITENTE FALTAVA AQUI, e a falta era grave por ser invisível.
+    #
+    # Medido em 25/09/2026 comparando este preview com o XML que a SEFAZ autorizou: o real
+    # traz `<enderEmit>` com logradouro, número, bairro, município, UF e CEP; o preview
+    # trazia só o endereço do DESTINATÁRIO. Quem abria «Conferir antes de transmitir» não
+    # via uma linha do próprio emitente.
+    #
+    # No mesmo dia, o endereço do emitente estava ERRADO no cadastro — a Eletrônica constava
+    # na Av. Constantino Nery quando a SEFAZ e o ADN registram Rua Nova Palestina. A tela de
+    # conferência não teria como mostrar isso. Conferência que não mostra o campo não confere
+    # o campo, e o endereço do emitente vai DENTRO do XML assinado.
+    ender_emit = ET.SubElement(emit, "enderEmit")
+    for tag, val in (
+        ("xLgr", cab.get("emitente_logradouro")),
+        ("nro", cab.get("emitente_numero")),
+        ("xBairro", cab.get("emitente_bairro")),
+        ("cMun", so_digitos(cab.get("emitente_cod_municipio"))),
+        ("xMun", cab.get("emitente_municipio")),
+        ("UF", cab.get("emitente_uf") or "AM"),
+        ("CEP", so_digitos(cab.get("emitente_cep"))),
+    ):
+        ET.SubElement(ender_emit, tag).text = str(val or "")
     ET.SubElement(emit, "IE").text = so_digitos(cab.get("emitente_ie"))
     ET.SubElement(emit, "CRT").text = str(cab.get("emitente_crt") or "3")
 
@@ -658,6 +680,36 @@ async def carregar_nota(db: AsyncSession, nfe_id: str) -> tuple[dict, list[dict]
     if not r:
         raise HTTPException(status_code=404, detail="NF-e não encontrada.")
     cab = dict(zip(_CAMPOS_NFE, r, strict=False))
+    # ── endereço do emitente: vem de `empresas`, não de `nfes` ───────────────────────────
+    # `nfes` guarda do emitente só CNPJ, razão social, IE, UF e CRT — o endereço nunca foi
+    # copiado para a linha da nota. Quem monta o XML de verdade (o `nfe_provider`) lê de
+    # `empresas` via `carregar_emitente`; o preview não lia de lugar nenhum e por isso saía
+    # SEM o bloco `enderEmit`.
+    #
+    # Ler de `empresas` aqui significa que o preview mostra o endereço de HOJE, não o do dia
+    # da emissão — e isso é o certo para conferir ANTES de transmitir, que é o uso desta
+    # função. Para nota já autorizada, o que vale é o `xml_autorizado`, e ele tem o bloco.
+    _e = (
+        await db.execute(
+            text(
+                "SELECT coalesce(endereco_logradouro,''), coalesce(endereco_numero,''),"
+                " coalesce(endereco_bairro,''), coalesce(endereco_municipio,''),"
+                " regexp_replace(coalesce(endereco_cep,''),'\\D','','g'),"
+                " regexp_replace(coalesce(codigo_municipio_ibge,'')::text,'\\D','','g')"
+                " FROM empresas WHERE regexp_replace(coalesce(cnpj,''),'\\D','','g') = :c LIMIT 1"
+            ),
+            {"c": so_digitos(cab.get("emitente_cnpj"))},
+        )
+    ).first()
+    if _e:
+        cab.update(
+            emitente_logradouro=_e[0],
+            emitente_numero=_e[1],
+            emitente_bairro=_e[2],
+            emitente_municipio=_e[3],
+            emitente_cep=_e[4],
+            emitente_cod_municipio=_e[5],
+        )
     itens = [
         {
             "codigo": x[0],
@@ -2047,6 +2099,12 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: PLR0915 — quatr
                 "label": "Dados adicionais (vão no campo infCpl da nota)",
                 "type": "textarea",
                 "span": "span 2",
+                # Medido em 25/09/2026 comparando o que foi digitado com o `<infCpl>` do XML
+                # autorizado: o travessão «—» virou espaço. O emissor higieniza caracteres
+                # fora do ASCII, então o texto no fisco não é byte a byte o que se escreveu.
+                # Acento comum passa; sinal tipográfico não. Avisar é mais honesto que
+                # «corrigir» em silêncio — o campo é do contribuinte, quem escreve decide.
+                "ph": "Texto simples. Travessão e aspas tipográficas são removidos pelo emissor — use hífen.",
             },
         ],
     }
