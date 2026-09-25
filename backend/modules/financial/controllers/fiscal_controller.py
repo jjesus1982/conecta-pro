@@ -542,7 +542,7 @@ async def verificar_limite_simples(
     )
 
 
-async def _buscar_xml_nfse(db, chave: str, cert_path: str | None) -> str | None:
+async def _buscar_xml_nfse(db, chave: str, cert_path: str | None, detalhe: dict | None = None) -> str | None:
     """A NFS-e assinada pelo fisco, pela chave, guardada em `nfse_emitidas_nacional.xml_nfse`.
 
     Leitura pura (`GET /nfse/{chave}`, mTLS) — não emite, não altera nada no fisco. É a única
@@ -563,18 +563,49 @@ async def _buscar_xml_nfse(db, chave: str, cert_path: str | None) -> str | None:
             NFSeNacionalManager,
         )
 
+        # ⚠️ A SENHA VEM DA MESMA EMPRESA QUE O CAMINHO — conserto de 25/09/2026.
+        #
+        # Aqui havia `certificado_path=cert_path` (da empresa) e
+        # `certificado_senha=os.getenv("CERT_A1_PASSWORD")` (do ambiente). Assimetria:
+        # caminho de uma fonte, senha de outra. Funciona por acaso enquanto só uma empresa
+        # emite — e quebra em silêncio na segunda.
+        #
+        # Medido: as 26 NFS-e da PATRIMONIAL voltavam `status=erro_rede` porque o
+        # `patrimonial.pfx` era aberto com a senha da Eletrônica. O relatório dizia «ADN
+        # respondeu sem XML», que é falso: o ADN nunca foi consultado. Achado testando o ADN
+        # com a nota nº 120, que o backfill dava como vazia e o fisco devolveu com 7.601
+        # caracteres.
+        senha = ""
+        if cert_path:
+            senha = (
+                await db.execute(
+                    _sql(
+                        "SELECT coalesce(certificado_a1_senha,'') FROM empresas"
+                        " WHERE coalesce(certificado_a1_path,'') = CAST(:p AS VARCHAR) LIMIT 1"
+                    ),
+                    {"p": cert_path},
+                )
+            ).scalar() or ""
         mgr = NFSeNacionalManager(
             ambiente=AmbienteNacional.PRODUCAO,
             certificado_path=cert_path or os.getenv("CERT_A1_PATH"),
-            certificado_senha=os.getenv("CERT_A1_PASSWORD"),
+            certificado_senha=senha or os.getenv("CERT_A1_PASSWORD"),
         )
         from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
 
         fora = await run_in_threadpool(mgr.consultar_nfse, chave)
     except Exception as exc:  # noqa: BLE001 — imprimir a nota nunca depende do fisco estar de pé
         logger.warning(f"DANFSe {chave}: XML não veio do ADN ({type(exc).__name__}: {exc})")
+        if detalhe is not None:
+            detalhe["motivo"] = f"excecao:{type(exc).__name__}"
         return None
     xml = fora.get("xml_nfse")
+    # `detalhe` existe para quem chama EM LOTE: sem ele, «falha de rede» e «o fisco não tem»
+    # viram a mesma coisa — `None` —, e um relatório que soma os dois diz «o ADN não tem
+    # essas notas» quando a verdade é «o nosso certificado não conseguiu perguntar».
+    if detalhe is not None:
+        detalhe["status"] = str(fora.get("status") or "")
+        detalhe["c_stat"] = str(fora.get("c_stat") or "")
     if not xml:
         logger.info(f"DANFSe {chave}: ADN respondeu '{fora.get('status')}' sem XML.")
         return None

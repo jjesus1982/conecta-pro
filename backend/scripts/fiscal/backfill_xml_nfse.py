@@ -40,6 +40,22 @@ import time
 sys.path.insert(0, "/app")
 
 
+def _sem_resposta(det: dict) -> bool:
+    """O fisco NÃO respondeu — diferente de responder «não tenho».
+
+    Medido em 25/09/2026: a nº 105 voltou `http_502` e a nº 120 voltou vazia num lote e com
+    7.601 caracteres quando perguntada de novo. O ADN devolve 5xx intermitente sob carga.
+    Chamar isso de «o fisco respondeu sem XML» é reportar ausência de dado onde houve
+    ausência de RESPOSTA — e foi o que já quase me fez concluir que as notas não existiam.
+
+    Só é «o fisco não tem» quando ele respondeu de verdade e não veio XML.
+    """
+    st = str(det.get("status") or "").lower()
+    if det.get("motivo"):
+        return True
+    return st.startswith(("erro", "timeout", "http_5", "http_4")) or not st
+
+
 def _arg(nome: str, padrao: float) -> float:
     for i, a in enumerate(sys.argv):
         if a == nome and i + 1 < len(sys.argv):
@@ -64,11 +80,13 @@ async def main() -> int:
         print(f"RECUSO: roda DENTRO do container ({e})")
         return 2
 
-    ok = vazio = erro = 0
+    ok = vazio = erro = rede = 0
+    por_empresa: dict[str, list[int]] = {}
     async with async_session_factory() as db:
         q = (
             "SELECT n.chave_acesso, n.numero, coalesce(n.ambiente,'?') amb,"
-            "       coalesce(e.certificado_a1_path,'') cert"
+            "       coalesce(e.certificado_a1_path,'') cert,"
+            "       coalesce(e.razao_social,'(sem empresa)') emp"
             "  FROM nfse_emitidas_nacional n"
             "  LEFT JOIN empresas e ON e.id = n.empresa_id"
             " WHERE coalesce(n.xml_nfse,'') = '' AND coalesce(n.chave_acesso,'') <> ''"
@@ -77,7 +95,11 @@ async def main() -> int:
             # restrita. Buscar as 8 gastaria 8 chamadas a órgão público para receber 8
             # «sem XML» — e 8 falsos negativos num relatório que existe para ser confiável.
             "   AND coalesce(n.ambiente,'') = 'producao'"
-            " ORDER BY n.numero DESC"
+            # ⚠️ `numero` é TEXTO: `ORDER BY numero DESC` é lexicográfico e põe «99» antes de
+            # «121». Não muda o resultado de uma varredura completa, mas embaralha a ordem e
+            # fez a minha leitura parcial concluir que «notas de junho em diante não voltam» —
+            # quando o lote simplesmente ainda não tinha chegado nelas.
+            " ORDER BY regexp_replace(coalesce(n.numero::text,'0'),'\\D','','g')::bigint DESC"
         )
         faltam = (await db.execute(text(q))).mappings().all()
         total_tab = (await db.execute(text("SELECT count(*) FROM nfse_emitidas_nacional"))).scalar()
@@ -94,8 +116,16 @@ async def main() -> int:
         print(f"buscando {len(alvos)} · intervalo {intervalo}s · ~{len(alvos)*intervalo/60:.0f} min\n")
         for i, r in enumerate(alvos, 1):
             chave = r["chave_acesso"]
+            det: dict = {}
+            emp = r["emp"][:24]
             try:
-                xml = await _buscar_xml_nfse(db, chave, r["cert"] or None)
+                xml = await _buscar_xml_nfse(db, chave, r["cert"] or None, det)
+                # Uma 2ª chance quando o fisco NÃO respondeu (5xx intermitente). Não repete
+                # quando ele respondeu «não tenho» — aí insistir só gasta chamada.
+                if not xml and _sem_resposta(det):
+                    time.sleep(intervalo)
+                    det = {}
+                    xml = await _buscar_xml_nfse(db, chave, r["cert"] or None, det)
             except Exception as e:  # noqa: BLE001 — uma nota ruim não para o lote
                 erro += 1
                 print(f"  [{i}/{len(alvos)}] nº {r['numero']}: ERRO {type(e).__name__}: {str(e)[:70]}")
@@ -103,15 +133,26 @@ async def main() -> int:
                 if xml:
                     ok += 1
                     print(f"  [{i}/{len(alvos)}] nº {r['numero']}: OK {len(xml)} chars")
+                elif _sem_resposta(det):
+                    # NÃO é «o fisco não tem»: é «não consegui perguntar». Somar os dois num
+                    # número só foi o que quase me fez relatar «o ADN não tem as notas da
+                    # Patrimonial» quando o certificado dela é que abria com a senha errada.
+                    rede += 1
+                    por_empresa.setdefault(emp, []).append(i)
+                    print(f"  [{i}/{len(alvos)}] nº {r['numero']}: FALHA DE ACESSO"
+                          f" ({det.get('status') or det.get('motivo')}) · {emp}")
                 else:
                     vazio += 1
-                    print(f"  [{i}/{len(alvos)}] nº {r['numero']}: ADN respondeu SEM xml")
+                    print(f"  [{i}/{len(alvos)}] nº {r['numero']}: o fisco respondeu SEM xml ({emp})")
             if i < len(alvos):
                 time.sleep(intervalo)
 
-    print(f"\n  trouxeram XML        : {ok}")
-    print(f"  ADN respondeu s/ XML : {vazio}")
-    print(f"  erro                 : {erro}")
+    print(f"\n  trouxeram XML                 : {ok}")
+    print(f"  o fisco respondeu SEM xml     : {vazio}")
+    print(f"  FALHA DE ACESSO (nao perguntei): {rede}")
+    print(f"  erro inesperado               : {erro}")
+    for emp, idxs in por_empresa.items():
+        print(f"     falha de acesso concentrada em «{emp}»: {len(idxs)} nota(s)")
     print(f"\nTOTAL: {ok} NFS-e com XML guardado")
     return 0
 
