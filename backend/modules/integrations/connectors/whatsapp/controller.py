@@ -1422,6 +1422,33 @@ async def chatwoot_webhook(
         except Exception as e:  # noqa: BLE001
             logger.error("troca_turno: resposta não registrada (%s)", e)
 
+    # ⭐ A RESPOSTA COM A CHAVE PIX, registrada ANTES do agente (25/09/2026).
+    #
+    # Mesma razão do bloco acima: perguntar a 67 pessoas e deixar a captura na mão do LLM
+    # repetiria o erro que já cometi — pergunta sai, resposta se perde, e depois o relatório
+    # acusa de omissa quem respondeu. Determinístico na entrada.
+    #
+    # ⚠️ Registra e NÃO APLICA. Chave PIX é destino de dinheiro; aplicar o que chega por
+    # WhatsApp daria a quem acessasse um telefone o poder de redirecionar salário. Quem aplica
+    # é humano com papel de financeiro, por `pix_confirma.aplicar(aprovador=...)`.
+    if direction == "in" and not _grupo_jid and content and phone_canonical:
+        try:
+            from modules.integrations.connectors.whatsapp import pix_confirma as _px
+            from modules.integrations.connectors.whatsapp.identidade import quem_e as _qe2
+
+            _idp = await _qe2(db, phone_canonical)
+            if getattr(_idp, "employee_id", None):
+                _aguarda = (await db.execute(text(
+                    "SELECT 1 FROM pix_confirmacoes WHERE employee_id = CAST(:e AS uuid) "
+                    "AND status IN ('aguardando','nao_avisado')"),
+                    {"e": str(_idp.employee_id)})).first()
+                if _aguarda:
+                    _rp = await _px.registrar_resposta(
+                        db, employee_id=str(_idp.employee_id), texto=content)
+                    logger.info("pix_confirma: %s → %s", _idp.nome, _rp.get("resultado"))
+        except Exception as e:  # noqa: BLE001
+            logger.error("pix_confirma: resposta não registrada (%s)", e)
+
     if direction == "in" and conv_id and agent_service.agent_enabled():
         # ⭐ 28/08/2026 — ERA `background_tasks.add_task(...)`, e foi assim que o Jordan
         # mandou SEIS mensagens e um PDF às 16:14 e não recebeu nada. `BackgroundTasks`
