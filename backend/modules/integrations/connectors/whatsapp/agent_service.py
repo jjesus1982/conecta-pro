@@ -24,6 +24,7 @@ from sqlalchemy import text as _sql_text
 
 from core.database import async_session_factory
 from core.llm_client import modelo_barato, novo_cliente
+from modules.integrations.connectors.whatsapp import hermes_ponte
 
 logger = logging.getLogger(__name__)
 
@@ -7587,6 +7588,13 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     "o estilo, sem copiar literalmente):\n\n" + exemplos,
                 }
             )
+        # APRENDIZADO POR DESFECHO (25/09/2026) — o que já deu certo em pergunta parecida.
+        # Diferente do bloco acima: ali o critério é "resposta humana/auditada", aqui é
+        # "a pessoa confirmou que serviu". Ver `hermes_ponte`. `None` = base vazia ou nada do
+        # mesmo assunto, e aí não entra nada — exemplo fora de assunto é ruído que custa.
+        _licoes = await hermes_ponte.licoes(conversation_id, rows) if not owner else None
+        if _licoes:
+            messages.append({"role": "system", "content": _licoes})
 
         # FICHA VIVA: anotações compartilhadas (Cowork + José Luís) sobre ESTE cliente (por telefone).
         if not owner and phone_row and phone_row[0]:
@@ -7973,6 +7981,14 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             total_in,
             total_out,
         )
+        # SOCORRO DO HERMES (25/09/2026) — turno que morreu sem texto vira segunda tentativa
+        # no Hermes, que carrega a memória da casa. AQUI, e não lá embaixo no `if not texto`,
+        # de propósito: assim o texto dele passa pelas MESMAS paredes de saída (puxa-saco,
+        # fabricar ação, rascunho≠envio, CNPJ). Porta de saída sem as travas seria um buraco
+        # com cara de melhoria — e como o turno não executou tool nenhuma, `_sem_fabricar_acao`
+        # é exatamente quem pega o Hermes se ele disser que fez algo. Falha = "" = caminho atual.
+        if not texto:
+            texto = await hermes_ponte.socorro(conversation_id, rows) or ""
         texto = _tirar_puxa_saco(texto)
         texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
         texto = _rascunho_nao_e_envio(texto, _rascunhos_do_turno, conversation_id)
@@ -8080,6 +8096,13 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                 else "Desculpa, acho que me perdi aqui. Pode me dizer em uma frase o que você "
                 "precisa? Se preferir falar com alguém da equipe, é só pedir."
             )
+        # CASO (pergunta → resposta → desfecho): a única forma de o agente melhorar com o uso
+        # em vez de só repetir o passado. Fecha o desfecho do turno ANTERIOR (o veredito chega
+        # na mensagem seguinte, não nesta) e grava este. Nunca levanta — ver `hermes_ponte`.
+        await hermes_ponte.registrar_caso(
+            conversation_id, rows, texto, _executadas,
+            phone=(phone_row[0] if phone_row else None),
+        )
         return texto or None
     except Exception as e:  # noqa: BLE001
         logger.error("Agente: falha ao gerar resposta conv=%s: %s", conversation_id, e)
