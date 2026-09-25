@@ -13,7 +13,13 @@ import os
 import tempfile
 from datetime import datetime
 from decimal import Decimal
-from xml.etree import ElementTree as ET
+
+# `defusedxml`, não o ET da stdlib: TUDO que este arquivo parseia vem da SEFAZ pela rede —
+# retorno de distribuição, docZip descompactado, retorno de evento. É entrada externa, e bomba
+# de entidade XML é barata de montar. A casa já usa assim em `sefaz_am.py`, `efd_reinf.py` e
+# `esocial_transmitter.py`. (O único XML que NÃO vem de fora é o evento que esta classe monta
+# para assinar, e esse usa lxml de propósito, com o porquê escrito lá.)
+import defusedxml.ElementTree as ET  # noqa: N817 — mesmo apelido dos irmãos
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +144,10 @@ class NFEEntradaSyncService:
         """Motor genérico de manifestação do destinatário (Ambiente Nacional). Assina o infEvento
         (XMLDSig via xmlsec — C14N idêntico à SEFAZ) e transmite ao NFeRecepcaoEvento4 via mTLS.
         Retorna cStat/xMotivo reais (135/136 = registrado; 573 = duplicidade)."""
-        import requests
-        import xmlsec
         from datetime import datetime, timedelta, timezone
+
+        import requests
         from lxml import etree as _lxml
-        from xml.etree import ElementTree as ET
 
         NS_NFE = "http://www.portalfiscal.inf.br/nfe"
         tmp_cert, tmp_key = None, None
@@ -163,23 +168,28 @@ class NFEEntradaSyncService:
                 f"</infEvento>"
             )
             evento_str = f'<evento xmlns="{NS_NFE}" versao="1.00">{inf}</evento>'
-            # Assinatura via xmlsec (libxmlsec1) — canonicaliza IDÊNTICO à SEFAZ (resolve o cStat 297).
-            root_ev = _lxml.fromstring(evento_str.encode("utf-8"))
-            inf_el = root_ev.find(f"{{{NS_NFE}}}infEvento")
-            sig_node = xmlsec.template.create(
-                root_ev, xmlsec.Transform.C14N, xmlsec.Transform.RSA_SHA1, ns=None)
-            root_ev.append(sig_node)  # Signature = irmã do infEvento dentro do evento
-            ref = xmlsec.template.add_reference(sig_node, xmlsec.Transform.SHA1, uri=f"#{id_evento}")
-            xmlsec.template.add_transform(ref, xmlsec.Transform.ENVELOPED)
-            xmlsec.template.add_transform(ref, xmlsec.Transform.C14N)
-            ki = xmlsec.template.ensure_key_info(sig_node)
-            xmlsec.template.add_x509_data(ki)
-            ctx = xmlsec.SignatureContext()
-            ctx.key = xmlsec.Key.from_file(tmp_key, xmlsec.KeyFormat.PEM)
-            ctx.key.load_cert_from_file(tmp_cert, xmlsec.KeyFormat.PEM)
-            ctx.register_id(inf_el, "Id", None)  # resolve a Reference #ID
-            ctx.sign(sig_node)
-            evento_ass = _lxml.tostring(root_ev, encoding="unicode")
+            # ASSINATURA — pelo mesmo assinador que autoriza as NF-e desta casa.
+            #
+            # Este bloco usava `xmlsec` (libxmlsec1). A biblioteca **nunca esteve instalada**:
+            # não está no `requirements.txt`, e `import xmlsec` é feito em UM único lugar do
+            # repositório — aqui. Resultado medido em 25/09/2026: a manifestação do destinatário
+            # NUNCA funcionou. Desde 09/07 são **34 NF-e de compra (R$ 14.407,51)** que chegaram
+            # como resumo e nunca tiveram o XML baixado, porque a SEFAZ só libera o XML completo
+            # depois da manifestação. Sem XML não há itens; sem itens, 857 dos 867 produtos não
+            # sabem como a mercadoria entrou e o emissor recusa. Uma falha calada puxando a outra.
+            #
+            # O conserto não é instalar `xmlsec`: é usar o que JÁ funciona. `AssinaturaA1` do
+            # PyNFe assina com `signxml` (instalado), RSA-SHA1, digest SHA-1 e C14N
+            # `REC-xml-c14n-20010315` — exatamente o que a SEFAZ exige — e foi ele que assinou as
+            # NF-e autorizadas em 24/09 (cStat 100). Ele acha a tag com `Id` sozinho, que aqui é
+            # o `infEvento`, e põe a `Signature` como irmã dela.
+            from pynfe.processamento.assinatura import AssinaturaA1  # noqa: PLC0415
+
+            # noqa S320: `evento_str` é montado 3 linhas acima por esta própria função, a
+            # partir de literais e da chave de 44 dígitos. Não é entrada externa — a
+            # RESPOSTA da SEFAZ é, e essa vai por `defusedxml`.
+            root_ev = _lxml.fromstring(evento_str.encode("utf-8"))  # noqa: S320
+            evento_ass = AssinaturaA1(CERT_PATH, CERT_PASS).assinar(root_ev, retorna_string=True)
             env = (
                 '<envEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">'
                 f"<idLote>1</idLote>{evento_ass}</envEvento>"
@@ -192,8 +202,11 @@ class NFEEntradaSyncService:
             )
             resp = requests.post(
                 "https://www1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx",
-                data=soap.encode("utf-8"), cert=(tmp_cert, tmp_key),
-                headers={"Content-Type": "application/soap+xml;charset=UTF-8"}, timeout=40, verify=True,
+                data=soap.encode("utf-8"),
+                cert=(tmp_cert, tmp_key),
+                headers={"Content-Type": "application/soap+xml;charset=UTF-8"},
+                timeout=40,
+                verify=True,
             )
             txt = resp.text
             root = ET.fromstring(txt)
@@ -212,8 +225,10 @@ class NFEEntradaSyncService:
                 if cs is not None:
                     cstat_evt = cs.text
             return {
-                "http": resp.status_code, "chave": chave,
-                "cStat_lote": _f("cStat"), "xMotivo": _f("xMotivo"),
+                "http": resp.status_code,
+                "chave": chave,
+                "cStat_lote": _f("cStat"),
+                "xMotivo": _f("xMotivo"),
                 "cStat_evento": cstat_evt,
                 "ok": cstat_evt in ("135", "136", "573") or _f("cStat") == "128",
                 "preview": txt[:400],
@@ -270,8 +285,13 @@ class NFEEntradaSyncService:
                 else:
                     falhas.append({"chave": ch[:20] + "…", "cStat": ce, "erro": r.get("erro")})
                 _time.sleep(1.2)  # respeita o ritmo do webservice
-            return {"total": len(chaves), "registradas": ok, "duplicadas": dup,
-                    "falhas": len(falhas), "detalhe_falhas": falhas[:5]}
+            return {
+                "total": len(chaves),
+                "registradas": ok,
+                "duplicadas": dup,
+                "falhas": len(falhas),
+                "detalhe_falhas": falhas[:5],
+            }
         finally:
             conn.close()
 
@@ -318,8 +338,14 @@ class NFEEntradaSyncService:
                 else:
                     falhas.append({"chave": ch[:20] + "…", "cStat": ce, "erro": r.get("erro")})
                 _time.sleep(1.5)  # ritmo conservador p/ não disparar o anti-abuso
-            return {"total": len(chaves), "confirmadas": ok, "duplicadas": dup,
-                    "falhas": len(falhas), "freou_656": freou, "detalhe_falhas": falhas[:5]}
+            return {
+                "total": len(chaves),
+                "confirmadas": ok,
+                "duplicadas": dup,
+                "falhas": len(falhas),
+                "freou_656": freou,
+                "detalhe_falhas": falhas[:5],
+            }
         finally:
             conn.close()
 
@@ -437,9 +463,8 @@ class NFEEntradaSyncService:
         que ainda não temos o XML completo — registra o essencial). Eventos → ignora por ora."""
         import base64
         import gzip
-        from xml.etree import ElementTree as ET
 
-        root = ET.fromstring(resp_xml)  # noqa: S314
+        root = ET.fromstring(resp_xml)
         for e in root.iter():
             if "}" in e.tag:
                 e.tag = e.tag.split("}", 1)[1]
@@ -458,7 +483,7 @@ class NFEEntradaSyncService:
             schema = dz.get("schema", "")
             try:
                 inner = gzip.decompress(base64.b64decode(dz.text)).decode("utf-8", "ignore")
-                doc = ET.fromstring(inner)  # noqa: S314
+                doc = ET.fromstring(inner)
                 for e in doc.iter():
                     if "}" in e.tag:
                         e.tag = e.tag.split("}", 1)[1]
@@ -466,8 +491,17 @@ class NFEEntradaSyncService:
                     res = self.processar_xml_nfe(inner, conn)
                     if not res.get("erro"):
                         with conn.cursor() as cur:
-                            cur.execute("UPDATE nfe_entradas SET nsu=%s, tipo_doc='nfe', resumo=false WHERE chave_acesso=%s",
-                                        (nsu, (doc.find(".//infNFe").get("Id", "").replace("NFe", "") if doc.find(".//infNFe") is not None else None)))
+                            cur.execute(
+                                "UPDATE nfe_entradas SET nsu=%s, tipo_doc='nfe', resumo=false WHERE chave_acesso=%s",
+                                (
+                                    nsu,
+                                    (
+                                        doc.find(".//infNFe").get("Id", "").replace("NFe", "")
+                                        if doc.find(".//infNFe") is not None
+                                        else None
+                                    ),
+                                ),
+                            )
                         conn.commit()
                         completas += 1
                 elif schema.startswith("resNFe") or doc.tag == "resNFe":
@@ -479,11 +513,19 @@ class NFEEntradaSyncService:
                 erros += 1
                 logger.warning("docZip NSU=%s falhou: %s", nsu, exc)
 
-        return {"cStat": cstat, "ultNSU": ult_nsu, "maxNSU": max_nsu,
-                "completas": completas, "resumos": resumos, "eventos": eventos, "erros": erros}
+        return {
+            "cStat": cstat,
+            "ultNSU": ult_nsu,
+            "maxNSU": max_nsu,
+            "completas": completas,
+            "resumos": resumos,
+            "eventos": eventos,
+            "erros": erros,
+        }
 
     def _persistir_resumo_nfe(self, doc, nsu: str, conn) -> None:
         """resNFe = resumo de NF-e contra o CNPJ (sem XML completo; precisa manifestar p/ o full)."""
+
         def _t(tag, default=""):
             n = doc.find(".//" + tag)
             return (n.text or default) if n is not None else default
@@ -492,6 +534,7 @@ class NFEEntradaSyncService:
         if not chave:
             return
         from decimal import Decimal
+
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO nfe_entradas
@@ -502,8 +545,16 @@ class NFEEntradaSyncService:
                               AND status='ativa'), '619a3df1-8bce-49ce-b77a-04f80a0e8491'::uuid))
                    ON CONFLICT (chave_acesso) DO UPDATE SET nsu=EXCLUDED.nsu
                    WHERE nfe_entradas.nsu IS NULL""",
-                (chave, _t("CNPJ"), _t("xNome"), CNPJ_EMPRESA,
-                 (_t("dhEmi")[:10] or None), float(Decimal(_t("vNF", "0") or "0")), nsu, CNPJ_EMPRESA),
+                (
+                    chave,
+                    _t("CNPJ"),
+                    _t("xNome"),
+                    CNPJ_EMPRESA,
+                    (_t("dhEmi")[:10] or None),
+                    float(Decimal(_t("vNF", "0") or "0")),
+                    nsu,
+                    CNPJ_EMPRESA,
+                ),
             )
         conn.commit()
 
@@ -559,7 +610,7 @@ class NFEEntradaSyncService:
           2. Atualiza estoque virtual em nfe_compras_estoque
         """
         try:
-            root = ET.fromstring(xml_nfe)  # noqa: S314  # nosec B314
+            root = ET.fromstring(xml_nfe)
         except ET.ParseError as exc:
             return {"erro": f"XML inválido: {exc}"}
 
