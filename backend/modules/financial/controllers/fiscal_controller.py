@@ -65,10 +65,10 @@ async def _atualizar_nota(db: AsyncSession, tabela: str, nota_id, data: dict, la
     `tabela` é literal do endpoint (nunca input do usuário); nomes de coluna são whitelist do
     information_schema — sem risco de injeção."""
     row = (
-        await db.execute(
-            text(f"SELECT id, status FROM {tabela} WHERE id = :id AND active IS true"), {"id": nota_id}
-        )
-    ).mappings().first()
+        (await db.execute(text(f"SELECT id, status FROM {tabela} WHERE id = :id AND active IS true"), {"id": nota_id}))
+        .mappings()
+        .first()
+    )
     if not row:
         raise HTTPException(status_code=404, detail=f"{label} nao encontrada")
     if (row["status"] or "") != "rascunho":
@@ -90,9 +90,7 @@ async def _atualizar_nota(db: AsyncSession, tabela: str, nota_id, data: dict, la
             {**campos, "id": nota_id},
         )
         await db.commit()
-    updated = (
-        await db.execute(text(f"SELECT * FROM {tabela} WHERE id = :id"), {"id": nota_id})
-    ).mappings().first()
+    updated = (await db.execute(text(f"SELECT * FROM {tabela} WHERE id = :id"), {"id": nota_id})).mappings().first()
     return dict(updated) if updated else {}
 
 
@@ -134,26 +132,33 @@ async def listar_nfses(
         params["s"] = f"%{search}%"
     where = (" AND ".join(conds)) if conds else "TRUE"
     rows = (
-        await db.execute(
-            text(
-                "SELECT chave_acesso, numero, competencia, "
-                "tomador_nome, tomador_cnpj, "
-                "valor_servicos, data_emissao, created_at "
-                f"FROM nfse_emitidas_nacional WHERE {where} "
-                "ORDER BY data_emissao DESC NULLS LAST, numero DESC LIMIT :limit OFFSET :offset"
-            ),
-            params,
+        (
+            await db.execute(
+                text(
+                    "SELECT chave_acesso, numero, competencia, "
+                    "tomador_nome, tomador_cnpj, "
+                    "valor_servicos, data_emissao, created_at "
+                    f"FROM nfse_emitidas_nacional WHERE {where} "
+                    "ORDER BY data_emissao DESC NULLS LAST, numero DESC LIMIT :limit OFFSET :offset"
+                ),
+                params,
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     def _iso(v):
         return v.isoformat() if v else None
 
     return [
         {
-            "id": r["chave_acesso"] or r["numero"],  # é a CHAVE (50 dígitos), não UUID: o detalhe/DANFSe é /nfse-emitida/{chave}/danfse
+            "id": r["chave_acesso"]
+            or r["numero"],  # é a CHAVE (50 dígitos), não UUID: o detalhe/DANFSe é /nfse-emitida/{chave}/danfse
             "chave_acesso": r["chave_acesso"],
-            "danfse_url": f"/api/v1/financial/fiscal/nfse-emitida/{r['chave_acesso']}/danfse" if r["chave_acesso"] else None,
+            "danfse_url": f"/api/v1/financial/fiscal/nfse-emitida/{r['chave_acesso']}/danfse"
+            if r["chave_acesso"]
+            else None,
             "number": r["numero"],
             "series": None,
             "recipient_name": r["tomador_nome"],
@@ -312,9 +317,15 @@ async def obter_dashboard_fiscal(
     valor_total = (
         await db.execute(text(f"SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional WHERE {_viva}"))
     ).scalar() or 0
-    valor_mes = (await db.execute(text(
-        f"SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional WHERE {_viva} "
-        "AND CAST(substr(competencia, 6, 2) AS int) = :m AND CAST(left(competencia, 4) AS int) = :a"), {"m": mes, "a": ano})).scalar() or 0
+    valor_mes = (
+        await db.execute(
+            text(
+                f"SELECT COALESCE(SUM(valor_servicos), 0) FROM nfse_emitidas_nacional WHERE {_viva} "
+                "AND CAST(substr(competencia, 6, 2) AS int) = :m AND CAST(left(competencia, 4) AS int) = :a"
+            ),
+            {"m": mes, "a": ano},
+        )
+    ).scalar() or 0
     try:
         obrig_pend = (
             await db.execute(
@@ -340,7 +351,9 @@ async def obter_dashboard_fiscal(
                     "FROM nfse_emitidas_nacional ORDER BY data_emissao DESC NULLS LAST LIMIT 5"
                 )
             )
-        ).mappings().all()
+        )
+        .mappings()
+        .all()
     ]
 
     return {
@@ -488,9 +501,11 @@ async def calcular_retencoes_nfse(
     if not dados.regime_empresa:
         raise HTTPException(
             status_code=422,
-            detail=("Escolha o regime do emissor antes de calcular: simples_nacional "
-                    "(Patrimonial) ou lucro_real (Eletrônica). A retenção muda com o regime "
-                    "quando há liminar, e sem essa informação o valor sairia errado."),
+            detail=(
+                "Escolha o regime do emissor antes de calcular: simples_nacional "
+                "(Patrimonial) ou lucro_real (Eletrônica). A retenção muda com o regime "
+                "quando há liminar, e sem essa informação o valor sairia errado."
+            ),
         )
 
     resultado = _tax_agent.calcular_retencoes_nfse(
@@ -527,6 +542,50 @@ async def verificar_limite_simples(
     )
 
 
+async def _buscar_xml_nfse(db, chave: str, cert_path: str | None) -> str | None:
+    """A NFS-e assinada pelo fisco, pela chave, guardada em `nfse_emitidas_nacional.xml_nfse`.
+
+    Leitura pura (`GET /nfse/{chave}`, mTLS) — não emite, não altera nada no fisco. É a única
+    fonte dos blocos do DANFSe v2.0 que a tabela não tem: endereço do tomador, DPS, código da
+    NBS, tributação federal e IBS/CBS. Falha de rede ou certificado NÃO derruba a impressão:
+    devolve `None` e o DANFSe sai com «-» nos blocos que dependem do XML.
+
+    O fisco **não** serve o PDF: `GET /nfse/DANFSe/{chave}` devolve 404 text/html (a página do
+    IIS), medido em 25/09/2026 contra a produção. Serve o XML; o PDF é desenhado aqui.
+    """
+    import os  # noqa: PLC0415
+
+    from sqlalchemy import text as _sql  # noqa: PLC0415
+
+    try:
+        from modules.government_integrations.core.nfse_nacional import (  # noqa: PLC0415
+            AmbienteNacional,
+            NFSeNacionalManager,
+        )
+
+        mgr = NFSeNacionalManager(
+            ambiente=AmbienteNacional.PRODUCAO,
+            certificado_path=cert_path or os.getenv("CERT_A1_PATH"),
+            certificado_senha=os.getenv("CERT_A1_PASSWORD"),
+        )
+        from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+        fora = await run_in_threadpool(mgr.consultar_nfse, chave)
+    except Exception as exc:  # noqa: BLE001 — imprimir a nota nunca depende do fisco estar de pé
+        logger.warning(f"DANFSe {chave}: XML não veio do ADN ({type(exc).__name__}: {exc})")
+        return None
+    xml = fora.get("xml_nfse")
+    if not xml:
+        logger.info(f"DANFSe {chave}: ADN respondeu '{fora.get('status')}' sem XML.")
+        return None
+    await db.execute(
+        _sql("UPDATE nfse_emitidas_nacional SET xml_nfse = :x WHERE chave_acesso = :c"),
+        {"x": xml, "c": chave},
+    )
+    await db.commit()
+    return xml
+
+
 @router.get("/nfse-emitida/{chave}/danfse", summary="DANFSe (PDF) da NFS-e emitida (portal nacional)")
 async def nfse_emitida_danfse(
     chave: str,
@@ -540,22 +599,38 @@ async def nfse_emitida_danfse(
     from fastapi.responses import Response as _Resp
     from sqlalchemy import text as _t
 
-    from modules.gedeon.services.nfse_danfse_generator import gerar_danfse_de_emitida
+    from modules.gedeon.services.nfse_danfse_generator import garantir_coluna_xml, gerar_danfse_de_emitida
 
-    row = (await db.execute(_t(
-        "SELECT e.chave_acesso, e.numero, e.competencia, e.data_emissao, e.tomador_cnpj, "
-        "e.tomador_nome, e.valor_servicos, e.iss_valor, e.inss_retido, e.valor_liquido, "
-        "e.descricao, e.codigo_servico, emp.cnpj AS emit_cnpj, emp.razao_social AS emit_nome, "
-        "emp.inscricao_municipal AS emit_im "
-        "FROM nfse_emitidas_nacional e LEFT JOIN empresas emp ON emp.id = e.empresa_id "
-        "WHERE e.chave_acesso = :c LIMIT 1"), {"c": chave})).mappings().first()
+    await garantir_coluna_xml(db)
+    row = (
+        (
+            await db.execute(
+                _t(
+                    "SELECT e.chave_acesso, e.numero, e.competencia, e.data_emissao, e.tomador_cnpj, "
+                    "e.tomador_nome, e.valor_servicos, e.iss_aliquota, e.iss_valor, e.inss_retido, "
+                    "e.valor_liquido, e.descricao, e.codigo_servico, e.cancelada, e.xml_nfse, "
+                    "emp.cnpj AS emit_cnpj, emp.razao_social AS emit_nome, "
+                    "emp.inscricao_municipal AS emit_im, emp.certificado_a1_path "
+                    "FROM nfse_emitidas_nacional e LEFT JOIN empresas emp ON emp.id = e.empresa_id "
+                    "WHERE e.chave_acesso = :c LIMIT 1"
+                ),
+                {"c": chave},
+            )
+        )
+        .mappings()
+        .first()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="NFS-e emitida não encontrada")
+    dados = dict(row)
+    if not dados.get("xml_nfse"):
+        dados["xml_nfse"] = await _buscar_xml_nfse(db, chave, dados.get("certificado_a1_path"))
     try:
-        pdf = gerar_danfse_de_emitida(dict(row))
+        pdf = gerar_danfse_de_emitida(dados)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"falha ao gerar DANFSe: {exc}") from exc
     disp = "attachment" if download else "inline"
     nome = f"danfse_{row.get('numero') or chave[:14]}.pdf"
-    return _Resp(content=pdf, media_type="application/pdf",
-                 headers={"Content-Disposition": f'{disp}; filename="{nome}"'})
+    return _Resp(
+        content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'{disp}; filename="{nome}"'}
+    )

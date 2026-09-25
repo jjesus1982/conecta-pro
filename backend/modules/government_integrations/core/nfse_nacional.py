@@ -402,7 +402,11 @@ class NFSeNacionalManager:
         # existe. Ninguém tinha notado: o dicionário estava declarado e nenhum método o
         # usava. O caminho certo é `/dps/{id}`, minúsculo e sem o prefixo `/nfse`.
         "consultar_dps": "/dps/{chave}",
-        "danfse": "/nfse/DANFSe/{chave}",
+        # `/nfse/DANFSe/{chave}` estava declarado aqui e NÃO é rota: medido em 25/09/2026
+        # contra a produção, devolve 404 `text/html` com a página do IIS (o «404 que mente»
+        # descrito em `_get`). O fisco não serve o PDF do DANFSe por API — serve o XML por
+        # `/nfse/{chave}`, e o PDF é desenhado em `gedeon/services/nfse_danfse_generator.py`.
+        # Nenhum método usava a entrada; ficou só a lição.
         "eventos": "/nfse/{chave}/eventos",
     }
 
