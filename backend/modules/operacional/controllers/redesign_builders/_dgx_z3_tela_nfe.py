@@ -1008,11 +1008,36 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
             detail=f"A SEFAZ/emissor não concluiu a transmissão ({ambiente}): {str(e)[:400]}. A nota segue como rascunho.",
         ) from e
 
+    # ── GUARDA DE 5 ANOS — conserto de 25/09/2026 ─────────────────────────────────────────
+    #
+    # Achado pelo oráculo Z2 na varredura final do dia: as notas 5, 6, 7 e 8 estavam com
+    # `xml_path` NULO. O motivo não era permissão de pasta (a de hoje cedo, já consertada) —
+    # é que **esta tela nunca arquivou XML nenhum**.
+    #
+    # A casa tem DOIS caminhos de emissão. O `fiscal_contabil/.../emissor.py` grava o arquivo
+    # com `_guardar_xml`; este aqui fala direto com o `nfe_provider` e só gravava no banco. O
+    # oráculo afirma a regra sobre TODA nota da tabela, sem saber por qual porta ela entrou —
+    # e foi por isso que pegou. Régua que pergunta «como foi feito» não teria pego.
+    #
+    # O XML em `nfes.xml_autorizado` é a cópia que sobrevive e o veredito da SEFAZ é o fato
+    # irreversível; o arquivo é a guarda documental de 5 anos. Por isso `_guardar_xml` NUNCA
+    # levanta: falha de disco vira log, e a nota é gravada do mesmo jeito. Perder o arquivo é
+    # dívida; perder a LINHA da nota é buraco fiscal invisível — e foi assim que nasceram os
+    # buracos 3 e 4 na numeração, hoje de manhã.
+    xml_path = None
+    if r.get("xml_autorizado") and r.get("chave_acesso"):
+        from modules.fiscal_contabil.notas_fiscais.nfe.emissor import _guardar_xml  # noqa: PLC0415
+
+        xml_path = _guardar_xml(
+            so_digitos(cab["emitente_cnpj"]), so_digitos(r["chave_acesso"]), "autorizado", r["xml_autorizado"]
+        )
+
     await db.execute(
         text(
             "UPDATE nfes SET status = CAST(:st AS text), chave_acesso = coalesce(nullif(:ch,''), chave_acesso), "
             " protocolo_autorizacao = nullif(:pr,''), motivo_rejeicao = nullif(:mo,''), "
             " c_stat = nullif(:cs,''), xml_autorizado = nullif(:xml,''), ambiente = :amb, "
+            " xml_path = coalesce(nullif(:xp,''), xml_path), "
             # O CAST está nas DUAS ocorrências de `:st` de propósito. O mesmo parâmetro serve
             # `SET status = :st` (a coluna é varchar) e a comparação com literal aqui (text); o
             # asyncpg deduz os dois tipos e levanta `AmbiguousParameterError: text versus
@@ -1025,6 +1050,7 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
         ),
         {
             "st": r.get("status") or "enviada",
+            "xp": xml_path or "",
             "ch": r.get("chave_acesso") or "",
             "pr": r.get("protocolo") or "",
             "mo": r.get("motivo") or "",
@@ -1514,6 +1540,12 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
             it[f"{chave}_aliquota"] = _aliq_da_linha(linha)
 
     serie = int(dec(payload.get("serie"), "2"))  # 2 = série do Conecta PRO (ver a tela)
+    # `ambiente` é texto de tela ('producao'/'homologacao'); `tp_amb` é o do XML ('1'/'2') e é
+    # o que a SEFAZ e a numeração entendem. A linha da nota guardava SÓ o texto e deixava
+    # `tp_amb` cair no default da coluna ('2'): um rascunho gravado PARA PRODUÇÃO ficava
+    # registrado como homologação. Tudo que lê `tp_amb` — numeração, oráculo Z2, a tarja
+    # «SEM VALOR FISCAL» do DANFE, a conferência de prontidão — lia a coisa errada.
+    tp_amb = COD_AMBIENTE[ambiente]
     cab = {
         **dest,
         "empresa_slug": emp["slug"],
@@ -1534,15 +1566,27 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
     exigir(validar_nfe(cab, itens))
     tot = calcular_totais(itens, cab["valor_frete"])
 
-    numero = int(
-        (
-            await db.execute(
-                text("SELECT coalesce(max(numero), 0) + 1 FROM nfes WHERE emitente_cnpj = :c AND serie = :s"),
-                {"c": emp["cnpj"], "s": serie},
-            )
-        ).scalar()
-        or 1
-    )
+    # ── NUMERAÇÃO: contador declarado, por AMBIENTE — conserto de 25/09/2026 ──────────────
+    #
+    # Achado montando a PRIMEIRA nota de produção de verdade (Villa Dei Fiori). Aqui havia
+    # `SELECT max(numero)+1 FROM nfes WHERE emitente_cnpj=:c AND serie=:s` — sem filtrar
+    # `tp_amb`. As 8 notas de homologação de hoje estavam na mesma série 2, então a primeira
+    # nota de PRODUÇÃO saiu com o número **9**.
+    #
+    # Isso não é cosmético: homologação e produção são numerações INDEPENDENTES para a SEFAZ.
+    # Emitir a primeira em produção como nº 9 abre um vão de 1 a 8 que o fisco cobra —
+    # numeração de NF-e é sequencial e o que falta tem de ser INUTILIZADO formalmente.
+    # Oito inutilizações no primeiro dia, por causa de testes.
+    #
+    # E pior: ignorava `nfe_numeracao`, a tabela que existe para isto e que carrega a guarda
+    # `NUMERACAO_NAO_DECLARADA` — a que impede produção de começar do 1 quando o número real
+    # da empresa está em 10.026. A trava existia e este caminho passava ao lado dela.
+    #
+    # `proximo_numero` reserva de forma ATÔMICA (UPDATE ... RETURNING) por
+    # (cnpj, série, tp_amb) e já recusa quando o contador de produção não foi declarado.
+    from modules.fiscal_contabil.notas_fiscais.nfe.emissor import proximo_numero  # noqa: PLC0415
+
+    numero = await proximo_numero(db, emp["cnpj"], serie, tp_amb)
     nfe_id = (
         await db.execute(
             text(
@@ -1555,15 +1599,16 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
                 " destinatario_ind_ie, modalidade_frete, forma_pagamento, meio_pagamento, "
                 " valor_pagamento, valor_total_produtos, valor_total_icms, valor_total_pis, "
                 " valor_total_cofins, valor_total_frete, valor_total_desconto, valor_total_nota, "
-                " informacoes_complementares, is_zfm, ambiente, criado_por, active, created_at, updated_at) "
+                " informacoes_complementares, is_zfm, ambiente, tp_amb, criado_por, active, created_at, updated_at) "
                 "VALUES (gen_random_uuid(), CAST(:cond AS uuid), 'saida', :fin, 'rascunho', :serie, :num, "
                 " :nat, now(), :ecnpj, :erazao, :eie, 'AM', :ecrt, :slug, CAST(nullif(:cli,'') AS uuid), "
                 " :dcnpj, :drazao, :die, :demail, :duf, :dlog, :dnum, :dbai, :dmun, :dcmun, :dcep, :dind, "
                 " :frete, '0', :meio, :total, :prod, :icms, :pis, :cofins, :vfrete, :desc, :total, "
-                " :info, true, :amb, :quem, true, now(), now()) RETURNING id::text"
+                " :info, true, :amb, :tpamb, :quem, true, now(), now()) RETURNING id::text"
             ),
             {
                 "cond": _COND,
+                "tpamb": tp_amb,
                 "fin": cab["finalidade"],
                 "serie": serie,
                 "num": numero,
