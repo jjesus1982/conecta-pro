@@ -1237,7 +1237,37 @@ async def chatwoot_webhook(
             # de fora.
             # Uma mensagem só, na 8ª: antes disso a resposta chega rápido e o aviso vira
             # ruído. A flag impede repetir a cada anexo da mesma rajada.
-            if _pend == 8 and not await _r.get(f"jl:avisei:conv:{conv_id}"):
+            # 🔴 ESTA ERA A TERCEIRA PORTA, e a pior das três — ela alcançou CLIENTE.
+            #
+            # Medido em 25/09/2026, depois de o Jordan avisar: 6 mensagens entregues ao WhatsApp
+            # em Mirante das Flores, Ideal Serviços e PORTARIA PRIME ARENA — grupos de condomínio,
+            # com síndico e morador dentro, onde ele NÃO tem permissão de falar. Todas o mesmo
+            # aviso de rajada de mídia.
+            #
+            # A causa: este bloco chama `_post_public_reply` DIRETO, e a parede de grupo está
+            # ~30 linhas ABAIXO. As duas portas que eu já havia fechado (`deve_calar` no webhook e
+            # `conversa_e_grupo_calado` em `processar_incoming`) não cobrem este caminho, porque
+            # ele não é resposta do agente — é aviso de progresso do processador de mídia. Eu
+            # tinha fechado as portas por onde o AGENTE fala e deixei aberta a porta por onde o
+            # SISTEMA fala.
+            #
+            # ⚠️ E o gatilho é justamente o que os condomínios fazem todo dia: 8+ fotos numa
+            # rajada. O defeito não era raro — era diário, e só não apareceu antes porque a
+            # captura de grupo tinha um dia de vida.
+            _pode_avisar = True
+            try:
+                from modules.integrations.connectors.whatsapp import grupos as _grpm  # noqa: PLC0415
+
+                if await _grpm.conversa_e_grupo_calado(db, conv_id):
+                    _pode_avisar = False
+                    logger.info("midia: conv=%s é grupo sem permissão de falar — aviso de "
+                                "rajada SUPRIMIDO", conv_id)
+            except Exception as e:  # noqa: BLE001
+                # Na dúvida, CALA: o erro seguro aqui é o silêncio, porque o dano do outro lado
+                # é mensagem nossa aparecendo em grupo de cliente.
+                logger.error("midia: não sei se conv=%s pode falar (%s) — calando", conv_id, e)
+                _pode_avisar = False
+            if _pode_avisar and _pend == 8 and not await _r.get(f"jl:avisei:conv:{conv_id}"):
                 await _r.set(f"jl:avisei:conv:{conv_id}", "1", ex=1800)
                 from modules.integrations.connectors.whatsapp.agent_service import (  # noqa: PLC0415
                     _post_public_reply,

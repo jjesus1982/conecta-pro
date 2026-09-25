@@ -312,8 +312,28 @@ _SINAIS = (
     # `mention://contact/` — e meu classificador chamou de `tom`, o que o tornaria invisível no
     # resumo. Quem menciona alguém está pedindo ação dele; nenhuma régua de vocabulário pega
     # isso porque a palavra que importa é o NOME de quem foi chamado.
+    # 🔴 PROBLEMA DE PONTO — a classe que faltava, e a falta custou um relato perdido.
+    # Medido em 25/09: o Ediwilson escreveu no OPERACIONAL "fui bater meu ponto de saída deu como
+    # entrada", mencionou o Jordan E o Orlailson, e caiu em `tom` — invisível no resumo, ninguém
+    # tratou. É o pior tipo de miss: o agente de portaria fez a coisa certa (relatou na hora, aos
+    # dois supervisores) e o sistema engoliu.
+    #
+    # Vem ANTES de `pessoal` de propósito: "atestado" é pessoal, mas "não consegui bater" é
+    # PROBLEMA OPERACIONAL a resolver, e tratar como dado pessoal o esconderia do grupo onde ele
+    # precisa ser resolvido.
+    ("problema_ponto", re.compile(
+        r"(bat(i|er|ida|endo)|ponto|marca[çc][ãa]o)[^.!?\n]{0,40}"
+        r"(errad|deu como|nao |não |trocad|duplicad|duas vezes|nao registr|não registr|"
+        r" n[ãa]o (foi|pegou|abriu|funcionou)|falh|travou)"
+        r"|(nao|não) consegui[^.!?\n]{0,25}(bater|marcar|registrar)"
+        r"|(app|aplicativo|facial|leitor)[^.!?\n]{0,30}(nao|não|erro|falh|travou|fora do ar)"
+        r"|contingenc", re.I)),
     ("solicitacao", re.compile(
-        r"mention://contact/|\b(solicit|urgen|preciso que|pode(ria)? (ver|pedir|providenciar)|"
+        # ⚠️ TAMBÉM o `@<dígitos>` cru. A menção do Chatwoot vem como `mention://contact/…`, mas
+        # quando o WhatsApp entrega o LID direto o texto traz só `@134286564950018` — e era esse
+        # o formato do relato do Ediwilson. Régua que só conhece um formato de menção perde o
+        # outro, e eu já sabia que o LID aparece em três lugares diferentes nesta casa.
+        r"mention://contact/|@\d{10,20}\b|\b(solicit|urgen|preciso que|pode(ria)? (ver|pedir|providenciar)|"
         r"fardament|uniforme|material|providenci)", re.I)),
     ("pendencia", re.compile(
         r"\bpendente\b|\bcobrar\b|\bat[ée] (hoje|amanh[ãa]|segunda|sexta)\b|\bprazo\b|"

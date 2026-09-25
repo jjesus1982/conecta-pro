@@ -792,34 +792,39 @@ app.conf.beat_schedule = {
     # do cliente e ficou sem resposta. Transforma "sumiu" em "atrasou" — ver
     # whatsapp.varrer_sem_resposta.
     # ── TROCA DE TURNO — os três tempos (Jordan, 24/09/2026) ───────────────────────────────
-    # ⚠️ TODO `crontab` AQUI É UTC, e a operação é Manaus (UTC-4). Errar isso põe a pergunta da
-    # véspera às 14h e o lembrete depois do turno já ter começado — o defeito seria invisível
-    # para mim e óbvio para quem recebe a mensagem na hora errada.
-    #   véspera 18:00 Manaus = 22:00 UTC
+    # 🔴 O CRONTAB AQUI É **MANAUS**, NÃO UTC — `app.conf.timezone = "America/Manaus"`.
+    #
+    # Eu escrevi estes três convertendo para UTC e comentei isso no código como se fosse
+    # verdade. Não é: o Celery já resolve em Manaus. O resultado medido em 24/09 — o beat da
+    # véspera não disparou às 18:00, porque eu havia pedido 22:00, e o agente ficou parecendo
+    # que a rotina não existia. Verificar `app.conf.timezone` custava uma linha e eu supus.
+    #
+    # ⚠️ O pior dos três era o LEMBRETE: `hour="9-11"` cobraria quem não confirmou às 9h–11h,
+    # DEPOIS dos turnos de 06h e 07h já terem começado. Inútil por desenho, e o sintoma seria
+    # "o lembrete não serve para nada" em vez de "o horário está errado".
     "whatsapp-turno-pedir-confirmacao": {
         "task": "whatsapp.turno_pedir_confirmacao",
-        "schedule": crontab(hour=22, minute=0),
+        "schedule": crontab(hour=18, minute=0),  # 18:00 Manaus
     },
-    #   lembrete: roda de 15 em 15 entre 04:00 e 07:00 UTC (00:00–03:00 Manaus)? NÃO —
-    #   o turno é 06/07h MANAUS = 10/11h UTC, e o lembrete é 1h antes: 09:00–11:00 UTC.
-    #   A própria task só age em quem está a ~1h de assumir, então rodar de 15 em 15 é barato
-    #   e tolera atraso de fila sem perder ninguém.
+    #   lembrete: de 15 em 15 entre 04:00 e 07:00 MANAUS — os turnos são 06h e 07h e o
+    #   lembrete é ~1h antes. A task só age em quem está a ~1h de assumir, então rodar de 15 em
+    #   15 é barato e tolera atraso de fila sem perder ninguém.
     "whatsapp-turno-lembrar-15min": {
         "task": "whatsapp.turno_lembrar",
-        "schedule": crontab(minute="*/15", hour="9-11"),
+        "schedule": crontab(minute="*/15", hour="4-7"),  # 04:00–07:59 Manaus
     },
     #   cobertura: 08:30 Manaus = 12:30 UTC — depois das duas trocas (06h e 07h), com folga
     #   para batida atrasada entrar na conta.
     "whatsapp-turno-cobertura": {
         "task": "whatsapp.turno_fechar_cobertura",
-        "schedule": crontab(hour=12, minute=30),
+        "schedule": crontab(hour=8, minute=30),  # 08:30 Manaus
     },
     # Rede de segurança PARA GRUPO: só menção ao José Luís que ficou sem resposta. A de
     # 2 minutos (`varrer_sem_resposta`) exclui grupo de propósito — ver a task.
-    # Retenção: 07:10 UTC = 03:10 Manaus. Longe do pico e antes dos oráculos das 05:00.
+    # Retenção: 03:10 MANAUS. Longe do pico e antes dos oráculos das 05:00.
     "whatsapp-expurgar-grupos-diario": {
         "task": "whatsapp.expurgar_grupos",
-        "schedule": crontab(hour=7, minute=10),
+        "schedule": crontab(hour=3, minute=10),
     },
     "whatsapp-varrer-grupos-mencao-3min": {
         "task": "whatsapp.varrer_grupos_mencao",

@@ -1344,3 +1344,119 @@ async def registrar_ajuste_de_escala(db: AsyncSession, *, relato: str, quem_rela
         gate="🟡", requires_otp=False, roles_aprovador=ROLES_KIT_OP,
         idempotency_key=f"ajuste_escala:{(posto or 'sem_posto')}:{dia}:{hash(txt) % 10**8}",
     )
+
+
+#: Jornada que "excede" o limite por ARREDONDAMENTO, não por excesso real. Medido em 25/09/2026:
+#: das 159 `jornada_excedida` de setembro, **67 diziam "Jornada de 12.0h excede limite 12h"** —
+#: doze horas exatas acusadas de violar um limite de doze horas. Outras 47 eram 12.1h, que é o
+#: tempo de bater o ponto e sair. Todas com gravidade ALTA.
+#:
+#: 🔴 159 falsos em 237 é a razão pela qual ninguém trata essa lista: o alarme soa sempre. Tolero
+#: até 20 min porque o turno 12x36 real tem margem de bater antes e depois; acima disso é jornada
+#: de verdade e continua sendo apontada.
+TOLERANCIA_JORNADA_MIN = 20
+
+
+async def inconsistencias_reais(db: AsyncSession, *, desde: str | None = None) -> dict[str, Any]:
+    """As inconsistências de ponto que são PROBLEMA, separadas do ruído da régua.
+
+    ⭐ Nasceu de uma medição que corrige um número que o agente vinha reportando ao Jordan como
+    grande. De 237 em setembro:
+
+        159  jornada "excedida" por 0 a 20 min (67 delas por 0.0 min) → RUÍDO DE RÉGUA
+         17  ponto em aberto de HOJE (a pessoa está no turno, não saiu) → NORMAL
+         60  ponto em aberto de dias PASSADOS → **o problema real**
+          1  intrajornada
+
+    "237 inconsistências" faz o supervisor ignorar. "Erika, 7 dias sem saída registrada" ele
+    resolve hoje. O valor desta função é a subtração, não a soma.
+    """
+    from collections import Counter  # noqa: PLC0415
+    from datetime import date as _date  # noqa: PLC0415
+
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    from core.database.session import SyncSessionLocal  # noqa: PLC0415
+    from modules.people_management.ponto.services import dashboard_service as _ds  # noqa: PLC0415
+
+    ini = desde or _date.today().replace(day=1).isoformat()
+    fim = _date.today().isoformat()
+
+    def _ler():
+        with SyncSessionLocal() as s:
+            return _ds.get_inconsistencias(s, ini, fim)["items"]
+
+    try:
+        itens = await run_in_threadpool(_ler)
+    except Exception as e:  # noqa: BLE001
+        logger.error("inconsistencias_reais falhou (%s)", e)
+        return {"erro": "não consegui ler as inconsistências agora"}
+
+    hoje = fim
+    ruido_jornada, em_curso, reais, outros = 0, 0, [], []
+    for x in itens:
+        t, desc = x.get("tipo"), str(x.get("descricao") or "")
+        if t == "jornada_excedida":
+            # "Jornada de 12.1h excede limite 12h" → extrai as duas e compara em minutos.
+            nums = re.findall(r"(\d+(?:[.,]\d+)?)\s*h", desc)
+            if len(nums) >= 2:
+                feita, limite = (float(n.replace(",", ".")) for n in nums[:2])
+                if (feita - limite) * 60 <= TOLERANCIA_JORNADA_MIN:
+                    ruido_jornada += 1
+                    continue
+        if t == "ponto_em_aberto" and str(x.get("data")) == hoje:
+            em_curso += 1
+            continue
+        (reais if t == "ponto_em_aberto" else outros).append(x)
+
+    por_pessoa = Counter(x["employee_nome"] for x in reais)
+    recorrentes = [{"quem": n, "dias": c} for n, c in por_pessoa.most_common() if c >= 3]
+    return {
+        "periodo": f"{ini} a {fim}",
+        "total_bruto": len(itens),
+        "descartado_ruido_de_regua": ruido_jornada,
+        "descartado_turno_em_curso": em_curso,
+        "problema_real": len(reais) + len(outros),
+        "sem_saida_registrada": len(reais),
+        "outros_tipos": [{"tipo": x["tipo"], "quem": x["employee_nome"], "dia": str(x["data"]),
+                          "o_que": str(x["descricao"])[:90]} for x in outros[:6]],
+        "recorrentes_3_dias_ou_mais": recorrentes,
+        "leia_assim": (
+            f"de {len(itens)} apontamentos do período, {ruido_jornada} eram jornada 'excedida' por "
+            f"até {TOLERANCIA_JORNADA_MIN}min (muitos por ZERO minuto — arredondamento acusando o "
+            f"turno de ser 12h) e {em_curso} eram turno em curso. O que se trata são "
+            f"{len(reais) + len(outros)}. NUNCA reporte o número bruto: ele faz o supervisor "
+            f"ignorar a lista inteira."),
+    }
+
+
+async def abrir_pendencia_recorrente(db: AsyncSession, *, quem: str, dias: int,
+                                     periodo: str) -> dict[str, Any]:
+    """Abre pendência de DP para quem repete falta de batida. Idempotente por pessoa+semana.
+
+    ⚠️ Idempotente por SEMANA e não por dia: o padrão se resolve numa conversa, não numa
+    cobrança diária. Abrir todo dia transformaria a pendência em ruído — o mesmo defeito que eu
+    acabei de medir nas 159 jornadas falsas.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from modules.ai.conversation.services.orquestrador.acoes.base import ROLES_KIT_OP  # noqa: PLC0415
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import criar_rascunho  # noqa: PLC0415
+
+    emp = (await db.execute(text(
+        "SELECT id::text, nome FROM employees WHERE unaccent(lower(nome)) = unaccent(lower(:n)) LIMIT 1"),
+        {"n": quem})).first()
+    semana = (await db.execute(text("SELECT to_char(now(), 'IYYY-IW')"))).scalar()
+    return await criar_rascunho(
+        db, SimpleNamespace(id=None, nome="José Luís (monitoramento)", name="José Luís"),
+        tipo="pendencia_ponto", modulo="people_management",
+        titulo=f"{quem}: {dias} dias sem saída registrada — verificar app/aparelho",
+        resumo=(f"Detectado pelo monitoramento do ponto em {periodo}: {dias} dias com ENTRADA "
+                f"registrada e SEM SAÍDA. Padrão recorrente não é esquecimento pontual — é "
+                f"aparelho, hábito ou o app fechando antes de confirmar. Cobrar no grupo não "
+                f"resolve nenhum dos três. Verificar com a pessoa e com o dispositivo."),
+        payload={"quem": quem, "dias_sem_saida": dias, "periodo": periodo,
+                 "employee_id": emp[0] if emp else None, "origem": "monitoramento_jose_luis"},
+        gate="🟡", requires_otp=False, roles_aprovador=ROLES_KIT_OP,
+        idempotency_key=f"ponto_recorrente:{quem}:{semana}",
+    )
