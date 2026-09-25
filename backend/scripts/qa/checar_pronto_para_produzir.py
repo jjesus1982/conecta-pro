@@ -230,6 +230,42 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — é uma lista de conferên
                 f"{e['slug']}: endereço do emitente completo ({e['logr']}, {e['num']} — {e['bairro']}, CEP {e['cep']})"
             )
 
+    # ── município do tomador: o padrão «Manaus» é uma mina que ainda não explodiu ────────
+    #
+    # `nfse_emissao.py` faz `tomador.get("municipio") or "Manaus"` e `or "AM"`. Para uma casa
+    # de Manaus é defensável — e hoje é inofensivo, porque os 2 clientes de fora (Iranduba e
+    # Rio Preto da Eva) TÊM município preenchido e os que não têm são de Manaus mesmo.
+    #
+    # Mas município do tomador pode decidir ONDE O ISS É DEVIDO. No dia em que alguém
+    # cadastrar um cliente de outro município sem preencher o campo, a NFS-e vai dizer
+    # «Manaus/AM» em silêncio e o imposto vai para a prefeitura errada. Isso não se descobre
+    # olhando a nota: ela sai bonita.
+    #
+    # Não recuso a emissão aqui de propósito: a NFS-e é o documento que traz a receita desta
+    # casa, e quebrar esse caminho por um risco que ainda não existe é pior que vigiá-lo. Mas
+    # deixar sem vigia é como o defeito ficou meses escondido em todos os outros casos de hoje.
+    sem_municipio = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM clients WHERE coalesce(address_city,'') = ''"
+                " AND coalesce(name,'') NOT ILIKE '%HOMOLOGACAO%'"
+                " AND coalesce(name,'') NOT ILIKE '%CONECTA MAIS - SEGURANCA%'"
+            )
+        )
+    ).scalar()
+    if sem_municipio:
+        faltam.append(
+            (
+                DONO,
+                f"{sem_municipio} cliente(s) sem município no cadastro — a NFS-e assume «Manaus/AM»",
+                "município do tomador pode decidir onde o ISS é devido. Para cliente de Manaus o "
+                "padrão acerta; para cliente de fora, a nota sai bonita e o imposto vai para a "
+                "prefeitura errada, em silêncio.",
+            )
+        )
+    else:
+        ok.append("todos os clientes com município no cadastro (a NFS-e não precisa supor)")
+
     print("PRONTO:")
     for o in ok:
         print(f"   ok  {o}")
