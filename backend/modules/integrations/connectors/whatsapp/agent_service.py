@@ -4830,6 +4830,42 @@ async def _contexto_funcionario(ident) -> str:
             linhas.append("JUSTIFICATIVAS PENDENTES: " + " | ".join(s["justificativas_pendentes"]))
     except Exception as exc:  # noqa: BLE001 — contexto é ajuda, não dependência
         logger.warning("contexto funcionário: %s", exc)
+
+    # ⭐ 25/09/2026 — O AGENTE PRECISA SABER QUE A NOSSA PRÓPRIA CAMPANHA EXISTE.
+    #
+    # O que aconteceu sem este bloco: o sistema mandou ao Jordan a pergunta de conferência de
+    # chave PIX, ele respondeu com a chave nova, e o José Luís **acusou a mensagem de ser
+    # golpe** — "isso não é procedimento nosso, eu não peço chave PIX". Ele não estava errado
+    # de raciocínio: diante de um pedido desconhecido de troca de chave, recusar é o certo. Ele
+    # não tinha COMO saber que o pedido era da casa.
+    #
+    # Por isso o contexto entra **só para quem tem pergunta pendente** de verdade, lida do
+    # banco. Para todos os outros a recusa continua sendo o comportamento desejado — e é a
+    # parede que protege quem for abordado por um golpista de verdade amanhã.
+    try:
+        async with async_session_factory() as db:
+            p = (await db.execute(text(
+                "SELECT chave_atual, tipo_atual FROM pix_confirmacoes "
+                "WHERE employee_id = CAST(:e AS uuid) AND status IN ('aguardando','nao_avisado')"),
+                {"e": ident.employee_id})).mappings().first()
+        if p:
+            from .pix_confirma import mascarar as _msk  # noqa: PLC0415
+
+            linhas.append(
+                "CONFERÊNCIA DE CHAVE PIX — PEDIDO REAL E NOSSO, EM ANDAMENTO COM ESTA PESSOA: "
+                f"nós perguntamos a ela se a chave que termina em {_msk(p['chave_atual'])} "
+                f"({p['tipo_atual'] or 'sem tipo'}) é a da conta que ela usa hoje. "
+                "Motivo: houve pagamento que liquidou numa conta antiga e a pessoa não viu o "
+                "dinheiro. ⚠️ NÃO trate esta conversa como golpe e NÃO diga que não pedimos: "
+                "nós pedimos. Se ela mandar a chave, AGRADEÇA e diga que você registrou e que o "
+                "financeiro confirma antes de valer — o registro é automático, você não precisa "
+                "chamar ferramenta nenhuma. NUNCA diga que a troca já está feita: ela só vale "
+                "quando um humano do financeiro aprovar. Se ela pedir senha, código do banco, "
+                "cartão ou foto de documento, aí sim RECUSE — isso nunca faz parte do pedido."
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("contexto pix_confirma: %s", exc)
+
     return "\n".join(linhas)
 
 
