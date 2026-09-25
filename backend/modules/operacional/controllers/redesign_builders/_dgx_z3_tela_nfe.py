@@ -66,6 +66,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import CurrentActiveUser, require_permission
@@ -333,6 +334,54 @@ def validar_justificativa(texto: str | None) -> str:
     if len(j) > 255:
         raise HTTPException(status_code=422, detail="A justificativa passa de 255 caracteres (limite da SEFAZ).")
     return j
+
+
+def _linha_de(calc: dict, rotulo: str) -> dict | None:
+    """A linha de PIS ou de COFINS no cálculo da régua Z4.
+
+    Compara pelo COMEÇO do rótulo porque a régua junta os dois numa linha só no caso da ZFM
+    («PIS / COFINS», CST 06, alíquota zero). Comparar por igualdade perdia esse caso e caía
+    no padrão — e o padrão, CST 07, não é a mesma coisa que CST 06 no XML.
+    """
+    alvo = rotulo.lower()
+    for x in calc.get("linhas") or []:
+        r = str(x.get("rotulo") or "").lower()
+        if r == alvo or r.startswith(alvo + " /") or alvo in r.split(" / "):
+            return x
+    return None
+
+
+def _cst_da_linha(linha: dict | None) -> str:
+    """CST de PIS/COFINS a partir da linha da régua Z4 — ou «07» (isenta), o padrão dela.
+
+    A linha traz o CST dentro de `origem_regra`, em texto («CST 09 — suspenso por decisão
+    judicial»), porque ela foi escrita para uma TELA ler. Aqui ele é extraído para ir ao XML.
+    Ler o número de dentro da frase é feio; a alternativa era duplicar a regra de PIS/COFINS
+    deste lado, e duplicar regra fiscal é pior que um regex.
+
+    ⚠️ ESCRITO ERRADO NA PRIMEIRA VEZ, e o defeito era silencioso: eu li `linha["origem"]`,
+    que não existe — a chave é `origem_regra`. `.get()` devolveu None, o regex não casou, e a
+    função caiu no padrão «07». A NF-e 5/2 de homologação saiu com **PIS/COFINS CST 07** em
+    vez do **CST 09** da liminar (processo 1038495-94.2024.4.01.3200). Valor zero nos dois
+    casos, então nenhum total denunciava; o que muda é o que a nota DECLARA ao fisco — 07 é
+    «operação isenta», 09 é «exigibilidade suspensa por decisão judicial». Declarar isenção
+    onde há liminar é abrir mão do fundamento e enfraquecer o próprio processo.
+    """
+    import re as _re  # noqa: PLC0415
+
+    m = _re.search(r"CST\s*(\d{2})", str((linha or {}).get("origem_regra") or ""))
+    return m.group(1) if m else "07"
+
+
+def _aliq_da_linha(linha: dict | None) -> float:
+    """Alíquota da linha da régua (o `valor` das linhas de PIS/COFINS é a ALÍQUOTA, em %).
+
+    Ausente = 0. Nunca «a alíquota de sempre»: alíquota presumida é imposto pago a mais.
+    """
+    try:
+        return float((linha or {}).get("valor") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def calcular_totais(itens: list[dict], valor_frete=0) -> dict:
@@ -621,14 +670,22 @@ async def carregar_nota(db: AsyncSession, nfe_id: str) -> tuple[dict, list[dict]
             "pis_aliquota": x[11],
             "cofins_cst": x[12],
             "cofins_aliquota": x[13],
+            "icms_csosn": x[14],
+            "icms_origem": x[15],
+            "icms_base_calculo": x[16],
+            "icms_valor": x[17],
         }
         for x in (
             await db.execute(
                 text(
                     "SELECT codigo_produto, descricao, ncm, cfop, unidade, quantidade, valor_unitario, "
-                    " coalesce(valor_desconto,0), coalesce(icms_cst,'40'), coalesce(icms_aliquota,0), "
+                    # ⚠️ SEM `coalesce(icms_cst,'40')`. O default mascarava item gravado sem
+                    # CST: a nota ia à SEFAZ com CST 40 (isenta) que ninguém decidiu. Item sem
+                    # CST tem de CHEGAR vazio ao emissor, para ele recusar — e ele recusa.
+                    " coalesce(valor_desconto,0), coalesce(icms_cst,''), coalesce(icms_aliquota,0), "
                     " coalesce(pis_cst,'07'), coalesce(pis_aliquota,0), coalesce(cofins_cst,'07'), "
-                    " coalesce(cofins_aliquota,0) "
+                    " coalesce(cofins_aliquota,0), coalesce(icms_csosn,''), coalesce(icms_origem,'0'), "
+                    " coalesce(icms_base_calculo,0), coalesce(icms_valor,0) "
                     "FROM nfe_itens WHERE nfe_id::text = :i ORDER BY numero_item"
                 ),
                 {"i": nfe_id},
@@ -738,13 +795,36 @@ async def _empresas(db: AsyncSession) -> list[dict]:
 
 
 async def _produtos(db: AsyncSession) -> tuple[list[dict], str]:
-    """(produtos, fonte). `fin_produtos` (frente Z1) quando existir; senão o estoque vivo."""
+    """(produtos, fonte). `fin_produtos` (frente Z1) quando existir; senão o estoque vivo.
+
+    ⚠️ CONSERTO DE 25/09/2026 — esta função NUNCA tinha usado o cadastro fiscal.
+
+    Ela pedia `unidade` e `preco_venda`. A tabela tem `unidade_comercial`, e **não tem preço de
+    venda nenhum** — por decisão do dono em 24/09: *«nos produtos cadastrados, deixem sem valor,
+    quando eu for fazer os orçamentos eu edito o preço, porque os preços variam muito»*. Duas
+    colunas com nome errado, `UndefinedColumnError` a cada carregamento da tela, e o
+    `except Exception` engolindo tudo e caindo calado no estoque de COMPRAS.
+
+    O estrago não era cosmético. `fin_produtos` tem 95 produtos com dado FISCAL de verdade —
+    NCM conferido, CST, CFOP padrão dentro e fora da UF, CEST, origem. `nfe_compras_estoque` tem
+    o NCM que o FORNECEDOR escreveu na nota de compra dele. A tela emitia com o segundo e
+    ANUNCIAVA isso como se fosse verdade: «cadastro fiscal próprio ainda não existe, então o NCM
+    é o da última compra». O cadastro existia. A tela é que não conseguia lê-lo.
+
+    Pior ainda para quem lê o orçamento anexado: `casar_produtos` (frente Z5) sempre leu
+    `fin_produtos` corretamente. Então o leitor casava contra 95 produtos e a tela oferecia 147
+    outros — o código que voltava do casamento podia nem existir na lista do `<select>`.
+
+    O `except` continua, porque `fin_produtos` de fato não existe em toda base (a Z1 é recente),
+    mas agora ele é ESTREITO e FALA. Exceção larga e muda foi o que escondeu isto.
+    """
     try:
         rows = (
             await db.execute(
                 text(
                     "SELECT coalesce(codigo,id::text), descricao, coalesce(ncm,''), "
-                    " coalesce(unidade,'UN'), coalesce(preco_venda, 0) "
+                    " coalesce(unidade_comercial,'UN'), coalesce(icms_entrada_cst,''), "
+                    " coalesce(icms_entrada_fonte,''), coalesce(origem,'0') "
                     "FROM fin_produtos WHERE coalesce(ativo, true) ORDER BY descricao LIMIT 400"
                 )
             )
@@ -752,13 +832,29 @@ async def _produtos(db: AsyncSession) -> tuple[list[dict], str]:
         if rows:
             return (
                 [
-                    {"codigo": r[0], "descricao": r[1], "ncm": so_digitos(r[2]), "unidade": r[3], "preco": r[4]}
+                    # sem `preco`: o catálogo fiscal não guarda preço de venda, e inventar 0,00
+                    # aqui seria oferecer um preço que ninguém decidiu.
+                    {
+                        "codigo": r[0],
+                        "descricao": r[1],
+                        "ncm": so_digitos(r[2]),
+                        "unidade": r[3],
+                        "preco": None,
+                        # O FATO fiscal viaja com o produto: como a mercadoria ENTROU é o que
+                        # decide CFOP e CST da saída, e sem ele a régua da Z4 recusa — que é o
+                        # certo. Antes o catálogo parava na descrição e o fato não chegava.
+                        "icms_entrada_cst": r[4],
+                        "icms_entrada_fonte": r[5],
+                        "origem": r[6],
+                    }
                     for r in rows
                 ],
                 "fin_produtos",
             )
-    except Exception:  # noqa: BLE001 — a tabela da Z1 ainda não existe nesta base
+        logger.warning("[z3] fin_produtos existe e está VAZIA — caindo no estoque de compras")
+    except ProgrammingError as e:  # tabela/coluna ausente — e agora aparece no log
         await db.rollback()
+        logger.warning("[z3] não consegui ler fin_produtos (%s) — caindo no estoque de compras", e)
     rows = (
         await db.execute(
             text(
@@ -769,7 +865,21 @@ async def _produtos(db: AsyncSession) -> tuple[list[dict], str]:
         )
     ).fetchall()
     return (
-        [{"codigo": r[0], "descricao": r[1], "ncm": so_digitos(r[2]), "unidade": r[3], "preco": r[4]} for r in rows],
+        [
+            {
+                "codigo": r[0],
+                "descricao": r[1],
+                "ncm": so_digitos(r[2]),
+                "unidade": r[3],
+                "preco": r[4],
+                # o estoque de COMPRAS não sabe como a mercadoria entrou para efeito de saída:
+                # vazio, e a régua da Z4 recusa com mensagem que ensina. Não se inventa CST.
+                "icms_entrada_cst": "",
+                "icms_entrada_fonte": "",
+                "origem": "0",
+            }
+            for r in rows
+        ],
         "nfe_compras_estoque",
     )
 
@@ -857,9 +967,24 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
                 "quantidade": float(it["quantidade"] or 0),
                 "valor_unitario": float(it["valor_unitario"] or 0),
                 "desconto": float(it["valor_desconto"] or 0),
-                "icms_situacao": it["icms_cst"],
-                "pis_situacao": it["pis_cst"],
-                "cofins_situacao": it["cofins_cst"],
+                # ⚠️ NOMES EXATOS do que `nfe_provider._montar_nfe()` lê. Eram
+                # `icms_situacao`/`pis_situacao`/`cofins_situacao` — chaves que o emissor
+                # NUNCA leu. O resultado era `cst` vazio e a recusa «Item 1 sem CST/CSOSN de
+                # ICMS» em toda emissão desta tela, homologação inclusive. Chave com nome
+                # parecido é pior que chave ausente: o dicionário fica gordo e a leitura vem
+                # vazia, e nada no caminho reclama até o fim.
+                "icms_cst": it.get("icms_cst") or "",
+                "icms_csosn": it.get("icms_csosn") or "",
+                "icms_origem": it.get("icms_origem") or "0",
+                "icms_aliquota": it.get("icms_aliquota") or 0,
+                "icms_base_calculo": it.get("icms_base_calculo"),
+                "icms_valor": it.get("icms_valor") or 0,
+                "icms_desonerado": it.get("icms_desonerado") or 0,
+                "icms_motivo_desoneracao": it.get("icms_motivo_desoneracao") or "",
+                "pis_cst": it.get("pis_cst") or "07",
+                "pis_aliquota": it.get("pis_aliquota") or 0,
+                "cofins_cst": it.get("cofins_cst") or "07",
+                "cofins_aliquota": it.get("cofins_aliquota") or 0,
             }
             for it in itens
         ],
@@ -1107,35 +1232,62 @@ async def rd_nfe_ler_orcamento(
 
     # O 1º item vai nos campos soltos; o resto no JSON de itens adicionais — é o formato que
     # `rd_nfe_nova` já consome, sem tocar no emissor.
+    # NCM só do produto que CASOU. `ncm_sugerido` é «o NCM do produto mais parecido» — e
+    # parecido não é o mesmo. Eu cheguei a escrever `ncm or ncm_sugerido` aqui e é um erro
+    # da mesma família do CEP que quase gravei hoje: campo PREENCHIDO com o valor provável
+    # convence quem confere; campo VAZIO pergunta. Um NCM errado que parece certo é a
+    # rejeição da SEFAZ de 11/04/2026 («Informado NCM inexistente») esperando a vez — ou,
+    # pior que rejeição, uma nota AUTORIZADA com classificação fiscal errada.
+    # A sugestão não se perde: vai no aviso, em texto, para a pessoa decidir.
+    def _br(v, casas: int = 2) -> str:
+        """Decimal → texto que uma PESSOA lê num campo de dinheiro, no formato daqui.
+
+        `str(Decimal)` devolve «320.0000000000» num campo cujo exemplo é «450,00», e
+        `Decimal.normalize()` chega a devolver «4E+1» para 40. Nenhum dos dois é errado como
+        número e os dois são errados como TELA: quem confere um valor de nota lê vírgula e
+        duas casas. O `dec()` do formulário aceita as duas formas, então o que decide aqui é
+        a leitura, não o parser.
+        """
+        from decimal import ROUND_HALF_UP  # noqa: PLC0415
+
+        d = z5.para_decimal(v, 10)
+        if casas == 0:  # quantidade: 4.0000 → «4», 1.5000 → «1,5»
+            texto = format(d.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP).normalize(), "f")
+        else:
+            texto = format(d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
+        return texto.replace(".", ",")
+
+    def _campos_do_item(i: dict) -> dict:
+        casou = bool(i.get("produto_id"))
+        return {
+            "codigo": (i.get("produto_codigo") or "") if casou else "",
+            "descricao": i["descricao"],
+            "ncm": (i.get("ncm") or "") if casou else "",
+            "unidade": i.get("unidade") or "UN",
+            "quantidade": _br(i["quantidade"], 0),
+            "valor_unitario": _br(i["valor_unitario"]),
+        }
+
     p, *resto = itens
+    prim = _campos_do_item(p)
     campos = {
-        "descricao": p["descricao"],
-        "ncm": p.get("ncm") or p.get("ncm_sugerido") or "",
-        "unidade": p.get("unidade") or "UN",
-        "quantidade": str(p["quantidade"]),
-        "valor_unitario": str(p["valor_unitario"]),
-        # `produto` é um <select> do cadastro fiscal: só preenche quando o casamento foi
-        # CERTO. Item que não casou fica sem produto e a pessoa escolhe — NCM chutado foi
-        # exatamente a rejeição da SEFAZ de 11/04/2026 («NCM inexistente»).
-        "produto": (p.get("produto_codigo") or "") if p.get("produto_id") else "",
-        "itens_extras": json.dumps(
-            [
-                {
-                    "codigo": i.get("produto_codigo") or "",
-                    "descricao": i["descricao"],
-                    "ncm": i.get("ncm") or i.get("ncm_sugerido") or "",
-                    "unidade": i.get("unidade") or "UN",
-                    "quantidade": float(i["quantidade"]),
-                    "valor_unitario": float(i["valor_unitario"]),
-                }
-                for i in resto
-            ],
-            ensure_ascii=False,
-        ),
+        "descricao": prim["descricao"],
+        "ncm": prim["ncm"],
+        "unidade": prim["unidade"],
+        "quantidade": prim["quantidade"],
+        "valor_unitario": prim["valor_unitario"],
+        # `produto` é o <select> do cadastro fiscal: só preenche quando o casamento foi CERTO.
+        "produto": prim["codigo"],
+        "itens_extras": json.dumps([_campos_do_item(i) for i in resto], ensure_ascii=False),
     }
     sem_produto = [i for i in itens if not i.get("produto_id")]
     total = sum(float(i["valor_total"]) for i in itens)
     m = z5.para_decimal(markup, 4)
+    # A sugestão de NCM não some — ela sai do campo e vai para o TEXTO, onde é lida como
+    # sugestão e não confundida com dado conferido.
+    sugestoes = [
+        f"«{i['descricao'][:30]}» talvez NCM {i['ncm_sugerido']}" for i in sem_produto if i.get("ncm_sugerido")
+    ]
     return {
         "ok": True,
         "campos": campos,
@@ -1143,7 +1295,7 @@ async def rd_nfe_ler_orcamento(
         "aviso": (
             f"{len(itens)} item(ns), total R$ {total:,.2f}".replace(",", "·").replace(".", ",").replace("·", ".")
             + (
-                f" · markup de {m}% aplicado sobre o custo do fornecedor"
+                f" · markup de {_br(m, 0)}% aplicado sobre o custo do fornecedor"
                 if m > 0
                 else " · SEM markup (preço do arquivo)"
             )
@@ -1152,6 +1304,7 @@ async def rd_nfe_ler_orcamento(
                 if sem_produto
                 else ""
             )
+            + (f" · sugestões: {'; '.join(sugestoes[:3])}" if sugestoes else "")
         ),
     }
 
@@ -1274,6 +1427,81 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
             }
         )
 
+    # ═════════════════════════════════════════════════════════════════════════════════════
+    # A TRIBUTAÇÃO DE CADA ITEM VEM DA RÉGUA DA Z4 — conserto de 25/09/2026
+    #
+    # Até hoje esta tela NUNCA emitiu uma NF-e, e o motivo era invisível: o `INSERT INTO
+    # nfe_itens` gravava `icms_cst = '40'` fixo, e o `nfe_data` entregava a chave
+    # `icms_situacao` a um emissor que lê `icms_cst`. Nome diferente = campo vazio = o
+    # provider recusava com «Item 1 sem CST/CSOSN de ICMS» em TODA tentativa, inclusive em
+    # homologação. Só apareceu quando se tentou emitir de ponta a ponta pela tela.
+    #
+    # Os dois defeitos apontam para o mesmo erro de fundo: a tela estava ESCOLHENDO
+    # tributação (o '40' fixo) em vez de perguntar à régua. Agora ela pergunta, item a item,
+    # a `tributacao_nfe.calcular()` — a mesma função que o simulador e o oráculo Z4 usam. Se
+    # a régua recusa (mercadoria sem fonte de entrada conhecida), a nota nem é gravada: a
+    # recusa sobe como 422 que ENSINA, em vez de virar rascunho que ninguém sabe por que
+    # falhou.
+    from modules.fiscal.services import tributacao_nfe as tn  # noqa: PLC0415
+
+    dest_trib = {
+        "uf": (dest.get("destinatario_uf") or "AM").strip().upper(),
+        "cnpj": dest.get("destinatario_cpf_cnpj") or "",
+        "inscricao_estadual": dest.get("destinatario_ie") or "",
+        "indicador_ie": dest.get("destinatario_ind_ie") or "9",
+        "suframa": "",
+    }
+    for it in itens:
+        base_prod = prods.get(it["codigo"], {})
+        try:
+            calc = await tn.calcular(
+                db,
+                emp["cnpj"],
+                {
+                    "ncm": it["ncm"],
+                    "valor": it["valor_unitario"],
+                    "quantidade": it["quantidade"],
+                    "origem": base_prod.get("origem") or "0",
+                    "icms_entrada_cst": base_prod.get("icms_entrada_cst") or "",
+                    "icms_entrada_fonte": base_prod.get("icms_entrada_fonte") or "",
+                },
+                dest_trib,
+            )
+        except Exception as e:  # noqa: BLE001 — falha da régua não vira nota sem tributação
+            raise HTTPException(
+                status_code=422,
+                detail=f"Não consegui tributar «{it['descricao'][:40]}»: {e}",
+            ) from e
+        if calc.get("bloqueios"):
+            raise HTTPException(status_code=422, detail=" ".join(calc["bloqueios"]))
+        if not calc.get("cst_ou_csosn"):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"«{it['descricao'][:40]}»: {calc.get('mensagem_fiscal') or 'sem tributação com fonte'} "
+                    "Registre como a mercadoria entrou em «Registrar como a mercadoria entrou» "
+                    "antes de emitir — o sistema não inventa CST."
+                ),
+            )
+        cst = str(calc["cst_ou_csosn"])
+        # CSOSN tem 3 dígitos (101, 500…); CST tem 2. É isso que separa os dois campos no XML.
+        eh_csosn = len(cst) == 3 and cst in tn.CSOSN_TODOS
+        it["icms_cst"] = "" if eh_csosn else cst
+        it["icms_csosn"] = cst if eh_csosn else ""
+        it["icms_origem"] = str(base_prod.get("origem") or "0")
+        it["icms_aliquota"] = calc.get("aliquota") or 0
+        it["icms_base_calculo"] = calc.get("base") or 0
+        it["icms_valor"] = calc.get("valor") or 0
+        it["icms_desonerado"] = (calc.get("deson") or {}).get("valor") or 0
+        it["icms_motivo_desoneracao"] = (calc.get("deson") or {}).get("motivo") or ""
+        it["cfop"] = so_digitos(calc.get("cfop")) or it["cfop"]
+        it["mensagem_fiscal"] = calc.get("mensagem_fiscal") or ""
+        # PIS/COFINS saem das LINHAS da mesma régua — inclusive o CST 09 da liminar.
+        for rotulo, chave in (("PIS", "pis"), ("COFINS", "cofins")):
+            linha = _linha_de(calc, rotulo)
+            it[f"{chave}_cst"] = _cst_da_linha(linha)
+            it[f"{chave}_aliquota"] = _aliq_da_linha(linha)
+
     serie = int(dec(payload.get("serie"), "2"))  # 2 = série do Conecta PRO (ver a tela)
     cab = {
         **dest,
@@ -1369,9 +1597,9 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
             text(
                 "INSERT INTO nfe_itens (id, nfe_id, numero_item, codigo_produto, descricao, ncm, cfop, "
                 " unidade, quantidade, valor_unitario, valor_total, valor_desconto, icms_origem, icms_cst, "
-                " pis_cst, cofins_cst, created_at) "
+                " icms_csosn, icms_aliquota, icms_base_calculo, icms_valor, pis_cst, cofins_cst, created_at) "
                 "VALUES (gen_random_uuid(), CAST(:n AS uuid), :i, :cod, :desc, :ncm, :cfop, :un, :q, :vu, "
-                " :vt, :vd, '0', '40', '07', '07', now())"
+                " :vt, :vd, :orig, :cst, :csosn, :aliq, :bc, :vicms, :pis, :cof, now())"
             ),
             {
                 "n": nfe_id,
@@ -1385,6 +1613,16 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
                 "vu": float(vu),
                 "vt": float(q * vu),
                 "vd": float(it["valor_desconto"]),
+                # gravado do que a RÉGUA devolveu. Era '0','40','07','07' fixos — constante
+                # em coluna fiscal é a fábrica de defeito desta casa.
+                "orig": it.get("icms_origem") or "0",
+                "cst": it.get("icms_cst") or "",
+                "csosn": it.get("icms_csosn") or "",
+                "aliq": float(it.get("icms_aliquota") or 0),
+                "bc": float(it.get("icms_base_calculo") or 0),
+                "vicms": float(it.get("icms_valor") or 0),
+                "pis": it.get("pis_cst") or "07",
+                "cof": it.get("cofins_cst") or "07",
             },
         )
     await db.commit()

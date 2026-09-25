@@ -176,6 +176,54 @@ async def main() -> int:
         falhas.append("(d) a ação mudou de gate — rascunho de nota é 🔵; se virou 🔴 alguém a fez transmitir")
     medidas.append("ação do chat: registrada, 🔵, sem uma linha que vá à SEFAZ")
 
+    # ── (e) o CONTRATO de chaves entre a tela e o emissor ────────────────────────────
+    #
+    # O defeito mais caro do dia, e o mais silencioso: `rd_nfe_nova` entregava ao emissor as
+    # chaves `icms_situacao`/`pis_situacao`/`cofins_situacao`, e `nfe_provider._montar_nfe()`
+    # lê `icms_cst`/`pis_cst`/`cofins_cst`. Nomes PARECIDOS. O dicionário chegava gordo, a
+    # leitura vinha vazia, e o emissor recusava com «Item 1 sem CST/CSOSN de ICMS» em TODA
+    # emissão desta tela — inclusive homologação. A tela nunca tinha emitido uma NF-e.
+    #
+    # Nada disso aparece em teste de unidade dos dois lados: cada um está certo sozinho. O
+    # que quebra é o CONTRATO, e contrato só se afirma olhando os dois ao mesmo tempo. Por
+    # isso este item lê, por AST, TODA chave que o emissor pede de um item, e exige que o
+    # construtor da tela entregue cada uma. Renomear de qualquer lado fica vermelho.
+    fonte_prov = pathlib.Path("/app/modules/financial/integrations/nfe_provider.py").read_text()
+    pedidas: set[str] = set()
+    for no in ast.walk(ast.parse(fonte_prov)):
+        # `item.get("chave")` / `item["chave"]` dentro do laço de itens do emissor
+        if isinstance(no, ast.Call) and isinstance(no.func, ast.Attribute) and no.func.attr == "get":
+            alvo = no.func.value
+            if isinstance(alvo, ast.Name) and alvo.id == "item" and no.args:
+                if isinstance(no.args[0], ast.Constant) and isinstance(no.args[0].value, str):
+                    pedidas.add(no.args[0].value)
+        elif isinstance(no, ast.Subscript) and isinstance(no.value, ast.Name) and no.value.id == "item":
+            if isinstance(no.slice, ast.Constant) and isinstance(no.slice.value, str):
+                pedidas.add(no.slice.value)
+
+    fonte_z3 = pathlib.Path(
+        "/app/modules/operacional/controllers/redesign_builders/_dgx_z3_tela_nfe.py"
+    ).read_text()
+    # Regex e não AST aqui, de propósito: o trecho é um dicionário DENTRO de uma
+    # compreensão de lista dentro de outro dicionário — fatiar texto para o `ast.parse`
+    # engolir produz código que não fecha. O que importa afirmar é «a chave X é escrita
+    # neste bloco», e isso um regex de chave literal responde sem ambiguidade.
+    import re as _re  # noqa: PLC0415
+
+    corpo = fonte_z3.split('"items": [', 1)
+    entregues: set[str] = (
+        set(_re.findall(r'"([a-z_]+)":', corpo[1].split("for it in itens", 1)[0])) if len(corpo) > 1 else set()
+    )
+    if not entregues:
+        falhas.append("(e) não consegui ler o dicionário de itens da tela — o contrato ficou sem vigia")
+    faltando = sorted(k for k in pedidas if k not in entregues)
+    if faltando:
+        falhas.append(
+            f"(e) o emissor pede {faltando} de cada item e a tela NÃO entrega — "
+            f"é assim que «Item 1 sem CST/CSOSN» volta"
+        )
+    medidas.append(f"contrato tela×emissor: {len(pedidas)} chave(s) pedidas, todas entregues")
+
     print(" · ".join(medidas))
     for f in falhas:
         print("FALHOU:", f)
