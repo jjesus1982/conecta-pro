@@ -60,6 +60,24 @@ def _sem_acento(s: str) -> str:
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
 
 
+# 🔴 A pessoa também MENCIONA a chave ERRADA. Caso real de 25/09, e o pior possível:
+#   Kalel: "A chave para qual mandaram o v a foi 02914898266 que e a conta INATIVA"
+# Ele estava dizendo qual chave está morta, e o extrator gravou essa como a chave A USAR —
+# o inverso exato. Aprovada, o dinheiro iria para a conta bloqueada da Caixa.
+# Quando o texto marca uma chave como ruim, a leitura fica AMBÍGUA por construção: pode haver
+# duas chaves na frase e a ordem não diz qual é qual. Então falha FECHADO: não grava nenhuma.
+_CHAVE_RUIM = re.compile(
+    r"(inativ[ao]|bloquead[ao]|antig[ao]|desativad[ao]|encerrad[ao]|nao tenho (mais )?acesso|"
+    r"sem acesso|errad[ao]|nao uso mais|nao e mais|foi para|foi pra|mandaram (o|a|para)|caiu n)",
+    re.I,
+)
+
+
+def menciona_chave_ruim(txt: str) -> bool:
+    """O texto está apontando uma chave como MORTA/ERRADA, não oferecendo a nova."""
+    return bool(_CHAVE_RUIM.search(_sem_acento(txt or "")))
+
+
 def chave_do_texto(txt: str) -> tuple[str | None, str | None]:
     """Extrai (chave, tipo) do que a pessoa escreveu. Devolve (None, None) se não achou.
 
@@ -328,6 +346,20 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
 
     chave, tipo = chave_do_texto(texto)
     chave, tipo = desambiguar_pelo_remetente(chave, tipo, fone_remetente)
+
+    # 🔴 Se o texto aponta uma chave como MORTA, não grave chave nenhuma dele. Falha FECHADO.
+    if chave and menciona_chave_ruim(texto):
+        await db.execute(text("""
+            UPDATE pix_confirmacoes SET respondido_em=now(), texto_resposta=:t,
+                   chave_informada=NULL, tipo_informado=NULL, status='aguardando', updated_at=now()
+            WHERE employee_id = CAST(:e AS uuid)"""), {"e": employee_id, "t": texto[:2000]})
+        await db.commit()
+        logger.warning("pix_confirma: %s apontou chave RUIM (%s) — nada gravado, precisa de humano",
+                       employee_id, chave)
+        return {"ok": True, "resultado": "a pessoa apontou uma chave como ERRADA/INATIVA — "
+                                         "NÃO gravei nada; precisa de leitura humana",
+                "chave_citada_como_ruim": chave, "aplicar": False}
+
     if not chave:
         # ⚠️ Um "não" SECO não é chave nem confirmação — é a pessoa dizendo que a chave atual
         # está errada e ainda não mandando a certa. Caso real de 25/09: o Nailson respondeu
