@@ -7204,8 +7204,26 @@ async def redesign_home(current_user: CurrentActiveUser, db: AsyncSession = Depe
     pj = await _sc(
         f"SELECT count(*) FROM employees WHERE lower(coalesce(status,''))='pj_ativo' AND {SQL_FUNCIONARIO_REAL}"
     )
-    postos = await _sc("SELECT count(*) FROM posts WHERE coalesce(is_active,true)=true")
-    clientes = await _sc("SELECT count(*) FROM clients WHERE status='active'")
+    # ⚠️ 25/09 — ASSIMETRIA CORRIGIDA. A pessoa de teste já era excluída (`SQL_FUNCIONARIO_REAL`
+    # no CLT e no PJ), mas o POSTO e o CLIENTE de teste não: "15 Postos ativos" somava os 6 do
+    # Conecta Village + Conecta Base, que o Jordan confirmou serem o condomínio de HOMOLOGAÇÃO do
+    # Conecta Plus, e "29 Clientes" incluía HOMOLOGACAO (CONECTA BASE). Duas verdades sobre a
+    # mesma pergunta, dependendo de qual contador se olhava.
+    #
+    # `posts.is_homologacao` / `clients.is_homologacao` são marcador na ORIGEM. Filtrar por
+    # `name ~* 'CONECTA'` quebraria no dia em que um condomínio real se chamasse assim — e a
+    # marcação por NOME já falhou uma vez aqui (casou 0 linhas por causa de caixa e travessão);
+    # foi feita por id.
+    #
+    # Confirmado pelo dono: Condomínio Gelain é REAL (está nos 9) e as duas empresas do grupo SÃO
+    # clientes — faturam entre si —, então continuam contando.
+    postos = await _sc(
+        "SELECT count(*) FROM posts WHERE coalesce(is_active,true)=true "
+        "AND coalesce(is_homologacao,false)=false"
+    )
+    clientes = await _sc(
+        "SELECT count(*) FROM clients WHERE status='active' AND coalesce(is_homologacao,false)=false"
+    )
 
     kpis = [
         {"v": str(clt), "l": "CLT ativos"},
