@@ -63,6 +63,12 @@ import asyncio
 import pathlib
 import sys
 
+#: As telas desta frente entram na régua do `checar_nao_vigiado.py`: tela é vigiada quando
+#: um oráculo CITA o slug dela. Citar num comentário enganaria o contador — `conferir_telas`
+#: monta o builder e prova que a tela existe e não é casca.
+TELAS_DA_FRENTE = ("catalogo-candidatos", "catalogo-aprovar-lote", "catalogo-produtos")
+MODULO_DA_FRENTE = "suprimentos"
+
 sys.path.insert(0, "/app")
 
 FIX = "FIXTURE DGX AA1"
@@ -94,6 +100,9 @@ async def main() -> int:  # noqa: C901, PLR0912, PLR0915
 
     falhas: list[str] = []
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         await cc._ensure(db)
         await _limpar(db)
         contagem = await cc.classificar(db)

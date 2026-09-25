@@ -62,6 +62,12 @@ import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+#: As telas desta frente entram na régua do `checar_nao_vigiado.py`: tela é vigiada quando
+#: um oráculo CITA o slug dela. Citar num comentário enganaria o contador — `conferir_telas`
+#: monta o builder e prova que a tela existe e não é casca.
+TELAS_DA_FRENTE = ("va-vt-contrato", "va-vt-efetivo")
+MODULO_DA_FRENTE = "departamento-pessoal"
+
 FONTE = Path("/app/modules/people_management/folha/services/va_vt_contrato.py")
 if not FONTE.exists():  # rodando fora do container
     FONTE = Path(__file__).resolve().parents[1].parent / "modules/people_management/folha/services/va_vt_contrato.py"
@@ -364,6 +370,10 @@ async def main() -> int:
     from core.database import async_session_factory
 
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        for _t in await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE):
+            falha(_t)
         for f in (a_valor, b_vinculo, d_nao_sei, e_pessoas):
             try:
                 await f(db)

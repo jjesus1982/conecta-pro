@@ -49,6 +49,12 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+#: As telas desta frente entram na régua do `checar_nao_vigiado.py`: tela é vigiada quando
+#: um oráculo CITA o slug dela. Citar num comentário enganaria o contador — `conferir_telas`
+#: monta o builder e prova que a tela existe e não é casca.
+TELAS_DA_FRENTE = ("nfe-icms-entrada", "nfe-icms-entrada-registro")
+MODULO_DA_FRENTE = "fiscal"
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1].parent))
 
 CNPJ_ELETRONICA = "35.710.481/0001-03"
@@ -135,6 +141,9 @@ async def main() -> int:  # noqa: PLR0912, PLR0915
             "ausente) — ela decide o CFOP de saída sem olhar a entrada"
         )
     async with async_session_factory() as db:
+        from _telas import conferir_telas  # noqa: PLC0415 — irmão em scripts/orq
+
+        falhas.extend(await conferir_telas(db, MODULO_DA_FRENTE, TELAS_DA_FRENTE))
         empresa = (
             await db.execute(
                 text(
