@@ -487,6 +487,13 @@ def _do_banco(cab: dict, itens: list[dict]) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 #: Quantos blocos fixos ficam acima da tabela de itens na página 1, em milímetros. Números
 #: medidos com a régua do próprio reportlab, não chutados: se um bloco crescer, muda aqui.
+#: URL de consulta pública da NF-e por chave. O QR é uma CONVENIÊNCIA, não exigência do MOC:
+#: o DANFE modelo 55 identifica a nota pelo código de barras Code-128C da chave, e é ele que o
+#: fisco confere. O QR que o dono viu no DANFSe pertence ao leiaute da NFS-e (v2.0), que é outro
+#: documento. Acrescentar aqui não desloca nada e não substitui as barras — as duas coisas
+#: convivem, e quem lê no celular chega na mesma consulta.
+_QR_CONSULTA_NFE = "https://www.nfe.fazenda.gov.br/portal/consultaResumo.aspx?tipoConsulta=resumo&nfe={chave}"
+
 _TEXTO_CONSULTA = (
     "Consulta de autenticidade no portal nacional da NF-e "
     "www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora"
@@ -606,9 +613,31 @@ def _desenhar(
             _dados_adicionais(f, d)
         if sem_valor_fiscal:
             _tarja(c, pagesize, d)
+        _assinatura(c, pagesize)
         c.showPage()
         if ultima:
             return pagina
+
+
+#: Assinatura do sistema emissor, pedida pelo dono: «no canto inferior da nota informar que
+#: essa nota foi emitida pelo Conecta PRO, o sistema de gestão inteligente da Conecta Mais».
+#:
+#: ⚠️ Ela é desenhada ABAIXO do quadro fiscal, no espaço da margem, e NUNCA dentro de
+#: «INFORMAÇÕES COMPLEMENTARES». Aquele campo é o `infCpl` do XML — o que está impresso ali
+#: tem de ser exatamente o que foi assinado e transmitido ao fisco. Escrever marketing nele
+#: faria o DANFE DISCORDAR do documento fiscal, que é o defeito que esta frente acabou de
+#: consertar (o PDF dizia PIS 41,54 e o XML 41,56). Identificação do software emissor no pé da
+#: folha é prática comum e não é campo do MOC — por isso pode.
+_ASSINATURA = "Documento emitido pelo Conecta PRO — sistema de gestão inteligente da Conecta Mais"
+
+
+def _assinatura(c, pagesize) -> None:
+    """Uma linha discreta no pé da folha, fora do quadro. Não desloca nem cobre campo algum."""
+    w, _ = pagesize
+    c.setFont(_F, 4.8)
+    c.setFillColor(_CINZA)
+    c.drawCentredString(w / 2, 3.4 * mm, _ASSINATURA)
+    c.setFillColor(_PRETO)
 
 
 def _altura_rodape(d: dict) -> float:
@@ -658,6 +687,22 @@ def _canhoto(f: _Folha, d: dict) -> None:
     c.line(f.x0, f.y - 2 * mm, f.x1, f.y - 2 * mm)
     c.setDash()
     f.y -= 4.5 * mm
+
+
+def _qrcode(c, texto: str, x: float, y: float, lado: float) -> None:
+    """QR quadrado de `lado`, no canto (x, y). Sem QR a chave por extenso ainda consulta."""
+    try:
+        from reportlab.graphics import renderPDF  # noqa: PLC0415
+        from reportlab.graphics.barcode.qr import QrCodeWidget  # noqa: PLC0415
+        from reportlab.graphics.shapes import Drawing  # noqa: PLC0415
+
+        qr = QrCodeWidget(texto)
+        x0, y0, x1, y1 = qr.getBounds()
+        dw = Drawing(lado, lado, transform=[lado / (x1 - x0), 0, 0, lado / (y1 - y0), 0, 0])
+        dw.add(qr)
+        renderPDF.draw(dw, c, x, y)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline") -> None:
@@ -720,19 +765,33 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
                 # 6,6 · fio · nome · 3 linhas de endereço a 3,0 · 2 de consulta a 2,4. A
                 # primeira tentativa deixou a consulta em cima do CEP — em documento fiscal
                 # texto sobreposto não é feio, é ilegível, e o CEP é campo obrigatório.
-                if pb._desenha_logo_cheia(c, x, topo - 7.6 * mm, largura=34 * mm, altura=6.6 * mm):
+                # Marca CENTRADA e MAIOR, pedido do dono: «quero valorizar minha logo, minha
+                # marca». 44mm de largura contra os 26mm do modo inline — 69% maior. O fio
+                # embaixo separa a marca do texto sem criar bloco.
+                larg_logo = 44 * mm
+                if pb._desenha_logo_cheia(
+                    c, f.x0 + (c1 - larg_logo) / 2, topo - 9.4 * mm, largura=larg_logo, altura=8.4 * mm
+                ):
                     c.setLineWidth(0.4)
                     c.setStrokeColor(_CINZA)
-                    c.line(f.x0 + 2 * mm, topo - 8.6 * mm, f.x0 + c1 - 2 * mm, topo - 8.6 * mm)
+                    c.line(f.x0 + 4 * mm, topo - 10.4 * mm, f.x0 + c1 - 4 * mm, topo - 10.4 * mm)
                     c.setStrokeColor(_PRETO)
-                    y = topo - 11.6 * mm  # o texto do emitente começa abaixo do fio
+                    y = topo - 13.0 * mm  # o texto do emitente começa abaixo do fio
             elif pb._desenha_logo_cheia(c, x, topo - 9.5 * mm, largura=26 * mm, altura=9 * mm):
                 x += 29 * mm
         except Exception:  # noqa: BLE001 — sem logo o documento continua conforme
             pass
     c.setFillColor(_PRETO)
+    # No modo célula tudo é centrado na caixa do emitente — marca, nome, endereço e a linha de
+    # consulta. Foi o que o dono desenhou: «orna essas informações de forma bonita,
+    # centralizada». `larg` é a largura útil, igual para todas as linhas, para o `_encolher`
+    # não medir uma régua por linha.
+    meio = f.x0 + c1 / 2
+    larg = (c1 - 8 * mm) if celula else (f.x0 + c1 - x - 2 * mm)
+    escrever = (lambda yy, txt, fonte, tam: c.drawCentredString(meio, yy, f._encolher(txt, larg, fonte, tam))) if celula \
+        else (lambda yy, txt, fonte, tam: c.drawString(x, yy, f._encolher(txt, larg, fonte, tam)))
     c.setFont(_FB, 7.4)
-    c.drawString(x, y, f._encolher((d.get("emit_nome") or "").upper(), f.x0 + c1 - x - 2 * mm, _FB, 7.4))
+    escrever(y, (d.get("emit_nome") or "").upper(), _FB, 7.4)
     c.setFont(_F, 6.2)
     ender = f"{d.get('emit_logradouro') or ''}, {d.get('emit_numero') or 'S/N'}".strip(", ")
     for k, txt in enumerate(
@@ -742,14 +801,18 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
             f"CEP: {cep_br(d.get('emit_cep'))}   FONE: {fone_br(d.get('emit_fone'))}".strip(),
         )
     ):
-        c.drawString(x, y - (k + 1) * (3.0 if celula else 3.2) * mm, f._encolher(txt, f.x0 + c1 - x - 2 * mm, _F, 6.2))
+        escrever(y - (k + 1) * (2.8 if celula else 3.0) * mm, txt, _F, 6.2)
     c.setFont(_F, 5.0)
     c.setFillColor(_CINZA)
     # com a marca empilhada, o emitente desce e o texto de consulta desce junto — em 2 linhas,
     # porque a terceira bateria na borda de baixo da caixa.
-    _topo_consulta = topo - (22.6 if celula else 18.0) * mm
-    for k, txt in enumerate(_quebrar(c, _TEXTO_CONSULTA, c1 - 4 * mm, _F, 5.0)[: 2 if celula else 3]):
-        c.drawString(f.x0 + 2 * mm, _topo_consulta - k * 2.6 * mm, txt)
+    _topo_consulta = topo - (23.6 if celula else 18.0) * mm
+    for k, txt in enumerate(_quebrar(c, _TEXTO_CONSULTA, c1 - 6 * mm, _F, 4.6 if celula else 5.0)[: 2 if celula else 3]):
+        if celula:
+            c.setFont(_F, 4.6)
+            c.drawCentredString(meio, _topo_consulta - k * 2.0 * mm, txt)
+        else:
+            c.drawString(f.x0 + 2 * mm, _topo_consulta - k * 2.6 * mm, txt)
 
     # ── DANFE
     xm = f.x0 + c1 + c2 / 2
@@ -775,21 +838,43 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
     # ── chave de acesso + código de barras (Code-128C)
     chave = digitos(d.get("chave"))
     xc = f.x0 + c1 + c2
+    # No modelo com marca em destaque, o QR de consulta divide a caixa com as barras: 18mm à
+    # direita para o QR, o resto para o Code-128C. As barras NÃO encolhem abaixo do que se lê —
+    # se não couberem as duas coisas, quem sai é o QR, porque ele é conveniência e a barra é o
+    # que o fisco confere.
+    # O QR divide a FAIXA DAS BARRAS com o Code-128C — e só ela. A chave por extenso continua
+    # usando a largura inteira da caixa, embaixo dos dois.
+    #
+    # A primeira tentativa punha o QR de 17mm ocupando também a altura da chave: as barras
+    # entraram por cima do QR e a chave saiu TRUNCADA («…5500 2000 0000 …»). Chave truncada em
+    # DANFE não é problema estético — ela é o identificador com que o destinatário consulta a
+    # nota e com que o fisco a acha. Nada pode empurrá-la.
+    lado_qr = 14 * mm if (celula and len(chave) == 44) else 0.0
+    larg_bc = c3 - lado_qr - (3 * mm if lado_qr else 0)
     if len(chave) == 44:
         try:
             from reportlab.graphics.barcode import code128  # noqa: PLC0415
 
-            bw = min(0.33, (c3 - 10 * mm) / 397.0)
+            bw = min(0.33, (larg_bc - 6 * mm) / 397.0)
+            if bw < 0.20:  # barra ilegível: o QR sai, porque a barra é o que o fisco confere
+                lado_qr, larg_bc = 0.0, c3
+                bw = min(0.33, (c3 - 10 * mm) / 397.0)
             bc = code128.Code128(chave, barHeight=11 * mm, barWidth=bw, humanReadable=False)
-            bc.drawOn(c, xc + (c3 - bc.width) / 2, topo - 14 * mm)
+            bc.drawOn(c, xc + (larg_bc - bc.width) / 2, topo - 14 * mm)
         except Exception:  # noqa: BLE001 — sem barras a chave por extenso ainda identifica a nota
             pass
+    if lado_qr:
+        _qrcode(c, _QR_CONSULTA_NFE.format(chave=chave), xc + c3 - lado_qr - 1.5 * mm, topo - 14.6 * mm, lado_qr)
     c.setFont(_F, 5.0)
     c.setFillColor(_CINZA)
     c.drawString(xc + 1.5 * mm, topo - 2.6 * mm, "CHAVE DE ACESSO")
     c.setFont(_FB, 7.0)
     c.setFillColor(_PRETO)
-    c.drawCentredString(xc + c3 / 2, topo - 17.6 * mm, chave_formatada(chave))
+    _tam_chave = 6.4 if lado_qr else 7.0
+    c.setFont(_FB, _tam_chave)
+    c.drawCentredString(
+        xc + c3 / 2, topo - 17.6 * mm, f._encolher(chave_formatada(chave), c3 - 3 * mm, _FB, _tam_chave)
+    )
     c.setFont(_F, 5.0)
     c.setFillColor(_CINZA)
     c.drawString(xc + 1.5 * mm, topo - 21.0 * mm, "PROTOCOLO DE AUTORIZAÇÃO DE USO")
