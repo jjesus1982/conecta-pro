@@ -104,3 +104,49 @@ dados bancários na descrição. Eletrônica ou Patrimonial?
 ### 12. Os 9 produtos com CST 20/41/50/400
 Dependem de habilitação da empresa na SEFAZ-AM. Copiar o benefício do fornecedor seria usar
 incentivo alheio — o sistema recusa e pergunta, de propósito.
+
+---
+
+## 13. ⚠️ A dedução do INSS na tela do lote lê a fonte de alocação mais POBRE
+
+**Achado em 25/09/2026, cruzando com a sessão do t6.**
+
+`modules/fiscal/services/nfse_lote.py` — a tela que propõe as 14 notas do mês com a dedução de
+VA/VT já calculada — liga benefício a cliente pelo caminho:
+
+```
+folha_beneficio_conferencia → employee_alocacoes → condominios → clients
+```
+
+O autor foi cuidadoso: filtra por **vigência na competência**, não pelo estado de hoje. Mas a
+tabela escolhida é a errada. Medido:
+
+| | linhas | com `posto_id` | pessoas |
+|---|---|---|---|
+| `employee_alocacoes` | 73 | **0** | 62 |
+| `allocations` | 89 | 89 | 86 |
+
+**`posto_id` está vazio nas 73 linhas** — ela só sabe o condomínio, não o posto. E a sessão do t6
+provou por evidência física (batida com `posto_nome` + comunicado do próprio no grupo) que ela
+**não acompanha mudança de posto**: o Mauricio mudou para Green Hills em setembro e ela ainda diz
+Mirante.
+
+**Consequência:** o VA/VT de quem mudou de cliente no meio do mês é somado no cliente errado. A
+dedução do INSS sai errada nos dois — a maior e a menor. Dedução a maior é glosável; a menor
+paga imposto a mais. Os dois lados do que o dono pediu para evitar.
+
+**A régua certa já existe e é de outra frente.** A AA6 (`va_vt_contrato.py`) apura por
+**pessoa × dias de ESCALA no posto**, e mediu por que a escala vence:
+
+> «no Laranjeiras erra 0,5% no VT e 2,6% no VA; no Ideal Flores 1,4% e 2,9%… `allocations` põe
+> RILEM FERREIRA no Ideal Flores e a escala mostra os 16 plantões dele no Prime Arena»
+
+Quando uma pessoa serve mais de um cliente no mês, **só a escala sabe onde ela esteve em cada dia**.
+
+**O que fazer:** `nfse_lote.beneficios_por_tomador` deve consumir a apuração da AA6 em vez de
+somar por alocação. Não fiz agora — a tela está em uso e a troca precisa de oráculo que prove o
+número antes e depois, contra as três linhas reais do cronograma do dono. **Frente própria.**
+
+**Enquanto isso, o que protege:** a tela mostra as **duas contas lado a lado** (a da folha e a que
+o dono digitou) e **não escolhe** — quem escolhe é ele, que assina. Foi desenho consciente do
+autor, e é o que impede o erro de virar nota.
