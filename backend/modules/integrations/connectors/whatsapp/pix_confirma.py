@@ -37,7 +37,7 @@ PAUSA_ENTRE_ENVIOS_S = 5.0
 
 _CONFIRMA_ATUAL = re.compile(
     r"\b(sim|isso|correto|confirmo|confirmado|certo|esse|essa|este|mesmo|positivo|"
-    r"ta certo|esta certo|e esse|e essa|continua|deixa? como (ta|esta))\b",
+    r"ta certo|esta certo|e esse|e essa|continua|deix[ae]m? como (ta|esta|e))\b",
     re.I,
 )
 # 🔴 "ok", "entendi", "obrigado", "👍" são ACUSE DE RECEBIMENTO, não confirmação de chave.
@@ -348,6 +348,24 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
         await db.commit()
         return {"ok": True, "resultado": "respondeu, mas não achei chave no texto",
                 "aplicar": False}
+
+    # ⚠️ Chave informada IGUAL à que já está no cadastro é CONFIRMAÇÃO, não troca. Sem isso o
+    # Antonio Walcicley entrou na fila de aprovação do Jordan tendo apenas repetido a própria
+    # chave — pedir aprovação para trocar A por A é ruído que gasta a atenção de quem aprova.
+    def _norm(x: str | None) -> str:
+        s = (x or "").strip().lower()
+        d = "".join(c for c in s if c.isdigit())
+        return d[-8:] if len(d) >= 10 else s
+
+    if _norm(chave) == _norm(atual[0]) and _norm(chave):
+        await db.execute(text("""
+            UPDATE pix_confirmacoes SET respondido_em=now(), texto_resposta=:t,
+                   chave_informada=NULL, tipo_informado=NULL, status='confirmou_atual',
+                   updated_at=now()
+            WHERE employee_id = CAST(:e AS uuid)"""), {"e": employee_id, "t": texto[:2000]})
+        await db.commit()
+        return {"ok": True, "resultado": "mandou a MESMA chave que já está no cadastro — "
+                                         "vale como confirmação", "aplicar": False}
 
     await db.execute(text("""
         UPDATE pix_confirmacoes SET respondido_em=now(), texto_resposta=:t,
