@@ -14,7 +14,7 @@
 Endpoints (prefixo /fiscal, montado em main_production):
   GET  /fiscal/nfe/sefaz-status         status do serviço da SEFAZ por empresa
   GET  /fiscal/nfe/listar               notas emitidas
-  POST /fiscal/nfe/emitir               emite (homologação por padrão)
+  POST /fiscal/nfe/emitir               emite — `ambiente` é OBRIGATÓRIO no payload
   POST /fiscal/nfe/cancelar             evento 110111
   POST /fiscal/nfe/inutilizar           inutiliza faixa de numeração
 
@@ -796,7 +796,18 @@ class EmitirRequest(BaseModel):
     #: Agora emitir em produção é DIZER "producao" no payload — ato consciente, não herança de
     #: variável de ambiente. O gate `NFE_PRODUCAO_LIBERADA` continua valendo por cima: sem a
     #: frase-senha, nem dizendo "producao" sai.
-    ambiente: str = Field(default="homologacao", pattern="^(homologacao|producao)$")
+    #:
+    #: **OBRIGATÓRIO, sem default** — crítica certeira da sessão do t6 em 25/09/2026:
+    #:
+    #:   «a parede que aguenta é o emissor RECUSAR quando o ambiente não foi declarado no
+    #:    parâmetro (falha FECHADA em campo ausente), em vez de cair no default. Default de
+    #:    campo ausente que emite de verdade é a família de erro que mais me custou nesta casa.»
+    #:
+    #: Eu tinha posto `default="homologacao"`, que falha para o lado inofensivo. Mas TEM um lado
+    #: ruim: quem pretendia emitir de verdade e esqueceu o campo recebe uma nota de homologação
+    #: e acha que emitiu — e entrega ao cliente um DANFE com a tarja «SEM VALOR FISCAL».
+    #: Os dois defaults erram; exigir o campo não erra. Quem chama DIZ, e quem esquece leva 422.
+    ambiente: str = Field(..., pattern="^(homologacao|producao)$", description="homologacao | producao")
     natureza_operacao: str = Field(default="VENDA DE MERCADORIA", max_length=60)
     destinatario: dict[str, Any] = Field(default_factory=dict)
     items: list[ItemNFe] = Field(..., min_length=1)
@@ -811,11 +822,11 @@ class CancelarRequest(BaseModel):
 class InutilizarRequest(BaseModel):
     empresa_slug: str = Field(default="conecta_eletronica")
     serie: int = Field(default=2, ge=1)  # 2 = série do Conecta PRO
-    #: Ambiente EXPLÍCITO, default homologação — mesma razão do `EmitirRequest`. Inutilizar é
-    #: ato fiscal irreversível: declara ao fisco que uma faixa de números NÃO será usada. Herdar
-    #: isso de variável de ambiente é o tipo de coisa que queima numeração de produção sem
-    #: ninguém ter decidido nada.
-    ambiente: str = Field(default="homologacao", pattern="^(homologacao|producao)$")
+    #: Ambiente OBRIGATÓRIO, sem default — mesma razão do `EmitirRequest`. Inutilizar é ato
+    #: fiscal irreversível: declara ao fisco que uma faixa de números NÃO será usada. Herdar
+    #: isso de variável de ambiente, ou de um default, é o tipo de coisa que queima numeração
+    #: de produção sem ninguém ter decidido nada.
+    ambiente: str = Field(..., pattern="^(homologacao|producao)$", description="homologacao | producao")
     numero_inicial: int = Field(..., ge=1)
     numero_final: int = Field(..., ge=1)
     justificativa: str = Field(..., min_length=15, max_length=255)

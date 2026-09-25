@@ -266,21 +266,33 @@ async def main() -> int:
                 "valor_unitario": 10,
             }
         ]
-        if EmitirRequest(items=_item).ambiente != "homologacao":
-            falhas.append("(d3) EmitirRequest sem ambiente NÃO cai em homologação — herda a variável")
-        if InutilizarRequest(numero_inicial=1, numero_final=2, justificativa="faixa nao utilizada 1").ambiente != (
-            "homologacao"
+        # Campo AUSENTE tem de RECUSAR, não cair em default. Crítica da sessão do t6, aceita:
+        # os dois defaults erram — o «homologacao» faz quem queria emitir de verdade entregar um
+        # DANFE «SEM VALOR FISCAL» ao cliente; o «producao» emite sem ninguém pedir. Exigir não erra.
+        for rotulo, fabrica in (
+            ("EmitirRequest", lambda: EmitirRequest(items=_item)),
+            (
+                "InutilizarRequest",
+                lambda: InutilizarRequest(numero_inicial=1, numero_final=2, justificativa="faixa nao utilizada 1"),
+            ),
         ):
-            falhas.append("(d3) InutilizarRequest sem ambiente NÃO cai em homologação")
+            try:
+                fabrica()
+                falhas.append(f"(d3) {rotulo} SEM ambiente foi aceito — campo ausente tem de recusar, não ter default")
+            except Exception:  # noqa: BLE001, S110 — ValidationError do pydantic é o esperado
+                pass
         if EmitirRequest(ambiente="producao", items=_item).ambiente != "producao":
             falhas.append("(d3) EmitirRequest não aceita produção quando PEDIDA explicitamente")
+        if EmitirRequest(ambiente="homologacao", items=_item).ambiente != "homologacao":
+            falhas.append("(d3) EmitirRequest não aceita homologação quando PEDIDA explicitamente")
         try:
             EmitirRequest(ambiente="qualquer", items=_item)
             falhas.append("(d3) EmitirRequest aceitou ambiente inválido — o padrão deve recusar")
         except Exception:  # noqa: BLE001, S110 — ValidationError do pydantic é o esperado
             pass
-        if ambiente_atual() == "1" and EmitirRequest(items=_item).ambiente == "producao":
-            falhas.append("(d3) com NFE_AMBIENTE=1 o default virou produção — é exatamente o defeito")
+        # A régua é a DIFERENÇA: mesmo com a variável dizendo produção, o pedido manda.
+        if ambiente_atual() == "1" and EmitirRequest(ambiente="homologacao", items=_item).ambiente != "homologacao":
+            falhas.append("(d3) com NFE_AMBIENTE=1 o pedido de homologação foi ignorado")
 
         # -- (e) o XML guardado é um nfeProc completo --------------------------
         autorizadas = (
