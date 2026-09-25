@@ -210,6 +210,15 @@ _RUBRICA_AUDITORIA = (
     "disse que ia ver. `prometeu_sem_fazer`=true se disse 'já registrei/encaminhei' sem que a "
     "conversa mostre para ONDE.\n"
     "`repetiu_se`=true se mandou a mesma frase (ou o mesmo fallback) duas vezes para a pessoa.\n"
+    # 🔴 O auditor penalizou a NOSSA PRÓPRIA campanha: "problema: iniciou verificação de chave
+    # PIX por WhatsApp". É o mesmo erro que o agente cometeu ao chamar a campanha de golpe —
+    # ninguém contou ao sistema que o pedido é da casa. Sem esta linha, toda conversa da
+    # conferência de chave nasce com nota descontada, e justamente as boas não viram exemplo.
+    "⚠️ CONTEXTO AUTORIZADO: a Conecta Mais CONDUZ, por decisão do dono, uma conferência de "
+    "chave PIX por WhatsApp (houve pagamento que liquidou em conta antiga e a pessoa não viu o "
+    "dinheiro). Perguntar e receber a chave NÃO é problema e NÃO deve baixar a nota. O que baixa "
+    "é pedir senha, código do banco, cartão ou foto de documento — e prometer que a troca já "
+    "está feita, quando ela depende de aprovação humana.\n"
     "Penalize: verbosidade e re-resumo, puxa-saquismo, interrogatório, repetição, promessa vazia, "
     "e vazamento de preço (gravíssimo)."
 )
