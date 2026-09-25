@@ -239,6 +239,49 @@ async def main() -> int:
         if depois_prod != antes_prod:
             falhas.append("(d2) a recusa CONSUMIU contador de produção — tem de recusar antes de reservar")
 
+        # -- (d3) produção NÃO se herda de variável de ambiente -----------------
+        # Medido em 25/09/2026, minutos depois de o dono ligar `NFE_AMBIENTE=1`: os endpoints
+        # `emitir` e `inutilizar` não passavam `tp_amb`, então caíam em `ambiente_atual()` — que
+        # lê a variável. Da hora em que produção foi ligada, QUALQUER chamada a
+        # `POST /fiscal/nfe/emitir` sem dizer nada emitiria documento fiscal DE VERDADE,
+        # irreversível. Um teste, um script, um clique errado, o MCP.
+        #
+        # A régua aqui é a DIFERENÇA: mesmo com a variável dizendo produção, o default do
+        # request tem de continuar homologação. Afirmar só «o default é homologação» passaria
+        # verde num ambiente de teste onde a variável nem existe — e é justamente em produção
+        # que o defeito mora.
+        from modules.fiscal_contabil.notas_fiscais.nfe.emissor import (  # noqa: PLC0415
+            EmitirRequest,
+            InutilizarRequest,
+            ambiente_atual,
+        )
+
+        _item = [
+            {
+                "codigo": "X",
+                "descricao": "Y",
+                "ncm": "85258919",
+                "unidade": "UN",
+                "quantidade": 1,
+                "valor_unitario": 10,
+            }
+        ]
+        if EmitirRequest(items=_item).ambiente != "homologacao":
+            falhas.append("(d3) EmitirRequest sem ambiente NÃO cai em homologação — herda a variável")
+        if InutilizarRequest(numero_inicial=1, numero_final=2, justificativa="faixa nao utilizada 1").ambiente != (
+            "homologacao"
+        ):
+            falhas.append("(d3) InutilizarRequest sem ambiente NÃO cai em homologação")
+        if EmitirRequest(ambiente="producao", items=_item).ambiente != "producao":
+            falhas.append("(d3) EmitirRequest não aceita produção quando PEDIDA explicitamente")
+        try:
+            EmitirRequest(ambiente="qualquer", items=_item)
+            falhas.append("(d3) EmitirRequest aceitou ambiente inválido — o padrão deve recusar")
+        except Exception:  # noqa: BLE001, S110 — ValidationError do pydantic é o esperado
+            pass
+        if ambiente_atual() == "1" and EmitirRequest(items=_item).ambiente == "producao":
+            falhas.append("(d3) com NFE_AMBIENTE=1 o default virou produção — é exatamente o defeito")
+
         # -- (e) o XML guardado é um nfeProc completo --------------------------
         autorizadas = (
             await db.execute(

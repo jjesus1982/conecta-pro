@@ -598,25 +598,37 @@ async def emitir(
 
 
 async def cancelar(db: AsyncSession, *, chave: str, justificativa: str, tp_amb: str | None = None) -> dict[str, Any]:
-    """Cancela NF-e autorizada (evento 110111). Guarda o evento e marca a nota."""
+    """Cancela NF-e autorizada (evento 110111). Guarda o evento e marca a nota.
+
+    **O ambiente vem DA NOTA, não da variável de ambiente** (corrigido em 25/09/2026, quando o
+    dono ligou produção). A chave de acesso identifica UMA nota, e ela sabe onde nasceu: cancelar
+    é sempre no ambiente em que a nota foi autorizada — não existe escolha a fazer.
+
+    Antes isto era `tp_amb or ambiente_atual()` e o SELECT filtrava por esse valor. Com
+    `NFE_AMBIENTE=1`, cancelar uma nota de homologação passaria a devolver «não encontrada» —
+    falha fechada, mas com a mensagem errada, mandando a pessoa procurar o problema onde ele
+    não está.
+    """
     await _ensure(db)
-    tp_amb = tp_amb or ambiente_atual()
-    _exigir_ambiente(tp_amb, "Cancelamento de NF-e")
     nota = (
         (
             await db.execute(
                 sqltext(
                     "SELECT id, emitente_cnpj, protocolo_autorizacao, status, data_autorizacao, tp_amb"
-                    " FROM nfes WHERE chave_acesso = :chave AND tp_amb = :amb"
+                    " FROM nfes WHERE chave_acesso = :chave"
                 ),
-                {"chave": chave, "amb": tp_amb},
+                {"chave": chave},
             )
         )
         .mappings()
         .first()
     )
     if not nota:
-        raise NFeError(f"NF-e {chave} não encontrada no ambiente {tp_amb}.", code="NAO_ENCONTRADA")
+        raise NFeError(f"NF-e {chave} não encontrada.", code="NAO_ENCONTRADA")
+    # O ambiente É o da nota. `_exigir_ambiente` ainda roda: cancelar em produção continua
+    # exigindo a frase-senha, porque cancelamento é ato fiscal irreversível como a emissão.
+    tp_amb = str(nota["tp_amb"] or "2")
+    _exigir_ambiente(tp_amb, "Cancelamento de NF-e")
     if nota["status"] != "autorizada":
         raise NFeError(f"Só se cancela nota AUTORIZADA (esta está '{nota['status']}').", code="STATUS_INVALIDO")
 
@@ -766,7 +778,25 @@ class ItemNFe(BaseModel):
 
 class EmitirRequest(BaseModel):
     empresa_slug: str = Field(default="conecta_eletronica", description="slug em `empresas`")
-    serie: int = Field(default=1, ge=1)
+    #: Série 2 = a do Conecta PRO (decisão do dono em 25/09/2026, «corte limpo»). A série 1 é do
+    #: emissor de terceiro, que parou na NF-e 10.026 — cair nela por omissão pediria um número
+    #: que já existe lá fora.
+    serie: int = Field(default=2, ge=1)
+    #: AMBIENTE EXPLÍCITO, e o default é HOMOLOGAÇÃO mesmo com produção ligada.
+    #:
+    #: Medido em 25/09/2026, minutos depois de o dono mandar ligar produção (`NFE_AMBIENTE=1`):
+    #: este endpoint não passava `tp_amb`, então caía em `ambiente_atual()` — que lê a variável
+    #: de ambiente. Da hora em que produção foi ligada, QUALQUER chamada a
+    #: `POST /fiscal/nfe/emitir` sem dizer nada passaria a emitir documento fiscal DE VERDADE,
+    #: irreversível. Um teste, um script, um clique errado.
+    #:
+    #: A tela do redesign sempre mandou o ambiente explícito (ela tem o seletor); quem ficava
+    #: exposto era o endpoint direto, o MCP e qualquer integração futura.
+    #:
+    #: Agora emitir em produção é DIZER "producao" no payload — ato consciente, não herança de
+    #: variável de ambiente. O gate `NFE_PRODUCAO_LIBERADA` continua valendo por cima: sem a
+    #: frase-senha, nem dizendo "producao" sai.
+    ambiente: str = Field(default="homologacao", pattern="^(homologacao|producao)$")
     natureza_operacao: str = Field(default="VENDA DE MERCADORIA", max_length=60)
     destinatario: dict[str, Any] = Field(default_factory=dict)
     items: list[ItemNFe] = Field(..., min_length=1)
@@ -780,7 +810,12 @@ class CancelarRequest(BaseModel):
 
 class InutilizarRequest(BaseModel):
     empresa_slug: str = Field(default="conecta_eletronica")
-    serie: int = Field(default=1, ge=1)
+    serie: int = Field(default=2, ge=1)  # 2 = série do Conecta PRO
+    #: Ambiente EXPLÍCITO, default homologação — mesma razão do `EmitirRequest`. Inutilizar é
+    #: ato fiscal irreversível: declara ao fisco que uma faixa de números NÃO será usada. Herdar
+    #: isso de variável de ambiente é o tipo de coisa que queima numeração de produção sem
+    #: ninguém ter decidido nada.
+    ambiente: str = Field(default="homologacao", pattern="^(homologacao|producao)$")
     numero_inicial: int = Field(..., ge=1)
     numero_final: int = Field(..., ge=1)
     justificativa: str = Field(..., min_length=15, max_length=255)
@@ -851,6 +886,7 @@ async def emitir_endpoint(
             db,
             slug=req.empresa_slug,
             serie=req.serie,
+            tp_amb="1" if req.ambiente == "producao" else "2",
             dados={
                 "natureza_operacao": req.natureza_operacao,
                 "destinatario": req.destinatario,
@@ -885,6 +921,7 @@ async def inutilizar_endpoint(
             db,
             slug=req.empresa_slug,
             serie=req.serie,
+            tp_amb="1" if req.ambiente == "producao" else "2",
             numero_inicial=req.numero_inicial,
             numero_final=req.numero_final,
             justificativa=req.justificativa,
