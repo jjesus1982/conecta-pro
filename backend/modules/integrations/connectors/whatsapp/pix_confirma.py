@@ -321,6 +321,74 @@ def e_so_acuse(txt: str) -> bool:
     return bool(_ACUSE.match(_sem_acento(txt or "").strip()))
 
 
+# O que NÓS dizemos quando perguntamos da chave. Se a última coisa que saiu para a pessoa não
+# tem nenhuma destas marcas, o "Sim" dela não está respondendo a esta pergunta.
+_MARCAS_DA_PERGUNTA = (
+    "conferindo a *chave pix*", "chave que termina em", "me manda a chave certa",
+    "é a conta que você *usa hoje*", "nao tem chave pix cadastrada",
+    "não tem chave pix cadastrada", "me manda a chave da conta",
+    # o próprio agente falando da chave também mantém o assunto aberto: a pessoa confirma, ele
+    # responde, e ela manda a chave DEPOIS. Sem estas, o 2º turno legítimo era recusado (caso
+    # real do Edward, que confirmou e mandou a chave na mensagem seguinte).
+    "chave pix", "chave certa", "sua chave", "tua chave", "chave do teu pagamento",
+    "chave do seu pagamento",
+)
+# ⚠️ E o inverso: mensagens de OUTRAS rotinas nossas fecham o assunto. Se a última coisa que saiu
+# foi uma destas, o "Sim" da pessoa não é sobre chave — foi o caso do Fernando com o lembrete de
+# turno. Vetadas explicitamente, porque a allowlist acima sozinha deixaria passar pelo "pix" que
+# às vezes aparece em texto de outra rotina.
+_MARCAS_DE_OUTRA_ROTINA = (
+    "seu turno no", "começa às", "comeca as", "bata o ponto pelo app",
+    "assumir o posto amanhã", "está tudo certo?", "troca de turno",
+    "conseguindo bater", "bater seu ponto", "recibo de vale",
+)
+
+
+async def _perguntamos_da_chave_por_ultimo(db: AsyncSession, fone: str | None) -> bool:
+    """O assunto ABERTO com esta pessoa é a chave PIX?
+
+    🔴 Sem isto, QUALQUER "Sim" de quem tem pergunta pendente virava confirmação de chave.
+    Caso real de 25/09: às 17:47 o beat mandou ao Fernando "Seu turno no Villa dos Pássaros
+    começa às 18:00"; ele respondeu "Sim" ao LEMBRETE, e a captura gravou que ele confirmara a
+    chave. Ele nunca disse nada sobre PIX. A captura sabia QUEM respondeu e não sabia A QUÊ.
+
+    ⚠️ E a 1ª versão desta guarda bloqueava demais: procurava marcas de texto na última saída, e
+    a última saída costuma ser TEXTO LIVRE DO AGENTE ("é a mesma conta que já tá registrada
+    aqui"), que não casa com marca nenhuma. Reconhecer saída de LLM por palavra não aguenta.
+
+    Então a comparação é ESTRUTURAL e só entre mensagens cujo texto EU controlo — a pergunta da
+    chave (e a cobrança) contra as outras rotinas determinísticas (lembrete de turno, confirmação
+    de véspera, recibo de VT/VR). O assunto está aberto se a minha pergunta é MAIS RECENTE que a
+    última mensagem de outra rotina. O texto livre do agente não conta para nenhum lado: ele
+    continua a MINHA conversa, não abre outra.
+    """
+    if not fone:
+        return False
+    d = "".join(c for c in str(fone) if c.isdigit())[-8:]
+    if len(d) < 8:
+        return False
+    r = (await db.execute(text("""
+        WITH msgs AS (
+            SELECT lower(coalesce(content,'')) AS c, created_at FROM cwi_message_log
+            WHERE direction = 'out' AND coalesce(content,'') <> ''
+              AND right(regexp_replace(coalesce(phone_canonical,''),'\\D','','g'), 8) = :d
+        )
+        SELECT
+          (SELECT max(created_at) FROM msgs WHERE c LIKE '%conferindo a *chave pix*%'
+                                               OR c LIKE '%chave que termina em%'
+                                               OR c LIKE '%me manda a chave certa%'
+                                               OR c LIKE '%me manda a chave da conta%') AS pix,
+          (SELECT max(created_at) FROM msgs WHERE c LIKE '%seu turno no %'
+                                               OR c LIKE '%bata o ponto pelo app%'
+                                               OR c LIKE '%está tudo certo?%'
+                                               OR c LIKE '%recibo do vale%'
+                                               OR c LIKE '%recibo de vale%') AS outra
+    """), {"d": d})).first()
+    if not r or not r[0]:
+        return False          # nunca perguntamos da chave por este número
+    return r[1] is None or r[0] > r[1]
+
+
 async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
                              fone_remetente: str | None = None) -> dict[str, Any]:
     """Guarda o que a pessoa respondeu. NÃO aplica nada — só registra."""
@@ -329,6 +397,14 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
         {"e": employee_id})).first()
     if not atual:
         return {"ok": False, "motivo": "não perguntei a esta pessoa"}
+
+    # ⚠️ A pessoa pode estar respondendo OUTRA pergunta nossa pelo mesmo canal. Se a última
+    # coisa que saiu para ela não foi a pergunta da chave, isto não é resposta desta rotina.
+    if not await _perguntamos_da_chave_por_ultimo(db, fone_remetente):
+        logger.info("pix_confirma: %s respondeu, mas a última coisa que dissemos NÃO foi a "
+                    "pergunta da chave — nada gravado", employee_id)
+        return {"ok": True, "resultado": "resposta era para outra conversa nossa — nada gravado",
+                "aplicar": False}
 
     # acuse de recebimento não muda estado: senão o "Ok" que vem DEPOIS do pedido de troca
     # apaga o pedido, que foi o que o ensaio pegou no Alan.
