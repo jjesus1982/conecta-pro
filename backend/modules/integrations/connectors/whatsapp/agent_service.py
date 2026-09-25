@@ -7987,8 +7987,10 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # fabricar ação, rascunho≠envio, CNPJ). Porta de saída sem as travas seria um buraco
         # com cara de melhoria — e como o turno não executou tool nenhuma, `_sem_fabricar_acao`
         # é exatamente quem pega o Hermes se ele disser que fez algo. Falha = "" = caminho atual.
+        _socorrido = False
         if not texto:
             texto = await hermes_ponte.socorro(conversation_id, rows) or ""
+            _socorrido = bool(texto)  # contável no banco depois, não só no log que rotaciona
         texto = _tirar_puxa_saco(texto)
         texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
         texto = _rascunho_nao_e_envio(texto, _rascunhos_do_turno, conversation_id)
@@ -8102,6 +8104,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         await hermes_ponte.registrar_caso(
             conversation_id, rows, texto, _executadas,
             phone=(phone_row[0] if phone_row else None),
+            via="hermes-socorro" if _socorrido else "jose-luis",
         )
         return texto or None
     except Exception as e:  # noqa: BLE001
