@@ -1248,7 +1248,7 @@ async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
             }
         )
 
-    serie = int(dec(payload.get("serie"), "1"))
+    serie = int(dec(payload.get("serie"), "2"))  # 2 = série do Conecta PRO (ver a tela)
     cab = {
         **dest,
         "empresa_slug": emp["slug"],
@@ -1632,7 +1632,12 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: PLR0915 — quatr
                 "span 1",
                 valor="homologacao",
             ),
-            _txt("serie", "Série*", "span 1", valor="1"),
+            # Série 2 = a do Conecta PRO. Decisão do dono em 25/09/2026, «corte limpo»: a série 1
+            # é do emissor de terceiro (nfemais), que parou na NF-e nº 10.026. Continuar nela
+            # exigiria que o nfemais não emitisse NEM UMA depois da virada — se emitisse, os dois
+            # pegariam o mesmo número e a SEFAZ recusaria com 539, queimando o número.
+            # Com série própria o risco é zero e dá para ver onde foi a virada.
+            _txt("serie", "Série*", "span 1", valor="2"),
             _sel(
                 "cliente_id",
                 "Destinatário — cliente cadastrado",

@@ -15,9 +15,16 @@ A dedução está certa. O que falta é **lastro no texto da nota**, que é o qu
 
 *(Há também R$ 0,23 de diferença no INSS: 11% de 59.194,42 dá 6.511,39 e a planilha diz 6.511,62.)*
 
-### 2. A série 70000 colide com o portal da contabilidade
-O portal usa a **mesma série 70000** (DPS 125 em 17/09). Se o ERP e o portal emitirem no mesmo
-dia, pegam o mesmo número e o fisco recusa com `E0141`. **Série própria para o ERP, ou 70000?**
+### 2. ~~A série~~ — **DECIDIDA em 25/09: corte limpo**
+O dono delegou («você decide que série usar») e confirmou a escolha: **NF-e na série 2** e
+**NFS-e na série 901**, as duas começando do nº 1. O emissor antigo fica na série 1 (até a NF-e
+10.026) e o portal na 70000 (até a NFS-e 123).
+
+Razão principal: **risco de número queimado**. Continuar no 10.027 exigiria que o nfemais não
+emitisse nem uma depois da virada — se emitisse, os dois pegariam o mesmo número e a SEFAZ
+recusaria com 539. Com série própria o risco é zero.
+
+Contrapartida aceita pelo dono: a numeração recomeça em 1.
 
 ## 🟡 Trava a produção
 
@@ -33,7 +40,16 @@ emitir** antes de alguém declarar (guarda de 24/09), mas o número é seu:
 
 Confira no emissor em uso no dia — esses números crescem a cada nota que a Portte emite.
 
-### 4. Manutenção de CFTV é 14.01 ou 14.06?
+### 4. ~~Manutenção de CFTV~~ — **DECIDIDA em 25/09: 14.01.01**
+O dono delegou («veja qual código é o mais adequado e use-o»). O texto oficial decide sozinho:
+14.01 é «manutenção e conservação de máquinas, aparelhos, equipamentos»; 14.06 é «instalação e
+montagem… exclusivamente com material por ele fornecido». A nota 116 estava certa, a 120 errada.
+
+**Fica em aberto um caso vizinho:** a nota **119** (Gelain) é **portaria remota** e também saiu
+14.06. Portaria remota é **monitoramento** (11.02), não instalação. Mudar altera alíquota e
+possivelmente retenção — **pergunta para o contador**.
+
+### 4b. ~~Manutenção de CFTV é 14.01 ou 14.06?~~ (histórico da pergunta)
 Mesma empresa, mesmo mês, descrição **idêntica**, códigos diferentes:
 
 | Nota | Descrição | Código |
@@ -43,9 +59,15 @@ Mesma empresa, mesmo mês, descrição **idêntica**, códigos diferentes:
 
 Uma está errada, e o código define o ISS. Pergunta para o contador.
 
-### 5. PIS e COFINS na NF-e da Eletrônica
-A sua nota real 10.026 traz **zero**. O nosso cálculo traz **1,65% e 7,60%** com a norma citada.
-Não há fonte para decidir qual está certo — é do contador.
+### 5. ~~PIS e COFINS na NF-e~~ — **DECIDIDO em 25/09: zerados**
+O dono: «nós temos a liminar, então não é ser cobrado imposto sobre ela, é pra sair zerado».
+Implementado como parâmetro `empresas.pis_cofins_processo` = **1038495-94.2024.4.01.3200**, com
+o processo citado na linha e uma mensagem no corpo da nota.
+
+**Fica para o contador, e não é detalhe:** o **CST**. Liminar SUSPENDE (CST 09); alíquota zero é
+CST 06. Sem o texto da liminar não dá para decidir; ficou 09. E a liminar citada na NFS-e fala de
+**retenção pelo tomador**, enquanto na NF-e o que se zera é o **PIS/COFINS próprio** — coisa
+diferente. Vale ter a confirmação por escrito.
 
 ## 🟢 Recuperação de valor pago a mais
 
