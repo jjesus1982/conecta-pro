@@ -117,20 +117,40 @@ async def _mandar(telefone: str | None, msg: str) -> bool:
         return False
 
 
+def mascarar(chave: str | None) -> str:
+    """Mostra o suficiente para a pessoa RECONHECER a própria chave, e nada útil para um estranho.
+
+    ⚠️ A 1ª versão mandava a chave inteira. Se o `celular` do cadastro estiver velho — e está,
+    em parte da base —, isso entrega o CPF de uma pessoa ao telefone de outra. Mascarado, quem
+    é dono reconhece e quem não é não aprende nada.
+    """
+    c = (chave or "").strip()
+    if not c:
+        return ""
+    if "@" in c:
+        u, _, d = c.partition("@")
+        return f"{u[:2]}{'•' * max(len(u) - 2, 2)}@{d}"
+    dig = "".join(ch for ch in c if ch.isdigit())
+    if len(dig) >= 4:
+        return f"{'•' * (len(dig) - 4)}{dig[-4:]}" if not c.startswith("+") else f"+55 •••••{dig[-4:]}"
+    return "•" * len(c)
+
+
 def _texto(primeiro: str, chave: str | None, tipo: str | None) -> str:
     cabeca = (
-        f"Oi {primeiro}! Aqui é o José Luís, da Conecta Mais. 👋\n\n"
-        "Estamos conferindo a *chave PIX* de todo mundo, porque teve caso de pagamento cair "
-        "numa conta antiga que a pessoa não usava mais — o dinheiro sai daqui, o banco diz que "
-        "pagou, e a pessoa não vê. Queremos evitar que isso aconteça com você."
+        f"Oi {primeiro}! Aqui é o *José Luís*, assistente da *Conecta Mais*. 👋\n\n"
+        "Estamos conferindo a *chave PIX* de todo mundo. Teve caso de pagamento cair numa conta "
+        "antiga que a pessoa não usava mais — o dinheiro sai daqui, o banco diz que pagou, e a "
+        "pessoa não vê. Queremos evitar que aconteça com você."
     )
     if chave:
         rotulo = {"cpf": "seu CPF", "telefone": "seu telefone", "email": "seu e-mail",
                   "cnpj": "seu CNPJ", "evp": "uma chave aleatória"}.get((tipo or "").lower(), "esta chave")
         meio = (
-            f"\n\nHoje seus pagamentos vão para *{chave}* ({rotulo}).\n\n"
-            "Essa é a chave da conta que você *usa hoje*?\n"
-            "• Se sim, me responde *sim*.\n"
+            f"\n\nHoje seus pagamentos vão para uma chave que termina em *{mascarar(chave)}* "
+            f"({rotulo}).\n\n"
+            "É a conta que você *usa hoje*?\n"
+            "• Se sim, responde *sim*.\n"
             "• Se não, me manda a chave certa — de preferência o *telefone* do banco que você usa."
         )
     else:
@@ -138,9 +158,17 @@ def _texto(primeiro: str, chave: str | None, tipo: str | None) -> str:
             "\n\nAqui no sistema *não tem chave PIX cadastrada* no seu nome.\n\n"
             "Me manda a chave da conta que você usa — de preferência o *telefone* do banco."
         )
+    # ⚠️ As três linhas abaixo são o que separa esta mensagem de um golpe, e nenhuma é enfeite:
+    #  · o limite do que eu peço (nunca senha/código) — quem pede isso não é a empresa;
+    #  · uma SAÍDA que não passa por mim, com nome de pessoa real que ela conhece — golpista
+    #    nenhum sobrevive a "confirma com o Paiva";
+    #  · a retirada da PRESSA, que é a alavanca de todo golpe: nada muda se ela não responder.
     return cabeca + meio + (
-        "\n\n_Só preciso da chave. Nunca peço senha, código do banco nem foto de cartão — "
-        "se alguém pedir isso em nome da Conecta, é golpe._"
+        "\n\n_Só preciso da chave. *Nunca* peço senha, código do banco, cartão ou foto de "
+        "documento — se alguém pedir isso em nome da Conecta, é golpe._\n"
+        "_Se preferir não tratar por aqui, fala com o *Orlailson Paiva* pessoalmente, ou me "
+        "procura no grupo. Em dúvida se sou eu mesmo? Confirma com o Paiva antes de responder._\n"
+        "_Sem pressa: *nada muda* no seu pagamento até você confirmar._"
     )
 
 
