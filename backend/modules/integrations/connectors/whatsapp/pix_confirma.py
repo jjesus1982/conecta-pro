@@ -377,6 +377,51 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
             "chave": chave, "tipo": tipo or "AMBÍGUO — humano decide", "aplicar": False}
 
 
+async def cobrar_quem_falta_a_chave(db: AsyncSession, *, enviar: bool = True,
+                                   pausa: float = 4.0) -> dict[str, Any]:
+    """Volta a quem RESPONDEU dizendo que a chave está errada e não mandou a certa.
+
+    Existe porque o ciclo ficava aberto justamente em quem mais precisa: a pessoa avisou que o
+    dinheiro está indo para o lugar errado e ninguém voltou a ela. Antes do conserto de coerência
+    o agente ainda encerrava esses casos com "bom turno" — o Nailson disse "Não" e foi despachado.
+
+    Só alcança quem tem `respondido_em` e segue `aguardando`: quem nunca respondeu não é cobrado,
+    e quem já mandou chave está em outra fila (aprovação humana).
+    """
+    rows = (await db.execute(text("""
+        SELECT employee_id::text AS id, nome, telefone, chave_atual, tipo_atual
+        FROM pix_confirmacoes
+        WHERE status = 'aguardando' AND respondido_em IS NOT NULL
+          AND telefone IS NOT NULL AND aplicado_em IS NULL
+        ORDER BY nome"""))).mappings().all()
+
+    enviados, falhas = 0, []
+    for i, r in enumerate(rows):
+        primeiro = str(r["nome"] or "").split()[0].title()
+        msg = (
+            f"Oi {primeiro}, é o José Luís de novo. 👋\n\n"
+            "Você me disse que a chave que está no cadastro *não* é a da conta que você usa — e eu "
+            "não quero deixar isso em aberto, porque é o teu dinheiro que pode cair no lugar "
+            "errado.\n\n"
+            "Me manda a chave certa quando puder? De preferência o *telefone* do banco que você "
+            "usa hoje, ou o *e-mail*, se for por e-mail.\n\n"
+            "_Continuo só precisando da chave — nunca senha, código do banco, cartão ou foto de "
+            "documento._\n"
+            "_Se preferir resolver pessoalmente, fala com o *Orlailson Paiva*._\n"
+            "_E sem pressa: nada muda até você confirmar._"
+        )
+        if not enviar:
+            continue
+        if await _mandar(r["telefone"], msg):
+            enviados += 1
+        else:
+            falhas.append(r["nome"])
+        if pausa and i < len(rows) - 1:
+            await asyncio.sleep(pausa)
+    return {"alvos": len(rows), "enviados": enviados, "falhas_de_entrega": falhas,
+            "nomes": [r["nome"] for r in rows]}
+
+
 async def pendentes_de_aprovacao(db: AsyncSession) -> list[dict[str, Any]]:
     """O que um humano precisa olhar: chave nova informada e ainda não aplicada."""
     rows = (await db.execute(text("""
