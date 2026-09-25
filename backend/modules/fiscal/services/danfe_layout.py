@@ -61,8 +61,12 @@ O que este arquivo NÃO faz: não emite, não transmite, não assina, não calcu
 from __future__ import annotations
 
 import io
+import logging
+import os
 import re
 from decimal import Decimal, InvalidOperation
+
+logger = logging.getLogger(__name__)
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -677,6 +681,26 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
     if logo:
         try:
             from modules.crm.services import pdf_branding as pb  # noqa: PLC0415
+
+            # ⚠️ A MARCA CERTA OU MARCA NENHUMA — nunca a de reserva.
+            #
+            # `_desenha_logo_cheia` tenta três caminhos em cadeia e devolve `True` no primeiro
+            # que abrir. Numa tela isso é gentileza; num DOCUMENTO FISCAL é armadilha: em
+            # 25/09/2026 gerei um modelo de DANFE num contêiner sem `/app/uploads` montado, a
+            # logo caiu para o arquivo de reserva, e saiu pequena e desbotada. O PDF dizia
+            # «gerado», o código dizia `True`, e eu quase mandei ao dono um modelo visual com
+            # a marca errada para aprovar. O que me salvou foi ABRIR o PDF.
+            #
+            # Aqui a cadeia é cortada: ou existe o arquivo canônico da marca, ou o DANFE sai
+            # SEM logo — que é conforme, porque o MOC só ADMITE o logotipo, não o exige. Um
+            # documento sem marca é sóbrio; um documento com a marca errada é constrangedor,
+            # e o segundo não se distingue do primeiro sem alguém olhando.
+            if not os.access(pb._LOGO_CHEIA, os.R_OK):
+                logger.warning(
+                    "[danfe] marca oficial ausente em %s — DANFE sai SEM logo, nunca com a de reserva",
+                    pb._LOGO_CHEIA,
+                )
+                raise FileNotFoundError(pb._LOGO_CHEIA)
 
             if celula:
                 # A marca ganha uma FAIXA própria no alto do campo do emitente, com fio
