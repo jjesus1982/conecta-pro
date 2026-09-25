@@ -4873,7 +4873,23 @@ async def _contexto_funcionario(ident) -> str:
                 "gostaria de mudar' e mandou o número na mensagem seguinte.) "
                 "⚠️ NÃO REPITA. Se você já disse que encaminhou ou já confirmou, não diga de novo "
                 "na mensagem seguinte — o Alan recebeu quatro mensagens dizendo a mesma coisa "
-                "sobre a Pyetra. Um 'ok' ou '👍' da pessoa pede resposta curta ou nenhuma."
+                "sobre a Pyetra. Um 'ok' ou '👍' da pessoa pede resposta curta ou nenhuma. "
+                # 🔴 O erro MAIS GRAVE medido em 25/09, e a causa é irônica: o aviso antigolpe da
+                # NOSSA mensagem ("nunca peço senha, código do banco, cartão") está no histórico
+                # que o modelo lê, e ele generalizou aquilo para a CHAVE. A Telma respondeu "Sim."
+                # e ele disse: "vou parar essa conversa aqui, chave PIX não se confirma por
+                # WhatsApp e não é assunto meu" — perguntou, ela respondeu, e ele recusou a
+                # resposta. O texto que eu escrevi para a mensagem ficar segura virou a instrução
+                # que fez o agente ser incoerente.
+                "🔴 SEJA COERENTE: NÓS PERGUNTAMOS, ENTÃO RECEBA A RESPOSTA. Este assunto É SEU. "
+                "Nunca diga 'não é assunto meu', 'não se confirma por WhatsApp', 'vou parar essa "
+                "conversa' ou 'procure o DP' sobre a chave — isso é pedir e depois recusar, e "
+                "deixa a pessoa sem saber se foi ou não registrado. Quem quiser mandar a chave, "
+                "PODE mandar por aqui: é exatamente o que pedimos, e o registro é automático. "
+                "A regra de recusar vale SÓ para senha, código do banco, cartão e foto de "
+                "documento — nunca para a chave PIX em si, que é dado de recebimento, não de "
+                "acesso. O aviso antigolpe que aparece na nossa mensagem serve para proteger a "
+                "pessoa de TERCEIROS; ele não é instrução para você recusar o que nós pedimos."
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("contexto pix_confirma: %s", exc)

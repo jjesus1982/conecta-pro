@@ -36,8 +36,18 @@ logger = logging.getLogger(__name__)
 PAUSA_ENTRE_ENVIOS_S = 5.0
 
 _CONFIRMA_ATUAL = re.compile(
-    r"\b(sim|isso|correto|confirmo|confirmado|certo|esse|essa|este|mesmo|ok|positivo|"
-    r"ta certo|esta certo|e esse|e essa|continua)\b",
+    r"\b(sim|isso|correto|confirmo|confirmado|certo|esse|essa|este|mesmo|positivo|"
+    r"ta certo|esta certo|e esse|e essa|continua|deixa? como (ta|esta))\b",
+    re.I,
+)
+# 🔴 "ok", "entendi", "obrigado", "👍" são ACUSE DE RECEBIMENTO, não confirmação de chave.
+# Estavam dentro do _CONFIRMA_ATUAL e isso APAGAVA pedido de troca: o Alan pediu para mudar,
+# mandou o telefone, e depois escreveu "Entendi", "Ok", "👍" — a reconciliação leu o último "Ok"
+# como "sim, a chave atual está certa" e a troca dele desaparecia. Medido no ensaio de 25/09,
+# antes de gravar. Acuse não muda estado NENHUM.
+_ACUSE = re.compile(
+    r"^\W*(ok+|okay|entendi|entendido|beleza|blz|valeu|vlw|obrigad[oa]|obg|tmj|certo tio|"
+    r"👍|👌|🙏|😊|🫡|👊|💙|amem|amém|tudo bem|tá bom|ta bom|tabom)\W*$",
     re.I,
 )
 # "não" isolado, "nao é", "negativo", "errado" — nunca dentro de outra palavra ("naonada").
@@ -83,7 +93,14 @@ def chave_do_texto(txt: str) -> tuple[str | None, str | None]:
     d = max(cands, key=len)
 
     if len(d) == 14:
-        return d, "cnpj"
+        # ⚠️ Menção de grupo no WhatsApp é um LID de 14+ dígitos (`@83949732774058`) e foi lido
+        # como CNPJ no ensaio de 25/09. CNPJ só quando a pessoa DISSE cnpj, ou quando o texto
+        # não é uma menção. Sem contexto, ambíguo — nunca chute documento de 14 dígitos.
+        if re.search(r"\bcnpj\b", t, re.I):
+            return d, "cnpj"
+        if re.search(r"@\s*" + re.escape(d), t):
+            return None, None
+        return d, None
     if len(d) == 13 and d.startswith("55"):
         return "+" + d, "telefone"
     if len(d) == 10:
@@ -281,6 +298,11 @@ def desambiguar_pelo_remetente(chave: str | None, tipo: str | None,
     return chave, tipo
 
 
+def e_so_acuse(txt: str) -> bool:
+    """'ok', 'entendi', '👍' — acuse de recebimento. Não confirma nem nega nada."""
+    return bool(_ACUSE.match(_sem_acento(txt or "").strip()))
+
+
 async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
                              fone_remetente: str | None = None) -> dict[str, Any]:
     """Guarda o que a pessoa respondeu. NÃO aplica nada — só registra."""
@@ -289,6 +311,12 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
         {"e": employee_id})).first()
     if not atual:
         return {"ok": False, "motivo": "não perguntei a esta pessoa"}
+
+    # acuse de recebimento não muda estado: senão o "Ok" que vem DEPOIS do pedido de troca
+    # apaga o pedido, que foi o que o ensaio pegou no Alan.
+    if e_so_acuse(texto):
+        return {"ok": True, "resultado": "só acuse de recebimento — estado mantido",
+                "aplicar": False}
 
     if confirmou_o_atual(texto):
         await db.execute(text("""
