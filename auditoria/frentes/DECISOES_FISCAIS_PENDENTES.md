@@ -229,3 +229,35 @@ cadastro e registrei a diferença — endereço meio-a-meio não é mais complet
 
 O script que faz isso a partir de qualquer nota nova:
 `backend/scripts/qa/preencher_endereco_cliente_das_notas.py` (sem `--aplicar` só mostra).
+
+---
+
+## 18 · Buscar o XML assinado das 114 NFS-e restantes?
+
+**Medido em 25/09/2026:** `nfse_emitidas_nacional` tem **123 notas** — 115 de produção e 8 de
+homologação — e **nenhuma** tinha o XML assinado guardado. Busquei **uma** (a nº 99, Villa dos
+Pássaros, 06/2026) pela rota, o ADN devolveu, gravou, e o DANFSe v2.0 saiu completo.
+
+**Por que importa:** metade dos blocos do DANFSe v2.0 — tributação municipal, federal, IBS/CBS,
+NBS, código de tributação nacional — **só existe no XML**. A tabela guarda 12 campos. Sem o
+XML, o documento que vai ao condomínio sai pela metade.
+
+**O que decidir:** autoriza buscar as 114 restantes? É **uma chamada ao portal nacional por
+nota**, leitura pura (`GET /nfse/{chave}`), nada é alterado no fisco. Não disparei por conta
+própria: 114 chamadas a órgão público merecem ser agendadas e paceadas, não disparadas por uma
+frente de PDF.
+
+Faz diferença prática se os kits do GEDEON passarem a levar o DANFSe ao condomínio.
+
+---
+
+## 19 · Modelo do DANFE — **RESOLVIDO em 25/09/2026**
+
+Dono: *«vamos usar o modelo 4, apenas centralize a logo, está perfeito esse modelo»*.
+
+É o padrão do botão «DANFE (PDF)»: marca centrada em faixa própria, emitente centralizado, QR
+de consulta ao lado das barras, assinatura do Conecta PRO no pé da folha (fora do quadro
+fiscal). `?marca=inline` devolve o formato anterior, para comparação.
+
+**Fica em aberto, se ele quiser mexer:** o telefone `(92) 3221-2100` aparece na caixa do
+emitente porque está no cadastro — o DANFE que a Portte emite deixa esse campo vazio.
