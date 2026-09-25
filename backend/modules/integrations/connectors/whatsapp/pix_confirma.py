@@ -40,6 +40,8 @@ _CONFIRMA_ATUAL = re.compile(
     r"ta certo|esta certo|e esse|e essa|continua)\b",
     re.I,
 )
+# "não" isolado, "nao é", "negativo", "errado" — nunca dentro de outra palavra ("naonada").
+_NEGA = re.compile(r"(?<![a-z])(nao|negativo|errad[ao]|mudou|trocou|outra conta)(?![a-z])", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _EVP = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 
@@ -105,13 +107,32 @@ def confirmou_o_atual(txt: str) -> bool:
 
 
 async def _mandar(telefone: str | None, msg: str) -> bool:
+    """True SÓ quando o serviço afirmou `status='sent'`. Ausência de erro não é entrega.
+
+    🔴 A 1ª versão fazia `not (r.get("status") == "error")` — recusava só a falha NOMEADA. Mas
+    `_send_message` devolve QUATRO formas: `sent`, `error`, `exception` e `disabled`. As duas
+    últimas passavam como sucesso.
+
+    Medido no disparo real de 25/09: quatro telefones fabricados (`92999990001/2/3/7`) ficaram
+    `aguardando` — ou seja, "perguntamos e estamos esperando" — e **nenhuma mensagem saiu**
+    (zero registro de `out` no `cwi_message_log`). Os outros oito devolveram `error` nomeado e
+    foram corretamente para `nao_avisado`.
+
+    O efeito é o que o `nao_avisado` existe para impedir, entrando por baixo: a pessoa que nunca
+    recebeu a pergunta é contada como quem não respondeu. Na rotina de turno isso a reporta como
+    OMISSA ao Jordan. Campo/estado não previsto tem de falhar FECHADO.
+    """
     if not telefone:
         return False
     try:
         from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
 
         r = await whatsapp_service.send_custom(str(telefone), msg)
-        return not (isinstance(r, dict) and r.get("status") == "error")
+        if isinstance(r, dict) and r.get("status") == "sent":
+            return True
+        logger.error("pix_confirma: NÃO entregue para %s — resposta do serviço: %s",
+                     telefone, (r if isinstance(r, dict) else type(r).__name__))
+        return False
     except Exception as e:  # noqa: BLE001
         logger.error("pix_confirma: envio falhou para %s (%s)", telefone, e)
         return False
@@ -251,6 +272,19 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str) 
 
     chave, tipo = chave_do_texto(texto)
     if not chave:
+        # ⚠️ Um "não" SECO não é chave nem confirmação — é a pessoa dizendo que a chave atual
+        # está errada e ainda não mandando a certa. Caso real de 25/09: o Nailson respondeu
+        # "Sim" e, 7 minutos depois, "Não". Sem este ramo ele ficava gravado como quem
+        # confirmou, e a chave errada seguia valendo com aparência de conferida.
+        if _NEGA.search(_sem_acento(texto)):
+            await db.execute(text("""
+                UPDATE pix_confirmacoes SET respondido_em=now(), texto_resposta=:t,
+                       chave_informada=NULL, tipo_informado=NULL, status='aguardando',
+                       updated_at=now()
+                WHERE employee_id = CAST(:e AS uuid)"""), {"e": employee_id, "t": texto[:2000]})
+            await db.commit()
+            return {"ok": True, "resultado": "disse que a chave atual NÃO é a certa — "
+                                             "falta ele mandar a nova", "aplicar": False}
         await db.execute(text("""
             UPDATE pix_confirmacoes SET respondido_em=now(), texto_resposta=:t, updated_at=now()
             WHERE employee_id = CAST(:e AS uuid)"""), {"e": employee_id, "t": texto[:2000]})

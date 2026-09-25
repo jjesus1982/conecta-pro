@@ -249,15 +249,29 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str) 
 
 
 async def _mandar(telefone: str | None, msg: str) -> bool:
-    """Entrega no WhatsApp da pessoa. Sem telefone, não há o que fazer além de registrar."""
+    """True SÓ quando o serviço afirmou `status='sent'`. Ausência de erro não é entrega.
+
+    🔴 Eu havia escrito `not (r.get("status") == "error")`, recusando apenas a falha NOMEADA.
+    `_send_message` devolve QUATRO formas — `sent`, `error`, `exception`, `disabled` — e as duas
+    últimas passavam como sucesso. Medido no disparo de 25/09 em `pix_confirma` (mesmo código):
+    4 telefones fabricados ficaram "aguardando" sem nenhuma mensagem ter saído.
+
+    Aqui o dano é maior que lá: `nao_avisado` existe justamente para o relatório das 08:30 não
+    dizer ao Jordan que a pessoa foi OMISSA quando ela nunca recebeu a pergunta. Com a checagem
+    frouxa, a falha de entrega virava omissão da pessoa — a acusação injusta que esta marca
+    existe para impedir. Estado não previsto falha FECHADO.
+    """
     if not telefone:
         return False
     try:
         from modules.integrations.connectors.whatsapp.service import whatsapp_service  # noqa: PLC0415
 
         r = await whatsapp_service.send_custom(str(telefone), msg)
-        # `send_custom` devolve dict com status; erro vem com `status='error'`.
-        return not (isinstance(r, dict) and r.get("status") == "error")
+        if isinstance(r, dict) and r.get("status") == "sent":
+            return True
+        logger.error("troca_turno: NÃO entregue para %s — resposta do serviço: %s",
+                     telefone, (r if isinstance(r, dict) else type(r).__name__))
+        return False
     except Exception as e:  # noqa: BLE001
         logger.error("troca_turno: envio falhou para %s (%s)", telefone, e)
         return False

@@ -1438,9 +1438,17 @@ async def chatwoot_webhook(
 
             _idp = await _qe2(db, phone_canonical)
             if getattr(_idp, "employee_id", None):
+                # ⚠️ 25/09 — A CONVERSA NÃO ACABA NA PRIMEIRA RESPOSTA.
+                # A 1ª versão só capturava com status em ('aguardando','nao_avisado'), então
+                # fechava o registro na primeira mensagem e IGNORAVA o resto. Dois casos reais
+                # no mesmo minuto: o Alan escreveu "é sim mas eu gostaria de mudar..." (virou
+                # `confirmou_atual`) e mandou a chave nova na mensagem SEGUINTE, que foi jogada
+                # fora; e o Nailson disse "Sim" e depois "Não", e o "Não" não chegou a lugar
+                # nenhum. Pessoa corrige, completa e se contradiz — é conversa, não formulário.
+                # Agora aceita enquanto a chave não foi APLICADA: o último recado manda.
                 _aguarda = (await db.execute(text(
                     "SELECT 1 FROM pix_confirmacoes WHERE employee_id = CAST(:e AS uuid) "
-                    "AND status IN ('aguardando','nao_avisado')"),
+                    "AND aplicado_em IS NULL"),
                     {"e": str(_idp.employee_id)})).first()
                 if _aguarda:
                     _rp = await _px.registrar_resposta(
