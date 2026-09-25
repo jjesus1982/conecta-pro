@@ -550,7 +550,7 @@ def precisa_faixa_sem_valor_fiscal(cab: dict) -> bool:
     return (cab.get("ambiente") or "homologacao") != "producao" or (cab.get("status") or "") != "autorizada"
 
 
-def danfe_pdf(cab: dict, itens: list[dict], orientacao: str = "retrato", marca: str = "inline") -> bytes:
+def danfe_pdf(cab: dict, itens: list[dict], orientacao: str = "retrato", marca: str = "celula") -> bytes:
     """DANFE em PDF — o desenho vive em `modules/fiscal/services/danfe_layout.py` (frente AB1).
 
     Aqui ficava um leiaute próprio, «com a nossa cara». Medido em 25/09/2026 contra o DANFE
@@ -563,7 +563,8 @@ def danfe_pdf(cab: dict, itens: list[dict], orientacao: str = "retrato", marca: 
     Técnicas do DANFE»): sair diferente não é estilo, é não conformidade.
 
     `orientacao` = 'retrato' (padrão) ou 'paisagem' — as duas formas que o MOC prevê.
-    `marca` = 'inline' ou 'celula' — só a arrumação da logo DENTRO do campo do emitente.
+    `marca` = 'celula' (padrão, aprovado pelo dono) ou 'inline' — só a arrumação da logo
+    DENTRO do campo do emitente.
     A tarja «SEM VALOR FISCAL» continua sendo decidida AQUI, pela regra desta tela.
     """
     from modules.fiscal.services.danfe_layout import danfe as _desenhar  # noqa: PLC0415
@@ -1052,16 +1053,17 @@ async def rd_nfe_danfe(
     nfe_id: str,
     current_user: CurrentActiveUser,
     orientacao: str = Query("retrato", pattern="^(retrato|paisagem)$"),
-    marca: str = Query("inline", pattern="^(inline|celula)$"),
+    marca: str = Query("celula", pattern="^(inline|celula)$"),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """DANFE no leiaute do MOC. `?orientacao=paisagem` devolve a outra forma prevista na norma —
     mesmos blocos, mesma ordem, mais itens por página.
 
-    `?marca=celula` põe a logo em célula própria na caixa do emitente, com fio separador — o
-    tratamento do DANFSe v2.0, que o dono escolheu em 25/09/2026. Não muda bloco nenhum do
-    MOC: a marca já vivia dentro do campo de identificação do emitente, e o que muda é a
-    arrumação dentro dele."""
+    `marca` é `celula` por PADRÃO — o modelo que o dono aprovou em 25/09/2026: marca centrada
+    em faixa própria, emitente centralizado, QR de consulta ao lado das barras. `?marca=inline`
+    devolve o formato anterior, para comparação. Não muda bloco nenhum do MOC: a marca já
+    vivia dentro do campo de identificação do emitente, e o que muda é a arrumação dentro
+    dele."""
     cab, itens = await carregar_nota(db, nfe_id)
     pdf = danfe_pdf(cab, itens, orientacao=orientacao, marca=marca)
     nome = f"DANFE_{cab.get('numero') or 'rascunho'}_{so_digitos(cab.get('chave_acesso'))[:12] or 'sem-chave'}.pdf"

@@ -245,8 +245,15 @@ def br_date(d) -> str:
 _LOGO_CHEIA = "/app/uploads/assets/conecta-mais/conecta-mais.png"
 
 
-def _desenha_logo_cheia(canvas, x, y, largura=44 * mm, altura=24 * mm) -> bool:
-    """Desenha a logo COMPLETA Conecta Mais (ícone + wordmark + tagline) sobre fundo claro."""
+def _desenha_logo_cheia(canvas, x, y, largura=44 * mm, altura=24 * mm, anchor: str = "nw") -> bool:
+    """Desenha a logo COMPLETA Conecta Mais (ícone + wordmark + tagline) sobre fundo claro.
+
+    `anchor` é o do `drawImage` do reportlab e importa mais do que parece, porque
+    `preserveAspectRatio` está ligado: a imagem é encaixada DENTRO da caixa preservando a
+    proporção, e a âncora decide onde ela encosta no espaço que sobra. A marca é 2857×1682
+    (1,7:1); numa caixa larga e baixa ela se ajusta pela ALTURA e sobra largura — com o padrão
+    `nw` ela fica grudada à esquerda. `n` centra. Medido em 25/09/2026, quando o dono disse
+    «apenas centralize a logo» e eu tinha aumentado a CAIXA achando que aumentava a marca."""
     for lp in (_LOGO_CHEIA, logo_path("cover"), logo_path("header")):
         if not lp:
             continue
@@ -258,7 +265,7 @@ def _desenha_logo_cheia(canvas, x, y, largura=44 * mm, altura=24 * mm) -> bool:
                 width=largura,
                 height=altura,
                 preserveAspectRatio=True,
-                anchor="nw",
+                anchor=anchor,
                 mask="auto",
             )
             return True

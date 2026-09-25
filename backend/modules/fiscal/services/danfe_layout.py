@@ -539,7 +539,7 @@ def danfe(
     orientacao: str = "retrato",
     sem_valor_fiscal: bool = True,
     logo: bool = True,
-    marca: str = "inline",
+    marca: str = "celula",
 ) -> bytes:
     """DANFE no leiaute do MOC. `orientacao` = 'retrato' (padrão) ou 'paisagem'.
 
@@ -547,15 +547,16 @@ def danfe(
     porque a marca vive dentro do campo de identificação do emitente e o que muda é só a
     arrumação dentro dele:
 
-      · `"inline"`  — a logo à esquerda e o texto do emitente correndo ao lado (como estava)
-      · `"celula"`  — a logo em CÉLULA PRÓPRIA, separada por um fio, e o emitente na coluna
-        ao lado. É o tratamento do DANFSe v2.0, que o dono pediu em 25/09/2026: *«me agrada
-        muito o modelo 03_danfse no canto superior esquerdo que tem nossa logo, eu gosto do
-        formato da 01_danfe_retrato, cria um quarto modelo mesclando esses 2»*.
+      · `"celula"` (PADRÃO) — marca centrada em faixa própria, fio embaixo, emitente inteiro
+        centralizado, QR de consulta ao lado das barras. **Aprovado pelo dono em 25/09/2026**
+        depois de quatro rodadas de ajuste: *«vamos usar o modelo 4, está perfeito esse
+        modelo»*. Nasceu do pedido de mesclar o 03 (DANFSe) com o 01 (DANFE retrato).
+      · `"inline"` — a logo à esquerda e o texto do emitente correndo ao lado. É o formato
+        anterior; fica disponível em `?marca=inline` para comparação, não é mais o padrão.
 
     Não é enfeite: com `inline`, o nome da empresa começa 29mm adentro de uma caixa de 40% da
-    folha, e razão social longa é encolhida até virar ilegível. Com `celula`, a logo tem
-    espaço próprio e o texto recupera a largura inteira da coluna.
+    folha, e razão social longa é encolhida até virar ilegível. Com `celula`, a marca tem
+    faixa própria e o texto recupera a largura inteira da coluna.
 
     `cab`/`itens` são a linha de `nfes` e as de `nfe_itens` — mas se `cab['xml_autorizado']`
     existir, é ele que manda: o DANFE representa o documento fiscal, não o banco.
@@ -765,18 +766,26 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
                 # 6,6 · fio · nome · 3 linhas de endereço a 3,0 · 2 de consulta a 2,4. A
                 # primeira tentativa deixou a consulta em cima do CEP — em documento fiscal
                 # texto sobreposto não é feio, é ilegível, e o CEP é campo obrigatório.
-                # Marca CENTRADA e MAIOR, pedido do dono: «quero valorizar minha logo, minha
-                # marca». 44mm de largura contra os 26mm do modo inline — 69% maior. O fio
-                # embaixo separa a marca do texto sem criar bloco.
-                larg_logo = 44 * mm
+                # Marca CENTRADA, pedido do dono: «apenas centralize a logo».
+                #
+                # E aqui eu tinha me enganado, com número e tudo: aumentei a CAIXA para 44mm e
+                # anunciei «69% maior». Não era. A marca é 2857×1682 (1,7:1) e o
+                # `preserveAspectRatio` a encaixa pela ALTURA — numa caixa larga e baixa sobra
+                # largura, e a âncora `nw` a gruda à esquerda. A caixa cresceu, a marca não;
+                # ela só andou para o canto. Caixa não é tamanho: o que manda é a MENOR das
+                # duas restrições, e aqui é sempre a altura.
+                #
+                # Agora a altura é o que se aumenta (9,6mm contra os 9,0 do modo inline) e
+                # `anchor="n"` centra no que sobra. O ganho é honesto e pequeno — mais que isso
+                # comeria a linha de consulta de autenticidade, que é texto do DANFE.
                 if pb._desenha_logo_cheia(
-                    c, f.x0 + (c1 - larg_logo) / 2, topo - 9.4 * mm, largura=larg_logo, altura=8.4 * mm
+                    c, f.x0 + 3 * mm, topo - 10.4 * mm, largura=c1 - 6 * mm, altura=9.6 * mm, anchor="n"
                 ):
                     c.setLineWidth(0.4)
                     c.setStrokeColor(_CINZA)
-                    c.line(f.x0 + 4 * mm, topo - 10.4 * mm, f.x0 + c1 - 4 * mm, topo - 10.4 * mm)
+                    c.line(f.x0 + 4 * mm, topo - 11.2 * mm, f.x0 + c1 - 4 * mm, topo - 11.2 * mm)
                     c.setStrokeColor(_PRETO)
-                    y = topo - 13.0 * mm  # o texto do emitente começa abaixo do fio
+                    y = topo - 13.4 * mm  # o texto do emitente começa abaixo do fio
             elif pb._desenha_logo_cheia(c, x, topo - 9.5 * mm, largura=26 * mm, altura=9 * mm):
                 x += 29 * mm
         except Exception:  # noqa: BLE001 — sem logo o documento continua conforme
@@ -801,12 +810,14 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline"
             f"CEP: {cep_br(d.get('emit_cep'))}   FONE: {fone_br(d.get('emit_fone'))}".strip(),
         )
     ):
-        escrever(y - (k + 1) * (2.8 if celula else 3.0) * mm, txt, _F, 6.2)
+        escrever(y - (k + 1) * (2.6 if celula else 3.0) * mm, txt, _F, 6.2)
     c.setFont(_F, 5.0)
     c.setFillColor(_CINZA)
     # com a marca empilhada, o emitente desce e o texto de consulta desce junto — em 2 linhas,
     # porque a terceira bateria na borda de baixo da caixa.
-    _topo_consulta = topo - (23.6 if celula else 18.0) * mm
+    # -23.0 e -25.0 num campo que acaba em -26: a linha de baixo precisa sobrar 1mm para os
+    # descendentes («g» de «Autorizadora»), senão ela encosta na borda e parece cortada.
+    _topo_consulta = topo - (23.0 if celula else 18.0) * mm
     for k, txt in enumerate(_quebrar(c, _TEXTO_CONSULTA, c1 - 6 * mm, _F, 4.6 if celula else 5.0)[: 2 if celula else 3]):
         if celula:
             c.setFont(_F, 4.6)
