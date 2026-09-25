@@ -150,3 +150,82 @@ número antes e depois, contra as três linhas reais do cronograma do dono. **Fr
 **Enquanto isso, o que protege:** a tela mostra as **duas contas lado a lado** (a da folha e a que
 o dono digitou) e **não escolhe** — quem escolhe é ele, que assina. Foi desenho consciente do
 autor, e é o que impede o erro de virar nota.
+
+---
+
+## 14 · Qual endereço da Conecta Mais Eletrônica é o verdadeiro? ⚠️ **antes da 1ª nota**
+
+**Medido em 25/09/2026**, nos documentos que o próprio fisco emitiu:
+
+| Fonte | Endereço |
+|---|---|
+| ERP (`empresas`), antes de hoje | Avenida Constantino Nery, 3343 — Chapada — CEP 69050-001 |
+| DANFE da NF-e 10.026 (SEFAZ-AM, 17/09/2026) | **Rua Nova Palestina, 51 — Crespo — CEP 69073-488** |
+| NFS-e 121 (ADN, competência 09/2026) | **o mesmo** |
+
+**O que eu fiz:** corrigi o ERP para dizer o que o fisco já registrou, porque o endereço do
+emitente vai **dentro do XML assinado** e nota autorizada com endereço fora do cadastro é
+documento fiscal errado — que não se corrige editando campo.
+
+**O que eu NÃO decidi:** qual dos dois é a sede real. Se a empresa mudou mesmo para a
+Constantino Nery, o conserto começa na **Receita/SEFAZ** (alteração cadastral) e só depois
+aqui. Emitir com endereço que o cadastro não tem é o problema, não a solução.
+
+A Patrimonial tinha rua e número certos e o **CEP vazio**; preenchido com 69055-630, da NFS-e 31.
+
+---
+
+## 15 · 8 produtos que não podem ser emitidos até alguém dizer o tratamento de saída
+
+O catálogo fiscal tem 94 produtos ativos. **86 emitem**; estes 8 são recusados porque entraram
+com um CST que **não tem regra de saída com fonte** — e o sistema recusa em vez de inventar,
+que é o comportamento certo. NCM/CST chutado foi exatamente a rejeição da SEFAZ de 11/04/2026.
+
+| CST de entrada | Código | Produto |
+|---|---|---|
+| *(vazio)* | EPI-001 | COLETE REFLETIVO TAM M |
+| 20 (redução de BC) | 108662 | LUVA ALGODÃO 4 FIOS BRANCA |
+| 20 | VTV-213 | CÂMERA BULLET METAL IP 4MP |
+| 20 | VTV-074 | NVR 16CH 4K |
+| 400 (CSOSN — não tributada no Simples) | 2011 | TORRE PLUG IN PLAY |
+| 41 (não tributada) | 11838 | FONTE 5V 3A USB TIPO C |
+| 50 (suspensão) | VTV-119 | SMART FITA LED WI-FI RGB |
+| 50 | VTV-117 | SMART LÂMPADA RETRO 11W |
+
+**O que decidir:** para cada um desses CST de entrada, qual é o CST de **saída** e por quê.
+Não é escolha de programador — depende de *por que* a entrada foi assim, e a resposta certa
+economiza imposto (ou evita pagar a mais). Vale levar ao contador junto com os XML de entrada.
+
+> Enquanto não houver decisão, esses 8 aparecem na tela e a emissão recusa com mensagem que
+> ensina. Nenhum deles é inventado para «destravar».
+
+---
+
+## 16 · Markup: 40% é regra da casa ou varia?
+
+O campo nasce com **40%**, o número que o dono citou. Se variar por fornecedor, por linha de
+produto ou por cliente, isso vira parâmetro — e parâmetro se lê do cadastro, não se adivinha.
+
+**Lembrete que vale dinheiro:** markup ≠ margem. 40% de markup sobre custo 100 dá preço 140,
+que é **28,6% de margem** sobre a venda. Para 40% de *margem*, o markup tem de ser **66,7%**.
+O sistema devolve os dois números escritos justamente para essa conta não sair torta.
+
+---
+
+## 17 · 13 clientes sem endereço completo — NF-e de mercadoria exige
+
+Dos 29 clientes, **15 têm endereço completo**, 1 foi preenchido das notas do fisco (Parque dos
+Franceses) e **13 não têm nota que os diga** — esses só digitando:
+
+ASSOCIACAO BRASIL SGI · CONDOMINIO DO CONJUNTO DOS JORNALISTAS · CONDOMÍNIO RESIDENCIAL PRAIA
+DOS PASSARINHOS · Condomínio Park Village · Condomínio Residencial Smile Parque das Flores ·
+Condomínio Residencial The Sun · Condomínio do Edifício Rio Jaguaribe · GRUPO PARVI · HAWK EYE ·
+RAÇÃO CONFIANÇA AGROINDUSTRIAL LTDA · VEGA MANAUS TRANSPORTE DE PASSAGEIROS LTDA
+*(mais 2 cadastros de teste: CONECTA MAIS - SEGURANCA E TECNOLOGIA e HOMOLOGACAO)*
+
+**Divergência verdadeira, para o dono decidir:** o cadastro do **Parque dos Franceses** diz
+logradouro «Rua Parque dos Franceses»; a NFS-e 121 que o fisco gerou diz **«A-1»**. Mantive o
+cadastro e registrei a diferença — endereço meio-a-meio não é mais completo, é novo.
+
+O script que faz isso a partir de qualquer nota nova:
+`backend/scripts/qa/preencher_endereco_cliente_das_notas.py` (sem `--aplicar` só mostra).
