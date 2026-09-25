@@ -248,6 +248,47 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str) 
             "hora": r["hora_inicio"].strftime("%Hh")}
 
 
+async def perguntamos_do_turno_por_ultimo(db: AsyncSession, fone: str | None) -> bool:
+    """O assunto ABERTO com esta pessoa é a confirmação de turno?
+
+    🔴 DEFEITO ESPELHADO, medido em 25/09. Duas rotinas nossas falam com a MESMA pessoa pelo
+    MESMO canal e as duas pedem "responda sim": a confirmação de véspera (18:00) e a conferência
+    de chave PIX. Naquela noite NOVE pessoas tinham as duas perguntas abertas ao mesmo tempo.
+
+    Sem esta guarda, um "sim" que respondia à chave PIX seria gravado como **confirmação de que a
+    pessoa assume o posto amanhã** — e o relatório das 08:30 diria ao Jordan que ela se
+    comprometeu com um plantão que ela nunca mencionou. É pior que o lado do PIX: lá o erro
+    registra um dado errado; aqui ele produz uma promessa de presença que ninguém fez.
+
+    A comparação é ESTRUTURAL e só entre mensagens cujo texto ESTA CASA controla. Texto livre do
+    agente não conta para nenhum lado — ele continua a conversa aberta, não abre outra.
+    """
+    if not fone:
+        return False
+    d = "".join(c for c in str(fone) if c.isdigit())[-8:]
+    if len(d) < 8:
+        return False
+    r = (await db.execute(text("""
+        WITH msgs AS (
+            SELECT lower(coalesce(content,'')) AS c, created_at FROM cwi_message_log
+            WHERE direction = 'out' AND coalesce(content,'') <> ''
+              AND right(regexp_replace(coalesce(phone_canonical,''),'\\D','','g'), 8) = :d
+        )
+        SELECT
+          (SELECT max(created_at) FROM msgs WHERE c LIKE '%amanha voce assume%'
+                                               OR c LIKE '%amanhã você assume%'
+                                               OR c LIKE '%esta tudo certo?%'
+                                               OR c LIKE '%está tudo certo?%') AS turno,
+          (SELECT max(created_at) FROM msgs WHERE c LIKE '%conferindo a *chave pix*%'
+                                               OR c LIKE '%chave que termina em%'
+                                               OR c LIKE '%me manda a chave certa%'
+                                               OR c LIKE '%me manda a chave da conta%') AS outra
+    """), {"d": d})).first()
+    if not r or not r[0]:
+        return False
+    return r[1] is None or r[0] > r[1]
+
+
 async def _mandar(telefone: str | None, msg: str) -> bool:
     """True SÓ quando o serviço afirmou `status='sent'`. Ausência de erro não é entrega.
 

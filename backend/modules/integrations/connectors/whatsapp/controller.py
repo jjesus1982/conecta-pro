@@ -1411,7 +1411,12 @@ async def chatwoot_webhook(
             from modules.integrations.connectors.whatsapp import troca_turno as _tt
             from modules.integrations.connectors.whatsapp.identidade import quem_e as _qe
 
-            if _tt.ler_resposta(content):
+            # ⚠️ 25/09 — a pessoa pode estar respondendo à conferência de chave PIX, não ao
+            # turno: as duas rotinas pedem "responda sim" e naquela noite 9 pessoas tinham as
+            # duas perguntas abertas. Sem esta guarda, um "sim" sobre PIX viraria promessa de
+            # presença num plantão que a pessoa nunca mencionou.
+            if _tt.ler_resposta(content) and await _tt.perguntamos_do_turno_por_ultimo(
+                    db, phone_canonical):
                 _idr = await _qe(db, phone_canonical)
                 if getattr(_idr, "employee_id", None):
                     _res = await _tt.registrar_resposta(

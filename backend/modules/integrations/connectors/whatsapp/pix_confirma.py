@@ -398,9 +398,13 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
     if not atual:
         return {"ok": False, "motivo": "não perguntei a esta pessoa"}
 
-    # ⚠️ A pessoa pode estar respondendo OUTRA pergunta nossa pelo mesmo canal. Se a última
-    # coisa que saiu para ela não foi a pergunta da chave, isto não é resposta desta rotina.
-    if not await _perguntamos_da_chave_por_ultimo(db, fone_remetente):
+    # ⚠️ A pessoa pode estar respondendo OUTRA pergunta nossa pelo mesmo canal. A guarda de
+    # ordem vale para o que é AMBÍGUO — "sim", "não", "ok" servem a qualquer pergunta.
+    # Mas uma CHAVE no texto é autoidentificável: ninguém responde "92991234567" a um lembrete
+    # de turno. Sem esta exceção a guarda tornaria a pergunta mais antiga inrespondível para
+    # sempre, e a pessoa que mandasse a chave depois de um lembrete seria ignorada.
+    _tem_chave = chave_do_texto(texto)[0] is not None
+    if not _tem_chave and not await _perguntamos_da_chave_por_ultimo(db, fone_remetente):
         logger.info("pix_confirma: %s respondeu, mas a última coisa que dissemos NÃO foi a "
                     "pergunta da chave — nada gravado", employee_id)
         return {"ok": True, "resultado": "resposta era para outra conversa nossa — nada gravado",
