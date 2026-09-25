@@ -31,7 +31,11 @@ _COLS = (
     "inscricao_estadual, inscricao_suframa, codigo_municipio_ibge, "
     "regime_tributario, anexo_simples, regime_futuro, "
     "certificado_a1_path, certificado_a1_senha, certificado_validade, "
-    "nfse_ambiente, nfse_serie_rps, status, is_principal"
+    "nfse_ambiente, nfse_serie_rps, status, is_principal, "
+    # Processo da liminar que suspende PIS/COFINS. Lido pela régua de tributação da NF-e
+    # (`tributacao_nfe`) para zerar os dois COM A FONTE CITADA na linha, em vez de zerar no
+    # escuro. Vazio = destaca normalmente. Decisão do dono em 25/09/2026.
+    "coalesce(pis_cofins_processo, '') AS pis_cofins_processo"
 )
 
 # Cache leve por processo: identidade de empresa muda raríssimo; TTL curto
@@ -105,9 +109,7 @@ async def get_empresa(
 
 async def get_empresas_ativas(db: AsyncSession) -> list[dict[str, Any]]:
     """Todas as empresas ativas do Grupo — para loops por-empresa (beats, CNDs, NFS-e)."""
-    result = await db.execute(
-        text(f"SELECT {_COLS} FROM empresas WHERE status = 'ativa' ORDER BY is_principal DESC")
-    )
+    result = await db.execute(text(f"SELECT {_COLS} FROM empresas WHERE status = 'ativa' ORDER BY is_principal DESC"))
     rows = [_row_to_dict(r) for r in result.fetchall()]
     for r in rows:
         _cache_put(r)
@@ -116,9 +118,7 @@ async def get_empresas_ativas(db: AsyncSession) -> list[dict[str, Any]]:
 
 async def get_empresa_principal(db: AsyncSession) -> dict[str, Any]:
     """Empresa principal (CNPJ1). Preferir get_empresa(slug=...) explícito em código novo."""
-    result = await db.execute(
-        text(f"SELECT {_COLS} FROM empresas WHERE is_principal AND status = 'ativa' LIMIT 1")
-    )
+    result = await db.execute(text(f"SELECT {_COLS} FROM empresas WHERE is_principal AND status = 'ativa' LIMIT 1"))
     row = result.fetchone()
     if not row:
         raise LookupError("Nenhuma empresa principal ativa cadastrada")

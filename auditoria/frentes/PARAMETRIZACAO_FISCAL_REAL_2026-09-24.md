@@ -208,3 +208,78 @@ identificada pelos dados bancários na descrição:
 3. **A nota 26 da Patrimonial** (R$ 12.061,50, código 110201) — o dono confirmou que foi erro e
    segue **válida no fisco**. Cancelar tem prazo.
 4. **37 notas** emitidas no fisco sem linha no ERP (33 da Eletrônica, 4 da Patrimonial).
+
+---
+
+## 8. As três decisões que o dono delegou (25/09/2026)
+
+Palavras dele: *«estamos trabalhando para que todas as notas fiscais saiam pelo sistema, não mais
+pela Portte, pelo menos neste momento as notas da Eletrônica. Diante desse fato você decide que
+série usar. Sobre a manutenção do CFTV veja qual código é o mais adequado para a descrição deste
+serviço e use-o. PIS e COFINS na nota de material, nós temos a liminar, então não é ser cobrado
+imposto sobre ela, é pra sair zerado.»*
+
+### 8.1 — A série: CORTE LIMPO, não continuidade
+
+| Documento | Emissor atual | **Conecta PRO** |
+|---|---|---|
+| NF-e 55 | série **1**, até a nº **10.026** (nfemais.com.br) | **série 2**, do nº 1 |
+| NFS-e | série **70000**, até a nº **123** (portal) | **série 901**, do nº 1 |
+
+**Três razões, em ordem de peso:**
+
+1. **Risco de número queimado.** Continuar a série 1 no 10.027 exige que o nfemais não emita
+   NEM UMA depois da virada. Se emitir, os dois pegam o mesmo número, a SEFAZ recusa por
+   duplicidade (**539**) e o número morre. Com série própria o risco é **zero** e não é preciso
+   coordenar desligamento no minuto exato.
+2. **Auditoria legível.** Série existe para separar PONTO DE EMISSÃO. Um fiscal vê: série 1 até
+   10.026 = emissor antigo; série 2 do 1 em diante = Conecta PRO. Corte datado. Misturar os dois
+   na mesma sequência esconderia onde foi a virada.
+3. **Volta atrás barata.** Se precisar emitir pelo nfemais de novo, ele segue na série 1 sem
+   interferência.
+
+**A contrapartida, dita ao dono:** a numeração recomeça em 1. A próxima nota de material será a
+**nº 1 da série 2**, não a 10.027 — normal e legal, mas diferente do que o cliente vê hoje.
+Se ele preferir continuidade, é série 1 começando em 10.026 **com a condição** de o nfemais
+parar de emitir. Troca entre estética e risco, e essa parte é dele.
+
+### 8.2 — Manutenção de CFTV: **14.01.01**, e o texto oficial decide sozinho
+
+> **14.01** — *«Lubrificação, limpeza, lustração, revisão, carga e recarga, conserto, restauração,
+> blindagem, **manutenção e conservação de máquinas, veículos, aparelhos, equipamentos**, motores,
+> elevadores ou de qualquer objeto.»*
+
+> **14.06** — *«**Instalação e montagem** de aparelhos, máquinas e equipamentos, inclusive montagem
+> industrial, prestados ao usuário final, **exclusivamente com material por ele fornecido**.»*
+
+«CONTRATO DE MANUTENÇÃO DE CFTV/CERCA/PORTÕES/CANCELAS» é manutenção de equipamento → **14.01**.
+O 14.06 é instalação e ainda exige que o **material seja do cliente**, que não é o caso.
+
+**Logo: a nota 116 estava certa e a 120 estava errada.**
+
+**Um terceiro caso, não perguntado, que aparece na mesma tabela:** a nota **119** (Gelain) é
+**portaria remota** e também saiu com 14.06. Portaria remota não é instalação — é **monitoramento**:
+
+> **11.02** — *«Vigilância, segurança ou **monitoramento** de bens, pessoas e semoventes.»*
+
+Não mudei: trocar o código muda a alíquota e possivelmente o regime de retenção. **Fica como
+pergunta ao contador**, com a mesma evidência.
+
+### 8.3 — PIS e COFINS na NF-e: zerados, com a liminar citada NA NOTA
+
+`empresas.pis_cofins_processo` = **1038495-94.2024.4.01.3200** na Eletrônica. Quando preenchido,
+a régua devolve PIS e COFINS **0,00** com a norma `decisão judicial — processo nº …` e põe na nota
+a mensagem *«PIS e COFINS com exigibilidade suspensa por decisão judicial — processo nº …»*.
+
+Parâmetro, não constante: o dia em que a liminar cair, cai numa linha de tabela, e a Patrimonial
+(que não tem) segue destacando normal.
+
+**Bate com a medição:** a NF-e real 10.026 traz vPIS 0,00 e vCOFINS 0,00.
+
+**O que fica SEM FONTE e é do contador: o CST.** Liminar **suspende** a exigibilidade, e o CST de
+suspensão é o **09**; alíquota zero é o **06**. Não tenho o texto da liminar, e a DANFE do dono não
+mostra o CST de PIS/COFINS por item. Ficou **09**, que é o que a palavra «liminar» descreve.
+
+**E uma distinção que vale uma frase:** a liminar citada na NFS-e 121 fala de **retenção** de
+PIS/COFINS pelo tomador (serviço). Na NF-e o que se zera é o **PIS/COFINS próprio** do emitente —
+coisa diferente. O dono afirmou que a liminar cobre os dois; vale o contador confirmar por escrito.

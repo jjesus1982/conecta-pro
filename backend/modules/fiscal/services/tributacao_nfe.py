@@ -92,6 +92,23 @@ N_ZFM_DESON = "MOC NF-e 4.00, grupo N — N27a (vICMSDeson) e N28 (motDesICMS = 
 N_ZFM_IPI = "Decreto 7.212/2010 (RIPI), art. 84 — isenção de IPI na remessa de produto nacional à ZFM"
 N_ZFM_PISCOFINS = "Lei 10.996/2004, art. 2º — alíquota zero de PIS/COFINS na venda destinada à ZFM"
 
+#: PIS/COFINS suspensos por DECISÃO JUDICIAL. O número do processo vem de
+#: `empresas.pis_cofins_processo` — parâmetro, não constante: é o que dá a fonte da alíquota
+#: zero na própria nota, e o dia em que a liminar cair, cai numa linha de tabela.
+#:
+#: Decisão do dono em 25/09/2026: *«pis e cofins na nota de material, nós temos a liminar,
+#: então não é ser cobrado imposto sobre ela, é pra sair zerado.»* Bate com a medição: a NF-e
+#: real 10.026 (17/09, protocolo 113263811849419) traz vPIS 0,00 e vCOFINS 0,00. E a NFS-e 121
+#: do mesmo dia escreve na descrição: «NÃO HAVERÁ RETENÇÃO DE PIS E COFINS, CONFORME PROCESSO
+#: N° 1038495-94.2024.4.01.3200».
+#:
+#: O QUE FICA SEM FONTE, e o contador precisa dizer: o **CST**. Liminar SUSPENDE a exigibilidade,
+#: e o CST de suspensão é o 09; alíquota zero é o 06. Não tenho o texto da liminar para saber
+#: qual dos dois ela sustenta, e a DANFE do dono não mostra o CST de PIS/COFINS por item. Fica
+#: 09 (suspensão), que é o que a palavra «liminar» descreve — com a pergunta registrada.
+N_PIS_COFINS_LIMINAR = "decisão judicial — processo nº {proc}"
+CST_PIS_COFINS_LIMINAR = "09"
+
 N_SIMPLES = "LC 123/2006, art. 18 (recolhimento unificado) e art. 23 (vedação ao crédito)"
 N_CSOSN = "Ajuste SINIEF 07/2005, Anexo, Tabela B (CSOSN — incluída pelo Ajuste SINIEF 03/2010)"
 N_CRT = "MOC NF-e 4.00, campo B21a (CRT): 1 = Simples Nacional, 3 = Regime Normal"
@@ -504,6 +521,18 @@ def calcular_puro(
             linhas.append(_linha("motDesICMS", "7 (SUFRAMA)", deson["norma"], deson["origem_regra"]))
             linhas.append(_linha("PIS / COFINS", Decimal("0.00"), N_ZFM_PISCOFINS, "CST 06 — alíquota zero"))
             linhas.append(_linha("IPI", None, N_ZFM_IPI, "isento (CST 52) — equiparação a industrial: " + SEM_FONTE))
+        elif _proc := str(empresa.get("pis_cofins_processo") or "").strip():
+            # Liminar viva: sai ZERADO, com o processo citado como fonte na própria linha.
+            _norma = N_PIS_COFINS_LIMINAR.format(proc=_proc)
+            linhas.append(
+                _linha("PIS", Decimal("0.00"), _norma, f"CST {CST_PIS_COFINS_LIMINAR} — suspenso por decisão judicial")
+            )
+            linhas.append(
+                _linha(
+                    "COFINS", Decimal("0.00"), _norma, f"CST {CST_PIS_COFINS_LIMINAR} — suspenso por decisão judicial"
+                )
+            )
+            mensagens.append(f"PIS e COFINS com exigibilidade suspensa por decisão judicial — processo nº {_proc}.")
         else:
             linhas.append(_linha("PIS", PIS_NAO_CUMULATIVO, N_PIS_COFINS, O_PIS_COFINS + " — CST 01"))
             linhas.append(_linha("COFINS", COFINS_NAO_CUMULATIVO, N_PIS_COFINS, O_PIS_COFINS + " — CST 01"))
