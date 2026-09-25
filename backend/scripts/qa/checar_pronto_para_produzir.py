@@ -173,6 +173,63 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — é uma lista de conferên
         else:
             ok.append("todas as NF-e de compra com XML")
 
+    # ── o endereço do EMITENTE tem de ser o que o fisco tem ──────────────────────────────
+    # Achado em 25/09/2026, horas depois de produção ser ligada e antes da 1ª nota: o cadastro
+    # da Eletrônica no ERP dizia «Avenida Constantino Nery 3343, Chapada, 69050001», e os DOIS
+    # documentos que o fisco emitiu para esse CNPJ dizem outra coisa — o DANFE da NF-e 10.026
+    # (SEFAZ-AM, 17/09) e a NFS-e 121 (ADN, 09/2026) trazem «Rua Nova Palestina, 51, Crespo,
+    # 69073488». A Patrimonial tinha rua e número certos e o CEP VAZIO.
+    #
+    # Por que isto entra na conferência de prontidão e não num relatório: o endereço do
+    # emitente vai DENTRO do XML assinado. Nota autorizada com endereço que não é o do
+    # cadastro é documento fiscal errado, e documento autorizado não se corrige editando
+    # campo — é carta de correção, cancelamento com prazo, ou pior.
+    #
+    # A régua NÃO adivinha qual endereço é o certo. Ela cobra que os campos existam e estejam
+    # completos, porque campo vazio é erro sem opinião. Qual dos dois endereços vale é decisão
+    # do dono — e se a empresa realmente mudou de sede, o conserto começa na Receita, não aqui.
+    enderecos = (
+        (
+            await db.execute(
+                text(
+                    "SELECT slug, coalesce(endereco_logradouro,'') AS logr, coalesce(endereco_numero,'') AS num,"
+                    "       coalesce(endereco_bairro,'') AS bairro,"
+                    "       regexp_replace(coalesce(endereco_cep,''),'\\D','','g') AS cep,"
+                    "       regexp_replace(coalesce(codigo_municipio_ibge,'')::text,'\\D','','g') AS ibge"
+                    "  FROM empresas WHERE status = 'ativa' ORDER BY slug"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for e in enderecos:
+        buracos = [
+            r
+            for r, v, n in (
+                ("logradouro", e["logr"], 1),
+                ("número", e["num"], 1),
+                ("bairro", e["bairro"], 1),
+                ("CEP com 8 dígitos", e["cep"], 8),
+                ("código IBGE com 7 dígitos", e["ibge"], 7),
+            )
+            if not v or (n > 1 and len(v) != n)
+        ]
+        if buracos:
+            faltam.append(
+                (
+                    DONO,
+                    f"{e['slug']}: endereço do emitente incompleto ({', '.join(buracos)})",
+                    "o endereço vai DENTRO do XML assinado; nota autorizada com endereço errado "
+                    "não se corrige editando campo. Confira contra a última nota que o fisco "
+                    "emitiu para este CNPJ.",
+                )
+            )
+        else:
+            ok.append(
+                f"{e['slug']}: endereço do emitente completo ({e['logr']}, {e['num']} — {e['bairro']}, CEP {e['cep']})"
+            )
+
     print("PRONTO:")
     for o in ok:
         print(f"   ok  {o}")

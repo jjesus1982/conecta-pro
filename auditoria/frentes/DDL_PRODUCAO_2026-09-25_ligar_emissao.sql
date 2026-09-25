@@ -61,3 +61,52 @@ UPDATE empresas SET nfse_serie_rps = '901' WHERE slug IN ('conecta_eletronica','
 -- dissesse o ambiente — ele herdava da variável. Agora `ambiente` é OBRIGATÓRIO no
 -- payload (sem default), e `cancelar` tira o ambiente DA PRÓPRIA NOTA. Emitir em
 -- produção virou ATO, não herança. Ver commit 78ce4a58f.
+
+-- ============================================================================
+-- 25/09/2026, TARDE — O ENDEREÇO DO EMITENTE ESTAVA ERRADO NO ERP
+--
+-- Achado ANTES da primeira nota de produção, pela frente AB1 (leiaute do DANFE), e conferido
+-- por mim nos PDFs originais antes de escrever uma linha de UPDATE.
+--
+-- O ERP dizia, para a CONECTAMAIS ELETRÔNICA (35.710.481/0001-03):
+--     Avenida Constantino Nery, 3343 — Chapada — CEP 69050001
+--
+-- Os DOIS documentos que o FISCO emitiu para esse CNPJ dizem outra coisa, e concordam
+-- entre si:
+--     · DANFE da NF-e 10.026 (SEFAZ-AM, 17/09/2026, emissor nfemais)
+--     · NFS-e 121 (Padrão Nacional / ADN, competência 09/2026)
+--       → «RUA NOVA PALESTINA, 51, CRESPO — Manaus/AM — CEP 69073488»
+--
+-- A PATRIMONIAL (66.014.833/0001-10) tinha rua e número certos e o CEP **vazio**.
+-- A NFS-e 31 (ADN, 08/2026) traz CEP 69055630.
+--
+-- POR QUE ISSO BLOQUEAVA A PRIMEIRA NOTA: o endereço do emitente vai DENTRO do XML
+-- assinado. Nota autorizada com endereço que não é o do cadastro é documento fiscal
+-- errado — e documento autorizado não se corrige editando campo: é carta de correção,
+-- cancelamento com prazo, ou denúncia espontânea.
+
+UPDATE empresas SET endereco_logradouro = 'Rua Nova Palestina', endereco_numero = '51',
+                    endereco_bairro = 'Crespo', endereco_cep = '69073488',
+                    endereco_municipio = 'Manaus', endereco_uf = 'AM',
+                    codigo_municipio_ibge = '1302603'
+ WHERE slug = 'conecta_eletronica';
+
+UPDATE empresas SET endereco_cep = '69055630' WHERE slug = 'conecta_patrimonial';
+
+-- NFS-e das DUAS empresas em produção (a Patrimonial ainda estava em homologação, e ela
+-- é a que emite TODA a cessão de mão de obra).
+UPDATE empresas SET nfse_ambiente = 'producao' WHERE status = 'ativa';
+
+-- ⚠️ PARA O DONO: eu NÃO decidi qual endereço é o verdadeiro — eu fiz o ERP falar o que o
+-- fisco já registrou. Se a empresa REALMENTE mudou para a Constantino Nery, o conserto
+-- começa na Receita/SEFAZ (alteração cadastral) e só depois aqui; emitir com endereço que
+-- o cadastro não tem é o problema, não a solução.
+--
+-- A régua que impede a volta: `checar_pronto_para_produzir.py` passou a cobrar endereço
+-- completo (logradouro, número, bairro, CEP de 8 dígitos, IBGE de 7) das empresas ativas.
+-- Ela NÃO adivinha qual endereço vale — campo vazio é erro sem opinião; qual dos dois é o
+-- certo é decisão do dono.
+--
+-- CONFERÊNCIA DE PRONTIDÃO: 10 itens faltando de manhã → 4 → **2**, e nenhum dos 2 impede a
+-- NF-e de material (1 produto sem entrada conhecida e os 34 XML de compra que a SEFAZ ainda
+-- vai distribuir).
