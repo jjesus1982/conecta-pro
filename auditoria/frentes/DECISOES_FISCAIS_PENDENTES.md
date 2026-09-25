@@ -153,7 +153,7 @@ autor, e é o que impede o erro de virar nota.
 
 ---
 
-## 14 · Qual endereço da Conecta Mais Eletrônica é o verdadeiro? ⚠️ **antes da 1ª nota**
+## 14 · Endereço da Conecta Mais Eletrônica — ✅ **RESOLVIDO em 25/09/2026**
 
 **Medido em 25/09/2026**, nos documentos que o próprio fisco emitiu:
 
@@ -167,9 +167,14 @@ autor, e é o que impede o erro de virar nota.
 emitente vai **dentro do XML assinado** e nota autorizada com endereço fora do cadastro é
 documento fiscal errado — que não se corrige editando campo.
 
-**O que eu NÃO decidi:** qual dos dois é a sede real. Se a empresa mudou mesmo para a
-Constantino Nery, o conserto começa na **Receita/SEFAZ** (alteração cadastral) e só depois
-aqui. Emitir com endereço que o cadastro não tem é o problema, não a solução.
+**DECISÃO DO DONO, 25/09/2026:** *«o endereço certo é o da nova palestina, pode seguir»*.
+
+O cadastro do ERP **já estava correto** desde a manhã — eu o havia alinhado ao que o fisco
+registra, e a confirmação dele fecha a dúvida sem nenhuma mudança adicional. A Constantino
+Nery era o dado errado, não uma mudança de sede: nada a fazer na Receita.
+
+> **Esta era a única pendência que travava a primeira NF-e real.** Com ela fechada, o caminho
+> está livre — o que não é ordem de emitir: quem manda é o dono.
 
 A Patrimonial tinha rua e número certos e o **CEP vazio**; preenchido com 69055-630, da NFS-e 31.
 
