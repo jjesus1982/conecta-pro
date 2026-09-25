@@ -57,14 +57,13 @@ Prefixo `_` = o discovery pula. `fiscal.py` expõe o `router` e chama `telas(db,
 
 from __future__ import annotations
 
-import io
 import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -502,210 +501,24 @@ def precisa_faixa_sem_valor_fiscal(cab: dict) -> bool:
     return (cab.get("ambiente") or "homologacao") != "producao" or (cab.get("status") or "") != "autorizada"
 
 
-def danfe_pdf(cab: dict, itens: list[dict]) -> bytes:  # noqa: PLR0915 — é um leiaute, é linear
-    """DANFE em PDF (A4 retrato): cabeçalho do emitente, chave em código de barras + formatada,
-    destinatário, itens, totais e dados adicionais. `pageCompression=0` de propósito — o DANFE
-    é pequeno e assim o texto fica legível dentro do arquivo (é o que o oráculo confere).
+def danfe_pdf(cab: dict, itens: list[dict], orientacao: str = "retrato") -> bytes:
+    """DANFE em PDF — o desenho vive em `modules/fiscal/services/danfe_layout.py` (frente AB1).
 
-    Geometria: cada caixa recebe a altura que o CONTEÚDO precisa (título 9 mm + 8 mm por linha
-    + 2 mm de respiro). A primeira versão usava alturas chutadas e a prova visual mostrou o
-    «Município/UF» do destinatário atravessando a borda da caixa de baixo e o V. COFINS por
-    cima do TOTAL DA NOTA — por isso as alturas saem de `_alt()`, e não de números soltos.
+    Aqui ficava um leiaute próprio, «com a nossa cara». Medido em 25/09/2026 contra o DANFE
+    real da empresa (NF-e 10.026, emitida pelo nfemais): faltavam o canhoto, o bloco
+    DANFE/entrada-saída/folha, o endereço e a IE do emitente, a data do protocolo, a
+    fatura/duplicatas, o transportador/volumes, o cálculo do ISSQN e o «reservado ao fisco»;
+    o cálculo do imposto trazia campos que o MOC não nomeia; a tabela de itens estava sem CST,
+    BC ICMS, V. ICMS, V. IPI, %ICMS e %IPI; e os itens eram TRUNCADOS depois do que coubesse
+    na página. O leiaute do DANFE é normativo (MOC da NF-e, Anexo «Manual de Especificações
+    Técnicas do DANFE»): sair diferente não é estilo, é não conformidade.
+
+    `orientacao` = 'retrato' (padrão) ou 'paisagem' — as duas formas que o MOC prevê.
+    A tarja «SEM VALOR FISCAL» continua sendo decidida AQUI, pela regra desta tela.
     """
-    from reportlab.graphics.barcode import code128
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.pdfgen import canvas as _canvas
+    from modules.fiscal.services.danfe_layout import danfe as _desenhar  # noqa: PLC0415
 
-    from modules.crm.services import pdf_branding as pb
-
-    empresa = pb._BRANDING_POR_SLUG.get(cab.get("empresa_slug") or "", pb.EMPRESA)
-    tot = calcular_totais(itens, cab.get("valor_frete"))
-    chave = so_digitos(cab.get("chave_acesso"))
-    w, h = A4
-    buf = io.BytesIO()
-    c = _canvas.Canvas(buf, pagesize=A4, pageCompression=0)
-    c.setTitle(f"DANFE {cab.get('numero') or ''}")
-
-    y = pb.marca_canvas(c, titulo="DANFE", pagesize=A4, subtitulo="Documento Auxiliar da NF-e", empresa=empresa)
-
-    def _alt(linhas: int, extra_mm: float = 0) -> float:
-        """Altura de uma caixa com `linhas` linhas rótulo+valor (8 mm cada) e o título (9 mm)."""
-        return (9 + 8 * linhas + 2 + extra_mm) * mm
-
-    def caixa(y0: float, altura: float, titulo: str) -> float:
-        c.setStrokeColor(pb.AZUL_ESCURO)
-        c.setLineWidth(0.5)
-        c.rect(16 * mm, y0 - altura, w - 32 * mm, altura, fill=0, stroke=1)
-        c.setFont(pb.FONTE_B, 7)
-        c.setFillColor(pb.AZUL_ESCURO)
-        c.drawString(18 * mm, y0 - 5 * mm, titulo.upper())
-        return y0 - 9 * mm
-
-    def linha(x: float, yy: float, rotulo: str, valor: str, tam: float = 8) -> None:
-        c.setFont(pb.FONTE, 6)
-        c.setFillColor(pb.AZUL_MEDIO)
-        c.drawString(x, yy, rotulo.upper())
-        c.setFont(pb.FONTE_B, tam)
-        c.setFillColor(pb.TEXTO)
-        c.drawString(x, yy - 4 * mm, valor or "—")
-
-    # ── identificação da nota + chave de acesso ─────────────────────────────────────────
-    alt = _alt(1, extra_mm=24 if len(chave) == 44 else 10)
-    yc = caixa(y, alt, "Identificação da NF-e")
-    linha(18 * mm, yc, "Número", str(cab.get("numero") or "—"), 10)
-    linha(46 * mm, yc, "Série", str(cab.get("serie") or "—"), 10)
-    linha(66 * mm, yc, "Modelo", "55", 10)
-    linha(88 * mm, yc, "Emissão", _br_dt(cab.get("data_emissao")))
-    linha(124 * mm, yc, "Ambiente", ("PRODUÇÃO" if (cab.get("ambiente") or "") == "producao" else "HOMOLOGAÇÃO"))
-    linha(158 * mm, yc, "Situação", str(cab.get("status") or "—").upper())
-    if len(chave) == 44:
-        try:
-            bc = code128.Code128(chave, barHeight=9 * mm, barWidth=0.28, humanReadable=False)
-            bc.drawOn(c, (w - bc.width) / 2, yc - 22 * mm)
-        except Exception:  # noqa: BLE001 — sem barras o documento ainda serve: a chave vai por extenso
-            pass
-        y_chave, y_leg = yc - 26.5 * mm, yc - 30 * mm
-    else:
-        y_chave, y_leg = yc - 11 * mm, yc - 15 * mm
-    c.setFont(pb.FONTE_B, 7.5)
-    c.setFillColor(pb.TEXTO)
-    c.drawCentredString(
-        w / 2, y_chave, formatar_chave(chave) if len(chave) == 44 else "— ainda sem chave de acesso (rascunho) —"
-    )
-    c.setFont(pb.FONTE, 6)
-    c.setFillColor(pb.AZUL_MEDIO)
-    c.drawCentredString(w / 2, y_leg, "CHAVE DE ACESSO — CONSULTE EM WWW.NFE.FAZENDA.GOV.BR/PORTAL")
-    y -= alt + 3 * mm
-
-    # ── natureza + protocolo ────────────────────────────────────────────────────────────
-    alt = _alt(1)
-    yc = caixa(y, alt, "Natureza da operação")
-    linha(18 * mm, yc, "Natureza", (cab.get("natureza_operacao") or "—")[:60])
-    linha(112 * mm, yc, "Protocolo de autorização", str(cab.get("protocolo_autorizacao") or "—"))
-    linha(162 * mm, yc, "Frete", dict(FRETES).get(str(cab.get("modalidade_frete") or "9"), "—")[:16], 7)
-    y -= alt + 3 * mm
-
-    # ── destinatário ────────────────────────────────────────────────────────────────────
-    alt = _alt(3)
-    yc = caixa(y, alt, "Destinatário / remetente")
-    linha(18 * mm, yc, "Nome / razão social", (cab.get("destinatario_razao_social") or "—")[:52])
-    linha(140 * mm, yc, "CNPJ / CPF", _br_doc(cab.get("destinatario_cpf_cnpj")))
-    linha(
-        18 * mm,
-        yc - 8 * mm,
-        "Endereço",
-        f"{cab.get('destinatario_logradouro') or '—'}, {cab.get('destinatario_numero') or 'S/N'} — {cab.get('destinatario_bairro') or ''}"[
-            :62
-        ],
-    )
-    linha(140 * mm, yc - 8 * mm, "Inscrição estadual", str(cab.get("destinatario_ie") or "ISENTO"))
-    linha(
-        18 * mm,
-        yc - 16 * mm,
-        "Município / UF",
-        f"{cab.get('destinatario_municipio') or '—'} / {cab.get('destinatario_uf') or '—'}",
-    )
-    linha(140 * mm, yc - 16 * mm, "CEP", str(cab.get("destinatario_cep") or "—"))
-    y -= alt + 3 * mm
-
-    # ── itens — estica até encostar na caixa de totais, que é ancorada em baixo ─────────
-    #   rodapé 16 mm · dados adicionais 24→46 mm · totais 49→74 mm · itens termina em 77 mm.
-    Y_TOTAIS, Y_ADIC = 74 * mm, 46 * mm
-    alt = max(_alt(1) + 6 * mm, y - (Y_TOTAIS + 3 * mm))
-    yc = caixa(y, alt, "Dados dos produtos / serviços")
-    cols = (
-        (18, "CÓD"),
-        (38, "DESCRIÇÃO"),
-        (108, "NCM"),
-        (128, "CFOP"),
-        (142, "UN"),
-        (152, "QTD"),
-        (168, "V. UNIT"),
-        (188, "V. TOTAL"),
-    )
-    c.setFont(pb.FONTE_B, 6)
-    c.setFillColor(pb.AZUL_ESCURO)
-    for x, rot in cols:
-        (c.drawRightString if rot.startswith("V.") or rot == "QTD" else c.drawString)(x * mm, yc, rot)
-    c.setLineWidth(0.3)
-    c.line(16 * mm, yc - 1.5 * mm, w - 16 * mm, yc - 1.5 * mm)
-    cabem = max(1, int((alt / mm - 14) / 5))
-    yl = yc - 5.5 * mm
-    c.setFillColor(pb.TEXTO)
-    for it in itens[:cabem]:
-        q = Decimal(str(it.get("quantidade") or 0))
-        vu = Decimal(str(it.get("valor_unitario") or 0))
-        c.setFont(pb.FONTE, 6.5)
-        c.setFillColor(pb.TEXTO)
-        c.drawString(18 * mm, yl, str(it.get("codigo") or "—")[:12])
-        c.drawString(38 * mm, yl, str(it.get("descricao") or "—")[:52])
-        c.drawString(108 * mm, yl, so_digitos(it.get("ncm")) or "—")
-        c.drawString(128 * mm, yl, so_digitos(it.get("cfop")) or "—")
-        c.drawString(142 * mm, yl, str(it.get("unidade") or "UN")[:4])
-        c.drawRightString(152 * mm, yl, f"{q:.2f}".replace(".", ","))
-        c.drawRightString(168 * mm, yl, pb.brl(vu).replace("R$ ", ""))
-        c.drawRightString(188 * mm, yl, pb.brl(q * vu).replace("R$ ", ""))
-        yl -= 5 * mm
-    if len(itens) > cabem:
-        c.setFont(pb.FONTE, 6)
-        c.setFillColor(pb.AZUL_MEDIO)
-        c.drawString(18 * mm, yl, f"… e mais {len(itens) - cabem} item(ns) — veja o XML.")
-
-    # ── totais: os tributos numa linha, o TOTAL sozinho na de baixo (senão colidem) ─────
-    alt = _alt(2)
-    yc = caixa(Y_TOTAIS, alt, "Cálculo do imposto")
-    for i, (rot, val) in enumerate(
-        (
-            ("V. produtos", tot["produtos"]),
-            ("V. desconto", tot["desconto"]),
-            ("V. frete", tot["frete"]),
-            ("V. ICMS", tot["icms"]),
-            ("V. PIS", tot["pis"]),
-            ("V. COFINS", tot["cofins"]),
-        )
-    ):
-        linha(18 * mm + i * 29 * mm, yc, rot, pb.brl(val), 7)
-    c.setFont(pb.FONTE_B, 11)
-    c.setFillColor(pb.AZUL_ESCURO)
-    c.drawRightString(w - 18 * mm, yc - 12 * mm, f"TOTAL DA NOTA  {pb.brl(tot['total'])}")
-
-    # ── dados adicionais ────────────────────────────────────────────────────────────────
-    yc = caixa(Y_ADIC, 22 * mm, "Dados adicionais")
-    c.setFont(pb.FONTE, 6.5)
-    c.setFillColor(pb.TEXTO)
-    adic = (cab.get("informacoes_complementares") or "").strip() or "Sem informações complementares."
-    if cab.get("motivo_rejeicao"):
-        adic = f"SEFAZ: {cab['motivo_rejeicao']} | {adic}"
-    if cab.get("justificativa_cancelamento"):
-        adic = f"CANCELADA — {cab['justificativa_cancelamento']} | {adic}"
-    largura = 118
-    for i, pedaco in enumerate([adic[j : j + largura] for j in range(0, min(len(adic), largura * 3), largura)]):
-        c.drawString(18 * mm, yc - i * 3.6 * mm, pedaco)
-
-    # ── a faixa que diz a verdade ───────────────────────────────────────────────────────
-    if precisa_faixa_sem_valor_fiscal(cab):
-        c.saveState()
-        c.setFillColor(colors.Color(0.85, 0.15, 0.15, alpha=0.22))
-        c.translate(w / 2, h / 2 - 20 * mm)
-        c.rotate(34)
-        c.setFont(pb.FONTE_B, 44)
-        c.drawCentredString(0, 0, "SEM VALOR FISCAL")
-        c.setFont(pb.FONTE_B, 13)
-        c.drawCentredString(
-            0,
-            -14 * mm,
-            "AMBIENTE DE HOMOLOGAÇÃO"
-            if (cab.get("ambiente") or "homologacao") != "producao"
-            else "NOTA NÃO AUTORIZADA",
-        )
-        c.restoreState()
-
-    pb.rodape_canvas(c, pagesize=A4, pagina=1, empresa=empresa)
-    c.showPage()
-    c.save()
-    return buf.getvalue()
+    return _desenhar(cab, itens, orientacao=orientacao, sem_valor_fiscal=precisa_faixa_sem_valor_fiscal(cab))
 
 
 def _br_dt(v) -> str:
@@ -1107,9 +920,16 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
 # Documentos (GET)
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 @router.get("/nfe/{nfe_id}/danfe/pdf", dependencies=_GATE)
-async def rd_nfe_danfe(nfe_id: str, current_user: CurrentActiveUser, db: AsyncSession = Depends(get_db)) -> Response:
+async def rd_nfe_danfe(
+    nfe_id: str,
+    current_user: CurrentActiveUser,
+    orientacao: str = Query("retrato", pattern="^(retrato|paisagem)$"),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """DANFE no leiaute do MOC. `?orientacao=paisagem` devolve a outra forma prevista na norma —
+    mesmos blocos, mesma ordem, mais itens por página."""
     cab, itens = await carregar_nota(db, nfe_id)
-    pdf = danfe_pdf(cab, itens)
+    pdf = danfe_pdf(cab, itens, orientacao=orientacao)
     nome = f"DANFE_{cab.get('numero') or 'rascunho'}_{so_digitos(cab.get('chave_acesso'))[:12] or 'sem-chave'}.pdf"
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'}
