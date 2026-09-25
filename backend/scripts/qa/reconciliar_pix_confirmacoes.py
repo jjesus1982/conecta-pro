@@ -88,35 +88,26 @@ async def main() -> None:
                 continue
 
             antes = (p["status"], p["chave_informada"], p["tipo_informado"])
-            if aplicar:
-                # reexecuta a conversa INTEIRA, em ordem: o último recado manda
-                for m in fila:
-                    if px.e_so_acuse(m["content"]):
-                        continue
-                    await px.registrar_resposta(
-                        db, employee_id=p["eid"], texto=m["content"],
-                        fone_remetente=m["phone_canonical"])
-                d = (await db.execute(text(
-                    "SELECT status, chave_informada, tipo_informado FROM pix_confirmacoes "
-                    "WHERE employee_id = CAST(:e AS uuid)"), {"e": p["eid"]})).mappings().first()
-                depois = (d["status"], d["chave_informada"], d["tipo_informado"])
-            else:
-                # ENSAIO: simula sem escrever — mesma ordem, mesma precedência
-                st, kv, tp = p["status"], p["chave_informada"], p["tipo_informado"]
-                for m in fila:
-                    txt = m["content"]
-                    if px.e_so_acuse(txt):
-                        continue
-                    if px.confirmou_o_atual(txt):
-                        st, kv, tp = "confirmou_atual", kv, tp
-                        continue
-                    ch, ti = px.desambiguar_pelo_remetente(
-                        *px.chave_do_texto(txt), m["phone_canonical"])
-                    if ch:
-                        st, kv, tp = "respondido", ch, ti
-                    elif px._NEGA.search(px._sem_acento(txt)):
-                        st, kv, tp = "aguardando", None, None
-                depois = (st, kv, tp)
+
+            # ⭐ UMA implementação só. A 1ª versão tinha o ensaio REIMPLEMENTANDO as regras, e
+            # elas divergiram no mesmo dia: o ensaio de 25/09 mostrava que o Fernando e a
+            # Vanderlice viravam "confirmou_atual" (o "Sim" deles respondia ao LEMBRETE DE TURNO)
+            # e que o Kalel receberia a chave da CONTA MORTA — porque a cópia não tinha as
+            # guardas de colisão nem a trava de chave citada como ruim. O ensaio mentia sobre o
+            # que o apply faria, e nessa direção é pior: um ensaio limpo autorizaria o estrago.
+            # Agora o ensaio roda o CAMINHO REAL e desfaz a transação. Nada pode divergir.
+            for m in fila:
+                if px.e_so_acuse(m["content"]):
+                    continue
+                await px.registrar_resposta(
+                    db, employee_id=p["eid"], texto=m["content"],
+                    fone_remetente=m["phone_canonical"])
+            d = (await db.execute(text(
+                "SELECT status, chave_informada, tipo_informado FROM pix_confirmacoes "
+                "WHERE employee_id = CAST(:e AS uuid)"), {"e": p["eid"]})).mappings().first()
+            depois = (d["status"], d["chave_informada"], d["tipo_informado"])
+            if not aplicar:
+                await db.rollback()   # ENSAIO: leu o efeito real e desfez
 
             if antes != depois:
                 mudou.append((p["nome"], antes, depois, len(fila),
