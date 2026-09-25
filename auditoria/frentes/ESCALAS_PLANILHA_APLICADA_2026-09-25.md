@@ -67,3 +67,51 @@ Não pode prevalecer sobre um fato que ela não afirma, e nesses casos há event
 | Geilson Rodrigues de Andrade | `ativo`, mas **S-2299 desligamento 30/06** transmitido | Ideal Flores |
 
 Reativar quem tem S-2299 transmitido joga a pessoa na folha. Decisão é do Jordan.
+
+---
+
+## Adendo — CPF vindo do nosso próprio cadastro (25/09, tarde)
+
+O Jordan apontou: *"os diaristas já estão cadastrados no Conecta PRO"*. Estavam. Os 4 criados hoje
+tinham CPF e PIX em `diaria_diaristas`, e o preenchimento veio de casa, não do Paiva:
+
+| Pessoa | id diarista | CPF | PIX |
+|---|---:|---|---|
+| Jair Soares da Rocha | 76 | 991.258.462-72 | = CPF |
+| Wisley Costa Medeiros | 87 | 046.429.632-35 | = CPF |
+| Thayná Rhannele Cancio Neves | 83 | 702.034.602-27 | = CPF |
+| France Charles Almeida de Sales | 85 | 003.515.032-77 | = CPF |
+
+`employees` sem CPF: **8 → 4**, e os 4 restantes são todos `pj_ativo` (Francisco Ediney, José
+Rodrigo, Ramon Araújo, Sidney Ruan), ausentes de `diaria_diaristas`.
+
+### ⚠️ `diaria_diaristas` NÃO é tabela de diaristas — é o cadastro de PAGAMENTO
+
+São 64 linhas e incluem **o Orlailson Paiva e praticamente toda a operação**. Logo, estar nela
+**não prova** que a pessoa é diarista, e a hipótese "devem ser diaristas" segue em aberto — o que
+ela prova é que a pessoa é pagável. Quem decide CLT × diarista é o vínculo, não esta tabela.
+
+### 🔴 17 pessoas com chave PIX DIFERENTE nos dois cadastros — dinheiro, não relatado antes
+
+Medi qual coluna cada caminho de pagamento lê, e **são dois caminhos distintos lendo colunas
+distintas**:
+
+| Caminho | Arquivo | Coluna lida |
+|---|---|---|
+| diária | `financial/pagamentos_diaristas_service.py:107` | `diaria_diaristas.pix` |
+| folha CLT | `financial/services/ordem_pagamento_service.py:165,701` | `payslips.pix_key` → `employees.pix_key` |
+| PJ | `financial/services/pagamento_pj_service.py:82` | `employees.pix_key` |
+
+Ou seja: **a mesma pessoa recebe a diária numa chave e o salário em outra.** 17 casos. Os dois mais
+altos:
+
+- **Orlailson Paiva** — `employees.pix_key = 68510976000148` (um CNPJ) × diarista
+  `paivaliderdeservicos@gmail.com`
+- **Alan Vieira** — e-mail × telefone · **Cintia Bezerra** — CPF × e-mail
+
+Os demais são CPF (folha) × telefone `+55…` (diária). Nada disso foi alterado: **dinheiro que sai
+nunca em happy-path**, e trocar chave PIX em lote é exatamente o vetor de fraude clássico. Isto é
+relatório para o Jordan e para o terminal que cuida do financeiro.
+
+Correção de dado menor: telefone da Thayná tem 12 dígitos (`929933005715`) nos dois cadastros — um
+a mais. O PIX dela é por CPF, então não há risco de pagamento.
