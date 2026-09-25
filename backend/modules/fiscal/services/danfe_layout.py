@@ -523,9 +523,28 @@ def _num_item(v, casas: int) -> str:
 
 
 def danfe(
-    cab: dict, itens: list[dict], orientacao: str = "retrato", sem_valor_fiscal: bool = True, logo: bool = True
+    cab: dict,
+    itens: list[dict],
+    orientacao: str = "retrato",
+    sem_valor_fiscal: bool = True,
+    logo: bool = True,
+    marca: str = "inline",
 ) -> bytes:
     """DANFE no leiaute do MOC. `orientacao` = 'retrato' (padrão) ou 'paisagem'.
+
+    `marca` diz COMO a logo aparece na caixa do emitente — não muda bloco nenhum do MOC,
+    porque a marca vive dentro do campo de identificação do emitente e o que muda é só a
+    arrumação dentro dele:
+
+      · `"inline"`  — a logo à esquerda e o texto do emitente correndo ao lado (como estava)
+      · `"celula"`  — a logo em CÉLULA PRÓPRIA, separada por um fio, e o emitente na coluna
+        ao lado. É o tratamento do DANFSe v2.0, que o dono pediu em 25/09/2026: *«me agrada
+        muito o modelo 03_danfse no canto superior esquerdo que tem nossa logo, eu gosto do
+        formato da 01_danfe_retrato, cria um quarto modelo mesclando esses 2»*.
+
+    Não é enfeite: com `inline`, o nome da empresa começa 29mm adentro de uma caixa de 40% da
+    folha, e razão social longa é encolhida até virar ilegível. Com `celula`, a logo tem
+    espaço próprio e o texto recupera a largura inteira da coluna.
 
     `cab`/`itens` são a linha de `nfes` e as de `nfe_itens` — mas se `cab['xml_autorizado']`
     existir, é ele que manda: o DANFE representa o documento fiscal, não o banco.
@@ -543,18 +562,20 @@ def danfe(
         d["itens"] = _do_banco(cab, itens)["itens"]
 
     ensaio = _canvas.Canvas(io.BytesIO(), pagesize=pagesize)
-    total = _desenhar(ensaio, pagesize, d, None, sem_valor_fiscal, logo)
+    total = _desenhar(ensaio, pagesize, d, None, sem_valor_fiscal, logo, marca)
 
     buf = io.BytesIO()
     c = _canvas.Canvas(buf, pagesize=pagesize, pageCompression=0)
     c.setTitle(f"DANFE {numero_nf(d.get('numero'))} serie {d.get('serie') or ''}")
     c.setAuthor(d.get("emit_nome") or "")
-    _desenhar(c, pagesize, d, total, sem_valor_fiscal, logo)
+    _desenhar(c, pagesize, d, total, sem_valor_fiscal, logo, marca)
     c.save()
     return buf.getvalue()
 
 
-def _desenhar(c, pagesize, d: dict, total: int | None, sem_valor_fiscal: bool, logo: bool) -> int:
+def _desenhar(
+    c, pagesize, d: dict, total: int | None, sem_valor_fiscal: bool, logo: bool, marca: str = "inline"
+) -> int:
     """Desenha o documento inteiro e devolve quantas páginas saíram."""
     fila = list(d.get("itens") or [])
     pagina = 0
@@ -564,7 +585,7 @@ def _desenhar(c, pagesize, d: dict, total: int | None, sem_valor_fiscal: bool, l
         primeira = pagina == 1
         if primeira:
             _canhoto(f, d)
-        _cabecalho(f, d, folha=f"{pagina}/{total}" if total else f"{pagina}/…", logo=logo)
+        _cabecalho(f, d, folha=f"{pagina}/{total}" if total else f"{pagina}/…", logo=logo, marca=marca)
         if primeira:
             _emitente_dest(f, d)
             _duplicatas(f, d)
@@ -635,7 +656,7 @@ def _canhoto(f: _Folha, d: dict) -> None:
     f.y -= 4.5 * mm
 
 
-def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool) -> None:
+def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool, marca: str = "inline") -> None:
     """Bloco 2 do MOC: emitente | DANFE (entrada/saída, nº, série, folha) | chave + barras."""
     c = f.c
     alt = 26 * mm
@@ -652,11 +673,36 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool) -> None:
     # ── emitente (o MOC admite o logotipo aqui — é o único lugar da marca no documento)
     x = f.x0 + 2 * mm
     y = topo - 5 * mm
+    celula = str(marca).lower().startswith("cel")
     if logo:
         try:
             from modules.crm.services import pdf_branding as pb  # noqa: PLC0415
 
-            if pb._desenha_logo_cheia(c, x, topo - 9.5 * mm, largura=26 * mm, altura=9 * mm):
+            if celula:
+                # A marca ganha uma FAIXA própria no alto do campo do emitente, com fio
+                # embaixo — e o nome da empresa passa a usar a LARGURA INTEIRA da célula.
+                #
+                # A primeira versão punha a logo numa COLUNA à esquerda, como no DANFSe. Ficou
+                # pior, e a medição mostrou por quê: o campo do emitente no DANFE tem 40% da
+                # folha (~74mm). Tirar 30mm para a logo deixa 44mm para a razão social, e
+                # «CONECTAMAIS ELETRONICA LTDA» saiu truncada em «...ELETRONICA LT…». No
+                # DANFSe a coluna cabe porque lá o prestador tem uma faixa de largura INTEIRA,
+                # separada da do título — estrutura que o MOC não permite mexer aqui.
+                #
+                # Empilhando, os dois ganham: a logo fica maior que os 26×9mm do modo inline e
+                # o nome recupera os 74mm. O fio é DENTRO do campo do emitente — não cria
+                # bloco, não move nada do leiaute normativo.
+                # As alturas aqui são o orçamento de 26mm da caixa, gasto até o fim: marca
+                # 6,6 · fio · nome · 3 linhas de endereço a 3,0 · 2 de consulta a 2,4. A
+                # primeira tentativa deixou a consulta em cima do CEP — em documento fiscal
+                # texto sobreposto não é feio, é ilegível, e o CEP é campo obrigatório.
+                if pb._desenha_logo_cheia(c, x, topo - 7.6 * mm, largura=34 * mm, altura=6.6 * mm):
+                    c.setLineWidth(0.4)
+                    c.setStrokeColor(_CINZA)
+                    c.line(f.x0 + 2 * mm, topo - 8.6 * mm, f.x0 + c1 - 2 * mm, topo - 8.6 * mm)
+                    c.setStrokeColor(_PRETO)
+                    y = topo - 11.6 * mm  # o texto do emitente começa abaixo do fio
+            elif pb._desenha_logo_cheia(c, x, topo - 9.5 * mm, largura=26 * mm, altura=9 * mm):
                 x += 29 * mm
         except Exception:  # noqa: BLE001 — sem logo o documento continua conforme
             pass
@@ -672,11 +718,14 @@ def _cabecalho(f: _Folha, d: dict, folha: str, logo: bool) -> None:
             f"CEP: {cep_br(d.get('emit_cep'))}   FONE: {fone_br(d.get('emit_fone'))}".strip(),
         )
     ):
-        c.drawString(x, y - (k + 1) * 3.2 * mm, f._encolher(txt, f.x0 + c1 - x - 2 * mm, _F, 6.2))
+        c.drawString(x, y - (k + 1) * (3.0 if celula else 3.2) * mm, f._encolher(txt, f.x0 + c1 - x - 2 * mm, _F, 6.2))
     c.setFont(_F, 5.0)
     c.setFillColor(_CINZA)
-    for k, txt in enumerate(_quebrar(c, _TEXTO_CONSULTA, c1 - 4 * mm, _F, 5.0)[:3]):
-        c.drawString(f.x0 + 2 * mm, topo - 18.0 * mm - k * 2.6 * mm, txt)
+    # com a marca empilhada, o emitente desce e o texto de consulta desce junto — em 2 linhas,
+    # porque a terceira bateria na borda de baixo da caixa.
+    _topo_consulta = topo - (22.6 if celula else 18.0) * mm
+    for k, txt in enumerate(_quebrar(c, _TEXTO_CONSULTA, c1 - 4 * mm, _F, 5.0)[: 2 if celula else 3]):
+        c.drawString(f.x0 + 2 * mm, _topo_consulta - k * 2.6 * mm, txt)
 
     # ── DANFE
     xm = f.x0 + c1 + c2 / 2
