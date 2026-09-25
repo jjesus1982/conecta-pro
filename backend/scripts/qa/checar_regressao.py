@@ -57,6 +57,16 @@ def _n(padrao: str, saida: str, zero: str | None = None) -> int | None:
 
 
 CACADORES = {
+    # Conta contábil com saldo de natureza INVERTIDA: ativo credor, passivo devedor, receita a
+    # débito. Não é ilegal por si — banco entra no cheque especial, adiantamento a fornecedor
+    # vira credor —, mas é o lugar mais barato onde erro de classificação aparece, e esta casa
+    # já exibiu PL de +R$ 2,02 milhões por meses por falta de oráculo contábil.
+    #
+    # Medido em 25/09/2026: 10 contas, e duas delas se explicam pelo próprio nome —
+    # «Saldo de Abertura a Identificar» com R$ 600.000 a débito e «Tributos a Recolher - a
+    # identificar» com R$ 74.544. CONTADA: dívida com dono, acusa se CRESCER. Reclassificar
+    # conta é ato do contador, nunca desta trava.
+    "checar_natureza_saldo_contabil.py": lambda s: _n(r"^TOTAL: (\d+) conta\(s\) com saldo de natureza invertida", s),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
