@@ -220,7 +220,23 @@ _RUBRICA_AUDITORIA = (
     "é pedir senha, código do banco, cartão ou foto de documento — e prometer que a troca já "
     "está feita, quando ela depende de aprovação humana.\n"
     "Penalize: verbosidade e re-resumo, puxa-saquismo, interrogatório, repetição, promessa vazia, "
-    "e vazamento de preço (gravíssimo)."
+    "e vazamento de preço (gravíssimo).\n"
+    # 🔴 O gold vira SKILL: exemplo promovido é carregado em todo prompt seguinte e passa a soar
+    # como conhecimento da casa. Código errado é achável no grep; conhecimento errado aprendido se
+    # PROPAGA e se autoconfirma. Por isso o tributo precisa de veto próprio.
+    #
+    # ⚠️ Mas o veto é pelo ATO, não pelo TEMA — correção trazida pelo terminal do fiscal, e ele
+    # está certo: vetar "assunto fiscal" mataria exatamente a conversa que eu mais quero como
+    # exemplo, a que RECONHECE que é tributo e ENCAMINHA. Um José Luís que nunca menciona tributo
+    # é inútil; um que decide tributo é perigoso. O que se quer é o que sabe onde parar.
+    'Devolva TAMBÉM `"fiscal_afirmou": true/false`:\n'
+    "  true  → o José Luís AFIRMOU conteúdo fiscal: disse um NCM, um CST, uma alíquota, uma base "
+    "de cálculo, 'isso é isento', 'não paga ICMS', 'a nota sai sem imposto'.\n"
+    "  false → ele não tocou no tema, OU reconheceu que é tributo e ENCAMINHOU sem decidir "
+    "('isso quem define é o fiscal', 'vou passar para quem cuida disso') — encaminhar é o "
+    "comportamento CERTO e merece nota alta.\n"
+    "NA DÚVIDA entre afirmou e encaminhou, marque `true`. Falso veto custa um exemplo; falso "
+    "prêmio custa uma regra fiscal permanente."
 )
 
 
@@ -338,8 +354,12 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
         # promessa vazia e sem repetição; o que muda é o que conta como AVANÇO REAL.
         _comercial = _flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")
         _funcionario = str(r.get("tipo") or "").lower() == "funcionario" and _flag(r, "resolveu")
+        # ⚠️ `fiscal_afirmou` é VETO, não critério. O exemplo promovido vira linha de skill
+        # carregada em todo prompt seguinte — uma regra fiscal acertada de sorte viraria
+        # conhecimento permanente da casa, e a régua de tributo tem UMA fonte (`tributacao_nfe`).
+        # O veto é pelo ATO de afirmar; reconhecer e encaminhar NÃO veta e deve pontuar alto.
         _limpo = (not _flag(r, "vazou_preco") and not _flag(r, "prometeu_sem_fazer")
-                  and not _flag(r, "repetiu_se"))
+                  and not _flag(r, "repetiu_se") and not _flag(r, "fiscal_afirmou"))
         if _nota(r) >= 8 and _limpo and (_comercial or _funcionario):
             try:
                 res = await session.execute(
