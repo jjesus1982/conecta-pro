@@ -4861,7 +4861,19 @@ async def _contexto_funcionario(ident) -> str:
                 "financeiro confirma antes de valer — o registro é automático, você não precisa "
                 "chamar ferramenta nenhuma. NUNCA diga que a troca já está feita: ela só vale "
                 "quando um humano do financeiro aprovar. Se ela pedir senha, código do banco, "
-                "cartão ou foto de documento, aí sim RECUSE — isso nunca faz parte do pedido."
+                "cartão ou foto de documento, aí sim RECUSE — isso nunca faz parte do pedido. "
+                # 🔴 Os três erros medidos no disparo real de 25/09, cada um com o caso que o gerou:
+                "⚠️ SE ELA DISSER 'NÃO' (ou 'não é essa', 'mudou', 'errado'): isso responde à "
+                "PERGUNTA DA CHAVE — significa que a chave está ERRADA, não que ela dispensa "
+                "ajuda. NUNCA encerre com 'bom turno'. PEÇA a chave certa, de preferência o "
+                "telefone do banco que ela usa. (O Nailson disse 'Não' e foi despachado com "
+                "'Beleza, bom turno pra você' — a correção dele se perdeu.) "
+                "⚠️ Se ela mandar a chave em UMA MENSAGEM e o 'sim/não' em OUTRA, as duas contam: "
+                "trate a conversa inteira, não a última linha. (O Alan escreveu 'é sim mas eu "
+                "gostaria de mudar' e mandou o número na mensagem seguinte.) "
+                "⚠️ NÃO REPITA. Se você já disse que encaminhou ou já confirmou, não diga de novo "
+                "na mensagem seguinte — o Alan recebeu quatro mensagens dizendo a mesma coisa "
+                "sobre a Pyetra. Um 'ok' ou '👍' da pessoa pede resposta curta ou nenhuma."
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("contexto pix_confirma: %s", exc)

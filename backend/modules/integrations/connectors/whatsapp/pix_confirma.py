@@ -254,7 +254,35 @@ async def pedir_confirmacoes(
             "falhas_de_entrega": falhas}
 
 
-async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str) -> dict[str, Any]:
+def desambiguar_pelo_remetente(chave: str | None, tipo: str | None,
+                               fone_remetente: str | None) -> tuple[str | None, str | None]:
+    """11 dígitos que são o PRÓPRIO número de quem escreveu = telefone, não CPF.
+
+    A prova estava de graça e eu não a usava: o Alan mandou `92993331840`, que é exatamente o
+    WhatsApp de onde ele escreveu. Ninguém tem um CPF igual ao próprio celular. Isso resolve o
+    caso ambíguo mais comum — a pessoa mandando o telefone do banco, que é o mesmo do WhatsApp.
+    """
+    if not chave or tipo or not fone_remetente:
+        return chave, tipo
+    d = "".join(c for c in chave if c.isdigit())
+    if len(d) != 11:
+        return chave, tipo
+    rem = "".join(c for c in str(fone_remetente) if c.isdigit())
+    # ⚠️ Não compare a string inteira: o MESMO celular aparece com 8 e com 9 dígitos no Brasil.
+    # Medido no Alan — WhatsApp gravado `5592 9333 1840` (8, formato antigo) e a chave que ele
+    # mandou `92 99333 1840` (9, com o nono dígito). Comparação literal nunca casaria.
+    # Os 8 ÚLTIMOS dígitos sobreviveram à mudança de 2016; o DDD também. Comparo esses dois.
+    def _ddd_e_final(x: str) -> tuple[str, str]:
+        y = x[2:] if x.startswith("55") and len(x) >= 12 else x
+        return (y[:2], y[-8:]) if len(y) >= 10 else ("", "")
+
+    if _ddd_e_final(d) == _ddd_e_final(rem) != ("", ""):
+        return "+55" + d, "telefone"
+    return chave, tipo
+
+
+async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str,
+                             fone_remetente: str | None = None) -> dict[str, Any]:
     """Guarda o que a pessoa respondeu. NÃO aplica nada — só registra."""
     atual = (await db.execute(text(
         "SELECT chave_atual, status FROM pix_confirmacoes WHERE employee_id = CAST(:e AS uuid)"),
@@ -271,6 +299,7 @@ async def registrar_resposta(db: AsyncSession, *, employee_id: str, texto: str) 
         return {"ok": True, "resultado": "confirmou a chave atual", "aplicar": False}
 
     chave, tipo = chave_do_texto(texto)
+    chave, tipo = desambiguar_pelo_remetente(chave, tipo, fone_remetente)
     if not chave:
         # ⚠️ Um "não" SECO não é chave nem confirmação — é a pessoa dizendo que a chave atual
         # está errada e ainda não mandando a certa. Caso real de 25/09: o Nailson respondeu

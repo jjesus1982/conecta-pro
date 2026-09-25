@@ -1452,7 +1452,8 @@ async def chatwoot_webhook(
                     {"e": str(_idp.employee_id)})).first()
                 if _aguarda:
                     _rp = await _px.registrar_resposta(
-                        db, employee_id=str(_idp.employee_id), texto=content)
+                        db, employee_id=str(_idp.employee_id), texto=content,
+                        fone_remetente=phone_canonical)
                     logger.info("pix_confirma: %s → %s", _idp.nome, _rp.get("resultado"))
         except Exception as e:  # noqa: BLE001
             logger.error("pix_confirma: resposta não registrada (%s)", e)
