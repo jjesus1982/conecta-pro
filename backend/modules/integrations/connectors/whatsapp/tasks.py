@@ -185,14 +185,33 @@ _RUBRICA_AUDITORIA = (
     "Você audita a QUALIDADE do atendente José Luís (WhatsApp de uma empresa de portaria/"
     "segurança em Manaus). Na conversa, 'in:' = cliente e 'out:' = José Luís. Avalie SÓ as "
     "respostas do José Luís. Devolva APENAS um JSON válido (sem texto fora dele) com as chaves:\n"
-    '{"nota": 0-10, "puxa_saco": true/false, "objetivo": true/false, "pediu_cnpj": true/false, '
-    '"conduziu_visita": true/false, "vazou_preco": true/false, '
+    '{"nota": 0-10, "tipo": "comercial"|"funcionario", "puxa_saco": true/false, '
+    '"objetivo": true/false, "pediu_cnpj": true/false, "conduziu_visita": true/false, '
+    '"vazou_preco": true/false, "resolveu": true/false, "prometeu_sem_fazer": true/false, '
+    '"repetiu_se": true/false, '
     '"problema": "frase curta do principal problema (ou vazio)", '
     '"destaque": "frase curta do que fez bem (ou vazio)"}\n'
-    "Bom atendimento: OBJETIVO e curto, sem bajulação (não abrir com 'Perfeito!/Show!/Boa!/"
-    "Maravilha!' a cada mensagem nem agradecer toda hora), pede o CNPJ cedo, conduz à visita, "
-    "tom natural e humano, e NUNCA cita preço/valor. Penalize: verbosidade e re-resumo, "
-    "puxa-saquismo, interrogatório/excesso de perguntas, e vazamento de preço (gravíssimo)."
+    # ⚠️ A rubrica era 100% COMERCIAL ("pede o CNPJ cedo, conduz à visita") e o portão do gold
+    # exigia uma das duas. Mas o José Luís hoje atende sobretudo FUNCIONÁRIO — ponto, chave PIX,
+    # escala, VT/VR. Uma conversa em que ele resolve o ponto de alguém com perfeição não tinha
+    # como virar gold, porque ninguém pede CNPJ a porteiro. O loop não aprendia do trabalho que
+    # ele de fato faz. Daí `tipo` e `resolveu`. (Medido em 25/09: 11 conversas auditadas,
+    # 0 promovíveis, nenhuma comercial.)
+    "PRIMEIRO classifique `tipo`: 'comercial' se é cliente/síndico/prospect buscando serviço; "
+    "'funcionario' se é gente da casa falando de ponto, escala, chave PIX, VT/VR, holerite, "
+    "documento para assinar.\n"
+    "Bom atendimento nos DOIS casos: OBJETIVO e curto, sem bajulação (não abrir com 'Perfeito!/"
+    "Show!/Boa!/Maravilha!' a cada mensagem nem agradecer toda hora), tom natural e humano, e "
+    "NUNCA cita preço/valor. Responda no TAMANHO de quem pergunta: se a pessoa escreve 'Sim' ou "
+    "'👍', não devolva parágrafo.\n"
+    "Se `tipo`='comercial': pede o CNPJ cedo e conduz à visita.\n"
+    "Se `tipo`='funcionario': `resolveu`=true só quando o problema ficou ENCAMINHADO COM "
+    "DESTINO (pendência aberta, DP/Pyetra acionada, resposta concreta) — não quando ele apenas "
+    "disse que ia ver. `prometeu_sem_fazer`=true se disse 'já registrei/encaminhei' sem que a "
+    "conversa mostre para ONDE.\n"
+    "`repetiu_se`=true se mandou a mesma frase (ou o mesmo fallback) duas vezes para a pessoa.\n"
+    "Penalize: verbosidade e re-resumo, puxa-saquismo, interrogatório, repetição, promessa vazia, "
+    "e vazamento de preço (gravíssimo)."
 )
 
 
@@ -246,10 +265,21 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
     model = os.getenv("AGENT_AUDIT_MODEL") or modelo_barato()
     # kwargs compatíveis com a família do modelo (gpt-5/o-series não aceitam temperature
     # nem max_tokens — usam max_completion_tokens). Evita quebra silenciosa se trocar o modelo.
+    # 🔴 300 MATOU O LOOP DE APRENDIZADO INTEIRO, e sem um único erro no log.
+    #
+    # `modelo_barato()` cai em `deepseek-v4-flash`, que é modelo de RACIOCÍNIO: ele gasta o teto
+    # pensando e devolve `content` VAZIO. Medido em 25/09 com a mesma conversa:
+    #     max_tokens=300  → finish_reason=length · reasoning 1052 chars · content 0  → nota 0
+    #     max_tokens=2000 → finish_reason=stop   · reasoning  959 chars · content 78 → nota 9
+    # Como o parse fazia `json.loads(content or "{}")`, vazio virava dict vazio, `_nota()` lia 0,
+    # e o portão do gold (`>= 8`) nunca abria. Efeito: o auditor rodou todo dia às 20:00 por
+    # meses, mandou 62 avisos ao sino com "média 0.0", e o `gld` tem UMA linha, de 18/06.
+    # Nenhuma exceção, nenhum warning — a rotina de fundo mais silenciosa da casa.
+    _TETO = int(os.getenv("AGENT_AUDIT_MAX_TOKENS", "4000"))
     if model.startswith(("gpt-5", "o1", "o3", "o4")):
-        _akw = {"max_completion_tokens": 300}
+        _akw = {"max_completion_tokens": _TETO}
     else:
-        _akw = {"max_tokens": 300, "temperature": 0}
+        _akw = {"max_tokens": _TETO, "temperature": 0}
     out = []
     for conv, phone, transcript in rows:
         try:
@@ -262,7 +292,23 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
                 response_format={"type": "json_object"},
                 **_akw,
             )
-            data = _json.loads(resp.choices[0].message.content or "{}")
+            # ⚠️ `content or "{}"` fazia resposta VAZIA virar nota 0 em silêncio — e nota 0 é
+            # indistinguível de "conversa ruim". O que deve acontecer é a conversa ser DESCARTADA
+            # da auditoria, não reprovada: ninguém pode ser mal avaliado por falha minha.
+            _bruto = resp.choices[0].message.content
+            if not (_bruto or "").strip():
+                logger.error(
+                    "auditor: conv=%s devolveu content VAZIO (finish=%s, teto=%s, modelo=%s) — "
+                    "DESCARTADA, não reprovada. Se repetir, o teto está curto para modelo de "
+                    "raciocínio: suba AGENT_AUDIT_MAX_TOKENS ou aponte AGENT_AUDIT_MODEL para um "
+                    "modelo não-reasoning.",
+                    conv, resp.choices[0].finish_reason, _TETO, model)
+                continue
+            data = _json.loads(_bruto)
+            if "nota" not in data:
+                logger.error("auditor: conv=%s veio sem 'nota' (%s) — DESCARTADA", conv,
+                             str(data)[:120])
+                continue
             data["conv"] = conv
             data["phone"] = phone
             out.append(data)
@@ -277,7 +323,15 @@ async def _auditar_conversas(session, horas: int = 24, limite: int = 15) -> list
     for r in out:
         # Gold (rígido): nota alta, SEM vazar preço, E com avanço real (pediu CNPJ ou
         # conduziu à visita) — evita conversa "simpática mas vazia" virar exemplo.
-        if _nota(r) >= 8 and not _flag(r, "vazou_preco") and (_flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")):
+        # ⚠️ DOIS caminhos para o gold, porque são dois ofícios. O caminho comercial exigia
+        # CNPJ/visita e por isso nenhuma conversa de FUNCIONÁRIO jamais podia ser exemplo — e é
+        # essa a maior parte do trabalho dele hoje. Os dois exigem nota alta, sem preço, sem
+        # promessa vazia e sem repetição; o que muda é o que conta como AVANÇO REAL.
+        _comercial = _flag(r, "conduziu_visita") or _flag(r, "pediu_cnpj")
+        _funcionario = str(r.get("tipo") or "").lower() == "funcionario" and _flag(r, "resolveu")
+        _limpo = (not _flag(r, "vazou_preco") and not _flag(r, "prometeu_sem_fazer")
+                  and not _flag(r, "repetiu_se"))
+        if _nota(r) >= 8 and _limpo and (_comercial or _funcionario):
             try:
                 res = await session.execute(
                     _text(
