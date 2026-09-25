@@ -260,24 +260,33 @@ async def aplicar(db: AsyncSession, *, employee_id: str, aprovador: str) -> dict
     """
     if not aprovador:
         return {"ok": False, "motivo": "aplicar exige aprovador humano identificado"}
+    # ⚠️ Leitura por NOME, nunca por posição. `r[1]` aqui seria o tipo da chave; se alguém
+    # reordenar o SELECT, `r[1]` passa a ser o NOME, a guarda `if not r[1]` aprova, e o cadastro
+    # recebe `pix_key_type='JAIR SOARES DA ROCHA'` — em silêncio, num caminho de dinheiro.
+    # O lado de lá (a tela de aprovação) lê as MESMAS chaves de `pendentes_de_aprovacao()`:
+    # `chave_informada` e `tipo_informado`. Nome trocado de um lado tem de estourar, não cair
+    # num padrão. (Lição trazida pelo terminal do fiscal em 25/09: `icms_situacao` × `icms_cst`
+    # derrubou toda emissão de nota, e cada lado estava certo sozinho.)
     r = (await db.execute(text(
         "SELECT chave_informada, tipo_informado, nome FROM pix_confirmacoes "
         "WHERE employee_id = CAST(:e AS uuid) AND status='respondido'"),
-        {"e": employee_id})).first()
-    if not r or not r[0]:
+        {"e": employee_id})).mappings().first()
+    if not r or not r["chave_informada"]:
         return {"ok": False, "motivo": "não há chave informada para aplicar"}
-    if not r[1]:
+    if not r["tipo_informado"]:
         return {"ok": False, "motivo": "tipo AMBÍGUO (11 dígitos = CPF ou celular). "
                                        "Confirme o tipo com a pessoa antes de aplicar."}
     await db.execute(text("""
         UPDATE employees SET pix_key=:k, pix=:k, pix_key_type=:tp, updated_at=now()
-        WHERE id = CAST(:e AS uuid)"""), {"e": employee_id, "k": r[0], "tp": r[1]})
+        WHERE id = CAST(:e AS uuid)"""),
+        {"e": employee_id, "k": r["chave_informada"], "tp": r["tipo_informado"]})
     await db.execute(text("""
         UPDATE pix_confirmacoes SET status='aplicado', aplicado_em=now(), aplicado_por=:a,
                updated_at=now() WHERE employee_id = CAST(:e AS uuid)"""),
         {"e": employee_id, "a": aprovador[:100]})
     await db.commit()
-    return {"ok": True, "nome": r[2], "chave": r[0], "tipo": r[1], "aprovador": aprovador}
+    return {"ok": True, "nome": r["nome"], "chave": r["chave_informada"],
+            "tipo": r["tipo_informado"], "aprovador": aprovador}
 
 
 async def estado(db: AsyncSession) -> dict[str, Any]:

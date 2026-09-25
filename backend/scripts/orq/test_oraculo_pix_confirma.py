@@ -55,13 +55,80 @@ def main() -> None:
     if chave_do_texto("telefone 92992542414") == chave_do_texto("cpf 92992542414"):
         falhas.append("REGRESSÃO: o rótulo deixou de desambiguar")
 
+    falhas += _contrato_escritor_leitor()
+
     if falhas:
         for f in falhas:
             print(f"  ❌ {f}")
         print(f"TEST pix_confirma FAIL ({len(falhas)} falha(s))")
         sys.exit(1)
-    print(f"\nOK {len(CASOS)} casos + 3 travas de regressão")
+    print(f"\nOK {len(CASOS)} casos + 3 travas + contrato escritor↔leitor")
     print("TEST pix_confirma PASS")
+
+
+def _contrato_escritor_leitor() -> list[str]:
+    """Afirma os DOIS lados ao mesmo tempo: quem grava e quem lê usam o mesmo nome de campo.
+
+    Existe por causa de um defeito real de 25/09/2026 no terminal do fiscal: a tela entregava
+    `icms_situacao` e o emissor lia `icms_cst`. Nomes parecidos, cada lado certo sozinho, e
+    NENHUMA nota fiscal jamais saiu pela tela. Nenhum teste de unidade pega isso — só uma
+    afirmação que olhe escritor e leitor juntos.
+
+    Aqui o sintoma seria pior que recusa da SEFAZ: chave PIX aplicada a partir do campo errado
+    é dinheiro no lugar errado.
+    """
+    import asyncio
+    import re
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from core.database import async_session_factory
+
+    ruins: list[str] = []
+    CAMPOS = ("chave_informada", "tipo_informado")
+
+    # 1) a coluna existe no banco com ESTE nome?
+    async def _colunas() -> set[str]:
+        async with async_session_factory() as db:
+            rows = (await db.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='pix_confirmacoes'"))).all()
+            return {r[0] for r in rows}
+
+    cols = asyncio.run(_colunas())
+    for c in CAMPOS:
+        if c not in cols:
+            ruins.append(f"CONTRATO: `{c}` não existe em pix_confirmacoes — escritor e leitor "
+                         f"apontam para coluna inexistente")
+    if not ruins:
+        print(f"  ok  contrato: {', '.join(CAMPOS)} existem na tabela")
+
+    # 2) `aplicar()` lê por NOME, não por posição — r[1] virando `nome` é silencioso
+    src = Path("/app/modules/integrations/connectors/whatsapp/pix_confirma.py").read_text()
+    corpo = src[src.index("async def aplicar"):]
+    corpo = corpo[:corpo.index("async def estado")] if "async def estado" in corpo else corpo
+    # ⚠️ Só LINHAS DE CÓDIGO. Na 1ª versão desta régua ela reprovou o conserto: o comentário que
+    # explica o perigo contém literalmente `r[1]`, e o caçador mediu o comentário, não o código.
+    codigo = "\n".join(
+        ln for ln in corpo.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("#") and '"""' not in ln
+    )
+    if re.search(r"\br\[\d\]", codigo):
+        ruins.append("REGRESSÃO: `aplicar()` voltou a ler por POSIÇÃO (r[n]). Reordenar o "
+                     "SELECT faria pix_key_type receber o nome da pessoa, em silêncio")
+    else:
+        print("  ok  aplicar() lê por nome, não por posição")
+
+    # 3) o que `pendentes_de_aprovacao` publica é o que `aplicar` consome
+    pend = src[src.index("async def pendentes_de_aprovacao"):src.index("async def aplicar")]
+    for c in CAMPOS:
+        if c not in pend:
+            ruins.append(f"CONTRATO: `pendentes_de_aprovacao` não publica `{c}`, que é o campo "
+                         f"que `aplicar` consome — a tela de aprovação leria outro nome")
+    if not any("pendentes" in r for r in ruins):
+        print("  ok  pendentes_de_aprovacao publica os campos que aplicar consome")
+    return ruins
 
 
 if __name__ == "__main__":
