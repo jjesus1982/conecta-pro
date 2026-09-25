@@ -125,3 +125,93 @@ import. Virou AST.
 3. **Item que não casa com o cadastro fiscal fica sem produto, de propósito.** NCM chutado foi
    exatamente a rejeição da SEFAZ de 11/04/2026 («NCM inexistente»). Quanto mais produto
    cadastrado com NCM, menos escolha manual.
+
+---
+
+## §8 — O que o teste de ponta a ponta achou (e o pedido não previa)
+
+O dono disse *«teste tudo antes e dar por completado»*. Emitir pela própria tela, e não pelo
+terminal, foi o que revelou o defeito mais caro do dia.
+
+### A tela de emissão nunca tinha emitido uma NF-e
+
+Nenhuma, nunca, nem em homologação. Dois defeitos somados:
+
+1. **Contrato de chaves.** `rd_nfe_nova` entregava `icms_situacao` / `pis_situacao` /
+   `cofins_situacao`; `nfe_provider._montar_nfe()` lê `icms_cst` / `pis_cst` / `cofins_cst`.
+   Nomes **parecidos**: o dicionário chegava gordo e a leitura vinha vazia. Toda emissão morria
+   em «Item 1 sem CST/CSOSN de ICMS» — mensagem que manda procurar no cadastro do produto, que
+   é o lugar errado.
+2. **Constante em coluna fiscal.** O `INSERT` gravava `icms_cst='40'` fixo e a leitura de volta
+   fazia `coalesce(icms_cst,'40')`. A tela ESCOLHIA tributação em vez de perguntar à régua, e o
+   default mascarava item gravado sem CST — a nota iria à SEFAZ com «isenta» que ninguém decidiu.
+
+> Nenhum teste de unidade pega isso: cada lado está certo sozinho. O que quebra é o **contrato**,
+> e contrato só se afirma olhando os dois ao mesmo tempo. A régua nova lê por AST toda chave que
+> o emissor pede de um item e exige que a tela entregue cada uma — 20 chaves.
+
+### E um meu, no conserto: CST 07 onde a liminar manda 09
+
+`_cst_da_linha` lia `linha["origem"]`; a chave é `origem_regra`. `.get()` devolveu `None`, o
+regex não casou, caiu no padrão «07».
+
+**Valor zero nos dois casos.** Nenhum total denunciava, o `cStat 100` veio igual, a nota estava
+«autorizada». O que muda é o que a nota **declara**: 07 é «operação isenta», 09 é «exigibilidade
+suspensa por decisão judicial». **Declarar isenção onde há liminar é abrir mão do fundamento e
+enfraquecer o próprio processo.**
+
+> Só apareceu porque fui ler o XML autorizado, campo a campo, em vez de acreditar na palavra
+> «autorizada». **Ler a coisa, não o rótulo dela.**
+
+### Provado
+
+| | |
+|---|---|
+| NF-e 5/2, 6/2, 7/2 | `cStat 100` · «Autorizado o uso da NF-e» · chave completa |
+| ICMS | CST **60** · CFOP **5405** · **R$ 0,00** — mercadoria que entrou com ST não é tributada de novo |
+| PIS/COFINS | CST **09**, processo 1038495-94.2024.4.01.3200 |
+| Totais | 4 × 448,00 + 2 × 53,90 = **1.899,80** |
+
+A 7/2 foi emitida **contra a imagem assada**, depois do bake de outra sessão — não contra
+hot-copy.
+
+---
+
+## §9 — O 4º modelo de DANFE, e por que a primeira tentativa piorou
+
+Pedido do dono com os três modelos abertos: *«me agrada muito o 03_danfse no canto superior
+esquerdo que tem nossa logo, eu gosto do formato da 01_danfe_retrato, cria um quarto modelo
+mesclando esses 2»*.
+
+**Tentativa 1 — copiar o DANFSe ao pé da letra.** Logo numa coluna de 30mm à esquerda, fio
+vertical, emitente ao lado. Ficou **pior**: «CONECTAMAIS ELETRONICA LTDA» truncou em
+«...ELETRONICA LT…».
+
+A razão é estrutural. O campo do emitente no DANFE tem 40% da folha (~74mm). Tirar 30mm deixa
+44mm para a razão social. **No DANFSe a coluna cabe porque lá o prestador tem faixa de largura
+inteira, separada da do título** — estrutura que o MOC não deixa mexer no DANFE.
+
+> Copiar o arranjo visual sem copiar a estrutura que o sustenta produz o oposto do efeito.
+
+**Tentativa 2 — empilhar.** Marca em faixa própria no alto do campo, fio embaixo, nome usando
+os 74mm inteiros. Os dois ganham: a marca fica **maior** que no modo inline (34mm contra 26mm).
+
+**Terceiro erro, pego olhando o PDF:** o texto de consulta ficou **em cima** da linha do CEP. Em
+documento fiscal texto sobreposto não é feio, é ilegível — e o CEP é obrigatório.
+
+### A trava que saiu disso
+
+Gerei um modelo num contêiner sem `/app/uploads` montado. `_desenha_logo_cheia` tenta três
+caminhos em cadeia e devolve `True` no primeiro que abrir: a logo caiu para o arquivo de
+reserva e saiu pequena e desbotada. **O PDF dizia «gerado», o código dizia `True`, e eu quase
+mandei ao dono um modelo com a marca errada para aprovar.** O que salvou foi ABRIR o PDF.
+
+Ideia do t6: *«você olhou o desenho e se salvou; a trava olharia sozinha»*. A cadeia foi cortada
+— **ou é a marca oficial, ou o DANFE sai sem marca**. É conforme: o MOC *admite* o logotipo, não
+exige.
+
+> **Fallback silencioso é gentileza em tela e armadilha em documento.** Onde o resultado sai da
+> casa — PDF para cliente, mensagem para 66 pessoas, XML para o fisco — a cadeia de alternativas
+> tem de parar na primeira que não é a oficial.
+
+Terceira vez no dia que um plano B plausível quase passou.
