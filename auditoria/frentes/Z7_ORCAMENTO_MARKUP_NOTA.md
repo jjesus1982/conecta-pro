@@ -215,3 +215,78 @@ exige.
 > tem de parar na primeira que não é a oficial.
 
 Terceira vez no dia que um plano B plausível quase passou.
+
+---
+
+## §10 — O modelo aprovado, e o número que eu inventei sem querer
+
+Quatro rodadas até *«vamos usar o modelo 4, está perfeito esse modelo»*. O que o dono aprovou:
+marca **centrada** em faixa própria, emitente inteiro centralizado, QR de consulta ao lado das
+barras, e a assinatura do Conecta PRO no pé da folha. É o padrão do botão desde 25/09/2026;
+`?marca=inline` devolve o formato anterior.
+
+### «69% maior» era falso, e o erro é de raciocínio
+
+Eu aumentei a **caixa** da logo de 26mm para 44mm e anunciei ao dono que a marca tinha ficado
+69% maior. **Ficou 6% menor.**
+
+A marca é 2857×1682 — proporção 1,7:1. Com `preserveAspectRatio` ligado, a imagem é encaixada
+pela **menor** das duas restrições, e num campo de 26mm de altura é **sempre a altura**.
+Alargar a caixa não aumentou nada: só criou espaço sobrando, e a âncora padrão (`nw`) grudou a
+marca no canto esquerdo. Foi exatamente isso que o dono viu e pediu para corrigir.
+
+> **Caixa não é tamanho.** Com proporção preservada, quem manda é a dimensão que aperta — e
+> alargar a outra só muda onde a imagem encosta.
+
+Conserto: altura 9,6mm (contra 9,0 do inline — ganho honesto e pequeno) e `anchor="n"`
+centrando no que sobra. Mais que isso comeria a linha de consulta de autenticidade, que é
+texto do DANFE e não enfeite.
+
+### Os três erros de altura no mesmo bloco
+
+Em documento fiscal, sobreposição não é feiúra — é ilegibilidade de campo obrigatório:
+
+1. o texto de consulta ficou **em cima** do CEP;
+2. o QR de 17mm invadiu a altura da chave e **truncou a chave por extenso** («…5500 2000 0000
+   …») — a chave é o identificador com que o destinatário consulta a nota e com que o fisco a
+   acha; nada pode empurrá-la;
+3. a última linha da consulta **encostou na borda** do campo e pareceu cortada (faltava 1mm
+   para os descendentes).
+
+Os três só apareceram **abrindo o PDF**. Nenhum deles muda um byte do XML.
+
+---
+
+## §11 — As 115 NFS-e sem XML, achadas por um erro meu
+
+O oráculo AB1 acusava: nenhuma NFS-e com XML assinado guardado. Abri uma pela rota, o ADN
+devolveu, gravou — **AB1 verde, 0 desvios**.
+
+Fui contar quantas faltavam. A consulta falhou por nome de coluna (`chave` em vez de
+`chave_acesso`), o `2>/dev/null` engoliu o erro, e eu li o resultado vazio como *«não existe
+nenhuma»*. São **115 NFS-e de produção com chave e zero com XML**.
+
+> `2>/dev/null` transforma erro em resposta vazia, e **resposta vazia parece um fato**.
+
+As 114 restantes são uma chamada ao ADN cada. **Não disparei** — é trabalho agendado da frente
+de conciliação, e entra nas decisões do dono.
+
+---
+
+## §12 — O saldo de duas sessões medindo uma a afirmação da outra
+
+Seis defeitos reais no dia nasceram de uma sessão apontar o que a outra não via:
+
+| Quem achou | O quê |
+|---|---|
+| eu → t6 | contrato de chaves entre quem escreve e quem lê → t6 achou **acesso por posição** no caminho do PIX (`r[1]` virando o nome da pessoa se o SELECT mudar) |
+| eu → t6 | texto de campanha sem remetente identificável é indistinguível de golpe → o próprio agente do t6 **recusou a campanha da casa**, e estava certo |
+| t6 → eu | `docker exec` lê o contêiner, não a imagem → o meu «está assado» tinha acertado **por sorte de horário** |
+| eu → t6 | contêiner efêmero não tem volumes → t6 **desistiu** de provar o envio em efêmero e fez envio real |
+| t6 → eu | «a trava olharia sozinha» → a marca oficial ou nenhuma, no DANFE |
+| t6 → eu | commitar não altera o disco → **o git não diz o que a imagem vai levar**, em nenhum dos dois sentidos |
+
+E a forma única por trás de quatro deles: **o estado que ninguém previu falha ABERTO.**
+`status != "error"` tratando exceção como entrega · `2>/dev/null` lendo erro como ausência ·
+`pgrep` lendo existência como identidade · cadeia de fallback devolvendo `True` pela logo
+errada. **Sucesso se afirma, nunca se deduz.**
