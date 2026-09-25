@@ -46,6 +46,7 @@ from modules.ai.conversation.services.orquestrador import (
     tools_acao_dp,  # noqa: F401 — registra a ação FAZER do DP (solicitar_ferias) (Fase 6 FAZER-2, propor->aprovar)
     tools_acao_financeiro,  # noqa: F401 — registra agir_financeiro (registrar_custo_recorrente) (Fase 6 FAZER-3, propor->aprovar)
     tools_acao_fiscal,  # noqa: F401 — registra a ação FAZER do Fiscal (baixar_obrigacao) — propor->aprovar, gate 🟡
+    tools_acao_fiscal_nota,  # noqa: F401 — orçamento do fornecedor + markup -> RASCUNHO de nota (🔵). Não transmite.
     tools_acao_ged,  # noqa: F401 — registra a ação FAZER do GED (registrar_evento_kit) (Fase 6 FAZER-2, propor->aprovar)
     tools_autoconhecimento,  # noqa: F401 — registra `o_que_voce_faz` (F4)
     tools_comercial_doc,  # noqa: F401 — registra gera-doc comercial (Fase 6 F1)

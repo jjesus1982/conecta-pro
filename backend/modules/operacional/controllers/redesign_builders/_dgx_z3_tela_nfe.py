@@ -64,7 +64,7 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1130,6 +1130,212 @@ async def rd_nfe_xml(nfe_id: str, current_user: CurrentActiveUser, db: AsyncSess
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # Ações (POST)
 # ─────────────────────────────────────────────────────────────────────────────────────────────
+#: Os campos do destinatário na tela `nfe-nova`, na ordem em que aparecem. Existe como lista
+#: porque DOIS caminhos precisam dela e não podem divergir: preencher ao escolher o cliente, e
+#: LIMPAR ao voltar para «avulso». A lista repetida à mão nos dois lugares é o jeito conhecido
+#: de deixar um campo velho na tela depois da troca de cliente.
+_CAMPOS_DEST: tuple[str, ...] = (
+    "dest_documento",
+    "dest_razao",
+    "dest_ie",
+    "dest_ind_ie",
+    "dest_logradouro",
+    "dest_numero",
+    "dest_bairro",
+    "dest_municipio",
+    "dest_uf",
+    "dest_cep",
+    "dest_email",
+    "dest_cod_municipio",
+)
+
+
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# DUAS PORTAS QUE FALTAVAM NA TELA DE EMISSÃO — 25/09/2026
+#
+# O dono, depois de abrir `?t=nfe-nova` pela primeira vez:
+#
+#   «quando selecionar o condomínio, já preencher todas as informações do condomínio nos campos
+#    subsequentes; outra coisa que vai facilitar muito a minha vida é o botão pra eu anexar
+#    documentos ou fotos, que são orçamentos que os fornecedores mandam, daí o nosso sistema lê
+#    e já lança os produtos […] acrescenta mais 40% de markup e manda emitir a nota.»
+#
+# Os dois já existiam — e é isso que interessa registrar, porque foi a terceira vez na semana:
+#
+#   · O preenchimento do destinatário SEMPRE funcionou, só que invisível. `rd_nfe_nova` lê o
+#     endereço de `clients` e IGNORA o que estiver digitado nos `dest_*` (linha ~1155). A nota
+#     saía certa; a TELA é que ficava muda, e campos marcados com `*` continuavam vazios
+#     depois da escolha. O dono lia aquilo como «faltou preencher» — e tinha razão em ler
+#     assim. Não é dado errado, é a tela não contando o que o servidor já sabe.
+#   · A leitura do orçamento por LLM existe inteira na frente Z5, em `?t=nfe-do-arquivo`:
+#     `itens_do_arquivo` + `casar_produtos`. O que faltava era ela estar ONDE ele está.
+#
+# Capacidade que só existe noutra tela não existe para quem trabalha. Nenhum motor novo aqui:
+# `/action/nfe-ler-orcamento` chama o MESMO serviço da Z5 e devolve no contrato `{campos}` que
+# o `prefill` do front já fala desde o DP. O que é de fato novo é só o markup.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/action/nfe-cliente-dados", dependencies=_GATE)
+async def rd_nfe_cliente_dados(
+    current_user: CurrentActiveUser,
+    payload: dict = Body(default_factory=dict),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Devolve o destinatário de um cliente no contrato `{campos}` — para a tela MOSTRAR.
+
+    Não decide nada: quem manda na nota continua sendo o `rd_nfe_nova`, que relê o cliente do
+    banco na hora de emitir. Se esta rota calar, a nota sai igual — some só a conferência
+    visual. Por isso ela é leitura pura e nunca levanta 500 por cliente sem endereço.
+    """
+    cid = str(payload.get("cliente_id") or "").strip()
+    if not cid or cid == "avulso":
+        # AVULSO limpa os campos: o endereço do cliente anterior ficando na tela é pior que
+        # campo vazio — parece conferido e não é.
+        return {"ok": True, "campos": dict.fromkeys(_CAMPOS_DEST, ""), "documento": "destinatário avulso"}
+    c = (
+        await db.execute(
+            text(
+                "SELECT name, coalesce(document_number,''), coalesce(state_registration,''), "
+                " coalesce(address_street,''), coalesce(address_number,''), coalesce(address_neighborhood,''), "
+                " coalesce(address_city,''), coalesce(address_state,''), coalesce(address_zipcode,''), "
+                " coalesce(email,'') FROM clients WHERE id::text = :i"
+            ),
+            {"i": cid},
+        )
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    municipio = (c[6] or "").strip()
+    campos = {
+        "dest_documento": so_digitos(c[1]),
+        "dest_razao": c[0] or "",
+        "dest_ie": so_digitos(c[2]),
+        # IE preenchida = contribuinte do ICMS (1). Sem IE, «não contribuinte» (9). É a MESMA
+        # dedução que `rd_nfe_nova` faz ao emitir — escrita aqui para a tela mostrar o que o
+        # servidor decidiria, e não uma segunda regra que possa divergir dela.
+        "dest_ind_ie": "1" if so_digitos(c[2]) else "9",
+        "dest_logradouro": c[3] or "",
+        "dest_numero": (c[4] or "S/N"),
+        "dest_bairro": c[5] or "",
+        "dest_municipio": municipio,
+        "dest_uf": (c[7] or "AM").upper(),
+        "dest_cep": so_digitos(c[8]),
+        "dest_email": c[9] or "",
+        # O cadastro de cliente não guarda código IBGE. Manaus a casa sabe de cor; fora dela
+        # fica VAZIO de propósito, para o validador cobrar. Chutar código de município é
+        # rejeição na SEFAZ e, pior, é nota autorizada no município errado.
+        "dest_cod_municipio": "1302603" if municipio.strip().lower() == "manaus" else "",
+    }
+    faltando = [k for k in ("dest_logradouro", "dest_bairro", "dest_municipio", "dest_cep") if not campos[k]]
+    return {
+        "ok": True,
+        "campos": campos,
+        "documento": (c[0] or "cliente")[:40],
+        "aviso": (
+            "Cadastro do cliente sem " + ", ".join(x.replace("dest_", "") for x in faltando) + " — complete abaixo."
+            if faltando
+            else ""
+        ),
+    }
+
+
+@router.post("/action/nfe-ler-orcamento", dependencies=_GATE)
+async def rd_nfe_ler_orcamento(
+    current_user: CurrentActiveUser,
+    arquivo: UploadFile = File(...),
+    alvo: str = Form(""),
+    vals: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Orçamento do fornecedor (PDF/foto/planilha) → itens da nota, já com markup.
+
+    Reusa `itens_do_arquivo` + `casar_produtos` da frente Z5: um motor de leitura só. O que
+    muda aqui é o destino — em vez de gravar rascunho, devolve `{campos}` e o formulário desta
+    tela se preenche. Nada é gravado: quem confere é o dono, antes de emitir.
+
+    O markup sai de `markup_percent` do próprio formulário (o front manda os valores atuais em
+    `vals`). Zero ou vazio = preço como veio no arquivo, sem acréscimo — nunca se inventa
+    margem por omissão.
+    """
+    import json  # noqa: PLC0415
+
+    from modules.fiscal.services import orcamento_para_nota as z5  # noqa: PLC0415
+
+    dados = await arquivo.read()
+    if not dados:
+        raise HTTPException(status_code=422, detail="Arquivo vazio.")
+    if len(dados) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Arquivo muito grande (máx 15MB).")
+    try:
+        atuais = json.loads(vals) if vals else {}
+    except ValueError:
+        atuais = {}
+    markup = (atuais or {}).get("markup_percent") or 0
+
+    try:
+        lido = await z5.itens_do_arquivo(db, arquivo.filename or "orcamento", dados)
+        itens = await z5.casar_produtos(db, lido["itens"])
+        itens = z5.aplicar_markup(itens, markup)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    if not itens:
+        raise HTTPException(
+            status_code=422,
+            detail="Não achei item com descrição E preço nesse arquivo. Se for foto, tente uma mais nítida.",
+        )
+
+    # O 1º item vai nos campos soltos; o resto no JSON de itens adicionais — é o formato que
+    # `rd_nfe_nova` já consome, sem tocar no emissor.
+    p, *resto = itens
+    campos = {
+        "descricao": p["descricao"],
+        "ncm": p.get("ncm") or p.get("ncm_sugerido") or "",
+        "unidade": p.get("unidade") or "UN",
+        "quantidade": str(p["quantidade"]),
+        "valor_unitario": str(p["valor_unitario"]),
+        # `produto` é um <select> do cadastro fiscal: só preenche quando o casamento foi
+        # CERTO. Item que não casou fica sem produto e a pessoa escolhe — NCM chutado foi
+        # exatamente a rejeição da SEFAZ de 11/04/2026 («NCM inexistente»).
+        "produto": (p.get("produto_codigo") or "") if p.get("produto_id") else "",
+        "itens_extras": json.dumps(
+            [
+                {
+                    "codigo": i.get("produto_codigo") or "",
+                    "descricao": i["descricao"],
+                    "ncm": i.get("ncm") or i.get("ncm_sugerido") or "",
+                    "unidade": i.get("unidade") or "UN",
+                    "quantidade": float(i["quantidade"]),
+                    "valor_unitario": float(i["valor_unitario"]),
+                }
+                for i in resto
+            ],
+            ensure_ascii=False,
+        ),
+    }
+    sem_produto = [i for i in itens if not i.get("produto_id")]
+    total = sum(float(i["valor_total"]) for i in itens)
+    m = z5.para_decimal(markup, 4)
+    return {
+        "ok": True,
+        "campos": campos,
+        "documento": (lido.get("documento") or "orçamento")[:40],
+        "aviso": (
+            f"{len(itens)} item(ns), total R$ {total:,.2f}".replace(",", "·").replace(".", ",").replace("·", ".")
+            + (
+                f" · markup de {m}% aplicado sobre o custo do fornecedor"
+                if m > 0
+                else " · SEM markup (preço do arquivo)"
+            )
+            + (
+                f" · {len(sem_produto)} SEM produto no cadastro fiscal — escolha o produto antes de emitir"
+                if sem_produto
+                else ""
+            )
+        ),
+    }
+
+
 @router.post("/action/nfe-nova", dependencies=_GATE)
 async def rd_nfe_nova(  # noqa: PLR0912, PLR0915
     current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)
@@ -1610,6 +1816,16 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: PLR0915 — quatr
             "showResult": True,
             "confirm": "Confere: empresa, destinatário, itens e AMBIENTE. Emitir?",
         },
+        # Anexar o orçamento do fornecedor e deixar a tela se preencher. O motor é o da Z5
+        # (`?t=nfe-do-arquivo`); aqui ele só ganhou a porta no lugar onde se emite.
+        "prefill": {
+            "endpoint": _ACT + "nfe-ler-orcamento",
+            "alvo": "orcamento",
+            "label": "Anexar orçamento do fornecedor e preencher",
+            "hint": "PDF, planilha ou foto da lista de material — preenche os itens com o markup abaixo",
+            "accept": "image/*,.pdf,.xlsx,.xls,.csv",
+            "sobrescreve": True,
+        },
         "fields": [
             _sel(
                 "empresa",
@@ -1645,7 +1861,14 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: PLR0915 — quatr
                 + [(str(c[0]), f"{c[1]} — {_br_doc(c[2])}" + (f" · {c[3]}" if c[3] else "")) for c in clientes],
                 "span 2",
                 valor="avulso",
-            ),
+            )
+            | {
+                # Escolher o cliente preenche os `dest_*` NA TELA. O emissor já relia o cliente
+                # do banco ao emitir (a nota sempre saiu certa); o que faltava era a tela dizer
+                # isso. `sobrescreve` porque trocar de cliente tem de trocar o endereço inteiro:
+                # endereço do cliente anterior sobrando na tela parece conferido e não é.
+                "fill": {"endpoint": _ACT + "nfe-cliente-dados", "campo": "cliente_id", "sobrescreve": True},
+            },
             _txt("dest_documento", "Avulso — CNPJ ou CPF*", "span 1", ph="35710481000103"),
             _txt("dest_razao", "Avulso — razão social / nome*", "span 1"),
             _sel("dest_ind_ie", "Destinatário é contribuinte do ICMS?*", list(IND_IE), "span 2", valor="9"),
@@ -1679,6 +1902,10 @@ async def telas(db, out: dict | None = None) -> dict:  # noqa: PLR0915 — quatr
             _txt("unidade", "Unidade", "span 1", valor="UN"),
             _txt("quantidade", "Quantidade*", "span 1", valor="1"),
             _txt("valor_unitario", "Valor unitário (R$)*", "span 1", ph="450,00"),
+            # Markup sobre o CUSTO do fornecedor, usado pelo botão de anexar orçamento acima.
+            # Não mexe em valor digitado à mão — só no que for lido do arquivo. Markup ≠ margem:
+            # 40% de markup sobre custo 100 dá preço 140, que é 28,6% de margem sobre a venda.
+            _txt("markup_percent", "Markup sobre o custo do orçamento (%)", "span 1", valor="40"),
             _txt("valor_desconto", "Desconto (R$)", "span 1", valor="0"),
             {
                 "key": "itens_extras",

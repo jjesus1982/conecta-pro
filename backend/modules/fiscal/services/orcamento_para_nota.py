@@ -308,6 +308,52 @@ def normalizar_itens_extraidos(bruto: dict) -> list[dict]:
     return saida
 
 
+def aplicar_markup(itens: list[dict], percent) -> list[dict]:
+    """Custo do fornecedor → preço de venda, guardando o custo ao lado.
+
+    Pedido do dono em 25/09/2026, literal: *«nessa lista o custo do material do nosso
+    fornecedor, acrescenta mais 40% de markup e manda emitir a nota para este cliente»*.
+
+    O que o arquivo do fornecedor traz é CUSTO. O que vai na nota é PREÇO. Confundir os dois
+    é emitir nota pelo preço de compra — receita a menos e margem que ninguém vê.
+
+    Por que `custo_unitario` fica gravado ao lado, e não só o preço final: sem o custo, a
+    margem some no instante em que o preço é calculado, e ninguém mais consegue responder
+    «quanto ganhamos nessa nota?» sem reabrir o PDF do fornecedor. É a mesma razão pela qual
+    a casa lê `account_type` do plano de contas em vez de codificar a convenção — o número
+    tem de saber de onde veio.
+
+    Markup e margem NÃO são a mesma conta, e a diferença é dinheiro: 40% de markup sobre
+    custo 100 dá preço 140 e margem de 28,6% sobre a venda. Quem quiser 40% de MARGEM tem de
+    pedir markup de 66,7%. O campo se chama markup e é isso que ele faz — `margem_percent`
+    volta calculada junto justamente para a conversa não sair torta.
+
+    Função PURA: não toca banco, não toca rede, o oráculo bate nela de graça. `percent` 0
+    (ou vazio, ou negativo) devolve os itens intocados — não se inventa preço por omissão.
+    """
+    p = para_decimal(percent, 4)
+    if p <= 0:
+        return itens
+    fator = Decimal(1) + p / Decimal(100)
+    for i in itens:
+        custo = para_decimal(i.get("valor_unitario"), 10)
+        if custo <= 0:
+            continue
+        venda = (custo * fator).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        qtd = para_decimal(i.get("quantidade"), 4)
+        desc = para_decimal(i.get("desconto_percent"), 4)
+        i["custo_unitario"] = custo
+        i["markup_percent"] = p
+        i["margem_percent"] = (
+            ((venda - custo) / venda * Decimal(100)).quantize(Decimal("0.01")) if venda else Decimal(0)
+        )
+        i["valor_unitario"] = venda
+        i["valor_total"] = (qtd * venda * (Decimal(1) - desc / Decimal(100))).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    return itens
+
+
 async def itens_do_arquivo(db: AsyncSession, nome: str, dados: bytes) -> dict:
     """Lê o arquivo do orçamento e devolve `{itens, documento, hash}`. NÃO grava nada.
 

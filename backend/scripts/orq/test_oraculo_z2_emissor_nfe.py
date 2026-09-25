@@ -189,21 +189,49 @@ async def main() -> int:
             await db.execute(text("DELETE FROM nfe_eventos WHERE justificativa LIKE :m"), {"m": f"%{MARCA_FIXTURE}%"})
             await db.commit()
 
-        # -- (d) nada em produção ---------------------------------------------
-        em_producao = (await db.execute(text("SELECT count(*) FROM nfes WHERE tp_amb = '1'"))).scalar_one()
-        if em_producao:
-            falhas.append(f"(d) {em_producao} nota(s) gravadas com tp_amb='1' (PRODUÇÃO) no sandbox")
+        # -- (d) o gate é um INTERRUPTOR, e nota de produção nunca fica fantasma --
+        #
+        # RÉGUA REESCRITA em 25/09/2026, no dia em que o dono autorizou produção
+        # («pode ir» / «tem toda a minha autorização»). A régua anterior afirmava
+        # *«o gate está fechado»* e *«não existe nota com tp_amb=1»* — e ficou
+        # vermelha na hora em que o sistema passou a fazer a coisa CERTA. Uma régua
+        # que reprova o estado autorizado não é rigor, é alarme quebrado: quem vê
+        # vermelho todo dia para de olhar, e o dia em que a trava afrouxar de
+        # verdade passa despercebido.
+        #
+        # O que NÃO muda com a autorização, e é o que este item passa a afirmar:
+        #   1. com o gate FECHADO, produção é recusada — provado fechando o gate
+        #      aqui dentro, em vez de torcer para que esteja fechado;
+        #   2. com o gate ABERTO, produção passa — é isso que faz dele um
+        #      interruptor e não enfeite;
+        #   3. divergência e ausência de <tpAmb> são recusadas SEMPRE, com gate
+        #      aberto ou fechado — elas não são sobre permissão, são sobre o XML
+        #      dizer uma coisa e o pedido dizer outra;
+        #   4. nenhuma nota de produção fica FANTASMA: gravada com tp_amb='1' sem
+        #      chave/protocolo e sem status de erro. Esse é o risco real agora —
+        #      número reservado, nota perdida, buraco na numeração. Aconteceu duas
+        #      vezes em 25/09 (buracos 3 e 4), por falha de disco no `_guardar_xml`.
+        import os  # noqa: PLC0415
 
         from modules.financial.integrations import nfe_provider as prov
 
-        if prov.producao_liberada():
-            falhas.append("(d) o gate NFE_PRODUCAO_LIBERADA está ABERTO neste ambiente")
+        fantasmas = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM nfes WHERE tp_amb = '1'"
+                    "   AND coalesce(chave_acesso,'') = '' AND coalesce(protocolo_autorizacao,'') = ''"
+                    "   AND coalesce(status,'') NOT IN ('rejeitada','erro','cancelada','denegada')"
+                )
+            )
+        ).scalar_one()
+        if fantasmas:
+            falhas.append(
+                f"(d) {fantasmas} nota(s) em PRODUÇÃO sem chave, sem protocolo e sem status de erro "
+                f"— número reservado e nota perdida"
+            )
+
+        # (3) recusa que independe do gate
         for chamada, rotulo in (
-            (lambda: prov._exigir_ambiente("1", "teste"), "_exigir_ambiente('1')"),
-            (
-                lambda: prov._conferir_tp_amb(b"<NFe><ide><tpAmb>1</tpAmb></ide></NFe>", "1", "teste"),
-                "_conferir_tp_amb(tpAmb=1)",
-            ),
             (
                 lambda: prov._conferir_tp_amb(b"<NFe><ide><tpAmb>1</tpAmb></ide></NFe>", "2", "teste"),
                 "_conferir_tp_amb(divergente)",
@@ -212,9 +240,49 @@ async def main() -> int:
         ):
             try:
                 chamada()
-                falhas.append(f"(d) {rotulo} NÃO levantou — a trava de produção está solta")
+                falhas.append(f"(d) {rotulo} NÃO levantou — isso não depende de gate nenhum")
             except prov.NFeError:
                 pass
+
+        # (1) e (2): o gate mandando dos dois lados. Mexe na env DESTE processo e devolve
+        # como estava — nunca no `.env` e nunca nos contêineres.
+        _gate_antes = os.environ.get(prov._ENV_GATE_PRODUCAO)
+        try:
+            os.environ[prov._ENV_GATE_PRODUCAO] = "frase-errada-de-proposito"
+            if prov.producao_liberada():
+                falhas.append("(d) `producao_liberada()` diz SIM com a frase errada — o gate não confere nada")
+            for chamada, rotulo in (
+                (lambda: prov._exigir_ambiente("1", "teste"), "_exigir_ambiente('1')"),
+                (
+                    lambda: prov._conferir_tp_amb(b"<NFe><ide><tpAmb>1</tpAmb></ide></NFe>", "1", "teste"),
+                    "_conferir_tp_amb(tpAmb=1)",
+                ),
+            ):
+                try:
+                    chamada()
+                    falhas.append(f"(d) com o gate FECHADO, {rotulo} NÃO levantou — a trava está solta")
+                except prov.NFeError:
+                    pass
+
+            os.environ[prov._ENV_GATE_PRODUCAO] = prov._SENHA_GATE_PRODUCAO
+            if not prov.producao_liberada():
+                falhas.append("(d) `producao_liberada()` diz NÃO com a frase CERTA — o gate não abre nunca")
+            for chamada, rotulo in (
+                (lambda: prov._exigir_ambiente("1", "teste"), "_exigir_ambiente('1')"),
+                (
+                    lambda: prov._conferir_tp_amb(b"<NFe><ide><tpAmb>1</tpAmb></ide></NFe>", "1", "teste"),
+                    "_conferir_tp_amb(tpAmb=1)",
+                ),
+            ):
+                try:
+                    chamada()
+                except prov.NFeError as e:
+                    falhas.append(f"(d) com o gate ABERTO, {rotulo} recusou mesmo assim: {e}")
+        finally:
+            if _gate_antes is None:
+                os.environ.pop(prov._ENV_GATE_PRODUCAO, None)
+            else:
+                os.environ[prov._ENV_GATE_PRODUCAO] = _gate_antes
 
         # -- (d2) produção não emite antes de alguém declarar o último número ---
         # A guarda nasceu em 24/09/2026 de um buraco medido: `proximo_numero` se auto-semeia

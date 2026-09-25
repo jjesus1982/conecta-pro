@@ -529,6 +529,41 @@ function FormScreen({ scr }: { scr: any }) {
   const [scanOpen, setScanOpen] = useState(false);
   const [colar, setColar] = useState(''); // campo "colar código" (PIX copia-e-cola / linha digitável)
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }));
+  /** Campo com `fill`: escolher um valor traz os campos que dependem dele, do servidor.
+   *  Nasceu de escolher o condomínio na emissão de NF-e e o endereço continuar em branco —
+   *  o emissor SEMPRE releu o cliente do banco ao emitir, então a nota saía certa; era a tela
+   *  que não contava. Isto é conferência visual, não decisão: se esta chamada falhar, o
+   *  formulário segue e a nota sai igual. Por isso o erro só avisa, nunca bloqueia. */
+  async function preencherDe(cfg: any, valor: string) {
+    if (!cfg || !cfg.endpoint) return;
+    setPreBusy(true); setPreMsg(null);
+    try {
+      let tok = ''; try { tok = localStorage.getItem('access_token') || ''; } catch { /* */ }
+      const res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: JSON.stringify({ [cfg.campo || 'id']: valor }),
+      });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) { setPreMsg({ ok: false, text: msgErro(r) || 'Não consegui trazer os dados.' }); return; }
+      const campos = (r && r.campos) || {};
+      setVals((s) => {
+        const n = { ...s };
+        for (const [k, v] of Object.entries(campos)) {
+          if (v == null) continue;
+          if (!cfg.sobrescreve && (v === '' || n[k])) continue;
+          n[k] = String(v);
+        }
+        return n;
+      });
+      const nn = Object.values(campos).filter((v) => v != null && v !== '').length;
+      setPreMsg(nn || r.aviso
+        ? { ok: !r.aviso, text: r.aviso || `${r.documento ? r.documento + ' — ' : ''}${nn} campo(s) preenchido(s). Confira.` }
+        : null);
+    } catch {
+      setPreMsg({ ok: false, text: 'Não consegui trazer os dados — preencha abaixo.' });
+    } finally { setPreBusy(false); }
+  }
   // QA E2E 08/09: campo com `value` no builder (mês/ano, competência, período) não entrava no estado → o input
   // abria vazio e o envio dava 422 / deixava {mes}/{ano} sem preencher. Semeia o estado com os valores padrão.
   useEffect(() => {
@@ -552,6 +587,9 @@ function FormScreen({ scr }: { scr: any }) {
       const fd = new FormData();
       fd.append('arquivo', file);
       if (cfg.alvo) fd.append('alvo', cfg.alvo);
+      // Os valores atuais do formulário vão junto: o leitor do orçamento precisa do
+      // `markup_percent` que está na tela para transformar custo do fornecedor em preço de venda.
+      fd.append('vals', JSON.stringify(vals));
       const res = await fetch(cfg.endpoint, {
         method: 'POST',
         headers: { ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
@@ -564,8 +602,12 @@ function FormScreen({ scr }: { scr: any }) {
       setVals((s) => {
         const n = { ...s };
         for (const [k, v] of Object.entries(campos)) {
-          if (v == null || v === '') continue;
-          if (n[k]) continue;              // já digitado → a pessoa manda
+          if (v == null) continue;
+          // `sobrescreve` é para leitura que SUBSTITUI um conjunto inteiro (os itens de um
+          // orçamento, o endereço de um cliente): manter metade do anterior ali é pior que
+          // campo vazio, porque parece conferido. Sem ele, vale a regra antiga — o que a
+          // pessoa digitou ganha do que a máquina leu.
+          if (!cfg.sobrescreve && (v === '' || n[k])) continue;
           n[k] = String(v); aplicados.push(k);
         }
         return n;
@@ -574,7 +616,7 @@ function FormScreen({ scr }: { scr: any }) {
       setPreMsg({
         ok: n > 0,
         text: n > 0
-          ? `${r.documento ? r.documento + ' — ' : ''}${n} campo(s) lido(s). Confira antes de salvar.`
+          ? `${r.documento ? r.documento + ' — ' : ''}${r.aviso || `${n} campo(s) lido(s).`} Confira antes de salvar.`
           : (r.message || 'Nenhum campo legível neste arquivo. Preencha à mão.'),
       });
     } catch {
@@ -897,15 +939,17 @@ function FormScreen({ scr }: { scr: any }) {
       {/* Anexar documento e PREENCHER (scr.prefill). Diferente de scr.attach: aquele manda o
           arquivo junto no submit; este só LÊ e devolve campos, sem criar nada. O que voltar cai
           no formulário e a pessoa confere antes de salvar — por isso nunca submete sozinho. */}
-      {scr.prefill && (
+      {/* `preMsg` também aparece sem `prefill`: um campo com `fill` (escolher o cliente traz o
+          endereço) escreve aqui, e uma tela pode ter `fill` sem ter botão de anexar. */}
+      {(scr.prefill || preMsg) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <label className="rd-btn rd-btn-outline" style={{ cursor: preBusy ? 'wait' : 'pointer', opacity: preBusy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>
+          {scr.prefill && <label className="rd-btn rd-btn-outline" style={{ cursor: preBusy ? 'wait' : 'pointer', opacity: preBusy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>
             📄 {preBusy ? 'Lendo o documento…' : (scr.prefill.label || 'Anexar documento e preencher')}
             <input type="file" accept={scr.prefill.accept || 'image/*,.pdf'} style={{ display: 'none' }}
               disabled={preBusy}
               onChange={(e) => { prefillDoc(e.target.files?.[0], scr.prefill); e.currentTarget.value = ''; }} />
-          </label>
-          {scr.prefill.hint && !preMsg && <span className="rd-scr-sub" style={{ margin: 0 }}>{scr.prefill.hint}</span>}
+          </label>}
+          {scr.prefill?.hint && !preMsg && <span className="rd-scr-sub" style={{ margin: 0 }}>{scr.prefill.hint}</span>}
           {preMsg && (
             <span className={`rd-badge ${preMsg.ok ? 'rd-b-success' : 'rd-b-error'}`}
               style={{ height: 'auto', padding: '6px 10px', fontSize: 12 }}>{preMsg.text}</span>
@@ -961,7 +1005,8 @@ function FormScreen({ scr }: { scr: any }) {
               <input className="rd-input" type="file" accept={f.accept}
                 onChange={(e) => setFiles((s) => ({ ...s, [f.key]: (e.target.files && e.target.files[0]) || null }))} />
             ) : f.type === 'select' ? (
-              <select className="rd-input" value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
+              <select className="rd-input" value={vals[f.key] || ''}
+                onChange={(e) => { set(f.key, e.target.value); if (f.fill) preencherDe(f.fill, e.target.value); }}>
                 <option value="">{f.ph || 'Selecione…'}</option>
                 {(f.options || []).map((o: any) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
