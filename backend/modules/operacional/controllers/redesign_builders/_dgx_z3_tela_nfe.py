@@ -951,6 +951,17 @@ async def transmitir(db: AsyncSession, nfe_id: str, ambiente: str) -> dict:
             "indicador_ie": cab["destinatario_ind_ie"],
             "inscricao_estadual": so_digitos(cab["destinatario_ie"]),
             "inscricao_suframa": emp.get("suframa") or "",
+            # ⚠️ FALTAVA, achado conferindo o XML da NF-e 1/2 de PRODUÇÃO (25/09/2026): o
+            # e-mail estava no cadastro do cliente E na linha da nota (`destinatario_email`),
+            # e simplesmente não era passado adiante — `nfe_provider` lê `dest["email"]` e a
+            # chave não existia neste dicionário. O `<email>` saiu VAZIO no bloco `dest` da
+            # primeira nota real.
+            #
+            # Terceira chave faltando ou trocada entre esta tela e o emissor no mesmo dia. As
+            # outras duas (icms_cst, pis_cst) faziam a nota ser RECUSADA — ruidoso, e por isso
+            # apareceram. Esta passa calada: a nota é autorizada e o destinatário só não
+            # recebe. Defeito silencioso é o que sobrevive.
+            "email": (cab.get("destinatario_email") or "")[:60],
             "endereco": {
                 "logradouro": cab["destinatario_logradouro"],
                 "numero": cab["destinatario_numero"],

@@ -224,6 +224,64 @@ async def main() -> int:
         )
     medidas.append(f"contrato tela×emissor: {len(pedidas)} chave(s) pedidas, todas entregues")
 
+    # O mesmo contrato, para o bloco do DESTINATÁRIO. Nasceu em 25/09/2026 da terceira chave
+    # faltando no mesmo dia: `email` estava no banco e não chegava ao emissor, e o `<email>`
+    # saiu vazio na PRIMEIRA NF-e de produção. As outras duas faltas faziam a nota ser
+    # recusada — barulhentas, e por isso corrigidas. Esta passava calada.
+    # ⚠️ ALTERNATIVAS CONTAM COMO UMA SÓ. O emissor escreve
+    # `dest.get("cnpj") or dest.get("cpf")` e `dest.get("razao_social") or dest.get("nome")`:
+    # são fallbacks, e entregar QUALQUER um satisfaz. A primeira versão desta régua tratou
+    # cada `get` como obrigatório e acusou `['cnpj','nome']` numa nota que saiu com os dois
+    # campos CERTOS — régua condenando código correto, terceira vez no mesmo dia.
+    #
+    # Aqui o `ast.BoolOp(Or)` é lido como GRUPO: basta um membro entregue.
+    def _grupos_pedidos(fonte: str, nome_var: str) -> list[set[str]]:
+        arv = ast.parse(fonte)
+        em_grupo: set[str] = set()
+        grupos: list[set[str]] = []
+
+        def chave(no):
+            if (
+                isinstance(no, ast.Call)
+                and isinstance(no.func, ast.Attribute)
+                and no.func.attr == "get"
+                and isinstance(no.func.value, ast.Name)
+                and no.func.value.id == nome_var
+                and no.args
+                and isinstance(no.args[0], ast.Constant)
+                and isinstance(no.args[0].value, str)
+            ):
+                return no.args[0].value
+            return None
+
+        for no in ast.walk(arv):
+            if isinstance(no, ast.BoolOp) and isinstance(no.op, ast.Or):
+                g = {k for k in (chave(v) for v in no.values) if k}
+                if len(g) > 1:
+                    grupos.append(g)
+                    em_grupo |= g
+        for no in ast.walk(arv):
+            k = chave(no)
+            if k and k not in em_grupo:
+                grupos.append({k})
+        return grupos
+
+    grupos_dest = _grupos_pedidos(fonte_prov, "dest")
+    pedidas_dest = {k for g in grupos_dest for k in g}
+    corpo_dest = fonte_z3.split('"destinatario": {', 1)
+    entregues_dest: set[str] = (
+        set(_re.findall(r'"([a-z_]+)":', corpo_dest[1].split('"items"', 1)[0])) if len(corpo_dest) > 1 else set()
+    )
+    faltando_dest = sorted(
+        min(g) for g in grupos_dest if not (g & entregues_dest) and not (g & {"endereco"})
+    )
+    if faltando_dest:
+        falhas.append(
+            f"(e) o emissor pede {faltando_dest} do destinatário e a tela NÃO entrega — "
+            f"sai vazio no XML, e a nota é autorizada assim mesmo"
+        )
+    medidas.append(f"contrato destinatário: {len(pedidas_dest)} chave(s) pedidas")
+
     print(" · ".join(medidas))
     for f in falhas:
         print("FALHOU:", f)
