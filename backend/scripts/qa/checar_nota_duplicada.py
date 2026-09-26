@@ -37,7 +37,19 @@ Não cancela nota. Cancelamento no fisco tem prazo, exige justificativa e é ato
 e há casos legítimos de duas notas iguais no mês (duas parcelas idênticas, dois postos com o
 mesmo preço). A trava mede e mostra o par para alguém olhar.
 
-Linha canônica: `TOTAL: <n> grupo(s) de nota duplicada`.
+## Duplicata DECIDIDA sai da conta e continua no relatório
+
+Uma duplicata que o dono já olhou e decidiu deixar como está **não é mais pendência**, e
+insistir nela todo dia ensina a ignorar o painel — o defeito que esta casa já pagou caro.
+Ela sai do `TOTAL` e continua impressa, num bloco próprio, com o valor: dívida aceita é
+dívida que se conhece, não dívida que se esquece.
+
+A marca é o texto «DUPLICIDADE CONFIRMADA e ACEITA» em `observacao_interna` da nota, com
+a data e a frase do dono. Em 26/09/2026 foram três — Gelain 07, Prime Arena 06 e
+Laranjeiras 06, R$ 47.318,51 de excedente: o fisco recusou o cancelamento direto («E0822,
+o prazo do município expirou») e o dono decidiu não abrir a Solicitação de Análise Fiscal.
+
+Linha canônica: `TOTAL: <n> grupo(s) de nota duplicada` — só os ABERTOS.
 """
 
 from __future__ import annotations
@@ -67,7 +79,10 @@ async def main() -> int:
                    string_agg(n.numero::text, ', ' ORDER BY n.numero::text) nums,
                    string_agg(DISTINCT coalesce(e.razao_social, '(sem empresa)'), ' | ') emps,
                    string_agg(DISTINCT n.data_emissao::date::text, ' | ') datas,
-                   round(avg(coalesce(n.iss_valor, 0)), 2) iss
+                   round(avg(coalesce(n.iss_valor, 0)), 2) iss,
+                   -- DECIDIDA: o dono já olhou e disse o que fazer. Continua contada, e
+                   -- para de ser cobrada. Ver a nota abaixo sobre por que isso importa.
+                   bool_or(coalesce(n.observacao_interna,'') ILIKE '%DUPLICIDADE CONFIRMADA e ACEITA%') decidida
               FROM nfse_emitidas_nacional n
               LEFT JOIN empresas e ON e.id = n.empresa_id
              WHERE coalesce(n.cancelada, FALSE) = FALSE
@@ -84,23 +99,44 @@ async def main() -> int:
         print("\nTOTAL: 0 grupo(s) de nota duplicada")
         return 0
 
-    excedente = sum(float(g[2]) * (g[4] - 1) for g in grupos)
-    iss = sum(float(g[8]) * (g[4] - 1) for g in grupos)
-    print(f"\n{len(grupos)} grupo(s) duplicado(s) · excedente R$ {excedente:,.2f} · "
-          f"ISS sobre o excedente R$ {iss:,.2f}\n")
-    for comp, tomador, valor, cod, q, nums, emps, datas, _iss in grupos:
-        exc = float(valor) * (q - 1)
-        dois_cnpj = "|" in (emps or "")
-        print(f"   {comp}  {tomador[:34]:<34} R$ {float(valor):>10,.2f} ×{q}  "
-              f"cód {cod}  excedente R$ {exc:>10,.2f}")
-        print(f"        notas {nums}  ·  {emps}  ·  {datas}"
-              + ("   ← DOIS CNPJs emitiram o mesmo mês" if dois_cnpj else ""))
+    abertos = [g for g in grupos if not g[9]]
+    decididos = [g for g in grupos if g[9]]
 
-    print("\n   → Cada duplicata cobra o cliente duas vezes, recolhe ISS sobre faturamento")
-    print("     que não existiu e infla a receita do mês no DRE. Cancelar no fisco tem")
-    print("     prazo e é ato do dono; a trava mostra o par.")
-    print(f"\nTOTAL: {len(grupos)} grupo(s) de nota duplicada")
-    return 1
+    def _soma(gs):
+        return (sum(float(g[2]) * (g[4] - 1) for g in gs),
+                sum(float(g[8]) * (g[4] - 1) for g in gs))
+
+    exc_a, iss_a = _soma(abertos)
+    exc_d, iss_d = _soma(decididos)
+    print(f"\n{len(grupos)} grupo(s) duplicado(s): {len(abertos)} ABERTO(S) · "
+          f"{len(decididos)} já decidido(s) pelo dono\n")
+
+    def _mostra(gs):
+        for comp, tomador, valor, cod, q, nums, emps, datas, _iss, _dec in gs:
+            exc = float(valor) * (q - 1)
+            dois_cnpj = "|" in (emps or "")
+            print(f"   {comp}  {tomador[:34]:<34} R$ {float(valor):>10,.2f} ×{q}  "
+                  f"cód {cod}  excedente R$ {exc:>10,.2f}")
+            print(f"        notas {nums}  ·  {emps}  ·  {datas}"
+                  + ("   ← DOIS CNPJs emitiram o mesmo mês" if dois_cnpj else ""))
+
+    if abertos:
+        print(f"ABERTOS — excedente R$ {exc_a:,.2f} · ISS R$ {iss_a:,.2f}:")
+        _mostra(abertos)
+        print("\n   → Cada duplicata cobra o cliente duas vezes, recolhe ISS sobre")
+        print("     faturamento que não existiu e infla a receita do mês no DRE.")
+        print("     Cancelar no fisco tem prazo e é ato do dono; a trava mostra o par.")
+    if decididos:
+        print(f"\nJÁ DECIDIDOS pelo dono — excedente R$ {exc_d:,.2f} · ISS R$ {iss_d:,.2f}:")
+        _mostra(decididos)
+        print("\n   → Ficam CONTADOS e param de ser cobrados. Em 26/09/2026 o fisco recusou")
+        print("     o cancelamento direto («E0822 — o prazo do município expirou») e o dono")
+        print("     decidiu não abrir Solicitação de Análise Fiscal: «deixa isso pra lá, já")
+        print("     perdemos o prazo». Vermelho que não tem ação ensina a ignorar o painel;")
+        print("     dívida aceita continua no número, sem pedir nada de ninguém.")
+
+    print(f"\nTOTAL: {len(abertos)} grupo(s) de nota duplicada")
+    return 1 if abertos else 0
 
 
 if __name__ == "__main__":

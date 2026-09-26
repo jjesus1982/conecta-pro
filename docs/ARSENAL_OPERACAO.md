@@ -153,6 +153,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_dinheiro_fora_do_sistema.py` | Contrato ativo cujo dinheiro não aparece em conta nenhuma que o sistema conheça — inadimplência invisível, ou recebimento fora do sistema |
 | `checar_recebimento_sem_nota.py` | Cliente que depositou mais do que foi faturado para ele no período — o terceiro lado do triângulo (nota ←→ dinheiro); os outros dois partem do contrato e não alcançam quem recebe fora dele |
 | `checar_obrigacao_sem_gerador.py` | Obrigação que o regime EXIGE e para a qual não há rota PRODUTORA no app — a conta da rescisão com a Portte; `GET .../status` não conta, consultar não é produzir |
+| `checar_abertura_nao_levantada.py` | O que falta para o balanço de abertura de 31/12/2025 ficar de pé sem a contabilidade anterior — e o que dele NÃO pode ser inventado; saldo de natureza impossível é PISTA, não prova |
 
 ## Comandos
 

@@ -136,6 +136,13 @@ CACADORES = {
     "checar_obrigacao_sem_gerador.py": lambda s: _n(
         r"^TOTAL: (\d+) obriga[cç][aã]o\([oõ]es\) exigida\(s\) sem gerador no sistema", s
     ),
+    # O balanço de abertura de 31/12/2025 está com a contabilidade anterior, e o dono
+    # decidiu em 26/09/2026 não pedir mais nada a ela. CONTADA: o que falta levantar —
+    # e o que NÃO pode ser inventado. Balanço de abertura fabricado fecha a equação e
+    # mente em todas as linhas, e depois é indetectável porque tudo bate.
+    "checar_abertura_nao_levantada.py": lambda s: _n(
+        r"^TOTAL: (\d+) lacuna\(s\) no balan[cç]o de abertura", s
+    ),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —

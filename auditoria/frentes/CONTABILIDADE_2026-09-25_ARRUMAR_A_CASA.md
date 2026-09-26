@@ -774,3 +774,69 @@ painel exatamente o que o produto tinha acabado de tirar — três vermelhos.
 
 A cópia é que estava errada. A régua agora pergunta ao molde do regime e desconta as
 extintas: uma fonte, e ela muda junto.
+
+---
+
+# O balanço de abertura sem a Portte — e por que NÃO o inventei
+
+Jordan, 26/09: *«quanto ao que depende da portte… resolva de algum jeito contábil e fiscal
+que faça sentido, não vou pedir mais nada da portte. nós vamos fazer nossa própria
+contabilidade por isso temos que assumir esses problemas e resolver.»*
+
+Resolver isto **não é fabricar um saldo de abertura.** Um balanço de abertura inventado
+fecha a equação e mente em todas as linhas — e depois é indetectável, porque tudo bate.
+O que faz sentido contábil é **levantar** o que se sabe, medir o que falta, e não deixar
+o que falta virar número.
+
+## O que se sabe sem pedir nada a ninguém
+
+**Banco em 31/12/2025 — é aritmética, não arquivo de terceiro:**
+
+    saldo(31/12/2025) = saldo no corte − movimento de 01/01 até o corte
+
+    Banco Inter   R$ 2.556,62      Cora  R$ 0,00 (a conta só nasceu em 15/07/2026)
+    Asaas         sem saldo de abertura declarado — não dá para derivar
+
+**Capital social subscrito — fato público**, lido da Receita pela BrasilAPI: Eletrônica
+R$ 500.000 + Patrimonial R$ 100.000 = R$ 600.000. Eu ia apagar esse lançamento achando
+que era plug inventado; **era real**, e o `_capital_social_subscrito()` que o comprova já
+existia no repositório. Subscrito ≠ integralizado: só o contrato social diz quanto entrou.
+
+## A pista que quase virou lançamento errado
+
+Num razão que começa do zero, conta de ATIVO com saldo credor ou de PASSIVO com saldo
+devedor é pista de que algo existia antes: quem paga em 2026 uma dívida criada em 2025
+deixa débito sem o crédito que o originou. Achei seis, somando R$ 153.839,71, e cheguei a
+montar o lançamento de abertura.
+
+**Nenhuma delas era abertura pura.** Uma por uma:
+
+| conta | saldo | o que realmente é |
+|---|---|---|
+| `1.1.2.01` Clientes | −R$ 187 mil (Eletrônica) / +R$ 165 mil (Patrimonial) | o dinheiro dos condomínios que entrou no **Inter** para notas emitidas pela **Patrimonial** — efeito entre as duas empresas |
+| `2.1.1.02` FGTS | devedor R$ 40.075,93 | paga ~R$ 14 mil/mês e provisiona ~R$ 7 mil: o defeito é a **provisão sub-registrada** |
+| `2.1.2.09` Tributos a identificar | devedor R$ 84.644,11 | só recebe débito, nunca crédito — é **acumulador**, não passivo de abertura |
+| `2.1.6.01` Empréstimos | devedor R$ 28.000 | dez pagamentos e **zero** recebimentos: ou a dívida é anterior, ou são empréstimos **concedidos** na conta errada («Emprestimo Bruno», «Emprestimo Jean») |
+| `2.1.5.01` Sócios | devedor R$ 23.600 | conta corrente de **duas mãos** — devedor é legítimo, significa que o sócio retirou mais do que pôs |
+
+Quem parasse na primeira leitura lançaria uma abertura de seis dígitos em cima de cinco
+explicações erradas. `checar_abertura_nao_levantada.py` passa a medir isso todo dia, e o
+texto dela diz, com todas as letras, que **saldo invertido é pista e não prova**.
+
+## O que fica, e é curto
+
+Quatro perguntas, e nenhuma delas é para a Portte:
+
+ 1. **Quanto do capital social foi INTEGRALIZADO**, e em quê? (o contrato social responde)
+ 2. **Que equipamento a empresa tinha em 31/12/2025?** `equipments` tem **zero linhas**; o
+    razão só conhece R$ 1.725,00 de imobilizado comprado em 2026.
+ 3. Dos dez débitos em `2.1.6.01`: quais são **dívida anterior** e quais são **empréstimo
+    concedido** a funcionário?
+ 4. **Quanto os clientes deviam em 31/12/2025?**
+
+Respondidas essas quatro, a abertura fica de pé por levantamento — que é o procedimento
+contábil correto quando não há escrituração anterior — e o `3.9.9.01 Saldo de Abertura a
+Identificar` encolhe dos R$ 600.000 para o que sobrar.
+
+**Enquanto não forem respondidas, o número honesto é o que está lá:** R$ 600.000 de
+capital declarado com contrapartida «a identificar». Feio, e verdadeiro.
