@@ -28,7 +28,12 @@ SELECT coalesce(c.name, '—') AS cliente, count(*) AS n
   FROM gp_justifications j
   JOIN employees e ON e.id::text = j.employee_id
   LEFT JOIN clients c ON c.id = e.cliente_id
- WHERE j.created_at >= CAST(:de AS date) AND j.created_at < CAST(:ate AS date) + 1
+ -- ⚠️ 25/09/2026: era `j.created_at`, que é quando a justificativa foi DIGITADA, não quando o
+ -- fato ocorreu. Justificativa lançada hoje para uma falta da semana passada caía no mês errado,
+ -- e por isso "justificadas" nunca fechava com "faltas". `data_fato` é o dia a que ela se refere;
+ -- `created_at` fica como degrau para as linhas antigas que não têm a data.
+ WHERE coalesce(j.data_fato, j.created_at::date) >= CAST(:de AS date)
+   AND coalesce(j.data_fato, j.created_at::date) <= CAST(:ate AS date)
  GROUP BY 1
 """
 _SQL_AFASTADOS = """
