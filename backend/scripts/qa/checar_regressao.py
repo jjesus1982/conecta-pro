@@ -106,6 +106,19 @@ CACADORES = {
     # CONTADA: dívida de planejamento com o dono. Cadastrar contrato é decisão de quem
     # assina; a trava mede a lacuna.
     "checar_custo_recorrente_nao_mapeado.py": lambda s: _n(r"^TOTAL: (\d+) custo\(s\) recorrente\(s\) fora do cadastro", s),
+    # Mesma competência, mesmo tomador, mesmo valor — duas notas. Cada duplicata cobra o
+    # cliente duas vezes, recolhe ISS sobre faturamento que não existiu e infla a receita do
+    # mês. Medido em 25/09/2026: 5 grupos, R$ 130.328,02 de excedente e R$ 4.292,94 de ISS.
+    # Os dois maiores têm causa conhecida — em junho o faturamento migrou de CNPJ e o mês
+    # saiu pelos DOIS. CONTADA: cancelar no fisco tem prazo e é ato do dono.
+    "checar_nota_duplicada.py": lambda s: _n(r"^TOTAL: (\d+) grupo\(s\) de nota duplicada", s),
+    # Contrato vigente que não virou nota no mês (trabalho feito e não cobrado), nota acima
+    # ou abaixo do contratado, e nota sem contrato vigente. Respeita a VIGÊNCIA: comparar
+    # contra a lista de contratos ativos HOJE fez o Green Hills aparecer com R$ 21.600/mês
+    # «não faturados» quando o contrato novo só começou em 01/09 e o antigo, de R$ 500, foi
+    # cobrado certinho todo mês. Medido em 25/09/2026: 11 divergências em 3 competências,
+    # entre elas Hawk Eye (R$ 4.000) e Parque dos Franceses (R$ 1.800) sem nota em agosto.
+    "checar_contrato_vs_faturado.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre contrato e faturamento", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
