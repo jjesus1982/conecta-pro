@@ -19,62 +19,105 @@ from modules.hr.payroll_integration.schemas import ESocialExportRequest, ESocial
 logger = logging.getLogger(__name__)
 
 
-# Eventos eSocial suportados
+#: Eventos eSocial e o que o sistema REALMENTE faz com cada um.
+#:
+#: Este dicionário se chamava «eventos suportados» e é devolvido por
+#: `get_supported_events()`, que tem rota. Em 26/09/2026, montando a conta do que falta
+#: para sair da Portte, ele declarava SETE eventos periódicos como suportados. A medida:
+#:
+#:   · S-1200, S-1210 e S-1299 têm gerador, e os três são ESQUELETO — o S-1200 sai sem
+#:     `ideTrabalhador` (ou seja, sem o CPF de quem recebeu), com Id fora do formato de
+#:     36 caracteres do eSocial e sem `perApur`; o S-1210 e o S-1299 dizem «implementação
+#:     simplificada» no próprio código e emitem bloco vazio;
+#:   · S-1260, S-1270, S-1280 e S-1298 não têm gerador nenhum — o `_generate_esocial_xml`
+#:     não os despacha.
+#:
+#: Declarar capacidade que não existe é o mesmo defeito do gerador da EFD ICMS/IPI, que
+#: declarava nota de SERVIÇO como mercadoria «para não gerar arquivo oco». O campo
+#: `gerador` passa a dizer a verdade, e quem consome escolhe o que fazer com ela.
+#:
+#:   completo       → produz XML que se pode transmitir
+#:   outro_servico  → quem produz é `people_management.hr.services.esocial_service`;
+#:                    ESTE serviço não o despacha, e dizer «suportado» aqui esconde isso
+#:   esqueleto      → produz XML INCOMPLETO; o governo recusa e, pior, PARECE capacidade
+#:   nenhum         → não há gerador em lugar nenhum
 ESOCIAL_EVENTS = {
     "S-1200": {
         "name": "Remuneração do Trabalhador vinculado ao RGPS",
         "description": "Informações da remuneração de cada trabalhador no mês",
         "periodic": True,
+        "gerador": "esqueleto",
+        "gerador_nota": "sem ideTrabalhador (sem CPF), Id fora do formato de 36 caracteres e sem perApur",
     },
     "S-1210": {
         "name": "Pagamentos de Rendimentos do Trabalho",
         "description": "Informações dos pagamentos efetuados",
         "periodic": True,
+        "gerador": "esqueleto",
+        "gerador_nota": "«implementação simplificada» no código: evtPgtos vazio, sem nenhum pagamento",
     },
     "S-1260": {
         "name": "Comercialização da Produção Rural PF",
         "description": "Comercialização de produção rural por pessoa física",
         "periodic": True,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado por _generate_esocial_xml",
     },
     "S-1270": {
         "name": "Contratação de Trabalhadores Avulsos",
         "description": "Informações de trabalhadores avulsos",
         "periodic": True,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado por _generate_esocial_xml",
     },
     "S-1280": {
         "name": "Informações Complementares aos Eventos Periódicos",
         "description": "Informações complementares",
         "periodic": True,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado por _generate_esocial_xml",
     },
     "S-1298": {
         "name": "Reabertura dos Eventos Periódicos",
         "description": "Reabre eventos periódicos já fechados",
         "periodic": False,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado por _generate_esocial_xml",
     },
     "S-1299": {
         "name": "Fechamento dos Eventos Periódicos",
         "description": "Informa o fechamento da folha",
         "periodic": True,
+        "gerador": "esqueleto",
+        "gerador_nota": "«implementação simplificada» no código: evtFechaEvPer sem os totalizadores",
     },
     "S-2200": {
         "name": "Cadastramento Inicial do Vínculo e Admissão",
         "description": "Informações de admissão de trabalhador",
         "periodic": False,
+        "gerador": "outro_servico",
+        "gerador_nota": "gerado por `people_management.hr.services.esocial_service.ESocialEventService.gerar_s2200`, com rota POST /people-management/hr/esocial/s2200/gerar — este serviço aqui NÃO o despacha",
     },
     "S-2299": {
         "name": "Desligamento",
         "description": "Informações de desligamento de trabalhador",
         "periodic": False,
+        "gerador": "outro_servico",
+        "gerador_nota": "gerado por `ESocialEventService.gerar_s2299`, com rota POST /people-management/hr/esocial/s2299/gerar — este serviço aqui NÃO o despacha",
     },
     "S-2300": {
         "name": "Trabalhador Sem Vínculo de Emprego",
         "description": "Cadastro de TSVE",
         "periodic": False,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado aqui e sem gerador em ESocialEventService",
     },
     "S-2399": {
         "name": "Término de TSVE",
         "description": "Término de trabalhador sem vínculo",
         "periodic": False,
+        "gerador": "nenhum",
+        "gerador_nota": "não despachado aqui e sem gerador em ESocialEventService",
     },
 }
 
@@ -455,5 +498,19 @@ class ESocialService:
         }
 
     def get_supported_events(self) -> dict[str, dict[str, Any]]:
-        """Retorna eventos suportados."""
-        return ESOCIAL_EVENTS.copy()
+        """Os eventos e o que o sistema REALMENTE faz com cada um.
+
+        Não se chama mais «suportados» na prática: cada entrada carrega `gerador`
+        (`completo` · `esqueleto` · `nenhum`) e, quando não é completo, a razão. Antes
+        devolvia sete periódicos como se todos estivessem prontos — três eram esqueleto e
+        quatro não tinham gerador. Capacidade declarada e inexistente é o mesmo defeito
+        que fez a EFD ICMS/IPI declarar nota de serviço como mercadoria.
+        """
+        return {k: dict(v) for k, v in ESOCIAL_EVENTS.items()}
+
+    def eventos_por_maturidade(self) -> dict[str, list[str]]:
+        """Resumo honesto: quais eventos estão completos, quais são casca, quais faltam."""
+        fora: dict[str, list[str]] = {"completo": [], "esqueleto": [], "nenhum": []}
+        for cod, info in ESOCIAL_EVENTS.items():
+            fora.setdefault(info.get("gerador", "completo"), []).append(cod)
+        return fora
