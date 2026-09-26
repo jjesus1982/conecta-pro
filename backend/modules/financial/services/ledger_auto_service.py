@@ -626,6 +626,13 @@ class LedgerAutoService:
             inss_pat = self.lancar_inss_patronal(empresa_id)
             # DAS/parcelamento Simples (CNPJ1) a partir da guia oficial extraída do Onvio.
             das = self.lancar_das_parcelamento(empresa_id)
+            # Férias (1/9) e 13º (1/12) sobre a folha real. O método existia e só era
+            # chamado por um BOTÃO de tela: foi clicado uma vez, em 26/07/2026, e provisionou
+            # janeiro a junho. De julho em diante, nada — e férias e 13º não dependem de
+            # clique nem de regime tributário: eles acontecem e serão pagos. Sem esta linha
+            # o resultado de cada mês aparecia ~R$ 18.000 melhor do que é, e o passivo
+            # crescia invisível. Idempotente por PROVFER-/PROV13-{competência}.
+            provis = self.lancar_provisoes_trabalhistas(empresa_id)
             # Recategoriza o banco Inter (conserta receita/despesa fantasma) — mantém o lucro fiel
             recat = self.recategorizar_inter(empresa_id)
             # Transitórias (4.9.9.01 / 5.9.9.01) que já ganharam categoria/justificativa saem
@@ -646,7 +653,9 @@ class LedgerAutoService:
                 "novos_lancamentos": {**folha, **iss, **tomadas,
                                       "inss_empregado": inss_emp.get("lancamentos", 0),
                                       "inss_patronal": inss_pat.get("lancamentos", 0),
-                                      "das_parcelamento": das.get("lancamentos", 0)},
+                                      "das_parcelamento": das.get("lancamentos", 0),
+                                      "provisao_ferias": provis.get("provisoes_ferias", 0),
+                                      "provisao_13": provis.get("provisoes_13", 0)},
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
                 # Recusados por período fechado: não é erro, é informação que antes só

@@ -79,14 +79,39 @@ async def main() -> None:
         print("OK classificação: toda conta com movimento tem account_type no plano")
 
         # ── 3. O PL da tela é o resultado real do razão, não um artefato ──
+        #
+        # ⚠️ Reescrito em 25/09/2026. A versão anterior somava a receita só pelo lado do
+        # CRÉDITO e a despesa só pelo lado do DÉBITO, sobre TODOS os lançamentos. Isso
+        # equivalia ao saldo da conta enquanto (a) nada creditasse conta de despesa e
+        # (b) o Balanço somasse tudo. As duas premissas caíram: o Balanço passou a excluir
+        # `tipo_lancamento='apuracao'` (senão o encerramento anula as contas de resultado e
+        # o painel exibia receita 36x menor), e a reclassificação de transitória credita
+        # conta de despesa ao mover lançamento de lugar.
+        #
+        # A régua passa a contar como a contabilidade conta: SALDO da conta — débito menos
+        # crédito — e sem o encerramento. Não é fazer o oráculo concordar com o código: é
+        # a definição de saldo de conta, e a checagem 1 (identidade) continua provando por
+        # outro caminho que nada sumiu.
         rec = float((await db.execute(text(
-            "SELECT coalesce(sum(e.valor),0) FROM accounting_entries e "
-            "JOIN fin_accounting_accounts a ON a.code = e.conta_credito "
-            "WHERE upper(a.account_type::text) = 'REVENUE'"))).scalar() or 0)
+            "WITH mov AS ("
+            "  SELECT conta_credito AS conta, valor AS v FROM accounting_entries"
+            "   WHERE coalesce(tipo_lancamento,'') <> 'apuracao'"
+            "  UNION ALL"
+            "  SELECT conta_debito, -valor FROM accounting_entries"
+            "   WHERE coalesce(tipo_lancamento,'') <> 'apuracao') "
+            "SELECT coalesce(round(sum(mov.v),2),0) FROM mov "
+            "  JOIN fin_accounting_accounts a ON a.code = mov.conta "
+            " WHERE upper(a.account_type::text) = 'REVENUE'"))).scalar() or 0)
         desp = float((await db.execute(text(
-            "SELECT coalesce(sum(e.valor),0) FROM accounting_entries e "
-            "JOIN fin_accounting_accounts a ON a.code = e.conta_debito "
-            "WHERE upper(a.account_type::text) IN ('EXPENSE','COST')"))).scalar() or 0)
+            "WITH mov AS ("
+            "  SELECT conta_debito AS conta, valor AS v FROM accounting_entries"
+            "   WHERE coalesce(tipo_lancamento,'') <> 'apuracao'"
+            "  UNION ALL"
+            "  SELECT conta_credito, -valor FROM accounting_entries"
+            "   WHERE coalesce(tipo_lancamento,'') <> 'apuracao') "
+            "SELECT coalesce(round(sum(mov.v),2),0) FROM mov "
+            "  JOIN fin_accounting_accounts a ON a.code = mov.conta "
+            " WHERE upper(a.account_type::text) IN ('EXPENSE','COST')"))).scalar() or 0)
         assert abs(pl - (rec - desp)) < 0.01, (
             f"PL da tela {pl:.2f} != receita {rec:.2f} − despesa {desp:.2f} = {rec - desp:.2f}"
         )
