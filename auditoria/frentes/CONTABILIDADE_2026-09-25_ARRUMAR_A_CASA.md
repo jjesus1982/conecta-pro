@@ -80,7 +80,7 @@ Três relatórios sobre a mesma tabela, cada um recortando de um jeito:
 | | antes | agora |
 |---|---|---|
 | Balancete de agosto | R$ 6.775.023,46 (por data de lançamento) | **R$ 2.271.067,60** (por competência) |
-| Receita no painel de PL | R$ 59.998,33 | **R$ 2.183.235,44** |
+| Receita no painel de PL | R$ 59.998,33 | **R$ 2.181.735,44** |
 | Prova de caixa | "bate ✓, divergência R$ 0,00" | divergência real **R$ 7.458,78**, com a causa escrita |
 | Liquidez corrente | −0,29 · "posição apertada" | **não apurada**, com o motivo |
 
