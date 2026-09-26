@@ -896,7 +896,8 @@ _STATUS_EXCEÇÃO = {
 
 async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=None,
                             hora: str | None = None, cargo: str | None = None,
-                            com_nomes: bool = False) -> dict[str, Any]:
+                            com_nomes: bool = False,
+                            com_ids: bool = False) -> dict[str, Any]:
     """Por posto → turno → pessoa: QUEM, QUANDO, ONDE e POR QUÊ. O pedido do Jordan de 24/09.
 
     ⭐ É o item 3 do que o próprio agente listou no grupo ("status derivado"), e o que faltava
@@ -944,7 +945,8 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             p["horas"] = [int(h) for h in _hs]
 
     linhas = (await db.execute(text(f"""
-        SELECT pp.name AS posto, e.nome, e.cargo, coalesce(e.escala_padrao,'(sem)') AS escala,
+        SELECT pp.name AS posto, e.id AS employee_id, e.nome, e.cargo,
+               coalesce(e.escala_padrao,'(sem)') AS escala,
                e.status AS situacao,
                -- ⭐ HORÁRIO VIGENTE MANDA SOBRE O DO TURNO (item 2, 24/09/2026). A Celiane bateu
                -- 09:00 e o relatório a acusou de 60min de atraso porque `shifts` diz 08:00 — e o
@@ -1146,6 +1148,12 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             item["onde"] = r["device_type"]
         if com_nomes:
             item = {"quem": r["nome"], "cargo": r["cargo"], **item}
+        if com_ids:
+            # ⚠️ Só para consumidor de MÁQUINA (o vigia). Ele precisa de chave estável para
+            # não avisar duas vezes a mesma coisa; o agente não usa e no payload dele isto
+            # seria só token gasto. Nome não serve de chave: há homônimo e há renomeação.
+            item = {**item, "_employee_id": str(r["employee_id"]),
+                    "_hora_turno": r["prev_ent"].strftime("%H:%M:%S")}
         por_posto.setdefault(r["posto"], []).append(item)
 
     return {

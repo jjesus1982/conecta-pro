@@ -134,6 +134,11 @@ app.conf.task_routes = {
     "whatsapp.turno_pedir_confirmacao": {"queue": "webhooks"},
     "whatsapp.turno_lembrar": {"queue": "webhooks"},
     "whatsapp.turno_fechar_cobertura": {"queue": "webhooks"},
+    # ⚠️ `webhooks`, NÃO uma fila "whatsapp": ela NÃO EXISTE. Roteei task para fila inexistente
+    # duas vezes em 25/09 — `send_task` aceita, o Celery enfileira, e o worker responde
+    # `NotRegistered` num log que ninguém lê. Foi assim que o espelho do eSocial ficou 3 meses
+    # agendado sem nunca ter rodado.
+    "whatsapp.vigiar_postos": {"queue": "webhooks"},
     # Análise de foto/áudio/vídeo. Mesma fila da resposta: é o mesmo pedaço de conversa e
     # a ordem entre eles importa (a descrição precisa estar pronta antes do turno).
     "whatsapp.analisar_midia": {"queue": "webhooks"},
@@ -827,6 +832,16 @@ app.conf.beat_schedule = {
     "whatsapp-turno-cobertura": {
         "task": "whatsapp.turno_fechar_cobertura",
         "schedule": crontab(hour=8, minute=30),  # 08:30 Manaus
+    },
+    # ⭐ VIGIA EM TEMPO REAL — a cobertura das 08:30 é autópsia; esta é vigilância.
+    #   05:00–22:59 Manaus cobre TODAS as trocas da casa (06h · 07h · 08h · 12h · 18h · 19h) e
+    #   as duas horas anteriores a cada uma, que é quando um BURACO_DE_ESCALA ainda tem
+    #   conserto. O Green Hills de hoje seria avisado às 05:30 — 90 min antes da troca.
+    #   Cada 10 min: fino o suficiente para o dono agir, e a memória em `wa_vigia_avisos`
+    #   garante que 18 varreduras não viram 18 mensagens sobre o mesmo atraso.
+    "whatsapp-vigia-postos-10min": {
+        "task": "whatsapp.vigiar_postos",
+        "schedule": crontab(minute="*/10", hour="5-22"),  # Manaus (app.conf.timezone)
     },
     # Rede de segurança PARA GRUPO: só menção ao José Luís que ficou sem resposta. A de
     # 2 minutos (`varrer_sem_resposta`) exclui grupo de propósito — ver a task.

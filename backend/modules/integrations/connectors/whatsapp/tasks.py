@@ -1037,6 +1037,33 @@ def turno_lembrar(self):  # noqa: ARG001
         return {"ok": False, "erro": str(e)[:200]}
 
 
+@app.task(name="whatsapp.vigiar_postos", bind=True, max_retries=0)
+def vigiar_postos(self):  # noqa: ARG001
+    """A cada 10 min: olha TODOS os postos e avisa o Gestão no MINUTO do problema novo.
+
+    ⭐ O pedido do Jordan de 26/09, depois de ele mesmo ter feito o trabalho às 07:07 de um
+    sábado: *"preciso saber assim que houver um problema pra eu resolver, e não depois de ele
+    ter acontecido"*. O José Luís havia respondido *"às 07h eu não consigo disparar sozinho
+    aqui, me marca às 07:05"* — o diagnóstico existia, o OLHO automático não.
+
+    ⚠️ `max_retries=0` de propósito: se uma varredura falhar, a próxima é em 10 minutos. Retry
+    aqui só duplicaria aviso, e aviso duplicado é o que faz o dono parar de ler o grupo.
+
+    ⚠️ Silêncio é resultado bom. Só publica veredito NOVO — a memória é `wa_vigia_avisos`.
+    """
+    from modules.integrations.connectors.whatsapp import vigia as _v
+
+    try:
+        r = _run_async(_v.varrer)
+        if r.get("novos"):
+            logger.info("[vigia] %d problema(s) NOVO(s) publicado(s) no Gestão: %s",
+                        r["novos"], r.get("tipos"))
+        return r
+    except Exception as e:  # noqa: BLE001
+        logger.error("vigiar_postos falhou: %s", e, exc_info=True)
+        return {"ok": False, "erro": str(e)[:200]}
+
+
 @app.task(name="whatsapp.turno_fechar_cobertura", bind=True, max_retries=1)
 def turno_fechar_cobertura(self):  # noqa: ARG001
     """08:30 Manaus: publica no GESTÃO a cobertura da manhã (confirmação × batida × foto)."""
