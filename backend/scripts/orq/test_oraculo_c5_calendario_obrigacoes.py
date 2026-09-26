@@ -33,8 +33,11 @@ O QUE ELE AFIRMA
  (b) **Nada duplica.** Nenhuma empresa tem o mesmo tipo (normalizado pela ponte de nomes)
      duas vezes no mesmo mês.
 
- (c) **O que o Lucro Real exige e nunca foi cadastrado aparece:** EFD Contribuições, EFD
-     ICMS/IPI e DCTF todo mês; a ECD em junho.
+ (c) **O que o Lucro Real exige e nunca foi cadastrado aparece** todo mês, e a ECD em
+     junho. A lista sai do MOLDE do regime menos as extintas — não é cópia escrita aqui.
+     Em 26/09/2026 era cópia, trazia `DCTF`, e quando a DCTF foi declarada extinta
+     (absorvida pela DCTFWeb em 01/2025) a régua passou a exigir do painel justamente o
+     que o produto acabara de tirar.
 
  (d) **O Simples aparece com o que é dele:** PGDAS-D para a empresa do Simples — declarar é
      ato separado de pagar o DAS.
@@ -58,7 +61,22 @@ MESES = (9, 10, 6)
 ANO = 2026
 
 #: Obrigações do Lucro Real que o cadastro nunca teve e que precisam aparecer todo mês.
-MENSAIS_LUCRO_REAL = {"EFD_CONTRIBUICOES", "EFD_ICMS_IPI", "DCTF"}
+#: O que o Lucro Real exige TODO MÊS — e a lista não é copiada aqui: ela sai do próprio
+#: molde do regime, menos o que já foi declarado EXTINTO.
+#:
+#: Em 26/09/2026 esta constante trazia `DCTF` escrito à mão, e quando a DCTF entrou na
+#: lista de extintas (absorvida pela DCTFWeb em 01/2025) o oráculo passou a exigir que o
+#: painel mostrasse uma obrigação que o produto tinha acabado de tirar — a régua com a
+#: sua própria cópia envelhecendo, que é o defeito mais comum do arsenal. Agora ela
+#: pergunta ao molde, e muda junto.
+def _mensais_lucro_real() -> set[str]:
+    from modules.empresas.agents.obligations_monitor import (  # noqa: PLC0415
+        ObligationsMonitorAgent as _Ag,
+    )
+
+    declaratorias = {"EFD_CONTRIBUICOES", "EFD_ICMS_IPI", "DCTF"}
+    do_molde = {t for t, *_r in _Ag.OBRIGACOES_LUCRO_REAL}
+    return {t for t in declaratorias & do_molde if not _Ag.extinta_em(t, ANO)}
 
 #: A ponte de nomes entre o cadastro e o molde, REPETIDA aqui de propósito: importá-la do
 #: controller faria a régua perguntar ao medido qual é a medida.
@@ -121,7 +139,7 @@ async def main() -> int:
 
             # (c) o que o Lucro Real exige e nunca foi cadastrado
             if "eletronica" in slug:
-                faltam = MENSAIS_LUCRO_REAL - todos
+                faltam = _mensais_lucro_real() - todos
                 if faltam:
                     falhas.append(
                         f"(c) {slug} em {mes:02d}/{ANO}: o painel não mostra {sorted(faltam)}"
@@ -151,7 +169,7 @@ async def main() -> int:
     print(
         "OK calendário: o cadastro manda no que existe e o molde do regime completa o que "
         "falta, sem duplicar, com a origem declarada — ECD, EFD Contribuições, EFD ICMS/IPI, "
-        "DCTF e PGDAS-D visíveis"
+        "as mensais do regime (menos as extintas) e o PGDAS-D visíveis"
     )
     print(f"TOTAL desvios C5: {len(falhas)}")
     return 0

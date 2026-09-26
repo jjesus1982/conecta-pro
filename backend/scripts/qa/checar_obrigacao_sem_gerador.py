@@ -48,6 +48,15 @@ declarava NOTA DE SERVIÇO como mercadoria até 25/09/2026. Quem afirma que o co
 certo é o oráculo (C4 para a ECD, C6 para a EFD ICMS/IPI); esta trava afirma só que existe
 por onde produzir.
 
+## Obrigação que ACABOU não é buraco
+
+O ano entra na conta. Em 26/09/2026, montando esta lista, apareceram TRÊS declarações que
+o molde do regime ainda mandava perseguir e que não existem mais para fatos de 2026 —
+DIRF, RAIS e DCTF. Obrigação fantasma é pior que obrigação faltando: consome a atenção
+que deveria ir para a que existe. Elas ficam DECLARADAS em
+`ObligationsMonitorAgent.OBRIGACOES_EXTINTAS`, com a norma, e esta trava as imprime como
+«fora da conta» em vez de sumir com elas em silêncio.
+
 Linha canônica: `TOTAL: <n> obrigação(ões) exigida(s) sem gerador no sistema`.
 """
 
@@ -55,6 +64,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import date
 
 #: Como cada obrigação é PRODUZIDA. Chave = o `tipo` do `ObligationsMonitorAgent`.
 #:
@@ -75,11 +85,13 @@ PRODUTOR: dict[str, str | None] = {
     "DCTF": "dctf",
     "DIRF": "dirf",
     "RAIS": "rais",
-    "PGDAS_D": "pgdas",
 }
 
 #: As que não são arquivo — com o motivo, que é o que separa isenção de omissão.
 NAO_E_ARQUIVO = {
+    "PGDAS_D": "declaração feita no portal do Simples Nacional; não há arquivo a gerar."
+               " O que o sistema deve ao contribuinte é a RECEITA BRUTA por competência,"
+               " para quem preenche o portal — e isso o DRE já dá",
     "IRPJ_CSLL_ESTIMATIVA": "DARF calculado e pago; não há arquivo a transmitir",
     "INSS_GPS": "guia paga no banco; o fato declaratório vai pelo eSocial/DCTFWeb",
     "ISS_AVULSO": "guia da prefeitura, emitida no portal da SEMEF",
@@ -114,11 +126,23 @@ async def main() -> int:
             )
         ).all()
 
+    # O ANO importa: obrigação extinta não é buraco, é obrigação que acabou. A lista de
+    # extintas mora no próprio monitor, com a norma — aqui só se respeita.
+    ano = date.today().year
     por_regime = {
-        "lucro_real": list(Ag.OBRIGACOES_LUCRO_REAL)
-        + [(t, d, f, "anual", None) for t, d, _m, _dia, f in Ag.OBRIGACOES_LUCRO_REAL_ANUAIS],
-        "simples_nacional": list(Ag.OBRIGACOES_SIMPLES),
+        "lucro_real": [
+            x for x in (
+                list(Ag.OBRIGACOES_LUCRO_REAL)
+                + [(t, d, f, "anual", None) for t, d, _m, _dia, f in Ag.OBRIGACOES_LUCRO_REAL_ANUAIS]
+            ) if not Ag.extinta_em(x[0], ano)
+        ],
+        "simples_nacional": [x for x in Ag.OBRIGACOES_SIMPLES if not Ag.extinta_em(x[0], ano)],
     }
+    extintas = [
+        (t, *Ag.extinta_em(t, ano))
+        for t in sorted(Ag.OBRIGACOES_EXTINTAS)
+        if Ag.extinta_em(t, ano)
+    ]
 
     def produz(tipo: str) -> tuple[bool, str]:
         if tipo in NAO_E_ARQUIVO:
@@ -135,7 +159,12 @@ async def main() -> int:
         return False, f"nenhuma rota com «{token}»"
 
     buracos = []
-    print(f"rotas registradas no app: {len(caminhos)}\n")
+    print(f"rotas registradas no app: {len(caminhos)}")
+    # Dizer o que SAIU da conta é tão importante quanto o que ficou: sem isto, um total
+    # que cai parece progresso e pode ser apenas a régua encolhendo.
+    for t, norma, subst in extintas:
+        print(f"   fora da conta: {t:<8} {norma} → {subst}")
+    print()
     for razao, regime in empresas:
         lista = por_regime.get((regime or "").lower())
         if lista is None:

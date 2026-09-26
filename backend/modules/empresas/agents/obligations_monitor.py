@@ -85,6 +85,44 @@ class ObligationsMonitorAgent:
     de verdade; corrigir constante é remendo enquanto houver duas fontes para a mesma data.
     """
 
+    #: OBRIGAÇÕES EXTINTAS — {tipo: (a partir de, norma, quem substituiu)}
+    #:
+    #: Achado em 26/09/2026, montando a conta do que falta para sair da Portte: a lista
+    #: acima mandava perseguir TRÊS declarações que não existem mais para fatos de 2026.
+    #: Obrigação fantasma no calendário é pior que obrigação faltando — ela consome a
+    #: atenção que deveria ir para a que existe, e ensina a ignorar o painel.
+    #:
+    #: Ficam DECLARADAS, com a norma, em vez de apagadas: quem conferir precisa ver por
+    #: que saíram, e exercício anterior à data de efeito ainda as devia.
+    #:
+    #: ⚠️ Confirmar com o contador antes de tratar como definitivo — é leitura de norma,
+    #: não medição de sistema, e é o único item desta frente que não se prova no banco.
+    OBRIGACOES_EXTINTAS: dict[str, tuple[int, str, str]] = {
+        "DIRF": (
+            2025,
+            "extinta para fatos geradores a partir de 01/01/2025",
+            "eSocial e EFD-Reinf",
+        ),
+        "RAIS": (
+            2022,
+            "substituída para quem declara eSocial (ano-base 2022 em diante)",
+            "eSocial",
+        ),
+        "DCTF": (
+            2025,
+            "a DCTF mensal foi absorvida pela DCTFWeb a partir de 01/2025",
+            "DCTFWeb",
+        ),
+    }
+
+    @classmethod
+    def extinta_em(cls, tipo: str, ano: int) -> tuple[str, str] | None:
+        """(norma, substituta) se a obrigação já não vale nesse ano; senão `None`."""
+        reg = cls.OBRIGACOES_EXTINTAS.get(tipo)
+        if reg and ano >= reg[0]:
+            return reg[1], reg[2]
+        return None
+
     OBRIGACOES_LUCRO_REAL = [
         # (tipo, descricao, dia_vencimento, frequencia, link)
         ("EFD_ICMS_IPI", "SPED EFD ICMS/IPI", 15, "mensal", "https://www.sped.fazenda.gov.br/"),
@@ -177,6 +215,8 @@ class ObligationsMonitorAgent:
 
         if regime == "lucro_real":
             for tipo, desc, dia, _freq, link in self.OBRIGACOES_LUCRO_REAL:
+                if self.extinta_em(tipo, ano):
+                    continue
                 venc = self._vencimento(ano, mes, dia)
                 status = "atrasada" if venc < hoje else "pendente"
                 obrigacoes.append(
@@ -195,6 +235,8 @@ class ObligationsMonitorAgent:
                 )
             # Anuais no mês correspondente
             for tipo, desc, mes_venc, dia_venc, _ in self.OBRIGACOES_LUCRO_REAL_ANUAIS:
+                if self.extinta_em(tipo, ano):
+                    continue
                 if mes_venc == mes:
                     venc = self._vencimento(ano, mes_venc, dia_venc)
                     status = "atrasada" if venc < hoje else "pendente"
@@ -213,6 +255,8 @@ class ObligationsMonitorAgent:
                     )
         else:  # simples_nacional
             for tipo, desc, dia, _freq, link in self.OBRIGACOES_SIMPLES:
+                if self.extinta_em(tipo, ano):
+                    continue
                 venc = self._vencimento(ano, mes, dia)
                 status = "atrasada" if venc < hoje else "pendente"
                 obrigacoes.append(
@@ -230,6 +274,8 @@ class ObligationsMonitorAgent:
                     )
                 )
             for tipo, desc, mes_venc, dia_venc, _ in self.OBRIGACOES_SIMPLES_ANUAIS:
+                if self.extinta_em(tipo, ano):
+                    continue
                 if mes_venc == mes:
                     venc = self._vencimento(ano, mes_venc, dia_venc)
                     status = "atrasada" if venc < hoje else "pendente"

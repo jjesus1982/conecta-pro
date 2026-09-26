@@ -715,3 +715,45 @@ Abrir no portal do município a **Solicitação de Análise Fiscal para Cancelam
     NFS-e 100 · PRIME ARENA · 23/06/2026 · R$ 3.879,60
 
 A da Laranjeiras (nº 3, R$ 37.438,91) já tem o pedido aberto — é aguardar o município.
+
+---
+
+# Três das obrigações que «faltavam» não existem mais
+
+Montando a conta da rescisão, o molde do regime mandava perseguir **DIRF, RAIS e DCTF**.
+Nenhuma das três vale para fatos de 2026:
+
+| obrigação | desde | o que a substituiu |
+|---|---|---|
+| **DIRF** | fatos a partir de 01/01/2025 | eSocial e EFD-Reinf |
+| **RAIS** | ano-base 2022, para quem declara eSocial | eSocial |
+| **DCTF** (mensal) | 01/2025 | DCTFWeb |
+
+Obrigação fantasma no calendário é **pior** que obrigação faltando: ela consome a atenção
+que deveria ir para a que existe, e ensina a ignorar o painel. E o efeito na conta é
+grande — o que parecia um buraco de cinco obrigações é, na verdade, **uma**:
+
+    antes                          agora
+    EFD Contribuições  NÃO    →    gera (construída hoje)
+    DCTF · DIRF · RAIS NÃO    →    fora da conta: extintas
+    PGDAS-D            NÃO    →    não é arquivo: declaração no portal do Simples.
+                                   O que o sistema deve ali é a RECEITA BRUTA por
+                                   competência, e o DRE já dá
+    ECF                NÃO    →    **NÃO. É a que resta.**
+
+Elas ficam **declaradas** em `ObligationsMonitorAgent.OBRIGACOES_EXTINTAS`, com a norma e
+o ano de efeito, em vez de apagadas — exercício anterior à data ainda as devia, e quem
+conferir precisa ver por que saíram. A trava imprime as três como «fora da conta»: total
+que cai sem explicação pode ser só a régua encolhendo.
+
+⚠️ **Isto é leitura de norma, não medição de sistema** — o único item desta frente que não
+se prova no banco. Confirmar com o contador antes de tratar como definitivo.
+
+## A régua que reprovou o conserto, de novo
+
+O oráculo C5 tinha `MENSAIS_LUCRO_REAL = {"EFD_CONTRIBUICOES", "EFD_ICMS_IPI", "DCTF"}`
+escrito à mão. No minuto em que a DCTF foi declarada extinta, ele passou a exigir do
+painel exatamente o que o produto tinha acabado de tirar — três vermelhos.
+
+A cópia é que estava errada. A régua agora pergunta ao molde do regime e desconta as
+extintas: uma fonte, e ela muda junto.
