@@ -101,10 +101,20 @@ async def build_contabil(db, out: dict) -> None:
         # Com a classificação real, a identidade contábil fecha à vírgula:
         #   Ativo 182.751,34 = Passivo 279.818,06 + PL (−97.066,72)
         # As 27 contas com movimento estão todas classificadas no plano (conferido).
+        # Exclui `tipo_lancamento='apuracao'`, como o DRE. O encerramento DEBITA 4.x e
+        # CREDITA 3.3.1.01 (e o inverso contra 5.x) só para transportar o resultado ao PL.
+        # As 168 apurações — de competências 2022-12 a 2026-08, TODAS lançadas com data de
+        # agosto/2026 — anulavam as contas de resultado: o painel exibia «Receitas do
+        # período R$ 59.998,33» quando o razão tinha R$ 2.183.235,44. Trinta e seis vezes
+        # menor, e o dono lia isso como a receita da empresa.
+        # A identidade continua fechando: apuração só move valor ENTRE conta de resultado e
+        # PL, nunca toca ativo ou passivo, e `pl_tot` soma os dois lados.
         _rows = (await db.execute(text(
             "WITH mov AS ("
             " SELECT conta_debito AS conta, valor AS deb, 0::numeric AS cred FROM accounting_entries"
-            " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries) "
+            "  WHERE coalesce(tipo_lancamento,'') <> 'apuracao'"
+            " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries"
+            "  WHERE coalesce(tipo_lancamento,'') <> 'apuracao') "
             "SELECT m.conta, coalesce(max(a.name), m.conta), sum(m.deb), sum(m.cred), "
             "       upper(coalesce(max(a.account_type::text), '')) "
             "FROM mov m LEFT JOIN fin_accounting_accounts a ON a.code=m.conta "
@@ -162,9 +172,9 @@ async def build_contabil(db, out: dict) -> None:
                 {"title": "Passivo", "rows": [{"left": f"{(n or '—')[:34]} ({co})", "right": brl(s), **S["warn"]}
                                               for n, co, s in passivo] or [{"left": "—", "right": "0", **S["mut"]}]},
                 {"title": "Patrimônio Líquido", "rows": [
-                    {"left": "Receitas do período", "right": brl(receita), **S["ok"]},
-                    {"left": "(−) Despesas do período", "right": brl(despesa), **S["bad"]},
-                    {"left": "= Resultado do exercício", "right": brl(resultado),
+                    {"left": "Receitas acumuladas no razão", "right": brl(receita), **S["ok"]},
+                    {"left": "(−) Despesas acumuladas no razão", "right": brl(despesa), **S["bad"]},
+                    {"left": "= Resultado acumulado", "right": brl(resultado),
                      **(S["ok"] if resultado >= 0 else S["bad"])}]},
             ],
             "chartGrid": "1fr",
@@ -182,27 +192,56 @@ async def build_contabil(db, out: dict) -> None:
     try:
         _liq = (await db.execute(text(
             "WITH mov AS ("
-            " SELECT conta_debito AS conta, valor AS deb, 0::numeric AS cred FROM accounting_entries"
-            " UNION ALL SELECT conta_credito, 0, valor FROM accounting_entries) "
+            " SELECT e.conta_debito AS conta, e.valor AS deb, 0::numeric AS cred,"
+            "        upper(coalesce(a.account_type::text,'')) AS tipo"
+            "   FROM accounting_entries e"
+            "   LEFT JOIN fin_accounting_accounts a ON a.code = e.conta_debito"
+            "  WHERE coalesce(e.tipo_lancamento,'') <> 'apuracao'"
+            " UNION ALL"
+            " SELECT e.conta_credito, 0, e.valor,"
+            "        upper(coalesce(a.account_type::text,''))"
+            "   FROM accounting_entries e"
+            "   LEFT JOIN fin_accounting_accounts a ON a.code = e.conta_credito"
+            "  WHERE coalesce(e.tipo_lancamento,'') <> 'apuracao') "
             "SELECT "
+            # Circulante continua pelo código (1.1 / 2.1 é a divisão circulante do plano),
+            # mas ATIVO e PASSIVO totais vêm do `account_type` — o prefixo mente em 8 contas
+            # ativas do plano velho e faria a mesma conta virar ativo aqui e despesa no DRE.
             " sum(deb-cred) FILTER (WHERE conta LIKE '1.1%'), "     # Ativo Circulante
-            " sum(deb-cred) FILTER (WHERE conta LIKE '1%'), "       # Ativo Total
+            " sum(deb-cred) FILTER (WHERE tipo = 'ASSET'), "        # Ativo Total
             " sum(cred-deb) FILTER (WHERE conta LIKE '2.1%'), "     # Passivo Circulante
-            " sum(cred-deb) FILTER (WHERE conta LIKE '2%') "        # Passivo Total (exigível)
+            " sum(cred-deb) FILTER (WHERE tipo = 'LIABILITY') "     # Passivo Total (exigível)
             "FROM mov WHERE conta IS NOT NULL"))).fetchone()
         ac = float(_liq[0] or 0); at = float(_liq[1] or 0)
         pc = float(_liq[2] or 0); pt = float(_liq[3] or 0)
         anc = at - ac  # ativo não circulante (imobilizado etc.)
         pl = at - pt   # patrimônio líquido (resultado acumulado)
-        liq_corr = round(ac / pc, 2) if pc > 0 else None
+        # Índice sobre ativo NEGATIVO não é índice — é ruído com duas casas decimais.
+        # As 89 contas do plano estão com saldo de abertura ZERO: o razão começa do nada em
+        # 01/01/2026 e o que ele chama de saldo é só o movimento do período. Enquanto a
+        # abertura não for lançada, «Liquidez corrente −0,29 · posição apertada» descreve
+        # uma empresa que não existe. Recusar o número é mais informativo que publicá-lo.
+        _base_valida = ac > 0 and pc > 0
+        liq_corr = round(ac / pc, 2) if _base_valida else None
         endiv = round(pt / at, 2) if at > 0 else None
         comp = round(pc / pt, 2) if pt > 0 else None
-        imob = round(anc / pl, 2) if pl > 0 else None
-        _rating = ("Sólida" if (liq_corr or 0) >= 1.5 else "Adequada" if (liq_corr or 0) >= 1.0 else "Apertada")
+        imob = round(anc / pl, 2) if pl > 0 and anc >= 0 else None
+        _rating = (
+            "Sólida" if (liq_corr or 0) >= 1.5
+            else "Adequada" if (liq_corr or 0) >= 1.0
+            else "Apertada" if _base_valida
+            else "não apurável"
+        )
+        _porque = ("" if _base_valida else
+                   " ⚠ Índices NÃO apurados: o ativo circulante do razão está negativo porque "
+                   "as 89 contas do plano têm saldo de abertura ZERO — o razão nasce em "
+                   "01/01/2026 sem o que já existia. Lance a abertura e os índices passam a "
+                   "significar alguma coisa.")
         out["indices-liquidez"] = {
             "title": "Liquidez & endividamento", "type": "dash", "cta": "—",
             "sub": (f"Índices do razão real (accounting_entries) · AC {brl(ac)} / PC {brl(pc)}. "
-                    f"Posição {_rating.lower()}. Não inclui provisões de folha ainda não postadas."),
+                    f"Posição {_rating.lower()}. Não inclui provisões de folha ainda não postadas."
+                    + _porque),
             "panelGrid": "1fr 1fr",
             "kpis": [
                 {"v": (f"{liq_corr:.2f}" if liq_corr is not None else "—"), "l": "Liquidez corrente (AC/PC)",

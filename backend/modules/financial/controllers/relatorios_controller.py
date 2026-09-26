@@ -271,11 +271,17 @@ async def balancete_real(
 ) -> dict:
     """Balancete a partir dos LANÇAMENTOS REAIS (accounting_entries). Por conta: soma dos débitos e
     créditos e o saldo. Comprova que fecha (Σ débitos = Σ créditos). Junta o nome do plano de contas."""
-    filtro = "WHERE EXTRACT(YEAR FROM data_lancamento) = :ano"
-    params = {"ano": ano}
+    # Base do período é a COMPETÊNCIA, a mesma do DRE — não a data em que a linha foi
+    # digitada. As 168 apurações de 2022-12 a 2026-08 foram TODAS lançadas com data de
+    # agosto/2026: por `data_lancamento`, o balancete de agosto somava R$ 6.775.023,46
+    # contra R$ 2.271.067,60 da competência. Três vezes inflado, e o DRE ao lado, lendo
+    # competência, discordava do balancete sem que nada na tela dissesse por quê.
+    # (Medido em 25/09/2026: nenhum dos 7.178 lançamentos está sem competência.)
+    filtro = "WHERE substr(coalesce(periodo_competencia,''), 1, 4) = :ano"
+    params: dict = {"ano": f"{ano:04d}"}
     if mes:
-        filtro += " AND EXTRACT(MONTH FROM data_lancamento) = :mes"
-        params["mes"] = mes
+        filtro += " AND coalesce(periodo_competencia,'') = :comp"
+        params["comp"] = f"{ano:04d}-{mes:02d}"
 
     deb = (await db.execute(_sql(
         f"SELECT conta_debito conta, SUM(valor) v FROM accounting_entries {filtro} GROUP BY 1"), params)).fetchall()
@@ -315,30 +321,50 @@ async def balancete_real(
     extrato = round(float((await db.execute(_sql(
         "SELECT coalesce(sum(amount), 0) FROM bank_transactions"
     ))).scalar() or 0), 2)
-    divergencia = round(saldo_contabil_banco - extrato, 2)
+    # `extrato` é a soma de bank_transactions — a MESMA fonte de onde o razão foi
+    # escriturado. Compará-los não é prova de caixa, é tautologia: dava "bate=True,
+    # divergência R$ 0,00" ao lado de um razão com saldo NEGATIVO de R$ 4.258,33, o que
+    # é impossível numa conta bancária. Vira `amarracao_extrato`, que é o que sempre foi:
+    # denuncia transação bancária que não virou lançamento, e só isso.
+    amarracao = round(saldo_contabil_banco - extrato, 2)
     # A data do saldo é `last_balance_update` — quem grava é o sync do Inter.
     # `last_sync_at` é coluna MORTA em bank_accounts: nada escreve nela, e ler
     # dela fazia a tela anunciar "parado desde 14/04" com o saldo do dia.
     reg = (await db.execute(_sql(
         "SELECT coalesce(sum(current_balance), 0), max(last_balance_update) FROM bank_accounts"
     ))).first()
+    saldo_bancos = round(float(reg[0] or 0) if reg else 0.0, 2)
+    divergencia_caixa = round(saldo_contabil_banco - saldo_bancos, 2)
 
     return {
         "ano": ano, "mes": mes, "linhas": linhas,
         "total_debito": round(tot_deb, 2), "total_credito": round(tot_cred, 2),
         "diferenca": round(tot_deb - tot_cred, 2),
         "fecha": abs(tot_deb - tot_cred) < 0.01,
-        "prova_de_caixa": {
+        "amarracao_extrato": {
             "saldo_contabil_1_1_1": saldo_contabil_banco,
             "extrato_liquido": extrato,
-            "divergencia": divergencia,
-            "bate": abs(divergencia) < 0.01,
-            "saldo_registrado_bancos": round(float(reg[0] or 0), 2),
-            "saldo_registrado_sincronizado_em": str(reg[1]) if reg and reg[1] else None,
-            "aviso": (None if abs(divergencia) < 0.01 else
-                      "O razão e o extrato não batem: há movimentação bancária sem lançamento "
-                      "ou lançamento sem movimentação. Conferir o beat "
-                      "financeiro-escriturar-extrato (05:20)."),
+            "divergencia": amarracao,
+            "bate": abs(amarracao) < 0.01,
+            "o_que_prova": "toda transação bancária virou lançamento — NÃO é prova de caixa, "
+                           "porque o razão é escriturado a partir desta mesma tabela",
+            "aviso": (None if abs(amarracao) < 0.01 else
+                      "Há movimentação bancária sem lançamento ou lançamento sem movimentação. "
+                      "Conferir o beat financeiro-escriturar-extrato (05:20)."),
+        },
+        # A prova de caixa de verdade: razão contra o saldo que o BANCO informa.
+        "prova_de_caixa": {
+            "saldo_contabil_1_1_1": saldo_contabil_banco,
+            "saldo_informado_pelos_bancos": saldo_bancos,
+            "divergencia": divergencia_caixa,
+            "bate": abs(divergencia_caixa) < 0.01,
+            "sincronizado_em": str(reg[1]) if reg and reg[1] else None,
+            "aviso": (None if abs(divergencia_caixa) < 0.01 else
+                      f"O razão diz R$ {saldo_contabil_banco:,.2f} e os bancos dizem "
+                      f"R$ {saldo_bancos:,.2f}. As 89 contas do plano estão com saldo de abertura "
+                      "ZERO: o razão começa do nada em 01/01/2026, então o que ele chama de saldo "
+                      "é só o movimento do período. Enquanto a abertura não for lançada, esta "
+                      "divergência não é erro de escrituração — é a abertura faltando."),
         },
         "fonte": "accounting_entries (lançamentos reais de NFS-e emitida + extrato Inter)",
         "observacao": "Plano de contas em consolidação (2 numerações coexistem); contas não mapeadas ficam marcadas.",
