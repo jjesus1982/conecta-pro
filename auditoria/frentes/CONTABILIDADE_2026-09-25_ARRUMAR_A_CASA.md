@@ -602,3 +602,61 @@ não-cumulativo**. Tentei medir e não dá, por três caminhos:
 Gerar uma escrituração de PIS/COFINS chutando o regime é produzir um arquivo legal errado
 com aparência de certo. Fica como pergunta para o contador, com o custo já visível na
 trava.
+
+---
+
+# R$ 5.069,00 de despesa que nunca aconteceu
+
+O conserto do nome da contraparte acordou 61 achados que a trava de duplicata não via — ela
+**exige favorecido preenchido**, e as cópias vinham sem nome. O próprio comentário dela já
+avisava disso; faltava alguém preencher o campo para que ela pudesse falar.
+
+    73 grupos · 77 linhas excedentes · R$ 9.864,13 · TODAS com lançamento no razão
+    71 de `inter_api_backfill_20260811 + inter_api_sync`
+    todas entre 2026-03 e 2026-07 — antes do corte, por isso o saldo seguia batendo
+
+A causa é conhecida e está escrita no oráculo do extrato: a ponte deduplicava exigindo
+**descrição idêntica**, e a mesma transação vinda do CSV e da API tem texto diferente
+(`Pagamento efetuado: "FULL TELECOM LTDA` × `PAGAMENTO DE TITULO - FULL TELECOM LTDA`).
+A limpeza de 11/08 removeu 321 transações por esse método e essas escaparam. Agravante:
+**148 das 150 linhas têm `external_id` NULO**, e o índice único do banco é parcial —
+nulo nunca colide com nulo.
+
+## A adjudicação não precisou do banco — o banco já estava aqui
+
+A regra da casa é conferir contra o extrato antes de apagar, e ela existe porque já se
+apagou um pagamento achando que era duplicata e o saldo denunciou com a diferença exata
+de R$ 32,00. Em 26/09 o `/banking/v2/extrato/completo` do Inter devolveu **503 em todos os
+intervalos, inclusive recentes**.
+
+Só que a conferência não dependia da API: **`inter_transactions` é a tabela crua da ponte
+e guarda o payload que o banco mandou**, de 06/03/2026 em diante — e todos os grupos são
+de 23/03 a 28/07.
+
+    2026-03-23  R$ 152,13  FULL TELECOM      banco 1  ·  nós 2
+    2026-04-08  R$  32,00  (VA/VT, 14 pessoas) banco 14 ·  nós 19
+
+Nos 36 dias afetados, **em todos**, o nosso número excedia o do banco.
+
+## A poda, com duas travas e backup
+
+ · **contagem por valor no dia**, que é o método que o oráculo prescreve;
+ · **teto por dia**: nunca remover mais do que `nosso − banco` naquele dia e valor.
+
+Mantém-se a linha com `external_id` (a que o índice reconhece); no empate, a mais antiga.
+Removidas **67 transações e 67 lançamentos, R$ 5.069,00**, com backup em
+`backup_dup_multifonte_20260926` — mesmo padrão das tabelas de 11/08. **Seis grupos ficaram
+de pé** porque o teto os protegeu: ali o banco confirma ter as duas linhas.
+
+## E reapurar faz parte do mesmo trabalho
+
+Remover lançamento de competência já apurada deixa resíduo aberto e o balanço passa a
+mentir. As competências 04 a 07 foram reapuradas, e o resíduo somou **exatamente** o que
+saiu:
+
+    405,00 + 2.198,00 + 2.114,00 + 352,00 = R$ 5.069,00
+
+`test_oraculo_balanco` e `test_oraculo_extrato` voltaram a passar; os saldos continuam
+batendo com os que o próprio banco informa (Inter R$ 3.906,31 em 24/09, Cora R$ 580,18).
+
+    resultado de 2026:  −R$ 208.231,49  →  −R$ 203.875,99

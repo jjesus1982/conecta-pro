@@ -20,7 +20,8 @@ consegui medir, está dito.
                               (−) ISS         R$    88.936,55
                               custos          R$ 1.424.759,19
                               despesas        R$   950.672,26
-                              resultado       R$  −208.231,49      margem −9,2%
+                              resultado       R$  −203.875,99      margem −9,0%
+                              (era −R$ 208.231,49 antes da poda de duplicata; ver abaixo)
 
 Mês a mês:
 
@@ -40,25 +41,28 @@ condomínios migrou da Eletrônica para a Patrimonial; a receita despencou em ju
 inflada em julho. Somados, os dois dão R$ 541.816,65 — ou R$ 270.908 por mês, que é a
 média do resto do ano. **Setembro ainda está correndo** e por isso aparece pior do que é.
 
-### Um valor CONDICIONAL que pode melhorar 2026
+### R$ 5.069,00 de despesa que não existiu — resolvido no mesmo dia
 
-**R$ 9.864,13 de despesa podem estar contados duas vezes** entre março e julho. São 77
-linhas do extrato do Inter que aparecem em duplicidade entre a importação de retaguarda
-de 11/08 e a sincronia pela API — a linha da API vem sem `external_id` e o índice único
-do banco é parcial, então nulo não colide com nulo. **Todas as 77 têm lançamento no
+**77 linhas do extrato do Inter estavam duplicadas** entre a importação de retaguarda de
+11/08 e a sincronia pela API, entre março e julho. A linha da API vem sem `external_id` e
+o índice único do banco é parcial — nulo não colide com nulo. **Todas tinham lançamento no
 razão.**
 
-Elas estavam invisíveis porque a checagem de duplicata exige favorecido preenchido, e
-essas cópias vinham sem nome; em 26/09 a conciliação passou a nomear 545 transações e
-elas apareceram.
+Estavam invisíveis porque a checagem de duplicata exige favorecido preenchido e essas
+cópias vinham sem nome. Em 26/09 a conciliação passou a nomear 545 transações e elas
+apareceram — 73 grupos de uma vez.
 
-**Nada foi apagado.** Adjudicar exige contar, dia a dia, quantos lançamentos de cada valor
-o banco tem contra quantos temos — e em 26/09 o extrato completo do Inter devolveu 503 em
-todos os intervalos. O adjudicador está pronto
-(`backend/scripts/adjudicar_duplicata_multifonte.py`) e recusa concluir sem o banco.
+**Adjudicadas contra o banco, e não foi preciso a API dele** (que devolveu 503 o dia
+inteiro): `inter_transactions` é a tabela crua da ponte e guarda o payload que o Inter
+mandou, desde 06/03. Em 23/03 o banco tem UMA linha de R$ 152,13 e nós tínhamos duas; nos
+36 dias afetados, em todos, o nosso número excedia o do banco.
 
-Se confirmadas, o resultado de 2026 melhora de −R$ 208.231,49 para cerca de
-**−R$ 198.367**. Enquanto não houver o extrato, vale o número medido.
+Podadas 67 transações e 67 lançamentos — **R$ 5.069,00** — com backup em
+`backup_dup_multifonte_20260926`. Seis grupos ficaram de pé: o teto por dia os protegeu
+porque o banco confirma tê-los. As competências 04 a 07 foram reapuradas (o resíduo somou
+exatamente os R$ 5.069,00) e o balanço voltou a fechar.
+
+    resultado de 2026:  −R$ 208.231,49  →  **−R$ 203.875,99**
 
 ### O mês representativo é agosto
 

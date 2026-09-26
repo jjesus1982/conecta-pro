@@ -22,6 +22,13 @@ Em 26/09/2026 o `/banking/v2/extrato/completo` do Inter devolveu **503** em todo
 intervalos, inclusive nos recentes. Sem a contagem do banco não há adjudicação, e este
 script RECUSA concluir em vez de chutar.
 
+⭐ **E não precisava da API.** `inter_transactions` é a tabela crua da ponte e guarda o
+payload que o banco mandou — cobre de 06/03/2026 em diante, e todos os grupos afetados são
+de 23/03 a 28/07. Em 23/03 o banco tem UMA linha de R$ 152,13 e nós tínhamos duas; em todos
+os 36 dias afetados o nosso número excede o do banco. A adjudicação saiu daí, e a poda está
+em `podar_duplicata_multifonte.py`. Este script fica para quando a fonte local não cobrir o
+período — mas procure a tabela crua ANTES de chamar o banco.
+
 O método é o do oráculo do extrato, e ele existe porque casar por NOME deu respostas
 contraditórias para o mesmo caso: **para cada dia, quantos lançamentos de cada valor o
 banco tem, contra quantos nós temos.** Se o nosso excede o do banco, é cópia.

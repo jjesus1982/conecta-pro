@@ -132,8 +132,14 @@ async def main() -> None:  # noqa: PLR0915
         # favorecido preenchido (está escrito duas notas acima). Os 61 grupos sempre
         # existiram. Medidos: 77 linhas excedentes, R$ 9.864,13, todas entre 03 e 07/2026
         # (antes do corte, por isso o saldo segue batendo) e TODAS com lançamento no razão.
-        # A base fica em 12 de propósito: subir sem adjudicar seria declarar legítimo o que
-        # ninguém conferiu. O Inter devolveu 503 em todo intervalo em 26/09.
+        # ADJUDICADOS e PODADOS no mesmo dia: a contagem não veio da API do Inter (503 em
+        # todo intervalo) e sim de `inter_transactions`, a tabela crua da ponte, que guarda
+        # o payload do banco desde 06/03. Em todos os 36 dias afetados o nosso número
+        # excedia o do banco. Saíram 67 transações e 67 lançamentos (R$ 5.069,00), com
+        # backup em `backup_dup_multifonte_20260926`; sobraram 6 grupos que o teto por dia
+        # protegeu porque o banco confirma tê-los. Ferramentas:
+        # `scripts/podar_duplicata_multifonte.py` e `scripts/adjudicar_duplicata_multifonte.py`.
+        # A base segue em 12 — ela é o TETO do que já foi conferido, não uma meta a bater.
         BASE_PARES_LEGITIMOS = 12
         susp = (
             (
