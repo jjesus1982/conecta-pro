@@ -475,6 +475,47 @@ def gerar_recebiveis_mes_task(self):
         raise self.retry(exc=exc)
 
 
+def _competencias_com_resultado_aberto(limite: str) -> list[str]:
+    """Competências ATÉ `limite` (exclusive) com saldo vivo em conta de resultado.
+
+    Natureza pelo plano (`account_type`), nunca pelo primeiro dígito do código: oito contas
+    ativas contradizem o próprio prefixo — 4.1.2 FGTS e 4.1.3 INSS Patronal são EXPENSE com
+    código de receita.
+    """
+    import psycopg2
+
+    from modules.financial.services.ledger_auto_service import _raw_db_url
+
+    conn = psycopg2.connect(_raw_db_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH mov AS (
+                    SELECT e.periodo_competencia AS comp, e.valor AS v,
+                           upper(coalesce(a.account_type::text, '')) AS tipo
+                      FROM accounting_entries e
+                      LEFT JOIN fin_accounting_accounts a ON a.code = e.conta_debito
+                     WHERE e.periodo_competencia IS NOT NULL
+                    UNION ALL
+                    SELECT e.periodo_competencia, -e.valor,
+                           upper(coalesce(a.account_type::text, ''))
+                      FROM accounting_entries e
+                      LEFT JOIN fin_accounting_accounts a ON a.code = e.conta_credito
+                     WHERE e.periodo_competencia IS NOT NULL
+                )
+                SELECT comp FROM mov
+                 WHERE comp < %s AND tipo IN ('REVENUE', 'EXPENSE', 'COST')
+                 GROUP BY comp HAVING abs(sum(v)) > 0.01
+                 ORDER BY comp
+                """,
+                (limite,),
+            )
+            return [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 @app.task(name="financial.apurar_competencia", bind=True, max_retries=1)
 def apurar_competencia_task(self):
     """Encerra a competência ANTERIOR contra o PL, todo dia 5.
@@ -494,15 +535,44 @@ def apurar_competencia_task(self):
         ant = date(hoje.year, hoje.month, 1).toordinal() - 1
         comp = f"{date.fromordinal(ant):%Y-%m}"
         r = apurar(comp, preview=False)
+
+        # E AS QUE FICARAM PARA TRÁS.
+        #
+        # Olhar só o mês anterior deixa um buraco permanente: competência já apurada que
+        # recebe lançamento DEPOIS nunca mais é revisitada, porque no mês seguinte a task
+        # olha outro mês. Foi assim que 42 competências ficaram abertas desde 2022, e
+        # aconteceu de novo com 2026-08 — apurada em 07/09, e depois chegaram pelo ADN as
+        # NFS-e de agosto que o fisco só publicou em setembro. Em 25/09 sobravam
+        # R$ 15.139,00 abertos (NFS-e 29 e o DAS), com o oráculo do balanço acusando todo
+        # dia e ninguém tendo como fechar aquilo pelo beat.
+        #
+        # `apurar()` fecha RESÍDUO — o saldo que ele lê já inclui os próprios lançamentos de
+        # apuração — então varrer é idempotente: competência sem resto não gera linha.
+        residuos = _competencias_com_resultado_aberto(limite=comp)
+        varridas = []
+        for c in residuos:
+            if c == comp:
+                continue
+            rc = apurar(c, preview=False)
+            if rc.get("contas_encerradas"):
+                varridas.append({"competencia": c, "contas": rc["contas_encerradas"],
+                                 "resultado": rc.get("resultado")})
+                logger.warning(
+                    "[Financial Task] apurar_competencia: RESÍDUO fechado em %s — "
+                    "%s conta(s), R$ %s (lançamento retroativo depois da apuração)",
+                    c, rc["contas_encerradas"], rc.get("resultado"))
+
         # A conta de passagem tem que voltar a zero. Se sobrou, a apuração ficou
         # pela metade e o balanço fecharia mentindo — grita agora, não no mês que vem.
         sobra = saldo_da_apuracao()
         if abs(sobra) > 0.01:
             raise RuntimeError(
                 f"apuração de {comp} ficou pela metade: 3.3.1.01 com saldo de R$ {sobra:,.2f}")
-        logger.info("[Financial Task] apurar_competencia %s: %s contas, resultado %s",
-                    comp, r.get("contas_encerradas"), r.get("resultado"))
-        return {k: v for k, v in r.items() if k != "linhas"}
+        logger.info("[Financial Task] apurar_competencia %s: %s contas, resultado %s "
+                    "(+ %s competência(s) de resíduo)",
+                    comp, r.get("contas_encerradas"), r.get("resultado"), len(varridas))
+        return {**{k: v for k, v in r.items() if k != "linhas"},
+                "residuos_fechados": varridas}
     except Exception as exc:
         logger.error("[Financial Task] apurar_competencia error: %s", exc)
         raise self.retry(exc=exc)

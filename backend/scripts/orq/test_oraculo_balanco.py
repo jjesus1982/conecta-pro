@@ -221,6 +221,45 @@ async def main() -> None:
         else:
             print("OK nenhuma conta desativada do PL voltou a ser usada")
 
+    # ── (f) o beat VARRE resíduo, não só o mês anterior ──────────────────
+    # A task de apuração roda dia 5 e fecha a competência ANTERIOR. Só isso deixa um buraco
+    # permanente: competência já apurada que recebe lançamento DEPOIS nunca mais é
+    # revisitada, porque no mês seguinte a task olha outro mês. Foi assim que 42
+    # competências ficaram abertas desde 2022, e aconteceu de novo em 2026-08 — apurada em
+    # 07/09 e reaberta pelas NFS-e de agosto que o ADN só publicou em setembro
+    # (R$ 15.139,00, fechados à mão em 25/09).
+    #
+    # As checagens acima medem o ESTADO, e o estado só fica vermelho meses depois de alguém
+    # tirar a varredura. Esta mede o CÓDIGO — por AST, não por grep: a palavra aparece em
+    # comentário, a CHAMADA não.
+    import ast as _ast  # noqa: PLC0415
+    import pathlib as _pathlib  # noqa: PLC0415
+
+    _tasks = _pathlib.Path("/app/modules/financial/tasks.py")
+    if not _tasks.exists():
+        falhas.append("(f) modules/financial/tasks.py não existe — o beat não foi medido")
+    else:
+        _arv = _ast.parse(_tasks.read_text())
+        _fn = next(
+            (n for n in _ast.walk(_arv)
+             if isinstance(n, _ast.FunctionDef) and n.name == "apurar_competencia_task"),
+            None,
+        )
+        if _fn is None:
+            falhas.append("(f) `apurar_competencia_task` sumiu de tasks.py")
+        else:
+            _chamadas = {
+                c.func.id for c in _ast.walk(_fn)
+                if isinstance(c, _ast.Call) and isinstance(c.func, _ast.Name)
+            }
+            if "_competencias_com_resultado_aberto" not in _chamadas:
+                falhas.append(
+                    "(f) a task de apuração NÃO varre competência anterior com resultado "
+                    "aberto — lançamento retroativo volta a ficar órfão para sempre"
+                )
+            else:
+                print("OK o beat varre resíduo de competência já apurada, não só o mês anterior")
+
     if falhas:
         for f in falhas:
             print(f"FALHOU: {f}")
