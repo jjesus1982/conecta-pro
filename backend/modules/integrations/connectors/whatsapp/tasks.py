@@ -93,7 +93,8 @@ async def _coletar_conversas_frias(session):
                     WHERE direction IN ('in','out') AND chatwoot_conversation_id IS NOT NULL
                     ORDER BY chatwoot_conversation_id, created_at DESC
                 )
-                SELECT u.conv, u.phone_canonical, u.created_at,
+                SELECT DISTINCT ON (regexp_replace(coalesce(u.phone_canonical,''), '\D', '', 'g'))
+                       u.conv, u.phone_canonical, u.created_at,
                        coalesce(l.name, 'Contato ' || coalesce(u.phone_canonical,'?')) AS nome,
                        coalesce(l.company, '')                                        AS empresa,
                        coalesce(l.status, '')                                         AS lead_status,
@@ -110,8 +111,43 @@ async def _coletar_conversas_frias(session):
                 WHERE u.direction = 'out'
                   AND u.created_at < now() - interval '24 hours'
                   AND u.created_at > now() - interval '7 days'
-                  AND coalesce(l.status,'') NOT IN ('converted','disqualified')
-                ORDER BY u.created_at ASC
+                  -- ⚠️ 25/09/2026 — o filtro ANTERIOR era NOT IN ('converted','disqualified'),
+                  -- e nenhum desses dois valores EXISTE em `leads.status`. A coluna tem
+                  -- contacted/lost/new/proposal/qualified/won. Filtro com vocabulário
+                  -- inexistente não exclui nada: lead já GANHO ou PERDIDO entrava no
+                  -- follow-up. Dormente hoje (nenhum na janela), vivo em qualquer semana.
+                  AND coalesce(l.status,'') NOT IN ('won','lost')
+                  -- 🔴 E o defeito maior: 11 dos 15 que chegavam ao sino do Jordan eram
+                  -- FUNCIONÁRIOS da casa — Carlos Eduardo 4x, e a Meire, DEMITIDA, outras 4.
+                  -- A rotina é de lead COMERCIAL e o rascunho oferece "visita técnica
+                  -- gratuita"; propor isso a porteiro é ruído que treina o dono a ignorar o
+                  -- sino. O José Luís atende funcionário desde setembro, e a rotina nasceu
+                  -- antes disso, quando toda conversa era de cliente.
+                  -- ⚠️ Os DOIS campos, separados. A 1ª versão fazia
+                  -- `celular || telefone` e pegava os 8 últimos do CONCATENADO — que é sempre
+                  -- o telefone, nunca o celular. O Jonhata tem celular 92986378536 e telefone
+                  -- (92) 99285-7909; a conversa é pelo celular, e o filtro comparava o outro.
+                  -- Dois campos não são uma string.
+                  AND NOT EXISTS (
+                    SELECT 1 FROM employees e
+                     WHERE right(regexp_replace(coalesce(u.phone_canonical,''), '\D', '', 'g'), 8) <> ''
+                       AND right(regexp_replace(coalesce(u.phone_canonical,''), '\D', '', 'g'), 8) IN (
+                             right(regexp_replace(coalesce(e.celular,''),  '\D', '', 'g'), 8),
+                             right(regexp_replace(coalesce(e.telefone,''), '\D', '', 'g'), 8))
+                  )
+                  -- ⚠️ O DONO não é lead. Ele aparecia na lista como `new`, e o rascunho
+                  -- oferecia a ele "uma visita técnica gratuita da nossa equipe".
+                  AND coalesce(u.phone_canonical,'') NOT LIKE '%86465328%'
+                  -- ⚠️ LID do WhatsApp não é telefone: `134286564950018` tem 15 dígitos e não
+                  -- é de ninguém. Telefone brasileiro tem 10 a 13 dígitos contando o 55.
+                  AND length(regexp_replace(coalesce(u.phone_canonical,''), '\D', '', 'g'))
+                      BETWEEN 10 AND 13
+                -- ⚠️ Uma linha por PESSOA, não por conversa. A Patrícia ocupava as 15 vagas
+                -- sozinha: o número dela estava no cadastro do Euler por erro e cada mensagem
+                -- abriu uma conversa nova. Quinze lembretes da mesma pessoa é o que faz o dono
+                -- parar de ler o sino — e aí a rotina inteira deixa de existir na prática.
+                ORDER BY regexp_replace(coalesce(u.phone_canonical,''), '\D', '', 'g'),
+                         u.created_at ASC
                 LIMIT 15
                 """
             )
