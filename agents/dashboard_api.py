@@ -255,20 +255,55 @@ def get_agentes_cto() -> dict:
             ciclo = json.loads(Path(ciclos[0]).read_text())
             resultados = ciclo.get("resultados", [])
             total = len(resultados)
-            saudaveis = sum(1 for r in resultados if float(r.get("score", 10) or 10) >= 9)
-            problemas = [
-                {"modulo": r.get("modulo", "?"), "score": float(r.get("score", 10) or 10)}
-                for r in resultados
-                if float(r.get("score", 10) or 10) < 9
-            ]
-            problemas.sort(key=lambda x: x["score"])
+
+            # `float(r.get("score", 10) or 10)` APAGAVA OS ZEROS. Em Python `0.0 or 10`
+            # é 10: os dois módulos que pontuaram 0,0 no ciclo de 12/04/2026
+            # (inteligencia e equipamentos) apareciam como 10 e entravam em "saudáveis",
+            # enquanto o próprio arquivo lido dizia `modulos_criticos: 2`. Ausência de
+            # score é desconhecido — não é nota máxima.
+            def _score(r):
+                v = r.get("score")
+                return float(v) if v is not None else None
+
+            notas = [(r.get("modulo", "?"), _score(r)) for r in resultados]
+            saudaveis = sum(1 for _m, v in notas if v is not None and v >= 9)
+            problemas = sorted(
+                ({"modulo": m, "score": v} for m, v in notas if v is not None and v < 9),
+                key=lambda x: x["score"],
+            )
+            sem_nota = [m for m, v in notas if v is None]
+
+            # IDADE DO DADO. O painel recarrega de 2 em 2 minutos e carimbava
+            # `generated_at` de HOJE sobre a foto do último ciclo, que parou em
+            # 12/04/2026. Quem abria via "8.3 agora"; eram 168 dias atrás. O carimbo de
+            # frescor é do PAINEL, não do DADO — agora os dois aparecem.
+            from datetime import datetime as _dt  # noqa: PLC0415
+
+            idade_dias = None
+            ts = ciclo.get("timestamp", "")
+            try:
+                idade_dias = (_dt.now() - _dt.fromisoformat(ts)).days
+            except (ValueError, TypeError):
+                pass
+
             return {
                 "total": total,
                 "saudaveis": saudaveis,
                 "com_problema": len(problemas),
-                "score_geral": float(ciclo.get("score_geral", 10) or 10),
+                "sem_nota": sem_nota,
+                "score_geral": (
+                    float(ciclo["score_geral"]) if ciclo.get("score_geral") is not None else None
+                ),
                 "top_problemas": problemas[:5],
-                "ciclo_ts": ciclo.get("timestamp", ""),
+                "ciclo_ts": ts,
+                "idade_dias": idade_dias,
+                "dado_obsoleto": bool(idade_dias is not None and idade_dias > 1),
+                "aviso": (
+                    f"ciclo de agentes parado há {idade_dias} dia(s) — "
+                    "estes números são a última fotografia, não o estado de agora"
+                    if idade_dias is not None and idade_dias > 1
+                    else ""
+                ),
             }
     except Exception as e:
         pass
