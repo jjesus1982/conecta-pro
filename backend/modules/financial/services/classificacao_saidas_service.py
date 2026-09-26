@@ -75,8 +75,14 @@ _SQL_CONTRAPARTE = (
 # transferência. Sem esta regra a heurística de fornecedor sugeria "Fornecedor"
 # para R$70.000 indo de uma empresa nossa para outra — sugestão errada com cara
 # de certa, que é pior que não sugerir: o humano confirma em bloco e grava o erro.
-_GRUPO = ("CONECTA MAIS", "CONECTAMAIS", "CONECTA PRO", "CONECTA ELETRONICA",
-          "CONECTA PATRIMONIAL", "CONECTA MAIS REDES")
+_GRUPO = (
+    "CONECTA MAIS",
+    "CONECTAMAIS",
+    "CONECTA PRO",
+    "CONECTA ELETRONICA",
+    "CONECTA PATRIMONIAL",
+    "CONECTA MAIS REDES",
+)
 
 # SÓCIO: retirada, pró-labore, distribuição de lucro ou empréstimo. Precisa vir
 # ANTES do teste de funcionário — o sócio também está em `employees`, e a regra
@@ -90,9 +96,21 @@ _SOCIO = ("JORDAN SANTOS DE JESUS", "JORDAN S DE JESUS", "JORDAN JESUS")
 # Souza, e "RAMON" casava com FRANCISCO RAMON FARIAS (também CLT). Ambos iam
 # virar pró-labore. Ver `e_pj` no SQL de listar_grupos.
 _FOLHA_TERCEIRO = ("SOLIDES", "S LIDES", "SINETRAN")
-_IMPOSTO = ("RECEITA FEDERAL", "CEF MATRIZ", "CAIXA ECONOMICA", "DARF", "GPS",
-            "SIMPLES NACIONAL", "PGFN", "FGTS", "INSS", "PREVID", "SINDECOMPRESTS",
-            "SINDICATO", "CONTRIB SINDICAL")
+_IMPOSTO = (
+    "RECEITA FEDERAL",
+    "CEF MATRIZ",
+    "CAIXA ECONOMICA",
+    "DARF",
+    "GPS",
+    "SIMPLES NACIONAL",
+    "PGFN",
+    "FGTS",
+    "INSS",
+    "PREVID",
+    "SINDECOMPRESTS",
+    "SINDICATO",
+    "CONTRIB SINDICAL",
+)
 
 # Razão social: pagou empresa, é fornecedor. Serve de rede para os pequenos que
 # não têm NFS-e tomada casada — melhor que jogar tudo em "diversos", que é
@@ -101,11 +119,36 @@ _IMPOSTO = ("RECEITA FEDERAL", "CEF MATRIZ", "CAIXA ECONOMICA", "DARF", "GPS",
 # `_EMPRESA_SUFIXO`, testado só no FIM do nome. " SA" solto casava dentro de
 # " SANTOS": Gabriel Santos Machado e mais 4 pessoas viraram "Fornecedor — razão
 # social de empresa". É o mesmo defeito do "ISS" dentro de "COMISSAO".
-_EMPRESA = (" LTDA", " S/A", " MEI", "EIRELI", "SERVICOS", "SERVICO",
-            "DISTRIBUIDORA", "TELECOM", "COMERCIO", "TECNOLOGIA", "PAGAMENTOS", "INDUSTRIA",
-            "SISTEMAS", "SUPERMERC", "ADVOGAD", "CONTABIL", "ASSESSORIA", "CONSULTORIA",
-            "TRANSPORTE", "LOCADORA", "SEGURANCA", "ENGENHARIA", "MATERIAIS", "EQUIPAMENTOS",
-            "SEGUROS", "CLINICA", "LABORATORIO", "POSTO ")
+_EMPRESA = (
+    " LTDA",
+    " S/A",
+    " MEI",
+    "EIRELI",
+    "SERVICOS",
+    "SERVICO",
+    "DISTRIBUIDORA",
+    "TELECOM",
+    "COMERCIO",
+    "TECNOLOGIA",
+    "PAGAMENTOS",
+    "INDUSTRIA",
+    "SISTEMAS",
+    "SUPERMERC",
+    "ADVOGAD",
+    "CONTABIL",
+    "ASSESSORIA",
+    "CONSULTORIA",
+    "TRANSPORTE",
+    "LOCADORA",
+    "SEGURANCA",
+    "ENGENHARIA",
+    "MATERIAIS",
+    "EQUIPAMENTOS",
+    "SEGUROS",
+    "CLINICA",
+    "LABORATORIO",
+    "POSTO ",
+)
 
 # Banco NÃO entra em _EMPRESA. Pagamento a banco quase nunca é "fornecedor de
 # serviço": é tarifa, financiamento, consórcio ou fatura de cartão — e cada um vai
@@ -113,9 +156,26 @@ _EMPRESA = (" LTDA", " S/A", " MEI", "EIRELI", "SERVICOS", "SERVICO",
 # Fornecedor e era a fatura do cartão que o Jordan usa para comprar material da
 # empresa. Sugestão errada com cara de certa é pior que não sugerir: o humano
 # confirma em bloco e grava o erro. Aqui a regra cala e devolve a decisão.
-_BANCO = ("ITAU", "NUBANK", "NU PAGAMENTOS", "BRADESCO", "SANTANDER", "BANCO DO BRASIL",
-          "BANCO C6", "C6 BANK", "BTG", "SICOOB", "SICREDI", "BANRISUL", "SAFRA",
-          "PAGSEGURO", "MERCADO PAGO", "PICPAY", "WILL FINANCEIRA", "AGIBANK")
+_BANCO = (
+    "ITAU",
+    "NUBANK",
+    "NU PAGAMENTOS",
+    "BRADESCO",
+    "SANTANDER",
+    "BANCO DO BRASIL",
+    "BANCO C6",
+    "C6 BANK",
+    "BTG",
+    "SICOOB",
+    "SICREDI",
+    "BANRISUL",
+    "SAFRA",
+    "PAGSEGURO",
+    "MERCADO PAGO",
+    "PICPAY",
+    "WILL FINANCEIRA",
+    "AGIBANK",
+)
 # Sufixo societário curto vale SÓ no fim do nome — "SANTOS" não é "SA".
 _EMPRESA_SUFIXO = (" SA", " S A", " ME")
 
@@ -140,8 +200,9 @@ def _casa_nome(tabela: str, campo_alvo: str, onde: str = "TRUE") -> str:
                 array_length(string_to_array(c.nome, ' '), 1)) || '%')"""
 
 
-def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool,
-             e_diarista: bool = False, e_pj: bool = False) -> tuple[str | None, str]:
+def _sugerir(
+    contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool, e_diarista: bool = False, e_pj: bool = False
+) -> tuple[str | None, str]:
     """(categoria_sugerida, motivo). None = o sistema não sabe; decide o humano.
 
     Ordem importa: o teste mais específico primeiro. Um funcionário que também é
@@ -163,7 +224,10 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
     if any(b in c for b in _BANCO):
         # Vem ANTES de _EMPRESA e do teste de valor: sem isto, "ITAU UNIBANCO
         # HOLDING S A" caía em `fornecedor` por ser razão social de empresa.
-        return None, "favorecido é banco — pode ser fatura de cartão, financiamento, consórcio ou tarifa; decide o humano"
+        return (
+            None,
+            "favorecido é banco — pode ser fatura de cartão, financiamento, consórcio ou tarifa; decide o humano",
+        )
     if abs(valor) == 32.0:
         return "beneficio_vtvr", "R$32,00 = VT + VR de diarista"
     if e_funcionario:
@@ -181,7 +245,10 @@ def _sugerir(contraparte: str, valor: float, e_funcionario: bool, tem_nfse: bool
 
 async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 60) -> dict:
     """Saídas SEM classificação, agrupadas por contraparte, com sugestão."""
-    rows = (await db.execute(text(f"""
+    rows = (
+        (
+            await db.execute(
+                text(f"""
         WITH sem AS (
             SELECT {_SQL_CONTRAPARTE} AS contraparte,
                    count(*) AS n, sum(abs(amount)) AS valor,
@@ -197,10 +264,8 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
             HAVING sum(abs(amount)) >= :minimo
         )
         SELECT s.contraparte, s.n, s.valor, s.de, s.ate,
-               {_casa_nome("employees", "s.alvo",
-                           "c.status NOT IN ('pj_ativo','pj_pendente')")} AS e_func,
-               {_casa_nome("employees", "s.alvo",
-                           "c.status IN ('pj_ativo','pj_pendente')")} AS e_pj,
+               {_casa_nome("employees", "s.alvo", "c.status NOT IN ('pj_ativo','pj_pendente')")} AS e_func,
+               {_casa_nome("employees", "s.alvo", "c.status IN ('pj_ativo','pj_pendente')")} AS e_pj,
                {_casa_nome("diaria_diaristas", "s.contraparte")} AS e_diarista,
                EXISTS (SELECT 1 FROM nfse_tomadas_nacional t
                        WHERE upper(coalesce(t.prestador_nome,'')) <> ''
@@ -208,26 +273,34 @@ async def listar_grupos(db: AsyncSession, *, minimo: float = 0.0, limite: int = 
         FROM sem s
         ORDER BY s.valor DESC
         LIMIT :limite
-    """), {"minimo": minimo, "limite": limite})).mappings().all()
+    """),
+                {"minimo": minimo, "limite": limite},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     grupos = []
     for r in rows:
-        cat, motivo = _sugerir(r["contraparte"], float(r["valor"]), r["e_func"],
-                               r["tem_nfse"], r["e_diarista"], r["e_pj"])
-        grupos.append({
-            "contraparte": r["contraparte"].strip(),
-            "movimentacoes": int(r["n"]),
-            "valor": round(float(r["valor"]), 2),
-            "periodo": f"{r['de']} a {r['ate']}",
-            "sugestao": cat,
-            "sugestao_label": dict(CATEGORIAS).get(cat, "—") if cat else "—",
-            "motivo": motivo,
-        })
+        cat, motivo = _sugerir(
+            r["contraparte"], float(r["valor"]), r["e_func"], r["tem_nfse"], r["e_diarista"], r["e_pj"]
+        )
+        grupos.append(
+            {
+                "contraparte": r["contraparte"].strip(),
+                "movimentacoes": int(r["n"]),
+                "valor": round(float(r["valor"]), 2),
+                "periodo": f"{r['de']} a {r['ate']}",
+                "sugestao": cat,
+                "sugestao_label": dict(CATEGORIAS).get(cat, "—") if cat else "—",
+                "motivo": motivo,
+            }
+        )
     return {"grupos": grupos, "categorias": [{"value": k, "label": v} for k, v in CATEGORIAS]}
 
 
-async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: str,
-                            responsavel: str) -> dict:
+async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: str, responsavel: str) -> dict:
     """Aplica a categoria a TODAS as saídas sem classificação daquela contraparte.
 
     Só toca `amount < 0` e `justificativa_categoria IS NULL` — nunca reclassifica o
@@ -240,7 +313,9 @@ async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: st
         return {"ok": False, "erro": "contraparte muito curta para casar com segurança"}
 
     label = dict(CATEGORIAS)[categoria]
-    r = (await db.execute(text(f"""
+    r = (
+        await db.execute(
+            text(f"""
         UPDATE bank_transactions SET
             justificativa_categoria = :cat,
             justificativa = :just,
@@ -250,21 +325,33 @@ async def classificar_grupo(db: AsyncSession, *, contraparte: str, categoria: st
         WHERE amount < 0 AND justificativa_categoria IS NULL
           AND trim({_SQL_CONTRAPARTE}) = trim(:alvo)
         RETURNING abs(amount)
-    """), {"cat": categoria, "just": label, "resp": responsavel, "alvo": alvo})).fetchall()
+    """),
+            {"cat": categoria, "just": label, "resp": responsavel, "alvo": alvo},
+        )
+    ).fetchall()
     await db.commit()
     if not r:
         # Sucesso com 0 linhas é mentira educada: o usuário clica, lê "ok" e
         # acha que classificou. Aconteceu de verdade — a lista fazia strip() no
         # nome e o UPDATE comparava sem trim, então nunca casava.
-        return {"ok": False, "erro": (f"nenhuma saída sem classificação encontrada para "
-                                      f"{alvo[:40]!r} — o grupo pode já ter sido classificado")}
+        return {
+            "ok": False,
+            "erro": (
+                f"nenhuma saída sem classificação encontrada para {alvo[:40]!r} — o grupo pode já ter sido classificado"
+            ),
+        }
     total = round(sum(float(x[0]) for x in r), 2)
-    return {"ok": True, "contraparte": alvo, "categoria": categoria, "categoria_label": label,
-            "classificadas": len(r), "valor": total}
+    return {
+        "ok": True,
+        "contraparte": alvo,
+        "categoria": categoria,
+        "categoria_label": label,
+        "classificadas": len(r),
+        "valor": total,
+    }
 
 
-async def listar_grupos_classificados(db: AsyncSession, *, minimo: float = 0.0,
-                                      limite: int = 250) -> dict:
+async def listar_grupos_classificados(db: AsyncSession, *, minimo: float = 0.0, limite: int = 250) -> dict:
     """Saídas JÁ classificadas, agrupadas por contraparte — a matéria-prima da correção.
 
     Espelha `listar_grupos`, trocando `IS NULL` por `IS NOT NULL`. Separado de propósito:
@@ -274,7 +361,10 @@ async def listar_grupos_classificados(db: AsyncSession, *, minimo: float = 0.0,
     Grupo com MAIS DE UMA categoria aparece marcado: é o sintoma clássico de classificação
     errada — "Salario julho" já esteve como `(sem)`, `fornecedor` E `salario` ao mesmo tempo.
     """
-    rows = (await db.execute(text(f"""
+    rows = (
+        (
+            await db.execute(
+                text(f"""
         WITH com AS (
             SELECT {_SQL_CONTRAPARTE} AS contraparte,
                    count(*) AS n, sum(abs(amount)) AS valor,
@@ -289,26 +379,35 @@ async def listar_grupos_classificados(db: AsyncSession, *, minimo: float = 0.0,
             HAVING sum(abs(amount)) >= :minimo
         )
         SELECT * FROM com ORDER BY valor DESC LIMIT :limite
-    """), {"minimo": minimo, "limite": limite})).mappings().all()
+    """),
+                {"minimo": minimo, "limite": limite},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     grupos = []
     for r in rows:
-        grupos.append({
-            "contraparte": r["contraparte"].strip(),
-            "movimentacoes": int(r["n"]),
-            "valor": round(float(r["valor"]), 2),
-            "periodo": f"{r['de']} a {r['ate']}",
-            "categoria": r["cat"],
-            "categoria_label": dict(CATEGORIAS).get(r["cat"], r["cat"] or "—"),
-            "categorias_distintas": int(r["n_cats"]),
-            "quem": r["quem"] or "—",
-            "quando": str(r["quando"] or "—"),
-        })
+        grupos.append(
+            {
+                "contraparte": r["contraparte"].strip(),
+                "movimentacoes": int(r["n"]),
+                "valor": round(float(r["valor"]), 2),
+                "periodo": f"{r['de']} a {r['ate']}",
+                "categoria": r["cat"],
+                "categoria_label": dict(CATEGORIAS).get(r["cat"], r["cat"] or "—"),
+                "categorias_distintas": int(r["n_cats"]),
+                "quem": r["quem"] or "—",
+                "quando": str(r["quando"] or "—"),
+            }
+        )
     return {"grupos": grupos, "categorias": [{"value": k, "label": v} for k, v in CATEGORIAS]}
 
 
-async def corrigir_classificacao_grupo(db: AsyncSession, *, contraparte: str, categoria: str,
-                                       motivo: str, responsavel: str) -> dict:
+async def corrigir_classificacao_grupo(
+    db: AsyncSession, *, contraparte: str, categoria: str, motivo: str, responsavel: str
+) -> dict:
     """Troca a categoria de um grupo JÁ classificado. Exige motivo e guarda a anterior.
 
     `classificar_grupo` se recusa a tocar no que já tem categoria — guard certo, ele
@@ -335,27 +434,46 @@ async def corrigir_classificacao_grupo(db: AsyncSession, *, contraparte: str, ca
         return {"ok": False, "erro": "contraparte muito curta para casar com segurança"}
     motivo = (motivo or "").strip()
     if len(motivo) < 10:
-        return {"ok": False, "erro": ("escreva o motivo da correção (mínimo 10 letras) — "
-                                      "trocar categoria de dinheiro sem dizer por quê é o "
-                                      "que faz ninguém confiar no número depois")}
+        return {
+            "ok": False,
+            "erro": (
+                "escreva o motivo da correção (mínimo 10 letras) — "
+                "trocar categoria de dinheiro sem dizer por quê é o "
+                "que faz ninguém confiar no número depois"
+            ),
+        }
 
     label = dict(CATEGORIAS)[categoria]
-    rows = (await db.execute(text(f"""
+    rows = (
+        (
+            await db.execute(
+                text(f"""
         SELECT id::text AS id, abs(amount) AS valor,
                coalesce(justificativa_categoria,'(sem)') AS antiga
         FROM bank_transactions
         WHERE amount < 0 AND justificativa_categoria IS NOT NULL
           AND trim({_SQL_CONTRAPARTE}) = trim(:alvo)
-    """), {"alvo": alvo})).mappings().all()
+    """),
+                {"alvo": alvo},
+            )
+        )
+        .mappings()
+        .all()
+    )
     if not rows:
-        return {"ok": False, "erro": (f"nenhuma saída JÁ classificada para {alvo[:40]!r} — "
-                                      f"use a tela de classificar, não a de corrigir")}
+        return {
+            "ok": False,
+            "erro": (
+                f"nenhuma saída JÁ classificada para {alvo[:40]!r} — use a tela de classificar, não a de corrigir"
+            ),
+        }
     if all(r["antiga"] == categoria for r in rows):
         return {"ok": False, "erro": f"o grupo já está como {label!r} — nada a corrigir"}
 
     anteriores = sorted({r["antiga"] for r in rows})
     for r in rows:
-        await db.execute(text("""
+        await db.execute(
+            text("""
             UPDATE bank_transactions SET
                 justificativa_categoria = :cat,
                 justificativa = :just,
@@ -363,35 +481,60 @@ async def corrigir_classificacao_grupo(db: AsyncSession, *, contraparte: str, ca
                 justificativa_data = NOW(),
                 updated_at = NOW()
             WHERE id = CAST(:id AS uuid)
-        """), {"cat": categoria, "id": r["id"], "resp": responsavel,
-               "just": f"{label} — CORRIGIDO de '{r['antiga']}' por {responsavel}: {motivo[:180]}"})
+        """),
+            {
+                "cat": categoria,
+                "id": r["id"],
+                "resp": responsavel,
+                "just": f"{label} — CORRIGIDO de '{r['antiga']}' por {responsavel}: {motivo[:180]}",
+            },
+        )
 
     # Razão: só o que ainda está em competência ABERTA.
     repostos, intocados = 0, 0
-    lanc = (await db.execute(text("""
-        SELECT a.id::text AS id, a.data_lancamento AS dia, coalesce(bt.description,'') AS desc
+    lanc = (
+        (
+            await db.execute(
+                text("""
+        SELECT a.id::text AS id, a.data_lancamento AS dia, a.empresa_id::text AS empresa_id,
+               coalesce(bt.description,'') AS desc
         FROM accounting_entries a JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
         WHERE bt.id = ANY(CAST(:ids AS uuid[]))
-    """), {"ids": [r["id"] for r in rows]})).mappings().all()
+    """),
+                {"ids": [r["id"] for r in rows]},
+            )
+        )
+        .mappings()
+        .all()
+    )
     for l in lanc:
-        if periodo_fechado(l["dia"]):
+        if periodo_fechado(l["dia"], l["empresa_id"]):
             intocados += 1
             continue
         conta, _m = contrapartida_saida(categoria, l["desc"])
-        await db.execute(text(
-            "UPDATE accounting_entries SET conta_debito = :c, updated_at = NOW(), "
-            "historico = historico || ' [corrigido para ' || :cat || ']' WHERE id = CAST(:i AS uuid)"),
-            {"c": conta, "cat": categoria, "i": l["id"]})
+        await db.execute(
+            text(
+                "UPDATE accounting_entries SET conta_debito = :c, updated_at = NOW(), "
+                "historico = historico || ' [corrigido para ' || :cat || ']' WHERE id = CAST(:i AS uuid)"
+            ),
+            {"c": conta, "cat": categoria, "i": l["id"]},
+        )
         repostos += 1
     await db.commit()
-    return {"ok": True, "contraparte": alvo, "categoria": categoria, "categoria_label": label,
-            "anteriores": anteriores, "corrigidas": len(rows),
-            "valor": round(sum(float(r["valor"]) for r in rows), 2),
-            "lancamentos_repostos": repostos, "lancamentos_em_periodo_fechado": intocados}
+    return {
+        "ok": True,
+        "contraparte": alvo,
+        "categoria": categoria,
+        "categoria_label": label,
+        "anteriores": anteriores,
+        "corrigidas": len(rows),
+        "valor": round(sum(float(r["valor"]) for r in rows), 2),
+        "lancamentos_repostos": repostos,
+        "lancamentos_em_periodo_fechado": intocados,
+    }
 
 
-async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str,
-                            preview: bool = True) -> dict:
+async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str, preview: bool = True) -> dict:
     """Aplica em massa as classificações que a REGRA já sabe.
 
     Grupo sem sugestão fica intocado — o "não sei" é resposta, e forçar categoria
@@ -420,8 +563,9 @@ async def aplicar_sugestoes(db: AsyncSession, *, responsavel: str,
     for g in unicos:
         n, v = g["movimentacoes"], g["valor"]
         if not preview:
-            r = await classificar_grupo(db, contraparte=g["contraparte"],
-                                        categoria=g["sugestao"], responsavel=responsavel)
+            r = await classificar_grupo(
+                db, contraparte=g["contraparte"], categoria=g["sugestao"], responsavel=responsavel
+            )
             if not r.get("ok"):
                 falhas.append({"contraparte": g["contraparte"][:60], "erro": r.get("erro")})
                 logger.warning("mutirão: %r não aplicado: %s", g["contraparte"][:40], r.get("erro"))
@@ -473,8 +617,10 @@ _MEMO_NATUREZA: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 _MEMO_RELACAO: tuple[tuple[tuple[str, ...], str], ...] = (
     # "SALRIO" sem o A é digitação real do extrato, não engano meu.
-    (("SALARIO", "SALARIO", "SALRIO", "DIFERENCA SALARIAL", "RESCISAO", "FERIAS",
-      "13 SALARIO", "DECIMO TERCEIRO"), "salario"),
+    (
+        ("SALARIO", "SALARIO", "SALRIO", "DIFERENCA SALARIAL", "RESCISAO", "FERIAS", "13 SALARIO", "DECIMO TERCEIRO"),
+        "salario",
+    ),
     (("ADIANTAMENTO", "ADIANTANENTO", "VALE "), "adiantamento"),
     (("DIARIA", "DIARIAS", "COBERTURA"), "diarista"),
 )
@@ -482,18 +628,28 @@ _MEMO_RELACAO: tuple[tuple[tuple[str, ...], str], ...] = (
 
 def _memo(descricao: str) -> str:
     """Só o que a pessoa escreveu — sem o prefixo do conector."""
-    d = _RE_ACENTO.sub(lambda m: _SEM_ACENTO.get(m.group(0), m.group(0)),
-                       (descricao or "").upper())
+    d = _RE_ACENTO.sub(lambda m: _SEM_ACENTO.get(m.group(0), m.group(0)), (descricao or "").upper())
     return re.sub(r"^\[CORA\]\s*", "", d).strip()
 
 
-_SEM_ACENTO = {"Á": "A", "À": "A", "Â": "A", "Ã": "A", "É": "E", "Ê": "E", "Í": "I",
-               "Ó": "O", "Ô": "O", "Õ": "O", "Ú": "U", "Ç": "C"}
+_SEM_ACENTO = {
+    "Á": "A",
+    "À": "A",
+    "Â": "A",
+    "Ã": "A",
+    "É": "E",
+    "Ê": "E",
+    "Í": "I",
+    "Ó": "O",
+    "Ô": "O",
+    "Õ": "O",
+    "Ú": "U",
+    "Ç": "C",
+}
 _RE_ACENTO = re.compile("[" + "".join(_SEM_ACENTO) + "]")
 
 
-def sugerir_por_memo(descricao: str, *, e_pj: bool = False,
-                     favorecido: str = "") -> tuple[str | None, str]:
+def sugerir_por_memo(descricao: str, *, e_pj: bool = False, favorecido: str = "") -> tuple[str | None, str]:
     """(categoria, motivo) a partir do memo. None = o memo não diz.
 
     `favorecido` decide reembolso × fornecedor: reembolso é devolver dinheiro a

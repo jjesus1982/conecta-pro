@@ -547,7 +547,17 @@ async def _gravar_nota(
             "        :codigo_servico, :descricao, 'conciliacao_fisco', e.id, :cancelada, :obs, :ambiente"
             "   FROM empresas e WHERE regexp_replace(e.cnpj,'\\D','','g') = :cnpj"
             " ON CONFLICT (chave_acesso) DO UPDATE SET"
-            "   numero = EXCLUDED.numero, ambiente = EXCLUDED.ambiente,"
+            "   numero = EXCLUDED.numero,"
+            # O ambiente NUNCA é rebaixado. Uma nota que já consta como 'producao' foi
+            # encontrada no fisco de verdade — reencontrá-la numa varredura de homologação
+            # não a torna teste. Medido em 26/09/2026: a NFS-e 13 da Patrimonial
+            # (R$ 36.932,63, Laranjeiras Village, 24/07) virou 'homologacao' nessa
+            # sobrescrita, saiu do faturamento e o razão de julho passou a divergir do
+            # PGDAS-D entregue à Receita — R$ 255.400,06 declarados contra R$ 212.428,81
+            # contabilizados. Só a promoção (homologação → produção) é permitida.
+            "   ambiente = CASE WHEN 'producao' IN (EXCLUDED.ambiente,"
+            "                                       nfse_emitidas_nacional.ambiente)"
+            "                   THEN 'producao' ELSE EXCLUDED.ambiente END,"
             "   competencia = COALESCE(EXCLUDED.competencia, nfse_emitidas_nacional.competencia),"
             "   data_emissao = COALESCE(EXCLUDED.data_emissao, nfse_emitidas_nacional.data_emissao),"
             "   tomador_cnpj = COALESCE(EXCLUDED.tomador_cnpj, nfse_emitidas_nacional.tomador_cnpj),"

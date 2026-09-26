@@ -19,9 +19,18 @@ from pathlib import Path
 from .base import BaseExtractor, ExtractionResult
 
 _MESES_PT: dict[str, str] = {
-    "janeiro": "01", "fevereiro": "02", "março": "03", "abril": "04",
-    "maio": "05", "junho": "06", "julho": "07", "agosto": "08",
-    "setembro": "09", "outubro": "10", "novembro": "11", "dezembro": "12",
+    "janeiro": "01",
+    "fevereiro": "02",
+    "março": "03",
+    "abril": "04",
+    "maio": "05",
+    "junho": "06",
+    "julho": "07",
+    "agosto": "08",
+    "setembro": "09",
+    "outubro": "10",
+    "novembro": "11",
+    "dezembro": "12",
 }
 
 
@@ -39,6 +48,18 @@ class DASExtractor(BaseExtractor):
     )
     # Barcode arrecadação: 4 grupos (formato guia) — reaproveita o helper da base
     RE_CNPJ = re.compile(r"\d{2}[\.\s]*\d{3}[\.\s]*\d{3}[/\s]*\d{4}[-\s]*\d{2}")
+
+    # "Composição do Documento de Arrecadação": uma linha por tributo, no formato
+    #   1006 INSS - SIMPLES NACIONAL 171,06 171,06
+    # O docstring desta classe prometia essa leitura desde sempre e o código nunca a
+    # fazia. Ela é o que distingue Anexo III (CPP DENTRO do DAS, ~43% da guia) de
+    # Anexo IV (CPP FORA, declarada na DCTFWeb) — e sem ela a única forma de saber era
+    # abrir o PDF à mão, que é como se descobriu em 26/09/2026 que a CPP patronal da
+    # Patrimonial não estava em documento nenhum.
+    RE_COMPOSICAO = re.compile(
+        r"^\s*(\d{4})\s+([A-Z]+)\s*-\s*SIMPLES NACIONAL\s+([\d.]+,\d{2})",
+        re.IGNORECASE | re.MULTILINE,
+    )
 
     def extract(self, pdf_path: Path) -> ExtractionResult:
         result = ExtractionResult(tipo=self.TIPO)
@@ -68,6 +89,17 @@ class DASExtractor(BaseExtractor):
                 if mes:
                     result.competencia = f"{mes}/{m.group(2)}"
                 result.detalhes["competencia_raw"] = m.group(0)
+
+            composicao: dict[str, float] = {}
+            for cod, tributo, bruto in self.RE_COMPOSICAO.findall(texto):
+                valor = self._safe_decimal(bruto)
+                if valor is None:
+                    continue
+                chave = tributo.upper()
+                composicao[chave] = float(composicao.get(chave, 0)) + float(valor)
+                composicao[f"cod_{cod}"] = chave
+            if composicao:
+                result.detalhes["composicao"] = composicao
 
             result.codigo_barras = self._extract_barcode(texto)
             tem_cnpj = bool(self.RE_CNPJ.search(texto))
@@ -102,7 +134,9 @@ if __name__ == "__main__":
     for p in pdfs:
         r = ext.extract(p)
         d = r.to_dict()
-        print(f"{'✅' if d['confianca'] >= 0.70 else '❌'} {p.name[:50]:50} valor={d['valor']} venc={d['vencimento']} comp={d['competencia']} conf={d['confianca']}")
+        print(
+            f"{'✅' if d['confianca'] >= 0.70 else '❌'} {p.name[:50]:50} valor={d['valor']} venc={d['vencimento']} comp={d['competencia']} conf={d['confianca']}"
+        )
         if d["confianca"] >= 0.70:
             ok += 1
     taxa = ok / len(pdfs) if pdfs else 0

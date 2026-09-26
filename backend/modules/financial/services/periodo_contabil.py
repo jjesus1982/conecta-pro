@@ -21,6 +21,7 @@ Saldo de abertura em 01/08/2026, provado por dois caminhos independentes:
 from __future__ import annotations
 
 import os
+import re
 from datetime import date
 
 # Ajustável por env para o dia em que o corte mudar (virada de exercício, por
@@ -29,7 +30,7 @@ CORTE_CONTABIL = date.fromisoformat(os.getenv("CONECTA_CORTE_CONTABIL", "2026-08
 
 # Saldo de abertura medido no corte, por conta bancária (ids reais).
 ABERTURA_NO_CORTE: dict[str, float] = {
-    "20663dc9-805c-4721-bc1f-62a041cee3c1": 725.47,    # Banco Inter
+    "20663dc9-805c-4721-bc1f-62a041cee3c1": 725.47,  # Banco Inter
     "1268590a-0a2b-4b16-b959-6c14fe838d93": 17938.36,  # Cora SCD
 }
 
@@ -54,10 +55,50 @@ SQL_CONTA_EM_ABERTO = (
 )
 
 
-def periodo_fechado(d: date | None) -> bool:
-    """True se a data cai em período fechado (antes do corte).
+#: Cache do corte por empresa (`empresas.corte_contabil`). O corte é POR EMPRESA
+#: desde 26/09/2026: a decisão de 11/08 — "jan–jul foram vividos fora do sistema" —
+#: era sobre a ELETRÔNICA, cujo dado veio de CSV e da Portte. A PATRIMONIAL abriu o
+#: CNPJ em 31/03/2026 e sempre operou dentro do sistema, com fonte primária (notas do
+#: ADN e PGDAS-D). Aplicar a arqueologia da irmã nela custava junho inteiro: 11 notas,
+#: R$ 315.764,86 emitidas contra R$ 79.594,13 lançados, e um junho que aparecia com
+#: prejuízo de R$ 58 mil por falta de receita, não por falta de resultado.
+#:
+#: O fato mora em UMA linha do banco (`empresas.corte_contabil`), lida tanto daqui
+#: quanto do gatilho `fn_bloqueia_periodo_fechado` — dois leitores, uma verdade.
+_CORTE_CACHE: dict[str, date] = {}
+
+
+def corte_da_empresa(empresa_id: str | None) -> date:
+    """Corte contábil desta empresa. Sem empresa, ou sem coluna preenchida: o global."""
+    chave = str(empresa_id or "")
+    if not chave:
+        return CORTE_CONTABIL
+    if chave not in _CORTE_CACHE:
+        _CORTE_CACHE[chave] = _ler_corte_no_banco(chave) or CORTE_CONTABIL
+    return _CORTE_CACHE[chave]
+
+
+def _ler_corte_no_banco(empresa_id: str) -> date | None:
+    """Lê `empresas.corte_contabil`. Qualquer falha devolve None → corte global, que é
+    o lado SEGURO: na dúvida o período fica fechado, não aberto."""
+    try:
+        import psycopg2
+
+        url = re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+        if not url:
+            return None
+        with psycopg2.connect(url) as conn, conn.cursor() as cur:
+            cur.execute("SELECT corte_contabil FROM empresas WHERE id = %s", (empresa_id,))
+            linha = cur.fetchone()
+            return linha[0] if linha else None
+    except Exception:  # noqa: BLE001 — sem banco, o corte global vale
+        return None
+
+
+def periodo_fechado(d: date | None, empresa_id: str | None = None) -> bool:
+    """True se a data cai em período fechado (antes do corte DESTA empresa).
 
     `None` não é fechado: quem trata data ausente é quem chama — aqui responder
     "fechado" esconderia o registro sem data atrás do motivo errado.
     """
-    return d is not None and d < CORTE_CONTABIL
+    return d is not None and d < corte_da_empresa(empresa_id)

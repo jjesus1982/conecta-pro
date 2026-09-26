@@ -107,7 +107,7 @@ class LedgerAutoService:
             # date em `periodo_fechado` levantava TypeError, a transação inteira voltava e o
             # razão parou em 11/08/2026 — 27 dias sem folha, nota ou tomada (achado 07/09).
             data = date.fromisoformat(data[:10])
-        if _periodo_fechado(data):
+        if _periodo_fechado(data, empresa_id):
             # Período anterior ao corte (01/08/2026) está fechado: de janeiro a
             # julho a empresa operou FORA do sistema, e deixar lançamento novo
             # cair lá contamina todo relatório acumulado em silêncio.
@@ -182,17 +182,35 @@ class LedgerAutoService:
                 continue
             code = code or f"{periodo}"
             n_sal += self._post(
-                cur, data=data, cd="5.1.1.01", cc="2.1.1.01", valor=bruto,
-                hist=f"Folha {periodo} - salario bruto {code}", tipo="folha",
-                ref=f"FOLHA-{code}", periodo=periodo, empresa_id=empresa_id,
+                cur,
+                data=data,
+                cd="5.1.1.01",
+                cc="2.1.1.01",
+                valor=bruto,
+                hist=f"Folha {periodo} - salario bruto {code}",
+                tipo="folha",
+                ref=f"FOLHA-{code}",
+                periodo=periodo,
+                empresa_id=empresa_id,
             )
             n_fgts += self._post(
-                cur, data=data, cd="5.1.1.02", cc="2.1.1.02", valor=fgts,
-                hist=f"FGTS patronal {periodo} - {code}", tipo="encargo_fgts",
-                ref=f"FGTS-{code}", periodo=periodo, empresa_id=empresa_id,
+                cur,
+                data=data,
+                cd="5.1.1.02",
+                cc="2.1.1.02",
+                valor=fgts,
+                hist=f"FGTS patronal {periodo} - {code}",
+                tipo="encargo_fgts",
+                ref=f"FGTS-{code}",
+                periodo=periodo,
+                empresa_id=empresa_id,
             )
-        return {"salarios": n_sal, "fgts": n_fgts,
-                "sem_data_ignorados": sem_data, "competencia_futura_ignorados": futuros}
+        return {
+            "salarios": n_sal,
+            "fgts": n_fgts,
+            "sem_data_ignorados": sem_data,
+            "competencia_futura_ignorados": futuros,
+        }
 
     def _lancar_receita_e_iss_nacional(self, cur, empresa_id) -> dict:
         """Receita de serviços + ISS a partir das NFS-e REAIS do portal NACIONAL (gov.br/ADN),
@@ -204,23 +222,38 @@ class LedgerAutoService:
         if cur.fetchone()[0] is None:
             return {"receita": 0, "iss": 0, "fonte": "sem tabela nacional"}
 
+        # No SIMPLES NACIONAL o ISS não é tributo à parte: ele é um COMPONENTE do DAS.
+        # Provado na própria guia da Patrimonial em 26/09/2026 — o DAS de 07/2026
+        # (R$ 17.048,87) traz "1010 ISS - SIMPLES NACIONAL R$ 4.709,56" dentro dele, e o
+        # de 08/2026 traz R$ 6.311,95. Postar o ISS destacado na NFS-e ALÉM do DAS conta
+        # o mesmo imposto duas vezes; e o passivo 2.1.2.01 que nascia disso nunca era
+        # baixado (5 créditos, R$ 9.792,84, ZERO débitos) porque não há o que pagar.
+        # A alíquota que aparece na nota (2,01% → 4,36% em quatro meses) é a alíquota
+        # EFETIVA de ISS do Simples subindo com o RBT12, não um ISS municipal próprio.
+        cur.execute("SELECT regime_tributario FROM empresas WHERE id = %s", (empresa_id,))
+        linha = cur.fetchone()
+        iss_no_das = ((linha[0] if linha else "") or "") == "simples_nacional"
+
         # Purga a receita/ISS antigos DESTA empresa (idempotência do repost) — ESCOPADO por
         # empresa_id: sem o filtro, fechar(Patrimonial) apagaria os lançamentos da Eletrônica
         # (e vice-versa). Multi-CNPJ: cada razão só mexe no que é seu.
         # SÓ o período aberto (>= corte): o repost abaixo é recusado antes do corte por
         # `_post`, então purgar tudo apagaria jan–jul (182 lançamentos, R$ 1,96 mi) e não
         # reporia — o razão arqueológico sumiria no primeiro fechamento (achado 07/09/2026).
-        from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+        from modules.financial.services.periodo_contabil import corte_da_empresa
+
         cur.execute(
-            "DELETE FROM accounting_entries WHERE tipo_lancamento IN ('nfse_emitida','tributo_iss') "
+            "DELETE FROM accounting_entries "
+            "WHERE tipo_lancamento IN ('nfse_emitida','tributo_iss','inss_retido_fonte') "
             "AND empresa_id = %s AND data_lancamento >= %s",
-            (empresa_id, CORTE_CONTABIL),
+            (empresa_id, corte_da_empresa(empresa_id)),
         )
 
         # SÓ as notas DESTA empresa. Sem o filtro empresa_id, as 6 notas da Patrimonial
         # (Simples) caíam no razão da Eletrônica (Lucro Real) — contaminação de regime.
         cur.execute(
-            "SELECT chave_acesso, numero, competencia, data_emissao, valor_servicos, iss_valor "
+            "SELECT chave_acesso, numero, competencia, data_emissao, valor_servicos, iss_valor, "
+            "       COALESCE(inss_retido, 0) "
             "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s "
             "AND COALESCE(cancelada, FALSE) = FALSE "  # nota cancelada não vira receita/ISS
             # Nota de HOMOLOGAÇÃO não é faturamento. Sem este filtro, toda nota de teste
@@ -230,20 +263,60 @@ class LedgerAutoService:
             (empresa_id,),
         )
         n_rec = n_iss = 0
-        for chave, numero, comp, data_emi, vserv, iss in cur.fetchall():
+        n_ret = 0
+        for chave, numero, comp, data_emi, vserv, iss, inss_ret in cur.fetchall():
             data = str(data_emi)[:10] if data_emi else (comp + "-01" if comp else None)
             n_rec += self._post(
-                cur, data=data, cd="1.1.2.01", cc="4.1.1.01", valor=vserv,
-                hist=f"Receita NFS-e {numero} ({comp})", tipo="nfse_emitida",
-                ref=f"RECNAC-{chave}", periodo=comp, empresa_id=empresa_id,
+                cur,
+                data=data,
+                cd="1.1.2.01",
+                cc="4.1.1.01",
+                valor=vserv,
+                hist=f"Receita NFS-e {numero} ({comp})",
+                tipo="nfse_emitida",
+                ref=f"RECNAC-{chave}",
+                periodo=comp,
+                empresa_id=empresa_id,
             )
-            if iss and float(iss) > 0:
-                n_iss += self._post(
-                    cur, data=data, cd="5.2.2.01", cc="2.1.2.01", valor=iss,
-                    hist=f"ISS s/ NFS-e {numero} ({comp})", tipo="tributo_iss",
-                    ref=f"ISSNAC-{chave}", periodo=comp, empresa_id=empresa_id,
+            # Os 11% da Lei 9.711/98 que o tomador retém na cessão de mão de obra: o cliente
+            # paga a nota MENOS esse valor e recolhe a diferença ao INSS em nosso nome. Sem
+            # este lançamento o valor ficava eternamente em "Clientes a Receber" como se
+            # fosse inadimplência — R$ 175.000,18 nas duas empresas em 26/09/2026, dos quais
+            # R$ 84.709,90 da Patrimonial. É crédito a compensar, e a própria DCTFWeb o
+            # reconhece como "Retenção Lei 9711/98" (R$ 19.544,08 informados em 08/2026).
+            if inss_ret and float(inss_ret) > 0:
+                n_ret += self._post(
+                    cur,
+                    data=data,
+                    cd="1.1.3.02",
+                    cc="1.1.2.01",
+                    valor=inss_ret,
+                    hist=f"INSS retido na fonte s/ NFS-e {numero} ({comp}) - Lei 9.711/98",
+                    tipo="inss_retido_fonte",
+                    ref=f"RETINSS-{chave}",
+                    periodo=comp,
+                    empresa_id=empresa_id,
                 )
-        return {"receita": n_rec, "iss": n_iss, "fonte": "adn_nacional"}
+            if iss and float(iss) > 0 and not iss_no_das:
+                n_iss += self._post(
+                    cur,
+                    data=data,
+                    cd="5.2.2.01",
+                    cc="2.1.2.01",
+                    valor=iss,
+                    hist=f"ISS s/ NFS-e {numero} ({comp})",
+                    tipo="tributo_iss",
+                    ref=f"ISSNAC-{chave}",
+                    periodo=comp,
+                    empresa_id=empresa_id,
+                )
+        return {
+            "receita": n_rec,
+            "iss": n_iss,
+            "iss_dentro_do_das": iss_no_das,
+            "inss_retido_fonte": n_ret,
+            "fonte": "adn_nacional",
+        }
 
     def _lancar_despesa_tomadas(self, cur, empresa_id) -> dict:
         """Despesa de serviços TOMADOS (NFS-e recebidas nacionais) — custo real dedutível.
@@ -261,9 +334,16 @@ class LedgerAutoService:
         for chave, numero, comp, data_emi, prest, vserv in cur.fetchall():
             data = str(data_emi)[:10] if data_emi else (comp + "-01" if comp else None)
             n += self._post(
-                cur, data=data, cd="5.2.1.04", cc="2.1.4.01", valor=vserv,
+                cur,
+                data=data,
+                cd="5.2.1.04",
+                cc="2.1.4.01",
+                valor=vserv,
                 hist=f"Serviço tomado NFS-e {numero} - {str(prest)[:40]} ({comp})",
-                tipo="despesa_tomada", ref=f"TOMNAC-{chave}", periodo=comp, empresa_id=empresa_id,
+                tipo="despesa_tomada",
+                ref=f"TOMNAC-{chave}",
+                periodo=comp,
+                empresa_id=empresa_id,
             )
         return {"despesa_tomadas": n, "fonte": "adn_nacional"}
 
@@ -336,16 +416,28 @@ class LedgerAutoService:
         data = f"{mes}-05"
         marca = " [continuidade]" if continuidade else ""
         self._post(
-            cur, data=data, cd="5.1.1.01", cc="2.1.1.01", valor=e["bruto"],
+            cur,
+            data=data,
+            cd="5.1.1.01",
+            cc="2.1.1.01",
+            valor=e["bruto"],
             hist=f"Folha {mes} (reconstruida{marca}) - {e['nome'][:38]}",
-            tipo="folha_reconstruida", ref=f"FOLHAREC-{mes}-{chave}",
-            periodo=mes, empresa_id=empresa_id,
+            tipo="folha_reconstruida",
+            ref=f"FOLHAREC-{mes}-{chave}",
+            periodo=mes,
+            empresa_id=empresa_id,
         )
         self._post(
-            cur, data=data, cd="5.1.1.02", cc="2.1.1.02", valor=e["fgts"],
+            cur,
+            data=data,
+            cd="5.1.1.02",
+            cc="2.1.1.02",
+            valor=e["fgts"],
             hist=f"FGTS {mes} (reconstruido{marca}) - {e['nome'][:38]}",
-            tipo="encargo_fgts_reconstruido", ref=f"FGTSREC-{mes}-{chave}",
-            periodo=mes, empresa_id=empresa_id,
+            tipo="encargo_fgts_reconstruido",
+            ref=f"FGTSREC-{mes}-{chave}",
+            periodo=mes,
+            empresa_id=empresa_id,
         )
 
     def reconstruir_folha_jan_fev(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
@@ -369,10 +461,16 @@ class LedgerAutoService:
                 for nome, bruto, liq, fgts in cur.fetchall():
                     toks = [t for t in _norm_nome(nome).split() if t not in _STOP_NOME and len(t) > 2]
                     if len(toks) >= 2:
-                        emps.append({
-                            "nome": nome, "bruto": float(bruto or 0), "liq": float(liq or 0),
-                            "fgts": float(fgts or 0), "first": toks[0], "last": toks[-1],
-                        })
+                        emps.append(
+                            {
+                                "nome": nome,
+                                "bruto": float(bruto or 0),
+                                "liq": float(liq or 0),
+                                "fgts": float(fgts or 0),
+                                "first": toks[0],
+                                "last": toks[-1],
+                            }
+                        )
 
                 resultado = {}
                 booked: dict[str, set] = {}  # mes -> set de chaves de funcionário bookados
@@ -382,10 +480,15 @@ class LedgerAutoService:
                 # fica com folha_reconstruida + folha (refs diferentes, não deduplicam) = DOBRO.
                 cur.execute("SELECT DISTINCT reference_period FROM hr_payslips WHERE COALESCE(total_earnings,0) > 0")
                 _reais = {r[0] for r in cur.fetchall()}
-                meses_alvo = tuple(m for m in ("2026-01", "2026-02", "2026-04", "2026-05", "2026-06") if m not in _reais)
+                meses_alvo = tuple(
+                    m for m in ("2026-01", "2026-02", "2026-04", "2026-05", "2026-06") if m not in _reais
+                )
                 if not meses_alvo:
-                    return {"ok": True, "meses": {},
-                            "metodo": "sem reconstrução — folha real (hr_payslips) presente em todos os meses."}
+                    return {
+                        "ok": True,
+                        "meses": {},
+                        "metodo": "sem reconstrução — folha real (hr_payslips) presente em todos os meses.",
+                    }
                 # março é a âncora (real em hr_payslips); reconstrói os demais meses por PIX real.
                 for mes in meses_alvo:
                     cur.execute(
@@ -432,9 +535,12 @@ class LedgerAutoService:
                     )
                     cnt, val = cur.fetchone()
                     resultado[mes] = {"funcionarios": cnt, "folha_bruta": round(float(val), 2)}
-            return {"ok": True, "meses": resultado,
-                    "metodo": "ancora março + confirmação por PIX real (nome+valor); bruto CLT estável. "
-                              "Ressalva: contratados APÓS março não estão na âncora (subcontagem em meses recentes)."}
+            return {
+                "ok": True,
+                "meses": resultado,
+                "metodo": "ancora março + confirmação por PIX real (nome+valor); bruto CLT estável. "
+                "Ressalva: contratados APÓS março não estão na âncora (subcontagem em meses recentes).",
+            }
         finally:
             conn.close()
 
@@ -462,21 +568,41 @@ class LedgerAutoService:
                     dec = round(base * 0.0833, 2)
                     data = f"{periodo}-01"
                     n_fer += self._post(
-                        cur, data=data, cd="5.1.1.05", cc="2.1.1.01", valor=fer,
-                        hist=f"Provisão de férias {periodo} (1/9 s/ folha real)", tipo="provisao_ferias",
-                        ref=f"PROVFER-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                        cur,
+                        data=data,
+                        cd="5.1.1.05",
+                        cc="2.1.1.01",
+                        valor=fer,
+                        hist=f"Provisão de férias {periodo} (1/9 s/ folha real)",
+                        tipo="provisao_ferias",
+                        ref=f"PROVFER-{periodo}",
+                        periodo=periodo,
+                        empresa_id=empresa_id,
                     )
                     n_dec += self._post(
-                        cur, data=data, cd="5.1.1.05", cc="2.1.1.01", valor=dec,
-                        hist=f"Provisão de 13º {periodo} (1/12 s/ folha real)", tipo="provisao_13",
-                        ref=f"PROV13-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                        cur,
+                        data=data,
+                        cd="5.1.1.05",
+                        cc="2.1.1.01",
+                        valor=dec,
+                        hist=f"Provisão de 13º {periodo} (1/12 s/ folha real)",
+                        tipo="provisao_13",
+                        ref=f"PROV13-{periodo}",
+                        periodo=periodo,
+                        empresa_id=empresa_id,
                     )
                     tot_fer += fer
                     tot_dec += dec
                 conn.commit()
-            return {"ok": True, "provisoes_ferias": n_fer, "provisoes_13": n_dec,
-                    "total_ferias": round(tot_fer, 2), "total_13": round(tot_dec, 2),
-                    "total_provisionado": round(tot_fer + tot_dec, 2), "empresa_id": empresa_id}
+            return {
+                "ok": True,
+                "provisoes_ferias": n_fer,
+                "provisoes_13": n_dec,
+                "total_ferias": round(tot_fer, 2),
+                "total_13": round(tot_dec, 2),
+                "total_provisionado": round(tot_fer + tot_dec, 2),
+                "empresa_id": empresa_id,
+            }
         finally:
             conn.close()
 
@@ -504,9 +630,16 @@ class LedgerAutoService:
                 for periodo, val in cur.fetchall():
                     val = float(val or 0)
                     n += self._post(
-                        cur, data=f"{periodo}-01", cd="2.1.1.01", cc="2.1.1.03", valor=val,
-                        hist=f"INSS retido empregado {periodo} (verdade Portte)", tipo="inss_empregado",
-                        ref=f"INSSEMP-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                        cur,
+                        data=f"{periodo}-01",
+                        cd="2.1.1.01",
+                        cc="2.1.1.03",
+                        valor=val,
+                        hist=f"INSS retido empregado {periodo} (verdade Portte)",
+                        tipo="inss_empregado",
+                        ref=f"INSSEMP-{periodo}",
+                        periodo=periodo,
+                        empresa_id=empresa_id,
                     )
                     tot += val
                 conn.commit()
@@ -549,9 +682,16 @@ class LedgerAutoService:
                     if guia <= 0 or patronal <= 0:  # sem guia oficial > retido → não inventa
                         continue
                     n += self._post(
-                        cur, data=f"{periodo}-01", cd="5.1.1.02", cc="2.1.1.03", valor=patronal,
-                        hist=f"INSS patronal {periodo} (guia Onvio - retido empregado)", tipo="encargo_inss",
-                        ref=f"INSSPAT-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                        cur,
+                        data=f"{periodo}-01",
+                        cd="5.1.1.02",
+                        cc="2.1.1.03",
+                        valor=patronal,
+                        hist=f"INSS patronal {periodo} (guia Onvio - retido empregado)",
+                        tipo="encargo_inss",
+                        ref=f"INSSPAT-{periodo}",
+                        periodo=periodo,
+                        empresa_id=empresa_id,
                     )
                     tot += patronal
                 conn.commit()
@@ -560,25 +700,51 @@ class LedgerAutoService:
             conn.close()
 
     def lancar_das_parcelamento(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
-        """Posta o DAS do Simples Nacional / parcelamento (PARCSN) no razão a partir do valor
-        OFICIAL extraído das guias Onvio (`onvio_documents.detalhes_json`, categoria
-        das_simples_nacional). É dívida do CNPJ1 (Eletrônica, ex-Simples em parcelamento):
-          D 5.2.2.04 (Despesa Parcelamento Simples) / C 2.1.2.04 (Parcelamento Simples a Pagar)
-        NUNCA fabrica: só posta guias com valor extraído. Idempotente por ref DASPARC-{periodo}.
-        Só posta sob o CNPJ1 (a guia valida 35.710.481)."""
-        if empresa_id != EMPRESA_PRINCIPAL_ID:
-            return {"ok": True, "lancamentos": 0, "motivo": "DAS/PARCSN é do CNPJ1 (Eletrônica)"}
+        """Posta as guias de DAS do Onvio no razão da empresa a que ELAS pertencem.
+
+        Duas naturezas caem sob a MESMA categoria `das_simples_nacional` no Onvio, e
+        a diferença é contábil, não cosmética:
+          • Simples Nacional (Patrimonial): DAS CORRENTE, imposto sobre a receita do
+            mês — D 5.2.2.04 / C 2.1.2.05 (DAS a Recolher);
+          • Lucro Real (Eletrônica, ex-Simples): PARCELAMENTO de dívida antiga —
+            D 5.2.2.04 / C 2.1.2.04 (Parcelamento Simples a Pagar).
+
+        Medido em 26/09/2026: a consulta não filtrava `empresa_id`, e a guia de agosto
+        da Patrimonial (R$ 18.399,33) foi postada no razão da ELETRÔNICA como
+        parcelamento — despesa e passivo na empresa errada, nos dois lados.
+
+        `data_lancamento` é o VENCIMENTO da guia, não o 1º dia da competência: o DAS de
+        julho vence em 20/08 e só passa a existir em agosto; postar em 01/07 cai no
+        período fechado e o lançamento some para sempre (foi o que aconteceu com os
+        R$ 17.048,87 de 07/2026). A competência continua em `periodo_competencia`, que
+        é por onde o DRE agrupa.
+
+        NUNCA fabrica: só posta guia com valor extraído. Idempotente por
+        `DAS-{empresa}-{periodo}` — a ref antiga `DASPARC-{periodo}` não tinha empresa,
+        então o mesmo mês só cabia em UM dos dois CNPJs.
+        """
         conn = self._conn()
         try:
             with conn.cursor() as cur:
                 self._ensure_schema(cur)
+                cur.execute("SELECT regime_tributario FROM empresas WHERE id = %s", (empresa_id,))
+                linha = cur.fetchone()
+                regime = (linha[0] if linha else "") or ""
+                corrente = regime == "simples_nacional"
+                conta_passivo = "2.1.2.05" if corrente else "2.1.2.04"
+                rotulo = "DAS Simples Nacional" if corrente else "Parcelamento Simples"
+
                 cur.execute(
-                    "SELECT detalhes_json->>'competencia', detalhes_json->>'valor' "
+                    "SELECT detalhes_json->>'competencia', detalhes_json->>'valor', "
+                    "       detalhes_json->>'vencimento' "
                     "FROM onvio_documents WHERE categoria='das_simples_nacional' "
-                    "AND detalhes_json->>'valor' IS NOT NULL AND detalhes_json->>'competencia' IS NOT NULL"
+                    "AND empresa_id = %s "
+                    "AND detalhes_json->>'valor' IS NOT NULL "
+                    "AND detalhes_json->>'competencia' IS NOT NULL",
+                    (empresa_id,),
                 )
                 n, tot = 0, 0.0
-                for comp_mmYYYY, valor in cur.fetchall():
+                for comp_mmYYYY, valor, vencimento in cur.fetchall():
                     # "MM/YYYY" -> "YYYY-MM"
                     try:
                         mm, yyyy = comp_mmYYYY.split("/")
@@ -586,14 +752,33 @@ class LedgerAutoService:
                     except (ValueError, AttributeError):
                         continue
                     v = float(valor or 0)
-                    n += self._post(
-                        cur, data=f"{periodo}-01", cd="5.2.2.04", cc="2.1.2.04", valor=v,
-                        hist=f"DAS/parcelamento Simples {periodo} (guia oficial Onvio)", tipo="das_parcelamento",
-                        ref=f"DASPARC-{periodo}", periodo=periodo, empresa_id=empresa_id,
+                    data = str(vencimento)[:10] if vencimento else f"{periodo}-01"
+                    postou = self._post(
+                        cur,
+                        data=data,
+                        cd="5.2.2.04",
+                        cc=conta_passivo,
+                        valor=v,
+                        hist=f"{rotulo} {periodo} (guia oficial Onvio)",
+                        tipo="das_parcelamento",
+                        ref=f"DAS-{empresa_id[:8]}-{periodo}",
+                        periodo=periodo,
+                        empresa_id=empresa_id,
                     )
-                    tot += v
+                    n += postou
+                    # Só soma o que ENTROU. Somar a guia recusada pelo corte devolvia
+                    # `lancamentos: 0, total_das: 64.490,54` — número que afirma um
+                    # trabalho que não aconteceu.
+                    tot += v if postou else 0.0
                 conn.commit()
-            return {"ok": True, "lancamentos": n, "total_das": round(tot, 2), "empresa_id": empresa_id}
+            return {
+                "ok": True,
+                "lancamentos": n,
+                "total_das": round(tot, 2),
+                "regime": regime,
+                "conta_passivo": conta_passivo,
+                "empresa_id": empresa_id,
+            }
         finally:
             conn.close()
 
@@ -611,9 +796,7 @@ class LedgerAutoService:
                 conn.commit()
 
                 # Verificação de equilíbrio (débitos == créditos por construção)
-                cur.execute(
-                    "SELECT sum(valor)::float FROM accounting_entries WHERE status='confirmado'"
-                )
+                cur.execute("SELECT sum(valor)::float FROM accounting_entries WHERE status='confirmado'")
                 total = cur.fetchone()[0] or 0.0
                 cur.execute("SELECT count(*) FROM accounting_entries")
                 qtd = cur.fetchone()[0]
@@ -639,6 +822,7 @@ class LedgerAutoService:
             # pela regra do plano; sem isso a DRE somava recebimento de cliente como receita.
             try:
                 from modules.financial.services.extrato_para_razao import reclassificar_transitorias
+
                 recat["transitorias"] = reclassificar_transitorias()
             except Exception as te:  # noqa: BLE001 — não derruba o fechamento
                 logger.warning("reclassificação de transitórias falhou (segue): %s", te)
@@ -650,21 +834,23 @@ class LedgerAutoService:
                 folha_rec = {"ok": False, "erro": str(fe)}
             return {
                 "ok": True,
-                "novos_lancamentos": {**folha, **iss, **tomadas,
-                                      "inss_empregado": inss_emp.get("lancamentos", 0),
-                                      "inss_patronal": inss_pat.get("lancamentos", 0),
-                                      "das_parcelamento": das.get("lancamentos", 0),
-                                      "provisao_ferias": provis.get("provisoes_ferias", 0),
-                                      "provisao_13": provis.get("provisoes_13", 0)},
+                "novos_lancamentos": {
+                    **folha,
+                    **iss,
+                    **tomadas,
+                    "inss_empregado": inss_emp.get("lancamentos", 0),
+                    "inss_patronal": inss_pat.get("lancamentos", 0),
+                    "das_parcelamento": das.get("lancamentos", 0),
+                    "provisao_ferias": provis.get("provisoes_ferias", 0),
+                    "provisao_13": provis.get("provisoes_13", 0),
+                },
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
                 # Recusados por período fechado: não é erro, é informação que antes só
                 # existia numa linha de log. Nota de competência anterior ao corte que
                 # chega hoje nunca entra no razão — e agora isso aparece no resultado.
                 "recusados_periodo_fechado": len(self.recusados_periodo_fechado),
-                "recusados_valor": round(
-                    sum(r["valor"] for r in self.recusados_periodo_fechado), 2
-                ),
+                "recusados_valor": round(sum(r["valor"] for r in self.recusados_periodo_fechado), 2),
                 "recusados_detalhe": self.recusados_periodo_fechado[:20],
                 "total_lancamentos": qtd,
                 "movimento_total": round(total, 2),

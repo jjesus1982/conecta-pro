@@ -59,13 +59,14 @@ def _docs_clt(cur) -> set[str]:
     provisionado pela folha (baixa do passivo 2.1.1.01), não despesa. O Jordan paga salário
     CLT/PJ da Patrimonial pelo app da Cora (a API não faz PIX), então a saída chega sem
     justificativa: 92 linhas, R$ 57.372,94 em agosto/2026, contadas como despesa."""
-    cur.execute("SELECT regexp_replace(coalesce(cpf,''), '\\D', '', 'g') AS cpf FROM employees WHERE coalesce(cpf,'') <> ''")
+    cur.execute(
+        "SELECT regexp_replace(coalesce(cpf,''), '\\D', '', 'g') AS cpf FROM employees WHERE coalesce(cpf,'') <> ''"
+    )
     return {(r["cpf"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()} - {""}
 
 
 #: Categorias que não dizem nada — são o "não sei" gravado, não um enquadramento.
-_CATEGORIA_MUDA = ("pagamento", "pix", "outros", "outro", "payment", "diversos",
-                   "transferência", "transferencia", "")
+_CATEGORIA_MUDA = ("pagamento", "pix", "outros", "outro", "payment", "diversos", "transferência", "transferencia", "")
 
 
 def _cat_saida(cat: str | None, documento: str | None, clt: set[str]) -> str | None:
@@ -162,6 +163,27 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
             docs_cliente = {x["doc"] if isinstance(x, dict) else x[0] for x in cur.fetchall()}
             docs_cliente.discard("")
 
+            # Pagar uma nota que JÁ foi escriturada por competência não é despesa nova: é
+            # liquidar o fornecedor. Sem isto o mesmo gasto entrava duas vezes no DRE — a
+            # NFS-e tomada (`despesa_tomada`, D 5.2.1.04) e o PIX que a pagou (`extrato_
+            # bancario`, D 5.2.1.04 de novo). Medido em 26/09/2026: 41 pagamentos,
+            # R$ 87.915,90 nas duas empresas, com a Solides aparecendo em dobro sete vezes
+            # no mesmo dia. O Inter já tinha esse conserto em `recategorizar_inter`; o Cora
+            # da Patrimonial nasceu depois e ficou de fora.
+            #
+            # O casamento é por CNPJ DO PRESTADOR + valor, não por valor + data: valor
+            # redondo se repete entre fornecedores diferentes, CNPJ não.
+            cur.execute(
+                "SELECT empresa_id::text AS empresa_id,"
+                "       regexp_replace(coalesce(prestador_cnpj,''), '[^0-9]', '', 'g') AS doc,"
+                "       round(valor_servicos::numeric, 2) AS v"
+                "  FROM nfse_tomadas_nacional"
+                " WHERE coalesce(valor_servicos, 0) > 0"
+            )
+            notas_tomadas = {
+                (x["empresa_id"], x["doc"], float(x["v"])) for x in cur.fetchall() if len(x["doc"] or "") == 14
+            }
+
             for r in linhas:
                 dia = r["dia"]
                 if dia is None:
@@ -170,14 +192,13 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 if (dia.year, dia.month) > (hoje.year, hoje.month):
                     pulados["competencia_futura"] += 1
                     continue
-                if periodo_fechado(dia):
+                if periodo_fechado(dia, r["empresa_id"]):
                     # Movimentação anterior ao corte não entra mais. Aparece em
                     # `pulados` de propósito: barrar em silêncio é o mesmo defeito
                     # de "fechar julho" virando "ignorar julho".
                     pulados["periodo_fechado"] += 1
                     continue
-                conta_banco = (CONTA_BANCO.get(r["conta_id"] or "")
-                               or CONTA_BANCO_POR_CODIGO.get(r["bank_code"] or ""))
+                conta_banco = CONTA_BANCO.get(r["conta_id"] or "") or CONTA_BANCO_POR_CODIGO.get(r["bank_code"] or "")
                 if not conta_banco:
                     pulados["conta_bancaria_desconhecida"] += 1
                     continue
@@ -190,12 +211,17 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                     outra, motivo = contrapartida_saida(
                         _cat_saida(r["cat"], r["documento"], clt),
                         f"{r['description'] or ''} {r['contraparte'] or ''}",
-                        r["documento"])
+                        r["documento"],
+                    )
+                    chave_nota = (r["empresa_id"], _so_digitos(r["documento"]), round(abs(v), 2))
+                    if chave_nota in notas_tomadas:
+                        outra = "2.1.4.01"
+                        motivo = "liquidação de NFS-e tomada já escriturada (não é despesa nova)"
                     cd, cc = outra, conta_banco
                 else:
                     outra, motivo = contrapartida_entrada(
-                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"],
-                        r["cat"])
+                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"], r["cat"]
+                    )
                     cd, cc = conta_banco, outra
 
                 lancados += 1
@@ -204,8 +230,7 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 if preview:
                     continue
 
-                hist = (f"Extrato {dia:%d/%m/%Y}: "
-                        f"{(r['description'] or '').replace(chr(10), ' ')[:120]} — {motivo}")
+                hist = f"Extrato {dia:%d/%m/%Y}: {(r['description'] or '').replace(chr(10), ' ')[:120]} — {motivo}"
                 cur.execute(
                     """
                     INSERT INTO accounting_entries
@@ -218,8 +243,18 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                         SELECT 1 FROM accounting_entries WHERE documento_ref = %s
                     )
                     """,
-                    (dia, cd, cc, abs(v), hist[:250], ref_do_extrato(r["id"]),
-                     f"{dia:%Y-%m}", r["empresa_id"], r["id"], ref_do_extrato(r["id"])),
+                    (
+                        dia,
+                        cd,
+                        cc,
+                        abs(v),
+                        hist[:250],
+                        ref_do_extrato(r["id"]),
+                        f"{dia:%Y-%m}",
+                        r["empresa_id"],
+                        r["id"],
+                        ref_do_extrato(r["id"]),
+                    ),
                 )
         if preview:
             conn.rollback()
@@ -306,19 +341,23 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
             for r in linhas:
                 if r["conta_credito"] == CONTA_ENTRADA_A_CLASSIFICAR and float(r["amount"] or 0) > 0:
                     conta, motivo = contrapartida_entrada(
-                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"], r["cat"])
+                        f"{r['description'] or ''} {r['contraparte'] or ''}", r["documento"], r["cat"]
+                    )
                     if conta == CONTA_ENTRADA_A_CLASSIFICAR:
                         continue
                     n_ent += 1
                     if not preview:
-                        cur.execute("UPDATE accounting_entries SET conta_credito=%s, "
-                                    "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
-                                    (conta, motivo, r["id"]))
+                        cur.execute(
+                            "UPDATE accounting_entries SET conta_credito=%s, "
+                            "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
+                            (conta, motivo, r["id"]),
+                        )
                 elif r["conta_debito"] == CONTA_SAIDA_A_CLASSIFICAR and float(r["amount"] or 0) < 0:
                     conta, motivo = contrapartida_saida(
                         _cat_saida(r["cat"], r["documento"], clt),
                         f"{r['description'] or ''} {r['contraparte'] or ''}",
-                        r["documento"])
+                        r["documento"],
+                    )
                     if conta == CONTA_SAIDA_A_CLASSIFICAR:
                         # A categoria não resolveu — é o «outros» que ficava aqui para
                         # sempre. Desde 26/09/2026 há uma segunda pergunta a fazer, e ela
@@ -327,7 +366,9 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                         # recebeu o dinheiro é fato do banco. Continua podendo devolver
                         # None, e aí o lançamento fica onde está.
                         achado = contrapartida_por_contraparte(
-                            r["contraparte"] or "", r["documento"], r["description"],
+                            r["contraparte"] or "",
+                            r["documento"],
+                            r["description"],
                             e_cliente=_so_digitos(r["documento"]) in docs_cliente,
                         )
                         if not achado:
@@ -335,9 +376,11 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                         conta, motivo = achado
                     n_sai += 1
                     if not preview:
-                        cur.execute("UPDATE accounting_entries SET conta_debito=%s, "
-                                    "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
-                                    (conta, motivo, r["id"]))
+                        cur.execute(
+                            "UPDATE accounting_entries SET conta_debito=%s, "
+                            "historico = left(historico || ' — reclassificado: ' || %s, 250) WHERE id=%s",
+                            (conta, motivo, r["id"]),
+                        )
             if not preview:
                 conn.commit()
     finally:

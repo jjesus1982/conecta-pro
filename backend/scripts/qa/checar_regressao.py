@@ -67,6 +67,22 @@ CACADORES = {
     # identificar» com R$ 74.544. CONTADA: dívida com dono, acusa se CRESCER. Reclassificar
     # conta é ato do contador, nunca desta trava.
     "checar_natureza_saldo_contabil.py": lambda s: _n(r"^TOTAL: (\d+) conta\(s\) com saldo de natureza invertida", s),
+    # Empresa do Simples cuja CPP patronal não está NEM dentro do DAS NEM na DCTFWeb. No
+    # Anexo III ela é ~43% da guia; no Anexo IV fica fora e é declarada. Medido em
+    # 26/09/2026 na Patrimonial: DAS de 07/2026 com INSS de R$ 171,06 (1,0% da guia) e o de
+    # 08/2026 sem linha de INSS, enquanto a DCTFWeb dos dois meses declara só `1082-01 CP
+    # SEGURADOS` e se diz "tributação previdenciária SUBSTITUÍDA". ~R$ 24 mil/mês de
+    # contribuição sem documento, com o dinheiro já retido pelos clientes (Lei 9.711) e
+    # R$ 12.532,85 de crédito sobrando em agosto. CONTADA: acusa se CRESCER — mudar o
+    # enquadramento é decisão de contador, não desta trava.
+    "checar_patronal_nao_declarada.py": lambda s: _n(r"^TOTAL: (\d+) empresa\(s\)-mês com patronal sem documento", s),
+    # `2.1.4.01 Fornecedores a Pagar` com saldo DEVEDOR: pagou-se mais do que se escriturou
+    # por competência. É o preço honesto do casamento pagamento×nota tomada que passou a
+    # valer em 26/09 (58 lançamentos, R$ 119.280,90 que entravam duas vezes no DRE): quando
+    # a nota falta, o passivo inverte em vez de a despesa sumir calada.
+    "checar_fornecedor_saldo_invertido.py": lambda s: _n(
+        r"^TOTAL: (\d+) empresa\(s\) com fornecedor em saldo invertido", s
+    ),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
