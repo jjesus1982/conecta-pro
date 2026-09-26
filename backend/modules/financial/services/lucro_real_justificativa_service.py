@@ -218,7 +218,12 @@ def classificar_automatico(
             distribuicao[cat_nova]["valor"] = round(distribuicao[cat_nova]["valor"] + valor, 2)
 
             if not preview:
-                updates.append((texto_novo, cat_nova, responsavel, tx_id))
+                # `outros` é "requer revisão manual". Marcar essa linha como `justificado` e
+                # `requires_justification = FALSE` é dizer que ela está resolvida — some da
+                # fila de quem revisaria. Grava a justificativa (que diz para revisar) e
+                # deixa o status como está.
+                resolvida = cat_nova != "outros"
+                updates.append((texto_novo, cat_nova, responsavel, resolvida, resolvida, tx_id))
 
         # Aplicar no banco se não for preview
         if not preview and updates:
@@ -230,11 +235,11 @@ def classificar_automatico(
                     justificativa_responsavel = %s,
                     justificativa_data        = NOW(),
                     reconciliation_status     = CASE
-                        WHEN reconciliation_status NOT IN ('conciliado','justificado')
+                        WHEN %s AND reconciliation_status NOT IN ('conciliado','justificado')
                         THEN 'justificado'
                         ELSE reconciliation_status
                     END,
-                    requires_justification    = FALSE,
+                    requires_justification    = NOT %s,
                     updated_at                = NOW()
                 WHERE id = %s
                 """,
