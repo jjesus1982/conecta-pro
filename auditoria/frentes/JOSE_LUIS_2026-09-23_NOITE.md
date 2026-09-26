@@ -1,7 +1,10 @@
 # José Luís — o que ficou de pé na noite de 23/09/2026
 
 **Para:** Jordan
-**Estado:** itens 2, 3, 4 e 6 implementados e provados · item 1 (a chave) pronto, ligo depois do 2º bake
+**Estado:** itens 2, 3, 4 e 6 **no ar e assados** (md5 do disco == md5 da imagem) · item 1 (a
+chave da captura de grupo) preparado e **não ligado** — é o único passo que espera a sua palavra
+**Oráculo:** `scripts/orq/test_oraculo_grupos_jose_luis.py`, na varredura das 05:00, e provado
+que fica vermelho se alguém tirar a parede
 
 ---
 
@@ -89,24 +92,46 @@ ELIZIEL   (92984997784)  tipo=lead         papel=None                  ✅ barra
 condição e não entra. Mas a **conta viva com papel de gerente no ERP** é um furo de RBAC que
 não é deste módulo — não mexi, perfis são seus.
 
-🔶 **O que "enxerga toda a operação" ainda NÃO é.** Hoje ele enxerga os **grupos** (quem falou,
-o que foi dado, o que virou pedido) e a vida dele. Não enxerga postos, alocações, faltas do dia
-e ASOs vencendo — isso são 9 rotas que eu já localizei e **não liguei**. O caminho curto seria
-escrever SQL direto nessas tabelas, e eu não fiz de propósito: não confirmei os schemas, e
-escrever consulta sobre schema chutado é a fabricação que o projeto proíbe. Fica como a próxima
-tarefa, com as rotas já mapeadas:
+✅ **`visao_operacao` — ele enxerga a operação, não só os grupos.** Voltei nisso depois de
+confirmar os schemas (confirmar é medição; o que eu tinha me recusado a fazer era escrever SQL
+sobre schema chutado). Reusa `dashboard_service.get_dashboard`, a **mesma** função que monta a
+tela de ponto — não reescrevi consulta, porque número que o WhatsApp mostra diferente da tela é
+pior que número nenhum: quem lê não sabe em qual acreditar.
 
 ```
-/operacional/posts · /operacional/allocations/current · /operacional/dashboard
-/operacional/substitutions/pending · /operacional/grade/{posto_id}
-/operacional/presenca/substitutos/{posto_id}
-/people-management/ponto/colaboradores-sem-escala
+colaboradores 63 · por escala: 12x36=42, 44h=21
+a resolver: 210 inconsistências de ponto · 0 sem escala · 0 pontos em aberto
+banco de horas: saldo médio −46,7h em 50 colaboradores
+```
+
+🔴 **Dois achados que caíram disso, e o segundo me corrigiu:**
+
+1. **A carga do Sólides está de 17/09 — 7 dias.** Informativo, não alarme (veja abaixo por quê),
+   mas você precisa saber: está velha de propósito ou a rotina parou?
+2. **Eu quase reportei "rotina de ponto parada".** O dashboard dizia `presentes: 0 / ausentes: 63`
+   e a carga tinha 7 dias — parecia óbvio. Fui medir as batidas: **83 batidas de 34 pessoas em
+   23/09**, 2 já hoje. O ponto está fluindo; o relógio é **nosso** (`gp_clock_punches`), não o
+   Sólides. O `0/63` é artefato da **meia-noite** — 00:07, o turno ainda não bateu.
+
+E isso condenou o guarda que eu mesmo tinha escrito: ele media a carga do Sólides e dispararia
+aviso de defasagem em **toda** chamada. Alarme que soa sempre é alarme que ninguém lê — é o hash
+sobre bytes de PDF outra vez, e outra vez **dentro da correção feita para proteger de dado
+velho**. Agora o frescor sai da última batida (régua de 12h, porque o turno mais longo da casa é
+12x36), e o campo se chama `hoje_desde_meia_noite` com um `leia_assim`: número sem a janela que o
+gerou não é dado, é susto.
+
+⚠️ E o caminho para isso **não** era a ponte MCP: o conector interno não publica operacional, e
+alargar o escopo dele exporia escrita de escala ao time. É in-process, como as calculadoras do
+fiscal.
+
+🔶 **O que ainda falta da operação:** postos, alocações vigentes, substituições pendentes e ASOs
+vencendo. Rotas mapeadas, não ligadas:
+
+```
+/operacional/posts · /operacional/allocations/current · /operacional/substitutions/pending
+/operacional/grade/{posto_id} · /operacional/presenca/substitutos/{posto_id}
 /people-management/ponto/justificativas/pendentes · /people-management/sst/asos/vencendo
 ```
-
-⚠️ E o caminho para elas **não** é a ponte MCP: o conector interno não as publica, e alargar o
-escopo dele exporia escrita de escala ao time. Tem de ser in-process, chamando a coroutine do
-controller, como as calculadoras do fiscal.
 
 ### Itens 3 e 4 — tom separado de dado, e resumo sob demanda
 
@@ -191,4 +216,14 @@ conseguir o contrato da tool, recusou as três que tentei em vez de chamar às c
 
 - **Aprovar pedido de escala aplica a troca, ou só autoriza?** Implementei "só autoriza".
 - **A ponte pode mintar JWT da pessoa para leitura?** Sem isso, ela não passa da parede.
-- **A conta do Eliziel** fica ativa com `gerente_operacional`?
+- **A conta do Eliziel** fica ativa com `gerente_operacional` e colaborador `inativo`?
+- **A carga do Sólides parada em 17/09** é decisão ou rotina caída?
+- **Ligo a chave da captura de grupo?** É um `docker compose up -d` em
+  `/opt/chatwoot-fazerai` depois de somar `BAILEYS_WHATSAPP_GROUPS_ENABLED=true` ao `.env`.
+  Aditivo, reversível em um comando, e a parede que o protege está assada e provada. Não fiz
+  sozinho por um motivo só: é outro stack e é a caixa de entrada de todo o WhatsApp da empresa.
+
+## As 210 inconsistências de ponto
+
+Apareceram sozinhas na primeira leitura da operação e não são desta frente — mas são o número
+mais alto do painel e ninguém as pediu. Deixo apontado: `inconsistencias_periodo = 210`.

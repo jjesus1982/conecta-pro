@@ -221,4 +221,26 @@ CREATE TABLE IF NOT EXISTS aval_respostas (
   identificacao varchar(120), notas jsonb NOT NULL, comentario text, criado_em timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS ix_aval_respostas_amb ON aval_respostas (ambiente_id, criado_em);
 
+-- ══════════════════════════ FRENTE 07 ══════════════════════════
+-- ⚠️ ACRESCENTADO DEPOIS (13/09, 09h): a primeira montagem deste script pulou a frente 07 por
+-- erro meu de integrador — e a prova de fora denunciou, com os dois oráculos de precificação
+-- estourando em produção por parâmetro inexistente. É o valor de rodar o oráculo em produção
+-- em vez de confiar no verde do staging.
+ALTER TABLE crm_pricing_params
+  ADD COLUMN IF NOT EXISTS vigencia_inicio date,
+  ADD COLUMN IF NOT EXISTS vigencia_fim date,
+  ADD COLUMN IF NOT EXISTS origem varchar(200),
+  ADD COLUMN IF NOT EXISTS confirmado_por varchar(120),
+  ADD COLUMN IF NOT EXISTS confirmado_em timestamptz;
+
+-- valor 0 + confirmado_em NULL = "parâmetro ausente": NÃO entra no custo até o Jordan confirmar.
+INSERT INTO crm_pricing_params (chave, valor, label, grupo, vigencia_inicio, vigencia_fim, origem) VALUES
+ ('reserva_tecnica_pct', 0, 'Reserva técnica — % sobre o efetivo do posto (cobertura de faltas/férias)', 'contrato',
+  '2026-01-01', '2026-12-31', 'Decisão do dono — A CONFIRMAR PELO JORDAN (sem confirmação NÃO entra no custo)'),
+ ('plr_sindicato_pct', 0, 'PLR sindicato — % sobre a mão de obra', 'contrato',
+  '2026-01-01', '2026-12-31', 'CCT SINDECOMPRESTS AM000613/2025 não traz PLR em % (cct_beneficios sem PLR) — A CONFIRMAR PELO JORDAN'),
+ ('taxa_admin_pct', 0, 'Taxa administrativa — % sobre o subtotal do contrato', 'contrato',
+  '2026-01-01', '2026-12-31', 'Decisão do dono — A CONFIRMAR PELO JORDAN (sem confirmação NÃO entra no custo)')
+ON CONFLICT (chave) DO NOTHING;
+
 COMMIT;

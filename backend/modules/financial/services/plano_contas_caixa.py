@@ -140,9 +140,22 @@ _GRUPO = ("CONECTA MAIS", "CONECTAMAIS", "CONECTA PRO", "CONECTA ELETRONICA",
 CNPJS_DO_GRUPO = ("35710481000103", "66014833000110")
 
 
-def contrapartida_saida(categoria: str | None, descricao: str) -> tuple[str, str]:
-    """(conta, motivo) do lado NÃO-banco de uma saída."""
+def contrapartida_saida(
+    categoria: str | None, descricao: str, documento: str | None = None
+) -> tuple[str, str]:
+    """(conta, motivo) do lado NÃO-banco de uma saída.
+
+    O teste do GRUPO vem PRIMEIRO, como já vinha em `contrapartida_entrada`. A assimetria
+    entre as duas tinha preço: dinheiro que a Patrimonial mandou para a Eletrônica saía
+    como DESPESA. Medido em 25/09/2026: R$ 86.000 em 4 lançamentos parados em
+    «5.9.9.01 Saídas a Classificar», um deles categorizado `imposto` — que o teria mandado
+    para «Tributos a Recolher - a identificar». Transferência entre CNPJs nossos não é
+    despesa nem tributo; é movimentação entre contas do grupo.
+    """
     cat = (categoria or "").strip().lower()
+    doc = "".join(c for c in (documento or "") if c.isdigit())
+    if doc in CNPJS_DO_GRUPO or any(g in (descricao or "").upper() for g in _GRUPO):
+        return "1.1.9.01", "transferência para outra empresa do grupo — não é despesa"
     if cat in ("imposto", "impostos"):  # o plural é o mesmo dialeto legado
         d = f" {(descricao or '').upper()} "
         for termos, conta, motivo in _TRIBUTO:

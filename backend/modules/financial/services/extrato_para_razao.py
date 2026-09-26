@@ -27,7 +27,7 @@ import psycopg2
 import psycopg2.extras
 
 from modules.financial.services.ledger_auto_service import _raw_db_url
-from modules.financial.services.periodo_contabil import CORTE_CONTABIL, periodo_fechado
+from modules.financial.services.periodo_contabil import periodo_fechado
 from modules.financial.services.plano_contas_caixa import (
     CONTA_BANCO,
     CONTA_BANCO_POR_CODIGO,
@@ -62,16 +62,40 @@ def _docs_clt(cur) -> set[str]:
     return {(r["cpf"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()} - {""}
 
 
+#: Categorias que não dizem nada — são o "não sei" gravado, não um enquadramento.
+_CATEGORIA_MUDA = ("pagamento", "pix", "outros", "outro", "payment", "diversos",
+                   "transferência", "transferencia", "")
+
+
 def _cat_saida(cat: str | None, documento: str | None, clt: set[str]) -> str | None:
-    """Categoria efetiva de uma saída sem justificativa: contraparte CLT → salário; Caixa → impostos (FGTS)."""
-    # categoria GENÉRICA do banco ("pagamento", "PIX", "Outros") não é enquadramento
-    if cat and cat.strip().lower() not in ("pagamento", "pix", "outros", "payment", "transferência", "transferencia"):
-        return cat
+    """Categoria efetiva de uma saída sem justificativa: contraparte CLT → salário; CNPJ com
+    regra própria → a categoria da regra; Caixa → impostos (FGTS).
+
+    A regra por CNPJ entra AQUI, na escrituração, e não reescrevendo
+    `bank_transactions.justificativa_categoria`: 18 das transações da Solides foram
+    justificadas pelo próprio Jordan como "outro", e sobrescrever campo que uma pessoa
+    preencheu apagaria o registro de que ele olhou. A conta do razão é decisão do sistema;
+    a justificativa é dele.
+
+    Medido em 25/09/2026: a Solides (CNPJ real 10461302, 93 transações) estava inteira em
+    «Saídas a Classificar» porque a regra da tabela apontava para 31680151 — que é código
+    de roteamento bancário, não o CNPJ dela.
+    """
+    atual = (cat or "").strip().lower()
     doc = "".join(ch for ch in (documento or "") if ch.isdigit())
+
+    if atual not in _CATEGORIA_MUDA:
+        return cat
     if doc and doc in clt:
         return "salario"
     if doc == _CNPJ_CAIXA:
         return "impostos"
+    if len(doc) == 14:
+        from modules.financial.services.lucro_real_justificativa_service import CNPJ_RULES
+
+        for cnpj, categoria, _texto in CNPJ_RULES:
+            if doc.startswith(cnpj):
+                return categoria
     return cat
 
 
@@ -146,7 +170,8 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
                 if v < 0:
                     outra, motivo = contrapartida_saida(
                         _cat_saida(r["cat"], r["documento"], clt),
-                        f"{r['description'] or ''} {r['contraparte'] or ''}")
+                        f"{r['description'] or ''} {r['contraparte'] or ''}",
+                        r["documento"])
                     cd, cc = outra, conta_banco
                 else:
                     outra, motivo = contrapartida_entrada(
@@ -204,6 +229,22 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
     depois — e o lançamento ficava na transitória para sempre (24 VT/VR de diaristas com
     justificativa `diaristas_vtvr` ainda em 5.9.9.01, medido 07/09/2026). Só reclassifica
     para conta NÃO transitória; nunca inventa: sem regra, fica onde está.
+
+    ALCANÇA O PERÍODO FECHADO, e de propósito. Até 25/09/2026 havia um `data_lancamento >=
+    CORTE_CONTABIL` aqui, e ele deixava 637 lançamentos (R$ 308.149,66) presos na
+    transitória para sempre. O corte existe contra lançamento NOVO em mês encerrado — e o
+    próprio gatilho do banco diz isso com todas as letras: `fn_bloqueia_periodo_fechado` é
+    BEFORE **INSERT**, com a dica *"Corrigir lancamento existente (UPDATE) e permitido."*
+    Reclassificar não cria lançamento; corrige a conta de um que já está lá.
+
+    E não é cosmético. Medido antes da correção: R$ 64.739,46 de PAGAMENTO de salário
+    estavam em 5.9.9.01 como despesa, em cima da provisão que a folha já havia lançado em
+    5.1.1.01 — a mesma despesa contada DUAS vezes. Mais R$ 18.333,39 de pagamento a
+    fornecedor e R$ 16.230,00 de transferência entre as empresas do grupo, na mesma
+    situação.
+
+    Competência já encerrada que voltar a ter resultado em aberto é fechada pela varredura
+    de resíduo da task `financial.apurar_competencia`.
     """
     conn = _conn()
     n_ent = n_sai = 0
@@ -215,10 +256,9 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                        b.counterparty_name AS contraparte, b.counterparty_document AS documento,
                        coalesce(b.justificativa_categoria, b.category) AS cat
                 FROM accounting_entries a JOIN bank_transactions b ON b.id = a.bank_transaction_id
-                WHERE a.data_lancamento >= %s
-                  AND (a.conta_credito = %s OR a.conta_debito = %s)
+                WHERE a.conta_credito = %s OR a.conta_debito = %s
                 """,
-                (CORTE_CONTABIL, CONTA_ENTRADA_A_CLASSIFICAR, CONTA_SAIDA_A_CLASSIFICAR),
+                (CONTA_ENTRADA_A_CLASSIFICAR, CONTA_SAIDA_A_CLASSIFICAR),
             )
             linhas = cur.fetchall()
             clt = _docs_clt(cur)
@@ -236,7 +276,8 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                 elif r["conta_debito"] == CONTA_SAIDA_A_CLASSIFICAR and float(r["amount"] or 0) < 0:
                     conta, motivo = contrapartida_saida(
                         _cat_saida(r["cat"], r["documento"], clt),
-                        f"{r['description'] or ''} {r['contraparte'] or ''}")
+                        f"{r['description'] or ''} {r['contraparte'] or ''}",
+                        r["documento"])
                     if conta == CONTA_SAIDA_A_CLASSIFICAR:
                         continue
                     n_sai += 1

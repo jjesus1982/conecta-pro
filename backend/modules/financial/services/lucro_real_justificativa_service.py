@@ -38,19 +38,15 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
 # ─────────────────────────────────────────────────────────────
 CNPJ_RULES: list[tuple[str, str, str]] = [
     # (cnpj_fragment, categoria, descricao_padrao)
-    ("00360305", "imposto", "Recolhimento FGTS — Caixa Econômica Federal"),
-    ("31680151", "servico_sem_nf", "Serviço — SOLIDES (plataforma RH)"),
-    ("90400888", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("18236120", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("60701190", "servico_sem_nf", "Serviço/pró-labore — Jordan Santos de Jesus"),
-    ("37880206", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("60746948", "servico_sem_nf", "Serviço/vigilância — prestador PF/MEI"),
-    ("10664513", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("59285411", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("22896431", "salario", "Pagamento de salário/remuneração a colaborador"),
-    ("00000000", "servico_sem_nf", "Serviço — prestador externo"),
-    ("14796606", "reembolso", "Reembolso transporte — Uber"),
-    ("02282709", "servico_sem_nf", "Serviço jurídico — advocacia"),
+    # A tabela INTEIRA nasceu do fragmento "Cp :XXXXXXXX" da descrição, que é o CNPJ do
+    # BANCO DESTINO. Conferido em 25/09/2026 contra `counterparty_document`: dos 13 CNPJs
+    # originais, DEZ nunca aparecem como contraparte em lugar nenhum do extrato — eram
+    # Nubank (18236120), Santander (90400888), Itaú (60701190), Banco do Brasil (00000000)
+    # e outros roteamentos. Um deles estava ATIVAMENTE errado: `31680151` rotulado como
+    # SOLIDES, quando o CNPJ real da Solides Tecnologia é 10461302 (93 transações).
+    # Ficam só os provados por medição.
+    ("00360305", "imposto", "Recolhimento FGTS — Caixa Econômica Federal"),  # 34x como contraparte real
+    ("10461302", "servico_sem_nf", "Serviço — SOLIDES (plataforma RH)"),  # 93x, R$ 55.570 na transitória
 ]
 
 # ─────────────────────────────────────────────────────────────
