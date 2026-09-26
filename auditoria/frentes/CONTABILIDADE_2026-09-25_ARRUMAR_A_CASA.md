@@ -147,6 +147,27 @@ estão encerradas. E a task passou a varrer resíduo de competência anterior, n
 passado — com trava por AST no oráculo do balanço, para que ninguém a remova sem o vermelho
 aparecer no mesmo dia.
 
+### 2.8 O painel de obrigações escondia justamente as que vão doer
+
+`GET /empresas/obrigacoes/calendario/grupo?mes=9&ano=2026` devolvia
+**`previstos_pelo_regime: 0`**. O motivo: bastava UMA obrigação cadastrada no mês para o
+molde do regime ser descartado inteiro — e ECD, ECF, EFD Contribuições, EFD ICMS/IPI, DCTF
+e PGDAS-D **nunca foram cadastradas**, porque quem as cuidava era a Portte.
+
+| | antes | agora |
+|---|---|---|
+| 09/2026 Eletrônica | 7 cadastradas · **0 do regime** | 7 · **4** (DCTF, EFD Contribuições, EFD ICMS/IPI, IRPJ/CSLL) |
+| 09/2026 Patrimonial | 1 cadastrada · **0 do regime** | 1 · **3** (FGTS, ISS, **PGDAS-D**) |
+| 06/2026 Eletrônica | 7 cadastradas · **0 do regime** | 7 · **5** — inclusive a **ECD**, que vence em junho |
+
+O código estava assim por um motivo legítimo: as duas fontes chamam a mesma obrigação por
+nomes diferentes (`FGTS` no cadastro contra `FGTS_GUIA` no molde), e mesclar sem ponte
+duplicaria tudo. Descartar o molde era o remédio errado para um problema real. Agora há a
+ponte, e cada linha diz se é cadastrada ou apenas prevista pelo regime.
+
+Isto **não gera** nenhuma dessas obrigações — ECF não existe nem como esboço, EFD
+Contribuições e EFD ICMS/IPI têm gerador sem rota. Mas ver o prazo é o que faz alguém agir.
+
 ---
 
 ## 3. O que continua aberto, com valor
