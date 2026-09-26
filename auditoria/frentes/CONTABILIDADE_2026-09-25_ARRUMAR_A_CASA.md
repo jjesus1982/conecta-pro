@@ -447,3 +447,122 @@ pode ser duas competências juntas, serviço extra ou adiantamento. É pergunta 
   R$ 35.737,39; nº 31 de 02/2026, R$ 5.850) **não têm receita correspondente no razão** —
   nada a estornar.
 - **Parque dos Franceses não estava sem faturar** (ver PLANO_2027 §3.2).
+
+---
+
+# A transitória: R$ 67 mil que ninguém conseguia decidir
+
+A conta **5.9.9.01 «Saídas a Classificar»** tem R$ 272.948,99 em 638 lançamentos. Ela é a
+terceira maior linha de despesa do ano — depois de salários e terceiros — e é a que impede
+saber o custo por posto, porque nada ali tem natureza.
+
+Decidir transitória se faz **por contraparte**: uma decisão resolve várias (a Sólides eram
+16 linhas com o mesmo destino). E o maior balde da lista era exatamente o que não dava para
+decidir:
+
+    ---- (sem nome)    170x   R$ 67.110,61   Pix enviado: "00019 61638862 ERIKA PEREIRA
+
+**25% de toda a conta, num balde sem contraparte.** Só que a contraparte estava ali o tempo
+todo — dentro da descrição. O extrato do Inter manda o mesmo fato em texto diferente
+conforme a porta (API, CSV, boleto, convênio, cartão), e o extrator cobria **um** formato.
+
+Cobrindo os seis, **170 de 170 ganham nome**, todos por padrão declarado e nenhum pelo
+fallback genérico. O balde único virou ~110 contrapartes:
+
+    ---- BANCO TOYOTA DO BRASIL SA     3x  R$ 8.380,33     ← financiamento, não despesa
+    ---- WANDERSON DIAS                4x  R$ 3.923,79     ← ~R$ 1.000/mês, pessoa física
+    ---- ERIKA PEREIRA                 6x  R$ 3.753,74     ← idem
+    ---- JORDANA PIRES                 9x  R$ 3.689,63     ← idem
+    ---- BANCO C6 S.A.                 3x  R$ 3.688,35     ← financiamento
+    ---- RUAN FIGUEIREDO               7x  R$ 3.658,00     ← idem
+    ---- ITAU UNIBANCO HOLDING S.A.    1x  R$ 3.630,17     ← financiamento
+    ---- ECONDOS SISTEMAS LTDA         3x  R$ 3.320,15     ← fornecedor
+    ---- PREFEITURA MUNICIPAL MANAUS  11x  R$ 3.151,66     ← tributo
+    ---- RECEITA FEDERAL               2x  R$ 2.082,64     ← tributo
+
+**Isto não classifica nada sozinho, e de propósito.** Só 46 dos 170 casam com o cadastro de
+funcionários, e valem R$ 1.916 (são os PIX de R$ 32 de VA/VT). Os R$ 62 mil restantes são
+de pessoas e empresas que o cadastro não conhece — e dizer que «ERIKA PEREIRA é folha»
+porque o valor parece salário é adivinhação com consequência trabalhista.
+
+O que mudou é que **agora há o que decidir**. Três grupos saltam da lista e cada um tem um
+destino óbvio assim que alguém confirmar:
+
+| grupo | o que parece ser | conta provável |
+|---|---|---|
+| BANCO TOYOTA, BANCO C6, ITAÚ | parcela de financiamento | amortização de passivo, **não despesa** |
+| RECEITA FEDERAL, PREFEITURA | tributo | 5.2.2.xx / 2.1.2.xx |
+| as ~8 pessoas de R$ 1.000–1.700/mês | cobertura ou prestação | folha (5.1.1.07) **ou** serviço com nota |
+
+O terceiro é o que vale dinheiro e risco: se é cobertura, o lugar é folha e há exposição
+trabalhista; se é prestador, precisa de nota. É a mesma pergunta da §3.1 do PLANO_2027, e
+continua sendo do dono.
+
+## A regressão que ia junto, e não foi
+
+Nomear mais contrapartes faz o sistema consultar mais o cadastro de fornecedores — e essa
+consulta casava pela **primeira palavra** com mais de 3 letras, pegando o primeiro
+resultado. «BANCO TOYOTA DO BRASIL SA» virava `WHERE name ILIKE '%BANCO%' LIMIT 1`.
+
+O CNPJ que sai dali é **gravado no extrato**, e é de lá que o classificador contábil decide
+a natureza do lançamento. Documento errado não fica parado: vira conta errada no razão —
+foi assim que salário virou FGTS, por outra porta, em setembro.
+
+Agora o token precisa discriminar (BANCO, PREFEITURA e MUNICIPAL entraram na lista de
+genéricos) e o candidato precisa ser único; no empate devolve vazio. **Sem documento é
+melhor que o documento de outro.**
+
+---
+
+# Sair da Portte: a conta que ninguém estava contando
+
+O que trava a rescisão não é a contabilidade — essa já fecha. É que **seis obrigações que
+a Portte produz hoje o sistema não sabe produzir**, e no dia da rescisão cada uma vira
+exposição legal com data marcada.
+
+Isso estava escrito num arquivo de memória. Agora é um número medido todo dia:
+
+    CONECTAMAIS ELETRONICA (Lucro Real) — 11 obrigações exigidas
+       gera  EFD ICMS/IPI          POST /government/sped-fiscal/gerar
+       gera  ECD                   POST /government/sped-contabil/gerar
+       NÃO   EFD Contribuições     nenhuma rota
+       NÃO   ECF                   nenhuma rota
+       NÃO   DIRF                  nenhuma rota
+       NÃO   RAIS                  nenhuma rota
+       NÃO   DCTF                  só GET /dctfweb/status
+
+    CONECTAMAIS PATRIMONIAL (Simples) — 4 obrigações exigidas
+       NÃO   PGDAS-D               nenhuma rota
+
+    TOTAL: 6 obrigação(ões) exigida(s) sem gerador no sistema
+
+A DCTF quase escapou. A primeira versão da trava aceitava **qualquer** rota que contivesse
+o nome da obrigação, e `GET /dctfweb/status` a fazia parecer coberta. **Consultar não é
+produzir** — a régua passou a exigir rota produtora (POST, ou caminho com
+gerar/transmitir/emitir). Foi o mesmo tipo de cegueira das outras réguas desta noite,
+achado no meu próprio código antes de virar número no relatório.
+
+As guias ficam de fora da conta **com motivo escrito**, não por omissão: DARF de IRPJ/CSLL,
+GPS, ISS da SEMEF e DAS são pagas em banco ou emitidas em portal, e a DAE do FGTS nasce no
+FGTS Digital a partir do eSocial — o dever do sistema ali é transmitir o evento, não gerar
+a guia.
+
+## Por que eu NÃO construí a EFD Contribuições hoje
+
+Era o candidato natural: é mensal, é da Eletrônica no Lucro Real, e o padrão de construção
+já existe (ECD e EFD ICMS/IPI seguem a mesma forma — `core/sped_*.py` + serviço + rota +
+oráculo).
+
+O que impede é o parâmetro central: **se o PIS/COFINS da Eletrônica é cumulativo ou
+não-cumulativo**. Tentei medir e não dá, por três caminhos:
+
+ · a NFS-e Padrão Nacional de Manaus **não devolve PIS/COFINS** — a tabela só tem ISS;
+ · os DARF no extrato vêm como `PAGAMENTO DARF NUMERADO - DARF NUMERADO`, sem o código
+   da receita, que é justamente o que distinguiria um regime do outro;
+ · `nfse_parametros_empresa` tem `retem_pis_cofins = false` e código de retenção 8
+   («PIS/COFINS Não Retidos, CSLL Retido») — isso é sobre RETENÇÃO do tomador, não sobre
+   o regime de apuração do prestador.
+
+Gerar uma escrituração de PIS/COFINS chutando o regime é produzir um arquivo legal errado
+com aparência de certo. Fica como pergunta para o contador, com o custo já visível na
+trava.

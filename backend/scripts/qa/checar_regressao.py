@@ -130,6 +130,12 @@ CACADORES = {
     # conta, com nota emitida — inadimplência que nenhum relatório mostrava.
     "checar_dinheiro_fora_do_sistema.py": lambda s: _n(r"^TOTAL: (\d+) contrato\(s\) com dinheiro fora do sistema", s),
     "checar_recebimento_sem_nota.py": lambda s: _n(r"^TOTAL: (\d+) cliente\(s\) com dinheiro recebido sem nota", s),
+    # O que a Portte produz hoje e o sistema NÃO sabe produzir. No dia da rescisão cada
+    # uma vira exposição legal com data marcada. CONTADA: dívida com o dono, e a única
+    # que ele não consegue ver sozinho — obrigação que não existe não aparece em tela.
+    "checar_obrigacao_sem_gerador.py": lambda s: _n(
+        r"^TOTAL: (\d+) obriga[cç][aã]o\([oõ]es\) exigida\(s\) sem gerador no sistema", s
+    ),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
