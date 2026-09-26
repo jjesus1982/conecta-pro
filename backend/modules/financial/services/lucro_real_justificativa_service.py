@@ -157,7 +157,13 @@ def classificar_automatico(
             cur.execute("""
                 SELECT id, description, amount, justificativa_categoria, counterparty_document
                 FROM bank_transactions
-                WHERE transaction_type = 'debit'
+                -- DIREÇÃO do dinheiro, não o vocabulário. `transaction_type` tem oito
+                -- valores para saída — `pix_enviado` (4.056), `debit` (1.159), `ted`,
+                -- `saque` e até `debito` sem acento — e filtrar por 'debit' fazia o
+                -- classificador enxergar 22% das saídas. Medido em 25/09/2026:
+                -- R$ 1.589.975,64 em `pix_enviado` nunca passaram por aqui, 569 deles
+                -- sem categoria nenhuma, indo direto para a conta transitória.
+                WHERE amount < 0
                   AND (
                     justificativa_categoria IS NULL
                     OR (
@@ -179,7 +185,13 @@ def classificar_automatico(
             cur.execute("""
                 SELECT id, description, amount, justificativa_categoria, counterparty_document
                 FROM bank_transactions
-                WHERE transaction_type = 'debit'
+                -- DIREÇÃO do dinheiro, não o vocabulário. `transaction_type` tem oito
+                -- valores para saída — `pix_enviado` (4.056), `debit` (1.159), `ted`,
+                -- `saque` e até `debito` sem acento — e filtrar por 'debit' fazia o
+                -- classificador enxergar 22% das saídas. Medido em 25/09/2026:
+                -- R$ 1.589.975,64 em `pix_enviado` nunca passaram por aqui, 569 deles
+                -- sem categoria nenhuma, indo direto para a conta transitória.
+                WHERE amount < 0
                 ORDER BY ABS(amount) DESC
             """)
 

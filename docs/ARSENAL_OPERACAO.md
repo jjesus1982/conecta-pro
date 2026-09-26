@@ -147,6 +147,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_receita_nao_lancada.py` | NFS-e emitida que não virou receita no razão, lançamento em competência diferente da nota, e nota de HOMOLOGAÇÃO contada como faturamento |
 | `checar_apuracao_sem_empresa.py` | Encerramento de resultado com `empresa_id` nulo — a ECD de cada CNPJ sai sem o Diário de encerramento e as duas PJ fecham juntas |
 | `checar_transitoria_aberta.py` | O que sobrou em «Saídas/Entradas a Classificar», agrupado por contraparte — fila de decisão finita em vez de uma linha sem significado no DRE |
+| `checar_custo_recorrente_nao_mapeado.py` | Compromisso que se repete todo mês e não está em `financial_custos_recorrentes` — e o que PAROU de ser pago, que também é decisão |
 
 ## Comandos
 

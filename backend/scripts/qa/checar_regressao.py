@@ -99,6 +99,13 @@ CACADORES = {
     # fornecedor, salário já provisionado); ficaram R$ 272.395,49 em 218 contrapartes, que
     # precisam de quem conheça o negócio. CONTADA: dívida com dono — acusa se CRESCER.
     "checar_transitoria_aberta.py": lambda s: _n(r"^TOTAL: (\d+) lançamento\(s\) em conta transitória", s),
+    # Custo que sai da conta todo mês e não existe em `financial_custos_recorrentes`. Não se
+    # planeja o que não se vê: em 25/09/2026 a tabela tinha 3 linhas, todas `[TESTE]`, todas
+    # inativas — e o extrato mostrava R$ 718.963,91 em 37 compromissos com terceiros que se
+    # repetem. A SOLIDES custava ~R$ 21.536/mês e existia só como 8 a 12 PIX espalhados.
+    # CONTADA: dívida de planejamento com o dono. Cadastrar contrato é decisão de quem
+    # assina; a trava mede a lacuna.
+    "checar_custo_recorrente_nao_mapeado.py": lambda s: _n(r"^TOTAL: (\d+) custo\(s\) recorrente\(s\) fora do cadastro", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
