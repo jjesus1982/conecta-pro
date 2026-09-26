@@ -148,31 +148,57 @@ async def buracos_de_escala(db: AsyncSession, *,
     rows = (await db.execute(text("""
         WITH agora AS (SELECT coalesce(CAST(CAST(:ag AS text) AS timestamp),
                                       now() - interval '4 hours') AS ts),  -- Manaus
-        saindo AS (
-            -- ⚠️ `shifts.post_id` JÁ aponta o posto. Minha primeira versão foi por
-            -- `employee_alocacoes`, que é a camada de APROVAÇÃO/substituição — dar a volta por
-            -- lá teria escondido justamente o turno cujo vínculo está errado, que é um dos
-            -- problemas que eu quero achar.
-            SELECT pp.name AS posto, s.planned_end_time AS hora, e.nome AS quem
+        -- ⭐ SAÍDA É UM INSTANTE, NÃO UMA HORA — conserto de 26/09/2026.
+        --
+        -- 🔴 Minha primeira versão comparava `planned_end_time` (um TIME) contra a hora de
+        -- agora, dentro de `shift_date = hoje`. Isso está errado por um DIA inteiro em todo
+        -- turno noturno: a linha de 26/09 com 19:00–07:00 SAI às 07:00 de **27/09**, e quem
+        -- de fato sai às 07:00 de 26/09 é a linha de **25/09**, que a consulta nunca olhava.
+        --
+        -- ⚠️ E o pior: ela ACERTOU o Green Hills pelo motivo errado. Havia mesmo um buraco às
+        -- 07:00, mas eu o encontrei casando a linha do dia errado — o tipo de acerto que some
+        -- na primeira mudança de dado. Mesma família do `data da batida ≠ data da escala`:
+        -- um turno que atravessa a meia-noite pertence a um dia e termina no outro.
+        janela AS (
+            SELECT s.id, s.post_id, s.employee_id, s.planned_end_time AS hora,
+                   (s.shift_date
+                    + CASE WHEN s.planned_end_time <= s.planned_start_time
+                           THEN INTERVAL '1 day' ELSE INTERVAL '0' END
+                    + s.planned_end_time) AS sai_em
               FROM shifts s
-              JOIN employees e ON e.id = s.employee_id
-              JOIN posts pp ON pp.id = s.post_id
-             WHERE s.shift_date = (SELECT ts::date FROM agora)
+             WHERE s.shift_date BETWEEN (SELECT ts::date FROM agora) - 1
+                                    AND (SELECT ts::date FROM agora)
                AND s.status NOT IN ('cancelled', 'cancelado', 'cancelada')
-               -- janela À FRENTE: aviso antes da troca serve; depois dela já é autópsia
-               AND s.planned_end_time BETWEEN (SELECT ts::time FROM agora)
-                                          AND (SELECT (ts + interval '2 hours')::time FROM agora)
+               AND s.is_active),
+        saindo AS (
+            -- ⚠️ `shifts.post_id` é a coluna do turno, mas o posto de VERDADE é a alocação
+            -- ativa: `post_id` congela o posto do dia em que a escala foi gerada e havia 87
+            -- turnos futuros divergentes. A alocação é o que o Jordan cura à mão.
+            SELECT coalesce(pa.name, pp.name) AS posto, j.hora, e.nome AS quem
+              FROM janela j
+              JOIN employees e ON e.id = j.employee_id
+              JOIN posts pp ON pp.id = j.post_id
+              LEFT JOIN employee_alocacoes ea ON ea.employee_id = e.id AND ea.ativo
+              LEFT JOIN posts pa ON pa.id = ea.posto_id
+             -- janela À FRENTE: avisar antes da troca serve; depois dela já é autópsia
+             WHERE j.sai_em BETWEEN (SELECT ts FROM agora)
+                                AND (SELECT ts + interval '2 hours' FROM agora)
         )
         SELECT sa.posto, sa.hora, sa.quem
           FROM saindo sa
          WHERE NOT EXISTS (
-             -- alguém ENTRA neste posto nesta hora? (tolerância de 30min para troca escalonada)
+             -- alguém ENTRA neste posto nesta hora? tolerância de 30min para troca escalonada.
+             -- Compara pelo POSTO, não pela pessoa: substituto legítimo entra com outro nome.
              SELECT 1 FROM shifts s2
                JOIN posts pp2 ON pp2.id = s2.post_id
-              WHERE pp2.name = sa.posto
+               LEFT JOIN employee_alocacoes ea2 ON ea2.employee_id = s2.employee_id AND ea2.ativo
+               LEFT JOIN posts pa2 ON pa2.id = ea2.posto_id
+              WHERE coalesce(pa2.name, pp2.name) = sa.posto
                 AND s2.shift_date IN ((SELECT ts::date FROM agora),
-                                      (SELECT ts::date FROM agora) + 1)
+                                      (SELECT ts::date FROM agora) + 1,
+                                      (SELECT ts::date FROM agora) - 1)
                 AND s2.status NOT IN ('cancelled', 'cancelado', 'cancelada')
+                AND s2.is_active
                 AND abs(EXTRACT(EPOCH FROM (s2.planned_start_time - sa.hora))) <= 1800)
          ORDER BY sa.hora, sa.posto"""), {"ag": _agora})).mappings().all()
     # ⚠️ `_agora` existe para PROVAR o ramo. Um buraco só aparece nas 2h antes da troca, e às
