@@ -111,6 +111,31 @@ retroativo a junho. O contador que for assinar precisa ver estas duas páginas.
 
 ---
 
+## 2-B. A apuração fechava as duas empresas num resultado só
+
+Achado posterior, e igualmente bloqueante: `apurar(competencia)` zerava 4.x e 5.x contra o
+PL varrendo a competência INTEIRA, sem filtrar `empresa_id`, e o `_post` não gravava a
+empresa. Os **277 lançamentos de encerramento** existentes — todas as competências desde
+2022 — somavam as duas pessoas jurídicas. A ECD de cada CNPJ filtra por empresa e saía sem
+nenhum deles.
+
+Uma empresa cujo resultado é encerrado junto com o da irmã **não tem balanço próprio**. Sem
+isso não há o que apresentar ao banco.
+
+Refeito por empresa (141 contas encerradas; os antigos em
+`backup_apuracao_sem_empresa_20260926`). Não dava para ratear os antigos: o valor de cada um
+é a SOMA das duas empresas.
+
+| resultado ao PL | 06/2026 | 07/2026 | 08/2026 |
+|---|---|---|---|
+| **Patrimonial** | +177.763,95 | +85.129,85 | **+5.573,90** |
+| Eletrônica | −81.396,61 | +22.463,55 | −22.126,79 |
+
+O oráculo do balanço foi de 1 invariante quebrada para **0** — inclusive a de 2026-01..03,
+que falhava desde antes deste trabalho.
+
+---
+
 ## 3. O que o razão mostra agora
 
 | competência | receita | despesa | resultado |
