@@ -43,18 +43,17 @@ NUNCA_DIZER = (
 )
 
 
-def guia(nome: str, email: str, *, senha_e_cpf: bool = True) -> str:
+def guia(nome: str, email: str) -> str:
     """O passo a passo, personalizado. Serve para qualquer colaborador novo.
 
-    `senha_e_cpf=False` para quem já trocou a senha ou fez autocadastro com senha própria —
-    prometer "sua senha é o CPF" a quem escolheu outra senha é mandar a pessoa bater numa porta
-    fechada e ensinar que a nossa orientação não vale.
+    ⚠️ A SENHA É SEMPRE O CPF. Jordan, 26/09/2026: *"a senha é sempre o cpf, não tem opção de
+    criar senha"*. Minha primeira versão tinha um parâmetro `senha_e_cpf=False` para "quem criou
+    senha própria" — um caso que NÃO EXISTE neste sistema, inventado por mim a partir de o Jair
+    ter chegado por autocadastro. Mandei a ele "a senha é a que você criou", que é uma porta
+    fechada. Não há variante: é o CPF.
     """
     primeiro = (nome or "").strip().split(" ")[0].title() or "tudo bem"
-    senha = ("🔒 *Senha:* o seu *CPF*, só os números — sem ponto e sem traço"
-             if senha_e_cpf else
-             "🔒 *Senha:* a que você criou no cadastro. Se não lembrar, me chama que eu peço "
-             "a redefinição ao DP")
+    senha = "🔒 *Senha:* o seu *CPF*, só os números — sem ponto e sem traço"
     return (
         f"Oi {primeiro}! Aqui é o José Luís. Vou te passar o passo a passo do ponto. 👇\n\n"
         "⚠️ *Não existe app para baixar.* Não procure nada na loja do celular — o ponto é "
@@ -76,3 +75,25 @@ def guia(nome: str, email: str, *, senha_e_cpf: bool = True) -> str:
         "*Se travar:* me manda aqui *o que apareceu na tela* (print ajuda). Eu registro sua "
         "batida por aqui no mesmo minuto e você não perde a hora — depois o DP valida. 🙏"
     )
+
+
+async def enviar_guia(db, *, nome_ou_id: str) -> dict:
+    """Manda o guia para UMA pessoa. Delega a resolução do destinatário à porta única.
+
+    ⚠️ UM caminho, não dois. Minha primeira versão desta função resolvia o telefone por conta
+    própria — e duas implementações da mesma regra divergem na primeira mudança, que é como esta
+    casa ficou com três pareadores de batida e o terceiro com defeito por meses.
+    `whatsapp.destinatario` é a porta: ela recusa ambíguo, desconhecido e telefone malformado.
+    """
+    from modules.integrations.connectors.whatsapp.destinatario import mandar, resolver
+
+    alvo = await resolver(db, nome_ou_id)
+    if not alvo["ok"]:
+        return alvo
+    if not alvo["email"]:
+        return {"ok": False, "motivo": f"{alvo['nome']} está sem e-mail no cadastro — sem e-mail "
+                                      "não há login para explicar, e inventar e-mail é o mesmo "
+                                      "erro de inventar telefone (eu inventei o do Euler)"}
+    return await mandar(db, quem=alvo["employee_id"],
+                        texto=guia(alvo["nome"], alvo["email"]),
+                        motivo="guia de primeiro acesso ao ponto")
