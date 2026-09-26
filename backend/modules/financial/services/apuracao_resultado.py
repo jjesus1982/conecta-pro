@@ -125,11 +125,39 @@ def apurar(competencia: str, preview: bool = True) -> dict:
             # `documento_ref` colidiria com o da rodada anterior e o resíduo não fecharia —
             # que é exatamente o defeito de 2026-08. O `WHERE NOT EXISTS` do `_post` segue de
             # pé: ele protege de duplo clique DENTRO da mesma rodada.
+            #
+            # ⚠️ A RODADA VEM DE TODAS AS REFERÊNCIAS, NÃO SÓ DAS DE RESULTADO.
+            #
+            # Contar só `...-RESULTADO%` dessincroniza os dois numeradores, e o preço é um
+            # lançamento ÓRFÃO. Medido em 26/09/2026, na competência 2026-03:
+            #
+            #   14:32  rodada 3 fecha 4 contas que SE ANULAM (soma zero) → como
+            #          `abs(resultado) <= 0.005`, a linha de RESULTADO **não é postada**.
+            #          O número 3 foi gasto pelas contas e não pelo resultado.
+            #   17:03  aparece resíduo novo. `rodada` conta RESULTADO (só o R2 existe) e
+            #          devolve 3 DE NOVO. A conta `...-5.1.1.07-R3` já existe e o
+            #          `WHERE NOT EXISTS` a pula — mas `...-RESULTADO-R3` é inédito e
+            #          ENTRA. Resultado lançado sem a contrapartida que o originou.
+            #   17:03  a chamada seguinte, com rodada 4, posta os dois — e agora há DUAS
+            #          transferências de R$ 2.650,00 para o PL.
+            #
+            # O saldo de `3.3.1.01` ficou em −R$ 5.456,14 e o oráculo do balanço acusou
+            # «a apuração ficou pela metade e o balanço fecha mentindo». Tomando o MAIOR
+            # sufixo `-R<n>` de qualquer referência da competência, os dois numeradores
+            # voltam a ser um só.
             cur.execute(
-                "SELECT count(DISTINCT documento_ref) FROM accounting_entries  WHERE documento_ref LIKE %s",
-                (f"APURACAO-{competencia}-RESULTADO%",),
+                "SELECT documento_ref FROM accounting_entries WHERE documento_ref LIKE %s",
+                (f"APURACAO-{competencia}-%",),
             )
-            rodada = int((cur.fetchone() or {"count": 0})["count"]) + 1
+            import re as _re
+
+            usadas = [
+                int(m.group(1))
+                for r in cur.fetchall()
+                for m in [_re.search(r"-R(\d+)$", (r["documento_ref"] if isinstance(r, dict) else r[0]) or "")]
+                if m
+            ]
+            rodada = (max(usadas) if usadas else 0) + 1
 
             if not preview:
                 for ln in linhas:

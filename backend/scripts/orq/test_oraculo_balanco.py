@@ -264,6 +264,29 @@ async def main() -> None:
         for f in falhas:
             print(f"FALHOU: {f}")
         raise AssertionError(f"{len(falhas)} invariante(s) do balanço quebrada(s)")
+    # ── a apuração é IDEMPOTENTE pelas REFERÊNCIAS, não só pelo fato ────────────────
+    # Rodar a apuração duas vezes não pode criar dois lançamentos iguais. Em 26/09/2026
+    # criou: o número da rodada era contado só nas referências `...-RESULTADO%`, e quando
+    # uma rodada fechava contas que SE ANULAM (resultado zero, nenhuma linha de RESULTADO
+    # postada) o número ficava gasto pelas contas e livre para o resultado. A chamada
+    # seguinte reusava o número, o `WHERE NOT EXISTS` pulava a conta e o RESULTADO entrava
+    # SOZINHO — transferência para o PL sem a contrapartida que a originou, duas vezes,
+    # R$ 5.456,14 parados em `3.3.1.01`.
+    dup = (await db.execute(text("""
+        SELECT count(*) FROM (
+            SELECT periodo_competencia, conta_debito, conta_credito, valor
+              FROM accounting_entries
+             WHERE documento_ref LIKE 'APURACAO-%-RESULTADO%'
+             GROUP BY 1, 2, 3, 4 HAVING count(*) > 1) x
+    """))).scalar() or 0
+    if dup:
+        falhas.append(
+            f"{dup} transferência(s) de resultado ao PL em DUPLICIDADE — a apuração "
+            "rodou duas vezes e o contador de rodada deixou passar"
+        )
+    else:
+        print("OK apuração idempotente: nenhuma transferência de resultado repetida")
+
     print("TEST oraculo_balanco PASS")
 
 

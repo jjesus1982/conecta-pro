@@ -122,7 +122,12 @@ _TRIBUTO: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # " ISS" com espaço e ISSQN de propósito: "ISS" solto casa dentro de
     # "COMISSAO" e mandaria comissão para ISS a Recolher.
     ((" ISS", "ISSQN", "ISS "), "2.1.2.01", "ISS a recolher"),
-    (("SIMPLES", "DAS", "PGFN", "SISPAR"), "2.1.2.04", "DAS / parcelamento Simples"),
+    # «DAS» nu saiu em 26/09/2026 pelo mesmo motivo do «ISS» acima — e o comentário do ISS
+    # estava a três linhas daqui. «Casa DAS Correias», «Casa DAS Torneiras» e
+    # «SIND DAS EMP DE TRAN DE PAS» iam para parcelamento do Simples: R$ 5.603,54 de
+    # ferragem, vidraçaria e contribuição sindical lançados como tributo.
+    # `PGDAS` fica porque é o nome do programa, não preposição.
+    (("SIMPLES", "PGDAS", "PGFN", "SISPAR"), "2.1.2.04", "DAS / parcelamento Simples"),
 )
 CONTA_TRIBUTO_A_IDENTIFICAR = "2.1.2.09"
 

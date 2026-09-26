@@ -56,8 +56,22 @@ REGEX_RULES: list[tuple[str, str, str]] = [
     # (padrão regex, categoria, descrição padrão)
     (r"tarifa|taxa saque|taxa ted|taxa pix|tarifa mens|anuidade|iof ", "taxa_bancaria", "Tarifa/taxa bancária"),
     (r"saque banco|banco24h|banco 24h|caixa elet", "taxa_bancaria", "Saque em terminal bancário"),
+    # ⚠️ «das » SAIU em 26/09/2026, e o motivo é aritmético: das 47 saídas em que ele era
+    # o ÚNICO sinal de imposto, **47 eram falso positivo** — R$ 29.053,40. «das» é
+    # preposição em português e está no nome das coisas: «Sind DAS Emp De Tran DE PAS»
+    # (contribuição sindical), «Casa DAS Correias» (ferragem), «Casa DAS Torneiras»,
+    # «Uber para manutenção DAS piscinas», «Café treinamento mirante DAS flores» e até
+    # «Pagamento DAS diárias», que é FOLHA. Zero acertos.
+    #
+    # Fronteira de palavra não salva: em «Casa das Correias» o «das» É uma palavra. O que
+    # identifica o tributo é o nome dele — `simples nacional`, `pgdas`, `darf` —, e o
+    # extrato traz isso («PAGAMENTO SIMPLES NACIONAL - SIMPLES NACIONAL»).
+    #
+    # O arquivo `plano_contas_caixa` tinha o gêmeo deste defeito, com um comentário logo
+    # acima avisando que «ISS solto casa dentro de COMISSAO» — e o «DAS» nu passou na
+    # linha seguinte. Token curto de 3 letras não classifica dinheiro.
     (
-        r"darf|das |irpj|csll|cofins|\bpis\b|simples nacional|receita federal|pgdas|inss|fgts|gps |grf ",
+        r"darf|irpj|csll|cofins|\bpis\b|simples nacional|receita federal|pgdas|inss|fgts|gps |grf ",
         "imposto",
         "Recolhimento de imposto/tributo federal",
     ),
