@@ -20,6 +20,7 @@ Blocos do arquivo:
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -195,6 +196,10 @@ class SPEDContabilManager:
         cnpj: str,
         razao_social: str,
         tipo_ecd: TipoECD = TipoECD.LIVRO_DIARIO_GERAL,
+        uf: str = "",
+        inscricao_estadual: str = "",
+        codigo_municipio: str = "",
+        inscricao_municipal: str = "",
     ):
         """
         Inicializa o gerenciador.
@@ -203,10 +208,18 @@ class SPEDContabilManager:
             cnpj: CNPJ da empresa
             razao_social: Razão social
             tipo_ecd: Tipo de livro
+            uf, inscricao_estadual, codigo_municipio, inscricao_municipal:
+                identificação do registro 0000. Saíam VAZIOS no arquivo gerado, não por
+                falta de dado — a tabela `empresas` tem os quatro — mas porque o
+                construtor não os aceitava. Perda de transporte, não de cadastro.
         """
         self.cnpj = cnpj.replace(".", "").replace("/", "").replace("-", "")
         self.razao_social = razao_social
         self.tipo_ecd = tipo_ecd
+        self.uf = (uf or "").strip().upper()
+        self.inscricao_estadual = re.sub(r"\D", "", inscricao_estadual or "")
+        self.codigo_municipio = re.sub(r"\D", "", codigo_municipio or "")
+        self.inscricao_municipal = re.sub(r"\D", "", inscricao_municipal or "")
 
         # Dados para geração
         self.plano_contas: dict[str, ContaContabil] = {}
@@ -290,6 +303,13 @@ class SPEDContabilManager:
         # Bloco J - Demonstrações Contábeis
         linhas.extend(self._gerar_bloco_j(periodo_fim, contador))
 
+        # Bloco K - Conglomerados. Não se aplica a estas empresas, mas o leiaute exige a
+        # abertura e o encerramento de TODO bloco: o arquivo saía sem K nenhum.
+        linhas.append(self._pipe(["K001", "1"]))  # 1 = bloco sem dados
+        self._contar(contador, "K001")
+        linhas.append(self._pipe(["K990", "2"]))
+        self._contar(contador, "K990")
+
         # Bloco 9 - Encerramento
         linhas.extend(self._gerar_bloco_9(contador))
 
@@ -311,10 +331,10 @@ class SPEDContabilManager:
                 dt_fim.strftime("%d%m%Y"),
                 self.razao_social,
                 self.cnpj,
-                "",  # UF
-                "",  # IE
-                "",  # COD_MUN
-                "",  # IM
+                self.uf,  # UF
+                self.inscricao_estadual,  # IE
+                self.codigo_municipio,  # COD_MUN
+                self.inscricao_municipal,  # IM
                 "0",  # IND_SIT_ESP
                 "0",  # IND_SIT_INI_PER
                 "0",  # IND_NIRE
@@ -346,7 +366,7 @@ class SPEDContabilManager:
         self._contar(contador, "0020")
 
         # Registro 0990 - Encerramento do Bloco 0
-        qtd_0 = sum(1 for k in contador["registros"] if k.startswith("0"))
+        qtd_0 = sum(v for k, v in contador["registros"].items() if k.startswith("0"))
         linhas.append(self._pipe(["0990", str(qtd_0 + 1)]))
         self._contar(contador, "0990")
 
@@ -407,7 +427,9 @@ class SPEDContabilManager:
                     "I050",
                     dt_ini.strftime("%d%m%Y"),
                     conta.natureza.value,
-                    "1",  # IND_CTA (1=Conta do Ativo/Passivo, 2=Conta de resultado)
+                    # IND_CTA: 1=sintética, 2=analítica. Era "1" fixo em todas — inclusive
+                    # nas folhas do plano, que são todas analíticas.
+                    ("2" if conta.tipo == TipoConta.ANALITICA else "1"),
                     str(conta.nivel),
                     conta.codigo,
                     conta.codigo_pai or "",
@@ -434,23 +456,36 @@ class SPEDContabilManager:
         if not self.saldos_periodicos:
             self.calcular_saldos(dt_ini, dt_fim)
 
-        # Registro I150 - Saldos Periódicos
-        for saldo in self.saldos_periodicos:
-            r_i150 = self._pipe(
-                [
-                    "I150",
-                    saldo.data_inicio.strftime("%d%m%Y"),
-                    saldo.data_fim.strftime("%d%m%Y"),
-                    str(saldo.valor_saldo_inicial_debito),
-                    str(saldo.valor_saldo_inicial_credito),
-                    str(saldo.valor_debitos),
-                    str(saldo.valor_creditos),
-                    str(saldo.saldo_final_debito),
-                    str(saldo.saldo_final_credito),
-                ]
+        # Registro I150 - Saldos Periódicos (só as DATAS) + I155 por conta.
+        #
+        # Antes saía UM I150 por conta, carregando os campos que pertencem ao I155 — e sem
+        # COD_CTA. Não havia como saber de que conta era o saldo: `|I150|01012026|31122026|0|
+        # 0|762821.40|589605.76|173215.64|0|`. No leiaute o I150 leva apenas DT_INI|DT_FIN, e
+        # o detalhe por conta é o I155.
+        if self.saldos_periodicos:
+            linhas.append(
+                self._pipe(["I150", dt_ini.strftime("%d%m%Y"), dt_fim.strftime("%d%m%Y")])
             )
-            linhas.append(r_i150)
             self._contar(contador, "I150")
+            for saldo in sorted(self.saldos_periodicos, key=lambda x: x.codigo_conta):
+                sld_ini = saldo.valor_saldo_inicial_debito - saldo.valor_saldo_inicial_credito
+                sld_fim = sld_ini + saldo.valor_debitos - saldo.valor_creditos
+                linhas.append(
+                    self._pipe(
+                        [
+                            "I155",
+                            saldo.codigo_conta,
+                            "",  # COD_CCUS — não há centro de custo neste razão
+                            str(abs(sld_ini)),
+                            "D" if sld_ini >= 0 else "C",
+                            str(saldo.valor_debitos),
+                            str(saldo.valor_creditos),
+                            str(abs(sld_fim)),
+                            "D" if sld_fim >= 0 else "C",
+                        ]
+                    )
+                )
+                self._contar(contador, "I155")
 
         # Registro I200/I250 - Lançamentos Contábeis
         for _i, lanc in enumerate(sorted(self.lancamentos, key=lambda x: (x.data, x.numero)), 1):
@@ -528,7 +563,7 @@ class SPEDContabilManager:
                 self._contar(contador, "I350")
 
         # Registro I990 - Encerramento do Bloco I
-        qtd_i = sum(1 for k in contador["registros"] if k.startswith("I"))
+        qtd_i = sum(v for k, v in contador["registros"].items() if k.startswith("I"))
         linhas.append(self._pipe(["I990", str(qtd_i + 1)]))
         self._contar(contador, "I990")
 
@@ -749,7 +784,7 @@ class SPEDContabilManager:
         self._contar(contador, "J930")
 
         # Registro J990 - Encerramento do Bloco J
-        qtd_j = sum(1 for k in contador["registros"] if k.startswith("J"))
+        qtd_j = sum(v for k, v in contador["registros"].items() if k.startswith("J"))
         linhas.append(self._pipe(["J990", str(qtd_j + 1)]))
         self._contar(contador, "J990")
 
@@ -768,14 +803,17 @@ class SPEDContabilManager:
             linhas.append(self._pipe(["9900", reg, str(qtd)]))
             self._contar(contador, "9900")
 
-        # Adicionar 9900 para 9990 e 9999
+        # O próprio 9900 precisa de um 9900. O laço acima itera um retrato do dicionário
+        # ANTES de "9900" entrar nele, então esta linha faltava no arquivo.
+        linhas.append(self._pipe(["9900", "9900", str(contador["registros"].get("9900", 0) + 3)]))
+        self._contar(contador, "9900")
         linhas.append(self._pipe(["9900", "9990", "1"]))
         self._contar(contador, "9900")
         linhas.append(self._pipe(["9900", "9999", "1"]))
         self._contar(contador, "9900")
 
         # Registro 9990 - Encerramento do Bloco 9
-        qtd_9 = sum(1 for k in contador["registros"] if k.startswith("9"))
+        qtd_9 = sum(v for k, v in contador["registros"].items() if k.startswith("9"))
         linhas.append(self._pipe(["9990", str(qtd_9 + 1)]))
 
         # Registro 9999 - Encerramento do Arquivo
@@ -789,7 +827,13 @@ class SPEDContabilManager:
         return "|" + "|".join(campos) + "|"
 
     def _contar(self, contador: dict, registro: str) -> None:
-        """Conta registros."""
+        """Conta registros.
+
+        Os encerramentos de bloco (0990/I990/J990/9990) somam o VALOR deste dicionário,
+        não a quantidade de chaves. Contar chaves dava `|I990|10|` num bloco de 17.863
+        linhas — o PVA recusa o arquivo por divergência de contagem, e o número parecia
+        plausível o bastante para ninguém olhar duas vezes.
+        """
         if registro not in contador["registros"]:
             contador["registros"][registro] = 0
         contador["registros"][registro] += 1

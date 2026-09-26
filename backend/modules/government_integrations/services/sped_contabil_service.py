@@ -28,6 +28,19 @@ from ..core.sped_contabil import (
 logger = logging.getLogger(__name__)
 
 
+#: `account_type` do plano de contas → NaturezaConta do leiaute da ECD.
+#: A ponte tem de existir explicitamente: o CÓDIGO da conta não diz a natureza, e já
+#: mudou de significado uma vez nesta casa (plano aposentado em 13/08/2026).
+NATUREZA_POR_TIPO = {
+    "ASSET": "01",
+    "LIABILITY": "02",
+    "EQUITY": "03",
+    "REVENUE": "04",
+    "EXPENSE": "05",
+    "COST": "05",
+}
+
+
 class SPEDContabilService:
     """
     Service para operações do SPED Contábil.
@@ -54,13 +67,19 @@ class SPEDContabilService:
         "B": "Livro Balancetes Diários e Balanços",
     }
 
-    def __init__(self):
-        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
-        empresa = get_empresa_fiscal()
+    def __init__(self, empresa_slug: str | None = None):
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas).
+
+        `empresa_slug` escolhe o CNPJ. A ECD é POR CNPJ — um arquivo que misturasse as duas
+        empresas não serve para nenhuma das duas. Antes o `empresa_id` do razão era uma
+        constante no código (`619a3df1-…`), então a Patrimonial nunca teve como gerar a sua.
+        """
+        empresa = get_empresa_fiscal(empresa_slug)
+        self.empresa_slug = empresa_slug
         self.cnpj = empresa.cnpj
         self.razao_social = empresa.razao_social
         self.tipo_ecd = os.environ.get("SPED_TIPO_ECD", "G")
-        self._empresa_id = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+        self._empresa_id = self._resolver_empresa_id(self.cnpj)
 
         self.manager = SPEDContabilManager(
             cnpj=self.cnpj,
@@ -68,9 +87,36 @@ class SPEDContabilService:
             tipo_ecd=TipoECD(self.tipo_ecd)
             if self.tipo_ecd in ["G", "R", "A", "Z", "B"]
             else TipoECD.LIVRO_DIARIO_GERAL,
+            uf=empresa.uf,
+            inscricao_estadual=empresa.inscricao_estadual,
+            codigo_municipio=empresa.codigo_municipio,
+            inscricao_municipal=empresa.inscricao_municipal,
         )
 
-        logger.info(f"SPEDContabilService iniciado: CNPJ={self.cnpj}")
+        logger.info("SPEDContabilService iniciado: CNPJ=%s empresa_id=%s", self.cnpj, self._empresa_id)
+
+    def _resolver_empresa_id(self, cnpj: str) -> str | None:
+        """UUID da empresa em `empresas`, pelo CNPJ. None se não achar — e então a carga
+        de lançamentos RECUSA em vez de trazer o razão de outro CNPJ."""
+        url = self._db_url()
+        if not url:
+            return None
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id::text FROM empresas "
+                        " WHERE regexp_replace(coalesce(cnpj,''), '\\D', '', 'g') = %s LIMIT 1",
+                        (re.sub(r"\D", "", cnpj or ""),),
+                    )
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SPED Contábil: não resolveu empresa_id do CNPJ %s (%s)", cnpj, e)
+            return None
+        return row[0] if row else None
 
     def validar_status(self) -> dict[str, Any]:
         """Valida e retorna status da configuração."""
@@ -298,6 +344,13 @@ class SPEDContabilService:
         url = self._db_url()
         if not url:
             return 0
+        if not self._empresa_id:
+            # Sem saber de quem é o razão, trazer "todos os lançamentos" misturaria os dois
+            # CNPJs num arquivo que não serve para nenhum dos dois. Recusa é o certo.
+            logger.warning(
+                "SPED Contábil: empresa_id desconhecido para CNPJ %s — carga recusada", self.cnpj
+            )
+            return 0
 
         comps = self._competencias_do_periodo(dt_inicio, dt_fim)
         try:
@@ -317,6 +370,23 @@ class SPEDContabilService:
                         (self._empresa_id, comps),
                     )
                     rows = cur.fetchall()
+                    # O PLANO DE CONTAS REAL. Sem ele a natureza era deduzida do primeiro
+                    # dígito do código — e o mapa embutido descrevia o plano APOSENTADO em
+                    # 13/08/2026 ("3=Receita, 4=Despesa"). No plano vigente 3 é Patrimônio
+                    # Líquido, 4 é Receita e 5 é Despesa, então a receita do exercício saía
+                    # classificada como resultado DEVEDOR e o I350 publicava R$ 0,00 no lugar
+                    # de R$ 1.581.873,06. Também vinham daqui as descrições "Conta 5.1.1.02"
+                    # em vez do nome verdadeiro.
+                    with conn.cursor() as cur2:
+                        cur2.execute(
+                            "SELECT code, coalesce(name,''), upper(coalesce(account_type::text,'')), "
+                            "       coalesce(level, 0), coalesce(accepts_entries, true) "
+                            "  FROM fin_accounting_accounts"
+                        )
+                        plano = {
+                            r[0]: {"nome": r[1], "tipo": r[2], "nivel": r[3], "analitica": r[4]}
+                            for r in cur2.fetchall()
+                        }
             finally:
                 conn.close()
         except Exception as e:  # noqa: BLE001
@@ -332,22 +402,25 @@ class SPEDContabilService:
             contas_vistas.add(codigo)
             # Natureza da conta (NaturezaConta): 01=Ativo, 02=Passivo, 03=PL,
             # 04=Resultado credora (receita), 05=Resultado devedora (despesa/custo).
-            # Plano: 1=Ativo, 2=Passivo/PL, 3=Receita, 4=Despesa/Custo.
-            primeiro = codigo[:1]
-            if primeiro == "1":
-                natureza = "01"
-            elif primeiro == "2":
-                natureza = "02"
-            elif primeiro == "3":
-                natureza = "04"
-            else:  # "4" e demais: despesa/custo (resultado devedora)
+            # Vem do `account_type` do plano — NUNCA do primeiro dígito do código.
+            info = plano.get(codigo)
+            if info and info["tipo"] in NATUREZA_POR_TIPO:
+                natureza = NATUREZA_POR_TIPO[info["tipo"]]
+            else:
+                # Conta no razão e fora do plano: 05 é o palpite menos danoso (resultado
+                # devedor), mas fica registrado para não passar despercebido.
                 natureza = "05"
+                logger.warning(
+                    "SPED Contábil: conta %s não está em fin_accounting_accounts — "
+                    "natureza assumida 05",
+                    codigo,
+                )
             self.adicionar_conta(
                 {
                     "codigo": codigo,
-                    "descricao": f"Conta {codigo}",
-                    "tipo": "A",  # analítica
-                    "nivel": codigo.count(".") + 1,
+                    "descricao": (info or {}).get("nome") or f"Conta {codigo}",
+                    "tipo": "A" if (info or {}).get("analitica", True) else "S",
+                    "nivel": (info or {}).get("nivel") or (codigo.count(".") + 1),
                     "natureza": natureza,
                 }
             )
@@ -427,6 +500,13 @@ class SPEDContabilService:
         if not lancamentos and not self.manager.lancamentos:
             auto_carregados = self.carregar_lancamentos_do_periodo(dt_inicio, dt_fim)
 
+        # Blocos J100/J150 (balanço e DRE): derivados do razão quando não informados.
+        # O emissor deles já existia no manager e nunca recebia os demonstrativos — o bloco J
+        # saía com J001/J005/J900/J930/J990 e ZERO J100, ZERO J150.
+        demo = {"derivado": False, "motivo": "informado pelo chamador"}
+        if not balanco and not dre:
+            demo = self.derivar_demonstrativos_do_razao(dt_inicio, dt_fim)
+
         conteudo = self.manager.gerar_arquivo(ano_referencia, dt_inicio, dt_fim, numero_ordem)
 
         # Valida
@@ -446,13 +526,168 @@ class SPEDContabilService:
             "veracidade": {
                 "fonte_lancamentos": "accounting_entries" if auto_carregados else "manual",
                 "status": ("consolidado_com_razao_real" if total_lanc else "sem_lancamentos_no_periodo"),
+                "empresa_id": self._empresa_id,
+                "cnpj": self.cnpj,
+                "demonstrativos_bloco_j": demo,
                 "observacao": (
-                    "ECD consolidada a partir do razão real (accounting_entries) da empresa "
-                    "principal. Balanço/DRE (blocos J) e ajustes finais são responsabilidade "
-                    "do contador quando não informados explicitamente."
+                    "ECD consolidada a partir do razão real (accounting_entries) DESTE CNPJ. "
+                    "Ajustes finais e a assinatura do contabilista com CRC ativo continuam "
+                    "sendo do contador — nenhum software substitui isso."
                 ),
             },
         }
+
+    def derivar_demonstrativos_do_razao(self, dt_inicio, dt_fim) -> dict[str, Any]:
+        """Monta Balanço (J100) e DRE (J150) a partir do razão, pela natureza do plano.
+
+        Usa exatamente a mesma régua do DRE das telas: a natureza vem de
+        `fin_accounting_accounts.account_type`, NUNCA do primeiro dígito do código — 4.1.2
+        FGTS e 4.1.3 INSS Patronal são EXPENSE com código de receita, e classificar por
+        prefixo faria a mesma conta sair como receita aqui e despesa no balanço.
+
+        RECUSA emitir o balanço se a identidade Ativo = Passivo + PL não fechar. Hoje ela
+        não fecha: as 89 contas do plano estão com saldo de abertura ZERO — o razão nasce do
+        nada em 01/01/2026 —, então o Ativo fecha CREDOR. Publicar um J100 que não fecha é
+        pior que não publicar: o PVA recusaria, e um humano poderia não recusar.
+        O saldo de abertura de 31/12/2025 está com a contabilidade atual; é o único item
+        desta lista que o dono não consegue produzir depois da rescisão.
+        """
+        url = self._db_url()
+        if not url or not self._empresa_id:
+            return {"derivado": False, "motivo": "sem banco ou empresa_id indefinido"}
+
+        comps = self._competencias_do_periodo(dt_inicio, dt_fim)
+        try:
+            conn = psycopg2.connect(url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        WITH mov AS (
+                            SELECT conta_debito AS conta, valor AS v, tipo_lancamento AS t
+                              FROM accounting_entries
+                             WHERE status = 'confirmado' AND empresa_id = %s::uuid
+                               AND periodo_competencia = ANY(%s)
+                            UNION ALL
+                            SELECT conta_credito, -valor, tipo_lancamento
+                              FROM accounting_entries
+                             WHERE status = 'confirmado' AND empresa_id = %s::uuid
+                               AND periodo_competencia = ANY(%s)
+                        )
+                        SELECT mov.conta, upper(coalesce(a.account_type::text, '')),
+                               round(sum(mov.v), 2),
+                               round(sum(mov.v) FILTER (WHERE coalesce(mov.t,'') <> 'apuracao'), 2)
+                          FROM mov LEFT JOIN fin_accounting_accounts a ON a.code = mov.conta
+                         GROUP BY 1, 2
+                        """,
+                        (self._empresa_id, comps, self._empresa_id, comps),
+                    )
+                    linhas = cur.fetchall()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("SPED Contábil: falha ao derivar demonstrativos (%s)", e)
+            return {"derivado": False, "motivo": f"erro ao ler o razão: {e}"}
+
+        def d(x) -> Decimal:
+            return Decimal(str(x or 0))
+
+        ac = anc = pc = pnc = pl = Decimal("0")
+        receita = deducoes = custos = desp_op = fin = outras = Decimal("0")
+        sem_tipo: list[str] = []
+
+        for conta, tipo, saldo_total, saldo_sem_apur in linhas:
+            st, ss = d(saldo_total), d(saldo_sem_apur)
+            if tipo == "ASSET":
+                if conta.startswith("1.1"):
+                    ac += st
+                else:
+                    anc += st
+            elif tipo == "LIABILITY":
+                if conta.startswith("2.1"):
+                    pc += -st
+                else:
+                    pnc += -st
+            elif tipo == "EQUITY":
+                pl += -st
+            elif tipo == "REVENUE":
+                receita += -ss
+            elif tipo in ("EXPENSE", "COST"):
+                if conta.startswith("5.2.2.01"):
+                    deducoes += ss
+                elif conta.startswith("5.2.3"):
+                    fin += ss
+                elif conta.startswith("5.1"):
+                    custos += ss
+                elif conta.startswith("5.2"):
+                    desp_op += ss
+                else:
+                    outras += ss
+            else:
+                sem_tipo.append(conta)
+
+        # O resultado do exercício ainda não encerrado compõe o PL do balanço.
+        resultado = receita - deducoes - custos - desp_op - outras - fin
+        pl_total = pl + resultado
+        diferenca = (ac + anc) - (pc + pnc + pl_total)
+
+        self.definir_dre(
+            {
+                "periodo_inicio": dt_inicio.isoformat(),
+                "periodo_fim": dt_fim.isoformat(),
+                "receita_bruta": str(receita),
+                "deducoes_receita": str(deducoes),
+                "custos": str(custos),
+                "despesas_operacionais": str(desp_op + outras),
+                "resultado_financeiro": str(-fin),
+                "outras_receitas_despesas": "0",
+                "irpj_csll": "0",
+            }
+        )
+
+        if sem_tipo:
+            return {
+                "derivado": False, "dre": True, "balanco": False,
+                "motivo": ("contas do razão sem classificação no plano — o balanço sairia "
+                           f"incompleto: {sorted(set(sem_tipo))[:6]}"),
+            }
+        ativo_total = ac + anc
+        # Duas recusas diferentes, e a segunda quase passou despercebida: a IDENTIDADE
+        # Ativo = Passivo + PL fecha mesmo com o Ativo NEGATIVO, porque a falta de abertura
+        # desloca os dois lados junto. Conferir só a identidade daria verde num balanço que
+        # diz que a empresa tem menos que nada.
+        if abs(diferenca) > Decimal("0.01") or ativo_total < 0:
+            motivo = (
+                f"Ativo total {ativo_total} é NEGATIVO — não existe balanço assim."
+                if ativo_total < 0
+                else f"Ativo {ativo_total} ≠ Passivo + PL {pc + pnc + pl_total} "
+                     f"(diferença {diferenca})."
+            )
+            return {
+                "derivado": False, "dre": True, "balanco": False,
+                "motivo": (
+                    motivo + " Causa conhecida: as 89 contas do plano estão com saldo de "
+                    "abertura ZERO — o razão começa em 01/01/2026 sem o que já existia. O "
+                    "J100 NÃO foi emitido de propósito: balanço que não fecha é recusado "
+                    "pelo PVA, e um humano poderia não recusar. O saldo de abertura de "
+                    "31/12/2025 está com a contabilidade atual — peça ANTES da rescisão."
+                ),
+                "ativo": str(ativo_total), "passivo_mais_pl": str(pc + pnc + pl_total),
+                "diferenca": str(diferenca),
+            }
+
+        self.definir_balanco(
+            {
+                "data_referencia": dt_fim.isoformat(),
+                "ativo_circulante": str(ac),
+                "ativo_nao_circulante": str(anc),
+                "passivo_circulante": str(pc),
+                "passivo_nao_circulante": str(pnc),
+                "patrimonio_liquido": str(pl_total),
+            }
+        )
+        return {"derivado": True, "dre": True, "balanco": True,
+                "ativo": str(ac + anc), "resultado_do_exercicio": str(resultado)}
 
     def validar_arquivo(self, conteudo: str) -> dict[str, Any]:
         """
@@ -517,12 +752,12 @@ class SPEDContabilService:
 
 
 # Singleton
+#: Sem singleton. O service acumula `plano_contas` e `lancamentos` no manager; reutilizar a
+#: instância entre requisições somava o período de uma geração na seguinte, e prendia o
+#: arquivo ao CNPJ da primeira chamada.
 _service_instance: SPEDContabilService | None = None
 
 
 def get_sped_contabil_service() -> SPEDContabilService:
     """Retorna instância singleton do service."""
-    global _service_instance
-    if _service_instance is None:
-        _service_instance = SPEDContabilService()
-    return _service_instance
+    return SPEDContabilService()

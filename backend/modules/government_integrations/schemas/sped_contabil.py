@@ -153,6 +153,9 @@ class GerarArquivoRequest(BaseModel):
     periodo_inicio: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     periodo_fim: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     numero_ordem: str = Field(default="00001", max_length=10)
+    #: Slug da empresa em `empresas`. A ECD é POR CNPJ — um arquivo que misturasse as duas
+    #: empresas não serve para nenhuma. None = empresa principal (Eletrônica, Lucro Real).
+    empresa_slug: str | None = Field(default=None, max_length=60)
     contas: list[ContaContabilRequest] | None = None
     lancamentos: list[LancamentoContabilRequest] | None = None
     balanco: BalancoPatrimonialRequest | None = None
