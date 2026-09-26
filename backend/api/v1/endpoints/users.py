@@ -338,6 +338,33 @@ async def aprovar_user(
         f"Aprovação de perfil: {user.email} → perfil={body.perfil} "
         f"role={preset['role']} perms={preset['permissions']} (por {current_user.email})"
     )
+
+    # ⭐ APROVOU → A PESSOA RECEBE AS INSTRUÇÕES. Pedido do Jordan, 26/09/2026: *"tem que passar
+    # a ela as mesmas instruções que mandou ao jair, e isso tem que ser automático no sistema,
+    # aprovei, eles recebem as instruções"*.
+    #
+    # Hoje o ciclo morria aqui: a conta era liberada e ninguém contava à pessoa COMO entrar nem
+    # que não existe app. O Jair ficou parado em "Cadastro em análise" sem saber o que fazer, o
+    # Wisley recebeu do agente a orientação de instalar o TANGERINO (desligado desde 13/09), e a
+    # Thayná trabalhou o dia inteiro sem acesso. Três pessoas, o mesmo silêncio.
+    #
+    # ⚠️ BEST-EFFORT DE PROPÓSITO: a aprovação já está COMMITADA acima. Se o WhatsApp falhar, o
+    # acesso continua liberado — falha de mensagem não pode desfazer a liberação nem devolver
+    # 500 para quem aprovou. O erro vai para o log e a pessoa pode ser avisada à mão.
+    #
+    # ⚠️ O destinatário sai do CADASTRO, nunca de um número digitado: `enviar_guia` delega a
+    # `whatsapp.destinatario`, que recusa nome ambíguo e telefone malformado. Eu mandei o guia do
+    # Jair para o Antonio Carlos justamente por digitar número.
+    if user.employee_id:
+        try:
+            from modules.people_management.ponto.guia_primeiro_acesso import enviar_guia
+
+            envio = await enviar_guia(db, nome_ou_id=str(user.employee_id))
+            logger.info("aprovar_user: guia de primeiro acesso → %s", envio)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("aprovar_user: acesso LIBERADO mas o guia NÃO saiu para %s — %s",
+                         user.email, exc, exc_info=True)
+
     return UserListItem.from_user(user)
 
 
