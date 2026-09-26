@@ -200,6 +200,36 @@ async def buracos_de_escala(db: AsyncSession, *,
                 AND s2.status NOT IN ('cancelled', 'cancelado', 'cancelada')
                 AND s2.is_active
                 AND abs(EXTRACT(EPOCH FROM (s2.planned_start_time - sa.hora))) <= 1800)
+           -- ⭐ A DIÁRIA É A OUTRA METADE DA OPERAÇÃO — 26/09/2026.
+           --
+           -- `shifts` só conhece CLT. Metade da cobertura desta casa é feita por DIARISTA, e
+           -- ela vive em `diaria_lancamentos` (com posto e turno), tabela que nenhum veredito
+           -- consultava. Sem isto o vigia grita buraco em posto que está coberto: o Green Hills
+           -- de hoje tem o Edvan (diarista) na noite, o Laranjeiras tem o Wisley no diurno, e os
+           -- dois apareceriam como descobertos.
+           --
+           -- ⚠️ FALHA FECHADO de propósito: se o nome do posto não casar, o buraco CONTINUA
+           -- sendo reportado. Suprimir por casamento incerto esconderia furo real, e furo
+           -- escondido é pior que aviso a mais. Medido: casam 8 de 10 nomes; `PISCINAS` e
+           -- `PARISE VILLAGE` não casam porque NÃO EXISTEM em `posts` — isso é cadastro
+           -- faltando, não defeito de comparação.
+           AND NOT EXISTS (
+             SELECT 1 FROM diaria_lancamentos dl
+              WHERE dl.data = (SELECT ts::date FROM agora)
+                AND coalesce(dl.status,'') <> 'cancelado'
+                -- 'VILLA'→'VILA': a diária escreve "VILA DEI FIORI" e o posto "Villa Dei
+                -- Fiori". Uma letra, e sem isto aquele posto nunca casaria.
+                AND replace(upper(translate(sa.posto,
+                        'áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ','aaaaeeioooucAAAAEEIOOOUC')), 'VILLA', 'VILA')
+                    LIKE '%' || replace(upper(dl.posto), 'VILLA', 'VILA') || '%'
+                -- turno da diária × hora do buraco: manhã é DIURNO, tarde/noite é NOTURNO,
+                -- ÚNICO cobre os dois (é o caso da limpeza e da jardinagem).
+                AND (upper(coalesce(dl.turno,'')) = 'UNICO'
+                     OR upper(coalesce(dl.turno,'')) = 'ÚNICO'
+                     OR (EXTRACT(HOUR FROM sa.hora) < 12
+                         AND upper(coalesce(dl.turno,'')) = 'DIURNO')
+                     OR (EXTRACT(HOUR FROM sa.hora) >= 12
+                         AND upper(coalesce(dl.turno,'')) = 'NOTURNO')))
          ORDER BY sa.hora, sa.posto"""), {"ag": _agora})).mappings().all()
     # ⚠️ `_agora` existe para PROVAR o ramo. Um buraco só aparece nas 2h antes da troca, e às
     # 08:05 o Green Hills das 07:00 já passou — sem poder mover o relógio eu entregaria um
