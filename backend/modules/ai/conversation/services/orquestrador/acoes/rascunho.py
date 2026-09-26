@@ -51,7 +51,39 @@ def _garantir_executores() -> None:
     import importlib  # noqa: PLC0415
     import sys  # noqa: PLC0415
 
-    nome = "modules.ai.conversation.services.orquestrador.tools_acao_crm"
+    # 🔴 26/09/2026 — O CONSERTO DE 31/08 COBRIU SÓ O CRM, E EU NÃO OLHEI O RESTO.
+    # Medido no processo vivo do backend: `_garantir_executores()` deixava **24 executores, os
+    # 24 de CRM**. O repositório registra **38 tipos em 7 arquivos** — DP (4), financeiro (4),
+    # GED (3), fiscal (2) e 1 aqui nunca se registravam, porque esta função importava UM módulo.
+    #
+    # Efeito: nada fora de CRM podia ser aprovado na Central. Parados quando eu medi: 21
+    # `financeiro_cobranca`, 15 `escala_pedido`, 52 `pendencia_ponto`. O Jordan clicou aprovar
+    # e recebeu "sem executor registrado" — o mesmo sintoma da proposta da VEGA em 31/08, no
+    # mesmo lugar, por eu ter consertado o caso que apareceu e deixado a família viva.
+    #
+    # ⚠️ Importar os de dinheiro NÃO abre parede: `aprovar_rascunho` devolve `needsOtp` e
+    # RETORNA antes de chamar o executor quando `requires_otp` — conferi no controller, não
+    # aceitei a declaração do docstring. Ausência de executor nunca foi controle de segurança;
+    # era defeito, e defeito que se disfarça de trava é pior que os dois.
+    _MODULOS_DE_EXECUTOR = (
+        "modules.ai.conversation.services.orquestrador.tools_acao_crm",
+        "modules.ai.conversation.services.orquestrador.tools_acao_dp",
+        "modules.ai.conversation.services.orquestrador.tools_acao_financeiro",
+        "modules.ai.conversation.services.orquestrador.tools_acao_ged",
+        "modules.ai.conversation.services.orquestrador.tools_acao_fiscal",
+        "modules.ai.conversation.services.orquestrador.tools_acao_fiscal_nota",
+        # ponte "eu anotei" → "isso é tarefa de alguém": registra pendencia_ponto e escala_pedido
+        "modules.people_management.ponto.pendencia_dp",
+    )
+    for nome in _MODULOS_DE_EXECUTOR:
+        _importar_registrando(nome)
+
+
+def _importar_registrando(nome: str) -> None:
+    """Importa um módulo de executores e recarrega se o disco for mais novo que a memória."""
+    import importlib  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
     try:
         antes = len(EXECUTORES)
         mod = importlib.import_module(nome)
@@ -212,9 +244,29 @@ async def executar_rascunho(db: AsyncSession, aprovador_user, draft: AgentDraft)
     OTP (o controller faz antes) nem commita (o controller commita). Levanta se o executor
     falhar — o controller trata o rollback + registro de falha."""
     fn = EXECUTORES.get(draft.tipo) or (_garantir_executores() or EXECUTORES.get(draft.tipo))
+    payload = dict(draft.payload or {})
+
+    # ⭐ `agente_X` É EMBRULHO DE `X` — 26/09/2026. O conector cria o rascunho como
+    # `agente_{acao}` (ver `agente_aprovacao_controller`) com `{"acao": X, "argumentos": {...}}`
+    # dentro. Sem esta linha cada ação precisaria de DOIS registros — o dela e o do embrulho — e
+    # o meu oráculo achou 5 embrulhos órfãos cuja base estava registrada o tempo todo
+    # (`agente_ativar_contrato` → `ativar_contrato`, `agente_reativar_lead` → `reativar_lead`).
+    #
+    # ⚠️ NÃO burla parede: o gate e o `requires_otp` são do rascunho e o controller já os
+    # aplicou ANTES de chegar aqui — 🔴 devolve `needsOtp` e retorna sem executar. Aqui só se
+    # resolve QUAL função roda, com os argumentos que o agente declarou e o humano leu.
+    if fn is None and draft.tipo.startswith("agente_"):
+        base = payload.get("acao") or draft.tipo[len("agente_"):]
+        fn = EXECUTORES.get(base)
+        if fn is not None:
+            # o executor de domínio espera os argumentos da AÇÃO, não o envelope do pedido
+            payload = dict(payload.get("argumentos") or {})
+            logger.info("rascunho %s: embrulho agente_* resolvido para executor %r",
+                        draft.tipo, base)
+
     if fn is None:
         raise ValueError(f"sem executor registrado para tipo {draft.tipo!r}")
-    entity_ref = await fn(db, aprovador_user, dict(draft.payload or {}))
+    entity_ref = await fn(db, aprovador_user, payload)
     draft.status = "executado"
     draft.entity_ref = str(entity_ref) if entity_ref is not None else None
     return draft.entity_ref

@@ -204,6 +204,25 @@ async def pedir_aprovacao(
             detail=f"a ação `{acao}` chegou sem consequências declaradas; sem elas o "
                    "aprovador decidiria às cegas")
 
+    # 🔴 26/09/2026 — ARGUMENTO VAZIO É APROVAÇÃO DE NADA, pelo MESMO argumento que já vale
+    # para `consequencias` dez linhas acima. Medido: **9 rascunhos `agente_*` com
+    # `argumentos: {}`**, quatro deles 🔴 (`excluir_campanha`,
+    # `definir_parametros_precificacao`, `aceitar_proposta`,
+    # `revisar_justificativa_ponto`), todos em `rascunho`, inexecutáveis por construção —
+    # `justificar_ponto` exige `justification_id` e `decisao`, e o rascunho não tem nenhum dos
+    # dois. Ficavam parados na fila do Jordan e, ao aprovar, davam "sem executor registrado".
+    #
+    # ⚠️ E se um executor existisse, seria PIOR: rodaria sem argumento, ou o modelo deduziria
+    # os argumentos da prosa. O erro seguro aqui é recusar na entrada.
+    #
+    # ⚠️ Se alguma ação legítima realmente não tiver argumento, ela passa a devolver 422 com
+    # este texto — e isso é melhor que nascer rascunho morto na fila de quem decide.
+    if not (payload.get("argumentos") or {}):
+        raise HTTPException(
+            status_code=422,
+            detail=f"a ação `{acao}` chegou sem argumentos; um pedido sem argumento não pode "
+                   "ser executado depois de aprovado, então não viro rascunho")
+
     gate, vermelha = grau_de(acao)
 
     resumo = "O agente pediu esta ação e NÃO a executou. Se aprovada, ela:\n" + "\n".join(

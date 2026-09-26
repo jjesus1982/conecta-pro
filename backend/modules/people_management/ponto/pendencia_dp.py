@@ -104,3 +104,53 @@ def _hoje() -> str:
     from zoneinfo import ZoneInfo
 
     return datetime.now(ZoneInfo("America/Manaus")).strftime("%Y-%m-%d")
+
+
+# ── EXECUTORES ──────────────────────────────────────────────────────────────────────────────
+#
+# 🔴 POR QUE ESTES DOIS NASCERAM EM 26/09/2026: eles NÃO EXISTIAM, e a Central de Aprovações
+# exige um executor para aprovar. Medido: **52 rascunhos `pendencia_ponto`** e **15
+# `escala_pedido`** parados, e o Jordan clicando aprovar e recebendo
+# «sem executor registrado para tipo 'pendencia_ponto'» — a aprovação marcava o rascunho como
+# decidido e morria em `falha`.
+#
+# ⭐ E o que estava preso era exatamente o que ele me cobrou à mão: os dois `escala_pedido` de
+# hoje eram a troca Walcicley↔Jonhata e a do Jeová no Villa dos Pássaros, capturadas do grupo
+# Gestão às 06:12. **O agente observou e registrou certo; faltava consumidor da aprovação.**
+# Registrar não é aplicar.
+#
+# ⚠️ POR QUE "CIENTE" É A EXECUÇÃO CORRETA, E NÃO UM NO-OP DISFARÇADO:
+# o payload destes tipos é RELATO EM TEXTO LIVRE — "Jonhata rendeu o Jonilson, conforme a foto
+# no grupo" — sem `shift_id`, sem `employee_id` de destino, sem hora. Não há alvo estruturado
+# para mutar. Um executor que tentasse aplicar isso estaria deduzindo a mudança da prosa, que é
+# fabricação: é o modelo escrevendo na escala a partir de uma frase. O docstring deste módulo
+# diz em voz alta «NUNCA EXECUTA NADA», e ponto é registro de fato — a correção é ato do DP, na
+# tela, por quem tem a informação.
+#
+# Então aprovar aqui significa o que o humano quis dizer ao clicar: **recebi, é meu, tratei.**
+# O valor está em sair da fila sem mentir sobre ter mudado algo.
+
+
+async def _exec_ciente(db, user, payload: dict):  # noqa: ANN001, ANN202, ARG001
+    """Marca a pendência/pedido como recebido pelo DP. Não muta escala nem ponto.
+
+    Devolve o `entity_ref` que a Central grava: quem foi o assunto, para o histórico do
+    rascunho apontar para a pessoa em vez de ficar nulo.
+    """
+    emp = payload.get("employee_id")
+    ref = f"employee:{emp}" if emp else (f"posto:{payload.get('posto')}"
+                                         if payload.get("posto") else None)
+    logger.info("pendencia_dp: rascunho marcado como CIENTE por %s — assunto=%s ref=%s",
+                getattr(user, "id", "?"), payload.get("assunto") or "ajuste_escala", ref)
+    return ref
+
+
+def _registrar() -> None:
+    """Registra os dois tipos. Chamado no import, como os outros `tools_acao_*`."""
+    from modules.ai.conversation.services.orquestrador.acoes.rascunho import registrar_executor
+
+    registrar_executor("pendencia_ponto", _exec_ciente)
+    registrar_executor("escala_pedido", _exec_ciente)
+
+
+_registrar()

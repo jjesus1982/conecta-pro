@@ -1000,3 +1000,38 @@ registrar_executor("registrar_afastamento", _exec_registrar_afastamento)
 registrar_executor("fechar_ponto", _exec_fechar_ponto)
 registrar_executor("justificar_ponto", _exec_justificar_ponto)
 
+
+
+async def _exec_baixar_alocacao(db, user, payload: dict):  # noqa: ANN001, ANN202
+    """Desativa a alocação ativa de quem foi desligado. IDEMPOTENTE.
+
+    🔴 NASCEU EM 26/09/2026 porque NÃO EXISTIA, e o rascunho de 08/09 (saga
+    `dp.funcionario_demitido`, do KEYSON) estava na fila há 18 dias sem poder ser aprovado —
+    «sem executor registrado para tipo 'baixar_alocacao'».
+
+    ⭐ E o efeito de não existir é o defeito que eu passei a manhã de hoje consertando à mão:
+    demitido com alocação ativa faz o posto **parecer coberto por quem já saiu**, e a escala
+    segue lançando plantão para ele. O Keyson apareceu no grupo do dono como
+    ESCALADO_SEM_VINCULO no Prime Arena 06–18. A saga já sabia disso em 08/09 e não tinha
+    ninguém do outro lado.
+
+    ⚠️ IDEMPOTENTE de propósito: quando eu escrevi este executor a alocação do Keyson já estava
+    baixada (por mim, à mão, horas antes). Um executor que exigisse encontrar linha ativa
+    falharia em cima de dado JÁ CORRETO, e o rascunho voltaria para 'falha' sem nada errado no
+    mundo. Zero linhas afetadas aqui é sucesso, não erro.
+    """
+    from sqlalchemy import text as _t
+
+    emp = str(payload.get("employee_id") or "").strip()
+    if not emp:
+        raise ValueError("baixar_alocacao sem employee_id no payload — recusado (fail-closed)")
+    r = await db.execute(_t(
+        "UPDATE employee_alocacoes SET ativo = false, data_fim = current_date, "
+        "       motivo_encerramento = coalesce(motivo_encerramento, 'desligamento') "
+        " WHERE employee_id = CAST(:e AS uuid) AND ativo"), {"e": emp})
+    logger.info("baixar_alocacao: %s → %d alocação(ões) desativada(s) por %s",
+                emp, r.rowcount, getattr(user, "id", "?"))
+    return f"employee:{emp}:alocacoes_baixadas={r.rowcount}"
+
+
+registrar_executor("baixar_alocacao", _exec_baixar_alocacao)
