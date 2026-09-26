@@ -1023,19 +1023,28 @@ def _tabela_itens(f: _Folha, linhas: list[dict], piso: float) -> list[dict]:
     cab_alt = 4.2 * mm
     alt_linha = 3.3 * mm
     larg_desc = f.larg * _COLS_ITENS[1][0] - 1.4 * mm
+    larg_cod = f.larg * _COLS_ITENS[0][0] - 1.4 * mm
 
     y = topo - cab_alt - 2.4 * mm
     usados = 0
     for it in linhas:
         partes = _quebrar(c, it.get("descricao") or "", larg_desc, _F, 5.6) or [""]
-        if y - (len(partes) - 1) * alt_linha < piso + 1.5 * mm:
+        # O CÓDIGO quebra pelo mesmo motivo que a descrição: «CABO-CAT5E-…» não é o código
+        # do produto. Medido na primeira nota REAL de produção (nº 1 série 2, Villa Dei
+        # Fiori): dos 6 itens, 4 saíam com o código elidido no DANFE que foi por e-mail ao
+        # cliente — CABO-CAT5E-…, CX-SOBREPO…, ELETRODUT…, CABO-ELEV…
+        cods = _quebrar(c, str(it.get("codigo") or ""), larg_cod, _F, 5.6) or [""]
+        alturas = max(len(partes), len(cods))
+        if y - (alturas - 1) * alt_linha < piso + 1.5 * mm:
             break
         it["_desc"] = partes
-        y -= len(partes) * alt_linha
+        it["_cod"] = cods
+        y -= alturas * alt_linha
         usados += 1
     cabem = linhas[:usados] if usados else linhas[:1]
     if not usados and linhas:  # item gigante numa página curta: entra cortado, mas entra
         cabem[0]["_desc"] = _quebrar(c, cabem[0].get("descricao") or "", larg_desc, _F, 5.6)[:1]
+        cabem[0]["_cod"] = _quebrar(c, str(cabem[0].get("codigo") or ""), larg_cod, _F, 5.6)[:1]
 
     fundo = piso
     c.setLineWidth(0.6)
@@ -1058,13 +1067,15 @@ def _tabela_itens(f: _Folha, linhas: list[dict], piso: float) -> list[dict]:
     y = topo - cab_alt - 2.4 * mm
     for it in cabem:
         partes = it.get("_desc") or [it.get("descricao") or ""]
+        cods = it.get("_cod") or [str(it.get("codigo") or "")]
+        alturas = max(len(partes), len(cods))
         x = f.x0
         c.setFont(_F, 5.6)
         c.setFillColor(_PRETO)
         for frac, _rot, chave, al, casas in _COLS_ITENS:
             cw = f.larg * frac
-            if chave == "descricao":
-                for k, parte in enumerate(partes):
+            if chave in ("descricao", "codigo"):
+                for k, parte in enumerate(partes if chave == "descricao" else cods):
                     c.drawString(x + 0.7 * mm, y - k * alt_linha, parte)
                 x += cw
                 continue
@@ -1078,7 +1089,7 @@ def _tabela_itens(f: _Folha, linhas: list[dict], piso: float) -> list[dict]:
             else:
                 c.drawString(x + 0.7 * mm, y, txt)
             x += cw
-        y -= len(partes) * alt_linha
+        y -= alturas * alt_linha
     f.y = fundo
     return linhas[len(cabem) :]
 

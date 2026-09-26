@@ -257,9 +257,28 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — é uma bateria, é linear
                     if proibido in txt:
                         FALHAS.append(f"(e) {dado}: rodapé de marketing «{proibido}» dentro do DANFE")
 
-                # (f) a tarja continua
-                if "SEM VALOR FISCAL" not in txt:
-                    FALHAS.append(f"(f) {dado}: nota não autorizada em produção sem a tarja SEM VALOR FISCAL")
+                # (f) a tarja está onde deve estar — e SÓ onde deve.
+                #
+                # Esta afirmação nasceu quando produção não existia, e exigia a tarja em TODA
+                # nota. Em 24/09/2026 o dono autorizou a emissão em produção e a primeira nota
+                # real foi autorizada pela SEFAZ (nº 1 série 2, protocolo 113263822323573):
+                # exigir «SEM VALOR FISCAL» nela seria exigir que um documento fiscal válido
+                # se declarasse inválido. O ambiente vem do XML autorizado (<tpAmb>), que é a
+                # fonte que o fisco assinou — a coluna `tp_amb` do banco é TEXTO, e comparar
+                # com o inteiro 1 dava falso em silêncio.
+                tp_amb = (re.search(r"<tpAmb>(\d)</tpAmb>", xml or "") or [None, "2"])[1]
+                tem_tarja = "SEM VALOR FISCAL" in txt.upper()
+                producao_autorizada = tp_amb == "1" and bool(protocolo)
+                if producao_autorizada and tem_tarja:
+                    FALHAS.append(
+                        f"(f) {dado}: nota AUTORIZADA em produção carregando a tarja "
+                        "SEM VALOR FISCAL — o documento se declara inválido"
+                    )
+                if not producao_autorizada and not tem_tarja:
+                    FALHAS.append(
+                        f"(f) {dado}: nota que não está autorizada em produção (tpAmb={tp_amb}) "
+                        "sem a tarja SEM VALOR FISCAL"
+                    )
                 conferidas += 1
 
     # (c) o caso que força várias páginas — 80 itens, rascunho, sem XML

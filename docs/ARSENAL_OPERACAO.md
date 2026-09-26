@@ -113,7 +113,7 @@ parede fora do git ou da imagem).
 **À mão** (com argumentos): `provar_desmonte.py <oráculo> <tabela>` — prova de desmonte de um
 oráculo recém-escrito. Mutação em produção: sempre via `_mutacao.Mutacao` (ensaio, `--aplicar`).
 
-### As que faltavam neste documento (conferido em 18/09/2026)
+### As que faltavam neste documento (conferido em 25/09/2026)
 
 O `checar_arsenal` acusa quando o DOCUMENTO e o disco discordam — instrução velha faz o
 próximo errar com confiança. Estas existem, rodam pelo `checar_regressao.py`, e a pergunta
@@ -142,6 +142,9 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_holerite_de_mes_futuro.py` | Holerite de competência que ainda não aconteceu — e holerite sem origem declarada |
 | `checar_id_tipo_divergente.py` | Coluna `*_id` de um tipo comparando com um `id` de outro: o JOIN devolve 500 ou zero linha |
 | `checar_pessoa_fora_do_app_de_ponto.py` | Gente ativa que não bate ponto pelo Conecta PRO — desde 13/09 isso é gente SEM ponto |
+| `checar_natureza_saldo_contabil.py` | Conta com saldo CONTRÁRIO à natureza — ativo credor, passivo devedor, receita a débito: o lugar mais barato onde erro de classificação aparece |
+| `checar_pronto_para_produzir.py` | Endereço do emitente completo e município do tomador — o que a SEFAZ recusa antes de olhar o resto |
+| `checar_receita_nao_lancada.py` | NFS-e emitida que não virou receita no razão, lançamento em competência diferente da nota, e nota de HOMOLOGAÇÃO contada como faturamento |
 
 ## Comandos
 
