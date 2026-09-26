@@ -232,6 +232,33 @@ decidir uma resolve várias de uma vez. Os maiores blocos:
 
 A transitória de ENTRADAS ficou praticamente vazia: R$ 83,60.
 
+### 2.11 A escrituração de ICMS declarava nota de serviço como mercadoria
+
+O gerador de EFD ICMS/IPI existia e rodava. O que ele produzia era declaração falsa, e o
+próprio código dizia o motivo: lia `nfse_emitidas_nacional` — **notas de serviço** — e as
+declarava como NF-e modelo 55 com CFOP 5933, *"para não gerar arquivo oco"*.
+
+| competência 09/2026 | antes | agora |
+|---|---|---|
+| documentos declarados | 9, **todos NFS-e** | 1, a NF-e real |
+| chave declarada | começando em `1302603` (código IBGE de Manaus) | chave de NF-e de verdade |
+| a NF-e do Villa Dei Fiori (R$ 2.581,00) | **fora do arquivo** | declarada, com 6 itens |
+| C170 (item por item, exigido no perfil A) | **nunca emitido** | 6 |
+| 0200 (cadastro de produto) | 0 | 6, com NCM |
+
+Mais seis defeitos de leiaute no mesmo arquivo: o campo do **desconto** recebia o valor
+cheio da nota (uma NF-e de R$ 2.581,00 declarava R$ 2.581,00 de desconto) e o campo de
+mercadoria saía zerado; o C190 recebia o **valor** do ICMS no campo da **alíquota**, com CST
+fixo "00" e um registro por documento; os encerradores contavam chaves e não linhas; o
+participante saía com CNPJ `00000000000000`; e o CNPJ da empresa era constante no código.
+
+Rota nova: **`POST /api/v1/government/sped-fiscal/gerar`**, que recusa com 422 se o CNPJ não
+tiver inscrição estadual — a Patrimonial só tem inscrição municipal, e EFD ICMS/IPI é
+obrigação de contribuinte do ICMS.
+
+**Arquivo oco é honesto; arquivo que declara nota de serviço como mercadoria, não.** A EFD
+de setembro vence em 15/10.
+
 ---
 
 ## 3. O que continua aberto, com valor
@@ -300,6 +327,8 @@ anterior restaurado do git:
 | **C2** | Nada entra no total do DRE sem linha | 4 desvios (R$ 280.464,67 de custo sem linha) |
 | **C3** | Balancete, balanço e caixa contam a mesma população | 4 desvios |
 | **C4** | A ECD diz a verdade do razão | 12 desvios |
+| **C5** | O calendário mostra a obrigação que o regime exige | 8 desvios |
+| **C6** | A EFD declara a NF-e que existe, e não inventa documento | 14 desvios |
 
 E um caçador diário: `checar_receita_nao_lancada.py` — NFS-e emitida que não virou receita,
 lançamento em competência diferente da nota, e nota de teste contada como faturamento.
