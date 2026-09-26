@@ -176,9 +176,27 @@ async def dossie_funcionario(db: AsyncSession, identificador: str) -> dict[str, 
         db, "gp_clock_punches",
         "SELECT COUNT(*) AS total_batidas, MIN(punch_timestamp) AS primeira, "
         "MAX(punch_timestamp) AS ultima, COUNT(*) FILTER (WHERE facial_match) AS com_facial, "
-        "COUNT(*) FILTER (WHERE dentro_geofence) AS dentro_geofence "
+        "COUNT(*) FILTER (WHERE dentro_geofence) AS dentro_geofence, "
+        # ⚠️ 25/09/2026 — `dentro_geofence = false` NÃO significa que a pessoa não estava no
+        # posto. Medido: em Prime Arena, Laranjeiras e Ideal Flores, alguns colegas batem DENTRO
+        # (21, 141 e 228 batidas) e pessoas específicas batem sempre FORA, com distância
+        # CONSTANTE por aparelho (variação < 30 m em 11 dias) e DIFERENTE entre duas pessoas do
+        # mesmo posto. Isso é GPS de antena, não deslocamento — coordenada do posto errada daria
+        # a mesma distância para todos.
+        #
+        # Sem esta contagem, o contexto jurídico apresentaria 5 pessoas com ZERO batidas dentro
+        # do geofence como se não tivessem estado no posto — prova contra o empregado produzida
+        # por defeito de celular. Este número nomeia a alternativa.
+        "COUNT(*) FILTER (WHERE dentro_geofence IS FALSE AND EXISTS ("
+        "  SELECT 1 FROM gp_clock_punches o WHERE o.posto_id = gp_clock_punches.posto_id"
+        "    AND date(o.punch_timestamp) = date(gp_clock_punches.punch_timestamp)"
+        "    AND o.dentro_geofence IS TRUE)) AS fora_mas_colega_dentro_no_mesmo_dia "
         "FROM gp_clock_punches WHERE CAST(employee_id AS TEXT)=:eid",
-        P, "Jornada efetivamente cumprida (cartão de ponto art. 74 CLT) com geofence + facial.",
+        P, "Jornada efetivamente cumprida (cartão de ponto art. 74 CLT) com geofence + facial. "
+           "⚠️ `dentro_geofence=false` não prova ausência: quando um colega bateu DENTRO no mesmo "
+           "posto e no mesmo dia, a coordenada do posto está certa e a divergência é do APARELHO "
+           "(GPS por antena). Leia `fora_mas_colega_dentro_no_mesmo_dia` antes de afirmar "
+           "que a pessoa não estava no posto.",
         "total_batidas")
 
     # 6. Ponto — fechamento mensal (HE, noturno, faltas)
