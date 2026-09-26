@@ -904,6 +904,22 @@ precisão exatamente onde ela mais importa.
 `checar_parcelamento_em_atraso.py` mede a diferença todo dia — R$ 587.703,12 hoje — e diz
 o que está em risco. O lançamento é ato de contador com o extrato do Regularize na mão.
 
+## A decisão do dono, e o que ela fecha
+
+*«sem problemas perder o parcelamento, não tenho dinheiro agora para pagar, quando eu
+puder eu renegocio.»* — Jordan, 26/09/2026.
+
+Isso encerra a frente. O que muda não é a medida, é o pedido: a trava deixou de cobrar
+pagamento — cobrar o que o dono decidiu não fazer é o alarme que ensina a ignorar o painel
+— e segue medindo a exposição, porque a dívida não some com a decisão: ela cresce, e o dia
+da renegociação vai precisar do número.
+
+**O que ficou anotado para esse dia:** com a rescisão, o desconto de 60,02% cai, a dívida
+volta cheia e vencida de uma vez, e a empresa fica **dois anos sem poder aderir a nova
+transação** — inclusive de outras dívidas. É esse prazo, contado da data da rescisão, que
+define quando «quando eu puder» vira possível. Vale confirmar a data no portal Regularize
+quando a exclusão sair.
+
 ## E isso reescreve o plano de 2027
 
 O PLANO_2027 fechava com «as três ações empatam». Elas empatam **o resultado**; não pagam

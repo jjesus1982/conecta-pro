@@ -33,6 +33,21 @@ uma vez, e tranca a porta de renegociar por dois anos. É por isso que atraso em
 parcelamento não é a mesma coisa que atraso em fornecedor, e por isso ele tem trava
 própria em vez de somar no contas-a-pagar.
 
+## A decisão do dono, em 26/09/2026
+
+*«sem problemas perder o parcelamento, não tenho dinheiro agora para pagar, quando eu
+puder eu renegocio.»*
+
+Isso muda o que esta trava PEDE, e não o que ela mede. Ela deixou de cobrar pagamento —
+cobrar o que o dono decidiu não fazer é o alarme que ensina a ignorar o painel. Ela segue
+medindo a EXPOSIÇÃO, porque a dívida não some com a decisão: ela cresce, e o dia da
+renegociação precisa do número.
+
+O que muda com a rescisão, e é o que vale acompanhar: o desconto de até 60,02% cai, a
+dívida volta ao valor cheio e vencida de uma vez, e a empresa fica **dois anos sem poder
+aderir a nova transação** — inclusive de outras dívidas. É o prazo que define quando
+«quando eu puder eu renegocio» vira possível.
+
 ## O que ele mede
 
 Compara o que os órgãos dizem que a empresa deve com o que o **razão** registra como
@@ -124,10 +139,13 @@ async def main() -> int:
         print("   → NENHUM. E o dono confirmou em 26/09/2026: «todos os parcelamentos")
         print("     estão atrasados».")
 
-    print("\n   → O recibo de adesão diz o que o atraso custa: «deixar acumular parcelas")
-    print("     atrasadas» leva à RESCISÃO, com perda de TODOS os benefícios e proibição")
-    print("     de nova transação POR DOIS ANOS. O desconto em risco é de 60,02% sobre")
-    print(f"     R$ {DIVIDA_NA_ADESAO:,.2f}.")
+    print("\n   → DECISÃO DO DONO em 26/09/2026: «sem problemas perder o parcelamento,")
+    print("     não tenho dinheiro agora para pagar, quando eu puder eu renegocio».")
+    print("     Esta trava NÃO pede pagamento — mede a exposição, que continua existindo.")
+    print(f"   → Com a rescisão o desconto de {DESCONTO_MAXIMO:.2f}% sobre "
+          f"R$ {DIVIDA_NA_ADESAO:,.2f} cai, a dívida volta cheia e vencida de uma vez, e a")
+    print("     empresa fica DOIS ANOS sem poder aderir a nova transação — inclusive de")
+    print("     outras dívidas. Esse prazo é o que define quando dá para renegociar.")
     print("   → Esta trava não lança o passivo: o saldo de hoje está no portal Regularize")
     print("     e muda por SELIC. Lançar o valor da adesão como se fosse o de agora seria")
     print("     inventar precisão num número que multiplica o PL por quatro.")

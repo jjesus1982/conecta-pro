@@ -107,9 +107,17 @@ não pagam o parcelamento, que não aparece no DRE porque nem está lançado. So
     ────────────────────────────────────────────────────
     caixa necessário                     −R$ 11.788/mês      −R$ 141.456/ano
 
-E o atraso tem gatilho: parcela acumulada **rescinde** a negociação, a dívida volta sem os
-60% de desconto, e a empresa fica **dois anos sem poder renegociar**. Isto é mais urgente
-que qualquer linha da §3.
+**Decisão do dono em 26/09/2026:** *«sem problemas perder o parcelamento, não tenho
+dinheiro agora para pagar, quando eu puder eu renegocio.»*
+
+Então a linha de R$ 7.669,05/mês **não entra** na conta de caixa de 2027 — não vai ser
+paga. O que entra é o efeito da rescisão: o desconto de 60,02% cai, a dívida volta cheia
+(ordem de R$ 900 mil a R$ 1 milhão) e vencida de uma vez, e a empresa fica **dois anos sem
+poder aderir a nova transação**. Ou seja: **2027 fecha sem esse desembolso e com um
+passivo exigível que o balanço precisa passar a mostrar.**
+
+O ponto de partida do §5 (−R$ 4.119/mês) segue valendo para o RESULTADO. O que não existe
+mais é a hipótese de regularizar o fiscal dentro de 2027.
 
 Detalhe e fontes em `CONTABILIDADE_2026-09-25_ARRUMAR_A_CASA.md`.
 
