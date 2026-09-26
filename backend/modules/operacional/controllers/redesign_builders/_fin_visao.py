@@ -91,7 +91,7 @@ async def build_visao(db, out: dict) -> None:
         ano = _date.today().year
         dre = await get_dre(ano=ano, mes_inicio=1, mes_fim=12, comparativo=False, condominio_id=None, db=db)
         grupos = dre.get("grupos", []) or []
-        _neg = ("deducoes", "custo_servicos", "despesas_operacionais", "despesas_administrativas", "despesas_financeiras", "impostos")
+        _neg = ("deducoes", "custo_servicos", "despesas_operacionais", "transitoria", "outras_despesas", "despesas_financeiras", "impostos")
         out["dre-inline"] = {
             "title": f"DRE — exercício {ano}", "type": "dash", "cta": "—",
             "sub": f"Regime {dre.get('regime','—')} · fonte {dre.get('fonte','dados reais')} · margem líquida {dre.get('margem_liquida_pct','—')}%",

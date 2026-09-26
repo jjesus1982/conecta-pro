@@ -737,6 +737,19 @@ async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSe
     cf = f"{ano:04d}-{mes_fim:02d}"
     start_dt = date(ano, mes_inicio, 1)
     end_dt = _last_day(ano, mes_fim)
+    # A NATUREZA de cada conta vem do PLANO (`account_type`), não do primeiro dígito do
+    # código. Oito contas ativas contradizem o prefixo — 4.1.2 FGTS, 4.1.3 INSS Patronal,
+    # 4.2.1 Software e 4.2.2 Infraestrutura são EXPENSE com código de receita. Classificar
+    # por prefixo aqui, enquanto o Balanço lê `account_type`, faria o MESMO lançamento sair
+    # como receita no DRE e despesa no Balanço — sinais opostos, mesmo razão.
+    plano = {
+        r[0]: (r[1], (r[2] or "").upper())
+        for r in (
+            await db.execute(text("SELECT code, name, account_type FROM fin_accounting_accounts"))
+        ).fetchall()
+    }
+    nomes = {c: n for c, (n, _t) in plano.items()}
+
     linhas = (await db.execute(text("""
         WITH mov AS (
             SELECT conta_debito AS conta, valor AS v FROM accounting_entries
@@ -748,31 +761,76 @@ async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSe
                AND periodo_competencia BETWEEN :ci AND :cf
         )
         SELECT conta, round(sum(v), 2) AS saldo FROM mov
-        WHERE conta LIKE '4%' OR conta LIKE '5%'
         GROUP BY 1 HAVING abs(sum(v)) > 0.005 ORDER BY conta
     """), {"ci": ci, "cf": cf})).fetchall()
-    nomes = {r[0]: r[1] for r in (await db.execute(text(
-        "SELECT code, name FROM fin_accounting_accounts"))).fetchall()}
+
+    def _balde(code: str) -> str | None:
+        """A que linha do DRE a conta pertence. None = não é conta de resultado.
+
+        `outras` é a rede: conta de resultado que não casa nenhuma regra cai ali e APARECE,
+        em vez de ser subtraída do total sem linha. Era assim que R$ 524.588,32 de conta
+        transitória saíam do EBITDA sem nada no demonstrativo que explicasse.
+        """
+        tipo = plano.get(code, (None, ""))[1]
+        if code not in plano:
+            # conta no razão e fora do plano: não sumir com ela
+            return "outras" if code[:1] in ("4", "5") else None
+        if tipo == "REVENUE":
+            return "receita_bruta"
+        if tipo not in ("EXPENSE", "COST"):
+            return None
+        if code.startswith("5.2.2.01"):
+            return "deducoes"
+        if code.startswith("5.2.3"):
+            return "despesas_financeiras"
+        if code.startswith("5.1"):
+            return "custo_servicos"
+        if code.startswith("5.2"):
+            return "despesas_operacionais"
+        if code.startswith("5.9"):
+            return "transitoria"
+        return "outras"
+
+    saldos: dict[str, float] = {}
+    por_balde: dict[str, list[tuple[str, float]]] = {}
+    for _c, _s in linhas:
+        _b = _balde(_c)
+        if not _b:
+            continue
+        _v = float(_s)
+        saldos[_b] = round(saldos.get(_b, 0.0) + _v, 2)
+        por_balde.setdefault(_b, []).append((_c, _v))
+
+    def _itens(balde: str) -> list[dict]:
+        """Itens de um grupo — as CONTAS que o formam. Por construção somam o grupo."""
+        return [
+            {"nome": f"{c} · {nomes.get(c, '(fora do plano de contas)')}", "valor": round(-v, 2)}
+            for c, v in sorted(por_balde.get(balde, []), key=lambda x: -abs(x[1]))
+        ]
 
     # receita tem saldo CREDOR (negativo na soma débito−crédito)
-    receita_bruta = round(-sum(float(s) for c, s in linhas if c.startswith("4")), 2)
-    iss = round(sum(float(s) for c, s in linhas if c.startswith("5.2.2.01")), 2)
+    receita_bruta = round(-saldos.get("receita_bruta", 0.0), 2)
+    iss = round(saldos.get("deducoes", 0.0), 2)
     receita_liquida = round(receita_bruta - iss, 2)
 
-    # Custo dos serviços = 5.1.x (mão de obra direta). Despesa operacional = 5.2.x
-    # exceto o ISS, que já saiu como dedução da receita, e 5.9.x (transitória).
-    cpv = round(sum(float(s) for c, s in linhas if c.startswith("5.1")), 2)
-    desp_op = round(sum(float(s) for c, s in linhas
-                        if c.startswith("5.2") and not c.startswith("5.2.2.01")), 2)
-    transitoria = round(sum(float(s) for c, s in linhas if c.startswith("5.9")), 2)
+    cpv = round(saldos.get("custo_servicos", 0.0), 2)
+    desp_op = round(saldos.get("despesas_operacionais", 0.0), 2)
+    fin = round(saldos.get("despesas_financeiras", 0.0), 2)
+    transitoria = round(saldos.get("transitoria", 0.0), 2)
+    outras = round(saldos.get("outras", 0.0), 2)
 
     lucro_bruto = round(receita_liquida - cpv, 2)
-    ebitda = round(lucro_bruto - desp_op - transitoria, 2)
+    # EBITDA é antes do resultado financeiro — juros e encargos bancários saem da linha
+    # própria (5.2.3.x), que antes era publicada como 0,00 fixa enquanto o valor ficava
+    # escondido dentro de Despesas Operacionais.
+    ebitda = round(lucro_bruto - desp_op - transitoria - outras, 2)
+    resultado_financeiro = round(-fin, 2)
+    lair = round(ebitda + resultado_financeiro, 2)
     # IR/CSLL só sobre lucro. A versão anterior aplicava o adicional de 10% sobre
-    # (ebitda − 20.000) mesmo com ebitda negativo, gerando imposto sobre prejuízo.
-    ir = round(max(ebitda, 0) * 0.15 + max(ebitda - 20000, 0) * 0.10, 2) if ebitda > 0 else 0.0
-    csll = round(max(ebitda, 0) * 0.09, 2)
-    lucro_liquido = round(ebitda - ir - csll, 2)
+    # (base − 20.000) mesmo com base negativa, gerando imposto sobre prejuízo.
+    ir = round(max(lair, 0) * 0.15 + max(lair - 20000, 0) * 0.10, 2) if lair > 0 else 0.0
+    csll = round(max(lair, 0) * 0.09, 2)
+    lucro_liquido = round(lair - ir - csll, 2)
 
     mb = (lucro_bruto / receita_bruta * 100) if receita_bruta > 0 else 0
     mo = (ebitda / receita_bruta * 100) if receita_bruta > 0 else 0
@@ -790,40 +848,54 @@ async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSe
             "grupo": "receita_bruta",
             "nome": "Receita Bruta de Servicos",
             "valor": receita_bruta,
-            "itens": [
-                {"nome": "NFS-e Emitidas" if not receita_estimada else "Estimativa por contratos ativos (sem NFS-e no período)", "valor": receita_bruta},
-            ],
+            "itens": _itens("receita_bruta"),
         },
         {
             "grupo": "deducoes",
             "nome": "(−) Deducoes da Receita",
             "valor": -iss,
-            "itens": [
-                {"nome": "ISS 5% (Manaus)", "valor": -iss},
-            ],
+            "itens": _itens("deducoes"),
         },
         {"grupo": "receita_liquida", "nome": "Receita Liquida", "valor": receita_liquida, "is_total": True},
         {
             "grupo": "custo_servicos",
             "nome": "(−) Custos dos Servicos Prestados",
             "valor": -cpv,
-            "itens": [
-                {"nome": "Folha de Pagamento (razão 4.1.1)", "valor": -folha},
-                {"nome": "Encargos patronais (razão 4.1.2)", "valor": -fgts},
-            ],
+            "itens": _itens("custo_servicos"),
         },
         {"grupo": "lucro_bruto", "nome": "Lucro Bruto", "valor": lucro_bruto, "is_total": True},
         {
             "grupo": "despesas_operacionais",
             "nome": "(−) Despesas Operacionais",
             "valor": -desp_op,
-            "itens": [
-                {"nome": "Fornecedores e outras despesas (payables)", "valor": -desp_op},
-            ],
+            "itens": _itens("despesas_operacionais"),
         },
-        {"grupo": "despesas_administrativas", "nome": "(−) Despesas Administrativas", "valor": 0.0, "itens": []},
-        {"grupo": "despesas_financeiras", "nome": "(±) Resultado Financeiro", "valor": 0.0, "itens": []},
+    ]
+    # Só aparecem quando existem — mas quando existem, aparecem. Antes eram subtraídas
+    # do EBITDA sem linha nenhuma no demonstrativo.
+    if abs(transitoria) > 0.005:
+        grupos.append({
+            "grupo": "transitoria",
+            "nome": "(−) Saidas a Classificar (transitoria)",
+            "valor": -transitoria,
+            "itens": _itens("transitoria"),
+        })
+    if abs(outras) > 0.005:
+        grupos.append({
+            "grupo": "outras_despesas",
+            "nome": "(−) Outras contas de resultado",
+            "valor": -outras,
+            "itens": _itens("outras"),
+        })
+    grupos += [
         {"grupo": "lucro_operacional", "nome": "EBITDA", "valor": ebitda, "is_total": True},
+        {
+            "grupo": "despesas_financeiras",
+            "nome": "(±) Resultado Financeiro",
+            "valor": resultado_financeiro,
+            "itens": _itens("despesas_financeiras"),
+        },
+        {"grupo": "lair", "nome": "Lucro antes do IRPJ/CSLL", "valor": lair, "is_total": True},
         {
             "grupo": "ir_csll",
             "nome": "(−) IRPJ + CSLL (Lucro Real)",
@@ -850,6 +922,21 @@ async def _dre_simplificado(ano: int, mes_inicio: int, mes_fim: int, db: AsyncSe
         "margem_liquida_pct": round(ml, 1),
         "regime": "Lucro Real",
         "fonte": "dados reais (NFS-e emitidas nacional + folha/encargos/despesas do razão accounting_entries)",
+        # Identidade que o demonstrativo tem de respeitar: TODA conta de resultado com
+        # movimento no período está dentro de algum grupo, e nenhum valor é subtraído do
+        # total sem linha. `resto` ≠ 0 significa conta de resultado fora dos baldes.
+        "conferencia": {
+            "contas_de_resultado_com_movimento": sum(len(v) for v in por_balde.values()),
+            "soma_dos_grupos": round(
+                receita_bruta - iss - cpv - desp_op - transitoria - outras + resultado_financeiro, 2
+            ),
+            "lucro_antes_do_ir": lair,
+            "resto": round(
+                (receita_bruta - iss - cpv - desp_op - transitoria - outras + resultado_financeiro)
+                - lair,
+                2,
+            ),
+        },
         "veracidade": {
             "receita_estimada": receita_estimada,
             "meses_no_periodo": n_meses_periodo,
