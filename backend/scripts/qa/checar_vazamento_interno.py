@@ -110,7 +110,15 @@ async def main() -> int:
     print(f"\nTOTAL propostas com texto interno no material do cliente: {len(achados)} "
           f"(de {verificadas} verificadas)")
     if achados:
-        print("  Mova para `notes` (interno) ou `margin_percent`. Nada se perde — muda de lugar.")
+        # ⚠️ Esta linha já mandou "mova para `notes`" — e `notes` é impresso como
+        # "Observações" no PDF do cliente, como o próprio cabeçalho deste arquivo conta.
+        # O rodapé contradizia o docstring e mandava o próximo repetir o erro exato: em
+        # 25/09/2026 uma anotação minha («Preços já definidos pelo dono; sem markup
+        # adicional») foi parar no `notes` da PROP-2026-00125 e saiu no papel do condomínio.
+        print("  NÃO mova para `notes`: ele é impresso como «Observações» no PDF do cliente.")
+        print("  A tabela `proposals` não tem campo interno. Ou o texto sai da proposta")
+        print("  (vai para o deal/oportunidade, ou para o commit), ou é reescrito para dizer")
+        print("  só o que o cliente pode ler. Nada de margem, custo, markup ou fornecedor.")
         print("FAIL checar_vazamento_interno")
         return 1
     print("OK checar_vazamento_interno")
