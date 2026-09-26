@@ -109,9 +109,15 @@ def _passou_a_carencia(a: dict[str, Any], agora_hhmm: str) -> bool:
     if i is None or n is None:
         return True
     # ⚠️ turno da noite atravessa a meia-noite: 19:00 visto às 01:00 dá -1080 minutos, e sem
-    # este ajuste um turno noturno em curso pareceria futuro e nunca seria avisado. Foi assim
-    # que eu já li 29 turnos como 17% de cobertura contando quem não tinha começado.
+    # ajuste um turno noturno em curso pareceria futuro e nunca seria avisado.
+    #
+    # 🔴 MAS `n < i` NÃO É SUFICIENTE, e meu primeiro ajuste abriu um buraco no lugar de fechar:
+    # um turno das 09:00 visto às 08:14 também satisfaz `n < i`, e virou "atrasado 23h e 46min".
+    # A Celiane foi acusada assim. FUTURO e NOTURNO-EM-CURSO se distinguem pelo TAMANHO do vão:
+    # ninguém está 13 horas atrasado — isso é turno que ainda não começou.
     if n < i:
+        if (i - n) <= 12 * 60:
+            return False  # ainda não começou: é futuro, não atraso
         n += 24 * 60
     return (n - i) >= carencia
 
@@ -135,6 +141,10 @@ async def buracos_de_escala(db: AsyncSession, *,
     ⚠️ Compara pelo POSTO, não pelo nome da pessoa: substituto legítimo entra com outro nome no
     mesmo posto e mesma hora, e isso é cobertura, não buraco.
     """
+    # ⚠️ VOCABULÁRIO: `shifts.status` guarda INGLÊS ('scheduled' 1136 · 'cancelled' 16). Meu
+    # primeiro filtro dizia `NOT IN ('cancelado','cancelada')` e portanto NUNCA excluiu nada —
+    # turno cancelado entrava como gente saindo do posto, inventando buraco. Mantenho as três
+    # grafias porque a casa já teve as duas convenções e uma delas pode voltar num backfill.
     rows = (await db.execute(text("""
         WITH agora AS (SELECT coalesce(CAST(CAST(:ag AS text) AS timestamp),
                                       now() - interval '4 hours') AS ts),  -- Manaus
@@ -148,7 +158,7 @@ async def buracos_de_escala(db: AsyncSession, *,
               JOIN employees e ON e.id = s.employee_id
               JOIN posts pp ON pp.id = s.post_id
              WHERE s.shift_date = (SELECT ts::date FROM agora)
-               AND s.status NOT IN ('cancelado', 'cancelada')
+               AND s.status NOT IN ('cancelled', 'cancelado', 'cancelada')
                -- janela À FRENTE: aviso antes da troca serve; depois dela já é autópsia
                AND s.planned_end_time BETWEEN (SELECT ts::time FROM agora)
                                           AND (SELECT (ts + interval '2 hours')::time FROM agora)
@@ -162,7 +172,7 @@ async def buracos_de_escala(db: AsyncSession, *,
               WHERE pp2.name = sa.posto
                 AND s2.shift_date IN ((SELECT ts::date FROM agora),
                                       (SELECT ts::date FROM agora) + 1)
-                AND s2.status NOT IN ('cancelado', 'cancelada')
+                AND s2.status NOT IN ('cancelled', 'cancelado', 'cancelada')
                 AND abs(EXTRACT(EPOCH FROM (s2.planned_start_time - sa.hora))) <= 1800)
          ORDER BY sa.hora, sa.posto"""), {"ag": _agora})).mappings().all()
     # ⚠️ `_agora` existe para PROVAR o ramo. Um buraco só aparece nas 2h antes da troca, e às

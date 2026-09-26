@@ -945,7 +945,19 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             p["horas"] = [int(h) for h in _hs]
 
     linhas = (await db.execute(text(f"""
-        SELECT pp.name AS posto, e.id AS employee_id, e.nome, e.cargo,
+        SELECT coalesce(pa.name, pp.name) AS posto,
+               -- 🔴 O POSTO VEM DA ALOCAÇÃO, não do turno — 26/09/2026.
+               -- `shifts.post_id` congela o posto no dia em que a escala foi gerada e não
+               -- acompanha remanejamento. Hoje 4 turnos apontavam posto errado e nos 4 a
+               -- alocação estava certa: Francisco Ramon e Euler apareciam no Laranjeiras
+               -- Village (já são de Villa dos Pássaros e Prime Arena), e o Laranjeiras parecia
+               -- coberto por duas pessoas que não estão lá.
+               -- ⚠️ `employee_alocacoes` é o que o Jordan CURA à mão, e regra da casa: o que
+               -- ele curou prevalece. O posto do turno fica como reserva para quem não tem
+               -- alocação ativa — o demitido ainda escalado tem de continuar aparecendo.
+               (pa.id IS NOT NULL AND pa.id <> pp.id) AS posto_divergente,
+               pp.name AS posto_do_turno,
+               e.id AS employee_id, e.nome, e.cargo,
                coalesce(e.escala_padrao,'(sem)') AS escala,
                e.status AS situacao,
                -- ⭐ HORÁRIO VIGENTE MANDA SOBRE O DO TURNO (item 2, 24/09/2026). A Celiane bateu
@@ -960,7 +972,17 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
                (hv.entrada IS NOT NULL) AS horario_por_vigencia,
                hv.intervalo_min,
                s.is_off_day,
-               (s.planned_start_time <= :agora) AS ja_devia,
+               -- 🔴 DECIDE pela MESMA hora que EXIBE. Até 26/09/2026 esta linha usava
+               -- `s.planned_start_time` cru enquanto `prev_ent` (acima) já aplicava a vigência:
+               -- a Celiane, que entra 09:00 por vigência num turno cadastrado 08:00, foi
+               -- acusada às 08:14 de não ter batido um turno que começava em 45 minutos — e o
+               -- item ainda exibia "09:00–18:00" ao lado da acusação.
+               --
+               -- ⭐ Lógica certa, OBSERVAÇÃO errada: a correção de vigência tinha sido aplicada
+               -- ao que se MOSTRA e não ao que se DECIDE. O campo
+               -- `horario_corrigido_por_vigencia` anunciava a correção que o veredito ignorava.
+               -- Contaminava o relatório das 08:30 e toda resposta de cobertura do agente.
+               (coalesce(hv.entrada, s.planned_start_time) <= :agora) AS ja_devia,
                g.punch_timestamp AS bateu_em, g.status AS bat_status, g.punch_type,
                g.dentro_geofence, g.distancia_posto_metros, g.facial_match, g.is_offline,
                g.device_type, g.justification_id,
@@ -1034,6 +1056,8 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
           FROM shifts s
           JOIN employees e ON e.id = s.employee_id
           JOIN posts pp ON pp.id = s.post_id
+          LEFT JOIN employee_alocacoes ea ON ea.employee_id = e.id AND ea.ativo
+          LEFT JOIN posts pa ON pa.id = ea.posto_id
           LEFT JOIN ponto_horario_vigencia hv
                  ON hv.employee_id = e.id
                 AND :d BETWEEN hv.vigencia_inicio AND coalesce(hv.vigencia_fim, :d)
@@ -1050,7 +1074,14 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
          --
          -- Filtro que esconde o caso anômalo é pior que filtro nenhum: ele produz um relatório
          -- limpo sobre uma operação furada. Agora essas linhas ENTRAM e ganham veredito próprio.
-         WHERE s.shift_date = :d AND s.is_active {filtro}
+         WHERE s.shift_date = :d AND s.is_active
+           -- 🔴 `is_active` NÃO BASTA — 26/09/2026. Medido: 6 turnos com `status='cancelled'`
+           -- e `is_active = true` ao mesmo tempo. O Keyson é um deles: turno cancelado em
+           -- 08/09 com nota explicando a demissão, e eu publiquei no grupo do dono que ele
+           -- estava ESCALADO_SEM_VINCULO. A escala JÁ estava certa; o alarme era meu.
+           -- ⚠️ Duas colunas discordando: fecho pelas DUAS. E o vocabulário é INGLÊS
+           -- ('scheduled'/'cancelled') — meu filtro em português nunca excluiu nada.
+           AND s.status NOT IN ('cancelled', 'cancelado', 'cancelada') {filtro}
          ORDER BY pp.name, s.planned_start_time, e.nome"""), p)).mappings().all()
 
     if not linhas:
@@ -1146,6 +1177,11 @@ async def situacao_do_turno(db: AsyncSession, *, posto: str | None = None, dia=N
             item["por_que"] = motivo
         if r["device_type"]:
             item["onde"] = r["device_type"]
+        if r["posto_divergente"]:
+            item["escala_aponta_posto_errado"] = r["posto_do_turno"]
+            item["por_que"] = ((item.get("por_que") or "") +
+                               f" ⚠️ a escala de hoje ainda aponta '{r['posto_do_turno']}' "
+                               "— remanejamento não refletido no turno, corrigir a escala.").strip()
         if com_nomes:
             item = {"quem": r["nome"], "cargo": r["cargo"], **item}
         if com_ids:
