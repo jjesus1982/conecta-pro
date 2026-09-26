@@ -57,7 +57,7 @@ prefeitura: **3 grupos, R$ 47.318,51 de excedente, R$ 1.349,12 de ISS** — Lara
 (06, R$ 37.438,91), Gelain (07, R$ 6.000,00) e Prime Arena (06, R$ 3.879,60). Eram 4 grupos
 e R$ 130.328,02 antes; o Ideal Flores saiu porque a nota foi cancelada no fisco.
 
-**R$ 272.395,49 continuam em «Saídas a Classificar» — sem natureza, 625 lançamentos.** É a
+**R$ 272.948,99 continuam em «Saídas a Classificar» — sem natureza, 638 lançamentos.** É a
 maior linha isolada de despesa do ano depois de salários e terceiros, e é a que impede
 saber o custo por posto.
 
@@ -84,7 +84,7 @@ não melhoram mais nada** — são o piso, não a alavanca.
 
 ---
 
-## 3. Onde estão os R$ 17.131 que faltam
+## 3. Onde estão os R$ 4.119 que faltam
 
 ### 3.1 Os dois baldes de 39% (R$ 128.569,66/mês em agosto)
 
@@ -97,8 +97,9 @@ Edward, Pedro, Keyson, Sidney, Denilson e outros, cada um com R$ 5 mil a R$ 13 m
 classificados como «serviço de terceiro». Se são cobertura e diária, o lugar é folha
 (5.1.1.07) e há risco trabalhista. Se são prestadores de fato, precisam de nota.
 
-`checar_transitoria_aberta.py` já lista isso por contraparte: **218 contrapartes, 101 acima
-de R$ 300**. Decidir uma resolve várias — a Sólides eram 16 linhas com o mesmo destino.
+`checar_transitoria_aberta.py` já lista isso por contraparte: **293 contrapartes, 131 acima
+de R$ 300** — eram 218 e 101 até 26/09, quando o maior balde («sem nome», R$ 67.110,61)
+se abriu em ~110 contrapartes nomeadas. Decidir uma resolve várias — a Sólides eram 16 linhas com o mesmo destino.
 
 **Esta é a maior alavanca de 2027, e ela não é técnica: é olhar a lista.**
 
