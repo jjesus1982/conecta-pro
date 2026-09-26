@@ -4807,8 +4807,29 @@ async def _contexto_funcionario(ident) -> str:
     assimetria — e é também o que evita a primeira pergunta boba ("qual seu nome?").
     """
     from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
+    from modules.people_management.ponto.guia_primeiro_acesso import (  # noqa: PLC0415
+        COMO_BATER_CURTO,
+        NUNCA_DIZER,
+        URL_PORTAL,
+    )
 
     linhas = [
+        # 🔴 26/09/2026 — A NEGATIVA TEM DE SER EXPLÍCITA, senão ele completa a lacuna sozinho.
+        # O José Luís mandou o Wisley, contratado ontem, INSTALAR O TANGERINO — desligado desde
+        # 13/09. Ele não tinha como saber: o lembrete diário dizia "bata pelo app do Conecta
+        # PRO" (frase errada, agora corrigida) e o único app de ponto que aparecia no histórico
+        # era o Tangerino. Faltar informação não produz silêncio no modelo — produz invenção
+        # plausível.
+        "COMO SE BATE O PONTO NESTA CASA — este é o fato, não improvise outro:",
+        f"  · {COMO_BATER_CURTO}",
+        f"  · ⚠️ {NUNCA_DIZER}",
+        f"  · Passo a passo completo (use este texto, não escreva um seu): a ferramenta/função "
+        f"    `guia_primeiro_acesso.guia(nome, email)` tem o roteiro oficial — navegador, login, "
+        f"    atalho na tela inicial, Meu Espaço → Ponto, e as permissões de LOCALIZAÇÃO e "
+        f"    CÂMERA, sem as quais a batida não fecha. Endereço: {URL_PORTAL}",
+        "  · Se a pessoa não consegue bater de jeito nenhum, NÃO a deixe perder a hora: "
+        "registre a batida por contingência e diga que o DP valida depois.",
+        "",
         f"FUNCIONÁRIO: {ident.nome}"
         + (
             f" — CHAME-O DE **{ident.tratamento}** (é assim que ele é chamado aqui, não pelo primeiro nome do cadastro)"

@@ -23,9 +23,21 @@ from modules.people_management.ponto.coorte_ponto import SQL_NAO_AUSENTE_HOJE
 logger = logging.getLogger(__name__)
 
 # delta_min (minutos desde o início do turno; negativo = antes) -> modelo da mensagem
+# 🔴 26/09/2026 — "APP" ERA MENTIRA, E ELA ENSINOU O AGENTE A ERRAR.
+# Jordan: *"não usamos app ainda, usamos o link do sistema do portal do funcionário no
+# navegador"*. Estas duas frases saíam para TODO MUNDO, todos os dias, dizendo "app" — e o José
+# Luís, sem nenhum fato melhor no contexto, improvisou a partir delas: mandou o Wisley, recém
+# contratado, *instalar o Tangerino*, que está DESLIGADO desde 13/09. O rapaz ia baixar um app
+# morto e continuar sem bater.
+#
+# ⚠️ A lição não é sobre o texto: é que **o agente aprende com o que a casa diz**. Uma frase
+# errada repetida 1.500 vezes vira a verdade dele. Medido: 1.292 batidas `mobile` com
+# `device_id CEL-…` (navegador do celular) e ZERO `tangerino` depois de 13/09.
 ETAPAS: dict[int, str] = {
-    -15: "Seu turno no {posto} começa às {hora}. Bata o ponto pelo app do Conecta PRO.",
-    0: "Seu turno no {posto} começou agora ({hora}). Bata o ponto pelo app.",
+    -15: ("Seu turno no {posto} começa às {hora}. Bata o ponto no Conecta PRO, pelo navegador "
+          "do celular: https://erp.conectamais.pro → Meu Espaço."),
+    0: ("Seu turno no {posto} começou agora ({hora}). Bata o ponto em "
+        "https://erp.conectamais.pro → Meu Espaço."),
     10: "Você ainda não bateu o ponto do turno das {hora} no {posto}. Bata agora, por favor.",
     # ⭐ 11/09/2026 — A QUARTA NÃO COBRA: PERGUNTA. Jordan: *"ele não puxa conversa. Só
     # responde. Quem não bateu às 07:10 recebe um lembrete automático genérico — ele podia
