@@ -57,3 +57,4 @@ atualizado: 2026-04-14
 | 14 | 14-metas-smart-financeiras.md | FinancialAdvisorAgent | MÉDIA | Metas SMART com milestones mensais |
 | 15 | 15-benchmark-setorial.md | FinancialAdvisorAgent+RiskMonitorAgent | MÉDIA | Benchmark setor segurança patrimonial |
 | 16 | 16-tributario-lucro-real.md | TaxCalculatorAgent | ALTA | IRPJ/CSLL/PIS/COFINS + LALUR Lucro Real |
+| 17 | 17-tributario-simples-anexo-iv.md | TaxCalculatorAgent | CRITICA | Simples Anexo IV — CNPJ 66.014.833 (Patrimonial): CPP patronal FORA do DAS, retencao 11% Lei 9.711, ISS dentro do DAS, e o filtro contra literatura de Lucro Real |

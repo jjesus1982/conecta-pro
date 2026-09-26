@@ -157,6 +157,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_parcelamento_em_atraso.py` | Parcelamento tributário fora do balanço e em atraso — R$ 582.262,83 na PGFN (recibo de adesão de 20/10/2025) contra o que o razão registra; atraso acumulado RESCINDE, perde 60,02% de desconto e tranca nova transação por 2 anos |
 | `checar_patronal_nao_declarada.py` | Empresa do Simples cuja CPP patronal não está NEM dentro do DAS NEM na DCTFWeb — no Anexo III ela é ~43% da guia; na Patrimonial a guia de 07/2026 traz R$ 171,06 e a de 08/2026, nada, enquanto a DCTFWeb declara só `1082-01 CP SEGURADOS`. ~R$ 24 mil/mês sem documento, com o dinheiro já retido pelos clientes (Lei 9.711) e sobrando como crédito |
 | `checar_fornecedor_saldo_invertido.py` | `2.1.4.01 Fornecedores a Pagar` com saldo DEVEDOR: pagou-se mais do que se escriturou por competência — o preço honesto do casamento pagamento×nota tomada, que quando erra inverte o passivo em vez de sumir com a despesa calada |
+| `checar_credito_retencao_dormente.py` | Crédito de retenção na fonte (11%, Lei 9.711/98) crescendo sem ser compensado — R$ 84.709,90 parados na Patrimonial em 26/09, ~R$ 25 mil/mês entrando, porque a CPP patronal que ele existe para abater não está sendo declarada. Não é inadimplência de cliente: é tributo já recolhido em nosso nome |
 
 ## Comandos
 

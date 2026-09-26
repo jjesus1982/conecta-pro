@@ -22,15 +22,29 @@ versao: 2.0
 - Apuração: trimestral (mesmo período IRPJ)
 - DARF código: 6012
 
-**PIS — Regime Não-Cumulativo (Lucro Real)**
-- Alíquota: 1,65% sobre receita bruta
-- Créditos: sobre insumos/custos/despesas permitidos em lei
-- Apuração: mensal até dia 25 do mês seguinte
+**PIS/COFINS — CUMULATIVO, não não-cumulativo** ⚠️ corrigido em 26/09/2026
+- **PIS 0,65% · COFINS 3,00%** sobre a receita bruta — **SEM crédito sobre insumo.**
+- Base legal: **Lei 10.833/2003, art. 10, inciso XXIV** — serviços de **vigilância e
+  transporte de valores** permanecem no regime cumulativo **mesmo no Lucro Real**.
+  «Lucro Real» NÃO implica «não-cumulativo»: são eixos independentes.
+- Medido em 26/09/2026 no mix de receita de 2026 deste CNPJ:
 
-**COFINS — Regime Não-Cumulativo (Lucro Real)**
-- Alíquota: 7,6% sobre receita bruta
-- Créditos: sobre insumos/custos/despesas permitidos
-- Apuração: mensal até dia 25 do mês seguinte
+  | código | serviço | R$ | regime |
+  |---|---|---|---|
+  | 110201 | Vigilância/monitoramento | 1.320.588,53 | **cumulativo** |
+  | 071001/071002 | Limpeza e serviços gerais | 119.257,10 | **cumulativo** |
+  | 140601 | Manutenção de CFTV | 114.160,00 | não-cumulativo |
+  | 140101 | Lubrificação/revisão | 13.105,93 | não-cumulativo |
+
+  **91,6% da receita é cumulativa por lei.** Toda estratégia de "recuperar crédito de
+  PIS/COFINS sobre insumos" — e há literatura farta prometendo 3% a 7% — alcança, aqui,
+  7,3% do faturamento. Sobre R$ 114.160/ano isso é ~R$ 10,5 mil de tributo, e o crédito
+  seria uma fração disso. **Não vale a auditoria.**
+- Na EFD Contribuições: CST 01, COD_CONT 51, registro 0110 com COD_INC_TRIB = 2.
+  Isso está codificado em `backend/modules/government_integrations/core/sped_contribuicoes.py`
+  e o CNPJ é declarado em `REGIME_PIS_COFINS` — o serviço RECUSA gerar para CNPJ sem
+  regime declarado, em vez de assumir.
+- Apuração: mensal, até o dia 25 do mês seguinte.
 
 **ISS — Prefeitura de Manaus**
 - Alíquota: 5% sobre receita de serviços

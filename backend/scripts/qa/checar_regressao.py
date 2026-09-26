@@ -83,6 +83,15 @@ CACADORES = {
     "checar_fornecedor_saldo_invertido.py": lambda s: _n(
         r"^TOTAL: (\d+) empresa\(s\) com fornecedor em saldo invertido", s
     ),
+    # Crédito de retenção na fonte (11%, Lei 9.711/98) que cresce sem nunca ser compensado.
+    # Não é inadimplência do cliente: é tributo já recolhido em nosso nome, esperando abater
+    # a contribuição previdenciária. Medido em 26/09/2026: R$ 84.709,90 parados na
+    # Patrimonial, ~R$ 25 mil entrando por mês, porque o débito que ele existe para pagar
+    # (a CPP patronal) não está sendo declarado. CONTADA: acusa se CRESCER — compensar é
+    # ato declaratório (DCTFWeb/PER-DCOMP), não desta trava.
+    "checar_credito_retencao_dormente.py": lambda s: _n(
+        r"^TOTAL: (\d+) empresa\(s\) com crédito de retenção sem compensar", s
+    ),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
