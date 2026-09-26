@@ -81,12 +81,20 @@ def guia(nome: str, email: str) -> str:
         "• *iPhone:* toque em *Compartilhar* (o quadradinho com a seta) → *Adicionar à Tela de "
         "Início*\n"
         "• *Android:* toque nos *três pontinhos* → *Adicionar à tela inicial*\n\n"
-        "*4. Bater o ponto*\n"
-        "Dentro do sistema, vá em *Meu Espaço* → *Ponto*. Bata na *entrada* e na *saída* do seu "
-        "turno.\n\n"
-        "*5. Autorizar as duas permissões* — sem elas a batida NÃO fecha\n"
+        # ⚠️ A ORDEM É A DO MUNDO, não a da minha cabeça: permissão → rosto → batida. Minha
+        # primeira versão punha "bater o ponto" antes do cadastro do rosto, e a pessoa chegava
+        # na batida sem poder concluir. Passo fora de ordem é passo que trava.
+        "*4. Autorizar as duas permissões* — sem elas nada funciona\n"
         "📍 *Localização:* o sistema confere se você está no posto\n"
         "📷 *Câmera:* a batida tira uma foto sua, é a prova de que foi você\n\n"
+        "*5. Cadastrar o rosto — UMA vez só*\n"
+        "Na primeira vez o sistema pede *\"Cadastrar meu rosto\"*. Faça com boa luz, sem boné, "
+        "sem óculos escuros e sem máscara. Depois disso é só olhar para a câmera em cada "
+        "batida.\n"
+        "⚠️ *Sem o rosto cadastrado a batida não passa* — é o passo que mais trava gente no "
+        "primeiro dia.\n\n"
+        "*6. Bater o ponto*\n"
+        "Em *Meu Espaço* → *Ponto*. Bata na *entrada* e na *saída* do seu turno.\n\n"
         "*Se travar:* me manda aqui *o que apareceu na tela* (print ajuda). Eu registro sua "
         "batida por aqui no mesmo minuto e você não perde a hora — depois o DP valida. 🙏"
     )
@@ -112,3 +120,39 @@ async def enviar_guia(db, *, nome_ou_id: str) -> dict:
     return await mandar(db, quem=alvo["employee_id"],
                         texto=guia(alvo["nome"], alvo["email"]),
                         motivo="guia de primeiro acesso ao ponto")
+
+
+#: ⭐ O CONVITE QUE FECHA O CICLO — Jordan, 26/09/2026: *"manda pro orlailson o link de
+#: autocadastro de novos funcionários, assim ele vai mandar todas as vezes que um novo
+#: funcionário for contratado, daí fechamos o ciclo e automatizamos tudo isso"*.
+#:
+#: ⚠️ NÃO EXISTE PÁGINA DE CADASTRO SEPARADA. Medido: as contas do Jair, da Thayná e do Ramon
+#: nasceram todas por **login com Google** (`google_id` preenchido) — o callback do Google cria
+#: o usuário como `role='pending'` no primeiro acesso. O "link de autocadastro" é a própria tela
+#: de login; quem cria a conta é o primeiro clique da pessoa.
+#:
+#: Ciclo completo, e cada elo existe de verdade:
+#:   1. o supervisor manda este convite ao contratado
+#:   2. ele entra com o Gmail → conta nasce `pending` e o sino avisa os admins
+#:   3. Jordan ou Pyetra aprovam (perfil `funcionario` + vínculo com o colaborador)
+#:   4. a aprovação DISPARA o guia automaticamente (`api/v1/endpoints/users.py::aprovar_user`)
+CONVITE_AUTOCADASTRO = "\n".join([
+    "*Cadastro de novo colaborador — Conecta PRO*",
+    "",
+    "Manda este passo a passo para a pessoa no primeiro dia. Leva 1 minuto e é ela quem faz:",
+    "",
+    f"1️⃣ Abrir *{URL_PORTAL}* no navegador do celular",
+    "2️⃣ Tocar em *Entrar com Google* e usar o *Gmail dela*",
+    "3️⃣ Pronto — o cadastro fica *aguardando aprovação* e nós recebemos o aviso",
+    "",
+    "Depois que o Jordan ou a Pyetra aprovarem, *o sistema manda sozinho* para ela o passo a "
+    "passo de como bater o ponto: como entrar, onde fica o ponto e as permissões de localização "
+    "e câmera. Você não precisa explicar nada disso.",
+    "",
+    "⚠️ Duas coisas importantes:",
+    "• *Precisa ser Gmail* — é por ele que o acesso é criado",
+    "• *Não existe app para baixar.* Se alguém procurar na loja do celular não vai achar, e o "
+    "*Tangerino foi desligado* em 13/09. É o navegador, sempre.",
+    "",
+    "Me avisa quando mandar para alguém que eu acompanho a aprovação. 🙏",
+])

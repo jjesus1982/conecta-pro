@@ -45,11 +45,32 @@ async def main() -> None:
     for exigido, o_que in (("navegador", "o caminho real"),
                            ("Localização", "a permissão de GPS, sem ela a batida não fecha"),
                            ("Câmera", "a permissão de foto, sem ela a batida não fecha"),
+                           # 🔴 26/09/2026 — o passo do ROSTO. A THAYNÁ perguntou sozinha
+                           # ("tenho que cadastrar meu rosto?") e a medição fechou o caso: das 25
+                           # batidas `mobile` daquele dia, 25 com `facial_match` e ZERO sem. É
+                           # obrigatório, e 7 ativos estavam sem `face_enrolled_at` — três com 18
+                           # turnos futuros. Sem esta linha o guia leva a pessoa até a última
+                           # tela e a deixa lá.
+                           ("Cadastrar meu rosto", "o cadastro facial, sem ele a batida não passa"),
                            ("fulano@exemplo.com", "o e-mail da pessoa")):
         if exigido.lower() not in g.lower():
             falhas.append(f"o guia não menciona {o_que} ({exigido!r})")
     if "fulano de tal" in g.lower():
         falhas.append("o guia usa o nome inteiro em vez do primeiro nome — soa a robô")
+
+    # ⚠️ A ORDEM É PARTE DA CORREÇÃO, não enfeite: permissão → rosto → batida. Minha primeira
+    # versão punha "bater o ponto" ANTES do cadastro do rosto, e a pessoa chegava na batida sem
+    # poder concluir. Passo fora de ordem é passo que trava, e um teste que só procura palavras
+    # passaria verde com a ordem errada.
+    pos_rosto = g.find("Cadastrar meu rosto")
+    pos_bater = g.find("*6. Bater o ponto*")
+    if pos_rosto < 0 or pos_bater < 0:
+        falhas.append("não achei os passos de rosto e de batida para conferir a ORDEM")
+    elif pos_rosto > pos_bater:
+        falhas.append("o guia manda BATER antes de cadastrar o rosto — a pessoa trava na última "
+                      "tela sem entender por quê")
+    else:
+        print("  ok  ordem certa: permissões → rosto → batida")
     if not falhas:
         print(f"  ok  guia com {len(g.splitlines())} linhas: navegador, login, permissões")
 
