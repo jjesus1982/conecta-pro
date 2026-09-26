@@ -212,7 +212,10 @@ async def buracos_de_escala(db: AsyncSession, *,
            -- sendo reportado. Suprimir por casamento incerto esconderia furo real, e furo
            -- escondido é pior que aviso a mais. Medido: casam 8 de 10 nomes; `PISCINAS` e
            -- `PARISE VILLAGE` não casam porque NÃO EXISTEM em `posts` — isso é cadastro
-           -- faltando, não defeito de comparação.
+           -- faltando, não defeito de comparação. São postos REAIS (PISCINAS tem 51
+           -- lançamentos com portaria diurna e noturna); não têm relação com nenhum posto
+           -- cadastrado, e tentar adivinhar o par pela interseção de PESSOAS é inválido —
+           -- eu tentei, disse que PISCINAS era o Green Hills, e estava errado.
            AND NOT EXISTS (
              SELECT 1 FROM diaria_lancamentos dl
               WHERE dl.data = (SELECT ts::date FROM agora)
