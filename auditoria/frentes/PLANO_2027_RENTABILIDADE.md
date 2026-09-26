@@ -40,6 +40,26 @@ condomínios migrou da Eletrônica para a Patrimonial; a receita despencou em ju
 inflada em julho. Somados, os dois dão R$ 541.816,65 — ou R$ 270.908 por mês, que é a
 média do resto do ano. **Setembro ainda está correndo** e por isso aparece pior do que é.
 
+### Um valor CONDICIONAL que pode melhorar 2026
+
+**R$ 9.864,13 de despesa podem estar contados duas vezes** entre março e julho. São 77
+linhas do extrato do Inter que aparecem em duplicidade entre a importação de retaguarda
+de 11/08 e a sincronia pela API — a linha da API vem sem `external_id` e o índice único
+do banco é parcial, então nulo não colide com nulo. **Todas as 77 têm lançamento no
+razão.**
+
+Elas estavam invisíveis porque a checagem de duplicata exige favorecido preenchido, e
+essas cópias vinham sem nome; em 26/09 a conciliação passou a nomear 545 transações e
+elas apareceram.
+
+**Nada foi apagado.** Adjudicar exige contar, dia a dia, quantos lançamentos de cada valor
+o banco tem contra quantos temos — e em 26/09 o extrato completo do Inter devolveu 503 em
+todos os intervalos. O adjudicador está pronto
+(`backend/scripts/adjudicar_duplicata_multifonte.py`) e recusa concluir sem o banco.
+
+Se confirmadas, o resultado de 2026 melhora de −R$ 208.231,49 para cerca de
+**−R$ 198.367**. Enquanto não houver o extrato, vale o número medido.
+
 ### O mês representativo é agosto
 
     receita                 R$ 275.461,56     (inclui a NFS-e 124, Hawk Eye, R$ 1.000)
