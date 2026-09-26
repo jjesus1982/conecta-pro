@@ -82,6 +82,14 @@ PRODUTOR: dict[str, str | None] = {
     "EFD_ICMS_IPI": "sped-fiscal",
     "EFD_CONTRIBUICOES": "sped-contribuicoes",
     "ECF": "sped-ecf",
+    # O token é o EVENTO, não o módulo. O sistema tem `POST /esocial/s2200/gerar` e
+    # `/s2299/gerar` — admissão e rescisão — e a obrigação MENSAL é outra coisa: os
+    # periódicos da folha (S-1200 remuneração, S-1210 pagamentos, S-1299 fechamento).
+    # Com o token «esocial» a trava daria por coberta uma obrigação que não é produzida,
+    # que é exatamente a cegueira que ela existe para não ter.
+    "ESOCIAL": "esocial/s1299",
+    "EFD_REINF": "reinf",
+    "DCTFWEB": "dctf",
     "DCTF": "dctf",
     "DIRF": "dirf",
     "RAIS": "rais",

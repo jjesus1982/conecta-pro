@@ -739,7 +739,24 @@ grande — o que parecia um buraco de cinco obrigações é, na verdade, **uma**
     PGDAS-D            NÃO    →    não é arquivo: declaração no portal do Simples.
                                    O que o sistema deve ali é a RECEITA BRUTA por
                                    competência, e o DRE já dá
-    ECF                NÃO    →    **NÃO. É a que resta.**
+
+**Mas extinguir sem pôr a sucessora no lugar abre um buraco pior que o fantasma.** A DCTF
+saiu e a **DCTFWeb** precisou entrar — ela é quem vence todo dia 15, e é uma das que a
+Portte faz hoje. Junto entraram **eSocial** (periódicos da folha) e **EFD-Reinf**, que são
+de onde a DCTFWeb se alimenta: sem os eventos, ela nasce vazia. E para a Patrimonial
+também, que tem 74 pessoas — deixar eSocial e DCTFWeb fora do painel dela seria o buraco
+mais caro da lista.
+
+A conta honesta ficou em **6**, e é um 6 mais verdadeiro que o 5 de antes:
+
+    ELETRÔNICA      DCTFWeb · eSocial (periódicos) · EFD-Reinf · ECF
+    PATRIMONIAL     eSocial (periódicos) · DCTFWeb
+
+Detalhe que só apareceu porque a régua foi apertada: o sistema **tem** `POST
+/esocial/s2200/gerar` e `/s2299/gerar` — admissão e rescisão. A obrigação MENSAL é outra
+coisa: os periódicos S-1200, S-1210 e S-1299. Com o token «esocial» a trava daria por
+coberta uma obrigação que ninguém produz — por isso o token dela é `esocial/s1299`, o
+evento de fechamento.
 
 Elas ficam **declaradas** em `ObligationsMonitorAgent.OBRIGACOES_EXTINTAS`, com a norma e
 o ano de efeito, em vez de apagadas — exercício anterior à data ainda as devia, e quem

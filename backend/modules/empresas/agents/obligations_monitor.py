@@ -101,17 +101,17 @@ class ObligationsMonitorAgent:
         "DIRF": (
             2025,
             "extinta para fatos geradores a partir de 01/01/2025",
-            "eSocial e EFD-Reinf",
+            "ESOCIAL, EFD_REINF",
         ),
         "RAIS": (
             2022,
             "substituída para quem declara eSocial (ano-base 2022 em diante)",
-            "eSocial",
+            "ESOCIAL",
         ),
         "DCTF": (
             2025,
             "a DCTF mensal foi absorvida pela DCTFWeb a partir de 01/2025",
-            "DCTFWeb",
+            "DCTFWEB",
         ),
     }
 
@@ -134,6 +134,16 @@ class ObligationsMonitorAgent:
             "mensal",
             "https://www.gov.br/receitafederal/",
         ),
+        # A SUCESSORA. Marcar a DCTF como extinta e não pôr a DCTFWeb no lugar abriria um
+        # buraco pior que o fantasma: some do painel a declaração que realmente vence todo
+        # dia 15, e é uma das que a Portte faz hoje. eSocial e EFD-Reinf entram junto
+        # porque é deles que a DCTFWeb se alimenta — sem os eventos, ela nasce vazia.
+        ("DCTFWEB", "DCTFWeb — Declaração de Débitos e Créditos Previdenciários e de Outras Entidades",
+         15, "mensal", "https://www.gov.br/receitafederal/"),
+        ("ESOCIAL", "eSocial — eventos periódicos da folha (S-1200/S-1210/S-1299)",
+         15, "mensal", "https://www.gov.br/esocial/"),
+        ("EFD_REINF", "EFD-Reinf — retenções e serviços tomados/prestados",
+         15, "mensal", "https://www.gov.br/receitafederal/"),
         ("IRPJ_CSLL_ESTIMATIVA", "IRPJ/CSLL — Estimativa Mensal (DARF)", 30, "mensal", None),
         ("FGTS_GUIA", "FGTS — FGTS Digital (DAE)", 20, "mensal", "https://www.gov.br/fgtsdigital/"),  # dia 20, NÃO 7 — ver nota abaixo
         ("INSS_GPS", "INSS/GPS — Contribuição Previdenciária", 20, "mensal", None),
@@ -164,6 +174,13 @@ class ObligationsMonitorAgent:
         ),
         ("FGTS_GUIA", "FGTS — FGTS Digital (DAE)", 20, "mensal", "https://www.gov.br/fgtsdigital/"),  # dia 20, NÃO 7 — ver nota abaixo
         ("ISS_AVULSO", "ISS — Imposto Sobre Serviços (Manaus)", 10, "mensal", "https://semef.manaus.am.gov.br/"),
+        # O Simples não paga INSS patronal pela folha, mas TEM empregados: eSocial e
+        # DCTFWeb continuam sendo dele (FGTS, IRRF e as retenções passam por ali). Com 74
+        # pessoas na Patrimonial, deixar isso fora do painel é o buraco mais caro da lista.
+        ("ESOCIAL", "eSocial — eventos periódicos da folha (S-1200/S-1210/S-1299)",
+         15, "mensal", "https://www.gov.br/esocial/"),
+        ("DCTFWEB", "DCTFWeb — Declaração de Débitos e Créditos Previdenciários e de Outras Entidades",
+         15, "mensal", "https://www.gov.br/receitafederal/"),
     ]
 
     OBRIGACOES_SIMPLES_ANUAIS = [
