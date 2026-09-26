@@ -238,77 +238,38 @@ def get_ultimo_ciclo() -> dict:
 
 
 def get_agentes_cto() -> dict:
-    """Status dos agentes via TeamBridge."""
-    try:
-        sys.path.insert(0, str(PROJECT_DIR / "agents" / "cto"))
-        from team_bridge import TeamBridge
-        bridge = TeamBridge()
-        # Ler último ciclo para scores
-        ciclo_dir = PROJECT_DIR / "reports" / "modules"
-        import glob, os as _os
-        ciclos = sorted(
-            glob.glob(str(ciclo_dir / "ciclo_geral_*.json")),
-            key=_os.path.getmtime,
-            reverse=True,
-        )
-        if ciclos:
-            ciclo = json.loads(Path(ciclos[0]).read_text())
-            resultados = ciclo.get("resultados", [])
-            total = len(resultados)
+    """Os 80 agentes de monitoramento foram APOSENTADOS em 26/09/2026.
 
-            # `float(r.get("score", 10) or 10)` APAGAVA OS ZEROS. Em Python `0.0 or 10`
-            # é 10: os dois módulos que pontuaram 0,0 no ciclo de 12/04/2026
-            # (inteligencia e equipamentos) apareciam como 10 e entravam em "saudáveis",
-            # enquanto o próprio arquivo lido dizia `modulos_criticos: 2`. Ausência de
-            # score é desconhecido — não é nota máxima.
-            def _score(r):
-                v = r.get("score")
-                return float(v) if v is not None else None
+    Eles sondavam 114 endpoints com GET e pontuavam `HTTP 200 / total × 10`, sem olhar o
+    corpo da resposta — rota que devolvia lista vazia tirava 10 igual à que devolvia o dado
+    certo. Dos 80, apenas 2 tinham `corrigir()` próprio; os outros 78 herdavam um `pass`.
 
-            notas = [(r.get("modulo", "?"), _score(r)) for r in resultados]
-            saudaveis = sum(1 for _m, v in notas if v is not None and v >= 9)
-            problemas = sorted(
-                ({"modulo": m, "score": v} for m, v in notas if v is not None and v < 9),
-                key=lambda x: x["score"],
-            )
-            sem_nota = [m for m, v in notas if v is None]
+    Não foram desligados: estavam MORTOS. A senha em código duro do `BaseAgent` devolvia
+    401 desde algum ponto antes de abril, e a última execução real foi em **12/04/2026**.
+    Religar o cron daria score 0,0 nos 80.
 
-            # IDADE DO DADO. O painel recarrega de 2 em 2 minutos e carimbava
-            # `generated_at` de HOJE sobre a foto do último ciclo, que parou em
-            # 12/04/2026. Quem abria via "8.3 agora"; eram 168 dias atrás. O carimbo de
-            # frescor é do PAINEL, não do DADO — agora os dois aparecem.
-            from datetime import datetime as _dt  # noqa: PLC0415
+    Este painel é o motivo de a aposentadoria ter de mexer aqui: ele roda a cada 2 minutos,
+    é servido pelo nginx, e carimbava `generated_at` de HOJE sobre a fotografia de abril —
+    com um `0.0 or 10` que ainda convertia os dois módulos zerados em nota máxima. Preferir
+    silêncio honesto a número bonito: ele agora DECLARA a aposentadoria em vez de fingir
+    um ciclo.
 
-            idade_dias = None
-            ts = ciclo.get("timestamp", "")
-            try:
-                idade_dias = (_dt.now() - _dt.fromisoformat(ts)).days
-            except (ValueError, TypeError):
-                pass
-
-            return {
-                "total": total,
-                "saudaveis": saudaveis,
-                "com_problema": len(problemas),
-                "sem_nota": sem_nota,
-                "score_geral": (
-                    float(ciclo["score_geral"]) if ciclo.get("score_geral") is not None else None
-                ),
-                "top_problemas": problemas[:5],
-                "ciclo_ts": ts,
-                "idade_dias": idade_dias,
-                "dado_obsoleto": bool(idade_dias is not None and idade_dias > 1),
-                "aviso": (
-                    f"ciclo de agentes parado há {idade_dias} dia(s) — "
-                    "estes números são a última fotografia, não o estado de agora"
-                    if idade_dias is not None and idade_dias > 1
-                    else ""
-                ),
-            }
-    except Exception as e:
-        pass
-    return {"total": 0, "saudaveis": 0, "com_problema": 0, "erro": "TeamBridge indisponível"}
-
+    O que vigia esta casa hoje são os caçadores (`backend/scripts/qa/checar_*.py`) e os
+    oráculos (`backend/scripts/orq/`), que comparam valor com fonte — não disponibilidade
+    de rota.
+    """
+    return {
+        "total": 0,
+        "saudaveis": 0,
+        "com_problema": 0,
+        "aposentados_em": "2026-09-26",
+        "ultimo_ciclo_real": "2026-04-12T03:36:36",
+        "aviso": (
+            "Os 80 agentes de monitoramento foram aposentados em 26/09/2026. "
+            "A vigilância do sistema é feita pelos caçadores em backend/scripts/qa/ "
+            "e pelos oráculos em backend/scripts/orq/."
+        ),
+    }
 
 def get_tickets_cto() -> dict:
     """Tickets abertos e resolvidos hoje."""
