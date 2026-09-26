@@ -4,6 +4,7 @@ Service para SPED Contábil (ECD).
 Camada de serviço que encapsula a lógica de negócio do SPED Contábil.
 """
 
+import json
 import logging
 import os
 import re
@@ -20,6 +21,7 @@ from ..core.sped_contabil import (
     DemonstrativoDRE,
     LancamentoContabil,
     NaturezaConta,
+    Signatario,
     SPEDContabilManager,
     TipoConta,
     TipoECD,
@@ -92,8 +94,44 @@ class SPEDContabilService:
             codigo_municipio=empresa.codigo_municipio,
             inscricao_municipal=empresa.inscricao_municipal,
         )
+        self.manager.signatarios = self._signatarios_declarados()
 
-        logger.info("SPEDContabilService iniciado: CNPJ=%s empresa_id=%s", self.cnpj, self._empresa_id)
+        logger.info(
+            "SPEDContabilService iniciado: CNPJ=%s empresa_id=%s signatários=%d",
+            self.cnpj, self._empresa_id, len(self.manager.signatarios),
+        )
+
+    @staticmethod
+    def _signatarios_declarados() -> list[Signatario]:
+        """Quem assina a ECD, declarado na env `SPED_ECD_SIGNATARIOS` (JSON).
+
+        Vazio é resposta legítima e é o estado de 26/09/2026: quem assinava era a Portte,
+        o dono decidiu fazer a própria contabilidade e o sistema nunca teve o campo. O
+        arquivo sai SEM J930 e a falta aparece em `signatarios_faltando` — melhor que o
+        que havia antes, um J930 com todos os campos em branco e o literal «CONTADOR»,
+        que faz o arquivo parecer completo e ser recusado.
+        """
+        bruto = os.environ.get("SPED_ECD_SIGNATARIOS", "").strip()
+        if not bruto:
+            return []
+        try:
+            itens = json.loads(bruto)
+        except Exception as exc:  # noqa: BLE001 — env malformada não derruba a geração
+            logger.warning("SPED_ECD_SIGNATARIOS não é JSON válido (%s); ECD sai sem J930", exc)
+            return []
+        fora = []
+        for it in itens if isinstance(itens, list) else []:
+            fora.append(Signatario(
+                nome=str(it.get("nome", "")),
+                cpf=str(it.get("cpf", "")),
+                qualificacao=str(it.get("qualificacao", "900")),
+                crc=str(it.get("crc", "")),
+                uf_crc=str(it.get("uf_crc", "")),
+                email=str(it.get("email", "")),
+                telefone=str(it.get("telefone", "")),
+                responsavel_legal=bool(it.get("responsavel_legal", False)),
+            ))
+        return fora
 
     def _resolver_empresa_id(self, cnpj: str) -> str | None:
         """UUID da empresa em `empresas`, pelo CNPJ. None se não achar — e então a carga
@@ -523,6 +561,21 @@ class SPEDContabilService:
             "lancamentos_reais_carregados": auto_carregados,
             "hash_md5": validacao["hash"],
             "conteudo": conteudo,
+            "signatarios": [
+                {"nome": x.nome, "qualificacao": x.qualificacao, "crc": x.crc,
+                 "completo": x.completo}
+                for x in self.manager.signatarios
+            ],
+            "signatarios_faltando": (
+                "" if any(x.completo and x.e_contabilista for x in self.manager.signatarios)
+                else (
+                    "A ECD é assinada por CONTABILISTA COM CRC ATIVO e nenhum software "
+                    "substitui isso. Não há signatário declarado: o arquivo sai sem J930 e "
+                    "o fisco o recusa. Declare em `SPED_ECD_SIGNATARIOS` (JSON): "
+                    '[{"nome": "...", "cpf": "...", "qualificacao": "900", '
+                    '"crc": "AM-012345/O-1", "uf_crc": "AM"}]'
+                )
+            ),
             "veracidade": {
                 "fonte_lancamentos": "accounting_entries" if auto_carregados else "manual",
                 "status": ("consolidado_com_razao_real" if total_lanc else "sem_lancamentos_no_periodo"),

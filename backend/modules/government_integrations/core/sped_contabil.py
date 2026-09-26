@@ -181,6 +181,63 @@ class DemonstrativoDRE:
         return self.lucro_antes_ir - self.irpj_csll
 
 
+@dataclass
+class Signatario:
+    """Quem assina a ECD. Sem ele o arquivo é recusado — e não se inventa um CRC.
+
+    O J930 saía com TODOS os campos vazios: nome em branco, CPF em branco, CRC em branco,
+    e só o literal «CONTADOR» no meio. Registro oco emitido «para o bloco não faltar» é o
+    mesmo defeito que fez o gerador da EFD ICMS/IPI declarar nota de serviço como
+    mercadoria — o arquivo parece completo e não é.
+
+    A ECD é assinada por contabilista com CRC ativo, e nenhum software substitui isso.
+    Até 26/09/2026 quem assinava era a Portte; o dono decidiu fazer a própria
+    contabilidade, e o campo simplesmente não existia no sistema.
+
+    Declaração pela env `SPED_ECD_SIGNATARIOS`, um JSON de lista:
+
+        [{"nome": "...", "cpf": "...", "qualificacao": "900", "crc": "AM-012345/O-1",
+          "uf_crc": "AM", "email": "...", "responsavel_legal": false}]
+
+    `qualificacao` é a Tabela de Qualificação do Assinante da ECD — 900 = contabilista,
+    205 = administrador, 309 = sócio. Quem assina responde; por isso não há padrão.
+    """
+
+    nome: str
+    cpf: str
+    qualificacao: str
+    crc: str = ""
+    uf_crc: str = ""
+    email: str = ""
+    telefone: str = ""
+    responsavel_legal: bool = False
+
+    @property
+    def e_contabilista(self) -> bool:
+        return self.qualificacao.strip() == "900"
+
+    @property
+    def num_seq_crc(self) -> str:
+        """O CRC SEM a UF — o leiaute tem campo próprio para ela (UF_CRC).
+
+        Quem declara escreve «AM-012345/O-1», que é como o CRC aparece na carteira. Mandar
+        isso inteiro no NUM_SEQ_CRC duplica a UF e estoura o campo; cortar em 11 caracteres
+        comia o «-1» final em silêncio, que é como nasce arquivo recusado sem ninguém saber
+        por quê. Aqui a UF sai do começo e o resto vai inteiro.
+        """
+        crc = self.crc.strip()
+        uf = self.uf_crc.strip().upper()
+        if uf and crc.upper().startswith(uf):
+            crc = crc[len(uf):].lstrip("-/ ")
+        return crc
+
+    @property
+    def completo(self) -> bool:
+        """Contabilista sem CRC não assina — o arquivo é recusado e a culpa é nossa."""
+        base = bool(self.nome.strip() and re.sub(r"\D", "", self.cpf))
+        return base and (bool(self.crc.strip()) if self.e_contabilista else True)
+
+
 class SPEDContabilManager:
     """
     Gerenciador do SPED Contábil (ECD).
@@ -763,25 +820,29 @@ class SPEDContabilManager:
         self._contar(contador, "J900")
 
         # J930 - Signatários
-        r_j930 = self._pipe(
-            [
+        #
+        # Este registro saía com TODOS os campos vazios — nome, CPF, CRC em branco e o
+        # literal «CONTADOR» no meio. A ECD com J930 oco é recusada, e pior: o arquivo
+        # parece completo. Agora ou há signatário DECLARADO, ou o registro não sai e a
+        # falta fica visível em `signatarios_faltando`.
+        for sig in self.signatarios:
+            if not sig.completo:
+                continue
+            linhas.append(self._pipe([
                 "J930",
-                "",  # IDENT_NOM
-                "CONTADOR",
-                "",  # IDENT_CPF
-                "",  # IDENT_QUALIF
-                "",  # COD_ASSIN
-                "",  # IND_CRC
-                "",  # EMAIL
-                "",  # FONE
-                "",  # UF_CRC
-                "",  # NUM_SEQ_CRC
-                "",  # DT_CRC
-                "",  # IND_RESP_LEGAL
-            ]
-        )
-        linhas.append(r_j930)
-        self._contar(contador, "J930")
+                sig.nome.strip()[:60],
+                re.sub(r"\D", "", sig.cpf),
+                sig.qualificacao.strip(),
+                "1",                                  # COD_ASSIN — assinatura digital
+                "1" if sig.e_contabilista else "2",   # IND_CRC — 1 com CRC, 2 sem
+                sig.email.strip()[:60],
+                re.sub(r"\D", "", sig.telefone)[:14],
+                sig.uf_crc.strip()[:2],
+                sig.num_seq_crc,
+                "",                                   # DT_CRC
+                "1" if sig.responsavel_legal else "2",
+            ]))
+            self._contar(contador, "J930")
 
         # Registro J990 - Encerramento do Bloco J
         qtd_j = sum(v for k, v in contador["registros"].items() if k.startswith("J"))

@@ -232,6 +232,41 @@ def main() -> int:
         falhas.append("(g) o J100 foi omitido sem motivo declarado — omissão silenciosa")
     medidas.append(f"J100={regs.get('J100', 0)} J150={regs.get('J150', 0)}")
 
+    # ── (h) o J930 tem DONO, ou não sai ──────────────────────────────────────────────
+    # A ECD é assinada por contabilista com CRC ativo e nenhum software substitui isso.
+    # Até 26/09/2026 o J930 saía com TODOS os campos em branco e o literal «CONTADOR» no
+    # meio — registro oco emitido «para o bloco não faltar», que faz o arquivo parecer
+    # completo e ser recusado. É o mesmo defeito do gerador da EFD ICMS/IPI, que declarava
+    # nota de serviço como mercadoria pelo mesmo motivo.
+    from modules.government_integrations.core.sped_contabil import (  # noqa: E402, PLC0415
+        Signatario,
+    )
+
+    vazio = Signatario(nome="", cpf="", qualificacao="900")
+    sem_crc = Signatario(nome="FULANO", cpf="123.456.789-09", qualificacao="900")
+    com_crc = Signatario(nome="FULANO", cpf="123.456.789-09", qualificacao="900",
+                         crc="AM-012345/O-1", uf_crc="AM")
+    socio = Signatario(nome="DONO", cpf="987.654.321-00", qualificacao="205")
+    for rot, sig, esperado in (
+        ("signatário vazio", vazio, False),
+        ("contabilista SEM CRC", sem_crc, False),
+        ("contabilista com CRC", com_crc, True),
+        ("sócio (não precisa de CRC)", socio, True),
+    ):
+        if sig.completo is not esperado:
+            falhas.append(f"(h) {rot}: completo={sig.completo}, esperado {esperado}")
+    # a UF não pode ir duas vezes, e o sequencial não pode ser cortado
+    if com_crc.num_seq_crc != "012345/O-1":
+        falhas.append(f"(h) NUM_SEQ_CRC saiu «{com_crc.num_seq_crc}» — a UF tem campo próprio "
+                      "e cortar o sequencial em silêncio é como nasce arquivo recusado")
+
+    linhas_j930 = [x for x in linhas if x.startswith("|J930|")]
+    for ln in linhas_j930:
+        campos = ln.split("|")
+        if not campos[2].strip() or not campos[3].strip():
+            falhas.append(f"(h) J930 emitido sem nome ou sem CPF: {ln[:60]}")
+    medidas.append(f"J930: {len(linhas_j930)} signatário(s) no arquivo")
+
     print(" · ".join(medidas))
     if not demo.get("balanco"):
         print(f"NOTA (não é falha): J100 recusado — {str(demo.get('motivo'))[:150]}")
