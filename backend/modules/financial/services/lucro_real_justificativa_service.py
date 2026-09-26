@@ -79,28 +79,54 @@ REGEX_RULES: list[tuple[str, str, str]] = [
 ]
 
 
-def _classificar_tx(description: str) -> tuple[str, str]:
+def _so_digitos(valor: str | None) -> str:
+    return re.sub(r"\D", "", valor or "")
+
+
+def _classificar_tx(
+    description: str,
+    counterparty_document: str | None = None,
+    cpfs_funcionarios: frozenset[str] = frozenset(),
+) -> tuple[str, str]:
     """
     Retorna (categoria, descricao_justificativa) para uma transação.
-    Prioridade: CNPJ match → regex match → outros
+    Prioridade: CNPJ da contraparte → CPF de funcionário → regex → outros
     """
     desc = description or ""
+    doc = _so_digitos(counterparty_document)
 
-    # 1. CNPJ match (extrai do padrão "Cp :XXXXXXXX-Nome")
-    cnpj_match = re.search(r"Cp\s*:(\d{8})", desc)
-    if cnpj_match:
-        cnpj_frag = cnpj_match.group(1)
+    # 1. CNPJ da CONTRAPARTE — lido da coluna counterparty_document.
+    #    NÃO usar o "Cp :XXXXXXXX" da descrição: aquilo é o CNPJ do banco DESTINO
+    #    do PIX, não de quem recebeu. Medido em 25/09/2026 sobre as 3.954 transações
+    #    com esse padrão: o fragmento coincide com o CNPJ da contraparte em 32.
+    #    Era essa leitura que carimbava "FGTS — Caixa Econômica" em todo salário pago
+    #    a quem tem conta na Caixa.
+    if len(doc) == 14:
         for cnpj, categoria, texto in CNPJ_RULES:
-            if cnpj_frag == cnpj:
+            if doc.startswith(cnpj):
                 return categoria, texto
 
-    # 2. Regex sobre description completa
+    # 2. Contraparte é funcionário do cadastro → folha, sem depender da descrição.
+    if len(doc) == 11 and doc in cpfs_funcionarios:
+        return "salario", "Pagamento de salário/remuneração a colaborador"
+
+    # 3. Regex sobre description completa
     desc_lower = desc.lower()
     for padrao, categoria, texto in REGEX_RULES:
         if re.search(padrao, desc_lower):
+            # Pessoa física não recolhe tributo: o fisco não recebe por CPF.
+            if categoria == "imposto" and len(doc) == 11:
+                return "outros", "Pagamento a pessoa física (CPF) — não é tributo; revisar"
             return categoria, texto
 
     return "outros", "Saída sem classificação automática — requer revisão manual"
+
+
+def _cpfs_de_funcionarios(conn) -> frozenset[str]:
+    """CPFs do cadastro de funcionários, só dígitos."""
+    cur = conn.cursor()
+    cur.execute("SELECT regexp_replace(coalesce(cpf, ''), '\\D', '', 'g') FROM employees")
+    return frozenset(r[0] for r in cur.fetchall() if len(r[0]) == 11)
 
 
 def classificar_automatico(
@@ -133,7 +159,7 @@ def classificar_automatico(
         if apenas_sem_categoria:
             # Inclui: sem categoria OU categorias sabidamente erradas (tarifa→salario)
             cur.execute("""
-                SELECT id, description, amount, justificativa_categoria
+                SELECT id, description, amount, justificativa_categoria, counterparty_document
                 FROM bank_transactions
                 WHERE transaction_type = 'debit'
                   AND (
@@ -155,7 +181,7 @@ def classificar_automatico(
             """)
         else:
             cur.execute("""
-                SELECT id, description, amount, justificativa_categoria
+                SELECT id, description, amount, justificativa_categoria, counterparty_document
                 FROM bank_transactions
                 WHERE transaction_type = 'debit'
                 ORDER BY ABS(amount) DESC
@@ -163,6 +189,7 @@ def classificar_automatico(
 
         rows = cur.fetchall()
         total = len(rows)
+        cpfs_func = _cpfs_de_funcionarios(conn)
 
         distribuicao: dict[str, dict] = {}
         correcoes = 0
@@ -175,7 +202,7 @@ def classificar_automatico(
             valor = float(abs(row["amount"] or 0))
             cat_atual = row["justificativa_categoria"]
 
-            cat_nova, texto_novo = _classificar_tx(desc)
+            cat_nova, texto_novo = _classificar_tx(desc, row["counterparty_document"], cpfs_func)
 
             # Contar como correção se estava errado
             if cat_atual and cat_nova != cat_atual and cat_nova != "outros":
