@@ -249,7 +249,16 @@ def _conferir_tp_amb(xml: str | bytes, tp_amb: str, url: str, operacao: str = "E
             f"{operacao}: tpAmb do XML {sorted(achados)} difere do ambiente pedido ({tp_amb}). Nada foi transmitido.",
             code="TPAMB_DIVERGENTE",
         )
-    em_producao = url.rstrip("/") == URL_PRODUCAO.rstrip("/")
+    # A URL de destino tem CAMINHO — `/nfse`, `/nfse/{chave}/eventos` — e comparar a URL
+    # inteira com a base nunca dá igual. Medido em 26/09/2026: com `==`, TODA operação de
+    # produção era recusada aqui com «o host não corresponde ao tpAmb=1», mesmo com o gate
+    # humano aberto e o XML correto. Ninguém tinha notado porque nenhuma NFS-e havia sido
+    # emitida em produção — os contadores de produção estão em 0 desde que nasceram.
+    #
+    # O teste certo é o HOST, e `startswith` sobre a base resolve sem falso positivo: a
+    # produção restrita mora em `sefin.producaorestrita.nfse.gov.br`, que não começa por
+    # `sefin.nfse.gov.br`.
+    em_producao = url.startswith(URL_PRODUCAO)
     if em_producao != (tp_amb == "1"):
         raise NFSeAmbienteError(
             f"{operacao}: o host ({url}) não corresponde ao tpAmb={tp_amb} do XML. Nada foi transmitido.",
@@ -689,6 +698,169 @@ class NFSeNacionalManager:
             return segunda
 
         return result
+
+    def cancelar_nfse(
+        self,
+        chave: str,
+        motivo: str,
+        cod_motivo: str = "1",
+        n_pedido: int = 1,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Pede o CANCELAMENTO de uma NFS-e ao Ambiente Nacional (evento e101101).
+
+        Nasceu em 26/09/2026. O endpoint `/nfse/{chave}/eventos` estava DECLARADO em
+        `ENDPOINTS` desde sempre e **nenhum método o usava** — o sistema registrava o pedido
+        em `nfse_emitidas_nacional.cancelamento_solicitado_em` e ficava esperando que alguém
+        cancelasse no portal; o sync depois descobria o evento e marcava a nota. Não havia
+        caminho para cancelar.
+
+        `cod_motivo` do leiaute nacional: 1=erro na emissão · 2=serviço não prestado ·
+        3=erro de assinatura · 4=duplicidade. Para nota emitida em duplicata, use 4.
+
+        MESMO FLUXO DA EMISSÃO, e de propósito: XML → assina XMLDSig → GZip → Base64 →
+        POST mTLS. Passa pelas DUAS camadas da trava de ambiente — cancelar é tão
+        irreversível quanto emitir, e em produção precisa do mesmo destravamento humano.
+
+        O fisco é o juiz do PRAZO. Se a competência já fechou, ele recusa — e a recusa não
+        estraga nada, é informação. Nada aqui tenta adivinhar o prazo do município.
+        """
+        import base64
+        import gzip
+        import tempfile
+        from datetime import datetime as _dt
+
+        import requests
+
+        _exigir_ambiente_nfse(self.tp_amb, "Cancelamento de NFS-e")
+
+        chave_limpa = re.sub(r"\D", "", chave or "")
+        if len(chave_limpa) != 50:
+            return {
+                "status": "erro_chave",
+                "erro": f"Chave de acesso deve ter 50 dígitos; recebi {len(chave_limpa)}.",
+            }
+        cnpj_limpo = re.sub(r"\D", "", self.cnpj or "")
+        xml_evento = self._build_evento_cancelamento_xml(
+            chave_limpa, cnpj_limpo, motivo, cod_motivo, n_pedido
+        )
+
+        result: dict[str, Any] = {
+            "chave": chave_limpa,
+            "cod_motivo": cod_motivo,
+            "motivo": motivo,
+            "ambiente": self.ambiente.value,
+            "xml_tamanho": len(xml_evento),
+        }
+        if dry_run:
+            result["status"] = "dry_run"
+            result["xml_preview"] = xml_evento
+            return result
+
+        try:
+            from .certificate_manager import CertificateManager
+            from .xml_signer import NFSeNacionalXMLSigner
+
+            cert_mgr = CertificateManager(pfx_path=self.certificado_path, password=self.certificado_senha)
+            cert_mgr.load()
+            xml_assinado = NFSeNacionalXMLSigner(cert_mgr).sign_nfse(xml_evento)
+            result["xml_assinado"] = True
+            result["xml_evento_assinado"] = xml_assinado
+        except Exception as e:  # noqa: BLE001
+            logger.error("Erro assinando evento de cancelamento: %s", e)
+            return {**result, "status": "erro_assinatura", "erro": str(e)}
+
+        xml_b64 = base64.b64encode(gzip.compress(xml_assinado.encode("utf-8"))).decode("ascii")
+        url = f"{self.url_base}/nfse/{chave_limpa}/eventos"
+
+        tmp_cert_path = tmp_key_path = None
+        try:
+            cert_mgr = CertificateManager(pfx_path=self.certificado_path, password=self.certificado_senha)
+            cert_mgr.load()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb") as f:
+                f.write(cert_mgr.get_certificate_pem())
+                tmp_cert_path = f.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb") as f:
+                f.write(cert_mgr.get_private_key_pem())
+                tmp_key_path = f.name
+
+            _conferir_tp_amb(xml_assinado, self.tp_amb, url, "Cancelamento de NFS-e")
+
+            resp = requests.post(
+                url,
+                json={"pedidoRegistroEventoXmlGZipB64": xml_b64},
+                cert=(tmp_cert_path, tmp_key_path),
+                timeout=30,
+                verify=True,
+            )
+            result["http_status"] = resp.status_code
+            result["response"] = resp.text[:1200]
+            result["url"] = url
+            if resp.status_code in (200, 201):
+                result["status"] = "cancelada"
+            elif resp.status_code == 400:
+                result["status"] = "rejeitada"
+            else:
+                result["status"] = f"http_{resp.status_code}"
+            logger.info("Cancelamento NFS-e %s: HTTP %s — %s", chave_limpa, resp.status_code, resp.text[:200])
+        except NFSeAmbienteError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.error("Erro transmitindo cancelamento: %s", e)
+            result["status"] = "erro_transmissao"
+            result["erro"] = str(e)
+        finally:
+            import os as _os
+
+            for _p in (tmp_cert_path, tmp_key_path):
+                if _p:
+                    try:
+                        _os.unlink(_p)
+                    except Exception:  # noqa: BLE001
+                        pass
+        return result
+
+    def _build_evento_cancelamento_xml(
+        self, chave: str, cnpj_autor: str, motivo: str, cod_motivo: str, n_pedido: int = 1
+    ) -> str:
+        """XML do pedido de registro de evento de cancelamento (e101101).
+
+        O schema deste evento **não tem `nPedRegEvento`**. Ele existe no leiaute de outros
+        eventos e eu o coloquei aqui por analogia — o fisco devolveu «has invalid child
+        element 'nPedRegEvento'». `n_pedido` fica na assinatura só para quem chamava antes
+        não quebrar; não entra no XML.
+
+        A ordem das tags segue o leiaute, e XML de evento fora de ordem é rejeitado do
+        mesmo jeito que DPS fora de ordem. Provado por transmissão real em homologação:
+        HTTP 201 com este formato, HTTP 400 com os quatro anteriores.
+        """
+        from datetime import datetime as _dt
+
+        tp_amb = "1" if self.ambiente == AmbienteNacional.PRODUCAO else "2"
+        # Id do evento: "PRE" + chave(50) + tipo(6) = 59 caracteres. SEM sufixo de
+        # sequência — MEDIDO contra a produção restrita em 26/09/2026, deixando o fisco
+        # dizer o formato: com 3 dígitos de sequência (62), com 2 (61), com 1 (60) e com
+        # o "e" do nome do evento (63), todos devolvem E1235 «The Pattern constraint
+        # failed» no datatype TSIdPedRegEvt. Com 59, passa.
+        id_evento = f"PRE{chave}101101"
+        agora = _dt.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
+        dh = f"{agora[:-2]}:{agora[-2:]}" if len(agora) > 5 else agora
+        texto = (motivo or "Cancelamento de NFS-e").strip()[:255]
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<pedRegEvento xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
+  <infPedReg Id="{id_evento}">
+    <tpAmb>{tp_amb}</tpAmb>
+    <verAplic>ConectaPRO-2.0</verAplic>
+    <dhEvento>{dh}</dhEvento>
+    <CNPJAutor>{cnpj_autor}</CNPJAutor>
+    <chNFSe>{chave}</chNFSe>
+    <e101101>
+      <xDesc>Cancelamento de NFS-e</xDesc>
+      <cMotivo>{cod_motivo}</cMotivo>
+      <xMotivo>{texto}</xMotivo>
+    </e101101>
+  </infPedReg>
+</pedRegEvento>"""
 
     def _get(self, caminho: str, operacao: str) -> dict[str, Any]:
         """GET mTLS no host do ambiente. Leitura pura: não cria, não altera, não numera.
