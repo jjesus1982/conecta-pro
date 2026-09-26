@@ -65,6 +65,13 @@ def _raw_db_url() -> str:
 class LedgerAutoService:
     """Motor de fechamento contábil automático (idempotente)."""
 
+    def __init__(self) -> None:
+        #: Lançamentos recusados por caírem em período fechado (antes do CORTE_CONTABIL).
+        #: A recusa é correta — jan–jul foram vividos fora do sistema — mas precisa ser
+        #: CONTADA: nota de competência antiga que chega hoje pelo ADN é recusada para
+        #: sempre, e antes disso só deixava uma linha de log que ninguém lê.
+        self.recusados_periodo_fechado: list[dict] = []
+
     def _conn(self):
         return psycopg2.connect(_raw_db_url())
 
@@ -104,6 +111,15 @@ class LedgerAutoService:
             # Período anterior ao corte (01/08/2026) está fechado: de janeiro a
             # julho a empresa operou FORA do sistema, e deixar lançamento novo
             # cair lá contamina todo relatório acumulado em silêncio.
+            #
+            # A recusa é correta; o SILÊNCIO não era. Uma nota de competência anterior
+            # ao corte que chega hoje pelo ADN é recusada para sempre e some — medido em
+            # 25/09/2026: as NFS-e 3 e 4 da Patrimonial (junho/2026, R$ 108.386,92)
+            # chegaram às 08:30 daquele dia e nunca entraram no razão. Agora fica contado
+            # e sobe no resultado do fechamento.
+            self.recusados_periodo_fechado.append(
+                {"data": str(data), "ref": ref, "valor": float(valor), "historico": hist[:120]}
+            )
             logger.info("lançamento em período fechado recusado: %s %s", data, ref)
             return 0
         cur.execute(
@@ -206,7 +222,11 @@ class LedgerAutoService:
         cur.execute(
             "SELECT chave_acesso, numero, competencia, data_emissao, valor_servicos, iss_valor "
             "FROM nfse_emitidas_nacional WHERE COALESCE(valor_servicos,0) > 0 AND empresa_id = %s "
-            "AND COALESCE(cancelada, FALSE) = FALSE",  # nota cancelada não vira receita/ISS
+            "AND COALESCE(cancelada, FALSE) = FALSE "  # nota cancelada não vira receita/ISS
+            # Nota de HOMOLOGAÇÃO não é faturamento. Sem este filtro, toda nota de teste
+            # virava receita de verdade no razão: em 24/09/2026 duas notas de homologação
+            # (nº 8 e 9, R$ 1.500) entraram no DRE de setembro como faturamento real.
+            "AND COALESCE(ambiente, '') <> 'homologacao'",
             (empresa_id,),
         )
         n_rec = n_iss = 0
@@ -580,6 +600,7 @@ class LedgerAutoService:
     def fechar(self, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Fecha o razão: garante schema e posta folha + ISS (idempotente).
         NFS-e receita e banco Inter já são postados pelo accounting_seed_service."""
+        self.recusados_periodo_fechado = []
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -628,6 +649,14 @@ class LedgerAutoService:
                                       "das_parcelamento": das.get("lancamentos", 0)},
                 "recategorizacao_inter": recat,
                 "folha_reconstruida_jan_fev": folha_rec.get("meses"),
+                # Recusados por período fechado: não é erro, é informação que antes só
+                # existia numa linha de log. Nota de competência anterior ao corte que
+                # chega hoje nunca entra no razão — e agora isso aparece no resultado.
+                "recusados_periodo_fechado": len(self.recusados_periodo_fechado),
+                "recusados_valor": round(
+                    sum(r["valor"] for r in self.recusados_periodo_fechado), 2
+                ),
+                "recusados_detalhe": self.recusados_periodo_fechado[:20],
                 "total_lancamentos": qtd,
                 "movimento_total": round(total, 2),
                 "empresa_id": empresa_id,

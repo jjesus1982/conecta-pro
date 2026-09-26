@@ -73,6 +73,18 @@ CACADORES = {
     # `ambiente` — ela cruza com o que o sistema SABE ter emitido em teste, porque campo errado
     # é exatamente o defeito. CONTADA: tem de ser 0 e ficar em 0.
     "checar_homologacao_na_receita.py": lambda s: _n(r"^TOTAL: (\d+) nota\(s\) de teste contada", s),
+    # NFS-e emitida que não virou receita no razão — e o contrário. A trava irmã acima mede a
+    # tabela de NOTAS (o que a precificação lê); esta mede o RAZÃO, que é outro lugar. Foi
+    # exatamente por isso que as duas notas de teste de 24/09 passaram: ficaram fora da
+    # precificação e entraram na contabilidade. Verificar a entrega não é verificar o efeito.
+    #
+    # Medido em 25/09/2026: 6 divergências — 2 notas de junho da Patrimonial (R$ 108.386,92)
+    # que chegaram pelo ADN depois do corte contábil e nunca poderão ser lançadas; 2 notas
+    # cuja competência foi corrigida na nota e não no razão (junho aparecia R$ 108.386,92 a
+    # menos e julho o mesmo a mais); e 2 notas de homologação lançadas como faturamento.
+    # CONTADA: dívida com dono — reabrir período fechado e mexer em competência são atos de
+    # contador, nunca desta trava. Acusa se CRESCER.
+    "checar_receita_nao_lancada.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre NFS-e e razão", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
