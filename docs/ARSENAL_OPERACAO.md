@@ -150,6 +150,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_custo_recorrente_nao_mapeado.py` | Compromisso que se repete todo mês e não está em `financial_custos_recorrentes` — e o que PAROU de ser pago, que também é decisão |
 | `checar_nota_duplicada.py` | Mesma competência, mesmo tomador, mesmo valor, duas notas — cliente cobrado em dobro e ISS sobre faturamento que não existiu |
 | `checar_contrato_vs_faturado.py` | Contrato vigente que não virou nota no mês, nota fora do contratado, e nota sem contrato — a base de uma receita previsível |
+| `checar_dinheiro_fora_do_sistema.py` | Contrato ativo cujo dinheiro não aparece em conta nenhuma que o sistema conheça — inadimplência invisível, ou recebimento fora do sistema |
 
 ## Comandos
 

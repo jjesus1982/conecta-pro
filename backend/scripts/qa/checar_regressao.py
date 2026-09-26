@@ -119,6 +119,14 @@ CACADORES = {
     # cobrado certinho todo mês. Medido em 25/09/2026: 11 divergências em 3 competências,
     # entre elas Hawk Eye (R$ 4.000) e Parque dos Franceses (R$ 1.800) sem nota em agosto.
     "checar_contrato_vs_faturado.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre contrato e faturamento", s),
+    # Contrato ativo cujo DINHEIRO não aparece em conta nenhuma que o sistema conheça. Três
+    # leituras, todas decisão: cliente não paga, serviço parou, ou o dinheiro entra fora do
+    # sistema. A terceira ninguém procura — e foi o caso do HAWK EYE (26/09/2026): cliente
+    # desde agosto/2025, contrato de R$ 4.000/mês, pagando na conta PESSOA FÍSICA do dono no
+    # Itaú, que não é conta cadastrada, e sem UMA nota emitida em 13 meses.
+    # Medido: 5 contratos, sendo o GELAIN R$ 18.000 esperados no trimestre e R$ 0,00 na
+    # conta, com nota emitida — inadimplência que nenhum relatório mostrava.
+    "checar_dinheiro_fora_do_sistema.py": lambda s: _n(r"^TOTAL: (\d+) contrato\(s\) com dinheiro fora do sistema", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
