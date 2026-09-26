@@ -66,6 +66,12 @@ class EmpresaFiscal:
     inscricao_municipal: str
     uf: str
     codigo_municipio: str  # IBGE 7 dígitos
+    #: Regime tributário como está no cadastro ('lucro_real', 'simples_nacional', …).
+    #: Entrou em 26/09/2026 porque quem escritura precisa saber ANTES de montar: a EFD
+    #: Contribuições recusava a Patrimonial dizendo «falta declarar o regime de
+    #: PIS/COFINS» quando a resposta certa é «é do Simples, é DISPENSADA». Vazio quando
+    #: o banco não respondeu — e aí ninguém deve concluir nada a partir dele.
+    regime_tributario: str = ""
 
 
 def _db_url() -> str:
@@ -100,7 +106,8 @@ def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
                         cur.execute(
                             """
                             SELECT razao_social, cnpj, inscricao_estadual,
-                                   inscricao_municipal, codigo_municipio_ibge
+                                   inscricao_municipal, codigo_municipio_ibge,
+                                   coalesce(regime_tributario::text, '')
                             FROM empresas
                             WHERE status = 'ativa' AND slug = %s
                             """,
@@ -110,7 +117,8 @@ def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
                         cur.execute(
                             """
                             SELECT razao_social, cnpj, inscricao_estadual,
-                                   inscricao_municipal, codigo_municipio_ibge
+                                   inscricao_municipal, codigo_municipio_ibge,
+                                   coalesce(regime_tributario::text, '')
                             FROM empresas
                             WHERE status = 'ativa'
                             ORDER BY (regime_tributario = 'lucro_real') DESC,
@@ -123,7 +131,7 @@ def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
                 conn.close()
 
             if row:
-                razao, cnpj, ie, im, cod_mun = row
+                razao, cnpj, ie, im, cod_mun, regime = row
                 cod_mun = (cod_mun or _FALLBACK["codigo_municipio"]).strip()
                 dados = {
                     "cnpj": _so_digitos(cnpj) or _FALLBACK["cnpj"],
@@ -132,6 +140,7 @@ def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
                     "inscricao_municipal": _so_digitos(im),
                     "uf": _UF_POR_IBGE.get(cod_mun[:2], _FALLBACK["uf"]),
                     "codigo_municipio": cod_mun,
+                    "regime_tributario": (regime or "").strip().lower(),
                 }
                 encontrou = True
         except Exception as e:  # noqa: BLE001
@@ -152,4 +161,5 @@ def get_empresa_fiscal(slug: str | None = None) -> EmpresaFiscal:
         inscricao_municipal=dados["inscricao_municipal"],
         uf=dados["uf"],
         codigo_municipio=dados["codigo_municipio"],
+        regime_tributario=dados.get("regime_tributario", ""),
     )

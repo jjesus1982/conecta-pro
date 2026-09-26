@@ -44,6 +44,7 @@ from .sefaz_am_controller import router as sefaz_am_router
 from .sefaz_controller import router as sefaz_router
 from .simples_nacional_controller import router as simples_nacional_router
 from .sped_contabil_controller import router as sped_contabil_router
+from .sped_contribuicoes_controller import router as sped_contribuicoes_router
 from .sped_fiscal_controller import router as sped_fiscal_router
 from .status_controller import router as status_router
 from .sync_controller import router as sync_router
@@ -64,6 +65,7 @@ router.include_router(efd_reinf_router)
 router.include_router(dctfweb_router)
 router.include_router(simples_nacional_router)
 router.include_router(fgts_digital_router)
+router.include_router(sped_contribuicoes_router)
 router.include_router(sped_fiscal_router)
 router.include_router(sped_contabil_router)
 router.include_router(ecac_router)
@@ -91,6 +93,7 @@ __all__ = [
     "dctfweb_router",
     "simples_nacional_router",
     "fgts_digital_router",
+    "sped_contribuicoes_router",
     "sped_fiscal_router",
     "sped_contabil_router",
     "ecac_router",
