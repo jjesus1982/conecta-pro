@@ -4809,6 +4809,7 @@ async def _contexto_funcionario(ident) -> str:
     from modules.people_management.ponto import atendimento_funcionario as _pf  # noqa: PLC0415
     from modules.people_management.ponto.guia_primeiro_acesso import (  # noqa: PLC0415
         COMO_BATER_CURTO,
+        DIARISTA_NAO_BATE,
         NUNCA_DIZER,
         URL_PORTAL,
     )
@@ -4829,6 +4830,7 @@ async def _contexto_funcionario(ident) -> str:
         f"    CÂMERA, sem as quais a batida não fecha. Endereço: {URL_PORTAL}",
         "  · Se a pessoa não consegue bater de jeito nenhum, NÃO a deixe perder a hora: "
         "registre a batida por contingência e diga que o DP valida depois.",
+        f"  · 🔴 {DIARISTA_NAO_BATE}",
         "",
         f"FUNCIONÁRIO: {ident.nome}"
         + (

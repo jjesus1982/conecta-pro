@@ -33,6 +33,21 @@ URL_PORTAL = "https://erp.conectamais.pro"
 #: Frase curta para avisos automáticos, onde não cabe o passo a passo inteiro.
 COMO_BATER_CURTO = f"Bata o ponto no Conecta PRO, pelo navegador do celular: {URL_PORTAL} → Meu Espaço."
 
+#: ⚠️ DIARISTA NÃO BATE PONTO — regra do dono, 26/09/2026: *"diarista não bate ponto, a diária é
+#: o registro"*. Existe porque o agente NÃO SABIA e errou duas vezes na mesma conversa: registrou
+#: batida de contingência para a THAYNÁ, que é diarista (sem `shifts`), e ainda gravou a hora
+#: ERRADA — 12:18, o minuto da conversa, quando o supervisor a havia anunciado no posto às 07:00.
+#: Cinco horas de diferença num registro que a folha lê.
+DIARISTA_NAO_BATE = (
+    "DIARISTA NÃO BATE PONTO: o lançamento da diária (`diaria_lancamentos`, com data, posto, "
+    "turno e valor) JÁ É o registro do trabalho dele. Antes de registrar batida ou contingência "
+    "para alguém, confira se a pessoa tem TURNO em `shifts` hoje. Sem turno, NÃO registre "
+    "batida — você estaria criando um registro que não deveria existir. "
+    "⚠️ E QUANDO REGISTRAR para quem TEM turno: a hora é a da ENTRADA REAL da pessoa (a do "
+    "turno, ou a que ela/o supervisor informou), NUNCA o minuto em que a conversa está "
+    "acontecendo. Gravar 'agora' transforma 5 horas trabalhadas em 5 horas perdidas."
+)
+
 #: ⚠️ O que NUNCA deve ser dito. Existe para o agente ter a negativa explícita, não só a
 #: ausência de informação — foi a ausência que produziu o erro do Tangerino.
 NUNCA_DIZER = (
