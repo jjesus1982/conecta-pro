@@ -130,6 +130,7 @@ app.conf.task_routes = {
     # mensagens de WhatsApp e a ordem importa (o lembrete não pode passar o relatório).
     "whatsapp.varrer_grupos_mencao": {"queue": "webhooks"},
     "whatsapp.expurgar_grupos": {"queue": "maintenance"},
+    "whatsapp.drenar_mensagens_agendadas": {"queue": "webhooks"},
     "whatsapp.turno_pedir_confirmacao": {"queue": "webhooks"},
     "whatsapp.turno_lembrar": {"queue": "webhooks"},
     "whatsapp.turno_fechar_cobertura": {"queue": "webhooks"},
@@ -830,6 +831,16 @@ app.conf.beat_schedule = {
     # Rede de segurança PARA GRUPO: só menção ao José Luís que ficou sem resposta. A de
     # 2 minutos (`varrer_sem_resposta`) exclui grupo de propósito — ver a task.
     # Retenção: 03:10 MANAUS. Longe do pico e antes dos oráculos das 05:00.
+    # Drena a fila de mensagem agendada. Nasceu junto com a tabela: fila sem consumidor e a
+    # divida que esta casa mais paga.
+    "whatsapp-drenar-agendadas-5min": {
+        "task": "whatsapp.drenar_mensagens_agendadas",
+        "schedule": 300.0,
+        # ⚠️ `webhooks`, NÃO "whatsapp": essa fila não existe. Na 1ª versão eu escrevi
+        # queue="whatsapp" e teria criado fila sem consumidor — o MESMO defeito que eu
+        # acabara de consertar no espelho do eSocial, meia hora antes, no mesmo arquivo.
+        "options": {"queue": "webhooks"},
+    },
     "whatsapp-expurgar-grupos-diario": {
         "task": "whatsapp.expurgar_grupos",
         "schedule": crontab(hour=3, minute=10),

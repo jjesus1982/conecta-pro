@@ -1119,3 +1119,44 @@ def expurgar_grupos(self):  # noqa: ARG001
     except Exception as e:  # noqa: BLE001
         logger.error("expurgar_grupos falhou: %s", e)
         return {"ok": False, "erro": str(e)[:200]}
+
+
+@app.task(name="whatsapp.drenar_mensagens_agendadas", bind=True, max_retries=0)
+def drenar_mensagens_agendadas(self):  # noqa: ARG001
+    """Envia as mensagens agendadas cuja hora chegou. A cada 5 min.
+
+    ⭐ Nasceu JUNTO com a fila, de propósito. Fila sem consumidor é a dívida que esta casa mais
+    paga — a de `ged`, a de skills do Hermes, o espelho do eSocial. Criar a tabela e deixar o
+    beat para depois seria repetir isso na mesma semana em que eu consertei três casos dele.
+
+    ⚠️ Marca `enviada` SÓ quando o serviço afirma `status='sent'`. Ausência de erro não é
+    entrega — foi assim que 4 telefones fabricados ficaram "aguardando" em 25/09 sem nada ter
+    saído. Falha vira `falhou` com o motivo, e não some.
+    """
+    import asyncio
+
+    from sqlalchemy import text as _t
+
+    async def _rodar(session):
+        from modules.integrations.connectors.whatsapp.pix_confirma import _mandar  # noqa: PLC0415
+
+        pend = (await session.execute(_t(
+            "SELECT id::text AS id, telefone, nome, texto FROM wa_mensagens_agendadas "
+            "WHERE status='agendada' AND quando <= now() ORDER BY quando LIMIT 20"))).mappings().all()
+        env, fal = 0, 0
+        for m in pend:
+            ok = await _mandar(m["telefone"], m["texto"])
+            await session.execute(_t(
+                "UPDATE wa_mensagens_agendadas SET status=:s, enviada_em=now(), erro=:e "
+                "WHERE id = CAST(:i AS uuid)"),
+                {"s": "enviada" if ok else "falhou", "i": m["id"],
+                 "e": None if ok else "servico nao confirmou status=sent"})
+            await session.commit()   # grava a CADA uma: um recreate no meio nao perde as anteriores
+            env, fal = env + int(ok), fal + int(not ok)
+            if len(pend) > 1:
+                await asyncio.sleep(4)
+        if env or fal:
+            logger.info("mensagens agendadas: %s enviadas, %s falharam", env, fal)
+        return {"enviadas": env, "falhas": fal, "pendentes_na_rodada": len(pend)}
+
+    return _run_async(_rodar)
