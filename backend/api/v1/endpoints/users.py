@@ -286,12 +286,6 @@ async def aprovar_user(
             detail="Apenas Jordan Jesus (CEO) pode conceder o perfil executivo.",
         )
 
-    if preset["requer_employee_id"] and not body.employee_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"O perfil '{body.perfil}' exige employee_id (vínculo com funcionário).",
-        )
-
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -303,6 +297,41 @@ async def aprovar_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A conta de Jordan Jesus não pode ser alterada por aprovação de perfil.",
         )
+
+    # ⭐ RESOLVE O VÍNCULO PELO E-MAIL antes de exigir que alguém o digite — 26/09/2026.
+    #
+    # 🔴 O Jordan aprovou a THAYNÁ na tela e ela continuou `pending`. O formulário TEM o campo
+    # "Colaborador", mas nada impede enviá-lo vazio — o rótulo diz "obrigatório" e só, e o front
+    # não valida campo obrigatório (só trata `otp_required`). Aí este endpoint devolvia 400 e a
+    # pessoa seguia sem acesso. Aconteceu com ela e com o Jair: duas pessoas trabalhando sem
+    # registro porque um select ficou em branco.
+    #
+    # ⚠️ E o vínculo NÃO precisava ser digitado: a conta e o colaborador compartilham o E-MAIL.
+    # Exigir de um humano o que o sistema pode derivar é o mesmo defeito de eu digitar telefone
+    # em vez de ler o cadastro — e ali eu mandei a mensagem do Jair para outra pessoa.
+    #
+    # ⚠️ FALHA FECHADO: resolve só quando EXATAMENTE UM colaborador ativo tem aquele e-mail.
+    # Zero, dois ou mais → mantém o 400, agora dizendo o que fazer. Adivinhar identidade de
+    # pessoa é pior que recusar.
+    vinculo_por_email = False
+    if preset["requer_employee_id"] and not body.employee_id:
+        candidatos = (await db.execute(
+            text("SELECT id::text FROM employees "
+                 " WHERE lower(coalesce(email,'')) = lower(:em) AND status = 'ativo'"),
+            {"em": user.email or ""},
+        )).fetchall()
+        if len(candidatos) == 1:
+            body.employee_id = UUID(candidatos[0][0])
+            vinculo_por_email = True
+            logger.info("aprovar_user: vínculo resolvido pelo e-mail %s → employee %s",
+                        user.email, body.employee_id)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"O perfil '{body.perfil}' exige o vínculo com o colaborador, e não "
+                        f"consegui deduzir: {len(candidatos)} colaborador(es) ativo(s) com o "
+                        f"e-mail {user.email}. Selecione o Colaborador no formulário."),
+            )
 
     # Valida vínculo com funcionário quando informado (coluna sem FK — validar aqui)
     if body.employee_id:
@@ -327,6 +356,8 @@ async def aprovar_user(
         f"Aprovado por {current_user.email} — perfil '{body.perfil}' "
         f"(role={preset['role']}, permissions={','.join(preset['permissions'])}"
         + (f", employee_id={body.employee_id}" if body.employee_id else "")
+        + (" [vínculo DEDUZIDO pelo e-mail — o formulário veio sem o colaborador]"
+           if vinculo_por_email else "")
         + ")"
     )
     user.notes = f"{user.notes}\n{carimbo}" if user.notes else carimbo
