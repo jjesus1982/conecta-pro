@@ -35,7 +35,7 @@ import psycopg2
 import psycopg2.extras
 
 from modules.financial.services.ledger_auto_service import _raw_db_url
-from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+from modules.financial.services.periodo_contabil import corte_da_empresa
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,22 @@ def _conn():
     return psycopg2.connect(_raw_db_url())
 
 
-def apurar(competencia: str, preview: bool = True) -> dict:
-    """Encerra `competencia` (YYYY-MM): zera 4.x e 5.x contra o PL.
+def apurar(competencia: str, preview: bool = True, empresa_id: str | None = None) -> dict:
+    """Encerra `competencia` (YYYY-MM) de UMA empresa: zera 4.x e 5.x dela contra o PL.
 
     `competencia` é o mês do RESULTADO. Os lançamentos entram no último dia dele.
+
+    `empresa_id=None` encerra TODAS as empresas, uma a uma, e devolve o agregado em
+    `por_empresa` — é o que os chamadores antigos (o beat e o oráculo do balanço) fazem.
+
+    ⚠️ POR EMPRESA DESDE 26/09/2026. Antes a consulta de saldo não filtrava `empresa_id` e
+    o `_post` não o gravava: os 277 lançamentos de encerramento existentes somavam as DUAS
+    pessoas jurídicas num só, e a ECD de cada CNPJ — que filtra por empresa — saía sem
+    nenhum deles. Uma empresa cujo resultado é encerrado junto com o da irmã não tem
+    balanço próprio, e era justamente o que a Patrimonial precisava ter para pedir crédito.
     """
+    if empresa_id is None:
+        return _apurar_todas(competencia, preview)
     hoje = date.today()
     if competencia >= f"{hoje:%Y-%m}":
         return {
@@ -66,7 +77,7 @@ def apurar(competencia: str, preview: bool = True) -> dict:
     fim = date.fromordinal(ultimo.toordinal() - 1)
     # Antes do corte não se escreve: o trigger do banco recusa, e com razão. O que
     # veio de lá entra como saldo de ABERTURA, na data do corte.
-    data = max(fim, CORTE_CONTABIL)
+    data = max(fim, corte_da_empresa(empresa_id))
 
     conn = _conn()
     linhas = []
@@ -92,18 +103,18 @@ def apurar(competencia: str, preview: bool = True) -> dict:
                 FROM (
                     SELECT conta_debito AS conta, valor AS deb, 0 AS cred
                       FROM accounting_entries
-                     WHERE periodo_competencia = %s
+                     WHERE periodo_competencia = %s AND empresa_id = %s
                     UNION ALL
                     SELECT conta_credito, 0, valor
                       FROM accounting_entries
-                     WHERE periodo_competencia = %s
+                     WHERE periodo_competencia = %s AND empresa_id = %s
                 ) x
                 WHERE conta LIKE '4%%' OR conta LIKE '5%%'
                 GROUP BY conta
                 HAVING abs(coalesce(sum(deb), 0) - coalesce(sum(cred), 0)) > 0.005
                 ORDER BY conta
                 """,
-                (competencia, competencia),
+                (competencia, empresa_id, competencia, empresa_id),
             )
             contas = cur.fetchall()
             resultado = 0.0
@@ -145,9 +156,10 @@ def apurar(competencia: str, preview: bool = True) -> dict:
             # «a apuração ficou pela metade e o balanço fecha mentindo». Tomando o MAIOR
             # sufixo `-R<n>` de qualquer referência da competência, os dois numeradores
             # voltam a ser um só.
+            prefixo = f"APURACAO-{empresa_id[:8]}-{competencia}"
             cur.execute(
                 "SELECT documento_ref FROM accounting_entries WHERE documento_ref LIKE %s",
-                (f"APURACAO-{competencia}-%",),
+                (f"{prefixo}-%",),
             )
             import re as _re
 
@@ -168,8 +180,9 @@ def apurar(competencia: str, preview: bool = True) -> dict:
                         ln["credito"],
                         ln["valor"],
                         f"Apuração {competencia}: encerra {ln['conta']}",
-                        f"APURACAO-{competencia}-{ln['conta']}-R{rodada}",
+                        f"{prefixo}-{ln['conta']}-R{rodada}",
                         competencia,
+                        empresa_id,
                     )
                 if abs(resultado) > 0.005:
                     # lucro credita o acumulado; prejuízo debita
@@ -181,8 +194,9 @@ def apurar(competencia: str, preview: bool = True) -> dict:
                         cc,
                         abs(resultado),
                         f"Apuração {competencia}: {'lucro' if resultado > 0 else 'prejuízo'} para o PL",
-                        f"APURACAO-{competencia}-RESULTADO-R{rodada}",
+                        f"{prefixo}-RESULTADO-R{rodada}",
                         competencia,
+                        empresa_id,
                     )
                 conn.commit()
             else:
@@ -195,6 +209,7 @@ def apurar(competencia: str, preview: bool = True) -> dict:
             "contas_encerradas": len(linhas),
             "resultado": resultado,
             "linhas": linhas,
+            "empresa_id": empresa_id,
         }
     except Exception:
         conn.rollback()
@@ -203,16 +218,39 @@ def apurar(competencia: str, preview: bool = True) -> dict:
         conn.close()
 
 
-def _post(cur, data, cd, cc, valor, hist, ref, competencia) -> None:
+def _apurar_todas(competencia: str, preview: bool) -> dict:
+    """Encerra a competência de cada empresa, uma a uma, e agrega."""
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id::text FROM empresas ORDER BY razao_social")
+            ids = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    por_empresa = {eid: apurar(competencia, preview, eid) for eid in ids}
+    erros = [r["erro"] for r in por_empresa.values() if not r.get("ok")]
+    return {
+        "ok": not erros,
+        "erro": erros[0] if erros else None,
+        "modo": "preview" if preview else "aplicado",
+        "competencia": competencia,
+        "contas_encerradas": sum(r.get("contas_encerradas", 0) for r in por_empresa.values()),
+        "resultado": round(sum(r.get("resultado", 0) or 0 for r in por_empresa.values()), 2),
+        "linhas": [ln for r in por_empresa.values() for ln in r.get("linhas", [])],
+        "por_empresa": por_empresa,
+    }
+
+
+def _post(cur, data, cd, cc, valor, hist, ref, competencia, empresa_id) -> None:
     cur.execute(
         """
         INSERT INTO accounting_entries
             (data_lancamento, conta_debito, conta_credito, valor, historico,
-             tipo_lancamento, documento_ref, periodo_competencia, status)
-        SELECT %s, %s, %s, %s, %s, 'apuracao', %s, %s, 'confirmado'
+             tipo_lancamento, documento_ref, periodo_competencia, status, empresa_id)
+        SELECT %s, %s, %s, %s, %s, 'apuracao', %s, %s, 'confirmado', %s
         WHERE NOT EXISTS (SELECT 1 FROM accounting_entries WHERE documento_ref = %s)
         """,
-        (data, cd, cc, float(valor), hist[:250], ref, competencia, ref),
+        (data, cd, cc, float(valor), hist[:250], ref, competencia, empresa_id, ref),
     )
 
 
