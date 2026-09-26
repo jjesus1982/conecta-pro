@@ -143,9 +143,48 @@ def main() -> int:
         print("FALHOU:", f)
     if falhas:
         raise AssertionError(f"{len(falhas)} desvio(s) no classificador de contraparte")
+    # ── (f) a classificação PELA CONTRAPARTE, viva desde 26/09/2026 ──────────────────
+    # Ela só existe porque a conciliação passou a extrair o favorecido da descrição: 545
+    # transações ganharam nome, e quem recebeu o dinheiro é fato do banco, não palpite.
+    # Com ela a transitória foi de R$ 268.807,99 (581 lançamentos) para R$ 465,00 (3).
+    # Os dois primeiros casos abaixo são defeitos MEUS, achados na prévia antes de aplicar.
+    from modules.financial.services.plano_contas_caixa import (  # noqa: E402, PLC0415
+        contrapartida_por_contraparte as por_cp,
+    )
+
+    casos_cp = (
+        # (nome, documento, descrição, é_cliente, conta esperada)
+        ("LWSA S A", None, "", False, "5.2.1.04"),          # «S A» com espaço é empresa
+        ("LWSA S.A.", None, "", False, "5.2.1.04"),
+        ("WANDERSON DIAS", None, "", False, "5.1.1.07"),    # pessoa física → cobertura
+        ("ATLAS SERVICO DE MONITORAMENTO LTDA", None, "", False, "5.2.1.04"),
+        ("BANCO TOYOTA DO BRASIL SA", None, "", False, "5.2.3.02"),
+        ("RECEITA FEDERAL", None, "", False, "2.1.2.09"),
+        ("CEF MATRIZ", None, "", False, "5.1.1.02"),        # Caixa é FGTS, não tributo genérico
+        ("FULL TELECOM LTDA", None, "[CORA] Emprestimo Jean", False, "2.1.6.01"),
+        ("IMPOLUT LTDA", None, "[CORA] Material Prime Arena", False, "5.1.1.06"),
+    )
+    for nome, doc, descr, cli, esperado in casos_cp:
+        got = por_cp(nome, doc, descr, e_cliente=cli)
+        if not got or got[0] != esperado:
+            falhas.append(f"(f) «{nome}» / «{descr[:24]}» → {got and got[0]}, esperado {esperado}")
+
+    # a palavra CONDOMINIO na descrição NÃO é despesa de condomínio: todo cliente desta
+    # empresa é um condomínio, e o nome deles entra na descrição do PIX.
+    cond = por_cp("CONDOMINIO IDEAL FLORES DA CIDADE", None,
+                  "PIX ENVIADO - Cp :90400888-CONDOMINIO IDEAL FLORES", e_cliente=True)
+    if cond is not None:
+        falhas.append(f"(f) pagar a um CLIENTE virou {cond[0]} — estorno/devolução/repasse não se adivinha")
+    # …mas quem é cliente E fornecedor (a HAWK EYE) tem de passar
+    hawk = por_cp("Hawk Eye", "38662549000114", "PIX ENVIADO - Cp :60701190-HAWK EYE", e_cliente=False)
+    if not hawk or hawk[0] != "5.2.1.04":
+        falhas.append(f"(f) HAWK EYE é cliente E fornecedora; pagamento a ela deu {hawk}")
+    print(f"OK contraparte→conta: {len(casos_cp) + 2} caso(s), incluindo cliente que não vira fornecedor")
+
     print(
         "OK contraparte: CPF nunca é tributo, o CNPJ do banco na descrição não decide, "
-        "a coluna da contraparte manda, e pagamento à Caixa continua imposto"
+        "a coluna da contraparte manda, pagamento à Caixa continua imposto, e QUEM RECEBEU "
+        "decide a conta quando a categoria não decide"
     )
     print(f"TOTAL desvios C1: {len(falhas)}")
     return 0

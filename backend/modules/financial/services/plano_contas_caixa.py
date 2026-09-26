@@ -15,6 +15,8 @@ Contas que o razão JÁ usa como contrapartida (medido em 2026-08-11):
 
 from __future__ import annotations
 
+import re
+
 # Conta contábil de cada conta bancária (ids reais de `bank_accounts`).
 CONTA_BANCO: dict[str, str] = {
     "20663dc9-805c-4721-bc1f-62a041cee3c1": "1.1.1.01",  # Banco Inter
@@ -165,6 +167,127 @@ def contrapartida_saida(
     if cat in _MAPA_SAIDA:
         return _MAPA_SAIDA[cat]
     return CONTA_SAIDA_A_CLASSIFICAR, "saída ainda sem classificação"
+
+
+#: ─────────────────────────────────────────────────────────────────────────────────────
+#: CLASSIFICAÇÃO PELA CONTRAPARTE — último recurso, e só desde 26/09/2026
+#:
+#: Até aqui, categoria «outros» ia para a transitória DE PROPÓSITO: era o «não sei» que já
+#: estava gravado, e chutar conta a partir dele seria fabricar. O que mudou não foi o
+#: critério, foi a INFORMAÇÃO: a conciliação passou a extrair o nome do favorecido da
+#: descrição do extrato e 545 transações que estavam sem contraparte ganharam nome. Quem
+#: recebeu o dinheiro é fato do banco, não palpite.
+#:
+#: A ordem importa e é do mais específico para o mais genérico:
+#:   1. o que a DESCRIÇÃO diz («Emprestimo Jean», «Material Fiori») — o mais forte;
+#:   2. quem é a CONTRAPARTE (órgão público, banco credor, pessoa física, empresa).
+#:
+#: Cada regra grava o seu motivo no histórico do lançamento. Reclassificação sem motivo
+#: escrito é a mesma coisa que chute com aparência de decisão.
+
+#: (termos na descrição, conta, motivo). Vence a primeira que casar.
+_SAIDA_POR_DESCRICAO: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("EMPRESTIMO", "EMPRÉSTIMO"), "2.1.6.01", "empréstimo na descrição — abate/cria passivo, não é despesa"),
+    (("MATERIAL", "MATERIAIS", "EPI"), "5.1.1.06", "material na descrição"),
+    # «CONDOMINIO» NÃO entra aqui: todo cliente desta empresa é um condomínio, e a palavra
+    # aparece no nome deles. Com ela, um PIX para o CONDOMINIO IDEAL FLORES — que é
+    # CLIENTE — virava despesa de aluguel. Só «ALUGUEL» é inequívoco.
+    (("ALUGUEL",), "5.2.1.03", "aluguel na descrição"),
+    (("COMISSAO", "COMISSÃO"), "5.2.1.05", "comissão na descrição"),
+    (("VALE REFEICAO", "VALE ALIMENTACAO", "VA/VT", "VT E VR", "VR E VT"), "5.1.1.03", "benefício de alimentação na descrição"),
+    (("VALE TRANSPORTE",), "5.1.1.04", "vale transporte na descrição"),
+    (("DIARIA", "DIÁRIA", "DIARIAS", "DIÁRIAS", "COBERTURA"), "5.1.1.07", "diária/cobertura na descrição"),
+    (("TARIFA", "IOF"), "5.2.3.01", "tarifa/IOF na descrição"),
+)
+
+#: Contraparte que é ÓRGÃO PÚBLICO — o dinheiro é tributo, mesmo sem a categoria dizer.
+_CONTRAPARTE_GOVERNO = (
+    "RECEITA FEDERAL", "PREFEITURA", "SEFAZ", "SIMPLES NACIONAL", "DARF",
+    "MUNICIPAL DE MANAUS", "FAZENDA", "INSS", "PGFN",
+)
+#: Contraparte que é BANCO CREDOR — parcela de financiamento. Não separa principal de
+#: juros: para isso é preciso o contrato, que o sistema não tem. Fica em `5.2.3.02
+#: Financiamentos`, que é a conta que o próprio plano criou para isto.
+_CONTRAPARTE_BANCO = (
+    "BANCO TOYOTA", "BANCO C6", "ITAU UNIBANCO", "ITAÚ UNIBANCO", "BANCO BRADESCO",
+    "BANCO SANTANDER", "BANCO VOLKSWAGEN", "BANCO HONDA", "AYMORE", "BV FINANCEIRA",
+)
+#: Contraparte que é FGTS — a Caixa recebendo é encargo social, não tributo genérico.
+_CONTRAPARTE_FGTS = ("CAIXA ECONOMICA", "CEF MATRIZ", "CAIXA MATRIZ")
+#: Palavras que denunciam PESSOA JURÍDICA no nome. Sem documento, é o que separa
+#: «ERIKA PEREIRA» de «ATLAS SERVICO DE MONITORAMENTO LTDA».
+_MARCA_DE_EMPRESA = (
+    "LTDA", "S.A", "S/A", " SA ", "EIRELI", "MEI", "EPP", " ME ", "COMERCIO", "COMÉRCIO",
+    "SERVICOS", "SERVIÇOS", "TECNOLOGIA", "SISTEMAS", "ADVOG", "CONTABIL", "CONTÁBIL",
+    "SINDICATO", "SIND ", "PAGAMENTOS", "MONITORAMENTO", "TELECOM", "INDUSTRIA",
+    "INDÚSTRIA", "ASSOCIACAO", "ASSOCIAÇÃO", "CONDOMINIO", "CONDOMÍNIO", "BANCO",
+    "SEGURADORA", "SEGUROS", "ODONTOLOG", "PLANO DE ASSISTENCIA", "DISTRIBUIDORA",
+    "LOCADORA", "ENGENHARIA", "ELETRICA", "ELÉTRICA", "PROJETOS", "MARKETPLACE",
+)
+
+
+#: Sufixo societário, que é o sinal mais confiável quando não há CNPJ. Precisa ser regex:
+#: a mesma razão social aparece como «LWSA S A», «LWSA S.A.» e «LWSA S/A», e testar
+#: substring com " SA " deixava a primeira passar por pessoa física.
+_SUFIXO_SOCIETARIO = re.compile(r"\b(S[./ ]?A|LTDA|EIRELI|EPP|MEI|ME)\b\.?\s*$|\bS[./ ]?A\b", re.I)
+
+
+def _e_empresa(nome: str, documento: str | None) -> bool:
+    """Contraparte é pessoa JURÍDICA? CNPJ manda; sem ele, o sufixo e a marca no nome."""
+    doc = "".join(c for c in (documento or "") if c.isdigit())
+    if len(doc) == 14:
+        return True
+    if len(doc) == 11:
+        return False
+    n = (nome or "").strip()
+    if _SUFIXO_SOCIETARIO.search(n):
+        return True
+    return any(m in f" {n.upper()} " for m in _MARCA_DE_EMPRESA)
+
+
+def contrapartida_por_contraparte(
+    nome: str,
+    documento: str | None = None,
+    descricao: str | None = None,
+    e_cliente: bool = False,
+) -> tuple[str, str] | None:
+    """(conta, motivo) deduzidos de QUEM recebeu — ou `None` quando não dá para dizer.
+
+    Devolver `None` é resposta legítima e frequente: contraparte sem nome, ou nome que não
+    diz nada, continua na transitória. A conta transitória com 220 linhas é ruim; a conta
+    errada com 220 linhas é pior, porque parece resolvida.
+    """
+    n = f" {(nome or '').strip().upper()} "
+    d = f" {(descricao or '').strip().upper()} "
+    if not n.strip():
+        return None
+
+    for termos, conta, motivo in _SAIDA_POR_DESCRICAO:
+        if any(t in d for t in termos):
+            return conta, f"{motivo} («{(descricao or '')[:40].strip()}»)"
+
+    if any(g in n for g in _CONTRAPARTE_FGTS):
+        return "5.1.1.02", f"pago à Caixa — FGTS/encargo social (contraparte «{nome[:34]}»)"
+    if any(g in n for g in _CONTRAPARTE_GOVERNO):
+        return CONTA_TRIBUTO_A_IDENTIFICAR, f"pago a órgão público «{nome[:34]}» — é tributo; falta dizer qual"
+    if any(b in n for b in _CONTRAPARTE_BANCO):
+        return "5.2.3.02", f"parcela de financiamento — contraparte «{nome[:34]}» é banco credor"
+
+    # Dinheiro SAINDO para quem é CLIENTE não é compra de serviço: é estorno, devolução ou
+    # repasse, e qual dos três só quem fez sabe. São 7 lançamentos e R$ 2.925,00 em
+    # 26/09/2026 — pouco, e ainda assim errado se virasse «serviço de terceiro».
+    if e_cliente:
+        return None
+
+    if _e_empresa(nome, documento):
+        return "5.2.1.04", f"serviço de terceiro — contraparte «{nome[:34]}» é pessoa jurídica"
+
+    # Pessoa física. Decisão de Jordan Jesus em 26/09/2026 sobre as contrapartes que se
+    # repetem com R$ 1.000 a R$ 1.700/mês: são cobertura, e o lugar é a folha.
+    # ⚠️ Classificar a DESPESA como cobertura não cria vínculo trabalhista nem o resolve —
+    # o risco que isso expõe continua sendo decisão do dono, e agora fica visível na conta
+    # certa em vez de escondido na transitória.
+    return "5.1.1.07", f"pessoa física — cobertura/diária (contraparte «{nome[:34]}»)"
 
 
 def contrapartida_entrada(descricao: str, documento: str | None = None,

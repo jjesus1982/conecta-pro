@@ -34,6 +34,7 @@ from modules.financial.services.plano_contas_caixa import (
     CONTA_ENTRADA_A_CLASSIFICAR,
     CONTA_SAIDA_A_CLASSIFICAR,
     contrapartida_entrada,
+    contrapartida_por_contraparte,
     contrapartida_saida,
 )
 
@@ -142,6 +143,24 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
             )
             linhas = cur.fetchall()
             clt = _docs_clt(cur)
+            # Quem é CLIENTE não pode ser tratado como fornecedor quando o dinheiro SAI —
+            # pagar um cliente é estorno, devolução ou repasse, e qual dos três só quem
+            # fez sabe.
+            #
+            # MENOS quem é as duas coisas. A HAWK EYE é cliente E fornecedora (o dono
+            # disse em 26/09: «eles são fornecedores nossos também»), e o cadastro já
+            # sabia — está em `suppliers` com o mesmo CNPJ. Sem este `EXCEPT`, os
+            # R$ 2.460,00 pagos a ela ficariam presos na transitória por uma regra que
+            # existe para proteger outro caso.
+            cur.execute(
+                "SELECT regexp_replace(coalesce(c.document_number,''), '[^0-9]', '', 'g') AS doc"
+                "  FROM clients c WHERE coalesce(c.document_number,'') <> ''"
+                " EXCEPT"
+                " SELECT regexp_replace(coalesce(s.cpf_cnpj,''), '[^0-9]', '', 'g')"
+                "  FROM suppliers s WHERE coalesce(s.cpf_cnpj,'') <> ''"
+            )
+            docs_cliente = {x["doc"] if isinstance(x, dict) else x[0] for x in cur.fetchall()}
+            docs_cliente.discard("")
 
             for r in linhas:
                 dia = r["dia"]
@@ -221,6 +240,10 @@ def escriturar(preview: bool = True, limite: int = 6000) -> dict:
         conn.close()
 
 
+def _so_digitos(v: str | None) -> str:
+    return "".join(c for c in (v or "") if c.isdigit())
+
+
 def reclassificar_transitorias(preview: bool = False) -> dict:
     """Tira da transitória o que já tem regra: recomputa a contrapartida de cada lançamento
     em 4.9.9.01 / 5.9.9.01 (desde o corte) com a categoria ATUAL da transação bancária.
@@ -262,6 +285,24 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
             )
             linhas = cur.fetchall()
             clt = _docs_clt(cur)
+            # Quem é CLIENTE não pode ser tratado como fornecedor quando o dinheiro SAI —
+            # pagar um cliente é estorno, devolução ou repasse, e qual dos três só quem
+            # fez sabe.
+            #
+            # MENOS quem é as duas coisas. A HAWK EYE é cliente E fornecedora (o dono
+            # disse em 26/09: «eles são fornecedores nossos também»), e o cadastro já
+            # sabia — está em `suppliers` com o mesmo CNPJ. Sem este `EXCEPT`, os
+            # R$ 2.460,00 pagos a ela ficariam presos na transitória por uma regra que
+            # existe para proteger outro caso.
+            cur.execute(
+                "SELECT regexp_replace(coalesce(c.document_number,''), '[^0-9]', '', 'g') AS doc"
+                "  FROM clients c WHERE coalesce(c.document_number,'') <> ''"
+                " EXCEPT"
+                " SELECT regexp_replace(coalesce(s.cpf_cnpj,''), '[^0-9]', '', 'g')"
+                "  FROM suppliers s WHERE coalesce(s.cpf_cnpj,'') <> ''"
+            )
+            docs_cliente = {x["doc"] if isinstance(x, dict) else x[0] for x in cur.fetchall()}
+            docs_cliente.discard("")
             for r in linhas:
                 if r["conta_credito"] == CONTA_ENTRADA_A_CLASSIFICAR and float(r["amount"] or 0) > 0:
                     conta, motivo = contrapartida_entrada(
@@ -279,7 +320,19 @@ def reclassificar_transitorias(preview: bool = False) -> dict:
                         f"{r['description'] or ''} {r['contraparte'] or ''}",
                         r["documento"])
                     if conta == CONTA_SAIDA_A_CLASSIFICAR:
-                        continue
+                        # A categoria não resolveu — é o «outros» que ficava aqui para
+                        # sempre. Desde 26/09/2026 há uma segunda pergunta a fazer, e ela
+                        # não é palpite: QUEM RECEBEU. A conciliação passou a extrair o
+                        # favorecido da descrição e 545 transações ganharam nome; quem
+                        # recebeu o dinheiro é fato do banco. Continua podendo devolver
+                        # None, e aí o lançamento fica onde está.
+                        achado = contrapartida_por_contraparte(
+                            r["contraparte"] or "", r["documento"], r["description"],
+                            e_cliente=_so_digitos(r["documento"]) in docs_cliente,
+                        )
+                        if not achado:
+                            continue
+                        conta, motivo = achado
                     n_sai += 1
                     if not preview:
                         cur.execute("UPDATE accounting_entries SET conta_debito=%s, "
