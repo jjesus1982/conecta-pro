@@ -114,9 +114,15 @@ saiu em 17/09 (NFS-e 121, R$ 1.800, competência 2026-09), paga em 19/09 com R$ 
 que só produziu nota na 09 — defasagem de calendário do faturamento, não receita perdida.
 **Já está faturado e segue faturando: não é alavanca de 2027.**
 
-Sobra dele uma pergunta de verdade: **R$ 2.508,00 entraram em 27/08 e não têm nota
-nenhuma atrás.** Nem o contrato (R$ 1.800/mês) nem a proposta aceita
-(PROP-20260610-98EF41, R$ 1.800) explicam o valor.
+Sobra dele uma pergunta de verdade, e ela tem três partes: **R$ 2.508,00 entraram em
+27/08 e não têm nota nem título atrás** — nem o contrato (R$ 1.800/mês) nem a proposta
+aceita (PROP-20260610-98EF41, R$ 1.800) explicam o valor; o título de agosto foi
+**cancelado em 10/08** com a nota «contrato só inicia em 09/2026, confirmado pelo Jordan,
+start_date corrigido para 01/09»; e em **14/08 o contrato voltou para start_date 01/08**,
+com a descrição afirmando que houve NFS-e no fim de agosto — nota que no fisco não existe.
+
+Era essa contradição que produzia o alarme de «agosto sem nota», e foi dela que saiu a
+alavanca falsa desta seção. Detalhe completo na frente de contabilidade.
 
 **HAWK EYE era um buraco, e de outro tamanho.** Contrato de R$ 4.000/mês desde 08/2025,
 treze meses prestados, **nenhuma nota nunca emitida**. Do dinheiro, o dono explicou o
