@@ -25,6 +25,14 @@ app = Celery(
     include=[
         "modules.government_integrations.jobs.sync_tasks",
         "modules.government_integrations.jobs.monitoring_tasks",
+        # 🔴 25/09/2026 — o beat `esocial-espelho-sync` existia desde sempre e NUNCA rodou: o
+        # módulo `tasks/espelho.py` não existia, e `send_task` por NOME não valida destino. O
+        # Celery aceita, enfileira, e o worker responde NotRegistered num log que ninguém lê.
+        # Resultado: espelho congelado em 03/07, com 1 evento S-2200 e 5 S-2299 — a fonte
+        # oficial de quem foi admitido e demitido, vazia.
+        # ⚠️ Criar o arquivo NÃO BASTAVA: sem esta linha o worker não o importa, e a task
+        # continuaria NotRegistered. Duas metades do mesmo defeito.
+        "modules.government_integrations.tasks.espelho",
         "modules.integrations.connectors.solides.tasks",
         "modules.operacional.tasks",
         "modules.bidding.tasks",
