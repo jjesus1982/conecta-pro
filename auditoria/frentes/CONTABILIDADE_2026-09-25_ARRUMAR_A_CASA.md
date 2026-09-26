@@ -68,8 +68,10 @@ Junto com ela:
 - «Resultado Financeiro: 0,00» era literal no código, com R$ 10.415,30 de juros escondidos
   dentro de Despesas Operacionais.
 
-O total **não mudou** — continua −R$ 435.016,91 — e é essa a prova de que o conserto foi na
-linha, não no número. O demonstrativo agora mostra as 16 contas de resultado, uma a uma.
+O total **não mudou** com esse conserto — antes e depois, −R$ 435.016,91 — e é essa a prova
+de que ele foi na linha, não no número. O demonstrativo agora mostra as 16 contas de
+resultado, uma a uma. (O total só se moveu depois, para −R$ 436.516,91, quando tirei do
+razão os R$ 1.500 de receita que eu mesmo tinha criado testando — §2.5.)
 
 ### 2.3 Balancete, balanço e prova de caixa deixaram de discordar entre si
 
@@ -117,12 +119,33 @@ razão é outro lugar.
     receita de setembro no razão:  R$ 26.460,00 → R$ 24.960,00
     emitido em setembro:                         R$ 24.960,00   ← bate ao centavo
 
+E o prejuízo de 2026 mudou junto, porque R$ 1.500 de receita que não existia saiu da conta:
+
+    prejuízo acumulado 2026:  R$ 435.016,91 → **R$ 436.516,91**
+    receita 2026:             R$ 2.183.235,44 → R$ 2.181.735,44
+
 ### 2.6 O DANFE da nota real estava cortando o código dos itens
 
 A primeira NF-e de produção (Villa Dei Fiori, protocolo 113263822323573), que foi por
 e-mail para você e para o condomínio, tem 6 itens. Quatro saíam com o código elidido:
 `CABO-CAT5E-…`, `CX-SOBREPO…`, `ELETRODUT…`, `CABO-ELEV…`. Corrigido — o código agora
 quebra em linhas como a descrição já fazia.
+
+### 2.7 A apuração de agosto estava aberta — e nunca se fecharia sozinha
+
+A task de encerramento roda dia 5 e fecha **a competência anterior**. Só isso deixa um
+buraco permanente: competência já apurada que recebe lançamento depois nunca mais é
+revisitada, porque no mês seguinte a task olha outro mês. O comentário do próprio
+agendamento já dizia o preço — *"foi assim que 42 competências ficaram abertas desde 2022"*.
+
+Aconteceu de novo: 2026-08 foi apurada em 07/09 e depois chegaram pelo ADN as NFS-e de
+agosto que o fisco só publicou em setembro. Sobravam **R$ 15.139,00** abertos — a NFS-e 29
+(R$ 33.538,33) e o DAS (R$ 18.399,33).
+
+Rodei a apuração de agosto: a conta de passagem voltou a R$ 0,00 e todas as 43 competências
+estão encerradas. E a task passou a varrer resíduo de competência anterior, não só o mês
+passado — com trava por AST no oráculo do balanço, para que ninguém a remova sem o vermelho
+aparecer no mesmo dia.
 
 ---
 
@@ -136,7 +159,30 @@ quebra em linhas como a descrição já fazia.
 | 2 NFS-e de junho da Patrimonial, chegaram depois do corte | R$ 108.386,92 | reabrir período? |
 | 2 NFS-e com competência corrigida na nota e não no razão | R$ 108.386,92 | contador |
 | Recusados por período fechado **por rodada diária** (só Patrimonial) | R$ 569.878,54 | é correto recusar — agora é contado |
+| **Encerramento que não sabe de qual CNPJ é** — 171 lançamentos | R$ 5.132.437,80 | contador (ver abaixo) |
 | Conciliação bancária de fato | 3,6% · 2.073 pendentes | operação |
+
+### O encerramento não separa as duas empresas
+
+`apurar()` fecha 4.x e 5.x **por competência, sem filtrar empresa**, e grava `empresa_id`
+nulo. São **171 lançamentos, R$ 5.132.437,80 — e os únicos 171 do razão inteiro sem
+empresa**. Duas consequências diretas para a rescisão:
+
+1. **A ECD de cada CNPJ sai sem o encerramento.** O gerador filtra `empresa_id`, então esses
+   lançamentos ficam de fora do bloco I200/I250, que é o Livro Diário. Diário sem
+   encerramento não é o diário do exercício.
+2. **O resultado das duas pessoas jurídicas é somado num lançamento só.** O lucro de uma não
+   encerra contra o patrimônio da outra.
+
+O que cada encerramento deveria levar ao PL em 2026:
+
+    CONECTAMAIS ELETRONICA    receita 1.584.579,69   despesa 1.842.082,34   →  −257.502,65
+    CONECTAMAIS PATRIMONIAL     receita 597.155,75     despesa 776.170,01   →  −179.014,26
+
+**Não consertei, e o motivo é concreto:** uma apuração filtrada por CNPJ **não enxergaria**
+os 171 lançamentos existentes (que têm empresa nula) e recalcularia o resultado cheio —
+fechando os meses em DOBRO. Corrigir exige decidir o destino desses 171, e isso é ato de
+contador. Está contado pela trava `checar_apuracao_sem_empresa.py`.
 
 ### O que NÃO existe e é exigência legal
 

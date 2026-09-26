@@ -85,6 +85,14 @@ CACADORES = {
     # CONTADA: dívida com dono — reabrir período fechado e mexer em competência são atos de
     # contador, nunca desta trava. Acusa se CRESCER.
     "checar_receita_nao_lancada.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre NFS-e e razão", s),
+    # Encerramento de resultado que não sabe de qual CNPJ é. `apurar()` fecha 4.x e 5.x por
+    # COMPETÊNCIA, sem filtrar empresa, e grava `empresa_id` nulo: em 25/09/2026 são 171
+    # lançamentos, R$ 5.132.437,80 — e os ÚNICOS 171 do razão inteiro sem empresa. A ECD de
+    # cada CNPJ sai SEM o encerramento (o gerador filtra empresa_id), e o resultado das duas
+    # pessoas jurídicas é somado num lançamento só. CONTADA: dívida com dono. Corrigir exige
+    # decidir o destino dos 171 existentes — uma apuração por CNPJ não os enxergaria e
+    # fecharia o mês em DOBRO. Ato de contador.
+    "checar_apuracao_sem_empresa.py": lambda s: _n(r"^TOTAL: (\d+) lançamento\(s\) de encerramento sem empresa", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —
