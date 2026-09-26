@@ -56,7 +56,11 @@ R$ 100.000. Subscrito **não** é integralizado — só o contrato social diz qu
     concedido a funcionário;
  4. quanto os clientes deviam em 31/12/2025.
 
-Linha canônica: `TOTAL: <n> lacuna(s) no balanço de abertura`.
+Linha canônica: `TOTAL: <n> pendência(s) para o balanço de abertura`.
+
+Diz «pendência» e não «lacuna» de propósito: metade do que ela conta não é dado que
+falta — é saldo de natureza impossível, que é DEFEITO. As duas coisas impedem o
+balanço de ficar de pé, e o nome do número tem de caber nas duas.
 """
 
 from __future__ import annotations
@@ -87,7 +91,7 @@ async def main() -> int:
         print("RECUSO: roda DENTRO do container (precisa do banco)")
         return 2
 
-    lacunas: list[str] = []
+    lacunas: list[str] = []  # pendências: dado que falta E saldo impossível
 
     async with async_session_factory() as db:
         # ── 1. o que o razão declara como NÃO LEVANTADO ──────────────────────────────
@@ -170,7 +174,7 @@ async def main() -> int:
             print("     lançados como devolução — e aí o lugar é o ATIVO. É pergunta do dono.")
             lacunas.append("2.1.6.01 só tem débito: dívida anterior ou empréstimo concedido?")
 
-    print(f"\nTOTAL: {len(lacunas)} lacuna(s) no balanço de abertura")
+    print(f"\nTOTAL: {len(lacunas)} pendência(s) para o balanço de abertura")
     return 1 if lacunas else 0
 
 

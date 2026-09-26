@@ -141,7 +141,7 @@ CACADORES = {
     # e o que NÃO pode ser inventado. Balanço de abertura fabricado fecha a equação e
     # mente em todas as linhas, e depois é indetectável porque tudo bate.
     "checar_abertura_nao_levantada.py": lambda s: _n(
-        r"^TOTAL: (\d+) lacuna\(s\) no balan[cç]o de abertura", s
+        r"^TOTAL: (\d+) pend[êe]ncia\(s\) para o balan[cç]o de abertura", s
     ),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
