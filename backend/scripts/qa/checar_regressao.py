@@ -105,7 +105,9 @@ CACADORES = {
     # repetem. A SOLIDES custava ~R$ 21.536/mês e existia só como 8 a 12 PIX espalhados.
     # CONTADA: dívida de planejamento com o dono. Cadastrar contrato é decisão de quem
     # assina; a trava mede a lacuna.
-    "checar_custo_recorrente_nao_mapeado.py": lambda s: _n(r"^TOTAL: (\d+) custo\(s\) recorrente\(s\) fora do cadastro", s),
+    "checar_custo_recorrente_nao_mapeado.py": lambda s: _n(
+        r"^TOTAL: (\d+) custo\(s\) recorrente\(s\) fora do cadastro", s
+    ),
     # Mesma competência, mesmo tomador, mesmo valor — duas notas. Cada duplicata cobra o
     # cliente duas vezes, recolhe ISS sobre faturamento que não existiu e infla a receita do
     # mês. Medido em 25/09/2026: 5 grupos, R$ 130.328,02 de excedente e R$ 4.292,94 de ISS.
@@ -127,6 +129,7 @@ CACADORES = {
     # Medido: 5 contratos, sendo o GELAIN R$ 18.000 esperados no trimestre e R$ 0,00 na
     # conta, com nota emitida — inadimplência que nenhum relatório mostrava.
     "checar_dinheiro_fora_do_sistema.py": lambda s: _n(r"^TOTAL: (\d+) contrato\(s\) com dinheiro fora do sistema", s),
+    "checar_recebimento_sem_nota.py": lambda s: _n(r"^TOTAL: (\d+) cliente\(s\) com dinheiro recebido sem nota", s),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —

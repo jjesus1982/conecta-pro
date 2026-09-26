@@ -196,13 +196,27 @@ async def main() -> int:
             + (", ".join(f"{e}={n}" for e, n in placar) or "vazio")
         )
 
-        # ── (b) nada em produção, e a conciliação não emite ──────────────────────────
-        n_prod = (await db.execute(text("SELECT count(*) FROM nfses WHERE ambiente = 'producao'"))).scalar() or 0
-        n_cont = (
-            await db.execute(text("SELECT count(*) FROM nfse_numeracao WHERE ambiente = 'producao'"))
+        # ── (b) produção só com prova, e a conciliação não emite ────────────────────
+        # Era «nada em produção» até 26/09/2026, quando o dono liberou a emissão real e
+        # saiu a NFS-e 124. Régua que reprova o que o dono autorizou ensina a ignorar o
+        # painel. O que se trava é nota de produção sem prova do órgão. (O mesmo conserto
+        # está na letra (b) do oráculo Z7 — os dois mediam a mesma coisa.)
+        sem_prova = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM nfses WHERE ambiente = 'producao'"
+                    " AND status = 'autorizada'"
+                    " AND (coalesce(chave_acesso,'') = '' OR coalesce(c_stat,'') <> '100'"
+                    "      OR coalesce(xml_retorno,'') = '')"
+                )
+            )
         ).scalar() or 0
-        if n_prod or n_cont:
-            falhas.append(f"(b) há NFS-e/contador em PRODUÇÃO: {n_prod} nota(s), {n_cont} contador(es)")
+        n_prod = (await db.execute(text("SELECT count(*) FROM nfses WHERE ambiente = 'producao'"))).scalar() or 0
+        if sem_prova:
+            falhas.append(
+                f"(b) {sem_prova} NFS-e de PRODUÇÃO dita «autorizada» sem chave do órgão,"
+                " sem cStat 100 ou sem XML de retorno"
+            )
         fonte_cc = inspect.getsource(cc)
         for proibido in ("emitir_dps(", "nfse_emissao import emitir", "from modules.fiscal.services.nfse_emissao"):
             if proibido in fonte_cc:
@@ -210,7 +224,7 @@ async def main() -> int:
         fonte_task = Path("/app/modules/fiscal/tasks.py").read_text(encoding="utf-8")
         if "emitir(" in fonte_task or "emitir_dps" in fonte_task:
             falhas.append("(b) a task agendada chama emissão — nada pode sair sem clique humano")
-        medidas.append(f"produção: {n_prod} notas, {n_cont} contadores · conciliação só GET")
+        medidas.append(f"produção: {n_prod} nota(s), {sem_prova} sem prova · conciliação só GET")
 
         # ── (c) NBS com fonte, um por código, e nenhum literal de volta no montador ──
         servs = await par.servicos(db)

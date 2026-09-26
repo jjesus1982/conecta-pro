@@ -18,7 +18,8 @@ O que afirma
 ------------
   a) o ambiente de teste do Padrão Nacional é um HOST PRÓPRIO (produção restrita) e o código
      não confunde os dois — `url_para('homologacao') != url_para('producao')`;
-  b) nenhuma NFS-e gravada em ambiente de produção, e nenhum contador de produção aberto;
+  b) nenhuma NFS-e de PRODUÇÃO dita «autorizada» sem chave do órgão, cStat 100 e XML de
+     retorno, e nenhum contador de produção adiante das notas (número fiscal queimado);
   c) nenhuma linha que o sistema chame de «autorizada» sem protocolo E sem XML de retorno —
      as linhas vêm de SQL próprio deste arquivo e passam pela função pura da tela;
   d) o XML guardado existe EM DISCO e bate com a linha do banco (chave de acesso dentro do
@@ -26,7 +27,8 @@ O que afirma
   e) a CONECTAMAIS PATRIMONIAL é recusada na NF-e modelo 55 pelo motivo CERTO (decisão do
      dono: ela só vende serviço) e não por «cadastro incompleto / falta inscrição estadual»;
      e a Eletrônica NÃO é recusada;
-  f) as duas camadas da trava de produção levantam de verdade quando exercidas: ambiente,
+  f) as duas camadas da trava de produção levantam de verdade quando exercidas COM O GATE
+     FECHADO (o estado do gate é decisão do dono, não desvio): ambiente,
      XML com `tpAmb=1`, XML sem `tpAmb`, XML divergente do pedido e host divergente do XML;
   g) a numeração da NFS-e é por (CNPJ + série + ambiente), com índice único no banco, sem
      repetir e sem buraco — e duas reservas concorrentes recebem números distintos e
@@ -34,7 +36,11 @@ O que afirma
   h) nenhum número fiscal chumbado no caminho da NFS-e: sem `cNBS` literal, sem inscrição
      municipal literal, sem alíquota de ISS literal no XML;
   i) prova viva: há pelo menos UMA NFS-e autorizada em homologação para CADA um dos dois
-     CNPJs, com chave de acesso do órgão e `cStat 100`.
+     CNPJs, com chave de acesso do órgão e `cStat 100`;
+  j) `espiar_numero` não consome: duas espiadas dão o mesmo número e a reserva seguinte
+     dá exatamente esse — a prévia mostra o número que vai ser enviado, não um timestamp;
+  k) a série de quem EMITE (`empresas.nfse_serie_rps`) não é a série do portal da
+     contabilidade (`nfse_parametros_empresa.serie_dps`) — iguais, colidem no fisco.
 
 Estado medido no nascimento (sandbox, 24/09/2026): `nfses` com 27 linhas 'autorizada', sem
 coluna `ambiente`, sem `chave_acesso`, sem `xml_path`, sem `nfse_numeracao`, sem trava de
@@ -48,6 +54,7 @@ Sai 0 = verde; 1 = vermelho.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 from pathlib import Path
@@ -92,14 +99,57 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — nove afirmações, linear
     async with async_session_factory() as db:
         await em._ensure(db)
 
-        # ── (b) nada gravado em produção ──────────────────────────────────────────────
-        n_prod = (await db.execute(text("SELECT count(*) FROM nfses WHERE ambiente = 'producao'"))).scalar() or 0
-        n_cont = (
-            await db.execute(text("SELECT count(*) FROM nfse_numeracao WHERE ambiente = 'producao'"))
-        ).scalar() or 0
-        if n_prod or n_cont:
-            falhas.append(f"(b) há NFS-e/contador em PRODUÇÃO: {n_prod} nota(s), {n_cont} contador(es)")
-        medidas.append(f"produção: {n_prod} notas, {n_cont} contadores")
+        # ── (b) produção só com prova do órgão ────────────────────────────────────────
+        # Esta afirmação já foi «nada em produção». Virou errada em 26/09/2026, quando o
+        # dono liberou a emissão real e saiu a NFS-e 124 (Hawk Eye, R$ 1.000). Uma régua
+        # que reprova o que o dono autorizou ensina a ignorar o painel — o que ela tem de
+        # travar é nota de produção INVENTADA: sem chave do órgão, sem cStat 100, sem XML.
+        prod = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id::text, coalesce(chave_acesso,'') AS chave,"
+                        " coalesce(c_stat,'') AS cstat, length(coalesce(xml_retorno,'')) AS n,"
+                        " coalesce(status,'') AS status"
+                        " FROM nfses WHERE ambiente = 'producao'"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        sem_prova = [
+            r["id"]
+            for r in prod
+            if r["status"] == "autorizada" and (not r["chave"] or r["cstat"] != "100" or not r["n"])
+        ]
+        if sem_prova:
+            falhas.append(
+                f"(b) {len(sem_prova)} NFS-e de PRODUÇÃO dita «autorizada» sem chave do órgão,"
+                f" sem cStat 100 ou sem XML de retorno: {sem_prova[:5]}"
+            )
+        # Contador de produção aberto sem nota é número fiscal queimado — isso continua erro.
+        abertos = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT c.prestador_cnpj, c.serie, c.ultimo,"
+                        " coalesce((SELECT count(*) FROM nfses n WHERE n.prestador_cnpj = c.prestador_cnpj"
+                        "   AND n.serie_rps = c.serie AND n.ambiente = 'producao'), 0) AS notas"
+                        " FROM nfse_numeracao c WHERE c.ambiente = 'producao' AND c.ultimo > 0"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        for r in abertos:
+            if r["ultimo"] > r["notas"]:
+                falhas.append(
+                    f"(b) contador de produção {r['prestador_cnpj']}/{r['serie']} em {r['ultimo']}"
+                    f" com só {r['notas']} nota(s) gravada(s) — número fiscal queimado"
+                )
+        medidas.append(f"produção: {len(prod)} notas, {len(abertos)} contador(es) abertos")
 
         # ── (c) «autorizada» só com prova ─────────────────────────────────────────────
         linhas = (
@@ -241,6 +291,50 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — nove afirmações, linear
         await db.commit()
         medidas.append(f"numeração: reservas {n1}→{n2} ({MARCA_FIXTURE}, apagada)")
 
+        # ── (j) espiar não consome ────────────────────────────────────────────────────
+        e1 = await em.espiar_numero(db, CNPJ_FIXTURE, em.SERIE_PADRAO, "homologacao")
+        e2 = await em.espiar_numero(db, CNPJ_FIXTURE, em.SERIE_PADRAO, "homologacao")
+        r1 = await em.proximo_numero(db, CNPJ_FIXTURE, em.SERIE_PADRAO, "homologacao")
+        await db.commit()
+        if e1 != e2:
+            falhas.append(f"(j) duas espiadas seguidas deram números diferentes: {e1} e {e2}")
+        if r1 != e1:
+            falhas.append(f"(j) a espiada disse {e1} e a reserva deu {r1} — a prévia mente sobre o número")
+        await db.execute(text("DELETE FROM nfse_numeracao WHERE prestador_cnpj = :c"), {"c": CNPJ_FIXTURE})
+        await db.commit()
+        medidas.append(f"espiada: {e1}={e2} e reserva {r1}")
+
+        # ── (k) a série de quem EMITE não é a série de quem o portal usa ──────────────
+        # As duas vivem em tabelas diferentes e querem dizer coisas diferentes. Confundi-las
+        # custou uma investigação inteira em 26/09/2026, e emitir na série do portal colide
+        # com a numeração dele (E0014). Se um dia forem iguais, é bug de cadastro.
+        from modules.fiscal.services.nfse_parametros import serie_de  # noqa: PLC0415
+
+        for cnpj in CNPJS_DA_CASA:
+            emp = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT nullif(trim(coalesce(nfse_serie_rps,'')),'') AS nfse_serie_rps"
+                            " FROM empresas WHERE regexp_replace(cnpj,'[^0-9]','','g') = :c"
+                        ),
+                        {"c": cnpj},
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not emp:
+                continue
+            minha = em.serie_da(dict(emp))
+            do_portal = await serie_de(db, cnpj)
+            if minha == do_portal:
+                falhas.append(
+                    f"(k) {cnpj} emite na mesma série do portal da contabilidade ({minha})"
+                    " — a numeração vai colidir no fisco (E0014)"
+                )
+            medidas.append(f"série {cnpj}: ERP={minha} portal={do_portal}")
+
         # ── (i) prova viva: uma nota autorizada por CNPJ ──────────────────────────────
         vivas = (
             (
@@ -263,32 +357,51 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — nove afirmações, linear
         medidas.append("autorizadas em homologação: " + (", ".join(f"{k}={v}" for k, v in tem.items()) or "nenhuma"))
 
     # ── (f) as travas levantam de verdade ─────────────────────────────────────────────
-    exercicios = [
-        ("ambiente de produção sem gate", lambda: nn._exigir_ambiente_nfse("1", "teste")),
-        ("ambiente inválido", lambda: nn._exigir_ambiente_nfse("7", "teste")),
-        ("XML sem tpAmb", lambda: nn._conferir_tp_amb(_xml_dps(None), "2", nn.URL_PRODUCAO_RESTRITA, "teste")),
-        ("XML tpAmb=1 pedindo 2", lambda: nn._conferir_tp_amb(_xml_dps("1"), "2", nn.URL_PRODUCAO_RESTRITA, "teste")),
-        ("XML tpAmb=1 sem gate", lambda: nn._conferir_tp_amb(_xml_dps("1"), "1", nn.URL_PRODUCAO, "teste")),
-        (
-            "host de produção com XML de teste",
-            lambda: nn._conferir_tp_amb(_xml_dps("2"), "2", nn.URL_PRODUCAO, "teste"),
-        ),
-    ]
-    for nome, fn in exercicios:
-        try:
-            fn()
-            falhas.append(f"(f) a trava NÃO levantou: {nome}")
-        except nn.NFSeAmbienteError:
-            pass
-    # e o caminho legítimo tem de passar, senão a trava é só um muro
+    # A frase do gate é do DONO, não do oráculo. Até 25/09/2026 esta afirmação também
+    # reprovava `NFSE_PRODUCAO_LIBERADA` aberta — e virou errada no dia em que ele liberou
+    # a emissão real. Uma régua que reprova o que o dono autorizou ensina a ignorar o
+    # painel. O que se afirma aqui é o MECANISMO: com o gate FECHADO, as travas levantam.
+    # O estado atual do gate é medida, não desvio.
+    gate_aberto = nn.producao_nfse_liberada()
+    senha = os.environ.pop(nn.ENV_GATE_PRODUCAO_NFSE, None)
     try:
-        nn._exigir_ambiente_nfse("2", "teste")
-        nn._conferir_tp_amb(_xml_dps("2"), "2", nn.URL_PRODUCAO_RESTRITA, "teste")
-    except nn.NFSeAmbienteError as e:
-        falhas.append(f"(f) a trava barrou a HOMOLOGAÇÃO, que é o caminho legítimo: {e}")
-    if nn.producao_nfse_liberada():
-        falhas.append(f"(f) {nn.ENV_GATE_PRODUCAO_NFSE} está aberta neste ambiente — produção destravada")
-    medidas.append(f"travas exercidas: {len(exercicios)}")
+        exercicios = [
+            ("ambiente de produção sem gate", lambda: nn._exigir_ambiente_nfse("1", "teste")),
+            ("ambiente inválido", lambda: nn._exigir_ambiente_nfse("7", "teste")),
+            ("XML sem tpAmb", lambda: nn._conferir_tp_amb(_xml_dps(None), "2", nn.URL_PRODUCAO_RESTRITA, "teste")),
+            (
+                "XML tpAmb=1 pedindo 2",
+                lambda: nn._conferir_tp_amb(_xml_dps("1"), "2", nn.URL_PRODUCAO_RESTRITA, "teste"),
+            ),
+            ("XML tpAmb=1 sem gate", lambda: nn._conferir_tp_amb(_xml_dps("1"), "1", nn.URL_PRODUCAO, "teste")),
+            (
+                "host de produção com XML de teste",
+                lambda: nn._conferir_tp_amb(_xml_dps("2"), "2", nn.URL_PRODUCAO, "teste"),
+            ),
+        ]
+        for nome, fn in exercicios:
+            try:
+                fn()
+                falhas.append(f"(f) com o gate FECHADO, a trava não levantou: {nome}")
+            except nn.NFSeAmbienteError:
+                pass
+        # e o caminho legítimo tem de passar, senão a trava é só um muro
+        try:
+            nn._exigir_ambiente_nfse("2", "teste")
+            nn._conferir_tp_amb(_xml_dps("2"), "2", nn.URL_PRODUCAO_RESTRITA, "teste")
+        except nn.NFSeAmbienteError as e:
+            falhas.append(f"(f) a trava barrou a HOMOLOGAÇÃO, que é o caminho legítimo: {e}")
+    finally:
+        if senha is not None:
+            os.environ[nn.ENV_GATE_PRODUCAO_NFSE] = senha
+    # e o gate tem de voltar exatamente como estava: um oráculo que destrava produção e
+    # esquece de retravar é pior que o defeito que procura.
+    if nn.producao_nfse_liberada() != gate_aberto:
+        falhas.append("(f) o oráculo não devolveu o gate de produção ao estado em que o achou")
+    medidas.append(
+        f"travas exercidas: {len(exercicios)} com o gate fechado · "
+        f"gate de produção hoje: {'ABERTO (decisão do dono)' if gate_aberto else 'fechado'}"
+    )
 
     # ── (h) nada de número fiscal chumbado no caminho da NFS-e ────────────────────────
     fonte = (raiz / "modules/government_integrations/core/nfse_nacional.py").read_text(encoding="utf-8")
@@ -313,9 +426,11 @@ async def main() -> int:  # noqa: PLR0912, PLR0915 — nove afirmações, linear
     if falhas:
         raise AssertionError(f"{len(falhas)} desvio(s) na NFS-e")
     print(
-        "OK NFS-e: homologação é produção restrita com host próprio, nada em produção, "
-        "«autorizada» só com protocolo e XML do órgão, XML no disco E no banco, Patrimonial "
-        "recusada na NF-e 55 pela decisão do dono, travas levantando, numeração sem buraco"
+        "OK NFS-e: homologação é produção restrita com host próprio, produção só com chave e "
+        "cStat 100 do órgão, «autorizada» só com protocolo e XML, XML no disco E no banco, "
+        "Patrimonial recusada na NF-e 55 pela decisão do dono, travas levantando com o gate "
+        "fechado, numeração sem buraco, prévia mostrando o número que vai ser enviado, e a "
+        "série do ERP separada da série do portal da contabilidade"
     )
     print(f"TOTAL desvios: {len(falhas)}")
     return 0

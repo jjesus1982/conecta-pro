@@ -347,3 +347,103 @@ Hoje: **4 divergências**, todas de decisão de contador, todas contadas como d�
   nulo. Presumi pelas contas envolvidas; o dado não prova.
 - **O que é, juridicamente, a guia FGTS "CONSIGNADO"** — R$ 41.196,19 pagos de 12.2025 a
   06.2026 e nunca provisionados. Só sei o que o nome do arquivo diz.
+
+---
+
+# Continuação — 26/09/2026: a primeira nota do ERP
+
+## O conflito de série, que não era conflito
+
+Antes de emitir, duas tabelas discordavam sobre em que série a nota deveria sair:
+
+    empresas.nfse_serie_rps                     = 901     (contador de produção em 0)
+    nfse_parametros_empresa.serie_dps           = 70000   (último DPS no fisco: 125)
+
+Parecia erro de cadastro. Não era: **são dois pontos de emissão diferentes, e a série é
+exatamente o que os separa.** O `70000` é a série do portal que a contabilidade usa — foi
+medida lendo DANFSe de verdade (`ultimo_dps_fonte`: «DANFSe nº 121 de 17/09/2026 — NÚMERO
+DA DPS 125, SÉRIE DA DPS 70000»). O `901` é a série do ERP.
+
+Emitir daqui na 70000 teria colidido com a numeração do portal e o fisco recusa isso com
+**E0014** — o mesmo erro que já obrigou a separar sandbox de produção em séries distintas.
+A linha do `SERIE_PADRAO` no código já dizia isso desde 24/09 («há um terceiro ponto: o
+portal que a contabilidade usa, na série 70000»); as duas funções é que não diziam.
+Corrigido nas duas docstrings: `nfse_emissao.serie_da` emite, `nfse_parametros.serie_de` lê.
+
+## A prévia que não mostrava o que ia ser enviado
+
+O `dry_run` retornava **antes** de reservar número e não passava série, então a simulação
+saía com `<serie>900</serie>` e um `nDPS` de timestamp — os dois campos com maior chance de
+erro apareciam certos no fisco e errados na prévia. Uma prévia que não mostra o que vai ser
+enviado não é prévia: ela dá confiança sem dar informação.
+
+`espiar_numero()` lê qual número *seria* reservado, sem reservar, e o `dry_run` passa
+série e número de verdade. A prévia da nota do Hawk Eye passou a mostrar:
+
+    <serie>901</serie>  <nDPS>1</nDPS>  <tpAmb>1</tpAmb>  <dCompet>2026-08-01</dCompet>
+    <opSimpNac>1</opSimpNac>   (não optante — Lucro Real, correto)
+
+## NFS-e 124 — Hawk Eye
+
+    chave     13026032235710481000103000000000012426094625752532
+    série 901 · DPS nº 1 · NFS-e nº 124 · cStat 100 · HTTP 201 · produção
+    competência 2026-08 · R$ 1.000,00 · ISS R$ 50,00 · código 140601 (portaria remota)
+
+O valor é decisão do dono, e é o que entrou: *«contabilize apenas o que entrou da hawkeye
+na conta da eletrônica, não o que pagamos, pois eles são fornecedores nossos também, mas o
+que eles pagaram como clientes»*. O contrato é de R$ 4.000/mês; no extrato do Inter há uma
+única entrada dele no ano, R$ 1.000 em 13/08. O resto entrou na conta pessoa física do
+dono, no Itaú, que o sistema não conhece.
+
+O código 140601 não é escolha minha: é o que as outras notas de portaria remota desta mesma
+empresa já usaram no fisco (Gelain, Villa dos Pássaros, Green Hills, Parise Village, Prime
+Arena — todas 140601, ISS 5%).
+
+No razão, depois do `fechar_grupo()`:
+
+    D 1.1.2.01  /  C 4.1.1.01   R$ 1.000,00   Receita NFS-e 124 (2026-08)
+    D 5.2.2.01  /  C 2.1.2.01   R$    50,00   ISS s/ NFS-e 124 (2026-08)
+
+O dinheiro já estava lançado desde 13/08 (`D 1.1.1.01 / C 1.1.2.01`), então a conta de
+clientes a receber fecha. Receita de 2026-08: R$ 274.461,56 → **R$ 275.461,56**.
+
+## A régua que faltava: nota ←→ dinheiro
+
+O Hawk Eye não foi achado por trava nenhuma — foi o dono que contou. As duas travas que
+existiam partem do **contrato**, e quem recebe fora do contrato passa por baixo das duas.
+
+`checar_recebimento_sem_nota.py` fecha o triângulo. Compara, por documento de contraparte,
+**o que o cliente depositou** contra **o que foi faturado para ele**, em acumulado de 4
+competências fechadas — acumulado porque nota de setembro se paga em outubro, e a
+comparação mês a mês acusaria todo mundo por atraso de dias.
+
+Prova contra o código anterior, na janela 2026-05 a 2026-08:
+
+    HAWK EYE   recebido R$ 1.000,00   faturado (sem a nota 124) R$ 0,00   ← acusaria
+    HAWK EYE   recebido R$ 1.000,00   faturado (com a nota 124) R$ 1.000,00 ← cala
+
+E ela conta a própria população antes de dar o total, porque «TOTAL: 1» sobre uma
+população cortada em silêncio é pior que nenhuma medida:
+
+    entrou no período: R$ 1.111.425,32 em 112 créditos
+       cliente cadastrado (é o que esta régua compara)    49x  R$ 822.680,52   74,0%
+       entrada sem documento de contraparte               16x  R$ 150.065,98   13,5%
+       documento preenchido, mas nenhum cliente com ele   35x  R$  69.734,42    6,3%
+       transferência entre os nossos CNPJs                12x  R$  68.944,40    6,2%
+    → esta régua alcança 74% do dinheiro. O resto não foi olhado por ela.
+
+**Um achado real:** CONDOMINIO RESIDENCIAL PARQUE DOS FRANCESES depositou **R$ 2.508,00 em
+27/08** e não há nota nenhuma naquele período. Nem o contrato (R$ 1.800/mês, CTR-2026-00015)
+nem a proposta aceita (PROP-20260610-98EF41, R$ 1.800) explicam o valor. Não emiti nota
+sobre ele: emitir sobre o recebido, quando o recebido não bate com o contratado, é chute —
+pode ser duas competências juntas, serviço extra ou adiantamento. É pergunta para o dono.
+
+## O que ficou provado que NÃO era problema
+
+- **Notas 11 a 14 do Parque dos Franceses** («FIXTURE DGX Z7 — SEM VALOR FISCAL», «PROVA DE
+  PRODUCAO EM HOMOLOGACAO», R$ 2.400 somadas) estão marcadas `ambiente = 'homologacao'` e o
+  filtro de receita as exclui corretamente. Não entraram no DRE.
+- **Duas notas canceladas no fisco** que o sync de hoje descobriu (nº 6 de 01/2026,
+  R$ 35.737,39; nº 31 de 02/2026, R$ 5.850) **não têm receita correspondente no razão** —
+  nada a estornar.
+- **Parque dos Franceses não estava sem faturar** (ver PLANO_2027 §3.2).

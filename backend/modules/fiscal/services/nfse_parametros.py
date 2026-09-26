@@ -316,7 +316,14 @@ async def parametros_de(db: AsyncSession, cnpj: str) -> dict[str, Any] | None:
 
 
 async def serie_de(db: AsyncSession, cnpj: str) -> str:
-    """Série da DPS do CNPJ. Sem linha, devolve a série medida — nunca um chute novo."""
+    """Série da DPS que o PORTAL da contabilidade usa — para LER o que já foi emitido.
+
+    Não é a série de quem emite daqui. São dois pontos de emissão distintos e a série é
+    justamente o que os separa: o portal está na 70000 (medida em DANFSe real, com o
+    último número em `ultimo_dps_observado`), e o ERP na sua própria, de
+    `empresas.nfse_serie_rps` — ver `nfse_emissao.serie_da`. Emitir daqui na 70000 colide
+    com a numeração do portal e o fisco recusa com E0014.
+    """
     p = await parametros_de(db, cnpj)
     return str(p["serie_dps"]) if p else SERIE_DPS_MEDIDA
 

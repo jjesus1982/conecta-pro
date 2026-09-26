@@ -87,7 +87,11 @@ SERIE_PADRAO = "900"
 
 
 def serie_da(emp: dict) -> str:
-    """Série da DPS desta empresa. `empresas.nfse_serie_rps` manda; sem ela, a padrão."""
+    """Série da DPS de quem emite DAQUI. `empresas.nfse_serie_rps` manda; sem ela, a padrão.
+
+    Não confundir com `nfse_parametros.serie_de`, que devolve a série do PORTAL da
+    contabilidade (70000) e serve para ler, não para emitir.
+    """
     return str(emp.get("nfse_serie_rps") or SERIE_PADRAO).strip() or SERIE_PADRAO
 
 
@@ -236,6 +240,24 @@ async def proximo_numero(db: AsyncSession, cnpj: str, serie: str, ambiente: str)
                 " RETURNING ultimo"
             ),
             p,
+        )
+    ).first()
+    return int(linha[0])
+
+
+async def espiar_numero(db: AsyncSession, cnpj: str, serie: str, ambiente: str) -> int:
+    """Qual número SERIA reservado agora, sem reservar. Só para a prévia."""
+    linha = (
+        await db.execute(
+            sqltext(
+                "SELECT GREATEST("
+                "  COALESCE((SELECT ultimo FROM nfse_numeracao"
+                "            WHERE prestador_cnpj = :cnpj AND serie = :serie AND ambiente = :amb), 0),"
+                "  COALESCE((SELECT MAX(numero_rps) FROM nfses"
+                "            WHERE prestador_cnpj = :cnpj AND serie_rps = :serie"
+                "              AND ambiente = :amb), 0)) + 1"
+            ),
+            {"cnpj": cnpj, "serie": serie, "amb": ambiente},
         )
     ).first()
     return int(linha[0])
@@ -424,7 +446,11 @@ async def emitir(
     from modules.government_integrations.services.nfse_nacional_service import get_nfse_nacional_service
 
     if dry_run:
-        # Simulação não gasta número: ela não chega ao fisco e não vira documento.
+        # Simulação não gasta número: ela não chega ao fisco e não vira documento. Mas
+        # ESPIA a série e o próximo número e os mostra, porque sem isso a simulação
+        # exibia `serie 900` e um nDPS de timestamp — os dois campos que mais erram
+        # saíam certos no fisco e errados na prévia. Prévia que não mostra o que vai
+        # ser enviado não é prévia.
         svc = get_nfse_nacional_service(emp["slug"])
         return {
             **svc.emitir_dps(
@@ -433,6 +459,8 @@ async def emitir(
                 competencia=competencia,
                 tipo_tributacao=tipo_tributacao,
                 dry_run=True,
+                numero=str(await espiar_numero(db, emp["cnpj"], serie_da(emp), ambiente)),
+                serie=serie_da(emp),
             ),
             "ambiente": ambiente,
             "empresa": emp["slug"],
