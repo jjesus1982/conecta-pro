@@ -48,16 +48,25 @@ class SPEDFiscalService:
         "9": "Controle e Encerramento do Arquivo",
     }
 
-    def __init__(self):
-        """Inicializa o service com a identificação REAL da empresa (tabela empresas)."""
-        empresa = get_empresa_fiscal()
+    def __init__(self, empresa_slug: str | None = None):
+        """Inicializa o service com a identificação REAL da empresa (tabela empresas).
+
+        `empresa_slug` escolhe o CNPJ: a EFD ICMS/IPI é POR estabelecimento, e só a
+        Eletrônica tem inscrição estadual. O `_empresa_id` deixou de ser constante no
+        código — a carga de documentos filtra pelo CNPJ desta instância.
+        """
+        empresa = get_empresa_fiscal(empresa_slug)
+        self.empresa_slug = empresa_slug
         self.cnpj = empresa.cnpj
         self.razao_social = empresa.razao_social
         self.ie = empresa.inscricao_estadual
         self.uf = empresa.uf
         self.cod_municipio = empresa.codigo_municipio
         self.perfil = os.environ.get("SPED_PERFIL", "A")
-        self._empresa_id = "619a3df1-8bce-49ce-b77a-04f80a0e8491"
+        #: Mantido só para quem ainda leia o atributo; a carga filtra por CNPJ, que é o
+        #: que a escrituração fiscal enxerga. Constante de UUID no código travava o
+        #: arquivo numa empresa só.
+        self._empresa_id = None
 
         self.manager = SPEDFiscalManager(
             cnpj=self.cnpj,
@@ -167,11 +176,15 @@ class SPEDFiscalService:
         # Verifica se participante existe ou cria temporário
         cod_part = dados["codigo_participante"]
         if cod_part not in self.manager.participantes:
+            # O código do participante JÁ É o CNPJ/CPF dele. Gravar "00000000000000" no
+            # campo do documento era inventar um destinatário sem documento no registro
+            # 0150 — o arquivo saía com o CNPJ certo no código e zeros no cadastro.
+            doc_part = cod_part if cod_part.isdigit() and len(cod_part) in (11, 14) else ""
             self.manager.adicionar_participante(
                 Participante(
                     codigo=cod_part,
-                    nome=f"Participante {cod_part}",
-                    cnpj_cpf="00000000000000",
+                    nome=dados.get("nome_participante") or f"Participante {cod_part}",
+                    cnpj_cpf=doc_part,
                 )
             )
 
@@ -189,6 +202,9 @@ class SPEDFiscalService:
             valor_pis=Decimal(str(dados.get("valor_pis", 0))),
             valor_cofins=Decimal(str(dados.get("valor_cofins", 0))),
             cfop=dados["cfop"],
+            # Sem isto os itens chegavam à porta e ficavam do lado de fora: o campo existe
+            # no `DocumentoFiscal` desde sempre e nunca era preenchido.
+            itens=list(dados.get("itens") or []),
         )
 
         self.manager.adicionar_documento(documento)
@@ -284,65 +300,135 @@ class SPEDFiscalService:
         return comps
 
     def carregar_documentos_do_periodo(self, dt_inicio, dt_fim) -> int:
-        """
-        Popula o manager com as NFS-e emitidas reais (nfse_emitidas_nacional) do
-        período, para que o arquivo SPED reflita os documentos de verdade em vez
-        de sair vazio. Retorna a quantidade de documentos carregados.
+        """Popula o manager com as NF-e modelo 55 REAIS e autorizadas do período.
 
-        Nota de honestidade: a empresa é prestadora de SERVIÇOS (emite NFS-e), sem
-        movimentação de mercadorias com ICMS/IPI — por isso os documentos entram
-        sem débito de ICMS/IPI. A escrituração fiscal de ISS/serviços é municipal,
-        mas os documentos reais são refletidos aqui para não gerar arquivo oco.
+        ⚠️ Reescrito em 25/09/2026. A versão anterior lia `nfse_emitidas_nacional` — NOTAS
+        DE SERVIÇO — e as declarava como `tipo: "55"` com CFOP 5933, "para não gerar arquivo
+        oco" (o comentário dizia isso com todas as letras). NFS-e é documento MUNICIPAL de
+        ISS: não entra em escrituração de ICMS/IPI. Um arquivo oco é honesto; um arquivo que
+        declara nota de serviço como mercadoria é declaração falsa.
+
+        Medido antes da correção, competência 09/2026: o EFD saía com 9 documentos, todos
+        NFS-e, com chave de nota de serviço (`1302603…`, que é o código IBGE de Manaus) no
+        campo da chave de NF-e. E omitia a ÚNICA NF-e de verdade — nº 1 série 2, Villa Dei
+        Fiori, R$ 2.581,00, autorizada pela SEFAZ em 25/09/2026. Exatamente ao contrário.
+
+        Agora lê `nfes` + `nfe_itens`: só produção (`tp_amb = '1'`), só autorizada, só do
+        CNPJ desta instância. Mês sem NF-e gera arquivo sem documento — que é a verdade.
         """
         url = self._db_url()
         if not url:
             return 0
 
-        comps = self._competencias_do_periodo(dt_inicio, dt_fim)
         try:
             conn = psycopg2.connect(url)
             try:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT chave_acesso, numero, competencia, data_emissao,
-                               tomador_cnpj, tomador_nome, valor_servicos
-                        FROM nfse_emitidas_nacional
-                        WHERE competencia = ANY(%s)
-                        ORDER BY data_emissao
+                        SELECT id, chave_acesso, numero, serie, data_emissao,
+                               coalesce(data_saida_entrada, data_emissao) AS saida,
+                               destinatario_cpf_cnpj, destinatario_razao_social,
+                               valor_total_nota, valor_total_icms, valor_total_ipi,
+                               valor_total_pis, valor_total_cofins
+                          FROM nfes
+                         WHERE status = 'autorizada'
+                           AND coalesce(tp_amb, '') = '1'
+                           AND coalesce(active, TRUE) IS TRUE
+                           AND regexp_replace(coalesce(emitente_cnpj, ''), '\\D', '', 'g') = %s
+                           AND data_emissao::date BETWEEN %s AND %s
+                         ORDER BY data_emissao, numero
                         """,
-                        (comps,),
+                        (re.sub(r"\D", "", self.cnpj or ""), dt_inicio, dt_fim),
                     )
-                    rows = cur.fetchall()
+                    notas = cur.fetchall()
+
+                    itens_por_nota: dict[str, list] = {}
+                    if notas:
+                        cur.execute(
+                            """
+                            SELECT nfe_id, numero_item, codigo_produto, descricao, ncm, cfop,
+                                   unidade, quantidade, valor_total, icms_base_calculo,
+                                   icms_aliquota, icms_valor, coalesce(icms_cst, icms_csosn)
+                              FROM nfe_itens WHERE nfe_id = ANY(%s::uuid[])
+                             ORDER BY nfe_id, numero_item
+                            """,
+                            ([str(n[0]) for n in notas],),
+                        )
+                        for it in cur.fetchall():
+                            itens_por_nota.setdefault(str(it[0]), []).append(it)
             finally:
                 conn.close()
         except Exception as e:  # noqa: BLE001
-            logger.warning("SPED Fiscal: falha ao carregar NFS-e do período (%s)", e)
+            logger.warning("SPED Fiscal: falha ao carregar NF-e do período (%s)", e)
             return 0
 
         carregados = 0
-        for chave, numero, _comp, data_emissao, tom_cnpj, tom_nome, valor in rows:
-            emissao = data_emissao.date() if data_emissao else dt_inicio
+        for n in notas:
+            (nid, chave, numero, serie, emissao, saida, dest_doc, dest_nome,
+             v_total, v_icms, v_ipi, v_pis, v_cofins) = n
+            d_emi = emissao.date() if hasattr(emissao, "date") else emissao
+            d_sai = saida.date() if hasattr(saida, "date") else (saida or d_emi)
+            cod_part = re.sub(r"\D", "", dest_doc or "") or "SEMDOC"
+            itens = itens_por_nota.get(str(nid), [])
             self.adicionar_documento(
                 {
                     "tipo": "55",
                     "chave": (chave or "")[:44],
                     "numero": str(numero or ""),
-                    "serie": "1",
-                    "data_emissao": emissao.strftime("%Y-%m-%d"),
-                    "data_entrada_saida": emissao.strftime("%Y-%m-%d"),
-                    "codigo_participante": (re.sub(r"\D", "", tom_cnpj or "") or "SEMDOC"),
-                    "valor_total": str(valor or 0),
-                    "cfop": "5933",  # prestação de serviço sujeito ao ISS
+                    "serie": str(serie or ""),
+                    "data_emissao": d_emi.strftime("%Y-%m-%d"),
+                    "data_entrada_saida": d_sai.strftime("%Y-%m-%d"),
+                    "codigo_participante": cod_part,
+                    "nome_participante": dest_nome or "",
+                    "valor_total": str(v_total or 0),
+                    "valor_icms": str(v_icms or 0),
+                    "valor_ipi": str(v_ipi or 0),
+                    "valor_pis": str(v_pis or 0),
+                    "valor_cofins": str(v_cofins or 0),
+                    # CFOP do documento = o do primeiro item; o C190 detalha por item.
+                    "cfop": (itens[0][5] if itens else ""),
+                    "itens": [
+                        {
+                            "numero": it[1],
+                            "codigo": it[2],
+                            "descricao": it[3],
+                            "ncm": it[4],
+                            "cfop": it[5],
+                            "unidade": it[6],
+                            "quantidade": it[7],
+                            "valor_total": it[8],
+                            "icms_base": it[9],
+                            "icms_aliquota": it[10],
+                            "icms_valor": it[11],
+                            "cst": it[12],
+                        }
+                        for it in itens
+                    ],
                 }
             )
-            # nomeia o participante recém-criado, se aplicável
-            cod_part = re.sub(r"\D", "", tom_cnpj or "") or "SEMDOC"
-            if cod_part in self.manager.participantes and tom_nome:
-                self.manager.participantes[cod_part].nome = tom_nome
+            if cod_part in self.manager.participantes and dest_nome:
+                self.manager.participantes[cod_part].nome = dest_nome
+            # O C170 referencia COD_ITEM; sem o 0200 correspondente o arquivo aponta para
+            # cadastro que não existe.
+            for it in itens:
+                codigo = str(it[2] or "").strip()
+                if codigo and codigo not in self.manager.produtos:
+                    self.adicionar_produto(
+                        {
+                            "codigo": codigo,
+                            "descricao": str(it[3] or codigo)[:120],
+                            "unidade": str(it[6] or "UN"),
+                            "ncm": (re.sub(r"\D", "", str(it[4] or "")) or None),
+                            "aliquota_icms": it[10] or 0,
+                        }
+                    )
             carregados += 1
 
-        logger.info("SPED Fiscal: %d NFS-e reais carregadas do período %s", carregados, comps)
+        logger.info(
+            "SPED Fiscal: %d NF-e de produção carregadas (CNPJ %s, %s a %s)",
+            carregados, self.cnpj, dt_inicio, dt_fim,
+        )
         return carregados
 
     def gerar_arquivo(
@@ -502,7 +588,6 @@ _service_instance: SPEDFiscalService | None = None
 
 def get_sped_fiscal_service() -> SPEDFiscalService:
     """Retorna instância singleton do service."""
-    global _service_instance
-    if _service_instance is None:
-        _service_instance = SPEDFiscalService()
-    return _service_instance
+    # Sem singleton: o service acumula participantes e documentos no manager, e reutilizar
+    # a instância somava o período de uma geração na seguinte.
+    return SPEDFiscalService()

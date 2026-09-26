@@ -170,6 +170,9 @@ class GerarArquivoRequest(BaseModel):
     periodo_inicio: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     periodo_fim: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     finalidade: FinalidadeArquivoEnum = Field(default=FinalidadeArquivoEnum.ORIGINAL)
+    #: Slug da empresa em `empresas`. A EFD ICMS/IPI é POR estabelecimento, e só a
+    #: Eletrônica tem inscrição estadual. None = empresa principal.
+    empresa_slug: str | None = Field(default=None, max_length=60)
     participantes: list[ParticipanteRequest] | None = None
     produtos: list[ProdutoRequest] | None = None
     documentos: list[DocumentoFiscalRequest] | None = None

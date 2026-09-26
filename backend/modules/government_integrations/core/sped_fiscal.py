@@ -73,6 +73,18 @@ class Participante:
     cep: str | None = None
 
 
+def _d(v) -> Decimal:
+    """Decimal tolerante — campo nulo do banco vira zero, não explode o arquivo."""
+    try:
+        return Decimal(str(v if v is not None else 0))
+    except (ArithmeticError, ValueError):
+        return Decimal("0")
+
+
+def _n(v) -> str:
+    return str(_d(v))
+
+
 @dataclass
 class Produto:
     """Produto/Item."""
@@ -394,7 +406,7 @@ class SPEDFiscalManager:
             self._contar(contador, "0200")
 
         # Registro 0990 - Encerramento do Bloco 0
-        qtd_0 = sum(1 for k in contador["registros"] if k.startswith("0"))
+        qtd_0 = sum(v for k, v in contador["registros"].items() if k.startswith("0"))
         linhas.append(self._pipe(["0990", str(qtd_0 + 1)]))
         self._contar(contador, "0990")
 
@@ -429,9 +441,12 @@ class SPEDFiscalManager:
                     doc.data_entrada_saida.strftime("%d%m%Y"),
                     str(doc.valor_total),
                     "0",  # IND_PGTO
-                    str(doc.valor_total),  # VL_DESC
+                    # VL_DESC recebia `doc.valor_total`: o campo do DESCONTO levava o valor
+                    # CHEIO da nota. Uma NF-e de R$ 2.581,00 saía declarando R$ 2.581,00 de
+                    # desconto. E VL_MERC, que é o valor das mercadorias, saía zerado.
+                    "0",  # VL_DESC
                     "0",  # VL_ABAT_NT
-                    "0",  # VL_MERC
+                    str(doc.valor_total),  # VL_MERC
                     "0",  # IND_FRT
                     "0",  # VL_FRT
                     "0",  # VL_SEG
@@ -450,28 +465,72 @@ class SPEDFiscalManager:
             linhas.append(r_c100)
             self._contar(contador, "C100")
 
-            # Registro C190 - Analítico por CFOP
-            r_c190 = self._pipe(
-                [
-                    "C190",
-                    "00",  # CST
-                    doc.cfop,
-                    str(doc.valor_icms),  # Alíquota
-                    str(doc.valor_total),  # VL_OPR
-                    str(doc.valor_total),  # VL_BC_ICMS
-                    str(doc.valor_icms),  # VL_ICMS
-                    "0",  # VL_BC_ICMS_ST
-                    "0",  # VL_ICMS_ST
-                    "0",  # VL_RED_BC
-                    "0",  # VL_IPI
-                    doc.cfop,  # COD_OBS
-                ]
-            )
-            linhas.append(r_c190)
-            self._contar(contador, "C190")
+            # Registro C170 - Itens do documento. O perfil A exige o detalhe por item, e
+            # ele nunca era emitido: o `DocumentoFiscal` tinha o campo `itens` e ninguém o
+            # preenchia nem o lia.
+            for it in doc.itens:
+                linhas.append(
+                    self._pipe(
+                        [
+                            "C170",
+                            str(it.get("numero") or ""),
+                            str(it.get("codigo") or ""),
+                            str(it.get("descricao") or "")[:255],
+                            _n(it.get("quantidade")),
+                            str(it.get("unidade") or "UN"),
+                            _n(it.get("valor_total")),
+                            "0",  # VL_DESC
+                            "0",  # IND_MOV (0 = movimentação física)
+                            str(it.get("cst") or ""),
+                            str(it.get("cfop") or ""),
+                            "",  # COD_NAT
+                            _n(it.get("icms_base")),
+                            _n(it.get("icms_aliquota")),
+                            _n(it.get("icms_valor")),
+                        ]
+                    )
+                )
+                self._contar(contador, "C170")
+
+            # Registro C190 - Analítico por CST + CFOP + ALÍQUOTA, somando os itens.
+            # Antes saía UM C190 por documento, com CST fixo "00", o CFOP do documento e —
+            # o pior — o VALOR do ICMS no campo da ALÍQUOTA. Nota com dois CFOPs diferentes
+            # saía declarando um só.
+            analitico: dict[tuple[str, str, str], dict[str, Decimal]] = {}
+            for it in doc.itens:
+                chave = (str(it.get("cst") or ""), str(it.get("cfop") or ""),
+                         _n(it.get("icms_aliquota")))
+                acc = analitico.setdefault(chave, {"opr": Decimal("0"), "bc": Decimal("0"),
+                                                   "icms": Decimal("0")})
+                acc["opr"] += _d(it.get("valor_total"))
+                acc["bc"] += _d(it.get("icms_base"))
+                acc["icms"] += _d(it.get("icms_valor"))
+            if not analitico:  # documento sem item detalhado: mantém a linha do documento
+                analitico[("", doc.cfop, "0")] = {
+                    "opr": doc.valor_total, "bc": doc.valor_icms, "icms": doc.valor_icms}
+            for (cst, cfop, aliq), acc in sorted(analitico.items()):
+                linhas.append(
+                    self._pipe(
+                        [
+                            "C190",
+                            cst,
+                            cfop,
+                            aliq,
+                            str(acc["opr"]),
+                            str(acc["bc"]),
+                            str(acc["icms"]),
+                            "0",  # VL_BC_ICMS_ST
+                            "0",  # VL_ICMS_ST
+                            "0",  # VL_RED_BC
+                            "0",  # VL_IPI
+                            "",  # COD_OBS
+                        ]
+                    )
+                )
+                self._contar(contador, "C190")
 
         # Registro C990 - Encerramento do Bloco C
-        qtd_c = sum(1 for k in contador["registros"] if k.startswith("C"))
+        qtd_c = sum(v for k, v in contador["registros"].items() if k.startswith("C"))
         linhas.append(self._pipe(["C990", str(qtd_c + 1)]))
         self._contar(contador, "C990")
 
@@ -525,7 +584,7 @@ class SPEDFiscalManager:
         self._contar(contador, "E110")
 
         # Registro E990 - Encerramento do Bloco E
-        qtd_e = sum(1 for k in contador["registros"] if k.startswith("E"))
+        qtd_e = sum(v for k, v in contador["registros"].items() if k.startswith("E"))
         linhas.append(self._pipe(["E990", str(qtd_e + 1)]))
         self._contar(contador, "E990")
 
@@ -575,7 +634,7 @@ class SPEDFiscalManager:
                 self._contar(contador, "H010")
 
         # Registro H990 - Encerramento do Bloco H
-        qtd_h = sum(1 for k in contador["registros"] if k.startswith("H"))
+        qtd_h = sum(v for k, v in contador["registros"].items() if k.startswith("H"))
         linhas.append(self._pipe(["H990", str(qtd_h + 1)]))
         self._contar(contador, "H990")
 
@@ -601,7 +660,7 @@ class SPEDFiscalManager:
         self._contar(contador, "9900")
 
         # Registro 9990 - Encerramento do Bloco 9
-        qtd_9 = sum(1 for k in contador["registros"] if k.startswith("9"))
+        qtd_9 = sum(v for k, v in contador["registros"].items() if k.startswith("9"))
         linhas.append(self._pipe(["9990", str(qtd_9 + 1)]))
 
         # Registro 9999 - Encerramento do Arquivo
