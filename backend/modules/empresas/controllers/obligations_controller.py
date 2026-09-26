@@ -95,6 +95,34 @@ async def _reais_por_empresa(db: AsyncSession, mes: int, ano: int
     return await _reais_por_periodo(db, date(ano, mes, 1), _fim_do_mes(ano, mes))
 
 
+#: O cadastro e o molde do regime chamam a MESMA obrigação por nomes diferentes. Sem esta
+#: ponte, mesclar os dois duplicaria FGTS, INSS e ISS no painel do dono — e alarme repetido
+#: ensina a ignorar o painel tão bem quanto alarme falso.
+_MESMO_TIPO = {
+    "FGTS_GUIA": "FGTS",
+    "INSS_GPS": "INSS",
+    "ISS_AVULSO": "ISS",
+}
+
+
+def _chave_tipo(o: ObrigacaoCalendario) -> str:
+    t = (getattr(o, "tipo", "") or "").upper()
+    return _MESMO_TIPO.get(t, t)
+
+
+def _mesclar(
+    cadastradas: list[ObrigacaoCalendario], molde: list[ObrigacaoCalendario]
+) -> list[ObrigacaoCalendario]:
+    """O cadastro manda no que EXISTE; o molde completa o que FALTA.
+
+    Obrigação que veio do molde carrega `fonte` != "cadastro", então o painel distingue
+    «cumprida/pendente de verdade» de «prevista pelo regime e nunca cadastrada» — que é a
+    informação que interessa a quem vai assumir a contabilidade.
+    """
+    vistas = {_chave_tipo(o) for o in cadastradas}
+    return list(cadastradas) + [o for o in molde if _chave_tipo(o) not in vistas]
+
+
 def _serializar(o: ObrigacaoCalendario) -> dict:
     return {
         "tipo": o.tipo,
@@ -122,8 +150,17 @@ async def calendario_grupo(
     cal = _agent.gerar_calendario_grupo(mes, ano)
     reais = await _reais_por_empresa(db, mes, ano)
 
-    # Por empresa: quem tem cadastro no mês aparece pelo cadastro; quem não tem, pelo molde.
-    por_empresa = {slug: reais.get(slug, obs) for slug, obs in cal.por_empresa.items()}
+    # Por empresa: o CADASTRO manda no que existe, o MOLDE completa o que falta.
+    #
+    # Antes era `reais.get(slug, obs)`: bastava UMA obrigação cadastrada no mês para o molde
+    # do regime ser descartado inteiro. Como ECD, ECF, EFD Contribuições, EFD ICMS/IPI, DCTF
+    # e PGDAS-D NUNCA foram cadastradas, elas nunca apareciam — e é justamente essa a lista
+    # que passa a doer quando a contabilidade terceirizada sai.
+    #
+    # Medido em 25/09/2026, Eletrônica: 7 cadastradas e 4 do molde invisíveis (DCTF,
+    # EFD_CONTRIBUICOES, EFD_ICMS_IPI, IRPJ_CSLL_ESTIMATIVA). Em junho, mais a ECD.
+    # `GET /calendario/grupo?mes=9&ano=2026` devolvia `previstos_pelo_regime: 0`.
+    por_empresa = {slug: _mesclar(reais.get(slug, []), molde) for slug, molde in cal.por_empresa.items()}
     for slug, obs in reais.items():          # empresa com cadastro e sem molde não some
         por_empresa.setdefault(slug, obs)
 
