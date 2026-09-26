@@ -378,6 +378,41 @@ async def main() -> None:  # noqa: PLR0915
                 f"{r['parcelas']} de {r['previstas']} parcela(s))"
             )
 
+        # ── título baixado contra transação que não existe ───────────────────────
+        # Um recebível ou pagável marcado como liquidado aponta para a linha do extrato
+        # que o liquidou. Se a linha sumiu e o vínculo ficou, o título diz «pago» e não
+        # há prova nenhuma atrás — é o mesmo defeito que fez a carteira acusar
+        # R$ 152.077,82 vencidos com o dinheiro já na conta, só do lado contrário.
+        #
+        # Medido em 26/09/2026: 3 órfãos (2 recebíveis, 1 pagável, R$ 8.035,70), todos
+        # ANTERIORES à poda de duplicata daquele dia — conferido contra
+        # `backup_dup_multifonte_20260926`. Provável resíduo da limpeza de 11/08.
+        orfaos = (await db.execute(text("""
+            SELECT 'recebível' AS tipo, count(*) AS n, coalesce(round(sum(gross_value), 2), 0) AS v
+              FROM receivable_accounts r
+             WHERE r.transacao_bancaria_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM bank_transactions t
+                                WHERE t.id::text = r.transacao_bancaria_id::text)
+            UNION ALL
+            SELECT 'pagável', count(*), coalesce(round(sum(gross_value), 2), 0)
+              FROM payable_accounts p
+             WHERE p.transacao_bancaria_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM bank_transactions t
+                                WHERE t.id::text = p.transacao_bancaria_id::text)
+        """))).mappings().all()
+        BASE_ORFAOS = 3
+        n_orfaos = sum(int(r["n"]) for r in orfaos)
+        if n_orfaos > BASE_ORFAOS:
+            falhas.append(
+                f"{n_orfaos - BASE_ORFAOS} título(s) NOVO(S) baixado(s) contra transação que não "
+                f"existe (total {n_orfaos}: "
+                + ", ".join(f"{r['n']} {r['tipo']} R$ {float(r['v']):,.2f}" for r in orfaos if r["n"])
+                + f"); base anterior à poda de 26/09: {BASE_ORFAOS}"
+            )
+        else:
+            print(f"OK vínculo de baixa: {n_orfaos} título(s) órfão(s), nenhum novo "
+                  f"(base {BASE_ORFAOS}, resíduo da limpeza de 11/08)")
+
     # ── o nome do favorecido está na descrição, e o documento NUNCA ────────────────
     # O extrato do Inter manda o mesmo fato em texto diferente conforme a porta (API,
     # CSV, boleto, convênio, cartão). Cobrir um formato só deixou 170 lançamentos e
