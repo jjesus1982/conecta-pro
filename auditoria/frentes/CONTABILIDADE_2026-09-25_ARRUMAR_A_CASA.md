@@ -168,6 +168,70 @@ ponte, e cada linha diz se é cadastrada ou apenas prevista pelo regime.
 Isto **não gera** nenhuma dessas obrigações — ECF não existe nem como esboço, EFD
 Contribuições e EFD ICMS/IPI têm gerador sem rota. Mas ver o prazo é o que faz alguém agir.
 
+### 2.9 A folha estava contada DUAS vezes — R$ 189.870,59 de prejuízo que não existia
+
+Você mandou tirar os R$ 150 mil de «Saídas a Classificar». Ao medir onde estavam, o número
+era outro e a causa também — **e preciso corrigir o que eu tinha dito na §4 da versão
+anterior deste relatório.** As 142 transações de salário que o classificador identificou
+**já estavam lançadas certas**, em `2.1.1.01 Salários a Pagar`. Nunca estiveram na
+transitória. Eu somei o valor das classificadas sem conferir em que conta o razão as tinha
+posto. O efeito direto da classificação eram R$ 11.880,00.
+
+Procurando o resto, apareceram três defeitos:
+
+1. **`contrapartida_entrada` testa os CNPJs do grupo antes de tudo; `contrapartida_saida`
+   não testava.** Dinheiro que a Patrimonial mandou para a Eletrônica saía como DESPESA —
+   R$ 86.000 em 4 lançamentos, um deles categorizado `imposto`, que o teria mandado para
+   «Tributos a Recolher - a identificar».
+
+2. **A tabela de CNPJs conhecidos inteira apontava para bancos.** Ela nasceu do `Cp :` da
+   descrição. Dos 13, dez nunca aparecem como contraparte. E um estava ativamente errado:
+   `31680151` rotulado como SOLIDES, quando o CNPJ real da Solides é `10461302` — 93
+   transações, R$ 55.570 presos na transitória.
+
+3. **O reclassificador parava no corte contábil**, e isso prendia 637 lançamentos
+   (R$ 308.149,66) na transitória para sempre. O corte existe contra lançamento NOVO em mês
+   fechado — e o gatilho do banco diz isso textualmente: é `BEFORE INSERT`, com a dica
+   *"Corrigir lancamento existente (UPDATE) e permitido."*
+
+**E o item 3 não era cosmético.** Dentro daqueles 637 havia **R$ 64.739,46 de PAGAMENTO de
+salário lançados como despesa**, em cima da provisão que a folha já tinha lançado. A mesma
+despesa contada duas vezes. Mais R$ 18.333,39 de pagamento a fornecedor e R$ 16.230,00 de
+transferência entre as empresas, na mesma situação.
+
+| | antes | agora |
+|---|---|---|
+| linha «Saídas a Classificar» no DRE | −R$ 524.588,32 | **−R$ 272.395,49** |
+| lançamentos na transitória | 863 | 633 |
+| **resultado de 2026** | −R$ 436.516,91 | **−R$ 246.646,32** |
+| contas com natureza invertida | 10 | 9 — saiu `2.1.1.01`, o pagamento voltou a baixar o passivo |
+
+253 lançamentos reclassificados. Oito competências reabriram e foram encerradas pela
+varredura de resíduo (R$ 113.870,59); a conta de passagem voltou a R$ 0,00. O balancete
+continua fechando, e os oráculos do balanço, contábil, C1 a C5 e fin_visao estão verdes.
+
+Conferido: `2.1.1.01` ficou **credor em R$ 20.427,60** — a provisão existia mesmo e absorve
+os pagamentos. Se não existisse, a conta teria ficado devedora e a trava de natureza teria
+acusado.
+
+### 2.10 O resto da transitória virou fila, não mistério
+
+Ficam **R$ 272.395,49 em 625 lançamentos**, e eles não saem por regra: são pagamentos a
+empresas reais e PIX a pessoas fora do cadastro. Um pagamento a CNPJ pode ser serviço,
+parcela de financiamento (parte passivo, parte juros), empréstimo ou gasto pessoal — a
+descrição diz, a regra não. Chutar ali seria fabricar.
+
+O que dava para fazer, e foi feito: `checar_transitoria_aberta.py` agrupa o que restou **por
+contraparte**, ordenado por valor. São **218 contrapartes, 101 delas acima de R$ 300** —
+decidir uma resolve várias de uma vez. Os maiores blocos:
+
+    (sem nome, 170 PIX)  R$ 67.110,61      PJBANK PAGAMENTOS      R$ 11.873,46
+    Sind. Transportes    R$  9.880,00      Denilson Silva Cardoso R$  9.623,68
+    VB Odontológico      R$  9.250,00      Atlas Monitoramento    R$  9.106,37
+    Gabriele Vitoria     R$  9.100,00      PORTTE CONTÁBIL        R$  6.580,22
+
+A transitória de ENTRADAS ficou praticamente vazia: R$ 83,60.
+
 ---
 
 ## 3. O que continua aberto, com valor
@@ -214,21 +278,16 @@ em 2025, 13 em 2024, 11 em 2023.
 
 ---
 
-## 4. Uma decisão sua que está pronta para executar
+## 4. A decisão que você tomou, e o que ela rendeu
 
-Com o classificador corrigido, das 314 saídas hoje **sem categoria nenhuma**, 155 ganham
-natureza — 142 delas são salário de CPF que casa com o cadastro de funcionários:
+Você mandou aplicar. Está aplicado — e rendeu mais do que eu tinha estimado, por um motivo
+diferente do que eu tinha dito. Veja §2.9: a classificação em si movia R$ 11.880,00; o que
+tirou R$ 252.192,83 da transitória foram os três defeitos que apareceram ao procurar o
+resto, sendo o maior deles a folha contada duas vezes.
 
-    salario 142  R$ 119.182,28   ·   imposto 6  R$ 26.939,54
-    taxa_bancaria 6              ·   servico_sem_nf 1
-    ficam em `outros` 159        R$ 200.275,77  (continuam pendentes, de propósito)
-
-Aplicar isso faz o fechamento diário mover cerca de R$ 150 mil para fora de «Saídas a
-Classificar». **Não apliquei.** Em três commits de hoje escrevi que reclassificar conta é
-ato de contador, e não vou ser incoerente na véspera de você entregar os livros a alguém
-novo — ele vai querer ver o antes e o depois. É um comando; diga e eu rodo.
-
----
+Uma coisa eu **não** fiz e registro aqui: 18 transações da Solides foram justificadas por
+você mesmo como "outro". Não sobrescrevi — a ponte por CNPJ entra na escrituração, que é
+decisão do sistema, e não no campo de justificativa, que é seu.
 
 ## 5. Vigilância nova
 
