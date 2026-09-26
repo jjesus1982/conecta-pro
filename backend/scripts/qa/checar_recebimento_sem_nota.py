@@ -30,9 +30,21 @@ Medido em 26/09/2026, janela de 4 competências fechadas:
     HAWK EYE                 recebeu R$ 1.000,00   faturado R$     0,00   NENHUMA NOTA
     PARQUE DOS FRANCESES     recebeu R$ 4.272,00   faturado R$ 1.800,00   dif R$ 2.472,00
 
-O Hawk Eye foi faturado nesta mesma noite (NFS-e 124). O do Parque dos Franceses é um
-recebimento de R$ 2.508,00 em 27/08 que nem o contrato (R$ 1.800/mês) nem a proposta
-aceita (PROP-20260610-98EF41, R$ 1.800) explicam.
+O Hawk Eye foi faturado nesta mesma noite (NFS-e 124).
+
+O do Parque dos Franceses é a razão de esta trava existir, e não por achar o que os outros
+não achavam: `checar_contrato_vs_faturado.py` JÁ acusava agosto como «SEM NOTA». Quem
+descartou o alarme fui eu, lendo-o como defasagem de calendário do faturamento — o
+contrato começa em 01/08 e a primeira nota é de setembro, o que parecia explicar tudo.
+
+Não explicava. O título de 08/2026 foi cancelado em 10/08 sob a premissa de que o contrato
+só começava em setembro; em 14/08 o dono REVERTEU essa premissa (está escrito em
+`backend/scripts/corrigir_inicio_franceses.py`) e ninguém recriou o título. Agosto era
+faturável, ficou sem nota, e **o cliente pagou R$ 2.508,00 em 27/08**.
+
+Foi o lado do DINHEIRO que furou a explicação: contra um alarme que se consegue justificar,
+um depósito sem nota atrás não se justifica. É para isso que o terceiro lado do triângulo
+serve — não para achar mais, mas para não deixar arquivar.
 
 ## O que ele NÃO faz
 
