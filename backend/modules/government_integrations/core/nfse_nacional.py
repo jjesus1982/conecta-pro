@@ -706,6 +706,8 @@ class NFSeNacionalManager:
         cod_motivo: str = "1",
         n_pedido: int = 1,
         dry_run: bool = False,
+        tipo_evento: str = "101101",
+        descricao: str = "Cancelamento de NFS-e",
     ) -> dict[str, Any]:
         """Pede o CANCELAMENTO de uma NFS-e ao Ambiente Nacional (evento e101101).
 
@@ -715,8 +717,17 @@ class NFSeNacionalManager:
         cancelasse no portal; o sync depois descobria o evento e marcava a nota. Não havia
         caminho para cancelar.
 
-        `cod_motivo` do leiaute nacional: 1=erro na emissão · 2=serviço não prestado ·
-        3=erro de assinatura · 4=duplicidade. Para nota emitida em duplicata, use 4.
+        `cod_motivo` — MEDIDO contra a produção em 26/09/2026, sondando o esquema com uma
+        chave estruturalmente válida e inexistente. O tipo `TSCodJustCanc` aceita **1, 2 e
+        9, e só**:
+
+            1 = erro na emissão   ·   2 = serviço não prestado   ·   9 = outros
+
+        A tabela que estava escrita aqui («3=erro de assinatura, 4=duplicidade, para
+        duplicata use 4») veio de analogia com outro leiaute e o fisco recusa com E1235,
+        «The Enumeration constraint failed». Para nota em duplicidade, **1** é o código:
+        emitir duas vezes é erro na emissão. O `xMotivo` tem comprimento MÍNIMO — texto
+        curto também é recusado por esquema.
 
         MESMO FLUXO DA EMISSÃO, e de propósito: XML → assina XMLDSig → GZip → Base64 →
         POST mTLS. Passa pelas DUAS camadas da trava de ambiente — cancelar é tão
@@ -728,7 +739,6 @@ class NFSeNacionalManager:
         import base64
         import gzip
         import tempfile
-        from datetime import datetime as _dt
 
         import requests
 
@@ -742,11 +752,13 @@ class NFSeNacionalManager:
             }
         cnpj_limpo = re.sub(r"\D", "", self.cnpj or "")
         xml_evento = self._build_evento_cancelamento_xml(
-            chave_limpa, cnpj_limpo, motivo, cod_motivo, n_pedido
+            chave_limpa, cnpj_limpo, motivo, cod_motivo, n_pedido,
+            tipo_evento=tipo_evento, descricao=descricao,
         )
 
         result: dict[str, Any] = {
             "chave": chave_limpa,
+            "tipo_evento": tipo_evento,
             "cod_motivo": cod_motivo,
             "motivo": motivo,
             "ambiente": self.ambiente.value,
@@ -820,10 +832,50 @@ class NFSeNacionalManager:
                         pass
         return result
 
+    def solicitar_analise_fiscal_cancelamento(
+        self, chave: str, motivo: str, cod_motivo: str = "1", dry_run: bool = False
+    ) -> dict[str, Any]:
+        """RECUSA: o esquema do e105102 não está conhecido, e sondar o fisco não é método.
+
+        Passado o prazo do município, o cancelamento deixa de ser ato do contribuinte e
+        vira **Solicitação de Análise Fiscal (evento e105102)**. Foi o fisco que disse
+        isso, em 26/09/2026, nas três duplicatas provadas:
+
+            GELAIN 115 (07/2026) e PRIME ARENA 100 (06/2026)
+                E0822 — «O prazo para o cancelamento da NFS-e expirou, conforme
+                parametrização do município emissor da NFS-e.»
+            LARANJEIRAS 3 (06/2026)
+                E0840 — «o evento de Solicitação de Análise Fiscal para Cancelamento já
+                está vinculado à NFS-e» — ou seja, o pedido dela JÁ FOI ABERTO.
+
+        Tentei montar o e105102 reaproveitando o corpo do e101101
+        (`xDesc` + `cMotivo` + `xMotivo`) e o fisco recusou com E1235: o `xDesc` tem
+        ENUMERAÇÃO própria, e nenhum dos cinco textos plausíveis passou — inclusive
+        «Cancelamento de NFS-e», que é o valor aceito dentro do e101101. Ou seja: o corpo
+        do e105102 não é o mesmo, e descobrir a diferença por tentativa contra um
+        endpoint de governo não é método. **Falta o XSD do evento.**
+
+        Enquanto ele não estiver aqui, o caminho é o portal do município — e este método
+        levanta com o texto acima em vez de deixar alguém repetir a sondagem.
+        """
+        raise NotImplementedError(
+            "Solicitação de Análise Fiscal (e105102) não implementada: o esquema do "
+            "evento não é o do cancelamento e o XSD não está no repositório. Medido em "
+            "26/09/2026 — cinco variações de `xDesc` recusadas com E1235. Fora do prazo "
+            "(E0822) o cancelamento é pedido ao município, hoje pelo portal."
+        )
+
     def _build_evento_cancelamento_xml(
-        self, chave: str, cnpj_autor: str, motivo: str, cod_motivo: str, n_pedido: int = 1
+        self,
+        chave: str,
+        cnpj_autor: str,
+        motivo: str,
+        cod_motivo: str,
+        n_pedido: int = 1,
+        tipo_evento: str = "101101",
+        descricao: str = "Cancelamento de NFS-e",
     ) -> str:
-        """XML do pedido de registro de evento de cancelamento (e101101).
+        """XML do pedido de registro de evento (e101101 cancelamento, e105102 análise fiscal).
 
         O schema deste evento **não tem `nPedRegEvento`**. Ele existe no leiaute de outros
         eventos e eu o coloquei aqui por analogia — o fisco devolveu «has invalid child
@@ -842,7 +894,7 @@ class NFSeNacionalManager:
         # dizer o formato: com 3 dígitos de sequência (62), com 2 (61), com 1 (60) e com
         # o "e" do nome do evento (63), todos devolvem E1235 «The Pattern constraint
         # failed» no datatype TSIdPedRegEvt. Com 59, passa.
-        id_evento = f"PRE{chave}101101"
+        id_evento = f"PRE{chave}{tipo_evento}"
         agora = _dt.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
         dh = f"{agora[:-2]}:{agora[-2:]}" if len(agora) > 5 else agora
         texto = (motivo or "Cancelamento de NFS-e").strip()[:255]
@@ -854,11 +906,11 @@ class NFSeNacionalManager:
     <dhEvento>{dh}</dhEvento>
     <CNPJAutor>{cnpj_autor}</CNPJAutor>
     <chNFSe>{chave}</chNFSe>
-    <e101101>
-      <xDesc>Cancelamento de NFS-e</xDesc>
+    <e{tipo_evento}>
+      <xDesc>{descricao}</xDesc>
       <cMotivo>{cod_motivo}</cMotivo>
       <xMotivo>{texto}</xMotivo>
-    </e101101>
+    </e{tipo_evento}>
   </infPedReg>
 </pedRegEvento>"""
 

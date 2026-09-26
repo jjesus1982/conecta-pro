@@ -660,3 +660,58 @@ saiu:
 batendo com os que o próprio banco informa (Inter R$ 3.906,31 em 24/09, Cora R$ 580,18).
 
     resultado de 2026:  −R$ 208.231,49  →  −R$ 203.875,99
+
+---
+
+# As três duplicatas: provadas, e o fisco disse que o prazo passou
+
+Jordan em 26/09, item 4: *«faz o que achar melhor»*. Fiz: provei cada uma, tentei cancelar,
+e o fisco respondeu com precisão.
+
+## A prova de cada par
+
+| competência | notas | valor | como se prova |
+|---|---|---|---|
+| GELAIN 2026-07 | 112 e 115 | R$ 6.000,00 | o cliente tem **uma** nota de R$ 6.000 por mês o ano inteiro — 01, 02, 03, 04, 05, 06 e 08 têm uma cada. Julho tem duas. |
+| PRIME ARENA 2026-06 | 98 e 100 | R$ 3.879,60 | paga uma vez por competência: R$ 3.414,06 em 10/06, R$ 3.414,06 em 09/07, R$ 3.452,85 em 11/08 (líquido de ~12% de retenção). |
+| LARANJEIRAS 2026-06 | 2 e 3 | R$ 37.438,91 | paga uma vez por competência: R$ 35.741,39 em 09/07 e R$ 36.932,63 em 07/08. |
+
+Excedente: **R$ 47.318,51**.
+
+## O que o fisco respondeu
+
+    GELAIN 115 · PRIME ARENA 100
+        E0822 — «O prazo para o cancelamento da NFS-e expirou, conforme parametrização
+        do município emissor da NFS-e.»
+
+    LARANJEIRAS 3
+        E0840 — «o evento de Solicitação de Análise Fiscal para Cancelamento já está
+        vinculado à NFS-e» — o pedido dela JÁ ESTÁ ABERTO.
+
+Passado o prazo, cancelar deixa de ser ato do contribuinte e vira **pedido ao município**.
+
+## Duas coisas que só o fisco podia ensinar
+
+**O código de justificativa que estava escrito no nosso código não existe.** A docstring
+dizia «1=erro na emissão · 2=serviço não prestado · 3=erro de assinatura · 4=duplicidade;
+para duplicata use 4». Sondando o esquema com uma chave estruturalmente válida e
+inexistente, o tipo `TSCodJustCanc` aceita **1, 2 e 9, e só**. Para duplicata o código é
+**1** — emitir duas vezes é erro na emissão. (O `xMotivo` também tem comprimento mínimo.)
+
+**O evento e105102 não tem o corpo do e101101.** Tentei montá-lo reaproveitando
+`xDesc`+`cMotivo`+`xMotivo` e o fisco recusou com E1235: o `xDesc` tem enumeração própria,
+e nenhum dos cinco textos plausíveis passou — inclusive «Cancelamento de NFS-e», que é o
+valor aceito dentro do e101101. **Falta o XSD do evento**, e descobri-lo por tentativa
+contra um endpoint de governo não é método. Parei.
+
+`solicitar_analise_fiscal_cancelamento()` existe e **recusa**, com tudo isso escrito, para
+que ninguém repita a sondagem.
+
+## O que fica para o dono
+
+Abrir no portal do município a **Solicitação de Análise Fiscal para Cancelamento** de:
+
+    NFS-e 115 · GELAIN · 29/07/2026 · R$ 6.000,00
+    NFS-e 100 · PRIME ARENA · 23/06/2026 · R$ 3.879,60
+
+A da Laranjeiras (nº 3, R$ 37.438,91) já tem o pedido aberto — é aguardar o município.
