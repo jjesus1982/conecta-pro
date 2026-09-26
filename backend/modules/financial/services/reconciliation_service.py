@@ -31,17 +31,36 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").replace("+asyncpg", "")
 TOLERANCE = Decimal("0.01")
 TOLERANCE_PCT = Decimal("0.02")  # 2% para matching flexível
 # Janela de retenção do RECEBÍVEL: o título é bruto, o cliente paga líquido.
-RETENCAO_PISO = Decimal("0.80")   # ISS 5% + INSS 11% = ~84% no pior caso; 80% dá folga
+RETENCAO_PISO = Decimal("0.80")  # ISS 5% + INSS 11% = ~84% no pior caso; 80% dá folga
 RETENCAO_TETO = Decimal("1.005")  # ninguém paga mais que a nota
 
 # Palavras que dizem o TIPO da pessoa jurídica, não QUAL ela é.
 _GENERICOS = {
-    "CONDOMINIO", "CONDOMÍNIO", "RESIDENCIAL", "EDIFICIO", "EDIFÍCIO", "EMPRESARIAL",
-    "LTDA", "EIRELI", "MEI", "COMERCIO", "COMÉRCIO", "SERVICOS", "SERVIÇOS",
-    "EMPRESA", "ASSOCIACAO", "ASSOCIAÇÃO", "CENTRO", "CLUBE",
+    "CONDOMINIO",
+    "CONDOMÍNIO",
+    "RESIDENCIAL",
+    "EDIFICIO",
+    "EDIFÍCIO",
+    "EMPRESARIAL",
+    "LTDA",
+    "EIRELI",
+    "MEI",
+    "COMERCIO",
+    "COMÉRCIO",
+    "SERVICOS",
+    "SERVIÇOS",
+    "EMPRESA",
+    "ASSOCIACAO",
+    "ASSOCIAÇÃO",
+    "CENTRO",
+    "CLUBE",
+    # Estes três entraram em 26/09/2026, quando a extração de nome passou a alcançar
+    # boleto e convênio: «BANCO TOYOTA DO BRASIL SA» reduzia o token a «BANCO» e casava
+    # com qualquer fornecedor que tivesse a palavra no nome.
+    "BANCO",
+    "PREFEITURA",
+    "MUNICIPAL",
 }
-DATE_WINDOW = 3  # dias para matching exato
-DATE_WINDOW_FLEX = 7  # dias para matching flexível
 
 # Padrão CNPJ na descrição (14 dígitos contíguos ou formatado)
 _RE_CNPJ = re.compile(r"\b(\d{14})\b|\b(\d{2}[.\-]?\d{3}[.\-]?\d{3}[/\-]?\d{4}[.\-]?\d{2})\b")
@@ -110,42 +129,83 @@ def _normalizar_doc(doc: str) -> str:
     return re.sub(r"\D", "", doc)
 
 
+#: O mesmo fato chega em texto diferente conforme a porta: a API do Inter manda
+#: `PIX ENVIADO - Cp :60701190-FULANO`, o CSV manda `Pix enviado: "Cp :00000000-FULANO`, e
+#: há ainda a forma com o código de banco solto (`"00019 61638862 FULANO`). Um só formato
+#: coberto deixava o resto sem contraparte — 170 lançamentos e R$ 67.110,61 parados como
+#: «(sem nome)» na conta transitória em 26/09/2026, o pior bloco do relatório porque era
+#: o único que ninguém conseguia DECIDIR.
+#:
+#: NUNCA tirar DOCUMENTO daqui: o número depois de «Cp :» é o banco DESTINO (00360305 é a
+#: Caixa), não quem recebeu. Só nome.
+_NOME_NA_DESCRICAO = (
+    re.compile(r'^(?:Pix|TED|DOC)\s+(?:enviad|recebid)\w*\s*:\s*"Cp\s*:\s*\d+\s*[-–]\s*(?P<n>[^"]+)', re.I),
+    re.compile(r'^(?:Pix|TED|DOC)\s+(?:enviad|recebid)\w*\s*:\s*"\d+\s+\d+\s+(?P<n>[^"]+)', re.I),
+    re.compile(r"^(?:PIX|TED|DOC)\s+(?:ENVIADO|RECEBIDO)\s*[-–]\s*Cp\s*:\s*\d+\s*[-–]\s*(?P<n>.+)$", re.I),
+    re.compile(r"^PAGAMENTO DE (?:TITULO|CONVENIO)\s*[-–]\s*(?P<n>.+)$", re.I),
+    re.compile(r'^Pagamento (?:efetuado|de Convenio)\s*:\s*"(?P<n>[^"]+)', re.I),
+    re.compile(r'^Compra no d[ée]bito\s*:\s*"No estabelecimento\s+(?P<n>[^"]+)', re.I),
+)
+
+#: Descrição que não tem favorecido NENHUM — procurar nome aqui é inventar contraparte.
+_SEM_FAVORECIDO = re.compile(r"^(SAQUE|PAGAMENTO DARF|TARIFA|IOF|JUROS|RENDIMENTO|APLICA|RESGATE|ESTORNO)", re.I)
+
+
 def _extrair_nome_contraparte(descricao: str) -> str:
+    """Nome da empresa/pessoa na descrição do extrato, ou "" quando não há favorecido.
+
+    Os formatos cobertos estão em `_NOME_NA_DESCRICAO`; o que não tem favorecido está em
+    `_SEM_FAVORECIDO` e devolve "" de propósito — saque e DARF não têm contraparte, e
+    inventar uma é pior que deixar em branco.
     """
-    Extrai nome da empresa/pessoa da descrição do banco Inter.
-    Padrões:
-      - 'PAGAMENTO DE TITULO - NOME EMPRESA LTDA'
-      - 'PIX ENVIADO - Cp :12345678-Nome Pessoa'
-      - 'RECEBIMENTO TITULO - codigo/numero'
-    """
-    if not descricao:
+    d = (descricao or "").strip()
+    if not d or _SEM_FAVORECIDO.match(d):
         return ""
-    # Após " - " pega o restante (nome do contraparte)
-    partes = descricao.split(" - ", 1)
+    for padrao in _NOME_NA_DESCRICAO:
+        m = padrao.match(d)
+        if m:
+            nome = re.sub(r"\s+", " ", m.group("n")).strip(' "-–')
+            if nome:
+                return nome[:100]
+    # Último recurso, o formato genérico "RÓTULO - NOME" que já existia aqui.
+    partes = d.split(" - ", 1)
     if len(partes) < 2:
         return ""
-    nome = partes[1].strip()
-    # Remove prefixo "Cp :XXXXXXXX-" (código banco Inter)
-    nome = re.sub(r"^Cp\s*:\d+[-–]\s*", "", nome).strip()
-    # Truncar em 100 chars
+    nome = re.sub(r"^Cp\s*:\d+[-–]\s*", "", partes[1].strip()).strip()
     return nome[:100]
 
 
 def _lookup_cnpj_por_nome(nome: str, cur) -> str:
-    """Busca CNPJ no cadastro de fornecedores por similaridade de nome."""
+    """CNPJ do fornecedor cujo nome casa — e SÓ quando casa um, com token que discrimina.
+
+    O resultado é gravado em `bank_transactions.counterparty_document`, e dali o
+    classificador contábil decide a natureza do lançamento. Um documento errado aqui não
+    fica parado: vira conta errada no razão. Já aconteceu por outra porta — o «Cp :»
+    da descrição é o banco destino, e salário foi lançado como FGTS.
+
+    Duas guardas, as mesmas que o resto deste arquivo já usa no casamento de título:
+
+     · o token tem de DISCRIMINAR. Pegar a primeira palavra >3 letras dava «BANCO» para
+       «BANCO TOYOTA DO BRASIL SA» e casava com qualquer fornecedor que tivesse «banco»
+       no nome. `_GENERICOS` sai, e entre os que sobram vale o mais longo;
+     · UNICIDADE. `LIMIT 1` escolhe um candidato entre vários sem dizer; `LIMIT 2` com
+       recusa no empate devolve "" — sem documento é melhor que documento de outro.
+    """
     if not nome or len(nome) < 5:
         return ""
-    # Pegar primeiras palavras significativas (>3 chars) para busca
-    palavras = [w for w in nome.split() if len(w) > 3][:3]
+    palavras = [w for w in re.split(r"[^A-Za-zÀ-ÿ0-9]+", nome) if len(w) > 3]
+    palavras = [w for w in palavras if w.upper() not in _GENERICOS and not w.isdigit()]
     if not palavras:
         return ""
-    like_pattern = "%" + palavras[0] + "%"
+    token = max(palavras, key=len)
     cur.execute(
-        "SELECT cpf_cnpj FROM suppliers WHERE name ILIKE %s LIMIT 1",
-        (like_pattern,),
+        "SELECT cpf_cnpj FROM suppliers WHERE name ILIKE %s LIMIT 2",
+        ("%" + token + "%",),
     )
-    row = cur.fetchone()
-    return _normalizar_doc(row["cpf_cnpj"] if row else "")
+    linhas = cur.fetchall()
+    if len(linhas) != 1:
+        return ""
+    return _normalizar_doc(linhas[0]["cpf_cnpj"])
 
 
 def _atualizar_contraparte(tx_id: str, nome: str, cnpj: str, cur) -> None:
@@ -162,8 +222,9 @@ def _atualizar_contraparte(tx_id: str, nome: str, cnpj: str, cur) -> None:
         )
 
 
-def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False,
-                        permitir_reconciliado: bool = False) -> dict:
+def conciliar_transacao(
+    tx_id: str, conn, permitir_justificado: bool = False, permitir_reconciliado: bool = False
+) -> dict:
     """
     Tenta conciliar uma transação bancária específica.
     Retorna dict com status, tipo_match e referência conciliada.
@@ -216,11 +277,6 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False,
     es_entrada = _amount_raw > 0
     descricao = tx["description"] or ""
 
-    data_min = tx_date - timedelta(days=DATE_WINDOW)
-    data_max = tx_date + timedelta(days=DATE_WINDOW)
-    data_min_flex = tx_date - timedelta(days=DATE_WINDOW_FLEX)
-    data_max_flex = tx_date + timedelta(days=DATE_WINDOW_FLEX)
-
     # Extrair nome e CNPJ da contraparte. `counterparty_name` VEM PRIMEIRO: no Cora a
     # descrição é a justificativa que o Jordan digita no app ("[CORA] Serviço de Agente
     # de Portaria") e não nomeia ninguém — quem paga está só nesta coluna. Lendo apenas
@@ -256,7 +312,9 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False,
         _tok = max(_tokens, key=len) if _tokens else ""
         # Janela ±30d p/ pagável: fornecedores net-30 pagam ~30d ANTES do vencimento (débito antecede
         # o due_date). Nome + valor exato + ÚNICO é forte; a guarda de unicidade rejeita ambíguos mesmo
-        # na janela larga — sem risco de fabricar. (Recebível segue com a janela estreita global.)
+        # na janela larga — sem risco de fabricar. O recebível usa a MESMA janela, logo abaixo:
+        # a «janela estreita global» que este comentário citava (DATE_WINDOW = 3) estava morta
+        # havia tempo — nenhum dos dois lados a lia.
         _pay_dmin = tx_date - timedelta(days=30)
         _pay_dmax = tx_date + timedelta(days=30)
         if _tok:
@@ -386,15 +444,17 @@ def conciliar_transacao(tx_id: str, conn, permitir_justificado: bool = False,
                   AND lower(coalesce(customer_name,'') || ' ' || coalesce(description,'')) LIKE lower(%s)
                 LIMIT 2
                 """,
-                (float(valor_abs), float(RETENCAO_PISO), float(RETENCAO_TETO),
-                 _rec_dmin, _rec_dmax, f"%{_tok}%"),
+                (float(valor_abs), float(RETENCAO_PISO), float(RETENCAO_TETO), _rec_dmin, _rec_dmax, f"%{_tok}%"),
             )
             _cands = cur.fetchall()
             if len(_cands) == 1:
                 match = _cands[0]
                 _bruto = float(_cands[0]["gross_value"])
-                tipo_match = ("valor_data_nome_unico" if abs(_bruto - float(valor_abs)) <= float(TOLERANCE)
-                              else f"liquido_data_nome_unico ({float(valor_abs) / _bruto * 100:.0f}% do bruto)")
+                tipo_match = (
+                    "valor_data_nome_unico"
+                    if abs(_bruto - float(valor_abs)) <= float(TOLERANCE)
+                    else f"liquido_data_nome_unico ({float(valor_abs) / _bruto * 100:.0f}% do bruto)"
+                )
 
         if match:
             rec_id = match["id"]
@@ -499,8 +559,7 @@ def conciliar_saidas(limite: int = 2000) -> dict:
             except Exception:  # noqa: BLE001, S110
                 pass
     conn.close()
-    return {"baixados_auto": baixados, "sem_match_ou_ambiguo": sem_match,
-            "erros": erros, "total_saidas": len(tx_ids)}
+    return {"baixados_auto": baixados, "sem_match_ou_ambiguo": sem_match, "erros": erros, "total_saidas": len(tx_ids)}
 
 
 def conciliar_recebiveis(limite: int = 2000) -> dict:
@@ -548,9 +607,14 @@ def conciliar_recebiveis(limite: int = 2000) -> dict:
     parciais = _baixar_recebiveis_parcelados(conn)
     provas = _vincular_prova_de_recebimento(conn)
     conn.close()
-    return {"baixados_auto": baixados, "baixados_parcelados": parciais,
-            "provas_vinculadas": provas, "sem_match_ou_ambiguo": sem_match,
-            "erros": erros, "total_entradas": len(tx_ids)}
+    return {
+        "baixados_auto": baixados,
+        "baixados_parcelados": parciais,
+        "provas_vinculadas": provas,
+        "sem_match_ou_ambiguo": sem_match,
+        "erros": erros,
+        "total_entradas": len(tx_ids),
+    }
 
 
 def _vincular_prova_de_recebimento(conn) -> int:
@@ -601,9 +665,15 @@ def _vincular_prova_de_recebimento(conn) -> int:
               AND lower(coalesce(counterparty_name,'')) LIKE lower(%s)
               AND amount BETWEEN %s AND %s
             """,
-            (rec["payment_date"] - timedelta(days=5), rec["payment_date"] + timedelta(days=5),
-             rec["due_date"] - timedelta(days=15), rec["due_date"] + timedelta(days=15),
-             f"%{tok}%", float(bruto * RETENCAO_PISO), float(bruto * RETENCAO_TETO)),
+            (
+                rec["payment_date"] - timedelta(days=5),
+                rec["payment_date"] + timedelta(days=5),
+                rec["due_date"] - timedelta(days=15),
+                rec["due_date"] + timedelta(days=15),
+                f"%{tok}%",
+                float(bruto * RETENCAO_PISO),
+                float(bruto * RETENCAO_TETO),
+            ),
         )
         cands = cur.fetchall()
         if len(cands) != 1:
@@ -612,15 +682,17 @@ def _vincular_prova_de_recebimento(conn) -> int:
         cur.execute(
             "UPDATE bank_transactions SET receivable_payment_id = %s, "
             "reconciliation_status = 'conciliado', requires_justification = FALSE, "
-            "updated_at = NOW() WHERE id = %s", (rec["id"], tx["id"]))
+            "updated_at = NOW() WHERE id = %s",
+            (rec["id"], tx["id"]),
+        )
         cur.execute(
             "UPDATE receivable_accounts SET transacao_bancaria_id = %s, "
             "paid_value = coalesce(paid_value, %s), updated_at = NOW() WHERE id = %s",
-            (tx["id"], float(tx["amount"]), rec["id"]))
+            (tx["id"], float(tx["amount"]), rec["id"]),
+        )
         conn.commit()
         ligados += 1
-        logger.info("[conciliacao] prova ligada: %s R$ %.2f", rec["customer_name"],
-                    float(tx["amount"]))
+        logger.info("[conciliacao] prova ligada: %s R$ %.2f", rec["customer_name"], float(tx["amount"]))
     cur.close()
     return ligados
 
@@ -691,13 +763,13 @@ def _baixar_recebiveis_parcelados(conn) -> int:
         cur.execute(
             "UPDATE receivable_accounts SET status='paga', payment_date=%s, data_recebimento=%s, "
             "transacao_bancaria_id=%s, paid_value=%s, updated_at=NOW() WHERE id=%s",
-            (ultima["transaction_date"], ultima["transaction_date"], ultima["id"],
-             float(soma), rec["id"]),
+            (ultima["transaction_date"], ultima["transaction_date"], ultima["id"], float(soma), rec["id"]),
         )
         conn.commit()
         baixados += 1
-        logger.info("[conciliacao] %s quitado por %d entradas somando R$ %.2f",
-                    rec["customer_name"], len(txs), float(soma))
+        logger.info(
+            "[conciliacao] %s quitado por %d entradas somando R$ %.2f", rec["customer_name"], len(txs), float(soma)
+        )
     cur.close()
     return baixados
 
@@ -743,8 +815,7 @@ def conciliar_justificados(limite: int = 4000) -> dict:
             except Exception:  # noqa: BLE001, S110
                 pass
     conn.close()
-    return {"baixados_auto": baixados, "sem_match": sem_match,
-            "erros": erros, "total_avaliados": len(tx_ids)}
+    return {"baixados_auto": baixados, "sem_match": sem_match, "erros": erros, "total_avaliados": len(tx_ids)}
 
 
 def conciliar_todas(limite: int = 649) -> dict:
