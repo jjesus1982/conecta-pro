@@ -108,21 +108,23 @@ se abriu em ~110 contrapartes nomeadas. Decidir uma resolve várias — a Sólid
 > **Corrigido em 26/09/2026.** A versão anterior desta seção somava «+R$ 5.800/mês» com os
 > dois casos abaixo. Medindo cada um, a alavanca é outra — e menor.
 
-**PARQUE DOS FRANCESES não era um buraco.** O contrato começa em 01/08 e a primeira nota
-saiu em 17/09 (NFS-e 121, R$ 1.800, competência 2026-09), paga em 19/09 com R$ 1.764
-(R$ 36 retidos). O caçador acusava porque comparava a competência 08 contra um contrato
-que só produziu nota na 09 — defasagem de calendário do faturamento, não receita perdida.
-**Já está faturado e segue faturando: não é alavanca de 2027.**
+**PARQUE DOS FRANCESES é um buraco, sim — mas de agosto, não de todo mês.** O contrato
+é de R$ 1.800/mês e vale a partir de **01/08** (decisão do Jordan em 14/08, por escrito em
+`corrigir_inicio_franceses.py`, revertendo uma correção de 10/08 que o punha em 01/09).
+De setembro em diante está faturado e recebido: NFS-e 121 de 17/09, R$ 1.800, paga em
+19/09 com R$ 1.764 (R$ 36 retidos).
 
-Sobra dele uma pergunta de verdade, e ela tem três partes: **R$ 2.508,00 entraram em
-27/08 e não têm nota nem título atrás** — nem o contrato (R$ 1.800/mês) nem a proposta
-aceita (PROP-20260610-98EF41, R$ 1.800) explicam o valor; o título de agosto foi
-**cancelado em 10/08** com a nota «contrato só inicia em 09/2026, confirmado pelo Jordan,
-start_date corrigido para 01/09»; e em **14/08 o contrato voltou para start_date 01/08**,
-com a descrição afirmando que houve NFS-e no fim de agosto — nota que no fisco não existe.
+**Agosto ficou sem nota.** O título de 08/2026 foi cancelado em 10/08 sob a premissa que
+caiu quatro dias depois, e ninguém o recriou — e o cliente **pagou R$ 2.508,00 em 27/08**.
+Dinheiro na conta, nenhuma nota atrás.
 
-Era essa contradição que produzia o alarme de «agosto sem nota», e foi dela que saiu a
-alavanca falsa desta seção. Detalhe completo na frente de contabilidade.
+Falta uma resposta para emitir: **por qual valor?** O contrato diz R$ 1.800; entraram
+R$ 2.508. Os R$ 708 de diferença não estão na proposta (item único de R$ 1.800), não estão
+em título nenhum, e não são juros (vencia 10/08, pago 27/08 — daria ~R$ 1.846 com multa
+de 2% e 1% ao mês).
+
+Como alavanca de 2027 ele **não** entra: de setembro em diante já fatura sozinho. O que
+há é uma competência atrasada, de valor a confirmar.
 
 **HAWK EYE era um buraco, e de outro tamanho.** Contrato de R$ 4.000/mês desde 08/2025,
 treze meses prestados, **nenhuma nota nunca emitida**. Do dinheiro, o dono explicou o

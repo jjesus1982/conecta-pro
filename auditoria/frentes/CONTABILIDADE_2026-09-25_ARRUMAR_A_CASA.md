@@ -432,38 +432,44 @@ população cortada em silêncio é pior que nenhuma medida:
        transferência entre os nossos CNPJs                12x  R$  68.944,40    6,2%
     → esta régua alcança 74% do dinheiro. O resto não foi olhado por ela.
 
-**Um achado real, e ele é maior do que parecia:** CONDOMINIO RESIDENCIAL PARQUE DOS
-FRANCESES depositou **R$ 2.508,00 em 27/08** — PIX de verdade, da conta Bradesco do
-condomínio, com CNPJ na contraparte. Não há nota, não há título e nenhum registro do
-sistema tem esse valor. Nem o contrato (R$ 1.800/mês, CTR-2026-00015) nem a proposta
-aceita (PROP-20260610-98EF41, R$ 1.800) o explicam.
+**Um achado real, e eu errei duas vezes antes de chegar nele.** CONDOMINIO RESIDENCIAL
+PARQUE DOS FRANCESES depositou **R$ 2.508,00 em 27/08** — PIX de verdade, da conta
+Bradesco do condomínio, com CNPJ na contraparte. Não há nota, não há título e nenhum
+registro do sistema tem esse valor.
 
-Puxando o fio, apareceu **uma decisão que se perdeu e outra que a contradiz**:
+Puxando o fio apareceram duas decisões em sentidos opostos, e a leitura certa é a segunda:
 
-    10/08 00:35 — título de 08/2026 CANCELADO, com esta nota interna:
-                  «Cancelado: contrato só inicia em 09/2026 (confirmado pelo Jordan).
-                   O contrato estava com start_date 01/08 e o gerador criou a competência
-                   de agosto. start_date corrigido para 01/09.»
+    10/08 00:35  título de 08/2026 CANCELADO — «contrato só inicia em 09/2026
+                 (confirmado pelo Jordan). start_date corrigido para 01/09.»
 
-    14/08 18:17 — o contrato foi ATUALIZADO e hoje está com start_date 01/08, descrição
-                  «ATIVO a partir de 08/2026. 1ª NFS-e emitida no fim de agosto,
-                   recebimento em setembro.»
+    14/08 18:17  o Jordan REVERTEU. Está por escrito em
+                 `backend/scripts/corrigir_inicio_franceses.py`: «Decisão do Jordan em
+                 14/08/2026 (...) o contrato está cadastrado com start_date = 2026-09-01
+                 e ISSO ESTÁ ERRADO — ele entra em agosto, e é dele a PRIMEIRA NOTA e o
+                 PRIMEIRO BOLETO da vida do cliente com a gente.»
 
-Ou seja: a correção de 10/08 **não ficou** — quatro dias depois o contrato voltou a
-começar em agosto. E a descrição afirma que houve NFS-e no fim de agosto, mas **no fisco
-não existe nota de competência 08 para esse tomador**: a primeira é a 121, de 17/09.
+**Minha primeira leitura foi que a correção de 10/08 «se perdeu». Não se perdeu: foi
+revertida de propósito, e o estado atual (`start_date = 01/08`) é a decisão mais recente
+do dono.** Ainda bem que não «consertei» a data.
 
-É essa contradição que fazia `checar_contrato_vs_faturado.py` acusar agosto como «SEM
-NOTA» — e foi dela que saiu, no PLANO_2027, a alavanca falsa de «faturar Parque dos
-Franceses».
+E isso inverte a conclusão: **agosto ERA faturável, e a nota nunca foi emitida.** O
+título de agosto foi cancelado em 10/08 sob uma premissa que caiu quatro dias depois, e
+ninguém o recriou. A descrição do contrato afirma «1ª NFS-e emitida no fim de agosto» —
+no fisco **não existe** nota de competência 08 para esse tomador; a primeira é a 121, de
+17/09.
 
-**Não mexi no `start_date`.** Seria aplicar uma das duas versões contra a outra, e a mais
-recente é a que diz que agosto vale. Três coisas dependem da mesma resposta do dono:
+Ou seja: `checar_contrato_vs_faturado.py` estava **certo** ao acusar agosto como «SEM
+NOTA», e eu é que descartei o alarme como defasagem de calendário. O caçador novo
+(`checar_recebimento_sem_nota.py`) pegou o mesmo buraco pelo outro lado — o dinheiro —
+e foi ele que me obrigou a olhar duas vezes.
 
- 1. agosto era faturável ou não;
- 2. o que são os R$ 2.508,00 — e se falta emitir nota sobre eles;
- 3. se o contrato começa em 01/08 ou 01/09 (e aí a correção de 10/08 precisa voltar,
-    e alguém precisa descobrir o que a desfez em 14/08).
+## O que falta, e é uma pergunta só
+
+Agosto precisa de nota. **Por qual valor?** O contrato diz R$ 1.800,00; o cliente pagou
+R$ 2.508,00. A diferença de R$ 708,00 não está em lugar nenhum: a proposta aceita tem um
+item só (manutenção preventiva + corretiva, R$ 1.800/mês), não há título com esse valor,
+e juros de atraso não explicam (vencia 10/08, pago 27/08 — R$ 1.800 com 2% de multa e 1%
+ao mês daria ~R$ 1.846).
 
 Não emiti nota sobre o valor recebido: emitir sobre o recebido, quando ele não bate com o
 contratado, é chute — pode ser duas competências juntas, serviço extra ou adiantamento.
