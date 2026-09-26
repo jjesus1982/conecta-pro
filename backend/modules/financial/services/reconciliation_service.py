@@ -165,14 +165,26 @@ def _extrair_nome_contraparte(descricao: str) -> str:
         m = padrao.match(d)
         if m:
             nome = re.sub(r"\s+", " ", m.group("n")).strip(' "-–')
-            if nome:
+            if nome and _parece_nome(nome):
                 return nome[:100]
     # Último recurso, o formato genérico "RÓTULO - NOME" que já existia aqui.
     partes = d.split(" - ", 1)
     if len(partes) < 2:
         return ""
     nome = re.sub(r"^Cp\s*:\d+[-–]\s*", "", partes[1].strip()).strip()
-    return nome[:100]
+    return nome[:100] if _parece_nome(nome) else ""
+
+
+#: Duas letras seguidas. É o mínimo para separar NOME de NÚMERO, e sem isto
+#: `RECEBIMENTO TITULO - 112/90725427051` devolvia «112/90725427051» como se fosse a
+#: contraparte — 295 transações do extrato carregam exatamente esse lixo em
+#: `contraparte_nome`, entre elas as maiores entradas do ano.
+_TEM_LETRAS = re.compile(r"[A-Za-zÀ-ÿ]{2}")
+
+
+def _parece_nome(s: str) -> bool:
+    """Um número de boleto não é uma contraparte. Sem letras, não é nome."""
+    return bool(_TEM_LETRAS.search(s or ""))
 
 
 def _lookup_cnpj_por_nome(nome: str, cur) -> str:
@@ -209,16 +221,36 @@ def _lookup_cnpj_por_nome(nome: str, cur) -> str:
 
 
 def _atualizar_contraparte(tx_id: str, nome: str, cnpj: str, cur) -> None:
-    """Popula contraparte_nome e contraparte_documento na transação."""
+    """Grava a contraparte derivada — o NOME nas DUAS colunas, o documento só na sua.
+
+    `bank_transactions` tem dois pares de colunas para a mesma coisa: `counterparty_name`
+    /`counterparty_document`, que a sincronia do Inter preenche, e `contraparte_nome`
+    /`contraparte_documento`, que esta conciliação preenchia. **29 arquivos leem o
+    primeiro par; 4 tocam o segundo** — ou seja, tudo o que esta função derivava caía num
+    campo que quase ninguém lia. Medido em 26/09/2026: 295 transações com
+    `contraparte_nome` e `counterparty_name` VAZIO, invisíveis para o classificador
+    contábil, para os caçadores e para o radar de fornecedores.
+
+    O NOME passa a ir para as duas, sempre com `COALESCE`: preenche vazio, nunca
+    sobrescreve o que o banco informou.
+
+    **O DOCUMENTO não é copiado, de propósito.** Ele vem de `_lookup_cnpj_por_nome`, que
+    até 26/09/2026 casava pela primeira palavra com `LIMIT 1` — «BANCO TOYOTA DO BRASIL
+    SA» virava `ILIKE '%BANCO%'` e pegava qualquer fornecedor. Os valores históricos de
+    `contraparte_documento` carregam esse erro, e `counterparty_document` é justamente de
+    onde o classificador tira a natureza do lançamento. Espalhar documento suspeito é
+    trocar um campo invisível por uma conta errada no razão.
+    """
     if nome or cnpj:
         cur.execute(
             """
             UPDATE bank_transactions SET
                 contraparte_nome = COALESCE(contraparte_nome, %s),
-                contraparte_documento = COALESCE(contraparte_documento, %s)
+                contraparte_documento = COALESCE(contraparte_documento, %s),
+                counterparty_name = COALESCE(NULLIF(TRIM(counterparty_name), ''), %s)
             WHERE id = %s
             """,
-            (nome or None, cnpj or None, tx_id),
+            (nome or None, cnpj or None, nome or None, tx_id),
         )
 
 

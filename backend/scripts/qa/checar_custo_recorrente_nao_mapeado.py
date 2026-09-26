@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import date
 
 #: Quantos meses distintos com pagamento fazem de algo "recorrente".
 MESES_MINIMO = 4
@@ -70,27 +71,69 @@ async def main() -> int:
         }
         n_cad = len(cadastrados)
 
-        linhas = (await db.execute(text(f"""
-            WITH saidas AS (
-                SELECT regexp_replace(coalesce(counterparty_document,''), '[^0-9]', '', 'g') doc,
-                       coalesce(nullif(counterparty_name,''), '(sem nome)') nome,
-                       transaction_date, abs(amount) v
-                  FROM bank_transactions
-                 WHERE amount < 0
-                   AND transaction_date >= (CURRENT_DATE - INTERVAL '12 months')
-            )
-            SELECT doc, nome,
-                   count(DISTINCT to_char(transaction_date, 'YYYY-MM')) meses,
-                   count(*) n, round(sum(v), 2) total,
-                   round(sum(v) / count(DISTINCT to_char(transaction_date, 'YYYY-MM')), 2) media,
-                   max(transaction_date)::date ultimo,
-                   (CURRENT_DATE - max(transaction_date)::date) dias
-              FROM saidas
-             GROUP BY 1, 2
-            HAVING count(DISTINCT to_char(transaction_date, 'YYYY-MM')) >= {MESES_MINIMO}
-               AND sum(v) >= {PISO_ANO}
-             ORDER BY 5 DESC
+        # Agrupa pela CHAVE do fornecedor, não pelo par (documento, nome). Quando o
+        # extrato preencheu o documento numa linha e não na outra, o par separa o MESMO
+        # fornecedor em dois — e «decidir por contraparte resolve em lote» deixa de valer.
+        # Medido em 26/09/2026, logo depois de o extrator passar a nomear 545 transações:
+        # «Solides» e «Sólides» viraram duas linhas (R$ 86.144,00 + R$ 81.845,89), e
+        # «One Port Tecnologia» apareceu duas vezes, uma com CNPJ e outra sem.
+        # A normalização é a do radar de fornecedores — mesma casa, mesmo problema.
+        brutas = (await db.execute(text("""
+            SELECT regexp_replace(coalesce(counterparty_document,''), '[^0-9]', '', 'g') doc,
+                   coalesce(nullif(counterparty_name,''), '(sem nome)') nome,
+                   to_char(transaction_date, 'YYYY-MM') comp, transaction_date::date dia,
+                   abs(amount) v
+              FROM bank_transactions
+             WHERE amount < 0
+               AND transaction_date >= (CURRENT_DATE - INTERVAL '12 months')
         """))).all()
+
+        from modules.financial.services.plano_contas_caixa import (  # noqa: PLC0415
+            CNPJS_DO_GRUPO,
+        )
+        from modules.financial.services.radar_fornecedores_service import (  # noqa: PLC0415
+            _chave as chave_fornecedor,
+        )
+
+        hoje = date.today()
+        grupos: dict[str, dict] = {}
+        for doc, nome, comp, dia, v in brutas:
+            # Dinheiro que a Patrimonial manda para a Eletrônica não é custo com
+            # terceiro — é transferência entre os nossos CNPJs, e o razão já a leva para
+            # `1.1.9.01`. Sem este filtro ela entrava na lista como o segundo maior
+            # «compromisso recorrente» da empresa (R$ 169.800 em 4 meses, sob o nome de
+            # registro da própria Eletrônica), e ninguém a cortaria do orçamento porque
+            # não há o que cortar.
+            if doc in CNPJS_DO_GRUPO:
+                continue
+            k = doc or chave_fornecedor(nome) or "(sem nome)"
+            g = grupos.setdefault(
+                k, {"doc": "", "nomes": {}, "meses": set(), "n": 0, "total": 0.0, "ultimo": dia}
+            )
+            if doc and not g["doc"]:
+                g["doc"] = doc
+            g["nomes"][nome] = g["nomes"].get(nome, 0.0) + float(v)
+            g["meses"].add(comp)
+            g["n"] += 1
+            g["total"] += float(v)
+            g["ultimo"] = max(g["ultimo"], dia)
+
+        linhas = [
+            (
+                g["doc"],
+                # o rótulo é a variante de nome que mais dinheiro moveu neste grupo
+                max(g["nomes"].items(), key=lambda kv: kv[1])[0],
+                len(g["meses"]),
+                g["n"],
+                round(g["total"], 2),
+                round(g["total"] / len(g["meses"]), 2),
+                g["ultimo"],
+                (hoje - g["ultimo"]).days,
+            )
+            for g in grupos.values()
+            if len(g["meses"]) >= MESES_MINIMO and g["total"] >= PISO_ANO
+        ]
+        linhas.sort(key=lambda r: -float(r[4]))
 
         cpfs_func = {
             r[0] for r in (await db.execute(text(

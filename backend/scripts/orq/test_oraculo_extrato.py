@@ -127,6 +127,13 @@ async def main() -> None:  # noqa: PLR0915
         # Cheguei a montar o DELETE das 12 linhas. O que segurou foi conferir com o
         # banco antes — a mesma lição do pagamento da Loide, que eu apaguei achando que
         # era duplicata e o saldo denunciou com a diferença exata de R$32,00.
+        # 26/09/2026 — saltou de 12 para 73 e NÃO foi defeito novo: a conciliação passou a
+        # nomear 545 transações que estavam sem contraparte, e esta checagem exige
+        # favorecido preenchido (está escrito duas notas acima). Os 61 grupos sempre
+        # existiram. Medidos: 77 linhas excedentes, R$ 9.864,13, todas entre 03 e 07/2026
+        # (antes do corte, por isso o saldo segue batendo) e TODAS com lançamento no razão.
+        # A base fica em 12 de propósito: subir sem adjudicar seria declarar legítimo o que
+        # ninguém conferiu. O Inter devolveu 503 em todo intervalo em 26/09.
         BASE_PARES_LEGITIMOS = 12
         susp = (
             (
@@ -150,7 +157,11 @@ async def main() -> None:  # noqa: PLR0915
             falhas.append(
                 f"{grupos - BASE_PARES_LEGITIMOS} grupo(s) NOVO(S) de possível duplicata "
                 f"multi-fonte (mesma conta, data, valor e favorecido em fontes diferentes); "
-                f"linha de base adjudicada contra o extrato do banco: {BASE_PARES_LEGITIMOS}"
+                f"linha de base adjudicada contra o extrato do banco: {BASE_PARES_LEGITIMOS}. "
+                "ADJUDIQUE com `python3 /app/scripts/adjudicar_duplicata_multifonte.py` — "
+                "contagem por valor no dia contra o extrato do Inter. NÃO apague antes: "
+                "já se apagou um pagamento achando que era duplicata e o saldo denunciou "
+                "com a diferença exata de R$ 32,00."
             )
         else:
             print(f"OK duplicata multi-fonte: {grupos} grupo(s), todos adjudicados contra o extrato do banco")
@@ -386,6 +397,11 @@ async def main() -> None:  # noqa: PLR0915
         ('SAQUE BANCO 24H: "No estabelecimento XYZ', ""),
         ("PAGAMENTO DARF NUMERADO - DARF NUMERADO", ""),
         ("TARIFA MENSALIDADE", ""),
+        # número de boleto NÃO é contraparte. Sem esta regra, «112/90725427051» virava o
+        # nome do maior recebimento do ano (R$ 55.259,06) e ia para a coluna que 29
+        # arquivos leem.
+        ("RECEBIMENTO TITULO - 112/90725427051", ""),
+        ("PIX ENVIADO - Cp :60701190-12345678", ""),
     ]
     for desc, esperado in casos:
         obtido = _nome_cp(desc)
