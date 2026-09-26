@@ -143,6 +143,13 @@ CACADORES = {
     "checar_abertura_nao_levantada.py": lambda s: _n(
         r"^TOTAL: (\d+) pend[êe]ncia\(s\) para o balan[cç]o de abertura", s
     ),
+    # Parcelamento tributário que o balanço não conhece, TODOS em atraso (o dono
+    # confirmou em 26/09/2026). CONTADA: dívida com o fisco, e a única desta lista em
+    # que a inação tem gatilho — parcela acumulada RESCINDE a negociação, devolve a
+    # dívida sem o desconto de 60% e tranca nova transação por dois anos.
+    "checar_parcelamento_em_atraso.py": lambda s: _n(
+        r"^TOTAL: (\d+) parcelamento\(s\) tribut[áa]rio\(s\) fora do balan[cç]o", s
+    ),
     # Dia em que a pessoa trabalhou e a batida de ENTRADA (ou saída) não existe. Não é atraso e
     # não é falta: sem a batida, o mapa de ponto chuta e a conferência de atraso da X2 tinha 64%
     # de "atraso" que era isto (medido em 24/09/2026). CONTADA: dívida de operação com dono —

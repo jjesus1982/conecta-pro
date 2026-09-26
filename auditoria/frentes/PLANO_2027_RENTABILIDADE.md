@@ -87,6 +87,34 @@ saber o custo por posto.
 
 ---
 
+## 1-B. O que não estava nesta conta: R$ 7.669,05/mês de parcelamento
+
+**Descoberto em 26/09/2026, no portal da contabilidade.** Seis parcelamentos tributários
+vivos, nenhum deles no razão, **todos em atraso** (confirmado pelo dono). O recibo de
+adesão da PGFN de 20/10/2025 traz o tamanho: **dívida de R$ 582.262,83**, com desconto
+máximo de 60,02% e capacidade de pagamento avaliada em R$ 232.773,98 em 60 meses.
+
+    Dívida Ativa 1 (33/145) R$ 1.068,92 · Dívida Ativa 2 (12/145) R$   266,08
+    Dívida Ativa 3 (4/145)  R$ 1.331,16 · Dívida Ativa 4 (4/60)   R$ 4.349,96
+    ISSQN (9/30)            R$   285,01 · ISSQN 2 (5/100)         R$   367,92
+                                                       total  R$ 7.669,05/mês
+
+**Isto muda o ponto de partida de 2027.** As três ações da §5 empatam o RESULTADO; elas
+não pagam o parcelamento, que não aparece no DRE porque nem está lançado. Somando:
+
+    ponto de partida de 2027 (§5)        −R$  4.119/mês
+    serviço da dívida tributária         −R$  7.669/mês
+    ────────────────────────────────────────────────────
+    caixa necessário                     −R$ 11.788/mês      −R$ 141.456/ano
+
+E o atraso tem gatilho: parcela acumulada **rescinde** a negociação, a dívida volta sem os
+60% de desconto, e a empresa fica **dois anos sem poder renegociar**. Isto é mais urgente
+que qualquer linha da §3.
+
+Detalhe e fontes em `CONTABILIDADE_2026-09-25_ARRUMAR_A_CASA.md`.
+
+---
+
 ## 2. O que já está em movimento, e quanto vale
 
 Duas mudanças já decididas, ainda não refletidas num mês cheio:

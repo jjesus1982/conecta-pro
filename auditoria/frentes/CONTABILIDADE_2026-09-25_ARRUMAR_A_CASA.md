@@ -840,3 +840,72 @@ Identificar` encolhe dos R$ 600.000 para o que sobrar.
 
 **Enquanto não forem respondidas, o número honesto é o que está lá:** R$ 600.000 de
 capital declarado com contrapartida «a identificar». Feio, e verdadeiro.
+
+---
+
+# R$ 582.262,83 na PGFN — a dívida que o balanço não enxerga
+
+Jordan mandou entrar no Onvio com a conta dele. **O portal não tem escrituração** — é
+troca de documentos: 1.252 arquivos, guias, folha, admissões, rescisões. Zero balancete,
+zero razão, zero balanço. Isso fecha, com evidência em vez de dedução, a questão do
+balanço de abertura: ele não está lá.
+
+Mas tinha outra coisa.
+
+## Seis parcelamentos vivos, nenhum no razão
+
+    Dívida Ativa 1 — Simples         parcela 33 de 145    R$ 1.068,92/mês
+    Dívida Ativa 2 — Simples         parcela 12 de 145    R$   266,08/mês
+    Dívida Ativa 3 — Simples         parcela  4 de 145    R$ 1.331,16/mês
+    Dívida Ativa 4 — demais débitos  parcela  4 de  60    R$ 4.349,96/mês
+    ISSQN                            parcela  9 de  30    R$   285,01/mês
+    ISSQN 2                          parcela  5 de 100    R$   367,92/mês
+                                                          R$ 7.669,05/mês
+
+Cento e quarenta e cinco parcelas são **doze anos**. O passivo tributário no razão é
+−R$ 5.440,29 — devedor, ou seja, o balanço não só desconhece a dívida como registra o
+contrário dela.
+
+## O número oficial
+
+O **recibo de adesão e consolidação da negociação 014020428** (PGFN, 20/10/2025), que
+estava no Onvio:
+
+    VALOR DA DÍVIDA NA DATA DA ADESÃO ........ R$ 582.262,83
+    CAPACIDADE DE PAGAMENTO EM 60 MESES ...... R$ 232.773,98
+    DESCONTO MÁXIMO POSSÍVEL ................. 60,02%
+    Edital PGDAU nº 11/2025 · Simples Nacional ME/EPP · até 145 prestações · redução até 70%
+
+Essa negociação sozinha consolidou R$ 47.417,99 (12 parcelas de entrada de R$ 237,08 e
+133 básicas de R$ 190,44). O resto dos R$ 582 mil está nas outras.
+
+## O que o atraso custa, nas palavras do recibo
+
+> «EVITE A RESCISÃO: pode ocorrer (...) se o optante descumprir alguma regra da
+> negociação. Por exemplo, **deixar acumular parcelas atrasadas**. Nesse caso, o optante
+> será excluído da negociação e **perderá todos os benefícios**. (...) o optante **não
+> poderá formalizar uma nova transação pelo prazo de dois anos**.»
+
+E o dono confirmou o estado: *«não to pagando nada da eletronica, não sobra dinheiro, por
+isso preciso arrumar a casa. todos os parcelamentos estão atrasados.»* No extrato: **zero
+pagamentos com cara de PGFN nos últimos 60 dias.**
+
+Rescindir não devolve a dívida ao ponto de partida. Devolve **sem os 60% de desconto**, de
+uma vez, e tranca a porta de renegociar por dois anos.
+
+## Por que eu NÃO lancei o passivo
+
+Registrar R$ 582 mil multiplica o patrimônio líquido negativo por quatro — é o maior
+lançamento que este razão já teria visto. E o valor que tenho é **o da adesão em
+20/10/2025**, não o de hoje: saldo de parcelamento muda todo mês por SELIC, e o número
+atual está no portal Regularize. Lançar a adesão como se fosse o saldo corrente é inventar
+precisão exatamente onde ela mais importa.
+
+`checar_parcelamento_em_atraso.py` mede a diferença todo dia — R$ 587.703,12 hoje — e diz
+o que está em risco. O lançamento é ato de contador com o extrato do Regularize na mão.
+
+## E isso reescreve o plano de 2027
+
+O PLANO_2027 fechava com «as três ações empatam». Elas empatam **o resultado**; não pagam
+R$ 7.669,05/mês de parcelamento, que não está em lugar nenhum daquela conta. Com ele, o
+ponto de partida de 2027 não é −R$ 4.119/mês: é **−R$ 11.788/mês**.

@@ -154,6 +154,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_recebimento_sem_nota.py` | Cliente que depositou mais do que foi faturado para ele no período — o terceiro lado do triângulo (nota ←→ dinheiro); os outros dois partem do contrato e não alcançam quem recebe fora dele |
 | `checar_obrigacao_sem_gerador.py` | Obrigação que o regime EXIGE e para a qual não há rota PRODUTORA no app — a conta da rescisão com a Portte; `GET .../status` não conta, consultar não é produzir |
 | `checar_abertura_nao_levantada.py` | O que impede o balanço de abertura de 31/12/2025 ficar de pé sem a contabilidade anterior — dado que falta E saldo de natureza impossível; e o que dele NÃO pode ser inventado (saldo invertido é PISTA, não prova) |
+| `checar_parcelamento_em_atraso.py` | Parcelamento tributário fora do balanço e em atraso — R$ 582.262,83 na PGFN (recibo de adesão de 20/10/2025) contra o que o razão registra; atraso acumulado RESCINDE, perde 60,02% de desconto e tranca nova transação por 2 anos |
 
 ## Comandos
 
