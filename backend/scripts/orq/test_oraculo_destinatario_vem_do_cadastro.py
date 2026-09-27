@@ -27,6 +27,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, "/app")
 
+from sqlalchemy import text  # noqa: E402
+
 from core.database import async_session_factory  # noqa: E402
 
 falhas: list[str] = []
@@ -66,15 +68,34 @@ async def main() -> None:
             print(f"  ok  ambíguo recusa: {(amb['motivo'])[:74]}…")
 
         # 3 — telefone malformado recusa, e o motivo diz que NÃO se adivinha
-        mal = await resolver(db, "THAYNA RHANNELE")
-        if mal.get("ok"):
-            falhas.append(f"THAYNA resolveu apesar do telefone de 12 dígitos: {mal.get('fone')!r}")
-        elif "malformado" not in (mal.get("motivo") or "").lower():
-            # se o cadastro dela foi corrigido, isto deixa de ser o caso de teste e eu digo isso
-            print(f"  ⚠️ THAYNA não recusou por telefone: {(mal.get('motivo') or '')[:70]} "
-                  "(o cadastro pode ter sido corrigido — confira antes de assumir defeito)")
+        #
+        # 🔴 27/09/2026 — ESTE CASO ESTAVA CONGELADO NUMA PESSOA e ficou vermelho POR CAUSA DE
+        # UMA CORREÇÃO. Eu tinha fixado `resolver(db, "THAYNA RHANNELE")` porque o telefone
+        # dela tinha 12 dígitos. O cadastro foi corrigido de manhã (11 dígitos, certo) e o
+        # oráculo passou a acusar defeito exatamente onde o produto melhorou.
+        #
+        # ⭐ Afirme a REGRA, nunca a fotografia: o caso de teste sai do BANCO — qualquer
+        # cadastro com telefone fora de 10/11 dígitos serve. E casa sem nenhum telefone torto
+        # é boa notícia, não falha: vira controle vazio, dito em voz alta.
+        torto = (await db.execute(text(
+            "SELECT nome FROM employees "
+            " WHERE lower(coalesce(status,'')) LIKE 'ativo%' "
+            "   AND length(regexp_replace(coalesce(nullif(celular,''), telefone, ''), "
+            "                             '\\D', '', 'g')) NOT IN (10, 11) "
+            " LIMIT 1"))).scalar()
+        if not torto:
+            print("  ·   controle vazio: nenhum ativo com telefone malformado hoje "
+                  "(a régua não pôde ser exercitada — isso é boa notícia, não aprovação)")
         else:
-            print("  ok  telefone malformado recusa e NÃO adivinha dígito")
+            mal = await resolver(db, torto)
+            if mal.get("ok"):
+                falhas.append(f"{torto} tem telefone malformado no cadastro e MESMO ASSIM "
+                              f"resolveu ({mal.get('fone')!r}) — já mandamos mensagem nossa "
+                              "para o telefone de um estranho por chute")
+            elif "malformado" not in (mal.get("motivo") or "").lower():
+                falhas.append(f"{torto} recusou pelo motivo errado: {mal.get('motivo')}")
+            else:
+                print(f"  ok  telefone malformado recusa e NÃO adivinha dígito ({torto.split()[0]})")
 
         # desconhecido também recusa — controle de que a régua não diz sim para qualquer coisa
         nada = await resolver(db, "NOME_QUE_NUNCA_EXISTIU_9X7")

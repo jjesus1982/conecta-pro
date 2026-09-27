@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date as _date
 from typing import Any
 
 from sqlalchemy import text
@@ -132,6 +133,38 @@ SELECT t.*,
  ORDER BY t.ini_ts, t.nome
 """
 
+
+#: Dias sem bater a partir dos quais a pessoa aparece na cauda. 10 dias cobre a folga do 12x36
+#: (36h) com margem; férias e afastamento aparecem pelo rótulo do vínculo, não aqui.
+DIAS_SUMIDO = 10
+
+#: ⭐ 27/09/2026 — QUEM NÃO TEM TURNO NÃO GERA LINHA EM RESUMO NENHUM, E POR ISSO SOME.
+#:
+#: Descoberto ao corrigir a EIDY: o dono avisou que ela estava escalada no posto errado; ao tirar
+#: os turnos errados ela ficou com ZERO turnos e desapareceu de todas as telas diárias — ausente
+#: desde 11/09 e invisível. A correção abriu o buraco, e o buraco já existia para outras cinco.
+#:
+#: Medido no dia: **6 pessoas ativas** nessa situação, três delas citadas pelo próprio dono na
+#: mesma conversa (Kelly Patricia, Eidy, Rilem). Duas NUNCA bateram ponto.
+#:
+#: ⚠️ `data_admissao` entra para não gritar com recém-contratado: quem foi admitido há 3 dias e
+#: ainda não bateu não é um sumiço, é um acesso que ainda não fechou.
+_SQL_SUMIDOS = f"""
+SELECT e.nome, e.data_admissao,
+       max(g.punch_timestamp)::date AS ultima,
+       (SELECT count(*) FROM shifts s WHERE s.employee_id = e.id AND s.is_active
+          AND s.shift_date >= (now() AT TIME ZONE 'America/Manaus')::date) AS turnos_futuros
+  FROM employees e LEFT JOIN gp_clock_punches g ON g.employee_id = e.id
+ WHERE lower(coalesce(e.status,'')) LIKE 'ativo%'
+   AND coalesce(e.is_homologacao, false) = false
+   AND (e.tipo_contrato IS NULL OR e.tipo_contrato <> 'pj')
+ GROUP BY e.id, e.nome, e.data_admissao
+HAVING (max(g.punch_timestamp) IS NULL
+        AND (e.data_admissao IS NULL
+             OR e.data_admissao < (now() AT TIME ZONE 'America/Manaus')::date - {DIAS_SUMIDO}))
+    OR max(g.punch_timestamp) < (now() AT TIME ZONE 'America/Manaus')::date - {DIAS_SUMIDO}
+ ORDER BY max(g.punch_timestamp) NULLS FIRST
+"""
 
 def _hhmm(ts) -> str:
     return ts.strftime("%H:%M") if ts else "—"
@@ -240,7 +273,16 @@ async def montar(db, dia) -> dict[str, Any]:
         })
 
     problemas.sort(key=lambda p: (p["peso"], p["nome"]))
-    return {"dia": str(dia), "turnos": len(linhas), "limpos": limpos, "problemas": problemas}
+    hoje = _date.today()
+    sumidos = [
+        {"nome": r["nome"],
+         "ultima": r["ultima"].strftime("%d/%m") if r["ultima"] else None,
+         "dias": (hoje - r["ultima"]).days if r["ultima"] else None,
+         "turnos_futuros": int(r["turnos_futuros"] or 0)}
+        for r in (await db.execute(text(_SQL_SUMIDOS))).mappings().all()
+    ]
+    return {"dia": str(dia), "turnos": len(linhas), "limpos": limpos, "problemas": problemas,
+            "sumidos": sumidos}
 
 
 #: Rótulo de cada faixa de gravidade, na ordem em que a lista sai.
@@ -292,6 +334,14 @@ def texto(dados: dict) -> str | None:
             out.append(f"    💬 _{j[:200]}_" + ("… *(texto completo na Central)*"
                                                 if len(j) > 200 else ""))
 
+    if dados.get("sumidos"):
+        out += ["", f"👤 *Sem bater há mais de {DIAS_SUMIDO} dias* — não geram linha acima "
+                    f"porque muitos nem turno têm:"]
+        for x in dados["sumidos"]:
+            quando = f"última em {x['ultima']} ({x['dias']}d)" if x["ultima"] else "*nunca bateu*"
+            alerta = (f" · ⚠️ tem *{x['turnos_futuros']}* turno(s) futuro(s)"
+                      if x["turnos_futuros"] else " · sem turno na escala")
+            out.append(f"    · {x['nome']} — {quando}{alerta}")
     out += ["", "Aprovar ou reprovar: *erp.conectamais.pro → Aprovações*."]
     return "\n".join(out)
 
