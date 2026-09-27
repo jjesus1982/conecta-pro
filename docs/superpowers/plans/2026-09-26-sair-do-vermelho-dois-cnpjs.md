@@ -89,12 +89,24 @@ de "Vale Refeição" são PIX aos PJs que desenvolvem e sustentam o ERP (medido 
 
 ## A maior alavanca não precisa de ninguém
 
-**R$ 211.975,96 de serviço prestado e não faturado**, medido em 26/09/2026:
+**R$ 189.875,96 de serviço prestado e não faturado**, medido em 26/09/2026:
 
 | empresa | contratos ativos | valor/mês | faturado em 09/2026 | falta |
 |---|---|---|---|---|
-| Patrimonial | 9 | 272.200,06 | 76.024,10 (2 contratos) | **196.175,96** |
+| Patrimonial | 9 | 272.200,06 | 76.024,10 (2 contratos) | **174.075,96** |
 | Eletrônica | 5 | 15.800,00 | 23.160,00 (fora de contrato) | **15.800,00** |
+
+> **Correção de 26/09, depois que o dono avisou.** A primeira versão deste plano dizia
+> R$ 196.175,96 e contava os R$ 22.100 do Green Hills. **Ele tem 90 dias de carência** — e o
+> contrato `CTR-2026-00019` **já registra `grace_period_days = 90`**. O dado estava certo; o
+> que faltava era alguém lê-lo. Primeira nota em dezembro/2026, não em setembro.
+>
+> Isso é mais grave do que um número errado: **nenhuma lógica de faturamento lê esse campo.**
+> Os únicos usos de `grace_period_days` no código são o formulário que o captura
+> (`juridico.py:654`) e dois `SELECT` que copiam colunas
+> (`_dgx_t3_operacional_comercial.py:1105`, `nfse_controller.py:364`). O caçador da tarefa C2,
+> se nascesse sem saber disso, acusaria R$ 22.100 de falso positivo por três meses seguidos —
+> e alarme falso recorrente é como se ensina alguém a ignorar o painel.
 
 Os sete contratos da Patrimonial sem nota em setembro:
 
@@ -103,9 +115,13 @@ CTR-2026-00013  Ideal Flores da Cidade     65.842,42
 CTR-2026-00009  Villa dos Passaros         33.538,33
 CTR-2026-00010  Mirante das Flores         28.694,30
 CTR-2026-00007  Villa Dei Fiori            25.592,71
-CTR-2026-00019  Green Hills                22.100,00   ← NUNCA faturado desde 01/09
 CTR-2026-00016  Mirante das Flores (2º)    12.061,50
 CTR-2026-00008  Michelangelo                8.346,70
+                                          ──────────
+                                          174.075,96
+
+CTR-2026-00019  Green Hills                22.100,00   ← NÃO conta: 90 dias de carência,
+                                                         primeira nota em 12/2026
 ```
 
 Isto não depende de contador, advogado nem decisão de regime. É emissão.
@@ -834,7 +850,7 @@ que precisa ser refeito.
 | # | ação | valor | quem |
 |---|---|---|---|
 | 1 | **Emitir as 6 linhas do cronograma de setembro** | **R$ 174.075,96** | operação — 6 chamadas em `aa4-emitir-do-cronograma`, com `dry_run=nao` |
-| 2 | Inserir a linha do Green Hills no cronograma (R$ 22.100, Patrimonial) e emitir | **R$ 22.100,00** | operação |
+| 2 | ~~Green Hills~~ — **90 dias de carência, primeira nota em 12/2026.** Nada a fazer agora | — | — |
 | 3 | Emitir os 4 contratos ativos da Eletrônica | **R$ 15.800,00** | operação |
 | 4 | Ativar ou encerrar o `CTR-2026-00024` (Kopenhagen, R$ 40.612, `draft` desde 10/09) | R$ 40.612/mês | dono |
 
@@ -843,7 +859,7 @@ cronograma estão com `empresa_cnpj` **vazio** e a rota as recusa com `EMPRESA_S
 a linha 2 diz Eletrônica mas a nota já saiu pela Patrimonial; e o recebível do Mirante é
 R$ 13.561,50 contra um contrato de R$ 12.061,50.
 
-**Total da semana 1: R$ 211.975,96**, sem contador, sem advogado, sem decisão fiscal.
+**Total da semana 1: R$ 189.875,96**, sem contador, sem advogado, sem decisão fiscal.
 
 ## Semana 1 (paralelo) — a consulta que destrava tudo
 

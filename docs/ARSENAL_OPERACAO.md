@@ -159,6 +159,7 @@ de cada uma sai da primeira linha do docstring dela, não de uma cópia que enve
 | `checar_fornecedor_saldo_invertido.py` | `2.1.4.01 Fornecedores a Pagar` com saldo DEVEDOR: pagou-se mais do que se escriturou por competência — o preço honesto do casamento pagamento×nota tomada, que quando erra inverte o passivo em vez de sumir com a despesa calada |
 | `checar_credito_retencao_dormente.py` | Crédito de retenção na fonte (11%, Lei 9.711/98) crescendo sem ser compensado — R$ 84.709,90 parados na Patrimonial em 26/09, ~R$ 25 mil/mês entrando, porque a CPP patronal que ele existe para abater não está sendo declarada. Não é inadimplência de cliente: é tributo já recolhido em nosso nome |
 | `checar_operacao_que_nao_se_paga.py` | Empresa cuja OPERAÇÃO não se paga — receita de serviço menor que a despesa operacional (financeiras fora) em TODOS os meses olhados. Resultado total pode estar no azul por receita que não vem da operação; só o operacional diz se o negócio deve existir. Eletrônica em −136,5% em 08/2026 |
+| `checar_contrato_sem_nota_no_mes.py` | Contrato ativo, fora da carência, sem nota na competência CORRENTE — os dois parentes olham meses anteriores e não pegaram o buraco de 09/2026. Respeita `grace_period_days`, campo que existia preenchido e que nenhuma lógica de faturamento lia. E DECLARA o que descarta: foi assim que apareceram um contrato vencido ainda `active` e um ativo de valor zero faturando R$ 23 mil |
 
 ## Comandos
 

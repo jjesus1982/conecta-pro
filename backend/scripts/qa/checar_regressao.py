@@ -99,6 +99,17 @@ CACADORES = {
     # Eletrônica com −136,5% em 08/2026 (fatura R$ 13.300, gasta R$ 31.454 para existir,
     # depois de passar os contratos para a irmã sem encolher a estrutura).
     "checar_operacao_que_nao_se_paga.py": lambda s: _n(r"^TOTAL: (\d+) empresa\(s\) com operação que não se paga", s),
+    # Contrato ativo, fora da carência, sem nota na competência CORRENTE. Os dois parentes
+    # (`checar_contrato_vs_faturado` e `checar_contrato_vs_nota`) olham meses anteriores e não
+    # pegaram o buraco de 09/2026. Este respeita `contracts.grace_period_days` — campo que
+    # existia, estava preenchido (Green Hills, 90 dias) e que NENHUMA lógica de faturamento lia
+    # em 26/09/2026. Sem essa leitura ele acusaria R$ 22.100 de falso positivo por três meses, e
+    # alarme falso recorrente ensina a ignorar o painel. Ele também DECLARA o que descartou e
+    # por quê: foi assim que apareceram um contrato vencido em 31/08 ainda com status 'active' e
+    # um ativo de valor zero faturando R$ 23 mil.
+    "checar_contrato_sem_nota_no_mes.py": lambda s: _n(
+        r"^TOTAL: (\d+) contrato\(s\) ativo\(s\) sem nota na competência", s
+    ),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
