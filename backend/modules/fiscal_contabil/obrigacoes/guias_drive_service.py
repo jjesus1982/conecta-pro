@@ -195,9 +195,18 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         ident = (re.search(r"Identificador\s*\n?\s*([\d-]{10,})", texto) or [None, None])[1]
         pix = (re.search(r"(000201\S{50,})", texto) or [None, None])[1]
         consignado = "CONSIGNADO" in nome_up or "Total Consignado" in texto
+        # GFD RESCISÓRIA é uma guia por desligamento, não a mensal: no 1º disparo real do
+        # beat (27/09) as de Daniel (R$ 97,29) e Keyson (R$ 1.078,01) entraram como «FGTS»
+        # 08/2026 e SOBRESCREVERAM a GFD mensal da Eletrônica (R$ 133,60), porque a chave do
+        # upsert é (tipo, competência, empresa). Tipo próprio, e chave com o nº do documento.
+        # SÓ pelo nome do arquivo: o texto da GFD MENSAL também traz «Rescis» (linha de
+        # composição zerada) e a 1ª regra classificou TODAS as GFD como rescisórias — medido
+        # 27/09, quatro linhas espúrias criadas e apagadas. A Portte nomeia as rescisórias
+        # «GFD FGTS RESCISÃO - <nome>.pdf»; é esse o sinal.
+        rescisorio = "RESCIS" in nome_up
         return GuiaParseada(
             empresa_id=_emp,
-            tipo="FGTS_CONSIGNADO" if consignado else "FGTS",
+            tipo="FGTS_RESCISORIO" if rescisorio else ("FGTS_CONSIGNADO" if consignado else "FGTS"),
             competencia_mes=mes,
             competencia_ano=ano,
             valor=valor,
@@ -296,6 +305,7 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
 NOMES = {
     "FGTS": "FGTS/GFIP",
     "FGTS_CONSIGNADO": "FGTS Consignado",
+    "FGTS_RESCISORIO": "FGTS Rescisório (GFD por desligamento)",
     "INSS": "INSS Patronal",
     "DAS": "DAS Simples Nacional",
     "ISS": "ISS Manaus",
@@ -314,12 +324,23 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
         return "sem_competencia"
 
     emp = g.empresa_id or EMPRESA_PRINCIPAL
+    # Rescisória: uma por desligamento — a chave leva o nº do documento, senão duas rescisões
+    # no mesmo mês (ou a rescisória e a mensal) colidem e a última apaga a anterior.
+    extra = " AND observacoes LIKE :nd" if (g.tipo == "FGTS_RESCISORIO" and g.numero_documento) else ""
     row = db.execute(
         _sql(
             "SELECT id, valor_devido, observacoes FROM fiscal_obligations "
-            "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND empresa_id=:emp AND active=true LIMIT 1"
+            "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND empresa_id=:emp AND active=true"
+            + extra
+            + " LIMIT 1"
         ),
-        {"t": g.tipo, "m": g.competencia_mes, "a": g.competencia_ano, "emp": emp},
+        {
+            "t": g.tipo,
+            "m": g.competencia_mes,
+            "a": g.competencia_ano,
+            "emp": emp,
+            **({"nd": f'%"numero_documento": "{g.numero_documento}"%'} if extra else {}),
+        },
     ).first()
 
     obs = {
