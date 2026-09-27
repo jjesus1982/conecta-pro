@@ -28,6 +28,11 @@
 >
 > Cruzei as oito com o extrato (Cora e Inter): valor exato, débito no dia — duas estão pagas
 > (riscadas acima). As **seis restantes não têm rastro em conta nenhuma do sistema**.
+> Isso virou rotina: `parear_obrigacoes_com_extrato` roda no beat (09:30/15:30) e marca a
+> obrigação como cumprida quando o débito de valor exato aparece na janela do vencimento —
+> **quando você pagar, o sistema fecha sozinho em até 6 h**. Na primeira passada ele achou
+> também **junho pago** (FGTS R$ 7.649,50 e consignado R$ 6.904,41, CEF, 20/07) que ninguém
+> tinha juntado.
 > Vieram dos PDFs que a Portte deixou no Onvio (código de barras dentro da obrigação) — agora
 > também **julho** e as **duas GFD rescisórias** (Daniel, Keyson). O calendário **não tinha FGTS
 > nem CPP da Patrimonial**: as GFD dela de julho e agosto nunca apareceram como vencidas. Se
