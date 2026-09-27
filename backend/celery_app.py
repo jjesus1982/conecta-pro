@@ -124,6 +124,7 @@ app.conf.task_routes = {
     # dia). Fila sem worker aceita a mensagem e nunca executa — foi o que aconteceu com `ged`.
     "ponto.resumo_diario_aprovadores": {"queue": "operacional"},
     "whatsapp.varredura_grupos": {"queue": "operacional"},
+    "whatsapp.verificar_rendicao": {"queue": "operacional"},
     # A RESPOSTA do José Luís ao Jordan/cliente: fila `webhooks` (prioridade 8, consumidor
     # MEDIDO vivo no worker `integrations`). Sem rota explícita ela cairia em `gov.batch`,
     # a fila dos lotes de governo — resposta de gente atrás de fila de lote é silêncio com
@@ -555,6 +556,14 @@ app.conf.beat_schedule = {
     "operacional-lembrete-ponto-whatsapp": {
         "task": "operacional.lembrete_ponto_whatsapp",
         "schedule": 60.0,
+        "options": {"queue": "operacional"},
+    },
+    # ⭐ Rendição AO VIVO — 10 min depois de cada troca. Só nos minutos que importam: medido
+    # em 27/09, as trocas são 06:00, 07:00, 08:00, 10:00, 18:00 e 19:00. Rodar de hora em hora
+    # seria custo de LLM sem sinal — fora da troca não há o que verificar.
+    "whatsapp-verificar-rendicao": {
+        "task": "whatsapp.verificar_rendicao",
+        "schedule": crontab(minute=10, hour="6,7,8,10,18,19"),
         "options": {"queue": "operacional"},
     },
     # ⭐ Vigia 24h dos grupos: lê o que chegou (texto E foto) e publica intercorrência no

@@ -1318,3 +1318,33 @@ def varredura_grupos(self):
     except Exception as exc:
         logger.error(f"[Varredura] falhou: {exc}", exc_info=True)
         raise self.retry(exc=exc)
+
+
+@app.task(name="whatsapp.verificar_rendicao", bind=True, max_retries=0)
+def verificar_rendicao(self):  # noqa: ARG001
+    """Dez minutos depois da troca: o posto está guarnecido? Quem responde é o Hermes.
+
+    🔴 Nasceu de 27/09/2026, quando a troca das 06:00 falhou TRÊS vezes no mesmo dia e nenhuma
+    apareceu como buraco no minuto em que aconteceu: a Kelly não rendeu o Jonilson (15h de
+    jornada aberta), a Thayná não foi ao Green Hills (um diarista de fora cobriu), e a Élen só
+    saiu quando a Erika chegou 37min atrasada.
+
+    ⚠️ `max_retries=0` de propósito: verificação de rendição é sobre o AGORA. Repetir dez
+    minutos depois responderia sobre outro mundo, e uma resposta atrasada aqui é pior que
+    nenhuma — o turno já virou.
+    """
+    from core.database import async_session_factory
+    from modules.integrations.connectors.whatsapp import rendicao as _r
+
+    async def _run() -> dict:
+        async with async_session_factory() as db:
+            return await _r.verificar(db, janela_min=15, publicar=True)
+
+    try:
+        r = asyncio.run(_run())
+        logger.info(f"[Rendição] {r.get('trocas')} troca(s) · "
+                    f"{r.get('problemas', 0)} problema(s) · publicado={r.get('publicado')}")
+        return r
+    except Exception as exc:
+        logger.error(f"[Rendição] falhou: {exc}", exc_info=True)
+        return {"ok": False, "erro": str(exc)[:200]}
