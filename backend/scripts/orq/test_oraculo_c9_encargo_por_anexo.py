@@ -99,8 +99,9 @@ def main() -> int:
         afirma(True, "empresa inexistente recusa, não devolve default")
 
     # ─── o custo do posto reflete o anexo ────────────────────────────────────
-    from modules.financial.controllers.precificacao_controller import (  # noqa: PLC0415
+    from modules.financial.controllers.precificacao_controller import (  # noqa: PLC0415  # noqa: PLC0415
         DIAS_UTEIS,
+        EMPRESA_MAO_DE_OBRA,
         PISO_CATEGORIA,
         REPASSE_PCT,
         VR_DIA,
@@ -108,11 +109,27 @@ def main() -> int:
         custo_clt_posto,
     )
 
-    base = PISO_CATEGORIA * (1 + ENCARGOS_SIMPLES_ANEXO_IV) + VR_DIA * DIAS_UTEIS + VT_MEDIO
+    # Esta asserção foi REESCRITA em 27/09/2026. A versão original dizia «o custo difere da
+    # conta do Anexo IV (hoje III; com IV seria maior)» — ela codificava o ESTADO do cadastro,
+    # não a regra. Quando o cadastro da Patrimonial foi corrigido de III para IV (a guia do
+    # DAS de 08/2026 não tem o código 1006, logo a CPP está fora do DAS, logo é Anexo IV), o
+    # oráculo passou a REPROVAR o estado certo. Régua que envelhece com o dado não é régua.
+    #
+    # A regra que o autor queria: o custo do posto ACOMPANHA o anexo real da empresa, seja
+    # ele qual for. É isso que pega o defeito de verdade — uma constante cravada que ignora
+    # o cadastro. Se um dia o anexo mudar de novo, esta linha continua certa sozinha.
+    from modules.financial.services.encargos import encargo_pct_da_empresa as _pct  # noqa: PLC0415
+
+    esperado = (PISO_CATEGORIA * (1 + _pct(EMPRESA_MAO_DE_OBRA)) + VR_DIA * DIAS_UTEIS + VT_MEDIO) * (1 + REPASSE_PCT)
     afirma(
-        abs(custo_clt_posto() - base * (1 + REPASSE_PCT)) > 1.0,
-        "o custo do posto MUDA com o anexo (hoje III; com IV seria maior)",
+        abs(custo_clt_posto() - esperado) < 0.01,
+        f"o custo do posto segue o anexo do cadastro: R$ {custo_clt_posto():,.2f} "
+        f"= R$ {esperado:,.2f} (encargo {_pct(EMPRESA_MAO_DE_OBRA):.2%})",
     )
+    # E a diferença entre os dois anexos não é decorativa: são 23 pontos de encargo sobre o
+    # piso. Se algum dia der zero, alguém igualou as constantes e apagou a distinção.
+    delta = PISO_CATEGORIA * (ENCARGOS_SIMPLES_ANEXO_IV - ENCARGOS_SIMPLES_ANEXO_III)
+    afirma(delta > 300.0, f"trocar III por IV move R$ {delta:,.2f} por posto/mês")
 
     print(f"\nTOTAL desvios C9: {desvios}")
     return 1 if desvios else 0

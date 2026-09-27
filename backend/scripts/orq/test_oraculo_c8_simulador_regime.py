@@ -82,7 +82,14 @@ def main() -> int:
         )
 
     # ─── a curva é contínua nas fronteiras: tabela errada quebra aqui ────────
+    #
+    # R$ 3,6 mi fica DE FORA: ali o ISS sai do DAS e a efetiva cai de propósito. Essa
+    # fronteira, e a propriedade nas outras QUATRO tabelas de faixas do repositório, são
+    # afirmadas pelo oráculo D1 — que nasceu de um typo (13,20% em vez de 13,50%) que
+    # esta verificação, restrita ao Anexo IV, nunca alcançaria.
     for teto, _nominal, _ded in ANEXO_IV[:-1]:
+        if teto == 3_600_000.00:
+            continue
         antes, _ = aliquota_efetiva_anexo_iv(teto)
         depois, _ = aliquota_efetiva_anexo_iv(teto + 1.0)
         afirma(
@@ -91,11 +98,19 @@ def main() -> int:
         )
 
     # ─── o que ele tem de recusar ────────────────────────────────────────────
+    # A 6ª faixa foi CONFIRMADA em 27/09 (ver o comentário de ANEXO_IV). A recusa continua,
+    # mas na fronteira certa: acima do teto do Simples não há faixa porque não há regime.
+    efetiva_6a, faixa_6a = aliquota_efetiva_anexo_iv(3_700_000)
+    afirma(faixa_6a == 6, f"R$ 3,7 mi cai na 6ª faixa (veio {faixa_6a})")
+    afirma(
+        abs(efetiva_6a - 0.1062) < 0.0005,
+        f"6ª faixa em R$ 3,7 mi dá 10,62% (veio {efetiva_6a:.4%})",
+    )
     try:
-        aliquota_efetiva_anexo_iv(3_700_000)
-        afirma(False, "6ª faixa devia RECUSAR — dedução não confirmada na fonte oficial")
+        aliquota_efetiva_anexo_iv(5_000_000)
+        afirma(False, "acima do teto do Simples devia RECUSAR")
     except FaixaNaoConfirmadaError:
-        afirma(True, "6ª faixa recusada — dedução não confirmada")
+        afirma(True, "acima do teto do Simples: recusado, não estimado")
     for ruim in (0, -1):
         try:
             aliquota_efetiva_anexo_iv(ruim)

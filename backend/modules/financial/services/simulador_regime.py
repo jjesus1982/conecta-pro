@@ -34,18 +34,28 @@ logger = logging.getLogger(__name__)
 # Patrimonial caem em faixas DIFERENTES (07/2026 na 2ª, 08/2026 na 3ª) e a fórmula
 # `(RBT12 × nominal − deduzir) / RBT12` fecha nas duas.
 #
-# A 6ª FAIXA ESTÁ AUSENTE DE PROPÓSITO. As fontes consultadas dão parcela a deduzir de
-# R$ 828.000, o que faria a alíquota efetiva CAIR de 16,89% para 10,00% ao cruzar
-# R$ 3,6 milhões. Nenhuma tabela progressiva cai. Enquanto não for confirmada na fonte
-# oficial, o simulador RECUSA RBT12 acima de R$ 3,6 mi em vez de devolver número — e isso
-# importa: a Patrimonial está a 87% desse teto.
+# A 6ª FAIXA ficou de fora em 26/09 por uma premissa MINHA que era falsa. Eu recusei a
+# dedução de R$ 828.000 porque ela faz a efetiva CAIR de 16,89% para 10,00% ao cruzar
+# R$ 3,6 milhões, e escrevi que "nenhuma tabela progressiva cai". Cai, e por um motivo:
+# acima de R$ 3,6 mi o ISS SAI do DAS e passa a ser recolhido direto ao município. O DAS
+# cobre menos tributos, então a alíquota dele desce — a carga total do contribuinte não.
+#
+# A prova não veio de uma fonte nova; veio de dentro de casa. As TRÊS cópias do Anexo III
+# neste repositório, escritas por autores diferentes, têm a MESMA queda na MESMA fronteira
+# (17,51% -> 15,00%, dedução R$ 648.000). Três transcrições independentes não erram igual
+# no mesmo lugar. Ver `scripts/orq/test_oraculo_d1_faixas_simples.py`, que afirma as duas
+# metades da regra: contínuo em toda fronteira interior, e descontínuo em R$ 3,6 mi.
 ANEXO_IV: list[tuple[float, float, float]] = [
     (180_000.00, 0.045, 0.00),
     (360_000.00, 0.090, 8_100.00),
     (720_000.00, 0.102, 12_420.00),
     (1_800_000.00, 0.140, 39_780.00),
     (3_600_000.00, 0.220, 183_780.00),
+    (4_800_000.00, 0.330, 828_000.00),
 ]
+
+#: Teto do Simples Nacional. Acima disto não há faixa porque não há Simples.
+TETO_SIMPLES = 4_800_000.00
 
 #: Lucro Presumido — base presumida de serviços em geral (IN RFB 1.700, Anexo).
 BASE_PRESUMIDA_SERVICOS = 0.32
@@ -62,7 +72,12 @@ COFINS_CUMULATIVO = 0.0300
 
 
 class FaixaNaoConfirmadaError(ValueError):
-    """RBT12 na 6ª faixa do Anexo IV, cuja parcela a deduzir não foi confirmada."""
+    """RBT12 acima do teto do Simples — não há faixa porque não há regime.
+
+    Mantém o nome antigo: é a mesma recusa (não devolver número onde não há tabela), só
+    que a fronteira mudou de R$ 3,6 mi para o teto real de R$ 4,8 mi quando a 6ª faixa
+    foi confirmada em 27/09.
+    """
 
 
 class RBT12NaoDeterminadoError(ValueError):
@@ -77,9 +92,9 @@ def aliquota_efetiva_anexo_iv(rbt12: float) -> tuple[float, int]:
         if rbt12 <= teto:
             return (rbt12 * nominal - deduzir) / rbt12, i
     raise FaixaNaoConfirmadaError(
-        f"RBT12 de R$ {rbt12:,.2f} cai na 6ª faixa do Anexo IV, cuja parcela a deduzir "
-        "não foi confirmada na fonte oficial (as fontes consultadas quebram a "
-        "continuidade da curva). Confirme em sped.rfb.gov.br antes de usar."
+        f"RBT12 de R$ {rbt12:,.2f} estourou o teto do Simples (R$ {TETO_SIMPLES:,.2f}). "
+        "Não existe faixa acima disso: a empresa está desenquadrada e precisa de outro "
+        "regime no cadastro. Simular Simples aqui devolveria um número que não existe."
     )
 
 

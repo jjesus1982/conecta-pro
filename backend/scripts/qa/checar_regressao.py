@@ -117,6 +117,13 @@ CACADORES = {
     # no valor errado. Medido no dia em que entrou: setembro, transcrito da planilha do dono,
     # 6 divergências; outubro, gerado do contrato, ZERO.
     "checar_cronograma_vs_contrato.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre cronograma e contrato", s),
+    # O anexo do Simples no CADASTRO contra o que a GUIA PAGA mostra. `empresas.anexo_simples`
+    # decide 32,44% × 55,44% de encargo (`encargo_pct_da_empresa`) e a faixa do DAS — errar
+    # o campo erra os dois em direções OPOSTAS, e o preço sai plausível. A régua é o código
+    # de receita 1006 dentro da guia: a CPP patronal está dentro do DAS no Anexo III e fora
+    # dele no IV, por definição. Em 27/09/2026 a Patrimonial estava cadastrada como III e o
+    # DAS de 08/2026 não tinha 1006 nenhum, com R$ 126.689,72 de folha no mês.
+    "checar_anexo_vs_guia.py": lambda s: _n(r"^TOTAL: (\d+) empresa\(s\) com anexo do cadastro diferente da guia", s),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
