@@ -340,6 +340,33 @@ do corte e nunca sairão. Corrigidas.
 
 ---
 
+## 8. O que está no ar às 11:30 de 27/09 — e como chegou
+
+Nove commits, cada um assado com blue/green, md5 imagem × disco conferido e drift zero. O
+último bake foi **morto pelo guarda de memória do harness** no passo 2 (blue + green + build
++ SOPHIA indexando + duas sessões Claude); a produção nunca saiu do ar, o green ficou órfão
+já saudável na imagem nova, e retomar o script fechou em 7 minutos. Lição gravada.
+
+| commit | o que | provado por |
+|---|---|---|
+| `e3cceab5b` | cronograma de notas nasce do contrato | out: 11 propostas, 0 divergências |
+| `c85fad374` | anexo III→IV, typo 13,20%, 6ª faixa | guia sem 1006; posto R$ 3.059 → 3.472 |
+| `08c6a4af4` | cotação diz de que regime são os parâmetros | aviso nos 2 endpoints |
+| `31db3e5cc` | LALUR Parte A/B, trava dos 30% | R$ 200k → R$ 60k pelo teto |
+| `f7335e237` | deploy para em conflito; M410 idempotente | abort nomeado; 3 chamadas = 1 |
+| `5231e7052` | fila do LALUR (`D`, ISS fora, ano recusado); encargo da empresa | preço 5.820 → 5.673; balanço 3 → 0 |
+| `8d6778848` | conciliação honra a competência corrigida; folha real na tela; card conta 3.010; réguas v5 e executor | receita 15 → 14; 6/7 contratos com folha real |
+| `84ea13ec5`… | relatório e correções ao plano | — |
+
+No ar e verificados de fora na imagem final: t3, v5, C10, C9, balanço, `receita_nao_lancada`
+em 14, e a aba «Custo por contrato» com a folha real de 08/2026 em 6 dos 7 contratos.
+
+A varredura noturna das 00:00 vai regravar a linha de base. O que ela vai absorver como
+novo nível é o que está atribuído na §7 — nada disso é silêncio: a decisão de deixar
+crescer está escrita nos commits `8d6778848` e neste relatório.
+
+---
+
 ## PRECISO DE VOCÊ — 3 coisas
 
 ### a) O RBT12 não bate entre as duas guias
@@ -385,6 +412,14 @@ Não parametrizei por empresa porque `alembic/versions/` é zona proibida e isso
 migração. **Proponho o caminho sem migração:** fazer os leitores consultarem
 `encargo_pct_da_empresa()`, que já lê o cadastro certo — apagar a divergência em vez de
 duplicar a tabela. Confirma?
+
+### e) Mirante das Flores: a limpeza não está no contrato
+
+`checar_contrato_vs_nota` acusa: contrato R$ 40.755,80 × nota R$ 52.817,30 — R$ 12.061,50 a
+mais, que é a linha de limpeza. O `contracts` do Mirante não tem essa linha, e a nota tem.
+E no recebível ela aparece como R$ 13.561,50 (ver o par duplicado 5/11 de junho). Qual é o
+valor do aditivo que você vai assinar: 12.061,50 ou 13.561,50? Com a resposta eu ajusto o
+contrato e o cronograma de outubro sai certo — é a nota que você disse que vai emitir por aqui.
 
 ### d) Qual é o nosso RAT: 2% ou 3%?
 
