@@ -342,6 +342,13 @@ global (01/08) e acusou 52 lançamentos "de período fechado alterados" — todo
 Patrimonial, cujo corte é 01/06, e nenhum anterior a ele. Agora julga pelo corte da empresa:
 52 → 0.
 
+**Uma quarta régua envelhecida, à tarde:** a condição 7 do gate acusava a busca de certidões
+como "roda e não produz" medindo a data da última renovação — e renovar depende dos portais,
+que hoje recusam este servidor. A task passou a gravar em `system_configs` a data da
+**tentativa** e o motivo de cada portal (`ged.certidoes.ultima_tentativa`), e a régua lê
+isso. Quem abrir a chave vê: *"Caixa RECUSOU (HTTP 403, WAF)… TST exige captcha…"* — sem
+precisar de log de container, que cada bake zera.
+
 **O gate fiscal 9 → 7.** Uma condição é o v5 acima. A outra é a tabela de tributos vencidos
 sem guia no topo deste relatório — e essa é sua, urgente.
 
