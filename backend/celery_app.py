@@ -275,6 +275,12 @@ app.conf.beat_schedule = {
     "ged-check-document-expiry": {
         "task": "ged.check_document_expiry",
         "schedule": crontab(hour=8, minute=15),
+        # O decorator diz queue="batch" e NENHUM worker escuta "batch" (todos escutam
+        # gov.batch, gov.esocial, integrations…). Medido em 27/09/2026: 68 disparos diários
+        # mofando no Redis desde julho — e por isso ninguém foi avisado quando a CND
+        # municipal da Eletrônica venceu em 01/09, o CRF/FGTS em 17/09 e a estadual em 18/09.
+        # "Agendada" não é "consumida": a fila tem de existir do outro lado.
+        "options": {"queue": "gov.batch"},
     },
     # ── Financeiro — Conciliação bancária diária (extrato Inter → bridge → categoriza) ──
     "financeiro-conciliacao-inter-diaria": {
