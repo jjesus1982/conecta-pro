@@ -46,11 +46,65 @@ _DEFAULTS = {  # fallback se faltar algum parâmetro no banco
 }
 
 
+#: A empresa que emprega os agentes de portaria. `crm_pricing_params` não tem coluna de
+#: empresa — é UMA tabela para as duas — então a comparação abaixo precisa saber de quem
+#: estamos falando. Mesmo CNPJ que `precificacao_controller.EMPRESA_MAO_DE_OBRA`.
+CNPJ_MAO_DE_OBRA = "66014833000110"
+
+
+async def _aviso_de_regime(db, p: dict) -> str | None:
+    """Diz em voz alta quando os parâmetros da tabela não são os da empresa que paga.
+
+    `crm_pricing_params` guarda UM conjunto para as DUAS empresas, e o conjunto que está lá
+    é o de Lucro Real: os sete encargos somam 0,6124 (inclui os 5,8% de terceiros) e os
+    tributos são PIS 1,65% + COFINS 7,60% + ISS 5% = 14,25%, cobrados por fora.
+
+    A Patrimonial, que emprega os agentes, é Simples Anexo IV: encargo 55,44% (terceiros
+    NÃO são devidos) e os tributos vêm num DAS só, com alíquota que depende do RBT12.
+    Medido em 27/09/2026 num AGP de piso R$ 1.670: a cotação sai R$ 5.820,81 onde os
+    parâmetros certos dariam R$ 5.294,95 — 9,0% acima.
+
+    NÃO corrijo o número aqui, de propósito, e por duas razões. A metade do encargo eu sei
+    (é `encargo_pct_da_empresa`), mas a dos tributos depende do RBT12, que está NULO nas
+    duas empresas e cujas duas guias dão respostas incompatíveis (~208 mil × ~827 mil).
+    Consertar metade move o preço para um lugar que também não é o certo. E derrubar a
+    cotação com uma recusa tiraria do José Luís a única ferramenta de preço que ele tem no
+    WhatsApp. O dano aqui é o SILÊNCIO, não o número: quem cota passa a ver de que regime
+    são os parâmetros na mão dele.
+    """
+    from modules.financial.services.encargos import (  # noqa: PLC0415
+        AnexoNaoDeterminadoError,
+        encargo_pct_da_empresa,
+    )
+
+    eid = (
+        await db.execute(
+            text("SELECT id::text FROM empresas  WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') = :c"),
+            {"c": CNPJ_MAO_DE_OBRA},
+        )
+    ).scalar()
+    if not eid:
+        return None
+    try:
+        real = encargo_pct_da_empresa(eid)
+    except AnexoNaoDeterminadoError as e:
+        return f"encargo da empresa não determinado: {e}"
+    da_tabela = sum(float(p.get(k, 0) or 0) for k in ENCARGO_KEYS)
+    if abs(real - da_tabela) < 1e-6:
+        return None
+    return (
+        f"parâmetros de Lucro Real: a tabela soma {da_tabela:.2%} de encargo e esta empresa "
+        f"é {real:.2%}; os tributos saem por fora (PIS+COFINS+ISS) quando no Simples vêm num "
+        f"DAS só. Preço indicativo — confirmar antes de fechar."
+    )
+
+
 async def carregar_params(db) -> dict:
     rows = (await db.execute(text("SELECT chave, valor FROM crm_pricing_params"))).all()
     p = dict(_DEFAULTS)
     for chave, valor in rows:
         p[chave] = float(valor)
+    p["_regime_aviso"] = await _aviso_de_regime(db, p)
     return p
 
 
@@ -111,6 +165,8 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
         "preco": round(preco, 2),
         "markup_pct": round((preco / custo - 1) if custo else 0, 4),
         "lucro_liquido": round(preco * (1 - tributos) - custo, 2),
+        # None quando os parâmetros batem com o regime de quem paga. Ver `_aviso_de_regime`.
+        "regime_aviso": params.get("_regime_aviso"),
     }
 
 

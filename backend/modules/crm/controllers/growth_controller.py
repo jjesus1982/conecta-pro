@@ -15,11 +15,9 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.dependencies import CurrentActiveUser
-
-from core.auth.dependencies import get_current_active_user
+from core.auth.dependencies import CurrentActiveUser, get_current_active_user
 from core.database import get_db
-from modules.crm.services import growth_services as G
+from modules.crm.services import growth_services as G  # noqa: N812
 
 router = APIRouter(tags=["CRM - Growth"])
 
@@ -37,11 +35,15 @@ _PUBLIC_ERP = os.getenv("PUBLIC_ERP_URL", "https://erp.conectamais.pro").rstrip(
 _DOCS_DIR = os.getenv("UPLOADS_DIR", "/app/uploads") + "/docs"
 
 
-async def _salvar_pdf(db, tipo: str, titulo: str, pdf_bytes: bytes, *, ref_tipo=None, ref_id=None, teste=False, drive=False, filename=None) -> dict:
+async def _salvar_pdf(
+    db, tipo: str, titulo: str, pdf_bytes: bytes, *, ref_tipo=None, ref_id=None, teste=False, drive=False, filename=None
+) -> dict:
     """Persiste + registra + link público (delega ao docs_registry). drive=True: sobe pro Google Drive."""
     from modules.crm.services.docs_registry import salvar_pdf
 
-    return await salvar_pdf(db, tipo, titulo, pdf_bytes, ref_tipo=ref_tipo, ref_id=ref_id, teste=teste, drive=drive, filename=filename)
+    return await salvar_pdf(
+        db, tipo, titulo, pdf_bytes, ref_tipo=ref_tipo, ref_id=ref_id, teste=teste, drive=drive, filename=filename
+    )
 
 
 @router.get("/docs/download/{doc_id}")
@@ -86,8 +88,11 @@ async def listar_documentos(db: AsyncSession = Depends(get_db), tipo: str | None
 
 @router.get("/audit")
 async def consultar_auditoria(
-    db: AsyncSession = Depends(get_db), limite: int = 50, metodo: str | None = None,
-    busca: str | None = None, request_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    limite: int = 50,
+    metodo: str | None = None,
+    busca: str | None = None,
+    request_id: str | None = None,
 ):
     """Log de auditoria das escritas (quem/quando/o quê/resultado). Filtra por método (POST/PUT/DELETE)
     ou trecho do caminho (busca)."""
@@ -128,7 +133,9 @@ async def consultar_auditoria(
     # Vão para seção própria: quem pergunta ao consultor não mudou proposta, folha nem posto.
     consultas = [r for r in rows if "/consultores/mcp/" in str(r.get("caminho") or "")]
     rows = [r for r in rows if "/consultores/mcp/" not in str(r.get("caminho") or "")]
-    sensiveis = _rows(await db.execute(text("""
+    sensiveis = _rows(
+        await db.execute(
+            text("""
         SELECT to_char(created_at,'DD/MM/YYYY HH24:MI:SS') quando, quem, tool,
                left(coalesce(argumentos,''), 200) AS sobre_o_que,
                autorizado_por_concessao, request_id
@@ -136,9 +143,13 @@ async def consultar_auditoria(
          -- ⚠️ CAST explícito: `:r IS NULL` sozinho deixa o Postgres sem tipo para inferir
          -- e ele devolve AmbiguousParameterError. O cast resolve e diz o que o parâmetro é.
          WHERE (cast(:r AS text) IS NULL OR request_id = cast(:r AS text))
-         ORDER BY created_at DESC LIMIT :lim"""), {"lim": limite, "r": request_id}))
+         ORDER BY created_at DESC LIMIT :lim"""),
+            {"lim": limite, "r": request_id},
+        )
+    )
     return {
-        "total": len(rows), "eventos": rows,
+        "total": len(rows),
+        "eventos": rows,
         # ⚠️ NÃO é escrita de negócio: é a trilha da própria pergunta ao consultor.
         "consultas_a_consultor": consultas,
         "total_consultas": len(consultas),
@@ -148,7 +159,9 @@ async def consultar_auditoria(
         "aviso_lgpd": (
             "`acessos_a_dado_sensivel` diz QUAL ferramenta e SOBRE O QUÊ, além de quem e "
             "quando. Registra a intenção: tentativa recusada também aparece."
-            if sensiveis else None),
+            if sensiveis
+            else None
+        ),
     }
 
 
@@ -171,7 +184,7 @@ async def pricing_parametros(
     A `convencao` vai junto de cada margem: 35% sobre o PREÇO e 35% de markup sobre o CUSTO
     são R$ 18.846 de diferença num item de R$ 100 mil.
     """
-    from modules.crm.services import margem as MG
+    from modules.crm.services import margem as MG  # noqa: N812
 
     rows = _rows(
         await db.execute(text("SELECT chave, valor, label, grupo FROM crm_pricing_params ORDER BY grupo, chave"))
@@ -182,9 +195,8 @@ async def pricing_parametros(
     # é oferecer duas respostas para a mesma pergunta, e quem ler primeiro acredita.
     escalar = [r for r in rows if r["grupo"] == "margem"]
     rows = [r for r in rows if r["grupo"] != "margem"]
-    margens = await MG.listar(db, empresa=empresa, linha_negocio=linha_negocio,
-                              natureza_item=natureza_item)
-    from modules.crm.services import regime_tributario as RT
+    margens = await MG.listar(db, empresa=empresa, linha_negocio=linha_negocio, natureza_item=natureza_item)
+    from modules.crm.services import regime_tributario as RT  # noqa: N812
 
     empresas = await RT.listar(db)
     saida = {
@@ -227,17 +239,16 @@ async def pricing_orcamento_por_natureza(
     que existe: chutar 15% onde a margem é 40% é errar o preço para menos e descobrir no
     fechamento.
     """
-    from modules.crm.services import margem as MG
+    from modules.crm.services import margem as MG  # noqa: N812
 
     empresa = str(payload.get("empresa_cnpj") or "").strip()
     linha = str(payload.get("linha_negocio") or "").strip()
     itens = payload.get("itens") or []
-    faltando = [k for k, v in (("empresa_cnpj", empresa), ("linha_negocio", linha),
-                               ("itens", itens)) if not v]
+    faltando = [k for k, v in (("empresa_cnpj", empresa), ("linha_negocio", linha), ("itens", itens)) if not v]
     if faltando:
         raise HTTPException(422, f"Informe: {', '.join(faltando)}.")
 
-    from modules.crm.services import regime_tributario as RT
+    from modules.crm.services import regime_tributario as RT  # noqa: N812
 
     try:
         reg = await RT.resolver(db, empresa)
@@ -252,12 +263,12 @@ async def pricing_orcamento_por_natureza(
         custo = float(it.get("custo") or 0)
         qtd = float(it.get("quantidade") or 1)
         if not natureza:
-            raise HTTPException(422, f"Item {i + 1} ({it.get('descricao')}) sem "
-                                     f"`natureza_item`. Use uma de: "
-                                     f"{' | '.join(MG.NATUREZAS)}.")
+            raise HTTPException(
+                422,
+                f"Item {i + 1} ({it.get('descricao')}) sem `natureza_item`. Use uma de: {' | '.join(MG.NATUREZAS)}.",
+            )
         try:
-            m = await MG.resolver(db, empresa_cnpj=empresa, linha_negocio=linha,
-                                  natureza_item=natureza)
+            m = await MG.resolver(db, empresa_cnpj=empresa, linha_negocio=linha, natureza_item=natureza)
         except MG.MargemNaoCadastrada as e:
             # 422 com o envelope do Bloco 1 — inclui o que EXISTE, para o agente escolher
             raise HTTPException(422, MG.envelope_recusa(e)) from e
@@ -308,16 +319,17 @@ async def pricing_orcamento_por_natureza(
         # A primeira é a comparável com as margens das LINHAS (35% e 40% também são sobre o
         # preço sem tributo); a segunda é quanto sobra do que o cliente paga.
         "margem_media_sobre_preco_sem_tributo": (
-            round(total_lucro / (total_custo + total_lucro), 4)
-            if (total_custo + total_lucro) else None),
-        "margem_media_sobre_preco_final": (round(total_lucro / total_preco, 4)
-                                           if total_preco else None),
-        "aviso": ("As duas médias são RESULTADO, não parâmetro — ninguém as definiu. "
-                  "Cada linha tem a margem da natureza dela. Use "
-                  "`margem_media_sobre_preco_sem_tributo` para comparar com as margens das "
-                  "linhas (35%/40% também são sobre o preço sem tributo); use "
-                  "`margem_media_sobre_preco_final` para saber quanto sobra do que o "
-                  "cliente paga. Tributo não é lucro em nenhuma das duas."),
+            round(total_lucro / (total_custo + total_lucro), 4) if (total_custo + total_lucro) else None
+        ),
+        "margem_media_sobre_preco_final": (round(total_lucro / total_preco, 4) if total_preco else None),
+        "aviso": (
+            "As duas médias são RESULTADO, não parâmetro — ninguém as definiu. "
+            "Cada linha tem a margem da natureza dela. Use "
+            "`margem_media_sobre_preco_sem_tributo` para comparar com as margens das "
+            "linhas (35%/40% também são sobre o preço sem tributo); use "
+            "`margem_media_sobre_preco_final` para saber quanto sobra do que o "
+            "cliente paga. Tributo não é lucro em nenhuma das duas."
+        ),
     }
 
 
@@ -329,7 +341,7 @@ async def proposta_procedencia(
 
     Diz SIM com o diagnóstico, ou NÃO com o código e os itens que travam. Não envia nada.
     """
-    from modules.crm.services import procedencia_custo as PC
+    from modules.crm.services import procedencia_custo as PC  # noqa: N812
 
     try:
         return await PC.pode_enviar(db, numero)
@@ -346,10 +358,9 @@ async def proposta_aceitar_estimativa(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Registra que alguém ASSUME o risco de enviar com custo estimado."""
-    from modules.crm.services import procedencia_custo as PC
+    from modules.crm.services import procedencia_custo as PC  # noqa: N812
 
-    quem = (payload.get("quem") or getattr(current_user, "full_name", None)
-            or getattr(current_user, "email", None) or "")
+    quem = payload.get("quem") or getattr(current_user, "full_name", None) or getattr(current_user, "email", None) or ""
     try:
         return await PC.aceitar_estimativa(db, numero, quem)
     except PC.BloqueioDeEnvio as e:
@@ -380,7 +391,8 @@ async def pricing_atualizar_parametros(
         if k in _CHAVES_CONTRATO:
             await db.execute(
                 text("UPDATE crm_pricing_params SET confirmado_por=:q, confirmado_em=now() WHERE chave=:k"),
-                {"k": k, "q": str(getattr(_, "email", None) or getattr(_, "id", "api"))[:120]})
+                {"k": k, "q": str(getattr(_, "email", None) or getattr(_, "id", "api"))[:120]},
+            )
     await db.commit()
     return {"atualizados": n}
 
@@ -403,9 +415,23 @@ async def pricing_funcoes(db: AsyncSession = Depends(get_db)):
                 "preco": c["preco"],
                 "markup_pct": c["markup_pct"],
                 "lucro_liquido": c["lucro_liquido"],
+                # Sem isto o aviso do motor morria aqui: este endpoint escolhe campo a campo,
+                # e `regime_aviso` não estava na lista. Ver `pricing_cct._aviso_de_regime`.
+                "regime_aviso": c.get("regime_aviso"),
             }
         )
-    return {"regime": "Grupo Conecta Mais · Margem 15% · CCT 2026 · encargos por regime da empresa (revisão multi-CNPJ)", "funcoes": out}
+    # O rótulo dizia «encargos por regime da empresa (revisão multi-CNPJ)» e isso era FALSO:
+    # `pricing_cct` soma os sete encargos de `crm_pricing_params`, que é UMA tabela para as
+    # DUAS empresas e guarda o conjunto de Lucro Real. Rótulo que afirma o que o código não
+    # faz é pior que rótulo nenhum — quem lê para de conferir. Corrigido em 27/09/2026.
+    return {
+        "regime": (
+            "Grupo Conecta Mais · Margem 15% · CCT 2026 · encargos da tabela GLOBAL "
+            "`crm_pricing_params` (Lucro Real), não do regime de cada CNPJ"
+        ),
+        "regime_aviso": (out[0].get("regime_aviso") if out else None),
+        "funcoes": out,
+    }
 
 
 class SimularIn(BaseModel):
@@ -474,7 +500,10 @@ async def contexto_cliente(
     Só LÊ.
     """
     digitos = re.sub(r"\D", "", chave or "")
-    cli = (await db.execute(text("""
+    cli = (
+        (
+            await db.execute(
+                text("""
         SELECT id::text, code, name, coalesce(document_number,'') AS doc,
                coalesce(email,'') AS email, coalesce(phone,'') AS fone,
                coalesce(address_city,'') AS cidade, coalesce(ativo,true) AS ativo
@@ -484,21 +513,33 @@ async def contexto_cliente(
             OR id::text = :k
             OR unaccent(lower(name)) LIKE '%' || unaccent(lower(:k)) || '%'
          ORDER BY ativo DESC, name
-         LIMIT 5"""), {"d": digitos, "k": (chave or "").strip()})).mappings().all()
+         LIMIT 5"""),
+                {"d": digitos, "k": (chave or "").strip()},
+            )
+        )
+        .mappings()
+        .all()
+    )
     if not cli:
         raise HTTPException(status_code=404, detail=f"Nenhum cliente corresponde a {chave!r}.")
     if len(cli) > 1:
         # AMBÍGUO não é erro: devolve a escolha. Montar o dossiê do cliente errado é pior
         # que não montar — o agente age sobre ele achando que é o certo.
-        raise HTTPException(status_code=409, detail={
-            "codigo": "AMBIGUO",
-            "mensagem": f"{len(cli)} clientes correspondem a {chave!r}.",
-            "candidatos": [{"codigo": c["code"], "nome": c["name"], "cnpj": c["doc"]}
-                           for c in cli]})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "AMBIGUO",
+                "mensagem": f"{len(cli)} clientes correspondem a {chave!r}.",
+                "candidatos": [{"codigo": c["code"], "nome": c["name"], "cnpj": c["doc"]} for c in cli],
+            },
+        )
     c = cli[0]
     cid = c["id"]
 
-    contratos = (await db.execute(text("""
+    contratos = (
+        (
+            await db.execute(
+                text("""
         SELECT ct.contract_number, ct.contract_type::text AS tipo, ct.status::text AS status,
                coalesce(ct.monthly_value,0) AS mensal, coalesce(ct.total_value,0) AS total,
                coalesce(ct.tipo_servico::text,'') AS servico,
@@ -509,21 +550,48 @@ async def contexto_cliente(
                (SELECT count(*) FROM sig_signature_requests s
                  WHERE s.reference_code = ct.contract_number AND s.signed_at IS NOT NULL) AS assin_feitas
           FROM contracts ct LEFT JOIN empresas e ON e.id = ct.empresa_id
-         WHERE ct.client_id::text = :c ORDER BY ct.created_at DESC"""), {"c": cid})).mappings().all()
+         WHERE ct.client_id::text = :c ORDER BY ct.created_at DESC"""),
+                {"c": cid},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
-    props = (await db.execute(text("""
+    props = (
+        (
+            await db.execute(
+                text("""
         SELECT number, coalesce(title,'') AS titulo, coalesce(total,0) AS valor, status::text AS status
           FROM proposals WHERE client_name ILIKE :n AND coalesce(is_active,true)
-         ORDER BY created_at DESC LIMIT 10"""), {"n": f"%{c['name'][:24]}%"})).mappings().all()
+         ORDER BY created_at DESC LIMIT 10"""),
+                {"n": f"%{c['name'][:24]}%"},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
-    opps = (await db.execute(text("""
+    opps = (
+        (
+            await db.execute(
+                text("""
         SELECT coalesce(title,'') AS titulo, stage::text AS estagio, coalesce(value,0) AS valor
           FROM opportunities
          WHERE coalesce(is_active,true) AND unaccent(lower(coalesce(company_name,''))) LIKE
                '%' || unaccent(lower(:n)) || '%'
-         ORDER BY updated_at DESC LIMIT 10"""), {"n": c["name"][:24]})).mappings().all()
+         ORDER BY updated_at DESC LIMIT 10"""),
+                {"n": c["name"][:24]},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
-    docs = (await db.execute(text("""
+    docs = (
+        (
+            await db.execute(
+                text("""
         SELECT tipo, titulo, coalesce(tamanho_kb,0) AS kb, created_at
           FROM crm_documents
          WHERE coalesce(arquivado,false) = false
@@ -532,44 +600,80 @@ async def contexto_cliente(
                    SELECT contract_number FROM contracts WHERE client_id::text = :c))
              OR (ref_tipo = 'contrato' AND ref_id IN (
                    SELECT contract_number FROM contracts WHERE client_id::text = :c)))
-         ORDER BY created_at DESC LIMIT 15"""), {"c": cid})).mappings().all()
+         ORDER BY created_at DESC LIMIT 15"""),
+                {"c": cid},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
-    receb = (await db.execute(text("""
+    receb = (
+        (
+            await db.execute(
+                text("""
         SELECT coalesce(sum(net_value),0) AS aberto, count(*) AS n,
                count(*) FILTER (WHERE due_date < current_date) AS vencidos
           FROM receivable_accounts
          WHERE customer_id::text = :c AND lower(coalesce(status::text,'')) NOT IN ('paga','pago','cancelada')"""),
-        {"c": cid})).mappings().first()
+                {"c": cid},
+            )
+        )
+        .mappings()
+        .first()
+    )
 
     ativos = [x for x in contratos if x["status"] in ("active", "ativo", "vigente")]
     return {
         "ok": True,
-        "cliente": {"codigo": c["code"], "nome": c["name"], "cnpj": c["doc"],
-                    "email": c["email"], "telefone": c["fone"], "cidade": c["cidade"],
-                    "ativo": c["ativo"]},
+        "cliente": {
+            "codigo": c["code"],
+            "nome": c["name"],
+            "cnpj": c["doc"],
+            "email": c["email"],
+            "telefone": c["fone"],
+            "cidade": c["cidade"],
+            "ativo": c["ativo"],
+        },
         "resumo": {
-            "contratos": len(contratos), "contratos_ativos": len(ativos),
+            "contratos": len(contratos),
+            "contratos_ativos": len(ativos),
             "mrr": float(sum(float(x["mensal"] or 0) for x in ativos)),
             "propostas_abertas": len([p for p in props if p["status"] in ("sent", "draft")]),
-            "oportunidades_abertas": len([o for o in opps
-                                          if o["estagio"] not in ("closed_won", "closed_lost")]),
+            "oportunidades_abertas": len([o for o in opps if o["estagio"] not in ("closed_won", "closed_lost")]),
             "documentos": len(docs),
             "recebiveis_em_aberto": float(receb["aberto"] or 0) if receb else 0.0,
             "recebiveis_vencidos": int(receb["vencidos"] or 0) if receb else 0,
         },
-        "contratos": [{"numero": x["contract_number"], "tipo": x["tipo"], "status": x["status"],
-                       "servico": x["servico"], "emitente": x["emitente"],
-                       "mensal": float(x["mensal"] or 0), "total": float(x["total"] or 0),
-                       "assinaturas": f"{x['assin_feitas']}/{x['assin_abertas']}"
-                       if x["assin_abertas"] else "não aberta"} for x in contratos],
-        "propostas": [{"numero": p["number"], "titulo": p["titulo"][:60],
-                       "valor": float(p["valor"] or 0), "status": p["status"]} for p in props],
-        "oportunidades": [{"titulo": o["titulo"][:60], "estagio": o["estagio"],
-                           "valor": float(o["valor"] or 0)} for o in opps],
-        "documentos": [{"categoria": d["tipo"], "nome": d["titulo"][:60],
-                        "tamanho_kb": float(d["kb"] or 0),
-                        "criado_em": d["created_at"].isoformat() if d["created_at"] else None}
-                       for d in docs],
+        "contratos": [
+            {
+                "numero": x["contract_number"],
+                "tipo": x["tipo"],
+                "status": x["status"],
+                "servico": x["servico"],
+                "emitente": x["emitente"],
+                "mensal": float(x["mensal"] or 0),
+                "total": float(x["total"] or 0),
+                "assinaturas": f"{x['assin_feitas']}/{x['assin_abertas']}" if x["assin_abertas"] else "não aberta",
+            }
+            for x in contratos
+        ],
+        "propostas": [
+            {"numero": p["number"], "titulo": p["titulo"][:60], "valor": float(p["valor"] or 0), "status": p["status"]}
+            for p in props
+        ],
+        "oportunidades": [
+            {"titulo": o["titulo"][:60], "estagio": o["estagio"], "valor": float(o["valor"] or 0)} for o in opps
+        ],
+        "documentos": [
+            {
+                "categoria": d["tipo"],
+                "nome": d["titulo"][:60],
+                "tamanho_kb": float(d["kb"] or 0),
+                "criado_em": d["created_at"].isoformat() if d["created_at"] else None,
+            }
+            for d in docs
+        ],
     }
 
 
@@ -643,8 +747,7 @@ async def baixar_documento_conteudo(
     from modules.crm.services.docs_registry import baixar
 
     try:
-        return await baixar(db, documento_id=documento_id, formato=formato,
-                            forcar_base64=forcar_base64)
+        return await baixar(db, documento_id=documento_id, formato=formato, forcar_base64=forcar_base64)
     except LookupError as e:
         raise HTTPException(404, str(e)) from e
     except FileNotFoundError as e:
@@ -1104,7 +1207,11 @@ async def forecast(db: AsyncSession = Depends(get_db)):
 
 @router.get("/reports/comercial/pdf")
 async def relatorio_comercial_pdf(
-    _=Depends(get_current_active_user), db: AsyncSession = Depends(get_db), salvar: bool = False, teste: bool = False, drive: bool = False
+    _=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    salvar: bool = False,
+    teste: bool = False,
+    drive: bool = False,
 ):
     """Gera o Relatório Comercial em PDF (MRR, clientes, pipeline, top deals). salvar=true: registra + link."""
     from fastapi import Response
@@ -1163,7 +1270,9 @@ async def gerar_recibo_pdf(
 
     pdf = build_recibo_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "recibo", f"Recibo {data.numero or ''} - {data.pagador}", pdf, teste=teste, drive=drive)
+        return await _salvar_pdf(
+            db, "recibo", f"Recibo {data.numero or ''} - {data.pagador}", pdf, teste=teste, drive=drive
+        )
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="recibo.pdf"'}
     )
@@ -1185,7 +1294,9 @@ async def gerar_os_pdf(
 
     pdf = build_ordem_servico_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "ordem_servico", f"OS {data.numero or ''} - {data.cliente}", pdf, teste=teste, drive=drive)
+        return await _salvar_pdf(
+            db, "ordem_servico", f"OS {data.numero or ''} - {data.cliente}", pdf, teste=teste, drive=drive
+        )
     return Response(
         content=pdf,
         media_type="application/pdf",
@@ -1276,7 +1387,9 @@ async def gerar_atestado_pdf(
 
     pdf = build_atestado_pdf(data.model_dump())
     if salvar:
-        return await _salvar_pdf(db, "atestado", f"Atestado {data.numero or ''} - {data.emitente}", pdf, teste=teste, drive=drive)
+        return await _salvar_pdf(
+            db, "atestado", f"Atestado {data.numero or ''} - {data.emitente}", pdf, teste=teste, drive=drive
+        )
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="atestado.pdf"'}
     )
@@ -1285,7 +1398,7 @@ async def gerar_atestado_pdf(
 # =====================================================================================
 # 10) FOLLOW-UP / WHATSAPP (José Luís) — PROMPT 7
 # =====================================================================================
-from modules.crm.services import followups as F  # noqa: E402
+from modules.crm.services import followups as F  # noqa: N812, E402
 from modules.crm.services.phone import canonical_br, to_e164_br  # noqa: E402
 
 
@@ -1426,7 +1539,7 @@ async def de_quem_e_o_telefone(
     linhas e 296 com telefone, e a rota devolve **7**. Quem quisesse validar um opt-out
     contra o cadastro por ali recusaria 291 leads reais — gente que FOI contatada e que, ao
     pedir para parar de receber, ouviria "não te conheço".
-    
+
 
     ⚠️ Compara os ÚLTIMOS 8 DÍGITOS. O nono dígito dos celulares entrou em datas diferentes
     por estado e o cadastro tem as duas formas do mesmo número; casar o telefone inteiro faz
@@ -1441,16 +1554,30 @@ async def de_quem_e_o_telefone(
     # de FORMA tem de ver o que veio, não só o que sobrou depois do `regexp_replace`.
     # "92 99999-000A" tinha 10 dígitos e era classificado "forma válida".
     if re.search(r"[A-Za-zÀ-ÿ]", numero or ""):
-        raise HTTPException(status_code=422, detail={
-            "ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
-            "mensagem": f"{numero!r} tem letra — telefone não tem.",
-            "dica": "Informe só dígitos, com DDD.", "campos_invalidos": ["numero"]})
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "codigo": "TELEFONE_INVALIDO",
+                "http": 422,
+                "mensagem": f"{numero!r} tem letra — telefone não tem.",
+                "dica": "Informe só dígitos, com DDD.",
+                "campos_invalidos": ["numero"],
+            },
+        )
     if len(digitos) not in (10, 11):
-        raise HTTPException(status_code=422, detail={
-            "ok": False, "codigo": "TELEFONE_INVALIDO", "http": 422,
-            "mensagem": f"{numero!r} não tem 10 nem 11 dígitos depois do DDD.",
-            "dica": "Informe com DDD: 92991234567 (11) ou 9233334444 (10).",
-            "digitos_lidos": len(digitos), "campos_invalidos": ["numero"]})
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "codigo": "TELEFONE_INVALIDO",
+                "http": 422,
+                "mensagem": f"{numero!r} não tem 10 nem 11 dígitos depois do DDD.",
+                "dica": "Informe com DDD: 92991234567 (11) ou 9233334444 (10).",
+                "digitos_lidos": len(digitos),
+                "campos_invalidos": ["numero"],
+            },
+        )
 
     # ⭐ R6-5 — CASA O NÚMERO INTEIRO, não o sufixo de 8. A versão anterior comparava
     # `right(...,8)`, então `92 99999-0001` e `11 99999-0001` casavam o MESMO registro. O
@@ -1464,9 +1591,9 @@ async def de_quem_e_o_telefone(
     ddd, resto = digitos[:2], digitos[2:]
     formas = {ddd + resto}
     if len(resto) == 9 and resto.startswith("9"):
-        formas.add(ddd + resto[1:])          # sem o nono dígito
+        formas.add(ddd + resto[1:])  # sem o nono dígito
     elif len(resto) == 8:
-        formas.add(ddd + "9" + resto)         # com o nono dígito
+        formas.add(ddd + "9" + resto)  # com o nono dígito
     lista = sorted(formas)
 
     _NORM = "regexp_replace(coalesce({},''),'[^0-9]','','g')"
@@ -1474,46 +1601,95 @@ async def de_quem_e_o_telefone(
     def _casa(col: str) -> str:
         # compara o número normalizado COMPLETO, tirando o 55 do cadastro quando houver
         n = _NORM.format(col)
-        return (f"(CASE WHEN left({n},2)='55' AND length({n}) IN (12,13) "
-                f"     THEN right({n}, length({n})-2) ELSE {n} END) = ANY(:formas)")
+        return (
+            f"(CASE WHEN left({n},2)='55' AND length({n}) IN (12,13) "
+            f"     THEN right({n}, length({n})-2) ELSE {n} END) = ANY(:formas)"
+        )
 
-    cli = (await db.execute(text(
-        "SELECT id::text, coalesce(nullif(name,''), trading_name) AS nome FROM clients "
-        " WHERE " + " OR ".join(_casa(c) for c in
-                                ("whatsapp", "phone", "financial_contact_phone",
-                                 "technical_contact_phone")) +
-        " LIMIT 2"), {"formas": lista})).mappings().all()
+    cli = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text, coalesce(nullif(name,''), trading_name) AS nome FROM clients "
+                    " WHERE "
+                    + " OR ".join(
+                        _casa(c) for c in ("whatsapp", "phone", "financial_contact_phone", "technical_contact_phone")
+                    )
+                    + " LIMIT 2"
+                ),
+                {"formas": lista},
+            )
+        )
+        .mappings()
+        .all()
+    )
     if len(cli) > 1:
         # ⚠️ AMBÍGUO NÃO É ESCOLHA. Dois cadastros com o mesmo número é divergência de
         # cadastro, e opt-out no registro errado é exatamente o dano que esta rota evita.
-        raise HTTPException(status_code=409, detail={
-            "ok": False, "codigo": "TELEFONE_AMBIGUO", "http": 409,
-            "mensagem": f"{numero!r} está em {len(cli)} cadastros de cliente.",
-            "dica": "Resolva a duplicidade no cadastro, ou informe o id do destinatário.",
-            "candidatos": [{"tipo": "cliente", "id": c["id"], "nome": c["nome"]} for c in cli]})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "codigo": "TELEFONE_AMBIGUO",
+                "http": 409,
+                "mensagem": f"{numero!r} está em {len(cli)} cadastros de cliente.",
+                "dica": "Resolva a duplicidade no cadastro, ou informe o id do destinatário.",
+                "candidatos": [{"tipo": "cliente", "id": c["id"], "nome": c["nome"]} for c in cli],
+            },
+        )
     if cli:
-        return {"ok": True, "encontrado": True, "tipo": "cliente",
-                "nome": cli[0]["nome"], "id": cli[0]["id"], "procurei_por": lista}
+        return {
+            "ok": True,
+            "encontrado": True,
+            "tipo": "cliente",
+            "nome": cli[0]["nome"],
+            "id": cli[0]["id"],
+            "procurei_por": lista,
+        }
 
-    leads = (await db.execute(text(
-        # ⚠️ SEM filtro de is_active, de propósito: lead arquivado continua sendo alguém que
-        # foi contatado, e é justamente dele que vem o pedido de parar.
-        "SELECT id::text, name AS nome, coalesce(is_active, true) AS ativo FROM leads "
-        " WHERE " + _casa("phone") +
-        " ORDER BY coalesce(is_active,true) DESC, created_at DESC LIMIT 2"),
-        {"formas": lista})).mappings().all()
+    leads = (
+        (
+            await db.execute(
+                text(
+                    # ⚠️ SEM filtro de is_active, de propósito: lead arquivado continua sendo alguém que
+                    # foi contatado, e é justamente dele que vem o pedido de parar.
+                    "SELECT id::text, name AS nome, coalesce(is_active, true) AS ativo FROM leads "
+                    " WHERE " + _casa("phone") + " ORDER BY coalesce(is_active,true) DESC, created_at DESC LIMIT 2"
+                ),
+                {"formas": lista},
+            )
+        )
+        .mappings()
+        .all()
+    )
     if len(leads) > 1:
-        raise HTTPException(status_code=409, detail={
-            "ok": False, "codigo": "TELEFONE_AMBIGUO", "http": 409,
-            "mensagem": f"{numero!r} está em {len(leads)} leads.",
-            "dica": "Resolva a duplicidade, ou informe o id.",
-            "candidatos": [{"tipo": "lead", "id": l["id"], "nome": l["nome"]} for l in leads]})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "codigo": "TELEFONE_AMBIGUO",
+                "http": 409,
+                "mensagem": f"{numero!r} está em {len(leads)} leads.",
+                "dica": "Resolva a duplicidade, ou informe o id.",
+                "candidatos": [{"tipo": "lead", "id": l["id"], "nome": l["nome"]} for l in leads],
+            },
+        )
     if leads:
-        return {"ok": True, "encontrado": True, "tipo": "lead", "nome": leads[0]["nome"],
-                "id": leads[0]["id"], "lead_ativo": bool(leads[0]["ativo"]),
-                "procurei_por": lista}
-    return {"ok": True, "encontrado": False, "procurei_por": lista,
-            "mensagem": f"Nenhum cliente ou lead com o telefone {numero!r}."}
+        return {
+            "ok": True,
+            "encontrado": True,
+            "tipo": "lead",
+            "nome": leads[0]["nome"],
+            "id": leads[0]["id"],
+            "lead_ativo": bool(leads[0]["ativo"]),
+            "procurei_por": lista,
+        }
+    return {
+        "ok": True,
+        "encontrado": False,
+        "procurei_por": lista,
+        "mensagem": f"Nenhum cliente ou lead com o telefone {numero!r}.",
+    }
 
 
 @router.post("/followups/optout", status_code=201)
@@ -1529,7 +1705,7 @@ async def followup_optout(data: OptoutIn, _=Depends(get_current_active_user), db
 # =====================================================================================
 # 11) ORQUESTRAÇÃO José Luís ↔ Jordan (painel de negociações)
 # =====================================================================================
-from modules.crm.services import orchestration as O  # noqa: E402
+from modules.crm.services import orchestration as O  # noqa: N812, E402
 
 
 @router.get("/negociacoes")
@@ -1610,7 +1786,7 @@ async def followup_lote_endpoint(data: LoteIn, _=Depends(get_current_active_user
 # =====================================================================================
 # 13) FASE 2 — Assistente de Visita Técnica & Comercial + Reuniões
 # =====================================================================================
-from modules.crm.services import visit_reports as V  # noqa: E402
+from modules.crm.services import visit_reports as V  # noqa: N812, E402
 
 
 class VisitaIn(BaseModel):
@@ -1701,7 +1877,12 @@ async def visita_pdf(data: VisitaPdfIn, _=Depends(get_current_active_user), db: 
     if data.salvar:
         await V.finalizar(db, data.ref)
         return await _salvar_pdf(
-            db, "relatorio_visita", f"Relatório de Visita - {pd.get('cliente_nome')}", pdf, teste=data.teste, drive=data.drive
+            db,
+            "relatorio_visita",
+            f"Relatório de Visita - {pd.get('cliente_nome')}",
+            pdf,
+            teste=data.teste,
+            drive=data.drive,
         )
     return Response(
         content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="visita.pdf"'}
@@ -1918,17 +2099,16 @@ async def gerar_apresentacao(
     import unicodedata as _ud  # noqa: PLC0415
 
     _bruto = (data.titulo or "apresentacao").lower().replace(" ", "_")
-    _sem_acento = "".join(c for c in _ud.normalize("NFKD", _bruto)
-                          if not _ud.combining(c))
-    slug = "".join(c if (c.isalnum() or c == "_") else "_"
-                   for c in _sem_acento).strip("_")[:40] or "apresentacao"
+    _sem_acento = "".join(c for c in _ud.normalize("NFKD", _bruto) if not _ud.combining(c))
+    slug = "".join(c if (c.isalnum() or c == "_") else "_" for c in _sem_acento).strip("_")[:40] or "apresentacao"
 
     if fmt == "pdf":
         pdf = pptx_to_pdf(pptx)
         if salvar:
             return await _salvar_pdf(db, "apresentacao", data.titulo, pdf, teste=teste, drive=drive)
         return Response(
-            content=pdf, media_type="application/pdf",
+            content=pdf,
+            media_type="application/pdf",
             headers={"Content-Disposition": f'inline; filename="{slug}.pdf"'},
         )
     return Response(
@@ -1952,7 +2132,7 @@ class ItemOrcamentoIn(BaseModel):
 class OrcamentoIn(BaseModel):
     cliente: str
     itens: list[ItemOrcamentoIn]
-    documento: str | None = None          # CNPJ/CPF do cliente
+    documento: str | None = None  # CNPJ/CPF do cliente
     cidade: str | None = None
     numero: str | None = None
     titulo: str | None = None
@@ -1986,9 +2166,12 @@ async def gerar_orcamento_pdf(
         payload["numero"] = f"ORC-2026-{int(_time.time()) % 100000:05d}"
     pdf = build_orcamento_pdf(payload)
     if salvar:
-        return await _salvar_pdf(db, "orcamento", f"Orçamento {payload['numero']} - {data.cliente}", pdf, teste=teste, drive=drive)
+        return await _salvar_pdf(
+            db, "orcamento", f"Orçamento {payload['numero']} - {data.cliente}", pdf, teste=teste, drive=drive
+        )
     return Response(
-        content=pdf, media_type="application/pdf",
+        content=pdf,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="orcamento_{payload["numero"]}.pdf"'},
     )
 

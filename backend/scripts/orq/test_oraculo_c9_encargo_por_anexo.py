@@ -131,6 +131,36 @@ def main() -> int:
     delta = PISO_CATEGORIA * (ENCARGOS_SIMPLES_ANEXO_IV - ENCARGOS_SIMPLES_ANEXO_III)
     afirma(delta > 300.0, f"trocar III por IV move R$ {delta:,.2f} por posto/mês")
 
+    # ─── a cotação CCT diz em voz alta quando os parâmetros não são dela ────
+    #
+    # `pricing_cct` soma os sete encargos de `crm_pricing_params`, que é UMA tabela para as
+    # DUAS empresas e guarda o conjunto de Lucro Real (0,6124). A empresa que emprega os
+    # agentes é Simples Anexo IV (0,5544). Medido em 27/09 num AGP de piso R$ 1.670: a
+    # cotação sai R$ 5.820,81 onde os parâmetros certos dariam R$ 5.294,95 — 9,0% acima.
+    #
+    # O número NÃO foi corrigido (a metade dos tributos depende do RBT12, que está nulo e
+    # cujas guias discordam). O que não pode voltar é o SILÊNCIO: enquanto a tabela
+    # divergir, a ficha tem de dizer isso. Se um dia a tabela passar a bater, o aviso some
+    # sozinho — e esta asserção continua certa, porque afirma a condicional inteira.
+    import asyncio  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+    from modules.crm.services.pricing_cct import ENCARGO_KEYS, carregar_params  # noqa: PLC0415
+
+    async def _ficha():
+        async with async_session_factory() as db:
+            return await carregar_params(db)
+
+    prm = asyncio.run(_ficha())
+    da_tabela = sum(float(prm.get(k, 0) or 0) for k in ENCARGO_KEYS)
+    diverge = abs(da_tabela - _pct(EMPRESA_MAO_DE_OBRA)) > 1e-6
+    tem_aviso = bool(prm.get("_regime_aviso"))
+    afirma(
+        diverge == tem_aviso,
+        f"a cotação CCT avisa exatamente quando diverge (tabela {da_tabela:.2%} × empresa "
+        f"{_pct(EMPRESA_MAO_DE_OBRA):.2%}; diverge={diverge}, avisa={tem_aviso})",
+    )
+
     print(f"\nTOTAL desvios C9: {desvios}")
     return 1 if desvios else 0
 
