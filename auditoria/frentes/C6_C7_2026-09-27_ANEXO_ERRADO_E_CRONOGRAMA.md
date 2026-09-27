@@ -461,6 +461,38 @@ um par duplicado, do mesmo lote de junho. E o valor da nota (R$ 13.561,50) é o 
 enquanto o contrato ainda diz R$ 12.061,50: é o aditivo que você disse que falta assinar.
 Com o valor do aditivo eu atualizo o CTR-00016 e o cronograma de outubro sai certo.
 
+### f) O sino cortou os avisos de guia em 26/09 — porque ninguém lia
+
+`checar_sino_surdo` mede: origem com ≥ 30 envios em 30 dias e menos de 2% lidos é "surda",
+e depois de 14 medições seguidas o sistema **corta sozinho** (gatilho antes do INSERT — nenhum
+produtor precisa saber). Em 26/09 ele cortou `fiscal_guia`, junto com `ged_kit_completo`,
+`radar_fornecedores` e `triagem_ponto_hermes`. Os cinco tributos vencidos são de antes do
+corte — mas **a partir de 26/09 nenhum aviso de guia chega a ninguém**, e o próximo
+vencimento vai passar em silêncio de novo.
+
+Religar é `--religar fiscal_guia` e é ato seu, não meu: religar um sino que você não abre só
+recria o ruído que o cortou. A pergunta real é **por onde você quer ser avisado de guia
+vencendo** — o sino do sistema (e então abri-lo) ou o WhatsApp, que você já lê. Com a
+resposta eu ligo a origem no canal certo.
+
+### g) O CRF/FGTS da Patrimonial vence em 04/10 e o robô não consegue renovar
+
+Rodei a busca de certidões à mão: a Caixa **recusa o IP deste servidor** (HTTP 403, WAF) e a
+CNDT do TST exige captcha de imagem. A certidão de FGTS da Patrimonial — a que o
+contratante cobra para pagar a fatura e que a licitação exige — **vence em 7 dias**, e a
+renovação automática está barrada. Renove pelo site da Caixa da sua máquina (ou de qualquer
+IP que não seja o do servidor) e suba o PDF no Drive; o puxador reconhece pelo conteúdo.
+
+Também vencida: a **certidão de falência** da Patrimonial (18/09) — a régua do gate não a
+exige, mas edital de licitação costuma exigir. E três da Eletrônica (municipal 01/09, CRF
+17/09, estadual 18/09), que ficam fora da régua **pela sua decisão de 19/08** (a Eletrônica
+não presta mão de obra); registro, não pendência.
+
+**Por que ninguém avisou:** a task de alerta de vencimento estava agendada para uma fila que
+nenhum worker escuta — 68 disparos diários mofando no Redis desde julho. Corrigido (commit
+`fix(beat)`), purgado, e um disparo manual consumido. Mas a task, rodando, devolveu «0
+vencendo em 7 dias» — ela não enxerga esta certidão; é a próxima coisa que vou consertar.
+
 ### d) Qual é o nosso RAT: 2% ou 3%?
 
 O número vive cravado em **nove lugares do código**. Seis dizem 3%, três dizem 2%:
