@@ -16,9 +16,11 @@
 > `Documentos Temporários/Setembro/` — o puxador `fiscal.sync_guias_drive` roda às **09:30 e
 > 15:30**, classifica pelo conteúdo (nunca pelo nome) e preenche `fiscal_obligations` com valor,
 > vencimento e nº do recibo; é isso que a condição 3 do gate lê. Se quiser antes do horário, me
-> avise que eu disparo a tarefa. O PGDAS-D pode ir na mesma pasta: eu leio o RBT12 dele e
-> preencho `empresas.rbt12` — a cotação já está ligada a esse campo (commit `c6c1d789a`) e fica
-> certa sozinha. Multa e juros
+> avise que eu disparo a tarefa. O **extrato do PGDAS-D** pode ir na mesma pasta, mas o puxador
+> só reconhece guias (DAS, FGTS, INSS, ISS, DCTFWeb) — o extrato vai aparecer como
+> "não classificado", e eu leio o RBT12 dele à mão e preencho `empresas.rbt12`; a cotação já
+> está ligada a esse campo (commit `c6c1d789a`) e fica certa sozinha. Do segundo mês em diante,
+> com o primeiro extrato real na mão, eu ensino o puxador a ler o RBT12 sem mim. Multa e juros
 > correm por dia. Se a Portte pagou, preciso dos comprovantes; se não pagou, é a primeira
 > coisa a fazer na segunda-feira — o DAS da Patrimonial em atraso é exatamente o padrão que
 > a PGFN já cobra da Eletrônica.
