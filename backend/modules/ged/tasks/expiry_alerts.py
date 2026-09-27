@@ -6,7 +6,7 @@ Cria notificacoes no sistema.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ ALERT_THRESHOLDS = [30, 15, 7, 1]
     bind=True,
     max_retries=2,
     default_retry_delay=300,
-    queue="batch",
+    queue="gov.batch",  # era "batch": fila sem consumidor (27/09)
 )
 def check_document_expiry(self) -> dict:
     """Verifica documentos expirando e cria alertas.
@@ -51,129 +51,90 @@ def check_document_expiry(self) -> dict:
 
 
 async def _check_expiry_async() -> dict:
-    """Logica async para verificacao de expiracao."""
-    from sqlalchemy import and_, func, select
+    """Certidões vencendo ou vencidas → uma linha no sino por certidão.
 
-    from core.database import async_session_factory
-    from modules.ged.models.document import Document, DocumentStatus
+    Reescrita em 27/09/2026. A versão anterior varria `ged_documents` (o DMS genérico,
+    aposentado em 08/09 e com ZERO linhas) e só casava vencimento que caísse EXATAMENTE em
+    30/15/7/1 dias. Rodava todo dia, devolvia «0» todo dia, e era verdade sobre a tabela
+    errada: enquanto isso a CND municipal da Eletrônica venceu em 01/09, o CRF em 17/09, a
+    estadual em 18/09, e o CRF/FGTS da Patrimonial chegou a 7 dias do vencimento sem uma
+    linha no sino. (E a task nem chegava a rodar: ia para uma fila sem consumidor — commit
+    e54cc8083.) Fila certa com régua errada é o mesmo silêncio.
 
-    results = {}
+    Fonte agora: `ged_certidoes`, que é onde as certidões reais vivem, filtrada pelos CNPJs
+    do grupo (`empresas`, como o gate); CRF de cliente fica de fora porque o CNPJ não é nosso. Janela, não dia exato: tudo que vence em até 30 dias, e o que JÁ venceu.
+    `enqueue_alert` é idempotente por (categoria, entidade) — uma certidão gera uma linha,
+    que se atualiza conforme o prazo encurta. Categoria `documento_vencendo` não está entre
+    as cortadas do sino.
+    """
+    from sqlalchemy import text  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+
+    hoje = date.today()
+    results = {f"expiring_in_{d}d": 0 for d in ALERT_THRESHOLDS}
+    results["newly_expired"] = 0
     total_alerts = 0
-
     async with async_session_factory() as db:
         try:
-            today = date.today()
-
-            for days in ALERT_THRESHOLDS:
-                target_date = today + timedelta(days=days)
-
-                # Buscar documentos que expiram exatamente nesse dia
-                query = (
-                    select(func.count())
-                    .select_from(Document)
-                    .where(
-                        and_(
-                            Document.valid_until == target_date,
-                            Document.is_perpetual.is_(False),
-                            Document.status.notin_(
-                                [
-                                    DocumentStatus.EXCLUIDO,
-                                    DocumentStatus.EXPIRADO,
-                                ]
-                            ),
-                        )
-                    )
-                )
-                result = await db.execute(query)
-                count = result.scalar() or 0
-                results[f"expiring_in_{days}d"] = count
-
-                if count > 0:
-                    total_alerts += count
-                    logger.info(
-                        "GED Expiry: %d documento(s) expirando em %d dia(s) (%s)",
-                        count,
-                        days,
-                        target_date.isoformat(),
-                    )
-
-                    # Buscar detalhes para log
-                    detail_query = (
-                        select(Document.id, Document.title, Document.valid_until)
-                        .where(
-                            and_(
-                                Document.valid_until == target_date,
-                                Document.is_perpetual.is_(False),
-                                Document.status.notin_(
-                                    [
-                                        DocumentStatus.EXCLUIDO,
-                                        DocumentStatus.EXPIRADO,
-                                    ]
-                                ),
-                            )
-                        )
-                        .limit(10)
-                    )
-                    details = await db.execute(detail_query)
-                    for doc_id, title, valid_until in details.fetchall():
-                        logger.info(
-                            "  -> [%s] %s expira em %s",
-                            str(doc_id)[:8],
-                            title,
-                            valid_until,
-                        )
-                        # Fase 0 (Task 7): materializa no sino (antes só logava). Idempotente.
-                        try:
-                            from modules.notifications.services.alert_ingest import (
-                                enqueue_alert,
-                            )
-
-                            sev = "critico" if days <= 1 else ("atencao" if days <= 7 else "info")
-                            await enqueue_alert(
-                                db,
-                                category="documento_vencendo",
-                                source_entity_type="document",
-                                source_entity_id=doc_id,
-                                severity=sev,
-                                title=f"Documento vence em {days}d: {title}",
-                                body=f"'{title}' expira em {valid_until}.",
-                            )
-                        except Exception as _pe:  # noqa: BLE001
-                            logger.warning("GED Expiry: enqueue_alert falhou (segue): %s", _pe)
-
-            # Persiste os alertas de vencimento materializados acima (Task 7).
-            await db.commit()
-
-            # Marcar documentos ja expirados
-            expired_query = select(Document).where(
-                and_(
-                    Document.valid_until < today,
-                    Document.is_perpetual.is_(False),
-                    Document.status.notin_(
-                        [
-                            DocumentStatus.EXCLUIDO,
-                            DocumentStatus.EXPIRADO,
-                        ]
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT id::text, document_type, coalesce(issuing_body,''), coalesce(cnpj,''), "
+                        "       expiry_date, (expiry_date - CAST(:hoje AS date)) AS dias "
+                        "  FROM ged_certidoes "
+                        # Só os CNPJs DO GRUPO (tabela `empresas`), como o gate faz. `alerta_ativo`
+                        # não serve de régua: medido em 27/09, as certidões da PATRIMONIAL — a
+                        # empresa cujo CRF o contratante cobra — estavam com alerta_ativo=false,
+                        # e a 1ª versão desta consulta as deixou de fora. CRF de cliente (que o
+                        # kit consulta) fica fora porque o CNPJ não é nosso, não por flag.
+                        " WHERE regexp_replace(coalesce(cnpj,''),'\\D','','g') IN "
+                        "       (SELECT regexp_replace(coalesce(e.cnpj,''),'\\D','','g') FROM empresas e) "
+                        "   AND expiry_date IS NOT NULL "
+                        "   AND expiry_date <= CAST(:hoje AS date) + 30 "
+                        " ORDER BY expiry_date"
                     ),
+                    {"hoje": hoje},
                 )
-            )
-            expired_result = await db.execute(expired_query)
-            expired_docs = expired_result.scalars().all()
-            expired_count = 0
-            for doc in expired_docs:
-                if doc.check_expiry():
-                    expired_count += 1
+            ).all()
+            from modules.notifications.services.alert_ingest import enqueue_alert  # noqa: PLC0415
 
-            if expired_count > 0:
-                await db.commit()
-                logger.info("GED Expiry: %d documento(s) marcados como expirados", expired_count)
-
-            results["newly_expired"] = expired_count
-            results["total_alerts"] = total_alerts
-            results["checked_at"] = today.isoformat()
-
-        except Exception as e:
-            logger.error("GED Expiry: erro na verificacao: %s", e)
-            results["error"] = str(e)
-
+            for cid, tipo, orgao, cnpj, venc, dias in rows:
+                dias = int(dias)
+                if dias < 0:
+                    results["newly_expired"] += 1
+                    sev, quando = "critico", f"VENCIDA há {-dias} dia(s)"
+                else:
+                    faixa = next((d for d in sorted(ALERT_THRESHOLDS) if dias <= d), None)
+                    if faixa is None:
+                        continue
+                    results[f"expiring_in_{faixa}d"] += 1
+                    sev = "critico" if dias <= 1 else ("atencao" if dias <= 7 else "info")
+                    quando = f"vence em {dias} dia(s)"
+                total_alerts += 1
+                logger.info("GED Expiry: %s %s (%s) %s — %s", tipo, cnpj, orgao, quando, venc)
+                try:
+                    await enqueue_alert(
+                        db,
+                        category="documento_vencendo",
+                        source_entity_type="certidao",
+                        source_entity_id=cid,
+                        severity=sev,
+                        title=f"Certidão {tipo.replace('_', ' ')} — CNPJ {cnpj}: {quando}",
+                        body=f"{orgao or 'emissor não informado'} · validade {venc:%d/%m/%Y}. "
+                        + (
+                            "Renovar AGORA: sem ela o contratante segura a fatura e a licitação recusa."
+                            if dias <= 7
+                            else "Programar a renovação."
+                        ),
+                    )
+                except Exception as _pe:  # noqa: BLE001
+                    logger.warning("GED Expiry: enqueue_alert falhou (segue): %s", _pe)
+            await db.commit()
+        except Exception as e:  # noqa: BLE001
+            await db.rollback()
+            logger.error("GED Expiry: falha na verificação: %s", e)
+            raise
+    results["total_alerts"] = total_alerts
+    results["checked_at"] = hoje.isoformat()
     return results

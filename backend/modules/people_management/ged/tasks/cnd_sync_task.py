@@ -97,7 +97,7 @@ GED_STORAGE_BASE = os.environ.get("GED_STORAGE_PATH", "/opt/conecta-pro/storage/
     bind=True,
     max_retries=2,
     default_retry_delay=600,
-    queue="ged",
+    queue="operacional",  # era "ged": fila sem consumidor; esta é a que o executa (27/09)
 )
 def ged_sync_cnds(self) -> dict:
     """Task Celery para sincronizacao de CNDs em kits.
@@ -260,7 +260,9 @@ async def _buscar_e_salvar_certidao(
     filtro_fonte = (
         "AND (coalesce(notes, '') LIKE '%Infosimples/%' "
         f"     OR updated_at > NOW() - INTERVAL '{_RETENTAR_APOS_DIAS} days') "
-        if tem_fonte_melhor else "")
+        if tem_fonte_melhor
+        else ""
+    )
 
     # ⚠️ Registro que NÃO confirma nada não pode bloquear a busca do que confirma.
     #
@@ -274,8 +276,7 @@ async def _buscar_e_salvar_certidao(
     # `regular: null` e `situacao: indeterminado*` são a assinatura do não-confirmado. Linha
     # assim nunca satisfaz o "já tenho, não preciso buscar".
     _NAO_CONFIRMA = (
-        "AND coalesce(notes, '') NOT LIKE '%\"regular\": null%' "
-        "AND coalesce(notes, '') NOT LIKE '%indeterminado%' "
+        "AND coalesce(notes, '') NOT LIKE '%\"regular\": null%' AND coalesce(notes, '') NOT LIKE '%indeterminado%' "
     )
 
     check = await db.execute(
@@ -316,11 +317,11 @@ async def _buscar_e_salvar_certidao(
             resultado = await _isimp.consultar(tipo, cnpj)
             sit = str(resultado.get("situacao") or "").lower()
             if resultado.get("data_validade") and sit in ("regular", "negativa", "nada_consta"):
-                logger.info("[cnd] %s de %s veio do Infosimples (validade %s)",
-                            tipo, cnpj, resultado["data_validade"])
+                logger.info("[cnd] %s de %s veio do Infosimples (validade %s)", tipo, cnpj, resultado["data_validade"])
             else:
-                logger.info("[cnd] Infosimples não confirmou %s de %s (%s) — tentando portal",
-                            tipo, cnpj, sit or "sem situação")
+                logger.info(
+                    "[cnd] Infosimples não confirmou %s de %s (%s) — tentando portal", tipo, cnpj, sit or "sem situação"
+                )
                 resultado = {}
     except Exception as exc:  # noqa: BLE001 — fonte 1 falhar não pode impedir a fonte 2
         logger.warning("[cnd] Infosimples indisponível para %s/%s: %s", tipo, cnpj, exc)
@@ -423,13 +424,16 @@ async def _buscar_e_salvar_certidao(
     #   2. sem saber a FONTE, o guard de "válida por 10+ dias" não consegue distinguir o
     #      documento do emissor do palpite do fallback, e acaba protegendo o palpite.
     # Formato JSON porque é o que os registros bons já usavam.
-    notes = _json.dumps({
-        "situacao": resultado.get("situacao", "regular"),
-        "numero": resultado.get("numero"),
-        "fonte": resultado.get("fonte") or "portal governamental (raspador)",
-        "consultado_em": resultado.get("consultado_em") or datetime.utcnow().isoformat(),
-        "cnpj": cnpj,
-    }, ensure_ascii=False)
+    notes = _json.dumps(
+        {
+            "situacao": resultado.get("situacao", "regular"),
+            "numero": resultado.get("numero"),
+            "fonte": resultado.get("fonte") or "portal governamental (raspador)",
+            "consultado_em": resultado.get("consultado_em") or datetime.utcnow().isoformat(),
+            "cnpj": cnpj,
+        },
+        ensure_ascii=False,
+    )
 
     # Verificar se ja existe registro para este document_type
     existing_row = await db.execute(
@@ -600,7 +604,7 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
     bind=True,
     max_retries=2,
     default_retry_delay=900,
-    queue="ged",
+    queue="gov.batch",  # era "ged": fila sem consumidor; esta é a que o executa (27/09)
     # Cinco portais do governo em sequência não cabem nos 300 s globais: a task morria
     # por SoftTimeLimitExceeded todo dia (sino de 06/09) depois de atualizar só o FGTS —
     # a municipal ficou vencida desde 01/09 sem ninguém ver.
