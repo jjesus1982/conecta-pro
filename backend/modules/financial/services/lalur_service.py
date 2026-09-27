@@ -65,6 +65,7 @@ TIPOS = {
     "E": "exclusão (Parte A)",
     "P": "compensação de prejuízo/base negativa",
     "B": "movimento só na Parte B (M410)",
+    "D": "dedutível — decisão registrada, sem efeito no ajustado",
 }
 TRIBUTOS = {"I": "IRPJ", "C": "CSLL"}
 
@@ -113,7 +114,10 @@ CREATE TABLE IF NOT EXISTS lalur_lancamento (
     empresa_id           UUID NOT NULL,
     competencia          VARCHAR(7)   NOT NULL,
     tributo              CHAR(1)      NOT NULL CHECK (tributo IN ('I','C')),
-    tipo                 CHAR(1)      NOT NULL CHECK (tipo IN ('A','E','P','B')),
+    -- 'D' é a decisão de que a despesa É dedutível. Sem ela, "não revisado" e "revisado e
+    -- dedutível" seriam o mesmo estado, e o não previsto falharia ABERTO — que aqui
+    -- significa subtributar. Não entra em nenhuma soma; existe para tirar a linha da fila.
+    tipo                 CHAR(1)      NOT NULL CHECK (tipo IN ('A','E','P','B','D')),
     codigo_rfb           VARCHAR(10),
     -- Sempre POSITIVO. O sinal é o tipo, não o valor: valor negativo com tipo de adição é
     -- uma exclusão disfarçada que nenhuma soma pega.
@@ -122,7 +126,10 @@ CREATE TABLE IF NOT EXISTS lalur_lancamento (
     sinal_parte_b        SMALLINT CHECK (sinal_parte_b IN (-1, 1)),
     -- NOT NULL de propósito: adição sem histórico é indefensável em fiscalização.
     historico            TEXT         NOT NULL,
-    accounting_entry_id  UUID,
+    -- INTEGER, não UUID: `accounting_entries.id` é serial. A 1ª versão (27/09, manhã)
+    -- declarou UUID e o JOIN da fila estourou com «operator does not exist: uuid = integer»
+    -- — pego pelo oráculo C10 antes de assar, com a tabela ainda vazia.
+    accounting_entry_id  INTEGER,
     documento_ref        VARCHAR(120),
     origem               VARCHAR(12)  NOT NULL DEFAULT 'contador'
                          CHECK (origem IN ('contador','automatico')),
@@ -134,6 +141,31 @@ CREATE TABLE IF NOT EXISTS lalur_lancamento (
 
 CREATE INDEX IF NOT EXISTS ix_lalur_lanc_emp_comp
     ON lalur_lancamento (empresa_id, competencia, tributo);
+
+-- A fila pergunta "esta despesa já foi decidida?" uma vez por linha do período.
+CREATE INDEX IF NOT EXISTS ix_lalur_lanc_entry
+    ON lalur_lancamento (empresa_id, accounting_entry_id);
+
+-- Migração do CHECK para tabelas criadas antes de 'D' existir. Idempotente pelo nome novo.
+DO $mig$
+BEGIN
+    -- Tabela nascida com accounting_entry_id UUID (27/09, manhã). Só converte se ainda
+    -- for uuid E estiver vazia — nunca perde lastro em silêncio.
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'lalur_lancamento'
+                  AND column_name = 'accounting_entry_id' AND data_type = 'uuid')
+       AND NOT EXISTS (SELECT 1 FROM lalur_lancamento WHERE accounting_entry_id IS NOT NULL)
+    THEN
+        ALTER TABLE lalur_lancamento
+            ALTER COLUMN accounting_entry_id TYPE INTEGER USING NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lalur_tipo_ck') THEN
+        ALTER TABLE lalur_lancamento DROP CONSTRAINT IF EXISTS lalur_lancamento_tipo_check;
+        ALTER TABLE lalur_lancamento
+            ADD CONSTRAINT lalur_tipo_ck CHECK (tipo IN ('A','E','P','B','D'));
+    END IF;
+END
+$mig$;
 
 CREATE OR REPLACE VIEW v_lalur_saldo_b AS
 SELECT b.id                AS conta_b_id,
@@ -265,7 +297,7 @@ def lancar(
             "INSERT INTO lalur_lancamento "
             "  (empresa_id, competencia, tributo, tipo, codigo_rfb, valor, conta_b_id, "
             "   sinal_parte_b, historico, accounting_entry_id, documento_ref, origem) "
-            "VALUES (%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s::uuid,%s,%s) RETURNING id",
+            "VALUES (%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s::integer,%s,%s) RETURNING id",
             (
                 empresa_id,
                 competencia,
@@ -349,6 +381,125 @@ def compensar(
     }
 
 
+def fila_de_revisao(empresa_id: str, competencias: list[str], limite: int = 200) -> list[dict]:
+    """As despesas do período que ainda não têm decisão de LALUR.
+
+    O plano é explícito sobre o formato e vale repetir aqui: **oferecer os 202 códigos do
+    Anexo I, nunca sugerir um.** A diferença entre oferecer e sugerir é a diferença entre um
+    erro que alguém revisa e um erro que ninguém vê — e nenhum dos códigos é derivável do
+    plano de contas, porque a pergunta não é contábil. `A.069` é "despesas que não sejam
+    consideradas NECESSÁRIAS à atividade", e "necessária" não é campo.
+
+    **A fila usa a MESMA definição de despesa que a apuração**, e isso não é detalhe: ela
+    calcula `saldo('5') − saldo('5.2.2.01')`, ou seja, EXCLUI o ISS, que é dedução de
+    receita e não despesa. Sem esse `NOT LIKE`, 13 lançamentos de ISS (R$ 8.057,34 só no
+    T3/2026) apareceriam pedindo uma decisão de LALUR que não faz sentido — e fila com
+    lixo dentro ensina a ignorar a fila.
+
+    Uma despesa sai da fila quando tem ao menos UM lançamento apontando para ela. Um só
+    lançamento basta para «dedutível» (tipo D) ou «adição» (tipo A); a despesa que precisa
+    ser ABERTA em partes — o DAS que vira principal + multa + juros — gera três, e a
+    contagem funciona igual.
+    """
+    from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO  # noqa: PLC0415
+
+    with _tx() as cur:
+        _ensure(cur)
+        cur.execute(
+            f"""
+            SELECT a.id::text, a.periodo_competencia, a.conta_debito, a.valor,
+                   coalesce(a.documento_ref, ''), coalesce(a.historico, '')
+              FROM accounting_entries a
+             WHERE {FILTRO_RAZAO}
+               AND a.empresa_id = %s::uuid
+               AND a.periodo_competencia = ANY(%s)
+               AND a.conta_debito LIKE '5%%'
+               AND a.conta_debito NOT LIKE '5.2.2.01%%'
+               AND NOT EXISTS (SELECT 1 FROM lalur_lancamento l
+                                WHERE l.accounting_entry_id = a.id
+                                  AND l.empresa_id = a.empresa_id)
+             ORDER BY a.valor DESC
+             LIMIT %s
+            """,
+            (empresa_id, competencias, limite),
+        )
+        linhas = cur.fetchall()
+    return [
+        {
+            "entry_id": r[0],
+            "competencia": r[1],
+            "conta": r[2],
+            "valor": float(_q(Decimal(str(r[3])))),
+            "documento": r[4],
+            "historico": r[5],
+        }
+        for r in linhas
+    ]
+
+
+def pendencias(empresa_id: str, competencias: list[str]) -> int:
+    """Quantas despesas do período estão sem decisão. Zero é condição para fechar.
+
+    COUNT no banco, não `len(fila_de_revisao(...))`: são 3.093 despesas em 2026 e trazer
+    todas para contar é buscar 3.093 linhas para devolver um inteiro.
+    """
+    from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO  # noqa: PLC0415
+
+    with _tx() as cur:
+        _ensure(cur)
+        cur.execute(
+            f"""
+            SELECT count(*) FROM accounting_entries a
+             WHERE {FILTRO_RAZAO} AND a.empresa_id = %s::uuid
+               AND a.periodo_competencia = ANY(%s)
+               AND a.conta_debito LIKE '5%%'
+               AND a.conta_debito NOT LIKE '5.2.2.01%%'
+               AND NOT EXISTS (SELECT 1 FROM lalur_lancamento l
+                                WHERE l.accounting_entry_id = a.id
+                                  AND l.empresa_id = a.empresa_id)
+            """,
+            (empresa_id, competencias),
+        )
+        return int(cur.fetchone()[0])
+
+
+def decidir(
+    empresa_id: str,
+    entry_id: str,
+    competencia: str,
+    tributo: str,
+    decisao: str,
+    valor: Decimal | float,
+    historico: str,
+    *,
+    codigo_rfb: str | None = None,
+) -> int:
+    """Registra a decisão de UMA despesa. `decisao` é 'D' (dedutível), 'A' ou 'E'.
+
+    Adição e exclusão EXIGEM o código do Anexo I/II: sem ele a linha não se defende em
+    fiscalização, e um código em branco é o mesmo que decisão nenhuma com aparência de
+    decisão tomada.
+    """
+    if decisao not in ("D", "A", "E"):
+        raise ValueError(f"decisão {decisao!r} — use 'D' (dedutível), 'A' ou 'E'")
+    if decisao in ("A", "E") and not (codigo_rfb or "").strip():
+        raise ValueError(
+            f"decisão {decisao!r} exige o código do Anexo da IN 1700. Sem código a linha não "
+            "se defende, e código em branco é decisão nenhuma parecendo decisão tomada."
+        )
+    return lancar(
+        empresa_id,
+        competencia,
+        tributo,
+        decisao,
+        valor,
+        historico,
+        codigo_rfb=codigo_rfb,
+        accounting_entry_id=entry_id,
+        origem="contador",
+    )
+
+
 def _ja_registrado(empresa_id: str, competencia: str, tributo: str) -> bool:
     """Já existe M410 automático desta competência e tributo?
 
@@ -396,6 +547,16 @@ def apurar_lucro_real(
         ApuracaoLucroRealService,
     )
 
+    # No Lucro Real TRIMESTRAL o ano não é período de apuração — cada trimestre fecha
+    # sozinho e o prejuízo de um não desfaz o imposto do anterior. O serviço antigo aceita
+    # `trimestre=None` e devolve um "anual" que soma tudo; foi assim que a tela mostrou
+    # R$ 54.017,29 ao lado de R$ 102.400,33 para o mesmo fato. O livro recusa.
+    if trimestre not in (1, 2, 3, 4):
+        raise ValueError(
+            f"trimestre={trimestre!r}: no Lucro Real trimestral só existe apuração por "
+            "trimestre (1–4). O 'ano' não é período — somar os quatro esconde que o "
+            "prejuízo de um não compensa o imposto do outro."
+        )
     base = ApuracaoLucroRealService().apurar(ano, trimestre, empresa_id)
     meses = base["meses"]
     lucro_razao = Decimal(str(base["base"]["lucro_antes_ircsll"]))
@@ -412,14 +573,18 @@ def apurar_lucro_real(
         "por_tributo": {},
     }
 
+    # UMA contagem para os dois tributos: a fila é de despesas, não de tributo.
+    faltam_decisao = pendencias(empresa_id, meses)
+    out["despesas_sem_decisao"] = faltam_decisao
+
     for tributo in ("I", "C"):
         pa = parte_a(empresa_id, meses, tributo)
-        if exigir_parte_a and not pa["fechada"]:
+        if exigir_parte_a and (faltam_decisao or not pa["fechada"]):
             raise ParteANaoFechadaError(
-                f"{TRIBUTOS[tributo]}, {base['periodo']}: nenhuma adição ou exclusão foi "
-                f"decidida nesta competência. Sem Parte A, «lucro real» é o lucro do razão "
-                f"com outro nome — e o razão tem R$ 84.285,15 de provisões e R$ 10.370,40 "
-                f"de despesas financeiras que precisam de uma decisão por linha."
+                f"{TRIBUTOS[tributo]}, {base['periodo']}: {faltam_decisao} despesa(s) do "
+                f"período sem decisão de LALUR. Sem Parte A, «lucro real» é o lucro do razão "
+                f"com outro nome. Use `fila_de_revisao` — ela devolve as linhas por valor "
+                f"decrescente — e `decidir` grava uma por uma."
             )
         ajustado = lucro_razao + Decimal(str(pa["adicoes"])) - Decimal(str(pa["exclusoes"]))
         comp = compensar(empresa_id, comp_final, tributo, ajustado, solicitada=compensacao_solicitada)
@@ -465,9 +630,10 @@ def apurar_lucro_real(
         "prejuízo de um NÃO desfaz o imposto do anterior. "
         + (
             "Parte A FECHADA nesta competência."
-            if out["parte_a_fechada"]
-            else "Parte A NÃO fechada: nenhuma adição/exclusão decidida, então o ajustado é "
-            "igual ao lucro do razão. Isto é estimativa, não a base tributável."
+            if out["parte_a_fechada"] and not out["despesas_sem_decisao"]
+            else f"Parte A NÃO fechada: {out['despesas_sem_decisao']} despesa(s) do período "
+            "sem decisão, então o ajustado é igual ao lucro do razão. Isto é estimativa, "
+            "não a base tributável."
         )
     )
     return out

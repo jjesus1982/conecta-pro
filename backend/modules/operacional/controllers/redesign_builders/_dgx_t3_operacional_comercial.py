@@ -180,7 +180,11 @@ async def _encargos_pct(db) -> float:
         from modules.crm.services import pricing_cct
 
         p = await pricing_cct.carregar_params(db)
-        return float(sum(float(p.get(k, 0) or 0) for k in pricing_cct.ENCARGO_KEYS))
+        # Mesma escolha do motor de preço desde 27/09: o encargo da EMPRESA, e a soma da
+        # tabela global (Lucro Real, 0,6124) só como último recurso. A tela mostrava 61,24%
+        # para contratos da Patrimonial, que é Anexo IV e paga 55,44%.
+        enc = p.get("_encargo_empresa")
+        return float(enc if enc is not None else sum(float(p.get(k, 0) or 0) for k in pricing_cct.ENCARGO_KEYS))
     except Exception:  # noqa: BLE001
         await db.rollback()
         return 0.0

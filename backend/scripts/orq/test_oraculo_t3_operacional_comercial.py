@@ -192,13 +192,23 @@ async def main() -> int:
                 vagas and dif == 0,
                 f"(b) {len(vagas)} vaga(s): contratado/alocado da tela == posts/allocations (divergentes: {dif})",
             )
-            enc = (
+            # O encargo que a tela DEVE usar é o da empresa que emprega, não a soma da
+            # tabela global. Até 27/09/2026 esta linha lia `crm_pricing_params` — uma tabela
+            # sem coluna de empresa, cujos sete encargos somam 0,6124 (Lucro Real, com os
+            # 5,8% de terceiros). A empresa é Simples Anexo IV: 0,5544. A régua velha
+            # aprovaria a tela justamente por ela estar errada do mesmo jeito.
+            from modules.crm.services.pricing_cct import CNPJ_MAO_DE_OBRA  # noqa: PLC0415
+            from modules.financial.services.encargos import (  # noqa: PLC0415
+                encargo_pct_da_empresa,
+            )
+
+            _eid = (
                 await db.execute(
-                    text(
-                        "SELECT coalesce(sum(valor),0) FROM crm_pricing_params WHERE chave IN ('inss','rat_fap','terceiros','fgts','ferias_terco','decimo_terceiro','rescisao')"
-                    )
+                    text("SELECT id::text FROM empresas WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') = :c"),
+                    {"c": CNPJ_MAO_DE_OBRA},
                 )
             ).scalar()
+            enc = encargo_pct_da_empresa(_eid)
             rows = (out.get("contratos-custo-por-vaga") or {}).get("rows", [])
             dif = 0
             for row in rows:
@@ -214,9 +224,25 @@ async def main() -> int:
                     )
                 ).scalar()
                 dif += int(abs(float(sal) * (1 + float(enc)) - m["com_encargos"]) > 0.01)
+            # DECLARA a população. Hoje os 15 postos ativos têm `salario_base` ZERADO, então
+            # a conta acima é 0 == 0 em todas as linhas: verde por vacuidade, não por acerto.
+            # «0 divergentes» de uma base vazia não é prova de nada, e uma trava que não diz
+            # isso ensina a confiar no verde errado.
+            com_salario = (
+                await db.execute(
+                    text("SELECT count(*) FROM posts  WHERE coalesce(is_active,true) AND coalesce(salario_base,0) > 0")
+                )
+            ).scalar()
             ok(
                 dif == 0,
-                f"(b) custo com encargos por contrato == Σ salário×contratado×(1+{float(enc):.4f}) em {len(rows)} contrato(s) (divergentes: {dif})",
+                f"(b) custo com encargos por contrato == Σ salário×contratado×(1+{float(enc):.4f}) "
+                f"em {len(rows)} contrato(s) (divergentes: {dif}) "
+                + (
+                    f"— ATENÇÃO: {com_salario} posto(s) com salário base preenchido; "
+                    f"com zero, esta verificação compara 0 com 0"
+                    if not com_salario
+                    else f"· {com_salario} posto(s) com salário base"
+                ),
             )
 
             # ── (c) livro ──

@@ -52,50 +52,72 @@ _DEFAULTS = {  # fallback se faltar algum parâmetro no banco
 CNPJ_MAO_DE_OBRA = "66014833000110"
 
 
-async def _aviso_de_regime(db, p: dict) -> str | None:
-    """Diz em voz alta quando os parâmetros da tabela não são os da empresa que paga.
+async def _encargo_da_empresa(db) -> tuple[float | None, str | None]:
+    """Encargo de folha da empresa que emprega, e o motivo quando não dá para saber.
 
-    `crm_pricing_params` guarda UM conjunto para as DUAS empresas, e o conjunto que está lá
-    é o de Lucro Real: os sete encargos somam 0,6124 (inclui os 5,8% de terceiros) e os
-    tributos são PIS 1,65% + COFINS 7,60% + ISS 5% = 14,25%, cobrados por fora.
+    UMA consulta assíncrona pela sessão que já está aberta, e a função PURA
+    `encargos.encargo_pct` em cima do resultado.
 
-    A Patrimonial, que emprega os agentes, é Simples Anexo IV: encargo 55,44% (terceiros
-    NÃO são devidos) e os tributos vêm num DAS só, com alíquota que depende do RBT12.
-    Medido em 27/09/2026 num AGP de piso R$ 1.670: a cotação sai R$ 5.820,81 onde os
-    parâmetros certos dariam R$ 5.294,95 — 9,0% acima.
+    A primeira versão desta função (27/09, manhã) chamava `encargo_pct_da_empresa`, que
+    abre uma conexão psycopg2 SÍNCRONA — de dentro de código async, e duas vezes por
+    `carregar_params`. Como `/pricing/funcoes` chama `carregar_params` uma vez por função,
+    eram ~20 bloqueios do event loop por requisição, numa rota de cotação. O dado que
+    faltava cabia em um SELECT na sessão que já existia.
 
-    NÃO corrijo o número aqui, de propósito, e por duas razões. A metade do encargo eu sei
-    (é `encargo_pct_da_empresa`), mas a dos tributos depende do RBT12, que está NULO nas
-    duas empresas e cujas duas guias dão respostas incompatíveis (~208 mil × ~827 mil).
-    Consertar metade move o preço para um lugar que também não é o certo. E derrubar a
-    cotação com uma recusa tiraria do José Luís a única ferramenta de preço que ele tem no
-    WhatsApp. O dano aqui é o SILÊNCIO, não o número: quem cota passa a ver de que regime
-    são os parâmetros na mão dele.
+    `crm_pricing_params` guarda os sete encargos numa tabela SEM coluna de empresa, e a
+    soma deles é 0,6124 — o conjunto de Lucro Real, com os 5,8% de terceiros. A empresa que
+    emprega os agentes é Simples Anexo IV: 0,5544.
+
+    Devolver None NÃO é default silencioso: o motivo volta junto e vai para a ficha.
     """
     from modules.financial.services.encargos import (  # noqa: PLC0415
         AnexoNaoDeterminadoError,
-        encargo_pct_da_empresa,
+        encargo_pct,
     )
 
-    eid = (
+    r = (
         await db.execute(
-            text("SELECT id::text FROM empresas  WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') = :c"),
+            text(
+                "SELECT regime_tributario, anexo_simples FROM empresas "
+                " WHERE regexp_replace(coalesce(cnpj,''),'[^0-9]','','g') = :c"
+            ),
             {"c": CNPJ_MAO_DE_OBRA},
         )
-    ).scalar()
-    if not eid:
-        return None
+    ).first()
+    if not r:
+        return None, f"empresa {CNPJ_MAO_DE_OBRA} não está no cadastro"
     try:
-        real = encargo_pct_da_empresa(eid)
+        return float(encargo_pct(r[0], r[1])), None
     except AnexoNaoDeterminadoError as e:
-        return f"encargo da empresa não determinado: {e}"
+        return None, f"encargo da empresa não determinado: {e}"
+
+
+def _aviso_de_regime(p: dict, real: float | None, motivo: str | None) -> str | None:
+    """Diz em voz alta o que nos parâmetros não é desta empresa.
+
+    Síncrona e PURA de propósito: recebe o que já foi lido e não toca no banco.
+
+    O encargo já vem da empresa (acima). O que sobra são os TRIBUTOS: a tabela cobra
+    PIS 1,65% + COFINS 7,60% + ISS 5% = 14,25% por fora, e no Simples eles estão dentro de
+    um DAS só, cuja alíquota depende do RBT12 — NULO nas duas empresas, e cujas duas guias
+    dão respostas incompatíveis (~R$ 208 mil pela de 07/2026, ~R$ 827 mil pela de 08/2026).
+
+    Enquanto isso não fechar, o preço sai ALTO, que é o lado seguro de errar numa cotação —
+    e diz que sai. Derrubar a cotação com uma recusa tiraria do José Luís a única
+    ferramenta de preço que ele tem no WhatsApp.
+    """
+    if real is None:
+        return f"{motivo}. Encargo e tributos vindos da tabela global (Lucro Real)."
     da_tabela = sum(float(p.get(k, 0) or 0) for k in ENCARGO_KEYS)
-    if abs(real - da_tabela) < 1e-6:
-        return None
+    dif = (
+        f"O encargo já é o desta empresa ({real:.2%}); a tabela global diria {da_tabela:.2%}. "
+        if abs(real - da_tabela) >= 1e-6
+        else ""
+    )
     return (
-        f"parâmetros de Lucro Real: a tabela soma {da_tabela:.2%} de encargo e esta empresa "
-        f"é {real:.2%}; os tributos saem por fora (PIS+COFINS+ISS) quando no Simples vêm num "
-        f"DAS só. Preço indicativo — confirmar antes de fechar."
+        dif + "Os TRIBUTOS ainda vêm da tabela global (PIS+COFINS+ISS por fora, 14,25%): no "
+        "Simples eles estão dentro de um DAS só, e a alíquota depende do RBT12, que não "
+        "está cadastrado. O preço sai ALTO — confirmar antes de fechar."
     )
 
 
@@ -104,7 +126,9 @@ async def carregar_params(db) -> dict:
     p = dict(_DEFAULTS)
     for chave, valor in rows:
         p[chave] = float(valor)
-    p["_regime_aviso"] = await _aviso_de_regime(db, p)
+    enc, motivo = await _encargo_da_empresa(db)
+    p["_encargo_empresa"] = enc
+    p["_regime_aviso"] = _aviso_de_regime(p, enc, motivo)
     return p
 
 
@@ -131,7 +155,11 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
     else:
         risco = 0.0
     bruto = base + noturno + hora_red + ronda + intra + risco
-    enc_pct = sum(p[k] for k in ENCARGO_KEYS)
+    # O encargo da EMPRESA quando se sabe qual é; a soma da tabela global como último
+    # recurso — e nesse caso `regime_aviso` diz que não se soube.
+    enc_pct = p.get("_encargo_empresa")
+    if enc_pct is None:
+        enc_pct = sum(p[k] for k in ENCARGO_KEYS)
     encargos = bruto * enc_pct
     vt = max(0.0, p["vt_dia"] * jornada_dias - bruto * p["vt_desconto"])
     vr = p["vr_dia"] * jornada_dias

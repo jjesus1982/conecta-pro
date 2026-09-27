@@ -47,8 +47,10 @@ def main() -> int:
         apurar_lucro_real,
         compensar,
         lancar,
+        parte_a,
         saldo_parte_b,
     )
+    from modules.financial.services.lalur_service import _tx as _tx_teste  # noqa: PLC0415
 
     # ─── 1. a trava, contra o saldo REAL de hoje ─────────────────────────────
     for tributo in ("I", "C"):
@@ -86,6 +88,14 @@ def main() -> int:
         "o prejuízo de T2 NÃO desfaz o imposto de T1 — período fechado",
     )
 
+    # O ano NÃO é período: pedir "2026 inteiro" ao livro tem de ser recusado, senão o
+    # defeito das duas respostas volta pela porta nova.
+    try:
+        apurar_lucro_real(ELETRONICA, 2026, None)
+        afirma(False, "apuração 'anual' devia ser RECUSADA no Lucro Real trimestral")
+    except ValueError:
+        afirma(True, "apuração 'anual' recusada — só trimestre é período")
+
     # ─── 3. sem Parte A não se afirma lucro real ─────────────────────────────
     try:
         apurar_lucro_real(ELETRONICA, 2026, 3, exigir_parte_a=True)
@@ -115,6 +125,72 @@ def main() -> int:
         afirma(False, "adição sem histórico devia ser recusada")
     except ValueError:
         afirma(True, "adição sem histórico é recusada")
+
+    # ─── 4. a fila: "não revisado" NÃO pode virar "dedutível" ────────────────
+    #
+    # A regra que justifica o tipo 'D' existir. Se a despesa sem decisão contasse como
+    # dedutível por omissão, o estado não previsto falharia ABERTO — e aqui falhar aberto é
+    # subtributar. Então: enquanto houver linha na fila, a competência NÃO fecha; e decidir
+    # uma linha tem de tirá-la da fila, seja a decisão qual for.
+    from modules.financial.services.lalur_service import (  # noqa: PLC0415
+        decidir,
+        fila_de_revisao,
+        pendencias,
+    )
+
+    MESES_T3 = ["2026-07", "2026-08", "2026-09"]
+    antes = pendencias(ELETRONICA, MESES_T3)
+    afirma(antes > 0, f"há {antes} despesa(s) do T3 esperando decisão")
+
+    fila = fila_de_revisao(ELETRONICA, MESES_T3, limite=3)
+    afirma(
+        bool(fila) and fila[0]["valor"] >= fila[-1]["valor"],
+        "a fila vem por valor DECRESCENTE — quem revisa começa pelo dinheiro",
+    )
+
+    # Adição sem código do Anexo é recusada: código em branco é decisão nenhuma com
+    # aparência de decisão tomada.
+    try:
+        decidir(
+            ELETRONICA,
+            fila[0]["entry_id"],
+            fila[0]["competencia"],
+            "I",
+            "A",
+            fila[0]["valor"],
+            "teste",
+            codigo_rfb=None,
+        )
+        afirma(False, "adição sem código do Anexo devia ser recusada")
+    except ValueError:
+        afirma(True, "adição sem código do Anexo é recusada")
+
+    # Decidir 'D' (dedutível) tira da fila SEM mexer no ajustado.
+    pa_antes = parte_a(ELETRONICA, MESES_T3, "I")
+    lid = decidir(
+        ELETRONICA,
+        fila[0]["entry_id"],
+        fila[0]["competencia"],
+        "I",
+        "D",
+        fila[0]["valor"],
+        "oráculo C10 — decisão de teste",
+    )
+    afirma(
+        pendencias(ELETRONICA, MESES_T3) == antes - 1,
+        "decidir DEDUTÍVEL tira a linha da fila",
+    )
+    pa_depois = parte_a(ELETRONICA, MESES_T3, "I")
+    afirma(
+        pa_depois["adicoes"] == pa_antes["adicoes"] and pa_depois["exclusoes"] == pa_antes["exclusoes"],
+        "e NÃO mexe no ajustado — 'D' registra a decisão, não um ajuste",
+    )
+    with _tx_teste() as cur:
+        cur.execute("DELETE FROM lalur_lancamento WHERE id = %s", (lid,))
+    afirma(
+        pendencias(ELETRONICA, MESES_T3) == antes,
+        "desfeito: a linha volta para a fila",
+    )
 
     print(f"\nTOTAL desvios C10: {desvios}")
     return 1 if desvios else 0
