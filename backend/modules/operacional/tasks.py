@@ -1291,3 +1291,30 @@ def resumo_diario_aprovadores(self):
     except Exception as exc:
         logger.error(f"[Ponto] Erro no resumo diário: {exc}", exc_info=True)
         raise self.retry(exc=exc)
+
+
+@app.task(name="whatsapp.varredura_grupos", bind=True, max_retries=1)
+def varredura_grupos(self):
+    """O vigia 24h: lê os grupos (inclusive as FOTOS) e joga a intercorrência no Gestão.
+
+    Jordan, 27/09/2026: *"ele tem que ser um vigia de verdade 24h monitorando os nossos grupos
+    e jogando no gestão toda e qualquer intercorrência"*.
+
+    ⚠️ Janela de 70 min para um beat de 60: a sobreposição cobre atraso de fila sem duplicar
+    nada — a anti-repetição é por `chatwoot_message_id`, não por janela.
+    """
+    from core.database import async_session_factory
+    from modules.integrations.connectors.whatsapp import varredura as _v
+
+    async def _run() -> dict:
+        async with async_session_factory() as db:
+            return await _v.varrer(db, janela_min=70, publicar=True)
+
+    try:
+        r = asyncio.run(_run())
+        logger.info(f"[Varredura] {r.get('lidas')} lidas · {r.get('incidentes')} intercorrência(s) "
+                    f"· {r.get('rotina')} rotina · publicado={r.get('publicado')}")
+        return {k: v for k, v in r.items() if k != "tipos"}
+    except Exception as exc:
+        logger.error(f"[Varredura] falhou: {exc}", exc_info=True)
+        raise self.retry(exc=exc)

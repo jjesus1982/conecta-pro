@@ -7673,6 +7673,38 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                         logger.info("Agente: grupo %s — ninguém me chamou, só coletando",
                                     _cfg_grupo["nome"])
                         return
+                    # ⭐ 27/09/2026 — CHAMADO ONDE ELE NÃO PODE FALAR: RESPONDE NO PRIVADO.
+                    #
+                    # Medido: **21 vezes** alguém chamou o José Luís pelo nome em grupo de
+                    # cliente (10 no Green Hills, 5 no Ideal Serviços, 3 no Mirante, 2 no
+                    # Laranjeiras, 1 no Prime Arena). A regra do dono é clara — nunca falar
+                    # ali — mas o resultado era a pessoa no vácuo, sem saber se foi ouvida.
+                    #
+                    # Jordan, 27/09: *"responde no privado também"*. Assim a parede continua de
+                    # pé (nada sai no grupo do cliente) e ninguém fica sem resposta.
+                    #
+                    # ⚠️ SÓ para gente da casa. Chamar um cliente no privado a partir de um
+                    # grupo seria a empresa puxando conversa com quem não pediu.
+                    if _cfg_grupo.get("modo") != "falar":
+                        try:
+                            if ident and getattr(ident, "employee_id", None):
+                                from modules.integrations.connectors.whatsapp.destinatario import (  # noqa: PLC0415
+                                    mandar as _mandar,
+                                )
+
+                                await _mandar(
+                                    _dbg, quem=str(ident.employee_id),
+                                    texto=(f"Vi que você me chamou no grupo *{_cfg_grupo['nome']}*.\n\n"
+                                           "Lá eu não falo — é grupo com o cliente dentro. Mas "
+                                           "aqui sim: *me conta o que precisa* que eu resolvo. "
+                                           "Ponto, escala, falta, material, problema no posto — "
+                                           "pode mandar."),
+                                    motivo=f"chamado no grupo {_cfg_grupo['nome']}, onde não falo")
+                                logger.info("Agente: chamado em %s — respondi no privado de %s",
+                                            _cfg_grupo["nome"], getattr(ident, "nome", "?"))
+                        except Exception as _e:  # noqa: BLE001
+                            logger.warning("Agente: não consegui responder no privado — %s", _e)
+                        return
                     if _teto and _falou >= _teto:
                         logger.info("Agente: grupo %s no teto de %s fala(s) hoje — calando",
                                     _cfg_grupo["nome"], _teto)

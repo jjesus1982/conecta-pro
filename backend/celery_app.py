@@ -123,6 +123,7 @@ app.conf.task_routes = {
     # ⚠️ fila `operacional` porque ela TEM consumidor comprovado (o lembrete sai por ela todo
     # dia). Fila sem worker aceita a mensagem e nunca executa — foi o que aconteceu com `ged`.
     "ponto.resumo_diario_aprovadores": {"queue": "operacional"},
+    "whatsapp.varredura_grupos": {"queue": "operacional"},
     # A RESPOSTA do José Luís ao Jordan/cliente: fila `webhooks` (prioridade 8, consumidor
     # MEDIDO vivo no worker `integrations`). Sem rota explícita ela cairia em `gov.batch`,
     # a fila dos lotes de governo — resposta de gente atrás de fila de lote é silêncio com
@@ -548,6 +549,13 @@ app.conf.beat_schedule = {
     "operacional-lembrete-ponto-whatsapp": {
         "task": "operacional.lembrete_ponto_whatsapp",
         "schedule": 60.0,
+        "options": {"queue": "operacional"},
+    },
+    # ⭐ Vigia 24h dos grupos: lê o que chegou (texto E foto) e publica intercorrência no
+    # Gestão. De hora em hora — a anti-repetição é por mensagem, então sobreposição não duplica.
+    "whatsapp-varredura-grupos": {
+        "task": "whatsapp.varredura_grupos",
+        "schedule": crontab(minute=5),
         "options": {"queue": "operacional"},
     },
     # Resumo diário de ponto para quem aprova (Pyetra e Orlailson), 08:00 de Manaus.

@@ -779,6 +779,22 @@ def analisar_midia(self, conv_id: int, msg_id, payload: dict, phone: str | None 
             "UPDATE wa_grupo_mensagens SET conteudo = replace(conteudo, :marca, :texto) "
             "WHERE chatwoot_message_id = :m"),
             {"marca": MARCA_ANALISE, "texto": texto[:20000], "m": msg_id})
+        # ⭐ E RECLASSIFICA COM O TEXTO QUE AGORA EXISTE. A classificação aconteceu na ENTRADA,
+        # quando o conteúdo era só `📎 [analisando anexo(s)…]` — e marcador não casa com sinal
+        # nenhum, então TODA mídia nascia `tom`/irrelevante e a varredura a ignorava.
+        #
+        # Medido no backfill de 27/09: das 1.248 imagens recuperadas, **684 mudaram de classe** —
+        # 350 `operacional`, 33 `solicitacao`, 15 `problema_ponto`. Estavam no banco, legíveis, e
+        # invisíveis por causa de um rótulo posto antes de haver o que rotular.
+        from modules.integrations.connectors.whatsapp.grupos import classificar as _clf
+        _linhas = (await session.execute(_t(
+            "SELECT id, conteudo FROM wa_grupo_mensagens WHERE chatwoot_message_id = :m"),
+            {"m": msg_id})).all()
+        for _id, _cont in _linhas:
+            _nova = _clf(_cont or "")
+            await session.execute(_t(
+                "UPDATE wa_grupo_mensagens SET classificacao = :c, relevante = :r WHERE id = :i"),
+                {"c": _nova, "r": _nova != "tom", "i": _id})
         await session.commit()
         if desc:
             await C._midia_para_visita_aberta(conv_id, desc)
