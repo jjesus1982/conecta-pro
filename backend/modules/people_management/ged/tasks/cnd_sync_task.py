@@ -588,6 +588,33 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
         puladas,
         erros,
     )
+    # Marcador de TENTATIVA, separado de renovação. `checar_beats` media «produção» por
+    # max(updated_at) de ged_certidoes e não distinguia «a Caixa barrou o IP (403)» de «task
+    # morta» — acusava todo dia, e alarme que não distingue vira paisagem. O marcador diz que
+    # a task rodou e POR QUE não renovou; a régua passa a ler daqui. Nunca derruba a task.
+    try:
+        from sqlalchemy import text as _text  # noqa: PLC0415
+
+        motivos = "; ".join(
+            str(d.get("mensagem", ""))[:90] for d in detalhes if isinstance(d, dict) and d.get("status") == "erro"
+        )[:400]
+        marca = f"{datetime.utcnow():%Y-%m-%d} renovadas={renovadas} puladas={puladas} erros={erros}" + (
+            f" · {motivos}" if motivos else ""
+        )
+        await db.execute(
+            _text(
+                "INSERT INTO system_configs (id, chave, valor, descricao, grupo) "
+                "VALUES (gen_random_uuid(), :c, :v, "
+                "        'Última tentativa da busca de certidões nos portais, com o motivo quando não renovou', "
+                "        'fiscal') "
+                "ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor"
+            ),
+            {"c": "ged.certidoes.ultima_tentativa", "v": marca},
+        )
+        await db.commit()
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("marcador de tentativa não gravado (segue): %s", _e)
+
     return {
         "total": len(clientes) * len(TIPOS),
         "renovadas": renovadas,

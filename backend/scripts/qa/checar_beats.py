@@ -40,6 +40,7 @@ ela não tem ESTE defeito.
 
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/qa/checar_beats.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -85,7 +86,8 @@ def _aceita(func, n_pos: int) -> tuple[bool, str]:
     except (ValueError, TypeError):
         return True, ""
     params = [
-        p for p in sig.parameters.values()
+        p
+        for p in sig.parameters.values()
         if p.name != "self" and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
     ]
     if any(p.kind == p.VAR_POSITIONAL for p in sig.parameters.values()):
@@ -101,8 +103,8 @@ def _aceita(func, n_pos: int) -> tuple[bool, str]:
 def _analisar(tree) -> list[tuple[str, str]]:
     """(gravidade, mensagem) para cada defeito estático encontrado no corpo da task."""
     achados: list[tuple[str, str]] = []
-    importados: dict[str, str] = {}   # nome local -> módulo de origem
-    instancias: dict[str, str] = {}   # variável -> nome local da classe
+    importados: dict[str, str] = {}  # nome local -> módulo de origem
+    instancias: dict[str, str] = {}  # variável -> nome local da classe
 
     for no in ast.walk(tree):
         # camada 2 — `from M import C` resolve?
@@ -112,8 +114,7 @@ def _analisar(tree) -> list[tuple[str, str]]:
                 try:
                     mod = importlib.import_module(no.module)
                 except Exception as e:  # noqa: BLE001 — qualquer falha de import é achado
-                    achados.append(("🔴", f"linha {no.lineno}: `import {no.module}` "
-                                          f"quebrou — {type(e).__name__}: {e}"))
+                    achados.append(("🔴", f"linha {no.lineno}: `import {no.module}` quebrou — {type(e).__name__}: {e}"))
                     continue
                 if not hasattr(mod, alias.name) and importlib.util.find_spec(f"{no.module}.{alias.name}"):
                     # `from pacote import submodulo` é import válido mesmo sem estar no
@@ -124,13 +125,23 @@ def _analisar(tree) -> list[tuple[str, str]]:
                     continue
                 if not hasattr(mod, alias.name):
                     exporta = [n for n in dir(mod) if n[:1].isupper() and not n.startswith("_")]
-                    palpite = [n for n in exporta if n.lower() in alias.name.lower()
-                               or alias.name.lower().startswith(n.lower())]
-                    achados.append((
-                        "🔴",
-                        f"linha {no.lineno}: `from {no.module} import {alias.name}` — "
-                        f"NÃO EXISTE." + (f" Você quis dizer {palpite[0]}?" if palpite else
-                                          f" O módulo exporta: {', '.join(exporta[:6])}")))
+                    palpite = [
+                        n
+                        for n in exporta
+                        if n.lower() in alias.name.lower() or alias.name.lower().startswith(n.lower())
+                    ]
+                    achados.append(
+                        (
+                            "🔴",
+                            f"linha {no.lineno}: `from {no.module} import {alias.name}` — "
+                            f"NÃO EXISTE."
+                            + (
+                                f" Você quis dizer {palpite[0]}?"
+                                if palpite
+                                else f" O módulo exporta: {', '.join(exporta[:6])}"
+                            ),
+                        )
+                    )
                     continue
                 importados[local] = no.module
 
@@ -166,10 +177,14 @@ def _analisar(tree) -> list[tuple[str, str]]:
             continue
         metodo = getattr(classe, no.func.attr, None)
         if metodo is None:
-            tem = [n for n, _ in inspect.getmembers(classe, inspect.isfunction)
-                   if not n.startswith("_")]
-            achados.append(("🔴", f"linha {no.lineno}: `{alvo.id}.{no.func.attr}()` — o método "
-                                 f"NÃO EXISTE em {classe.__name__}. Tem: {', '.join(tem[:5])}"))
+            tem = [n for n, _ in inspect.getmembers(classe, inspect.isfunction) if not n.startswith("_")]
+            achados.append(
+                (
+                    "🔴",
+                    f"linha {no.lineno}: `{alvo.id}.{no.func.attr}()` — o método "
+                    f"NÃO EXISTE em {classe.__name__}. Tem: {', '.join(tem[:5])}",
+                )
+            )
             continue
         ok, porque = _aceita(metodo, len(no.args))
         if not ok:
@@ -200,16 +215,20 @@ def _engole_falha(tree) -> list[tuple[str, str]]:
             continue
         # só o `except` LARGO interessa: `except Exception` / `except BaseException` / `except:`
         tipo = no.type
-        largo = tipo is None or (isinstance(tipo, ast.Name)
-                                 and tipo.id in ("Exception", "BaseException"))
+        largo = tipo is None or (isinstance(tipo, ast.Name) and tipo.id in ("Exception", "BaseException"))
         if not largo:
             continue
         corpo = list(ast.walk(ast.Module(body=no.body, type_ignores=[])))
         if any(isinstance(x, ast.Raise) for x in corpo):
             continue  # relança: a falha tem voz
         if any(isinstance(x, ast.Return) and x.value is not None for x in corpo):
-            achados.append(("🟠", f"linha {no.lineno}: `except Exception` devolve valor e não "
-                                 f"relança — para o Celery isto é SUCESSO, e o sino fica mudo"))
+            achados.append(
+                (
+                    "🟠",
+                    f"linha {no.lineno}: `except Exception` devolve valor e não "
+                    f"relança — para o Celery isto é SUCESSO, e o sino fica mudo",
+                )
+            )
     return achados
 
 
@@ -230,13 +249,21 @@ _PRODUCAO = {
     "esocial-espelho-sync": (
         "SELECT max(criado_em)::date FROM esocial_espelho_acessos",
         9 if __import__("datetime").date.today().day <= 8 else 2,
-        "acesso ao governo registrado (dias 1–7: bloqueio do eSocial, folga de 9)"),
+        "acesso ao governo registrado (dias 1–7: bloqueio do eSocial, folga de 9)",
+    ),
+    # Lê o marcador de TENTATIVA, não max(updated_at): renovação depende dos portais (a Caixa
+    # barra o IP do servidor com 403, o TST pede captcha) e «não renovou» não é «não rodou».
+    # O marcador carrega o motivo — quem abrir system_configs vê por que não renovou.
     "fiscal.certidoes.sync_diario": (
-        "SELECT max(updated_at)::date FROM ged_certidoes", 2,
-        "certidão consultada/renovada"),
+        "SELECT left(valor, 10)::date FROM system_configs WHERE chave = 'ged.certidoes.ultima_tentativa'",
+        2,
+        "busca de certidões executada (renovou, ou registrou por que não)",
+    ),
     "fiscal.calendario_obrigacoes": (
-        "SELECT max(created_at)::date FROM fiscal_obligations", 40,
-        "obrigação criada (mensal — a folga cobre o mês)"),
+        "SELECT max(created_at)::date FROM fiscal_obligations",
+        40,
+        "obrigação criada (mensal — a folga cobre o mês)",
+    ),
 }
 
 
@@ -270,17 +297,19 @@ def _filas_orfas(app, agenda) -> list[str]:
         fila = (cfg.get("options") or {}).get("queue")
         if fila and fila not in escutadas:
             fora.setdefault(fila, []).append(apelido)
-    return [f"fila '{f}' não tem consumidor — {len(bs)} beat(s): {', '.join(sorted(bs)[:4])}"
-            for f, bs in sorted(fora.items())]
+    return [
+        f"fila '{f}' não tem consumidor — {len(bs)} beat(s): {', '.join(sorted(bs)[:4])}"
+        for f, bs in sorted(fora.items())
+    ]
 
 
 def _producao(agenda) -> list[str]:
     """Consulta o banco e devolve uma linha por rotina estéril."""
+    from datetime import date  # noqa: PLC0415
+
     from sqlalchemy import text  # noqa: PLC0415
 
     from core.database.session import SyncSessionLocal  # noqa: PLC0415
-
-    from datetime import date  # noqa: PLC0415
 
     hoje, mudas = date.today(), []
     with SyncSessionLocal() as db:
@@ -295,8 +324,10 @@ def _producao(agenda) -> list[str]:
             if ultima is None:
                 mudas.append(f"{apelido}: NUNCA produziu ({oque})")
             elif (hoje - ultima).days > limite:
-                mudas.append(f"{apelido}: última produção em {ultima} "
-                             f"({(hoje - ultima).days} dias) — esperado no máximo {limite}. {oque}")
+                mudas.append(
+                    f"{apelido}: última produção em {ultima} "
+                    f"({(hoje - ultima).days} dias) — esperado no máximo {limite}. {oque}"
+                )
     return mudas
 
 
@@ -367,12 +398,13 @@ def main() -> int:
             print(f"   {m}")
         print()
 
-    total = (len(sem_registro) + sum(len(v) for v in problemas.values())
-             + len(mudas) + len(orfas))
+    total = len(sem_registro) + sum(len(v) for v in problemas.values()) + len(mudas) + len(orfas)
     if not total and not engolem:
-        print(f"✅ nenhum beat chama coisa que não existe, engole a própria falha, "
-              f"despacha para fila sem consumidor ou está estéril "
-              f"({len(_PRODUCAO)} com produção vigiada).\n")
+        print(
+            f"✅ nenhum beat chama coisa que não existe, engole a própria falha, "
+            f"despacha para fila sem consumidor ou está estéril "
+            f"({len(_PRODUCAO)} com produção vigiada).\n"
+        )
         return 0
     print(f"TOTAL: {total} achado(s) que quebram + {len(engolem)} que quebram CALADO")
     print("Cada um destes falha na hora agendada, todo dia, e só aparece no sino.\n")
