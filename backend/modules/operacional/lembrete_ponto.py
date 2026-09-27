@@ -101,12 +101,26 @@ WHERE sh.shift_date = (now() AT TIME ZONE 'America/Manaus')::date
     + SQL_NAO_AUSENTE_HOJE
     + """
   -- para na batida: qualquer batida válida na janela do turno cancela os lembretes
+  --
+  -- 🔴 A JANELA ERA DE 1 HORA ANTES E COBRAVA QUEM JÁ TINHA BATIDO — 26/09/2026.
+  -- A ÉLEN bateu às 17:57:57 para um turno de 19:00: chegou 1h02 antes e ficou **3 minutos e
+  -- 3 segundos** fora da janela. Recebeu "você ainda não bateu o ponto" com a batida no banco.
+  --
+  -- ⭐ E o defeito não era a janela em si: era a DISCORDÂNCIA entre dois leitores do mesmo
+  -- fato. `supervisao.situacao_do_turno` pareia a batida desde **3 horas antes** e dava
+  -- COBERTO; esta consulta só olhava desde 1 hora e cobrava. O sistema dizia as duas coisas
+  -- no mesmo minuto. Alinhar o número é o conserto; ter dois números era o defeito.
+  --
+  -- ⚠️ POR QUE 3h É SEGURO E NÃO MAIS: no 12x36 noturno a saída é 07:00 e a entrada seguinte
+  -- 19:00 — 12 horas de distância. Com 3h não há como parear a batida do turno anterior com o
+  -- turno seguinte. Medido em 14 dias: 5 ocorrências de gente chegando com mais de 1h de
+  -- antecedência (Élen, Antonio Diniz, Maurício Chagas, Telma), a maior com 239 minutos.
   AND NOT EXISTS (
     SELECT 1 FROM gp_clock_punches cp
     WHERE cp.employee_id = e.id
       AND coalesce(cp.status,'') NOT IN ('facial_reprovado')
       AND cp.punch_timestamp BETWEEN
-            ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time - interval '1 hour')
+            ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time - interval '3 hours')
         AND ((now() AT TIME ZONE 'America/Manaus')::date + sh.planned_start_time + interval '12 hours')
   )
   -- dedup: nunca repete a mesma etapa do mesmo turno

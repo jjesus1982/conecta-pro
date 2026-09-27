@@ -28,6 +28,10 @@ from modules.integrations.connectors.whatsapp import hermes_ponte
 
 logger = logging.getLogger(__name__)
 
+#: Categorias de chamado de posto. Importado para o `enum` da tool nascer da MESMA fonte
+#: que o executor usa — lista duplicada divergiria na primeira mudança.
+from modules.operacional.chamado_posto import CATEGORIAS as _CATEGORIAS_CHAMADO  # noqa: E402
+
 BRT_OFFSET = -4  # Manaus (AMT, UTC-4) — usado p/ dar "relogio" ao agente
 
 
@@ -2608,6 +2612,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "consultar_minha_vida": {"kind": "action"},
     "historico_desta_pessoa": {"kind": "action"},
     "abrir_pendencia_dp": {"kind": "action"},
+    "abrir_chamado_posto": {"kind": "action"},
     # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
@@ -2939,6 +2944,7 @@ _PAPEIS: dict[str, dict] = {
     "grupo": {
         "tools": (
             "abrir_pendencia_dp",
+            "abrir_chamado_posto",
             # ⚠️ `transferir_conversa` FICA FORA DO GRUPO, e isso não é economia de tool: foi ela
             # que se calou a si mesmo. A resposta de falha ("vou chamar alguém da equipe")
             # transferiu a conversa do Gestão, e a trava de transferência silenciou o agente ali
@@ -3042,6 +3048,7 @@ _PAPEIS: dict[str, dict] = {
             "consultar_minha_vida",
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
+            "abrir_chamado_posto",
             "transferir_conversa",
             "resumo_grupos",
             "visao_operacao",
@@ -3067,6 +3074,7 @@ _PAPEIS: dict[str, dict] = {
             "consultar_minha_vida",
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
+            "abrir_chamado_posto",
             "transferir_conversa",
         ),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
@@ -4641,6 +4649,43 @@ _SCHEMA_RESUMO_GRUPOS = {
 }
 
 
+_SCHEMA_CHAMADO_POSTO = {
+    "type": "function",
+    "function": {
+        "name": "abrir_chamado_posto",
+        "description": (
+            "Abre CHAMADO no operacional quando quem está no posto relata uma ocorrência do "
+            "POSTO — não da própria vida funcional dela. Use para: equipamento do condomínio "
+            "com defeito (leitor facial, câmera, portão), estrutura, material que faltou, "
+            "ocorrência de segurança, reclamação do cliente, sistema com problema no posto.\n\n"
+            "⚠️ NÃO use para assunto da PESSOA (ponto, holerite, férias, acesso dela) — aquilo "
+            "é `abrir_pendencia_dp`. A régua: se o problema continua existindo depois que essa "
+            "pessoa for para casa, é chamado de posto.\n\n"
+            "O chamado aparece na tela do operacional com número e SLA. SEMPRE diga o NÚMERO "
+            "à pessoa — é com ele que ela cobra depois. E se for equipamento de acesso ou "
+            "segurança, oriente o registro MANUAL enquanto não normaliza: o condomínio não "
+            "pode ficar sem registro nenhum."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "categoria": {
+                    "type": "string",
+                    "enum": list(_CATEGORIAS_CHAMADO),
+                    "description": "; ".join(f"{k} = {v}" for k, v in _CATEGORIAS_CHAMADO.items()),
+                },
+                "relato": {
+                    "type": "string",
+                    "description": ("O que aconteceu, COM AS PALAVRAS DA PESSOA, e o que você "
+                                    "apurou (print, horário, desde quando). Não resuma a ponto "
+                                    "de tirar o fato: quem vai tratar não tem a conversa."),
+                },
+            },
+            "required": ["categoria", "relato"],
+        },
+    }
+}
+
 _SCHEMA_PENDENCIA = {
     "type": "function",
     "function": {
@@ -4766,6 +4811,18 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
                 if not jid:
                     return {"erro": f"não observo nenhum grupo chamado {alvo!r}"}
             return await _grp.resumo(db, jid=jid, horas=int(args.get("horas") or 24))
+        if name == "abrir_chamado_posto":
+            from modules.operacional import chamado_posto as _cp  # noqa: PLC0415
+
+            return await _cp.abrir(
+                db,
+                employee_id=ident.employee_id,
+                nome=ident.nome or "(sem nome)",
+                categoria=str(args.get("categoria") or "outro"),
+                relato=str(args.get("relato") or ""),
+                posto=getattr(ident, "posto", None),
+            )
+
         if name == "abrir_pendencia_dp":
             from modules.people_management.ponto import pendencia_dp as _pd  # noqa: PLC0415
 
@@ -5452,11 +5509,12 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_MINHA_VIDA,
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
+            _SCHEMA_CHAMADO_POSTO,
         ]
     if papel == "grupo":
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
                    _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO,
                    _SCHEMA_ROTINA_TURNO, _SCHEMA_AJUSTE_ESCALA]
     if papel == "supervisor":
@@ -5469,6 +5527,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_MINHA_VIDA,
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
+            _SCHEMA_CHAMADO_POSTO,
             _SCHEMA_RESUMO_GRUPOS,
             _SCHEMA_VISAO_OPERACAO,
         ]
@@ -5802,6 +5861,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             "consultar_minha_vida",
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
+            "abrir_chamado_posto",
         ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
@@ -6159,7 +6219,22 @@ async def _search_knowledge(query: str, top_k: int = 3) -> str | None:
         except Exception:  # noqa: BLE001
             cache = {}
         try:
-            client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT)
+            # 🔴 `servico="embedding"` FALTAVA, e a busca semântica do agente estava MORTA —
+            # 26/09/2026. Medido no log: "Agente RAG: embeddings indisponiveis (Error code: 404)
+            # — fallback keyword", e eu testei o endpoint direto: `POST /v1/embeddings` no
+            # Hermes devolve **404**, ele não implementa embeddings.
+            #
+            # ⭐ Sem `servico=`, o cliente sai com o `base_url` do CHAT — que hoje aponta para o
+            # Hermes. A casa JÁ tinha o mecanismo: o docstring de `novo_cliente` diz em voz alta
+            # que `servico="audio"` ou `"embedding"` *fica na OpenAI mesmo quando o chat migra*,
+            # e `whatsapp.stt` e `sophia.embed` já usavam. Esta chamada não — capacidade
+            # existente, desligada por um parâmetro.
+            #
+            # ⚠️ E o fallback ESCONDIA: cai para busca por palavra-chave e responde, então nada
+            # fica vermelho. O agente perdeu a busca semântica em silêncio quando o Hermes
+            # entrou no caminho.
+            client = novo_cliente(origem="whatsapp.agente", timeout=_OPENAI_TIMEOUT,
+                                  servico="embedding")
             faltantes = [c for c in chunks if cache.get(c["id"], {}).get("mtime") != c["mtime"]]
             if faltantes:
                 emb = await client.embeddings.create(model=_EMBED_MODEL, input=[c["text"] for c in faltantes])
@@ -7207,6 +7282,72 @@ _NEGACOES = (
 )
 
 
+#: Telefone brasileiro com DDD, como o modelo costuma escrever: 11 dígitos, com ou sem
+#: pontuação. Não tento pegar CPF nem e-mail aqui — telefone é o que já causou dano.
+_RE_FONE = re.compile(r"\(?\b(\d{2})\)?[\s.-]?(9?\d{4})[\s.-]?(\d{4})\b")
+
+
+async def _sem_fabricar_contato(db, texto: str, conversation_id: int) -> str:
+    """PAREDE contra telefone INVENTADO. 26/09/2026, e é a metade que faltava.
+
+    🔴 O CASO: o agente escreveu ao Jordan *"Guardei: Euler Felipe — +55 92 98463-1485 ✅"*.
+    A parede de ação pegou o "guardei" e anexou a correção de que nada foi executado — mas
+    **o número ficou na tela como se fosse dado**. Eu procurei `984631485` em TODAS as tabelas
+    com coluna de telefone da base: **não existe em lugar nenhum**. O telefone do Euler é
+    `92996081639`. O agente inventou um número e marcou com ✅.
+
+    ⭐ A parede de 28/08 mede AÇÃO (chamou tool?). Esta mede DADO (esse número existe?). São
+    defeitos diferentes: um promete o que não fez, o outro afirma o que não é. E o segundo é
+    pior, porque um telefone errado numa mensagem de trabalho faz a mensagem chegar em
+    estranho — foi o que eu mesmo fiz hoje, mandando o guia do Jair para o Antonio Carlos.
+
+    ⚠️ ACEITA o número que veio da CONVERSA. Quando o Orlailson passou o telefone da Thayná,
+    o agente repetiu de volta para confirmar — e isso é certo, é como se confere. O que não
+    pode é número que não está nem na base nem na conversa: esse só pode ter sido inventado.
+
+    ⚠️ Não apaga nada: anexa o aviso. Apagar tiraria o conteúdo útil; o aviso diz qual número
+    não confere, que é a parte que decide.
+    """
+    if not texto:
+        return texto
+    achados = {"".join(m.groups()) for m in _RE_FONE.finditer(texto)}
+    achados = {d for d in achados if len(d) in (10, 11)}
+    if not achados:
+        return texto
+
+    from sqlalchemy import text as _t
+
+    suspeitos = []
+    for d in achados:
+        ult8 = d[-8:]
+        try:
+            existe = (await db.execute(_t(
+                "SELECT 1 WHERE EXISTS (SELECT 1 FROM employees "
+                "   WHERE right(regexp_replace(coalesce(celular,'')||'|'||coalesce(telefone,''),"
+                "                              '\\D','','g'), 60) LIKE '%'||:u||'%') "
+                "   OR EXISTS (SELECT 1 FROM diaria_diaristas "
+                "   WHERE right(regexp_replace(coalesce(telefone,''),'\\D','','g'), 60) LIKE '%'||:u||'%') "
+                "   OR EXISTS (SELECT 1 FROM cwi_message_log "
+                "   WHERE chatwoot_conversation_id = :c AND regexp_replace(coalesce(content,''),'[^0-9]','','g') LIKE '%'||:u||'%')"),
+                {"u": ult8, "c": conversation_id})).scalar()
+        except Exception as exc:  # noqa: BLE001
+            # ⚠️ FALHA ABERTO aqui, de propósito: se eu não consigo CONFERIR, não acuso. Acusar
+            # por falha de consulta ensinaria o leitor a ignorar o aviso.
+            logger.error("parede de contato: não consegui conferir %s (%s)", ult8, exc)
+            continue
+        if not existe:
+            suspeitos.append(d)
+
+    if not suspeitos:
+        return texto
+    logger.error("[jose-luis] conv=%s AFIRMOU telefone que NÃO existe na base nem na conversa: "
+                 "%s — aviso anexado", conversation_id, ", ".join(suspeitos))
+    lista = ", ".join(suspeitos)
+    return (texto + f"\n\n⚠️ *Confira antes de usar:* o(s) número(s) {lista} que eu citei "
+            "acima **não existe(m) no cadastro nem apareceu(ram) nesta conversa**. Pode ser "
+            "erro meu — não use sem confirmar com a pessoa ou com o supervisor.")
+
+
 def _sem_fabricar_acao(texto: str, executadas: set, conversation_id: int) -> str:
     """PAREDE contra 'já fiz' sem ter feito. 28/08/2026, e é o defeito mais caro da noite.
 
@@ -7790,6 +7931,36 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # rodada — `NameError` dentro do tratador de erro seria o defeito do 323 de novo,
         # com outra roupa.
         _bateu_teto = False
+
+        # ⭐ O TETO ACOMPANHA O TAMANHO DA ENTRADA — 26/09/2026.
+        #
+        # 🔴 O MAURÍCIO relatou que o leitor facial do condomínio passou o dia sem registrar
+        # quem entrou, mandou o print, e recebeu *"desculpa, acho que me perdi aqui"*. O log
+        # nomeia a causa: `conv=2081 gastou 1200 tokens pensando e não emitiu nada — refazendo
+        # com o dobro`. A retentativa com 2400 também não bastou.
+        #
+        # É modelo de raciocínio: os tokens de pensamento saem do MESMO `max_tokens`. Com a
+        # descrição da imagem no histórico — a análise substitui a marca do anexo por até
+        # **20.000 caracteres** de descrição — o orçamento inteiro vira pensamento e não sobra
+        # nada para escrever. O teto de 1200 foi calibrado para "saudação, agendamento,
+        # cotação"; não para um turno que carrega um print analisado.
+        #
+        # ⚠️ NÃO subo o default: encareceria toda chamada, inclusive as que terminam bem em 500
+        # tokens — foi a razão declarada em 24/09 para NÃO subir. O que faço é escalar com o
+        # tamanho real da ENTRADA, que é o que muda o custo do pensamento. Conversa curta
+        # continua com 1200; conversa com imagem e histórico sobe.
+        #
+        # ⚠️ O valor 3000 não é chute: é o mesmo teto que a casa já usa para o dono e para
+        # grupo (`AGENT_MAX_TOKENS_DONO`/`_GRUPO`), onde o contexto é grande pelo mesmo motivo.
+        _entrada_chars = sum(len(str(m.get("content") or "")) for m in messages)
+        if _entrada_chars // 4 > _env_num("AGENT_ENTRADA_GRANDE_TOKENS", 4000):
+            _teto_grande = int(_env_num("AGENT_MAX_TOKENS_ENTRADA_GRANDE", 3000))
+            if _teto_grande > max_tokens:
+                logger.info("Agente: conv=%s entrada ~%d tokens — teto %d → %d "
+                            "(modelo de raciocínio: pensamento sai do mesmo orçamento)",
+                            conversation_id, _entrada_chars // 4, max_tokens, _teto_grande)
+                max_tokens = _teto_grande
+
         #: Nomes de tool efetivamente CHAMADAS neste turno. É a prova de que algo foi feito.
         _executadas: set[str] = set()
         _rascunhos_do_turno: list[dict] = []  # o que NASCEU inerte neste turno
@@ -8016,6 +8187,9 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             _socorrido = bool(texto)  # contável no banco depois, não só no log que rotaciona
         texto = _tirar_puxa_saco(texto)
         texto = _sem_fabricar_acao(texto, _executadas, conversation_id)
+        # E a parede de DADO, que é a metade que faltava: número que não está na base nem
+        # na conversa só pode ter sido inventado (o caso do 92 98463-1485).
+        texto = await _sem_fabricar_contato(db, texto, conversation_id)
         texto = _rascunho_nao_e_envio(texto, _rascunhos_do_turno, conversation_id)
         # ⭐ REDE DO FORNECEDOR (31/08/2026). Medido: com a tool disponível e o prompt
         # mandando usá-la, o modelo respondeu "vou confirmar com o Jordan" em texto e NÃO
