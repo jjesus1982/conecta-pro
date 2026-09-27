@@ -2615,6 +2615,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "abrir_chamado_posto": {"kind": "action"},
     "registrar_cobertura_posto": {"kind": "action"},
     "registrar_correcao_supervisor": {"kind": "action"},
+    "lancar_diaria": {"kind": "action"},
     # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
@@ -2949,6 +2950,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
             "registrar_correcao_supervisor",
+            "lancar_diaria",
             # ⚠️ `transferir_conversa` FICA FORA DO GRUPO, e isso não é economia de tool: foi ela
             # que se calou a si mesmo. A resposta de falha ("vou chamar alguém da equipe")
             # transferiu a conversa do Gestão, e a trava de transferência silenciou o agente ali
@@ -3055,6 +3057,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
             "registrar_correcao_supervisor",
+            "lancar_diaria",
             "transferir_conversa",
             "resumo_grupos",
             "visao_operacao",
@@ -3083,6 +3086,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
             "registrar_correcao_supervisor",
+            "lancar_diaria",
             "transferir_conversa",
         ),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
@@ -4797,6 +4801,44 @@ _SCHEMA_CORRECAO = {
     }
 }
 
+_SCHEMA_DIARIA = {
+    "type": "function",
+    "function": {
+        "name": "lancar_diaria",
+        "description": (
+            "Lança DIÁRIA de diarista(s) no sistema, quando a SUPERVISÃO pede pelo WhatsApp. "
+            "Frases típicas: «lança diária pro fulano e pro beltrano hoje no Green Hills», "
+            "«bota o Erlon como diarista hoje», «diária de 3 pessoas no Prime Arena».\n\n"
+            "⭐ POR QUE ISTO EXISTE: na rua todo mundo usa WhatsApp e só abre o sistema no "
+            "escritório. Lançar daqui tira o atraso entre o trabalho acontecer e ficar "
+            "registrado.\n\n"
+            "⚠️ ISTO NÃO PAGA NADA. Cria o lançamento e manda o VT+VR (R$32/dia) para o "
+            "Financeiro, onde o Jordan confere e paga. NUNCA diga que pagou.\n\n"
+            "⚠️ Sempre repita o TOTAL e os nomes na resposta — é o que permite a pessoa "
+            "desmentir na hora. E se alguém estiver sem chave PIX, PEÇA a chave: sem ela o "
+            "pagamento trava depois.\n\n"
+            "⚠️ Se o nome for ambíguo ou não estiver cadastrado, eu recuso e digo o que falta. "
+            "Não invente CPF nem PIX."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nomes": {"type": "array", "items": {"type": "string"},
+                          "description": "Nomes dos diaristas, como a pessoa falou. Vários de "
+                                         "uma vez — é assim que ela fala."},
+                "posto": {"type": "string", "description": "Posto/condomínio onde vão trabalhar."},
+                "funcao": {"type": "string",
+                           "description": "Função. Padrão AGENTE DE PORTARIA se não disserem."},
+                "turno": {"type": "string",
+                          "description": "DIURNO, NOTURNO ou ÚNICO — muda o preço da diária."},
+                "data": {"type": "string",
+                         "description": "AAAA-MM-DD. Hoje, se não disserem."},
+            },
+            "required": ["nomes", "posto"],
+        },
+    }
+}
+
 _SCHEMA_PENDENCIA = {
     "type": "function",
     "function": {
@@ -4932,6 +4974,20 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
                 categoria=str(args.get("categoria") or "outro"),
                 relato=str(args.get("relato") or ""),
                 posto=getattr(ident, "posto", None),
+            )
+
+        if name == "lancar_diaria":
+            from modules.operacional import diaria_por_whatsapp as _dw  # noqa: PLC0415
+
+            return await _dw.lancar_varios(
+                db,
+                quem_pediu_employee_id=(str(ident.employee_id) if ident
+                                        and getattr(ident, "employee_id", None) else None),
+                nomes=[str(x) for x in (args.get("nomes") or [])],
+                posto=str(args.get("posto") or ""),
+                funcao=str(args.get("funcao") or "AGENTE DE PORTARIA"),
+                turno=(str(args["turno"]) if args.get("turno") else None),
+                data=(str(args["data"]) if args.get("data") else None),
             )
 
         if name == "registrar_correcao_supervisor":
@@ -5654,11 +5710,12 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_CHAMADO_POSTO,
             _SCHEMA_COBERTURA,
             _SCHEMA_CORRECAO,
+            _SCHEMA_DIARIA,
         ]
     if papel == "grupo":
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_COBERTURA, _SCHEMA_CORRECAO, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_COBERTURA, _SCHEMA_CORRECAO, _SCHEMA_DIARIA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
                    _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO,
                    _SCHEMA_ROTINA_TURNO, _SCHEMA_AJUSTE_ESCALA]
     if papel == "supervisor":
@@ -5674,6 +5731,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_CHAMADO_POSTO,
             _SCHEMA_COBERTURA,
             _SCHEMA_CORRECAO,
+            _SCHEMA_DIARIA,
             _SCHEMA_RESUMO_GRUPOS,
             _SCHEMA_VISAO_OPERACAO,
         ]
@@ -6010,6 +6068,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
             "registrar_correcao_supervisor",
+            "lancar_diaria",
         ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:

@@ -504,7 +504,22 @@ services:
     env_file:
       - ./mcp-server/.env
     environment:
-      MCP_ESCOPO: ${MCP_ESCOPO_PESSOAS:-pessoas}
+      # ⭐ 27/09/2026 — O OPERACIONAL INTEIRO NO FLUXO DO HERMES. Jordan: *"todo o módulo
+      # operacional deve estar dentro do fluxo de trabalho do hermes, vai ser mão na roda pro
+      # orlailson"*.
+      #
+      # Medido ANTES de abrir, tool a tool, porque abrir escopo é decisão de segurança:
+      #   operacional  12 tools ·  3 fora de `pessoas` · **todas READ**
+      #                (relatorio_cobertura, listar_ordens_servico, listar_visitas_campo)
+      #   rh            9 tools ·  9 fora de `pessoas` · **todas READ**
+      #                (CCT, EPI, vagas, PCMSO, PPRA)
+      # Zero `write_low`, zero `propose`: o que entra não escreve nada.
+      #
+      # ⚠️ `dp` NÃO entrou de propósito: traz 18, sendo **7 `propose` que tocam FOLHA**
+      # (fechar_folha, calcular_folha_todos, calcular_verbas_rescisorias, aprovar_ferias...).
+      # Com `MCP_MODO=agente` elas virariam rascunho em vez de executar — mas rascunho de
+      # fechamento de folha é decisão de dinheiro, e essa é do dono.
+      MCP_ESCOPO: ${MCP_ESCOPO_PESSOAS:-pessoas,operacional,rh}
       MCP_MODO: agente
       MCP_IDENTIDADE: propria
       MCP_AGENTE_NOME: hermes
