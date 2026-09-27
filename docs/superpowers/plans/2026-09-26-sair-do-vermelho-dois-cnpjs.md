@@ -178,12 +178,30 @@ está proporcionalizado. Medido nas duas guias reais: **6,675% em 07/2026 → 7,
 
 | regime | carga sobre a receita | por mês |
 |---|---|---|
-| Simples Anexo IV maduro | **16,16%** | 42.360 |
-| Lucro Presumido | 18,77% | 49.200 |
-| **Lucro Real** (margem real de 2,1%) | **9,15%** | 23.998 |
+| Simples Anexo IV maduro | **25,51%** | 66.873,30 |
+| Lucro Presumido | 30,48% | 79.894,39 |
+| **Lucro Real** | **22,70%** | 59.522,11 |
 
-**O Lucro Real só perde para o Simples se a margem líquida passar de 24,3%.** A de agosto
-foi 2,1%; empresa de portaria raramente passa de 10%.
+> **Correção de 27/09, quando o simulador ficou pronto.** A primeira versão desta tabela
+> dizia 16,16% × 9,15% e prometia R$ 220.347/ano de economia. **Errado.** Eu havia excluído
+> a CPP patronal dos três regimes *"porque é devida em todos"* — e ela **não é igual nos
+> três**: no Anexo IV são 20% + RAT 3% = **23%** (terceiros 5,8% NÃO é devido no Simples);
+> no Lucro Real e no Presumido são **28,8%**. O Simples economiza 5,8 pontos de folha, e
+> isso come a maior parte da diferença.
+>
+> **A economia real da migração é R$ 7.351,19/mês = R$ 88.214,31/ano** — vale a pena, mas é
+> 40% do que eu disse. O oráculo C8 trava essa armadilha com a asserção
+> *"a CPP do Lucro Real é MAIOR — excluí-la da comparação favorece o Real indevidamente"*.
+
+Abertura da competência 08/2026, medida pelo simulador:
+
+```
+Simples Anexo IV      DAS  42.360,54 (16,16%)  +  CPP 24.512,76 (9,35%)   =  66.873,30
+Lucro Real            CPP  30.694,23 (11,71%)  +  ISS 13.108,08 (5,00%)
+                    COFINS  7.864,85 (3,00%)   + IRPJ  3.595,98 (1,37%)
+                      CSLL  2.157,59 (0,82%)   +  PIS  1.704,05 (0,65%)
+                  adicional    397,32 (0,15%)                            =  59.522,11
+```
 
 **Ressalvas honestas:** (a) usei ISS de 5%, confirmado para Manaus nos itens 11.02, 07.10,
 17.05 e 14.01 (LC municipal 2.833/2021); (b) Lucro Real traz EFD Contribuições, ECD, ECF e
