@@ -36,6 +36,24 @@ class PunchCreate(BaseModel):
     #: ⚠️ Isso tira trabalho do DP: hoje o DP justifica por escrito o atraso de outra pessoa,
     #: adivinhando o motivo. Quem sabe o motivo é quem chegou atrasado.
     justificativa: str | None = None
+    #: 🔴 27/09/2026, 07:08 — ESTE CAMPO NASCEU DE UM DEFEITO MEU EM PRODUÇÃO, COM GENTE NO POSTO.
+    #:
+    #: Subi a regra da justificativa no backend antes de existir o campo na tela. Resultado
+    #: medido no log: o **ANILSON** tentou bater a saída **cinco vezes** entre 07:08 e 07:12 e o
+    #: **MATHEUS** a entrada **três vezes** às 07:10 — cada tentativa recebia 409 pedindo um
+    #: motivo que a tela não tinha como perguntar. Os dois escreveram ao José Luís ("não to
+    #: conseguindo bater o ponto") e ele salvou as duas batidas por contingência. **O agente
+    #: cobriu o meu buraco; a regra transferiu para ele o trabalho que prometia tirar do DP.**
+    #:
+    #: ⭐ A lição é sobre em que DIREÇÃO se falha. Para a batida ADIANTADA, falhar fechado é
+    #: certo: a pessoa está no posto, espera 5 minutos e bate. Para a batida ATRASADA, falhar
+    #: fechado **apaga o fato** — a pessoa já está lá, já está atrasada, e recusar só destrói o
+    #: registro. Registro nunca se perde para cobrar um formulário.
+    #:
+    #: Então o 409 só acontece quando o CLIENTE declara que sabe abrir o campo. Enquanto a tela
+    #: não manda `true`, a batida entra, a justificativa nasce pendente e o José Luís pede o
+    #: motivo no WhatsApp — que é a forma como o motivo realmente chega, sem o DP inventar.
+    pede_justificativa_na_tela: bool = False
 
 
 class PunchResponse(BaseModel):

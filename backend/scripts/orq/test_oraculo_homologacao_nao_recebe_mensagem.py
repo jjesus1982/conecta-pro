@@ -27,7 +27,7 @@ async def main() -> int:
     from sqlalchemy import text
 
     from core.database import get_db
-    from modules.operacional.lembrete_ponto import SQL_PENDENTES as SQL_PONTO
+    from modules.operacional.lembrete_ponto import MARCOS, SQLS, etapa_log
     from modules.signatures.services.aviso_assinatura_service import _SQL_PENDENTES as SQL_ASSINATURA
     from modules.signatures.services.aviso_assinatura_service import _TITULO_LEMBRETE
 
@@ -67,13 +67,22 @@ async def main() -> int:
         if r["eid"] in homologacao:
             falhas.append(f"aviso de assinatura alcançaria {r['nome']} (homologação) em {r['fone'] or r['email']}")
 
-    # 2) lembrete de ponto por WhatsApp, nas três etapas
-    for etapa in (-15, 0, 10):
-        for r in (await db.execute(text(SQL_PONTO), {"etapa": etapa})).mappings().all():
-            if r["employee_id"] in homologacao:
-                falhas.append(
-                    f"lembrete de ponto (etapa {etapa}) alcançaria {r['nome']} (homologação) em {r['telefone']}"
-                )
+    # 2) lembrete de ponto por WhatsApp — TODOS os marcos e TODAS as etapas.
+    #
+    # ⚠️ 27/09/2026: era um SQL só e uma lista fixa `(-15, 0, 10)`. O lembrete passou a ter três
+    # marcos (entrada, volta do almoço, saída) e sete etapas. Se este oráculo tivesse continuado
+    # olhando um SQL e três números, ficaria VERDE enquanto dois terços das mensagens saíam sem
+    # régua nenhuma — a família de defeito mais caro desta casa: a trava observa a coisa errada.
+    # Deriva de `MARCOS`, então marco novo entra aqui sozinho.
+    for marco, spec in MARCOS.items():
+        for delta in spec["textos"]:
+            etapa = etapa_log(marco, delta)
+            for r in (await db.execute(text(SQLS[marco]), {"etapa": etapa})).mappings().all():
+                if r["employee_id"] in homologacao:
+                    falhas.append(
+                        f"lembrete de ponto ({marco} {delta:+d}min) alcançaria {r['nome']} "
+                        f"(homologação) em {r['telefone']}"
+                    )
 
     print(f"funcionários de homologação: {len(homologacao)} · audiência do aviso de assinatura agora: {len(alvo)}")
     for f in falhas:

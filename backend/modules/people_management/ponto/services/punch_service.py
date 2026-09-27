@@ -174,6 +174,18 @@ class PunchService:
         # atraso ensinaria todo mundo a escrever "trânsito" sem ler a pergunta.
         _justif_para_criar: dict[str, Any] | None = None
         _tipo = (data.punch_type or "entrada")
+        # 🔴 27/09/2026, 07:08 — A DIREÇÃO DA FALHA, APRENDIDA COM GENTE NO POSTO.
+        #
+        # Esta regra subiu antes de existir o campo na tela, e o log conta o resto: o ANILSON
+        # tentou a saída **cinco vezes** entre 07:08 e 07:12, o MATHEUS a entrada **três vezes**
+        # às 07:10, cada uma recusada com 409 pedindo um motivo que a tela não sabia perguntar.
+        # Os dois recorreram ao José Luís no WhatsApp e ele salvou as batidas por contingência.
+        #
+        # ⭐ Batida ADIANTADA pode falhar fechado — a pessoa está no posto, espera e bate.
+        #    Batida ATRASADA **não pode**: recusar não desfaz o atraso, só apaga o registro de
+        #    quem já está trabalhando. Por isso o 409 só sai quando o cliente DECLARA que sabe
+        #    abrir o campo; sem isso a batida entra e o motivo é cobrado depois, pelo agente.
+        _pede_na_tela = bool(getattr(data, "pede_justificativa_na_tela", False))
 
         # ⭐ RETORNO DO ALMOÇO — Jordan, 27/09/2026: a tolerância de 5 minutos vale para os
         # QUATRO marcos. Aqui a referência não vem da escala: vem da própria saída de almoço
@@ -218,7 +230,7 @@ class PunchService:
                                 f"horário — voltar antes gera hora extra indevida."),
                     )
                 if _dif > _tol:
-                    if not (data.justificativa or "").strip():
+                    if not (data.justificativa or "").strip() and _pede_na_tela:
                         raise HTTPException(
                             status_code=409,
                             detail={
@@ -273,7 +285,7 @@ class PunchService:
                 if _tol < _atraso <= 240:
                     _hora_prev = str(_ref["planned_start_time" if _tipo == "entrada"
                                          else "planned_end_time"])[:5]
-                    if not (data.justificativa or "").strip():
+                    if not (data.justificativa or "").strip() and _pede_na_tela:
                         logger.info("ponto: batida %s de %s atrasada %dmin — pedindo justificativa",
                                     _tipo, data.employee_id, _atraso)
                         raise HTTPException(
@@ -474,11 +486,21 @@ class PunchService:
                         tipo="justificar_ponto", modulo="ponto",
                         titulo=(f"{_nome}: {_t['tipo'].replace('_', ' ')} de {_t['atraso_min']}min "
                                 f"(previsto {_t['hora_prevista']})")[:180],
+                        # ⚠️ Sem motivo, o resumo DIZ que está sem motivo. Escrever
+                        # "justificou com as próprias palavras: « »" seria fabricar uma
+                        # justificativa vazia e pedir que a supervisão aprovasse o nada.
                         resumo=(f"{_nome} bateu {data.punch_type} {_t['atraso_min']} minuto(s) "
                                 f"depois do previsto ({_t['hora_prevista']}) e justificou com as "
                                 f"próprias palavras:\n\n« {_t['motivo']} »\n\n"
                                 f"Aprovar = justificativa ACEITA. Rejeitar = atraso segue sem "
-                                f"justificativa válida."),
+                                f"justificativa válida."
+                                if _t["motivo"] else
+                                f"{_nome} bateu {data.punch_type} {_t['atraso_min']} minuto(s) "
+                                f"depois do previsto ({_t['hora_prevista']}) e **ainda não "
+                                f"informou o motivo** — a tela dele não tem o campo. O José Luís "
+                                f"já pediu o motivo no WhatsApp; quando ele responder, entra "
+                                f"aqui.\n\nNÃO aprove ainda: aprovar agora é aceitar uma "
+                                f"justificativa que não existe."),
                         payload={"justification_id": _jid[:36], "decisao": "aprovar",
                                  "employee_id": str(data.employee_id), "punch_id": punch_id,
                                  "notas": f"aprovado na Central — {_t['atraso_min']}min"},
@@ -491,6 +513,35 @@ class PunchService:
             except Exception as exc:  # noqa: BLE001
                 logger.error("ponto: batida %s registrada mas a JUSTIFICATIVA não nasceu — %s",
                              punch_id, exc, exc_info=True)
+
+            # ⭐ SEM MOTIVO NA TELA, O AGENTE PEDE O MOTIVO. É isto que fecha a regra do Jordan
+            # — *"essa justificativa já retira o trabalho do dp de ter que justificar"* — sem
+            # depender de um campo que ainda não existe. O DP não adivinha; quem sabe responde.
+            #
+            # ⚠️ `destinatario.mandar` é a PORTA ÚNICA: o telefone sai do cadastro e aqui não há
+            # como digitar um número. Foi assim que o guia do Jair chegou ao Antonio Carlos.
+            # best-effort: WhatsApp fora do ar não pode desfazer uma batida já gravada.
+            if not _justif_para_criar["motivo"]:
+                try:
+                    from modules.integrations.connectors.whatsapp.destinatario import mandar
+
+                    _t = _justif_para_criar
+                    await mandar(
+                        self.db,
+                        quem=str(data.employee_id),
+                        texto=(
+                            f"Sua batida de *{str(data.punch_type).replace('_', ' ')}* foi "
+                            f"registrada, fique tranquilo — ela não se perde.\n\n"
+                            f"Só que ela saiu {_t['atraso_min']} minuto(s) depois do previsto "
+                            f"({_t['hora_prevista']}). *Me responde aqui o motivo* que eu "
+                            f"registro a justificativa no seu nome e mando para a supervisão "
+                            f"aprovar — assim ninguém precisa justificar por você."
+                        ),
+                        motivo=f"cobrar motivo de batida fora do horário ({punch_id})",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("ponto: não consegui pedir o motivo a %s no WhatsApp — %s",
+                                   data.employee_id, exc)
 
         logger.info(
             "Batida registrada no banco: %s employee=%s type=%s",

@@ -7,28 +7,54 @@ Canal é Baileys no número da empresa: o teto de 3 mensagens por turno e o
 import asyncio
 
 from modules.operacional import lembrete_ponto
-from modules.operacional.lembrete_ponto import SQL_PENDENTES, etapa_para
+from modules.operacional.lembrete_ponto import MARCOS, SQLS, etapa_log
 
 
-def test_etapa_para_janelas_exatas():
-    assert etapa_para(-15) == -15  # 15 min antes do turno
-    assert etapa_para(0) == 0  # no horário
-    assert etapa_para(10) == 10  # 10 min depois, sem batida
+def test_etapa_log_nao_colide_entre_marcos():
+    """O código do log é `base + delta` — sem o base, entrada−5 e saída−5 seriam o MESMO 5.
+
+    `ponto_lembrete_log` tem PK `(shift_id, etapa)` e o INSERT usa `ON CONFLICT DO NOTHING`:
+    dois marcos com o mesmo código no mesmo turno significam que o segundo aviso é engolido em
+    silêncio — a pessoa receberia o aviso da entrada e nunca o da saída.
+    """
+    codigos = [etapa_log(m, d) for m, spec in MARCOS.items() for d in spec["textos"]]
+    assert len(codigos) == len(set(codigos)), f"código de etapa repetido: {codigos}"
+    # smallint: o log não aceitaria nada fora disto
+    assert all(-32768 <= c <= 32767 for c in codigos)
 
 
-def test_etapa_para_fora_das_janelas_nao_envia():
-    for delta in (-60, -16, -14, -1, 1, 9, 11, 120):
-        assert etapa_para(delta) is None
+def test_os_cinco_minutos_sao_o_mesmo_numero_da_parede():
+    """Jordan, 27/09: *"vamos usar esses mesmos 5m para avisar e para cobrar"*.
+
+    A parede em `punch_service` lê `PONTO_TOLERANCIA_ANTES_MIN`; este módulo tem de ler a
+    MESMA variável. Se divergirem, o sistema avisa num minuto e recusa em outro.
+    """
+    import os
+
+    from modules.operacional.lembrete_ponto import TOLERANCIA_MIN
+
+    assert int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5")) == TOLERANCIA_MIN
+    for marco, spec in MARCOS.items():
+        deltas = set(spec["textos"])
+        assert -TOLERANCIA_MIN in deltas, f"{marco} não avisa {TOLERANCIA_MIN}min antes"
+        assert TOLERANCIA_MIN in deltas, f"{marco} não cobra {TOLERANCIA_MIN}min depois"
 
 
 def test_sql_pendentes_usa_fuso_manaus_e_exclui_pj_e_homologacao():
-    sql = SQL_PENDENTES.lower()
-    assert "america/manaus" in sql
-    assert "current_date" not in sql  # UTC viraria o dia às 20h
-    assert "is_homologacao" in sql
-    assert "'pj'" in sql
-    assert "gp_clock_punches" in sql  # para na batida
-    assert "ponto_lembrete_log" in sql  # dedup
+    """⚠️ Afirma sobre os TRÊS marcos, não sobre um.
+
+    Era uma consulta só. Ao virar três, cada filtro passou a ter três lugares onde divergir —
+    e `is_homologacao` é o que existe para o time de teste nunca receber WhatsApp de verdade.
+    Um teste que olhasse só a consulta da entrada ficaria verde com dois terços sem régua.
+    """
+    for marco, bruto in SQLS.items():
+        sql = bruto.lower()
+        assert "america/manaus" in sql, marco
+        assert "current_date" not in sql, marco  # UTC viraria o dia às 20h
+        assert "is_homologacao" in sql, marco
+        assert "'pj'" in sql, marco
+        assert "gp_clock_punches" in sql, marco  # para na batida
+        assert "ponto_lembrete_log" in sql, marco  # dedup
 
 
 def test_sql_nao_exclui_quem_esta_sem_telefone():
@@ -38,9 +64,10 @@ def test_sql_nao_exclui_quem_esta_sem_telefone():
     pulado); no dia em que o número for preenchido, passa a receber sozinho,
     sem ninguém mexer em lista. Vale igual para funcionário novo.
     """
-    sql = SQL_PENDENTES.lower()
-    assert "telefone is not null" not in sql
-    assert "celular is not null" not in sql
+    for marco, bruto in SQLS.items():
+        sql = bruto.lower()
+        assert "telefone is not null" not in sql, marco
+        assert "celular is not null" not in sql, marco
 
 
 def test_normalizar_telefone_aceita_formatos_do_cadastro():
@@ -119,10 +146,17 @@ class _FakeDB:
     def __init__(self, rows):
         self.rows = rows
         self.inserts = []
+        self._servidas = False
 
     def execute(self, stmt, params=None):
         sql = str(stmt)
         if "FROM shifts" in sql:
+            # ⚠️ Serve as linhas UMA vez só. `rodar_lembretes` consulta 3 marcos × 7 etapas;
+            # devolver a mesma pessoa em toda consulta multiplicaria o envio e o teste passaria
+            # a medir o dublê, não o código.
+            if self._servidas:
+                return _FakeResult([])
+            self._servidas = True
             return _FakeResult(self.rows)
         if "INSERT INTO ponto_lembrete_log" in sql:
             self.inserts.append(params)
@@ -139,7 +173,9 @@ _LINHA = {
     "telefone": "92999999999",
     "posto": "PRIME",
     "hora": "06:00",
-    "delta_min": -15,
+    # o aviso é sempre `-TOLERANCIA_MIN`; não fixe 5 aqui, senão mudar a env quebra o teste
+    # sem que nada tenha se rompido no produto
+    "delta_min": -lembrete_ponto.TOLERANCIA_MIN,
 }
 
 
@@ -157,7 +193,9 @@ def test_dry_run_nao_envia(monkeypatch):
 def test_sem_telefone_e_contado_nao_silencioso(monkeypatch):
     monkeypatch.setattr(lembrete_ponto, "PONTO_LEMBRETE_ENABLED", True)
     monkeypatch.setattr(lembrete_ponto, "_optout", lambda db, tel: False)
-    db = _FakeDB([dict(_LINHA, telefone=None, delta_min=0)])
+    # ⚠️ `delta_min` vem do _LINHA: a etapa 0 ("começou agora") deixou de existir em 27/09,
+    # quando as três janelas viraram duas — aviso em −5 e cobrança em +5.
+    db = _FakeDB([dict(_LINHA, telefone=None)])
     r = asyncio.run(lembrete_ponto.rodar_lembretes(db))
     assert r["pulados_sem_telefone"] == 1
     assert r["enviados"] == 0
@@ -183,7 +221,9 @@ def test_envia_e_grava_log(monkeypatch):
     r = asyncio.run(lembrete_ponto.rodar_lembretes(db))
     assert r["enviados"] == 1
     assert len(db.inserts) == 1
-    assert db.inserts[0]["e"] == -15
+    # grava no log o CÓDIGO do marco+etapa, não o delta cru — é o que impede o aviso da saída
+    # de ser engolido pelo dedup do aviso da entrada
+    assert db.inserts[0]["e"] == etapa_log("entrada", -lembrete_ponto.TOLERANCIA_MIN)
 
 
 def test_minuto_fora_da_janela_nao_envia_mesmo_vindo_do_sql(monkeypatch):
