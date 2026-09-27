@@ -687,25 +687,35 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
     return rel
 
 
-def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[str, Any]:
+def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False, dias: int = 45) -> dict[str, Any]:
     """Aplica o MESMO parser/upsert do Drive aos PDFs que o Onvio já baixou.
 
     O Onvio é da Portte; quando a Portte sair, ele sai. Enquanto existe, os PDFs mensais
     (DAS, GFD do FGTS, DCTFWeb) já estão em `onvio_documents.caminho_local` — e até
     27/09/2026 ninguém os transformava em obrigação: o gate fiscal dizia «5 vencidas sem
-    guia» com o DAS de R$ 18.399,33 parado no disco. A partir daqui, cada PDF vira
-    `fiscal_obligations` com valor, vencimento e código de barras (procedência
-    `onvio_portte`), idempotente pelo id do documento. O caminho permanente — puxar do
-    governo por certificado — não existe hoje (os managers são casca) e é decisão do dono.
+    guia» com o DAS de R$ 18.399,33 parado no disco. Cada PDF vira `fiscal_obligations`
+    com valor, vencimento e código de barras (procedência `onvio_portte`), idempotente pelo
+    id do documento. O caminho permanente — puxar do governo por certificado — não existe
+    hoje (os managers são casca) e é decisão do dono.
+
+    Três paredes, todas medidas no primeiro disparo real pelo beat (27/09, 18:42):
+    - **escopo**: sem `mes_ref`, só documentos dos últimos `dias` dias. A 1ª versão varreu
+      os 73 históricos e um «PGDASD DECLARACAO 11/2025» virou DAS de 01/2024.
+    - **guia sem vencimento ou sem valor não é guia** (é declaração/extrato): não grava,
+      reporta em `sem_dado`. Era o NOT NULL de `data_vencimento` estourando.
+    - **um documento ruim não derruba o lote**: commit por documento; o erro fica no
+      relatório com o nome do arquivo. Antes, o rollback do lote apagava até as boas.
     """
     from sqlalchemy import text as _t  # noqa: PLC0415
 
     rel: dict[str, Any] = {
         "ok": True,
         "mes_ref": mes_ref,
+        "dias": None if mes_ref else dias,
         "lidos": 0,
         "guias": [],
         "acessorias": [],
+        "sem_dado": [],
         "nao_classificados": [],
         "ja_processados": 0,
         "erros": [],
@@ -718,14 +728,17 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[s
                 " WHERE caminho_local IS NOT NULL "
                 "   AND categoria IN ('das_simples_nacional','fgts_guia','dctfweb_declaracao','dctfweb_recibo',"
                 "                     'dctfweb_debitos','dctfweb_resumo_debitos','iss','darf') "
-                "   AND (:m IS NULL OR mes_ref = :m) ORDER BY mes_ref, categoria"
+                "   AND ((:m IS NOT NULL AND mes_ref = :m) OR (:m IS NULL AND created_at >= now() - make_interval(days => :d))) "
+                " ORDER BY mes_ref, categoria"
             ),
-            {"m": mes_ref},
+            {"m": mes_ref, "d": dias},
         ).all()
-        for oid, nome, caminho, cat, mref in rows:
-            fid = f"onvio:{oid}"
-            # `forcar` reprocessa um mês (ex.: parser corrigido depois da 1ª passada) — o upsert
-            # é idempotente pela chave (tipo, competência, empresa), então não duplica.
+    except Exception as exc:  # noqa: BLE001
+        db.close()
+        return {**rel, "ok": False, "erros": [f"fatal ao listar: {exc}"]}
+    for oid, nome, caminho, cat, mref in rows:
+        fid = f"onvio:{oid}"
+        try:
             if not forcar and _ja_processado(db, fid):
                 rel["ja_processados"] += 1
                 continue
@@ -733,13 +746,12 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[s
                 rel["erros"].append(f"{nome}: arquivo não está no disco")
                 continue
             rel["lidos"] += 1
-            try:
-                g = parse_pdf_guia(caminho, nome)
-            except Exception as exc:  # noqa: BLE001
-                rel["erros"].append(f"{nome}: {exc}")
-                continue
+            g = parse_pdf_guia(caminho, nome)
             meta = {"file_id": fid, "nome": nome, "pasta": f"onvio/{cat}/{mref}", "fonte": "onvio_portte"}
             if g.tipo in NOMES:
+                if g.vencimento is None or g.valor is None:
+                    rel["sem_dado"].append(f"{nome} ({g.tipo}: valor={g.valor}, vencimento={g.vencimento})")
+                    continue
                 acao = _upsert_obrigacao(db, g, meta)
                 rel["guias"].append(
                     {
@@ -748,7 +760,7 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[s
                         "empresa": (g.empresa_id or "")[:8],
                         "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
                         "valor": g.valor,
-                        "vencimento": g.vencimento.isoformat() if g.vencimento else None,
+                        "vencimento": g.vencimento.isoformat(),
                         "acao": acao,
                     }
                 )
@@ -756,11 +768,10 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[s
                 rel["acessorias"] += _marcar_acessorias_cumpridas(db, g, meta)
             else:
                 rel["nao_classificados"].append(nome)
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        rel["ok"] = False
-        rel["erros"].append(f"fatal: {exc}")
-    finally:
-        db.close()
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            rel["erros"].append(f"{nome}: {type(exc).__name__}: {str(exc)[:160]}")
+    db.close()
+    rel["ok"] = not any(e.startswith("fatal") for e in rel["erros"])
     return rel
