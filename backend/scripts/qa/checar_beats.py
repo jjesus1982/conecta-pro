@@ -340,6 +340,7 @@ def main() -> int:
     problemas: dict[str, list[tuple[str, str]]] = {}
     engolem: dict[str, list[tuple[str, str]]] = {}
     sem_registro: list[tuple[str, str]] = []
+    nao_analisadas: list[str] = []
 
     for apelido, cfg in sorted(agenda.items()):
         nome = cfg.get("task", "")
@@ -350,6 +351,10 @@ def main() -> int:
             continue
         tree = _corpo(app.tasks[nome].run)
         if tree is None:
+            # Pulava CALADO. Medido em 27/09/2026: o espelho do eSocial aparecia em «engole a
+            # própria falha» numa execução e sumia na seguinte, com o mesmo código — e o gate
+            # do fiscal lia o sumiço como verde. Não analisado não é verde; é não analisado.
+            nao_analisadas.append(nome)
             continue
         achados = _analisar(tree)
         if achados:
@@ -385,6 +390,12 @@ def main() -> int:
         print("   com o beat diário e a fila consumida. PISTA, não veredito: um `except` que")
         print("   devolve fallback pode ser correto — leia a linha antes de mexer.\n")
 
+    if nao_analisadas:
+        print(f"🟡 NÃO ANALISADAS ({len(nao_analisadas)}) — `inspect.getsource` falhou; nada acima vale para elas\n")
+        for n in nao_analisadas:
+            print(f"   {n}")
+        print()
+
     if orfas:
         print(f"🔴 FILA SEM CONSUMIDOR ({len(orfas)}) — despacha e ninguém recebe\n")
         for o in orfas:
@@ -406,7 +417,10 @@ def main() -> int:
             f"({len(_PRODUCAO)} com produção vigiada).\n"
         )
         return 0
-    print(f"TOTAL: {total} achado(s) que quebram + {len(engolem)} que quebram CALADO")
+    print(
+        f"TOTAL: {total} achado(s) que quebram + {len(engolem)} que quebram CALADO"
+        + (f" + {len(nao_analisadas)} não analisada(s)" if nao_analisadas else "")
+    )
     print("Cada um destes falha na hora agendada, todo dia, e só aparece no sino.\n")
     return 1 if total else 0
 

@@ -49,9 +49,11 @@ def sincronizar_espelho_esocial(  # noqa: PLR0913
 ) -> dict:
     """Consulta identificadores pendentes no eSocial e baixa os XMLs. READ-ONLY no governo.
 
-    Devolve o dicionário do serviço. Falha é LOGADA com nível error e devolvida no resultado —
-    não levanta: beat que estoura exceção some no log do worker, e foi assim que este sumiço
-    durou meses.
+    Devolve o dicionário do serviço. Falha é LOGADA com nível error e RELANÇADA: desde 07/09
+    o sino ouve `task_failure` (`notifications/task_falha.py`), e é por ali que uma falha vira
+    aviso. A versão anterior devolvia `{"ok": False}` — para o Celery isso é SUCESSO, e o
+    `checar_beats` acusava (quando analisava): «engole a própria falha, o sino fica mudo».
+    Bloqueio dos dias 1–7 e orçamento esgotado NÃO são exceção: o serviço devolve status.
     """
     import asyncio
 
@@ -62,12 +64,15 @@ def sincronizar_espelho_esocial(  # noqa: PLR0913
     try:
         r = asyncio.run(
             sincronizar_espelho(
-                tipos=tipos, periodo=periodo, cpfs=cpfs,
-                max_acessos=max_acessos, max_downloads=max_downloads,
+                tipos=tipos,
+                periodo=periodo,
+                cpfs=cpfs,
+                max_acessos=max_acessos,
+                max_downloads=max_downloads,
             )
         )
         logger.info("espelho eSocial sincronizado: %s", r)
         return {"ok": True, **(r if isinstance(r, dict) else {"resultado": r})}
-    except Exception as exc:  # noqa: BLE001
-        logger.error("espelho eSocial: sincronização FALHOU — %s", exc, exc_info=True)
-        return {"ok": False, "erro": str(exc)[:400]}
+    except Exception:
+        logger.error("espelho eSocial: sincronização FALHOU", exc_info=True)
+        raise
