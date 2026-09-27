@@ -74,6 +74,32 @@ async def main() -> None:
     else:
         print("  ok  o juiz decide o subjetivo; o campo faltando é medido, não julgado")
 
+    # 2b — ⭐ O RELATÓRIO É ACOMPANHAMENTO DO TIME, NÃO ECO DO GRUPO.
+    #
+    # Jordan, 27/09: *"quero ele mais como acompanhamento do nosso time operacional, e não para
+    # postar o que eles postam no grupo"* e *"ele vai ver tudo, mas relatar só o que nos
+    # interessa"*. A 1ª versão colava 260 caracteres da mensagem original — que a pessoa já
+    # tinha postado no grupo dela.
+    _amostra = [
+        {"autor_nome": "JONHATA DINIZ", "grupo": "Ideal", "cat": "padrao",
+         "rotulo": "relatório sem agente", "conteudo": "TEXTO_ORIGINAL_QUE_NAO_PODE_APARECER"},
+        {"autor_nome": "JONHATA DINIZ", "grupo": "Ideal", "cat": "padrao",
+         "rotulo": "relatório sem agente", "conteudo": "TEXTO_ORIGINAL_QUE_NAO_PODE_APARECER"},
+        {"autor_nome": "ERIKA CRISTINA", "grupo": "Laranjeiras", "cat": "ponto",
+         "rotulo": "não conseguiu bater ponto", "conteudo": "TEXTO_ORIGINAL_QUE_NAO_PODE_APARECER"},
+    ]
+    saida = V._texto(_amostra, 0, 9, 60)
+    if "TEXTO_ORIGINAL_QUE_NAO_PODE_APARECER" in saida:
+        falhas.append("o relatório voltou a COLAR a mensagem original — o grupo já postou "
+                      "aquilo; repetir no Gestão é ruído com cara de trabalho")
+    elif "(2×)" not in saida:
+        falhas.append("o relatório não agrupou a repetição — o mesmo agente com o mesmo desvio "
+                      "duas vezes virou duas linhas iguais")
+    elif "PONTO" not in saida or "PADRÃO" not in saida:
+        falhas.append(f"o relatório perdeu as seções por categoria:\n{saida}")
+    else:
+        print("  ok  relatório agrupa por pessoa/posto e NÃO cola a mensagem do grupo")
+
     # 3 — ⭐ QUEM O CHAMA É RECONHECIDO PELO NOME, e a rotina não vira chamada.
     for txt, esperado, desc in (
         ("José Luís , fica atento a troca de turno", True, "como o dono realmente escreve"),

@@ -105,10 +105,18 @@ SELECT m.id::text AS id, m.chatwoot_message_id AS cw_id, g.nome AS grupo, g.modo
    AND m.criado_em >= now() - make_interval(mins => :janela)
    AND m.chatwoot_message_id IS NOT NULL
    -- ⭐ O HERMES É A MEMÓRIA: se já existe caso desta mensagem, ela já foi reportada.
+   --
+   -- 🔴 27/09/2026 — A CHAVE MORA NO JSON, NÃO NA COLUNA. Minha 1ª versão gravava o id em
+   -- `cwi_message_log.chatwoot_message_id`, que tem UNIQUE (`uq_cwi_chatwoot_message_id`):
+   -- a mensagem JÁ está lá pelo log normal, então o INSERT da memória estourava.
+   --
+   -- ⚠️ E o estrago não foi o erro: a publicação acontece ANTES da memória, então a varredura
+   -- SAIU no Gestão e não ficou registrada — repetiria na hora seguinte. Falha depois de um
+   -- efeito externo é sempre pior que falha antes dele.
    AND NOT EXISTS (
      SELECT 1 FROM cwi_message_log c
       WHERE c.direction = 'cas' AND c.status = 'varredura'
-        AND c.chatwoot_message_id = m.chatwoot_message_id)
+        AND c.content::jsonb->>'cw' = m.chatwoot_message_id::text)
  ORDER BY m.quando
 """
 
@@ -153,7 +161,8 @@ async def varrer(db: AsyncSession, *, janela_min: int = 60, publicar: bool = Tru
             # problema do condomínio — é do formulário. Pedir juízo sobre o objetivo é como
             # se perde um requisito que o dono pediu com todas as letras.
             incidentes.append({**r, "icone": "⚪", "ordem": len(GRAVIDADE), "_mecanico": True,
-                               "rotulo": f"relatório de turno SEM: {', '.join(faltando)}"})
+                               "cat": "padrao",
+                               "rotulo": f"relatório sem {', '.join(faltando).lower()}"})
         elif r["classificacao"] == "rotina":
             rotina += 1
 
@@ -166,14 +175,17 @@ async def varrer(db: AsyncSession, *, janela_min: int = 60, publicar: bool = Tru
         aprovados, porques, juiz_ok = await _julgar(a_julgar)
         for n, i in enumerate(a_julgar):
             i["_aprovado"] = n in aprovados
-            if porques.get(n):
-                i["rotulo"] = porques[n]
+            fato, cat = porques.get(n, (None, "equipe"))
+            i["cat"] = cat
+            if fato:
+                i["rotulo"] = fato
         rejeitados = [i for i in a_julgar if not i["_aprovado"]]
         a_julgar = [i for i in a_julgar if i["_aprovado"]]
         rotina += len(rejeitados)
     incidentes = a_julgar + mecanicos
 
-    incidentes.sort(key=lambda x: (x["ordem"], x["grupo"]))
+    _ORDEM_CAT = list(CATEGORIAS)
+    incidentes.sort(key=lambda x: (_ORDEM_CAT.index(x.get("cat", "equipe")), x["grupo"]))
     if not incidentes:
         logger.info("varredura: %s mensagem(ns) na janela, nenhuma intercorrência (%s de rotina)",
                     len(linhas), rotina)
@@ -200,12 +212,12 @@ async def varrer(db: AsyncSession, *, janela_min: int = 60, publicar: bool = Tru
     # Só vira memória depois de SAIR. Ver o docstring de `publicar=False`.
     if publicado:
         for i in mostrados:
+            # `chatwoot_message_id` fica NULL de propósito — ver o comentário em `_SQL_NOVAS`.
             await db.execute(text(
                 "INSERT INTO cwi_message_log (direction, phone_canonical, "
                 "  chatwoot_message_id, content, status) "
-                "VALUES ('cas', NULL, :cw, :corpo, 'varredura')"),
-                {"cw": i["cw_id"],
-                 "corpo": f'{{"p": {_json(i["conteudo"][:400])}, '
+                "VALUES ('cas', NULL, NULL, :corpo, 'varredura')"),
+                {"corpo": f'{{"cw": "{i["cw_id"]}", "p": {_json(i["conteudo"][:400])}, '
                           f'"r": {_json(i["rotulo"])}, "g": {_json(i["grupo"])}, '
                           f'"via": "varredura"}}'})
         await db.commit()
@@ -216,23 +228,41 @@ async def varrer(db: AsyncSession, *, janela_min: int = 60, publicar: bool = Tru
             "tipos": sorted({i["rotulo"] for i in mostrados})}
 
 
-_RUBRICA = """Você separa INTERCORRÊNCIA de ROTINA em relatos de portaria.
+#: Categorias do acompanhamento. Lista FECHADA — categoria por texto livre do modelo faria o
+#: relatório virar caixa de entrada sem dono, como já aconteceu com os chamados.
+CATEGORIAS: dict[str, tuple[str, str]] = {
+    "ponto": ("🔴", "PONTO"),
+    "equipe": ("🟠", "NOSSA EQUIPE"),
+    "material": ("🟡", "MATERIAL E EQUIPAMENTO"),
+    "cliente": ("🔵", "CLIENTE FALOU DE NÓS"),
+    "padrao": ("⚪", "PADRÃO DO RELATÓRIO"),
+}
 
-INTERCORRÊNCIA é o que alguém precisa DECIDIR ou CONSERTAR hoje:
-equipamento com defeito, acesso liberado sem autorização, falta de material que vai acabar,
-alguém que não conseguiu bater o ponto, dano, furto, pessoa suspeita, reclamação do cliente,
-agente sem render, obra irregular, risco à segurança.
+_RUBRICA = """Você acompanha o TIME OPERACIONAL de uma empresa de portaria terceirizada.
 
-ROTINA é o posto dizendo que está tudo bem, mesmo com detalhe:
-"condomínio tranquilo", "lixeira sendo limpa", "churrasqueira liberada para o morador X",
-"piscina com crianças e responsável", ronda concluída, foto de fachada normal, foto de
-documento de visitante conferido, elevador funcionando.
+⭐ A PERGUNTA É UMA SÓ: **isto é problema NOSSO, da nossa equipe ou do nosso serviço?**
 
-⚠️ Detalhe não é problema. "A churrasqueira 01 foi liberada para a senhora Daniela" é rotina:
-ninguém precisa fazer nada. "A churrasqueira foi usada sem reserva" é intercorrência.
+NÃO é nosso (ignore, mesmo sendo interessante):
+· rotina do condomínio — churrasqueira liberada, piscina com crianças, lixeira sendo limpa,
+  morador entrou, encomenda entregue, visitante identificado, elevador funcionando
+· obra, vazamento, jardim, fachada, coisas do prédio que não afetam o nosso serviço
+· "condomínio tranquilo", "sem alterações", ronda concluída, foto de documento conferido
+· qualquer coisa que a equipe apenas REGISTROU e que já está resolvida
 
-Responda APENAS um JSON: {"incidentes": [{"i": <índice>, "porque": "<até 12 palavras>"}]}
-Só inclua os índices que são intercorrência de verdade. Se nenhum for, devolva lista vazia."""
+É NOSSO (reporte):
+· ponto: alguém não conseguiu bater, não bateu, bateu fora do horário, ficou sem registro
+· equipe: agente faltou, atrasou, não foi rendido, saiu antes, não apareceu, abandonou posto,
+  agente sem uniforme ou fora do padrão de conduta
+· material: acabou ou vai acabar o que NÓS fornecemos (check list, uniforme, EPI, rádio,
+  livro de registro), ou equipamento que impede o NOSSO trabalho (leitor facial, catraca)
+· cliente: síndico, administração ou morador reclamou DE NÓS, do nosso agente ou do serviço
+
+⚠️ A régua: se a pessoa for embora e o problema sumir com ela, é nosso. Se o problema
+continuar existindo sem nós, é do condomínio.
+
+Responda APENAS um JSON:
+{"nossos": [{"i": <índice>, "cat": "ponto|equipe|material|cliente", "o_que": "<até 10 palavras, o FATO, sem citar a mensagem>"}]}
+Só inclua o que é problema nosso. Se nada for, devolva lista vazia."""
 
 
 async def _julgar(candidatos: list[dict]) -> tuple[set[int], dict[int, str], bool]:
@@ -275,11 +305,13 @@ async def _julgar(candidatos: list[dict]) -> tuple[set[int], dict[int, str], boo
         bruto = (resp.choices[0].message.content or "").strip()
         bruto = bruto[bruto.find("{"):bruto.rfind("}") + 1] if "{" in bruto else "{}"
         dados = _j.loads(bruto or "{}")
-        ok = {int(x["i"]) for x in (dados.get("incidentes") or []) if str(x.get("i","")).isdigit()
-              or isinstance(x.get("i"), int)}
-        porques = {int(x["i"]): str(x.get("porque") or "")[:90]
-                   for x in (dados.get("incidentes") or [])
-                   if isinstance(x.get("i"), int) or str(x.get("i","")).isdigit()}
+        itens = [x for x in (dados.get("nossos") or [])
+                 if isinstance(x.get("i"), int) or str(x.get("i", "")).isdigit()]
+        ok = {int(x["i"]) for x in itens}
+        porques = {int(x["i"]): (str(x.get("o_que") or "")[:70],
+                                 str(x.get("cat") or "equipe")
+                                 if str(x.get("cat")) in CATEGORIAS else "equipe")
+                   for x in itens}
         logger.info("varredura: juiz aprovou %d de %d candidatos", len(ok), len(candidatos))
         return ok, porques, True
     except Exception as exc:  # noqa: BLE001
@@ -288,7 +320,7 @@ async def _julgar(candidatos: list[dict]) -> tuple[set[int], dict[int, str], boo
         logger.error("varredura: juiz indisponível (%s) — só o que é grave passa", exc)
         graves = {n for n, c in enumerate(candidatos)
                   if c["classificacao"] in ("problema_ponto", "pendencia")}
-        return graves, {}, False
+        return graves, dict.fromkeys(graves, ("(classificador fora do ar)", "ponto")), False
 
 
 def _json(s: str) -> str:
@@ -298,21 +330,56 @@ def _json(s: str) -> str:
 
 def _texto(incidentes: list[dict], sobra: int, rotina: int, janela_min: int,
            juiz_ok: bool = True) -> str:
-    out = [f"👁 *Varredura dos grupos* — últimos {janela_min} min", ""]
+    """Relatório ESTRUTURADO do time — não eco do que o grupo postou.
+
+    🔴 27/09/2026, o dono sobre a 1ª versão: *"quero que ele responda de forma estruturada no
+    grupo e não essa bagunça, e quero ele mais como acompanhamento do nosso time operacional,
+    e não para postar o que eles postam no grupo, exceto quando for um problema nosso"*.
+    E depois: *"ele vai ver tudo, mas relatar só o que nos interessa"*.
+
+    ⭐ Duas mudanças que decorrem disso:
+
+      1. **NÃO CITA A MENSAGEM.** A 1ª versão colava 260 caracteres do texto original — que a
+         pessoa já tinha postado no grupo dela. Repetir no Gestão é ruído com cara de trabalho.
+         O que vai é o FATO em até dez palavras, escrito pelo juiz.
+      2. **AGRUPA POR PESSOA E POSTO.** O mesmo agente repetindo o mesmo desvio cinco vezes
+         virava cinco linhas iguais. Agora é uma linha com `(5×)`.
+    """
+    d = CATEGORIAS
+    por_cat: dict[str, dict[tuple, dict]] = {}
     for i in incidentes:
-        quem = i["autor_nome"] or "(sem nome)"
-        corpo = " ".join((i["conteudo"] or "").split())
-        out.append(f"{i['icone']} *{i['grupo']}* · {quem}")
-        out.append(f"    _{i['rotulo']}_")
-        out.append(f"    {corpo[:260]}" + ("…" if len(corpo) > 260 else ""))
+        cat = i.get("cat", "equipe")
+        # ⚠️ Agrupa por (quem, posto, fato). Mesma pessoa com dois desvios DIFERENTES continua
+        # sendo duas linhas — juntar apagaria informação para economizar espaço.
+        chave = (i.get("autor_nome") or "(sem nome)", i["grupo"], i["rotulo"])
+        alvo = por_cat.setdefault(cat, {})
+        if chave in alvo:
+            alvo[chave]["n"] += 1
+        else:
+            alvo[chave] = {"quem": chave[0], "grupo": chave[1], "fato": chave[2], "n": 1}
+
+    out = [f"👁 *Acompanhamento do time* — últimos {janela_min} min", ""]
+    for cat in d:
+        if cat not in por_cat:
+            continue
+        icone, titulo = d[cat]
+        linhas = sorted(por_cat[cat].values(), key=lambda x: (-x["n"], x["quem"]))
+        out.append(f"{icone} *{titulo}* ({sum(x['n'] for x in linhas)})")
+        for x in linhas:
+            vezes = f" ({x['n']}×)" if x["n"] > 1 else ""
+            # primeiro nome basta: quem lê conhece a equipe, e nome inteiro estoura a linha
+            primeiro = str(x["quem"]).split()[0].title() if x["quem"] else "?"
+            out.append(f"   · {primeiro} — {x['grupo']} — {x['fato']}{vezes}")
+        out.append("")
+
     if sobra:
-        out += ["", f"⚠️ *+{sobra}* não couberam nesta mensagem — vêm na próxima varredura."]
+        out.append(f"⚠️ *+{sobra}* não couberam — vêm na próxima varredura.")
     if rotina:
-        # ⭐ `rotina` no rodapé é SAÚDE, não alarme: é a prova de que os postos reportaram.
-        out += ["", f"✅ {rotina} relatório(s) de rotina, sem ocorrência."]
+        # ⭐ SAÚDE, não alarme: a prova de que os postos reportaram. Sem esta linha, um relatório
+        # curto parece dia calmo quando pode ser dia em que ninguém reportou nada.
+        out.append(f"✅ {rotina} relato(s) de rotina do condomínio — nada nosso.")
     if not juiz_ok:
-        # ⚠️ Degradação DITA. Um resumo menor por falha de juiz parecendo dia calmo é a pior
-        # forma de silêncio: ninguém procura o que não sabe que faltou.
-        out += ["", "⚠️ _O classificador não respondeu nesta rodada — passou só o que é grave. "
-                    "Pode ter ficado coisa de fora._"]
+        out.append("")
+        out.append("⚠️ _O classificador não respondeu nesta rodada — passou só o que é grave. "
+                   "Pode ter ficado coisa de fora._")
     return "\n".join(out)
