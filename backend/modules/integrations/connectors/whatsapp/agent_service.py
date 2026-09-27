@@ -2614,6 +2614,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "abrir_pendencia_dp": {"kind": "action"},
     "abrir_chamado_posto": {"kind": "action"},
     "registrar_cobertura_posto": {"kind": "action"},
+    "registrar_correcao_supervisor": {"kind": "action"},
     # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
@@ -2947,6 +2948,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
+            "registrar_correcao_supervisor",
             # ⚠️ `transferir_conversa` FICA FORA DO GRUPO, e isso não é economia de tool: foi ela
             # que se calou a si mesmo. A resposta de falha ("vou chamar alguém da equipe")
             # transferiu a conversa do Gestão, e a trava de transferência silenciou o agente ali
@@ -3052,6 +3054,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
+            "registrar_correcao_supervisor",
             "transferir_conversa",
             "resumo_grupos",
             "visao_operacao",
@@ -3079,6 +3082,7 @@ _PAPEIS: dict[str, dict] = {
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
+            "registrar_correcao_supervisor",
             "transferir_conversa",
         ),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
@@ -4754,6 +4758,45 @@ _SCHEMA_COBERTURA = {
     }
 }
 
+_SCHEMA_CORRECAO = {
+    "type": "function",
+    "function": {
+        "name": "registrar_correcao_supervisor",
+        "description": (
+            "Use quando alguém da SUPERVISÃO disser que algo que VOCÊ informou está ERRADO e "
+            "disser o que é o certo. Frases típicas: «está errado», «não é o fulano, é o "
+            "beltrano», «esse horário não é esse», «quem está lá é outro», «corrige isso».\n\n"
+            "⭐ NÃO É SÓ AQUELE CASO. Ao registrar, eu procuro TODOS os outros registros com o "
+            "mesmo defeito e devolvo quantos achei. DIGA ESSE NÚMERO à pessoa — é o que mostra "
+            "que a correção dela valeu para todos, não só para o que ela viu.\n\n"
+            "⚠️ NUNCA diga que já corrigiu. A correção vai para aprovação; só depois é "
+            "aplicada. E se quem falou não for da supervisão, eu recuso e viro relato — não "
+            "insista nem tente contornar.\n\n"
+            "⚠️ Use também quando a correção for sobre ponto ou cadastro, não só escala."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tipo": {"type": "string", "enum": ["escala", "ponto", "cadastro", "outro"],
+                         "description": "escala = quem/onde/quando; ponto = batida; "
+                                        "cadastro = dado da pessoa"},
+                "eu_disse": {"type": "string",
+                             "description": ("O que VOCÊ afirmou e estava errado, com as suas "
+                                             "palavras. Quem for consertar precisa saber o que "
+                                             "o sistema exibiu, não só a correção.")},
+                "o_certo": {"type": "string",
+                            "description": "O que é o certo, COM AS PALAVRAS DA SUPERVISÃO."},
+                "pessoa_errada": {"type": "string",
+                                  "description": "Nome de quem você disse por engano, se for o caso."},
+                "pessoa_certa": {"type": "string",
+                                 "description": "Nome de quem realmente é, se for o caso."},
+                "posto": {"type": "string", "description": "Posto a que a correção se refere."},
+            },
+            "required": ["tipo", "o_certo"],
+        },
+    }
+}
+
 _SCHEMA_PENDENCIA = {
     "type": "function",
     "function": {
@@ -4889,6 +4932,21 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
                 categoria=str(args.get("categoria") or "outro"),
                 relato=str(args.get("relato") or ""),
                 posto=getattr(ident, "posto", None),
+            )
+
+        if name == "registrar_correcao_supervisor":
+            from modules.operacional import correcao_supervisor as _cs  # noqa: PLC0415
+
+            return await _cs.registrar(
+                db,
+                quem_corrige_employee_id=(str(ident.employee_id) if ident
+                                          and getattr(ident, "employee_id", None) else None),
+                tipo=str(args.get("tipo") or "outro"),
+                eu_disse=str(args.get("eu_disse") or ""),
+                o_certo=str(args.get("o_certo") or ""),
+                pessoa_errada=(str(args["pessoa_errada"]) if args.get("pessoa_errada") else None),
+                pessoa_certa=(str(args["pessoa_certa"]) if args.get("pessoa_certa") else None),
+                posto=(str(args["posto"]) if args.get("posto") else None),
             )
 
         if name == "registrar_cobertura_posto":
@@ -5595,11 +5653,12 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_PENDENCIA,
             _SCHEMA_CHAMADO_POSTO,
             _SCHEMA_COBERTURA,
+            _SCHEMA_CORRECAO,
         ]
     if papel == "grupo":
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_COBERTURA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_COBERTURA, _SCHEMA_CORRECAO, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
                    _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO,
                    _SCHEMA_ROTINA_TURNO, _SCHEMA_AJUSTE_ESCALA]
     if papel == "supervisor":
@@ -5614,6 +5673,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_PENDENCIA,
             _SCHEMA_CHAMADO_POSTO,
             _SCHEMA_COBERTURA,
+            _SCHEMA_CORRECAO,
             _SCHEMA_RESUMO_GRUPOS,
             _SCHEMA_VISAO_OPERACAO,
         ]
@@ -5949,6 +6009,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
             "registrar_cobertura_posto",
+            "registrar_correcao_supervisor",
         ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:

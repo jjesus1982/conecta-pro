@@ -80,6 +80,9 @@ def _garantir_executores() -> None:
         # e substituição. Sem ele o rascunho nasceria sem executor e a Central falharia na hora
         # de aprovar — que foi o que aconteceu com 17 tipos em 26/09.
         "modules.operacional.cobertura_posto",
+        # ⭐ 27/09/2026 — «isso está errado, o certo é X» de quem decide. O executor aplica a
+        # correção a TODA a família medida na captura, não só ao caso que apareceu.
+        "modules.operacional.correcao_supervisor",
     )
     for nome in _MODULOS_DE_EXECUTOR:
         _importar_registrando(nome)
