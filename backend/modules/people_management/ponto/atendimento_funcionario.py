@@ -19,8 +19,10 @@ como em toda a casa. Sem isso, uma frase ("sou o Rene") moveria ponto de outra p
 """
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import uuid as _uuid
+from zoneinfo import ZoneInfo as _ZoneInfo
 
 from sqlalchemy import text as sql
 
@@ -88,24 +90,74 @@ async def situacao_hoje(db, employee_id: str) -> dict:
     }
 
 
-async def registrar_contingencia(db, employee_id: str, motivo: str) -> dict:
+def _hora_informada(quando: str | None) -> _dt.datetime | None:
+    """Converte "08:38" na hora REAL daquele instante em Manaus, ou None se não der para confiar.
+
+    🔴 27/09/2026 — POR QUE ISTO NASCEU. O JONILSON ficou 15 horas com a jornada aberta porque
+    saiu às 08:38 esperando a rendição e não conseguiu bater. O José Luís tinha duas tools e
+    nenhuma servia: `registrar_batida_contingencia` carimbava AGORA (09:20, quase uma hora
+    depois do fato) e `abrir_pendencia_dp` só pede a um humano. Ele escolheu a pendência — o
+    que era razoável — e então disse ao Jonilson *"Registrado: saída de hoje às 08:38"*.
+    **Fez uma coisa e contou outra**, e o rapaz foi dormir achando que a jornada tinha fechado.
+
+    ⭐ A capacidade que faltava não era esperteza do modelo: era poder gravar a batida na HORA
+    QUE A PESSOA INFORMOU. Élen, Anilson, Matheus, Erika e Jonilson precisaram disso no mesmo
+    dia.
+
+    ⚠️ E hora vinda de um modelo precisa de parede, senão vira fabricação:
+
+      · NUNCA no futuro — eu mesmo deixei uma batida de teste às 19:40 num banco às 07:01
+      · NUNCA mais de 18h atrás — além disso é outro turno, não esta jornada
+      · se a hora dita já passou hoje, é hoje; se ainda não chegou, é de ONTEM (noturno que
+        atravessa a meia-noite — `TIME + 24h` daria a volta em vez de avançar o dia)
+    """
+    import re as _re  # noqa: PLC0415
+
+    if not quando:
+        return None
+    m = _re.search(r"(\d{1,2})\s*[:hH]\s*(\d{2})", str(quando))
+    if not m:
+        return None
+    hh, mm = int(m.group(1)), int(m.group(2))
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        return None
+    agora = _dt.datetime.now(_ZoneInfo("America/Manaus")).replace(tzinfo=None)
+    alvo = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if alvo > agora:                      # ainda não chegou hoje ⇒ foi ontem
+        alvo -= _dt.timedelta(days=1)
+    if (agora - alvo) > _dt.timedelta(hours=18):
+        return None                        # longe demais para ser esta jornada
+    return alvo
+
+
+async def registrar_contingencia(db, employee_id: str, motivo: str,
+                                 quando: str | None = None) -> dict:
     """A batida que o app não conseguiu registrar, gravada PENDENTE para o DP validar.
 
     Mesma gravação do endpoint `/self-service/batida-contingencia` — o que muda é a porta de
     entrada (WhatsApp em vez do portal). O tipo sai da SEQUÊNCIA da pessoa, nunca do que ela
     diz: quem decide se falta "entrada" ou "retorno do almoço" é `_proxima_batida_info`, que
     conhece intrajornada, meio período de sábado e a virada do turno noturno.
+
+    `quando` = hora que a PESSOA informou ("08:38"). Sem ela, carimba agora — o que só está
+    certo quando a pessoa está no posto neste momento. Ver `_hora_informada`.
     """
     from modules.people_management.employee_portal.controllers.self_service_controller import (  # noqa: PLC0415
         _proxima_batida_info,
     )
 
+    # ⚠️ A anti-duplicata olha em torno da hora DO FATO, não de agora: com hora informada,
+    # medir a partir de `now()` procuraria vizinhança no lugar errado e deixaria duplicar.
+    hora_fato = _hora_informada(quando)
     recente = (await db.execute(sql(
         "SELECT to_char(punch_timestamp,'HH24:MI') FROM gp_clock_punches "
-        " WHERE employee_id = CAST(:e AS uuid) AND punch_timestamp > "
-        "       (now() AT TIME ZONE 'America/Manaus') - make_interval(mins => :m) "
+        " WHERE employee_id = CAST(:e AS uuid) "
+        "   AND abs(EXTRACT(EPOCH FROM (punch_timestamp - "
+        "       coalesce(CAST(CAST(:ts AS text) AS timestamp), (now() AT TIME ZONE 'America/Manaus')))))"
+        "       <= :m * 60 "
         " ORDER BY punch_timestamp DESC LIMIT 1"),
-        {"e": employee_id, "m": MINUTOS_ANTI_DUPLICATA})).scalar()
+        {"e": employee_id, "m": MINUTOS_ANTI_DUPLICATA,
+         "ts": hora_fato.isoformat(sep=" ") if hora_fato else None})).scalar()
     if recente:
         return {"ok": True, "ja_registrado": True, "hora": recente,
                 "msg": f"Já existe uma batida sua às {recente}. Não registrei outra para não duplicar."}
@@ -116,20 +168,32 @@ async def registrar_contingencia(db, employee_id: str, motivo: str) -> dict:
     await db.execute(sql(
         "INSERT INTO gp_clock_punches (punch_id, employee_id, punch_type, punch_timestamp, "
         " server_timestamp, status, device_type, created_at, updated_at) "
-        "VALUES (:pid, CAST(:e AS uuid), :t, (now() AT TIME ZONE 'America/Manaus'), "
+        "VALUES (:pid, CAST(:e AS uuid), :t, "
+        " coalesce(CAST(CAST(:ts AS text) AS timestamp), (now() AT TIME ZONE 'America/Manaus')), "
         " (now() AT TIME ZONE 'America/Manaus'), 'pending_contingencia', 'contingencia', now(), now())"),
-        {"pid": pid, "e": employee_id, "t": tipo})
+        {"pid": pid, "e": employee_id, "t": tipo,
+         "ts": hora_fato.isoformat(sep=" ") if hora_fato else None})
     # O motivo dito por ele é a trilha do DP: sem isso a batida pendente chega sem história.
     await db.execute(sql(
         "INSERT INTO gp_justifications (justification_id, punch_id, employee_id, justification_type, "
         " reason, category, status, source, created_at) "
         "VALUES (:jid, :pid, :e, 'atraso', :r, 'outro', 'pendente', 'whatsapp', now())"),
         {"jid": str(_uuid.uuid4()), "pid": pid, "e": str(employee_id),
-         "r": f"Batida por contingência via WhatsApp: {motivo}"[:2000]})
+         "r": (f"Batida por contingência via WhatsApp: {motivo}"
+               + (f" [HORA INFORMADA PELA PRÓPRIA PESSOA: {hora_fato.strftime('%d/%m %H:%M')} — "
+                  f"não é a hora em que o agente registrou]" if hora_fato else ""))[:2000]})
     await db.commit()
     logger.info("contingência via WhatsApp: employee=%s tipo=%s punch=%s", employee_id, tipo, pid)
-    return {"ok": True, "punch_id": pid, "tipo": tipo,
-            "msg": f"Registrei sua {tipo} agora, pendente de validação do DP. Você não perdeu o ponto."}
+    _hh = hora_fato.strftime("%H:%M") if hora_fato else None
+    return {"ok": True, "punch_id": pid, "tipo": tipo, "hora": _hh,
+            "hora_informada_aceita": bool(hora_fato),
+            # ⚠️ Quando a pessoa DIZ uma hora e a parede recusa (futuro, >18h), o texto avisa em
+            # vez de fingir: senão o agente repetiria a hora dita e a batida estaria noutra.
+            "msg": (f"Registrei sua {tipo} das *{_hh}*, com a hora que você me informou. "
+                    f"Fica pendente de validação do DP e você não perde o ponto."
+                    if hora_fato else
+                    f"Registrei sua {tipo} *agora*, pendente de validação do DP. Você não "
+                    f"perdeu o ponto.")}
 
 
 async def registrar_justificativa(db, employee_id: str, tipo: str, motivo: str,

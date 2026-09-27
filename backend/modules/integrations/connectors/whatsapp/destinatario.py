@@ -57,8 +57,20 @@ _SQL = text(
 )
 
 
-async def resolver(db: AsyncSession, quem: str, *, exigir_ativo: bool = True) -> dict[str, Any]:
+async def resolver(db: AsyncSession, quem: str, *, exigir_ativo: bool = True,
+                   exigir_telefone: bool = True) -> dict[str, Any]:
     """Acha a pessoa e o telefone DELA no cadastro. Recusa ambíguo, desconhecido e malformado.
+
+    ⭐ 27/09/2026 — `exigir_telefone=False` para quem só precisa SABER QUEM É.
+    Nem toda pergunta sobre uma pessoa é para mandar mensagem a ela: registrar que *a Kelly
+    faltou e o Rilem rendeu* precisa identificar as duas, e o telefone é irrelevante. Com a
+    exigência ligada, um cadastro com telefone torto impedia **registrar o fato**, que é uma
+    recusa no lugar errado.
+
+    ⚠️ E por que um PARÂMETRO e não um segundo resolvedor: a regra que importa aqui é a que
+    custou caro — **ambíguo recusa** (cinco ANTONIO nesta casa). Duplicar a função para relaxar
+    uma checagem duplicaria também essa trava, e a cópia divergiria na primeira mudança. Quem
+    chama diz o que precisa; a trava é a mesma para todos.
 
     Devolve `{"ok": True, "employee_id", "nome", "fone", "email", "cpf"}` ou
     `{"ok": False, "motivo": "..."}` — e o motivo é escrito para ser LIDO por quem chamou, não
@@ -84,7 +96,7 @@ async def resolver(db: AsyncSession, quem: str, *, exigir_ativo: bool = True) ->
     r = rows[0]
     if exigir_ativo and (r["status"] or "").lower() == "demitido":
         return {"ok": False, "motivo": f"{r['nome']} está DEMITIDO no cadastro — não mando"}
-    if len(r["fone"]) not in _TAMANHOS_VALIDOS:
+    if exigir_telefone and len(r["fone"]) not in _TAMANHOS_VALIDOS:
         return {"ok": False, "motivo": f"{r['nome']} tem telefone malformado no cadastro "
                                       f"({r['fone'] or 'vazio'!r}, {len(r['fone'])} dígitos). "
                                       "NÃO adivinho dígito: já mandamos mensagem nossa para o "

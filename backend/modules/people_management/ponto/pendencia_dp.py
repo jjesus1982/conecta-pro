@@ -94,9 +94,25 @@ async def abrir(db, *, employee_id: str, nome: str, assunto: str, relato: str,
     if isinstance(r, dict) and r.get("erro"):
         return {"ok": False, "msg": str(r["erro"])[:200]}
     logger.info("pendência de ponto aberta: %s / %s", nome, assunto)
+    # 🔴 27/09/2026 — A PALAVRA "REGISTREI" ENSINOU O AGENTE A MENTIR.
+    #
+    # O JONILSON perguntou como fechar a saída que não entrou. O José Luís chamou ESTA tool,
+    # leu o retorno *"Registrei aqui e já está na fila do DP"* e respondeu a ele:
+    # **"Registrado, Jonilson: saída de hoje às 08:38"**. A pendência nasceu de verdade; a
+    # BATIDA não existia. Ele foi dormir achando que a jornada tinha fechado, e ela ficou
+    # 15 horas aberta.
+    #
+    # ⭐ É o caso do Tangerino outra vez: **o agente aprende com o que a casa diz**. "Registrei"
+    # sem objeto, numa conversa sobre ponto, vira "registrei a batida". O retorno de uma tool
+    # não é texto interno — é o que o modelo repete para a pessoa. Aqui ele diz o que NÃO
+    # aconteceu, porque é isso que evita a promessa falsa.
     return {"ok": True, "assunto": ASSUNTOS[assunto], "rascunho": (r or {}).get("draft_id"),
-            "msg": "Registrei aqui e já está na fila do DP. Eles é que corrigem — assim que "
-                   "resolverem, eu te aviso."}
+            "msg": ("Anotei o seu pedido e mandei para o DP, que é quem resolve. "
+                    "⚠️ Isto NÃO lança batida nem corrige o espelho — é um pedido. "
+                    "Assim que eles tratarem, eu te aviso."),
+            "diga_a_pessoa": ("NUNCA diga que a batida foi registrada nem que o espelho foi "
+                              "corrigido: esta tool só abre um PEDIDO. Se o que falta é uma "
+                              "batida, use `registrar_batida_contingencia` — é ela que grava.")}
 
 
 def _hoje() -> str:

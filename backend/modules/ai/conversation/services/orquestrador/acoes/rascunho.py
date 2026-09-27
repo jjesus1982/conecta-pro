@@ -74,6 +74,12 @@ def _garantir_executores() -> None:
         "modules.ai.conversation.services.orquestrador.tools_acao_fiscal_nota",
         # ponte "eu anotei" → "isso é tarefa de alguém": registra pendencia_ponto e escala_pedido
         "modules.people_management.ponto.pendencia_dp",
+        # ⭐ 27/09/2026 — «fulano faltou, beltrano rendeu». Diferente do `escala_pedido`, que é
+        # relato em prosa e por isso só pode virar "ciente", este payload é ALVO ESTRUTURADO
+        # (shift_id, post_id, employee_id) e o executor chama os controllers oficiais de falta
+        # e substituição. Sem ele o rascunho nasceria sem executor e a Central falharia na hora
+        # de aprovar — que foi o que aconteceu com 17 tipos em 26/09.
+        "modules.operacional.cobertura_posto",
     )
     for nome in _MODULOS_DE_EXECUTOR:
         _importar_registrando(nome)

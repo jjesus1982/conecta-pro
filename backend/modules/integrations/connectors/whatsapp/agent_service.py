@@ -2613,6 +2613,7 @@ _TOOL_ALLOWLIST: dict[str, dict] = {
     "historico_desta_pessoa": {"kind": "action"},
     "abrir_pendencia_dp": {"kind": "action"},
     "abrir_chamado_posto": {"kind": "action"},
+    "registrar_cobertura_posto": {"kind": "action"},
     # `read`: só LÊ o que já foi absorvido dos grupos autorizados. Quem alcança é filtrado
     # pelo papel `supervisor`, que vem do RBAC (users.role), nunca da fala.
     "resumo_grupos": {"kind": "read"},
@@ -2945,6 +2946,7 @@ _PAPEIS: dict[str, dict] = {
         "tools": (
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
+            "registrar_cobertura_posto",
             # ⚠️ `transferir_conversa` FICA FORA DO GRUPO, e isso não é economia de tool: foi ela
             # que se calou a si mesmo. A resposta de falha ("vou chamar alguém da equipe")
             # transferiu a conversa do Gestão, e a trava de transferência silenciou o agente ali
@@ -3049,6 +3051,7 @@ _PAPEIS: dict[str, dict] = {
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
+            "registrar_cobertura_posto",
             "transferir_conversa",
             "resumo_grupos",
             "visao_operacao",
@@ -3075,6 +3078,7 @@ _PAPEIS: dict[str, dict] = {
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
+            "registrar_cobertura_posto",
             "transferir_conversa",
         ),
         # ⚠️ `prompt` (e não `foco`): este é o ÚNICO papel que SUBSTITUI o SYSTEM_PROMPT em
@@ -4388,9 +4392,13 @@ _SCHEMA_CONTINGENCIA = {
         "description": (
             "Registra a batida que o APP não conseguiu registrar — câmera que não abre, "
             "rosto não reconhecido, GPS negado, app travado. Entra PENDENTE para o DP "
-            "validar: ninguém perde o ponto. Use quando ele estiver NO POSTO e não "
-            "conseguir bater agora. NÃO use para batida de outro dia (isso é justificativa) "
-            "nem se `meu_ponto_hoje` já mostrar a batida registrada."
+            "validar: ninguém perde o ponto.\n\n"
+            "⭐ ESTA É A ÚNICA TOOL QUE GRAVA BATIDA. `abrir_pendencia_dp` abre um PEDIDO e "
+            "não lança nada — em 27/09 o agente confundiu as duas, disse a uma pessoa que a "
+            "saída dela estava registrada, e a jornada dela ficou 15 HORAS ABERTA.\n\n"
+            "Use quando a pessoa está no posto agora, E TAMBÉM quando ela já saiu e te diz a "
+            "hora — neste caso passe `quando`. NÃO use se `meu_ponto_hoje` já mostrar a "
+            "batida, nem para dia anterior ao turno que está em curso."
         ),
         "parameters": {
             "type": "object",
@@ -4399,6 +4407,16 @@ _SCHEMA_CONTINGENCIA = {
                     "type": "string",
                     "description": "O que impediu a batida, nas palavras dele. É a trilha "
                     "que o DP lê para validar — 'não deu' não serve.",
+                },
+                "quando": {
+                    "type": "string",
+                    "description": (
+                        "Hora que a PRÓPRIA PESSOA informou, formato HH:MM (ex.: '08:38'). "
+                        "Use SÓ quando ela disser a hora — nunca estime, nunca deduza do "
+                        "horário da escala. Sem isto a batida é carimbada AGORA, o que só "
+                        "está certo se ela estiver no posto neste momento. "
+                        "O sistema recusa hora no futuro ou de mais de 18h atrás."
+                    ),
                 },
             },
             "required": ["motivo"],
@@ -4686,6 +4704,56 @@ _SCHEMA_CHAMADO_POSTO = {
     }
 }
 
+_SCHEMA_COBERTURA = {
+    "type": "function",
+    "function": {
+        "name": "registrar_cobertura_posto",
+        "description": (
+            "Registra que ALGUÉM FALTOU e, quando houver, QUEM RENDEU. Use quando quem está no "
+            "posto ou a supervisão contar, com estas palavras ou parecidas: «fulano não veio», "
+            "«fulano faltou», «eu assumi o posto», «estou cobrindo o fulano», «quem rendeu foi "
+            "beltrano», «chamei o diarista para cobrir».\n\n"
+            "⭐ Em portaria isso é ROTINA, não exceção: falta, atraso e rotatividade acontecem "
+            "toda semana, e às vezes quem cobre é alguém que NUNCA foi da empresa mas já "
+            "trabalhou no condomínio. Registre do mesmo jeito — o nome de quem veio de fora é "
+            "capturado como texto e a supervisão cadastra depois.\n\n"
+            "⚠️ NADA MUDA NA ESCALA AGORA. Isto cria um pedido para a supervisão aprovar. "
+            "NUNCA diga à pessoa que a escala já foi alterada — diga que a supervisão vai "
+            "confirmar. A escala é curada à mão pelo dono.\n\n"
+            "⚠️ Se a pessoa BATEU PONTO no turno, não é falta: chegar atrasado ou sair antes é "
+            "ajuste de ponto (`abrir_pendencia_dp`), não cobertura."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "faltou": {
+                    "type": "string",
+                    "description": ("Nome de quem NÃO foi ao posto, como a pessoa falou. Se "
+                                    "houver dúvida entre duas pessoas do mesmo nome, PERGUNTE "
+                                    "antes — nunca escolha a mais provável."),
+                },
+                "rendeu": {
+                    "type": "string",
+                    "description": ("Nome de quem cobriu o posto, se alguém cobriu. Pode ser "
+                                    "alguém de fora da empresa. Omita se ninguém cobriu — e "
+                                    "nesse caso o posto pode estar DESCOBERTO agora."),
+                },
+                "motivo": {
+                    "type": "string",
+                    "enum": ["falta", "atestado", "emergencia", "pessoal", "outro"],
+                    "description": "Por que a pessoa não foi, se ela ou alguém informou.",
+                },
+                "relato": {
+                    "type": "string",
+                    "description": ("O que foi dito, COM AS PALAVRAS DE QUEM CONTOU. Quem for "
+                                    "decidir não tem a conversa."),
+                },
+            },
+            "required": ["faltou"],
+        },
+    }
+}
+
 _SCHEMA_PENDENCIA = {
     "type": "function",
     "function": {
@@ -4823,6 +4891,18 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
                 posto=getattr(ident, "posto", None),
             )
 
+        if name == "registrar_cobertura_posto":
+            from modules.operacional import cobertura_posto as _cob  # noqa: PLC0415
+
+            return await _cob.registrar(
+                db,
+                faltou=str(args.get("faltou") or ""),
+                rendeu=(str(args["rendeu"]) if args.get("rendeu") else None),
+                motivo=str(args.get("motivo") or "falta"),
+                relato=str(args.get("relato") or ""),
+                reportado_por=(ident.nome if ident else None),
+            )
+
         if name == "abrir_pendencia_dp":
             from modules.people_management.ponto import pendencia_dp as _pd  # noqa: PLC0415
 
@@ -4846,7 +4926,9 @@ async def _tool_ponto_funcionario(name: str, args: dict, ident) -> dict:
                 ident.posto,
             )
         if name == "registrar_batida_contingencia":
-            return await _pf.registrar_contingencia(db, ident.employee_id, str(args.get("motivo") or "").strip())
+            return await _pf.registrar_contingencia(
+                db, ident.employee_id, str(args.get("motivo") or "").strip(),
+                quando=(str(args["quando"]) if args.get("quando") else None))
         return await _pf.registrar_justificativa(
             db,
             ident.employee_id,
@@ -5512,11 +5594,12 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
             _SCHEMA_CHAMADO_POSTO,
+            _SCHEMA_COBERTURA,
         ]
     if papel == "grupo":
         # SÓ o que é publicável: pendência, e as duas LEITURAS agregadas. Nenhum schema de
         # ponto/holerite/vida entra aqui — ver o comentário do papel `grupo` em `_PAPEIS`.
-        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
+        ativas += [_SCHEMA_PENDENCIA, _SCHEMA_CHAMADO_POSTO, _SCHEMA_COBERTURA, _SCHEMA_VISAO_OPERACAO, _SCHEMA_RESUMO_GRUPOS,
                    _SCHEMA_COBERTURA_ESCALA, _SCHEMA_ESCALA_POSTO, _SCHEMA_AUDITORIA_CADASTRO,
                    _SCHEMA_ROTINA_TURNO, _SCHEMA_AJUSTE_ESCALA]
     if papel == "supervisor":
@@ -5530,6 +5613,7 @@ def _tools_ativas(owner: bool, papel: str | None = None) -> list:
             _SCHEMA_HISTORICO,
             _SCHEMA_PENDENCIA,
             _SCHEMA_CHAMADO_POSTO,
+            _SCHEMA_COBERTURA,
             _SCHEMA_RESUMO_GRUPOS,
             _SCHEMA_VISAO_OPERACAO,
         ]
@@ -5864,6 +5948,7 @@ async def _exec_tool(name: str, args: dict, conversation_id: int) -> dict:
             "historico_desta_pessoa",
             "abrir_pendencia_dp",
             "abrir_chamado_posto",
+            "registrar_cobertura_posto",
         ):
             _f = await _funcionario_da_conversa(conversation_id)
             if not _f:
