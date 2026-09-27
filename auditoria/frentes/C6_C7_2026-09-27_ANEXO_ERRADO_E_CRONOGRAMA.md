@@ -489,9 +489,12 @@ exige, mas edital de licitação costuma exigir. E três da Eletrônica (municip
 não presta mão de obra); registro, não pendência.
 
 **Por que ninguém avisou:** a task de alerta de vencimento estava agendada para uma fila que
-nenhum worker escuta — 68 disparos diários mofando no Redis desde julho. Corrigido (commit
-`fix(beat)`), purgado, e um disparo manual consumido. Mas a task, rodando, devolveu «0
-vencendo em 7 dias» — ela não enxerga esta certidão; é a próxima coisa que vou consertar.
+nenhum worker escuta — 68 disparos diários mofando no Redis desde julho. Corrigido (fila,
+commit `e54cc8083`), purgado, e um disparo manual consumido. E a task lia uma tabela **vazia**
+(o DMS genérico aposentado em 08/09) com casamento de dia exato — reescrita para ler
+`ged_certidoes` pelos CNPJs do grupo: **seis alertas no sino agora** (CRF da Patrimonial em
+7 dias, estadual em 21, quatro vencidas). Detalhe que quase escondeu a Patrimonial de novo:
+todas as certidões dela estão com `alerta_ativo = false` — a flag não é régua.
 
 ### d) Qual é o nosso RAT: 2% ou 3%?
 
