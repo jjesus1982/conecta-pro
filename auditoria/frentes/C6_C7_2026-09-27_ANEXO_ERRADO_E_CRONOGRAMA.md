@@ -230,6 +230,34 @@ da entrega da ECF.
 
 ---
 
+## 6. Segunda rodada: a fila do LALUR, o preço com o encargo certo, e o balanço que estava vermelho desde 23/09
+
+**A fila de revisão existe.** `fila_de_revisao` lista as despesas do período sem decisão,
+por valor decrescente — no T3/2026 da Eletrônica são **746 linhas, R$ 166.563,74**, e o
+topo são as notas da Sólides. `decidir` grava uma a uma e exige o código do Anexo para
+adição/exclusão. O desenho central é um terceiro estado, *decidido dedutível*: sem ele,
+"não revisado" e "revisado e dedutível" seriam a mesma coisa, e o não previsto falharia
+aberto — que aqui significa subtributar.
+
+Achei e corrigi três defeitos meus antes de assar: a fila incluía 13 lançamentos de ISS
+(R$ 8.057,34) que a apuração exclui; o livro aceitava "ano inteiro" como período no Lucro
+Real trimestral (a porta pela qual as duas respostas na mesma tela voltariam); e eu tinha
+declarado o vínculo com o lançamento como UUID quando o id é inteiro.
+
+**O encargo da cotação agora é o da empresa.** R$ 5.820,81 → **R$ 5.673,64** no AGP de
+piso — a metade provada. O aviso encolheu para o que sobra (os tributos, que dependem do
+RBT12). Junto, um defeito meu de algumas horas antes: eu tinha feito a rota de cotação
+abrir ~20 conexões síncronas por requisição; agora é uma consulta assíncrona e função pura.
+
+**O balanço.** Estava vermelho desde 23/09 e ninguém tinha olhado o motivo. Hoje eram 3
+invariantes: junho e julho da Patrimonial "com resultado em aberto", e o DRE discordando
+do PL em R$ 127.783,81 e R$ 6.038,62. Causa: os lançamentos que eu corrigi nesses meses
+(fornecedor em dobro, receita pelas notas) não tinham sido encerrados contra o PL. O
+preview da re-apuração devolveu as duas diferenças **centavo a centavo**. Apliquei a
+complementar: **3 → 0, DRE = PL nos dois meses.**
+
+---
+
 ## PRECISO DE VOCÊ — 3 coisas
 
 ### a) O RBT12 não bate entre as duas guias
