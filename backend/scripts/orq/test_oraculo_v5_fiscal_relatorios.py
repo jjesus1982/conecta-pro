@@ -123,13 +123,20 @@ async def main() -> int:  # noqa: C901 — um bloco por afirmação, linear de p
         esperado_trechos = [
             "<cTribNac>110201</cTribNac>",
             "<cTribMun>100</cTribMun>",
-            "<cNBS>120032900</cNBS>",  # ← FIXO no emissor; se a frente ligasse o cadastro, mudaria
+            # <cNBS> saiu da lista em 27/09/2026. O código fixo 120032900 («instalação de
+            # maquinários») ia em TODA nota, inclusive nas de vigilância, e o fisco devolvia o
+            # xNBS errado — commit f8ecfe18ed (24/09) passou a emitir a tag só quando há NBS
+            # no cadastro. Esta régua seguiu exigindo o valor velho e reprovou o certo assim
+            # que o bake levou a mudança ao container. A regra nova está logo abaixo.
             "<vServ>1000.00</vServ>",
             "<opSimpNac>1</opSimpNac>",
         ]
         faltando = [x for x in esperado_trechos if x not in estavel]
         if faltando:
             falhas.append(f"a) XML da NFS-e MUDOU — trechos ausentes: {faltando}")
+        # Sem NBS no cadastro, a tag NÃO vai: número fiscal sem fonte não se inventa.
+        if "<cNBS>" in estavel:
+            falhas.append("a) o XML carrega <cNBS> sem NBS no cadastro — o código fixo voltou")
         # E nenhum campo do cadastro fiscal pode ter vazado para o XML.
         for proibido in ("origem_regra", "incide_ibs", "aliquota_cbs", "classificacao_tributaria"):
             if proibido in estavel:

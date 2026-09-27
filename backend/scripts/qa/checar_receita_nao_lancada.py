@@ -56,27 +56,35 @@ async def main() -> int:
         return 2
 
     async with async_session_factory() as db:
-        notas = (await db.execute(text("""
+        notas = (
+            await db.execute(
+                text("""
             SELECT chave_acesso, numero::text, competencia, data_emissao::date, valor_servicos,
                    coalesce(tomador_nome,''), coalesce(ambiente,''), coalesce(cancelada,false),
                    coalesce(competencia_origem_adn,'')
               FROM nfse_emitidas_nacional
              ORDER BY competencia, numero
-        """))).all()
+        """)
+            )
+        ).all()
 
-        lanc = (await db.execute(text("""
+        lanc = (
+            await db.execute(
+                text("""
             SELECT coalesce(documento_ref,''), historico, valor, periodo_competencia,
                    data_lancamento::date
               FROM accounting_entries
              WHERE coalesce(tipo_lancamento,'') = 'nfse_emitida'
-        """))).all()
+        """)
+            )
+        ).all()
 
     # indexa os lançamentos pela chave de acesso (documento_ref = 'RECNAC-<chave>')
     por_chave: dict[str, list] = {}
     for ref, hist, valor, comp_lanc, data in lanc:
         if not ref.startswith("RECNAC-"):
             continue
-        por_chave.setdefault(ref[len("RECNAC-"):], []).append(
+        por_chave.setdefault(ref[len("RECNAC-") :], []).append(
             {"valor": float(valor or 0), "comp": comp_lanc, "data": data, "hist": hist or ""}
         )
 
@@ -99,54 +107,54 @@ async def main() -> int:
             sem_lancamento.append((numero, comp, emissao, float(vserv or 0), tomador, comp_adn))
             continue
         if len(entradas) > 1:
-            duplicados.append((numero, comp, sum(e["valor"] for e in entradas),
-                               f"{len(entradas)} lançamentos para a mesma nota"))
+            duplicados.append(
+                (numero, comp, sum(e["valor"] for e in entradas), f"{len(entradas)} lançamentos para a mesma nota")
+            )
         for e in entradas:
             if e["comp"] and comp and e["comp"] != comp:
-                competencia_torta.append(
-                    (numero, comp, e["comp"], e["valor"], comp_adn, tomador)
-                )
+                competencia_torta.append((numero, comp, e["comp"], e["valor"], comp_adn, tomador))
 
-    vivas_prod = sum(
-        1 for _c, _n, _cp, _d, _v, _t, amb, canc, _o in notas
-        if amb != "homologacao" and not canc
-    )
+    vivas_prod = sum(1 for _c, _n, _cp, _d, _v, _t, amb, canc, _o in notas if amb != "homologacao" and not canc)
     print(f"NFS-e de produção vivas: {vivas_prod} · lançamentos de receita no razão: {len(lanc)}")
     print()
 
     if sem_lancamento:
         total = sum(r[3] for r in sem_lancamento)
         print(f"NUNCA VIRARAM RECEITA — {len(sem_lancamento)} nota(s), R$ {total:,.2f}:")
-        for numero, comp, emissao, v, tomador, comp_adn in sorted(sem_lancamento, key=lambda x: -x[3]):
-            print(f"  nº {numero:<5} comp {comp or '—':<8} emissão {emissao} "
-                  f"R$ {v:>12,.2f}  {tomador[:34]}")
-        print("  → Causa provável: competência anterior ao corte contábil (01/08/2026). A")
-        print("    recusa é correta; a nota ficar de fora sem ninguém saber, não. Reabrir")
-        print("    período é ato de contador.")
+        for numero, comp, emissao, v, tomador, _comp_adn in sorted(sem_lancamento, key=lambda x: -x[3]):
+            print(f"  nº {numero:<5} comp {comp or '—':<8} emissão {emissao} R$ {v:>12,.2f}  {tomador[:34]}")
+        # O corte é POR EMPRESA desde 26/09/2026 (Patrimonial 01/06, Eletrônica 01/08 pelo
+        # global). A dica dizia «01/08/2026» fixo e passou a mentir para a Patrimonial. E há
+        # uma segunda causa que a dica não contava: a nota ser a CÓPIA de um par duplicado
+        # (ver checar_nota_duplicada) — nesse caso NÃO lançar é o certo, lançar dobraria a
+        # receita; a decisão é cancelar uma das duas no fisco, e isso é ato do dono.
+        print("  → Causas prováveis: (1) competência anterior ao corte da EMPRESA (Patrimonial")
+        print("    01/06, Eletrônica 01/08): a recusa é correta, reabrir período é ato de")
+        print("    contador; (2) a nota é cópia de um par em checar_nota_duplicada: não lançar")
+        print("    é o certo, e cancelar uma das duas no fisco é ato do dono — com prazo.")
         print()
 
     if competencia_torta:
         total = sum(r[3] for r in competencia_torta)
-        print(f"LANÇADAS EM COMPETÊNCIA DIFERENTE DA NOTA — {len(competencia_torta)}, "
-              f"R$ {total:,.2f}:")
+        print(f"LANÇADAS EM COMPETÊNCIA DIFERENTE DA NOTA — {len(competencia_torta)}, R$ {total:,.2f}:")
         for numero, comp, comp_l, v, comp_adn, tomador in sorted(competencia_torta, key=lambda x: -x[3]):
             extra = f" (ADN dizia {comp_adn})" if comp_adn and comp_adn != comp else ""
-            print(f"  nº {numero:<5} nota diz {comp}{extra} · razão diz {comp_l} "
-                  f"· R$ {v:>12,.2f}  {tomador[:30]}")
+            print(f"  nº {numero:<5} nota diz {comp}{extra} · razão diz {comp_l} · R$ {v:>12,.2f}  {tomador[:30]}")
         print("  → A competência da nota foi corrigida e o razão ficou com a antiga. O repost")
-        print("    só revisita lançamentos a partir do corte, então estes nunca se corrigem.")
+        print("    (fechar_razao_auto) só revisita lançamentos a partir do corte da EMPRESA:")
+        print("    dentro do corte, a divergência some no próximo fechamento; antes dele é")
+        print("    permanente POR DECISÃO (o período congelado não se reescreve).")
         print()
 
     if homologacao_lancada:
         total = sum(r[2] for r in homologacao_lancada)
-        print(f"NOTA DE HOMOLOGAÇÃO LANÇADA COMO RECEITA — {len(homologacao_lancada)}, "
-              f"R$ {total:,.2f}:")
+        print(f"NOTA DE HOMOLOGAÇÃO LANÇADA COMO RECEITA — {len(homologacao_lancada)}, R$ {total:,.2f}:")
         for numero, comp, v, data, tomador in homologacao_lancada:
-            print(f"  nº {numero:<5} comp {comp or '—':<8} lançada em {data} "
-                  f"R$ {v:>12,.2f}  {tomador[:34]}")
+            print(f"  nº {numero:<5} comp {comp or '—':<8} lançada em {data} R$ {v:>12,.2f}  {tomador[:34]}")
         print("  → Teste virou faturamento. O escriturador passou a filtrar ambiente; o que")
-        print("    já está no razão sai sozinho no próximo fechamento (a purga alcança tudo")
-        print("    a partir do corte).")
+        print("    já está no razão DENTRO do corte sai sozinho no próximo fechamento. Antes")
+        print("    do corte (jan–jul da Eletrônica) NÃO sai: o período está congelado, e a")
+        print("    linha fica aqui como registro, não como pendência.")
         print()
 
     if duplicados:

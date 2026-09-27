@@ -607,10 +607,16 @@ def _travas_no_disco() -> set[str]:
 
 
 def _cmd(script: str, onde: str) -> list[str]:
+    # Os oráculos `test_*` vivem em scripts/orq, não em scripts/qa. Três deles (x4, y1, y2)
+    # estão no dicionário e ficaram «NÃO VERIFICADO — can't open file .../scripts/qa/test_...»
+    # de 24/09 a 27/09: três dias em que ninguém soube se o pareador único, o espelho da
+    # régua e a direção da batida seguiam de pé. O caminho errado é silencioso porque o
+    # runner trata «não abriu» como não-verificado, não como falha.
+    pasta = "orq" if script.startswith("test_") else "qa"
     return (
-        [sys.executable, str(AQUI / script)]
+        [sys.executable, str(AQUI.parent / pasta / script)]
         if onde == "host"
-        else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
+        else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1].replace("/qa/", f"/{pasta}/") + script]
     )
 
 

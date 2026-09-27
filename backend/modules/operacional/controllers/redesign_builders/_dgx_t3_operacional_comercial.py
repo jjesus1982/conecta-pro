@@ -229,6 +229,45 @@ async def telas(db, out: dict) -> None:
     # ── 1. Vagas do contrato ──
     try:
         rows = (await db.execute(text(SQL_VAGAS))).fetchall()
+        # A FOLHA REAL de quem está alocado no contrato, no último mês fechado da folha.
+        # Os 15 postos ativos têm `salario_base` ZERADO (medido em 27/09/2026), então a coluna
+        # planejada mostra R$ 0 para todos os contratos enquanto a folha de agosto é
+        # R$ 126.689,72. Esta coluna não substitui a planejada — põe o FATO ao lado do plano.
+        # É aproximação declarada: o holerite é da pessoa, não do posto; quem está em dois
+        # contratos entra nos dois. Por isso o rótulo diz "dos alocados", não "do contrato".
+        folha_real, mes_folha = {}, None
+        try:
+            ref = (
+                await db.execute(
+                    text(
+                        "SELECT reference_year, reference_month FROM hr_payslips "
+                        " WHERE make_date(reference_year, reference_month, 1) < date_trunc('month', current_date) "
+                        " GROUP BY 1, 2 ORDER BY 1 DESC, 2 DESC LIMIT 1"
+                    )
+                )
+            ).first()
+            if ref:
+                mes_folha = f"{int(ref[1]):02d}/{int(ref[0])}"
+                for cid_, tot_ in (
+                    await db.execute(
+                        text(
+                            "SELECT x.contract_id::text, coalesce(sum(p.total_earnings), 0) "
+                            "  FROM (SELECT DISTINCT po.contract_id, a.employee_id "
+                            "          FROM posts po JOIN allocations a ON a.post_id = po.id "
+                            "         WHERE coalesce(po.is_active, true) AND coalesce(a.is_active, true) "
+                            "           AND po.contract_id IS NOT NULL) x "
+                            "  JOIN hr_payslips p ON p.employee_id = x.employee_id "
+                            "   AND p.reference_year = :a AND p.reference_month = :m "
+                            " GROUP BY 1"
+                        ),
+                        {"a": int(ref[0]), "m": int(ref[1])},
+                    )
+                ).all():
+                    folha_real[cid_] = float(tot_ or 0)
+        except Exception:  # noqa: BLE001 — a coluna nova não pode derrubar a tabela antiga
+            await db.rollback()
+            folha_real, mes_folha = {}, None
+
         linhas, por_ctr = [], {}
         for r in rows:
             (
@@ -393,11 +432,17 @@ async def telas(db, out: dict) -> None:
         for cid, k in sorted(por_ctr.items(), key=lambda kv: kv[1]["cliente"]):
             com_enc = k["salarios"] * (1 + enc)
             delta = k["faturado"] - com_enc
-            sit = (
-                b("sem salário em " + str(k["sem_salario"]) + " vaga(s)", "warn")
-                if k["sem_salario"]
-                else (b("abaixo do custo", "bad") if delta < 0 else b("ok", "ok"))
-            )
+            real = folha_real.get(cid)
+            real_enc = (real * (1 + enc)) if real is not None else None
+            delta_real = (k["faturado"] - real_enc) if real_enc is not None else None
+            # Sem salário planejado, a situação sai da FOLHA REAL — antes ficava em
+            # "sem salário" para sempre e a tabela não dizia se o contrato paga o que custa.
+            if k["sem_salario"] and delta_real is not None:
+                sit = b("abaixo do custo (pela folha real)", "bad") if delta_real < 0 else b("ok pela folha real", "ok")
+            elif k["sem_salario"]:
+                sit = b("sem salário em " + str(k["sem_salario"]) + " vaga(s)", "warn")
+            else:
+                sit = b("abaixo do custo", "bad") if delta < 0 else b("ok", "ok")
             linhas.append(
                 {
                     "cells": [
@@ -409,6 +454,7 @@ async def telas(db, out: dict) -> None:
                         t(str(k["alocado"])),
                         t(_brl(k["salarios"])),
                         t(_brl(com_enc), 600),
+                        t(_brl(real_enc) if real_enc is not None else "—", 600),
                         t(_brl(k["faturado"])),
                         t(_brl(delta), 600, "#B91C1C" if delta < 0 else "#16A34A"),
                         sit,
@@ -418,6 +464,8 @@ async def telas(db, out: dict) -> None:
                         "contract_id": cid,
                         "salarios": k["salarios"],
                         "com_encargos": com_enc,
+                        "folha_real": real,
+                        "folha_real_com_encargos": real_enc,
                         "faturado": k["faturado"],
                     },
                 }
@@ -428,13 +476,19 @@ async def telas(db, out: dict) -> None:
             "type": "table",
             "sub": (
                 f"{len(por_ctr)} contrato(s) com vaga ligada · Σ salário base × contratado, com {enc * 100:.2f}% de encargos "
-                "(inss, rat/fap, terceiros, fgts, 1/3 férias, 13º, rescisão — crm_pricing_params) × faturado (monthly_value). "
-                "Sem benefícios, uniforme, tributos nem margem — para isso, `calculado-vs-faturado` (frente 07). "
-                "Vaga sem salário base entra com R$ 0 e a linha avisa."
+                "da EMPRESA que emprega (encargos.py, pelo anexo do cadastro) × faturado (monthly_value). "
+                + (
+                    f"«Folha real» = holerites de {mes_folha} de quem está alocado no contrato, com os mesmos encargos "
+                    "— o FATO ao lado do plano; aproximação declarada (holerite é da pessoa, não do posto). "
+                    if mes_folha
+                    else "«Folha real» indisponível: nenhum mês de folha fechado encontrado. "
+                )
+                + "Sem benefícios, uniforme, tributos nem margem — para isso, `calculado-vs-faturado` (frente 07). "
+                "Vaga sem salário base entra com R$ 0 no plano; a situação então sai da folha real."
             ),
             "searchHint": "Buscar contrato ou cliente…",
             "filterLabel": "Cliente",
-            "grid": "1fr 1.6fr 2fr 0.5fr 0.6fr 0.6fr 1fr 1.1fr 1fr 1fr 1.1fr",
+            "grid": "1fr 1.6fr 2fr 0.5fr 0.6fr 0.6fr 1fr 1.1fr 1.1fr 1fr 1fr 1.1fr",
             "cols": [
                 "Contrato",
                 "Cliente",
@@ -444,13 +498,14 @@ async def telas(db, out: dict) -> None:
                 "Aloc.",
                 "Σ salários",
                 "Com encargos",
+                f"Folha real {mes_folha or ''} c/ enc.".strip(),
                 "Faturado",
                 "Δ",
                 "Situação",
             ],
             "rows": linhas
             or [
-                {"cells": [t("Nenhuma vaga ligada a contrato — use Editar em Vagas do contrato", 500)] + [t("—")] * 10}
+                {"cells": [t("Nenhuma vaga ligada a contrato — use Editar em Vagas do contrato", 500)] + [t("—")] * 11}
             ],
         }
     except Exception as exc:  # noqa: BLE001

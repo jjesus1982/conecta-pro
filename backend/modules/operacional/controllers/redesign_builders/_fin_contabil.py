@@ -28,10 +28,13 @@ def _lalur_estado(empresa_id: str | None, ano: int) -> str:
 
         meses = [f"{ano}-{m:02d}" for m in range(1, 13)]
         n = sum(lalur_service.parte_a(empresa_id, meses, trib)["lancamentos"] for trib in ("I", "C"))
+        # Quantas despesas do ano ainda esperam decisão — o tamanho do rascunho, não só o
+        # fato de ser rascunho. "746 sem decisão" diz ao leitor o que "não fechada" esconde.
+        faltam = lalur_service.pendencias(empresa_id, meses)
         if not n:
-            return "não fechada — o número acima é do RAZÃO, não a base tributável"
+            return f"não fechada — {faltam} despesa(s) sem decisão; o número acima é do RAZÃO, não a base tributável"
         saldo = sum(float(lalur_service.saldo_parte_b(empresa_id, trib)) for trib in ("I", "C"))
-        return f"{n} ajuste(s) decidido(s) · estoque na Parte B R$ {saldo:,.2f}"
+        return f"{n} ajuste(s) decidido(s) · {faltam} despesa(s) ainda sem decisão · estoque na Parte B R$ {saldo:,.2f}"
     except Exception as e:  # noqa: BLE001 — o card não pode cair por causa do livro
         return f"indisponível ({type(e).__name__})"
 

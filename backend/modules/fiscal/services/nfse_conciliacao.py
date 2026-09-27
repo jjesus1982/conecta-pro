@@ -574,7 +574,15 @@ async def _gravar_nota(
             "   ambiente = CASE WHEN 'producao' IN (EXCLUDED.ambiente,"
             "                                       nfse_emitidas_nacional.ambiente)"
             "                   THEN 'producao' ELSE EXCLUDED.ambiente END,"
-            "   competencia = COALESCE(EXCLUDED.competencia, nfse_emitidas_nacional.competencia),"
+            # `competencia_origem_adn` preenchido é o marcador da migração c9d0e1f2a3b4: «esta
+            # linha foi CORRIGIDA POR NÓS — o ADN manda a data de emissão, não o mês do
+            # serviço». O sync do ADN já preservava; este upsert NÃO, e sobrescrevia a correção
+            # com o valor do fisco na rodada seguinte. Achado em 27/09/2026 ao corrigir a nota
+            # 32 da Patrimonial (Ideal Flores, serviço de agosto emitido em 02/09): sem esta
+            # linha o conserto viveria até as 05:30 do dia seguinte.
+            "   competencia = CASE WHEN nfse_emitidas_nacional.competencia_origem_adn IS NOT NULL"
+            "                      THEN nfse_emitidas_nacional.competencia"
+            "                      ELSE COALESCE(EXCLUDED.competencia, nfse_emitidas_nacional.competencia) END,"
             "   data_emissao = COALESCE(EXCLUDED.data_emissao, nfse_emitidas_nacional.data_emissao),"
             "   tomador_cnpj = COALESCE(EXCLUDED.tomador_cnpj, nfse_emitidas_nacional.tomador_cnpj),"
             "   tomador_nome = COALESCE(EXCLUDED.tomador_nome, nfse_emitidas_nacional.tomador_nome),"
