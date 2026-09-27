@@ -76,10 +76,31 @@ def _sem_acento(s: str) -> str:
 #: ⚠️ O emoji vai FORA do grupo com `\b`: `\b` é fronteira de caractere de PALAVRA, e depois de
 #: 👍 não existe fronteira nenhuma — o padrão nunca casava. Um "👍" é a confirmação mais comum
 #: que existe em grupo de WhatsApp, e ela caía como "não respondeu".
+#: ⚠️ «TUDO BEM» SAIU DAQUI (27/09/2026). O Gernanes respondeu «Boa noite» e depois «Tudo bem» —
+#: gentileza de quem cumprimenta, não compromisso com um plantão — e foi gravado `confirmado`. Em
+#: português «tudo bem» sozinho é resposta ao «boa noite», e registrar isso é exatamente o que o
+#: docstring desta classe promete não fazer: compromisso que ninguém assumiu. `tudo certo` e
+#: `tudo ok` ficam, porque respondem à pergunta «está tudo certo?» que é o texto que a casa manda.
 _CONFIRMA = re.compile(
     r"^\s*((sim|ss+|isso|ok+|okay|blz|beleza|certo|confirmo|confirmado|positivo|"
-    r"tudo (certo|ok|bem|tranquilo)|to indo|tou indo|estou indo|vou sim|ja estou|"
+    r"tudo (certo|ok|tranquilo)|to indo|tou indo|estou indo|vou sim|ja estou|"
     r"ja vou|sem problema|de acordo|combinado|joia|jóia)\b|[👍✅🙏👌])")
+
+#: Compromisso dito por extenso, em QUALQUER posição da frase.
+#:
+#: 🔴 O outro lado do mesmo defeito, medido no mesmo dia: o Gernanes escreveu **«Amanhã se Deus
+#: quizer estarei por lá»** — compromisso inequívoco — e `ler_resposta` devolveu `None`, porque
+#: `_CONFIRMA` é ancorado em `^` e a frase começa com «amanhã». O vocabulário aceitava a
+#: gentileza e recusava a promessa. A âncora existe para não casar «sim» dentro de texto alheio,
+#: e continua certa para palavras curtas; verbo de compromisso não precisa dela.
+_PROMETE = re.compile(r"\b(estarei|vou estar|compareco|comparecerei|estou la|to la)\b")
+
+#: ⚠️ QUALQUER negação na frase desliga o caminho da promessa. Sem isto, «nao estarei por la»
+#: casaria com `estarei` e viraria compromisso que a pessoa acabou de RECUSAR — defeito pior que
+#: o que estou consertando. Estado ambíguo falha FECHADO: some do `confirmado` e o lembrete de 1h
+#: antes cobra de novo, que é barato. Falta anunciada tem caminho próprio em
+#: `supervisao.classificar_pedido`, com lista de quem pode cobrir.
+_TEM_NEGACAO = re.compile(r"\b(nao|nunca|impossivel|consigo nao)\b")
 #: "Não" explícito. NÃO tenta cobrir "não vou poder ir" — aquilo é falta anunciada e tem caminho
 #: próprio (`supervisao.classificar_pedido`), com sugestão de substituto. Aqui só o "não" seco.
 #: ⚠️ SÓ O "NÃO" SECO. Minha primeira versão tinha `nao vou`, e com isso "nao vou poder ir
@@ -103,6 +124,9 @@ def ler_resposta(texto: str | None) -> str | None:
     if _NEGA.match(t):
         return "recusado"
     if _CONFIRMA.match(t):
+        return "confirmado"
+    # Promessa por extenso — só quando NÃO há negação na frase (ver `_TEM_NEGACAO`).
+    if _PROMETE.search(t) and not _TEM_NEGACAO.search(t):
         return "confirmado"
     return None
 
