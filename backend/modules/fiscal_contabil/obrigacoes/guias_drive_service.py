@@ -40,14 +40,22 @@ logger = logging.getLogger(__name__)
 GUIAS_DRIVE_ROOT = os.environ.get("FISCAL_GUIAS_DRIVE_FOLDER", "1YmspqFF9wOol9Uz087xtxv0n3TvnqVlf")
 GUIAS_STORAGE = os.environ.get("FISCAL_GUIAS_STORAGE", "/app/uploads/fiscal_guias")
 # Pasta das guias de PARCELAMENTO (DARF Dívida Ativa PGFN/SISPAR + comprovantes)
-PARCELAMENTOS_DRIVE_FOLDER = os.environ.get(
-    "FISCAL_PARCELAMENTOS_DRIVE_FOLDER", "1wrgjMheUh0uC_LM9yPGb48iQ_TVmvYn7"
-)
+PARCELAMENTOS_DRIVE_FOLDER = os.environ.get("FISCAL_PARCELAMENTOS_DRIVE_FOLDER", "1wrgjMheUh0uC_LM9yPGb48iQ_TVmvYn7")
 
 MESES_PT = {
-    "janeiro": 1, "fevereiro": 2, "marco": 3, "março": 3, "abril": 4,
-    "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9,
-    "outubro": 10, "novembro": 11, "dezembro": 12,
+    "janeiro": 1,
+    "fevereiro": 2,
+    "marco": 3,
+    "março": 3,
+    "abril": 4,
+    "maio": 5,
+    "junho": 6,
+    "julho": 7,
+    "agosto": 8,
+    "setembro": 9,
+    "outubro": 10,
+    "novembro": 11,
+    "dezembro": 12,
 }
 
 _VAL = r"([\d.]+,\d{2})"
@@ -60,12 +68,20 @@ EMPRESAS_POR_CNPJ = {
 EMPRESA_PRINCIPAL = "619a3df1-8bce-49ce-b77a-04f80a0e8491"  # Eletrônica (fallback histórico)
 
 
-def _empresa_por_cnpj(texto: str) -> str:
-    """Resolve o empresa_id pelo CNPJ presente no texto da guia. Default Eletrônica."""
+def _empresa_por_cnpj(texto: str, nome_arquivo: str = "") -> str:
+    """Resolve o empresa_id pelo CNPJ presente no texto da guia; sem CNPJ, pelo NOME do arquivo.
+
+    A GFD do FGTS Digital não traz CNPJ no texto (só o código de barras) — medido em
+    27/09/2026: «GFD FGTS 08.2026_Conecta Patrimonial.pdf», R$ 7.981,94, caía no default e
+    virava obrigação da ELETRÔNICA. O nome que a Portte dá ao arquivo diz a empresa; é a
+    segunda fonte, e só entra quando a primeira (o CNPJ) não existe. Default: Eletrônica.
+    """
     for m in re.finditer(r"(\d{2})\.?(\d{3})\.?(\d{3})/?(\d{4})-?(\d{2})", texto or ""):
         digs = "".join(m.groups())
         if digs in EMPRESAS_POR_CNPJ:
             return EMPRESAS_POR_CNPJ[digs]
+    if "patrimonial" in _sem_acento(nome_arquivo or "").lower():
+        return EMPRESAS_POR_CNPJ["66014833000110"]
     return EMPRESA_PRINCIPAL
 
 
@@ -141,12 +157,14 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
 
     nome_up = _sem_acento(nome_arquivo).upper()
     mes, ano = _competencia(texto)
-    _emp = _empresa_por_cnpj(texto)
+    _emp = _empresa_por_cnpj(texto, nome_arquivo)
 
     # ── DARF (INSS e afins) — Documento de Arrecadação de Receitas Federais ──
     if "Documento de Arrecada" in texto and "Receitas Federais" in texto:
         valor = _dec((re.search(r"Valor Total do Documento\s*\n?\s*" + _VAL, texto) or [None, None])[1])
-        venc = _data_br((re.search(r"Pagar (?:este documento )?at[eé]:?\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        venc = _data_br(
+            (re.search(r"Pagar (?:este documento )?at[eé]:?\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1]
+        )
         recibo = (re.search(r"Recibo Declara[cç][aã]o:\s*(\d+)", texto) or [None, None])[1]
         num_doc = (re.search(r"(\d{2}\.\d{2}\.\d{5}\.\d{7}-\d)", texto) or [None, None])[1]
         barras = None
@@ -157,23 +175,35 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         comp = {c: _dec(v) for c, v in re.findall(r"\n(\d{4})\s*\n[^\n]+\n" + _VAL, texto)}
         return GuiaParseada(
             empresa_id=_emp,
-            tipo="INSS", competencia_mes=mes, competencia_ano=ano, valor=valor,
-            vencimento=venc, numero_documento=num_doc, numero_recibo=recibo,
-            codigo_barras=barras, detalhe={"composicao": comp},
+            tipo="INSS",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=valor,
+            vencimento=venc,
+            numero_documento=num_doc,
+            numero_recibo=recibo,
+            codigo_barras=barras,
+            detalhe={"composicao": comp},
         )
 
     # ── GFD — Guia do FGTS Digital (guia de PAGAMENTO) ──
     if "GFD - Guia do FGTS Digital" in texto:
         valor = _dec((re.search(r"Valor a recolher\s*\n?\s*" + _VAL, texto) or [None, None])[1])
-        venc = _data_br((re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        venc = _data_br(
+            (re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1]
+        )
         ident = (re.search(r"Identificador\s*\n?\s*([\d-]{10,})", texto) or [None, None])[1]
         pix = (re.search(r"(000201\S{50,})", texto) or [None, None])[1]
         consignado = "CONSIGNADO" in nome_up or "Total Consignado" in texto
         return GuiaParseada(
             empresa_id=_emp,
             tipo="FGTS_CONSIGNADO" if consignado else "FGTS",
-            competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc,
-            numero_documento=ident, pix_copia_cola=pix,
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=valor,
+            vencimento=venc,
+            numero_documento=ident,
+            pix_copia_cola=pix,
         )
 
     # ── Relatórios GFD (detalhe por trabalhador/tomador) — ANEXO ──
@@ -183,7 +213,10 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         tomadores = re.findall(r"Tomador:\s*\n?\s*(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})", texto)
         return GuiaParseada(
             empresa_id=_emp,
-            tipo="ANEXO", competencia_mes=mes, competencia_ano=ano, valor=total,
+            tipo="ANEXO",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=total,
             numero_documento=num,
             detalhe={"relatorio": "GFD", "tomadores": sorted(set(tomadores))},
         )
@@ -195,7 +228,9 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
         recibos_aux = dict(re.findall(r"(\d{6,})\s*/\s*(Reinf CP|eSocial)", texto))
         return GuiaParseada(
             empresa_id=_emp,
-            tipo="DCTFWEB_DECLARACAO", competencia_mes=mes, competencia_ano=ano,
+            tipo="DCTFWEB_DECLARACAO",
+            competencia_mes=mes,
+            competencia_ano=ano,
             numero_recibo=(recibo or "").lstrip("0") or recibo,
             detalhe={"transmissao": transm, "recibos_vinculados": {v: k for k, v in recibos_aux.items()}},
         )
@@ -205,23 +240,51 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
     m_sispar = re.search(r"SISPAR:?\s*(\d+)", texto)
     if m_sispar and "DIVIDA ATIVA" in _sem_acento(texto).upper():
         valor = _dec((re.search(r"Valor Total do Documento\s*\n?\s*" + _VAL, texto) or [None, None])[1])
-        venc = _data_br((re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        venc = _data_br(
+            (re.search(r"Pagar este documento at[eé]\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1]
+        )
         num = (re.search(r"(\d{2}\.\d{2}\.\d{5}\.\d{7}-\d)", texto) or [None, None])[1]
         return GuiaParseada(
             empresa_id=_emp,
-            tipo="PARCELAMENTO_PGFN", competencia_mes=mes, competencia_ano=ano, valor=valor,
-            vencimento=venc, numero_documento=num, detalhe={"sispar": m_sispar.group(1)},
+            tipo="PARCELAMENTO_PGFN",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=valor,
+            vencimento=venc,
+            numero_documento=num,
+            detalhe={"sispar": m_sispar.group(1)},
         )
 
     # ── DAS (Simples) / ISS Manaus — padrões p/ quando aparecerem no pacote ──
-    if re.search(r"\bDAS\b", texto) and "Simples Nacional" in texto:
+    # O DAS que a Portte deixa no Onvio começa por «Documento de Arrecadação do Simples
+    # Nacional» e NUNCA traz a sigla «DAS» no texto — só a exigência de \bDAS\b o deixava em
+    # nao_classificado (medido em 27/09/2026: valor 18.399,33 e vencimento 21/09 legíveis, e
+    # a obrigação seguia «sem guia» no gate). O número do documento também entra.
+    if ("Simples Nacional" in texto) and (
+        re.search(r"\bDAS\b", texto) or re.search(r"Documento de Arrecada[çc][ãa]o do Simples Nacional", texto)
+    ):
         valor = _dec((re.search(r"Valor Total(?: do Documento)?\s*\n?\s*" + _VAL, texto) or [None, None])[1])
-        venc = _data_br((re.search(r"(?:Pagar|Vencimento).{0,20}?(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
-        return GuiaParseada(empresa_id=_emp, tipo="DAS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
+        # «Pagar este documento até 21/09/2026»: 25 caracteres entre a âncora e a data — o
+        # .{0,20} antigo deixava o DAS sem vencimento (medido 27/09).
+        # [\s\S] porque no texto do PDF a data vem na linha seguinte («…até\n21/09/2026») e
+        # «.» não cruza \n — o ramo do DARF já sabia disso (\s*\n?\s*); este não.
+        venc = _data_br((re.search(r"(?:Pagar|Vencimento)[\s\S]{0,40}?(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
+        num = (re.search(r"(\d{2}\.\d{2}\.\d{5}\.\d{7}-\d)", texto) or [None, None])[1]
+        return GuiaParseada(
+            empresa_id=_emp,
+            tipo="DAS",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            valor=valor,
+            vencimento=venc,
+            numero_documento=num,
+        )
     if "ISSQN" in texto or ("ISS" in texto and "Manaus" in texto):
         valor = _dec((re.search(r"Valor(?: Total| do Documento)?\s*\n?\s*" + _VAL, texto) or [None, None])[1])
         venc = _data_br((re.search(r"Vencimento\s*:?\s*\n?\s*(\d{2}/\d{2}/\d{4})", texto) or [None, None])[1])
-        return GuiaParseada(empresa_id=_emp, tipo="ISS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc)
+        return GuiaParseada(
+            empresa_id=_emp, tipo="ISS", competencia_mes=mes, competencia_ano=ano, valor=valor, vencimento=venc
+        )
 
     return GuiaParseada(empresa_id=_emp, tipo="nao_classificado", competencia_mes=mes, competencia_ano=ano)
 
@@ -260,7 +323,7 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     ).first()
 
     obs = {
-        "fonte": "drive_portte",
+        "fonte": meta.get("fonte", "drive_portte"),
         "drive_file_id": meta.get("file_id"),
         "arquivo": meta.get("nome"),
         "numero_documento": g.numero_documento,
@@ -283,7 +346,9 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
                 "observacoes = :obs, updated_at = NOW() WHERE id = :id"
             ),
             {
-                "v": g.valor, "venc": g.vencimento, "rec": g.numero_recibo or g.numero_documento,
+                "v": g.valor,
+                "venc": g.vencimento,
+                "rec": g.numero_recibo or g.numero_documento,
                 "obs": (obs_json + (f" | DIVERGENCIA: valor anterior {antigo}" if divergencia else "")),
                 "id": row[0],
             },
@@ -300,11 +365,15 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
         ),
         {
             "emp": emp,
-            "t": g.tipo, "n": NOMES.get(g.tipo, g.tipo),
+            "t": g.tipo,
+            "n": NOMES.get(g.tipo, g.tipo),
             "d": f"Guia oficial (Portte/Onvio) — {meta.get('nome')}",
-            "m": g.competencia_mes, "a": g.competencia_ano,
-            "venc": g.vencimento, "v": g.valor,
-            "rec": g.numero_recibo or g.numero_documento, "obs": obs_json,
+            "m": g.competencia_mes,
+            "a": g.competencia_ano,
+            "venc": g.vencimento,
+            "v": g.valor,
+            "rec": g.numero_recibo or g.numero_documento,
+            "obs": obs_json,
         },
     )
     return "criada"
@@ -321,16 +390,18 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     comp = f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes and g.competencia_ano else None
 
     row = db.execute(
-        _sql("SELECT id, observacao, parcelas_pagas, parcela_valor "
-             "  FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"),
+        _sql(
+            "SELECT id, observacao, parcelas_pagas, parcela_valor "
+            "  FROM fiscal_parcelamentos WHERE numero_acordo=:n LIMIT 1"
+        ),
         {"n": numero_acordo},
     ).first()
 
     # competências conhecidas ficam num JSON dentro de observacao (idempotente por competência)
     conhecidas: set[str] = set()
-    pagas = 0
+    _pagas = 0
     if row:
-        pagas = row[2] or 0
+        _pagas = row[2] or 0
         try:
             meta_obs = json.loads(row[1]) if row[1] and row[1].strip().startswith("{") else {}
             conhecidas = set(meta_obs.get("competencias_conhecidas", []))
@@ -354,39 +425,60 @@ def _upsert_parcelamento(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     e_a_mais_nova = not comp or comp == max(conhecidas, key=_ordem)
     valor_corrente = g.valor if e_a_mais_nova else float(row[3] or g.valor)
     dia_corrente = g.vencimento.day if (e_a_mais_nova and g.vencimento) else None
-    obs = json.dumps({
-        "nota": "Parcelamento Dívida Ativa Simples Nacional (PGFN). num_parcelas/valor_total = "
-                "parcelas CONHECIDAS pelo puxador; total do acordo a confirmar no e-CAC/SISPAR.",
-        "sispar": sispar,
-        "parcela_valor": valor_corrente,
-        "competencia_corrente": max(conhecidas, key=_ordem) if conhecidas else None,
-        "competencias_conhecidas": sorted(conhecidas, key=_ordem),
-        "ultimo_arquivo": meta.get("nome"),
-        "sync_em": datetime.utcnow().isoformat(),
-    }, ensure_ascii=False)
+    obs = json.dumps(
+        {
+            "nota": "Parcelamento Dívida Ativa Simples Nacional (PGFN). num_parcelas/valor_total = "
+            "parcelas CONHECIDAS pelo puxador; total do acordo a confirmar no e-CAC/SISPAR.",
+            "sispar": sispar,
+            "parcela_valor": valor_corrente,
+            "competencia_corrente": max(conhecidas, key=_ordem) if conhecidas else None,
+            "competencias_conhecidas": sorted(conhecidas, key=_ordem),
+            "ultimo_arquivo": meta.get("nome"),
+            "sync_em": datetime.utcnow().isoformat(),
+        },
+        ensure_ascii=False,
+    )
 
     if row:
         db.execute(
-            _sql("UPDATE fiscal_parcelamentos SET parcela_valor=:pv, num_parcelas=:np, valor_total=:vt, "
-                 "dia_vencimento=COALESCE(:dv, dia_vencimento), status='ativo', observacao=:obs, "
-                 "fonte=:fonte, updated_at=now() WHERE id=:id"),
-            {"pv": valor_corrente, "np": n, "vt": valor_total, "dv": dia_corrente,
-             "fonte": meta.get("fonte", "drive_pgfn"), "obs": obs, "id": row[0]},
+            _sql(
+                "UPDATE fiscal_parcelamentos SET parcela_valor=:pv, num_parcelas=:np, valor_total=:vt, "
+                "dia_vencimento=COALESCE(:dv, dia_vencimento), status='ativo', observacao=:obs, "
+                "fonte=:fonte, updated_at=now() WHERE id=:id"
+            ),
+            {
+                "pv": valor_corrente,
+                "np": n,
+                "vt": valor_total,
+                "dv": dia_corrente,
+                "fonte": meta.get("fonte", "drive_pgfn"),
+                "obs": obs,
+                "id": row[0],
+            },
         )
         return "atualizado"
     db.execute(
-        _sql("INSERT INTO fiscal_parcelamentos (orgao,numero_acordo,descricao,valor_total,num_parcelas,"
-             "parcela_valor,dia_vencimento,competencia_inicio,parcelas_pagas,status,observacao,fonte,created_by,created_at,updated_at) "
-             "VALUES ('PGFN',:na,:desc,:vt,:np,:pv,:dv,:ci,0,'ativo',:obs,:fonte,'drive_puxador',now(),now())"),
-        {"na": numero_acordo, "desc": "Parcelamento Dívida Ativa — Simples Nacional (PGFN) — total do acordo a confirmar",
-         "vt": valor_total, "np": n, "pv": g.valor, "fonte": meta.get("fonte", "drive_pgfn"),
-         "dv": g.vencimento.day if g.vencimento else None, "ci": comp, "obs": obs},
+        _sql(
+            "INSERT INTO fiscal_parcelamentos (orgao,numero_acordo,descricao,valor_total,num_parcelas,"
+            "parcela_valor,dia_vencimento,competencia_inicio,parcelas_pagas,status,observacao,fonte,created_by,created_at,updated_at) "
+            "VALUES ('PGFN',:na,:desc,:vt,:np,:pv,:dv,:ci,0,'ativo',:obs,:fonte,'drive_puxador',now(),now())"
+        ),
+        {
+            "na": numero_acordo,
+            "desc": "Parcelamento Dívida Ativa — Simples Nacional (PGFN) — total do acordo a confirmar",
+            "vt": valor_total,
+            "np": n,
+            "pv": g.valor,
+            "fonte": meta.get("fonte", "drive_pgfn"),
+            "dv": g.vencimento.day if g.vencimento else None,
+            "ci": comp,
+            "obs": obs,
+        },
     )
     return "criado"
 
 
-def marcar_acessorias(db, empresa_id: str, mes: int, ano: int, recibo: str,
-                      origem: str) -> list[str]:
+def marcar_acessorias(db, empresa_id: str, mes: int, ano: int, recibo: str, origem: str) -> list[str]:
     """DCTFWeb transmitida (recibo real) = acessórias da competência CUMPRIDAS.
 
     Núcleo em primitivos, e não em `GuiaParseada`, porque o recibo chega por DOIS caminhos e
@@ -412,7 +504,11 @@ def marcar_acessorias(db, empresa_id: str, mes: int, ano: int, recibo: str,
                 "AND status != 'cumprida'"
             ),
             {
-                "rec": recibo, "t": tipo, "m": mes, "a": ano, "emp": emp,
+                "rec": recibo,
+                "t": tipo,
+                "m": mes,
+                "a": ano,
+                "emp": emp,
                 "nota": f"Transmitida (DCTFWeb recibo {recibo}; {origem})",
             },
         )
@@ -424,8 +520,13 @@ def marcar_acessorias(db, empresa_id: str, mes: int, ano: int, recibo: str,
 def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> list[str]:
     """Caminho do DRIVE — mantém a assinatura antiga e delega ao núcleo."""
     return marcar_acessorias(
-        db, g.empresa_id or EMPRESA_PRINCIPAL, g.competencia_mes, g.competencia_ano,
-        g.numero_recibo, f"em {g.detalhe.get('transmissao')}; fonte drive {meta.get('nome')}")
+        db,
+        g.empresa_id or EMPRESA_PRINCIPAL,
+        g.competencia_mes,
+        g.competencia_ano,
+        g.numero_recibo,
+        f"em {g.detalhe.get('transmissao')}; fonte drive {meta.get('nome')}",
+    )
 
 
 # Donos do fiscal que recebem o sino (Jordan + Pyetra) — ver [[project_financeiro_auditoria_organizacao]]
@@ -436,17 +537,29 @@ def _emitir_notificacao_fiscal(db, titulo: str, corpo: str, action_url: str = "/
     """Emite notificação no sino p/ os donos do fiscal. O sino filtra por
     tenant_id=getattr(user,'tenant_id',str(user.id))=id → gravamos tenant_id=user_id=id."""
     import uuid as _uuid
+
     try:
-        rows = db.execute(_sql(
-            "SELECT id FROM users WHERE email IN ('jjesus@conectamais.pro','pjesus@conectamais.pro') AND is_active"
-        )).fetchall()
+        rows = db.execute(
+            _sql(
+                "SELECT id FROM users WHERE email IN ('jjesus@conectamais.pro','pjesus@conectamais.pro') AND is_active"
+            )
+        ).fetchall()
         for (uid,) in rows:
-            db.execute(_sql(
-                "INSERT INTO communication_notifications (id,tenant_id,user_id,title,body,type,"
-                "reference_type,channels,is_active,created_at,action_url) "
-                "VALUES (:id,:t,:u,:ti,:b,'alerta','fiscal_guia','[\"in_app\"]',true,now(),:url)"),
-                {"id": str(_uuid.uuid4()), "t": str(uid), "u": str(uid),
-                 "ti": titulo[:200], "b": corpo[:500], "url": action_url})
+            db.execute(
+                _sql(
+                    "INSERT INTO communication_notifications (id,tenant_id,user_id,title,body,type,"
+                    "reference_type,channels,is_active,created_at,action_url) "
+                    "VALUES (:id,:t,:u,:ti,:b,'alerta','fiscal_guia','[\"in_app\"]',true,now(),:url)"
+                ),
+                {
+                    "id": str(_uuid.uuid4()),
+                    "t": str(uid),
+                    "u": str(uid),
+                    "ti": titulo[:200],
+                    "b": corpo[:500],
+                    "url": action_url,
+                },
+            )
         return len(rows)
     except Exception as e:  # noqa: BLE001
         logger.warning("emitir_notificacao_fiscal: %s", e)
@@ -471,8 +584,14 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
         return {"ok": False, "erro": "Google Drive não conectado (gdrive_config)"}
 
     rel: dict[str, Any] = {
-        "ok": True, "pastas": [], "baixados": 0, "guias": [], "anexos": [],
-        "acessorias_cumpridas": [], "nao_classificados": [], "ja_processados": 0,
+        "ok": True,
+        "pastas": [],
+        "baixados": 0,
+        "guias": [],
+        "anexos": [],
+        "acessorias_cumpridas": [],
+        "nao_classificados": [],
+        "ja_processados": 0,
         "parcelamentos": [],
     }
     db = _db_sync()
@@ -486,13 +605,16 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
             alvos += [(p["name"], f) for f in svc.listar_arquivos(p["id"]) if f.get("mimeType") == "application/pdf"]
         # pasta dedicada de PARCELAMENTOS (DARF Dívida Ativa PGFN)
         if PARCELAMENTOS_DRIVE_FOLDER:
-            alvos += [("parcelamentos", f) for f in svc.listar_arquivos(PARCELAMENTOS_DRIVE_FOLDER)
-                      if f.get("mimeType") == "application/pdf"]
+            alvos += [
+                ("parcelamentos", f)
+                for f in svc.listar_arquivos(PARCELAMENTOS_DRIVE_FOLDER)
+                if f.get("mimeType") == "application/pdf"
+            ]
 
         _vistos: set[str] = set()
         for pasta, f in alvos:
             fid, nome = f["id"], f["name"]
-            if fid in _vistos:   # dedupe: mesmo arquivo listado em 2 pastas
+            if fid in _vistos:  # dedupe: mesmo arquivo listado em 2 pastas
                 continue
             _vistos.add(fid)
             if not forcar and _ja_processado(db, fid):
@@ -511,22 +633,34 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
             meta = {"file_id": fid, "nome": nome, "pasta": pasta}
             if g.tipo == "PARCELAMENTO_PGFN":
                 acao = _upsert_parcelamento(db, g, meta)
-                rel["parcelamentos"].append({
-                    "arquivo": nome, "sispar": (g.detalhe or {}).get("sispar"),
-                    "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
-                    "parcela": g.valor, "acao": acao,
-                })
+                rel["parcelamentos"].append(
+                    {
+                        "arquivo": nome,
+                        "sispar": (g.detalhe or {}).get("sispar"),
+                        "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
+                        "parcela": g.valor,
+                        "acao": acao,
+                    }
+                )
             elif g.tipo in NOMES:
                 acao = _upsert_obrigacao(db, g, meta)
-                rel["guias"].append({
-                    "arquivo": nome, "tipo": g.tipo, "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
-                    "valor": g.valor, "vencimento": g.vencimento.isoformat() if g.vencimento else None, "acao": acao,
-                })
+                rel["guias"].append(
+                    {
+                        "arquivo": nome,
+                        "tipo": g.tipo,
+                        "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
+                        "valor": g.valor,
+                        "vencimento": g.vencimento.isoformat() if g.vencimento else None,
+                        "acao": acao,
+                    }
+                )
             elif g.tipo == "DCTFWEB_DECLARACAO":
                 marcadas = _marcar_acessorias_cumpridas(db, g, meta)
                 rel["acessorias_cumpridas"].append({"arquivo": nome, "recibo": g.numero_recibo, "marcadas": marcadas})
             elif g.tipo == "ANEXO":
-                rel["anexos"].append({"arquivo": nome, "relatorio": g.detalhe.get("relatorio"), "tomadores": g.detalhe.get("tomadores")})
+                rel["anexos"].append(
+                    {"arquivo": nome, "relatorio": g.detalhe.get("relatorio"), "tomadores": g.detalhe.get("tomadores")}
+                )
             else:
                 rel["nao_classificados"].append(nome)
         # SINO: notifica os donos do fiscal se veio guia/parcelamento NOVO ou divergente
@@ -539,13 +673,94 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
             if novos_parc:
                 partes.append(f"{len(novos_parc)} parcelamento(s)")
             rel["notificados"] = _emitir_notificacao_fiscal(
-                db, "Puxador fiscal: novidades da Receita",
-                "O puxador trouxe " + " e ".join(partes) + " do Drive (Portte/Onvio). Confira no e-CAC.")
+                db,
+                "Puxador fiscal: novidades da Receita",
+                "O puxador trouxe " + " e ".join(partes) + " do Drive (Portte/Onvio). Confira no e-CAC.",
+            )
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logger.exception("sync_guias_drive falhou")
         return {"ok": False, "erro": str(exc)}
+    finally:
+        db.close()
+    return rel
+
+
+def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False) -> dict[str, Any]:
+    """Aplica o MESMO parser/upsert do Drive aos PDFs que o Onvio já baixou.
+
+    O Onvio é da Portte; quando a Portte sair, ele sai. Enquanto existe, os PDFs mensais
+    (DAS, GFD do FGTS, DCTFWeb) já estão em `onvio_documents.caminho_local` — e até
+    27/09/2026 ninguém os transformava em obrigação: o gate fiscal dizia «5 vencidas sem
+    guia» com o DAS de R$ 18.399,33 parado no disco. A partir daqui, cada PDF vira
+    `fiscal_obligations` com valor, vencimento e código de barras (procedência
+    `onvio_portte`), idempotente pelo id do documento. O caminho permanente — puxar do
+    governo por certificado — não existe hoje (os managers são casca) e é decisão do dono.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    rel: dict[str, Any] = {
+        "ok": True,
+        "mes_ref": mes_ref,
+        "lidos": 0,
+        "guias": [],
+        "acessorias": [],
+        "nao_classificados": [],
+        "ja_processados": 0,
+        "erros": [],
+    }
+    db = _db_sync()
+    try:
+        rows = db.execute(
+            _t(
+                "SELECT onvio_id, nome_arquivo, caminho_local, categoria, mes_ref FROM onvio_documents "
+                " WHERE caminho_local IS NOT NULL "
+                "   AND categoria IN ('das_simples_nacional','fgts_guia','dctfweb_declaracao','dctfweb_recibo',"
+                "                     'dctfweb_debitos','dctfweb_resumo_debitos','iss','darf') "
+                "   AND (:m IS NULL OR mes_ref = :m) ORDER BY mes_ref, categoria"
+            ),
+            {"m": mes_ref},
+        ).all()
+        for oid, nome, caminho, cat, mref in rows:
+            fid = f"onvio:{oid}"
+            # `forcar` reprocessa um mês (ex.: parser corrigido depois da 1ª passada) — o upsert
+            # é idempotente pela chave (tipo, competência, empresa), então não duplica.
+            if not forcar and _ja_processado(db, fid):
+                rel["ja_processados"] += 1
+                continue
+            if not os.path.exists(caminho):
+                rel["erros"].append(f"{nome}: arquivo não está no disco")
+                continue
+            rel["lidos"] += 1
+            try:
+                g = parse_pdf_guia(caminho, nome)
+            except Exception as exc:  # noqa: BLE001
+                rel["erros"].append(f"{nome}: {exc}")
+                continue
+            meta = {"file_id": fid, "nome": nome, "pasta": f"onvio/{cat}/{mref}", "fonte": "onvio_portte"}
+            if g.tipo in NOMES:
+                acao = _upsert_obrigacao(db, g, meta)
+                rel["guias"].append(
+                    {
+                        "arquivo": nome,
+                        "tipo": g.tipo,
+                        "empresa": (g.empresa_id or "")[:8],
+                        "competencia": f"{g.competencia_mes:02d}/{g.competencia_ano}" if g.competencia_mes else None,
+                        "valor": g.valor,
+                        "vencimento": g.vencimento.isoformat() if g.vencimento else None,
+                        "acao": acao,
+                    }
+                )
+            elif g.tipo == "DCTFWEB_DECLARACAO":
+                rel["acessorias"] += _marcar_acessorias_cumpridas(db, g, meta)
+            else:
+                rel["nao_classificados"].append(nome)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        rel["ok"] = False
+        rel["erros"].append(f"fatal: {exc}")
     finally:
         db.close()
     return rel

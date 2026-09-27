@@ -15,13 +15,21 @@ def task_sync_guias_drive() -> dict:
 
     Roda 2×/dia via beat; idempotente (file_id registrado em observacoes).
     """
-    from modules.fiscal_contabil.obrigacoes.guias_drive_service import sync_guias_drive
+    from modules.fiscal_contabil.obrigacoes.guias_drive_service import sync_guias_drive, sync_guias_onvio
 
     rel = sync_guias_drive()
+    # Enquanto o Onvio (da Portte) existir, os PDFs que ele já baixou também viram obrigação.
+    try:
+        rel["onvio"] = sync_guias_onvio()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("sync_guias_onvio falhou (o Drive já foi processado): %s", exc)
     logger.info(
         "fiscal.sync_guias_drive: ok=%s baixados=%s guias=%s anexos=%s ja=%s",
-        rel.get("ok"), rel.get("baixados"), len(rel.get("guias", [])),
-        len(rel.get("anexos", [])), rel.get("ja_processados"),
+        rel.get("ok"),
+        rel.get("baixados"),
+        len(rel.get("guias", [])),
+        len(rel.get("anexos", [])),
+        rel.get("ja_processados"),
     )
 
     # Recibo que chega pelo ONVIO também dá baixa. Vai junto daqui, e não num beat novo,
@@ -32,8 +40,10 @@ def task_sync_guias_drive() -> dict:
     from modules.fiscal_contabil.obrigacoes.baixa_por_recibo_onvio import baixar
 
     rel["baixa_onvio"] = baixar()
-    logger.info("fiscal.sync_guias_drive: baixa por recibo do Onvio — %s competência(s)",
-                len(rel["baixa_onvio"].get("baixadas", [])))
+    logger.info(
+        "fiscal.sync_guias_drive: baixa por recibo do Onvio — %s competência(s)",
+        len(rel["baixa_onvio"].get("baixadas", [])),
+    )
 
     # Parcelamento do acervo Onvio, pelo mesmo motivo e no mesmo lugar. Medido em 18/08/2026:
     # a casa paga SEIS acordos mensais e o sistema conhecia dois — os quatro invisíveis somam
@@ -41,9 +51,11 @@ def task_sync_guias_drive() -> dict:
     from modules.fiscal_contabil.obrigacoes.parcelamentos_onvio import sincronizar
 
     rel["parcelamentos_onvio"] = sincronizar()
-    logger.info("fiscal.sync_guias_drive: parcelamentos do Onvio — %s federal(is), %s municipal(is)",
-                len(rel["parcelamentos_onvio"].get("federais", [])),
-                len(rel["parcelamentos_onvio"].get("municipais", [])))
+    logger.info(
+        "fiscal.sync_guias_drive: parcelamentos do Onvio — %s federal(is), %s municipal(is)",
+        len(rel["parcelamentos_onvio"].get("federais", [])),
+        len(rel["parcelamentos_onvio"].get("municipais", [])),
+    )
     return rel
 
 
