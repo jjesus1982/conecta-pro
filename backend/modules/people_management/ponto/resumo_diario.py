@@ -53,6 +53,11 @@ TOLERANCIA_MIN = int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5"))
 #: DP vaza sem que ninguém perceba.
 ROLES_APROVADOR = ("admin", "gerente_operacional")
 
+#: Onde o resumo é publicado. O dono autorizou a voz do José Luís em DOIS grupos — Gestão e
+#: Escritório — e escolheu este para o ponto: é onde a Pyetra e o Orlailson trabalham, e o
+#: histórico mostra exatamente os dois como únicos autores.
+GRUPO_DESTINO = "Escritório"
+
 #: 🔴 NÃO FILTRA STATUS NEM TELEFONE AQUI, DE PROPÓSITO.
 #:
 #: Minha 1ª versão exigia `e.status = 'ativo'` e devolveu **NENHUM aprovador**: a Pyetra e o
@@ -285,14 +290,54 @@ async def montar(db, dia) -> dict[str, Any]:
             "sumidos": sumidos}
 
 
-#: Rótulo de cada faixa de gravidade, na ordem em que a lista sai.
-_FAIXAS = {
-    -1: ("🔴", "escalada(o) sem vínculo ativo"),
-    0: ("⬛", "turno inteiro sem nenhuma batida"),
-    1: ("🟠", "jornada aberta (falta entrada ou saída)"),
-    2: ("⏰", "desvio grande de horário"),
-    3: ("·", "desvio pequeno, contingência ou almoço"),
+#: Cada faixa vira uma SEÇÃO própria no relatório, com densidade diferente.
+#:
+#: ⭐ 27/09/2026 — Jordan: *"de uma forma bem estruturada, separada, organizada, não um amontoado
+#: de informações"*. A 1ª versão listava todo mundo no mesmo formato de duas linhas: quem não
+#: bateu NADA aparecia com `— · 🍽 —→— · —`, que é ruído puro, ao lado de quem tem desvio de
+#: minutos, onde a linha de horários é justamente o que decide.
+#:
+#: Cada seção mostra só o que serve para DECIDIR aquele caso.
+#: (ícone, título, mostra a linha dos 4 marcos?, uma linha só por pessoa?)
+#:
+#: ⚠️ O desvio PEQUENO é compacto de propósito: por definição são minutos, e três linhas para
+#: cada um empurrava o caso grave para o fim de uma mensagem de 109 linhas. Quem lê decide de
+#: cima para baixo; se parar no meio, tem de ter parado no lugar certo.
+_FAIXAS: dict[int, tuple[str, str, bool, bool]] = {
+    -1: ("🔴", "VÍNCULO NÃO ESTÁ ATIVO", False, False),
+    0: ("⬛", "NENHUMA BATIDA NO TURNO", False, True),
+    1: ("🟠", "JORNADA ABERTA", True, False),
+    2: ("⏰", "FORA DO HORÁRIO", True, False),
+    3: ("·", "DESVIO PEQUENO E CONTINGÊNCIA", False, True),
 }
+
+
+def _primeiro_e_ultimo(nome: str) -> str:
+    """«MARIA DA SILVA SANTOS» → «Maria Santos». Quem lê conhece a equipe; nome inteiro em
+    caixa alta estoura a linha do WhatsApp e empurra o horário para a linha seguinte."""
+    ps = [x for x in str(nome or "").split() if len(x) > 2]
+    return (f"{ps[0]} {ps[-1]}" if len(ps) > 1 else (ps[0] if ps else "?")).title()
+
+
+def _posto_curto(posto: str) -> str:
+    """Tira «Condomínio»/«Residencial» — todos são, e a palavra ocupa metade da linha."""
+    t = str(posto or "")
+    for p in ("Condomínio ", "Residencial ", "Condominio "):
+        t = t.replace(p, "")
+    return t
+
+
+def _corta(txt: str, n: int) -> str:
+    """Corta na PALAVRA, nunca no meio dela — e diz que cortou."""
+    t = " ".join(str(txt or "").split())
+    if len(t) <= n:
+        return t
+    return t[:t.rfind(" ", 0, n)] + "…"
+
+
+def _marcos(p: dict) -> str:
+    """A linha dos quatro pontos, só onde ela decide alguma coisa."""
+    return f"{p['entrada']} → {p['saida']}   🍽 {p['alm_saida']}→{p['alm_volta']}"
 
 
 def texto(dados: dict) -> str | None:
@@ -301,87 +346,85 @@ def texto(dados: dict) -> str | None:
     ⭐ SILÊNCIO QUANDO NÃO HÁ O QUE DECIDIR é requisito, não economia. Um resumo que chega todo
     dia dizendo "nada a fazer" ensina a não abrir o resumo, e aí o dia que tinha sete decisões
     chega no mesmo envelope já ignorado.
-
-    🔴 E O TAMANHO É PARTE DA CORREÇÃO. A 1ª versão gastava 5 linhas por pessoa: com 24
-    pendências deu **6.404 caracteres e 130 linhas** — dentro do limite do WhatsApp e ilegível
-    num celular. Resumo que não se lê é igual a resumo que não existe, e aí o efeito prático é
-    o mesmo acúmulo que o Jordan pediu para acabar.
     """
-    if not dados["problemas"]:
+    if not dados["problemas"] and not dados.get("sumidos"):
         return None
 
     d = dados["dia"]
-    out = [f"📋 *Ponto de {d[8:10]}/{d[5:7]}* — {len(dados['problemas'])} para decidir, "
-           f"{dados['limpos']} ok", ""]
+    out = [f"📋 *PONTO DE {d[8:10]}/{d[5:7]}*",
+           "_Para aprovar ou reprovar — Pyetra e Orlailson_", ""]
 
-    # CABEÇALHO: a forma do dia antes do detalhe. Quem lê decide onde gastar atenção sem ter
-    # de percorrer a lista inteira para descobrir que havia dois casos graves no meio dela.
-    for peso, (icone, rotulo) in _FAIXAS.items():
-        n = sum(1 for p in dados["problemas"] if p["peso"] == peso)
-        if n:
-            out.append(f"{icone} *{n}* — {rotulo}")
-    out.append("")
-
-    for i, p in enumerate(dados["problemas"], 1):
-        icone = _FAIXAS[p["peso"]][0]
-        out.append(f"{icone} *{i}. {p['nome']}* · {p['posto']} {p['previsto']}")
-        out.append(f"    {p['entrada']} · 🍽 {p['alm_saida']}→{p['alm_volta']} · {p['saida']}"
-                   + ("  |  " + "; ".join(p["motivos"]) if p["motivos"] else ""))
-        if p["justificativas"]:
-            # ⚠️ Corta em 200 e DIZ que cortou. Justificativa inteira mora na Central; truncar
-            # em silêncio faria a decisão sair com meia informação parecendo informação inteira.
-            j = " ".join(p["justificativas"].split())
-            out.append(f"    💬 _{j[:200]}_" + ("… *(texto completo na Central)*"
-                                                if len(j) > 200 else ""))
+    for peso, (icone, titulo, com_marcos, compacto) in _FAIXAS.items():
+        gente = [p for p in dados["problemas"] if p["peso"] == peso]
+        if not gente:
+            continue
+        out.append(f"*{icone} {titulo}* — {len(gente)}")
+        for p in gente:
+            curto = _primeiro_e_ultimo(p["nome"])
+            if compacto:
+                razao = f" · _{'; '.join(p['motivos'])}_" if p["motivos"] else ""
+                out.append(f"  • *{curto}* — {_posto_curto(p['posto'])} {p['previsto']}{razao}")
+                continue
+            out.append(f"  • *{curto}* — {_posto_curto(p['posto'])} {p['previsto']}")
+            if com_marcos:
+                out.append(f"     {_marcos(p)}")
+            if p["motivos"]:
+                out.append(f"     _{'; '.join(p['motivos'])}_")
+            if p["justificativas"]:
+                out.append(f"     💬 _{_corta(p['justificativas'], 130)}_")
+        out.append("")
 
     if dados.get("sumidos"):
-        out += ["", f"👤 *Sem bater há mais de {DIAS_SUMIDO} dias* — não geram linha acima "
-                    f"porque muitos nem turno têm:"]
+        out.append(f"*👤 SEM BATER HÁ MAIS DE {DIAS_SUMIDO} DIAS* — {len(dados['sumidos'])}")
+        out.append("  _não têm turno hoje, então não aparecem acima_")
         for x in dados["sumidos"]:
             quando = f"última em {x['ultima']} ({x['dias']}d)" if x["ultima"] else "*nunca bateu*"
-            alerta = (f" · ⚠️ tem *{x['turnos_futuros']}* turno(s) futuro(s)"
-                      if x["turnos_futuros"] else " · sem turno na escala")
-            out.append(f"    · {x['nome']} — {quando}{alerta}")
-    out += ["", "Aprovar ou reprovar: *erp.conectamais.pro → Aprovações*."]
+            alerta = (f" · ⚠️ *{x['turnos_futuros']}* turno(s) futuro(s)"
+                      if x["turnos_futuros"] else "")
+            out.append(f"  • {x['nome']} — {quando}{alerta}")
+        out.append("")
+
+    if dados["limpos"]:
+        out.append(f"✅ *{dados['limpos']}* bateram os quatro pontos no horário.")
+    out.append("👉 *erp.conectamais.pro* → Aprovações")
     return "\n".join(out)
 
 
 async def enviar(db, dia) -> dict[str, Any]:
-    """Manda o resumo aos aprovadores. Telefone vem do CADASTRO, pela porta única.
+    """Publica o resumo no grupo ESCRITÓRIO, onde a Pyetra e o Orlailson já trabalham.
 
-    ⚠️ `destinatario.mandar` não aceita telefone por parâmetro — foi assim que o guia do Jair
-    chegou ao Antonio Carlos em 26/09. Aqui se passa o `employee_id`, que é o identificador que
-    não tem como ser ambíguo (há cinco ANTONIO nesta casa).
+    🔴 27/09/2026 — MUDOU DE PRIVADO PARA GRUPO. Jordan: *"o resumo do ponto deve ser postado
+    pelo José Luís no grupo escritório"*.
+
+    ⭐ Por que faz sentido: o Escritório tem exatamente os dois que decidem, e nada mais.
+    Medido: dois autores no histórico, Pyetra e Orlailson, zero gente de fora. No privado cada
+    um via a sua cópia e não via a decisão do outro; no grupo os dois veem a mesma lista e
+    quem tratar pode dizer ali mesmo.
+
+    ⚠️ Publicação NÃO passa pela parede de "só fala quando chamado" — aquela governa CONVERSA.
+    Relatório é o que o dono autorizou explicitamente: *"pode mandar relatório e tudo mais"*.
     """
-    from modules.integrations.connectors.whatsapp.destinatario import mandar
+    from modules.integrations.connectors.whatsapp import supervisao as _sup
 
     dados = await montar(db, dia)
     msg = texto(dados)
     if not msg:
         logger.info("resumo_diario %s: dia limpo (%s turnos) — ninguém recebe", dia,
                     dados["turnos"])
-        return {**dados, "enviados": 0, "silencio": True}
+        return {**dados, "publicado": False, "silencio": True}
 
-    alvos = (await db.execute(text(_SQL_APROVADORES),
-                              {"roles": list(ROLES_APROVADOR)})).mappings().all()
-    # audiência NUNCA silenciosa: se a regra passar a alcançar gente nova, o log diz quem
-    logger.info("resumo_diario %s: %s problema(s) → %s", dia, len(dados["problemas"]),
-                ", ".join(a["nome"] for a in alvos) or "NINGUÉM")
-    if not alvos:
-        logger.error("resumo_diario: nenhum aprovador com telefone — o resumo não tem para onde "
-                     "ir. Confira `users.role` e o celular no cadastro.")
-        return {**dados, "enviados": 0, "erro": "sem aprovador com telefone"}
+    destino = (await db.execute(text(
+        "SELECT chatwoot_conversation_id FROM wa_grupos "
+        " WHERE nome = :g AND modo = 'falar' AND chatwoot_conversation_id IS NOT NULL"),
+        {"g": GRUPO_DESTINO})).scalar()
+    if not destino:
+        # ⚠️ FALHA DITA, NÃO SILENCIOSA. Sem destino o resumo sumiria e o silêncio pareceria
+        # "dia limpo" — que é a pior confusão possível num relatório de exceções.
+        logger.error("resumo_diario: grupo %r não existe ou não está em modo `falar` — "
+                     "%s pendência(s) NÃO publicadas", GRUPO_DESTINO, len(dados["problemas"]))
+        return {**dados, "publicado": False, "erro": f"sem grupo {GRUPO_DESTINO}"}
 
-    enviados = 0
-    for a in alvos:
-        try:
-            r = await mandar(db, quem=a["employee_id"], texto=msg,
-                             motivo=f"resumo diário de ponto de {dia}")
-            if r.get("ok"):
-                enviados += 1
-            else:
-                logger.warning("resumo_diario: não entregou a %s — %s", a["nome"],
-                               r.get("motivo"))
-        except Exception as exc:  # noqa: BLE001 — um destinatário não derruba o outro
-            logger.error("resumo_diario: falha ao enviar a %s — %s", a["nome"], exc)
-    return {**dados, "enviados": enviados, "alvos": [a["nome"] for a in alvos]}
+    publicado = bool(await _sup._publicar_no_grupo(int(destino), msg))
+    logger.info("resumo_diario %s: %s pendência(s) → grupo %s (publicado=%s)",
+                dia, len(dados["problemas"]), GRUPO_DESTINO, publicado)
+    return {**dados, "publicado": publicado, "destino": GRUPO_DESTINO}
