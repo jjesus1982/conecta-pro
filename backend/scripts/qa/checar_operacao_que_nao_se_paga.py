@@ -35,10 +35,12 @@ irmã em junho/2026 e ficou com a estrutura: a operação não encolheu junto co
 
 ## O que ele NÃO faz
 
-Não julga se a empresa deve fechar, nem separa receita não operacional — o plano de contas
-desta casa ainda não tem o grupo (todas as receitas estão em `4.1 Receitas Operacionais`).
-Enquanto não tiver, ele mede a operação pelo que ela FATURA em serviço, que é a aproximação
-honesta disponível.
+Não julga se a empresa deve fechar. A separação operacional × não operacional, que ele media
+por aproximação quando nasceu, passou a ser do PLANO DE CONTAS em 26/09/2026: o grupo
+`4.3 Receitas Não Operacionais` foi criado com quatro analíticas (venda de imobilizado,
+receitas financeiras, indenizações, outras). Enquanto ninguém lançar nada em 4.3 o resultado
+é o mesmo — a diferença aparece no primeiro dia em que uma venda de bem entrar, e aí ela
+não vai somar com faturamento de portaria sem ninguém ver.
 
 Linha canônica: `TOTAL: <n> empresa(s) com operação que não se paga`.
 """
@@ -49,7 +51,13 @@ import asyncio
 import sys
 
 #: Receita da operação. O que não estiver aqui não é serviço prestado.
-PREFIXO_RECEITA_OPERACIONAL = "4.1.1"
+PREFIXO_RECEITA_OPERACIONAL = "4.1"
+
+#: Receita que NÃO vem da operação — venda de bem, indenização, rendimento financeiro.
+#: O grupo nasceu em 26/09/2026 justamente para esta medida: antes dele o plano só tinha
+#: `4.1 Receitas Operacionais`, e este caçador media a operação por aproximação (pelo que
+#: ela fatura em serviço). Agora a distinção é do plano, não da heurística.
+PREFIXO_RECEITA_NAO_OPERACIONAL = "4.3"
 
 #: Despesa financeira sai da conta da operação: é custo de capital.
 PREFIXO_FINANCEIRA = "5.2.3"
@@ -94,7 +102,10 @@ async def main() -> int:
                     text("""
                 SELECT e.razao_social nome, a.periodo_competencia comp,
                        coalesce(sum(a.valor) FILTER (
-                           WHERE a.conta_credito LIKE :rec || '%'), 0) receita,
+                           WHERE a.conta_credito LIKE :rec || '%'
+                             AND a.conta_credito NOT LIKE :naoop || '%'), 0) receita,
+                       coalesce(sum(a.valor) FILTER (
+                           WHERE a.conta_credito LIKE :naoop || '%'), 0) nao_operacional,
                        coalesce(sum(a.valor) FILTER (
                            WHERE c.account_type IN ('EXPENSE','COST')
                              AND a.conta_debito NOT LIKE :fin || '%'), 0) despesa
@@ -105,7 +116,12 @@ async def main() -> int:
                    AND coalesce(a.tipo_lancamento,'') <> 'apuracao'
                  GROUP BY 1, 2 ORDER BY 1, 2
             """),
-                    {"rec": PREFIXO_RECEITA_OPERACIONAL, "fin": PREFIXO_FINANCEIRA, "comps": comps},
+                    {
+                        "rec": PREFIXO_RECEITA_OPERACIONAL,
+                        "naoop": PREFIXO_RECEITA_NAO_OPERACIONAL,
+                        "fin": PREFIXO_FINANCEIRA,
+                        "comps": comps,
+                    },
                 )
             )
             .mappings()
@@ -126,11 +142,13 @@ async def main() -> int:
                 marca = "OPERAÇÃO NÃO SE PAGA" if res < 0 else "ok"
                 if res < 0:
                     negativos += 1
+                nao_op = float(m["nao_operacional"])
                 print(
                     f"     {m['comp']}  receita R$ {rec:>12,.2f}  despesa R$ {desp:>12,.2f}"
                     f"  → R$ {res:>12,.2f}"
                     + (f"  ({pct:>6.1f}%)" if pct is not None else "  (sem receita)")
                     + f"  {marca}"
+                    + (f"   [+ R$ {nao_op:,.2f} NÃO operacional, fora da conta]" if nao_op else "")
                 )
             # Só acusa quem não se paga em TODOS os meses olhados: um mês ruim é operação,
             # três seguidos é estrutura.
