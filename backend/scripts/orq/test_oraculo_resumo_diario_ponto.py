@@ -129,6 +129,33 @@ async def main() -> None:
         else:
             print("  ·   nenhuma pessoa sem vínculo ativo escalada ontem (controle vazio hoje)")
 
+        # 4b — 🔴 RECÉM-CONTRATADO NÃO É SUMIDO. Campo ausente tem de falhar FECHADO.
+        #
+        # A 1ª versão da cauda dizia `data_admissao IS NULL OR data_admissao < hoje-N`: com o
+        # campo vazio o OR abre a porta, e quem entrou ontem virava "sem bater há mais de 10
+        # dias". Medido: **5 dos 66 ativos não têm `data_admissao`**.
+        #
+        # ⭐ Quem pegou foi o HERMES, na conferência do próprio resumo: *"THAYNA e FRANCE têm
+        # cadastro criado em 25/09 — há 2 dias, não 10"*. A segunda leitura existe para isso, e
+        # desmentiu a primeira no dia em que nasceu.
+        novatos = {r[0] for r in (await db.execute(text(
+            "SELECT nome FROM employees "
+            " WHERE lower(coalesce(status,'')) LIKE 'ativo%' "
+            # ⚠️ constante interpolada: `current_date - :d` com parâmetro nu vira
+            # "operator does not exist: date >= integer" — asyncpg não tipa o inteiro.
+            f"   AND coalesce(data_admissao, data_inicio_posto, created_at::date) "
+            f"       >= current_date - {rd.DIAS_SUMIDO}"))).fetchall()}
+        na_cauda = {x["nome"] for x in (dados.get("sumidos") or [])}
+        intrusos = novatos & na_cauda
+        if intrusos:
+            falhas.append(f"{len(intrusos)} recém-contratado(s) na cauda de sumidos: "
+                          f"{sorted(intrusos)[:3]} — campo de admissão ausente voltou a abrir "
+                          "a porta em vez de fechá-la")
+        elif novatos:
+            print(f"  ok  {len(novatos)} recém-contratado(s) fora da cauda de sumidos")
+        else:
+            print("  ·   ninguém contratado nos últimos dias (controle vazio)")
+
         # 5 — CONTROLE: dia sem pendência tem de calar. Sem isto, "manda sempre" passaria verde.
         if rd.texto({"dia": str(ontem), "turnos": 0, "limpos": 0, "problemas": []}) is not None:
             falhas.append("dia sem pendência gerou mensagem — resumo que chega todo dia dizendo "

@@ -164,9 +164,17 @@ SELECT e.nome, e.data_admissao,
    AND coalesce(e.is_homologacao, false) = false
    AND (e.tipo_contrato IS NULL OR e.tipo_contrato <> 'pj')
  GROUP BY e.id, e.nome, e.data_admissao
+-- 🔴 27/09/2026 — CAMPO AUSENTE FEZ A PAREDE FALHAR ABERTA, e quem pegou foi o HERMES.
+-- A 1ª versão dizia `data_admissao IS NULL OR data_admissao < hoje-10`: com o campo vazio o
+-- OR abre a porta, e recém-contratado entrava na lista de "sumido há mais de 10 dias".
+-- A conferência do resumo devolveu **NAO CONFERE**: *"THAYNA e FRANCE têm cadastro criado em
+-- 25/09 — há 2 dias, não 10"*. Ele leu `created_at` e `data_inicio_posto`; eu só olhava
+-- `data_admissao`, que está VAZIA em 5 dos 66 ativos.
+-- ⭐ A regra desta casa é campo ausente falhar FECHADO. Aqui eu fiz o contrário, e a segunda
+-- leitura — que existe justamente para isso — me desmentiu no primeiro dia.
 HAVING (max(g.punch_timestamp) IS NULL
-        AND (e.data_admissao IS NULL
-             OR e.data_admissao < (now() AT TIME ZONE 'America/Manaus')::date - {DIAS_SUMIDO}))
+        AND coalesce(e.data_admissao, e.data_inicio_posto, e.created_at::date)
+            < (now() AT TIME ZONE 'America/Manaus')::date - {DIAS_SUMIDO})
     OR max(g.punch_timestamp) < (now() AT TIME ZONE 'America/Manaus')::date - {DIAS_SUMIDO}
  ORDER BY max(g.punch_timestamp) NULLS FIRST
 """
