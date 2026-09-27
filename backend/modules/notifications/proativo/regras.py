@@ -4,6 +4,7 @@ Cada Regra re-deriva sua condição direto da FONTE (idempotente por natureza).
 A Regra DECIDE se dispara, para quem e a severidade — o LLM (redator) só escreve
 o texto depois. Fail-closed: regra sem destinatário não é registrada.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,7 @@ FALLBACK_CAIXA_SEM_FOLHA = 10000.0  # spec: CNPJ sem folha própria → R$ 10k f
 class Achado:
     """Uma ocorrência concreta de uma condição. `dados` carrega os números EXATOS
     da query (groundedness do redator/template)."""
+
     correlation_id: str
     dados: dict
 
@@ -52,20 +54,35 @@ def register(regra: Regra) -> None:
 
 # ─────────────────────────── posto_descoberto ───────────────────────────
 async def _detectar_posto_descoberto(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, coalesce(name,'') AS name, "
-        "       required_headcount AS req, current_headcount AS cur "
-        "FROM posts "
-        "WHERE is_active AND current_headcount < required_headcount"
-    ))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, coalesce(name,'') AS name, "
+                    "       required_headcount AS req, current_headcount AS cur "
+                    "FROM posts "
+                    "WHERE is_active AND current_headcount < required_headcount"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
         faltam = int(r["req"]) - int(r["cur"])
-        out.append(Achado(
-            correlation_id=f"posto_descoberto:{r['id']}",
-            dados={"post_id": r["id"], "posto": r["name"], "faltam": faltam,
-                   "req": int(r["req"]), "cur": int(r["cur"])},
-        ))
+        out.append(
+            Achado(
+                correlation_id=f"posto_descoberto:{r['id']}",
+                dados={
+                    "post_id": r["id"],
+                    "posto": r["name"],
+                    "faltam": faltam,
+                    "req": int(r["req"]),
+                    "cur": int(r["cur"]),
+                },
+            )
+        )
     return out
 
 
@@ -77,12 +94,17 @@ def _tpl_posto(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="posto_descoberto", familia="operacional", severidade="critico",
-    roles_destino=("admin", "gerente_operacional", "supervisor"),
-    action_url="/modulos/operacional/postos",
-    detectar=_detectar_posto_descoberto, template=_tpl_posto,
-))
+register(
+    Regra(
+        nome="posto_descoberto",
+        familia="operacional",
+        severidade="critico",
+        roles_destino=("admin", "gerente_operacional", "supervisor"),
+        action_url="/modulos/operacional/postos",
+        detectar=_detectar_posto_descoberto,
+        template=_tpl_posto,
+    )
+)
 
 
 # ─────────────────────────── certidao_vencendo ───────────────────────────
@@ -100,45 +122,66 @@ CERTIDAO_JANELA = (
     "         AND document_type ILIKE '%municipal%')"
 )
 
+
 async def _detectar_certidao_vencendo(db: AsyncSession) -> list[Achado]:
     # TZ canônico: dia-de-negócio = Manaus, NUNCA current_date (sessão Postgres em UTC) —
     # janela diária 20h-23h59 Manaus cairia no dia UTC seguinte e erraria o corte.
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, coalesce(name,'certidão') AS name, "
-        "       expiry_date, "
-        "       (expiry_date - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
-        "FROM ged_certidoes "
-        f"WHERE {CERTIDAO_JANELA}"
-    ))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, coalesce(name,'certidão') AS name, "
+                    "       expiry_date, "
+                    "       (expiry_date - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
+                    "FROM ged_certidoes "
+                    f"WHERE {CERTIDAO_JANELA}"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
         dias = int(r["dias"])
         vencida = dias < 0
-        out.append(Achado(
-            correlation_id=f"certidao:{r['id']}:{r['expiry_date']}",
-            dados={"cert_id": r["id"], "nome": r["name"], "dias": dias,
-                   "expiry": str(r["expiry_date"]), "vencida": vencida,
-                   # per-achado: vencida é sempre crítico; a vencer (<=30d) mantém atencao
-                   "severidade": "critico" if vencida else "atencao"},
-        ))
+        out.append(
+            Achado(
+                correlation_id=f"certidao:{r['id']}:{r['expiry_date']}",
+                dados={
+                    "cert_id": r["id"],
+                    "nome": r["name"],
+                    "dias": dias,
+                    "expiry": str(r["expiry_date"]),
+                    "vencida": vencida,
+                    # per-achado: vencida é sempre crítico; a vencer (<=30d) mantém atencao
+                    "severidade": "critico" if vencida else "atencao",
+                },
+            )
+        )
     return out
 
 
 def _tpl_certidao(d: dict) -> tuple[str, str]:
     if d["vencida"]:
-        return (f"Certidão VENCIDA: {d['nome']}",
-                f"A certidão {d['nome']} venceu em {d['expiry']} "
-                f"(há {abs(d['dias'])} dia(s)). Regularizar.")
-    return (f"Certidão vencendo: {d['nome']}",
-            f"A certidão {d['nome']} vence em {d['dias']} dia(s) ({d['expiry']}).")
+        return (
+            f"Certidão VENCIDA: {d['nome']}",
+            f"A certidão {d['nome']} venceu em {d['expiry']} (há {abs(d['dias'])} dia(s)). Regularizar.",
+        )
+    return (f"Certidão vencendo: {d['nome']}", f"A certidão {d['nome']} vence em {d['dias']} dia(s) ({d['expiry']}).")
 
 
-register(Regra(
-    nome="certidao_vencendo", familia="documentos", severidade="atencao",
-    roles_destino=("admin",),
-    action_url="/modulos/juridico/certidoes",
-    detectar=_detectar_certidao_vencendo, template=_tpl_certidao,
-))
+register(
+    Regra(
+        nome="certidao_vencendo",
+        familia="documentos",
+        severidade="atencao",
+        roles_destino=("admin",),
+        action_url="/modulos/juridico/certidoes",
+        detectar=_detectar_certidao_vencendo,
+        template=_tpl_certidao,
+    )
+)
 
 
 # ─────────────────────────── caixa_baixo_cnpj ───────────────────────────
@@ -160,20 +203,26 @@ async def _detectar_caixa_baixo(db: AsyncSession) -> list[Achado]:
         limiar = float(folha) if folha not in (None, 0) else FALLBACK_CAIXA_SEM_FOLHA
         if float(saldo) < limiar:
             slug = bloco.get("slug") or natureza
-            out.append(Achado(
-                correlation_id=f"caixa_baixo:{slug}:{competencia}",
-                dados={"cnpj": bloco.get("nome") or natureza, "slug": slug,
-                       "saldo": float(saldo), "limiar": limiar,
-                       "banco": bloco.get("banco"),
-                       "usou_fallback": folha in (None, 0)},
-            ))
+            out.append(
+                Achado(
+                    correlation_id=f"caixa_baixo:{slug}:{competencia}",
+                    dados={
+                        "cnpj": bloco.get("nome") or natureza,
+                        "slug": slug,
+                        "saldo": float(saldo),
+                        "limiar": limiar,
+                        "banco": bloco.get("banco"),
+                        "usou_fallback": folha in (None, 0),
+                    },
+                )
+            )
     return out
 
 
 def _tpl_caixa(d: dict) -> tuple[str, str]:
     from modules.notifications.proativo.redator import _brl
 
-    base = ("folha do CNPJ" if not d["usou_fallback"] else "piso R$ 10.000")
+    base = "folha do CNPJ" if not d["usou_fallback"] else "piso R$ 10.000"
     return (
         f"Caixa baixo: {d['cnpj']}",
         f"O caixa de {d['cnpj']} ({d['banco']}) está em R$ {_brl(d['saldo'])}, "
@@ -181,30 +230,41 @@ def _tpl_caixa(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="caixa_baixo_cnpj", familia="financeiro", severidade="critico",
-    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
-    action_url="/modulos/financeiro/caixa",
-    detectar=_detectar_caixa_baixo, template=_tpl_caixa,
-))
+register(
+    Regra(
+        nome="caixa_baixo_cnpj",
+        familia="financeiro",
+        severidade="critico",
+        roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+        action_url="/modulos/financeiro/caixa",
+        detectar=_detectar_caixa_baixo,
+        template=_tpl_caixa,
+    )
+)
 
 
 # ─────────────────────────── aging_reforcado ───────────────────────────
 async def _detectar_aging(db: AsyncSession) -> list[Achado]:
     # MESMA fonte/filtro de notifications.reconciliar_alertas (não duplica).
-    row = (await db.execute(text(
-        "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
-        "WHERE due_date < current_date "
-        f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
+    row = (
+        await db.execute(
+            text(
+                "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
+                "WHERE due_date < current_date "
+                f"AND {SQL_CONTA_EM_ABERTO}"
+            )
+        )
+    ).fetchone()
     n, total = int(row[0] or 0), float(row[1] or 0)
     if n == 0:
         return []
-    return [Achado(
-        correlation_id="financeiro_aging:portfolio:None",  # namespace do enqueue_alert
-        # espelha notifications.tasks.py:61 (mesmo corte do reconciliador)
-        dados={"n": n, "total": total,
-               "severidade": "critico" if total >= 50000 else "atencao"},
-    )]
+    return [
+        Achado(
+            correlation_id="financeiro_aging:portfolio:None",  # namespace do enqueue_alert
+            # espelha notifications.tasks.py:61 (mesmo corte do reconciliador)
+            dados={"n": n, "total": total, "severidade": "critico" if total >= 50000 else "atencao"},
+        )
+    ]
 
 
 def _tpl_aging(d: dict) -> tuple[str, str]:
@@ -216,37 +276,60 @@ def _tpl_aging(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="aging_reforcado", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
-    action_url="/modulos/financeiro/recebiveis",
-    detectar=_detectar_aging, template=_tpl_aging,
-))
+register(
+    Regra(
+        nome="aging_reforcado",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+        action_url="/modulos/financeiro/recebiveis",
+        detectar=_detectar_aging,
+        template=_tpl_aging,
+    )
+)
 
 
 # ─────────────────────────── tributo_a_vencer (B3) ───────────────────────────
 async def _detectar_tributo_vencer(db: AsyncSession) -> list[Achado]:
-    row = (await db.execute(text(
-        "SELECT count(*), coalesce(sum(valor_devido),0) FROM fiscal_obligations "
-        "WHERE status='pendente' AND data_vencimento BETWEEN current_date AND current_date + 7"))).fetchone()
+    row = (
+        await db.execute(
+            text(
+                "SELECT count(*), coalesce(sum(valor_devido),0) FROM fiscal_obligations "
+                "WHERE status='pendente' AND data_vencimento BETWEEN current_date AND current_date + 7"
+            )
+        )
+    ).fetchone()
     n, total = int(row[0] or 0), float(row[1] or 0)
     if n == 0:
         return []
-    return [Achado(correlation_id="financeiro_tributo_vencer:portfolio:None",
-                   dados={"n": n, "total": total, "severidade": "atencao"})]
+    return [
+        Achado(
+            correlation_id="financeiro_tributo_vencer:portfolio:None",
+            dados={"n": n, "total": total, "severidade": "atencao"},
+        )
+    ]
 
 
 def _tpl_tributo_vencer(d: dict) -> tuple[str, str]:
     from modules.notifications.proativo.redator import _brl
-    return (f"{d['n']} tributo(s)/guia(s) a vencer em 7 dias",
-            f"{d['n']} obrigação(ões) fiscal(is) pendente(s) vence(m) nos próximos 7 dias, total R$ {_brl(d['total'])}.")
+
+    return (
+        f"{d['n']} tributo(s)/guia(s) a vencer em 7 dias",
+        f"{d['n']} obrigação(ões) fiscal(is) pendente(s) vence(m) nos próximos 7 dias, total R$ {_brl(d['total'])}.",
+    )
 
 
-register(Regra(
-    nome="tributo_a_vencer", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",), action_url="/modulos/financeiro/fiscal",
-    detectar=_detectar_tributo_vencer, template=_tpl_tributo_vencer,
-))
+register(
+    Regra(
+        nome="tributo_a_vencer",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),
+        action_url="/modulos/financeiro/fiscal",
+        detectar=_detectar_tributo_vencer,
+        template=_tpl_tributo_vencer,
+    )
+)
 
 
 # ─────────────────────────── tributo_VENCIDO ─────────────────────────────────
@@ -257,94 +340,146 @@ register(Regra(
 # e 21499344, R$740,25) e passou cinco dias vencido **sem um único alerta**. O vigia
 # desligava no instante em que passava a ser necessário.
 async def _detectar_tributo_vencido(db: AsyncSession) -> list[Achado]:
-    linhas = (await db.execute(text(
-        "SELECT e.slug, o.tipo, o.data_vencimento, coalesce(o.valor_devido, 0) "
-        "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
-        " WHERE o.active AND o.status = 'pendente' "
-        "   AND o.data_vencimento < current_date "
-        # Corte de 01/08/2026 (decisão do Jordan): abril a julho é status não conciliado do
-        # período de homologação, não dívida — a CRF de FGTS de 11/08 prova. Alertar sobre
-        # aquilo devolveria ao sino os R$68 mil de ruído que ninguém mais lia.
-        "   AND o.data_vencimento >= DATE '2026-08-01' "
-        " ORDER BY o.data_vencimento"))).fetchall()
+    linhas = (
+        await db.execute(
+            text(
+                "SELECT e.slug, o.tipo, o.data_vencimento, coalesce(o.valor_devido, 0) "
+                "  FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
+                " WHERE o.active AND o.status = 'pendente' "
+                "   AND o.data_vencimento < current_date "
+                # Corte de 01/08/2026 (decisão do Jordan): abril a julho é status não conciliado do
+                # período de homologação, não dívida — a CRF de FGTS de 11/08 prova. Alertar sobre
+                # aquilo devolveria ao sino os R$68 mil de ruído que ninguém mais lia.
+                "   AND o.data_vencimento >= DATE '2026-08-01' "
+                " ORDER BY o.data_vencimento"
+            )
+        )
+    ).fetchall()
     if not linhas:
         return []
     total = float(sum(float(x[3]) for x in linhas))
     detalhe = "; ".join(f"{s} {t} venceu {v:%d/%m}" for s, t, v, _ in linhas[:5])
-    return [Achado(correlation_id="financeiro_tributo_vencido:portfolio:None",
-                   dados={"n": len(linhas), "total": total, "detalhe": detalhe,
-                          "severidade": "critico"})]
+    return [
+        Achado(
+            correlation_id="financeiro_tributo_vencido:portfolio:None",
+            dados={"n": len(linhas), "total": total, "detalhe": detalhe, "severidade": "critico"},
+        )
+    ]
 
 
 def _tpl_tributo_vencido(d: dict) -> tuple[str, str]:
     from modules.notifications.proativo.redator import _brl
-    return (f"{d['n']} tributo(s) VENCIDO(S) sem baixa",
-            f"{d['n']} obrigação(ões) fiscal(is) já venceu(ram) e continua(m) pendente(s), "
-            f"total R$ {_brl(d['total'])}. {d['detalhe']}. "
-            f"Multa e juros correm a partir do vencimento.")
+
+    return (
+        f"{d['n']} tributo(s) VENCIDO(S) sem baixa",
+        f"{d['n']} obrigação(ões) fiscal(is) já venceu(ram) e continua(m) pendente(s), "
+        f"total R$ {_brl(d['total'])}. {d['detalhe']}. "
+        f"Multa e juros correm a partir do vencimento.",
+    )
 
 
-register(Regra(
-    nome="tributo_vencido", familia="financeiro", severidade="critico",
-    roles_destino=("admin",), action_url="/modulos/financeiro/fiscal",
-    detectar=_detectar_tributo_vencido, template=_tpl_tributo_vencido,
-))
+register(
+    Regra(
+        nome="tributo_vencido",
+        familia="financeiro",
+        severidade="critico",
+        roles_destino=("admin",),
+        action_url="/modulos/financeiro/fiscal",
+        detectar=_detectar_tributo_vencido,
+        template=_tpl_tributo_vencido,
+    )
+)
 
 
 # ─────────────────────────── concentracao_pagaveis (B3) ───────────────────────────
 async def _detectar_pagaveis_7d(db: AsyncSession) -> list[Achado]:
-    row = (await db.execute(text(
-        "SELECT count(*), coalesce(sum(net_value),0) FROM payable_accounts "
-        "WHERE due_date BETWEEN current_date AND current_date + 7 "
-        f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
+    row = (
+        await db.execute(
+            text(
+                "SELECT count(*), coalesce(sum(net_value),0) FROM payable_accounts "
+                "WHERE due_date BETWEEN current_date AND current_date + 7 "
+                f"AND {SQL_CONTA_EM_ABERTO}"
+            )
+        )
+    ).fetchone()
     n, total = int(row[0] or 0), float(row[1] or 0)
     if total < 10000:  # só alerta concentração relevante
         return []
-    return [Achado(correlation_id="financeiro_pagaveis_7d:portfolio:None",
-                   dados={"n": n, "total": total, "severidade": "critico" if total >= 50000 else "atencao"})]
+    return [
+        Achado(
+            correlation_id="financeiro_pagaveis_7d:portfolio:None",
+            dados={"n": n, "total": total, "severidade": "critico" if total >= 50000 else "atencao"},
+        )
+    ]
 
 
 def _tpl_pagaveis_7d(d: dict) -> tuple[str, str]:
     from modules.notifications.proativo.redator import _brl
-    return (f"{d['n']} conta(s) a pagar vencendo em 7 dias",
-            f"R$ {_brl(d['total'])} em {d['n']} conta(s) a pagar vence(m) nos próximos 7 dias — planeje o caixa.")
+
+    return (
+        f"{d['n']} conta(s) a pagar vencendo em 7 dias",
+        f"R$ {_brl(d['total'])} em {d['n']} conta(s) a pagar vence(m) nos próximos 7 dias — planeje o caixa.",
+    )
 
 
-register(Regra(
-    nome="concentracao_pagaveis", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",), action_url="/modulos/financeiro/pagar",
-    detectar=_detectar_pagaveis_7d, template=_tpl_pagaveis_7d,
-))
+register(
+    Regra(
+        nome="concentracao_pagaveis",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),
+        action_url="/modulos/financeiro/pagar",
+        detectar=_detectar_pagaveis_7d,
+        template=_tpl_pagaveis_7d,
+    )
+)
 
 
 # ─────────────────────────── recebivel_grande_vencendo (B3) ───────────────────────────
 async def _detectar_receb_grande(db: AsyncSession) -> list[Achado]:
     # Título individual alto (≥R$5k) vencendo nos próximos 3 dias — pegar ANTES de atrasar.
-    rows = (await db.execute(text(
-        "SELECT customer_name, net_value, due_date FROM receivable_accounts "
-        "WHERE due_date BETWEEN current_date AND current_date + 3 AND coalesce(net_value,0) >= 5000 "
-        f"AND {SQL_CONTA_EM_ABERTO} "
-        "ORDER BY net_value DESC LIMIT 5"))).fetchall()
+    rows = (
+        await db.execute(
+            text(
+                "SELECT customer_name, net_value, due_date FROM receivable_accounts "
+                "WHERE due_date BETWEEN current_date AND current_date + 3 AND coalesce(net_value,0) >= 5000 "
+                f"AND {SQL_CONTA_EM_ABERTO} "
+                "ORDER BY net_value DESC LIMIT 5"
+            )
+        )
+    ).fetchall()
     out = []
     for r in rows:
         cli = str(r[0] or "cliente")
-        out.append(Achado(
-            correlation_id=f"financeiro_receb_grande:{cli}:{r[2]}",  # dedup por cliente+vencimento
-            dados={"cliente": cli, "valor": float(r[1] or 0), "venc": str(r[2]), "severidade": "atencao"}))
+        out.append(
+            Achado(
+                correlation_id=f"financeiro_receb_grande:{cli}:{r[2]}",  # dedup por cliente+vencimento
+                dados={"cliente": cli, "valor": float(r[1] or 0), "venc": str(r[2]), "severidade": "atencao"},
+            )
+        )
     return out
 
 
 def _tpl_receb_grande(d: dict) -> tuple[str, str]:
     from modules.notifications.proativo.redator import _brl
-    return (f"Recebível de {d['cliente'][:30]} a vencer",
-            f"R$ {_brl(d['valor'])} de {d['cliente']} vence em {d['venc']} — confirme o recebimento no dia.")
+
+    return (
+        f"Recebível de {d['cliente'][:30]} a vencer",
+        f"R$ {_brl(d['valor'])} de {d['cliente']} vence em {d['venc']} — confirme o recebimento no dia.",
+    )
 
 
-register(Regra(
-    nome="recebivel_grande_vencendo", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",), action_url="/modulos/financeiro/recebiveis",
-    detectar=_detectar_receb_grande, template=_tpl_receb_grande,
-))
+register(
+    Regra(
+        nome="recebivel_grande_vencendo",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),
+        action_url="/modulos/financeiro/recebiveis",
+        detectar=_detectar_receb_grande,
+        template=_tpl_receb_grande,
+    )
+)
 
 
 # ─────────────────────────── justificativa_parada ───────────────────────────
@@ -360,22 +495,39 @@ async def _detectar_justificativa(db: AsyncSession) -> list[Achado]:
     justificativas na base, 13 pendentes, zero aprovadas, a mais antiga desde 21/07.
     """
     from modules.people_management.ponto.services.justificativa_batida import prazo_dias
+
     dias = await prazo_dias(db)
-    rows = (await db.execute(text(
-        "SELECT j.id, coalesce(e.nome, 'colaborador') AS nome, "
-        "       coalesce(j.justification_type, 'ponto') AS tipo, "
-        "       (CAST((now() AT TIME ZONE 'America/Manaus') AS date) - j.created_at::date) AS dias "
-        "FROM gp_justifications j LEFT JOIN employees e ON e.id::text = j.employee_id "
-        "WHERE lower(coalesce(j.status,'')) IN ('pending','pendente','em_analise') "
-        "AND j.created_at::date < CAST((now() AT TIME ZONE 'America/Manaus') AS date) - CAST(:d AS integer)"),
-        {"d": dias})).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT j.id, coalesce(e.nome, 'colaborador') AS nome, "
+                    "       coalesce(j.justification_type, 'ponto') AS tipo, "
+                    "       (CAST((now() AT TIME ZONE 'America/Manaus') AS date) - j.created_at::date) AS dias "
+                    "FROM gp_justifications j LEFT JOIN employees e ON e.id::text = j.employee_id "
+                    "WHERE lower(coalesce(j.status,'')) IN ('pending','pendente','em_analise') "
+                    "AND j.created_at::date < CAST((now() AT TIME ZONE 'America/Manaus') AS date) - CAST(:d AS integer)"
+                ),
+                {"d": dias},
+            )
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
-        out.append(Achado(
-            correlation_id=f"justificativa_parada:{r['id']}",
-            dados={"just_id": int(r["id"]), "nome": r["nome"], "tipo": r["tipo"],
-                   "dias": int(r["dias"] or 0), "prazo": dias},
-        ))
+        out.append(
+            Achado(
+                correlation_id=f"justificativa_parada:{r['id']}",
+                dados={
+                    "just_id": int(r["id"]),
+                    "nome": r["nome"],
+                    "tipo": r["tipo"],
+                    "dias": int(r["dias"] or 0),
+                    "prazo": dias,
+                },
+            )
+        )
     return out
 
 
@@ -388,12 +540,17 @@ def _tpl_justificativa(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="justificativa_parada", familia="ponto", severidade="atencao",
-    roles_destino=("admin", "gerente_operacional"),
-    action_url="/redesign/departamento-pessoal?t=g-ponto&tab=justificativas-fila",
-    detectar=_detectar_justificativa, template=_tpl_justificativa,
-))
+register(
+    Regra(
+        nome="justificativa_parada",
+        familia="ponto",
+        severidade="atencao",
+        roles_destino=("admin", "gerente_operacional"),
+        action_url="/redesign/departamento-pessoal?t=g-ponto&tab=justificativas-fila",
+        detectar=_detectar_justificativa,
+        template=_tpl_justificativa,
+    )
+)
 
 
 # ─────────────────────────── juridico_prazo (silenciosa até ter dado) ────────
@@ -402,20 +559,35 @@ async def _detectar_juridico(db: AsyncSession) -> list[Achado]:
     # Vocabulário real da tabela é {aberto, cumprido, atrasado} (prazos_service._STATUS_VALIDOS);
     # os dois valores excluídos antes (ver git blame) nunca existem na tabela — exclusão
     # morta que fazia prazos já resolvidos alertarem pra sempre. Só 'cumprido' sai do radar.
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, coalesce(titulo,'prazo') AS titulo, data_limite, "
-        "       (data_limite - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
-        "FROM juridico_prazos "
-        "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
-        "AND lower(coalesce(status,'')) NOT IN ('cumprido')"))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, coalesce(titulo,'prazo') AS titulo, data_limite, "
+                    "       (data_limite - (now() AT TIME ZONE 'America/Manaus')::date) AS dias "
+                    "FROM juridico_prazos "
+                    "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
+                    "AND lower(coalesce(status,'')) NOT IN ('cumprido')"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
-        out.append(Achado(
-            correlation_id=f"juridico_prazo:{r['id']}:{r['data_limite']}",
-            dados={"prazo_id": r["id"], "titulo": r["titulo"], "dias": int(r["dias"]),
-                   # per-achado: prazo já vencido é sempre crítico; a vencer mantém atencao
-                   "severidade": "critico" if int(r["dias"]) < 0 else "atencao"},
-        ))
+        out.append(
+            Achado(
+                correlation_id=f"juridico_prazo:{r['id']}:{r['data_limite']}",
+                dados={
+                    "prazo_id": r["id"],
+                    "titulo": r["titulo"],
+                    "dias": int(r["dias"]),
+                    # per-achado: prazo já vencido é sempre crítico; a vencer mantém atencao
+                    "severidade": "critico" if int(r["dias"]) < 0 else "atencao",
+                },
+            )
+        )
     return out
 
 
@@ -426,12 +598,17 @@ def _tpl_juridico(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="juridico_prazo", familia="juridico", severidade="critico",
-    roles_destino=("admin",),
-    action_url="/modulos/juridico/prazos",
-    detectar=_detectar_juridico, template=_tpl_juridico,
-))
+register(
+    Regra(
+        nome="juridico_prazo",
+        familia="juridico",
+        severidade="critico",
+        roles_destino=("admin",),
+        action_url="/modulos/juridico/prazos",
+        detectar=_detectar_juridico,
+        template=_tpl_juridico,
+    )
+)
 
 
 # ─────────────────────────── recrutamento_parado (silenciosa até funil) ──────
@@ -439,18 +616,29 @@ async def _detectar_recrutamento(db: AsyncSession) -> list[Achado]:
     # Hoje candidates.status só tem 'ativo' (sem estágio de funil). A regra existe e
     # acorda quando houver funil: candidato parado num estágio 'em_analise'/'triagem'
     # há >7d. Enquanto só houver 'ativo', é silenciosa (não fabricar movimento).
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, coalesce(name,'candidato') AS name "
-        "FROM candidates "
-        "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
-        "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
-        "AND updated_at < now() - interval '7 days'"))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, coalesce(name,'candidato') AS name "
+                    "FROM candidates "
+                    "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
+                    "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
+                    "AND updated_at < now() - interval '7 days'"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     out = []
     for r in rows:
-        out.append(Achado(
-            correlation_id=f"recrutamento_parado:{r['id']}",
-            dados={"candidate_id": r["id"], "nome": r["name"]},
-        ))
+        out.append(
+            Achado(
+                correlation_id=f"recrutamento_parado:{r['id']}",
+                dados={"candidate_id": r["id"], "nome": r["name"]},
+            )
+        )
     return out
 
 
@@ -461,12 +649,17 @@ def _tpl_recrutamento(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="recrutamento_parado", familia="recrutamento", severidade="info",
-    roles_destino=("admin", "gerente_operacional"),
-    action_url="/modulos/rh/recrutamento",
-    detectar=_detectar_recrutamento, template=_tpl_recrutamento,
-))
+register(
+    Regra(
+        nome="recrutamento_parado",
+        familia="recrutamento",
+        severidade="info",
+        roles_destino=("admin", "gerente_operacional"),
+        action_url="/modulos/rh/recrutamento",
+        detectar=_detectar_recrutamento,
+        template=_tpl_recrutamento,
+    )
+)
 
 
 # ═══════════════════════ DP · VIGÍLIA DE PRAZOS (Fase F2) ═══════════════════════
@@ -483,8 +676,10 @@ register(Regra(
 # fluxo nativo vai sendo assumido módulo a módulo. Então "não está no sistema" quase nunca
 # é negligência do DP — é migração em curso. O texto do alerta precisa dizer isso, senão
 # soa como cobrança e a pessoa para de confiar no vigia.
-MSG_SEM_REGISTRO = ("⚠️ Este vigia só enxerga o que já está no fluxo nativo. Enquanto o "
-                    "dado vier da Portte/eSocial, o caso pode existir e não aparecer aqui.")
+MSG_SEM_REGISTRO = (
+    "⚠️ Este vigia só enxerga o que já está no fluxo nativo. Enquanto o "
+    "dado vier da Portte/eSocial, o caso pode existir e não aparecer aqui."
+)
 
 
 # ─────────────────────── dp_aviso_previo_vencendo ───────────────────────
@@ -504,38 +699,58 @@ async def _detectar_aviso_previo(db: AsyncSession) -> list[Achado]:
     """
     # `fim` calculado uma vez em subquery — repetir a expressão em SELECT e WHERE foi
     # exatamente o que escondeu o COALESCE quando o campo formal era nulo.
-    rows = (await db.execute(text(
-        "SELECT id, nome, fim, (fim - current_date) AS dias, origem, status_emp FROM ("
-        "  SELECT t.id::text AS id, e.nome AS nome, lower(coalesce(e.status,'')) AS status_emp, "
-        "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
-        "              THEN (t.notice_start_date "
-        "                    + (t.notice_period_days || ' days')::interval)::date "
-        "              ELSE t.last_working_day END AS fim, "
-        "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
-        "              THEN 'aviso' ELSE 'ultimo_dia' END AS origem "
-        "  FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
-        "  WHERE lower(coalesce(t.status::text,'')) "
-        "        NOT IN ('completed','cancelled') "
-        # Colaborador já inativo no cadastro com processo esquecido em 'initiated' NÃO é "aviso
-        # prévio vencendo" — mas esconder (filtrar por ativo, como fiz às 15h de 07/09/2026)
-        # deixou o processo do KEYSON invisível para qualquer regra; o oráculo cobrou. Entra
-        # com título próprio: "desligamento sem concluir no sistema".
-        ") s WHERE fim IS NOT NULL AND fim <= current_date + 7"
-    ))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id, nome, fim, (fim - current_date) AS dias, origem, status_emp FROM ("
+                    "  SELECT t.id::text AS id, e.nome AS nome, lower(coalesce(e.status,'')) AS status_emp, "
+                    "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
+                    "              THEN (t.notice_start_date "
+                    "                    + (t.notice_period_days || ' days')::interval)::date "
+                    "              ELSE t.last_working_day END AS fim, "
+                    "         CASE WHEN t.notice_start_date IS NOT NULL AND coalesce(t.notice_period_days,0) > 0 "
+                    "              THEN 'aviso' ELSE 'ultimo_dia' END AS origem "
+                    "  FROM termination_processes t JOIN employees e ON e.id = t.employee_id "
+                    "  WHERE lower(coalesce(t.status::text,'')) "
+                    "        NOT IN ('completed','cancelled') "
+                    # Colaborador já inativo no cadastro com processo esquecido em 'initiated' NÃO é "aviso
+                    # prévio vencendo" — mas esconder (filtrar por ativo, como fiz às 15h de 07/09/2026)
+                    # deixou o processo do KEYSON invisível para qualquer regra; o oráculo cobrou. Entra
+                    # com título próprio: "desligamento sem concluir no sistema".
+                    ") s WHERE fim IS NOT NULL AND fim <= current_date + 7"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     # denominador honesto: desligamentos em curso que NENHUMA das duas leituras enxerga
-    sem_registro = (await db.execute(text(
-        "SELECT count(*) FROM termination_processes "
-        "WHERE last_working_day IS NULL "
-        "AND (notice_start_date IS NULL OR coalesce(notice_period_days,0) = 0) "
-        "AND lower(coalesce(status::text,'')) NOT IN ('completed','cancelled')"
-    ))).scalar() or 0
-    return [Achado(
-        correlation_id=f"dp_aviso_previo:{r['id']}:{r['fim']}",
-        dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"]),
-               "vencido": int(r["dias"]) < 0, "sem_registro": int(sem_registro),
-               "origem": r["origem"],
-               "inativo": r["status_emp"] not in ("ativo", "afastado_inss", "suspenso", "pj_ativo")},
-    ) for r in rows]
+    sem_registro = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM termination_processes "
+                "WHERE last_working_day IS NULL "
+                "AND (notice_start_date IS NULL OR coalesce(notice_period_days,0) = 0) "
+                "AND lower(coalesce(status::text,'')) NOT IN ('completed','cancelled')"
+            )
+        )
+    ).scalar() or 0
+    return [
+        Achado(
+            correlation_id=f"dp_aviso_previo:{r['id']}:{r['fim']}",
+            dados={
+                "nome": r["nome"],
+                "fim": str(r["fim"]),
+                "dias": int(r["dias"]),
+                "vencido": int(r["dias"]) < 0,
+                "sem_registro": int(sem_registro),
+                "origem": r["origem"],
+                "inativo": r["status_emp"] not in ("ativo", "afastado_inss", "suspenso", "pj_ativo"),
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_aviso_previo(d: dict) -> tuple[str, str]:
@@ -545,36 +760,49 @@ def _tpl_aviso_previo(d: dict) -> tuple[str, str]:
     por_ultimo_dia = d.get("origem") == "ultimo_dia"
     termo = "O último dia de trabalho" if por_ultimo_dia else "O aviso prévio"
     if d.get("inativo"):
-        return (f"Desligamento sem concluir no sistema: {d['nome']}",
-                f"{d['nome']} já consta desligado no cadastro, mas o processo de desligamento segue "
-                f"'iniciado' (prazo {d['fim']}, há {abs(d['dias'])} dia(s)). Não é aviso prévio a vencer — é "
-                f"papel por fechar: concluir (rescisão, TRCT, eSocial S-2299) ou cancelar no DP.")
+        return (
+            f"Desligamento sem concluir no sistema: {d['nome']}",
+            f"{d['nome']} já consta desligado no cadastro, mas o processo de desligamento segue "
+            f"'iniciado' (prazo {d['fim']}, há {abs(d['dias'])} dia(s)). Não é aviso prévio a vencer — é "
+            f"papel por fechar: concluir (rescisão, TRCT, eSocial S-2299) ou cancelar no DP.",
+        )
     if d["vencido"]:
         cabeca = f"🔴 {'Último dia JÁ PASSOU' if por_ultimo_dia else 'Aviso prévio VENCIDO'}: {d['nome']}"
-        corpo = (f"{termo} de {d['nome']} foi em {d['fim']} — há {abs(d['dias'])} dia(s). "
-                 f"Se a pessoa continua trabalhando, cada dia é passivo trabalhista. "
-                 f"Formalize o desligamento ou registre a prorrogação.")
+        corpo = (
+            f"{termo} de {d['nome']} foi em {d['fim']} — há {abs(d['dias'])} dia(s). "
+            f"Se a pessoa continua trabalhando, cada dia é passivo trabalhista. "
+            f"Formalize o desligamento ou registre a prorrogação."
+        )
     else:
-        cabeca = (f"{'Último dia' if por_ultimo_dia else 'Aviso prévio vence'} "
-                  f"em {d['dias']} dia(s): {d['nome']}")
-        corpo = (f"{termo} de {d['nome']} é {d['fim']} ({d['dias']} dia(s)). "
-                 f"Prepare a rescisão para não estourar o prazo.")
+        cabeca = f"{'Último dia' if por_ultimo_dia else 'Aviso prévio vence'} em {d['dias']} dia(s): {d['nome']}"
+        corpo = (
+            f"{termo} de {d['nome']} é {d['fim']} ({d['dias']} dia(s)). Prepare a rescisão para não estourar o prazo."
+        )
     if por_ultimo_dia:
-        corpo += (" ⚠️ Este processo NÃO tem aviso prévio registrado "
-                  "(`notice_start_date` vazio) — o prazo veio do último dia de trabalho. "
-                  "Registre o aviso para o cálculo da rescisão fechar.")
+        corpo += (
+            " ⚠️ Este processo NÃO tem aviso prévio registrado "
+            "(`notice_start_date` vazio) — o prazo veio do último dia de trabalho. "
+            "Registre o aviso para o cálculo da rescisão fechar."
+        )
     if d["sem_registro"]:
-        corpo += (f" {MSG_SEM_REGISTRO} Há {d['sem_registro']} desligamento(s) em curso sem "
-                  f"NENHUMA data de prazo — nem aviso, nem último dia. Esses eu não enxergo.")
+        corpo += (
+            f" {MSG_SEM_REGISTRO} Há {d['sem_registro']} desligamento(s) em curso sem "
+            f"NENHUMA data de prazo — nem aviso, nem último dia. Esses eu não enxergo."
+        )
     return cabeca, corpo
 
 
-register(Regra(
-    nome="dp_aviso_previo_vencendo", familia="dp", severidade="critico",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_aviso_previo, template=_tpl_aviso_previo,
-))
+register(
+    Regra(
+        nome="dp_aviso_previo_vencendo",
+        familia="dp",
+        severidade="critico",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_aviso_previo,
+        template=_tpl_aviso_previo,
+    )
+)
 
 
 # ─────────────────────── dp_ferias_limite_gozo ───────────────────────
@@ -591,26 +819,42 @@ async def _detectar_ferias_limite(db: AsyncSession) -> list[Achado]:
         (`LIKE '%FERIAS%'`) NÃO serve: 0061/0062 incluem proporcionais de RESCISÃO, que são
         indenização e marcariam demitido como "gozou".
     """
-    rows = (await db.execute(text(
-        "SELECT p.id::text AS id, e.nome AS nome, p.expires_at AS limite, "
-        "       p.days_remaining AS saldo, (p.expires_at - current_date) AS dias, "
-        "       EXISTS (SELECT 1 FROM folha_verba_espelho v "
-        "               WHERE v.employee_id = p.employee_id AND v.codigo IN ('0060','1061')) AS gozou "
-        "FROM employee_vacation_periods p JOIN employees e ON e.id = p.employee_id "
-        "WHERE coalesce(p.days_remaining,0) > 0 AND p.expires_at IS NOT NULL "
-        "  AND p.expires_at <= current_date + 30 "
-        # PJ não tem férias CLT. O ORLAILSON caiu aqui como falso 'art.137': foi desligado
-        # como CLT com férias INDENIZADAS (verba 0062, rescisão) e recontratado como PJ.
-        "  AND lower(coalesce(e.status,'')) NOT IN ('suspenso','demitido','inativo') "
-        "  AND lower(coalesce(e.status,'')) NOT LIKE 'pj%' "
-        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
-        "ORDER BY p.expires_at"
-    ))).mappings().all()
-    return [Achado(
-        correlation_id=f"dp_ferias_limite:{r['id']}",
-        dados={"nome": r["nome"], "limite": str(r["limite"]), "saldo": int(r["saldo"]),
-               "dias": int(r["dias"]), "gozou_sem_registro": bool(r["gozou"])},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT p.id::text AS id, e.nome AS nome, p.expires_at AS limite, "
+                    "       p.days_remaining AS saldo, (p.expires_at - current_date) AS dias, "
+                    "       EXISTS (SELECT 1 FROM folha_verba_espelho v "
+                    "               WHERE v.employee_id = p.employee_id AND v.codigo IN ('0060','1061')) AS gozou "
+                    "FROM employee_vacation_periods p JOIN employees e ON e.id = p.employee_id "
+                    "WHERE coalesce(p.days_remaining,0) > 0 AND p.expires_at IS NOT NULL "
+                    "  AND p.expires_at <= current_date + 30 "
+                    # PJ não tem férias CLT. O ORLAILSON caiu aqui como falso 'art.137': foi desligado
+                    # como CLT com férias INDENIZADAS (verba 0062, rescisão) e recontratado como PJ.
+                    "  AND lower(coalesce(e.status,'')) NOT IN ('suspenso','demitido','inativo') "
+                    "  AND lower(coalesce(e.status,'')) NOT LIKE 'pj%' "
+                    "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+                    "ORDER BY p.expires_at"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"dp_ferias_limite:{r['id']}",
+            dados={
+                "nome": r["nome"],
+                "limite": str(r["limite"]),
+                "saldo": int(r["saldo"]),
+                "dias": int(r["dias"]),
+                "gozou_sem_registro": bool(r["gozou"]),
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_ferias_limite(d: dict) -> tuple[str, str]:
@@ -635,12 +879,17 @@ def _tpl_ferias_limite(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="dp_ferias_limite_gozo", familia="dp", severidade="critico",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_ferias_limite, template=_tpl_ferias_limite,
-))
+register(
+    Regra(
+        nome="dp_ferias_limite_gozo",
+        familia="dp",
+        severidade="critico",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_ferias_limite,
+        template=_tpl_ferias_limite,
+    )
+)
 
 
 # ─────────────────────── dp_desligamento_sem_processo ───────────────────────
@@ -661,25 +910,40 @@ async def _detectar_desligamento_sem_processo(db: AsyncSession) -> list[Achado]:
     (alarme que toca sempre ninguém lê). Levo o número JUNTO com os achados, como
     `dp_aviso_previo_vencendo` faz: silêncio vira quantidade declarada.
     """
-    rows = (await db.execute(text(
-        "SELECT e.id::text AS id, e.nome AS nome, "
-        "       coalesce(e.data_desligamento, e.data_demissao) AS dt "
-        "FROM employees e "
-        "WHERE coalesce(e.data_desligamento, e.data_demissao) IS NOT NULL "
-        "  AND coalesce(e.data_desligamento, e.data_demissao) >= current_date - 90 "
-        "  AND NOT EXISTS (SELECT 1 FROM termination_processes t WHERE t.employee_id = e.id) "
-        "ORDER BY 3 DESC"
-    ))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT e.id::text AS id, e.nome AS nome, "
+                    "       coalesce(e.data_desligamento, e.data_demissao) AS dt "
+                    "FROM employees e "
+                    "WHERE coalesce(e.data_desligamento, e.data_demissao) IS NOT NULL "
+                    "  AND coalesce(e.data_desligamento, e.data_demissao) >= current_date - 90 "
+                    "  AND NOT EXISTS (SELECT 1 FROM termination_processes t WHERE t.employee_id = e.id) "
+                    "ORDER BY 3 DESC"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     # o que esta regra NÃO consegue ver: desligado pelo status, sem data nenhuma.
-    sem_data = (await db.execute(text(
-        "SELECT count(*) FROM employees "
-        "WHERE lower(coalesce(status,'')) IN ('demitido','inativo') "
-        "  AND coalesce(data_desligamento, data_demissao) IS NULL"
-    ))).scalar() or 0
-    return [Achado(
-        correlation_id=f"dp_desligamento_sem_processo:{r['id']}",
-        dados={"nome": r["nome"], "dt": str(r["dt"]), "sem_data": int(sem_data)},
-    ) for r in rows]
+    sem_data = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM employees "
+                "WHERE lower(coalesce(status,'')) IN ('demitido','inativo') "
+                "  AND coalesce(data_desligamento, data_demissao) IS NULL"
+            )
+        )
+    ).scalar() or 0
+    return [
+        Achado(
+            correlation_id=f"dp_desligamento_sem_processo:{r['id']}",
+            dados={"nome": r["nome"], "dt": str(r["dt"]), "sem_data": int(sem_data)},
+        )
+        for r in rows
+    ]
 
 
 def _tpl_desligamento_sem_processo(d: dict) -> tuple[str, str]:
@@ -690,18 +954,25 @@ def _tpl_desligamento_sem_processo(d: dict) -> tuple[str, str]:
         f"aviso prévio ser vigiado, o TRCT sair e o S-2299 nascer."
     )
     if d.get("sem_data"):
-        corpo += (f" Além destes, há {d['sem_data']} pessoa(s) com status demitido/inativo e "
-                  f"SEM data de desligamento no cadastro — essas eu não consigo datar, então "
-                  f"não sei se são recentes. Preencher a data é o que as traz para este vigia.")
+        corpo += (
+            f" Além destes, há {d['sem_data']} pessoa(s) com status demitido/inativo e "
+            f"SEM data de desligamento no cadastro — essas eu não consigo datar, então "
+            f"não sei se são recentes. Preencher a data é o que as traz para este vigia."
+        )
     return (f"Desligamento a migrar para o fluxo nativo: {d['nome']}", corpo)
 
 
-register(Regra(
-    nome="dp_desligamento_sem_processo", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_desligamento_sem_processo, template=_tpl_desligamento_sem_processo,
-))
+register(
+    Regra(
+        nome="dp_desligamento_sem_processo",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_desligamento_sem_processo,
+        template=_tpl_desligamento_sem_processo,
+    )
+)
 
 
 # ─────────────────────── dp_termino_experiencia ───────────────────────
@@ -721,30 +992,48 @@ async def _detectar_termino_experiencia(db: AsyncSession) -> list[Achado]:
     ele for NULL, prefiro alertar de mais a deixar a coluna do quadro sem vigia nenhum.
     Perder o marco converte o contrato em indeterminado por decurso de prazo.
     """
-    rows = (await db.execute(text(
-        "SELECT e.id::text AS id, e.nome AS nome, e.data_admissao AS adm, m.marco AS marco, "
-        "       (e.data_admissao + m.marco) AS venc, "
-        "       ((e.data_admissao + m.marco) - current_date) AS dias "
-        "FROM employees e CROSS JOIN (VALUES (30), (90)) AS m(marco) "
-        "WHERE lower(coalesce(e.status,'')) = 'ativo' AND e.data_admissao IS NOT NULL "
-        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
-        "  AND (e.data_admissao + m.marco) BETWEEN current_date AND current_date + 15 "
-        "ORDER BY 5"
-    ))).mappings().all()
-    return [Achado(
-        correlation_id=f"dp_termino_exp:{r['id']}:{r['marco']}",
-        dados={"nome": r["nome"], "adm": str(r["adm"]), "marco": int(r["marco"]),
-               "venc": str(r["venc"]), "dias": int(r["dias"])},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT e.id::text AS id, e.nome AS nome, e.data_admissao AS adm, m.marco AS marco, "
+                    "       (e.data_admissao + m.marco) AS venc, "
+                    "       ((e.data_admissao + m.marco) - current_date) AS dias "
+                    "FROM employees e CROSS JOIN (VALUES (30), (90)) AS m(marco) "
+                    "WHERE lower(coalesce(e.status,'')) = 'ativo' AND e.data_admissao IS NOT NULL "
+                    "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+                    "  AND (e.data_admissao + m.marco) BETWEEN current_date AND current_date + 15 "
+                    "ORDER BY 5"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"dp_termino_exp:{r['id']}:{r['marco']}",
+            dados={
+                "nome": r["nome"],
+                "adm": str(r["adm"]),
+                "marco": int(r["marco"]),
+                "venc": str(r["venc"]),
+                "dias": int(r["dias"]),
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_termino_experiencia(d: dict) -> tuple[str, str]:
     etapa = "1º período (30 dias)" if d["marco"] == 30 else "2º período (90 dias — final)"
-    fim = ("Decida a PRORROGAÇÃO para os 60 dias seguintes."
-           if d["marco"] == 30 else
-           "Decida entre EFETIVAR ou RESCINDIR. Passar da data converte o contrato em "
-           "prazo indeterminado por decurso, e aí a saída vira rescisão comum (com aviso "
-           "prévio e multa de FGTS).")
+    fim = (
+        "Decida a PRORROGAÇÃO para os 60 dias seguintes."
+        if d["marco"] == 30
+        else "Decida entre EFETIVAR ou RESCINDIR. Passar da data converte o contrato em "
+        "prazo indeterminado por decurso, e aí a saída vira rescisão comum (com aviso "
+        "prévio e multa de FGTS)."
+    )
     return (
         f"Experiência vence em {d['dias']} dia(s): {d['nome']}",
         f"{d['nome']} (admitido em {d['adm']}) fecha o {etapa} em {d['venc']}. {fim} "
@@ -753,12 +1042,17 @@ def _tpl_termino_experiencia(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="dp_termino_experiencia", familia="dp", severidade="critico",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_termino_experiencia, template=_tpl_termino_experiencia,
-))
+register(
+    Regra(
+        nome="dp_termino_experiencia",
+        familia="dp",
+        severidade="critico",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_termino_experiencia,
+        template=_tpl_termino_experiencia,
+    )
+)
 
 
 # ─────────────────────── dp_admissao_em_curso ───────────────────────
@@ -774,28 +1068,47 @@ async def _detectar_admissao_em_curso(db: AsyncSession) -> list[Achado]:
     Portte/eSocial, gente entra na folha sem passar por aqui, e cobrar isso como pendência
     seria ruído de migração, não risco.
     """
-    rows = (await db.execute(text(
-        "SELECT a.id::text AS id, coalesce(a.candidate_name, '—') AS nome, "
-        "       a.expected_start_date AS inicio, a.status::text AS st, "
-        "       (a.expected_start_date - current_date) AS dias, "
-        "       a.medical_exam_date AS aso "
-        "FROM admission_processes a "
-        "WHERE a.expected_start_date IS NOT NULL "
-        "  AND lower(coalesce(a.status::text,'')) NOT IN "
-        "      ('completed','concluido','concluído','cancelled','cancelado') "
-        "  AND a.expected_start_date <= current_date + 10 "
-        "ORDER BY a.expected_start_date"
-    ))).mappings().all()
-    return [Achado(
-        correlation_id=f"dp_admissao_curso:{r['id']}",
-        dados={"nome": r["nome"], "inicio": str(r["inicio"]), "dias": int(r["dias"]),
-               "status": (r["st"] or "").replace("_", " "), "tem_aso": r["aso"] is not None},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT a.id::text AS id, coalesce(a.candidate_name, '—') AS nome, "
+                    "       a.expected_start_date AS inicio, a.status::text AS st, "
+                    "       (a.expected_start_date - current_date) AS dias, "
+                    "       a.medical_exam_date AS aso "
+                    "FROM admission_processes a "
+                    "WHERE a.expected_start_date IS NOT NULL "
+                    "  AND lower(coalesce(a.status::text,'')) NOT IN "
+                    "      ('completed','concluido','concluído','cancelled','cancelado') "
+                    "  AND a.expected_start_date <= current_date + 10 "
+                    "ORDER BY a.expected_start_date"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"dp_admissao_curso:{r['id']}",
+            dados={
+                "nome": r["nome"],
+                "inicio": str(r["inicio"]),
+                "dias": int(r["dias"]),
+                "status": (r["st"] or "").replace("_", " "),
+                "tem_aso": r["aso"] is not None,
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_admissao_em_curso(d: dict) -> tuple[str, str]:
-    quando = (f"começa em {d['dias']} dia(s)" if d["dias"] > 0
-              else ("começa hoje" if d["dias"] == 0 else f"deveria ter começado há {abs(d['dias'])} dia(s)"))
+    quando = (
+        f"começa em {d['dias']} dia(s)"
+        if d["dias"] > 0
+        else ("começa hoje" if d["dias"] == 0 else f"deveria ter começado há {abs(d['dias'])} dia(s)")
+    )
     aso = "" if d["tem_aso"] else " O ASO admissional ainda não tem data — sem ele a pessoa não pode iniciar."
     return (
         f"Admissão {quando}: {d['nome']}",
@@ -804,88 +1117,130 @@ def _tpl_admissao_em_curso(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="dp_admissao_em_curso", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_admissao_em_curso, template=_tpl_admissao_em_curso,
-))
+register(
+    Regra(
+        nome="dp_admissao_em_curso",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_admissao_em_curso,
+        template=_tpl_admissao_em_curso,
+    )
+)
 
 
 # ─────────────────────── dp_aso_vencendo ───────────────────────
 async def _detectar_aso_vencendo(db: AsyncSession) -> list[Achado]:
     """ASO vencendo em ≤30 dias ou vencido. Sem ASO válido o colaborador não pode trabalhar
     (NR-7) e a empresa responde em fiscalização."""
-    rows = (await db.execute(text(
-        # a coluna é `data_validade` (não data_vencimento) e o nome vem só do join
-        "SELECT a.id::text AS id, coalesce(e.nome, '—') AS nome, "
-        "       a.data_validade AS venc, (a.data_validade - current_date) AS dias, "
-        "       coalesce(a.tipo::text, '') AS tipo "
-        "FROM gp_asos a JOIN employees e ON CAST(e.id AS TEXT) = CAST(a.employee_id AS TEXT) "
-        "WHERE a.data_validade IS NOT NULL "
-        "  AND a.data_validade <= current_date + 30 "
-        "  AND lower(coalesce(e.status,'')) = 'ativo' "
-        # só o ASO MAIS RECENTE de cada pessoa: um antigo vencido não é pendência se já
-        # existe um novo válido — alertar sobre ele seria falso positivo
-        "  AND a.data_validade = (SELECT max(a2.data_validade) FROM gp_asos a2 "
-        "                         WHERE CAST(a2.employee_id AS TEXT) = CAST(a.employee_id AS TEXT)) "
-        "ORDER BY a.data_validade"
-    ))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    # a coluna é `data_validade` (não data_vencimento) e o nome vem só do join
+                    "SELECT a.id::text AS id, coalesce(e.nome, '—') AS nome, "
+                    "       a.data_validade AS venc, (a.data_validade - current_date) AS dias, "
+                    "       coalesce(a.tipo::text, '') AS tipo "
+                    "FROM gp_asos a JOIN employees e ON CAST(e.id AS TEXT) = CAST(a.employee_id AS TEXT) "
+                    "WHERE a.data_validade IS NOT NULL "
+                    "  AND a.data_validade <= current_date + 30 "
+                    "  AND lower(coalesce(e.status,'')) = 'ativo' "
+                    # só o ASO MAIS RECENTE de cada pessoa: um antigo vencido não é pendência se já
+                    # existe um novo válido — alertar sobre ele seria falso positivo
+                    "  AND a.data_validade = (SELECT max(a2.data_validade) FROM gp_asos a2 "
+                    "                         WHERE CAST(a2.employee_id AS TEXT) = CAST(a.employee_id AS TEXT)) "
+                    "ORDER BY a.data_validade"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     # AGREGA quando são muitos: 25 alertas individuais soterrariam a mesa e a Pyetra
     # pararia de olhar — o alerta que enterra os outros é tão ruim quanto o que não existe.
     # Até 5, alerta nominal (dá para agir um a um). Acima disso, 1 cartão com a contagem.
     # Quem NUNCA fez ASO não aparece em gp_asos — e é o risco maior (NR-7). Medido em
     # 07/09/2026: 21 ativos CLT sem exame nenhum registrado, invisíveis para a regra.
     # Entra no corpo do cartão como denominador honesto; PJ fica fora (sem obrigação).
-    sem_aso = int((await db.execute(text(
-        "SELECT count(*) FROM employees e "
-        "WHERE lower(coalesce(e.status,'')) = 'ativo' "
-        "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
-        "  AND NOT EXISTS (SELECT 1 FROM gp_asos a "
-        "                  WHERE CAST(a.employee_id AS TEXT) = CAST(e.id AS TEXT))"
-    ))).scalar() or 0)
+    sem_aso = int(
+        (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM employees e "
+                    "WHERE lower(coalesce(e.status,'')) = 'ativo' "
+                    "  AND lower(coalesce(e.tipo_contrato,'')) <> 'pj' "
+                    "  AND NOT EXISTS (SELECT 1 FROM gp_asos a "
+                    "                  WHERE CAST(a.employee_id AS TEXT) = CAST(e.id AS TEXT))"
+                )
+            )
+        ).scalar()
+        or 0
+    )
     if len(rows) > 5 or sem_aso > 5:
         vencidos = [r for r in rows if int(r["dias"]) < 0]
-        return [Achado(
-            correlation_id=f"dp_aso_lote:{len(rows)}:{len(vencidos)}",
-            dados={"lote": True, "total": len(rows), "vencidos": len(vencidos), "sem_aso": sem_aso,
-                   "nomes": ", ".join(r["nome"] for r in rows[:6])
-                            + (f" e mais {len(rows) - 6}" if len(rows) > 6 else "")},
-        )]
-    return [Achado(
-        correlation_id=f"dp_aso_vencendo:{r['id']}",
-        dados={"nome": r["nome"], "venc": str(r["venc"]), "dias": int(r["dias"]),
-               "tipo": r["tipo"], "lote": False},
-    ) for r in rows]
+        return [
+            Achado(
+                correlation_id=f"dp_aso_lote:{len(rows)}:{len(vencidos)}",
+                dados={
+                    "lote": True,
+                    "total": len(rows),
+                    "vencidos": len(vencidos),
+                    "sem_aso": sem_aso,
+                    "nomes": ", ".join(r["nome"] for r in rows[:6])
+                    + (f" e mais {len(rows) - 6}" if len(rows) > 6 else ""),
+                },
+            )
+        ]
+    return [
+        Achado(
+            correlation_id=f"dp_aso_vencendo:{r['id']}",
+            dados={"nome": r["nome"], "venc": str(r["venc"]), "dias": int(r["dias"]), "tipo": r["tipo"], "lote": False},
+        )
+        for r in rows
+    ]
 
 
 def _tpl_aso(d: dict) -> tuple[str, str]:
     if d.get("lote"):
-        return (f"ASO: {d['vencidos']} vencido(s) de {d['total']} a renovar",
-                f"{d['vencidos']} colaborador(es) estão com ASO VENCIDO e {d['total']} no total "
-                f"precisam de renovação em até 30 dias. Sem ASO válido a pessoa não pode "
-                f"trabalhar (NR-7) e a empresa responde em fiscalização. "
-                f"São: {d['nomes']}. "
-                + (f"Além destes, {d['sem_aso']} ativo(s) CLT não têm NENHUM ASO registrado no "
-                   f"sistema — ou o exame ficou fora do sistema, ou nunca foi feito. "
-                   if d.get("sem_aso") else "")
-                + "Agende o lote na tela de SST.")
+        return (
+            f"ASO: {d['vencidos']} vencido(s) de {d['total']} a renovar",
+            f"{d['vencidos']} colaborador(es) estão com ASO VENCIDO e {d['total']} no total "
+            f"precisam de renovação em até 30 dias. Sem ASO válido a pessoa não pode "
+            f"trabalhar (NR-7) e a empresa responde em fiscalização. "
+            f"São: {d['nomes']}. "
+            + (
+                f"Além destes, {d['sem_aso']} ativo(s) CLT não têm NENHUM ASO registrado no "
+                f"sistema — ou o exame ficou fora do sistema, ou nunca foi feito. "
+                if d.get("sem_aso")
+                else ""
+            )
+            + "Agende o lote na tela de SST.",
+        )
     if d["dias"] < 0:
-        return (f"🔴 ASO VENCIDO: {d['nome']}",
-                f"O ASO de {d['nome']} venceu em {d['venc']} — há {abs(d['dias'])} dia(s). "
-                f"Sem ASO válido a pessoa não pode trabalhar (NR-7) e a empresa responde em "
-                f"fiscalização. Agende a renovação.")
-    return (f"ASO vence em {d['dias']} dia(s): {d['nome']}",
-            f"O ASO de {d['nome']} vence em {d['venc']}. Agende a renovação antes para não "
-            f"parar o colaborador.")
+        return (
+            f"🔴 ASO VENCIDO: {d['nome']}",
+            f"O ASO de {d['nome']} venceu em {d['venc']} — há {abs(d['dias'])} dia(s). "
+            f"Sem ASO válido a pessoa não pode trabalhar (NR-7) e a empresa responde em "
+            f"fiscalização. Agende a renovação.",
+        )
+    return (
+        f"ASO vence em {d['dias']} dia(s): {d['nome']}",
+        f"O ASO de {d['nome']} vence em {d['venc']}. Agende a renovação antes para não parar o colaborador.",
+    )
 
 
-register(Regra(
-    nome="dp_aso_vencendo", familia="dp", severidade="critico",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_aso_vencendo, template=_tpl_aso,
-))
+register(
+    Regra(
+        nome="dp_aso_vencendo",
+        familia="dp",
+        severidade="critico",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_aso_vencendo,
+        template=_tpl_aso,
+    )
+)
 
 
 # ─────────────────────── dp_folha_devida ───────────────────────
@@ -899,34 +1254,48 @@ async def _detectar_folha_devida(db: AsyncSession) -> list[Achado]:
 
     hoje = date.today()
     ano, mes = (hoje.year, hoje.month - 1) if hoje.month > 1 else (hoje.year - 1, 12)
-    n = (await db.execute(text(
-        "SELECT count(*) FROM hr_payslips WHERE reference_year=:a AND reference_month=:m "
-        "AND source_system='conecta'"), {"a": ano, "m": mes})).scalar() or 0
+    n = (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM hr_payslips WHERE reference_year=:a AND reference_month=:m "
+                "AND source_system='conecta'"
+            ),
+            {"a": ano, "m": mes},
+        )
+    ).scalar() or 0
     if n:
         return []
-    ativos = (await db.execute(text(
-        "SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
+    ativos = (await db.execute(text("SELECT count(*) FROM employees WHERE status='ativo'"))).scalar() or 0
     if not ativos:  # base vazia → silêncio honesto
         return []
-    return [Achado(
-        correlation_id=f"dp_folha_devida:{ano}-{mes:02d}",
-        dados={"comp": f"{mes:02d}/{ano}", "ativos": int(ativos)},
-    )]
+    return [
+        Achado(
+            correlation_id=f"dp_folha_devida:{ano}-{mes:02d}",
+            dados={"comp": f"{mes:02d}/{ano}", "ativos": int(ativos)},
+        )
+    ]
 
 
 def _tpl_folha_devida(d: dict) -> tuple[str, str]:
-    return (f"Folha de {d['comp']} ainda não calculada",
-            f"A competência {d['comp']} fechou e não há folha calculada aqui "
-            f"({d['ativos']} colaborador(es) ativos). Gere pela tela de folha — é ela que "
-            f"alimenta holerite, eSocial e o pagamento.")
+    return (
+        f"Folha de {d['comp']} ainda não calculada",
+        f"A competência {d['comp']} fechou e não há folha calculada aqui "
+        f"({d['ativos']} colaborador(es) ativos). Gere pela tela de folha — é ela que "
+        f"alimenta holerite, eSocial e o pagamento.",
+    )
 
 
-register(Regra(
-    nome="dp_folha_devida", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_folha_devida, template=_tpl_folha_devida,
-))
+register(
+    Regra(
+        nome="dp_folha_devida",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_folha_devida,
+        template=_tpl_folha_devida,
+    )
+)
 
 
 # ─────────────────────── dp_ponto_a_fechar ───────────────────────
@@ -940,35 +1309,49 @@ async def _detectar_ponto_a_fechar(db: AsyncSession) -> list[Achado]:
 
     hoje = date.today()
     ano, mes = (hoje.year, hoje.month - 1) if hoje.month > 1 else (hoje.year - 1, 12)
-    n = (await db.execute(text(
-        "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p "
-        "JOIN employees e ON CAST(e.id AS TEXT) = CAST(p.employee_id AS TEXT) "
-        "WHERE EXTRACT(MONTH FROM p.punch_timestamp)=:m AND EXTRACT(YEAR FROM p.punch_timestamp)=:a "
-        "  AND lower(coalesce(e.status,'')) = 'ativo' "
-        "  AND NOT EXISTS (SELECT 1 FROM gp_monthly_closings c "
-        "                  WHERE CAST(c.employee_id AS TEXT) = CAST(p.employee_id AS TEXT) "
-        "                    AND c.month=:m AND c.year=:a AND coalesce(c.fechado,false))"),
-        {"a": ano, "m": mes})).scalar() or 0
+    n = (
+        await db.execute(
+            text(
+                "SELECT count(DISTINCT p.employee_id) FROM gp_clock_punches p "
+                "JOIN employees e ON CAST(e.id AS TEXT) = CAST(p.employee_id AS TEXT) "
+                "WHERE EXTRACT(MONTH FROM p.punch_timestamp)=:m AND EXTRACT(YEAR FROM p.punch_timestamp)=:a "
+                "  AND lower(coalesce(e.status,'')) = 'ativo' "
+                "  AND NOT EXISTS (SELECT 1 FROM gp_monthly_closings c "
+                "                  WHERE CAST(c.employee_id AS TEXT) = CAST(p.employee_id AS TEXT) "
+                "                    AND c.month=:m AND c.year=:a AND coalesce(c.fechado,false))"
+            ),
+            {"a": ano, "m": mes},
+        )
+    ).scalar() or 0
     if not n:
         return []
-    return [Achado(
-        correlation_id=f"dp_ponto_a_fechar:{ano}-{mes:02d}",
-        dados={"comp": f"{mes:02d}/{ano}", "n": int(n)},
-    )]
+    return [
+        Achado(
+            correlation_id=f"dp_ponto_a_fechar:{ano}-{mes:02d}",
+            dados={"comp": f"{mes:02d}/{ano}", "n": int(n)},
+        )
+    ]
 
 
 def _tpl_ponto_a_fechar(d: dict) -> tuple[str, str]:
-    return (f"Ponto de {d['comp']}: {d['n']} sem fechamento",
-            f"{d['n']} colaborador(es) bateram ponto em {d['comp']} e o mês não foi fechado. "
-            f"O fechamento consolida horas, extras e faltas — é o que a folha consome.")
+    return (
+        f"Ponto de {d['comp']}: {d['n']} sem fechamento",
+        f"{d['n']} colaborador(es) bateram ponto em {d['comp']} e o mês não foi fechado. "
+        f"O fechamento consolida horas, extras e faltas — é o que a folha consome.",
+    )
 
 
-register(Regra(
-    nome="dp_ponto_a_fechar", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_ponto_a_fechar, template=_tpl_ponto_a_fechar,
-))
+register(
+    Regra(
+        nome="dp_ponto_a_fechar",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_ponto_a_fechar,
+        template=_tpl_ponto_a_fechar,
+    )
+)
 
 
 # ─────────────────────── dp_ferias_sem_decisao ───────────────────────
@@ -990,48 +1373,73 @@ async def _detectar_ferias_sem_decisao(db: AsyncSession) -> list[Achado]:
     Não julga QUAL decisão é a certa — aprovar retroativo, rejeitar ou cancelar é do RH.
     Só garante que a ausência de decisão pare de ser silenciosa.
     """
-    rows = (await db.execute(text(
-        "SELECT v.id::text AS id, e.nome AS nome, v.start_date AS ini, v.end_date AS fim, "
-        "       (current_date - v.end_date) AS dias_vencido, "
-        "       EXISTS (SELECT 1 FROM folha_verba_espelho f "
-        "               WHERE f.employee_id = v.employee_id "
-        "                 AND f.codigo IN ('0060','1061')) AS tem_verba "
-        "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
-        "WHERE upper(coalesce(v.status,'')) = 'SUBMITTED' "
-        # Quem já saiu não tem férias a decidir: MARTA (demitida 09/06) e RAIMUNDO (inativo
-        # 05/05) ficaram 130 dias em "férias sem decisão" (07/09/2026). Só ativos.
-        "  AND lower(coalesce(e.status,'')) = 'ativo' "
-        "  AND v.end_date < current_date "
-        "ORDER BY v.end_date"
-    ))).mappings().all()
-    return [Achado(
-        correlation_id=f"dp_ferias_sem_decisao:{r['id']}",
-        dados={"nome": r["nome"], "ini": str(r["ini"]), "fim": str(r["fim"]),
-               "dias": int(r["dias_vencido"]), "tem_verba": bool(r["tem_verba"]),
-               "total": len(rows)},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT v.id::text AS id, e.nome AS nome, v.start_date AS ini, v.end_date AS fim, "
+                    "       (current_date - v.end_date) AS dias_vencido, "
+                    "       EXISTS (SELECT 1 FROM folha_verba_espelho f "
+                    "               WHERE f.employee_id = v.employee_id "
+                    "                 AND f.codigo IN ('0060','1061')) AS tem_verba "
+                    "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
+                    "WHERE upper(coalesce(v.status,'')) = 'SUBMITTED' "
+                    # Quem já saiu não tem férias a decidir: MARTA (demitida 09/06) e RAIMUNDO (inativo
+                    # 05/05) ficaram 130 dias em "férias sem decisão" (07/09/2026). Só ativos.
+                    "  AND lower(coalesce(e.status,'')) = 'ativo' "
+                    "  AND v.end_date < current_date "
+                    "ORDER BY v.end_date"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"dp_ferias_sem_decisao:{r['id']}",
+            dados={
+                "nome": r["nome"],
+                "ini": str(r["ini"]),
+                "fim": str(r["fim"]),
+                "dias": int(r["dias_vencido"]),
+                "tem_verba": bool(r["tem_verba"]),
+                "total": len(rows),
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_ferias_sem_decisao(d: dict) -> tuple[str, str]:
-    corpo = (f"O pedido de férias de {d['nome']} ({d['ini']} a {d['fim']}) continua "
-             f"'aguardando aprovação' e o período terminou há {d['dias']} dia(s). "
-             f"Aprovar retroativo, rejeitar ou cancelar — qualquer uma resolve; deixar "
-             f"pendente é a única que não.")
+    corpo = (
+        f"O pedido de férias de {d['nome']} ({d['ini']} a {d['fim']}) continua "
+        f"'aguardando aprovação' e o período terminou há {d['dias']} dia(s). "
+        f"Aprovar retroativo, rejeitar ou cancelar — qualquer uma resolve; deixar "
+        f"pendente é a única que não."
+    )
     if d["tem_verba"]:
-        corpo += (" ⚠️ A folha desta pessoa TEM verba de férias (0060/1061): ela gozou de "
-                  "fato, e o registro que sustenta esse pagamento é justamente este pedido "
-                  "que nunca foi aprovado.")
+        corpo += (
+            " ⚠️ A folha desta pessoa TEM verba de férias (0060/1061): ela gozou de "
+            "fato, e o registro que sustenta esse pagamento é justamente este pedido "
+            "que nunca foi aprovado."
+        )
     if d.get("total", 0) > 1:
         corpo += f" Há {d['total']} pedido(s) nesta situação."
     return (f"Férias sem decisão há {d['dias']} dia(s): {d['nome']}", corpo)
 
 
-register(Regra(
-    nome="dp_ferias_sem_decisao", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/departamento-pessoal?t=g-ferias",
-    detectar=_detectar_ferias_sem_decisao, template=_tpl_ferias_sem_decisao,
-))
+register(
+    Regra(
+        nome="dp_ferias_sem_decisao",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/departamento-pessoal?t=g-ferias",
+        detectar=_detectar_ferias_sem_decisao,
+        template=_tpl_ferias_sem_decisao,
+    )
+)
 
 
 # ─────────────────────── dp_retorno_ferias ───────────────────────
@@ -1041,19 +1449,30 @@ async def _detectar_retorno_ferias(db: AsyncSession) -> list[Achado]:
     Só solicitações APROVADAS: em julho havia 5 SUBMITTED de 30 dias de gente que trabalhou
     o mês inteiro (uma delas bateu ponto 116 vezes). Pedido não aprovado não é férias.
     """
-    rows = (await db.execute(text(
-        "SELECT v.id::text AS id, e.nome AS nome, v.end_date AS fim, "
-        "       (v.end_date - current_date) AS dias "
-        "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
-        "WHERE upper(coalesce(v.status,'')) = 'APPROVED' "
-        "  AND lower(coalesce(e.status,'')) = 'ativo' "
-        "  AND v.end_date BETWEEN current_date - 1 AND current_date + 3 "
-        "ORDER BY v.end_date"
-    ))).mappings().all()
-    return [Achado(
-        correlation_id=f"dp_retorno_ferias:{r['id']}",
-        dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"])},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT v.id::text AS id, e.nome AS nome, v.end_date AS fim, "
+                    "       (v.end_date - current_date) AS dias "
+                    "FROM hr_vacation_requests v JOIN employees e ON e.id = v.employee_id "
+                    "WHERE upper(coalesce(v.status,'')) = 'APPROVED' "
+                    "  AND lower(coalesce(e.status,'')) = 'ativo' "
+                    "  AND v.end_date BETWEEN current_date - 1 AND current_date + 3 "
+                    "ORDER BY v.end_date"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"dp_retorno_ferias:{r['id']}",
+            dados={"nome": r["nome"], "fim": str(r["fim"]), "dias": int(r["dias"])},
+        )
+        for r in rows
+    ]
 
 
 def _tpl_retorno_ferias(d: dict) -> tuple[str, str]:
@@ -1064,12 +1483,17 @@ def _tpl_retorno_ferias(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="dp_retorno_ferias", familia="dp", severidade="atencao",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/aprovacoes",
-    detectar=_detectar_retorno_ferias, template=_tpl_retorno_ferias,
-))
+register(
+    Regra(
+        nome="dp_retorno_ferias",
+        familia="dp",
+        severidade="atencao",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/aprovacoes",
+        detectar=_detectar_retorno_ferias,
+        template=_tpl_retorno_ferias,
+    )
+)
 
 
 if __name__ == "__main__":
@@ -1085,9 +1509,11 @@ if __name__ == "__main__":
         Session = async_sessionmaker(eng, expire_on_commit=False)
         async with Session() as db:
             # ---- posto_descoberto: Achados == oráculo vivo ----
-            oráculo_postos = (await db.execute(text(
-                "SELECT count(*) FROM posts WHERE is_active "
-                "AND current_headcount < required_headcount"))).scalar()
+            oráculo_postos = (
+                await db.execute(
+                    text("SELECT count(*) FROM posts WHERE is_active AND current_headcount < required_headcount")
+                )
+            ).scalar()
             achados_postos = await REGISTRY["posto_descoberto"].detectar(db)
             assert len(achados_postos) == oráculo_postos, (len(achados_postos), oráculo_postos)
             if achados_postos:
@@ -1097,9 +1523,9 @@ if __name__ == "__main__":
                 assert str(a.dados["faltam"]) in b  # groundedness do template
 
             # ---- certidao_vencendo: Achados == oráculo (<=30d OU vencida), dia de Manaus ----
-            oráculo_cert = (await db.execute(text(
-                f"SELECT count(*) FROM ged_certidoes WHERE {CERTIDAO_JANELA}"
-            ))).scalar()
+            oráculo_cert = (
+                await db.execute(text(f"SELECT count(*) FROM ged_certidoes WHERE {CERTIDAO_JANELA}"))
+            ).scalar()
             achados_cert = await REGISTRY["certidao_vencendo"].detectar(db)
             assert len(achados_cert) == oráculo_cert, (len(achados_cert), oráculo_cert)
             for a in achados_cert:
@@ -1114,10 +1540,15 @@ if __name__ == "__main__":
                 assert a.correlation_id.startswith("caixa_baixo:")
 
             # ---- aging_reforcado: Achado agregado == existe vencido? (mesma fonte do reconciliador) ----
-            venc = (await db.execute(text(
-                "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
-                "WHERE due_date < current_date "
-                f"AND {SQL_CONTA_EM_ABERTO}"))).fetchone()
+            venc = (
+                await db.execute(
+                    text(
+                        "SELECT count(*), coalesce(sum(net_value),0) FROM receivable_accounts "
+                        "WHERE due_date < current_date "
+                        f"AND {SQL_CONTA_EM_ABERTO}"
+                    )
+                )
+            ).fetchone()
             achados_aging = await REGISTRY["aging_reforcado"].detectar(db)
             assert len(achados_aging) == (1 if int(venc[0]) > 0 else 0)
             if achados_aging:
@@ -1126,13 +1557,20 @@ if __name__ == "__main__":
                 # fix pós-review (4): severidade dinâmica espelha notifications/tasks.py:61
                 esperado_sev = "critico" if achados_aging[0].dados["total"] >= 50000 else "atencao"
                 assert achados_aging[0].dados["severidade"] == esperado_sev, (
-                    achados_aging[0].dados["severidade"], achados_aging[0].dados["total"])
+                    achados_aging[0].dados["severidade"],
+                    achados_aging[0].dados["total"],
+                )
 
             # ---- justificativa_parada: == pending/pendente há >48h (fix pós-review 3) ----
-            j = (await db.execute(text(
-                "SELECT count(*) FROM gp_justifications "
-                "WHERE lower(coalesce(status,'')) IN ('pending','pendente') "
-                "AND created_at < now() - interval '48 hours'"))).scalar()
+            j = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM gp_justifications "
+                        "WHERE lower(coalesce(status,'')) IN ('pending','pendente') "
+                        "AND created_at < now() - interval '48 hours'"
+                    )
+                )
+            ).scalar()
             achados_just = await REGISTRY["justificativa_parada"].detectar(db)
             assert len(achados_just) == int(j)
             src_just = inspect.getsource(_detectar_justificativa)
@@ -1141,10 +1579,18 @@ if __name__ == "__main__":
             # ---- mudas honestas: hoje 0, mas registradas (acordam sozinhas) ----
             assert "juridico_prazo" in REGISTRY and "recrutamento_parado" in REGISTRY
             achados_jur = await REGISTRY["juridico_prazo"].detectar(db)
-            assert len(achados_jur) == (await db.execute(text(
-                "SELECT count(*) FROM juridico_prazos "
-                "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
-                "AND lower(coalesce(status,'')) NOT IN ('cumprido')"))).scalar()
+            assert (
+                len(achados_jur)
+                == (
+                    await db.execute(
+                        text(
+                            "SELECT count(*) FROM juridico_prazos "
+                            "WHERE data_limite <= (now() AT TIME ZONE 'America/Manaus')::date + 7 "
+                            "AND lower(coalesce(status,'')) NOT IN ('cumprido')"
+                        )
+                    )
+                ).scalar()
+            )
             for a in achados_jur:
                 esperado = "critico" if a.dados["dias"] < 0 else "atencao"
                 assert a.dados["severidade"] == esperado, (a.dados["severidade"], esperado)
@@ -1157,23 +1603,40 @@ if __name__ == "__main__":
             assert "concluido" not in src_jur and "cancelado" not in src_jur
 
             achados_rec = await REGISTRY["recrutamento_parado"].detectar(db)
-            assert len(achados_rec) == (await db.execute(text(
-                "SELECT count(*) FROM candidates "
-                "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
-                "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
-                "AND updated_at < now() - interval '7 days'"))).scalar()
+            assert (
+                len(achados_rec)
+                == (
+                    await db.execute(
+                        text(
+                            "SELECT count(*) FROM candidates "
+                            "WHERE coalesce(is_active,true) AND coalesce(is_deleted,false)=false "
+                            "AND lower(coalesce(status,'')) IN ('em_analise','em_análise','triagem','entrevista') "
+                            "AND updated_at < now() - interval '7 days'"
+                        )
+                    )
+                ).scalar()
+            )
 
             # ---- fail-closed: regra sem roles não entra ----
             n0 = len(REGISTRY)
-            register(Regra(nome="__x__", familia="x", severidade="info",
-                           roles_destino=(), action_url="/",
-                           detectar=achados_postos.__class__,  # dummy, não usado
-                           template=lambda d: ("", "")))
+            register(
+                Regra(
+                    nome="__x__",
+                    familia="x",
+                    severidade="info",
+                    roles_destino=(),
+                    action_url="/",
+                    detectar=achados_postos.__class__,  # dummy, não usado
+                    template=lambda d: ("", ""),
+                )
+            )
             assert "__x__" not in REGISTRY and len(REGISTRY) == n0
 
-            print(f"OK regras — postos={len(achados_postos)} cert={len(achados_cert)} "
-                  f"caixa={len(achados_caixa)} aging={len(achados_aging)} "
-                  f"just={len(achados_just)} jur={len(achados_jur)} rec={len(achados_rec)}")
+            print(
+                f"OK regras — postos={len(achados_postos)} cert={len(achados_cert)} "
+                f"caixa={len(achados_caixa)} aging={len(achados_aging)} "
+                f"just={len(achados_just)} jur={len(achados_jur)} rec={len(achados_rec)}"
+            )
         await eng.dispose()
 
     asyncio.run(main())
@@ -1195,35 +1658,49 @@ async def _detectar_ponto_de_afastado(db: AsyncSession) -> list[Achado]:
 
     Não apaga nada: a batida é registro e, se for crachá de terceiro, é a evidência.
     """
-    rows = (await db.execute(text(
-        "SELECT CAST(e.id AS TEXT) AS id, coalesce(e.nome,'—') AS nome, "
-        "       coalesce(e.status,'') AS status, count(*) AS n, "
-        "       max(k.punch_timestamp)::date AS ultima "
-        "FROM gp_clock_punches k JOIN employees e ON e.id = k.employee_id "
-        "WHERE lower(coalesce(e.status,'')) IN "
-        "        ('afastado_inss','afastado','suspenso','licenca','afastado_acidente') "
-        "  AND k.punch_timestamp >= current_date - 30 "
-        "  AND coalesce(e.is_homologacao,false) = false "
-        "GROUP BY 1,2,3"
-    ))).mappings().all()
-    return [Achado(correlation_id=f"dp_ponto_de_afastado:{r['id']}:{r['ultima']}",
-                   dados=dict(r)) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT CAST(e.id AS TEXT) AS id, coalesce(e.nome,'—') AS nome, "
+                    "       coalesce(e.status,'') AS status, count(*) AS n, "
+                    "       max(k.punch_timestamp)::date AS ultima "
+                    "FROM gp_clock_punches k JOIN employees e ON e.id = k.employee_id "
+                    "WHERE lower(coalesce(e.status,'')) IN "
+                    "        ('afastado_inss','afastado','suspenso','licenca','afastado_acidente') "
+                    "  AND k.punch_timestamp >= current_date - 30 "
+                    "  AND coalesce(e.is_homologacao,false) = false "
+                    "GROUP BY 1,2,3"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [Achado(correlation_id=f"dp_ponto_de_afastado:{r['id']}:{r['ultima']}", dados=dict(r)) for r in rows]
 
 
 def _tpl_ponto_afastado(d: dict) -> tuple[str, str]:
-    return (f"Ponto batido por quem está afastado: {d['nome']}",
-            f"{d['nome']} está com status '{d['status']}' e registrou {d['n']} batida(s) nos "
-            f"últimos 30 dias, a última em {d['ultima']}. Ou voltou e o afastamento não foi "
-            f"encerrado, ou outra pessoa está batendo com o crachá dele. Confira com o posto "
-            f"antes do fechamento — não apague a batida.")
+    return (
+        f"Ponto batido por quem está afastado: {d['nome']}",
+        f"{d['nome']} está com status '{d['status']}' e registrou {d['n']} batida(s) nos "
+        f"últimos 30 dias, a última em {d['ultima']}. Ou voltou e o afastamento não foi "
+        f"encerrado, ou outra pessoa está batendo com o crachá dele. Confira com o posto "
+        f"antes do fechamento — não apague a batida.",
+    )
 
 
-register(Regra(
-    nome="dp_ponto_de_afastado", familia="dp", severidade="critico",
-    roles_destino=("admin", "rh", "dp"),
-    action_url="/redesign/departamento-pessoal?t=g-ponto&tab=ponto",
-    detectar=_detectar_ponto_de_afastado, template=_tpl_ponto_afastado,
-))
+register(
+    Regra(
+        nome="dp_ponto_de_afastado",
+        familia="dp",
+        severidade="critico",
+        roles_destino=("admin", "rh", "dp"),
+        action_url="/redesign/departamento-pessoal?t=g-ponto&tab=ponto",
+        detectar=_detectar_ponto_de_afastado,
+        template=_tpl_ponto_afastado,
+    )
+)
 
 
 # ─────────────────────────── razao_parado ───────────────────────────
@@ -1255,10 +1732,9 @@ SQL_RAZAO_PARADO = """
 
 
 async def _detectar_razao_parado(db: AsyncSession) -> list[Achado]:
-    from modules.financial.services.periodo_contabil import CORTE_CONTABIL  # noqa: PLC0415
+    from modules.financial.services.periodo_contabil import corte_mais_antigo  # noqa: PLC0415
 
-    rows = (await db.execute(text(SQL_RAZAO_PARADO),
-                             {"corte": str(CORTE_CONTABIL)[:7]})).mappings().all()
+    rows = (await db.execute(text(SQL_RAZAO_PARADO), {"corte": str(corte_mais_antigo())[:7]})).mappings().all()
     return [
         Achado(
             correlation_id=f"razao_parado:{r['competencia']}",
@@ -1278,12 +1754,17 @@ def _tpl_razao_parado(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="razao_parado", familia="financeiro", severidade="critico",
-    roles_destino=("admin",),
-    action_url="/redesign/financeiro?t=g-contabil",
-    detectar=_detectar_razao_parado, template=_tpl_razao_parado,
-))
+register(
+    Regra(
+        nome="razao_parado",
+        familia="financeiro",
+        severidade="critico",
+        roles_destino=("admin",),
+        action_url="/redesign/financeiro?t=g-contabil",
+        detectar=_detectar_razao_parado,
+        template=_tpl_razao_parado,
+    )
+)
 
 
 # ─────────────────────────── extrato_duplicado ───────────────────────────
@@ -1334,11 +1815,17 @@ async def _detectar_extrato_duplicado(db: AsyncSession) -> list[Achado]:
     if excedentes <= BASE_DUPLICATAS_EXCEDENTES:
         return []
     novas = excedentes - BASE_DUPLICATAS_EXCEDENTES
-    return [Achado(
-        correlation_id=f"extrato_duplicado:{excedentes}",
-        dados={"excedentes": excedentes, "grupos": int(r["grupos"] or 0),
-               "base": BASE_DUPLICATAS_EXCEDENTES, "novas": novas},
-    )]
+    return [
+        Achado(
+            correlation_id=f"extrato_duplicado:{excedentes}",
+            dados={
+                "excedentes": excedentes,
+                "grupos": int(r["grupos"] or 0),
+                "base": BASE_DUPLICATAS_EXCEDENTES,
+                "novas": novas,
+            },
+        )
+    ]
 
 
 def _tpl_extrato_duplicado(d: dict) -> tuple[str, str]:
@@ -1351,12 +1838,17 @@ def _tpl_extrato_duplicado(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="extrato_duplicado", familia="financeiro", severidade="critico",
-    roles_destino=("admin",),
-    action_url="/redesign/financeiro?t=g-bancos",
-    detectar=_detectar_extrato_duplicado, template=_tpl_extrato_duplicado,
-))
+register(
+    Regra(
+        nome="extrato_duplicado",
+        familia="financeiro",
+        severidade="critico",
+        roles_destino=("admin",),
+        action_url="/redesign/financeiro?t=g-bancos",
+        detectar=_detectar_extrato_duplicado,
+        template=_tpl_extrato_duplicado,
+    )
+)
 
 
 # ─────────────────────────── caixa_divergente ───────────────────────────
@@ -1413,10 +1905,9 @@ async def _detectar_caixa_divergente(db: AsyncSession) -> list[Achado]:
     # (período fechado) — sem esta janela, uma movimentação histórica que
     # aparecesse depois seria barrada na entrada E contada aqui como pendente:
     # o alarme tocaria para sempre sem nenhuma ação capaz de calá-lo.
-    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+    from modules.financial.services.periodo_contabil import corte_mais_antigo
 
-    r = (await db.execute(text(SQL_CAIXA_DIVERGENTE),
-                          {"inicio": CORTE_CONTABIL})).mappings().first()
+    r = (await db.execute(text(SQL_CAIXA_DIVERGENTE), {"inicio": corte_mais_antigo()})).mappings().first()
     if not r:
         return []
     razao = float(r["razao"] or 0)
@@ -1425,14 +1916,20 @@ async def _detectar_caixa_divergente(db: AsyncSession) -> list[Achado]:
     sem = int(r["sem_lancamento"] or 0)
     if dif <= TOLERANCIA_CAIXA and sem == 0:
         return []
-    return [Achado(
-        # Correlaciona pelo par (diferença, pendentes): enquanto o furo não muda
-        # não repica o sino todo dia; mudou, avisa de novo.
-        correlation_id=f"caixa_divergente:{round(dif)}:{sem}",
-        dados={"razao": round(razao, 2), "extrato": round(extrato, 2),
-               "divergencia": round(dif, 2), "sem_lancamento": sem,
-               "tolerancia": TOLERANCIA_CAIXA},
-    )]
+    return [
+        Achado(
+            # Correlaciona pelo par (diferença, pendentes): enquanto o furo não muda
+            # não repica o sino todo dia; mudou, avisa de novo.
+            correlation_id=f"caixa_divergente:{round(dif)}:{sem}",
+            dados={
+                "razao": round(razao, 2),
+                "extrato": round(extrato, 2),
+                "divergencia": round(dif, 2),
+                "sem_lancamento": sem,
+                "tolerancia": TOLERANCIA_CAIXA,
+            },
+        )
+    ]
 
 
 def _tpl_caixa_divergente(d: dict) -> tuple[str, str]:
@@ -1451,12 +1948,17 @@ def _tpl_caixa_divergente(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="caixa_divergente", familia="financeiro", severidade="critico",
-    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
-    action_url="/redesign/financeiro?t=g-contabil",
-    detectar=_detectar_caixa_divergente, template=_tpl_caixa_divergente,
-))
+register(
+    Regra(
+        nome="caixa_divergente",
+        familia="financeiro",
+        severidade="critico",
+        roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+        action_url="/redesign/financeiro?t=g-contabil",
+        detectar=_detectar_caixa_divergente,
+        template=_tpl_caixa_divergente,
+    )
+)
 
 
 # ─────────────────────────── saida_sem_origem ───────────────────────────
@@ -1493,20 +1995,33 @@ SQL_SAIDA_SEM_ORIGEM = """
 
 async def _detectar_saida_sem_origem(db: AsyncSession) -> list[Achado]:
     from modules.financial.services.cobertura_sistema import LIMIAR_SAIDA_SEM_ORIGEM
-    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+    from modules.financial.services.periodo_contabil import corte_mais_antigo
 
-    rows = (await db.execute(text(SQL_SAIDA_SEM_ORIGEM),
-                             {"limiar": LIMIAR_SAIDA_SEM_ORIGEM,
-                              "inicio": CORTE_CONTABIL})).mappings().all()
-    return [Achado(
-        # Um achado POR SAÍDA: cada uma exige uma decisão diferente (registrar o
-        # pagável, ou explicar por que saiu sem ele). Agrupar viraria um número
-        # que ninguém age em cima.
-        correlation_id=f"saida_sem_origem:{r['id']}",
-        dados={"valor": round(float(r["valor"]), 2), "dia": str(r["dia"]),
-               "categoria": r["categoria"], "quem": r["quem"],
-               "limiar": LIMIAR_SAIDA_SEM_ORIGEM},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(SQL_SAIDA_SEM_ORIGEM), {"limiar": LIMIAR_SAIDA_SEM_ORIGEM, "inicio": corte_mais_antigo()}
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            # Um achado POR SAÍDA: cada uma exige uma decisão diferente (registrar o
+            # pagável, ou explicar por que saiu sem ele). Agrupar viraria um número
+            # que ninguém age em cima.
+            correlation_id=f"saida_sem_origem:{r['id']}",
+            dados={
+                "valor": round(float(r["valor"]), 2),
+                "dia": str(r["dia"]),
+                "categoria": r["categoria"],
+                "quem": r["quem"],
+                "limiar": LIMIAR_SAIDA_SEM_ORIGEM,
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_saida_sem_origem(d: dict) -> tuple[str, str]:
@@ -1521,13 +2036,17 @@ def _tpl_saida_sem_origem(d: dict) -> tuple[str, str]:
     )
 
 
-register(Regra(
-    nome="saida_sem_origem", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
-    action_url="/redesign/financeiro?t=g-pagar",
-    detectar=_detectar_saida_sem_origem, template=_tpl_saida_sem_origem,
-))
-
+register(
+    Regra(
+        nome="saida_sem_origem",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+        action_url="/redesign/financeiro?t=g-pagar",
+        detectar=_detectar_saida_sem_origem,
+        template=_tpl_saida_sem_origem,
+    )
+)
 
 
 # ─────────────────────────── pj_sem_nota_fiscal ───────────────────────────
@@ -1574,21 +2093,24 @@ SQL_PJ_SEM_NOTA = """
 
 
 async def _detectar_pj_sem_nota(db: AsyncSession) -> list[Achado]:
-    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+    from modules.financial.services.periodo_contabil import corte_mais_antigo
 
-    rows = (await db.execute(text(SQL_PJ_SEM_NOTA),
-                             {"inicio": CORTE_CONTABIL})).mappings().all()
+    rows = (await db.execute(text(SQL_PJ_SEM_NOTA), {"inicio": corte_mais_antigo()})).mappings().all()
     sem_cnpj = [r["nome"] for r in rows if not r["cnpj"]]
-    sem_nota = [{"nome": r["nome"], "pago": round(float(r["pago"] or 0), 2),
-                 "cnpj": r["cnpj"] or ""} for r in rows if not r["tem_nota"]]
+    sem_nota = [
+        {"nome": r["nome"], "pago": round(float(r["pago"] or 0), 2), "cnpj": r["cnpj"] or ""}
+        for r in rows
+        if not r["tem_nota"]
+    ]
     if not sem_cnpj and not sem_nota:
         return []
     pago_sem_nota = round(sum(x["pago"] for x in sem_nota), 2)
-    return [Achado(
-        correlation_id=f"pj_sem_nota:{len(sem_cnpj)}:{len(sem_nota)}:{round(pago_sem_nota)}",
-        dados={"total_pj": len(rows), "sem_cnpj": sem_cnpj, "sem_nota": sem_nota,
-               "pago_sem_nota": pago_sem_nota},
-    )]
+    return [
+        Achado(
+            correlation_id=f"pj_sem_nota:{len(sem_cnpj)}:{len(sem_nota)}:{round(pago_sem_nota)}",
+            dados={"total_pj": len(rows), "sem_cnpj": sem_cnpj, "sem_nota": sem_nota, "pago_sem_nota": pago_sem_nota},
+        )
+    ]
 
 
 def _tpl_pj_sem_nota(d: dict) -> tuple[str, str]:
@@ -1597,30 +2119,40 @@ def _tpl_pj_sem_nota(d: dict) -> tuple[str, str]:
         partes.append(
             f"SEM CNPJ CADASTRADO ({len(d['sem_cnpj'])} de {d['total_pj']}) — não dá para "
             f"exigir nota de quem não tem CNPJ registrado, nem conferir se ela chegou:\n"
-            + "\n".join(f"  • {n}" for n in d["sem_cnpj"]))
+            + "\n".join(f"  • {n}" for n in d["sem_cnpj"])
+        )
     if d["sem_nota"]:
         partes.append(
             f"SEM NOTA NO PERÍODO ({len(d['sem_nota'])}):\n"
-            + "\n".join(f"  • {x['nome']}"
-                        + (f" — já recebeu R$ {x['pago']:,.2f}" if x["pago"] else " — ainda não recebeu")
-                        for x in d["sem_nota"]))
-    titulo = (f"{len(d['sem_nota'])} PJ sem nota fiscal"
-              + (f", {len(d['sem_cnpj'])} sem CNPJ cadastrado" if d["sem_cnpj"] else ""))
-    corpo = ("Política em vigor: PJ só recebe apresentando nota fiscal.\n\n"
-             + "\n\n".join(partes))
+            + "\n".join(
+                f"  • {x['nome']}" + (f" — já recebeu R$ {x['pago']:,.2f}" if x["pago"] else " — ainda não recebeu")
+                for x in d["sem_nota"]
+            )
+        )
+    titulo = f"{len(d['sem_nota'])} PJ sem nota fiscal" + (
+        f", {len(d['sem_cnpj'])} sem CNPJ cadastrado" if d["sem_cnpj"] else ""
+    )
+    corpo = "Política em vigor: PJ só recebe apresentando nota fiscal.\n\n" + "\n\n".join(partes)
     if d["pago_sem_nota"]:
-        corpo += (f"\n\nJá saíram R$ {d['pago_sem_nota']:,.2f} sem a nota correspondente. "
-                  f"Pagamento recorrente a PJ sem nota — e no CPF em vez do CNPJ — é o que a "
-                  f"fiscalização reclassifica como vínculo, com INSS, FGTS e verbas retroativos.")
+        corpo += (
+            f"\n\nJá saíram R$ {d['pago_sem_nota']:,.2f} sem a nota correspondente. "
+            f"Pagamento recorrente a PJ sem nota — e no CPF em vez do CNPJ — é o que a "
+            f"fiscalização reclassifica como vínculo, com INSS, FGTS e verbas retroativos."
+        )
     return titulo, corpo
 
 
-register(Regra(
-    nome="pj_sem_nota_fiscal", familia="financeiro", severidade="atencao",
-    roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
-    action_url="/redesign/financeiro?t=g-pagar",
-    detectar=_detectar_pj_sem_nota, template=_tpl_pj_sem_nota,
-))
+register(
+    Regra(
+        nome="pj_sem_nota_fiscal",
+        familia="financeiro",
+        severidade="atencao",
+        roles_destino=("admin",),  # LGPD: financeiro SÓ diretoria
+        action_url="/redesign/financeiro?t=g-pagar",
+        detectar=_detectar_pj_sem_nota,
+        template=_tpl_pj_sem_nota,
+    )
+)
 
 
 # ═══════════════════════ COMERCIAL — o funil que para sozinho ═══════════════════════
@@ -1662,21 +2194,39 @@ async def _detectar_proposta_parada(db: AsyncSession) -> list[Achado]:
     # UMA linha por PROPOSTA, não um resumo: o digest lista títulos, e "22 propostas
     # paradas" não diz QUAL abrir. O correlation_id carrega o número para o achado
     # sobreviver ao dia sem duplicar.
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
-        "       coalesce(total, 0) AS total, "
-        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
-        "FROM proposals "
-        "WHERE status::text = 'draft' "
-        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
-        "ORDER BY total DESC NULLS LAST"), {"d": _DIAS_RASCUNHO})).mappings().all()
-    return [Achado(
-        correlation_id=f"proposta_rascunho:{r['number'] or r['id']}",
-        dados={"proposta_id": r["id"], "numero": r["number"], "cliente": r["cliente"],
-               "total": float(r["total"] or 0), "dias": int(r["dias"]),
-               # Dinheiro parado há mais de um mês deixa de ser lembrete e vira alerta.
-               "severidade": "critico" if int(r["dias"]) >= 30 else "atencao"},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
+                    "       coalesce(total, 0) AS total, "
+                    "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+                    "FROM proposals "
+                    "WHERE status::text = 'draft' "
+                    "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+                    "ORDER BY total DESC NULLS LAST"
+                ),
+                {"d": _DIAS_RASCUNHO},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"proposta_rascunho:{r['number'] or r['id']}",
+            dados={
+                "proposta_id": r["id"],
+                "numero": r["number"],
+                "cliente": r["cliente"],
+                "total": float(r["total"] or 0),
+                "dias": int(r["dias"]),
+                # Dinheiro parado há mais de um mês deixa de ser lembrete e vira alerta.
+                "severidade": "critico" if int(r["dias"]) >= 30 else "atencao",
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_proposta_parada(d: dict) -> tuple[str, str]:
@@ -1689,20 +2239,38 @@ def _tpl_proposta_parada(d: dict) -> tuple[str, str]:
 
 
 async def _detectar_proposta_sem_resposta(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
-        "       coalesce(total, 0) AS total, "
-        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
-        "FROM proposals "
-        "WHERE status::text = 'sent' "
-        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
-        "ORDER BY total DESC NULLS LAST"), {"d": _DIAS_SEM_RESPOSTA})).mappings().all()
-    return [Achado(
-        correlation_id=f"proposta_sem_resposta:{r['number'] or r['id']}",
-        dados={"proposta_id": r["id"], "numero": r["number"], "cliente": r["cliente"],
-               "total": float(r["total"] or 0), "dias": int(r["dias"]),
-               "severidade": "critico" if int(r["dias"]) >= 45 else "atencao"},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, number, coalesce(client_name, 'sem cliente') AS cliente, "
+                    "       coalesce(total, 0) AS total, "
+                    "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+                    "FROM proposals "
+                    "WHERE status::text = 'sent' "
+                    "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+                    "ORDER BY total DESC NULLS LAST"
+                ),
+                {"d": _DIAS_SEM_RESPOSTA},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"proposta_sem_resposta:{r['number'] or r['id']}",
+            dados={
+                "proposta_id": r["id"],
+                "numero": r["number"],
+                "cliente": r["cliente"],
+                "total": float(r["total"] or 0),
+                "dias": int(r["dias"]),
+                "severidade": "critico" if int(r["dias"]) >= 45 else "atencao",
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_proposta_sem_resposta(d: dict) -> tuple[str, str]:
@@ -1715,20 +2283,37 @@ def _tpl_proposta_sem_resposta(d: dict) -> tuple[str, str]:
 
 
 async def _detectar_lead_sem_contato(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(
-        "SELECT id::text AS id, coalesce(name, 'sem nome') AS nome, "
-        "       coalesce(company, '') AS empresa, "
-        "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
-        "FROM leads "
-        "WHERE status::text = 'new' "
-        "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
-        "ORDER BY created_at"), {"d": _DIAS_LEAD_FRIO})).mappings().all()
-    return [Achado(
-        correlation_id=f"lead_sem_contato:{r['id']}",
-        dados={"lead_id": r["id"], "nome": r["nome"], "empresa": r["empresa"],
-               "dias": int(r["dias"]),
-               "severidade": "critico" if int(r["dias"]) >= 30 else "atencao"},
-    ) for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT id::text AS id, coalesce(name, 'sem nome') AS nome, "
+                    "       coalesce(company, '') AS empresa, "
+                    "       ((now() AT TIME ZONE 'America/Manaus')::date - created_at::date) AS dias "
+                    "FROM leads "
+                    "WHERE status::text = 'new' "
+                    "  AND created_at::date <= (now() AT TIME ZONE 'America/Manaus')::date - cast(:d AS integer) "
+                    "ORDER BY created_at"
+                ),
+                {"d": _DIAS_LEAD_FRIO},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"lead_sem_contato:{r['id']}",
+            dados={
+                "lead_id": r["id"],
+                "nome": r["nome"],
+                "empresa": r["empresa"],
+                "dias": int(r["dias"]),
+                "severidade": "critico" if int(r["dias"]) >= 30 else "atencao",
+            },
+        )
+        for r in rows
+    ]
 
 
 def _tpl_lead_sem_contato(d: dict) -> tuple[str, str]:
@@ -1744,77 +2329,130 @@ def _brl_regra(v: float) -> str:
     return f"R$ {v:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
-register(Regra(
-    nome="proposta_parada_rascunho", familia="comercial", severidade="atencao",
-    roles_destino=_ROLES_COMERCIAL,
-    action_url="/modulos/comercial/propostas",
-    detectar=_detectar_proposta_parada, template=_tpl_proposta_parada,
-))
+register(
+    Regra(
+        nome="proposta_parada_rascunho",
+        familia="comercial",
+        severidade="atencao",
+        roles_destino=_ROLES_COMERCIAL,
+        action_url="/modulos/comercial/propostas",
+        detectar=_detectar_proposta_parada,
+        template=_tpl_proposta_parada,
+    )
+)
 
-register(Regra(
-    nome="proposta_sem_resposta", familia="comercial", severidade="atencao",
-    roles_destino=_ROLES_COMERCIAL,
-    action_url="/modulos/comercial/propostas",
-    detectar=_detectar_proposta_sem_resposta, template=_tpl_proposta_sem_resposta,
-))
+register(
+    Regra(
+        nome="proposta_sem_resposta",
+        familia="comercial",
+        severidade="atencao",
+        roles_destino=_ROLES_COMERCIAL,
+        action_url="/modulos/comercial/propostas",
+        detectar=_detectar_proposta_sem_resposta,
+        template=_tpl_proposta_sem_resposta,
+    )
+)
 
-register(Regra(
-    nome="lead_sem_contato", familia="comercial", severidade="atencao",
-    roles_destino=_ROLES_COMERCIAL,
-    action_url="/modulos/comercial/leads",
-    detectar=_detectar_lead_sem_contato, template=_tpl_lead_sem_contato,
-))
+register(
+    Regra(
+        nome="lead_sem_contato",
+        familia="comercial",
+        severidade="atencao",
+        roles_destino=_ROLES_COMERCIAL,
+        action_url="/modulos/comercial/leads",
+        detectar=_detectar_lead_sem_contato,
+        template=_tpl_lead_sem_contato,
+    )
+)
+
 
 # ─────────────────────────── gerente: visita aberta / sem check-in ───────────────────────────
 # Dono, 07/09/2026: check-in obrigatório ao chegar num posto e check-out ao sair. Duas faltas
 # que só a regra enxerga: visita aberta há mais de 4 h (esqueceu o check-out) e dia útil sem
 # nenhuma chegada registrada até as 11h (não está fazendo o check-in).
 async def _detectar_gerente_visita_aberta(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(
-        "SELECT v.id::text AS id, v.responsavel_nome AS nome, v.endereco, "
-        "       extract(epoch FROM (now() - v.checkin_at))/3600 AS horas "
-        "FROM visitas v WHERE v.tipo = 'acompanhamento' AND v.origem = 'interna' "
-        "  AND v.checkin_at IS NOT NULL AND v.checkout_at IS NULL AND coalesce(v.ativo, true) "
-        "  AND v.checkin_at < now() - interval '4 hours'"))).mappings().all()
-    return [Achado(correlation_id=f"gerente_visita_aberta:{r['id']}",
-                   dados={"nome": r["nome"] or "gerente", "posto": r["endereco"] or "posto", "horas": int(r["horas"])})
-            for r in rows]
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT v.id::text AS id, v.responsavel_nome AS nome, v.endereco, "
+                    "       extract(epoch FROM (now() - v.checkin_at))/3600 AS horas "
+                    "FROM visitas v WHERE v.tipo = 'acompanhamento' AND v.origem = 'interna' "
+                    "  AND v.checkin_at IS NOT NULL AND v.checkout_at IS NULL AND coalesce(v.ativo, true) "
+                    "  AND v.checkin_at < now() - interval '4 hours'"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        Achado(
+            correlation_id=f"gerente_visita_aberta:{r['id']}",
+            dados={"nome": r["nome"] or "gerente", "posto": r["endereco"] or "posto", "horas": int(r["horas"])},
+        )
+        for r in rows
+    ]
 
 
 def _tpl_gerente_visita_aberta(d: dict) -> tuple[str, str]:
-    return (f"Gerente sem check-out há {d['horas']}h: {str(d['nome']).title()}",
-            f"{str(d['nome']).title()} fez check-in em {d['posto']} há {d['horas']} hora(s) e não registrou a saída. "
-            f"Ou ainda está lá, ou esqueceu o check-out — cobre pelo WhatsApp.")
+    return (
+        f"Gerente sem check-out há {d['horas']}h: {str(d['nome']).title()}",
+        f"{str(d['nome']).title()} fez check-in em {d['posto']} há {d['horas']} hora(s) e não registrou a saída. "
+        f"Ou ainda está lá, ou esqueceu o check-out — cobre pelo WhatsApp.",
+    )
 
 
 REGISTRY["gerente_visita_aberta"] = Regra(
-    nome="gerente_visita_aberta", familia="operacional", severidade="atencao",
-    roles_destino=("admin",), action_url="/modulos/operacional",
-    detectar=_detectar_gerente_visita_aberta, template=_tpl_gerente_visita_aberta,
+    nome="gerente_visita_aberta",
+    familia="operacional",
+    severidade="atencao",
+    roles_destino=("admin",),
+    action_url="/modulos/operacional",
+    detectar=_detectar_gerente_visita_aberta,
+    template=_tpl_gerente_visita_aberta,
 )
 
 
 async def _detectar_gerente_sem_checkin(db: AsyncSession) -> list[Achado]:
-    rows = (await db.execute(text(
-        "WITH agora AS (SELECT now() AT TIME ZONE 'America/Manaus' AS t) "
-        "SELECT e.id::text AS id, e.nome FROM employees e, agora "
-        "WHERE e.status IN ('ativo','pj_ativo') "
-        "  AND (upper(coalesce(e.cargo,'')) LIKE '%GERENTE%' OR upper(coalesce(e.cargo,'')) LIKE '%SUPERVIS%') "
-        "  AND extract(isodow FROM agora.t) BETWEEN 1 AND 5 AND agora.t::time >= '11:00' "
-        "  AND NOT EXISTS (SELECT 1 FROM visitas v WHERE v.responsavel_id = e.id AND v.tipo = 'acompanhamento' "
-        "                  AND v.checkin_at::date = agora.t::date)"))).mappings().all()
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "WITH agora AS (SELECT now() AT TIME ZONE 'America/Manaus' AS t) "
+                    "SELECT e.id::text AS id, e.nome FROM employees e, agora "
+                    "WHERE e.status IN ('ativo','pj_ativo') "
+                    "  AND (upper(coalesce(e.cargo,'')) LIKE '%GERENTE%' OR upper(coalesce(e.cargo,'')) LIKE '%SUPERVIS%') "
+                    "  AND extract(isodow FROM agora.t) BETWEEN 1 AND 5 AND agora.t::time >= '11:00' "
+                    "  AND NOT EXISTS (SELECT 1 FROM visitas v WHERE v.responsavel_id = e.id AND v.tipo = 'acompanhamento' "
+                    "                  AND v.checkin_at::date = agora.t::date)"
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
     hoje = (await db.execute(text("SELECT (now() AT TIME ZONE 'America/Manaus')::date::text"))).scalar()
-    return [Achado(correlation_id=f"gerente_sem_checkin:{r['id']}:{hoje}", dados={"nome": r["nome"], "dia": hoje}) for r in rows]
+    return [
+        Achado(correlation_id=f"gerente_sem_checkin:{r['id']}:{hoje}", dados={"nome": r["nome"], "dia": hoje})
+        for r in rows
+    ]
 
 
 def _tpl_gerente_sem_checkin(d: dict) -> tuple[str, str]:
-    return (f"Sem check-in hoje: {str(d['nome']).title()}",
-            f"{str(d['nome']).title()} não registrou chegada em nenhum posto hoje ({d['dia']}) até as 11h. "
-            f"O check-in ao chegar num condomínio é obrigatório — se está em campo, precisa registrar.")
+    return (
+        f"Sem check-in hoje: {str(d['nome']).title()}",
+        f"{str(d['nome']).title()} não registrou chegada em nenhum posto hoje ({d['dia']}) até as 11h. "
+        f"O check-in ao chegar num condomínio é obrigatório — se está em campo, precisa registrar.",
+    )
 
 
 REGISTRY["gerente_sem_checkin"] = Regra(
-    nome="gerente_sem_checkin", familia="operacional", severidade="atencao",
-    roles_destino=("admin",), action_url="/modulos/operacional",
-    detectar=_detectar_gerente_sem_checkin, template=_tpl_gerente_sem_checkin,
+    nome="gerente_sem_checkin",
+    familia="operacional",
+    severidade="atencao",
+    roles_destino=("admin",),
+    action_url="/modulos/operacional",
+    detectar=_detectar_gerente_sem_checkin,
+    template=_tpl_gerente_sem_checkin,
 )

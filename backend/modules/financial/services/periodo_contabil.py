@@ -95,6 +95,34 @@ def _ler_corte_no_banco(empresa_id: str) -> date | None:
         return None
 
 
+def corte_mais_antigo() -> date:
+    """O corte MAIS ANTIGO entre todas as empresas — para quem varre sem escopo.
+
+    Consulta que não filtra `empresa_id` não pode usar o corte de UMA empresa: usar o da
+    Eletrônica (01/08) numa varredura geral esconde junho e julho da Patrimonial, que tem
+    corte 01/06. Medido em 26/09/2026: era exatamente isso que acontecia em
+    `cobertura_sistema.medir`, em `reconciliation_service.religar_recebiveis_pagos` e em 4
+    regras proativas.
+
+    Escolher o mais antigo erra para o lado de MOSTRAR A MAIS, e mostrar a mais é uma
+    linha que alguém lê e descarta; esconder é uma linha que ninguém sabe que existe.
+    """
+    try:
+        import psycopg2  # noqa: PLC0415
+
+        url = re.sub(r"\+asyncpg|\+psycopg2?", "", os.getenv("DATABASE_URL", ""))
+        if not url:
+            return CORTE_CONTABIL
+        with psycopg2.connect(url) as conn, conn.cursor() as cur:
+            cur.execute("SELECT min(corte_contabil) FROM empresas WHERE corte_contabil IS NOT NULL")
+            linha = cur.fetchone()
+            menor = linha[0] if linha else None
+        # Empresa com `corte_contabil` NULL cai no global; o mínimo real considera os dois.
+        return min(menor, CORTE_CONTABIL) if menor else CORTE_CONTABIL
+    except Exception:  # noqa: BLE001 — sem banco, o corte global vale
+        return CORTE_CONTABIL
+
+
 def periodo_fechado(d: date | None, empresa_id: str | None = None) -> bool:
     """True se a data cai em período fechado (antes do corte DESTA empresa).
 

@@ -662,7 +662,9 @@ def _vincular_prova_de_recebimento(conn) -> int:
     data nem prova; é legado de um período que o Jordan fechou, e caçar prova lá seria
     reabrir o que ele mandou fechar.
     """
-    from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+    # Sem filtro de empresa na consulta abaixo: usa o corte mais antigo, senão os
+    # recebíveis de jun/jul da Patrimonial nunca seriam religados.
+    from modules.financial.services.periodo_contabil import corte_mais_antigo
 
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
@@ -672,7 +674,7 @@ def _vincular_prova_de_recebimento(conn) -> int:
         WHERE status = 'paga' AND transacao_bancaria_id IS NULL
           AND payment_date >= %s AND coalesce(customer_name,'') <> ''
         """,
-        (CORTE_CONTABIL,),
+        (corte_mais_antigo(),),
     )
     ligados = 0
     for rec in cur.fetchall():

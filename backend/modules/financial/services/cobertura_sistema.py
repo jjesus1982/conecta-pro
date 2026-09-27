@@ -29,7 +29,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.financial.services.periodo_contabil import CORTE_CONTABIL
+from modules.financial.services.periodo_contabil import corte_mais_antigo
 
 # Uma saída "nasceu no sistema" quando há um pagável dos dois lados da relação:
 #   1:1  o pagável aponta para a saída  (`payable_accounts.transacao_bancaria_id`)
@@ -38,9 +38,11 @@ from modules.financial.services.periodo_contabil import CORTE_CONTABIL
 # direção 1:1 deixaria 59% do valor do mês invisível para sempre.
 # `transacao_bancaria_id` é TEXT (drift de schema) — o cast é obrigatório, sem ele
 # o Postgres recusa `uuid = text` e a métrica morre em vez de medir.
-VINCULADA = ("(EXISTS (SELECT 1 FROM payable_accounts p "
-             "         WHERE p.transacao_bancaria_id = bt.id::text) "
-             " OR bt.payable_payment_id IS NOT NULL)")
+VINCULADA = (
+    "(EXISTS (SELECT 1 FROM payable_accounts p "
+    "         WHERE p.transacao_bancaria_id = bt.id::text) "
+    " OR bt.payable_payment_id IS NOT NULL)"
+)
 
 # Medido em 11/08: acima deste valor há exatamente 2 saídas sem pagável no
 # período aberto (as duas para o sócio). Abaixo dele mora a folha — 51 PIX de
@@ -51,23 +53,44 @@ LIMIAR_SAIDA_SEM_ORIGEM = 5000.00
 
 async def medir(db: AsyncSession, desde: date | None = None) -> dict:
     """Cobertura do período ABERTO, com o mapa por categoria."""
-    ini = desde or CORTE_CONTABIL
-    tot = (await db.execute(text(f"""
+    # Varredura SEM escopo de empresa: o corte tem de ser o mais antigo entre elas.
+    # Com o global (01/08) a cobertura da Patrimonial ignorava junho e julho — um mês
+    # e meio de caixa fora da métrica por causa do corte da irmã.
+    ini = desde or corte_mais_antigo()
+    tot = (
+        (
+            await db.execute(
+                text(f"""
         SELECT count(*) AS n, coalesce(sum(abs(amount)), 0) AS valor,
                count(*) FILTER (WHERE {VINCULADA}) AS vinculadas,
                coalesce(sum(abs(amount)) FILTER (WHERE {VINCULADA}), 0) AS valor_vinculado
         FROM bank_transactions bt
         WHERE bt.amount < 0 AND bt.transaction_date >= :ini
-    """), {"ini": ini})).mappings().first()
+    """),
+                {"ini": ini},
+            )
+        )
+        .mappings()
+        .first()
+    )
 
-    linhas = (await db.execute(text(f"""
+    linhas = (
+        (
+            await db.execute(
+                text(f"""
         SELECT coalesce(bt.justificativa_categoria, '(sem classificar)') AS categoria,
                count(*) AS n, coalesce(sum(abs(amount)), 0) AS valor,
                count(*) FILTER (WHERE {VINCULADA}) AS vinculadas
         FROM bank_transactions bt
         WHERE bt.amount < 0 AND bt.transaction_date >= :ini
         GROUP BY 1 ORDER BY 3 DESC
-    """), {"ini": ini})).mappings().all()
+    """),
+                {"ini": ini},
+            )
+        )
+        .mappings()
+        .all()
+    )
 
     n = int(tot["n"] or 0)
     vinc = int(tot["vinculadas"] or 0)
@@ -82,8 +105,12 @@ async def medir(db: AsyncSession, desde: date | None = None) -> dict:
         "valor_vinculado": round(valor_vinc, 2),
         "pct_por_valor": round(100 * valor_vinc / valor, 1) if valor else 0.0,
         "por_categoria": [
-            {"categoria": r["categoria"], "saidas": int(r["n"]),
-             "valor": round(float(r["valor"]), 2), "vinculadas": int(r["vinculadas"])}
+            {
+                "categoria": r["categoria"],
+                "saidas": int(r["n"]),
+                "valor": round(float(r["valor"]), 2),
+                "vinculadas": int(r["vinculadas"]),
+            }
             for r in linhas
         ],
     }
