@@ -337,6 +337,12 @@ def _ler_retorno_nfse(corpo: str) -> dict[str, Any]:
         ("pAliqAplic", "aliquota_iss_fisco"),
         ("vBC", "base_calculo_fisco"),
         ("vLiq", "valor_liquido_fisco"),
+        # vServ é o valor BRUTO do serviço. Faltava aqui, e a conciliação acabava gravando
+        # `vLiq` no campo do bruto: em nota com retenção da Lei 9.711 (11%) os dois diferem,
+        # e é o bruto que é receita. Medido em 27/09/2026: 28 de 34 notas da Patrimonial
+        # ficaram com valor_servicos == valor_liquido. Receita menor vira RBT12 menor, que
+        # vira faixa menor do Simples, que vira DAS menor — o erro anda até o imposto.
+        ("vServ", "valor_bruto_fisco"),
     ):
         m = re.search(rf"<(?:\w+:)?{tag}>([^<]+)</(?:\w+:)?{tag}>", xml)
         if m:
@@ -752,8 +758,13 @@ class NFSeNacionalManager:
             }
         cnpj_limpo = re.sub(r"\D", "", self.cnpj or "")
         xml_evento = self._build_evento_cancelamento_xml(
-            chave_limpa, cnpj_limpo, motivo, cod_motivo, n_pedido,
-            tipo_evento=tipo_evento, descricao=descricao,
+            chave_limpa,
+            cnpj_limpo,
+            motivo,
+            cod_motivo,
+            n_pedido,
+            tipo_evento=tipo_evento,
+            descricao=descricao,
         )
 
         result: dict[str, Any] = {

@@ -517,7 +517,16 @@ async def _gravar_nota(
         "data_emissao": _quando(resultado.get("data_processamento") or _tag(xml, "dhProc")),
         "tomador_cnpj": _tomador(xml)[0],
         "tomador_nome": _tomador(xml)[1],
-        "valor": _num(resultado.get("valor_liquido_fisco")) or _num(_tag(xml, "vServ")),
+        # `valor` é o BRUTO (vServ) — nunca o líquido. A ordem estava invertida: pegava
+        # `vLiq` primeiro e só caía em `vServ` se o líquido faltasse. Em nota com retenção
+        # da Lei 9.711 (11%) os dois diferem, e o bruto é que é receita.
+        #
+        # Medido em 27/09/2026, depois de esvaziar a fila de conciliação: 28 de 34 notas da
+        # Patrimonial ficaram com `valor_servicos == valor_liquido`, 27 delas com retenção.
+        # A nota 21 de 07/2026 gravou R$ 57.285,68 quando a própria descrição dela diz
+        # «Valor bruto: R$ 65.842,42». Subestimar a receita subestima o RBT12, que define a
+        # faixa do Simples, que define o DAS — o erro anda até o imposto.
+        "valor": _num(resultado.get("valor_bruto_fisco")) or _num(_tag(xml, "vServ")),
         "iss_valor": _num(resultado.get("valor_iss_fisco")),
         # None, não 0.0 — ver docstring.
         "iss_aliquota": (aliq / 100) if aliq is not None else None,
@@ -568,7 +577,16 @@ async def _gravar_nota(
             "   inss_retido = COALESCE(EXCLUDED.inss_retido, nfse_emitidas_nacional.inss_retido),"
             "   codigo_servico = COALESCE(EXCLUDED.codigo_servico, nfse_emitidas_nacional.codigo_servico),"
             "   descricao = COALESCE(EXCLUDED.descricao, nfse_emitidas_nacional.descricao),"
-            "   fonte = 'conciliacao_fisco', cancelada = EXCLUDED.cancelada,"
+            "   fonte = 'conciliacao_fisco',"
+            # CANCELAMENTO NÃO SE DESFAZ. Era `cancelada = EXCLUDED.cancelada`, e a
+            # conciliação consulta os DOIS ambientes: a resposta que não trouxesse a
+            # situação DESMARCAVA uma nota que o fisco já dissera cancelada. Medido em
+            # 27/09/2026: as 5 notas duplicadas de junho (Laranjeiras 1 e 2, Mirante 5 e 6,
+            # Villa dos Passaros 7) foram marcadas numa rodada e desmarcadas na seguinte —
+            # R$ 152.080,52 de receita fantasma voltando ao razão. É o mesmo defeito do
+            # `ambiente`, corrigido em 26/09, noutro campo: estado que só anda para um lado
+            # não pode ser sobrescrito por quem não sabe.
+            "   cancelada = (nfse_emitidas_nacional.cancelada OR EXCLUDED.cancelada),"
             "   observacao_interna = EXCLUDED.observacao_interna"
         ),
         dados,
