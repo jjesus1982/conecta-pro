@@ -163,7 +163,38 @@ avisar_wip_fora_do_head() {
   WIP_FORA_DO_HEAD="$n"
 }
 
+# PARA o deploy se algum arquivo do contexto de build tiver marcador de conflito de merge.
+#
+# Origem: 27/09/2026. Duas sessões em paralelo deixaram `punch_controller.py` e
+# `afd_controller.py` em estado UU, com `<<<<<<<` no DISCO. O aviso de WIP logo acima já
+# existia e os teria listado — mas aviso não serve aqui, porque um `.py` com marcador não é
+# "código de outra sessão que vai junto": é **SyntaxError**. E o contexto do build é o
+# disco, não o commit.
+#
+# O estrago seria silencioso na cara: `main_production.py` usa `safe_import`, então o router
+# quebrado sumiria sem derrubar o app e o health continuaria 200. Já os workers de celery
+# importam direto e entram em loop de crash — foi exatamente `punch_controller.py` que
+# deixou o `celery-beat` 46 dias assim, e ninguém viu porque `docker ps` dizia healthy.
+#
+# Daquela vez o build passou raspando: a imagem foi montada antes do conflito aparecer.
+# Esta função existe para não depender de sorte na próxima.
+parar_se_houver_conflito() {
+  local marcados
+  marcados=$(grep -rlE '^(<<<<<<<|>>>>>>>) ' /opt/conecta-pro/backend \
+               --include='*.py' --include='*.txt' --include='*.yml' --include='*.json' \
+               2>/dev/null | head -20)
+  [ -z "$marcados" ] && return 0
+  log "ERRO: marcador de conflito de merge no contexto do build — deploy ABORTADO"
+  printf '%s\n' "$marcados" | sed 's|^|      |' | while IFS= read -r l; do log "$l"; done
+  log "    Um .py com <<<<<<< é SyntaxError. O app subiria 'healthy' (safe_import engole o"
+  log "    router) e os workers de celery entrariam em loop de crash — foi assim que o"
+  log "    celery-beat passou 46 dias caído sem ninguém ver."
+  log "    Resolva o conflito (git status --diff-filter=U) e rode de novo."
+  exit 1
+}
+
 # 1. Build da imagem nova
+parar_se_houver_conflito
 avisar_wip_fora_do_head
 log "1/7 build..."
 docker compose build backend >>"$LOG" 2>&1 || { log "ERRO no build"; exit 1; }

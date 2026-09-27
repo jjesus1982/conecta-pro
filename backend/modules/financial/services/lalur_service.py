@@ -349,6 +349,27 @@ def compensar(
     }
 
 
+def _ja_registrado(empresa_id: str, competencia: str, tributo: str) -> bool:
+    """Já existe M410 automático desta competência e tributo?
+
+    Sem esta pergunta, chamar `apurar_lucro_real(..., registrar_prejuizo=True)` duas vezes
+    grava o mesmo prejuízo duas vezes e infla o estoque — e um livro fiscal que conta em
+    dobro é pior que livro nenhum, porque o erro só aparece quando a compensação for
+    glosada. Não dá para resolver com UNIQUE na tabela: nada impede o contador de lançar
+    DOIS ajustes legítimos na mesma competência; o que não pode repetir é o M410
+    AUTOMÁTICO, que é derivado e não decidido.
+    """
+    with _tx() as cur:
+        _ensure(cur)
+        cur.execute(
+            "SELECT 1 FROM lalur_lancamento "
+            " WHERE empresa_id=%s::uuid AND competencia=%s AND tributo=%s "
+            "   AND tipo='B' AND origem='automatico' LIMIT 1",
+            (empresa_id, competencia, tributo),
+        )
+        return cur.fetchone() is not None
+
+
 def apurar_lucro_real(
     empresa_id: str,
     ano: int,
@@ -411,7 +432,7 @@ def apurar_lucro_real(
             tributo_devido = max(Decimal("0"), lucro_real) * CSLL
             adicional = Decimal("0")
 
-        if ajustado < 0 and registrar_prejuizo:
+        if ajustado < 0 and registrar_prejuizo and not _ja_registrado(empresa_id, comp_final, tributo):
             cid = garantir_conta_b(empresa_id, tributo, comp_final)
             lancar(
                 empresa_id,
