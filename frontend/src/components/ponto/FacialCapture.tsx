@@ -25,7 +25,7 @@ export interface FacialCaptureResult {
   /** Por que terminou sem reconhecer: 'nao_bateu' (viu o rosto e não casou) ou
    *  'nao_detectou' (nunca viu rosto nenhum). São causas diferentes e a pessoa precisa
    *  saber qual é — uma se resolve com luz, a outra com recadastro. */
-  motivo?: 'nao_bateu' | 'nao_detectou';
+  motivo?: 'nao_bateu' | 'nao_detectou' | 'camera_sem_quadro';
 }
 
 interface FacialCaptureProps {
@@ -37,6 +37,9 @@ interface FacialCaptureProps {
 }
 
 const SEM_ROSTO_MAX = 40;
+/** Ticks seguidos em que o <video> não entregou UM quadro (`videoWidth === 0`).
+ *  20 × 550ms ≈ 11 segundos: se a câmera fosse abrir, já teria aberto. */
+const SEM_QUADRO_MAX = 20;
 
 type Status = 'idle' | 'loading' | 'starting' | 'scanning' | 'success' | 'failed' | 'error';
 
@@ -63,6 +66,14 @@ export function FacialCapture({
    *  quem está se posicionando, e curto o bastante para não deixar ninguém esperando à toa. */
   const semRostoRef = useRef(0);
   const doneRef = useRef(false);
+  /** 🔴 27/09/2026 — O CONTADOR QUE FALTAVA, E QUE DEIXAVA O LAÇO ETERNO.
+   *  O `tick` começava com `if (!v || !v.videoWidth) return;` — um return que **não contava
+   *  nada**. Quando a câmera não entrega quadro, `semRostoRef` nunca sobe, `missRef` nunca
+   *  sobe, e o intervalo de 550ms gira para SEMPRE mostrando "Centralize o rosto no círculo"
+   *  sobre um círculo preto. A ERIKA mandou o print exatamente assim, e é a 3ª vez dela
+   *  (11/09, 13/09, 27/09). Nenhuma dessas tentativas virou registro: `ponto.tentativa_falhou`
+   *  tem ZERO linhas no banco desde que nasceu — a rota existe e nunca foi chamada. */
+  const semQuadroRef = useRef(0);
   const missRef = useRef(0); // frames com rosto detectado mas sem match (batida)
   const hitRef = useRef(0); // frames bons consecutivos (cadastro)
 
@@ -77,6 +88,20 @@ export function FacialCapture({
   }, [isLoading, isReady, error]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { stopLoop(); }, []);
+
+  /** Espera o primeiro quadro REAL, reinsistindo no play() com o elemento já visível.
+   *  Devolve false se em ~4s não vier imagem — quem decide o que fazer é o laço, que tem
+   *  o prazo de `SEM_QUADRO_MAX`. Aqui só se dá o empurrão que o iOS exige. */
+  const esperarPrimeiroQuadro = async (ms = 4000): Promise<boolean> => {
+    const ate = Date.now() + ms;
+    while (Date.now() < ate) {
+      const v = videoRef.current;
+      if (v?.videoWidth) return true;
+      try { await v?.play(); } catch { /* ignora: a próxima volta tenta de novo */ }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return (videoRef.current?.videoWidth ?? 0) > 0;
+  };
 
   const grabFrame = (): string => {
     const v = videoRef.current;
@@ -99,7 +124,24 @@ export function FacialCapture({
   const tick = useCallback(async () => {
     if (doneRef.current) return;
     const v = videoRef.current;
-    if (!v || !v.videoWidth) return; // câmera ainda inicializando
+    if (!v || !v.videoWidth) {
+      // sem quadro: conta, explica e DESISTE — nunca mais gira para sempre
+      semQuadroRef.current += 1;
+      const seg = Math.round((semQuadroRef.current * 550) / 1000);
+      if (semQuadroRef.current > 4) {
+        setMessage(`A câmera não está enviando imagem (${seg}s). Se o celular estiver em `
+          + `*Modo de Baixo Consumo*, desligue — ele bloqueia a câmera no navegador.`);
+      }
+      if (semQuadroRef.current >= SEM_QUADRO_MAX) {
+        setStatus('failed');
+        setMessage('A câmera não abriu. Use o botão abaixo para registrar a batida.');
+        finish({ success: true, matched: false, confidence: 0, distance: 1,
+          imageData: '', timestamp: new Date().toISOString(), descriptor: [],
+          motivo: 'camera_sem_quadro' });
+      }
+      return;
+    }
+    semQuadroRef.current = 0;
     const det = await captureAndDetect();
     if (!det || !det.detected) {
       // 🔴 11/09/2026 — AQUI ESTAVA O "FICA CARREGANDO E NÃO REGISTRA". Sem rosto detectado
@@ -159,10 +201,14 @@ export function FacialCapture({
 
   const begin = useCallback(async () => {
     doneRef.current = false; missRef.current = 0; hitRef.current = 0; semRostoRef.current = 0;
+    semQuadroRef.current = 0;
     setStatus('starting'); setMessage('Abrindo câmera...');
     try {
       await startCamera();
+      // ⚠️ A ORDEM IMPORTA: `scanning` é o que torna o <video> visível, e só um elemento
+      // VISÍVEL decodifica quadro no WebKit. Ver `esperarPrimeiroQuadro` abaixo.
       setStatus('scanning'); setMessage('Centralize o rosto no círculo');
+      await esperarPrimeiroQuadro();
       stopLoop();
       loopRef.current = setInterval(() => { void tick(); }, 550);
     } catch (e: unknown) {
@@ -171,7 +217,20 @@ export function FacialCapture({
     }
   }, [startCamera, tick, onError]);
 
-  const videoVisible = status === 'scanning' || status === 'success' || status === 'failed';
+  // 🔴 27/09/2026 — A CAUSA RAIZ: `'starting'` NÃO ESTAVA AQUI.
+  //
+  // `videoVisible` controla `display: block | none`. Durante o `begin()` o status é
+  // `'starting'`, então o <video> ficava `display:none` — e é exatamente nesse instante que
+  // `startCamera()` chama `videoRef.current.play()`. **O WebKit do iPhone não decodifica
+  // quadro de elemento oculto**: o `play()` RESOLVE, ninguém vê erro, e `videoWidth` fica 0
+  // para sempre. Depois o status virava `'scanning'`, o elemento aparecia — e nada
+  // reiniciava a reprodução.
+  //
+  // ⭐ Isto explica o "às vezes pega, mas a grande maioria não" da Erika: é uma corrida com o
+  // commit do React, e o aparelho dela perde quase sempre. Um `play()` que resolve não prova
+  // que há imagem — o único fato que prova é `videoWidth > 0`.
+  const videoVisible = status === 'starting' || status === 'scanning'
+    || status === 'success' || status === 'failed';
   const ring =
     status === 'success' ? 'border-emerald-500'
     : status === 'failed' || status === 'error' ? 'border-red-500'

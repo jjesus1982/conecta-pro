@@ -1185,6 +1185,16 @@ function PontoTab() {
       // se resolve mudando de lugar; "não bateu" é a referência, e insistir não resolve —
       // quem cai nela precisa do recadastro, não de tentar de novo. Antes as duas diziam a
       // mesma coisa, e a de referência ruim mandava a pessoa repetir para sempre.
+      // 🔴 27/09/2026 — TRÊS CAUSAS, TRÊS MENSAGENS. Nasceu uma terceira: `camera_sem_quadro`,
+      // a câmera que abre mas nunca entrega imagem (iPhone em Modo de Baixo Consumo, elemento
+      // oculto na hora do play). Sem esta linha ela cairia no `else` e a pessoa ouviria
+      // *"não reconheci seu rosto"* — acusando o rosto dela por um defeito da câmera, e
+      // mandando repetir uma coisa que não tem como dar certo.
+      //
+      // ⚠️ É a armadilha de sempre: valor novo num campo compartilhado muda TODO filtro
+      // literal. `=== 'nao_detectou'` era exaustivo com dois valores e virou incompleto com
+      // três, em silêncio.
+      const semCamera = r.motivo === 'camera_sem_quadro';
       const semRosto = r.motivo === 'nao_detectou';
       // frente 02: sem sinal, `registrarFalha` não chega ao servidor. A tentativa fica na fila
       // local e sobe junto com a próxima batida, em `tentativas_offline`.
@@ -1195,9 +1205,15 @@ function PontoTab() {
           sessionStorage.setItem('ponto_tentativas_offline', JSON.stringify(fila.slice(-50)));
         } catch { /* storage bloqueado: perder a estatística não pode custar a batida */ }
       }
-      void registrarFalha(semRosto ? 'rosto_nao_detectado' : 'rosto_nao_reconhecido',
+      void registrarFalha(semCamera ? 'camera_sem_quadro'
+          : semRosto ? 'rosto_nao_detectado' : 'rosto_nao_reconhecido',
         { distance: r.distance ?? null, confidence: r.confidence ?? null, motivo: r.motivo ?? null });
-      setBaterErro(semRosto
+      setBaterErro(semCamera
+        ? 'A câmera não enviou imagem nenhuma — isso não é você, é o aparelho. Se o celular '
+          + 'estiver em Modo de Baixo Consumo (bateria), desligue: ele bloqueia a câmera no '
+          + 'navegador. Feche outros apps que usem câmera e tente de novo. Se não abrir, use '
+          + 'o botão abaixo: sua batida fica registrada e o DP valida.'
+        : semRosto
         ? 'Não consegui ver seu rosto na câmera. Tente de frente, num lugar mais claro, sem '
           + 'luz forte atrás de você. Se continuar assim, use o botão abaixo: sua batida fica '
           + 'registrada e o DP valida.'

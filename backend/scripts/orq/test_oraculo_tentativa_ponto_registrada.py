@@ -87,6 +87,59 @@ async def main() -> None:
         "falharia calado e a tentativa sumiria, que é o defeito original"
     )
 
+    # 5. 🔴 27/09/2026 — A OUTRA METADE: A ROTA EXISTIA E NINGUÉM A CHAMAVA.
+    #
+    # Medido neste dia: `ponto.tentativa_falhou` tinha **ZERO linhas** no banco desde que
+    # nasceu, em agosto. Não porque ninguém falhasse — a ERIKA falhou em 11/09, 13/09 e 27/09
+    # — mas porque o laço do `FacialCapture` **nunca terminava** quando a câmera não entregava
+    # quadro: `if (!v || !v.videoWidth) return;` saía sem contar nada, e o intervalo de 550ms
+    # girava para sempre sobre um círculo preto.
+    #
+    # ⭐ Travar só o backend deixava o ponto cego aberto pelo outro lado: o registrador
+    # perfeito, e o único que sabe da falha calado. Por isso este oráculo agora atravessa a
+    # fronteira e afirma o CLIENTE também.
+    _FRONT = "/opt/conecta-pro/frontend/src"
+    _cap = f"{_FRONT}/components/ponto/FacialCapture.tsx"
+    _tela = f"{_FRONT}/app/modulos/meu-espaco/page.tsx"
+    try:
+        with open(_cap, encoding="utf-8") as fh:
+            cap = fh.read()
+        with open(_tela, encoding="utf-8") as fh:
+            tela = fh.read()
+    except OSError as exc:
+        # NÃO VERIFICADO é resultado válido; passar calado não é.
+        print(f"⚠️ NÃO VERIFICADO: não li o frontend ({exc}). O laço da câmera fica sem régua "
+              "nesta rodada — rode no host ou monte o repositório no container.")
+        cap = tela = ""
+
+    if cap:
+        # 5a — o laço DESISTE quando não vem quadro, e diz por quê
+        assert "semQuadroRef" in cap and "SEM_QUADRO_MAX" in cap, (
+            "o laço do facial voltou a não contar os ticks sem quadro — quem abre a câmera e "
+            "não recebe imagem fica girando para sempre, e a falha nunca chega ao servidor"
+        )
+        assert "camera_sem_quadro" in cap, (
+            "o laço não tem mais o desfecho `camera_sem_quadro` — a câmera que não abre volta "
+            "a ser invisível para a auditoria"
+        )
+        # 5b — ⭐ A CAUSA RAIZ: o <video> tem de estar VISÍVEL quando o play() acontece.
+        # O WebKit do iPhone não decodifica quadro de elemento com display:none; o play()
+        # resolve, ninguém vê erro, e videoWidth fica 0 para sempre.
+        assert "status === 'starting'" in cap.split("const videoVisible")[1][:220], (
+            "`videoVisible` deixou de incluir 'starting' — o play() volta a acontecer com o "
+            "<video> oculto e o iPhone para de entregar imagem (foi o defeito da Erika)"
+        )
+        print("OK o laço do facial desiste quando não vem quadro, e registra o motivo")
+        print("OK o <video> está visível quando o play() acontece (a causa raiz do iPhone)")
+
+    if tela:
+        # 5c — valor novo em campo compartilhado muda TODO filtro literal
+        assert "camera_sem_quadro" in tela, (
+            "a tela não trata `camera_sem_quadro`: quem não conseguiu abrir a câmera ouve "
+            "'não reconheci seu rosto' — acusa o rosto da pessoa por defeito do aparelho"
+        )
+        print("OK a tela dá mensagem PRÓPRIA para a câmera que não abriu")
+
     print("OK rota /tentativa-falhou existe (falha que morre no celular chega ao servidor)")
     print("OK os 2 gates de recusa da batida facial registram antes de negar")
     print("OK registrar_falha_async engole a própria falha — nunca derruba a batida")
