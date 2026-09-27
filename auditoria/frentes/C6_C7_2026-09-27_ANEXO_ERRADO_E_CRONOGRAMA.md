@@ -279,6 +279,21 @@ competência nula, então não dá para dividir pela folha do mês e extrair a a
 Não harmonizei por palpite — 1 ponto de RAT sobre a folha de R$ 126.689,72 é R$ 1.266,90/mês,
 e cravar o número errado nos nove lugares é pior que a divergência, porque some a pista.
 
+### E isto não é curiosidade — o RAT está DENTRO do preço de hoje
+
+Conferindo o meu próprio trabalho desta noite: os **55,44%** que passaram a precificar cada
+posto são `Anexo III (32,44%) + CPP 20% + RAT 3%`. O RAT 3% está lá dentro. Se o nosso RAT
+for 2%, o encargo certo é 54,44% e o custo por posto é R$ 3.454,14, não R$ 3.472,09 — uma
+diferença de R$ 17,95/posto/mês que eu estaria embutindo sem base.
+
+Não é erro do que fiz (3% é o valor de grau de risco 3, que é o de vigilância/portaria, e é
+o que seis dos nove lugares do código dizem). Mas é uma **dependência que eu não tinha
+declarado**, e declarar dependência é metade do trabalho.
+
+Piora um pouco: o RAT efetivo é `RAT × FAP`, e o FAP varia de 0,5 a 2,0 por empresa. Mesmo
+sabendo o grau de risco, sem o FAP o número não fecha. E não existe coluna de CNAE no
+cadastro para eu nem começar a inferir.
+
 **O que resolve:** o RAT está no eSocial **S-1000** (campo `aliqRat`) e o FAP na carta anual
 do INSS / consulta no e-CAC. Me manda qualquer um dos dois e eu unifico os nove lugares num
 parâmetro só, com a fonte escrita.
