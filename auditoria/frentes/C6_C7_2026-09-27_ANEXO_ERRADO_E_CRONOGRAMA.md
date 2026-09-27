@@ -1,5 +1,43 @@
 # 27/09/2026 — o anexo errado, o cronograma que nascia à mão, e o que falta decidir
 
+> ## ⚠️ ANTES DE TUDO (1) — cinco tributos VENCIDOS sem guia no sistema
+>
+> O gate fiscal caiu de 9 para 7 condições, e uma delas é esta:
+>
+> | empresa | tributo | venceu |
+> |---|---|---|
+> | Eletrônica | ISS | **10/09** |
+> | Eletrônica | FGTS · INSS · IRRF | **20/09** |
+> | Patrimonial | **DAS** | **20/09** |
+>
+> É a transição da Portte em tempo real: setembro venceu e ninguém subiu guia. Multa e juros
+> correm por dia. Se a Portte pagou, preciso dos comprovantes; se não pagou, é a primeira
+> coisa a fazer na segunda-feira — o DAS da Patrimonial em atraso é exatamente o padrão que
+> a PGFN já cobra da Eletrônica.
+
+> ## ⚠️ ANTES DE TUDO (2) — 8 pares de nota duplicada VIVOS no fisco, e cancelar tem prazo
+>
+> A varredura desta manhã passou a ver o que a conciliação de 24/09 tinha escondido sob o
+> rótulo errado de `homologacao`. São notas de **produção**, emitidas **duas vezes** para o
+> mesmo tomador, mesmo mês, mesmo valor — cada par cobra o cliente duas vezes, recolhe ISS
+> sobre faturamento que não existiu e infla o DRE:
+>
+> | mês | tomador | valor | notas | CNPJ |
+> |---|---|---|---|---|
+> | 06/2026 | Laranjeiras Village | R$ 42.544,50 **×4** (excedente R$ 127.633,50) | 1, 2, 3 (Patrimonial) + 109 (Eletrônica) | os dois |
+> | 06/2026 | Villa dos Pássaros | R$ 33.538,33 ×2 | 7, 9 | Patrimonial |
+> | 06/2026 | Mirante das Flores | R$ 28.694,30 ×2 | 6, 10 | Patrimonial |
+> | 06/2026 | Mirante das Flores (limpeza) | R$ 13.561,50 ×2 | 5, 11 | Patrimonial |
+> | 03/2026 | Ideal Flores | R$ 60.904,25 ×2 | 33, 34 | Eletrônica |
+> | 07/2026 | Parque Gelati | R$ 6.000,00 ×2 | 112, 115 | Eletrônica |
+> | 06/2026 | Prime Arena | R$ 3.879,60 ×2 | 98, 100 | Eletrônica |
+> | 08/2026 | Prime Arena | R$ 3.879,60 ×2 | 22, 25 | Patrimonial |
+>
+> Os de junho da Patrimonial entraram em **dois lotes** (08:30 e 09:30 de 26/09) com números
+> diferentes: duas emissões reais. Eu **não lancei** nenhuma cópia no razão — lançar dobraria
+> a receita. **Cancelar no fisco é ato seu, e o prazo corre.** O par do Laranjeiras é a decisão
+> D6 do plano.
+
 Jordan, três coisas fecharam hoje de madrugada e duas precisam de você. Começo pela que
 custa dinheiro.
 
@@ -255,6 +293,50 @@ do PL em R$ 127.783,81 e R$ 6.038,62. Causa: os lançamentos que eu corrigi ness
 (fornecedor em dobro, receita pelas notas) não tinham sido encerrados contra o PL. O
 preview da re-apuração devolveu as duas diferenças **centavo a centavo**. Apliquei a
 complementar: **3 → 0, DRE = PL nos dois meses.**
+
+---
+
+## 7. A primeira varredura completa do dia, lida sem desconto
+
+Rodei as 99 travas sobre o estado final. Cinco apontaram regressão. Lidas uma a uma:
+
+| trava | de → para | o que é de verdade |
+|---|---|---|
+| `checar_nota_duplicada` | 0 → 8 | **notas reais, vivas no fisco**, que a conciliação de 24/09 tinha carimbado de `homologacao`; minha correção do `ambiente` as trouxe de volta. Não é regressão de código — é a trava finalmente enxergando. Tabela no topo deste relatório. **Cancelar tem prazo.** |
+| `checar_receita_nao_lancada` | 4 → 15 | 9 "nunca lançadas" são **as cópias dos pares duplicados** — não lançar é o certo. 3 "competência diferente": 109 e 111 são a decisão da migração de 13/08 (serviço de junho) contra o razão de julho **congelado** da Eletrônica — permanente por desenho; a **32** eu corrigi (abaixo). 3 de homologação de jan/fev: antes do corte, registro e não pendência. |
+| `checar_transitoria_aberta` | 6 → 11 | R$ 701,60 em PIX miúdos do extrato de hoje. Operacional, decidir por contraparte. |
+| `checar_custo_recorrente_nao_mapeado` | 37 → 49 | fornecedores que cruzaram o limiar de recorrência com setembro. Operacional; cinco estão "parados" há 50–114 dias e são decisão sua (encerrar ou atraso). |
+| `checar_batida_faltando` | 114 → 116 | ponto — outra sessão. |
+
+**As outras vinte, lidas uma a uma.** Nenhuma é defeito de código meu. As de ponto, CRM,
+WhatsApp, `chave_pix`, `capacidade_sem_botao`, `beat_engole_falha`, `varchar_teto`,
+`id_tipo_divergente`, `irreversivel` (whatsapp:9136) são da outra sessão ou operacionais.
+`uso_real +34` inclui as duas tabelas do LALUR, nascidas hoje e vazias **de propósito**
+(registro pendente da Parte A). `data_do_banco_no_fuso` é um R$ −200 que cruza a virada de
+julho/agosto — decisão sua de competência. `oraculo_externo` são as declarações Portte/Cora.
+
+**Duas réguas que reprovavam o certo, consertadas:**
+- o oráculo `v5_fiscal_relatorios` exigia `<cNBS>120032900</cNBS>` fixo no XML da NFS-e. A
+  outra sessão removeu esse código em 24/09 com razão (era "instalação de maquinários" indo
+  em nota de vigilância); meu bake de hoje foi o primeiro a levar a mudança ao container, e
+  a régua velha gritou. Agora afirma a regra nova: sem NBS no cadastro, sem tag.
+- o `checar_regressao` procurava `test_oraculo_x4/y1/y2` em `qa/` quando vivem em `orq/`:
+  **três dias "NÃO VERIFICADO"** em silêncio (pareador único, espelho da régua, direção da
+  batida). Caminho corrigido.
+
+**O gate fiscal 9 → 7.** Uma condição é o v5 acima. A outra é a tabela de tributos vencidos
+sem guia no topo deste relatório — e essa é sua, urgente.
+
+**A nota 32 (Ideal Flores, R$ 65.842,42).** Emitida em 02/09, o fisco carimba setembro. Mas
+na Patrimonial o Ideal Flores tem junho (nº 4), julho (nº 21) e **nenhuma nota de agosto**:
+a 32 é agosto, pela mesma prova aritmética que a migração usou nas 109/111. Corrigi a
+competência para 08/2026 guardando o setembro do fisco em `competencia_origem_adn`. E fechei
+o buraco que faria o conserto morrer às 05:30: o upsert da conciliação sobrescrevia a
+competência corrigida com a do fisco — agora respeita o marcador da migração.
+
+**As duas dicas do caçador mentiam:** diziam "corte 01/08/2026" fixo (o corte é por empresa
+desde 26/09) e "sai sozinho no próximo fechamento" para linhas de jan/fev que estão antes
+do corte e nunca sairão. Corrigidas.
 
 ---
 
