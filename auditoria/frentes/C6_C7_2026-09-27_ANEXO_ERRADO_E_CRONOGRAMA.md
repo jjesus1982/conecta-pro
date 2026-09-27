@@ -107,6 +107,115 @@ Também corrigi o piso da fila de DPS da Patrimonial (75 → 110): suas DANFSe m
 
 ---
 
+## 4. A cotação do WhatsApp estava 9% acima — e não dizia
+
+O `pricing_cct` é o motor que replica sua planilha e alimenta as três portas vivas de
+preço: a tela do CRM, o `/pricing/simular` e **o agente de WhatsApp que o José Luís usa**.
+
+Ele soma os encargos da tabela `crm_pricing_params`, que é **uma tabela só para as duas
+empresas** e guarda o conjunto de Lucro Real. E cobra os tributos por fora: PIS 1,65% +
+COFINS 7,60% + ISS 5% = 14,25%.
+
+A Patrimonial, que emprega os agentes, é Simples Anexo IV: encargo 55,44% (os 5,8% de
+terceiros não são devidos) e os tributos vêm num DAS só.
+
+Num AGP de piso R$ 1.670, jornada 30, margem 15%:
+
+| | encargo | tributos | custo | **preço** |
+|---|---|---|---|---|
+| hoje | 61,24% | 14,25% | 4.118,23 | **5.820,81** |
+| parâmetros certos | 55,44% | 9,19% | 4.014,10 | **5.294,95** |
+| | | | | **−525,86 (−9,0%)** |
+
+E o endpoint devolvia um rótulo dizendo *"encargos por regime da empresa (revisão
+multi-CNPJ)"* — que era **falso**. Rótulo afirmando o que o código não faz é pior que
+rótulo nenhum: quem lê para de conferir.
+
+### Não corrigi o preço, e quero que você saiba por quê
+
+A metade do encargo eu sei. A metade dos **tributos** depende do RBT12, que está nulo e
+cujas duas guias discordam (item (a) abaixo). Consertar metade moveria o preço para um
+lugar que também não é o certo. E derrubar a cotação com uma recusa tiraria do José Luís a
+única ferramenta de preço que ele tem no WhatsApp.
+
+**O que fiz:** a ficha passou a dizer em voz alta de que regime são os parâmetros na mão de
+quem cota. Hoje, na API:
+
+> *"parâmetros de Lucro Real: a tabela soma 61,24% de encargo e esta empresa é 55,44%; os
+> tributos saem por fora (PIS+COFINS+ISS) quando no Simples vêm num DAS só. Preço
+> indicativo — confirmar antes de fechar."*
+
+Com o PGDAS-D na mão eu acerto o número e o aviso some sozinho.
+
+---
+
+## 5. O LALUR existe agora — e R$ 88.926,17 param de se perder
+
+Primeiro uma correção ao que eu te disse: **o prejuízo fiscal não serve para a PGFN.** A
+Portaria 6.757/2022 art. 37 veda usá-lo em transação por adesão, que é como a dívida da
+Eletrônica foi feita; o art. 46 exige dívida acima de R$ 1 milhão e a nossa é R$ 582.262,83;
+e nos anos de Simples não se apura prejuízo, então o estoque só começa em 2026.
+
+Serve para outra coisa, real: **reduzir o IRPJ e a CSLL futuros em até 30% do lucro
+ajustado, sem prazo de validade.** E o parágrafo único do art. 15 da Lei 9.065/95 decide
+tudo: o direito *"somente se aplica às pessoas jurídicas que **mantiverem os livros**"*.
+Prejuízo sem livro é prejuízo que a fiscalização glosa.
+
+O que o razão da Eletrônica diz hoje:
+
+| | lucro | IRPJ |
+|---|---|---|
+| T1/2026 | R$ 48.383,04 | R$ 7.257,46 |
+| T2/2026 | −R$ 88.926,17 | — |
+| T3/2026 | −R$ 13.474,16 | — |
+| **ano** | **−R$ 54.017,29** | |
+
+Repare nos dois últimos: a soma dos trimestres é R$ 102.400,33 e o anual é R$ 54.017,29.
+A tela mostrava as **duas** respostas, uma ao lado da outra. E o prejuízo de T2 **não
+desfaz** o imposto de T1 — cada trimestre é período fechado.
+
+Construí o livro (Parte A e Parte B, espelhando o Bloco M da ECF) e provei a trava ponta a
+ponta, numa transação que desfiz em seguida:
+
+```
+saldo da Parte B antes ............ 0,00
+registra o prejuízo do T2 ......... 88.926,17
+compensar R$ 200 mil em T3:
+   teto de 30% ......... 60.000,00
+   disponível .......... 88.926,17
+   COMPENSÁVEL ......... 60.000,00   ← cortado pelo teto, não pelo saldo
+desfeito .......................... 0,00
+```
+
+### Não deixei o prejuízo registrado, e quero explicar
+
+Registrar agora gravaria o prejuízo **contábil**, não o fiscal — sem a Parte A decidida os
+dois são iguais, e não deveriam ser. Três linhas do seu razão precisam de decisão humana
+antes:
+
+| conta | valor | o juízo |
+|---|---|---|
+| provisões de férias e 13º | R$ 84.285,15 | o art. 13, I **veda** provisões mas **excetua exatamente essas duas**. Um sistema que adicionasse por regra de conta erraria R$ 84 mil |
+| despesas financeiras | R$ 10.370,40 | dentro, **oito saques em Banco24Horas** de R$ 500 a R$ 1.000. Tarifa é dedutível; saque sem documento é o caso-escola da adição A.069 |
+| DAS/parcelamento | R$ 2.699,58 | **um lançamento que precisa virar três**: principal dedutível, multa no A.154, juros dedutíveis |
+
+Nenhum dos 202 códigos de adição é derivável do plano de contas, porque a pergunta não é
+contábil: `A.069` é *"despesas que não sejam consideradas **necessárias**"*, e "necessária"
+não é campo. A ECF de 2026 vence em **julho/2027** — há tempo de decidir direito, e nenhum
+motivo para eu gravar um número que vai mudar.
+
+O campo `prejuizo_fiscal_compensavel` virou `prejuizo_contabil_do_periodo` — as duas
+palavras estavam erradas — e o card agora mostra o estado do livro ao lado do número:
+
+> Prejuízo contábil do período — R$ 54.017,29
+> **Parte A do LALUR — não fechada: o número acima é do RAZÃO, não a base tributável**
+
+**Ressalva:** os números de linha do Bloco M que gravei vêm do manual do Leiaute 10
+(2023). São estáveis há anos, mas precisam de reconferência contra o manual de 2026 antes
+da entrega da ECF.
+
+---
+
 ## PRECISO DE VOCÊ — 3 coisas
 
 ### a) O RBT12 não bate entre as duas guias
