@@ -214,6 +214,7 @@ GRUPOS = [
             ("dre-caixa", "DRE por caixa"),
             ("dre-analise-vertical", "DRE — análise vertical"),
             ("apuracao-resultado", "Apuração IRPJ/CSLL"),
+            ("lalur-revisao", "Revisão do LALUR"),
             ("provisoes-trabalhistas", "Provisões (férias/13º)"),
             ("postar-provisoes", "Postar provisões"),
             ("postar-inss", "Postar INSS"),

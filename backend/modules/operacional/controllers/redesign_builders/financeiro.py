@@ -2874,6 +2874,10 @@ ORDER BY b.comp DESC, b.cnpj"""
     from modules.operacional.controllers.redesign_builders._fin_ligar4 import build_ligar4
 
     await build_ligar4(db, out)  # lote 4 LIGAR (08/09) — antes de montar_grupos
+    # Revisão do LALUR (C8 passo 3, 27/09) — a fila de despesas sem decisão, com ação por linha.
+    from modules.operacional.controllers.redesign_builders._dgx_lalur_revisao import telas as _telas_lalur
+
+    await _telas_lalur(db, out)
     from modules.operacional.controllers.redesign_builders._dgx_f11_financeiro import telas as _telas_f11  # dgx f11
 
     await _telas_f11(
@@ -2910,6 +2914,9 @@ router.include_router(_v5r.router)  # dgx v5 — formas de pagamento, centros de
 import modules.operacional.controllers.redesign_builders._dgx_w2_fatura as _w2r  # noqa: E402 — dgx w2
 
 router.include_router(_w2r.router)  # dgx w2 — faturas: criar/emitir/gerar conta/copiar/cancelar + PDF avulso e em lote
+import modules.operacional.controllers.redesign_builders._dgx_lalur_revisao as _lalur_r  # noqa: E402 — C8 passo 3
+
+router.include_router(_lalur_r.router)  # lalur-decidir: a decisão por linha da Parte A
 
 
 def _require_financeiro_dep(current_user: CurrentActiveUser) -> None:

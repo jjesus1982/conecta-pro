@@ -192,6 +192,35 @@ def main() -> int:
         "desfeito: a linha volta para a fila",
     )
 
+    # ─── 5. a TELA «lalur-revisao» é a fila, e não um número decorado ────────
+    # Vigia da superfície (checar_nao_vigiado casa pelo literal do slug): o que a tela
+    # mostra tem de ser o que `fila_de_revisao` devolve para o trimestre corrente, e os
+    # KPIs têm de ser a contagem do banco. Tela que diverge da fila ensina a decidir errado.
+    import asyncio  # noqa: PLC0415
+
+    from core.database import async_session_factory  # noqa: PLC0415
+    from modules.operacional.controllers.redesign_builders import _dgx_lalur_revisao as R  # noqa: N812, PLC0415
+
+    async def _tela():
+        async with async_session_factory() as db:
+            out: dict = {}
+            await R.telas(db, out)
+            return out.get("lalur-revisao") or {}
+
+    sc = asyncio.run(_tela())
+    _, _, meses_cor = R._trimestre_corrente()
+    esperado = pendencias(ELETRONICA, meses_cor)
+    kpi = next((k for k in sc.get("kpis", []) if k.get("l", "").startswith("Sem decisão")), {})
+    afirma(
+        str(kpi.get("v")) == str(esperado), f"tela lalur-revisao: KPI «sem decisão» = {esperado} (veio {kpi.get('v')})"
+    )
+    linhas = [r for r in sc.get("rows", []) if r.get("_meta")]
+    afirma(
+        len(linhas) == min(esperado, R.LIMITE_LINHAS),
+        f"tela mostra {len(linhas)} linha(s) = min({esperado}, {R.LIMITE_LINHAS})",
+    )
+    afirma(all(r.get("actions") for r in linhas), "toda linha da fila tem a ação «Decidir»")
+
     print(f"\nTOTAL desvios C10: {desvios}")
     return 1 if desvios else 0
 
