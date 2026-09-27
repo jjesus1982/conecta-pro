@@ -145,21 +145,36 @@ def main() -> int:
     import asyncio  # noqa: PLC0415
 
     from core.database import async_session_factory  # noqa: PLC0415
-    from modules.crm.services.pricing_cct import ENCARGO_KEYS, carregar_params  # noqa: PLC0415
+    from modules.crm.services.pricing_cct import carregar_params  # noqa: PLC0415
 
     async def _ficha():
         async with async_session_factory() as db:
             return await carregar_params(db)
 
     prm = asyncio.run(_ficha())
-    da_tabela = sum(float(prm.get(k, 0) or 0) for k in ENCARGO_KEYS)
-    diverge = abs(da_tabela - _pct(EMPRESA_MAO_DE_OBRA)) > 1e-6
-    tem_aviso = bool(prm.get("_regime_aviso"))
+    # Desde 27/09 (tarde) o encargo JÁ vem da empresa; o que decide o aviso são os TRIBUTOS:
+    # sem `empresas.rbt12`, `resolver()` recusa, `_tributos_empresa` é None e a ficha avisa;
+    # com RBT12 em dia, tudo é da empresa e o aviso é None. A asserção afirma a condicional
+    # inteira — no dia em que o PGDAS-D preencher o RBT12, ela continua certa sem edição.
+    falta_algo = prm.get("_encargo_empresa") is None or prm.get("_tributos_empresa") is None
+    aviso = prm.get("_regime_aviso") or ""
     afirma(
-        diverge == tem_aviso,
-        f"a cotação CCT avisa exatamente quando diverge (tabela {da_tabela:.2%} × empresa "
-        f"{_pct(EMPRESA_MAO_DE_OBRA):.2%}; diverge={diverge}, avisa={tem_aviso})",
+        (falta_algo == bool(aviso)) or ("atualizado em" in aviso),
+        f"a cotação avisa exatamente quando algum parâmetro não é da empresa "
+        f"(encargo={prm.get('_encargo_empresa')}, tributos={prm.get('_tributos_empresa')}, avisa={bool(aviso)})",
     )
+    # E com os tributos da empresa em mãos, o motor os USA: com alíquota efetiva 9,19% o AGP
+    # de piso tem de dar o número da conta feita à mão em 27/09.
+    from modules.crm.services.pricing_cct import calcular  # noqa: PLC0415
+
+    sim = dict(prm)
+    sim.update({"_encargo_empresa": 0.5544, "_tributos_empresa": 0.0919, "_regime_aviso": None})
+    r = calcular(1670.0, 30, {"margem": 0.15}, sim)
+    afirma(
+        abs(r["preco"] - 5294.95) < 0.02,
+        f"com RBT12 (efetiva 9,19%) o AGP de piso sai R$ {r['preco']:,.2f} (esperado 5.294,95)",
+    )
+    afirma(r["regime_aviso"] is None, "e a ficha sai sem aviso quando tudo é da empresa")
 
     print(f"\nTOTAL desvios C9: {desvios}")
     return 1 if desvios else 0

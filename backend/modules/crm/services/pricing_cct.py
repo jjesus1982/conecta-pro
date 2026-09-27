@@ -92,33 +92,57 @@ async def _encargo_da_empresa(db) -> tuple[float | None, str | None]:
         return None, f"encargo da empresa não determinado: {e}"
 
 
-def _aviso_de_regime(p: dict, real: float | None, motivo: str | None) -> str | None:
-    """Diz em voz alta o que nos parâmetros não é desta empresa.
+async def _tributos_da_empresa(db) -> tuple[float | None, str | None]:
+    """A fração do PREÇO que vira imposto nesta empresa, e o motivo quando não se sabe.
 
-    Síncrona e PURA de propósito: recebe o que já foi lido e não toca no banco.
-
-    O encargo já vem da empresa (acima). O que sobra são os TRIBUTOS: a tabela cobra
-    PIS 1,65% + COFINS 7,60% + ISS 5% = 14,25% por fora, e no Simples eles estão dentro de
-    um DAS só, cuja alíquota depende do RBT12 — NULO nas duas empresas, e cujas duas guias
-    dão respostas incompatíveis (~R$ 208 mil pela de 07/2026, ~R$ 827 mil pela de 08/2026).
-
-    Enquanto isso não fechar, o preço sai ALTO, que é o lado seguro de errar numa cotação —
-    e diz que sai. Derrubar a cotação com uma recusa tiraria do José Luís a única
-    ferramenta de preço que ele tem no WhatsApp.
+    Reusa `crm.services.regime_tributario.resolver` — o mesmo caminho do
+    `/pricing/orcamento-por-natureza`. No Simples é a alíquota efetiva do DAS, que depende
+    do RBT12; sem RBT12 ele RECUSA (`RegimeNaoCadastrado`) e aqui isso vira None + motivo,
+    nunca um chute. Ligado em 27/09/2026 para que, no dia em que `empresas.rbt12` for
+    preenchido a partir do PGDAS-D, a cotação fique certa SOZINHA — sem voltar neste código.
     """
+    from modules.crm.services import regime_tributario as RT  # noqa: N812, PLC0415
+
+    try:
+        reg = await RT.resolver(db, CNPJ_MAO_DE_OBRA)
+        carga = reg.carga_total()
+    except RT.RegimeNaoCadastrado as e:
+        return None, str(e)
+    if reg.defasado and reg.regime == "simples_nacional":
+        return carga, (
+            f"RBT12 atualizado em {reg.atualizado_em or 'nunca'} — a alíquota do Simples "
+            "muda todo mês; confirme antes de fechar"
+        )
+    return carga, None
+
+
+def _aviso_de_regime(
+    p: dict,
+    real: float | None,
+    motivo: str | None,
+    trib: float | None = None,
+    motivo_trib: str | None = None,
+) -> str | None:
+    """Diz em voz alta o que nos parâmetros AINDA não é desta empresa. Pura: não toca no banco.
+
+    Encargo: `_encargo_da_empresa`. Tributos: `_tributos_da_empresa` (alíquota efetiva do
+    DAS via RBT12). Quando os dois são da empresa e estão em dia, devolve None — e o
+    oráculo C9 afirma exatamente essa condicional.
+    """
+    partes: list[str] = []
     if real is None:
-        return f"{motivo}. Encargo e tributos vindos da tabela global (Lucro Real)."
-    da_tabela = sum(float(p.get(k, 0) or 0) for k in ENCARGO_KEYS)
-    dif = (
-        f"O encargo já é o desta empresa ({real:.2%}); a tabela global diria {da_tabela:.2%}. "
-        if abs(real - da_tabela) >= 1e-6
-        else ""
-    )
-    return (
-        dif + "Os TRIBUTOS ainda vêm da tabela global (PIS+COFINS+ISS por fora, 14,25%): no "
-        "Simples eles estão dentro de um DAS só, e a alíquota depende do RBT12, que não "
-        "está cadastrado. O preço sai ALTO — confirmar antes de fechar."
-    )
+        partes.append(f"Encargo da tabela global (Lucro Real): {motivo}.")
+    if trib is None:
+        soma = float(p.get("pis", 0) or 0) + float(p.get("cofins", 0) or 0) + float(p.get("iss", 0) or 0)
+        partes.append(
+            f"Tributos da tabela global (PIS+COFINS+ISS por fora, {soma:.2%}): {motivo_trib}. "
+            "No Simples eles vêm num DAS só; o preço sai ALTO."
+        )
+    elif motivo_trib:
+        partes.append(f"Tributos pela alíquota efetiva do DAS ({trib:.2%}), mas {motivo_trib}.")
+    if not partes:
+        return None
+    return " ".join(partes) + " Preço indicativo — confirmar antes de fechar."
 
 
 async def carregar_params(db) -> dict:
@@ -128,7 +152,9 @@ async def carregar_params(db) -> dict:
         p[chave] = float(valor)
     enc, motivo = await _encargo_da_empresa(db)
     p["_encargo_empresa"] = enc
-    p["_regime_aviso"] = _aviso_de_regime(p, enc, motivo)
+    trib, motivo_trib = await _tributos_da_empresa(db)
+    p["_tributos_empresa"] = trib
+    p["_regime_aviso"] = _aviso_de_regime(p, enc, motivo, trib, motivo_trib)
     return p
 
 
@@ -168,7 +194,13 @@ def calcular(salario_base, jornada_dias: int, flags: dict, params: dict) -> dict
     repasse = (bruto + encargos + beneficios) * p["repasse"]
     custo = bruto + encargos + beneficios + repasse
     margem = float(flags["margem"]) if flags.get("margem") is not None else p["margem"]
-    tributos = p["pis"] + p["cofins"] + p["iss"]
+    # A fração do preço que vira imposto: a da EMPRESA (alíquota efetiva do DAS, via
+    # `resolver`) quando o RBT12 está cadastrado; a soma da tabela (PIS+COFINS+ISS por
+    # fora, Lucro Real) só como último recurso — e nesse caso `regime_aviso` diz que não
+    # se soube. No Simples somar os três é cobrar por fora o que já está dentro do DAS.
+    tributos = p.get("_tributos_empresa")
+    if tributos is None:
+        tributos = p["pis"] + p["cofins"] + p["iss"]
     divisor = 1 - tributos - margem
     preco = custo / divisor if divisor > 0 else 0.0
     return {

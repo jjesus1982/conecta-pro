@@ -425,9 +425,14 @@ async def pricing_funcoes(db: AsyncSession = Depends(get_db)):
     # DUAS empresas e guarda o conjunto de Lucro Real. Rótulo que afirma o que o código não
     # faz é pior que rótulo nenhum — quem lê para de conferir. Corrigido em 27/09/2026.
     return {
+        # O rótulo diz o que o motor FEZ nesta chamada, não o que gostaríamos que fizesse.
         "regime": (
-            "Grupo Conecta Mais · Margem 15% · CCT 2026 · encargos da tabela GLOBAL "
-            "`crm_pricing_params` (Lucro Real), não do regime de cada CNPJ"
+            "Grupo Conecta Mais · Margem 15% · CCT 2026 · "
+            + (
+                "encargo e tributos do regime da EMPRESA (cadastro + RBT12)"
+                if out and not out[0].get("regime_aviso")
+                else "parte dos parâmetros ainda vem da tabela global — ver regime_aviso"
+            )
         ),
         "regime_aviso": (out[0].get("regime_aviso") if out else None),
         "funcoes": out,
