@@ -127,6 +127,20 @@ Num AGP de piso R$ 1.670, jornada 30, margem 15%:
 | parâmetros certos | 55,44% | 9,19% | 4.014,10 | **5.294,95** |
 | | | | | **−525,86 (−9,0%)** |
 
+**Precisando o que eu disse acima:** esses 9,0% têm duas metades com solidez muito
+diferente, e misturá-las seria vender confiança que eu não tenho.
+
+| | preço | efeito | quão firme |
+|---|---|---|---|
+| hoje | R$ 5.820,81 | | |
+| só o **encargo** corrigido | R$ 5.673,64 | −2,5% | **provado** — 61,24% × 55,44% vem da guia |
+| encargo **+ tributos** | R$ 5.294,95 | −9,0% | depende dos 9,19%, que é uma das duas taxas que não batem entre si |
+
+Os 9,19% saem do DAS de 08/2026 dividido pela receita do mês. A guia de 07/2026 dá 5,10%
+pela mesma conta — são as duas guias incompatíveis do item (a). Então a **direção** está
+provada e a **magnitude** não: o preço está alto em pelo menos 2,5%, e provavelmente mais,
+mas quanto mais só o PGDAS-D responde.
+
 E o endpoint devolvia um rótulo dizendo *"encargos por regime da empresa (revisão
 multi-CNPJ)"* — que era **falso**. Rótulo afirmando o que o código não faz é pior que
 rótulo nenhum: quem lê para de conferir.
