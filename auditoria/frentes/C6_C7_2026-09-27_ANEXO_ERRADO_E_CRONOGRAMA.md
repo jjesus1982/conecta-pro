@@ -615,6 +615,81 @@ real — menos grave, mas ainda ensina o número errado a quem lê o kit.
 
 ---
 
+## 10. Noite de 27/09 — o robô passou a ler o recibo da DCTFWeb, e o que ele leu
+
+Você disse: *«o nosso sistema tem que ser capaz de puxar tudo isso»*. Uma parte já estava
+puxada e ninguém lia: **17 recibos de entrega da DCTFWeb** estavam no Onvio (e no nosso
+`onvio_documents`) como «não classificado» — o parser procurava «Número do Recibo» e o recibo
+de entrega escreve «Nº do recibo de entrega». O INSS e o IRRF de **08/2026**, que o painel
+chamava de «prazo cego», estavam num PDF de 13/09.
+
+**O que mudou de mão para máquina:** o robô lê o recibo, prova o documento contra ele mesmo
+(TOTAL = soma das linhas), dá baixa nas acessórias (DCTFWeb, eSocial, EFD-Reinf) e leva o
+**saldo a pagar** de cada tributo para a obrigação — com o número do recibo na linha. O que
+uma sessão fez à mão em 15/08 para o INSS de julho, o beat faz agora todo dia.
+
+| empresa | competência | recibo | débito apurado | saldo a pagar | efeito |
+|---|---|---|---|---|---|
+| Eletrônica | 07/2026 | …514331309 | R$ 1.758,05 | **R$ 0,00** | INSS quitado por retenção; IRRF zero |
+| Eletrônica | 08/2026 | …526873738 | R$ 0,00 | **R$ 0,00** | nada apurado — INSS e IRRF de 08 deixam de ser «cegos» |
+| Patrimonial | 07/2026 | …514592877 | R$ 7.684,15 | **R$ 0,00** | só CP Segurados, quitado por retenção |
+| Patrimonial | 08/2026 | …527194600 | R$ 7.981,55 | **R$ 0,00** | idem |
+
+**Efeito no negócio:** nenhuma DARF a pagar de INSS/IRRF em 07 e 08 — a tabela «para pagar»
+da abertura não muda. O oráculo do corte de agosto caiu de 6 problemas para **1**: o ISS
+08/2026 da Eletrônica (venceu 10/09) segue sem valor porque o DAM sai do portal da SEMEF e
+não há gerador para ele — é o único prazo cego que sobrou. Calculei pelas notas e desisti:
+em julho as notas somavam R$ 6.144 de ISS e os DAMs foram R$ 740, porque a maior parte é
+retida pelo tomador. Valor de ISS só do DAM.
+
+### O que o recibo da Patrimonial diz — e é grave
+
+Nos dois meses o recibo da Patrimonial tem **uma linha só: Contribuição Previdenciária
+Segurados**. Nenhuma linha patronal, e a apuração vinculada é só «Reinf CP» — sem eSocial.
+Anexo IV recolhe a CPP patronal **fora** do DAS, pela DCTFWeb; o DAS de 07 trouxe R$ 171,06 de
+INSS (1%) e o de 08 nada (§ «anexo errado», acima). Ou seja: **a patronal da Patrimonial não
+está no DAS nem na DCTFWeb** desde 06/2026. O caçador `checar_patronal_nao_declarada` (nasceu
+26/09) já mede e continua vermelho de propósito:
+
+| mês | folha | patronal estimada (23%) | retenção 11% dos clientes | segurados já abatidos | descoberto de caixa |
+|---|---|---|---|---|---|
+| 07/2026 | R$ 102.322,90 | R$ 23.534,27 | R$ 22.689,44 | R$ 7.684,15 | ≈ R$ 8.500 |
+| 08/2026 | R$ 106.577,20 | R$ 24.512,76 | R$ 27.272,54 | R$ 7.981,55 | ≈ R$ 5.200 |
+
+O caixa descoberto é pequeno porque a retenção dos clientes cobre quase tudo — mas a
+**dívida declarada é zero enquanto a devida é ~R$ 24 mil/mês**, e isso é malha da Receita,
+não detalhe. O sinal técnico: o eSocial da Patrimonial parece cadastrado como «tributação
+substituída» (comportamento de Anexo III), o mesmo erro que estava no nosso cadastro até hoje.
+**Pedido à Portte, antes de ela sair:** classTrib no S-1000 da Patrimonial, e retificar as
+DCTFWeb de 06, 07 e 08 com a patronal. Não é o sistema que corrige isso; é o contador.
+
+Um detalhe menor da Eletrônica para conferir com ela: a DCTFWeb de 08/2026 (retificadora)
+declara **débito zero**, mas a GFD de 08 recolhe R$ 133,60 de FGTS — havia salário em agosto
+(uma pessoa, e duas rescisões no mês). Se houve salário, houve contribuição; deve ser ~R$ 500.
+
+### Três coisas que o sistema deixou de fazer errado hoje à noite
+
+- **O calendário ia inventar FGTS 06/2026 para a Patrimonial no dia 1.** A segunda GFD dela
+  chegou do Onvio, FGTS virou «recorrente», e o gerador quis o mês anterior — mês em que a
+  GFD diz «Empregador: CONECTAMAIS ELETRONICA, 54 trabalhadores». Regra nova: nada antes da
+  primeira declaração *do tipo*; rescisória nunca vira prazo mensal.
+- **Uma passada de 60 dias no Onvio trouxe 17 guias de 2024–2025 para o calendário vivo**
+  (DAS do Simples de 2025 numa empresa hoje de Lucro Real, rescisórias de 09/2025), e o
+  calendário pediu DAS 03–06/2026. As 17 foram desativadas com nota (a guia continua no
+  Onvio; são ~R$ 99 mil de 2025 que o parcelamento da PGFN já cobre, presumo — não conferi);
+  o puxador não cria mais obrigação com vencimento antes do corte contábil da empresa.
+- **A CRF/FGTS da Patrimonial (vence 04/10) estava vermelha como «vigia dormindo»** com o
+  vigia acordado: a tentativa falhava na Caixa (403) e não deixava marca na linha. Agora a
+  linha carrega a tentativa e o motivo. A renovação continua sendo você, do seu computador
+  (item g).
+
+**Commits:** `561f4037e` (bake 17:34) e `e559affec` (bake 18:05 — o espelho do eSocial passa
+a relançar a falha para o sino, e o `checar_beats` passa a dizer o que não conseguiu analisar:
+a condição 7 do gate estava verde há 12 dias por omissão). Oráculos: `calendario_fiscal` verde,
+`fiscal_dctfweb_recibo` (novo) verde, `fiscal_agosto` vermelho só pelo ISS 08. **Gate fiscal:
+8/10** — e as duas vermelhas (3 e 10) são o mesmo item: o ISS 08/2026 da Eletrônica sem DAM.
+Quando o DAM entrar (Drive ou Onvio), as duas fecham sozinhas.
+
 ## O que ficou vigiando
 
 | trava | o que pega | medido |
