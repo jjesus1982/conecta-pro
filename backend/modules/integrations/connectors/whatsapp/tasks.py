@@ -761,6 +761,24 @@ def analisar_midia(self, conv_id: int, msg_id, payload: dict, phone: str | None 
             "UPDATE cwi_message_log SET content = replace(content, :marca, :texto) "
             "WHERE chatwoot_message_id = :m"),
             {"marca": MARCA_ANALISE, "texto": texto[:20000], "m": msg_id})
+        # 🔴 27/09/2026 — A MESMA ANÁLISE, A OUTRA TABELA. O BURACO QUE CEGOU OS GRUPOS.
+        #
+        # A mídia de grupo é gravada em `wa_grupo_mensagens` com a MARCA_ANALISE, e este UPDATE
+        # só alcançava `cwi_message_log`. Resultado medido: **1.282 mensagens de grupo presas no
+        # marcador em 5 dias, e ZERO descrições** — enquanto do outro lado 1.935 imagens estavam
+        # analisadas e legíveis. A descrição existia; morava na tabela que o vigia não lê.
+        #
+        # ⭐ O José Luís ficou cego justamente para o que o dono mais quer vigiado: a FOTO DE
+        # TROCA DE TURNO. Na recuperação apareceram 827 imagens só do Mirante das Flores, entre
+        # elas prints do Timemark ("'11:27'; '27 set. 2026'; 'Foto 100% Real'") e documento de
+        # visitante ("uma CNH brasileira em nome de…").
+        #
+        # ⚠️ `replace` e não atribuição: a mensagem de grupo pode ter TEXTO junto do anexo, e
+        # sobrescrever o campo inteiro apagaria a legenda que a pessoa escreveu.
+        await session.execute(_t(
+            "UPDATE wa_grupo_mensagens SET conteudo = replace(conteudo, :marca, :texto) "
+            "WHERE chatwoot_message_id = :m"),
+            {"marca": MARCA_ANALISE, "texto": texto[:20000], "m": msg_id})
         await session.commit()
         if desc:
             await C._midia_para_visita_aberta(conv_id, desc)

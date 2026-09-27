@@ -54,6 +54,7 @@ o dono mudou uma, a outra precisou ser reimplementada em outro lugar — não re
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import timedelta
 
@@ -850,3 +851,47 @@ async def grupo_ainda_e_o_autorizado(db: AsyncSession, jid: str) -> tuple[bool, 
         await db.commit()
         return False, ", ".join(novos)
     return True, None
+
+#: 🔴 27/09/2026 — O DONO FECHOU A VOZ DELE EM DOIS GRUPOS, E SÓ QUANDO CHAMADO.
+#:
+#: Jordan: *"ele só pode falar no escritório e gestão, e em mais nenhum grupo, e só pode falar
+#: quando for marcado. pode mandar relatório e tudo mais, mas em uma conversa, só quando for
+#: marcado. fora isso ele tem que coletar as informações"*.
+#:
+#: ⚠️ ANTES DE VIRAR PAREDE, EU MEDI COMO AS PESSOAS REALMENTE O CHAMAM — e a regra que existia
+#: teria calado o dono. Ela exigia `mention://contact/` **e** a palavra "Conecta" no texto:
+#:
+#:   · `mention://contact/` aparece em 47 de 2.312 mensagens
+#:   · "Conecta" aparece em 980 — porque TODA troca de turno começa com
+#:     *"Conecta Mais – Segurança e Tecnologia"*. É ruído, não sinal
+#:   · e em 7 dias houve UMA mensagem dirigida a ele: *"José Luís, fica atento a troca de turno
+#:     dos agentes de portaria das 18:00 e 19:00"* — **pelo NOME, sem menção nenhuma**
+#:
+#: ⭐ Gente chama pelo nome. Uma parede que só entende o `@` do WhatsApp silencia justamente
+#: quem mais precisa de resposta — e o comentário em `agent_service` já dizia: *"ser chamado
+#: pelo nome e não responder é a pior falha possível, porque o dono conclui que o sistema
+#: quebrou"*. Por isso as três formas valem.
+#:
+#: ⚠️ Nos dois grupos onde isto se aplica só há Jordan, Orlailson, Pyetra e ele — não existe
+#: outro José Luís para confundir. Em grupo de cliente esta função nem é consultada: lá o modo
+#: é `observar` e ele não fala de jeito nenhum.
+_NUMERO_AGENTE = re.sub(r"\D", "", os.getenv("BAILEYS_CONNECTION", "") or "")
+
+_CHAMADO = re.compile(
+    r"(mention://contact/"                       # menção nativa do Chatwoot
+    r"|@\s*\+?" + (_NUMERO_AGENTE or "558008804414") + r"\b"   # @ no número dele
+    r"|\bjos[ée]\s*lu[íi]s\b"                    # o jeito que as pessoas usam de verdade
+    r"|\bz[ée]\s*lu[íi]s\b"
+    r"|\bjos[ée]luis\b)",
+    re.IGNORECASE,
+)
+
+
+def foi_chamado(texto: str | None) -> bool:
+    """A pessoa CHAMOU o José Luís nesta mensagem? Só então ele fala em grupo.
+
+    ⚠️ Recebe a mensagem QUE ESTÁ SENDO PROCESSADA. A versão anterior relia *"a última mensagem
+    do grupo"* no banco — uma corrida: entre o webhook e a decisão, outra mensagem chega e o
+    agente julga pelo texto errado. O fato tem de vir de quem o observa, não de uma releitura.
+    """
+    return bool(texto and _CHAMADO.search(str(texto)))

@@ -7654,16 +7654,26 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     # ⚠️ E boa parte das 20 falas do dia eram MEUS testes — o teto foi consumido
                     # por mim e cobrado dele. Contador compartilhado entre teste e operação é
                     # armadilha: eu gasto, o usuário paga.
-                    _mencionado = False
-                    try:
-                        _ult = (await _dbg.execute(_sql_text(
-                            "SELECT m.conteudo FROM wa_grupo_mensagens m WHERE m.grupo_jid = :j "
-                            " ORDER BY m.criado_em DESC LIMIT 1"), {"j": _cfg_grupo["jid"]})).scalar()
-                        _mencionado = bool(_ult and "mention://contact/" in str(_ult)
-                                           and "Conecta" in str(_ult))
-                    except Exception:  # noqa: BLE001
-                        _mencionado = False
-                    if _teto and _falou >= _teto and not _mencionado:
+                    # 🔴 27/09/2026 — EM GRUPO ELE SÓ FALA QUANDO CHAMADO. Regra do dono:
+                    # *"ele só pode falar no escritório e gestão, e em mais nenhum grupo, e só
+                    # pode falar quando for marcado. pode mandar relatório e tudo mais, mas em
+                    # uma conversa, só quando for marcado. fora isso ele tem que COLETAR"*.
+                    #
+                    # ⚠️ Isto NÃO cala o relatório: o vigia e a troca de turno publicam por
+                    # `supervisao._publicar_no_grupo`, que não passa por aqui. O que esta
+                    # parede governa é a CONVERSA.
+                    #
+                    # ⭐ E a detecção mudou de lugar: `foi_chamado` julga a mensagem QUE ESTÁ
+                    # SENDO PROCESSADA, não uma releitura de "a última do grupo" — que era uma
+                    # corrida com o webhook seguinte. Ver o porquê das três formas (menção
+                    # nativa, @número e o NOME) no docstring de `grupos.foi_chamado`: medido,
+                    # gente chama pelo nome, e a regra anterior teria calado o próprio dono.
+                    _chamado = _grp.foi_chamado(next((c for d, c in rows if d == "in"), None))
+                    if not _chamado:
+                        logger.info("Agente: grupo %s — ninguém me chamou, só coletando",
+                                    _cfg_grupo["nome"])
+                        return
+                    if _teto and _falou >= _teto:
                         logger.info("Agente: grupo %s no teto de %s fala(s) hoje — calando",
                                     _cfg_grupo["nome"], _teto)
                         return
