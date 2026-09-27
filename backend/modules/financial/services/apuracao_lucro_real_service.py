@@ -48,8 +48,7 @@ TRIMESTRE_MESES = {
 
 
 class ApuracaoLucroRealService:
-    def apurar(self, ano: int, trimestre: int | None = None,
-               empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
+    def apurar(self, ano: int, trimestre: int | None = None, empresa_id: str = EMPRESA_PRINCIPAL_ID) -> dict:
         """Apura IRPJ/CSLL de um trimestre (ou do ano se trimestre=None) sobre o lucro real."""
         if trimestre and trimestre in TRIMESTRE_MESES:
             meses = [f"{ano}-{m}" for m in TRIMESTRE_MESES[trimestre]]
@@ -65,15 +64,16 @@ class ApuracaoLucroRealService:
                 # salários 5.1.1.01, encargos 5.1.1.02, materiais 5.1.1.06, dedutíveis = 5.x − ISS.
                 # Até 07/09/2026 lia '3.1.1' como receita — o capital social de R$ 500 mil.
                 from modules.financial.services.plano_contas_caixa import FILTRO_RAZAO, saldo
+
                 cur.execute(
                     f"""
                     SELECT
-                        -{saldo('4', '%%')},
-                        {saldo('5.2.2.01', '%%')},
-                        {saldo('5.1.1.01', '%%')},
-                        {saldo('5.1.1.02', '%%')},
-                        {saldo('5.1.1.06', '%%')},
-                        {saldo('5', '%%')} - {saldo('5.2.2.01', '%%')},
+                        -{saldo("4", "%%")},
+                        {saldo("5.2.2.01", "%%")},
+                        {saldo("5.1.1.01", "%%")},
+                        {saldo("5.1.1.02", "%%")},
+                        {saldo("5.1.1.06", "%%")},
+                        {saldo("5", "%%")} - {saldo("5.2.2.01", "%%")},
                         count(*)
                     FROM accounting_entries
                     WHERE {FILTRO_RAZAO} AND empresa_id=%s::uuid
@@ -135,7 +135,14 @@ class ApuracaoLucroRealService:
                 "total_irpj_csll": _q(total),
                 "carga_sobre_receita_pct": _q((total / receita * 100) if receita > 0 else Decimal("0")),
             },
-            "prejuizo_fiscal_compensavel": _q(prejuizo_fiscal),
+            # Renomeado em 27/09/2026. Chamava-se `prejuizo_fiscal_compensavel` e as DUAS
+            # palavras estavam erradas: não é FISCAL (sem a Parte A do LALUR, prejuízo fiscal
+            # e prejuízo contábil são coisas diferentes por definição) e não é COMPENSÁVEL
+            # (nada aqui aplica a trava de 30% do art. 15 da Lei 9.065/95 nem consulta estoque
+            # nenhum — isto é a foto do período, não o saldo). Quem compensa é
+            # `lalur_service.apurar_lucro_real`. Nenhuma linha do front lia a chave antiga;
+            # o único leitor vivo era o card do redesign, alterado no mesmo commit.
+            "prejuizo_contabil_do_periodo": _q(prejuizo_fiscal),
             "metodo": "lucro_real_razao",
             "base_lancamentos": n_lanc,
             "observacao": (
@@ -145,6 +152,7 @@ class ApuracaoLucroRealService:
                 "Serviços de Terceiros. IRPJ 15% + adicional 10% sobre o que exceder R$20k/mês; CSLL 9%. "
                 "Ressalvas: (1) faltam as NFS-e emitidas de março (bloqueadas na API da prefeitura) — "
                 "quando entrarem, a receita e o lucro sobem; (2) adições/exclusões do LALUR são do "
-                "contador; (3) PIS/COFINS apurados à parte."
+                "contador e vivem em `lalur_service` — enquanto a Parte A não for decidida, este "
+                "número é o lucro do RAZÃO, não a base tributável; (3) PIS/COFINS apurados à parte."
             ),
         }
