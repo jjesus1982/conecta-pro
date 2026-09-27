@@ -92,7 +92,20 @@ _CAMPOS_OBRIGATORIOS: dict[str, re.Pattern] = {
     "Data": re.compile(r"\*?data\*?\s*:?\*?\s*\d{1,2}[/.-]\d{1,2}", re.IGNORECASE),
     "Posto": re.compile(r"\*?posto\*?\s*:?\*?\s*\S", re.IGNORECASE),
     "Turno": re.compile(r"\*?turno\*?\s*:?\*?\s*\S", re.IGNORECASE),
-    "Agente": re.compile(r"agente\s+de\s+portaria", re.IGNORECASE),
+    # 🔴 27/09/2026 — EU CONTEI OS FORMATOS DEPOIS DE ACUSAR, E ACUSEI 4× DEMAIS.
+    #
+    # A 1ª versão exigia literalmente "agente de portaria". Medido nos 616 relatórios do banco:
+    #     300 "agente de portaria" · 247 "Portaria P1" · 122 "ronda:" · 94 "AGP" · 90 "P1:"
+    #     **74 sem nenhuma forma** — esses são os despadronizados de verdade.
+    # Ou seja: a régua chamava 316 de despadronizados quando eram 74. O dono viu 8 acusações no
+    # Gestão e pelo menos duas nomeavam o agente ("*Portaria P1*: Alexandre Silva", "AGP P1 :
+    # ALAN SILVA") — a régua reprovando o rótulo, não a ausência.
+    #
+    # ⭐ Padronizar exige CONTAR OS FORMATOS CERTOS primeiro. O que importa é o agente estar
+    # identificado, não o nome do campo.
+    "Agente": re.compile(
+        r"(agente\s*(de\s*portaria|ronda)|\bAGP\b|portaria\s*P[12]|\bP[12]\s*[:.\-]|ronda\s*:)",
+        re.IGNORECASE),
 }
 
 _SQL_NOVAS = """
