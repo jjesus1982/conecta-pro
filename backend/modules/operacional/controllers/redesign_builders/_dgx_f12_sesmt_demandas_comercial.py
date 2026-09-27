@@ -170,7 +170,32 @@ def _crm_split(crm_txt: str | None) -> tuple[str, str]:
     return (num.group(0) if num else ""), (uf.group(1) if uf else "AM")
 
 
+#: 🔴 27/09/2026 — DDL A CADA REQUEST CAUSAVA DEADLOCK, E O DANO CAÍA EM OUTRA TELA.
+#:
+#: `_ensure` rodava a lista `_DDL` inteira em TODA chamada — 15 pontos deste arquivo a chamam.
+#: `CREATE TABLE IF NOT EXISTS` não é barato: ele pega **AccessExclusiveLock** na relação mesmo
+#: quando a tabela já existe, e sob concorrência trava com quem está apenas LENDO.
+#:
+#: Medido: **13 deadlocks em 6 horas**. E o prejuízo aparecia longe da causa — o Hermes tentou
+#: `dashboard_operacional` (rota de OUTRO módulo, que responde 200 sozinha) e levou HTTP 500,
+#: porque o deadlock derrubou a transação de quem estava no meio do caminho.
+#:
+#: ⭐ O defeito não é o DDL: é o DDL ser reexecutado. Uma vez por processo basta, e a checagem
+#: de existência é uma leitura barata que não pega lock exclusivo nenhum.
+_PRONTO = False
+
+
 async def _ensure(db: AsyncSession) -> None:
+    global _PRONTO  # noqa: PLW0603
+    if _PRONTO:
+        return
+    # ⚠️ Confere por LEITURA antes de tentar criar. `to_regclass` não pega lock de escrita;
+    # `CREATE TABLE IF NOT EXISTS` pega, e era essa a diferença entre 13 deadlocks e zero.
+    ja_existe = (await db.execute(
+        text("SELECT to_regclass('dem_assuntos') IS NOT NULL"))).scalar()
+    if ja_existe:
+        _PRONTO = True
+        return
     for sql in _DDL:
         await db.execute(text(sql))
     for nome, area, sla in _SEED_ASSUNTOS:
@@ -264,6 +289,11 @@ async def _ensure(db: AsyncSession) -> None:
 
 
 # ── serviços (o oráculo importa estes) ──────────────────────────────────────────────────────
+
+    # ⚠️ Só no FIM: marcar pronto antes dos seeds faria uma falha no meio virar "já fiz",
+    # e o processo seguiria com tabela criada e semente faltando.
+    _PRONTO = True
+
 async def vencidos_por_funcao(db: AsyncSession) -> dict[str, dict]:
     """Por função (cargo normalizado): ativos, ids com último ASO vencido ou sem ASO realizado.
     Mesma régua da aba Exames / `asos_vencendo`: ÚLTIMO ASO da pessoa ativa, não todo ASO da história."""

@@ -118,12 +118,14 @@ async def levantar(db, *, dias: int = 30) -> dict[str, Any]:
     return {"total": len(linhas), "pessoas": list(por_pessoa.values())}
 
 
-async def classificar(db, *, dias: int = 30, teto_pessoas: int = 12) -> dict[str, Any]:
+async def classificar(db, *, dias: int = 30, teto_pessoas: int = 5) -> dict[str, Any]:
     """Pede ao Hermes a causa de cada pessoa, com prova, e devolve a lista decidível.
 
-    ⚠️ `teto_pessoas` existe porque o catálogo do Hermes é caro: 24 pessoas com histórico num
-    prompt só estourou o tempo em ensaio. Doze cabem, e o que sobra vai na próxima rodada —
-    dito em voz alta no retorno, nunca cortado em silêncio.
+    ⚠️ `teto_pessoas=5`, medido e não chutado. Com 10 pessoas o Hermes devolveu **resposta
+    VAZIA depois de 590 segundos**: modelo de raciocínio gasta o orçamento pensando e não sobra
+    para escrever — o mesmo defeito que em 25/09 matou o loop de aprendizado desta casa com um
+    `max_tokens=300`. Cinco cabem com folga, e a sobra vai na próxima rodada, DITA no retorno.
+    ⭐ Prova cara que não chega é prova que não existe.
     """
     import json as _j
 
