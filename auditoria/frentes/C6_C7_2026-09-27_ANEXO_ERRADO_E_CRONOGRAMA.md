@@ -16,12 +16,20 @@
 >
 > | empresa | tributo | venceu | valor |
 > |---|---|---|---|
-> | Eletronica | FGTS | 2026-09-18 | R$ 133,60 |
-> | Patrimonial | DAS | 2026-09-21 | R$ 18.399,33 |
-> | Patrimonial | FGTS | 2026-09-18 | R$ 7.981,94 |
+> | Eletronica | FGTS 7/2026 | 2026-08-20 (38 dias) | R$ 133,60 |
+> | Patrimonial | DAS 7/2026 | 2026-08-20 (38 dias) | R$ 17.048,87 |
+> | Patrimonial | FGTS 7/2026 | 2026-08-20 (38 dias) | R$ 7.883,53 |
+> | Eletronica | FGTS RESCISORIO 8/2026 | 2026-08-21 (37 dias) | R$ 1.078,01 |
+> | Eletronica | FGTS RESCISORIO 8/2026 | 2026-08-28 (30 dias) | R$ 97,29 |
+> | Eletronica | FGTS 8/2026 | 2026-09-18 (9 dias) | R$ 133,60 |
+> | Patrimonial | FGTS 8/2026 | 2026-09-18 (9 dias) | R$ 7.981,94 |
+> | Patrimonial | DAS 8/2026 | 2026-09-21 (6 dias) | R$ 18.399,33 |
+> | | **total em aberto com guia no sistema** | | **R$ 52.756,17** |
 >
-> Vieram dos PDFs que a Portte deixou no Onvio (código de barras dentro da obrigação). A
-> **GFD da Patrimonial nem constava no calendário** — vencida desde 18/09 sem aparecer. Os três
+> Vieram dos PDFs que a Portte deixou no Onvio (código de barras dentro da obrigação) — agora
+> também **julho** e as **duas GFD rescisórias** (Daniel, Keyson). O calendário **não tinha FGTS
+> nem CPP da Patrimonial**: as GFD dela de julho e agosto nunca apareceram como vencidas. Se
+> algum destes já foi pago pela Portte, me diga qual — não há comprovante no sistema. Os três
 > da Eletrônica (ISS, INSS, IRRF) seguem sem valor: não há guia deles em lugar nenhum do
 > sistema. Você **não pagou** nenhum — multa e juros correm por dia.
 >
