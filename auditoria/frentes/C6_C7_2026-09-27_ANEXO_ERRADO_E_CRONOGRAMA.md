@@ -18,14 +18,16 @@
 > |---|---|---|---|
 > | Eletronica | FGTS 7/2026 | 2026-08-20 (38 dias) | R$ 133,60 |
 > | Patrimonial | DAS 7/2026 | 2026-08-20 (38 dias) | R$ 17.048,87 |
-> | Patrimonial | FGTS 7/2026 | 2026-08-20 (38 dias) | R$ 7.883,53 |
+> | Patrimonial | FGTS 7/2026 | 2026-08-20 | ~~R$ 7.883,53~~ **pago 19/08 (Cora, PIX)** |
 > | Eletronica | FGTS RESCISORIO 8/2026 | 2026-08-21 (37 dias) | R$ 1.078,01 |
-> | Eletronica | FGTS RESCISORIO 8/2026 | 2026-08-28 (30 dias) | R$ 97,29 |
+> | Eletronica | FGTS RESCISORIO 8/2026 | 2026-08-28 | ~~R$ 97,29~~ **pago 28/08 (Cora, PIX)** |
 > | Eletronica | FGTS 8/2026 | 2026-09-18 (9 dias) | R$ 133,60 |
 > | Patrimonial | FGTS 8/2026 | 2026-09-18 (9 dias) | R$ 7.981,94 |
 > | Patrimonial | DAS 8/2026 | 2026-09-21 (6 dias) | R$ 18.399,33 |
-> | | **total em aberto com guia no sistema** | | **R$ 52.756,17** |
+> | | **total sem rastro de pagamento no extrato** | | **R$ 44.775,35** |
 >
+> Cruzei as oito com o extrato (Cora e Inter): valor exato, débito no dia — duas estão pagas
+> (riscadas acima). As **seis restantes não têm rastro em conta nenhuma do sistema**.
 > Vieram dos PDFs que a Portte deixou no Onvio (código de barras dentro da obrigação) — agora
 > também **julho** e as **duas GFD rescisórias** (Daniel, Keyson). O calendário **não tinha FGTS
 > nem CPP da Patrimonial**: as GFD dela de julho e agosto nunca apareceram como vencidas. Se
