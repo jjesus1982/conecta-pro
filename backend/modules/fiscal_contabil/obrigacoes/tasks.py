@@ -23,6 +23,13 @@ def task_sync_guias_drive() -> dict:
         rel["onvio"] = sync_guias_onvio()
     except Exception as exc:  # noqa: BLE001
         logger.warning("sync_guias_onvio falhou (o Drive já foi processado): %s", exc)
+    # Depois das guias, o extrato: obrigação com valor e débito exato na janela = cumprida.
+    try:
+        from modules.fiscal_contabil.obrigacoes.guias_drive_service import parear_obrigacoes_com_extrato
+
+        rel["pareamento"] = parear_obrigacoes_com_extrato()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("parear_obrigacoes_com_extrato falhou (guias já gravadas): %s", exc)
     logger.info(
         "fiscal.sync_guias_drive: ok=%s baixados=%s guias=%s anexos=%s ja=%s",
         rel.get("ok"),

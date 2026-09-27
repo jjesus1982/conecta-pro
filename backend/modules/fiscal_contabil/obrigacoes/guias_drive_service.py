@@ -796,3 +796,82 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False, dias: int
     db.close()
     rel["ok"] = not any(e.startswith("fatal") for e in rel["erros"])
     return rel
+
+
+def parear_obrigacoes_com_extrato(dias_depois: int = 60, minimo: float = 50.0) -> dict[str, Any]:
+    """Obrigação com valor + débito de VALOR EXATO no extrato na janela do vencimento = paga.
+
+    Não havia pareador nenhum: em 27/09/2026 o gate dizia «vencida sem guia» para a GFD da
+    Patrimonial de 07/2026 (R$ 7.883,53) que o extrato da Cora mostrava paga em 19/08 — o
+    sistema sabia do pagamento e da obrigação e nunca juntou os dois. Regra: mesmo valor
+    (±R$ 0,01), débito entre vencimento−5 e vencimento+`dias_depois`, valor ≥ `minimo`
+    (abaixo disso a coincidência de valor é barata demais para valer como prova). Grava
+    `status='cumprida'` e `pago_por` (id, data, conta) nas observações — o ato fica
+    auditável e reversível. Idempotente: só toca linhas ainda não cumpridas.
+    """
+    from sqlalchemy import text as _t  # noqa: PLC0415
+
+    rel: dict[str, Any] = {"pareadas": [], "sem_rastro": 0, "erros": []}
+    db = _db_sync()
+    try:
+        cands = db.execute(
+            _t(
+                "SELECT o.id::text, o.tipo, o.competencia_mes, o.competencia_ano, o.data_vencimento, o.valor_devido, "
+                "       t.id::text, t.transaction_date, t.bank_account_id::text, coalesce(t.description, t.memo, '') "
+                "  FROM fiscal_obligations o "
+                "  JOIN LATERAL (SELECT * FROM bank_transactions t WHERE t.amount < 0 "
+                "                 AND abs(abs(t.amount) - o.valor_devido) < 0.01 "
+                "                 AND t.transaction_date BETWEEN o.data_vencimento - 5 AND o.data_vencimento + :dd "
+                "               ORDER BY abs(t.transaction_date - o.data_vencimento) LIMIT 1) t ON true "
+                " WHERE o.active AND o.status <> 'cumprida' AND o.valor_devido IS NOT NULL AND o.valor_devido >= :mn"
+            ),
+            {"dd": dias_depois, "mn": minimo},
+        ).all()
+        for oid, tipo, m, a, _venc, v, tid, tdate, conta, desc in cands:
+            try:
+                db.execute(
+                    _t(
+                        "UPDATE fiscal_obligations SET status = 'cumprida', updated_at = NOW(), "
+                        "  observacoes = CASE WHEN observacoes ~ '^\\s*\\{' THEN "
+                        "     left(observacoes, length(observacoes) - 1) || ', \"pago_por\": ' || :pp || '}' "
+                        "     ELSE coalesce(observacoes, '') || ' | pago_por=' || :pp END "
+                        " WHERE id = CAST(:id AS uuid) AND status <> 'cumprida'"
+                    ),
+                    {
+                        "id": oid,
+                        "pp": json.dumps(
+                            {
+                                "bank_transaction_id": tid,
+                                "data": str(tdate),
+                                "conta": conta,
+                                "descricao": desc[:60],
+                                "regra": "valor exato na janela do vencimento",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                )
+                rel["pareadas"].append(
+                    {
+                        "tipo": tipo,
+                        "competencia": f"{m:02d}/{a}",
+                        "valor": float(v),
+                        "pago_em": str(tdate),
+                        "descricao": desc[:40],
+                    }
+                )
+                db.commit()
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                rel["erros"].append(f"{tipo} {m}/{a}: {exc}")
+        rel["sem_rastro"] = (
+            db.execute(
+                _t(
+                    "SELECT count(*) FROM fiscal_obligations WHERE active AND status <> 'cumprida' AND valor_devido IS NOT NULL"
+                )
+            ).scalar()
+            or 0
+        )
+    finally:
+        db.close()
+    return rel
