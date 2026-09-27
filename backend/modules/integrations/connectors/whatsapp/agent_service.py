@@ -8225,6 +8225,10 @@ async def gerar_resposta(conversation_id: int) -> str | None:
         # trecho — ele é concatenação de string DEPOIS do modelo.
         if not owner and papel != "funcionario" and not em_acompanhamento and not situacao_sensivel:
             texto = await _reforcar_cnpj(conversation_id, texto, rows)
+        # ⚠️ Nasce FORA do `if` de propósito: é lido no `registrar_caso` do fim da função, que
+        # roda em todo turno. Definido só dentro do ramo, viraria `UnboundLocalError` no
+        # caminho feliz — o mesmo erro que um `status` local me deu no ponto em 26/09.
+        _desfecho_forcado: str | None = None
         if not texto:
             # ⭐ 28/08/2026 — NINGUÉM FICA MUDO. Turno sem texto acontece por motivos
             # legítimos (teto de tokens, rodadas esgotadas, pedido sem ferramenta) e nenhum
@@ -8265,23 +8269,71 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             except Exception:  # noqa: BLE001
                 pass
 
-            if _repetiu:
-                return (
-                    "Falhei duas vezes seguidas aqui, Jordan — não vou repetir a mesma "
-                    "desculpa. Olhe o log do backend; alguma ferramenta deve estar "
-                    "quebrada."
-                    if owner
-                    else "Não estou conseguindo te atender direito agora. Vou chamar alguém "
-                    "da equipe para falar com você."
-                )
+            # 🔴 27/09/2026 — "ACHO QUE ME PERDI" ESTÁ PROIBIDO PARA QUEM NÃO É O DONO.
+            #
+            # Jordan: *"o josé luis tem que parar de enviar esta mensagem quando ele não souber
+            # o que responder … ou quando ele não entender"*.
+            #
+            # O gatilho foi a ÉLEN, às 07:40. Ela escreveu *"Dona Ericka chegou atrasada"* —
+            # frase clara, informação operacional que a casa QUER receber — e levou de volta
+            # *"acho que me perdi aqui. Pode me dizer em uma frase o que você precisa?"*. Pedir
+            # que ela reformule o que já estava claro devolve o problema para ela e sugere que a
+            # culpa é da pergunta dela.
+            #
+            # ⭐ E a redação era o menor dos defeitos: a frase era um BECO SEM SAÍDA. Confessava
+            # avaria ("me perdi"), não fazia nada, e oferecia "alguém da equipe" SEM passar para
+            # ninguém — a mesma promessa vazia do "vou chamar alguém" que estava logo aqui.
+            # Turno sem texto continua acontecendo por motivo legítimo; o que muda é que agora
+            # ele ENTREGA a quem resolve, e só então a frase relata o que já foi feito.
+            #
+            # ⚠️ Ao DONO a diagnose continua: ele pediu para saber quando a ferramenta quebra.
+            _dela = (next((c for d, c in rows if d == "in"), "") or "").strip()
+            _da_casa = papel in ("funcionario", "supervisor")
+            # o Hermes precisa saber que ESTE turno falhou, e as frases novas não confessam —
+            # então o fato vai explícito, não deduzido da prosa
+            _desfecho_forcado = "falhou"  # noqa: F841 — lido no registrar_caso do fim
+            _entreguei: str | None = None
+            if not owner:
+                if _da_casa and getattr(ident, "employee_id", None):
+                    # Gente da casa: vira PENDÊNCIA do DP com as palavras dela. `pendencia_dp`
+                    # deduplica por pessoa/assunto/dia, então repetir a queixa não cria fila.
+                    try:
+                        from modules.people_management.ponto import pendencia_dp  # noqa: PLC0415
 
-            texto = (
-                # ao dono: direto, nomeia a causa provável, e pede o que priorizar
-                # ⚠️ A CAUSA, não um menu de causas. A frase antiga dizia "pode ter
-                # faltado ferramenta OU passou do tamanho" — e o Jordan leu a primeira,
-                # foi conferir o cadastro do fornecedor e perdeu tempo num problema que
-                # não existia. Quando o número diz qual foi, a frase diz qual foi.
-                (
+                        async with async_session_factory() as _dbf:
+                            if (await pendencia_dp.abrir(
+                                _dbf, employee_id=str(ident.employee_id),
+                                nome=getattr(ident, "nome", None) or "(sem nome)",
+                                assunto="outro", relato=_dela,
+                                posto=getattr(ident, "posto", None),
+                            )).get("ok"):
+                                _entreguei = "dp"
+                    except Exception as _ef:  # noqa: BLE001
+                        logger.error("fallback: pendência de DP não nasceu — %s", _ef)
+                if not _entreguei:
+                    # De fora da casa, ou a pendência falhou: passa a CONVERSA para um humano.
+                    # `_tool_transferir_conversa` entrega no WhatsApp de quem tem competência,
+                    # não numa caixa do Chatwoot que ninguém abre.
+                    try:
+                        if (await _tool_transferir_conversa(
+                            {"setor": "operacional" if _da_casa else "comercial",
+                             "motivo": "o turno do agente terminou sem resposta"},
+                            conversation_id,
+                        )).get("ok"):
+                            _entreguei = "humano"
+                    except Exception as _et:  # noqa: BLE001
+                        logger.error("fallback: transferência não saiu — %s", _et)
+
+            if owner:
+                if _repetiu:
+                    return ("Falhei duas vezes seguidas aqui, Jordan — não vou repetir a mesma "
+                            "desculpa. Olhe o log do backend; alguma ferramenta deve estar "
+                            "quebrada.")
+                # ⚠️ A CAUSA, não um menu de causas. A frase antiga dizia "pode ter faltado
+                # ferramenta OU passou do tamanho" — e o Jordan leu a primeira, foi conferir o
+                # cadastro do fornecedor e perdeu tempo num problema que não existia. Quando o
+                # número diz qual foi, a frase diz qual foi.
+                texto = (
                     "Sua conversa ficou longa (a nota fiscal, as fotos e o histórico do dia) "
                     "e a resposta não coube no limite. Já subi o teto. Me repita a última "
                     "pergunta que agora vai."
@@ -8290,13 +8342,20 @@ async def gerar_resposta(conversation_id: int) -> str | None:
                     "ferramenta para o que você pediu. Me diga em uma frase o que é mais "
                     "urgente aí que eu ataco só isso."
                 )
-                if owner
-                # ao cliente: linguagem natural, SEM jargão de sistema e SEM promessa que
-                # talvez não se cumpra ("já te respondo" mente se o próximo turno falhar).
-                # Devolve a palavra a ele, que é o que segura a conversa viva.
-                else "Desculpa, acho que me perdi aqui. Pode me dizer em uma frase o que você "
-                "precisa? Se preferir falar com alguém da equipe, é só pedir."
-            )
+            elif _entreguei == "dp":
+                # Promessa que se cumpre: a pendência EXISTE quando esta frase sai.
+                texto = ("Recebi, e já passei para a supervisão com as suas palavras — está na "
+                         "lista deles para resolver. A resposta vem por aqui mesmo. Se for "
+                         "urgente e ninguém te procurar, me chama de novo.")
+            elif _entreguei == "humano":
+                texto = ("Já passei sua mensagem para uma pessoa da equipe — ela te responde "
+                         "por aqui mesmo, neste número.")
+            else:
+                # Nem entregar deu. Aí devolve a palavra — mas SEM confessar avaria e
+                # perguntando algo ESPECÍFICO. "Pode me dizer o que você precisa?" foi
+                # exatamente o que a Élen levou depois de ter dito o que precisava.
+                texto = ("Me diz se é sobre *ponto*, *escala*, *pagamento* ou outro assunto "
+                         "que eu já resolvo aqui.")
         # CASO (pergunta → resposta → desfecho): a única forma de o agente melhorar com o uso
         # em vez de só repetir o passado. Fecha o desfecho do turno ANTERIOR (o veredito chega
         # na mensagem seguinte, não nesta) e grava este. Nunca levanta — ver `hermes_ponte`.
@@ -8304,6 +8363,7 @@ async def gerar_resposta(conversation_id: int) -> str | None:
             conversation_id, rows, texto, _executadas,
             phone=(phone_row[0] if phone_row else None),
             via="hermes-socorro" if _socorrido else "jose-luis",
+            desfecho=_desfecho_forcado,
         )
         return texto or None
     except Exception as e:  # noqa: BLE001

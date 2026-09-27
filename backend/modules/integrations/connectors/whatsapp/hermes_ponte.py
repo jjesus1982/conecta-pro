@@ -186,7 +186,7 @@ def _ultima_entrada(rows: list) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 async def registrar_caso(
     conversation_id: int, rows: list, resposta: str | None, executadas=None,
-    phone: str | None = None, via: str = "jose-luis",
+    phone: str | None = None, via: str = "jose-luis", desfecho: str | None = None,
 ) -> None:
     """Grava o turno como caso e fecha o desfecho do caso anterior desta conversa.
 
@@ -205,7 +205,18 @@ async def registrar_caso(
 
         from core.database import async_session_factory  # noqa: PLC0415
 
-        desfecho = "falhou" if _DESCULPA.search(resposta) else "indefinido"
+        # ⭐ 27/09/2026 — QUEM SABE QUE FALHOU É QUEM FALHOU, não um regex na prosa.
+        #
+        # `_DESCULPA` nasceu para reconhecer as desculpas pelo TEXTO, e funcionava porque o
+        # texto sempre confessava ("acho que me perdi"). Ao parar de confessar — a frase agora
+        # diz "já passei para a supervisão", que é uma boa notícia para a pessoa — o mesmo turno
+        # continuaria sendo uma falha de capacidade do agente e o regex passaria a ler
+        # `indefinido`. O sinal de aprendizado morreria justamente onde há mais a aprender.
+        #
+        # ⚠️ Casar prosa para descobrir um fato que o chamador JÁ SABE é a armadilha de sempre:
+        # a observação erra enquanto a lógica está certa. Quem monta o fallback passa
+        # `desfecho="falhou"`; o regex fica como rede para os caminhos que não passam nada.
+        desfecho = desfecho or ("falhou" if _DESCULPA.search(resposta) else "indefinido")
         corpo = json.dumps(
             {
                 "p": pergunta[:_CORTE_PERGUNTA],
@@ -468,6 +479,11 @@ def demo() -> None:
     assert _DESCULPA.search("Desculpa, acho que me perdi aqui. Pode me dizer em uma frase")
     assert _DESCULPA.search("Não estou conseguindo te atender direito agora.")
     assert not _DESCULPA.search("Claro! O posto 12x36 diurno sai por orçamento.")
+    # ⭐ As frases NOVAS do fallback (27/09) não confessam avaria — e por isso o regex NÃO as
+    # pega. É o comportamento certo: elas chegam aqui com `desfecho="falhou"` explícito. Este
+    # controle existe para que ninguém "conserte" o regex achando que faltou uma linha.
+    assert not _DESCULPA.search("Recebi, e já passei para a supervisão com as suas palavras")
+    assert not _DESCULPA.search("Já passei sua mensagem para uma pessoa da equipe")
     # relevância: assunto igual pontua, assunto diferente não
     assert _palavras("quanto custa vigilante 12x36 no condomínio") & _palavras(
         "preciso de vigilante para o condomínio, qual valor")
