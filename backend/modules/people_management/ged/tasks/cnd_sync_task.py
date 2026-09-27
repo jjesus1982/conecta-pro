@@ -568,6 +568,7 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
     renovadas = 0
     puladas = 0
     erros = 0
+    tocadas = 0
     detalhes: list[dict] = []
 
     for cliente in clientes:
@@ -588,8 +589,38 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
                 puladas += 1
             else:
                 erros += 1
+                # Tentativa que FALHOU fica na linha. O oráculo `fiscal_agosto` define
+                # «renovação disparada» como a linha tocada depois de a janela de 10 dias
+                # abrir — e a Caixa barrando o IP (403) não tocava nada: em 27/09/2026 a CRF
+                # da Patrimonial (vence 04/10) estava vermelha como «vigia dormindo» com o
+                # vigia acordado e o marcador em system_configs dizendo o motivo. A linha
+                # passa a carregar a própria prova; o marcador continua para o checar_beats.
+                # Só dentro da janela: fora dela o guard de 7 dias leria o toque como
+                # «já tenho» e pularia a busca.
+                try:
+                    from sqlalchemy import text as _t  # noqa: PLC0415
 
-    if renovadas > 0:
+                    r = await db.execute(
+                        _t(
+                            "UPDATE ged_certidoes SET updated_at = NOW(), "
+                            "notes = CASE WHEN notes ~ '^\\s*\\{' "
+                            "  THEN jsonb_set(notes::jsonb, '{ultima_tentativa}', to_jsonb(CAST(:msg AS text)))::text "
+                            "  ELSE notes END "
+                            "WHERE cnpj = :cnpj AND document_type = :dt "
+                            "AND expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '10 days'"
+                        ),
+                        {
+                            "msg": f"{datetime.utcnow():%Y-%m-%d} {st}: "
+                            + str(resultado.get("mensagem") or resultado.get("motivo") or st)[:200],
+                            "cnpj": cnpj,
+                            "dt": CERTIDAO_CONFIG[tipo]["document_type"],
+                        },
+                    )
+                    tocadas += r.rowcount or 0
+                except Exception as exc:  # noqa: BLE001 — registrar a tentativa nunca derruba a busca
+                    logger.warning("[cnd] não registrou a tentativa de %s/%s: %s", tipo, cnpj, exc)
+
+    if renovadas > 0 or tocadas > 0:
         await db.commit()
 
     logger.info(

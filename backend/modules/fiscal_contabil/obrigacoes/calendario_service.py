@@ -62,9 +62,12 @@ _SQL_RECORRENTES = """
            max(o.nome)                                                              AS nome,
            (array_agg(extract(day FROM o.data_vencimento)::int
                       ORDER BY o.competencia_ano DESC, o.competencia_mes DESC))[1]  AS dia,
-           count(DISTINCT (o.competencia_ano, o.competencia_mes))                   AS meses
+           count(DISTINCT (o.competencia_ano, o.competencia_mes))                   AS meses,
+           min(o.competencia_ano * 12 + o.competencia_mes)                            AS primeira
       FROM fiscal_obligations o
      WHERE (CAST(:emp AS uuid) IS NULL OR o.empresa_id = CAST(:emp AS uuid))
+       AND o.active
+       AND o.tipo <> 'FGTS_RESCISORIO'  -- rescisão é EVENTO: duas no ano não fazem prazo mensal
        AND o.competencia_mes BETWEEN 1 AND 12
        AND (o.competencia_ano * 12 + o.competencia_mes) >= :desde
      GROUP BY o.tipo
@@ -104,9 +107,10 @@ async def recorrentes(db, empresa_id: str, ate_ano: int, ate_mes: int) -> list[d
     ganha da nossa inferência — sempre. [[feedback_portte_fonte_verdade]]
     """
     desde = (ate_ano * 12 + ate_mes) - _JANELA_HISTORICO
-    rows = (await db.execute(text(_SQL_RECORRENTES),
-                             {"emp": empresa_id, "desde": desde, "minimo": _MIN_OCORRENCIAS})).fetchall()
-    return [{"tipo": r[0], "nome": r[1], "dia": int(r[2] or 20), "meses": r[3]} for r in rows]
+    rows = (
+        await db.execute(text(_SQL_RECORRENTES), {"emp": empresa_id, "desde": desde, "minimo": _MIN_OCORRENCIAS})
+    ).fetchall()
+    return [{"tipo": r[0], "nome": r[1], "dia": int(r[2] or 20), "meses": r[3], "primeira": int(r[4])} for r in rows]
 
 
 async def primeira_atividade(db, empresa_id: str) -> int | None:
@@ -119,76 +123,124 @@ async def primeira_atividade(db, empresa_id: str) -> int | None:
 
     Evidência: nota emitida ou obrigação já declarada, o que vier primeiro.
     """
-    r = (await db.execute(text(
-        "SELECT least("
-        "  coalesce((SELECT min(extract(year from data_emissao)*12 + extract(month from data_emissao))"
-        "            FROM nfse_emitidas_nacional WHERE empresa_id = :e), 999999),"
-        "  coalesce((SELECT min(competencia_ano*12 + competencia_mes) FROM fiscal_obligations"
-        "            WHERE empresa_id = :e AND competencia_mes BETWEEN 1 AND 12), 999999))"),
-        {"e": empresa_id})).scalar()
+    r = (
+        await db.execute(
+            text(
+                "SELECT least("
+                "  coalesce((SELECT min(extract(year from data_emissao)*12 + extract(month from data_emissao))"
+                "            FROM nfse_emitidas_nacional WHERE empresa_id = :e), 999999),"
+                "  coalesce((SELECT min(competencia_ano*12 + competencia_mes) FROM fiscal_obligations"
+                "            WHERE empresa_id = :e AND active AND competencia_mes BETWEEN 1 AND 12), 999999))"
+            ),
+            {"e": empresa_id},
+        )
+    ).scalar()
     return None if r is None or int(r) >= 999999 else int(r)
 
 
-async def garantir_competencia(db, empresa_id: str, ano: int, mes: int,
-                               aplicar: bool = False) -> dict:
+async def garantir_competencia(db, empresa_id: str, ano: int, mes: int, aplicar: bool = False) -> dict:
     """Cria o que falta para uma competência. Devolve o que fez (ou faria)."""
     inicio = await primeira_atividade(db, empresa_id)
     if inicio is None or (ano * 12 + mes) < inicio:
-        return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}", "criadas": 0,
-                "motivo": "competência anterior à primeira atividade da empresa"}
+        return {
+            "empresa_id": empresa_id,
+            "competencia": f"{mes:02d}/{ano}",
+            "criadas": 0,
+            "motivo": "competência anterior à primeira atividade da empresa",
+        }
     tipos = await recorrentes(db, empresa_id, ano, mes)
 
     if not tipos:
-        return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}",
-                "criadas": 0, "motivo": "empresa sem histórico recorrente — nada a repetir"}
+        return {
+            "empresa_id": empresa_id,
+            "competencia": f"{mes:02d}/{ano}",
+            "criadas": 0,
+            "motivo": "empresa sem histórico recorrente — nada a repetir",
+        }
 
-    cond = (await db.execute(text(
-        "SELECT condominio_id::text FROM fiscal_obligations WHERE empresa_id = :e "
-        "ORDER BY created_at DESC LIMIT 1"), {"e": empresa_id})).scalar()
+    cond = (
+        await db.execute(
+            text(
+                "SELECT condominio_id::text FROM fiscal_obligations WHERE empresa_id = :e "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"e": empresa_id},
+        )
+    ).scalar()
     if not cond:
-        return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}",
-                "criadas": 0, "motivo": "sem condominio_id de referência"}
+        return {
+            "empresa_id": empresa_id,
+            "competencia": f"{mes:02d}/{ano}",
+            "criadas": 0,
+            "motivo": "sem condominio_id de referência",
+        }
 
     criadas = []
     for t in tipos:
-        ja = (await db.execute(text(
-            "SELECT 1 FROM fiscal_obligations WHERE empresa_id = :e AND tipo = :t "
-            "AND competencia_ano = :a AND competencia_mes = :m LIMIT 1"),
-            {"e": empresa_id, "t": t["tipo"], "a": ano, "m": mes})).first()
+        # Nada antes da primeira declaração DO TIPO. `primeira_atividade` é da EMPRESA: a
+        # Patrimonial opera desde 06/2026 (DAS), mas só recolhe FGTS desde 07/2026 — a GFD de
+        # 06/2026 diz "Empregador: CONECTAMAIS ELETRONICA · 54 trabalhadores". Em 27/09/2026,
+        # quando a 2ª GFD da Patrimonial chegou do Onvio e FGTS virou recorrente, este laço
+        # quis criar FGTS 06/2026 para ela — e o beat de dia 1 criaria. Repetir o que a
+        # empresa vem declarando começa onde ela começou a declarar.
+        if (ano * 12 + mes) < t["primeira"]:
+            continue
+        ja = (
+            await db.execute(
+                text(
+                    "SELECT 1 FROM fiscal_obligations WHERE empresa_id = :e AND tipo = :t "
+                    "AND competencia_ano = :a AND competencia_mes = :m LIMIT 1"
+                ),
+                {"e": empresa_id, "t": t["tipo"], "a": ano, "m": mes},
+            )
+        ).first()
         if ja:
             continue
         venc = _venc(ano, mes, t["dia"])
         if aplicar:
-            await db.execute(text(
-                "INSERT INTO fiscal_obligations "
-                "(id, condominio_id, empresa_id, tipo, nome, descricao, status, "
-                " competencia_mes, competencia_ano, data_vencimento, observacoes, active, "
-                " created_at, updated_at) "
-                "VALUES (gen_random_uuid(), :cond, :emp, :tipo, :nome, :desc, 'pendente', "
-                "        :mes, :ano, :venc, :obs, true, NOW(), NOW())"),
+            await db.execute(
+                text(
+                    "INSERT INTO fiscal_obligations "
+                    "(id, condominio_id, empresa_id, tipo, nome, descricao, status, "
+                    " competencia_mes, competencia_ano, data_vencimento, observacoes, active, "
+                    " created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :cond, :emp, :tipo, :nome, :desc, 'pendente', "
+                    "        :mes, :ano, :venc, :obs, true, NOW(), NOW())"
+                ),
                 # O nome vinha da última obrigação declarada, com o MÊS DELA dentro: "DAS Simples
                 # Nacional 07/2026" nascia para a competência 08/2026 (achado 07/09/2026).
-                {"cond": cond, "emp": empresa_id, "tipo": t["tipo"],
-                 "nome": f"{_re.sub(r'\s*\d{2}/\d{4}$', '', t['nome'] or t['tipo'])} {mes:02d}/{ano}",
-                 "desc": f"Competência {mes:02d}/{ano}",
-                 "mes": mes, "ano": ano, "venc": venc,
-                 "obs": (f"Prazo gerado pelo calendário recorrente (a empresa declarou este "
-                         f"tributo em {t['meses']} das últimas competências). VALOR NAO "
-                         f"PREENCHIDO: sai da apuração, não do calendário.")})
+                {
+                    "cond": cond,
+                    "emp": empresa_id,
+                    "tipo": t["tipo"],
+                    "nome": f"{_re.sub(r'\s*\d{2}/\d{4}$', '', t['nome'] or t['tipo'])} {mes:02d}/{ano}",
+                    "desc": f"Competência {mes:02d}/{ano}",
+                    "mes": mes,
+                    "ano": ano,
+                    "venc": venc,
+                    "obs": (
+                        f"Prazo gerado pelo calendário recorrente (a empresa declarou este "
+                        f"tributo em {t['meses']} das últimas competências). VALOR NAO "
+                        f"PREENCHIDO: sai da apuração, não do calendário."
+                    ),
+                },
+            )
         criadas.append({"tipo": t["tipo"], "vencimento": venc.isoformat()})
-    return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}",
-            "criadas": len(criadas), "detalhe": criadas}
+    return {"empresa_id": empresa_id, "competencia": f"{mes:02d}/{ano}", "criadas": len(criadas), "detalhe": criadas}
 
 
-async def garantir_ate_hoje(db, hoje: date, meses_atras: int = 6,
-                            aplicar: bool = False) -> dict:
+async def garantir_ate_hoje(db, hoje: date, meses_atras: int = 6, aplicar: bool = False) -> dict:
     """Fecha o calendário de todas as empresas até a última competência ENCERRADA.
 
     A competência do mês corrente não entra: ela ainda não fechou, e criar obrigação de mês
     aberto encheria a tela de prazo que ainda não existe.
     """
-    empresas = [r[0] for r in (await db.execute(text(
-        "SELECT id::text FROM empresas ORDER BY coalesce(nome_fantasia, razao_social)"))).fetchall()]
+    empresas = [
+        r[0]
+        for r in (
+            await db.execute(text("SELECT id::text FROM empresas ORDER BY coalesce(nome_fantasia, razao_social)"))
+        ).fetchall()
+    ]
     ult_ano, ult_mes = (hoje.year - 1, 12) if hoje.month == 1 else (hoje.year, hoje.month - 1)
     base = ult_ano * 12 + ult_mes
 
@@ -241,11 +293,17 @@ async def sem_guia(db, desde: date) -> list[dict]:
     Vazio é resultado BOM e verdadeiro — não é "não achei nada, deve estar tudo certo".
     """
     rows = (await db.execute(text(_SQL_SEM_GUIA), {"desde": desde})).fetchall()
-    return [{"empresa": r[0], "tipo": r[1], "competencia": r[2],
-             "vencimento": r[3].isoformat() if r[3] else None,
-             "dias_vencida": int(r[4]) if r[4] is not None else None,
-             "status": r[5]}
-            for r in rows]
+    return [
+        {
+            "empresa": r[0],
+            "tipo": r[1],
+            "competencia": r[2],
+            "vencimento": r[3].isoformat() if r[3] else None,
+            "dias_vencida": int(r[4]) if r[4] is not None else None,
+            "status": r[5],
+        }
+        for r in rows
+    ]
 
 
 if __name__ == "__main__":

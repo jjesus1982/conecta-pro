@@ -112,7 +112,7 @@ def _sem_acento(s: str) -> str:
 class GuiaParseada:
     """Resultado do parse de um PDF do pacote."""
 
-    tipo: str  # FGTS | FGTS_CONSIGNADO | INSS | DAS | ISS | DCTFWEB_DECLARACAO | ANEXO | nao_classificado
+    tipo: str  # FGTS | FGTS_CONSIGNADO | INSS | DAS | ISS | DCTFWEB_DECLARACAO | DCTFWEB_RECIBO | ANEXO | nao_classificado
     competencia_mes: int | None = None
     competencia_ano: int | None = None
     valor: float | None = None
@@ -230,6 +230,31 @@ def parse_pdf_guia(caminho: str, nome_arquivo: str) -> GuiaParseada:
             detalhe={"relatorio": "GFD", "tomadores": sorted(set(tomadores))},
         )
 
+    # ── DCTFWeb: RECIBO DE ENTREGA — débito apurado e saldo a pagar POR TRIBUTO ──
+    # É o documento que a RFB chama de «confissão de dívida». O branch seguinte (declaração)
+    # exige «Número do Recibo»; o recibo de entrega escreve «Nº do recibo de entrega», e por
+    # isso 17 recibos do Onvio dormiam em nao_classificados até 27/09/2026 — com o INSS e o
+    # IRRF de 07 e 08/2026 dentro, enquanto o painel dizia «prazo cego» para os mesmos meses.
+    # Layout (pymupdf): cabeçalho «Tributos / Débitos Apurados / Saldo a Pagar», depois
+    # trincas «nome \n R$ débito \n R$ saldo», fechando em TOTAL.
+    if "Recibo de Entrega da Declara" in texto and "DCTFWeb" in texto:
+        rec = (re.search(r"N[ºo°] do recibo de entrega\s*\n?\s*(\d+)", texto) or [None, None])[1]
+        transm = (re.search(r"(\d{2}/\d{2}/\d{4}) \d{2}:\d{2}:\d{2}", texto) or [None, None])[1]
+        retif = bool(re.search(r"Declara[cç][aã]o Retificadora\s*\n?\s*Sim", texto))
+        bloco = texto.split("Saldo a Pagar", 1)[-1].split("O presente Recibo", 1)[0]
+        tributos = {
+            nome.strip(): {"debito": _dec(deb) or 0.0, "saldo": _dec(sal) or 0.0}
+            for nome, deb, sal in re.findall(r"\n([^\n]+?)\nR\$ " + _VAL + r"\nR\$ " + _VAL, "\n" + bloco)
+        }
+        return GuiaParseada(
+            empresa_id=_emp,
+            tipo="DCTFWEB_RECIBO",
+            competencia_mes=mes,
+            competencia_ano=ano,
+            numero_recibo=(rec or "").lstrip("0") or rec,
+            detalhe={"transmissao": transm, "retificadora": retif, "tributos": tributos},
+        )
+
     # ── DCTFWeb (declaração/resumos) — evidência de transmissão ──
     if "DCTFWeb" in texto and "N" in texto and re.search(r"N[uú]mero do Recibo", texto):
         recibo = (re.search(r"N[uú]mero do Recibo\s*\n?\s*(\d+)", texto) or [None, None])[1]
@@ -318,6 +343,14 @@ def _db_sync():
     return SyncSessionLocal()
 
 
+def _corte_da_empresa(db, empresa_id: str) -> date:
+    """Corte contábil da EMPRESA (decisão do dono: o que veio antes foi vivido fora do sistema)."""
+    return db.execute(
+        _sql("SELECT coalesce(corte_contabil, DATE '2026-08-01') FROM empresas WHERE id = CAST(:e AS uuid)"),
+        {"e": empresa_id},
+    ).scalar() or date(2026, 8, 1)
+
+
 def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
     """Upsert em fiscal_obligations com o dado REAL da guia. Retorna a ação."""
     if not (g.competencia_mes and g.competencia_ano):
@@ -375,6 +408,14 @@ def _upsert_obrigacao(db, g: GuiaParseada, meta: dict[str, Any]) -> str:
             },
         )
         return "atualizada_divergente" if divergencia else "atualizada"
+
+    # Guia de antes do corte contábil NÃO nasce como obrigação. Medido em 27/09/2026: uma
+    # passada de 60 dias no Onvio criou 17 linhas «pendente» de 03/2024 a 01/2026 (DAS do
+    # Simples de 2025, rescisórias de 09/2025); o calendário leu DAS como recorrente e quis
+    # DAS 03–06/2026 para uma empresa de Lucro Real. O documento fica no onvio_documents;
+    # linha existente ainda recebe o valor do documento (acima) — só o nascimento é barrado.
+    if g.vencimento and g.vencimento < _corte_da_empresa(db, emp):
+        return "antes_do_corte"
 
     db.execute(
         _sql(
@@ -551,6 +592,143 @@ def _marcar_acessorias_cumpridas(db, g: GuiaParseada, meta: dict[str, Any]) -> l
 
 
 # Donos do fiscal que recebem o sino (Jordan + Pyetra) — ver [[project_financeiro_auditoria_organizacao]]
+_TRIBUTOS_INSS = (
+    "Contribuição Previdenciária Segurados",
+    "Contribuição Previdenciária Patronal",
+    "Contribuição para Outras Entidades e Fundos",
+)
+
+
+def aplicar_recibo_dctfweb(db, g: GuiaParseada, meta: dict[str, Any]) -> dict[str, Any]:
+    """Recibo de entrega da DCTFWeb → acessórias cumpridas + INSS/IRRF com o valor do DOCUMENTO.
+
+    O recibo diz, por tributo, o débito apurado e o saldo a pagar. Antes de 27/09/2026 isso
+    era lido À MÃO (a nota do INSS 07/2026 da Eletrônica cita o recibo 0000050000514331309,
+    débito R$ 1.758,05, saldo R$ 0,00) e só quando alguém abria o PDF; o de 08/2026 nunca
+    foi aberto, e INSS e IRRF de 08 seguiam «SEM VALOR (prazo cego)» no oráculo.
+
+    Regras, e onde cada uma foi decidida:
+      • `valor_devido` = SALDO A PAGAR (o que a DARF cobra), não o débito. O débito e o que
+        o cobriu ficam na observação — o número carrega a prova.
+      • saldo R$ 0,00 → `cumprida`: ou nada foi apurado, ou o débito foi quitado na própria
+        declaração por crédito/retenção (Lei 9.711). Nos dois casos não há DARF a pagar; o
+        oráculo `fiscal_agosto` já dizia «valor ZERO em aberto: marque como cumprida».
+      • linha que não existe só nasce se houve débito (> 0): prazo é do calendário, valor é
+        do documento; débito zero sem prazo não é obrigação.
+      • idempotente pelo marcador `dctfweb_recibo=<nº>` na observação — o beat reprocessa o
+        Onvio todo dia e a nota não pode crescer.
+    """
+    if not (g.competencia_mes and g.competencia_ano and g.numero_recibo):
+        return {"arquivo": meta.get("nome"), "motivo": "sem competência ou número de recibo"}
+    emp = g.empresa_id or EMPRESA_PRINCIPAL
+    mes, ano = g.competencia_mes, g.competencia_ano
+    a, m = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
+    vencimento = date(a, m, 20)
+    # Nada antes do corte contábil da EMPRESA (decisão do dono: jan–jul/2026 foram vividos
+    # fora do sistema). O Onvio guarda recibos desde 07/2025; aplicá-los criaria INSS de 2025,
+    # `primeira_atividade` recuaria e o calendário inventaria um prazo por tipo por mês —
+    # 42 linhas no dia 1. Recibo antigo é lido, e deixado onde está.
+    corte = _corte_da_empresa(db, emp)
+    if vencimento < corte:
+        return {
+            "arquivo": meta.get("nome"),
+            "recibo": g.numero_recibo,
+            "competencia": f"{mes:02d}/{ano}",
+            "motivo": f"antes do corte contábil ({corte})",
+        }
+    origem = f"em {g.detalhe.get('transmissao')}; fonte {meta.get('fonte', 'drive')} {meta.get('nome')}"
+    marcadas = marcar_acessorias(db, emp, mes, ano, g.numero_recibo, origem)
+
+    trib = g.detalhe.get("tributos") or {}
+
+    def _soma(chave: str, *nomes: str) -> float:
+        return round(sum(float((trib.get(n) or {}).get(chave) or 0) for n in nomes), 2)
+
+    grupos = {
+        "INSS": (_soma("debito", *_TRIBUTOS_INSS), _soma("saldo", *_TRIBUTOS_INSS)),
+        "IRRF": (_soma("debito", "IRRF"), _soma("saldo", "IRRF")),
+    }
+    marca = f"dctfweb_recibo={g.numero_recibo}"
+    aplicados = []
+    for tipo, (debito, saldo) in grupos.items():
+        row = db.execute(
+            _sql(
+                "SELECT id, status, observacoes LIKE :marca FROM fiscal_obligations "
+                "WHERE tipo=:t AND competencia_mes=:m AND competencia_ano=:a AND empresa_id=:emp AND active=true "
+                "ORDER BY created_at LIMIT 1"
+            ),
+            {"t": tipo, "m": mes, "a": ano, "emp": emp, "marca": f"%{marca}%"},
+        ).first()
+        if row and row[2]:
+            aplicados.append({"tipo": tipo, "acao": "ja_aplicada"})
+            continue
+        if not row and debito == 0:
+            continue
+        quitacao = (
+            " — quitado na própria declaração (crédito/retenção), nenhuma DARF a pagar"
+            if debito > 0 and saldo == 0
+            else (" — nada apurado" if debito == 0 else " — DARF a pagar")
+        )
+        nota = (
+            f"Valor do DOCUMENTO do emissor (Recibo DCTFWeb {g.numero_recibo}"
+            f"{', retificadora' if g.detalhe.get('retificadora') else ''}, transmitida "
+            f"{g.detalhe.get('transmissao')}): {tipo} débitos apurados R$ {debito:,.2f}, saldo a pagar "
+            f"R$ {saldo:,.2f}{quitacao}. {marca}"
+        )
+        status = "cumprida" if saldo == 0 else "pendente"
+        if row:
+            db.execute(
+                _sql(
+                    "UPDATE fiscal_obligations SET valor_devido=:v, "
+                    "numero_recibo=COALESCE(numero_recibo, :rec), "
+                    "status=CASE WHEN status='cumprida' THEN status ELSE :st END, "
+                    "observacoes=COALESCE(observacoes || ' | ', '') || :nota, updated_at=NOW() WHERE id=:id"
+                ),
+                {"v": saldo, "rec": g.numero_recibo, "st": status, "nota": nota, "id": row[0]},
+            )
+            aplicados.append({"tipo": tipo, "debito": debito, "saldo": saldo, "status": status, "acao": "atualizada"})
+        else:
+            db.execute(
+                _sql(
+                    "INSERT INTO fiscal_obligations (id, condominio_id, empresa_id, tipo, nome, descricao, status, "
+                    "competencia_mes, competencia_ano, data_vencimento, valor_devido, numero_recibo, "
+                    "observacoes, created_at, updated_at, active) "
+                    "SELECT gen_random_uuid(), condominio_id, :emp, :t, :n, :d, :st, :m, :a, :venc, :v, :rec, "
+                    ":obs, NOW(), NOW(), true FROM fiscal_obligations LIMIT 1"
+                ),
+                {
+                    "emp": emp,
+                    "t": tipo,
+                    "n": f"{NOMES.get(tipo, tipo)} {mes:02d}/{ano}",
+                    "d": f"Recibo DCTFWeb — {meta.get('nome')}",
+                    "st": status,
+                    "m": mes,
+                    "a": ano,
+                    "venc": vencimento,
+                    "v": saldo,
+                    "rec": g.numero_recibo,
+                    "obs": json.dumps(
+                        {
+                            "fonte": meta.get("fonte", "drive_portte"),
+                            "drive_file_id": meta.get("file_id"),
+                            "arquivo": meta.get("nome"),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + " | "
+                    + nota,
+                },
+            )
+            aplicados.append({"tipo": tipo, "debito": debito, "saldo": saldo, "status": status, "acao": "criada"})
+    return {
+        "arquivo": meta.get("nome"),
+        "recibo": g.numero_recibo,
+        "competencia": f"{mes:02d}/{ano}",
+        "acessorias": marcadas,
+        "tributos": aplicados,
+    }
+
+
 FISCAL_OWNERS_EMAILS = ("jjesus@conectamais.pro", "pjesus@conectamais.pro")
 
 
@@ -678,6 +856,8 @@ def sync_guias_drive(forcar: bool = False) -> dict[str, Any]:
             elif g.tipo == "DCTFWEB_DECLARACAO":
                 marcadas = _marcar_acessorias_cumpridas(db, g, meta)
                 rel["acessorias_cumpridas"].append({"arquivo": nome, "recibo": g.numero_recibo, "marcadas": marcadas})
+            elif g.tipo == "DCTFWEB_RECIBO":
+                rel["acessorias_cumpridas"].append(aplicar_recibo_dctfweb(db, g, meta))
             elif g.tipo == "ANEXO":
                 rel["anexos"].append(
                     {"arquivo": nome, "relatorio": g.detalhe.get("relatorio"), "tomadores": g.detalhe.get("tomadores")}
@@ -787,6 +967,8 @@ def sync_guias_onvio(mes_ref: str | None = None, forcar: bool = False, dias: int
                 )
             elif g.tipo == "DCTFWEB_DECLARACAO":
                 rel["acessorias"] += _marcar_acessorias_cumpridas(db, g, meta)
+            elif g.tipo == "DCTFWEB_RECIBO":
+                rel.setdefault("recibos_dctfweb", []).append(aplicar_recibo_dctfweb(db, g, meta))
             else:
                 rel["nao_classificados"].append(nome)
             db.commit()

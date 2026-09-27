@@ -20,6 +20,7 @@ O que este oráculo trava:
 Roda:
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_calendario_fiscal.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ from core.database import async_session_factory  # noqa: E402
 from modules.fiscal_contabil.obrigacoes.calendario_service import (  # noqa: E402
     _venc,
     garantir_ate_hoje,
+    garantir_competencia,
     primeira_atividade,
     recorrentes,
 )
@@ -58,22 +60,76 @@ async def main() -> None:
         print("OK idempotente: segunda passada cria zero")
 
         # ── (c) nada antes da primeira atividade da empresa ──
-        for eid, nome in (await db.execute(text(
-            "SELECT id::text, coalesce(nome_fantasia, razao_social) FROM empresas"))).fetchall():
+        for eid, nome in (
+            await db.execute(text("SELECT id::text, coalesce(nome_fantasia, razao_social) FROM empresas"))
+        ).fetchall():
             inicio = await primeira_atividade(db, eid)
             if inicio is None:
                 continue
-            antes = (await db.execute(text(
-                "SELECT count(*) FROM fiscal_obligations WHERE empresa_id::text = :e "
-                "AND competencia_mes BETWEEN 1 AND 12 "
-                "AND (competencia_ano * 12 + competencia_mes) < :i"), {"e": eid, "i": inicio})).scalar()
+            antes = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM fiscal_obligations WHERE empresa_id::text = :e AND active "
+                        "AND competencia_mes BETWEEN 1 AND 12 "
+                        "AND (competencia_ano * 12 + competencia_mes) < :i"
+                    ),
+                    {"e": eid, "i": inicio},
+                )
+            ).scalar()
             assert not antes, (
                 f"{nome}: {antes} obrigação(ões) em competência ANTERIOR à primeira atividade "
                 f"({(inicio - 1) % 12 + 1:02d}/{(inicio - 1) // 12}) — tributo de mês sem operação"
             )
             recs = await recorrentes(db, eid, hoje.year, hoje.month)
-            print(f"OK {nome[:26]:<26} primeira atividade "
-                  f"{(inicio - 1) % 12 + 1:02d}/{(inicio - 1) // 12}, {len(recs)} recorrente(s)")
+            print(
+                f"OK {nome[:26]:<26} primeira atividade "
+                f"{(inicio - 1) % 12 + 1:02d}/{(inicio - 1) // 12}, {len(recs)} recorrente(s)"
+            )
+
+            # ── (c2) nada antes da primeira declaração DO TIPO ──
+            # A empresa pode operar antes de recolher um tributo: a Patrimonial emite nota
+            # desde 06/2026 e só tem folha (FGTS) desde 07/2026. Em 27/09/2026 o gerador quis
+            # FGTS 06/2026 para ela — obrigação inventada, que o beat de dia 1 gravaria.
+            # Regra: para cada recorrente, o mês ANTERIOR à primeira declaração dele não
+            # pode propor o tipo (a menos que caia antes da primeira atividade, quando o
+            # gerador já recusa tudo — o que também é o esperado).
+            for t in recs:
+                if t["primeira"] <= inicio:
+                    continue
+                ano, mes = divmod(t["primeira"] - 2, 12)
+                mes += 1
+                proposta = await garantir_competencia(db, eid, ano, mes, aplicar=False)
+                tipos = {d["tipo"] for d in proposta.get("detalhe", [])}
+                assert t["tipo"] not in tipos, (
+                    f"{nome}: gerador propõe {t['tipo']} para {mes:02d}/{ano}, ANTES da primeira "
+                    f"declaração desse tipo ({(t['primeira'] - 1) % 12 + 1:02d}/{(t['primeira'] - 1) // 12})"
+                )
+                # `primeira` é a primeira NA JANELA de 6 meses do recorrente, não a absoluta.
+                print(
+                    f"OK {nome[:26]:<26} {t['tipo']}: nada proposto para {mes:02d}/{ano} "
+                    f"(1ª na janela {(t['primeira'] - 1) % 12 + 1:02d}/{(t['primeira'] - 1) // 12})"
+                )
+
+            # ── (c3) evento não vira prazo mensal ──
+            assert not [t for t in recs if t["tipo"] == "FGTS_RESCISORIO"], (
+                f"{nome}: FGTS_RESCISORIO virou recorrente — duas rescisões no semestre não fazem prazo mensal"
+            )
+
+        # ── (e) o puxador não pare obrigação ANTES do corte da empresa ──
+        # 27/09/2026: uma passada de 60 dias no Onvio criou 17 linhas de 03/2024 a 01/2026.
+        # Desde a guarda, guia antiga é lida e deixada no onvio_documents.
+        paridas = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM fiscal_obligations o JOIN empresas e ON e.id = o.empresa_id "
+                    " WHERE o.active AND o.created_at >= DATE '2026-09-28' "
+                    '   AND o.observacoes LIKE \'%"fonte": "onvio_portte"%\' '
+                    "   AND o.data_vencimento < coalesce(e.corte_contabil, DATE '2026-08-01')"
+                )
+            )
+        ).scalar()
+        assert not paridas, f"{paridas} obrigação(ões) nascida(s) do Onvio com vencimento anterior ao corte da empresa"
+        print("OK puxador do Onvio não pare obrigação antes do corte")
 
         # ── (d) prazo gerado não INVENTA valor — mas pode RECEBER um, do documento ──
         #
@@ -85,15 +141,20 @@ async def main() -> None:
         #
         # O que continua proibido, e é o ponto: valor que apareceu SEM documento. Então a
         # linha só passa se a observação registrar de onde o número veio.
-        sem_fonte = (await db.execute(text(
-            "SELECT count(*) FROM fiscal_obligations "
-            " WHERE observacoes LIKE '%calendário recorrente%' "
-            "   AND coalesce(valor_devido, 0) <> 0 "
-            "   AND observacoes NOT ILIKE '%guia%' "
-            "   AND observacoes NOT ILIKE '%DAM %' "
-            "   AND observacoes NOT ILIKE '%recibo%' "
-            "   AND observacoes NOT ILIKE '%NFS-e%' "
-            "   AND coalesce(numero_recibo, '') = ''"))).scalar()
+        sem_fonte = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM fiscal_obligations "
+                    " WHERE observacoes LIKE '%calendário recorrente%' "
+                    "   AND coalesce(valor_devido, 0) <> 0 "
+                    "   AND observacoes NOT ILIKE '%guia%' "
+                    "   AND observacoes NOT ILIKE '%DAM %' "
+                    "   AND observacoes NOT ILIKE '%recibo%' "
+                    "   AND observacoes NOT ILIKE '%NFS-e%' "
+                    "   AND coalesce(numero_recibo, '') = ''"
+                )
+            )
+        ).scalar()
         assert not sem_fonte, (
             f"{sem_fonte} prazo(s) do calendário com valor e SEM fonte declarada — "
             f"o quanto sai da apuração ou do documento, nunca do calendário"
@@ -105,9 +166,14 @@ async def main() -> None:
         assert _venc(2026, 12, 15) == date(2027, 1, 15)
         assert _venc(2026, 1, 31) == date(2026, 2, 28), "dia 31 em fevereiro"
 
-        prox = (await db.execute(text(
-            "SELECT count(*) FROM fiscal_obligations "
-            "WHERE data_vencimento BETWEEN CURRENT_DATE AND CURRENT_DATE + 30"))).scalar()
+        prox = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM fiscal_obligations "
+                    "WHERE data_vencimento BETWEEN CURRENT_DATE AND CURRENT_DATE + 30"
+                )
+            )
+        ).scalar()
         print(f"OK vencendo nos próximos 30 dias: {prox}")
 
     print("TEST oraculo_calendario_fiscal PASS")
