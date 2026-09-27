@@ -596,8 +596,11 @@ async def buscar_todas_certidoes(db: Any) -> dict[str, Any]:
         from sqlalchemy import text as _text  # noqa: PLC0415
 
         motivos = "; ".join(
-            str(d.get("mensagem", ""))[:90] for d in detalhes if isinstance(d, dict) and d.get("status") == "erro"
-        )[:400]
+            f"{d.get('tipo', '?')}: "
+            + str(d.get("mensagem") or d.get("motivo") or d.get("detalhe") or d.get("erro") or d.get("status"))[:110]
+            for d in detalhes
+            if isinstance(d, dict) and d.get("status") not in ("criada", "atualizada", "pulada")
+        )[:600]
         marca = f"{datetime.utcnow():%Y-%m-%d} renovadas={renovadas} puladas={puladas} erros={erros}" + (
             f" · {motivos}" if motivos else ""
         )
