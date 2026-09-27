@@ -19,15 +19,35 @@ router = APIRouter(prefix="/financial/custeio", tags=["Custeio ABC"])
 
 # CCT SINDECOMPRESTS 2026 (agentes de portaria/serviços, NÃO vigilância)
 PISO_CATEGORIA = 1670.00  # menor piso de cct_cargos
-from modules.financial.services.encargos import ENCARGOS_PCT, encargo_pct  # noqa: F401 (ponto único por regime)
+from modules.financial.services.encargos import (  # noqa: E402,F401 (ponto único por regime)
+    ENCARGOS_PCT,
+    encargo_pct,
+    encargo_pct_da_empresa,
+)
+
 VR_DIA = 22.00
 DIAS_UTEIS = 22
 VT_MEDIO = 150.0
 REPASSE_PCT = 0.075  # repasse contratual obrigatório CCT Cláusula 2ª §3º
-# Custo all-in/posto CLT (portaria/limpeza = Patrimonial/Simples Anexo III) × (1 + repasse 7,5%)
-CUSTO_CLT_POSTO = (
-    PISO_CATEGORIA * (1 + encargo_pct("simples_nacional")) + VR_DIA * DIAS_UTEIS + VT_MEDIO
-) * (1 + REPASSE_PCT)
+#: Empresa dona do posto de mão de obra. Estava implícita na string literal
+#: `encargo_pct("simples_nacional")`, o que amarrava a precificação a uma empresa que
+#: ninguém tinha declarado.
+EMPRESA_MAO_DE_OBRA = "7d79ed12-d480-4906-b2e0-2b2c4d299bab"  # CONECTAMAIS PATRIMONIAL
+
+
+def custo_clt_posto() -> float:
+    """Custo all-in de um posto CLT × (1 + repasse 7,5% da CCT, cláusula 2ª §3º).
+
+    Era constante de MÓDULO, calculada no import. Virou função por dois motivos:
+    `encargo_pct` agora RECUSA Simples sem anexo determinado (e recusa no import
+    derrubaria o backend inteiro), e porque o encargo passa a vir do cadastro da
+    empresa em vez de uma string escrita à mão.
+    """
+    return (PISO_CATEGORIA * (1 + encargo_pct_da_empresa(EMPRESA_MAO_DE_OBRA)) + VR_DIA * DIAS_UTEIS + VT_MEDIO) * (
+        1 + REPASSE_PCT
+    )
+
+
 MARGEM_TARGET = 35.0
 MARGEM_MINIMA = 20.0
 
@@ -204,8 +224,8 @@ async def get_custeio_abc(
             ),
             "cct_2026": {
                 "piso_base_cct": PISO_CATEGORIA,
-                "custo_all_in_posto": round(CUSTO_CLT_POSTO, 2),
-                "encargos_pct": round(encargo_pct("simples_nacional") * 100, 2),
+                "custo_all_in_posto": round(custo_clt_posto(), 2),
+                "encargos_pct": round(encargo_pct_da_empresa(EMPRESA_MAO_DE_OBRA) * 100, 2),
                 "repasse_pct": round(REPASSE_PCT * 100, 2),
             },
             "custo_por_categoria": [
@@ -249,8 +269,8 @@ async def get_custeio_contratos(
 
             if tipo in ("portaria", "limpeza", "jardinagem"):
                 # Estimar nº de postos pelo ticket (portaria ~R$3.300/posto)
-                postos_est = max(1, round(receita / CUSTO_CLT_POSTO))
-                custo_direto = CUSTO_CLT_POSTO * postos_est
+                postos_est = max(1, round(receita / custo_clt_posto()))
+                custo_direto = custo_clt_posto() * postos_est
             elif tipo == "portaria_remota":
                 custo_direto = 3270.0
             elif tipo in ("seguranca_eletronica", "manutencao_cftv"):
