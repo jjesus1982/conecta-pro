@@ -120,6 +120,9 @@ app.conf.task_routes = {
     "operacional.check_late_employees": {"queue": "operacional"},
     "operacional.check_pending_approvals": {"queue": "operacional"},
     "operacional.lembrete_ponto_whatsapp": {"queue": "operacional"},
+    # ⚠️ fila `operacional` porque ela TEM consumidor comprovado (o lembrete sai por ela todo
+    # dia). Fila sem worker aceita a mensagem e nunca executa — foi o que aconteceu com `ged`.
+    "ponto.resumo_diario_aprovadores": {"queue": "operacional"},
     # A RESPOSTA do José Luís ao Jordan/cliente: fila `webhooks` (prioridade 8, consumidor
     # MEDIDO vivo no worker `integrations`). Sem rota explícita ela cairia em `gov.batch`,
     # a fila dos lotes de governo — resposta de gente atrás de fila de lote é silêncio com
@@ -545,6 +548,15 @@ app.conf.beat_schedule = {
     "operacional-lembrete-ponto-whatsapp": {
         "task": "operacional.lembrete_ponto_whatsapp",
         "schedule": 60.0,
+        "options": {"queue": "operacional"},
+    },
+    # Resumo diário de ponto para quem aprova (Pyetra e Orlailson), 08:00 de Manaus.
+    # ⭐ 08:00 e não 20:00: o último ponto do dia é batido no dia SEGUINTE — o noturno sai
+    # 06:00/07:00. Às 20:00 o turno da noite nem começou, e o resumo nasceria pela metade.
+    # `app.conf.timezone` é America/Manaus, então hour=8 já É 08:00 em Manaus.
+    "ponto-resumo-diario-aprovadores": {
+        "task": "ponto.resumo_diario_aprovadores",
+        "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "operacional"},
     },
     # Verifica aprovações pendentes a cada 1 hora

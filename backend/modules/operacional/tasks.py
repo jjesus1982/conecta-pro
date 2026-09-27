@@ -1101,11 +1101,16 @@ def gerar_escalas_proximo_mes(self):
     max_retries=1,
 )
 def lembrete_ponto_whatsapp(self):
-    """3 lembretes de ponto por turno (-15min, no horário, +10min), param na batida.
+    """Avisa 5min ANTES e cobra 5min DEPOIS de cada marco — entrada, volta do almoço e saída.
 
-    Beat a cada 60s porque as janelas são de 1 minuto; o volume real é baixo,
-    só dispara nesses três minutos de cada turno. Canal é Baileys no número da
-    empresa — o teto de 3 é requisito, não preferência.
+    ⚠️ Esta frase já esteve errada e a frase errada ensinou o agente: dizia "-15min, no
+    horário, +10min" e "3 lembretes por turno" muito depois de o Jordan pedir os cinco minutos
+    (27/09/2026). Quem lê a docstring para saber o que o sistema faz é o próximo humano e,
+    indiretamente, o próprio José Luís — a fonte de verdade é `lembrete_ponto.MARCOS`.
+
+    Beat a cada 60s porque as janelas são de 1 minuto; o volume real é baixo (medido: 58
+    avisos/dia no pior caso). Canal é Baileys no número da empresa — o teto por rodada é
+    requisito, não preferência.
 
     A escalada para líder do posto, supervisor e gerente operacional NÃO é feita
     aqui: quem faz é operacional.check_late_employees, pelo sino, a cada 5 min.
@@ -1241,4 +1246,48 @@ def ronda_alertas_avaliar(self):
         return result
     except Exception as exc:
         logger.error(f"[Operacional Task] alertas de ronda falharam: {exc}")
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    name="ponto.resumo_diario_aprovadores",
+    bind=True,
+    max_retries=1,
+)
+def resumo_diario_aprovadores(self):
+    """Manda à Pyetra e ao Orlailson o ponto de ONTEM, para aprovar ou reprovar.
+
+    Jordan, 27/09/2026: *"ao final do dia sempre após todos terem batidos seus pontos, pyetra e
+    orlailson deve receber o resumo … assim eles podem diariamente aprovar ou reprovar, não
+    deixando acumular"*.
+
+    ⭐ RODA ÀS 08:00 E FALA DE ONTEM, e isso não é atraso: **o último ponto do dia é batido no
+    dia seguinte**. O noturno entra 18:00/19:00 e sai 06:00/07:00 — às 20:00 ele nem começou.
+    Ver o cabeçalho de `resumo_diario` para o raciocínio inteiro.
+
+    ⚠️ Sessão ASSÍNCRONA, diferente do lembrete aqui de cima: `resumo_diario.montar` e o
+    `destinatario.mandar` são `await` de verdade. Passar a sessão síncrona faria o
+    `await db.execute` estourar no primeiro SELECT.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from core.database import async_session_factory
+    from modules.people_management.ponto import resumo_diario
+
+    async def _run() -> dict:
+        # ⚠️ Manaus EXPLÍCITO, não `datetime.now()` pelado: o container roda em UTC e às 08:00
+        # de Manaus já é dia 'seguinte' em UTC desde as 20:00. Um `now()` sem fuso faria o
+        # resumo das 08:00 falar do dia errado em metade dos casos.
+        ontem = datetime.now(ZoneInfo("America/Manaus")).date() - timedelta(days=1)
+        async with async_session_factory() as db:
+            return await resumo_diario.enviar(db, ontem)
+
+    try:
+        result = asyncio.run(_run())
+        logger.info(f"[Ponto] Resumo diário: {result.get('enviados')} enviado(s), "
+                    f"{len(result.get('problemas', []))} pendência(s)")
+        return {k: v for k, v in result.items() if k != "problemas"}
+    except Exception as exc:
+        logger.error(f"[Ponto] Erro no resumo diário: {exc}", exc_info=True)
         raise self.retry(exc=exc)
