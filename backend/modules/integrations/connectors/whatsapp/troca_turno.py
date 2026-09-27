@@ -108,10 +108,24 @@ def ler_resposta(texto: str | None) -> str | None:
 
 
 async def _turnos_da_janela(db: AsyncSession, dia: date) -> list[dict]:
-    """Turnos de `dia` que começam na janela dolorosa, com pessoa, posto e telefone."""
+    """Turnos de `dia` que começam na janela dolorosa, com pessoa, posto e telefone.
+
+    🔴 LIA SÓ `e.telefone` E DEIXAVA GENTE SEM AVISO — 27/09/2026, 05:5x.
+    A THAYNÁ tinha turno às 07:00 no Green Hills, o primeiro dia dela no ciclo, e **não recebeu
+    o aviso de 1h antes**. A linha de confirmação existia desde 18:00:01 do dia anterior com
+    `status='nao_avisado'`, que é justamente "tentei entregar e não consegui" — e o aviso de 1h
+    antes só olha `aguardando`, então ela sumiu dos dois.
+    A causa: o número dela está em `celular` e `telefone` está VAZIO. Medido no mesmo minuto:
+    **5 dos 53 ativos têm número só no `celular`.**
+
+    ⚠️ É a família que já tem comentário em `aviso_assinatura_service`: lá o defeito era
+    `coalesce` não cair para o telefone quando `celular` é string VAZIA; aqui é o inverso —
+    ler só `telefone` e ignorar quem tem no `celular`. `nullif(e.celular,'')` resolve as duas
+    pontas: string vazia deixa de ser um valor e o coalesce funciona como se espera.
+    """
     rows = (await db.execute(text("""
         SELECT s.id::text, s.employee_id::text, s.post_id::text, s.shift_date, s.planned_start_time,
-               e.nome, e.telefone, e.cargo, p.name AS posto
+               e.nome, coalesce(nullif(e.celular,''), e.telefone) AS telefone, e.cargo, p.name AS posto
           FROM shifts s
           JOIN employees e ON e.id = s.employee_id
           LEFT JOIN posts p ON p.id = s.post_id
@@ -191,7 +205,7 @@ async def lembrar_uma_hora_antes(db: AsyncSession, *, enviar: bool = True) -> di
     alvo_fim = (agora + timedelta(minutes=75)).time()
 
     rows = (await db.execute(text("""
-        SELECT c.id::text, c.hora_inicio, e.nome, e.telefone, p.name AS posto, c.status
+        SELECT c.id::text, c.hora_inicio, e.nome, coalesce(nullif(e.celular,''), e.telefone) AS telefone, p.name AS posto, c.status
           FROM troca_turno_confirmacoes c
           JOIN employees e ON e.id = c.employee_id
           LEFT JOIN posts p ON p.id = c.post_id
