@@ -388,7 +388,18 @@ async def _buscar_e_salvar_certidao(
         return {
             "status": "indisponivel",
             "situacao": situacao or "sem_resposta",
-            "mensagem": resultado.get("mensagem", "portal não confirmou — nada foi gravado"),
+            # O motivo específico vem dos clients em chaves diferentes (crf_client põe em
+            # «observacao»/«mensagem», cndt_client em «situacao» + texto). Sem este OR o
+            # marcador de tentativa gravava só o fallback genérico (medido 27/09).
+            "mensagem": (
+                resultado.get("mensagem")
+                or resultado.get("nota")  # é aqui que crf_client/cndt_client põem o motivo (medido 27/09)
+                or resultado.get("observacao")
+                or resultado.get("motivo")
+                or resultado.get("detalhe")
+                or resultado.get("erro")
+                or f"portal não confirmou ({situacao or 'sem_resposta'}) — nada foi gravado"
+            ),
         }
     if situacao and situacao not in ("regular", "negativa", "positiva_com_efeito_negativa", "nada_consta"):
         # `irregular`/`positiva` é ACHADO (há pendência no órgão), não certidão. Gravar como
