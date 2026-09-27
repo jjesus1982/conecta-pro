@@ -10,7 +10,15 @@
 > | Eletrônica | FGTS · INSS · IRRF | **20/09** |
 > | Patrimonial | **DAS** | **20/09** |
 >
-> É a transição da Portte em tempo real: setembro venceu e ninguém subiu guia. Multa e juros
+> É a transição da Portte em tempo real: setembro venceu e ninguém subiu guia.
+>
+> **Onde subir:** os PDFs das guias e dos comprovantes vão na pasta do Drive
+> `Documentos Temporários/Setembro/` — o puxador `fiscal.sync_guias_drive` roda às **09:30 e
+> 15:30**, classifica pelo conteúdo (nunca pelo nome) e preenche `fiscal_obligations` com valor,
+> vencimento e nº do recibo; é isso que a condição 3 do gate lê. Se quiser antes do horário, me
+> avise que eu disparo a tarefa. O PGDAS-D pode ir na mesma pasta: eu leio o RBT12 dele e
+> preencho `empresas.rbt12` — a cotação já está ligada a esse campo (commit `c6c1d789a`) e fica
+> certa sozinha. Multa e juros
 > correm por dia. Se a Portte pagou, preciso dos comprovantes; se não pagou, é a primeira
 > coisa a fazer na segunda-feira — o DAS da Patrimonial em atraso é exatamente o padrão que
 > a PGFN já cobra da Eletrônica.
@@ -377,6 +385,27 @@ crescer está escrita nos commits `8d6778848` e neste relatório.
 
 ---
 
+## 9. Tarde de 27/09 — pronto para receber o que você vai subir
+
+**A cotação está ligada ao RBT12.** Quando o PGDAS-D chegar, eu leio o RBT12 e preencho
+`empresas.rbt12`; a partir daí a cotação usa a alíquota efetiva do DAS **sozinha** — sem
+mexer em código — e o aviso na ficha some. Provado: com 9,19% o AGP de piso dá R$ 5.294,95.
+
+**Os comprovantes entram pelo Drive** (`Documentos Temporários/Setembro/`, puxador às 09:30
+e 15:30) e a condição 3 do gate fecha pelo caminho normal.
+
+**A tela «Revisão do LALUR» existe** — menu *Fiscal & Contábil*. O contador vê as 753
+despesas do trimestre sem decisão, por valor, e decide linha a linha: dedutível, adição ou
+exclusão, com o código do Anexo obrigatório para as duas últimas. A tela recusa o que não se
+defende (sem código, sem histórico) e não sugere código — oferece. Cada decisão entra no
+livro com quem decidiu e quando. Provada de fora, decisão por decisão, e vigiada pelo oráculo.
+
+**O que o contador precisa saber para começar:** as três linhas que exigem juízo (§5 —
+provisões, os saques em Banco24Horas, o DAS que vira três) estão na fila; ele começa pelo
+topo, que é o dinheiro.
+
+---
+
 ## PRECISO DE VOCÊ — 3 coisas
 
 ### a) O RBT12 não bate entre as duas guias
@@ -463,6 +492,13 @@ declarado**, e declarar dependência é metade do trabalho.
 Piora um pouco: o RAT efetivo é `RAT × FAP`, e o FAP varia de 0,5 a 2,0 por empresa. Mesmo
 sabendo o grau de risco, sem o FAP o número não fecha. E não existe coluna de CNAE no
 cadastro para eu nem começar a inferir.
+
+**Uma pista que apareceu no fim do dia:** o texto de `fonte_regime` da Patrimonial (escrito
+em 12/09 por outra sessão) cita **CNAE 8111-7/00** — serviços combinados de apoio a edifícios,
+não vigilância. Se esse for o CNAE do cartão CNPJ, o grau de risco é **2**, o RAT é **2%**, e
+os 55,44% que hoje precificam viram **54,44%**. É pista de texto livre, não documento: o
+cartão CNPJ ou o S-1000 decide. (O mesmo texto dizia "Anexo III"; corrigi para não
+contradizer o campo.)
 
 **O que resolve:** o RAT está no eSocial **S-1000** (campo `aliqRat`) e o FAP na carta anual
 do INSS / consulta no e-CAC. Me manda qualquer um dos dois e eu unifico os nove lugares num
