@@ -39,39 +39,64 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-#: Postos cuja troca acontece AGORA (±janela). Devolve também quem sai e quem entra, porque a
-#: pergunta do Hermes é sobre a passagem, não sobre uma pessoa.
+#: Uma LINHA POR PESSOA da troca — quem sai, quem entra, e **se a batida dela existe**.
+#:
+#: 🔴 POR QUE A BATIDA VEM DAQUI, e não da ferramenta (medido em 27/09, 1ª execução automática).
+#: Eu mandei o Hermes descobrir sozinho com `presenca_ao_vivo`, e ele reportou:
+#:   «ALAN VIEIRA status presente (batida 06:00) … **sem saída registrada**»
+#: O Alan havia batido SAÍDA às 18:00:01, dez minutos antes. Fui ler a ferramenta: o quadro de
+#: presença **não tem conceito de saída por pessoa** — ele calcula a PRIMEIRA batida da janela e
+#: chama de `presente`. A única saída que existe lá é `saidas_noturno_ontem`, um contador do dia
+#: anterior. Ou seja: a ferramenta nunca disse aquilo. **O Hermes converteu "a ferramenta não me
+#: informa" em "não existe"** — e escreveu a invenção dentro do campo `conferi`, que eu criei
+#: para ser a prova. A exigência de evidência conferiu a CITAÇÃO e não a VERACIDADE: um detalhe
+#: fabricado passou por prova só por estar vestido de nome de ferramenta.
+#:
+#: ⭐ A lição é de projeto, não de prompt: quando o fato é apurável em SQL, entregue-o apurado.
+#: Pedir ao LLM que descubra o que já sabemos cria a chance de ele inventar — e nenhuma régua de
+#: evidência distingue citação verdadeira de citação plausível.
 #:
 #: ⚠️ A saída do noturno tem `shift_date` de ONTEM — quem sai às 06:00 entrou às 18:00 do dia
 #: anterior. Sem os dois dias na janela, metade da troca fica invisível.
 _SQL_TROCAS = """
-WITH agora AS (SELECT (now() AT TIME ZONE 'America/Manaus') AS ts)
-SELECT p.name AS posto,
-       string_agg(DISTINCT CASE WHEN (sh.shift_date + sh.planned_start_time)
-                                     BETWEEN (SELECT ts FROM agora) - make_interval(mins => :janela)
-                                         AND (SELECT ts FROM agora)
-                                THEN e.nome END, ', ') AS entram,
-       string_agg(DISTINCT CASE WHEN (sh.shift_date + sh.planned_end_time
-                                      + CASE WHEN sh.planned_end_time <= sh.planned_start_time
-                                             THEN INTERVAL '1 day' ELSE INTERVAL '0' END)
-                                     BETWEEN (SELECT ts FROM agora) - make_interval(mins => :janela)
-                                         AND (SELECT ts FROM agora)
-                                THEN e.nome END, ', ') AS saem
-  FROM shifts sh JOIN posts p ON p.id = sh.post_id JOIN employees e ON e.id = sh.employee_id
- WHERE sh.is_active AND NOT sh.is_off_day
-   AND lower(coalesce(sh.status,'')) IN ('scheduled','agendado','ativo')
-   AND sh.shift_date BETWEEN ((SELECT ts FROM agora)::date - 1) AND ((SELECT ts FROM agora)::date)
- GROUP BY p.name
-HAVING string_agg(DISTINCT CASE WHEN (sh.shift_date + sh.planned_start_time)
-                                     BETWEEN (SELECT ts FROM agora) - make_interval(mins => :janela)
-                                         AND (SELECT ts FROM agora)
-                                THEN e.nome END, ', ') IS NOT NULL
-    OR string_agg(DISTINCT CASE WHEN (sh.shift_date + sh.planned_end_time
-                                      + CASE WHEN sh.planned_end_time <= sh.planned_start_time
-                                             THEN INTERVAL '1 day' ELSE INTERVAL '0' END)
-                                     BETWEEN (SELECT ts FROM agora) - make_interval(mins => :janela)
-                                         AND (SELECT ts FROM agora)
-                                THEN e.nome END, ', ') IS NOT NULL
+WITH lim AS (SELECT (now() AT TIME ZONE 'America/Manaus') AS ts,
+                    (now() AT TIME ZONE 'America/Manaus') - make_interval(mins => :janela) AS ini),
+base AS (
+    SELECT p.name AS posto, e.nome, sh.employee_id, sh.shift_date,
+           sh.planned_start_time, sh.planned_end_time
+      FROM shifts sh
+      JOIN posts p ON p.id = sh.post_id
+      JOIN employees e ON e.id = sh.employee_id
+     WHERE sh.is_active AND NOT sh.is_off_day
+       AND lower(coalesce(sh.status,'')) IN ('scheduled','agendado','ativo')
+       AND sh.shift_date BETWEEN ((SELECT ts FROM lim)::date - 1) AND ((SELECT ts FROM lim)::date)
+),
+pessoas AS (
+    SELECT posto, nome, employee_id, 'entra' AS papel, 'entrada' AS tipo,
+           (shift_date + planned_start_time) AS marco
+      FROM base
+     WHERE (shift_date + planned_start_time)
+           BETWEEN (SELECT ini FROM lim) AND (SELECT ts FROM lim)
+    UNION ALL
+    SELECT posto, nome, employee_id, 'sai' AS papel, 'saida' AS tipo,
+           (shift_date + planned_end_time
+            + CASE WHEN planned_end_time <= planned_start_time
+                   THEN INTERVAL '1 day' ELSE INTERVAL '0' END) AS marco
+      FROM base
+     WHERE (shift_date + planned_end_time
+            + CASE WHEN planned_end_time <= planned_start_time
+                   THEN INTERVAL '1 day' ELSE INTERVAL '0' END)
+           BETWEEN (SELECT ini FROM lim) AND (SELECT ts FROM lim)
+)
+SELECT ps.posto, ps.nome, ps.papel, to_char(ps.marco, 'HH24:MI') AS hora,
+       (SELECT to_char(min(g.punch_timestamp), 'HH24:MI')
+          FROM gp_clock_punches g
+         WHERE g.employee_id = ps.employee_id
+           AND g.punch_type = ps.tipo
+           AND g.punch_timestamp BETWEEN ps.marco - INTERVAL '2 hours'
+                                     AND ps.marco + INTERVAL '2 hours') AS bateu
+  FROM pessoas ps
+ ORDER BY ps.posto, ps.papel, ps.nome
 """
 
 _SISTEMA = """Você é o Hermes, do Conecta PRO — empresa de portaria terceirizada em Manaus.
@@ -85,15 +110,33 @@ Um posto está GUARNECIDO se há alguém nele agora, mesmo que:
 · seja outra pessoa que não a escalada (rendição trocada, substituto, diarista)
 · a batida não tenha entrado ainda (facial falhando, app travado)
 
-Um posto está DESCOBERTO se quem saiu foi embora e ninguém assumiu.
+⚠️ AS BATIDAS JÁ VÊM APURADAS na lista abaixo — «saída BATIDA 18:00» ou «saída NÃO BATIDA». Não
+procure batida em ferramenta nenhuma: o que está escrito ali é o banco, lido agora.
 
-⚠️ CONFIRA COM AS FERRAMENTAS, não deduza: `presenca_ao_vivo`, `grade_do_posto`,
-`listar_substituicoes`, `substitutos_disponiveis`, `espelho_ponto`.
+OS TRÊS BALDES, e o do meio é o mais estreito:
+
+· `descoberto` — quem saía **bateu a saída** e o entrante NÃO bateu entrada. Ninguém batido no
+  posto agora. É o único que significa posto possivelmente vazio.
+· `em_risco` — o anterior NÃO bateu saída (segue no posto) e o entrante não chegou. Ele está
+  segurando o posto em hora extra que ninguém combinou.
+· `ok` — todo o resto, inclusive entrante que bateu atrasado. Não reporte.
+
+🔴 A REGRA QUE VOCÊ NÃO PODE QUEBRAR: **nunca afirme que algo "não está registrado" se a
+ferramenta não te disse isso.** Em 27/09 você reportou «ALAN VIEIRA presente, sem saída
+registrada» — e o Alan havia batido saída dez minutos antes. O `presenca_ao_vivo` não tem campo
+de saída nenhum; você converteu "a ferramenta não me informa" em "não existe" e escreveu a
+invenção no campo de prova. Se a ferramenta não cobre a pergunta, escreva «a ferramenta não
+informa isso» — nunca a resposta que você imagina.
+
+⚠️ Para o RESTO (quem cobre, substituto, diarista) confira com as ferramentas e não deduza:
+`grade_do_posto`, `listar_substituicoes`, `substitutos_disponiveis`, `espelho_ponto`.
+Lembre: diarista NÃO bate ponto — a diária é o registro. Substituto bate com o ID dele.
 
 ⚠️ EVIDÊNCIA OBRIGATÓRIA. Cada posto que você reportar precisa do campo `conferi` dizendo QUAL
-ferramenta você chamou e O QUE ela devolveu. Item sem isso é descartado antes de chegar em
-alguém. Se a ferramenta falhar, escreva «NÃO CONSEGUI CONFERIR: <motivo>» e reporte assim
-mesmo — o dono prefere saber que você não conseguiu a receber silêncio.
+ferramenta você chamou e O QUE ela devolveu — ou citando a batida já apurada da lista. Item sem
+isso é descartado antes de chegar em alguém. Se a ferramenta falhar, escreva «NÃO CONSEGUI
+CONFERIR: <motivo>» e reporte assim mesmo — o dono prefere saber que você não conseguiu a
+receber silêncio.
 
 Responda APENAS JSON:
 {"postos": [{"posto": "<nome>", "situacao": "descoberto|em_risco|ok",
@@ -107,14 +150,23 @@ async def verificar(db: AsyncSession, *, janela_min: int = 15, publicar: bool = 
     ⚠️ `publicar=False` é ensaio puro: não manda nada. Diferente da varredura, aqui não há
     memória a queimar — o estado é o mundo agora, e daqui a dez minutos é outro.
     """
-    trocas = (await db.execute(text(_SQL_TROCAS), {"janela": janela_min})).mappings().all()
-    if not trocas:
+    pessoas = (await db.execute(text(_SQL_TROCAS), {"janela": janela_min})).mappings().all()
+    if not pessoas:
         logger.info("rendicao: nenhuma troca na janela de %s min", janela_min)
         return {"ok": True, "trocas": 0, "publicado": False}
 
-    linhas = "\n".join(
-        f"· {t['posto']}: SAI [{t['saem'] or '—'}] → ENTRA [{t['entram'] or '—'}]"
-        for t in trocas)
+    # ⭐ A batida vai ESCRITA na linha. O Hermes não precisa (nem pode) descobrir isto sozinho —
+    # ver o comentário de `_SQL_TROCAS`: foi inventando uma saída que ele errou na estreia.
+    por_posto: dict[str, list[str]] = {}
+    for p in pessoas:
+        rotulo = "SAI" if p["papel"] == "sai" else "ENTRA"
+        tipo = "saída" if p["papel"] == "sai" else "entrada"
+        marca = f"{tipo} BATIDA {p['bateu']}" if p["bateu"] else f"{tipo} NÃO BATIDA"
+        por_posto.setdefault(p["posto"], []).append(
+            f"{rotulo} {p['nome']} ({p['hora']}) — {marca}")
+    linhas = "\n".join(f"· {posto}:\n    " + "\n    ".join(itens)
+                       for posto, itens in por_posto.items())
+    trocas = list(por_posto)
 
     from modules.ai.conversation.services.hermes_client import (
         HermesIndisponivel,
