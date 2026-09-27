@@ -174,10 +174,38 @@ async def registrar_contingencia(db, employee_id: str, motivo: str,
         {"pid": pid, "e": employee_id, "t": tipo,
          "ts": hora_fato.isoformat(sep=" ") if hora_fato else None})
     # O motivo dito por ele é a trilha do DP: sem isso a batida pendente chega sem história.
+    #
+    # 🔴 `batida_contingencia` E NÃO `atraso` — medido em 27/09/2026, custou quase dinheiro real.
+    #
+    # Eu gravava `'atraso'` aqui. A folha (`payroll_service._get_faltas_atrasos`) faz
+    # `SUM(CASE WHEN justification_type = 'atraso' THEN 60 ELSE 0 END)` com filtro
+    # `status IN ('aprovada','pendente')` — ou seja: **cada linha destas virava 60 minutos de
+    # DESCONTO na rubrica 231 «Atrasos», sem ninguém revisar.** Medido: 23 linhas, 14 pessoas,
+    # 1.380 minutos (23 horas) prontos para sair da folha de setembro. O Matheus sozinho levaria
+    # 240 minutos. E o motivo gravado em cada uma delas era «Não conseguiu», «App não abre»,
+    # «Sem acesso» — **falha NOSSA, descontada da pessoa.** A folha de setembro ainda não havia
+    # sido gerada, então deu tempo.
+    #
+    # ⭐ O erro não foi de lógica, foi de VOCABULÁRIO: escolhi a ação certa (não perder o fato da
+    # batida) e um valor que já tinha consumidor — e não fui ver quem consumia. É a regra que eu
+    # mesmo tinha escrito: valor de status compartilhado muda todo filtro literal a jusante.
+    #
+    # Por que este valor é seguro, conferido um por um em 27/09:
+    #   · `payroll_service:431` — o CASE casa só 'atraso' e 'falta' → NÃO desconta ✅
+    #   · `_dgx_y5_portal:180` e `departamento_pessoal:1788` — SELECIONAM o tipo para exibir,
+    #     não filtram → a linha continua VISÍVEL para a Pyetra revisar ✅
+    #   · `_dgx_x2_atraso_falta` — não consulta esta tabela (usa `time_sheets`) ✅
+    #   · `_quarentena_item1/agents/ponto_agent` filtra `not in ('atraso','falta')` — quarentena,
+    #     código morto ✅
+    #
+    # ⚠️ Não desconta NÃO significa perdoar atraso real: significa que a conversão em `atraso`
+    # (e o desconto) passa a ser ato de quem revisa. Registro é fato; desconto é decisão. Quando
+    # o Jordan pediu o lançamento atrasado da Erika ele pediu para REGISTRAR o atraso — não para
+    # descontar sem conferência.
     await db.execute(sql(
         "INSERT INTO gp_justifications (justification_id, punch_id, employee_id, justification_type, "
         " reason, category, status, source, created_at) "
-        "VALUES (:jid, :pid, :e, 'atraso', :r, 'outro', 'pendente', 'whatsapp', now())"),
+        "VALUES (:jid, :pid, :e, 'batida_contingencia', :r, 'outro', 'pendente', 'whatsapp', now())"),
         {"jid": str(_uuid.uuid4()), "pid": pid, "e": str(employee_id),
          "r": (f"Batida por contingência via WhatsApp: {motivo}"
                + (f" [HORA INFORMADA PELA PRÓPRIA PESSOA: {hora_fato.strftime('%d/%m %H:%M')} — "
@@ -198,10 +226,27 @@ async def registrar_contingencia(db, employee_id: str, motivo: str,
 
 async def registrar_justificativa(db, employee_id: str, tipo: str, motivo: str,
                                   categoria: str = "outro", anexo: str | None = None) -> dict:
-    """Atraso ou falta com o motivo dito pelo funcionário — nasce PENDENTE, o DP revisa.
+    """Atraso ou falta com o motivo dito pelo funcionário — nasce PENDENTE e o DP revisa.
 
-    A folha lê esta tabela (`payroll_service._absences`), então o que entra aqui chega ao
-    fechamento do mês. Por isso `status='pendente'` não é rascunho esquecido: é o gate humano.
+    A folha lê esta tabela (`payroll_service._get_faltas_atrasos`), então o que entra aqui chega
+    ao fechamento do mês.
+
+    🔴 CORREÇÃO DE 27/09/2026 — eu havia escrito aqui que «`status='pendente'` não é rascunho
+    esquecido: é o gate humano». **É FALSO, e era eu afirmando uma trava que o código não tem.**
+    O filtro da folha é `status IN ('aprovada','pendente')`: `pendente` é contado como se fosse
+    aprovado. Medido no dia: 25 justificativas de atraso, TODAS `pendente`, nenhuma revisada
+    jamais, valendo 1.500 minutos na folha de setembro.
+
+    ⭐ `pendente` não gateia nada — ele só marca que ninguém olhou. **O gate é a revisão humana
+    acontecer antes do fechamento do mês**, e isso é calendário, não estado de coluna. Um
+    comentário que descreve a intenção como se fosse o comportamento é pior que a ausência de
+    comentário: ele desliga a desconfiança de quem lê depois.
+
+    ⚠️ Dois defeitos vizinhos, MEDIDOS e NÃO consertados aqui porque são matemática de folha e
+    dinheiro é decisão do dono:
+      · todo `atraso` vale **60 minutos fixos** — 5 minutos e 3 horas descontam igual
+      · o mês vem de `created_at`, não de `data_fato` — atraso do dia 30 justificado no dia 2
+        cai no mês seguinte
     """
     tipo = tipo if tipo in TIPOS else "atraso"
     categoria = categoria if categoria in CATEGORIAS else "outro"
