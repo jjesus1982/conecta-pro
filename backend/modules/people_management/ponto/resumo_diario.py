@@ -390,6 +390,79 @@ def texto(dados: dict) -> str | None:
     return "\n".join(out)
 
 
+async def conferir_com_hermes(dados: dict) -> str | None:
+    """⭐ SEGUNDA LEITURA, POR OUTRA FONTE. Devolve a linha de conferência, ou None.
+
+    🔴 POR QUE EXISTE (27/09/2026). Jordan: *"preciso que ele mostre evidências de que fez,
+    provas de que aquilo que foi pedido realmente foi feito e funcionou, se ele não conseguir
+    ele informa"*.
+
+    ⭐ O resumo é montado por consultas MINHAS ao banco. Ele pode estar certo e pode estar
+    errado — e o dia inteiro mostrou as duas coisas: acusei 316 relatórios quando eram 74,
+    contei 25 pendências quando eram 18, dei a Eidy como escalada num posto que não é dela.
+    **Um número conferido por quem o produziu não é conferido.**
+    O Hermes lê o MESMO dia por `ponto_dashboard`/`presenca_ao_vivo`, que são outro caminho
+    até o mesmo fato, e diz se bate.
+
+    ⚠️ Best-effort com resultado DITO: se ele não responder, a linha diz que não conferiu.
+    Omitir a conferência faria o relatório parecer verificado quando não foi — que é a
+    diferença exata entre «verde» e «verde que prova alguma coisa».
+    """
+    from modules.ai.conversation.services.hermes_client import (
+        HermesIndisponivel,
+        perguntar_hermes,
+    )
+
+    # ⚠️ CONFERE O QUE DÁ PARA CONFERIR HOJE, não o recorte de ontem.
+    #
+    # A 1ª versão pedia para validar as contagens do DIA anterior e o Hermes respondeu, com
+    # razão: *"nenhuma tool do ERP devolve o recorte do dia 26/09 — `presenca_ao_vivo` é ao
+    # vivo e só traz hoje; `ponto_dashboard` e `painel_espelho_ponto` entregam só o acumulado
+    # do mês"*. Ele estava certo, e isso é um ACHADO: falta uma ferramenta de ponto por dia.
+    #
+    # ⭐ Mas um rodapé "não consegui" todo santo dia é ruído. A CAUDA é verificável agora e é
+    # a parte mais sujeita a envelhecer: quem não bate há dez dias é fato cumulativo, e se
+    # alguém voltou a bater hoje a minha lista está errada — que é exatamente o tipo de erro
+    # que eu quero que outra fonte pegue.
+    # ⚠️ TRÊS NOMES, NÃO OITO. Medido: conferir 6 pessoas uma a uma estourou 180s e o resumo
+    # foi SEM conferência. Prova cara que não chega é prova que não existe — melhor conferir
+    # três com folga do que oito e perder tudo.
+    nomes = ", ".join(x["nome"] for x in (dados.get("sumidos") or [])[:3]) or "(ninguém)"
+    pedido = (
+        f"Eu afirmo que estas pessoas estão ATIVAS e NÃO batem ponto há mais de "
+        f"{DIAS_SUMIDO} dias:\n{nomes}\n\n"
+        "CONFIRA cada uma com as ferramentas do ERP (espelho de ponto, presença, ficha). "
+        "Responda em UMA linha começando com:\n"
+        "· CONFERE — se todas realmente estão sem bater\n"
+        "· NAO CONFERE — se alguma bateu recentemente; diga QUEM e QUANDO\n"
+        "· NAO CONSEGUI — se a ferramenta não responder; diga qual e por quê\n"
+        "Cite sempre a ferramenta que usou."
+    )
+    try:
+        txt, _ = await perguntar_hermes(
+            messages=[{"role": "user", "content": pedido}],
+            system_prompt=(
+                "Você é o Hermes, do Conecta PRO. Você tem as ferramentas MCP do ERP. "
+                "Sua função aqui é CONFERIR o que outro sistema produziu — não concordar. "
+                "Se divergir, diga o que VOCÊ achou e de onde. NUNCA diga que conferiu sem "
+                "ter chamado a ferramenta.\n\n"
+                "⚠️ SEJA ECONÔMICO: prefira UMA consulta que traga todos de uma vez "
+                "(ex.: listar_funcionarios, colaboradores_sem_escala) a uma por pessoa. "
+                "Responda em uma linha só."),
+            # prazo de rotina de fundo: às 08:00 ninguém está esperando na tela, e prova que
+            # não chega a tempo é prova que não existe
+            timeout=float(os.getenv("RESUMO_HERMES_TIMEOUT", "420")))
+        linha = " ".join((txt or "").split())[:320]
+        logger.info("resumo_diario: conferência do Hermes — %s", linha[:120])
+        return linha or None
+    except HermesIndisponivel as exc:
+        logger.warning("resumo_diario: Hermes fora (%s) — resumo vai SEM conferência", exc)
+        return f"NAO CONSEGUI conferir com o Hermes: {str(exc)[:90]}"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("resumo_diario: conferência falhou (%s)", exc)
+        return f"NAO CONSEGUI conferir com o Hermes: {str(exc)[:90]}"
+
+
 async def enviar(db, dia) -> dict[str, Any]:
     """Publica o resumo no grupo ESCRITÓRIO, onde a Pyetra e o Orlailson já trabalham.
 
@@ -408,6 +481,14 @@ async def enviar(db, dia) -> dict[str, Any]:
 
     dados = await montar(db, dia)
     msg = texto(dados)
+    if msg:
+        # ⭐ A PROVA VAI NO RODAPÉ, seja ela boa ou ruim. Ver `conferir_com_hermes`.
+        prova = await conferir_com_hermes(dados)
+        if prova:
+            icone = ("✅" if prova.upper().startswith("CONFERE")
+                     else "⚠️" if prova.upper().startswith(("NAO CONFERE", "NÃO CONFERE"))
+                     else "❔")
+            msg += f"\n\n{icone} _Conferido pelo Hermes: {prova}_"
     if not msg:
         logger.info("resumo_diario %s: dia limpo (%s turnos) — ninguém recebe", dia,
                     dados["turnos"])

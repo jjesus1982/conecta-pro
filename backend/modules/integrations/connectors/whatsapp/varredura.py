@@ -185,11 +185,20 @@ async def varrer(db: AsyncSession, *, janela_min: int = 60, publicar: bool = Tru
     a_julgar = [i for i in incidentes if not i.get("_mecanico")]
     juiz_ok = True
     if a_julgar:
-        aprovados, porques, juiz_ok = await _julgar(a_julgar)
+        # ⭐ HERMES PRIMEIRO: ele confere na escala. Só cai no juiz simples se estiver fora.
+        via_hermes = await _julgar_com_hermes(a_julgar)
+        if via_hermes:
+            aprovados, brutos, juiz_ok = via_hermes
+            porques = {n: (v[0], v[1]) for n, v in brutos.items()}
+            provas = {n: v[2] for n, v in brutos.items()}
+        else:
+            aprovados, porques, juiz_ok = await _julgar(a_julgar)
+            provas = {}
         for n, i in enumerate(a_julgar):
             i["_aprovado"] = n in aprovados
             fato, cat = porques.get(n, (None, "equipe"))
             i["cat"] = cat
+            i["prova"] = provas.get(n)
             if fato:
                 i["rotulo"] = fato
         rejeitados = [i for i in a_julgar if not i["_aprovado"]]
@@ -276,6 +285,95 @@ continuar existindo sem nós, é do condomínio.
 Responda APENAS um JSON:
 {"nossos": [{"i": <índice>, "cat": "ponto|equipe|material|cliente", "o_que": "<até 10 palavras, o FATO, sem citar a mensagem>"}]}
 Só inclua o que é problema nosso. Se nada for, devolva lista vazia."""
+
+
+_RUBRICA_HERMES = _RUBRICA + """
+
+⭐ VOCÊ TEM AS FERRAMENTAS DO ERP. NÃO SUPONHA — CONFIRA.
+
+Antes de dizer que algo é problema nosso, confira no sistema. Exemplos do que muda o veredito:
+· «o relatório saiu sem o agente» → `grade_do_posto` diz quem deveria estar lá agora
+· «fulano não apareceu» → `presenca_ao_vivo` e `espelho_ponto` dizem se ele bateu
+· «o posto está descoberto» → `listar_substituicoes` e `substitutos_disponiveis`
+· «ninguém rendeu» → `listar_escalas` diz quem era a rendição
+
+⚠️ EVIDÊNCIA OBRIGATÓRIA. Para CADA item que você reportar, o campo `conferi` deve dizer QUAL
+ferramenta você chamou e O QUE ELA DEVOLVEU. Sem isso o item não vale — quem lê precisa poder
+conferir a sua conta.
+
+⚠️ Se a ferramenta falhar ou não existir, escreva em `conferi` exatamente
+«NÃO CONSEGUI CONFERIR: <motivo>» e reporte assim mesmo se o relato for grave. Dizer que
+conferiu sem ter conferido é pior que não conferir.
+
+Formato: {"nossos": [{"i": <índice>, "cat": "...", "o_que": "...", "conferi": "..."}]}"""
+
+
+async def _julgar_com_hermes(candidatos: list[dict]) -> tuple[set[int], dict, bool] | None:
+    """⭐ O JUIZ QUE CONFERE, em vez de achar. Devolve None se o Hermes não estiver de pé.
+
+    🔴 POR QUE ISTO EXISTE (27/09/2026). Jordan: *"liga o hermes na varredura e no resumo…
+    preciso que ele mostre evidências de que fez, provas de que aquilo que foi pedido realmente
+    foi feito e funcionou, se ele não conseguir ele informa"*.
+
+    ⭐ A diferença do juiz anterior não é o modelo: é que este tem **as ferramentas do ERP na
+    mão**. Medido em 27/09: o conector `mcp-pessoas` serve 41 ferramentas e **38 EXECUTAM** —
+    `presenca_ao_vivo`, `grade_do_posto`, `espelho_ponto`, `listar_substituicoes`. O juiz
+    anterior lia a frase e opinava; este lê a frase e **confere na escala**.
+
+    ⚠️ E a evidência é contratual: cada item volta com `conferi` dizendo a ferramenta e o que
+    ela devolveu. Item sem evidência é DESCARTADO aqui, não publicado com fé. No primeiro teste
+    o Hermes qualificou a própria leitura sem ninguém pedir — *"batidas sincronizadas até 12:05,
+    consulta às 15:21, pode haver atraso"* — que é exatamente a postura que se quer.
+    """
+    import json as _j
+
+    from modules.ai.conversation.services.hermes_client import (
+        HermesIndisponivel,
+        perguntar_hermes,
+    )
+
+    linhas = "\n".join(
+        f'[{n}] ({c["classificacao"]}) {c["grupo"]} — {c.get("autor_nome") or "?"} — '
+        f'{" ".join((c["conteudo"] or "").split())[:300]}'
+        for n, c in enumerate(candidatos))
+    try:
+        txt, _meta = await perguntar_hermes(
+            messages=[{"role": "user", "content":
+                       f"Relatos dos grupos de portaria, numerados:\n\n{linhas[:12000]}\n\n"
+                       "Confira no sistema e devolva APENAS o JSON."}],
+            system_prompt=_RUBRICA_HERMES, timeout=240.0)
+    except HermesIndisponivel as exc:
+        logger.warning("varredura: Hermes fora (%s) — caio no juiz simples", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.error("varredura: Hermes falhou (%s) — caio no juiz simples", exc)
+        return None
+
+    try:
+        bruto = txt[txt.find("{"):txt.rfind("}") + 1] if "{" in txt else "{}"
+        itens = [x for x in (_j.loads(bruto or "{}").get("nossos") or [])
+                 if isinstance(x.get("i"), int) or str(x.get("i", "")).isdigit()]
+    except Exception as exc:  # noqa: BLE001
+        logger.error("varredura: Hermes devolveu JSON ilegível (%s) — juiz simples", exc)
+        return None
+
+    # ⚠️ ITEM SEM EVIDÊNCIA NÃO PASSA. É a regra do dono virada em código: publicar o que ele
+    # não conferiu seria exatamente o "diz que fez sem ter feito" que já custou caro aqui.
+    ok, dados = set(), {}
+    sem_prova = 0
+    for x in itens:
+        n = int(x["i"])
+        prova = str(x.get("conferi") or "").strip()
+        if not prova:
+            sem_prova += 1
+            continue
+        ok.add(n)
+        dados[n] = (str(x.get("o_que") or "")[:70],
+                    str(x.get("cat") or "equipe") if str(x.get("cat")) in CATEGORIAS else "equipe",
+                    prova[:160])
+    logger.info("varredura: Hermes aprovou %d de %d (descartei %d sem evidência)",
+                len(ok), len(candidatos), sem_prova)
+    return ok, dados, True
 
 
 async def _julgar(candidatos: list[dict]) -> tuple[set[int], dict[int, str], bool]:
@@ -369,7 +467,8 @@ def _texto(incidentes: list[dict], sobra: int, rotina: int, janela_min: int,
         if chave in alvo:
             alvo[chave]["n"] += 1
         else:
-            alvo[chave] = {"quem": chave[0], "grupo": chave[1], "fato": chave[2], "n": 1}
+            alvo[chave] = {"quem": chave[0], "grupo": chave[1], "fato": chave[2], "n": 1,
+                           "prova": i.get("prova")}
 
     out = [f"👁 *Acompanhamento do time* — últimos {janela_min} min", ""]
     for cat in d:
@@ -383,6 +482,9 @@ def _texto(incidentes: list[dict], sobra: int, rotina: int, janela_min: int,
             # primeiro nome basta: quem lê conhece a equipe, e nome inteiro estoura a linha
             primeiro = str(x["quem"]).split()[0].title() if x["quem"] else "?"
             out.append(f"   · {primeiro} — {x['grupo']} — {x['fato']}{vezes}")
+            # ⭐ A PROVA VAI JUNTO. Sem ela quem lê tem de acreditar; com ela pode conferir.
+            if x.get("prova"):
+                out.append(f"     🔎 _{x['prova']}_")
         out.append("")
 
     if sobra:
