@@ -207,6 +207,47 @@ async def registrar_justificativa(db, employee_id: str, tipo: str, motivo: str,
     categoria = categoria if categoria in CATEGORIAS else "outro"
     if not (motivo or "").strip():
         return {"ok": False, "msg": "sem motivo não dá para justificar — pergunte o que aconteceu"}
+
+    # ⭐ 27/09/2026 — A RESPOSTA DELE PREENCHE A PERGUNTA QUE NÓS FIZEMOS.
+    #
+    # Nesta mesma manhã a batida fora do horário passou a nascer com uma justificativa PENDENTE
+    # E VAZIA, e o José Luís a pedir o motivo no WhatsApp. O ALEXANDRE respondeu *"Troca de
+    # horário"* e **nada capturou a resposta**: esta função só sabia INSERIR, então ou o agente
+    # não fazia nada (foi o que aconteceu) ou criaria uma segunda justificativa órfã, sem
+    # `punch_id`, enquanto a presa à batida seguia vazia.
+    #
+    # ⭐ Um ciclo que pergunta e não guarda a resposta é pior que não perguntar: gasta a
+    # paciência da pessoa e entrega à supervisão uma decisão sem informação nenhuma.
+    #
+    # ⚠️ Só preenche o que está VAZIO — nunca sobrescreve palavras que alguém já deu — e só
+    # dentro de 24h, para uma pendência velha não engolir uma justificativa nova de outro dia.
+    aberta = (await db.execute(sql(
+        "SELECT justification_id FROM gp_justifications "
+        " WHERE employee_id = :e AND status = 'pendente' "
+        "   AND coalesce(reason,'') = '' AND punch_id IS NOT NULL "
+        "   AND created_at > now() - interval '24 hours' "
+        " ORDER BY created_at DESC LIMIT 1"), {"e": str(employee_id)})).scalar()
+    if aberta:
+        await db.execute(sql(
+            "UPDATE gp_justifications SET reason = :r, category = :c, updated_at = now() "
+            " WHERE justification_id = :j"),
+            {"r": motivo.strip()[:2000], "c": categoria, "j": aberta})
+        # o rascunho da Central dizia «ainda não informou o motivo» — deixar essa frase no ar
+        # faria a supervisão adiar uma decisão que já pode ser tomada
+        await db.execute(sql(
+            # ⚠️ `agent_drafts` NÃO tem coluna de atualização — conferido no schema, depois de
+            # eu supor `updated_at` e a transação estourar. Três vezes hoje eu chutei coluna.
+            "UPDATE agent_drafts SET resumo = resumo || :add "
+            " WHERE tipo = 'justificar_ponto' AND status = 'rascunho' "
+            "   AND payload->>'justification_id' = :j"),
+            {"j": aberta, "add": f"\n\n✅ MOTIVO INFORMADO POR ELE NO WHATSAPP:\n« "
+                                 f"{motivo.strip()[:600]} »"})
+        await db.commit()
+        logger.info("justificativa %s PREENCHIDA com a resposta de %s", aberta, employee_id)
+        return {"ok": True, "justification_id": aberta, "preencheu_pendente": True,
+                "msg": ("Anotei o motivo com as suas palavras e juntei à batida. Agora a "
+                        "supervisão decide — você não precisa fazer mais nada.")}
+
     jid = str(_uuid.uuid4())
     await db.execute(sql(
         "INSERT INTO gp_justifications (justification_id, employee_id, justification_type, reason, "

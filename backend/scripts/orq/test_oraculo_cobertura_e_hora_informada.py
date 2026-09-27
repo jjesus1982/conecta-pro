@@ -37,6 +37,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, "/app")
 
+from sqlalchemy import text  # noqa: E402
+
 from core.database import async_session_factory  # noqa: E402
 
 falhas: list[str] = []
@@ -119,7 +121,7 @@ async def main() -> None:
 
         # ⭐ quem BATEU PONTO não faltou. Sem esta parede o agente marcaria falta de quem
         #    trabalhou, e o fato mais forte (a batida) perderia para o relato.
-        bateu = (await db.execute(__import__("sqlalchemy").text(
+        bateu = (await db.execute(text(
             "SELECT e.nome FROM gp_clock_punches g JOIN employees e ON e.id=g.employee_id "
             " JOIN shifts s ON s.employee_id=e.id AND s.shift_date=g.punch_timestamp::date "
             " WHERE g.punch_type='entrada' AND g.punch_timestamp::date >= current_date - 1 "
@@ -132,6 +134,45 @@ async def main() -> None:
                 print(f"  ok  quem tem batida no turno não é aceito como falta ({bateu.split()[0]})")
         else:
             print("  ·   ninguém com batida+turno para o controle hoje")
+
+        # 3b — 💰 ⭐ JUSTIFICATIVA DUPLICADA É DINHEIRO, NÃO COSMÉTICA.
+        #
+        # `payroll_service._absences` faz
+        # `SUM(CASE WHEN justification_type='atraso' THEN 60 ELSE 0 END)` sobre
+        # `status IN ('aprovada','pendente')`: **cada atraso vale 60 minutos**. Duas no mesmo
+        # dia descontam 120.
+        #
+        # 🔴 Aconteceu em 27/09 com o ALEXANDRE: a batida fora do horário nasce com uma
+        # justificativa PENDENTE E VAZIA presa a ela, o José Luís pergunta o motivo, e a
+        # pessoa responde — mas `registrar_justificativa` só sabia INSERIR. Resultado: a presa
+        # à batida ficou vazia (era a que a Central apontava) e o texto bom foi para uma órfã
+        # sem `punch_id`. Duas pendentes, 120 minutos.
+        dup = (await db.execute(text(
+            "SELECT e.nome, j.created_at::date, count(*) FROM gp_justifications j "
+            "  JOIN employees e ON e.id::text = j.employee_id "
+            " WHERE j.status IN ('aprovada','pendente') AND j.justification_type='atraso' "
+            "   AND j.created_at >= current_date - 7 "
+            " GROUP BY e.nome, j.created_at::date HAVING count(*) > 1"))).all()
+        if dup:
+            falhas.append(f"{len(dup)} pessoa(s) com MAIS DE UMA justificativa de atraso no "
+                          f"mesmo dia nos últimos 7 dias (ex.: {dup[0][0]} em {dup[0][1]}) — "
+                          f"a folha conta 60 min por justificativa, então isso é desconto em "
+                          f"dobro")
+        else:
+            print("  ok  ninguém com justificativa de atraso duplicada no mesmo dia (7 dias)")
+
+        # ⭐ E a pergunta que fizemos não pode ficar sem resposta guardada: justificativa presa
+        #    à batida, pendente e VAZIA há horas significa que alguém respondeu no vácuo.
+        mudas = (await db.execute(text(
+            "SELECT count(*) FROM gp_justifications "
+            " WHERE status='pendente' AND punch_id IS NOT NULL AND coalesce(reason,'')='' "
+            "   AND created_at < now() - interval '6 hours'"))).scalar() or 0
+        if mudas:
+            falhas.append(f"{mudas} justificativa(s) presa(s) à batida, pendente(s) e VAZIA(s) "
+                          "há mais de 6h — o ciclo pergunta o motivo e não guarda a resposta, "
+                          "e a supervisão decide sem informação nenhuma")
+        else:
+            print("  ok  nenhuma justificativa pendente ficou muda (resposta é guardada)")
 
     # 4 — ⭐ RASCUNHO SEM EXECUTOR É BOTÃO QUE FALHA NA MÃO DE QUEM APROVA.
     #     Em 26/09 havia 17 tipos assim, e a Central dizia "sem executor registrado".
