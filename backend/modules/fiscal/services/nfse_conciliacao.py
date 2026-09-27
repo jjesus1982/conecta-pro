@@ -113,7 +113,14 @@ _DDL = (
 #: Patrimonial: DPS 59 (NFS-e 27), 63 (28), 67 (29), 71 (30) e **75** (NFS-e 31).
 _PISO_DPS: dict[str, tuple[int, str]] = {
     "35710481000103": (125, "DANFSe nº 121 de 17/09/2026 — «NÚMERO DA DPS 125, SÉRIE DA DPS 70000»."),
-    "66014833000110": (75, "DANFSe nº 31 de 26/08/2026 — «NÚMERO DA DPS 75, SÉRIE DA DPS 70000»."),
+    "66014833000110": (
+        110,
+        "DANFSe nº 35 de 25/09/2026 — «NÚMERO DA DPS 110, SÉRIE DA DPS 70000». "
+        "Era 75 (da nota 31) e as notas 33, 34 e 35 saíram nos DPS 97, 106 e 110: a fila "
+        "de conciliação nascia curta e NUNCA chegava nelas. Em 27/09/2026 foi preciso "
+        "estender a varredura à mão até 115 para encontrá-las — e foi só aí que R$ 715 mil "
+        "em notas que o sistema não tinha apareceram. Piso desatualizado é fila cega.",
+    ),
 }
 
 

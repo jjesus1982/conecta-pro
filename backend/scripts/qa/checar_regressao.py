@@ -110,6 +110,13 @@ CACADORES = {
     "checar_contrato_sem_nota_no_mes.py": lambda s: _n(
         r"^TOTAL: (\d+) contrato\(s\) ativo\(s\) sem nota na competência", s
     ),
+    # Linha do cronograma de notas que não bate com o contrato — valor, empresa, ou sem contrato
+    # nenhum por trás — e contrato vigente que não vira linha. Desde 27/09/2026 o cronograma
+    # NASCE do contrato (`semear_de_contratos`), mas linha à mão continua valendo, e deve: nota
+    # avulsa existe. O que não pode é a divergência ser silenciosa, porque é ela que vira nota
+    # no valor errado. Medido no dia em que entrou: setembro, transcrito da planilha do dono,
+    # 6 divergências; outubro, gerado do contrato, ZERO.
+    "checar_cronograma_vs_contrato.py": lambda s: _n(r"^TOTAL: (\d+) divergência\(s\) entre cronograma e contrato", s),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna

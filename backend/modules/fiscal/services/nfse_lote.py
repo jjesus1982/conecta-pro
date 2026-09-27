@@ -63,6 +63,7 @@ O que esta camada NÃO faz
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -353,6 +354,152 @@ async def _ensure(db: AsyncSession) -> None:
 
 
 # ---------------------------------------------------------------------------
+# A fonte das linhas: CONTRATO ativo, não planilha transcrita
+# ---------------------------------------------------------------------------
+
+
+async def semear_de_contratos(db: AsyncSession, competencia: str) -> dict[str, Any]:
+    """Cria a linha do cronograma de cada CONTRATO ativo e vigente na competência.
+
+    ## Por que isto existe
+
+    Até 27/09/2026 a única fonte do que virava nota era `_SEED_2026_09` — 14 linhas de
+    Python transcritas à mão da planilha `.ods` do dono. `propor()` fazia um SELECT em
+    `nfse_cronograma` e **nunca tocava em `contracts`**. As consequências, medidas:
+
+      • **Só existia seed de setembro.** Em 01/10/2026 o cronograma estaria VAZIO e nada
+        seria proposto — e é justamente em outubro que o faturamento passa 100% para cá.
+      • **Contrato novo era invisível.** O Green Hills (CTR-2026-00019, R$ 22.100/mês,
+        ativo desde 01/09) não tinha linha; a linha 12 do cronograma descrevia o contrato
+        VELHO dele (R$ 500,00, da Eletrônica, hoje `terminated`).
+      • **A planilha não sabe de que mês nem de que empresa é.** A coluna de data diz
+        `XX/XX` em todas as linhas, o cabeçalho diz «Conectamais Eletrônica» e a lista
+        mistura clientes das duas — a empresa era adivinhada lendo a descrição
+        (`empresa_do_cronograma`), pelos dados bancários no texto.
+      • **Ela carrega duas versões do mesmo valor.** As abas `Conectamais` e
+        `Cópia_de_Conectamais` só diferem no Mirante limpeza: R$ 12.061,50 numa,
+        R$ 13.561,50 na outra, sem dizer qual vale.
+
+    A inversão: **o contrato passa a ser a fonte**; o cronograma continua existindo como a
+    lista de EXCEÇÕES (valor diferente do contrato, empresa diferente, não faturar este
+    mês), cada uma com motivo escrito. Era o contrário, e por isso um contrato novo
+    simplesmente não aparecia.
+
+    ## O que ele respeita
+
+    `contracts.grace_period_days` — campo que existia preenchido (Green Hills, 90 dias) e
+    que **nenhuma lógica de faturamento lia** em 26/09/2026. Contrato em carência não gera
+    linha: gerar seria propor uma nota que o contrato proíbe.
+
+    ## O que ele NÃO faz
+
+    Não emite, não sobrescreve linha existente (`ON CONFLICT DO NOTHING`) e não apaga o que
+    foi transcrito à mão. Uma linha do dono com valor combinado por fora continua valendo —
+    a divergência entre ela e o contrato é o que `checar_cronograma_vs_contrato` acusa.
+    """
+    await _ensure(db)
+    ano, mes = int(competencia[:4]), int(competencia[5:7])
+    primeiro = date(ano, mes, 1)
+    ultimo = date(ano + mes // 12, mes % 12 + 1, 1) - timedelta(days=1)
+
+    linhas = (
+        (
+            await db.execute(
+                sqltext(r"""
+            SELECT c.contract_number, c.monthly_value, c.start_date,
+                   coalesce(c.grace_period_days, 0) AS carencia,
+                   coalesce(c.name, 'Prestação de serviços') AS rotulo,
+                   regexp_replace(coalesce(cl.document_number,''), '\D', '', 'g') AS tomador_cnpj,
+                   coalesce(cl.name, '(sem nome)') AS tomador_nome,
+                   regexp_replace(coalesce(e.cnpj,''), '\D', '', 'g') AS empresa_cnpj
+              FROM contracts c
+              JOIN clients cl ON cl.id = c.client_id
+              JOIN empresas e ON e.id = c.empresa_id
+             WHERE c.status = 'active'
+               AND coalesce(c.monthly_value, 0) > 0
+               AND c.start_date <= :ultimo
+               AND (c.end_date IS NULL OR c.end_date >= :primeiro)
+             ORDER BY c.monthly_value DESC
+        """),
+                {"primeiro": primeiro, "ultimo": ultimo},
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    proxima = (
+        await db.execute(
+            sqltext("SELECT coalesce(max(ordem), 0) FROM nfse_cronograma WHERE competencia = :c"),
+            {"c": competencia},
+        )
+    ).scalar() or 0
+
+    criadas, em_carencia, ja_tinha = 0, [], 0
+    for r in linhas:
+        fim_carencia = r["start_date"] + timedelta(days=int(r["carencia"]))
+        if r["carencia"] and ultimo < fim_carencia:
+            em_carencia.append(
+                {
+                    "contrato": r["contract_number"],
+                    "tomador": r["tomador_nome"],
+                    "valor": float(r["monthly_value"]),
+                    "primeira_nota_a_partir_de": str(fim_carencia),
+                }
+            )
+            continue
+        existe = (
+            await db.execute(
+                sqltext(
+                    "SELECT 1 FROM nfse_cronograma"
+                    " WHERE competencia = :c AND tomador_cnpj = :t"
+                    "   AND round(valor_bruto, 2) = round(CAST(:v AS numeric), 2)"
+                ),
+                {"c": competencia, "t": r["tomador_cnpj"], "v": r["monthly_value"]},
+            )
+        ).first()
+        if existe:
+            ja_tinha += 1
+            continue
+        proxima += 1
+        await db.execute(
+            sqltext(
+                "INSERT INTO nfse_cronograma"
+                " (competencia, ordem, tomador_cnpj, tomador_nome, valor_bruto, rotulo_servico,"
+                "  descricao, empresa_cnpj, empresa_fonte, fonte)"
+                " VALUES (:c, :o, :t, :n, :v, :r, :d, :e, :ef, :f)"
+                " ON CONFLICT (competencia, ordem) DO NOTHING"
+            ),
+            {
+                "c": competencia,
+                "o": proxima,
+                "t": r["tomador_cnpj"],
+                "n": r["tomador_nome"],
+                "v": r["monthly_value"],
+                "r": r["rotulo"],
+                # A descrição sai do rótulo do contrato; `propor()` a enriquece depois com
+                # o bloco de INSS, VA e VT da folha (`montar_descricao`). O texto rico da
+                # planilha não se perde: linha transcrita à mão não é sobrescrita.
+                "d": f"{r['rotulo']}. Período: {primeiro:%d/%m/%Y} a {ultimo:%d/%m/%Y}.",
+                "e": r["empresa_cnpj"],
+                # A empresa vem do CONTRATO, não de adivinhar pelos dados bancários no
+                # texto da descrição, que é o que `empresa_do_cronograma` fazia.
+                "ef": f"contrato {r['contract_number']}",
+                "f": "contrato",
+            },
+        )
+        criadas += 1
+    await db.commit()
+    return {
+        "competencia": competencia,
+        "contratos_ativos": len(linhas),
+        "linhas_criadas": criadas,
+        "ja_existiam": ja_tinha,
+        "em_carencia": em_carencia,
+    }
+
+
+# ---------------------------------------------------------------------------
 # VA e VT da folha, por tomador e competência
 # ---------------------------------------------------------------------------
 
@@ -427,6 +574,19 @@ async def propor(db: AsyncSession, competencia: str = "2026-09") -> list[dict[st
     campo e, onde as fontes discordam, as duas versões lado a lado.
     """
     await _ensure(db)
+
+    # O CONTRATO é a fonte. Antes disto, `propor` fazia um único SELECT em
+    # `nfse_cronograma` e nunca tocava em `contracts`: a tabela vinha de 14 linhas de
+    # Python transcritas à mão da planilha do dono, e **só existia seed de setembro/2026**.
+    # Em 01/10 o cronograma estaria vazio e nada seria proposto — justamente o mês em que
+    # o faturamento passa 100% para cá. E contrato novo era invisível: o Green Hills,
+    # ativo desde 01/09, não tinha linha nenhuma.
+    #
+    # `semear_de_contratos` é idempotente e NÃO sobrescreve linha existente: o que o dono
+    # transcreveu à mão continua valendo, e a divergência entre a linha e o contrato é o
+    # que `checar_cronograma_vs_contrato` acusa em vez de resolver em silêncio.
+    await semear_de_contratos(db, competencia)
+
     from modules.fiscal.services.nfse_parametros import nbs_de, parametros_de
 
     # Benefícios da competência ANTERIOR — é o que o dono usa na descrição («Vale
