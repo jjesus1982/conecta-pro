@@ -324,6 +324,16 @@ julho/agosto — decisão sua de competência. `oraculo_externo` são as declara
   **três dias "NÃO VERIFICADO"** em silêncio (pareador único, espelho da régua, direção da
   batida). Caminho corrigido.
 
+**Três oráculos que ninguém verificava há três dias** (`x4` pareador único, `y1` espelho
+da régua, `y2` direção da batida): o executor procurava em `qa/` e depois os rodava no host
+sem `core`. Rodados direto no container: `x4` 0, `y2` 0, **`y1` com 2 desvios** — é ponto,
+da outra sessão; fica registrado aqui e passa a aparecer na varredura noturna.
+
+**Uma terceira régua envelhecida:** `test_oraculo_periodo_fechado` julgava tudo pelo corte
+global (01/08) e acusou 52 lançamentos "de período fechado alterados" — todos da
+Patrimonial, cujo corte é 01/06, e nenhum anterior a ele. Agora julga pelo corte da empresa:
+52 → 0.
+
 **O gate fiscal 9 → 7.** Uma condição é o v5 acima. A outra é a tabela de tributos vencidos
 sem guia no topo deste relatório — e essa é sua, urgente.
 
@@ -413,13 +423,14 @@ migração. **Proponho o caminho sem migração:** fazer os leitores consultarem
 `encargo_pct_da_empresa()`, que já lê o cadastro certo — apagar a divergência em vez de
 duplicar a tabela. Confirma?
 
-### e) Mirante das Flores: a limpeza não está no contrato
+### e) Mirante das Flores: o aditivo da limpeza e um par duplicado a mais
 
-`checar_contrato_vs_nota` acusa: contrato R$ 40.755,80 × nota R$ 52.817,30 — R$ 12.061,50 a
-mais, que é a linha de limpeza. O `contracts` do Mirante não tem essa linha, e a nota tem.
-E no recebível ela aparece como R$ 13.561,50 (ver o par duplicado 5/11 de junho). Qual é o
-valor do aditivo que você vai assinar: 12.061,50 ou 13.561,50? Com a resposta eu ajusto o
-contrato e o cronograma de outubro sai certo — é a nota que você disse que vai emitir por aqui.
+Eu tinha escrito aqui que "a limpeza não está no contrato" — **errado**: ela existe como
+contrato próprio, CTR-2026-00016, R$ 12.061,50. O que `checar_contrato_vs_nota` acusa
+(contrato R$ 40.755,80 × nota R$ 52.817,30) é uma nota de limpeza **a mais** no mês — mais
+um par duplicado, do mesmo lote de junho. E o valor da nota (R$ 13.561,50) é o reajustado,
+enquanto o contrato ainda diz R$ 12.061,50: é o aditivo que você disse que falta assinar.
+Com o valor do aditivo eu atualizo o CTR-00016 e o cronograma de outubro sai certo.
 
 ### d) Qual é o nosso RAT: 2% ou 3%?
 

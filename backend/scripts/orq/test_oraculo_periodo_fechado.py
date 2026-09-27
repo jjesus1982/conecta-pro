@@ -20,6 +20,7 @@ Se um toque legítimo acontecer, mova a linha de base de propósito — é ato a
 Roda:
     docker exec -e PYTHONPATH=/app conecta-pro-backend python3 /app/scripts/orq/test_oraculo_periodo_fechado.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,29 +47,45 @@ _SQL_BASELINE = """
 
 async def main() -> None:
     async with async_session_factory() as db:
-        corte = (await db.execute(text(
-            "SELECT valor FROM system_configs WHERE chave = 'contabil.corte'"))).scalar()
+        corte = (await db.execute(text("SELECT valor FROM system_configs WHERE chave = 'contabil.corte'"))).scalar()
         # asyncpg infere o tipo do bind pelo CAST e recusa string onde espera date.
         corte = date.fromisoformat(corte or os.getenv("CONECTA_CORTE_CONTABIL", "2026-08-01"))
 
-        base = (await db.execute(text("SELECT valor FROM system_configs WHERE chave = :c"),
-                                 {"c": CHAVE})).scalar()
+        base = (await db.execute(text("SELECT valor FROM system_configs WHERE chave = :c"), {"c": CHAVE})).scalar()
         if not base:
             # Primeira execução: congela o passado. O que já estava tocado fica perdoado, e a
             # vigilância começa agora.
             base = datetime.now(UTC).isoformat(timespec="seconds")
             await db.execute(text(_SQL_BASELINE), {"c": CHAVE, "v": base})
             await db.commit()
-            perdoados = (await db.execute(text(
-                "SELECT count(*) FROM accounting_entries WHERE data_lancamento < CAST(:corte AS date) "
-                "AND updated_at > CAST(:corte AS timestamp)"), {"corte": corte})).scalar()
+            perdoados = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM accounting_entries WHERE data_lancamento < CAST(:corte AS date) "
+                        "AND updated_at > CAST(:corte AS timestamp)"
+                    ),
+                    {"corte": corte},
+                )
+            ).scalar()
             print(f"OK linha de base criada em {base} — {perdoados} toque(s) anteriores perdoados")
 
-        violacoes = (await db.execute(text(
-            "SELECT count(*), min(data_lancamento)::text, max(updated_at)::text "
-            "FROM accounting_entries "
-            "WHERE data_lancamento < CAST(:corte AS date) AND updated_at > CAST(:base AS timestamptz)"),
-            {"corte": corte, "base": datetime.fromisoformat(base)})).first()
+        # O corte é POR EMPRESA desde 26/09/2026 (`empresas.corte_contabil`; sem valor, o
+        # global). Julgar tudo pelo global reprovava o certo: em 27/09 os 52 «alterados»
+        # eram todos da Patrimonial (corte 01/06) e nenhum anterior ao corte DELA — a
+        # apuração complementar de jun/jul, a receita repostada pela conciliação e as
+        # provisões de folha, todos dentro do período aberto dela. Régua que ignora a
+        # decisão do dono não é régua. O global segue valendo para quem não tem corte.
+        violacoes = (
+            await db.execute(
+                text(
+                    "SELECT count(*), min(a.data_lancamento)::text, max(a.updated_at)::text "
+                    "FROM accounting_entries a LEFT JOIN empresas e ON e.id = a.empresa_id "
+                    "WHERE a.data_lancamento < COALESCE(e.corte_contabil, CAST(:corte AS date)) "
+                    "AND a.updated_at > CAST(:base AS timestamptz)"
+                ),
+                {"corte": corte, "base": datetime.fromisoformat(base)},
+            )
+        ).first()
 
         n = violacoes[0] or 0
         assert n == 0, (
@@ -82,6 +99,7 @@ async def main() -> None:
         # Suspenders: a própria trava do código precisa continuar existindo. Sem ela, só este
         # oráculo separa o razão histórico de quem quiser reescrevê-lo — e ele roda 1x por dia.
         from modules.financial.services.periodo_contabil import periodo_fechado
+
         assert periodo_fechado(date(2026, 7, 31)), "guard do código parou de barrar julho"
         assert not periodo_fechado(date(2026, 8, 2)), "guard do código passou a barrar agosto"
         print("OK guard `periodo_fechado` continua no caminho de escrita")

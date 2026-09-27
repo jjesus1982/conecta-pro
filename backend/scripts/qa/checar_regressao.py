@@ -612,11 +612,16 @@ def _cmd(script: str, onde: str) -> list[str]:
     # de 24/09 a 27/09: três dias em que ninguém soube se o pareador único, o espelho da
     # régua e a direção da batida seguiam de pé. O caminho errado é silencioso porque o
     # runner trata «não abriu» como não-verificado, não como falha.
-    pasta = "orq" if script.startswith("test_") else "qa"
+    # Oráculo importa `core`/`modules`: só existe dentro do container. A 1ª correção (manhã
+    # de 27/09) achou o arquivo em orq/ mas o rodou no HOST e trocou «can't open file» por
+    # «No module named 'core'» — outra forma do mesmo silêncio. Medido ao rodar os três
+    # direto: x4 0, y2 0, y1 com 2 desvios que ninguém viu por três dias.
+    if script.startswith("test_"):
+        return _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1].replace("/qa/", "/orq/") + script]
     return (
-        [sys.executable, str(AQUI.parent / pasta / script)]
+        [sys.executable, str(AQUI / script)]
         if onde == "host"
-        else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1].replace("/qa/", f"/{pasta}/") + script]
+        else _EXEC_CONTAINER[:-1] + [_EXEC_CONTAINER[-1] + script]
     )
 
 
