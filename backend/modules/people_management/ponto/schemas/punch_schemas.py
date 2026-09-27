@@ -29,6 +29,13 @@ class PunchCreate(BaseModel):
     device_type: str = "web"
     is_offline: bool = False
     posto_id: str | int | None = None
+    #: ⭐ JUSTIFICATIVA OBRIGATÓRIA QUANDO A BATIDA É FORA DO HORÁRIO — Jordan, 27/09/2026:
+    #: *"o sistema só finaliza a batida de ponto após a justificativa"*. O app manda aqui o
+    #: motivo que o funcionário digitou; sem ele, uma batida atrasada é RECUSADA com 409 e o
+    #: campo `precisa_justificativa` no detalhe, para a tela abrir o campo.
+    #: ⚠️ Isso tira trabalho do DP: hoje o DP justifica por escrito o atraso de outra pessoa,
+    #: adivinhando o motivo. Quem sabe o motivo é quem chegou atrasado.
+    justificativa: str | None = None
 
 
 class PunchResponse(BaseModel):

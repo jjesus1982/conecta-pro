@@ -4867,6 +4867,7 @@ async def _contexto_funcionario(ident) -> str:
     from modules.people_management.ponto.guia_primeiro_acesso import (  # noqa: PLC0415
         COMO_BATER_CURTO,
         DIARISTA_NAO_BATE,
+        INTRAJORNADA,
         NUNCA_DIZER,
         URL_PORTAL,
     )
@@ -4888,6 +4889,7 @@ async def _contexto_funcionario(ident) -> str:
         "  · Se a pessoa não consegue bater de jeito nenhum, NÃO a deixe perder a hora: "
         "registre a batida por contingência e diga que o DP valida depois.",
         f"  · 🔴 {DIARISTA_NAO_BATE}",
+        f"  · 🔴 {INTRAJORNADA}",
         "",
         f"FUNCIONÁRIO: {ident.nome}"
         + (

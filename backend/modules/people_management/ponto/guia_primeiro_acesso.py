@@ -48,6 +48,29 @@ DIARISTA_NAO_BATE = (
     "acontecendo. Gravar 'agora' transforma 5 horas trabalhadas em 5 horas perdidas."
 )
 
+#: ⭐ OS QUATRO POSTOS DE INTRAJORNADA — Jordan, 27/09/2026: *"tem 4 condomínios que os agentes
+#: de portaria não batem intervalo, eles batem apenas entrada e saída, pois recebem o valor
+#: adicional de intrajornada"*.
+#:
+#: 🔴 Existe porque o agente ERROU por não saber: disse ao ALAN *"qualquer trave na saída do
+#: almoço, me chama"* — no Prime Arena, que é um desses quatro. Ofereceu ajuda para uma batida
+#: que não deve existir. Eu havia ajustado os turnos E a flag do posto no banco, mas a regra
+#: não estava no contexto dele. Terceira vez com a mesma causa: Tangerino, diarista, e agora
+#: intrajornada. **Ele só sabe o que está escrito aqui.**
+POSTOS_INTRAJORNADA = ("Condomínio Green Hills", "Condomínio Prime Arena",
+                       "Condomínio Villa Dei Fiori", "Condomínio Villa dos Pássaros")
+
+INTRAJORNADA = (
+    "INTRAJORNADA — nestes quatro postos o AGENTE DE PORTARIA bate SÓ entrada e saída, NUNCA "
+    "intervalo, porque recebe o adicional de intrajornada: "
+    + " · ".join(POSTOS_INTRAJORNADA) + ". "
+    "⚠️ NUNCA mencione almoço, intervalo ou pausa para quem trabalha nestes postos, e NUNCA "
+    "ofereça ajuda com 'batida de almoço' — ela não existe lá. Se a pessoa disser que o app "
+    "pediu intervalo, isso é DEFEITO a registrar, não orientação a dar. "
+    "⚠️ A jornada segue 12 horas: a pausa é DENTRO dela e é paga, não é desconto. "
+    "⚠️ Nos outros postos o intervalo existe normalmente — a regra é por POSTO, não por pessoa."
+)
+
 #: ⚠️ O que NUNCA deve ser dito. Existe para o agente ter a negativa explícita, não só a
 #: ausência de informação — foi a ausência que produziu o erro do Tangerino.
 NUNCA_DIZER = (

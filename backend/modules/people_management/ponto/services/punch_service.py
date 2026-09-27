@@ -7,10 +7,12 @@ Valida geofence via coordenadas do posto (Haversine).
 
 import logging
 import math
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +93,210 @@ class PunchService:
             )
         else:
             timestamp = now.isoformat()
+
+        # ⭐ NÃO SE BATE ANTES DA HORA — regra do Jordan, 27/09/2026:
+        #
+        #   *"eles não podem bater o ponto antes do horário previsto, porque senão gera hora
+        #    extra pra eles; tem que bater no horário certinho e o sistema cobrar o atraso, mas
+        #    bater antes não pode. Se o funcionário tentar, o sistema deve avisar para ele
+        #    aguardar a quantidade de minutos que faltam."*
+        #
+        # ⚠️ VALE PARA TODOS e SÓ PARA A ENTRADA. Atraso continua permitido e cobrado (é o que
+        # a escalada de +10 e +25 faz). Saída antes da hora NÃO gera hora extra — gera hora a
+        # menos — e barrar isso impediria alguém autorizado a sair mais cedo de registrar a
+        # saída, trocando um problema visível por um invisível.
+        #
+        # ⚠️ TOLERÂNCIA DE 5 MINUTOS, e ela não é minha invenção: é o **art. 58 §1 da CLT**, que
+        # não considera como jornada extraordinária as variações de até 5 minutos por marcação,
+        # limitadas a 10 no dia. Barrar alguém por 47 segundos (o JONHATA bateu 05:59:13 hoje)
+        # faria o app parecer quebrado e jogaria a batida para contingência — trocando hora
+        # extra por trabalho manual do DP. Ajustável por `PONTO_TOLERANCIA_ANTES_MIN`.
+        #
+        # Medido em 26/09: 5 batidas em 14 dias com mais de 1h de antecedência, a maior com
+        # **239 minutos** — 4 horas de hora extra que ninguém pediu.
+        if (data.punch_type or "entrada") == "entrada":
+            _tol = int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5"))
+            _ts = datetime.fromisoformat(timestamp)
+            _prox = (await self.db.execute(
+                text(
+                    # o PRÓXIMO início de turno dela a partir desta batida, olhando hoje e
+                    # amanhã (turno noturno que começa 19:00 é do mesmo dia; quem bate 23:50
+                    # para um turno de 00:00 cai no dia seguinte)
+                    "SELECT (s.shift_date + s.planned_start_time) AS inicio, s.planned_start_time "
+                    "  FROM shifts s "
+                    " WHERE s.employee_id = CAST(:e AS uuid) AND s.is_active "
+                    "   AND coalesce(s.status,'') NOT IN ('cancelled','cancelado','cancelada') "
+                    "   AND s.shift_date BETWEEN CAST(CAST(:d AS text) AS date) "
+                    "                        AND CAST(CAST(:d AS text) AS date) + 1 "
+                    "   AND (s.shift_date + s.planned_start_time) > CAST(CAST(:ts AS text) AS timestamp) "
+                    " ORDER BY (s.shift_date + s.planned_start_time) LIMIT 1"
+                ),
+                {"e": str(data.employee_id), "d": _ts.date().isoformat(), "ts": timestamp},
+            )).mappings().first()
+            if _prox:
+                _faltam = int((_prox["inicio"] - _ts).total_seconds() // 60)
+                # ⚠️ TETO DE 4 HORAS: sem ele, quem bate a SAÍDA de um noturno às 06:00 seria
+                # comparado com o turno da noite seguinte e barrado. A janela olha só o turno
+                # que está de fato começando.
+                if _tol < _faltam <= 240:
+                    logger.warning(
+                        "ponto: batida ANTES da hora recusada — employee=%s faltam %dmin para o "
+                        "turno de %s (tolerância %dmin)",
+                        data.employee_id, _faltam, _prox["planned_start_time"], _tol)
+                    raise HTTPException(
+                        # ⚠️ 409 literal, NÃO `status.HTTP_409_CONFLICT`: este serviço tem
+                        # uma variável local `status = "pending"` mais abaixo, e ela
+                        # SOMBREIA o módulo do FastAPI em toda a função — a referência
+                        # antes da atribuição dá UnboundLocalError. Peguei isso na prova.
+                        status_code=409,
+                        detail=(
+                            f"Ainda não está na hora de bater. Seu turno começa às "
+                            f"{str(_prox['planned_start_time'])[:5]} e faltam *{_faltam} "
+                            f"minuto(s)*. Aguarde e bata no horário — bater antes gera hora "
+                            f"extra indevida. Se você chegou mais cedo, tudo bem: é só esperar "
+                            f"o horário para registrar."
+                        ),
+                    )
+
+        # ⭐ BATIDA FORA DO HORÁRIO SÓ FECHA COM JUSTIFICATIVA — Jordan, 27/09/2026:
+        #
+        #   *"ao sair depois do horário programado, abrir o campo de justificativa, por que o
+        #    funcionário está batendo o ponto de entrada ou de saída fora do horário programado.
+        #    Essa justificativa já retira o trabalho do DP de ter que justificar. Nesse caso o
+        #    sistema só finaliza a batida de ponto APÓS a justificativa."*
+        #
+        # ⭐ O GANHO É DE QUEM SABE O MOTIVO. Hoje o DP justifica o atraso de outra pessoa,
+        # adivinhando por quê — e quem sabe é quem chegou atrasado. A justificativa nasce com a
+        # pessoa e vai para aprovação de quem supervisiona.
+        #
+        # ⚠️ Vale para ENTRADA e para SAÍDA, e para TODOS. Mesma tolerância de 5 minutos do
+        # art. 58 §1 da CLT usada na guarda de cima — pedir justificativa por 40 segundos de
+        # atraso ensinaria todo mundo a escrever "trânsito" sem ler a pergunta.
+        _justif_para_criar: dict[str, Any] | None = None
+        _tipo = (data.punch_type or "entrada")
+
+        # ⭐ RETORNO DO ALMOÇO — Jordan, 27/09/2026: a tolerância de 5 minutos vale para os
+        # QUATRO marcos. Aqui a referência não vem da escala: vem da própria saída de almoço
+        # **mais** `planned_break_minutes`.
+        #
+        # ⚠️ E voltar ANTES do fim do intervalo gera hora extra pela mesma lógica da entrada
+        # antecipada: a pessoa passa a trabalhar antes do previsto. Voltar DEPOIS exige
+        # justificativa, como a entrada atrasada.
+        #
+        # ⚠️ NÃO consigo aplicar a regra à SAÍDA para almoço: `shifts` tem a DURAÇÃO do intervalo
+        # (`planned_break_minutes`) e **nenhuma hora prevista** para ele — e as batidas de almoço
+        # da casa vão de 00:00 a 23:55, porque o noturno almoça de madrugada. Sem horário
+        # previsto não há "5 minutos antes" que signifique algo, e eu não vou inventar um.
+        if _tipo == "retorno_almoco":
+            _tol = int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5"))
+            _ts = datetime.fromisoformat(timestamp)
+            _ref_alm = (await self.db.execute(
+                text(
+                    "SELECT g.punch_timestamp AS saiu, coalesce(s.planned_break_minutes, 60) AS dur "
+                    "  FROM gp_clock_punches g "
+                    "  LEFT JOIN shifts s ON s.employee_id = g.employee_id "
+                    "       AND s.shift_date = g.punch_timestamp::date AND s.is_active "
+                    " WHERE g.employee_id = CAST(:e AS uuid) AND g.punch_type = 'saida_almoco' "
+                    "   AND g.punch_timestamp < CAST(CAST(:ts AS text) AS timestamp) "
+                    "   AND g.punch_timestamp > CAST(CAST(:ts AS text) AS timestamp) "
+                    "                           - INTERVAL '6 hours' "
+                    " ORDER BY g.punch_timestamp DESC LIMIT 1"
+                ),
+                {"e": str(data.employee_id), "ts": timestamp},
+            )).mappings().first()
+            if _ref_alm and _ref_alm["dur"]:
+                _fim_alm = _ref_alm["saiu"] + timedelta(minutes=int(_ref_alm["dur"]))
+                _dif = int((_ts - _fim_alm).total_seconds() // 60)
+                if _dif < -_tol:
+                    _faltam = -_dif
+                    logger.warning("ponto: retorno de almoço ANTES da hora recusado — "
+                                   "employee=%s faltam %dmin", data.employee_id, _faltam)
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(f"Seu intervalo é de {int(_ref_alm['dur'])} minutos e ainda "
+                                f"faltam *{_faltam} minuto(s)* para terminar. Aguarde e bata no "
+                                f"horário — voltar antes gera hora extra indevida."),
+                    )
+                if _dif > _tol:
+                    if not (data.justificativa or "").strip():
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "precisa_justificativa": True, "punch_type": _tipo,
+                                "atraso_min": _dif,
+                                "horario_previsto": _fim_alm.strftime("%H:%M"),
+                                "message": (
+                                    f"Seu intervalo de {int(_ref_alm['dur'])} minutos terminava "
+                                    f"às {_fim_alm.strftime('%H:%M')} e você está voltando "
+                                    f"{_dif} minuto(s) depois. *Escreva o motivo* para finalizar "
+                                    f"a batida — a sua justificativa vai para aprovação da "
+                                    f"supervisão."
+                                ),
+                            },
+                        )
+                    _justif_para_criar = {
+                        "tipo": "retorno_almoco_atrasado", "atraso_min": _dif,
+                        "hora_prevista": _fim_alm.strftime("%H:%M"),
+                        "motivo": (data.justificativa or "").strip()[:2000],
+                    }
+        if _tipo in ("entrada", "saida"):
+            _tol = int(os.getenv("PONTO_TOLERANCIA_ANTES_MIN", "5"))
+            _ts = datetime.fromisoformat(timestamp)
+            _ref = (await self.db.execute(
+                text(
+                    "SELECT s.planned_start_time, s.planned_end_time, "
+                    "       (s.shift_date + s.planned_start_time) AS inicio, "
+                    "       (s.shift_date + s.planned_end_time "
+                    "        + CASE WHEN s.planned_end_time <= s.planned_start_time "
+                    "               THEN INTERVAL '1 day' ELSE INTERVAL '0' END) AS fim "
+                    "  FROM shifts s "
+                    " WHERE s.employee_id = CAST(:e AS uuid) AND s.is_active "
+                    "   AND coalesce(s.status,'') NOT IN ('cancelled','cancelado','cancelada') "
+                    "   AND s.shift_date BETWEEN CAST(CAST(:d AS text) AS date) - 1 "
+                    "                        AND CAST(CAST(:d AS text) AS date) "
+                    # o turno cujo marco (início p/ entrada, fim p/ saída) está mais PRÓXIMO
+                    # desta batida — é o que evita comparar com o turno de outro dia
+                    " ORDER BY abs(EXTRACT(EPOCH FROM ("
+                    "     CASE WHEN :tp = 'entrada' THEN (s.shift_date + s.planned_start_time) "
+                    "          ELSE (s.shift_date + s.planned_end_time "
+                    "                + CASE WHEN s.planned_end_time <= s.planned_start_time "
+                    "                       THEN INTERVAL '1 day' ELSE INTERVAL '0' END) END "
+                    "     - CAST(CAST(:ts AS text) AS timestamp)))) LIMIT 1"
+                ),
+                {"e": str(data.employee_id), "d": _ts.date().isoformat(), "ts": timestamp,
+                 "tp": _tipo},
+            )).mappings().first()
+            if _ref:
+                _marco = _ref["inicio"] if _tipo == "entrada" else _ref["fim"]
+                _atraso = int((_ts - _marco).total_seconds() // 60)
+                # ⚠️ TETO DE 4 HORAS: acima disso não é atraso desta batida, é outro turno.
+                if _tol < _atraso <= 240:
+                    _hora_prev = str(_ref["planned_start_time" if _tipo == "entrada"
+                                         else "planned_end_time"])[:5]
+                    if not (data.justificativa or "").strip():
+                        logger.info("ponto: batida %s de %s atrasada %dmin — pedindo justificativa",
+                                    _tipo, data.employee_id, _atraso)
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "precisa_justificativa": True,
+                                "punch_type": _tipo,
+                                "atraso_min": _atraso,
+                                "horario_previsto": _hora_prev,
+                                "message": (
+                                    f"Sua {'entrada' if _tipo == 'entrada' else 'saída'} estava "
+                                    f"prevista para {_hora_prev} e você está batendo "
+                                    f"{_atraso} minuto(s) depois. *Escreva o motivo* para "
+                                    f"finalizar a batida — sem isso ela não é registrada. "
+                                    f"A sua justificativa vai para aprovação da supervisão."
+                                ),
+                            },
+                        )
+                    _justif_para_criar = {
+                        "tipo": "atraso" if _tipo == "entrada" else "saida_fora_horario",
+                        "atraso_min": _atraso, "hora_prevista": _hora_prev,
+                        "motivo": (data.justificativa or "").strip()[:2000],
+                    }
 
         # Determinar status — vocabulário REAL do ciclo de vida do ponto: uma batida
         # nova nasce 'pending' (aguardando aprovação) e vira 'approved' na conferência.
@@ -223,6 +429,68 @@ class PunchService:
         await self._push_punch_to_solides(
             data.employee_id, data.punch_type, str(timestamp), status, data.device_type or "web"
         )
+
+        # ⭐ A JUSTIFICATIVA NASCE JUNTO E VAI PARA APROVAÇÃO — Jordan, 27/09/2026: *"essa
+        # justificativa do funcionário vai para uma lista de aprovação onde Pyetra ou Orlailson
+        # aprovam ou reprovam"*.
+        #
+        # ⚠️ DEPOIS do flush, porque a justificativa referencia `punch_id`. E em savepoint: se a
+        # criação falhar, a BATIDA NÃO CAI — ela já é fato, e perder a batida para salvar a
+        # anotação seria trocar o registro de jornada por papelada. A falha vira log e o DP
+        # justifica à mão, que é o mundo de antes.
+        #
+        # ⚠️ `roles_aprovador=("admin","gerente_operacional")` alcança exatamente os dois que o
+        # Jordan nomeou: medido — Pyetra é `admin` e Orlailson é `gerente_operacional`.
+        if _justif_para_criar:
+            try:
+                async with self.db.begin_nested():
+                    _jid = str(uuid4())
+                    await self.db.execute(
+                        text(
+                            "INSERT INTO gp_justifications (justification_id, punch_id, "
+                            "  employee_id, justification_type, reason, category, status, "
+                            "  source, source_id, data_fato, created_at, updated_at) "
+                            "VALUES (:jid, :pid, :eid, :tp, :motivo, 'ponto', 'pendente', "
+                            "        'app_funcionario', :pid, CAST(CAST(:dia AS text) AS date), "
+                            "        now(), now())"
+                        ),
+                        {"jid": _jid[:36], "pid": punch_id, "eid": str(data.employee_id),
+                         "tp": _justif_para_criar["tipo"],
+                         "motivo": _justif_para_criar["motivo"],
+                         "dia": datetime.fromisoformat(timestamp).date().isoformat()},
+                    )
+                    # e vai para a Central de Aprovações, onde o executor `justificar_ponto` já
+                    # existe e chama `revisar_justificativa` — o serviço oficial.
+                    from modules.ai.conversation.services.orquestrador.acoes.rascunho import (
+                        criar_rascunho,
+                    )
+
+                    _nome = (await self.db.execute(
+                        text("SELECT nome FROM employees WHERE id = CAST(:e AS uuid)"),
+                        {"e": str(data.employee_id)})).scalar() or "(sem nome)"
+                    _t = _justif_para_criar
+                    await criar_rascunho(
+                        self.db, None,
+                        tipo="justificar_ponto", modulo="ponto",
+                        titulo=(f"{_nome}: {_t['tipo'].replace('_', ' ')} de {_t['atraso_min']}min "
+                                f"(previsto {_t['hora_prevista']})")[:180],
+                        resumo=(f"{_nome} bateu {data.punch_type} {_t['atraso_min']} minuto(s) "
+                                f"depois do previsto ({_t['hora_prevista']}) e justificou com as "
+                                f"próprias palavras:\n\n« {_t['motivo']} »\n\n"
+                                f"Aprovar = justificativa ACEITA. Rejeitar = atraso segue sem "
+                                f"justificativa válida."),
+                        payload={"justification_id": _jid[:36], "decisao": "aprovar",
+                                 "employee_id": str(data.employee_id), "punch_id": punch_id,
+                                 "notas": f"aprovado na Central — {_t['atraso_min']}min"},
+                        gate="🟡", requires_otp=False,
+                        roles_aprovador=("admin", "gerente_operacional"),
+                        idempotency_key=f"justif_ponto:{punch_id}",
+                    )
+                logger.info("ponto: justificativa %s criada e enviada para aprovação (batida %s)",
+                            _jid[:36], punch_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("ponto: batida %s registrada mas a JUSTIFICATIVA não nasceu — %s",
+                             punch_id, exc, exc_info=True)
 
         logger.info(
             "Batida registrada no banco: %s employee=%s type=%s",
