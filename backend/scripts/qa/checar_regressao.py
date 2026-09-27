@@ -92,6 +92,13 @@ CACADORES = {
     "checar_credito_retencao_dormente.py": lambda s: _n(
         r"^TOTAL: (\d+) empresa\(s\) com crédito de retenção sem compensar", s
     ),
+    # Empresa cuja OPERAÇÃO não se paga — receita de serviço menor que a despesa
+    # operacional (financeiras fora), em TODOS os meses olhados. Um mês ruim é operação;
+    # três seguidos é estrutura. Nasceu do material que o dono mandou estudar em 26/09:
+    # «não faz sentido aportar dinheiro se a tua operação é ruim». Medido no mesmo dia:
+    # Eletrônica com −136,5% em 08/2026 (fatura R$ 13.300, gasta R$ 31.454 para existir,
+    # depois de passar os contratos para a irmã sem encolher a estrutura).
+    "checar_operacao_que_nao_se_paga.py": lambda s: _n(r"^TOTAL: (\d+) empresa\(s\) com operação que não se paga", s),
     # Nota de HOMOLOGAÇÃO contada como receita real. Nasceu de erro MEU em 24/09: a conciliação
     # da NFS-e, rodada com as empresas em homologação, gravou duas notas de teste minhas
     # (R$ 1.500) na tabela que a precificação lê como faturamento. A trava não confia na coluna
