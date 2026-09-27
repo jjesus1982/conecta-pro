@@ -12,6 +12,19 @@
 >
 > É a transição da Portte em tempo real: setembro venceu e ninguém subiu guia.
 >
+> **Atualização da tarde — o que já tem valor no sistema, para pagar:**
+>
+> | empresa | tributo | venceu | valor |
+> |---|---|---|---|
+> | Eletronica | FGTS | 2026-09-18 | R$ 133,60 |
+> | Patrimonial | DAS | 2026-09-21 | R$ 18.399,33 |
+> | Patrimonial | FGTS | 2026-09-18 | R$ 7.981,94 |
+>
+> Vieram dos PDFs que a Portte deixou no Onvio (código de barras dentro da obrigação). A
+> **GFD da Patrimonial nem constava no calendário** — vencida desde 18/09 sem aparecer. Os três
+> da Eletrônica (ISS, INSS, IRRF) seguem sem valor: não há guia deles em lugar nenhum do
+> sistema. Você **não pagou** nenhum — multa e juros correm por dia.
+>
 > **Onde subir:** os PDFs das guias e dos comprovantes vão na pasta do Drive
 > `Documentos Temporários/Setembro/` — o puxador `fiscal.sync_guias_drive` roda às **09:30 e
 > 15:30**, classifica pelo conteúdo (nunca pelo nome) e preenche `fiscal_obligations` com valor,
@@ -504,6 +517,40 @@ commit `e54cc8083`), purgado, e um disparo manual consumido. E a task lia uma ta
 `ged_certidoes` pelos CNPJs do grupo: **seis alertas no sino agora** (CRF da Patrimonial em
 7 dias, estadual em 21, quatro vencidas). Detalhe que quase escondeu a Patrimonial de novo:
 todas as certidões dela estão com `alerta_ativo = false` — a flag não é régua.
+
+### h) «O robô devia puxar tudo do governo» — ele não puxa, e é preciso dizer isso sem rodeio
+
+Medi as integrações que você acredita que existem:
+
+| integração | o que devolve hoje |
+|---|---|
+| `DCTFWebManager.consultar("2026-08")` | `"situacao": "consulta_pendente", "mensagem": "Implementar consulta via e-CAC"` |
+| `SimplesNacionalManager.consultar_das_emitidos(...)` | `[]` |
+| FGTS Digital / e-CAC | mesma casca: assinatura pronta, corpo por fazer |
+
+São **esqueletos** — nome, parâmetros e docstring, sem nada que chegue ao governo. E os
+portais bloqueiam servidor: a Caixa devolve 403 ao nosso IP, o TST exige captcha. O caminho
+real para "puxar tudo" é a **API oficial do SERPRO (Integra Contador)** — paga, por
+contrato, cobre DCTFWeb, PGDAS-D/DAS, e-CAC e procurações — ou um serviço tipo Infosimples.
+Não é patch; é projeto, e precisa de decisão sua (custo mensal).
+
+**Os certificados:** `certificado.pfx` abre (só em modo *legacy* do OpenSSL) e é o
+**e-CPF de JORDAN SANTOS**, válido até **13/01/2027** — não é e-CNPJ. Para DCTFWeb, e-CAC e
+FGTS Digital ele só vale com **procuração eletrônica** outorgada por cada CNPJ ao seu CPF
+(no e-CAC). O `patrimonial.pfx` **não abre com a senha configurada** — a Patrimonial está
+sem certificado utilizável no sistema; se a senha for outra, ela precisa entrar no `.env`
+(`.env` é zona que eu não edito).
+
+**O que dá para fazer hoje, sem governo:** os PDFs que a Portte deixou no Onvio já estão no
+nosso disco. Estou ligando o parser (que hoje só olha o Drive) neles: o **DAS da Patrimonial
+(R$ 18.399,33, venceu 21/09)** e as **duas GFD do FGTS (R$ 133,60 Eletrônica; R$ 7.981,94
+Patrimonial, venceu 18/09)** entram em `fiscal_obligations` com valor, vencimento e código
+de barras — para você pagar. Os DARFs de INSS/IRRF e o ISS da Eletrônica **não** têm valor em
+lugar nenhum do sistema: precisam da guia (Portte/Onvio) ou do SERPRO.
+
+**E o calendário estava cego para a Patrimonial:** não tinha linha de FGTS nem de CPP
+(Anexo IV paga a patronal por DARF via DCTFWeb) — os vencidos dela nem apareciam como
+vencidos.
 
 ### d) Qual é o nosso RAT: 2% ou 3%?
 
