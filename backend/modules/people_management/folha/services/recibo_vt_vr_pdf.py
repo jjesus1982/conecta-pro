@@ -252,7 +252,10 @@ def montar_recibo_vt_vr_pdf(
     # em vez dos R$ 744,00 efetivamente CONCEDIDOS — recibo é comprovante do que foi concedido,
     # não demonstrativo de desconto.
     #
-    # «Concedido» É o total da linha: medido, 22,00 × 22 = 484,00 — unitário × qtd. Não existe
+    # «Total» É o total da linha: medido, 22,00 × 22 = 484,00 — unitário × qtd. Não existe
+    # um quinto valor a mostrar; a coluna se chamava «Concedido» e o Jordan confirmou em
+    # 28/09 que a Pyetra quer o rótulo «Total», que é o nome que ela usa. Mesma coluna,
+    # mesmo número — só o cabeçalho mudou. Não existe
     # sexta coluna «Total»: seria a mesma coluna com outro nome.
     head = [
         [
@@ -260,7 +263,7 @@ def montar_recibo_vt_vr_pdf(
             _cell("Benefício", st, bold=True, cor=colors.white),
             _cell("Valor unit.", st, bold=True, right=True, cor=colors.white),
             _cell("Qtd", st, bold=True, right=True, cor=colors.white),
-            _cell("Concedido", st, bold=True, right=True, cor=colors.white),
+            _cell("Total", st, bold=True, right=True, cor=colors.white),
         ]
     ]
     linhas = [

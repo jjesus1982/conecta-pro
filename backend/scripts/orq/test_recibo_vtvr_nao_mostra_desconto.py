@@ -11,8 +11,8 @@ A regra afirmada (não a fotografia): gerando o PDF de verdade e LENDO o texto d
   1. nenhum rótulo de desconto/líquido aparece: «Co-part.», «Líquido», «Total líquido recebido»;
   2. nenhum VALOR de desconto ou de líquido vaza, mesmo que o holerite traga desconto_vr /
      desconto_vt preenchidos — o recibo recebe os números e escolhe não imprimi-los;
-  3. o que a Pyetra pediu continua lá: Valor unit., Qtd e Concedido, com os números certos;
-  4. «Concedido» É o total da linha (unitário × qtd) — se um dia virarem valores diferentes,
+  3. o que a Pyetra pediu continua lá: Valor unit., Qtd e Total, com os números certos;
+  4. «Total» É o total da linha (unitário × qtd) — se um dia virarem valores diferentes,
      isto quebra e alguém decide de novo se cabe uma coluna «Total» separada.
 
 Roda no container (PYTHONPATH=/app). Sai 0 = verde; 1 = vermelho.
@@ -45,7 +45,7 @@ HOLERITE = {
 }
 PROIBIDO_ROTULO = ("Co-part", "Líquido", "Total líquido recebido")
 PROIBIDO_VALOR = ("16,70", "66,80", "467,30", "193,20", "660,50", "83,50")
-OBRIGATORIO = ("Valor unit.", "Qtd", "Concedido", "22,00", "22", "484,00", "10,00", "26", "260,00")
+OBRIGATORIO = ("Valor unit.", "Qtd", "Total", "22,00", "22", "484,00", "10,00", "26", "260,00")
 
 
 def main() -> int:
@@ -69,7 +69,8 @@ def main() -> int:
         if w not in txt:
             falhas.append(f"o recibo perdeu o que a Pyetra pediu para manter: {w!r}")
 
-    # 4) «Concedido» é o total da linha — unitário × qtd
+    # 4) «Total» é o total da linha — unitário × qtd. O rótulo era «Concedido» até o
+    #    Jordan confirmar em 28/09 que a Pyetra usa a palavra «Total».
     esperado = HOLERITE["vr_dia"] * HOLERITE["dias_vr"]
     if abs(esperado - HOLERITE["vr_concedido"]) > 0.005:
         falhas.append(
