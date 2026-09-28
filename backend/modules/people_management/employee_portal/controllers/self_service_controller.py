@@ -749,6 +749,56 @@ async def _proxima_batida_info(db: AsyncSession, emp: str) -> dict:
     concluido = feitas >= len(seq)
     tipo = "concluido" if concluido else seq[feitas]
 
+    # 🔴 JORNADA JÁ FECHADA CONTA MAIS QUE A POSIÇÃO NA FILA (28/09/2026, o WISLEY).
+    #
+    # Ele bateu `entrada` 07:02 e, às 19:08, `saida` por contingência. Dezessete segundos
+    # depois o botão disparou de novo e o app gravou **`retorno_almoco` às 19:08:59** — a
+    # volta de um almoço que nunca houve, no fim de um turno de doze horas.
+    #
+    # A causa: `tipo = seq[feitas]` conta batidas por POSIÇÃO e não olha QUAIS tipos já
+    # existem. Ele tinha os tipos 1 e 4; `feitas` valia 2; `seq[2]` é `retorno_almoco`.
+    #
+    # ⭐ E as duas travas abaixo não pegam, porque elas observam a coisa errada: a de cima
+    # pergunta «quantas horas desde a saída para o almoço?» e ele NÃO TEM batida de almoço.
+    # `horas_desde_almoco` vem `None`, o `if` é falso e o tipo errado passa — campo ausente
+    # falhando ABERTO, na decisão que rotula um registro trabalhista.
+    #
+    # O fato decisivo não é o almoço: é que a jornada TEM abertura e TEM fechamento nesta
+    # janela. Depois de uma `saida`, nada anterior na sequência pode ser o próximo.
+    #
+    # ⚠️ Exige a `entrada` ANTES da `saida`, e é por isso que não quebra a 12x36: quem
+    # encerra o turno noturno às 07:00 e assume outro às 19:00 tem, na janela de 14h, uma
+    # `saida` SEM entrada que a preceda — ali a jornada não está fechada, está começando, e
+    # a próxima batida dele continua sendo `entrada`.
+    #
+    # NÃO recusa nada: `concluido` faz a rota de contingência gravar como `extra`, que é o
+    # rótulo que dá ao DP o gancho para conferir. A decisão de 13/08 (o ANTONIO WALCICLEY:
+    # nunca impedir alguém de registrar trabalho que fez) continua valendo inteira.
+    if not concluido:
+        jornada_fechada = (
+            await db.execute(
+                _sqltext(
+                    "SELECT EXISTS ("
+                    "  SELECT 1 FROM gp_clock_punches s "
+                    "   WHERE s.employee_id::text = :e "
+                    "     AND lower(coalesce(s.punch_type,'')) = 'saida' "
+                    "     AND s.punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '14 hours' "
+                    "     AND EXISTS ("
+                    "       SELECT 1 FROM gp_clock_punches ent "
+                    "        WHERE ent.employee_id::text = :e "
+                    "          AND lower(coalesce(ent.punch_type,'')) = 'entrada' "
+                    "          AND ent.punch_timestamp < s.punch_timestamp "
+                    "          AND ent.punch_timestamp > (now() AT TIME ZONE 'America/Manaus') - interval '14 hours'"
+                    "     )"
+                    ")"
+                ),
+                {"e": emp},
+            )
+        ).scalar()
+        if jornada_fechada:
+            concluido = True
+            tipo = "concluido"
+
     # 🔴 O PONTO INVERTIDO. A LÍVIA, 17/08/2026: entrou às 06:00 pelo app e voltou às 18:01
     # para registrar a SAÍDA. O sistema mandou ela bater SAÍDA PARA O ALMOÇO — às seis da
     # tarde. Ela não errou; o app pediu. Nas palavras do Jordan, "pra uns o ponto está
