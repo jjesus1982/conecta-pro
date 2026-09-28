@@ -1,6 +1,7 @@
 """Controller de Ponto Eletronico — rotas FastAPI com persistencia no banco."""
 
 import asyncio
+import logging
 import os
 from datetime import date
 from typing import Any
@@ -211,6 +212,68 @@ async def registrar_batida_me(
         is_offline=False,
         message=f"Ponto registrado: {tipo}",
     )
+
+
+@router.get("/batida/{punch_id}/foto", summary="Selfie da batida (arquivo)")
+async def get_foto_batida(
+    punch_id: str,
+    current_user: CurrentActiveUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """A selfie tirada no registro do ponto, para a conferência do DP ver na tela.
+
+    🔴 POR QUE EXISTE (28/09/2026). A Pyetra pediu, sobre a rotina dela: *"ver as fotos que foram
+    tiradas para registro de ponto"*. Fui medir esperando ter de construir tudo, e o que achei foi
+    o padrão mais caro desta casa: **a tela já existia, o componente já existia, a URL já estava
+    cabeada — e o endpoint nunca foi escrito.**
+
+    O caminho inteiro já estava montado e apontando para o vazio:
+      · `redesign_builders/gestao_de_pessoas.py:577` monta a célula com
+        `/api/v1/people-management/ponto/batida/{punch_id}/foto`
+      · `frontend/src/components/redesign/FotoBatida.tsx` busca essa URL com `Bearer` e amplia no
+        clique
+      · 985 arquivos (39 MB) em `/app/uploads/ponto`, volume `./uploads` que sobrevive a deploy
+      · 909 batidas com `foto_capturada_url` preenchida desde 14/09
+      · e a URL devolvia **404**. Medido por comportamento, no backend e no público.
+
+    ⭐ Quatro das cinco peças prontas e a quinta faltando. É a forma mais cara do defeito desta
+    casa, porque tudo *parece* existir: quem olha a tela vê a coluna da foto, quem olha o banco vê
+    a URL, quem olha o disco vê o arquivo — e a pessoa do outro lado vê um espaço vazio.
+
+    ⚠️ E NÃO é `StaticFiles` em `/uploads`. São **rostos de colaborador**: mount estático abre o
+    diretório inteiro a quem enumerar, sem sessão e sem rastro. Aqui passa por sessão válida e
+    cada leitura vai para o log com quem pediu e de quem era a batida — dado biométrico, ver tem
+    de deixar marca.
+    """
+    from fastapi.responses import FileResponse
+
+    from modules.people_management.hr.services.cracha_pdf import foto_path
+
+    r = (
+        await db.execute(
+            text(
+                "SELECT p.foto_capturada_url, e.nome, p.punch_type, p.punch_timestamp "
+                "  FROM gp_clock_punches p LEFT JOIN employees e ON e.id = p.employee_id "
+                " WHERE p.punch_id = :p"
+            ),
+            {"p": str(punch_id).strip()},
+        )
+    ).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Batida não encontrada.")
+
+    caminho = foto_path(r[0])
+    if not caminho:
+        # ⚠️ Motivo DIFERENTE do 404 de cima, de propósito: "esta batida não tem foto" não é
+        # "esta batida não existe". 64,5% das batidas da casa não têm foto — este é o caso
+        # COMUM, e confundi-lo com erro faria a tela acusar defeito onde só falta selfie.
+        raise HTTPException(status_code=404, detail="Esta batida não tem foto registrada.")
+
+    logging.getLogger(__name__).info(
+        "foto de ponto: %s abriu a batida %s de %s (%s %s)",
+        getattr(current_user, "username", "?"), punch_id, r[1], r[2], r[3],
+    )
+    return FileResponse(caminho, media_type="image/jpeg")
 
 
 @router.get("/batidas/me")
