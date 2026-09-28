@@ -15,6 +15,7 @@ Síncrono de propósito: `ler_espelho` é Session sync; quem chama de rota async
 from __future__ import annotations
 
 import io
+from datetime import date
 
 from sqlalchemy import text
 
@@ -58,23 +59,50 @@ def candidatos(
 
 
 def montar_cartao_lote(
-    db, mes: int, ano: int, employee_ids: list[str], *, apenas_com_ponto: bool = False, detalhes: bool = True
+    db,
+    mes: int,
+    ano: int,
+    employee_ids: list[str],
+    *,
+    apenas_com_ponto: bool = False,
+    detalhes: bool = True,
+    de: date | None = None,
+    ate: date | None = None,
 ) -> tuple[bytes | None, list[dict]]:
     """(pdf_concatenado | None, relato por pessoa). Uma entrada no relato por id pedido:
-    {employee_id, nome, paginas | motivo}."""
+    {employee_id, nome, paginas | motivo}.
+
+    28/09/2026 (Pyetra: «não consigo colocar data de início e fim das folhas de ponto quando vou
+    verificar os pontos ou emitir elas todas») — `de`/`ate` imprimem o PERÍODO em vez do mês civil.
+    A janela dela é 26/07→25/08, que não é mês nenhum: sem isto o lote só sabia emitir 01→31.
+    Delega em `espelho_do_periodo` (o mesmo choke point do espelho individual e a mesma marca
+    `periodo_kit` que faz o PDF rotular os totais como do MÊS CIVIL) — o lote não ganha régua
+    própria de apuração nem de janela, senão seriam duas verdades para a mesma folha.
+    """
     from PyPDF2 import PdfMerger, PdfReader
 
     from modules.people_management.hr.services.espelho_ponto_pdf import montar_espelho_ponto_pdf
     from modules.people_management.hr.services.espelho_ponto_service import ler_espelho
+    from modules.people_management.ponto.dias_corridos import espelho_do_periodo
 
+    periodo = f"{de:%d/%m/%Y} a {ate:%d/%m/%Y}" if de and ate else None
     merger = PdfMerger()
     relato: list[dict] = []
     n = 0
     for eid in employee_ids:
-        esp = ler_espelho(db, str(eid), int(mes), int(ano))
+        esp = (
+            espelho_do_periodo(db, str(eid), de, ate)
+            if periodo
+            else ler_espelho(db, str(eid), int(mes), int(ano))
+        )
         if not esp:
             relato.append(
-                {"employee_id": str(eid), "nome": None, "motivo": f"sem espelho calculado em {mes:02d}/{ano}"}
+                {
+                    "employee_id": str(eid),
+                    "nome": None,
+                    "motivo": f"sem espelho calculado em {mes:02d}/{ano}"
+                    + (f" (competência do fim do período {periodo})" if periodo else ""),
+                }
             )
             continue
         if apenas_com_ponto and (esp.get("horas_trabalhadas") in (None, "", "00:00")):

@@ -385,7 +385,14 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
         dev = (b.get("device_type") or "").strip().lower()
         return dev in MANUAL_DEVICE_TYPES or bool(b.get("justification_id"))
 
-    def _orfao(ts: datetime, lado: str, falta: str, manual: bool, em_curso: bool = False) -> None:
+    def _orfao(
+        ts: datetime,
+        lado: str,
+        falta: str,
+        manual: bool,
+        em_curso: bool = False,
+        punch_id: str | None = None,
+    ) -> None:
         if orfaos_out is not None:
             orfaos_out.append(
                 {
@@ -395,6 +402,8 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
                     "falta": falta,
                     "manual": manual,
                     "em_curso": em_curso,
+                    # ACRÉSCIMO 28/09/2026 — ver o POR QUÊ em `_segmentos`.
+                    "punch_id": punch_id,
                 }
             )
 
@@ -412,6 +421,7 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
                     "entrada",
                     "saida_almoco" if tipo.startswith("retorno") else "saida",
                     aberta["manual"],
+                    punch_id=aberta.get("punch_id"),
                 )
                 anomalias.append(
                     {
@@ -436,6 +446,7 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
                     "saida",
                     "retorno_almoco" if tipo_ant.startswith(("saida_almoco", "saída_almoco")) else "entrada",
                     _is_manual(b),
+                    punch_id=b.get("punch_id"),
                 )
                 tipo_ant = tipo
                 anomalias.append(
@@ -470,6 +481,9 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
                         "dur_min": dur,
                         "entrada_manual": aberta["manual"],
                         "saida_manual": _is_manual(b),
+                        # ACRÉSCIMO 28/09/2026 — ver o POR QUÊ em `_segmentos`.
+                        "entrada_punch_id": aberta.get("punch_id"),
+                        "saida_punch_id": b.get("punch_id"),
                     }
                 )
             aberta = None
@@ -489,7 +503,14 @@ def _parear(batidas: list[dict], orfaos_out: list[dict] | None = None) -> tuple[
         _em_curso = (_agora - aberta["ts"]).total_seconds() / 60.0 < MAX_PAIR_MIN
         # O segmento aparece nos dois casos (em curso ou saída realmente ausente) — quem lê
         # distingue por `em_curso`. Turno em andamento NÃO é pendência de DP.
-        _orfao(aberta["ts"], "entrada", "saida", aberta["manual"], em_curso=_em_curso)
+        _orfao(
+            aberta["ts"],
+            "entrada",
+            "saida",
+            aberta["manual"],
+            em_curso=_em_curso,
+            punch_id=aberta.get("punch_id"),
+        )
         if not _em_curso:
             anomalias.append(
                 {
@@ -582,6 +603,16 @@ def _segmentos(pares: list[dict], orfaos: list[dict]) -> list[dict]:
     Segmento INCOMPLETO (batida órfã): a ponta que não existe vem `None`, `minutos` é 0 e
     `falta` nomeia a marca ausente. NUNCA se inventa a hora que falta — 12% dos dias têm
     marcação de almoço ímpar, e uma estrutura que assume "1 ou 2 pares" produziria lixo neles.
+
+    ACRÉSCIMO 28/09/2026 — `entrada_punch_id` / `saida_punch_id`: o id da batida que originou
+    cada ponta (`None` na ponta que não existe). POR QUE: a foto da batida só é endereçável por
+    `punch_id` (`GET /ponto/batida/{punch_id}/foto`), e o segmento saía daqui com a HORA e mais
+    nada. Sem o id, a tela que mostra a selfie ao lado da hora teria de reencontrar a batida
+    pelo horário — e horário NÃO identifica batida nesta casa: medido no mesmo dia, NAILSON tem
+    3 batidas «entrada» no MESMO segundo (08:01:36,6 / ,75 / ,80 em 08/09/2026), e casar por
+    hora escolheria uma das três no escuro. `punch_id` é o que o pareamento já tinha na mão e
+    jogava fora. Chaves ACRESCENTADAS: nenhuma foi renomeada, e `daily_summary` já gravado
+    (sem elas) devolve `None` pelo `.get`, não quebra.
     """
     itens: list[tuple[datetime, dict]] = []
     for p in pares:
@@ -595,6 +626,8 @@ def _segmentos(pares: list[dict], orfaos: list[dict]) -> list[dict]:
                     "entrada_manual": bool(p["entrada_manual"]),
                     "saida_manual": bool(p["saida_manual"]),
                     "incompleto": False,
+                    "entrada_punch_id": p.get("entrada_punch_id"),
+                    "saida_punch_id": p.get("saida_punch_id"),
                 },
             )
         )
@@ -612,6 +645,9 @@ def _segmentos(pares: list[dict], orfaos: list[dict]) -> list[dict]:
                     "incompleto": True,
                     "falta": o["falta"],
                     "em_curso": bool(o.get("em_curso")),
+                    # A ponta que EXISTE tem id; a que falta não tem batida, logo não tem id.
+                    "entrada_punch_id": o.get("punch_id") if tem_entrada else None,
+                    "saida_punch_id": None if tem_entrada else o.get("punch_id"),
                 },
             )
         )

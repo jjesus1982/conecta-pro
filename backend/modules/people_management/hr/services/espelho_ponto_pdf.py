@@ -76,6 +76,103 @@ def _horario(d: dict, *chaves: str) -> str:
     return "—"
 
 
+def _pontos(d: dict) -> str:
+    """Coluna PONTOS do dia — PERÍODO 1..6 no formato da folha de ponto (modelo Solides).
+
+    28/09/2026 — o gerador tinha UMA coluna Entrada e UMA coluna Saída, então o plantão
+    19:00→02:00 + 03:00→07:17 saía impresso como "19:00 … 07:17" e a parada de 1h da madrugada
+    não existia no documento que o colaborador assina. O motor já pareava certo e já publica o
+    detalhe: `daily_summary[].segmentos` (espelho_service.py:_segmentos, 28/09/2026). Medido no
+    banco: 691 dias com `segmentos` e **388 deles com 2+ segmentos** — 56% dos plantões de
+    09/2026 tinham mais de um par escondido atrás da linha única.
+
+    `(m)` = batida lançada à mão, como no modelo. Fonte: `segmentos[].entrada_manual` /
+    `saida_manual`, que o motor deriva da batida de ajuste — não é heurística deste arquivo.
+
+    Sem a chave `segmentos` (todo espelho calculado ANTES de 28/09/2026 — ex.: 07 e 08/2026, 0 de
+    3356 dias com a chave) cai no par entrada/saída único, que é o que o motor publicava. Nunca
+    inventa período que o motor não pareou.
+    """
+    segs = [s for s in (d.get("segmentos") or []) if isinstance(s, dict)]
+    if not segs:
+        ent = _horario(d, "entrada", "clock_in", "entrada_1")
+        sai = _horario(d, "saida", "saída", "clock_out", "saida_1")
+        return "—" if (ent == "—" and sai == "—") else f"{ent} {sai} |"
+
+    def _ponta(val, manual: bool) -> str:
+        s = str(val or "")[:5]
+        if not s:
+            return "—"  # órfã: o motor não achou o par; o modelo deixa em branco, não chuta hora
+        return ("(m)" if manual else "") + s
+
+    partes = [
+        f'{_ponta(s.get("entrada"), bool(s.get("entrada_manual")))} '
+        f'{_ponta(s.get("saida"), bool(s.get("saida_manual")))} |'
+        for s in segs[:6]
+    ]
+    # A folha tem SEIS colunas de período. Mais que isso não se corta em silêncio: diz quantos
+    # ficaram de fora, porque par perdido no documento assinado é hora que ninguém vê.
+    if len(segs) > 6:
+        partes.append(f"(+{len(segs) - 6} períodos)")
+    return " ".join(partes)
+
+
+def _abono(d: dict) -> str:
+    """ABONO do dia — em branco quando não há justificativa aprovada (o normal hoje).
+
+    `abono == -1` = justificativa de DIA INTEIRO: o abono vale as PREVISTAS do dia, que é o
+    mecanismo pelo qual o dia não trabalhado deixa de virar desconto (SALDO fecha em zero).
+    Fonte em `espelho_ponto_service.abono_por_dia` (time_justifications). Hoje a tabela tem 0
+    linhas → esta coluna sai tracejada para todo mundo. Dash, nunca 00:00: zero pareceria
+    "apurado e deu zero" quando a verdade é "não há lançamento de abono nesta casa".
+    """
+    v = d.get("abono")
+    if v is None:
+        return "—"
+    if v == -1:
+        return _dur(d.get("expected"))
+    return _dur(v)
+
+
+def _saldo_dia(d: dict) -> str:
+    """SALDO do dia = TRABALHADAS + ABONO − PREVISTAS, com os minutos que o MOTOR já apurou.
+
+    Não é matemática nova de folha: `worked` e `expected` são os dois números que o motor grava
+    por dia, e a subtração é a mesma que ele faz no total (`hours_balance_minutes`). Só estava
+    fora do papel — e é a coluna que mostra por que um dia abonado fecha em zero.
+    """
+    w, e = d.get("worked"), d.get("expected")
+    if w is None or e is None:
+        return "—"
+    try:
+        ab = d.get("abono")
+        abm = int(e) if ab == -1 else int(ab or 0)
+        return _hm(int(w) + abm - int(e))
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _abono_total(esp: dict) -> str:
+    """Abono somado sobre os dias IMPRESSOS — "—" quando não há nenhum lançamento.
+
+    Rótulo diz "(dias impressos)" de propósito: os outros números desta caixa são do MÊS CIVIL
+    (`ler_espelho` filtra `time_sheets` por reference_month/year) e a tabela de dias pode ser de
+    outra janela. Somar abono do período debaixo de um rótulo genérico repetiria o defeito que o
+    rótulo "TOTAIS DE MM/AAAA (MÊS CIVIL)" existe para não cometer.
+    """
+    tot = 0
+    achou = False
+    for d in esp.get("dias") or []:
+        if not isinstance(d, dict) or d.get("abono") is None:
+            continue
+        achou = True
+        try:
+            tot += int(d.get("expected") or 0) if d["abono"] == -1 else int(d["abono"])
+        except (TypeError, ValueError):
+            pass
+    return _hm(tot) if achou else "—"
+
+
 def _ocorrencia(d: dict) -> str:
     """Deriva a ocorrência legível do dia a partir do daily_summary do motor."""
     nota = d.get("notes") or d.get("ocorrencia") or d.get("occurrence")
@@ -147,8 +244,10 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
     comp = f"{_MESES[mes] if 0 < mes < 13 else mes}/{ano}"
     # 09/09/2026 (Pyetra): a folha de ponto do kit cobre 26/x a 25/y — quando vier o período, ele aparece ao lado
     # da competência, senão o leitor acha que faltam dias no começo e no fim do mês.
-    if esp.get("periodo_kit"):
-        comp = f"{comp}  ·  período {esp['periodo_kit']}"
+    # 28/09/2026 — o período saía GRUDADO na competência ("Agosto/2026 · período 26/07… a 25/08…")
+    # e agora tem linha própria ("Período impresso") logo abaixo, no bloco de identificação. Duas
+    # vezes a mesma data em duas células diferentes é exatamente o "complicar" de que a Pyetra
+    # reclamou. A informação não sumiu, mudou de lugar — quem procura o período acha rotulado.
     # Multi-CNPJ E3: empregador vigente × competência (anti-reescrita)
     _empresa_doc = B.empresa_branding_por_cpf(
         esp.get("employee_cpf"), f"{int(ano):04d}-{mes:02d}" if mes and str(ano).isdigit() else None
@@ -187,6 +286,35 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
             _cell("Posto / Local", bold=True),
             _cell(esp.get("condominium_name") or esp.get("posto") or "—"),
         ],
+        # 28/09/2026 — CTPS/Série, Código, Centro de Custo, Admissão e Quadro de Horários: os
+        # cinco campos do cabeçalho do modelo real (auditoria/pyetra-prints/fp.pdf) que o gerador
+        # não tinha. Todos de coluna que JÁ EXISTIA em `employees` (ver ler_espelho). Medido em 93
+        # ativos: ctps_numero 35 · ctps_serie 34 · codigo 44 · centro_custo **0** — e no modelo do
+        # Solides o Centro de Custo também sai vazio, então em branco aqui é o dado, não um furo.
+        [
+            _cell("CTPS / Série", bold=True),
+            _cell(
+                f'{esp.get("employee_ctps") or "—"}'
+                f'{" / " + str(esp["employee_ctps_serie"]) if esp.get("employee_ctps_serie") else ""}'
+            ),
+            _cell("Código", bold=True),
+            _cell(esp.get("employee_codigo") or "—"),
+        ],
+        [
+            _cell("Admissão", bold=True),
+            _cell(B.br_date(esp.get("employee_admissao")) if esp.get("employee_admissao") else "—"),
+            _cell("Centro de Custo", bold=True),
+            _cell(esp.get("employee_centro_custo") or "—"),
+        ],
+        [
+            _cell("Quadro de Horários", bold=True),
+            # `quadro_horarios` é None quando a escala publicada dá MAIS DE UMA janela para a
+            # pessoa no período (48 de 63 pessoas na janela 26/07→25/08/2026). Escala que responde
+            # três horários não é fonte de "o horário dele": diz o motivo em vez de escolher um.
+            _cell(esp.get("quadro_horarios") or "— (escala do período não dá janela única)"),
+            _cell("Período impresso", bold=True),
+            _cell(esp.get("periodo_kit") or comp),
+        ],
     ]
     t_id = Table(ident, colWidths=[32 * mm, W / 2 - 32 * mm, 28 * mm, W / 2 - 28 * mm])
     t_id.setStyle(
@@ -209,13 +337,17 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
 
     # ── TABELA DIÁRIA ──
     dias = esp.get("dias") or []
+    # 28/09/2026 — colunas do modelo real: DIA/MÊS | PONTOS (período 1..6) | TRABALHADAS |
+    # PREVISTAS | ABONO | SALDO | Ocorrência. "Entrada/Saída/Intervalo" viraram PONTOS porque
+    # três colunas fixas não cabem um plantão de 2+ pares (388 dias medidos) — era o defeito.
     head = [
-        _cell("Data", bold=True, cor=colors.white),
+        _cell("Dia / Mês", bold=True, cor=colors.white),
         _cell("Dia", bold=True, cor=colors.white, center=True),
-        _cell("Entrada", bold=True, cor=colors.white, center=True),
-        _cell("Saída", bold=True, cor=colors.white, center=True),
-        _cell("Intervalo", bold=True, cor=colors.white, center=True),
-        _cell("Horas", bold=True, cor=colors.white, center=True),
+        _cell("Pontos (períodos 1 a 6)", bold=True, cor=colors.white, center=True),
+        _cell("Trabalh.", bold=True, cor=colors.white, center=True),
+        _cell("Previstas", bold=True, cor=colors.white, center=True),
+        _cell("Abono", bold=True, cor=colors.white, center=True),
+        _cell("Saldo", bold=True, cor=colors.white, center=True),
         _cell("Ocorrência", bold=True, cor=colors.white),
     ]
     linhas = [head]
@@ -236,19 +368,24 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
             [
                 _cell(data_fmt, size=7.5),
                 _cell(dia_semana, center=True, size=7.5),
-                _cell(_horario(d, "entrada", "clock_in", "entrada_1"), center=True, size=7.5),
-                _cell(_horario(d, "saida", "saída", "clock_out", "saida_1"), center=True, size=7.5),
-                _cell(_horario(d, "intervalo", "break", "intervalo_str") if (d.get("intervalo") or d.get("break")) else "—", center=True, size=7.5),
+                _cell(_pontos(d), center=True, size=7),
                 _cell(_dur(d.get("worked") if d.get("worked") is not None else d.get("horas")), center=True, size=7.5),
+                _cell(_dur(d.get("expected")) if d.get("expected") is not None else "—", center=True, size=7.5),
+                _cell(_abono(d), center=True, size=7.5),
+                _cell(_saldo_dia(d), center=True, size=7.5),
                 _cell(_ocorrencia(d), size=7.5),
             ]
         )
     if len(linhas) == 1:
-        linhas.append([_cell("—", size=7.5)] + [_cell("—", center=True, size=7.5) for _ in range(4)] + [_cell("—", center=True, size=7.5), _cell("Sem lançamentos no período", size=7.5)])
+        linhas.append(
+            [_cell("—", size=7.5)]
+            + [_cell("—", center=True, size=7.5) for _ in range(6)]
+            + [_cell("Sem lançamentos no período", size=7.5)]
+        )
 
     t_dias = Table(
         linhas,
-        colWidths=[20 * mm, 14 * mm, 24 * mm, 24 * mm, 26 * mm, 22 * mm, W - 130 * mm],
+        colWidths=[17 * mm, 13 * mm, 54 * mm, 17 * mm, 17 * mm, 15 * mm, 15 * mm, W - 148 * mm],
         repeatRows=1,
     )
     estilo = [
@@ -280,10 +417,18 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
         + _tot_cell("Horas previstas", esp.get("horas_previstas") or _hm(esp.get("hours_expected_minutes"))),
         _tot_cell("Extras 50%", esp.get("extras_50") or _hm(esp.get("overtime_50_minutes")))
         + _tot_cell("Extras 100%", esp.get("extras_100") or _hm(esp.get("overtime_100_minutes"))),
-        _tot_cell("Adicional noturno", esp.get("adicional_noturno") or _hm(esp.get("night_hours_minutes")))
-        + _tot_cell("Saldo banco de horas", esp.get("saldo_banco") or _hm(esp.get("hours_balance_minutes"))),
-        _tot_cell("Faltas (dias)", str(esp.get("faltas_dias") if esp.get("faltas_dias") is not None else esp.get("absent_days", 0)))
+        # 28/09/2026 — o modelo separa HORAS NOTURNAS de HORAS FICTA e o PDF imprimia só um
+        # número, chamado "Adicional noturno". São duas grandezas do MESMO motor:
+        # `daily_summary[].night_real` = relógio dentro de 22h–05h; `night_hours_minutes` =
+        # os mesmos minutos em horas REDUZIDAS de 52'30" (a quantidade legal, base dos 20%).
+        # Conferido em ADAILSON/08-2026: 2160 min de relógio ↔ 2469 reduzidos. Um rótulo só
+        # apagava o relógio; agora cada número diz qual é.
+        _tot_cell("Horas noturnas (22h–05h)", esp.get("horas_noturnas_reais") or "—")
+        + _tot_cell("Horas ficta (noturna reduzida 52'30\")", esp.get("adicional_noturno") or _hm(esp.get("night_hours_minutes"))),
+        _tot_cell("Dias faltosos", str(esp.get("faltas_dias") if esp.get("faltas_dias") is not None else esp.get("absent_days", 0)))
         + _tot_cell("Atrasos", esp.get("atrasos") or _hm(esp.get("late_minutes"))),
+        _tot_cell("Saldo do período", esp.get("saldo_banco") or _hm(esp.get("hours_balance_minutes")))
+        + _tot_cell("Abono lançado (dias impressos)", _abono_total(esp)),
         _tot_cell("DSR (dias com direito)", str(esp.get("dsr_dias") if esp.get("dsr_dias") is not None else esp.get("work_days_worked", 0)))
         + _tot_cell("DSR perdidos (dias)", str(esp.get("dsr_perdidos") if esp.get("dsr_perdidos") is not None else esp.get("dsr_lost_days", 0))),
     ]
@@ -319,14 +464,34 @@ def montar_espelho_ponto_pdf(esp: dict, *, signatarios: list | None = None) -> b
     # nota de anomalias (se houver)
     anom = int(esp.get("anomaly_count") or 0)
     if anom:
+        # 28/09/2026 — `anomaly_count` vem de `time_sheets` do MÊS CIVIL, como todo número desta
+        # caixa. A frase dizia "Este período possui 34 ocorrência(s)" debaixo de uma tabela de
+        # 26/07→25/08: o leitor soma as 34 ao período impresso. Mesma saída do rótulo dos totais
+        # (nomear a competência em vez de omitir o fato), pela mesma razão — a contagem é apurada
+        # pelo motor, só não é do período que está na tabela.
+        onde = f"A competência {mes:02d}/{ano} possui" if esp.get("periodo_kit") else "Este período possui"
         story.append(Spacer(1, 1.5 * mm))
         story.append(
             Paragraph(
-                f'<font size="7" color="#B45309">Este período possui {anom} ocorrência(s) sinalizada(s) '
+                f'<font size="7" color="#B45309">{onde} {anom} ocorrência(s) sinalizada(s) '
                 f"pelo sistema de ponto (anomalias). O DP confere e ajusta conforme as justificativas.</font>",
                 st["small"],
             )
         )
+
+    # ── DECLARAÇÃO DE RECONHECIMENTO ──
+    # 28/09/2026 — está no modelo real (fp.pdf, todas as 53 páginas) e é o que dá sentido à
+    # assinatura logo abaixo: sem a frase, o colaborador assina um documento que não diz o que
+    # ele está reconhecendo. Texto fixo (não é dado de banco), nome e empresa vêm do espelho.
+    story.append(Spacer(1, 3 * mm))
+    story.append(
+        Paragraph(
+            '<font size="8"><b>Reconheço a exatidão e confirmo a frequência constante deste '
+            f'cartão.</b></font><br/><font size="7.5" color="#374151">{esp.get("employee_name") or "—"}'
+            f' — {_empresa_doc["razao"]}</font>',
+            st["small"],
+        )
+    )
 
     # ── Assinaturas (funcionário homologa + empresa) ──
     story += B.campos_assinatura(

@@ -219,7 +219,14 @@ function TableScreen({ scr }: { scr: any }) {
   const [signerType, setSignerType] = useState<string>('employee');
   const hasActions = hasRowDocs || hasRowEdit || hasRowActions || hasRowSign;
   const grid = hasActions ? `${scr.grid} minmax(200px, auto)` : scr.grid;
-  const cols = hasActions ? [...(scr.cols || []), hasRowDocs ? 'Documento' : 'Ações'] : (scr.cols || []);
+  // O rótulo era `hasRowDocs ? 'Documento' : 'Ações'` — um OU exclusivo sobre duas coisas que
+  // convivem na MESMA coluna. Numa tabela com botão de decidir E chip de PDF (o «Ponto do
+  // colaborador» tem os dois: Aprovar plantão nas linhas de dia, Folha de ponto na linha de
+  // total), o cabeçalho dizia «Documento» em cima de um botão que aprova ponto. O ternário
+  // observava uma das duas fontes; passa a observar as duas.
+  const cols = hasActions
+    ? [...(scr.cols || []), hasRowDocs ? (hasRowEdit || hasRowActions || hasRowSign ? 'Ações / Documento' : 'Documento') : 'Ações']
+    : (scr.cols || []);
   // `fieldsRef` aponta para `scr.campos[ref]`: o formulário vem UMA vez por tela em vez de
   // uma vez por linha. Sem isto, o DP mandava 2,6 MB só de `fields` repetidos — a mesma
   // lista de opções 2.000 vezes na mesma resposta (medido em 15/09/2026, quando o Jordan
@@ -852,7 +859,10 @@ function FormScreen({ scr }: { scr: any }) {
             ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             : v.toLocaleString('pt-BR');
         const pretty = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-        const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail']);
+        // `tabela` sai do painel label→valor e é RENDERIZADA como tabela, logo abaixo (ver o
+        // bloco seguinte). Sem este skip a grade vinha achatada em "· Rows", "· Cols" — o painel
+        // percorre objeto de um nível e um `{type,cols,grid,rows}` não é par rótulo/valor.
+        const skip = new Set(['ok', 'message', 'doc', 'otp_required', 'ref', 'otp', 'erro', 'detail', 'tabela']);
         const rows: Array<{ label: string; value: string | null; sub?: string }> = [];
         for (const [k, v] of Object.entries(resultado)) {
           if (skip.has(k)) continue;
@@ -904,6 +914,22 @@ function FormScreen({ scr }: { scr: any }) {
           </div>
         );
       })()}
+      {/* ── CONSULTA NA MESMA ABA (28/09/2026) ────────────────────────────────────────────
+          A resposta de um form com `showResult` pode trazer `tabela` — uma tela `table` inteira
+          — e ela é renderizada pelo MESMO TableScreen das outras telas, no lugar.
+
+          POR QUE: a Pyetra escreveu «fica muito difícil que sejam tudo e em abas separadas» e
+          «não consigo colocar data de início e fim». Um trabalho de ponto atravessava DOIS
+          módulos e CINCO abas. A grade do período depende do que ela escolhe (colaborador + as
+          duas datas), então não pode vir pré-carregada no payload do módulo — e os filtros da
+          tabela são dropdowns de igualdade sobre linhas JÁ carregadas, que não sabem pedir
+          período. Faltava exatamente uma coisa: um form cujo RESULTADO é uma grade.
+
+          Aqui, e não num tipo de tela novo, porque tudo o que a grade precisa já existe no
+          TableScreen: célula de foto (`isFoto`), ações por linha, `docs` por linha, busca. O
+          diff é esta linha + `tabela` no `skip` acima. Resposta sem `tabela` não muda em nada. */}
+      {resultado && (resultado as { tabela?: any }).tabela
+        && <TableScreen scr={(resultado as { tabela: any }).tabela} />}
       {scr.attach && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <label className="rd-btn rd-btn-outline" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '7px 12px' }}>

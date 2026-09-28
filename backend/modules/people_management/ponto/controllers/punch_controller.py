@@ -522,17 +522,38 @@ def dias_com_segmentos(db: Session, esp: dict[str, Any], mes: int, ano: int) -> 
     Não sobrescreve o documento: se a derivação de HOJE não recompõe as pontas que o espelho
     gravou (batidas ajustadas depois do cálculo), o dia fica SEM segmento e ganha uma nota —
     mostrar par que contradiz o PDF assinado seria pior que mostrar uma linha só.
+
+    ⚠️ 28/09/2026, SEGUNDA CAMADA — «tem segmentos» não é o mesmo que «tem segmentos ÚTEIS».
+    A guarda original era `if d.get("segmentos"): continue`, e isso observava a coisa errada:
+    `entrada_punch_id`/`saida_punch_id` foram ACRESCENTADOS aos segmentos algumas horas depois
+    de `segmentos` começar a ser gravado, então existe uma safra de espelhos com a chave
+    `segmentos` presente e SEM id nenhum dentro. Medido no banco: o espelho 09/2026 de ADAILSON
+    tem 13 dias com `segmentos` e **0 com `entrada_punch_id`** — e como a guarda via a chave
+    externa, ela pulava a derivação e a tela ficava com **0 células de foto** e status «sem
+    batida» em cima de linhas que mostravam 19:00→02:00. Um espelho recalculado hoje perdia a
+    foto que um espelho de julho mostrava.
+
+    Agora o que decide é a chave que a tela CONSOME. O par de ids é completado pela derivação
+    sob a MESMA guarda de sempre (as pontas têm de bater com o que está gravado), então nenhuma
+    hora muda de valor: o que entra é o id da batida que originou cada ponta.
     """
     from modules.people_management.hr.services.espelho_service import (  # noqa: PLC0415
         segmentos_do_mes,
     )
 
+    def _util(d: dict[str, Any]) -> bool:
+        """Segmentos gravados que já trazem o id da batida — os únicos que dispensam derivar."""
+        segs = d.get("segmentos") or []
+        return bool(segs) and any(
+            s.get("entrada_punch_id") or s.get("saida_punch_id") for s in segs if isinstance(s, dict)
+        )
+
     dias = [d for d in (esp.get("dias") or []) if isinstance(d, dict)]
-    if not dias or all(d.get("segmentos") for d in dias):
+    if not dias or all(_util(d) for d in dias):
         return dias
     derivados = segmentos_do_mes(db, str(esp["employee_id"]), int(mes), int(ano))
     for d in dias:
-        if d.get("segmentos"):
+        if _util(d):
             continue
         segs = derivados.get(str(d.get("date") or ""))
         if not segs:

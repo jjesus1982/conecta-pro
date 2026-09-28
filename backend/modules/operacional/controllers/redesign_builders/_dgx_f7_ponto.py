@@ -62,6 +62,7 @@ ABAS = [
     ("cartao-ponto-lote", "Cartão de ponto em lote"),
     ("ausencias-dashboard", "Ausências"),
     ("apropriacao-horas", "Apropriação de horas"),
+    ("ponto-colaborador", "Ponto do colaborador"),
 ]
 
 
@@ -701,10 +702,11 @@ def _tela_cartao_lote(op: dict) -> dict:
     return {
         "title": "Cartão de ponto em lote (PDF único)",
         "sub": (
-            "Um PDF com o espelho de cada colaborador da competência, no mesmo padrão-ouro do espelho individual. "
-            "Quem não tem espelho CALCULADO no mês fica de fora e é listado na resposta — nada é fabricado. "
+            "Um PDF com o espelho de cada colaborador, no mesmo padrão-ouro do espelho individual. "
+            "Quem não tem espelho CALCULADO fica de fora e é listado na resposta — nada é fabricado. "
             "Calcule o mês na aba «Espelho: calcular/fechar» antes. "
-            "Escolha os colaboradores (Ctrl/Shift para vários) ou deixe vazio para todos do filtro."
+            "Escolha os colaboradores (Ctrl/Shift para vários) ou deixe vazio para todos do filtro. "
+            "Preencha início e fim para imprimir a folha do PERÍODO (ex.: 26/07 a 25/08); vazio = mês civil inteiro."
         ),
         "cta": "Gerar PDF",
         "type": "form",
@@ -720,6 +722,22 @@ def _tela_cartao_lote(op: dict) -> dict:
                 "type": "text",
                 "span": "span 1",
                 "value": f"{hoje.month:02d}/{hoje.year}",
+            },
+            # 28/09/2026 (Pyetra: «não consigo colocar data de início e fim das folhas de ponto
+            # quando vou verificar os pontos ou emitir elas todas»): o form só tinha competência
+            # MM/AAAA e a janela dela é 26/07→25/08 — não é mês civil nenhum, logo não havia como
+            # pedir. `date` não é tipo novo: ModuleView.tsx já renderiza <input type="date">.
+            {
+                "key": "de",
+                "label": "Data de início do período (vazio = mês civil inteiro)",
+                "type": "date",
+                "span": "span 1",
+            },
+            {
+                "key": "ate",
+                "label": "Data final do período (define a competência dos totais)",
+                "type": "date",
+                "span": "span 1",
             },
             # 28/09/2026: o form não tinha como escolher pessoa — o lote saía com TODOS (medido:
             # 53 espelhos, 14.283.110 bytes, 23,0 s). `multiselect` não é tipo novo: ModuleView.tsx
@@ -1025,6 +1043,10 @@ async def telas(db, out: dict | None = None) -> dict:
         ("cartao-ponto-lote", "Cartão de ponto em lote", lambda: _tela_cartao_lote(op)),
         ("ausencias-dashboard", "Ausências", lambda: _tela_ausencias(db)),
         ("apropriacao-horas", "Apropriação de horas", lambda: _tela_apropriacao(db)),
+        # 28/09/2026 — a aba única do ponto (pedido da Pyetra). Não carrega grade nenhuma no
+        # payload do módulo: é só o filtro, e a grade vem da consulta. Por isso é a aba mais
+        # barata do grupo, mesmo sendo a que faz mais.
+        ("ponto-colaborador", "Ponto do colaborador", lambda: _tela_ponto_colaborador(op)),
     ]
     for tid, titulo, fn in montagens:
         try:
@@ -1262,11 +1284,40 @@ def _ids_lote(v) -> list[str] | None:
     return ids or None
 
 
+def _periodo_lote(payload_de, payload_ate) -> tuple[date, date] | None:
+    """(ini, fim) do período livre, ou None quando ela não pediu período.
+
+    28/09/2026 — as DUAS datas ou nenhuma: uma só seria um período com metade inventada pelo
+    sistema (fim do mês? hoje?), e a folha sairia com dias que ela não pediu. Falha FECHADO.
+    """
+    de, ate = str(payload_de or "").strip()[:10], str(payload_ate or "").strip()[:10]
+    if not de and not ate:
+        return None
+    if not (de and ate):
+        raise HTTPException(
+            status_code=400,
+            detail="Informe as DUAS datas do período (início e fim), ou deixe as duas vazias para o mês civil inteiro.",
+        )
+    try:
+        ini, fim = date.fromisoformat(de), date.fromisoformat(ate)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Data inválida em «{de}» / «{ate}»: use AAAA-MM-DD.") from None
+    if ini > fim:
+        raise HTTPException(status_code=400, detail=f"Período invertido: {ini:%d/%m/%Y} vem depois de {fim:%d/%m/%Y}.")
+    return ini, fim
+
+
 def _filtros_lote(payload: dict) -> dict:
-    ano, mes = _competencia(payload.get("competencia"))
+    # Com período, a competência dos TOTAIS é o mês do FIM (25/08 → 08/2026, a convenção de
+    # `janela_26a25`) — derivada, nunca lida do campo: competência 07 com período 26/07→25/08
+    # imprimiria dias de agosto sob somas de julho, coerente na aparência e errado.
+    per = _periodo_lote(payload.get("de"), payload.get("ate"))
+    ano, mes = (per[1].year, per[1].month) if per else _competencia(payload.get("competencia"))
     return {
         "ano": ano,
         "mes": mes,
+        "de": per[0] if per else None,
+        "ate": per[1] if per else None,
         "ids": _ids_lote(payload.get("colaboradores")),
         "cond": str(payload.get("condominio") or "").strip() or None,
         "funcao": str(payload.get("funcao") or "").strip() or None,
@@ -1324,20 +1375,38 @@ async def rd_cartao_lote(
                 "Calcule o mês na aba «Espelho: calcular/fechar» antes."
             ),
         )
+    # A competência dos totais vai no rótulo/mensagem junto do período: quem recebe o PDF tem de
+    # ler de quais duas coisas ele é feito (dias do período, somas do mês civil).
+    per = f"{f['de']:%d/%m/%Y} a {f['ate']:%d/%m/%Y}" if f["de"] else None
+    comp = f"{f['mes']:02d}/{f['ano']}"
     qs = (
         f"?condominio={f['cond'] or ''}&funcao={f['funcao'] or ''}&apenas_com_ponto={int(f['apenas_com_ponto'])}"
         f"&incluir_demitidos={int(f['demitidos'])}&detalhes={int(f['detalhes'])}"
         f"&colaboradores={','.join(f['ids']) if f['ids'] else ''}"
+        + (f"&de={f['de']:%Y-%m-%d}&ate={f['ate']:%Y-%m-%d}" if f["de"] else "")
     )
     return {
         "ok": True,
-        "message": f"{n_com} de {n_cand} colaborador(es) com espelho em {f['mes']:02d}/{f['ano']} — {n_cand - n_com} sem espelho ficam de fora.",
+        "message": (
+            f"{n_com} de {n_cand} colaborador(es) com espelho em {comp} — "
+            f"{n_cand - n_com} sem espelho ficam de fora."
+            + (
+                f" Dias impressos: {per}. Os totais de cada folha são do mês civil "
+                f"{comp} e vêm rotulados assim no PDF."
+                if per
+                else ""
+            )
+        ),
         "doc": {
-            "label": f"Cartão de ponto em lote {f['mes']:02d}/{f['ano']}",
+            "label": f"Cartão de ponto em lote {per or comp}",
             "url": f"/api/v1/redesign/cartao-ponto-lote/{f['ano']}/{f['mes']}/pdf{qs}",
             "fmt": "pdf",
             "mode": "blob",
-            "filename": f"cartao_ponto_lote_{f['ano']}_{f['mes']:02d}.pdf",
+            "filename": (
+                f"cartao_ponto_lote_{f['de']:%Y%m%d}_{f['ate']:%Y%m%d}.pdf"
+                if f["de"]
+                else f"cartao_ponto_lote_{f['ano']}_{f['mes']:02d}.pdf"
+            ),
             "gate": "dp",
         },
     }
@@ -1358,6 +1427,8 @@ async def rd_cartao_lote_get(
     incluir_demitidos: int = 0,
     detalhes: int = 1,
     colaboradores: str = "",
+    de: str = "",
+    ate: str = "",
 ):
     from fastapi.responses import Response
     from starlette.concurrency import run_in_threadpool
@@ -1366,6 +1437,10 @@ async def rd_cartao_lote_get(
 
     if not 1 <= mes <= 12:
         raise HTTPException(status_code=400, detail="Mês inválido.")
+
+    # Mesma validação do POST (as duas datas ou nenhuma, na ordem certa): esta rota MONTA o PDF e
+    # é chamável direto pelo link/curl, então não pode confiar em quem montou a query string.
+    per = _periodo_lote(de, ate)
 
     # 28/09/2026: esta rota MONTA o PDF e refazia a lista sozinha — filtrar só no POST deixaria
     # o link gerando as 53 de novo (as duas pontas). `colaboradores` vazio = None = todos.
@@ -1380,7 +1455,14 @@ async def rd_cartao_lote_get(
                 )
             ]
             return cartao_lote.montar_cartao_lote(
-                s, mes, ano, ids, apenas_com_ponto=bool(apenas_com_ponto), detalhes=bool(detalhes)
+                s,
+                mes,
+                ano,
+                ids,
+                apenas_com_ponto=bool(apenas_com_ponto),
+                detalhes=bool(detalhes),
+                de=per[0] if per else None,
+                ate=per[1] if per else None,
             )
 
     pdf, relato = await run_in_threadpool(_montar)
@@ -1396,11 +1478,611 @@ async def rd_cartao_lote_get(
         )
     if not pdf:
         raise HTTPException(status_code=404, detail=f"Ninguém do filtro tem espelho calculado em {mes:02d}/{ano}.")
+    arq = f"cartao_ponto_lote_{per[0]:%Y%m%d}_{per[1]:%Y%m%d}.pdf" if per else f"cartao_ponto_lote_{ano}_{mes:02d}.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="cartao_ponto_lote_{ano}_{mes:02d}.pdf"',
+            "Content-Disposition": f'inline; filename="{arq}"',
             "X-Cartao-Lote": f"{sum(1 for r in relato if 'paginas' in r)} espelho(s); {sum(1 for r in relato if 'motivo' in r)} sem espelho",
+            # Header de auditoria: em que janela os DIAS saíram e de que competência são os TOTAIS.
+            # Duas coisas, duas janelas — quem baixa por curl precisa ler isso sem abrir o PDF.
+            "X-Cartao-Lote-Janela": (
+                f"dias {per[0]:%d/%m/%Y} a {per[1]:%d/%m/%Y}; totais do mes civil {mes:02d}/{ano}"
+                if per
+                else f"dias e totais do mes civil {mes:02d}/{ano}"
+            ),
         },
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+# «Ponto do colaborador» — UMA aba para o trabalho inteiro do ponto (28/09/2026)
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+#
+# POR QUE ESTA ABA EXISTE. A Pyetra (DP/RH) escreveu hoje, sobre o que já estava entregue:
+#
+#   «Fica muito difícil que sejam tudo e em abas separadas, providenciar que estejam tudo na
+#    mesma aba: Pontos, Aprovações, Fotos, Ajustes de ponto e etc. temos que criar o sistema
+#    para FACILITAR e não COMPLICAR»
+#   «Não consigo colocar data de início e fim das folhas de ponto quando vou verificar os
+#    pontos ou emitir elas todas»
+#
+# CONTADO ANTES DE DESENHAR: para conferir o ponto de UMA pessoa num período ela atravessava
+# DOIS módulos e CINCO abas — «Apropriação de horas», «Ajustar batida» e «Cartão de ponto em
+# lote» (Departamento Pessoal → Ponto & Jornada), mais «Ponto · Fila de aprovação» e «Ponto
+# eletrônico» (Gestão de Pessoas). E nenhuma das cinco aceitava as duas datas dela: a janela do
+# DP é 26→25 (26/07 a 25/08), que não é mês civil nenhum.
+#
+# NADA DE MOTOR NOVO. A grade lê `punch_controller.get_espelho_mensal(de=, ate=)`, que lê
+# `time_sheets` — a MESMA fonte do PDF assinado — e já devolve `segmentos` por dia. Esta casa
+# tem TRÊS réguas de pareamento que discordam em 59 pessoa×dia; uma quarta seria o defeito, não
+# a entrega. O que esta aba acrescenta é a leitura: a foto ao lado da hora, o local de cada
+# ponta, o status de aprovação e os botões — tudo sobre o número que o motor já apurou.
+#
+# POR QUE É UM `form` COM RESULTADO EM TABELA, e não uma tela `table`: a grade depende do que
+# ela escolhe (colaborador + as duas datas), então não pode vir pré-carregada no payload do
+# módulo, e os filtros da tabela são dropdowns de IGUALDADE sobre linhas já carregadas — não
+# sabem pedir período. O ModuleView ganhou por isto UMA linha: um form com `showResult` que
+# devolve `tabela` renderiza aquela grade com o TableScreen de sempre (célula de foto, ações
+# por linha e `docs` por linha já existiam lá).
+
+
+def _tela_ponto_colaborador(op: dict) -> dict:
+    """Filtro (colaborador + as DUAS datas) e mais nada: a grade nasce da consulta."""
+    from modules.people_management.ponto.dias_corridos import janela_26a25
+
+    hoje = regua.agora_manaus().date()
+    ini, fim = janela_26a25(hoje.month, hoje.year)
+    return {
+        "title": "Ponto do colaborador (período, fotos, aprovação e impressão numa tela)",
+        "sub": (
+            "Escolha a pessoa e as DUAS datas — a janela do DP é 26→25, não o mês civil, e aqui "
+            "qualquer recorte é aceito. A grade traz cada TRECHO do dia (um plantão 19:00→02:00 + "
+            "03:00→07:17 são duas linhas, como no Sólides), a SELFIE ao lado de cada hora, o local "
+            "de cada ponta, o rodapé do dia (trabalhadas · intervalos · previsto · saldo) e os "
+            "botões de aprovar/reprovar, registrar batida e imprimir — sem trocar de aba. "
+            "Fonte: `time_sheets`, a MESMA do PDF assinado; nenhuma hora é estimada aqui."
+        ),
+        "cta": "Consultar",
+        "type": "form",
+        "submit": {
+            "endpoint": "/api/v1/redesign/action/ponto-do-colaborador",
+            "okMsg": "Período consultado.",
+            "showResult": True,
+        },
+        "fields": [
+            {
+                "key": "employee_id",
+                "label": "Colaborador*",
+                "type": "select",
+                "span": "span 2",
+                "ph": "Selecione a pessoa",
+                "options": op["colaborador"],
+            },
+            # `value` já preenchido com a janela 26→25 CORRENTE: ela abre a aba e clica Consultar.
+            # É a janela dela, não um mês civil — e continua editável, que é o pedido original.
+            {"key": "de", "label": "Data de início*", "type": "date", "span": "span 1", "value": ini.isoformat()},
+            {"key": "ate", "label": "Data final*", "type": "date", "span": "span 1", "value": fim.isoformat()},
+        ],
+    }
+
+
+#: Status de batida → (rótulo, cor). O check verde é SÓ `approved`: `normal`/`pending` é
+#: aguardando conferência, e `pendente_de_conferencia` é o SERVIDOR reconferindo o rosto — não
+#: é decisão do DP e não pode parecer aprovado.
+_ST_BATIDA = {
+    "approved": ("✓ Aprovado", "ok"),
+    "rejected": ("Reprovado", "bad"),
+    "pendente_de_conferencia": ("Rosto em reconferência", "info"),
+    "rejeitado": ("Reprovado", "bad"),
+}
+_FALTA_LBL = {
+    "entrada": "Entrada",
+    "saida": "Saída",
+    "saida_almoco": "Saída para o intervalo",
+    "retorno_almoco": "Retorno do intervalo",
+}
+
+
+def _hm(min_: int | float | None) -> str:
+    if min_ is None:
+        return "—"
+    v = int(round(min_))
+    s = "-" if v < 0 else ""
+    v = abs(v)
+    return f"{s}{v // 60:02d}:{v % 60:02d}"
+
+
+def _dados_das_batidas(s, ids: list[str]) -> dict[str, dict]:
+    """`{punch_id: {foto, posto, geo, status, origem, dia_civil}}` para os ids que a grade cita.
+
+    UMA consulta para o período todo, não uma por linha. `string_to_array` porque `punch_id` é
+    TEXTO aqui (há ids `tang-4199235-…-entrada` ao lado de UUIDs) e a lista viaja como um
+    parâmetro só — nenhum id desta casa tem vírgula.
+    """
+    if not ids:
+        return {}
+    rows = s.execute(
+        text(
+            "SELECT punch_id, coalesce(foto_capturada_url,'') <> '' AS tem_foto, "
+            "       coalesce(posto_nome,''), dentro_geofence, coalesce(status::text,''), "
+            "       coalesce(device_type,''), to_char(punch_timestamp,'YYYY-MM-DD') "
+            "  FROM gp_clock_punches "
+            " WHERE punch_id = ANY(string_to_array(CAST(:ids AS text), ','))"
+        ),
+        {"ids": ",".join(ids)},
+    ).all()
+    return {
+        r[0]: {"foto": bool(r[1]), "posto": r[2], "geo": r[3], "status": r[4], "origem": r[5], "dia_civil": r[6]}
+        for r in rows
+    }
+
+
+def _celula_hora(hora: str | None, pid: str | None, info: dict, nome: str, dia: str, lado: str) -> list[dict]:
+    """[célula da hora, célula da foto] — a câmera COLADA na hora, como no Sólides.
+
+    A foto só é endereçável por `punch_id` (`/ponto/batida/{punch_id}/foto`), e o segmento não
+    devolvia id nenhum: por isso `espelho_service._segmentos` passou a acrescentar
+    `entrada_punch_id`/`saida_punch_id`. Casar por HORA seria errado — NAILSON tem 3 batidas
+    «entrada» no mesmo segundo (08:01:36,6/,75/,80 em 08/09/2026).
+
+    Sem foto guardada a célula é «—» e NÃO um chip quebrado: a selfie só passou a ser guardada
+    em 14/09/2026, então a maior parte do histórico não tem — e um ícone que nunca carrega
+    ensina a ignorar o ícone.
+    """
+    if not hora:
+        return [t("—", 400, "#94A3B8"), t("", 400)]
+    manual = (info or {}).get("origem") in ("ajuste_dp", "manual", "contingencia")
+    cel = t(hora, 600 if not manual else 500, "#0F1B3A" if not manual else "#B45309")
+    if not (pid and (info or {}).get("foto")):
+        return [cel, t("—", 400, "#CBD5E1")]
+    return [
+        cel,
+        {
+            "isFoto": True,
+            "v": f"/api/v1/people-management/ponto/batida/{pid}/foto",
+            "alt": f"{nome} — {dia} {hora} ({lado})",
+        },
+    ]
+
+
+def _local(info: dict | None) -> dict:
+    """Local da ponta: o posto que a batida gravou, e se ela caiu FORA do geofence."""
+    if not info:
+        return t("—", 400, "#94A3B8")
+    posto = info.get("posto") or "(sem posto)"
+    if info.get("geo") is False:
+        return b(f"{posto} · fora do local", "warn")
+    return t(posto, 500)
+
+
+def _status_do_conjunto(infos: list[dict], tem_id: bool = True) -> dict:
+    """Badge do trecho/dia a partir do status das batidas que o compõem.
+
+    Verde SÓ quando TODAS estão `approved` — «2 de 4 aprovadas» é meio caminho e tem de aparecer
+    como meio caminho. É aqui que mora o turno noturno: o plantão fecha em DOIS dias civis, e
+    aprovar só o primeiro deixava o dia metade aprovado com cara de aprovado.
+
+    `tem_id=False` = o segmento gravado não diz de qual batida ele veio (safra de espelho
+    anterior ao acréscimo de `entrada_punch_id`). Aí o status é DESCONHECIDO, e dizer «sem
+    batida» numa linha que mostra 19:00→02:00 seria afirmar o contrário do que a própria linha
+    mostra — converter «não me informa» em «não existe». Declara a ignorância.
+    """
+    if not tem_id:
+        return b("recalcule o espelho", "info")
+    if not infos:
+        return b("sem batida", "mut")
+    st = [(i.get("status") or "").lower() for i in infos]
+    if all(x == "approved" for x in st):
+        return b("✓ Aprovado", "ok")
+    if any(x in ("rejected", "rejeitado") for x in st):
+        return b("Reprovado", "bad")
+    n_ok = sum(1 for x in st if x == "approved")
+    if n_ok:
+        return b(f"{n_ok} de {len(st)} aprovadas", "warn")
+    if all(x == "pendente_de_conferencia" for x in st):
+        return b("Rosto em reconferência", "info")
+    return b("Aguardando conferência", "warn")
+
+
+def _acoes_do_dia(eid: str, nome: str, dia_iso: str, dia_br: str, dias_civis: list[str], pend: int) -> list[dict]:
+    """Aprovar/Reprovar o PLANTÃO (todos os dias civis que ele toca) + Registrar batida.
+
+    ⚠️ Aqui está a diferença que justifica a aba: as telas antigas decidem UM dia civil por
+    clique (`POST .../time-records/dia/decidir?dia=`). Num 12x36 noturno o plantão de 27/07
+    começa 19:00 de 27/07 e termina 07:17 de 28/07 — dois dias civis. Clicar «Aprovar dia 27/07»
+    deixava metade das batidas do MESMO plantão pendentes, com a tela dizendo «aprovado».
+    `dias_civis` sai dos `punch_timestamp` das batidas DESTE plantão (derivado da fonte, nunca
+    do calendário), e a ação percorre os dois chamando a MESMA rota de sempre.
+    """
+    dias = ",".join(dias_civis)
+    quais = " e ".join(f"{d[8:10]}/{d[5:7]}" for d in dias_civis) or dia_br
+
+    def _dec(dec: str, lbl: str, estilo: str, pergunta: str) -> dict:
+        return {
+            "title": f"{lbl} o plantão de {dia_br} — {nome}",
+            "sub": (
+                f"{pend} batida(s) aguardando neste plantão. O plantão toca o(s) dia(s) civil(is) "
+                f"{quais} e a decisão vale para TODAS as batidas dele — é isto que as telas antigas "
+                "não faziam: elas decidiam um dia civil por clique e o turno noturno ficava metade "
+                "aprovado. O horário não muda e a folha não muda: aprovação é trilha e estado."
+            ),
+            "endpoint": (
+                f"/api/v1/redesign/action/ponto-plantao-decidir"
+                f"?employee_id={eid}&dias={dias}&decisao={dec}"
+            ),
+            "method": "POST",
+            "btnLabel": lbl,
+            "submitLabel": f"{lbl} o plantão de {dia_br}",
+            "btnStyle": estilo,
+            "okMsg": f"Plantão {lbl.lower()}. Clique em Consultar para ver o novo status.",
+            "fields": [
+                {
+                    "key": "observacao",
+                    "label": pergunta,
+                    "type": "textarea",
+                    "span": "span 2",
+                    "max": 200,
+                    "ph": "Fica no histórico de cada batida, com seu nome e a data.",
+                },
+            ],
+        }
+
+    acoes = []
+    if pend:
+        acoes.append(_dec("approved", "Aprovar plantão", "primary", "Observação (opcional, máx. 200)"))
+    acoes.append(_dec("rejected", "Reprovar plantão", "danger", "Por que está reprovando?* (vai para o histórico)"))
+    return acoes
+
+
+def _acao_registrar(eid: str, nome: str, dia_iso: str, dia_br: str, falta: str | None) -> dict:
+    """«Registrar ponto em atraso»: INSERE a batida que não aconteceu, com motivo auditado.
+
+    Reusa `POST /people-management/ponto/ajuste` (a aba «Ajustar batida»), que INSERE uma batida
+    `device_type='ajuste_dp'` — não edita a hora de uma batida existente, e é assim de propósito:
+    hora é registro de fato da Portaria 671. Por isso o botão aqui diz REGISTRAR, e não «editar».
+
+    A hora vem VAZIA com exemplo no placeholder. É a única coisa que o sistema não sabe: quando
+    o segmento está incompleto, o que falta é justamente a marcação — preencher com um palpite
+    («00:00»? «a hora do par»?) seria inventar registro de ponto.
+    """
+    tipos = [
+        {"value": v, "label": l}
+        for v, l in (
+            ("entrada", "Entrada"),
+            ("saida_almoco", "Saída para o intervalo"),
+            ("retorno_almoco", "Retorno do intervalo"),
+            ("saida", "Saída"),
+        )
+    ]
+    if falta in _FALTA_LBL:
+        tipos = [o for o in tipos if o["value"] == falta] + [o for o in tipos if o["value"] != falta]
+    return {
+        "title": f"Registrar batida de {nome} — {dia_br}",
+        "sub": (
+            (f"O motor diz que falta a marcação «{_FALTA_LBL.get(falta, falta)}» neste plantão. " if falta else "")
+            + "Isto INSERE uma batida marcada como ajuste do DP (origem `ajuste_dp`), com o motivo "
+            "na auditoria. Não apaga nem reescreve batida nenhuma, e competência FECHADA recusa. "
+            "Depois de registrar, recalcule o espelho na aba «Espelho: calcular/fechar» para a "
+            "hora entrar na conta."
+        ),
+        "endpoint": "/api/v1/people-management/ponto/ajuste",
+        "method": "POST",
+        "btnLabel": "Registrar batida",
+        "submitLabel": "Registrar a batida",
+        "btnStyle": "outline",
+        "okMsg": "Batida registrada. Recalcule o espelho para a hora entrar na conta.",
+        # `fixed` e NÃO campo `type:"hidden"`: medido no renderizador em 28/09/2026 — o modal de
+        # ação por linha (`ModuleView.tsx`, bloco `editRow`) NÃO filtra `hidden` como o FormScreen
+        # filtra. Um campo hidden ali viraria uma caixa de texto SEM rótulo com um UUID dentro,
+        # editável — quem fosse registrar a batida veria uma caixa estranha e poderia trocar a
+        # pessoa. `editRow.fixed` já é mesclado no corpo do POST e não desenha nada.
+        "fixed": {"employee_id": eid, "ajustado_por": "DP"},
+        "fields": [
+            {"key": "data", "label": "Dia do plantão*", "type": "date", "span": "span 1", "value": dia_iso},
+            {"key": "punch_type", "label": "Qual marcação*", "type": "select", "span": "span 1", "options": tipos},
+            {
+                "key": "timestamp",
+                "label": "Hora REAL da batida* (AAAA-MM-DDTHH:MM)",
+                "type": "text",
+                "span": "span 2",
+                "ph": f"{dia_iso}T03:00 — digite a hora real; o sistema não a adivinha",
+            },
+            {
+                "key": "motivo",
+                "label": "Por que está registrando?* (mín. 5 caracteres, vai para a auditoria)",
+                "type": "textarea",
+                "span": "span 2",
+            },
+        ],
+    }
+
+
+_PC_COLS = [
+    "Dia",
+    "Trecho",
+    "Entrada",
+    "📷",
+    "Saída",
+    "📷",
+    "Horas",
+    "Local da entrada",
+    "Local da saída",
+    "Status",
+    "Observação",
+]
+_PC_GRID = "0.8fr 0.85fr 0.55fr 0.35fr 0.55fr 0.35fr 0.55fr 1.2fr 1.2fr 1fr 1.6fr"
+
+
+def _grade_ponto_colaborador(eid: str, ini: date, fim: date) -> tuple[dict, dict]:
+    """(espelho do período, tela `table` da grade). SÍNCRONA: o motor legal é sync.
+
+    Uma linha por TRECHO do dia, o rodapé do dia como linha própria e o total do período no fim.
+    Não há agrupamento de linha no renderizador desta casa (medido: `ModuleView.tsx` desenha
+    `rows` numa grade CSS chapada, sem subtotal de grupo) — então o «grupo» é a coluna Dia
+    repetida e o rodapé é uma linha. Zero tipo de tela novo por causa disto.
+    """
+    from core.database.session import SyncSessionLocal
+    from modules.people_management.ponto.controllers.punch_controller import get_espelho_mensal
+
+    with SyncSessionLocal() as s:
+        esp = get_espelho_mensal(eid, de=ini.isoformat(), ate=fim.isoformat(), db=s)
+        dias = esp.get("dias") or []
+        ids = [
+            pid
+            for d in dias
+            for seg in (d.get("segmentos") or [])
+            for pid in (seg.get("entrada_punch_id"), seg.get("saida_punch_id"))
+            if pid
+        ]
+        info = _dados_das_batidas(s, ids)
+
+    nome = esp.get("employee_name") or "colaborador"
+    rows: list[dict] = []
+    pend_total = sem_foto = com_foto = 0
+    for d in dias:
+        dia_iso, dia_br = str(d.get("data") or ""), f"{d.get('dia') or '—'} · {d.get('dia_semana') or ''}".strip(" ·")
+        segs = [x for x in (d.get("segmentos") or []) if isinstance(x, dict)]
+        infos_dia: list[dict] = []
+        civis: list[str] = []
+        for n, seg in enumerate(segs, 1):
+            pe, ps = seg.get("entrada_punch_id"), seg.get("saida_punch_id")
+            ie, is_ = info.get(pe or ""), info.get(ps or "")
+            for i in (ie, is_):
+                if i:
+                    infos_dia.append(i)
+                    if i.get("dia_civil") and i["dia_civil"] not in civis:
+                        civis.append(i["dia_civil"])
+                    com_foto += 1 if i.get("foto") else 0
+                    sem_foto += 0 if i.get("foto") else 1
+            obs = []
+            if seg.get("incompleto"):
+                falta = seg.get("falta")
+                obs.append(
+                    f"falta marcar: {_FALTA_LBL.get(falta, falta or 'a outra ponta')}"
+                    + (" (turno em andamento)" if seg.get("em_curso") else "")
+                )
+            if seg.get("entrada_manual") or seg.get("saida_manual"):
+                obs.append("hora lançada pelo DP")
+            # Sem id de batida não há como buscar a foto, o local nem o status: o espelho gravado
+            # é de uma safra anterior ao acréscimo. A linha diz isso em vez de mostrar «—» em três
+            # colunas e deixar parecer que a informação não existe no sistema.
+            tem_id = bool(pe or ps)
+            if not tem_id and not seg.get("incompleto"):
+                obs.append("espelho sem id de batida — recalcule para ver foto, local e status")
+            rows.append(
+                {
+                    "cells": [
+                        t(dia_br, 600, "#0F1B3A"),
+                        t(f"{n}º trecho" if len(segs) > 1 else "Jornada", 500),
+                        *_celula_hora(seg.get("entrada"), pe, ie or {}, nome, dia_br, "entrada"),
+                        *_celula_hora(seg.get("saida"), ps, is_ or {}, nome, dia_br, "saída"),
+                        t(_hm(seg.get("minutos")) if not seg.get("incompleto") else "—", 600),
+                        _local(ie),
+                        _local(is_),
+                        _status_do_conjunto([x for x in (ie, is_) if x], tem_id),
+                        t(" · ".join(obs) or "", 400, "#B45309" if obs else "#334155"),
+                    ],
+                    # Ação na linha do TRECHO: só o que é do trecho — registrar a marca que falta.
+                    "actions": (
+                        [_acao_registrar(esp["employee_id"], nome, dia_iso, dia_br, seg.get("falta"))]
+                        if seg.get("incompleto")
+                        else []
+                    ),
+                }
+            )
+        if not segs:
+            rows.append(
+                {
+                    "cells": [
+                        t(dia_br, 600, "#0F1B3A"),
+                        t("Sem batida", 500, "#B45309"),
+                        *([t("—", 400, "#94A3B8"), t("", 400)] * 2),
+                        t("—"),
+                        t("—", 400, "#94A3B8"),
+                        t("—", 400, "#94A3B8"),
+                        b("sem batida", "mut"),
+                        t(d.get("obs") or "nenhuma marcação neste dia", 400, "#B45309"),
+                    ],
+                    "actions": [_acao_registrar(esp["employee_id"], nome, dia_iso, dia_br, None)],
+                }
+            )
+        pend = sum(1 for i in infos_dia if (i.get("status") or "").lower() not in ("approved", "rejected", "rejeitado"))
+        pend_total += pend
+        saldo = d.get("saldo_min")
+        rows.append(
+            {
+                "cells": [
+                    t(dia_br, 600, "#0F1B3A"),
+                    t("Total do dia", 700, "#0F1B3A"),
+                    t("", 400),
+                    t("", 400),
+                    t("", 400),
+                    t("", 400),
+                    t(d.get("total") or "—", 700, "#0F1B3A"),
+                    # Rodapé do dia nas colunas de local, ROTULADO dentro da célula: as quatro
+                    # somas do Sólides (trabalhadas · intervalos · previsto · saldo) sem inventar
+                    # quatro colunas que ficariam vazias em toda linha de trecho.
+                    t(f"Intervalos {d.get('intervalo') or '00:00'}", 600),
+                    t(f"Previsto {d.get('previsto') or '—'}", 600),
+                    b(
+                        f"Saldo {d.get('saldo_dia') or '—'}",
+                        "mut" if saldo in (0, None) else ("ok" if saldo > 0 else "bad"),
+                    ),
+                    t(d.get("obs") or "", 400, "#B45309" if d.get("obs") else "#334155"),
+                ],
+                "actions": _acoes_do_dia(esp["employee_id"], nome, dia_iso, dia_br, civis or [dia_iso], pend),
+            }
+        )
+
+    # Total do PERÍODO + o «Imprimir» do Sólides. O PDF é o espelho padrão-ouro com `de`/`ate`
+    # (Portaria 671) — a competência da URL é o mês do FIM, a convenção de `janela_26a25`.
+    rows.append(
+        {
+            "cells": [
+                t(f"{ini:%d/%m} a {fim:%d/%m}", 700, "#0F1B3A"),
+                t("TOTAL DO PERÍODO", 700, "#0F1B3A"),
+                t("", 400),
+                t("", 400),
+                t("", 400),
+                t("", 400),
+                t(esp.get("total_trabalhado") or "—", 700, "#0F1B3A"),
+                t(f"{len(dias)} dia(s) apurado(s)", 600),
+                t(f"Previsto {esp.get('horas_esperadas') or '—'}", 600),
+                b(
+                    f"Saldo {esp.get('saldo') or '—'}",
+                    "mut" if not esp.get("saldo_min") else ("ok" if esp["saldo_min"] > 0 else "bad"),
+                ),
+                t(f"{pend_total} batida(s) aguardando conferência no período", 500),
+            ],
+            "docs": [
+                {
+                    "label": f"Folha de ponto {ini:%d/%m/%Y} a {fim:%d/%m/%Y} (PDF)",
+                    "url": (
+                        f"/api/v1/people-management/hr/ponto/espelho/{esp['employee_id']}"
+                        f"/{fim.month}/{fim.year}/pdf?de={ini:%Y-%m-%d}&ate={fim:%Y-%m-%d}"
+                    ),
+                    "fmt": "pdf",
+                    "mode": "blob",
+                    "filename": f"folha_ponto_{ini:%Y%m%d}_{fim:%Y%m%d}.pdf",
+                    "gate": "dp",
+                }
+            ],
+        }
+    )
+
+    sem_esp = esp.get("sem_espelho") or []
+    tabela = {
+        "title": f"{nome} — {ini:%d/%m/%Y} a {fim:%d/%m/%Y}",
+        "sub": (
+            f"{len(dias)} dia(s) apurado(s) pelo motor · {esp.get('total_trabalhado')} trabalhadas de "
+            f"{esp.get('horas_esperadas')} previstas · saldo {esp.get('saldo')} · "
+            f"{pend_total} batida(s) aguardando conferência. "
+            f"Selfie: {com_foto} batida(s) com foto guardada, {sem_foto} sem — a selfie só passou a "
+            "ser guardada em 14/09/2026, então período anterior mostra «—», não um ícone quebrado. "
+            "Posto/escala do operacional são curados à mão e entram aqui só como leitura. "
+            + (
+                f"⚠️ SEM espelho calculado em {', '.join(sem_esp)}: esses dias NÃO aparecem (nada é "
+                "estimado) — calcule na aba «Espelho: calcular/fechar». "
+                if sem_esp
+                else ""
+            )
+            + "«Solicitar assinatura» continua na aba própria: a homologação é do MÊS inteiro e de "
+            "todos os espelhos fechados, não deste período nem desta pessoa."
+        ),
+        "cta": "—",
+        "type": "table",
+        "searchHint": "Buscar no período…",
+        "grid": _PC_GRID,
+        "cols": _PC_COLS,
+        "rows": rows,
+    }
+    return esp, tabela
+
+
+@router.post("/action/ponto-do-colaborador", dependencies=[Depends(_require_dp)])
+async def rd_ponto_do_colaborador(
+    current_user: CurrentActiveUser, payload: dict = Body(...), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """A consulta da aba «Ponto do colaborador» — devolve a GRADE em `tabela`. READ-ONLY."""
+    from starlette.concurrency import run_in_threadpool
+
+    eid = str(payload.get("employee_id") or "").strip()
+    if not eid:
+        raise HTTPException(status_code=400, detail="Escolha o colaborador.")
+    # As duas datas são OBRIGATÓRIAS aqui (o lote aceita vazio = mês civil; esta tela não tem
+    # mês civil nenhum). A checagem de presença vem ANTES de `_periodo_lote` porque a mensagem
+    # dele oferece «deixe as duas vazias para o mês civil», que nesta tela não é uma opção — dar
+    # instrução que a própria rota recusa manda a pessoa tentar duas vezes.
+    if not (str(payload.get("de") or "").strip() and str(payload.get("ate") or "").strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Informe as DUAS datas do período (início e fim) — a janela do DP é 26→25, não o mês civil.",
+        )
+    per = _periodo_lote(payload.get("de"), payload.get("ate"))
+    assert per is not None  # noqa: S101 — garantido pela guarda acima; só para o type-checker
+    esp, tabela = await run_in_threadpool(_grade_ponto_colaborador, eid, per[0], per[1])
+    return {
+        "ok": True,
+        "message": (
+            f"{esp.get('employee_name')}: {len(esp.get('dias') or [])} dia(s) apurado(s) de "
+            f"{per[0]:%d/%m/%Y} a {per[1]:%d/%m/%Y} — {esp.get('total_trabalhado')} trabalhadas, "
+            f"saldo {esp.get('saldo')}."
+        ),
+        "tabela": tabela,
+    }
+
+
+@router.post("/action/ponto-plantao-decidir", dependencies=[Depends(_require_dp)])
+async def rd_ponto_plantao_decidir(
+    current_user: CurrentActiveUser,
+    employee_id: str,
+    dias: str,
+    decisao: str,
+    payload: dict = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Aprova/reprova TODOS os dias civis de um plantão, chamando a rota de sempre em cada um.
+
+    POR QUE existe em vez de a tela mandar N POSTs: o modal do ModuleView faz UMA chamada por
+    clique. E por que não uma regra nova de aprovação: não há — o corpo abaixo chama
+    `decidir_dia_time_records`, a MESMA função que as duas telas antigas usam, uma vez por dia
+    civil. Toda validação (observação ≤ 200, reprovação exige motivo, autor real, trilha em
+    `gp_audit_logs`) mora lá e continua sendo a única.
+
+    Um plantão noturno toca DOIS dias civis (19:00 de 27/07 → 07:17 de 28/07). A lista vem dos
+    `punch_timestamp` das batidas daquele plantão, derivada pelo builder — não do calendário.
+    """
+    from modules.people_management.hr.controllers.time_record_controller import (
+        decidir_dia_time_records,
+    )
+
+    alvos = [x for x in (str(dias or "").split(",")) if x.strip()]
+    if not alvos:
+        raise HTTPException(status_code=400, detail="Nenhum dia civil informado para este plantão.")
+    feito = 0
+    relato: list[str] = []
+    for d in alvos:
+        try:
+            dia = date.fromisoformat(d.strip()[:10])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Dia inválido «{d}» — use AAAA-MM-DD.") from None
+        r = await decidir_dia_time_records(
+            current_user=current_user,
+            employee_id=employee_id,
+            dia=dia,
+            decisao=decisao,
+            payload=payload,
+            db=db,
+        )
+        n = int(r.get("batidas") or 0)
+        feito += n
+        relato.append(f"{dia:%d/%m}: {n} batida(s)")
+    return {
+        "ok": True,
+        "message": (
+            f"{feito} batida(s) do plantão — {decisao}. " + " · ".join(relato)
+            + ". Clique em Consultar para ver o novo status."
+        ),
+    }
